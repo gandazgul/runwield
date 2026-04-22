@@ -5,14 +5,13 @@
  * forces the LLM to output a structured classification result.
  */
 
-import { Type, StringEnum } from "@mariozechner/pi-ai";
+import { StringEnum, Type } from "@mariozechner/pi-ai";
 import { defineTool } from "@mariozechner/pi-coding-agent";
 
 export const triageReportTool = defineTool({
   name: "triage_report",
   label: "Triage Report",
-  description:
-    "Submit your triage classification for the user's request. " +
+  description: "Submit your triage classification for the user's request. " +
     "You MUST call this tool exactly once after exploring the codebase. " +
     "Do not output the classification as freeform text — use this tool.",
   parameters: Type.Object({
@@ -36,7 +35,8 @@ export const triageReportTool = defineTool({
       content: [
         {
           type: "text",
-          text: `Triage complete: ${params.classification} (${params.complexity} complexity). Summary: ${params.summary}`,
+          text:
+            `Triage complete: ${params.classification} (${params.complexity} complexity). Summary: ${params.summary}`,
         },
       ],
       details: params,

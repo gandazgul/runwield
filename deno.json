@@ -13,5 +13,9 @@
   "tasks": {
     "run": "deno run -A src/cli.js",
     "check": "deno check src/cli.js"
-  }
+  },
+  "exclude": [
+    "node_modules",
+    ".idea"
+  ]
 }

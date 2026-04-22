@@ -12,8 +12,8 @@
 
 import {
   createAgentSession,
-  SessionManager,
   DefaultResourceLoader,
+  SessionManager,
 } from "@mariozechner/pi-coding-agent";
 import { triageReportTool } from "./tools/triage-report.js";
 import { extractYaml, test as hasFrontMatter } from "@std/front-matter";
@@ -112,7 +112,7 @@ async function runSession({ agentName, toolNames, customTools, prompt }) {
         break;
       case "tool_execution_end":
         console.log(
-          `  [Tool] ${event.toolName} — ${event.isError ? "error" : "ok"}`
+          `  [Tool] ${event.toolName} — ${event.isError ? "error" : "ok"}`,
         );
         break;
     }
@@ -162,7 +162,7 @@ function extractTriageReport(messages) {
   // Strategy 2: parse from assistant text (fallback for models that
   // write the tool call as prose instead of actually calling it)
   const assistantMsgs = messages.filter(
-    (m) => "role" in m && m.role === "assistant"
+    (m) => "role" in m && m.role === "assistant",
   );
   // Walk backwards to find the last assistant message with text
   for (let i = assistantMsgs.length - 1; i >= 0; i--) {
@@ -193,7 +193,7 @@ function extractTriageReport(messages) {
 function parseTriageFromText(text) {
   // Find classification
   const classMatch = text.match(
-    /classification[:\s]+(?:"?)?(QUICK_FIX|FEATURE|PROJECT)(?:"?)?/i
+    /classification[:\s]+(?:"?)?(QUICK_FIX|FEATURE|PROJECT)(?:"?)?/i,
   );
   if (!classMatch) return null;
   const classification = classMatch[1].toUpperCase();
@@ -201,23 +201,21 @@ function parseTriageFromText(text) {
 
   // Find complexity (default to MEDIUM if not found)
   const complexMatch = text.match(
-    /complexity[:\s]+(?:"?)?(LOW|MEDIUM|HIGH)(?:"?)?/i
+    /complexity[:\s]+(?:"?)?(LOW|MEDIUM|HIGH)(?:"?)?/i,
   );
-  const complexity = complexMatch
-    ? complexMatch[1].toUpperCase()
-    : "MEDIUM";
+  const complexity = complexMatch ? complexMatch[1].toUpperCase() : "MEDIUM";
   if (!COMPLEXITIES.includes(complexity)) return null;
 
   // Find summary — try quoted string first, then unquoted line
   let summary = "";
   const summaryQuoted = text.match(
-    /summary[:\s]+"([^"]+)"/s
+    /summary[:\s]+"([^"]+)"/s,
   );
   if (summaryQuoted) {
     summary = summaryQuoted[1];
   } else {
     const summaryUnquoted = text.match(
-      /summary[:\s]+(.+)/i
+      /summary[:\s]+(.+)/i,
     );
     if (summaryUnquoted) summary = summaryUnquoted[1].trim();
   }
@@ -226,7 +224,7 @@ function parseTriageFromText(text) {
   /** @type {string[]} */
   let affectedPaths = [];
   const jsonPaths = text.match(
-    /affectedPaths[:\s]+(\[[^\]]*])/s
+    /affectedPaths[:\s]+(\[[^\]]*])/s,
   );
   if (jsonPaths) {
     try {
@@ -239,11 +237,11 @@ function parseTriageFromText(text) {
   if (affectedPaths.length === 0) {
     // Try YAML-style: lines starting with "  - " after affectedPaths
     const yamlBlock = text.match(
-      /affectedPaths[:\s]*\n((?:\s+-\s+.+\n?)*)/
+      /affectedPaths[:\s]*\n((?:\s+-\s+.+\n?)*)/,
     );
     if (yamlBlock) {
       affectedPaths = [...yamlBlock[1].matchAll(/-\s+(.+)/g)].map(
-        (m) => m[1].trim()
+        (m) => m[1].trim(),
       );
     }
   }
@@ -277,7 +275,7 @@ async function main() {
 
   if (!triage) {
     console.error(
-      "\n[Harness] ERROR: Router did not produce a triage report."
+      "\n[Harness] ERROR: Router did not produce a triage report.",
     );
     Deno.exit(1);
   }
@@ -285,14 +283,14 @@ async function main() {
   console.log(
     `\n[Router] Classification: ${triage.classification}, ` +
       `Complexity: ${triage.complexity}. ` +
-      `Summary: ${triage.summary}`
+      `Summary: ${triage.summary}`,
   );
 
   // ── Phase B: Decision ────────────────────────────────────────────
   if (triage.classification === "QUICK_FIX") {
     // ── Phase B1: Operator (Execute) ──────────────────────────────
     console.log(
-      `\n[Harness] QUICK_FIX detected. Handing off to Operator...\n`
+      `\n[Harness] QUICK_FIX detected. Handing off to Operator...\n`,
     );
     console.log("[Harness] === Phase B1: Operator (Execute) ===\n");
 
@@ -316,7 +314,7 @@ async function main() {
     });
 
     console.log(
-      "\n[Harness] ✅ Operator session complete."
+      "\n[Harness] ✅ Operator session complete.",
     );
     Deno.exit(0);
   }
@@ -324,7 +322,7 @@ async function main() {
   // ── Phase C: Architect ───────────────────────────────────────────
   console.log(
     `\n[Harness] ${triage.classification} detected. ` +
-      `Handing off to Architect...\n`
+      `Handing off to Architect...\n`,
   );
   console.log("[Harness] === Phase C: Architect (Plan) ===\n");
 
@@ -348,7 +346,7 @@ async function main() {
   });
 
   console.log(
-    "\n[Harness] ✅ Architect session complete. Check PLAN.md in the project root."
+    "\n[Harness] ✅ Architect session complete. Check PLAN.md in the project root.",
   );
 }
 
