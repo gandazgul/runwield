@@ -78,9 +78,11 @@ All agent prompts live in [`.pi/agents/`](.pi/agents/).
 - Plan review integration:
   - `@gandazgul/plannotator-pi-extension-compiled`
 
-> Current repo maps the compiled Plannotator package locally in `deno.json`:
+> Current repo maps the compiled Plannotator package locally in `deno.json` from a sibling directory:
 >
-> `"@gandazgul/plannotator-pi-extension-compiled": "npm:./plannotator-pi-extension-compiled"`
+> `"@gandazgul/plannotator-pi-extension-compiled": "../plannotator-pi-extension-compiled/dist/index.mjs"`
+>
+> `"@gandazgul/plannotator-pi-extension-compiled/server": "../plannotator-pi-extension-compiled/dist/server.mjs"`
 
 ---
 
@@ -195,7 +197,7 @@ Harness updates these statuses during the review loop and resume flow.
 
 - Confirm `src/tools/submit-plan.js` can resolve
   `@gandazgul/plannotator-pi-extension-compiled/server`.
-- If using local mapping, ensure `plannotator-pi-extension-compiled/` exists and is built.
+- If using local mapping, ensure sibling folder `../plannotator-pi-extension-compiled/` exists and is built.
 - Verify the package contains `plannotator.html` and `review-editor.html`.
 
 ### Resume can’t find your plan

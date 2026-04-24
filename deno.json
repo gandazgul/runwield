@@ -9,8 +9,8 @@
     "@mariozechner/pi-agent-core": "npm:@mariozechner/pi-agent-core@^0.68.1",
     "@std/front-matter": "jsr:@std/front-matter@^1.0.0",
     "@std/path": "jsr:@std/path@^1.0.0",
-    "@gandazgul/plannotator-pi-extension-compiled": "./plannotator-pi-extension-compiled/dist/index.mjs",
-    "@gandazgul/plannotator-pi-extension-compiled/server": "./plannotator-pi-extension-compiled/dist/server.mjs",
+    "@gandazgul/plannotator-pi-extension-compiled": "../plannotator-pi-extension-compiled/dist/index.mjs",
+    "@gandazgul/plannotator-pi-extension-compiled/server": "../plannotator-pi-extension-compiled/dist/server.mjs",
     "turndown": "npm:turndown@^7.2.4",
     "@joplin/turndown-plugin-gfm": "npm:@joplin/turndown-plugin-gfm@^1.0.64"
   },
