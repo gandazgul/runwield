@@ -110,18 +110,33 @@ Harness expects `.pi/agents/*.md` files (already present in this repo).
 
 ## Usage
 
-### Run a new request
+### Run a new request (default router command)
 
 ```bash
 deno run -A src/cli.js "your request here"
+```
+
+Equivalent explicit form:
+
+```bash
+deno run -A src/cli.js router "your request here"
 ```
 
 Examples:
 
 ```bash
 deno run -A src/cli.js "fix typo in README"
-deno run -A src/cli.js "add JWT auth to API"
+deno run -A src/cli.js router "add JWT auth to API"
 deno run -A src/cli.js "refactor data layer and add migration plan"
+```
+
+### Show help
+
+```bash
+deno run -A src/cli.js --help
+deno run -A src/cli.js help
+deno run -A src/cli.js help resume
+deno run -A src/cli.js resume --help
 ```
 
 ### Resume a saved plan
@@ -180,7 +195,15 @@ Harness updates these statuses during the review loop and resume flow.
 ├── .pi/agents/              # Agent prompt definitions
 ├── plans/                   # Generated/saved plan files
 ├── src/
-│   ├── cli.js               # Main orchestration entrypoint
+│   ├── cli.js               # CLI entrypoint + command dispatch
+│   ├── constants.js         # Shared CLI/runtime constants
+│   ├── cmd/
+│   │   ├── registry.js      # Command registry
+│   │   ├── _shared/         # Shared command/workflow helpers
+│   │   ├── help/            # Global/per-command help command
+│   │   ├── plans/           # List plans command
+│   │   ├── resume/          # Resume command
+│   │   └── router/          # Default request routing command
 │   ├── plan-store.js        # Plan persistence/front matter utilities
 │   └── tools/
 │       ├── triage-report.js # Router structured triage tool

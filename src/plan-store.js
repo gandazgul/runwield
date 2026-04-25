@@ -10,10 +10,7 @@
 
 import { extractYaml, test as hasFrontMatter } from "@std/front-matter";
 import { join, basename, resolve } from "@std/path";
-
-// ─── Constants ────────────────────────────────────────────────────────
-
-const PLANS_DIR_NAME = "plans";
+import { PLANS_DIR_NAME } from "./constants.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────
 
