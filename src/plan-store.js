@@ -49,11 +49,11 @@ export async function ensurePlansDir(cwd) {
  * @property {string} createdAt - ISO timestamp
  * @property {string} [updatedAt] - ISO timestamp (set on revision)
  * @property {string} status - draft | in_review | approved | denied
- * @property {string} [origin] - Where the plan came from (harness, external, etc.)
+ * @property {string} [origin] - Where the plan came from (internal, external)
  */
 
 /**
- * Default front matter for external plans that lack it.
+ * Default front matter for plans.
  * @type {PlanFrontMatter}
  */
 const DEFAULT_FRONT_MATTER = {
@@ -63,7 +63,7 @@ const DEFAULT_FRONT_MATTER = {
   affectedPaths: [],
   createdAt: new Date().toISOString(),
   status: "draft",
-  origin: "external",
+  origin: "internal",
 };
 
 /**
@@ -126,7 +126,7 @@ export function injectFrontMatter(markdown, overrides = {}) {
       new Date().toISOString(),
     status: overrides.status || existingFm.status ||
       DEFAULT_FRONT_MATTER.status,
-    origin: overrides.origin || existingFm.origin || "harness",
+    origin: overrides.origin || existingFm.origin || "internal",
   };
 
   return formatFrontMatter(fm) + "\n" + body.trimStart();
@@ -136,12 +136,19 @@ export function injectFrontMatter(markdown, overrides = {}) {
  * Parse front matter from a plan file. Returns defaults if missing.
  *
  * @param {string} markdown
+ * @param {{ missingOrigin?: string }} [opts]
  * @returns {{ attrs: PlanFrontMatter, body: string }}
  */
-export function parsePlanFrontMatter(markdown) {
+export function parsePlanFrontMatter(markdown, opts = {}) {
+  const missingOrigin = opts.missingOrigin || DEFAULT_FRONT_MATTER.origin;
+
   if (!hasFrontMatter(markdown)) {
     return {
-      attrs: { ...DEFAULT_FRONT_MATTER, createdAt: new Date().toISOString() },
+      attrs: {
+        ...DEFAULT_FRONT_MATTER,
+        createdAt: new Date().toISOString(),
+        origin: missingOrigin,
+      },
       body: markdown,
     };
   }
@@ -156,7 +163,7 @@ export function parsePlanFrontMatter(markdown) {
       createdAt: attrs.createdAt || DEFAULT_FRONT_MATTER.createdAt,
       updatedAt: attrs.updatedAt,
       status: attrs.status || DEFAULT_FRONT_MATTER.status,
-      origin: attrs.origin || DEFAULT_FRONT_MATTER.origin,
+      origin: attrs.origin || missingOrigin,
     },
     body,
   };
@@ -207,7 +214,9 @@ export async function loadPlan(cwd, planName) {
  */
 export async function loadExternalPlan(absolutePath) {
   const markdown = await Deno.readTextFile(absolutePath);
-  const { attrs, body } = parsePlanFrontMatter(markdown);
+  const { attrs, body } = parsePlanFrontMatter(markdown, {
+    missingOrigin: "external",
+  });
   // If front matter was missing, rewrite with defaults injected
   if (!hasFrontMatter(markdown)) {
     const withFm = injectFrontMatter(markdown, { origin: "external" });
