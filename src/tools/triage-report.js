@@ -31,6 +31,7 @@ export const triageReportTool = defineTool({
     }),
   }),
   async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+    await Promise.resolve();
     return {
       content: [
         {

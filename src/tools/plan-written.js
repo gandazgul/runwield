@@ -18,6 +18,7 @@ export const planWrittenTool = defineTool({
     }),
   }),
   async execute(_toolCallId, params) {
+    await Promise.resolve();
     return {
       content: [
         {

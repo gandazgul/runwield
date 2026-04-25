@@ -110,19 +110,18 @@ export async function runSession(
 
   session.subscribe((event) => {
     switch (event.type) {
-      case "message_update":
+      case "message_update": {
         if (event.assistantMessageEvent.type === "text_delta") {
-          process.stdout.write(event.assistantMessageEvent.delta);
+          Deno.stdout.writeSync(
+            new TextEncoder().encode(event.assistantMessageEvent.delta),
+          );
         }
         break;
-      case "tool_execution_start":
+      }
+      case "tool_execution_start": {
         const filePath = getFilePathForTool(event.toolName, event.args);
         if (filePath) {
-          console.log(
-            `\n  [Tool] ${event.toolName}\n  📄 ${filePath}${
-              event.toolName === "bash" ? "" : ""
-            }`,
-          );
+          console.log(`\n  [Tool] ${event.toolName}\n  📄 ${filePath}`);
         } else {
           console.log(`\n  [Tool] ${event.toolName}`);
         }
@@ -130,11 +129,13 @@ export async function runSession(
           console.log(`    Command: ${event.args?.command || "N/A"}`);
         }
         break;
-      case "tool_execution_end":
+      }
+      case "tool_execution_end": {
         console.log(
           `  [Tool] ${event.toolName} — ${event.isError ? "error" : "ok"}`,
         );
         break;
+      }
     }
   });
 
@@ -157,8 +158,14 @@ function getFilePathForTool(toolName, args) {
   switch (toolName) {
     case "read":
     case "edit":
-    case "write":
-      return args.path || args.file_path || null;
+    case "write": {
+      const path = typeof args.path === "string"
+        ? args.path
+        : typeof args.file_path === "string"
+        ? args.file_path
+        : null;
+      return path;
+    }
     default:
       return null;
   }

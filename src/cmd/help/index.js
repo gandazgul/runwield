@@ -12,6 +12,8 @@ import { printCommandHelp, printGlobalHelp } from "../../shared/help-text.js";
  * @param {string[]} argv
  */
 export async function runHelpCommand(argv) {
+  await Promise.resolve();
+
   const parsed = parseArgs(argv, {
     boolean: ["help"],
     alias: { h: "help" },

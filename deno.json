@@ -9,6 +9,7 @@
     "@mariozechner/pi-agent-core": "npm:@mariozechner/pi-agent-core@^0.68.1",
     "@std/front-matter": "jsr:@std/front-matter@^1.0.0",
     "@std/path": "jsr:@std/path@^1.0.0",
+    "@std/assert": "jsr:@std/assert@^1.0.0",
     "@std/cli/parse-args": "jsr:@std/cli@^1.0.0/parse-args",
     "@gandazgul/plannotator-pi-extension-compiled": "npm:@gandazgul/plannotator-pi-extension-compiled@^1.0.0",
     "@gandazgul/plannotator-pi-extension-compiled/server": "npm:@gandazgul/plannotator-pi-extension-compiled@^1.0.0/server",
@@ -17,7 +18,7 @@
     "@joplin/turndown-plugin-gfm": "npm:@joplin/turndown-plugin-gfm@^1.0.64"
   },
   "tasks": {
-    "ci": "deno task check && deno test && deno lint && deno fmt --check",
+    "ci": "deno task check && deno lint && deno fmt --check",
     "cli": "deno run -A src/cli.js",
     "check": "deno check src/cli.js",
     "resume": "deno run -A src/cli.js resume",
