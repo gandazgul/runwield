@@ -11,6 +11,7 @@ import {
 import { extractYaml, test as hasFrontMatter } from "@std/front-matter";
 import { join } from "@std/path";
 import { AGENTS_DIR, CORE_SYSTEM_PROMPT, CWD } from "../constants.js";
+import mnemosyneExtension from "../extensions/mnemosyne/index.js";
 
 const PROJECT_AGENTS_DIR = join(CWD, ".pi", "agents");
 
@@ -97,16 +98,31 @@ export async function runSession(
     cwd: CWD,
     agentDir,
     systemPromptOverride: () => agentDef.systemPrompt,
+    extensionFactories: [mnemosyneExtension],
   });
   await loader.reload();
 
-  const { session } = await createAgentSession({
+  const { session, extensionsResult } = await createAgentSession({
     cwd: CWD,
     tools: [...toolNames, ...(customTools || []).map((t) => t.name)],
     customTools: customTools || [],
     resourceLoader: loader,
     sessionManager: SessionManager.inMemory(),
   });
+
+  if (extensionsResult?.errors?.length) {
+    for (const err of extensionsResult.errors) {
+      console.warn(`[Harness] Extension warning (${err.path}): ${err.error}`);
+      if (String(err.error).toLowerCase().includes("mnemosyne")) {
+        console.warn(
+          "[Harness] Memory extension issue detected. Install mnemosyne: https://github.com/gandazgul/mnemosyne#quick-start",
+        );
+      }
+    }
+  }
+
+  // Ensure extension lifecycle hooks (e.g. session_start) are activated.
+  await session.bindExtensions({});
 
   session.subscribe((event) => {
     switch (event.type) {

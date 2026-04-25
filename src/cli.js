@@ -7,6 +7,7 @@
  *   har router "<user request>"
  *   har resume <plan-name-or-path>
  *   har plans
+ *   har sleep
  *   har --help
  *
  * Source-run fallback for contributors:

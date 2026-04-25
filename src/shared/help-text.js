@@ -10,6 +10,8 @@ const COMMAND_SUMMARIES = {
     "Route a request through triage and execution/planning flow (default command).",
   [COMMAND_NAMES.RESUME]: "Resume work from a saved plan by name or file path.",
   [COMMAND_NAMES.PLANS]: "List saved plans.",
+  [COMMAND_NAMES.SLEEP]:
+    "Run memory optimization/cleanup session using Mnemosyne.",
   [COMMAND_NAMES.HELP]: "Show global help or help for a specific command.",
 };
 
@@ -46,6 +48,16 @@ const COMMAND_DETAILS = {
     ],
     notes: [
       "Shows status, classification, complexity, summary, and creation time.",
+    ],
+  },
+  [COMMAND_NAMES.SLEEP]: {
+    usage: [
+      `${bin("sleep")}`,
+      `${bin("sleep --help")}`,
+    ],
+    notes: [
+      "Requires mnemosyne binary in PATH.",
+      "Uses built-in Harness sleep prompt (no external prompt file required).",
     ],
   },
   [COMMAND_NAMES.HELP]: {

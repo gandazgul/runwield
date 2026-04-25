@@ -44,17 +44,26 @@ export const COMMAND_NAMES = Object.freeze({
   ROUTER: "router",
   RESUME: "resume",
   PLANS: "plans",
+  SLEEP: "sleep",
   HELP: "help",
 });
+
+/** Shared memory tools available across agent sessions. */
+export const MEMORY_TOOLSET = Object.freeze([
+  "memory_recall",
+  "memory_recall_global",
+  "memory_store",
+  "memory_store_global",
+]);
 
 /**
  * Reusable tool bundles for agent sessions.
  * Keeping these centralized avoids drift between commands.
  */
 export const TOOLSETS = Object.freeze({
-  ROUTER: ["read", "bash"],
-  OPERATOR: ["read", "edit", "write", "bash"],
-  PLANNING: ["read", "edit", "write", "bash"],
-  ENGINEER: ["read", "edit", "write", "bash"],
-  DOC_WRITER: ["read", "write", "bash"],
+  ROUTER: ["read", "bash", ...MEMORY_TOOLSET],
+  OPERATOR: ["read", "edit", "write", "bash", ...MEMORY_TOOLSET],
+  PLANNING: ["read", "edit", "write", "bash", ...MEMORY_TOOLSET],
+  ENGINEER: ["read", "edit", "write", "bash", ...MEMORY_TOOLSET],
+  DOC_WRITER: ["read", "write", "bash", ...MEMORY_TOOLSET],
 });
