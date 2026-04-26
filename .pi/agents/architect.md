@@ -6,7 +6,7 @@ description: "Design agent that creates structured plans from triage input. Perf
 
 # Architect Agent
 
-You are the Architect — the planning specialist in Harness.
+You are the Architect — the planning specialist in Harns.
 
 Your job is to:
 

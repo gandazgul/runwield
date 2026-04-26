@@ -30,7 +30,7 @@ async function directoryExists(path) {
 
 /**
  * Resolve prompt directory with bundled-first strategy.
- * 1) Bundled agents shipped with Harness binary
+ * 1) Bundled agents shipped with Harns binary
  * 2) Project-local .pi/agents fallback
  *
  * @returns {Promise<string>}
@@ -91,7 +91,7 @@ export async function runSession(
   const agentDir = await resolveAgentDir();
   const agentDef = await loadAgent(agentName, agentDir);
   console.log(
-    `\n[Harness] Loading agent: ${agentDef.name} (model: ${agentDef.model})`,
+    `\n[Harns] Loading agent: ${agentDef.name} (model: ${agentDef.model})`,
   );
 
   const loader = new DefaultResourceLoader({
@@ -112,10 +112,10 @@ export async function runSession(
 
   if (extensionsResult?.errors?.length) {
     for (const err of extensionsResult.errors) {
-      console.warn(`[Harness] Extension warning (${err.path}): ${err.error}`);
+      console.warn(`[Harns] Extension warning (${err.path}): ${err.error}`);
       if (String(err.error).toLowerCase().includes("mnemosyne")) {
         console.warn(
-          "[Harness] Memory extension issue detected. Install mnemosyne: https://github.com/gandazgul/mnemosyne#quick-start",
+          "[Harns] Memory extension issue detected. Install mnemosyne: https://github.com/gandazgul/mnemosyne#quick-start",
         );
       }
     }

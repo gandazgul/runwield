@@ -1,14 +1,14 @@
 /**
  * @module cli
- * Harness — Plan-by-Default Coding Harness
+ * Harns — Plan-by-Default Coding Harness
  *
  * Usage:
- *   har "<user request>"
- *   har router "<user request>"
- *   har resume <plan-name-or-path>
- *   har plans
- *   har sleep
- *   har --help
+ *   hns "<user request>"
+ *   hns router "<user request>"
+ *   hns resume <plan-name-or-path>
+ *   hns plans
+ *   hns sleep
+ *   hns --help
  *
  * Source-run fallback for contributors:
  *   deno run -A src/cli.js "<user request>"
@@ -67,6 +67,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error("[Harness] Fatal error:", err);
+  console.error("[Harns] Fatal error:", err);
   Deno.exit(1);
 });

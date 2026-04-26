@@ -39,16 +39,16 @@ export async function runResumeCommand(argv) {
     Deno.exit(1);
   }
 
-  console.log(`[Harness] Resuming plan: ${planArg}`);
+  console.log(`[Harns] Resuming plan: ${planArg}`);
 
   const plan = await resolvePlan(CWD, planArg);
-  console.log(`[Harness] Plan loaded: ${plan.planName}`);
+  console.log(`[Harns] Plan loaded: ${plan.planName}`);
   console.log(
-    `[Harness] Classification: ${plan.attrs.classification}, Status: ${plan.attrs.status}`,
+    `[Harns] Classification: ${plan.attrs.classification}, Status: ${plan.attrs.status}`,
   );
 
   if (plan.attrs.status === "approved") {
-    console.log("\n[Harness] This plan has already been approved.");
+    console.log("\n[Harns] This plan has already been approved.");
     console.log("What would you like to do?");
     console.log("  1) Proceed with execution");
     console.log("  2) Re-open for review (edit/annotate)");
@@ -81,12 +81,12 @@ export async function runResumeCommand(argv) {
           await executePlan(plan.planName, plan.attrs);
         } else {
           console.log(
-            `\n[Harness] Plan saved. Resume later with: ${CLI_BIN} resume ${plan.planName}`,
+            `\n[Harns] Plan saved. Resume later with: ${CLI_BIN} resume ${plan.planName}`,
           );
         }
       } else {
         console.log(
-          "\n[Harness] Plan denied. To continue the revision loop, run:",
+          "\n[Harns] Plan denied. To continue the revision loop, run:",
         );
         console.log(`  ${CLI_BIN} resume ${plan.planName}`);
       }
@@ -130,7 +130,7 @@ export async function runResumeCommand(argv) {
       await executePlan(result.planName, triageMeta);
     } else {
       console.log(
-        `\n[Harness] Plan saved. Resume later with: ${CLI_BIN} resume ${result.planName}`,
+        `\n[Harns] Plan saved. Resume later with: ${CLI_BIN} resume ${result.planName}`,
       );
     }
   }

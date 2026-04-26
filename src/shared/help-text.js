@@ -57,7 +57,7 @@ const COMMAND_DETAILS = {
     ],
     notes: [
       "Requires mnemosyne binary in PATH.",
-      "Uses built-in Harness sleep prompt (no external prompt file required).",
+      "Uses built-in Harns sleep prompt (no external prompt file required).",
     ],
   },
   [COMMAND_NAMES.HELP]: {
@@ -74,7 +74,7 @@ const COMMAND_DETAILS = {
  * Print global CLI usage/help text.
  */
 export function printGlobalHelp() {
-  console.log("Harness — Plan-by-Default Coding Harness\n");
+  console.log("Harns — Plan-by-Default Coding Harness\n");
   console.log("Usage:");
   console.log(`  ${bin('"<user request>"')}`);
   console.log(`  ${bin("<command> [args]")}\n`);

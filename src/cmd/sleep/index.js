@@ -9,7 +9,7 @@ import { runSession } from "../../shared/session.js";
 import { printCommandHelp } from "../../shared/help-text.js";
 
 const SLEEP_PROMPT =
-    `You are running Harness sleep mode to optimize long-term memory quality.
+    `You are running Harns sleep mode to optimize long-term memory quality.
 
 Goal:
 - Improve memory signal quality for future sessions.
@@ -64,17 +64,17 @@ export async function runSleepCommand(argv) {
 
     const hasBinary = await hasMnemosyneBinary();
     if (!hasBinary) {
-        console.error("[Harness] Mnemosyne binary not found in PATH.");
+        console.error("[Harns] Mnemosyne binary not found in PATH.");
         console.error(
             "Install it: https://github.com/gandazgul/mnemosyne#quick-start",
         );
         console.error(
-            "Then rerun `har sleep` to optimize/organize persistent memories.",
+            "Then rerun `hns sleep` to optimize/organize persistent memories.",
         );
         Deno.exit(1);
     }
 
-    console.log("[Harness] Running sleep mode (memory optimize session)...\n");
+    console.log("[Harns] Running sleep mode (memory optimize session)...\n");
 
     await runSession({
         agentName: "operator",
@@ -82,5 +82,5 @@ export async function runSleepCommand(argv) {
         prompt: SLEEP_PROMPT,
     });
 
-    console.log("\n[Harness] ✅ Sleep session complete.");
+    console.log("\n[Harns] ✅ Sleep session complete.");
 }

@@ -37,16 +37,16 @@ export async function runRouterCommand(argv) {
 
   const userRequest = argv.join(" ").trim();
   if (!userRequest) {
-    console.error("[Harness] Missing request prompt.");
+    console.error("[Harns] Missing request prompt.");
     printCommandHelp("router");
     Deno.exit(1);
   }
 
-  console.log(`[Harness] User request: "${userRequest}"`);
+  console.log(`[Harns] User request: "${userRequest}"`);
 
   await ensurePlansDir(CWD);
 
-  console.log("\n[Harness] === Phase A: Router (Triage) ===\n");
+  console.log("\n[Harns] === Phase A: Router (Triage) ===\n");
 
   const routerMessages = await runSession({
     agentName: "router",
@@ -58,7 +58,7 @@ export async function runRouterCommand(argv) {
   const triage = extractTriageReport(routerMessages);
 
   if (!triage) {
-    console.error("\n[Harness] ERROR: Router did not produce a triage report.");
+    console.error("\n[Harns] ERROR: Router did not produce a triage report.");
     Deno.exit(1);
   }
 
@@ -69,8 +69,8 @@ export async function runRouterCommand(argv) {
   );
 
   if (triage.classification === "QUICK_FIX") {
-    console.log("\n[Harness] QUICK_FIX detected. Handing off to Operator...\n");
-    console.log("[Harness] === Phase B1: Operator (Execute) ===\n");
+    console.log("\n[Harns] QUICK_FIX detected. Handing off to Operator...\n");
+    console.log("[Harns] === Phase B1: Operator (Execute) ===\n");
 
     const operatorPrompt = [
       "## User Request",
@@ -91,12 +91,12 @@ export async function runRouterCommand(argv) {
       prompt: operatorPrompt,
     });
 
-    console.log("\n[Harness] ✅ Operator session complete.");
+    console.log("\n[Harns] ✅ Operator session complete.");
     return;
   }
 
   if (triage.classification === "FEATURE") {
-    console.log("\n[Harness] FEATURE detected. Handing off to Planner...\n");
+    console.log("\n[Harns] FEATURE detected. Handing off to Planner...\n");
 
     const plannerPrompt = [
       "## User Request",
@@ -126,7 +126,7 @@ export async function runRouterCommand(argv) {
         await executePlan(result.planName, triage);
       } else {
         console.log(
-          `\n[Harness] Plan saved. Resume later with: ${CLI_BIN} resume ${result.planName}`,
+          `\n[Harns] Plan saved. Resume later with: ${CLI_BIN} resume ${result.planName}`,
         );
       }
     }
@@ -135,10 +135,10 @@ export async function runRouterCommand(argv) {
 
   if (triage.classification === "PROJECT") {
     console.log(
-      "\n[Harness] PROJECT detected. Handing off to Architect for targeted deep exploration + planning...\n",
+      "\n[Harns] PROJECT detected. Handing off to Architect for targeted deep exploration + planning...\n",
     );
     console.log(
-      "[Harness] === Phase D: Architect (Targeted Explore + Plan + Review) ===\n",
+      "[Harns] === Phase D: Architect (Targeted Explore + Plan + Review) ===\n",
     );
 
     const architectPrompt = [
@@ -171,7 +171,7 @@ export async function runRouterCommand(argv) {
         await executePlan(result.planName, triage);
       } else {
         console.log(
-          `\n[Harness] Plan saved. Resume later with: ${CLI_BIN} resume ${result.planName}`,
+          `\n[Harns] Plan saved. Resume later with: ${CLI_BIN} resume ${result.planName}`,
         );
       }
     }

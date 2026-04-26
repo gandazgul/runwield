@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO="${HAR_REPO:-gandazgul/harness}"
-INSTALL_DIR="${HAR_INSTALL_DIR:-/usr/local/bin}"
+REPO="${HNS_REPO:-gandazgul/harns}"
+INSTALL_DIR="${HNS_INSTALL_DIR:-/usr/local/bin}"
 REQUESTED_VERSION="${1:-}"
 
 need_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
-    echo "[har installer] Missing required command: $1" >&2
+    echo "[hns installer] Missing required command: $1" >&2
     exit 1
   fi
 }
@@ -30,7 +30,7 @@ sha_verify() {
     return
   fi
 
-  echo "[har installer] Missing checksum tool (sha256sum or shasum)." >&2
+  echo "[hns installer] Missing checksum tool (sha256sum or shasum)." >&2
   exit 1
 }
 
@@ -45,7 +45,7 @@ resolve_version() {
   tag="$(curl -fsSL "$api_url" | awk -F '"' '/"tag_name":/ { print $4; exit }')"
 
   if [[ -z "$tag" ]]; then
-    echo "[har installer] Could not determine latest release tag from ${api_url}" >&2
+    echo "[hns installer] Could not determine latest release tag from ${api_url}" >&2
     exit 1
   fi
 
@@ -63,7 +63,7 @@ resolve_asset_suffix() {
         arm64|aarch64) echo "darwin-arm64" ;;
         x86_64) echo "darwin-x64" ;;
         *)
-          echo "[har installer] Unsupported macOS architecture: ${arch}" >&2
+          echo "[hns installer] Unsupported macOS architecture: ${arch}" >&2
           exit 1
           ;;
       esac
@@ -73,13 +73,13 @@ resolve_asset_suffix() {
         x86_64) echo "linux-x64" ;;
         arm64|aarch64) echo "linux-arm64" ;;
         *)
-          echo "[har installer] Unsupported Linux architecture: ${arch}" >&2
+          echo "[hns installer] Unsupported Linux architecture: ${arch}" >&2
           exit 1
           ;;
       esac
       ;;
     *)
-      echo "[har installer] Unsupported OS: ${os} (installer currently supports macOS/Linux)" >&2
+      echo "[hns installer] Unsupported OS: ${os} (installer currently supports macOS/Linux)" >&2
       exit 1
       ;;
   esac
@@ -87,12 +87,12 @@ resolve_asset_suffix() {
 
 VERSION="$(resolve_version)"
 SUFFIX="$(resolve_asset_suffix)"
-ASSET="har-${VERSION}-${SUFFIX}.tar.gz"
+ASSET="hns-${VERSION}-${SUFFIX}.tar.gz"
 BASE_URL="https://github.com/${REPO}/releases/download/${VERSION}"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
-echo "[har installer] Installing ${ASSET} from ${REPO} ..."
+echo "[hns installer] Installing ${ASSET} from ${REPO} ..."
 
 curl -fL "${BASE_URL}/${ASSET}" -o "${TMP_DIR}/${ASSET}"
 curl -fL "${BASE_URL}/SHA256SUMS" -o "${TMP_DIR}/SHA256SUMS"
@@ -101,22 +101,22 @@ sha_verify "${TMP_DIR}/SHA256SUMS" "$ASSET"
 
 tar -xzf "${TMP_DIR}/${ASSET}" -C "$TMP_DIR"
 
-if [[ ! -x "${TMP_DIR}/har" ]]; then
-  echo "[har installer] Extracted archive does not contain executable 'har'." >&2
+if [[ ! -x "${TMP_DIR}/hns" ]]; then
+  echo "[hns installer] Extracted archive does not contain executable 'hns'." >&2
   exit 1
 fi
 
 mkdir -p "$INSTALL_DIR"
 if [[ -w "$INSTALL_DIR" ]]; then
-  install -m 755 "${TMP_DIR}/har" "${INSTALL_DIR}/har"
+  install -m 755 "${TMP_DIR}/hns" "${INSTALL_DIR}/hns"
 else
   if command -v sudo >/dev/null 2>&1; then
-    sudo install -m 755 "${TMP_DIR}/har" "${INSTALL_DIR}/har"
+    sudo install -m 755 "${TMP_DIR}/hns" "${INSTALL_DIR}/hns"
   else
-    echo "[har installer] No write permission to ${INSTALL_DIR} and sudo is unavailable." >&2
+    echo "[hns installer] No write permission to ${INSTALL_DIR} and sudo is unavailable." >&2
     exit 1
   fi
 fi
 
-echo "[har installer] ✅ Installed har to ${INSTALL_DIR}/har"
-echo "[har installer] Run: har --help"
+echo "[hns installer] ✅ Installed hns to ${INSTALL_DIR}/hns"
+echo "[hns installer] Run: hns --help"

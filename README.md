@@ -1,13 +1,13 @@
-# Harness
+# Harns
 
-Harness is an opinionated, **plan-by-default coding harness** built on top of Pi
+Harns is an opinionated, **plan-by-default coding harness** built on top of Pi
 agents.
 
 It routes incoming requests through triage, creates reviewable plans for
 non-trivial work, runs an interactive Plannotator approval loop, and then
 executes approved work with specialized agents.
 
-## Why Harness
+## Why Harns
 
 - **Plan-first by default** for medium/large requests
 - **Explicit triage** (`QUICK_FIX`, `FEATURE`, `PROJECT`)
@@ -80,6 +80,8 @@ All agent prompts live in [`.pi/agents/`](.pi/agents/).
   - `@mariozechner/pi-agent-core`
 - Plan review integration:
   - `@gandazgul/plannotator-pi-extension-compiled` (npm package)
+- Memory layer:
+  - **Mnemosyne** (integrated persistent memory)
 
 ---
 
@@ -88,7 +90,7 @@ All agent prompts live in [`.pi/agents/`](.pi/agents/).
 ### macOS / Linux (recommended)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/<owner>/harness/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/<owner>/harns/main/install.sh | bash
 ```
 
 If your fork/repo name differs, set `HAR_REPO`:
@@ -172,6 +174,12 @@ har resume plans/integrate-mnemosyne.md
 har plans
 ```
 
+### Optimize memory
+
+```bash
+har sleep
+```
+
 ---
 
 ## Deno Tasks
@@ -198,7 +206,7 @@ Common statuses:
 - `approved`
 - `denied`
 
-Harness updates these statuses during the review loop and resume flow.
+Harns updates these statuses during the review loop and resume flow.
 
 ---
 

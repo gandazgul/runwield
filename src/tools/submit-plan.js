@@ -1,6 +1,6 @@
 /**
  * @module submit-plan
- * Harness function that submits a plan to the Plannotator review UI.
+ * Harns function that submits a plan to the Plannotator review UI.
  *
  * Now uses the compiled @gandazgul/plannotator-pi-extension-compiled package
  * to call the server in-process, eliminating the need for the plannotator CLI.
@@ -109,28 +109,28 @@ export async function submitPlanForReview({
   // 3. Use HTML embedded in package exports (compile-safe; no runtime fs lookup).
   const htmlContent = plannotatorHtml;
 
-  console.log(`\n[Harness] Opening plan review UI for: ${planName}`);
-  console.log(`[Harness] Plan file: ${planPath}`);
+  console.log(`\n[Harns] Opening plan review UI for: ${planName}`);
+  console.log(`[Harns] Plan file: ${planPath}`);
 
   // 4. Start review server IN-PROCESS
   const server = await startPlanReviewServer({
     plan: planWithFm,
     htmlContent,
-    origin: "harness",
+    origin: "harns",
   });
 
-  console.log(`[Harness] Review UI available at: ${server.url}`);
+  console.log(`[Harns] Review UI available at: ${server.url}`);
 
   const opened = await openInDefaultBrowser(server.url);
   if (opened) {
-    console.log(`[Harness] Opened review UI in your default browser.`);
+    console.log(`[Harns] Opened review UI in your default browser.`);
   } else {
     console.log(
-      `[Harness] Could not auto-open browser. Open manually: ${server.url}`,
+      `[Harns] Could not auto-open browser. Open manually: ${server.url}`,
     );
   }
 
-  console.log(`[Harness] Waiting for user decision...`);
+  console.log(`[Harns] Waiting for user decision...`);
 
   try {
     // 5. Wait for user decide (blocks until approve/deny)
@@ -139,10 +139,10 @@ export async function submitPlanForReview({
     // 6. Update status
     if (decision.approved) {
       await updatePlanStatus(cwd, planName, "approved");
-      console.log(`\n[Harness] ✅ Plan approved: ${planName}`);
+      console.log(`\n[Harns] ✅ Plan approved: ${planName}`);
     } else {
       await updatePlanStatus(cwd, planName, "denied");
-      console.log(`\n[Harness] ❌ Plan denied: ${planName}`);
+      console.log(`\n[Harns] ❌ Plan denied: ${planName}`);
     }
 
     return {

@@ -28,7 +28,7 @@ export async function runHelpCommand(argv) {
 
   const found = printCommandHelp(commandName);
   if (!found) {
-    console.error(`[Harness] Unknown command for help: ${commandName}`);
+    console.error(`[Harns] Unknown command for help: ${commandName}`);
     console.log();
     printGlobalHelp();
     Deno.exit(1);

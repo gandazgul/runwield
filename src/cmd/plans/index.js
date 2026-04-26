@@ -26,11 +26,11 @@ export async function runPlansCommand(argv) {
 
   const plans = await listPlans(CWD);
   if (plans.length === 0) {
-    console.log("[Harness] No saved plans found.");
+    console.log("[Harns] No saved plans found.");
     return;
   }
 
-  console.log("\n[Harness] Saved plans:\n");
+  console.log("\n[Harns] Saved plans:\n");
   for (const p of plans) {
     console.log(`  ${p.name}`);
     console.log(

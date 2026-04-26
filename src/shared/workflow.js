@@ -60,10 +60,10 @@ export async function reviewLoop({
 
   while (revision < maxRevisions) {
     if (revision === 0) {
-      console.log(`\n[Harness] === Running ${agentName} ===\n`);
+      console.log(`\n[Harns] === Running ${agentName} ===\n`);
     } else {
       console.log(
-        `\n[Harness] === Revising plan (attempt ${
+        `\n[Harns] === Revising plan (attempt ${
           revision + 1
         }/${maxRevisions}) ===\n`,
       );
@@ -79,12 +79,12 @@ export async function reviewLoop({
     const planInfo = await resolveDeclaredPlan(planningMessages);
     if (!planInfo) {
       console.error(
-        "\n[Harness] ERROR: Agent did not declare a valid plan via plan_written.",
+        "\n[Harns] ERROR: Agent did not declare a valid plan via plan_written.",
       );
       return null;
     }
 
-    console.log(`\n[Harness] Plan created: plans/${planInfo.name}.md`);
+    console.log(`\n[Harns] Plan created: plans/${planInfo.name}.md`);
 
     const result = await submitPlanForReview({
       cwd: CWD,
@@ -103,7 +103,7 @@ export async function reviewLoop({
 
     revision++;
     console.log(
-      `\n[Harness] Plan denied. Feeding feedback back to ${agentName}...`,
+      `\n[Harns] Plan denied. Feeding feedback back to ${agentName}...`,
     );
 
     currentPrompt = [
@@ -121,7 +121,7 @@ export async function reviewLoop({
   }
 
   console.error(
-    `\n[Harness] Max revisions (${maxRevisions}) reached. Plan not approved.`,
+    `\n[Harns] Max revisions (${maxRevisions}) reached. Plan not approved.`,
   );
   return null;
 }
@@ -133,7 +133,7 @@ export async function reviewLoop({
  * @returns {Promise<"proceed" | "save">}
  */
 export async function askPostApproval(planName) {
-  console.log(`\n[Harness] Plan "${planName}" approved!`);
+  console.log(`\n[Harns] Plan "${planName}" approved!`);
   console.log("What would you like to do?");
   console.log("  1) Proceed with execution");
   console.log("  2) Save for later");
@@ -189,18 +189,18 @@ export function extractTasks(planContent) {
 export async function executePlan(planName, triageMeta) {
   const plan = await loadPlan(CWD, planName);
   if (!plan) {
-    console.error(`[Harness] ERROR: Could not load plan ${planName}`);
+    console.error(`[Harns] ERROR: Could not load plan ${planName}`);
     Deno.exit(1);
   }
 
-  console.log(`\n[Harness] === Executing Plan: ${planName} ===\n`);
+  console.log(`\n[Harns] === Executing Plan: ${planName} ===\n`);
 
   if (triageMeta.classification === "PROJECT") {
     const tasks = extractTasks(plan.markdown);
 
     if (tasks.length > 0) {
       console.log(
-        `[Harness] Found ${tasks.length} tasks in plan. Executing in dependency order.\n`,
+        `[Harns] Found ${tasks.length} tasks in plan. Executing in dependency order.\n`,
       );
 
       for (const task of tasks) {
@@ -213,7 +213,7 @@ export async function executePlan(planName, triageMeta) {
           : "engineer";
 
         console.log(
-          `\n[Harness] --- Task ${task.task}: ${task.description} (→ ${agentName}) ---\n`,
+          `\n[Harns] --- Task ${task.task}: ${task.description} (→ ${agentName}) ---\n`,
         );
 
         const taskPrompt = [
@@ -248,7 +248,7 @@ export async function executePlan(planName, triageMeta) {
     await runEngineerWithPlan(planName, plan.body);
   }
 
-  console.log(`\n[Harness] ✅ Plan execution complete: ${planName}`);
+  console.log(`\n[Harns] ✅ Plan execution complete: ${planName}`);
 }
 
 /**
@@ -261,7 +261,7 @@ export async function askApprovalWithTasks(planName) {
   const plan = await loadPlan(CWD, planName);
   const tasks = plan ? extractTasks(plan.markdown) : [];
 
-  console.log(`\n[Harness] Project plan "${planName}" approved!`);
+  console.log(`\n[Harns] Project plan "${planName}" approved!`);
   if (tasks.length > 0) {
     console.log("\nTask breakdown:");
     for (const t of tasks) {
@@ -295,7 +295,7 @@ export async function askApprovalWithTasks(planName) {
  * @param {string} planBody
  */
 async function runEngineerWithPlan(planName, planBody) {
-  console.log("[Harness] === Running Engineer ===\n");
+  console.log("[Harns] === Running Engineer ===\n");
 
   const engineerPrompt = [
     `## Approved Plan: ${planName}`,
