@@ -104,15 +104,3 @@
 > **Dev:** "Once approved, who executes it?"
 >
 > **Domain expert:** "The **Engineer**. For a `FEATURE`, there's a single **Session** that walks through the **Plan** steps. For a `PROJECT`, the **Architect** would have included a **Tasks** table, and each **Task** gets dispatched to its **Assignee** — could be `engineer`, `tester`, or `doc-writer`."
-
-## Flagged ambiguities
-
-- ~~**"Agent" vs. "Agent Def"**~~ **RESOLVED.** The codebase now uses **Agent** for the runtime concept and **Agent Def** (`AgentDef`, `loadAgentDef`, `AGENT_DEFS_DIR`, `resolveAgentDefsDir`) for the static prompt/model configuration file in `.pi/agents/`.
-
-- ~~**"Session" overload**~~ **RESOLVED.** Agent invocations use `runAgentSession` (a single agent run to completion). The TUI-level interactive loop is called an **Interactive Session** (`startInteractiveSession`) and documented as distinct in `chat-session.js`. Comments throughout no longer conflate the two.
-
-- ~~**"Prompt" dual meaning**~~ **RESOLVED.** User-facing requests are now consistently named `userRequest` in function signatures, local variables, and JSDoc (`opts.userRequest`). Agent instruction text is explicitly called **System Prompt** (`systemPrompt`, `CORE_SYSTEM_PROMPT`). The word "prompt" is reserved for the pi library's `session.prompt()` API call and TUI selection overlays.
-
-- ~~**"Plan" vs. "Exploration Report"**~~ **RESOLVED.** The Explorer agent was a vestigial artifact from a previous iteration. Both the **Planner** and **Architect** already perform their own codebase exploration after receiving the **Triage Report**. The Explorer agent def, its old init prompt (`project_init_prompt.md`), and all references have been removed. The `plans/` directory now exclusively contains reviewable **Plans**.
-
-- ~~**"Origin" ambiguity**~~ **RESOLVED.** In plan front matter, `origin: "internal"` means the plan was created by a Harns agent; `origin: "external"` means it is a pre-existing markdown file brought in from outside and resumed with Harns. JSDoc on `PlanFrontMatter.origin` and `loadExternalPlan` now document this explicitly.
