@@ -61,7 +61,9 @@ const DEFAULT_FRONT_MATTER = {
     complexity: "MEDIUM",
     summary: "",
     affectedPaths: [],
-    createdAt: new Date().toISOString(),
+    get createdAt() {
+        return new Date().toISOString();
+    },
     status: "draft",
     origin: "internal",
 };

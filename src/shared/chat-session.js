@@ -379,6 +379,7 @@ export async function startInteractiveSession(initialPrompt, onMessage) {
             const { commandRegistry } = await import("../cmd/registry.js");
 
             if (commandRegistry[cmd]) {
+                editor.disableSubmit = true;
                 try {
                     await commandRegistry[cmd](args, {
                         uiAPI,
@@ -391,6 +392,8 @@ export async function startInteractiveSession(initialPrompt, onMessage) {
                     uiAPI.appendSystemMessage(
                         `Error: ${err instanceof Error ? err.message : String(err)}`,
                     );
+                } finally {
+                    editor.disableSubmit = false;
                 }
             } else {
                 uiAPI.appendSystemMessage(`Unknown command: /${cmd}`);
