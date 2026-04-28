@@ -17,6 +17,7 @@ import { extractPlanWritten } from "./triage.js";
  * @property {(agentName: string) => {appendText: (delta: string) => void}} appendAgentMessageStart
  * @property {() => void} requestRender
  * @property {(title: string, options: Array<{value: string, label: string}>) => Promise<string | null>} promptSelect
+ * @property {(agentName: string, agentModel: string) => void} [setAgentInfo]
  */
 
 /**

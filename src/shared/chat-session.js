@@ -28,6 +28,9 @@ export function setActiveAgent(agentName, handler) {
 
 let currentAgentModel = "";
 
+/**
+ * @param {string} model
+ */
 export function setActiveModel(model) {
     currentAgentModel = model;
 }
@@ -99,14 +102,14 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
 
             if (settings.defaultModel) model = settings.defaultModel;
             if (settings.defaultProvider) provider = settings.defaultProvider;
-            
+
             if (currentAgentModel) {
-                 model = currentAgentModel;
+                model = currentAgentModel;
             }
         } catch (_e) { /* ignore */ }
-        
+
         return { model, provider };
-    }
+    };
 
     const footer = {
         invalidate: () => {},
@@ -356,7 +359,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
             activeAgentName = agentName;
             currentAgentModel = agentModel;
             tui.requestRender();
-        }
+        },
     };
 
     // @ts-ignore: TS doesn't know about pi-tui Editor internals

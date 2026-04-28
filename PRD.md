@@ -28,8 +28,8 @@ paths:
 
 - **Quick Fix:** Troubleshooting and rapid changes with no upfront decisions. Uses Debugger or Execution agents.
 - **Feature:** Requires upfront clarification and a structured plan. Can be decomposed into dependent tasks.
-- **Project:** Large-scale changes. The **Architect Agent** performs deep vertical-slice exploration and produces
-  a formal proposal with task decomposition.
+- **Project:** Large-scale changes. The **Architect Agent** performs deep vertical-slice exploration and produces a
+  formal proposal with task decomposition.
 
 **Dynamic Agent Switching:** Users can switch the active agent they are conversing with using slash commands (e.g.
 `/resume <plan>`). When `/resume` is invoked, the TUI drops the Router and connects the user directly to the Planner or
