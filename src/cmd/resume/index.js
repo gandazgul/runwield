@@ -213,7 +213,7 @@ export async function runResumeCommand(argv, options = {}) {
         // Temporarily bypass CLI prompts inside TUI if possible
         uiAPI.appendSystemMessage(`[Harns] Plan "${result.planName}" approved!`);
         uiAPI.appendSystemMessage(`[Harns] Proceeding with execution...`);
-        const execRes = await executePlan(result.planName, triageMeta, uiAPI);
+        const execRes = await executePlan(result.planName, triageMeta, uiAPI, result.tasks);
         if (execRes && execRes.repairRequired) {
             const agentName = triageMeta.classification === "PROJECT" ? "architect" : "planner";
             uiAPI.appendSystemMessage(

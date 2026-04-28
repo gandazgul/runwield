@@ -134,7 +134,10 @@ export async function submitPlanForReview({
     log(`[Harns] Waiting for user decision...`);
 
     try {
-        // 5. Wait for user decide (blocks until approve/deny)
+        // 5. Disable input while waiting for review via server
+        if (uiAPI && uiAPI.disableInput) uiAPI.disableInput();
+
+        // Wait for user decide (blocks until approve/deny)
         const decision = await server.waitForDecision();
 
         // 6. Update status
@@ -151,6 +154,7 @@ export async function submitPlanForReview({
             feedback: decision.feedback,
         };
     } finally {
+        if (uiAPI && uiAPI.enableInput) uiAPI.enableInput();
         // Ensure server is stopped regardless of outcome
         server.stop();
     }

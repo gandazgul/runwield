@@ -173,9 +173,9 @@ export async function routerCmdOnMessage(userRequest, images, uiAPI) {
         });
 
         if (result) {
-            const action = await askApprovalWithTasks(result.planName, uiAPI);
+            const action = await askApprovalWithTasks(result.planName, uiAPI, result.tasks);
             if (action === "proceed") {
-                const execRes = await executePlan(result.planName, triage, uiAPI);
+                const execRes = await executePlan(result.planName, triage, uiAPI, result.tasks);
                 if (execRes && execRes.repairRequired) {
                     uiAPI.appendSystemMessage(
                         `[Harns] Execution failed due to task table error. Rerouting to Architect for repair...`,

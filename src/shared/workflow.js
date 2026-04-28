@@ -18,13 +18,15 @@ import { extractPlanWritten } from "./triage.js";
  * @property {() => void} requestRender
  * @property {(title: string, options: Array<{value: string, label: string}>) => Promise<string | null>} promptSelect
  * @property {(agentName: string, agentModel: string) => void} [setAgentInfo]
+ * @property {() => void} [disableInput]
+ * @property {() => void} [enableInput]
  */
 
 /**
  * Resolve the declared plan path from planner/architect tool output.
  *
  * @param {import('@mariozechner/pi-agent-core').AgentMessage[]} messages
- * @returns {Promise<{ name: string, path: string } | null>}
+ * @returns {Promise<{ name: string, path: string, tasks?: Array<{task: number, assignee: string, dependencies: string, description: string}> } | null>}
  */
 async function resolveDeclaredPlan(messages) {
     const declared = extractPlanWritten(messages);
@@ -41,7 +43,7 @@ async function resolveDeclaredPlan(messages) {
         return null;
     }
 
-    return { name: planName, path: planPath };
+    return { name: planName, path: planPath, tasks: declared.tasks };
 }
 
 /**
@@ -55,7 +57,7 @@ async function resolveDeclaredPlan(messages) {
  * @param {Partial<import('../plan-store.js').PlanFrontMatter>} opts.triageMeta
  * @param {number} [opts.maxRevisions=5]
  * @param {UiAPI} [opts.uiAPI]
- * @returns {Promise<{ planName: string, planPath: string, approved: true } | null>}
+ * @returns {Promise<{ planName: string, planPath: string, approved: true, tasks?: Array<{task: number, assignee: string, dependencies: string, description: string}> } | null>}
  */
 export async function reviewLoop({
     agentName,
@@ -115,6 +117,7 @@ export async function reviewLoop({
                 planName: planInfo.name,
                 planPath: planInfo.path,
                 approved: true,
+                tasks: planInfo.tasks,
             };
         }
 
@@ -177,7 +180,7 @@ export function extractTasks(planContent) {
     const tasks =
         /** @type {Array<{ task: number, assignee: string, dependencies: string, description: string }>} */ ([]);
     const taskSection = planContent.match(
-        /### Tasks\s*\n([\s\S]*?)(?=\n###|\n##|$)/,
+        /### Tasks\s*\n([\s\S]*?)(?=\n(?:###|##)[^\n]*|\n*$)/,
     );
 
     if (!taskSection) {
@@ -212,8 +215,9 @@ export function extractTasks(planContent) {
  * @param {string} planName
  * @param {Partial<import('../plan-store.js').PlanFrontMatter>} triageMeta
  * @param {UiAPI} [uiAPI]
+ * @param {Array<{ task: number, assignee: string, dependencies: string, description: string }>} [structuredTasks]
  */
-export async function executePlan(planName, triageMeta, uiAPI) {
+export async function executePlan(planName, triageMeta, uiAPI, structuredTasks) {
     const plan = await loadPlan(CWD, planName);
     if (!plan) {
         const err = `[Harns] ERROR: Could not load plan ${planName}`;
@@ -231,7 +235,9 @@ export async function executePlan(planName, triageMeta, uiAPI) {
 
     if (triageMeta.classification === "PROJECT") {
         try {
-            const tasks = extractTasks(plan.markdown);
+            const tasks = structuredTasks && structuredTasks.length > 0 
+                ? structuredTasks 
+                : extractTasks(plan.markdown);
 
             if (tasks.length > 0) {
                 if (uiAPI) {
@@ -447,11 +453,20 @@ function reportExecutionSummary(result, uiAPI) {
  *
  * @param {string} planName
  * @param {UiAPI} [uiAPI]
+ * @param {Array<{ task: number, assignee: string, dependencies: string, description: string }>} [structuredTasks]
  * @returns {Promise<"proceed" | "save">}
  */
-export async function askApprovalWithTasks(planName, uiAPI) {
+export async function askApprovalWithTasks(planName, uiAPI, structuredTasks) {
     const plan = await loadPlan(CWD, planName);
-    const tasks = plan ? extractTasks(plan.markdown) : [];
+    
+    let tasks = structuredTasks || [];
+    if (tasks.length === 0 && plan) {
+        try {
+            tasks = extractTasks(plan.markdown);
+        } catch {
+            // we'll proceed with 0 tasks and perhaps fail during execute if markdown also parsing fails
+        }
+    }
 
     let title = `Project plan "${planName}" approved!`;
     if (tasks.length > 0) {

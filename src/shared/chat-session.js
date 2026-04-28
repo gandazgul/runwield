@@ -348,6 +348,18 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
             messageList.addChild(img);
             tui.requestRender();
         },
+        disableInput: () => {
+            if (editor) {
+                editor.disableSubmit = true;
+                tui.requestRender();
+            }
+        },
+        enableInput: () => {
+            if (editor) {
+                editor.disableSubmit = false;
+                tui.requestRender();
+            }
+        },
         requestRender: () => {
             tui.requestRender();
         },

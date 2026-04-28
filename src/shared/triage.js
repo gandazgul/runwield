@@ -94,7 +94,7 @@ export function parseTriageFromText(text) {
  * Extract plan_written result from planning conversation messages.
  *
  * @param {import('@mariozechner/pi-agent-core').AgentMessage[]} messages
- * @returns {{ planName: string } | null}
+ * @returns {{ planName: string, tasks?: Array<{task: number, assignee: string, dependencies: string, description: string}> } | null}
  */
 export function extractPlanWritten(messages) {
     for (const msg of messages) {
@@ -110,7 +110,10 @@ export function extractPlanWritten(messages) {
                 details && typeof details.planName === "string" &&
                 details.planName.trim()
             ) {
-                return { planName: details.planName.trim() };
+                return { 
+                    planName: details.planName.trim(),
+                    tasks: Array.isArray(details.tasks) ? details.tasks : undefined
+                };
             }
         }
     }
