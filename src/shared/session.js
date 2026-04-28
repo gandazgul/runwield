@@ -160,6 +160,9 @@ export async function runAgentSession(
                 break;
             }
             case "tool_execution_start": {
+                // If a markdown block is open, close it so tool messages appear below the text generated so far
+                currentMarkdownBlock = null;
+
                 const filePath = getFilePathForTool(event.toolName, event.args);
                 let msg = `[Tool] ${event.toolName}`;
                 if (filePath) msg += `\n  📄 ${filePath}`;
