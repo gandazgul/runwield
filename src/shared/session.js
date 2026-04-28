@@ -71,6 +71,18 @@ export async function loadAgentDef(agentName, agentDefsDir) {
     return { name, model, systemPrompt };
 }
 
+/** @type {import('@mariozechner/pi-coding-agent').AgentSession | null} */
+let activeSession = null;
+
+/**
+ * Stop the currently active agent session.
+ */
+export function abortActiveSession() {
+    if (activeSession) {
+        activeSession.abort();
+    }
+}
+
 /**
  * Run a single agent invocation and wait for idle.
  *
@@ -198,8 +210,13 @@ export async function runAgentSession(
         }));
     }
 
-    await session.prompt(userRequest, requestOptions);
-    await session.agent.waitForIdle();
+    try {
+        activeSession = session;
+        await session.prompt(userRequest, requestOptions);
+        await session.agent.waitForIdle();
+    } finally {
+        activeSession = null;
+    }
 
     return session.agent.state.messages;
 }

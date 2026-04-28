@@ -9,6 +9,7 @@ import { initTUI, stopTUI } from "./tui.js";
 import { editorTheme, imageTheme, markdownTheme, selectListTheme, theme } from "./theme.js";
 import { readClipboardImage } from "./clipboard.js";
 import { listPlans } from "../plan-store.js";
+import { abortActiveSession } from "./session.js";
 
 const UI_PADDING = { x: 0, y: 0 };
 
@@ -472,10 +473,50 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
     // Re-render UI after handling pasted images
     tui.requestRender();
 
+    let lastCtrlC = 0;
+
     // Custom keybindings for Editor
     const originalHandleInput = editor.handleInput.bind(editor);
     /** @param {any} data */
     editor.handleInput = async (data) => {
+        // Intercept Esc to abort agent
+        if (matchesKey(data, Key.escape)) {
+            uiAPI.appendSystemMessage("[Harns] Canceling operation...");
+            abortActiveSession();
+            tui.requestRender();
+            return;
+        }
+
+        // Intercept Ctrl+C
+        if (matchesKey(data, Key.ctrl("c"))) {
+            const now = Date.now();
+            if (now - lastCtrlC < 1000) {
+                stopTUI();
+                setTimeout(() => Deno.exit(0), 100);
+                return;
+            } else {
+                lastCtrlC = now;
+                uiAPI.appendSystemMessage("[Harns] Keyboard interrupt. Press again to quit.");
+                abortActiveSession();
+                tui.requestRender();
+                return;
+            }
+        }
+
+        // Check if Enter is pressed and text matches /quit exactly
+        if (matchesKey(data, Key.enter) || matchesKey(data, Key.return)) {
+            const currentText = /** @type {any} */ (editor).getText().trim();
+            if (currentText === "/quit" || currentText === "/exit" || currentText === "/q") {
+                editor.setText("");
+                tui.requestRender();
+                setTimeout(() => {
+                    stopTUI();
+                    setTimeout(() => Deno.exit(0), 100);
+                }, 50);
+                return;
+            }
+        }
+
         // Ctrl+V for paste image
         if (matchesKey(data, Key.ctrl("v"))) {
             const img = await readClipboardImage();
