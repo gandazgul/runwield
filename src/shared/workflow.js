@@ -50,6 +50,7 @@ function extractAssistantOutput(messages) {
  * @property {() => void} [enableInput]
  * @property {(id: string, name: string, argsStr: string) => any} [startToolExecution]
  * @property {(id: string) => any} [getActiveToolBlock]
+ * @property {() => void} [toggleToolOutputsExpanded]
  */
 
 /**

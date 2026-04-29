@@ -142,23 +142,64 @@ export class ToolExecutionBlock {
     constructor(toolName, argsStr) {
         this.container = new Container();
 
-        // Header
+        this.previewLineLimit = 6;
+        this.expanded = false;
+        this.durationStr = "";
+
+        // Header (no extra vertical gap below title)
         const headerText = argsStr ? `${toolName} ${argsStr}` : toolName;
         this.header = new ColoredBlock(
             "surface1",
-            new PaddedBlock(2, 1, new Text(theme.fg("text", theme.bold(headerText)), 0, 0)),
+            new PaddedBlock(2, 0, new Text(theme.fg("text", theme.bold(headerText)), 0, 0)),
         );
         this.container.addChild(this.header);
 
-        // Body
+        // Body (no extra vertical gap before footer)
         this.bodyContainer = new Container();
         // Body wrapper gets surface0 normally, or a different color if error occurs.
-        this.bodyBlock = new ColoredBlock("surface0", new PaddedBlock(2, 1, this.bodyContainer));
+        this.bodyBlock = new ColoredBlock("surface0", new PaddedBlock(2, 0, this.bodyContainer));
         this.container.addChild(this.bodyBlock);
 
-        // Footer
+        // Footer (left: duration, right: expand/collapse hint)
         this.footerContainer = new Container();
-        this.footerBlock = new ColoredBlock("surface1", new PaddedBlock(2, 1, this.footerContainer));
+        this.footerLine = {
+            invalidate: () => {},
+            /** @param {number} w */
+            render: (w) => {
+                const canExpand = this.getOutputLines().length > this.previewLineLimit;
+                const left = this.durationStr ? theme.fg("dim", this.durationStr) : "";
+                const right = canExpand
+                    ? theme.fg("dim", this.expanded ? "press ctrl+o to collapse" : "press ctrl+o to expand")
+                    : "";
+
+                if (!left && !right) return [];
+
+                // deno-lint-ignore no-control-regex
+                const visibleLength = (/** @type {string} */ line) => line.replace(/\x1b\[[0-9;]*m/g, "").length;
+
+                if (!left) {
+                    const rightPad = " ".repeat(Math.max(0, w - visibleLength(right)));
+                    return [`${rightPad}${right}`];
+                }
+
+                if (!right) {
+                    return [left];
+                }
+
+                const leftLen = visibleLength(left);
+                const rightLen = visibleLength(right);
+
+                if (leftLen + 1 + rightLen <= w) {
+                    const spacing = " ".repeat(Math.max(1, w - leftLen - rightLen));
+                    return [`${left}${spacing}${right}`];
+                }
+
+                const rightPad = " ".repeat(Math.max(0, w - rightLen));
+                return [left, `${rightPad}${right}`];
+            },
+        };
+        this.footerContainer.addChild(this.footerLine);
+        this.footerBlock = new ColoredBlock("surface1", new PaddedBlock(2, 0, this.footerContainer));
         this.container.addChild(this.footerBlock);
 
         // Store body text
@@ -172,12 +213,36 @@ export class ToolExecutionBlock {
         this.startTime = Date.now();
     }
 
+    /**
+     * @returns {string[]}
+     */
+    getOutputLines() {
+        if (!this.bodyText) return [];
+        return this.bodyText.replaceAll("\r\n", "\n").replaceAll("\r", "\n").split("\n");
+    }
+
+    updateBodyText() {
+        const lines = this.getOutputLines();
+        const shown = !this.expanded && lines.length > this.previewLineLimit
+            ? lines.slice(0, this.previewLineLimit)
+            : lines;
+        const renderedText = shown.join("\n");
+        this.bodyTextComponent.setText(
+            this.isError ? theme.fg("error", renderedText) : theme.fg("subtext0", renderedText),
+        );
+    }
+
+    /** @param {boolean} expanded */
+    setExpanded(expanded) {
+        this.expanded = expanded;
+        this.updateBodyText();
+        this.invalidate();
+    }
+
     /** @param {string} text */
     appendOutput(text) {
         this.bodyText += text;
-        this.bodyTextComponent.setText(
-            this.isError ? theme.fg("error", this.bodyText) : theme.fg("subtext0", this.bodyText),
-        );
+        this.updateBodyText();
         this.invalidate();
     }
 
@@ -192,12 +257,10 @@ export class ToolExecutionBlock {
             this.header.bgColor = "maroon"; // Highlight header in red on error
             this.bodyBlock.bgColor = "mantle"; // Darker background for error body
             this.footerBlock.bgColor = "maroon";
-            // Repaint body text with error color
-            this.bodyTextComponent.setText(theme.fg("error", this.bodyText));
         }
 
-        const durationStr = `Took ${(durationMs / 1000).toFixed(1)}s`;
-        this.footerContainer.addChild(new Text(theme.fg("dim", durationStr), 0, 0));
+        this.durationStr = `Took ${(durationMs / 1000).toFixed(1)}s`;
+        this.updateBodyText();
         this.invalidate();
     }
 

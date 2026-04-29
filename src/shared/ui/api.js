@@ -8,13 +8,15 @@ import { theme } from "../theme.js";
  * @param {import('@mariozechner/pi-tui').TUI} tui
  * @param {import('@mariozechner/pi-tui').Container} messageList
  * @param {import('./blocks.js').SpinnerBlock} spinner
- * @returns {import('../workflow.js').UiAPI & { appendUserMessage: (text: string) => void, setBusy: (busy: boolean) => void, getActiveToolBlock: (id: string) => import('./blocks.js').ToolExecutionBlock | undefined, startToolExecution: (id: string, name: string, args: string) => import('./blocks.js').ToolExecutionBlock }}
+ * @returns {import('../workflow.js').UiAPI & { appendUserMessage: (text: string) => void, setBusy: (busy: boolean) => void, getActiveToolBlock: (id: string) => import('./blocks.js').ToolExecutionBlock | undefined, startToolExecution: (id: string, name: string, args: string) => import('./blocks.js').ToolExecutionBlock, toggleToolOutputsExpanded: () => void }}
  */
 export function createUiApi(tui, messageList, spinner) {
     const activeToolBlocks = new Map();
 
     /** @type {number | null} */
     let spinnerInterval = null;
+
+    let toolsExpanded = false;
 
     return {
         /** @param {string} text */
@@ -72,11 +74,20 @@ export function createUiApi(tui, messageList, spinner) {
          */
         startToolExecution: (id, name, argsStr) => {
             const block = new ToolExecutionBlock(name, argsStr);
+            block.setExpanded(toolsExpanded);
             activeToolBlocks.set(id, block);
             messageList.addChild(block);
             messageList.addChild(new Spacer(1));
             tui.requestRender();
             return block;
+        },
+
+        toggleToolOutputsExpanded: () => {
+            toolsExpanded = !toolsExpanded;
+            for (const block of activeToolBlocks.values()) {
+                block.setExpanded(toolsExpanded);
+            }
+            tui.requestRender();
         },
 
         getActiveToolBlock: (id) => {

@@ -580,6 +580,15 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
             }
             return;
         }
+        // Ctrl+O toggles expand/collapse for tool output blocks
+        if (matchesKey(data, Key.ctrl("o"))) {
+            if (uiAPI.toggleToolOutputsExpanded) {
+                uiAPI.toggleToolOutputsExpanded();
+                tui.requestRender();
+                return;
+            }
+        }
+
         // Shift+Enter or Alt+Enter for new line
         if (
             matchesKey(data, Key.shift("enter")) || matchesKey(data, Key.alt("enter"))
