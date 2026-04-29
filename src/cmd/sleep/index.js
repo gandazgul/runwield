@@ -4,7 +4,7 @@
  */
 
 import { parseArgs } from "@std/cli/parse-args";
-import { COMMAND_NAMES, TOOLSETS } from "../../constants.js";
+import { COMMAND_NAMES } from "../../constants.js";
 import { runAgentSession } from "../../shared/session.js";
 import { printCommandHelp } from "../../shared/help-text.js";
 
@@ -77,7 +77,6 @@ export async function runSleepCommand(argv) {
 
     await runAgentSession({
         agentName: "operator",
-        toolNames: TOOLSETS.OPERATOR,
         userRequest: SLEEP_REQUEST,
     });
 

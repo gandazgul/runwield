@@ -9,7 +9,31 @@ import { join } from "@std/path";
 import { AGENT_DEFS_DIR, CORE_SYSTEM_PROMPT, CWD } from "../constants.js";
 import mnemosyneExtension from "../extensions/mnemosyne/index.js";
 
-const PROJECT_AGENT_DEFS_DIR = join(CWD, ".pi", "agents");
+const HOME_DIR = Deno.env.get("HOME") || "";
+const HOME_AGENT_DEFS_DIR = HOME_DIR ? join(HOME_DIR, ".hns", "agents") : null;
+const LOCAL_AGENT_DEFS_DIR = join(CWD, ".hns", "agents");
+
+/**
+ * @returns {string[]}
+ */
+function getAgentDefLayerDirs() {
+    return [
+        AGENT_DEFS_DIR,
+        ...(HOME_AGENT_DEFS_DIR ? [HOME_AGENT_DEFS_DIR] : []),
+        LOCAL_AGENT_DEFS_DIR,
+    ];
+}
+
+/**
+ * @returns {string[]}
+ */
+function getAgentDefDirsByPriority() {
+    return [
+        LOCAL_AGENT_DEFS_DIR,
+        ...(HOME_AGENT_DEFS_DIR ? [HOME_AGENT_DEFS_DIR] : []),
+        AGENT_DEFS_DIR,
+    ];
+}
 
 /**
  * @param {string} path
@@ -25,50 +49,162 @@ async function directoryExists(path) {
 }
 
 /**
- * Resolve agent definition directory with bundled-first strategy.
- * 1) Bundled agent defs shipped with Harns binary
- * 2) Project-local .pi/agents fallback
+ * @param {string} path
+ * @returns {Promise<boolean>}
+ */
+async function fileExists(path) {
+    try {
+        const stat = await Deno.stat(path);
+        return stat.isFile;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Merge tool names by union + stable order, keeping lower-layer defaults and
+ * appending any new higher-layer tools.
+ *
+ * @param {string[]} baseTools
+ * @param {unknown} nextTools
+ * @returns {string[]}
+ */
+function mergeTools(baseTools, nextTools) {
+    const merged = [...baseTools];
+    if (!Array.isArray(nextTools)) return merged;
+
+    for (const tool of nextTools) {
+        const toolName = typeof tool === "string" ? tool.trim() : "";
+        if (!toolName) continue;
+        if (!merged.includes(toolName)) merged.push(toolName);
+    }
+
+    return merged;
+}
+
+/**
+ * Resolve an existing agent definitions directory for pi-coding-agent resource loading.
+ * Priority: local (`.hns/agents`) > home (`~/.hns/agents`) > bundled defaults.
  *
  * @returns {Promise<string>}
  */
 export async function resolveAgentDefsDir() {
-    if (await directoryExists(AGENT_DEFS_DIR)) return AGENT_DEFS_DIR;
-    if (await directoryExists(PROJECT_AGENT_DEFS_DIR)) return PROJECT_AGENT_DEFS_DIR;
+    for (const dir of getAgentDefDirsByPriority()) {
+        if (await directoryExists(dir)) return dir;
+    }
 
     throw new Error(
-        `Could not find bundled agent defs at ${AGENT_DEFS_DIR} or project agent defs at ${PROJECT_AGENT_DEFS_DIR}`,
+        [
+            "Could not find any agent defs directory.",
+            `Tried local: ${LOCAL_AGENT_DEFS_DIR}`,
+            ...(HOME_AGENT_DEFS_DIR ? [`Tried home: ${HOME_AGENT_DEFS_DIR}`] : []),
+            `Tried bundled: ${AGENT_DEFS_DIR}`,
+        ].join(" "),
     );
 }
 
 /**
+ * List all known agent definition names across bundled + home + local layers.
+ *
+ * @returns {Promise<string[]>}
+ */
+export async function listAgentDefNames() {
+    const names = new Set();
+
+    for (const dir of getAgentDefLayerDirs()) {
+        if (!(await directoryExists(dir))) continue;
+        for await (const entry of Deno.readDir(dir)) {
+            if (!entry.isFile || !entry.name.endsWith(".md")) continue;
+            names.add(entry.name.replace(/\.md$/, ""));
+        }
+    }
+
+    return [...names].sort((a, b) => a.localeCompare(b));
+}
+
+/**
  * @typedef {Object} AgentDef
- * @property {string} name - Agent name (from frontmatter or filename)
+ * @property {string} name - Agent display name (from frontmatter or filename)
  * @property {string} model - Model identifier
- * @property {string} systemPrompt - Core system prompt + agent-specific system prompt
+ * @property {string} description - One-line description from merged frontmatter
+ * @property {string[]} tools - Allowed tool names from merged frontmatter
+ * @property {string} systemPrompt - Core system prompt + merged agent prompt
  */
 
 /**
- * Load an agent definition from `.pi/agents/<name>.md`.
+ * Load and merge an agent definition from layered files:
+ * 1) bundled: `src/agent-definitions/<name>.md`
+ * 2) home override: `~/.hns/agents/<name>.md`
+ * 3) local override: `<cwd>/.hns/agents/<name>.md`
+ *
+ * Higher layers override scalar attrs. Prompt body appends by default; if a
+ * layer sets `promptOverride: true`, lower-layer prompt content is discarded.
+ * Tools are merged by union (deduped), preserving existing defaults.
  *
  * @param {string} agentName
- * @param {string} [agentDefsDir]
  * @returns {Promise<AgentDef>}
  */
-export async function loadAgentDef(agentName, agentDefsDir) {
-    const resolvedDir = agentDefsDir || await resolveAgentDefsDir();
-    const filePath = join(resolvedDir, `${agentName}.md`);
-    const raw = await Deno.readTextFile(filePath);
+export async function loadAgentDef(agentName) {
+    const layerDirs = getAgentDefLayerDirs();
 
-    if (!hasFrontMatter(raw)) {
-        throw new Error(`Agent def ${filePath} has no frontmatter`);
+    /** @type {Record<string, unknown>} */
+    let mergedAttrs = {};
+    /** @type {string[]} */
+    let mergedTools = [];
+    /** @type {string[]} */
+    let promptSegments = [];
+    let found = false;
+
+    for (const dir of layerDirs) {
+        const filePath = join(dir, `${agentName}.md`);
+        if (!(await fileExists(filePath))) continue;
+
+        const raw = await Deno.readTextFile(filePath);
+        if (!hasFrontMatter(raw)) {
+            throw new Error(`Agent def ${filePath} has no frontmatter`);
+        }
+
+        const { attrs, body } = extractYaml(raw);
+        found = true;
+
+        mergedAttrs = { ...mergedAttrs, ...attrs };
+        mergedTools = mergeTools(mergedTools, attrs.tools);
+
+        if (attrs.promptOverride === true) {
+            promptSegments = [];
+        }
+
+        const trimmedBody = body.trim();
+        if (trimmedBody) promptSegments.push(trimmedBody);
     }
 
-    const { attrs, body } = extractYaml(raw);
-    const name = attrs.name || agentName;
-    const model = attrs.model || "claude-sonnet-4-20250514";
-    const systemPrompt = CORE_SYSTEM_PROMPT + "\n\n" + body.trim();
+    if (!found) {
+        throw new Error(
+            [
+                `Could not find agent def for "${agentName}".`,
+                `Checked bundled: ${join(AGENT_DEFS_DIR, `${agentName}.md`)}`,
+                ...(HOME_AGENT_DEFS_DIR ? [`Checked home: ${join(HOME_AGENT_DEFS_DIR, `${agentName}.md`)}`] : []),
+                `Checked local: ${join(LOCAL_AGENT_DEFS_DIR, `${agentName}.md`)}`,
+            ].join(" "),
+        );
+    }
 
-    return { name, model, systemPrompt };
+    const name = typeof mergedAttrs.name === "string" && mergedAttrs.name.trim() ? mergedAttrs.name : agentName;
+    const model = typeof mergedAttrs.model === "string" && mergedAttrs.model.trim()
+        ? mergedAttrs.model
+        : "claude-sonnet-4-20250514";
+    const description = typeof mergedAttrs.description === "string" ? mergedAttrs.description : "";
+
+    const mergedPromptBody = promptSegments.join("\n\n").trim();
+    const systemPrompt = mergedPromptBody ? `${CORE_SYSTEM_PROMPT}\n\n${mergedPromptBody}` : CORE_SYSTEM_PROMPT;
+
+    return {
+        name,
+        model,
+        description,
+        tools: mergedTools,
+        systemPrompt,
+    };
 }
 
 /** @type {Set<import('@mariozechner/pi-coding-agent').AgentSession>} */
@@ -88,7 +224,7 @@ export function abortActiveSession() {
  *
  * @param {Object} opts
  * @param {string} opts.agentName
- * @param {string[]} opts.toolNames
+ * @param {string[]} [opts.toolNames] - Optional explicit tool override; defaults to agent frontmatter tools.
  * @param {import('@mariozechner/pi-coding-agent').ToolDefinition[]} [opts.customTools]
  * @param {string} opts.userRequest - The user-facing request/instruction to send to the agent
  * @param {Array<{base64: string, mimeType: string}>} [opts.images]
@@ -98,8 +234,12 @@ export function abortActiveSession() {
 export async function runAgentSession(
     { agentName, toolNames, customTools, userRequest, images, uiAPI },
 ) {
-    const agentDefsDir = await resolveAgentDefsDir();
-    const agentDef = await loadAgentDef(agentName, agentDefsDir);
+    const resourceAgentDir = await resolveAgentDefsDir();
+    const agentDef = await loadAgentDef(agentName);
+
+    const customToolNames = (customTools || []).map((t) => t.name);
+    const selectedToolNames = toolNames || agentDef.tools;
+    const tools = [...new Set([...(selectedToolNames || []), ...customToolNames])];
 
     // Attempt to update the agent info in the UI footer.
     if (uiAPI) {
@@ -117,7 +257,7 @@ export async function runAgentSession(
 
     const loader = new DefaultResourceLoader({
         cwd: CWD,
-        agentDir: agentDefsDir,
+        agentDir: resourceAgentDir,
         systemPromptOverride: () => agentDef.systemPrompt,
         extensionFactories: [mnemosyneExtension],
     });
@@ -125,7 +265,7 @@ export async function runAgentSession(
 
     const { session, extensionsResult } = await createAgentSession({
         cwd: CWD,
-        tools: [...toolNames, ...(customTools || []).map((t) => t.name)],
+        tools,
         customTools: customTools || [],
         resourceLoader: loader,
         sessionManager: SessionManager.inMemory(),
@@ -178,8 +318,10 @@ export async function runAgentSession(
                 let headerArgs = "";
                 if (filePath) headerArgs = `${filePath}`;
                 else if (event.toolName === "bash") headerArgs = event.args?.command || "";
-                else if (event.toolName === "grep_search") {
-                    headerArgs = `${event.args?.query} in ${event.args?.path || event.args?.dir || "."}`;
+                else if (event.toolName === "grep") {
+                    headerArgs = `${event.args?.pattern} in ${event.args?.path || "."}`;
+                } else if (event.toolName === "find") {
+                    headerArgs = `${event.args?.pattern} in ${event.args?.path || "."}`;
                 }
 
                 if (uiAPI && uiAPI.startToolExecution) {
@@ -252,6 +394,7 @@ export async function runAgentSession(
                 `===========================================`,
                 `=== AGENT INVOCATION: ${agentDef.name} ===`,
                 `=== TIMESTAMP: ${new Date().toISOString()} ===`,
+                `=== TOOLS: ${tools.join(", ")} ===`,
                 `=== SYSTEM PROMPT ===`,
                 agentDef.systemPrompt,
                 `=== USER REQUEST ===`,

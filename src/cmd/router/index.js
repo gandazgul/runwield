@@ -6,7 +6,7 @@
 import { parseArgs } from "@std/cli/parse-args";
 import { printCommandHelp } from "../../shared/help-text.js";
 import { setActiveAgent, startInteractiveSession } from "../../shared/chat-session.js";
-import { CLI_BIN, CWD, TOOLSETS } from "../../constants.js";
+import { CLI_BIN, CWD } from "../../constants.js";
 import { ensurePlansDir } from "../../plan-store.js";
 import { triageReportTool } from "../../tools/triage-report.js";
 import { planWrittenTool } from "../../tools/plan-written.js";
@@ -52,7 +52,6 @@ export async function routerCmdOnMessage(userRequest, images, uiAPI) {
 
     const routerMessages = await runAgentSession({
         agentName: "router",
-        toolNames: TOOLSETS.ROUTER,
         customTools: [triageReportTool],
         userRequest,
         images,
@@ -91,7 +90,6 @@ export async function routerCmdOnMessage(userRequest, images, uiAPI) {
 
         await runAgentSession({
             agentName: "operator",
-            toolNames: TOOLSETS.OPERATOR,
             userRequest: operatorRequest,
             uiAPI,
         });
@@ -119,7 +117,6 @@ export async function routerCmdOnMessage(userRequest, images, uiAPI) {
 
         const result = await reviewLoop({
             agentName: "planner",
-            toolNames: TOOLSETS.PLANNING,
             customTools: [planWrittenTool],
             initialRequest: plannerRequest,
             triageMeta: triage,
@@ -165,7 +162,6 @@ export async function routerCmdOnMessage(userRequest, images, uiAPI) {
 
         const result = await reviewLoop({
             agentName: "architect",
-            toolNames: TOOLSETS.PLANNING,
             customTools: [planWrittenTool],
             initialRequest: architectRequest,
             triageMeta: triage,
@@ -183,7 +179,6 @@ export async function routerCmdOnMessage(userRequest, images, uiAPI) {
                     // Trigger immediate repair loop
                     await reviewLoop({
                         agentName: "architect",
-                        toolNames: TOOLSETS.PLANNING,
                         customTools: [planWrittenTool],
                         initialRequest:
                             `The previously approved plan "${result.planName}" had a malformed Tasks table: ${execRes.error}.\n\nPlease fix the table to ensure it follows the required format (Task ID | Assignee | Dependencies | Description) and call plan_written again.`,

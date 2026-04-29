@@ -4,7 +4,7 @@
  */
 
 import { parseArgs } from "@std/cli/parse-args";
-import { CLI_BIN, CWD, TOOLSETS } from "../../constants.js";
+import { CLI_BIN, CWD } from "../../constants.js";
 import { resolvePlan } from "../../plan-store.js";
 import { submitPlanForReview } from "../../tools/submit-plan.js";
 import { planWrittenTool } from "../../tools/plan-written.js";
@@ -131,7 +131,6 @@ export async function runResumeCommand(argv, options = {}) {
                     );
                     await reviewLoop({
                         agentName,
-                        toolNames: TOOLSETS.PLANNING,
                         customTools: [planWrittenTool],
                         initialRequest:
                             `The previously approved plan "${plan.planName}" had a malformed Tasks table: ${execRes.error}.\n\nPlease fix the table to ensure it follows the required format (Task ID | Assignee | Dependencies | Description) and call plan_written again.`,
@@ -202,7 +201,6 @@ export async function runResumeCommand(argv, options = {}) {
 
     const result = await reviewLoop({
         agentName,
-        toolNames: TOOLSETS.PLANNING,
         customTools: [planWrittenTool],
         initialRequest: resumeRequest,
         triageMeta,
@@ -221,7 +219,6 @@ export async function runResumeCommand(argv, options = {}) {
             );
             await reviewLoop({
                 agentName,
-                toolNames: TOOLSETS.PLANNING,
                 customTools: [planWrittenTool],
                 initialRequest:
                     `The previously approved plan "${result.planName}" had a malformed Tasks table: ${execRes.error}.\n\nPlease fix the table to ensure it follows the required format (Task ID | Assignee | Dependencies | Description) and call plan_written again.`,

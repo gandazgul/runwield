@@ -1,11 +1,9 @@
 /**
  * @module shared/agents
- * Agent discovery — scans the agent definitions directory and returns metadata.
+ * Agent discovery — scans agent definitions (bundled + overrides) and returns merged metadata.
  */
 
-import { extractYaml, test as hasFrontMatter } from "@std/front-matter";
-import { join } from "@std/path";
-import { resolveAgentDefsDir } from "./session.js";
+import { listAgentDefNames, loadAgentDef } from "./session.js";
 
 /**
  * @typedef {Object} AgentInfo
@@ -16,32 +14,26 @@ import { resolveAgentDefsDir } from "./session.js";
  */
 
 /**
- * List all available agent definitions.
+ * List all available merged agent definitions.
  *
  * @returns {Promise<AgentInfo[]>}
  */
 export async function listAvailableAgents() {
-    const dir = await resolveAgentDefsDir();
+    const names = await listAgentDefNames();
     /** @type {AgentInfo[]} */
     const agents = [];
 
-    for await (const entry of Deno.readDir(dir)) {
-        if (!entry.isFile || !entry.name.endsWith(".md")) continue;
-
-        const name = entry.name.replace(/\.md$/, "");
+    for (const name of names) {
         try {
-            const raw = await Deno.readTextFile(join(dir, entry.name));
-            if (!hasFrontMatter(raw)) continue;
-
-            const { attrs } = extractYaml(raw);
+            const def = await loadAgentDef(name);
             agents.push({
                 name,
-                displayName: attrs.name || name,
-                description: attrs.description || "",
-                model: attrs.model || "unknown",
+                displayName: def.name || name,
+                description: def.description || "",
+                model: def.model || "unknown",
             });
         } catch {
-            // Skip unreadable files
+            // Skip unreadable or invalid files
         }
     }
 

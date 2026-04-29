@@ -4,12 +4,35 @@
  */
 
 import { join } from "@std/path";
-import { CWD, MAX_PARALLEL_TASKS, PLANS_DIR_NAME, TOOLSETS } from "../constants.js";
+import { CWD, MAX_PARALLEL_TASKS, PLANS_DIR_NAME } from "../constants.js";
 import { submitPlanForReview } from "../tools/submit-plan.js";
 import { loadPlan } from "../plan-store.js";
 import { runAgentSession } from "./session.js";
 import { confirm, select } from "./prompts.js";
 import { extractPlanWritten } from "./triage.js";
+
+/**
+ * Extract the last text output from the agent's assistant messages.
+ * Scans messages in reverse, checking ALL content blocks (not just [0])
+ * to handle cases where tool_use blocks appear alongside text.
+ *
+ * @param {import('@mariozechner/pi-agent-core').AgentMessage[]} messages
+ * @returns {string | null}
+ */
+function extractAssistantOutput(messages) {
+    for (let i = messages.length - 1; i >= 0; i--) {
+        const msg = messages[i];
+        if (!("role" in msg) || msg.role !== "assistant") continue;
+        if (!Array.isArray(msg.content)) continue;
+        // Scan all content blocks for a text block
+        for (const block of msg.content) {
+            if (block && typeof block === "object" && "type" in block && block.type === "text" && block.text?.trim()) {
+                return block.text.trim();
+            }
+        }
+    }
+    return null;
+}
 
 /**
  * @typedef {Object} UiAPI
@@ -58,7 +81,7 @@ async function resolveDeclaredPlan(messages) {
  *
  * @param {Object} opts
  * @param {string} opts.agentName
- * @param {string[]} opts.toolNames
+ * @param {string[]} [opts.toolNames]
  * @param {string} opts.initialRequest - The initial user request to send to the planning agent
  * @param {import('@mariozechner/pi-coding-agent').ToolDefinition[]} [opts.customTools]
  * @param {Partial<import('../plan-store.js').PlanFrontMatter>} opts.triageMeta
@@ -419,7 +442,7 @@ async function executeProjectTasks(
                 planBody,
             ].filter(Boolean).join("\n\n");
 
-            const taskTools = agentName === "doc-writer" ? TOOLSETS.DOC_WRITER : TOOLSETS.ENGINEER;
+            const taskTools = undefined;
 
             try {
                 // We do NOT use uiAPI directly for rendering text chunks for concurrent tasks
@@ -452,17 +475,33 @@ async function executeProjectTasks(
                     uiAPI: mockUiAPI, // Avoid concurrent TUI text writes and silence terminal
                 });
 
+                // Extract text from last assistant message, scanning all content blocks
+                const outputText = extractAssistantOutput(sessionMessages);
+
+                if (Deno.env.get("DEBUG") === "1") {
+                    const debugEntry = [
+                        `=== TASK ${task.task} (${agentName}) AGENT RESPONSE ===`,
+                        `=== Output text: ${outputText ? outputText.slice(0, 500) : "(empty)"} ===`,
+                        `=== Total messages: ${sessionMessages.length} ===`,
+                        `=== Assistant messages: ${
+                            sessionMessages.filter((m) => "role" in m && m.role === "assistant").length
+                        } ===`,
+                        `===========================================`,
+                        "",
+                    ].join("\n");
+                    try {
+                        Deno.writeTextFileSync(join(Deno.cwd(), "debug.log"), debugEntry, { append: true });
+                    } catch (_e) { /* ignore */ }
+                }
+
+                // Always show the output block, even if empty
                 if (uiAPI) {
-                    const finalAssistantMessageText = sessionMessages.slice().reverse().find((m) =>
-                        "role" in m && m.role === "assistant"
-                    )?.content?.[0] || { type: "text", text: "No completion output generated" };
-                    if (
-                        "type" in finalAssistantMessageText && finalAssistantMessageText.type === "text" &&
-                        finalAssistantMessageText.text.trim()
-                    ) {
-                        const block = uiAPI.appendAgentMessageStart(`${agentName} (Task ${task.task} Output)`);
-                        block.appendText(finalAssistantMessageText.text.trim());
-                    }
+                    const block = uiAPI.appendAgentMessageStart(`${agentName} (Task ${task.task} Output)`);
+                    block.appendText(outputText || "_no output received_");
+                } else if (outputText) {
+                    console.log(`\n${agentName} (Task ${task.task} Output):\n${outputText}\n`);
+                } else {
+                    console.log(`\n${agentName} (Task ${task.task} Output): no output received\n`);
                 }
                 results.set(task.task, { status: "success", messages: sessionMessages });
             } catch (e) {
@@ -602,7 +641,6 @@ async function runEngineerWithPlan(planName, planBody, uiAPI) {
 
     await runAgentSession({
         agentName: "engineer",
-        toolNames: TOOLSETS.ENGINEER,
         userRequest: engineerRequest,
         uiAPI,
     });

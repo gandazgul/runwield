@@ -53,17 +53,37 @@ flowchart TD
 
 ## Agent Catalog
 
-All agent prompts live in [`.pi/agents/`](.pi/agents/).
+Bundled agent definitions live in [`src/agent-definitions/`](src/agent-definitions/).
 
-| Agent      | Purpose                                                              | Prompt                                    |
-| ---------- | -------------------------------------------------------------------- | ----------------------------------------- |
-| Router     | Classifies incoming requests and emits structured triage data.       | [router.md](.pi/agents/router.md)         |
-| Operator   | Executes small, low-risk `QUICK_FIX` tasks directly.                 | [operator.md](.pi/agents/operator.md)     |
-| Planner    | Produces iterative, execution-ready plans for `FEATURE` requests.    | [planner.md](.pi/agents/planner.md)       |
-| Architect  | Produces deeper, project-scale plans (including task decomposition). | [architect.md](.pi/agents/architect.md)   |
-| Engineer   | Implements approved plans or assigned tasks in code.                 | [engineer.md](.pi/agents/engineer.md)     |
-| Tester     | Writes/updates tests for approved changes.                           | [tester.md](.pi/agents/tester.md)         |
-| Doc Writer | Creates or updates technical documentation artifacts.                | [doc-writer.md](.pi/agents/doc-writer.md) |
+| Agent      | Purpose                                                              | Prompt                                               |
+| ---------- | -------------------------------------------------------------------- | ---------------------------------------------------- |
+| Router     | Classifies incoming requests and emits structured triage data.       | [router.md](src/agent-definitions/router.md)         |
+| Operator   | Executes small, low-risk `QUICK_FIX` tasks directly.                 | [operator.md](src/agent-definitions/operator.md)     |
+| Planner    | Produces iterative, execution-ready plans for `FEATURE` requests.    | [planner.md](src/agent-definitions/planner.md)       |
+| Architect  | Produces deeper, project-scale plans (including task decomposition). | [architect.md](src/agent-definitions/architect.md)   |
+| Engineer   | Implements approved plans or assigned tasks in code.                 | [engineer.md](src/agent-definitions/engineer.md)     |
+| Tester     | Writes/updates tests for approved changes.                           | [tester.md](src/agent-definitions/tester.md)         |
+| Doc Writer | Creates or updates technical documentation artifacts.                | [doc-writer.md](src/agent-definitions/doc-writer.md) |
+
+### Agent Overrides (`.hns/agents`)
+
+You can override bundled agent definitions with markdown files in:
+
+- Home: `~/.hns/agents/<agent>.md`
+- Project-local: `<repo>/.hns/agents/<agent>.md`
+
+Precedence (highest to lowest):
+
+1. Local (`<repo>/.hns/agents`)
+2. Home (`~/.hns/agents`)
+3. Bundled (`src/agent-definitions`)
+
+Merge behavior:
+
+- Frontmatter scalar fields (`name`, `model`, `description`, etc.) override by precedence.
+- `tools` arrays are merged (union + dedupe), so higher layers can add tools without removing defaults.
+- Prompt body appends by default across layers.
+- If a layer sets `promptOverride: true`, lower-layer prompt content is discarded and replaced from that layer onward.
 
 ---
 
@@ -211,9 +231,10 @@ Harns updates these statuses during the review loop and resume flow.
 
 ```text
 .
-├── .pi/agents/              # Agent prompt definitions
+├── .hns/agents/             # Optional project-local agent overrides
 ├── plans/                   # Generated/saved plan files
 ├── src/
+│   ├── agent-definitions/   # Bundled default agent markdown definitions
 │   ├── cli.js               # CLI entrypoint + command dispatch
 │   ├── constants.js         # Shared CLI/runtime constants
 │   ├── cmd/
@@ -250,8 +271,10 @@ Harns updates these statuses during the review loop and resume flow.
 
 ### Agent behavior looks off
 
-- Installed binaries use bundled default prompts.
-- For source runs, inspect/edit the relevant prompt in `.pi/agents/` and re-run.
+- Installed binaries use bundled defaults from `src/agent-definitions/`.
+- Check for overrides in `~/.hns/agents/` and `<repo>/.hns/agents/`.
+- For source runs, inspect/edit the relevant bundled prompt in `src/agent-definitions/` (or provide an override) and
+  re-run.
 
 ---
 

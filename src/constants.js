@@ -49,26 +49,5 @@ export const COMMAND_NAMES = Object.freeze({
     HELP: "help",
 });
 
-/** Shared memory tools available across all agent invocations. */
-export const MEMORY_TOOLSET = Object.freeze([
-    "memory_recall",
-    "memory_recall_global",
-    "memory_store",
-    "memory_store_global",
-    "memory_delete",
-]);
-
-/**
- * Reusable tool bundles granted to agents.
- * Keeping these centralized avoids drift between commands.
- */
-export const TOOLSETS = Object.freeze({
-    ROUTER: ["read", "bash", ...MEMORY_TOOLSET],
-    OPERATOR: ["read", "edit", "write", "bash", ...MEMORY_TOOLSET],
-    PLANNING: ["read", "edit", "write", "bash", ...MEMORY_TOOLSET],
-    ENGINEER: ["read", "edit", "write", "bash", ...MEMORY_TOOLSET],
-    DOC_WRITER: ["read", "write", "bash", ...MEMORY_TOOLSET],
-});
-
 /** Max concurrent agent tasks for PROJECT execution. */
 export const MAX_PARALLEL_TASKS = 4;

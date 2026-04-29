@@ -5,7 +5,6 @@
  * the TUI with full streaming output (not suppressed like parallel tasks).
  */
 
-import { TOOLSETS } from "../constants.js";
 import { runAgentSession } from "./session.js";
 
 /**
@@ -21,7 +20,6 @@ export function createDirectAgentHandler(agentName) {
     return async (userRequest, images, uiAPI) => {
         await runAgentSession({
             agentName,
-            toolNames: TOOLSETS.OPERATOR,
             userRequest,
             images,
             uiAPI,

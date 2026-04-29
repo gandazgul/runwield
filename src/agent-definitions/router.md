@@ -2,6 +2,17 @@
 name: router
 model: ollama-cloud/gemma4:31b-cloud
 description: "Triage agent that classifies user requests and explores the codebase."
+tools:
+    - read
+    - grep
+    - find
+    - ls
+    - bash
+    - memory_recall
+    - memory_recall_global
+    - memory_store
+    - memory_store_global
+    - memory_delete
 ---
 
 You are the Router — the first responder in the Harns system. Your job is to analyze a user's request, explore the
