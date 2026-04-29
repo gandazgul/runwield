@@ -2,6 +2,31 @@ import { Container, Markdown, Spacer, Text } from "@mariozechner/pi-tui";
 import { markdownTheme, theme } from "../theme.js";
 
 /**
+ * Format system line text. If line starts with a bracketed prefix (e.g. `[Harns]`),
+ * render the prefix in accent/error color without brackets to avoid terminal glyph
+ * alignment issues for `[` in some fonts.
+ *
+ * @param {string} text
+ * @param {boolean} isError
+ * @returns {string}
+ */
+function formatSystemLine(text, isError) {
+    const baseColor = isError ? "error" : "dim";
+    const prefixMatch = text.match(/^\[([^\]]+)\]\s*(.*)$/);
+
+    if (!prefixMatch) {
+        return theme.fg(baseColor, text);
+    }
+
+    const [, prefix, rest] = prefixMatch;
+    const prefixColor = isError ? "error" : "accent";
+    const renderedPrefix = theme.fg(prefixColor, theme.bold(prefix));
+
+    if (!rest) return renderedPrefix;
+    return `${renderedPrefix} ${theme.fg(baseColor, rest)}`;
+}
+
+/**
  * @param {string[]} lines
  * @param {string} bgColor
  */
@@ -197,15 +222,13 @@ export class SystemMessageBlock {
     constructor(text, isError = false) {
         this.container = new Container();
         this.isError = isError;
-        const color = isError ? "error" : "dim";
-        this.container.addChild(new Text(theme.fg(color, text), 0, 0));
+        this.container.addChild(new Text(formatSystemLine(text, isError), 0, 0));
         this.block = new ColoredBlock("mantle", new PaddedBlock(2, 1, this.container));
     }
 
     /** @param {string} text */
     appendText(text) {
-        const color = this.isError ? "error" : "dim";
-        this.container.addChild(new Text(theme.fg(color, text), 0, 0));
+        this.container.addChild(new Text(formatSystemLine(text, this.isError), 0, 0));
         this.invalidate();
     }
 
