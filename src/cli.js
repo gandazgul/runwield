@@ -27,7 +27,8 @@ async function main() {
 
     const parsed = parseArgs(args, {
         boolean: ["help"],
-        alias: { h: "help" },
+        string: ["agent"],
+        alias: { h: "help", a: "agent" },
         stopEarly: true,
     });
 
@@ -54,6 +55,13 @@ async function main() {
     // Any other global --help form falls back to global help.
     if (parsed.help) {
         printGlobalHelp();
+        return;
+    }
+
+    // --agent flag: delegate to agents command
+    if ("agent" in parsed) {
+        const agentArgs = parsed.agent ? [parsed.agent, ...parsed._.map(String)] : [];
+        await commandRegistry[COMMAND_NAMES.AGENTS](agentArgs);
         return;
     }
 

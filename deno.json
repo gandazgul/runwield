@@ -24,7 +24,7 @@
         "cli": "deno run -A src/cli.js",
         "check": "deno check src/cli.js",
         "resume": "deno run -A src/cli.js resume",
-        "compile": "deno compile -A --include .pi/agents --output ./bin/hns src/cli.js"
+        "compile": "deno compile -A --include src/agent-definitions --output ./bin/hns src/cli.js"
     },
     "fmt": {
         "lineWidth": 120,

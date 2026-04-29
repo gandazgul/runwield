@@ -4,12 +4,16 @@
  * user interaction — distinct from individual agent invocations (see session.js).
  */
 
-import { Container, Editor, Image, Key, Markdown, matchesKey, SelectList, Spacer, Text } from "@mariozechner/pi-tui";
+import { Container, Editor, Image, Key, matchesKey, Spacer, Text } from "@mariozechner/pi-tui";
 import { initTUI, stopTUI } from "./tui.js";
-import { editorTheme, imageTheme, markdownTheme, selectListTheme, theme } from "./theme.js";
+import { editorTheme, imageTheme, theme } from "./theme.js";
 import { readClipboardImage } from "./clipboard.js";
+import { createUiApi } from "./ui/api.js";
+import { SpinnerBlock } from "./ui/blocks.js";
 import { listPlans } from "../plan-store.js";
 import { abortActiveSession } from "./session.js";
+import { listAvailableAgents } from "./agents.js";
+import { createDirectAgentHandler } from "./direct-agent.js";
 
 const UI_PADDING = { x: 0, y: 0 };
 
@@ -63,21 +67,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
     container.addChild(messageList);
     container.addChild(new Spacer(1));
 
-    const runningTasksComponent = {
-        /** @type {Array<{task: number, assignee: string, description: string}>} */
-        tasks: [],
-        frame: 0,
-        invalidate: () => {},
-        /** @param {number} w */
-        render: (w) => {
-            if (runningTasksComponent.tasks.length === 0) return [];
-            const frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-            const f = frames[runningTasksComponent.frame % frames.length];
-            return runningTasksComponent.tasks.map(t => {
-                return theme.fg("accent", f) + " " + theme.fg("success", t.assignee) + " " + theme.fg("dim", `(Task ${t.task})`);
-            });
-        }
-    };
+    const runningTasksComponent = new SpinnerBlock();
     container.addChild(runningTasksComponent);
 
     /** @type {Array<{base64: string, mimeType: string}>} */
@@ -180,6 +170,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
                         description: "Exit the application",
                     },
                     { name: "resume", aliases: [], description: "Resume a saved plan" },
+                    { name: "agent", aliases: [], description: "Switch active agent" },
                 ];
 
                 const items = [];
@@ -207,6 +198,23 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
                         label: p.name,
                         description: `${p.attrs.classification} - ${p.attrs.status}`,
                     }));
+                if (items.length === 0) return null;
+                return { items, prefix };
+            }
+
+            if (textBeforeCursor.startsWith("/agent ")) {
+                const prefix = textBeforeCursor.slice(7);
+                const agents = await listAvailableAgents();
+                const items = [
+                    { value: "router", label: "router", description: "Reset to default router (triage) flow" },
+                    ...agents
+                        .filter((a) => a.name.startsWith(prefix))
+                        .map((a) => ({
+                            value: a.name,
+                            label: a.name,
+                            description: a.description,
+                        })),
+                ].filter((item) => item.value.startsWith(prefix));
                 if (items.length === 0) return null;
                 return { items, prefix };
             }
@@ -243,162 +251,36 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
     editor.setAutocompleteProvider(autocompleteProvider);
 
     // Expose a UI API for agents to append to the message list
-    const uiAPI = {
-        /** @param {string} text */
-        appendUserMessage: (text) => {
-            messageList.addChild(
-                new Text(
-                    theme.fg("accent", theme.bold("You:")),
-                    UI_PADDING.x,
-                    UI_PADDING.y,
-                ),
-            );
-            messageList.addChild(
-                new Markdown(text, UI_PADDING.x, UI_PADDING.y, markdownTheme),
-            );
-            messageList.addChild(new Spacer(1));
-            tui.requestRender();
-        },
-        /** @param {string} agentName */
-        appendAgentMessageStart: (agentName) => {
-            messageList.addChild(
-                new Text(
-                    theme.fg("success", theme.bold(`${agentName}:`)),
-                    UI_PADDING.x,
-                    UI_PADDING.y,
-                ),
-            );
-            let currentText = "";
-            const md = new Markdown("", UI_PADDING.x, UI_PADDING.y, markdownTheme);
-            messageList.addChild(md);
-            messageList.addChild(new Spacer(1));
-            tui.requestRender();
-            try {
-                tui.requestRender();
-            } catch (_e) {
-                // Ignore render errors during initialization
-            }
-            return {
-                /** @param {string} delta */
-                appendText: (delta) => {
-                    currentText += delta;
-                    md.setText(currentText);
-                    tui.requestRender();
-                },
-            };
-        },
-        /** @param {string} text */
-        appendSystemMessage: (text) => {
-            messageList.addChild(
-                new Text(theme.fg("dim", text), UI_PADDING.x, UI_PADDING.y),
-            );
-            tui.requestRender();
-        },
-        /**
-         * @param {string} title
-         * @param {Array<{value: string, label: string}>} options
-         */
-        promptSelect: (title, options) => {
-            return new Promise((resolve) => {
-                const container = new Container();
-                container.addChild(
-                    new Text("─".repeat(40), UI_PADDING.x, UI_PADDING.y),
-                );
-                container.addChild(
-                    new Text(
-                        theme.fg("accent", theme.bold(title)),
-                        UI_PADDING.x,
-                        UI_PADDING.y,
-                    ),
-                );
-                container.addChild(
-                    new Text("─".repeat(40), UI_PADDING.x, UI_PADDING.y),
-                );
+    const uiAPI = createUiApi(tui, messageList, runningTasksComponent);
 
-                const selectList = new SelectList(
-                    options,
-                    Math.min(options.length, 10),
-                    selectListTheme,
-                );
+    // Chat session specific UI overrides/extensions
+    uiAPI.setAgentInfo = (agentName, agentModel) => {
+        activeAgentName = agentName;
+        currentAgentModel = agentModel;
+        tui.requestRender();
+    };
 
-                const cleanup = () => {
-                    messageList.removeChild(container);
-                    tui.setFocus(editor);
-                    tui.requestRender();
-                };
+    uiAPI.disableInput = () => {
+        if (editor) {
+            editor.disableSubmit = true;
+            tui.requestRender();
+        }
+    };
 
-                selectList.onSelect = (item) => {
-                    cleanup();
-                    resolve(item.value);
-                };
+    uiAPI.enableInput = () => {
+        if (editor) {
+            editor.disableSubmit = false;
+            tui.requestRender();
+        }
+    };
 
-                selectList.onCancel = () => {
-                    cleanup();
-                    resolve(null);
-                };
-
-                container.addChild(selectList);
-                container.addChild(
-                    new Text("─".repeat(40), UI_PADDING.x, UI_PADDING.y),
-                );
-                container.addChild(
-                    new Text(
-                        theme.fg("dim", "↑↓ navigate • enter select • esc cancel"),
-                        UI_PADDING.x,
-                        UI_PADDING.y,
-                    ),
-                );
-
-                messageList.addChild(container);
-                tui.setFocus(selectList);
-                tui.requestRender();
-            });
-        },
-        /**
-         * @param {string} base64
-         * @param {string} mimeType
-         */
-        appendImage: (base64, mimeType) => {
-            const img = new Image(base64, mimeType, imageTheme, {
-                maxWidthCells: 60,
-                maxHeightCells: 20,
-            });
-            messageList.addChild(img);
-            tui.requestRender();
-        },
-        disableInput: () => {
-            if (editor) {
-                editor.disableSubmit = true;
-                tui.requestRender();
-            }
-        },
-        enableInput: () => {
-            if (editor) {
-                editor.disableSubmit = false;
-                tui.requestRender();
-            }
-        },
-        requestRender: () => {
-            tui.requestRender();
-        },
-        advanceSpinner: () => {
-            runningTasksComponent.frame++;
-            tui.requestRender();
-        },
-        /** @param {Array<{task: number, assignee: string, description: string}>} tasks */
-        setRunningTasks: (tasks) => {
-            runningTasksComponent.tasks = tasks;
-            tui.requestRender();
-        },
-        /**
-         * @param {string} agentName
-         * @param {string} agentModel
-         */
-        setAgentInfo: (agentName, agentModel) => {
-            activeAgentName = agentName;
-            currentAgentModel = agentModel;
-            tui.requestRender();
-        },
+    uiAPI.appendImage = (base64, mimeType) => {
+        const img = new Image(base64, mimeType, imageTheme, {
+            maxWidthCells: 60,
+            maxHeightCells: 20,
+        });
+        messageList.addChild(img);
+        tui.requestRender();
     };
 
     // @ts-ignore: TS doesn't know about pi-tui Editor internals
@@ -430,6 +312,8 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
         const userRequest = text.trim();
         if (!userRequest) return;
 
+        /** @type {any} */ (editor).addToHistory(userRequest);
+
         if (userRequest === "/quit" || userRequest === "/exit" || userRequest === "/q") {
             editor.setText("");
             tui.requestRender();
@@ -443,6 +327,68 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
         if (userRequest.startsWith("/")) {
             const [rawCmd, ...args] = userRequest.slice(1).split(" ");
             const cmd = rawCmd.trim();
+
+            // Built-in /agent command
+            if (cmd === "agent") {
+                editor.setText("");
+                const targetName = args.join(" ").trim();
+
+                if (targetName === "router") {
+                    // Reset to default router flow
+                    const { routerCmdOnMessage } = await import("../cmd/router/index.js");
+                    setActiveAgent("Router", routerCmdOnMessage);
+                    uiAPI.appendSystemMessage("Switched to Router (triage flow).");
+                    tui.setFocus(editor);
+                    return;
+                }
+
+                if (targetName) {
+                    // Direct switch: /agent <name>
+                    const agents = await listAvailableAgents();
+                    const match = agents.find((a) => a.name === targetName);
+                    if (!match) {
+                        uiAPI.appendSystemMessage(
+                            `Unknown agent: "${targetName}". Use /agent to see available agents.`,
+                        );
+                        tui.setFocus(editor);
+                        return;
+                    }
+                    const handler = createDirectAgentHandler(targetName);
+                    setActiveAgent(match.displayName, handler);
+                    uiAPI.appendSystemMessage(`Switched to ${match.displayName}.`);
+                    tui.setFocus(editor);
+                    return;
+                }
+
+                // No args: show interactive selection
+                const agents = await listAvailableAgents();
+                const options = [
+                    { value: "router", label: "router — Reset to default router (triage flow)" },
+                    ...agents.map((a) => ({
+                        value: a.name,
+                        label: `${a.name} — ${a.description}`,
+                    })),
+                ];
+
+                const chosen = await uiAPI.promptSelect("Switch agent:", options);
+                if (!chosen) {
+                    tui.setFocus(editor);
+                    return; // cancelled
+                }
+
+                if (chosen === "router") {
+                    const { routerCmdOnMessage } = await import("../cmd/router/index.js");
+                    setActiveAgent("Router", routerCmdOnMessage);
+                    uiAPI.appendSystemMessage("Switched to Router (triage flow).");
+                } else {
+                    const handler = createDirectAgentHandler(chosen);
+                    const match = agents.find((a) => a.name === chosen);
+                    setActiveAgent(match?.displayName || chosen, handler);
+                    uiAPI.appendSystemMessage(`Switched to ${match?.displayName || chosen}.`);
+                }
+                tui.setFocus(editor);
+                return;
+            }
 
             const { commandRegistry } = await import("../cmd/registry.js");
 
@@ -479,7 +425,9 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
         previewImages.clear();
 
         uiAPI.appendUserMessage(userRequest);
-        images.forEach((img) => uiAPI.appendImage(img.base64, img.mimeType));
+        images.forEach((img) => {
+            if (uiAPI.appendImage) uiAPI.appendImage(img.base64, img.mimeType);
+        });
 
         try {
             if (activeOnMessage) {
@@ -493,6 +441,8 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
             );
         } finally {
             editor.disableSubmit = false;
+            if (uiAPI.setBusy) uiAPI.setBusy(false);
+            if (uiAPI.enableInput) uiAPI.enableInput();
         }
     };
 

@@ -62,7 +62,7 @@ export async function routerCmdOnMessage(userRequest, images, uiAPI) {
     const triage = extractTriageReport(routerMessages);
 
     if (!triage) {
-        uiAPI.appendSystemMessage("ERROR: Router did not produce a triage report.");
+        uiAPI.appendSystemMessage("ERROR: Router did not produce a triage report.", true);
         return;
     }
 

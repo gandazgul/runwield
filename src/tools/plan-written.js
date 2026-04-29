@@ -15,14 +15,19 @@ export const planWrittenTool = defineTool({
         planName: Type.String({
             description: "Plan filename without extension (kebab-case preferred), e.g. implement-memory-system",
         }),
-        tasks: Type.Optional(Type.Array(Type.Object({
-            task: Type.Number({ description: "Unique task ID (e.g. 1)" }),
-            assignee: Type.String({ description: "Assigned agent role, one of: engineer, doc-writer, tester" }),
-            dependencies: Type.String({ description: "Comma-separated list of prerequisite task IDs, or empty string if none" }),
-            description: Type.String({ description: "What needs to be done in this task" })
-        }), {
-            description: "Required for PROJECT plans. Array of tasks reflecting the markdown Tasks table."
-        }))
+        tasks: Type.Optional(Type.Array(
+            Type.Object({
+                task: Type.Number({ description: "Unique task ID (e.g. 1)" }),
+                assignee: Type.String({ description: "Assigned agent role, one of: engineer, doc-writer, tester" }),
+                dependencies: Type.String({
+                    description: "Comma-separated list of prerequisite task IDs, or empty string if none",
+                }),
+                description: Type.String({ description: "What needs to be done in this task" }),
+            }),
+            {
+                description: "Required for PROJECT plans. Array of tasks reflecting the markdown Tasks table.",
+            },
+        )),
     }),
     async execute(_toolCallId, params) {
         await Promise.resolve();

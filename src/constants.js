@@ -18,7 +18,7 @@ export const CWD = Deno.cwd();
 const SRC_DIR = dirname(fromFileUrl(import.meta.url));
 
 /** Directory containing bundled default agent definition markdown files. */
-export const AGENT_DEFS_DIR = join(SRC_DIR, "..", ".pi", "agents");
+export const AGENT_DEFS_DIR = join(SRC_DIR, "agent-definitions");
 
 /**
  * Core system guidance prepended to every agent-specific system prompt.
@@ -42,6 +42,7 @@ export const PLANS_DIR_NAME = "plans";
 /** Known CLI command names. */
 export const COMMAND_NAMES = Object.freeze({
     ROUTER: "router",
+    AGENTS: "agents",
     RESUME: "resume",
     PLANS: "plans",
     SLEEP: "sleep",

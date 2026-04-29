@@ -110,9 +110,9 @@ export function extractPlanWritten(messages) {
                 details && typeof details.planName === "string" &&
                 details.planName.trim()
             ) {
-                return { 
+                return {
                     planName: details.planName.trim(),
-                    tasks: Array.isArray(details.tasks) ? details.tasks : undefined
+                    tasks: Array.isArray(details.tasks) ? details.tasks : undefined,
                 };
             }
         }

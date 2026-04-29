@@ -31,7 +31,7 @@ async function directoryExists(path) {
  *
  * @returns {Promise<string>}
  */
-async function resolveAgentDefsDir() {
+export async function resolveAgentDefsDir() {
     if (await directoryExists(AGENT_DEFS_DIR)) return AGENT_DEFS_DIR;
     if (await directoryExists(PROJECT_AGENT_DEFS_DIR)) return PROJECT_AGENT_DEFS_DIR;
 
@@ -172,30 +172,64 @@ export async function runAgentSession(
                 break;
             }
             case "tool_execution_start": {
-                // If a markdown block is open, close it so tool messages appear below the text generated so far
                 currentMarkdownBlock = null;
 
                 const filePath = getFilePathForTool(event.toolName, event.args);
-                let msg = `[Tool] ${event.toolName}`;
-                if (filePath) msg += `\n  📄 ${filePath}`;
-                if (event.toolName === "bash") {
-                    msg += `\n    Command: ${event.args?.command || "N/A"}`;
+                let headerArgs = "";
+                if (filePath) headerArgs = `${filePath}`;
+                else if (event.toolName === "bash") headerArgs = event.args?.command || "";
+                else if (event.toolName === "grep_search") {
+                    headerArgs = `${event.args?.query} in ${event.args?.path || event.args?.dir || "."}`;
                 }
 
-                if (uiAPI) {
-                    uiAPI.appendSystemMessage(msg);
+                if (uiAPI && uiAPI.startToolExecution) {
+                    uiAPI.startToolExecution(event.toolCallId, event.toolName, headerArgs);
                 } else {
-                    console.log(`\n  ${msg.replace(/\n/g, "\n  ")}`);
+                    console.log(`\n  [Tool] ${event.toolName} ${headerArgs}`);
+                }
+                break;
+            }
+            case "tool_execution_update": {
+                if (uiAPI && uiAPI.getActiveToolBlock) {
+                    const block = uiAPI.getActiveToolBlock(event.toolCallId);
+                    if (block && event.partialResult && event.partialResult.content) {
+                        const newContentText = event.partialResult.content.map((/** @type {any} */ c) => c.text || "")
+                            .join("");
+                        const currentText = block.bodyText || "";
+                        if (newContentText.length > currentText.length) {
+                            block.appendOutput(newContentText.slice(currentText.length));
+                        }
+                    }
                 }
                 break;
             }
             case "tool_execution_end": {
-                const msg = `[Tool] ${event.toolName} — ${event.isError ? "error" : "ok"}`;
-                if (uiAPI) {
-                    uiAPI.appendSystemMessage(msg);
+                if (uiAPI && uiAPI.getActiveToolBlock) {
+                    const block = uiAPI.getActiveToolBlock(event.toolCallId);
+                    if (block) {
+                        // Make sure we append any final result text that wasn't streamed
+                        if (event.result && event.result.content) {
+                            const newContentText = event.result.content.map((/** @type {any} */ c) => c.text || "")
+                                .join("");
+                            const currentText = block.bodyText || "";
+                            if (newContentText.length > currentText.length) {
+                                block.appendOutput(newContentText.slice(currentText.length));
+                            }
+                        }
+                        const durationMs = Date.now() - block.startTime;
+                        block.endExecution(event.isError, durationMs);
+                    }
                 } else {
-                    console.log(`  ${msg}`);
+                    console.log(`  [Tool] ${event.toolName} — ${event.isError ? "error" : "ok"}`);
                 }
+                break;
+            }
+            case "turn_start": {
+                if (uiAPI && uiAPI.setBusy) uiAPI.setBusy(true);
+                break;
+            }
+            case "turn_end": {
+                if (uiAPI && uiAPI.setBusy) uiAPI.setBusy(false);
                 break;
             }
         }
@@ -212,7 +246,7 @@ export async function runAgentSession(
 
     try {
         activeSessions.add(session);
-        
+
         if (Deno.env.get("DEBUG") === "1") {
             const logEntry = [
                 `===========================================`,
@@ -223,11 +257,11 @@ export async function runAgentSession(
                 `=== USER REQUEST ===`,
                 userRequest,
                 `===========================================`,
-                ""
+                "",
             ].join("\n");
             try {
                 Deno.writeTextFileSync(join(Deno.cwd(), "debug.log"), logEntry, { append: true });
-            } catch (e) {
+            } catch (_e) {
                 // Ignore log error
             }
         }
