@@ -447,6 +447,9 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
                     );
                 } finally {
                     editor.disableSubmit = false;
+                    if (uiAPI.setBusy) uiAPI.setBusy(false);
+                    if (uiAPI.enableInput) uiAPI.enableInput();
+                    tui.setFocus(editor);
                 }
             } else {
                 const template = promptTemplateByName.get(cmd);

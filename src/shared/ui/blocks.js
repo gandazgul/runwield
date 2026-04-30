@@ -158,7 +158,7 @@ export class ToolExecutionBlock {
         // Body
         this.bodyContainer = new Container();
         // Body wrapper gets surface0 normally, or a different color if error occurs.
-        this.bodyBlock = new ColoredBlock("surface0", new PaddedBlock(2, 1, this.bodyContainer));
+        this.bodyBlock = new ColoredBlock("surface0", new PaddedBlock(2, 0, this.bodyContainer));
         this.container.addChild(this.bodyBlock);
 
         // Footer (left: duration, right: expand/collapse hint)

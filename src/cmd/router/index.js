@@ -10,6 +10,7 @@ import { CLI_BIN, CWD } from "../../constants.js";
 import { ensurePlansDir } from "../../plan-store.js";
 import { triageReportTool } from "../../tools/triage-report.js";
 import { planWrittenTool } from "../../tools/plan-written.js";
+import { createUserInterviewTool } from "../../tools/user-interview.js";
 import { runAgentSession } from "../../shared/session.js";
 import { extractTriageReport } from "../../shared/triage.js";
 import { askApprovalWithTasks, askPostApproval, executePlan, reviewLoop } from "../../shared/workflow.js";
@@ -112,12 +113,14 @@ export async function routerCmdOnMessage(userRequest, images, uiAPI) {
             `- Affected paths: ${triage.affectedPaths.join(", ")}`,
             "",
             "Based on the triage report above, explore the affected files and create a plan in the plans/ directory.",
+            "Before finalizing, ask clarification questions via user_interview when requirements are ambiguous.",
+            "Ask either one question or a focused batch of 1-3 questions, then incorporate the answers.",
             "Choose a descriptive, kebab-case filename (e.g., plans/add-dark-mode-toggle.md).",
         ].join("\n");
 
         const result = await reviewLoop({
             agentName: "planner",
-            customTools: [planWrittenTool],
+            customTools: [planWrittenTool, createUserInterviewTool(uiAPI)],
             initialRequest: plannerRequest,
             triageMeta: triage,
             uiAPI,
@@ -157,12 +160,14 @@ export async function routerCmdOnMessage(userRequest, images, uiAPI) {
             "Start with a targeted vertical-slice exploration from the triage input (especially affected paths).",
             "Go deep on the request-related execution path; avoid broad repo surveys.",
             "Then produce a comprehensive plan in plans/ with a descriptive kebab-case filename.",
+            "Before finalizing, ask clarification questions via user_interview when needed.",
+            "Ask either one question or a focused batch of 1-3 questions, then incorporate the answers.",
             "Since this is a PROJECT, include a Tasks table for multi-agent execution.",
         ].join("\n");
 
         const result = await reviewLoop({
             agentName: "architect",
-            customTools: [planWrittenTool],
+            customTools: [planWrittenTool, createUserInterviewTool(uiAPI)],
             initialRequest: architectRequest,
             triageMeta: triage,
             uiAPI,
@@ -179,9 +184,9 @@ export async function routerCmdOnMessage(userRequest, images, uiAPI) {
                     // Trigger immediate repair loop
                     await reviewLoop({
                         agentName: "architect",
-                        customTools: [planWrittenTool],
+                        customTools: [planWrittenTool, createUserInterviewTool(uiAPI)],
                         initialRequest:
-                            `The previously approved plan "${result.planName}" had a malformed Tasks table: ${execRes.error}.\n\nPlease fix the table to ensure it follows the required format (Task ID | Assignee | Dependencies | Description) and call plan_written again.`,
+                            `The previously approved plan "${result.planName}" had a malformed Tasks table: ${execRes.error}.\n\nPlease fix the table to ensure it follows the required format (Task ID | Assignee | Dependencies | Description). If any requirement is unclear, use user_interview (1-3 focused questions) before finalizing, then call plan_written again.`,
                         triageMeta: triage,
                         uiAPI,
                     });

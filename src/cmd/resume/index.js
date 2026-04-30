@@ -8,9 +8,31 @@ import { CLI_BIN, CWD } from "../../constants.js";
 import { resolvePlan } from "../../plan-store.js";
 import { submitPlanForReview } from "../../tools/submit-plan.js";
 import { planWrittenTool } from "../../tools/plan-written.js";
+import { createUserInterviewTool } from "../../tools/user-interview.js";
 import { askPostApproval, executePlan, reviewLoop } from "../../shared/workflow.js";
 import { printCommandHelp } from "../../shared/help-text.js";
 import { setActiveAgent, startInteractiveSession } from "../../shared/chat-session.js";
+
+/**
+ * Restore default Router flow and input readiness after resume command work.
+ *
+ * @param {import('../../shared/workflow.js').UiAPI} uiAPI
+ */
+async function restoreRouterFlow(uiAPI) {
+    if (uiAPI.setBusy) uiAPI.setBusy(false);
+    if (uiAPI.enableInput) uiAPI.enableInput();
+
+    try {
+        const { routerCmdOnMessage } = await import("../router/index.js");
+        setActiveAgent("Router", routerCmdOnMessage);
+        uiAPI.appendSystemMessage("[Harns] Switched back to Router (triage flow).");
+    } catch (_e) {
+        uiAPI.appendSystemMessage(
+            "[Harns] Resume finished. Could not reload Router automatically; use /agent router.",
+            true,
+        );
+    }
+}
 
 /**
  * Handle `resume` command.
@@ -96,135 +118,141 @@ export async function runResumeCommand(argv, options = {}) {
 
     if (!uiAPI) return;
 
-    uiAPI.appendSystemMessage(`[Harns] Resuming plan: ${planArg}`);
+    try {
+        uiAPI.appendSystemMessage(`[Harns] Resuming plan: ${planArg}`);
 
-    const plan = await resolvePlan(CWD, planArg);
-    uiAPI.appendSystemMessage(`[Harns] Plan loaded: ${plan.planName}`);
-    uiAPI.appendSystemMessage(
-        `[Harns] Classification: ${plan.attrs.classification}, Status: ${plan.attrs.status}`,
-    );
+        const plan = await resolvePlan(CWD, planArg);
+        uiAPI.appendSystemMessage(`[Harns] Plan loaded: ${plan.planName}`);
+        uiAPI.appendSystemMessage(
+            `[Harns] Classification: ${plan.attrs.classification}, Status: ${plan.attrs.status}`,
+        );
 
-    const triageMeta = plan.attrs;
-    const agentName = triageMeta.classification === "PROJECT" ? "architect" : "planner";
+        const triageMeta = plan.attrs;
+        const agentName = triageMeta.classification === "PROJECT" ? "architect" : "planner";
 
-    if (plan.attrs.status === "approved") {
-        uiAPI.appendSystemMessage("[Harns] This plan has already been approved.");
+        if (plan.attrs.status === "approved") {
+            uiAPI.appendSystemMessage("[Harns] This plan has already been approved.");
 
-        while (true) {
-            const answer = await uiAPI.promptSelect("What would you like to do?", [
-                { value: "proceed", label: "Proceed with execution" },
-                { value: "review", label: "Re-open for review (edit/annotate)" },
-                { value: "view", label: "View plan details" },
-            ]);
+            while (true) {
+                const answer = await uiAPI.promptSelect("What would you like to do?", [
+                    { value: "proceed", label: "Proceed with execution" },
+                    { value: "review", label: "Re-open for review (edit/annotate)" },
+                    { value: "view", label: "View plan details" },
+                ]);
 
-            if (!answer) {
-                uiAPI.appendSystemMessage("[Harns] Resume canceled.");
-                return;
-            }
+                if (!answer) {
+                    uiAPI.appendSystemMessage("[Harns] Resume canceled.");
+                    return;
+                }
 
-            if (answer === "proceed") {
-                const execRes = await executePlan(plan.planName, plan.attrs, uiAPI);
-                if (execRes && execRes.repairRequired) {
-                    const agentName = triageMeta.classification === "PROJECT" ? "architect" : "planner";
-                    uiAPI.appendSystemMessage(
-                        `[Harns] Execution failed due to task table error. Rerouting to ${agentName} for repair...`,
-                    );
-                    await reviewLoop({
-                        agentName,
-                        customTools: [planWrittenTool],
-                        initialRequest:
-                            `The previously approved plan "${plan.planName}" had a malformed Tasks table: ${execRes.error}.\n\nPlease fix the table to ensure it follows the required format (Task ID | Assignee | Dependencies | Description) and call plan_written again.`,
+                if (answer === "proceed") {
+                    const execRes = await executePlan(plan.planName, plan.attrs, uiAPI);
+                    if (execRes && execRes.repairRequired) {
+                        const agentName = triageMeta.classification === "PROJECT" ? "architect" : "planner";
+                        uiAPI.appendSystemMessage(
+                            `[Harns] Execution failed due to task table error. Rerouting to ${agentName} for repair...`,
+                        );
+                        await reviewLoop({
+                            agentName,
+                            customTools: [planWrittenTool, createUserInterviewTool(uiAPI)],
+                            initialRequest:
+                                `The previously approved plan "${plan.planName}" had a malformed Tasks table: ${execRes.error}.\n\nPlease fix the table to ensure it follows the required format (Task ID | Assignee | Dependencies | Description). If any requirement is unclear, use user_interview (1-3 focused questions) before finalizing, then call plan_written again.`,
+                            triageMeta: plan.attrs,
+                            uiAPI,
+                        });
+                    }
+                    return;
+                }
+
+                if (answer === "review") {
+                    const result = await submitPlanForReview({
+                        cwd: CWD,
+                        planName: plan.planName,
+                        planPath: plan.path,
                         triageMeta: plan.attrs,
                         uiAPI,
                     });
-                }
-                return;
-            }
 
-            if (answer === "review") {
-                const result = await submitPlanForReview({
-                    cwd: CWD,
-                    planName: plan.planName,
-                    planPath: plan.path,
-                    triageMeta: plan.attrs,
-                    uiAPI,
-                });
-
-                if (result.approved) {
-                    const action = await askPostApproval(plan.planName, uiAPI);
-                    if (action === "proceed") {
-                        await executePlan(plan.planName, plan.attrs, uiAPI);
+                    if (result.approved) {
+                        const action = await askPostApproval(plan.planName, uiAPI);
+                        if (action === "proceed") {
+                            await executePlan(plan.planName, plan.attrs, uiAPI);
+                        } else {
+                            uiAPI.appendSystemMessage(
+                                `[Harns] Plan saved. Resume later with: ${CLI_BIN} resume ${plan.planName}`,
+                            );
+                        }
                     } else {
                         uiAPI.appendSystemMessage(
-                            `[Harns] Plan saved. Resume later with: ${CLI_BIN} resume ${plan.planName}`,
+                            "[Harns] Plan denied. To continue the revision loop, run:",
                         );
+                        uiAPI.appendSystemMessage(`  ${CLI_BIN} resume ${plan.planName}`);
                     }
-                } else {
-                    uiAPI.appendSystemMessage(
-                        "[Harns] Plan denied. To continue the revision loop, run:",
-                    );
-                    uiAPI.appendSystemMessage(`  ${CLI_BIN} resume ${plan.planName}`);
+                    return;
                 }
-                return;
-            }
 
-            if (answer === "view") {
-                uiAPI.appendSystemMessage(`\n${plan.body}\n`);
+                if (answer === "view") {
+                    uiAPI.appendSystemMessage(`\n${plan.body}\n`);
+                }
             }
         }
-    }
 
-    // Not approved - enter review loop
-    // deno-lint-ignore require-await
-    setActiveAgent(agentName, async (_userRequest, _images, currentUiAPI) => {
-        // The review loop drives the agent invocations internally.
-        // Manual input during an active agent invocation is not yet supported.
-        currentUiAPI.appendSystemMessage(
-            "Warning: Manual input while agent is running is not yet handled.",
-        );
-    });
-
-    const resumeRequest = [
-        `## Resuming Plan: ${plan.planName}`,
-        "",
-        `This plan was previously saved with status: ${plan.attrs.status}.`,
-        `Continue working on it. The plan is at plans/${plan.planName}.md.`,
-        "",
-        "## Triage Report",
-        `- Classification: ${triageMeta.classification}`,
-        `- Complexity: ${triageMeta.complexity}`,
-        `- Summary: ${triageMeta.summary}`,
-        `- Affected paths: ${(triageMeta.affectedPaths || []).join(", ")}`,
-        "",
-        "Review the current plan, make any needed updates, and finalize it.",
-    ].join("\n");
-
-    const result = await reviewLoop({
-        agentName,
-        customTools: [planWrittenTool],
-        initialRequest: resumeRequest,
-        triageMeta,
-        uiAPI,
-    });
-
-    if (result) {
-        // Temporarily bypass CLI prompts inside TUI if possible
-        uiAPI.appendSystemMessage(`[Harns] Plan "${result.planName}" approved!`);
-        uiAPI.appendSystemMessage(`[Harns] Proceeding with execution...`);
-        const execRes = await executePlan(result.planName, triageMeta, uiAPI, result.tasks);
-        if (execRes && execRes.repairRequired) {
-            const agentName = triageMeta.classification === "PROJECT" ? "architect" : "planner";
-            uiAPI.appendSystemMessage(
-                `[Harns] Execution failed due to task table error. Rerouting to ${agentName} for repair...`,
+        // Not approved - enter review loop
+        // deno-lint-ignore require-await
+        setActiveAgent(agentName, async (_userRequest, _images, currentUiAPI) => {
+            // The review loop drives the agent invocations internally.
+            // Manual input during an active agent invocation is not yet supported.
+            currentUiAPI.appendSystemMessage(
+                "Warning: Manual input while agent is running is not yet handled.",
             );
-            await reviewLoop({
-                agentName,
-                customTools: [planWrittenTool],
-                initialRequest:
-                    `The previously approved plan "${result.planName}" had a malformed Tasks table: ${execRes.error}.\n\nPlease fix the table to ensure it follows the required format (Task ID | Assignee | Dependencies | Description) and call plan_written again.`,
-                triageMeta,
-                uiAPI,
-            });
+        });
+
+        const resumeRequest = [
+            `## Resuming Plan: ${plan.planName}`,
+            "",
+            `This plan was previously saved with status: ${plan.attrs.status}.`,
+            `Continue working on it. The plan is at plans/${plan.planName}.md.`,
+            "",
+            "## Triage Report",
+            `- Classification: ${triageMeta.classification}`,
+            `- Complexity: ${triageMeta.complexity}`,
+            `- Summary: ${triageMeta.summary}`,
+            `- Affected paths: ${(triageMeta.affectedPaths || []).join(", ")}`,
+            "",
+            "Review the current plan, make any needed updates, and finalize it.",
+            "If requirements are unclear, ask clarification questions via user_interview before locking changes.",
+            "Ask one question or a focused 1-3 question batch per call and adapt based on answers.",
+        ].join("\n");
+
+        const result = await reviewLoop({
+            agentName,
+            customTools: [planWrittenTool, createUserInterviewTool(uiAPI)],
+            initialRequest: resumeRequest,
+            triageMeta,
+            uiAPI,
+        });
+
+        if (result) {
+            // Temporarily bypass CLI prompts inside TUI if possible
+            uiAPI.appendSystemMessage(`[Harns] Plan "${result.planName}" approved!`);
+            uiAPI.appendSystemMessage(`[Harns] Proceeding with execution...`);
+            const execRes = await executePlan(result.planName, triageMeta, uiAPI, result.tasks);
+            if (execRes && execRes.repairRequired) {
+                const agentName = triageMeta.classification === "PROJECT" ? "architect" : "planner";
+                uiAPI.appendSystemMessage(
+                    `[Harns] Execution failed due to task table error. Rerouting to ${agentName} for repair...`,
+                );
+                await reviewLoop({
+                    agentName,
+                    customTools: [planWrittenTool, createUserInterviewTool(uiAPI)],
+                    initialRequest:
+                        `The previously approved plan "${result.planName}" had a malformed Tasks table: ${execRes.error}.\n\nPlease fix the table to ensure it follows the required format (Task ID | Assignee | Dependencies | Description). If any requirement is unclear, use user_interview (1-3 focused questions) before finalizing, then call plan_written again.`,
+                    triageMeta,
+                    uiAPI,
+                });
+            }
         }
+    } finally {
+        await restoreRouterFlow(uiAPI);
     }
 }

@@ -45,6 +45,7 @@ function extractAssistantOutput(messages) {
  * @property {(busy: boolean) => void} [setBusy]
  * @property {(tasks: Array<{task: number, assignee: string, description: string}>) => void} [setRunningTasks]
  * @property {(title: string, options: Array<{value: string, label: string}>) => Promise<string | null>} promptSelect
+ * @property {(title: string, opts?: { defaultValue?: string, placeholder?: string, allowEmpty?: boolean }) => Promise<string | null>} promptText
  * @property {(agentName: string, agentModel: string) => void} [setAgentInfo]
  * @property {() => void} [disableInput]
  * @property {() => void} [enableInput]
@@ -466,6 +467,7 @@ async function executeProjectTasks(
                         advanceSpinner: () => {},
                         requestRender: () => {},
                         promptSelect: () => Promise.resolve(null),
+                        promptText: () => Promise.resolve(null),
                     }
                     : undefined;
 

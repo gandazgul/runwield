@@ -1,6 +1,6 @@
-import { Spacer } from "@mariozechner/pi-tui";
+import { Container, Input, SelectList, Spacer, Text } from "@mariozechner/pi-tui";
 import { AgentMessageBlock, SystemMessageBlock, ToolExecutionBlock, UserPromptBlock } from "./blocks.js";
-import { theme } from "../theme.js";
+import { selectListTheme, theme } from "../theme.js";
 
 /**
  * Creates a UiAPI object for Harns TUI.
@@ -132,47 +132,129 @@ export function createUiApi(tui, messageList, spinner) {
          */
         promptSelect: (title, options) => {
             return new Promise((resolve) => {
-                // To keep this clean, we delegate to the existing SelectList logic
-                // But we don't have SelectList here. Let's dynamically import or keep it in chat-session
-                // Actually, wait, workflow.js needs this. Let's implement it here.
-                import("@mariozechner/pi-tui").then(async ({ Container, Text, SelectList }) => {
-                    const { selectListTheme } = await import("../theme.js");
+                const container = new Container();
+                container.addChild(new Text("─".repeat(40), 0, 0));
+                container.addChild(new Text(theme.fg("accent", theme.bold(title)), 0, 0));
+                container.addChild(new Text("─".repeat(40), 0, 0));
 
-                    const container = new Container();
-                    container.addChild(new Text("─".repeat(40), 0, 0));
-                    container.addChild(new Text(theme.fg("accent", theme.bold(title)), 0, 0));
-                    container.addChild(new Text("─".repeat(40), 0, 0));
+                const selectList = new SelectList(
+                    options,
+                    Math.min(options.length, 10),
+                    selectListTheme,
+                );
 
-                    const selectList = new SelectList(
-                        options,
-                        Math.min(options.length, 10),
-                        selectListTheme,
-                    );
+                container.addChild(selectList);
+                container.addChild(new Text("─".repeat(40), 0, 0));
+                container.addChild(new Text(theme.fg("dim", "↑↓ navigate • enter select • esc cancel"), 0, 0));
 
-                    const cleanup = () => {
-                        messageList.removeChild(container);
+                let settled = false;
+                /** @type {import('@mariozechner/pi-tui').OverlayHandle | null} */
+                let handle = null;
+
+                /** @param {string | null} value */
+                const settle = (value) => {
+                    if (settled) return;
+                    settled = true;
+                    if (handle) handle.hide();
+                    resolve(value);
+                };
+
+                selectList.onSelect = (item) => settle(item.value);
+                selectList.onCancel = () => settle(null);
+
+                const component = {
+                    /** @param {number} w */
+                    render: (w) => container.render(w),
+                    invalidate: () => container.invalidate(),
+                    /** @param {string} data */
+                    handleInput: (data) => {
+                        selectList.handleInput(data);
                         tui.requestRender();
-                    };
+                    },
+                };
 
-                    selectList.onSelect = (item) => {
-                        cleanup();
-                        resolve(item.value);
-                    };
-
-                    selectList.onCancel = () => {
-                        cleanup();
-                        resolve(null);
-                    };
-
-                    container.addChild(selectList);
-                    container.addChild(new Text("─".repeat(40), 0, 0));
-                    container.addChild(new Text(theme.fg("dim", "↑↓ navigate • enter select • esc cancel"), 0, 0));
-
-                    messageList.addChild(container);
-                    messageList.addChild(new Spacer(1));
-                    tui.setFocus(selectList);
-                    tui.requestRender();
+                handle = tui.showOverlay(component, {
+                    width: "80%",
+                    minWidth: 40,
+                    anchor: "center",
+                    margin: 2,
                 });
+
+                tui.requestRender();
+            });
+        },
+
+        /**
+         * @param {string} title
+         * @param {{ defaultValue?: string, placeholder?: string, allowEmpty?: boolean }} [opts]
+         */
+        promptText: (title, opts = {}) => {
+            const { defaultValue, placeholder, allowEmpty = true } = opts;
+
+            return new Promise((resolve) => {
+                const container = new Container();
+                const input = new Input();
+                input.setValue(defaultValue || "");
+
+                container.addChild(new Text("─".repeat(40), 0, 0));
+                container.addChild(new Text(theme.fg("accent", theme.bold(title)), 0, 0));
+                if (placeholder) {
+                    container.addChild(new Text(theme.fg("dim", placeholder), 0, 0));
+                }
+                container.addChild(new Text("─".repeat(40), 0, 0));
+                container.addChild(input);
+                container.addChild(new Text("─".repeat(40), 0, 0));
+
+                const hints = ["enter submit", "esc cancel"];
+                if (!allowEmpty) hints.unshift("non-empty required");
+                container.addChild(new Text(theme.fg("dim", hints.join(" • ")), 0, 0));
+
+                let settled = false;
+                /** @type {import('@mariozechner/pi-tui').OverlayHandle | null} */
+                let handle = null;
+
+                /** @param {string | null} value */
+                const settle = (value) => {
+                    if (settled) return;
+                    settled = true;
+                    if (handle) handle.hide();
+                    resolve(value);
+                };
+
+                input.onSubmit = (value) => {
+                    const finalValue = value || defaultValue || "";
+                    if (!allowEmpty && !finalValue.trim()) return;
+                    settle(finalValue);
+                };
+
+                input.onEscape = () => settle(null);
+
+                const component = {
+                    get focused() {
+                        return input.focused;
+                    },
+                    /** @param {boolean} value */
+                    set focused(value) {
+                        input.focused = value;
+                    },
+                    /** @param {number} w */
+                    render: (w) => container.render(w),
+                    invalidate: () => container.invalidate(),
+                    /** @param {string} data */
+                    handleInput: (data) => {
+                        input.handleInput(data);
+                        tui.requestRender();
+                    },
+                };
+
+                handle = tui.showOverlay(component, {
+                    width: "80%",
+                    minWidth: 50,
+                    anchor: "center",
+                    margin: 2,
+                });
+
+                tui.requestRender();
             });
         },
 
