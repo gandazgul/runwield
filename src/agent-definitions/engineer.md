@@ -1,6 +1,6 @@
 ---
 name: engineer
-model: ollama-cloud/gemma4:31b-cloud
+model: openrouter/moonshotai/kimi-k2.6
 description: "Code execution agent that implements approved plans and individual tasks."
 tools:
     - read

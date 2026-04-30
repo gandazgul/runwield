@@ -1,6 +1,6 @@
 ---
 name: doc-writer
-model: ollama-cloud/gemma4:31b-cloud
+model: openrouter/moonshotai/kimi-k2.6
 description: Create clear, comprehensive technical project documentation. Use this agent when you need to create, update, or improve technical documentation including README files, API docs, user guides, installation instructions, or any project documentation.
 tools:
     - read
