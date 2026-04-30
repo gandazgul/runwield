@@ -41,9 +41,17 @@ let rootSessionManager = null;
 /**
  * Update the active agent and its message handler dynamically.
  * @param {string} agentName
+ * @param {string} [agentModel]
  * @param {(userRequest: string, images: any[], uiAPI: import('./workflow.js').UiAPI, sessionManager: import('@mariozechner/pi-coding-agent').SessionManager) => Promise<void>} handler
+ * @param {import('./workflow.js').UiAPI} [uiAPI]
  */
-export function setActiveAgent(agentName, handler) {
+export function setActiveAgent(agentName, handler, uiAPI, agentModel) {
+    if (activeAgentName !== agentName) {
+        if (uiAPI) {
+            const modelText = agentModel ? ` (model: ${agentModel})` : "";
+            uiAPI.appendSystemMessage(`Switched to ${agentName}${modelText}.`);
+        }
+    }
     activeAgentName = agentName;
     activeOnMessage = handler;
 }
@@ -379,8 +387,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
                 if (targetName === "router") {
                     // Reset to default router flow
                     const { routerCmdOnMessage } = await import("../cmd/router/index.js");
-                    setActiveAgent("Router", routerCmdOnMessage);
-                    uiAPI.appendSystemMessage("Switched to Router (triage flow).");
+                    setActiveAgent("Router", routerCmdOnMessage, uiAPI);
                     tui.setFocus(editor);
                     return;
                 }
@@ -397,8 +404,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
                         return;
                     }
                     const handler = createDirectAgentHandler(targetName);
-                    setActiveAgent(match.displayName, handler);
-                    uiAPI.appendSystemMessage(`Switched to ${match.displayName}.`);
+                    setActiveAgent(match.displayName, handler, uiAPI, match.model);
                     tui.setFocus(editor);
                     return;
                 }
@@ -421,13 +427,11 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
 
                 if (chosen === "router") {
                     const { routerCmdOnMessage } = await import("../cmd/router/index.js");
-                    setActiveAgent("Router", routerCmdOnMessage);
-                    uiAPI.appendSystemMessage("Switched to Router (triage flow).");
+                    setActiveAgent("Router", routerCmdOnMessage, uiAPI);
                 } else {
                     const handler = createDirectAgentHandler(chosen);
                     const match = agents.find((a) => a.name === chosen);
-                    setActiveAgent(match?.displayName || chosen, handler);
-                    uiAPI.appendSystemMessage(`Switched to ${match?.displayName || chosen}.`);
+                    setActiveAgent(match?.displayName || chosen, handler, uiAPI, match?.model);
                 }
                 tui.setFocus(editor);
                 return;

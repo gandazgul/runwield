@@ -35,8 +35,8 @@ export async function runRouterCommand(argv) {
 
     const userRequest = argv.join(" ").trim();
 
-    setActiveAgent("Router", routerCmdOnMessage);
     // Launch the interactive loop with the router as the default handler
+    // The loop inside startInteractiveSession will call setActiveAgent
     await startInteractiveSession(userRequest, routerCmdOnMessage);
 }
 
@@ -108,7 +108,7 @@ export async function routerCmdOnMessage(userRequest, images, uiAPI, sessionMana
                 `Quick fix executed by operator. Summary:\n${triage.summary}`,
             );
         }
-        setActiveAgent("Operator", createDirectAgentHandler("operator"));
+        setActiveAgent("Operator", createDirectAgentHandler("operator"), uiAPI);
         return;
     }
 
@@ -151,7 +151,7 @@ export async function routerCmdOnMessage(userRequest, images, uiAPI, sessionMana
                         `FEATURE plan executed: plans/${result.planName}.md. Summary: ${triage.summary}`,
                     );
                 }
-                setActiveAgent("Operator", createDirectAgentHandler("operator"));
+                setActiveAgent("Operator", createDirectAgentHandler("operator"), uiAPI);
             } else {
                 uiAPI.appendSystemMessage(
                     `Plan saved. Resume later with: ${CLI_BIN} resume ${result.planName}`,
@@ -228,7 +228,7 @@ export async function routerCmdOnMessage(userRequest, images, uiAPI, sessionMana
                         true,
                         `PROJECT plan executed: plans/${result.planName}.md. Summary: ${triage.summary}`,
                     );
-                    setActiveAgent("Operator", createDirectAgentHandler("operator"));
+                    setActiveAgent("Operator", createDirectAgentHandler("operator"), uiAPI);
                 }
             } else {
                 uiAPI.appendSystemMessage(
