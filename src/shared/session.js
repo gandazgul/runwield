@@ -352,7 +352,6 @@ export async function runAgentSession(
 
     const customToolNames = (customTools || []).map((t) => t.name);
     const selectedToolNames = toolNames || agentDef.tools;
-    const currentAgentId = agentName.toLowerCase();
 
     const tools = [...new Set([...(selectedToolNames || []), ...customToolNames])];
 

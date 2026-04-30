@@ -3,7 +3,7 @@
  * Tool for agents to request a hand-off to another agent.
  */
 
-import { setActiveAgent } from "../shared/chat-session.js";
+import { getActiveUiAPI, setActiveAgent } from "../shared/chat-session.js";
 import { createDirectAgentHandler } from "../shared/direct-agent.js";
 import { listAvailableAgents } from "../shared/agents.js";
 
@@ -16,17 +16,19 @@ import { listAvailableAgents } from "../shared/agents.js";
  * @param {string} params.reason - A brief explanation of why the switch is being requested.
  * @param {AbortSignal | undefined} _signal
  * @param {Function | undefined} _onUpdate
- * @param {any} context
+ * @param {any} _context
  */
-export async function switchAgentTool(_toolCallId, params, _signal, _onUpdate, context) {
+export async function switchAgentTool(_toolCallId, params, _signal, _onUpdate, _context) {
     const { agentName, reason } = params;
-    const { uiAPI } = context;
+    // Use the stored active UI API from the chat session
+    const uiAPI = getActiveUiAPI();
 
     if (!uiAPI) {
         return {
             content: [/** @type {import('@mariozechner/pi-coding-agent').TextContent} */ {
                 type: "text",
-                text: "Error: This tool requires a UI API context to perform the switch.",
+                text:
+                    "Error: This tool requires an active UI session to perform the switch. Please ensure you're running in interactive mode.",
             }],
             isError: true,
             details: null,

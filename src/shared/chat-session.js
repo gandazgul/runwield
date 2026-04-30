@@ -37,6 +37,8 @@ let activeAgentName = "Router";
 let activeOnMessage = null;
 /** @type {import('@mariozechner/pi-coding-agent').SessionManager | null} */
 let rootSessionManager = null;
+/** @type {import('./workflow.js').UiAPI | null} */
+let activeUiAPI = null;
 
 /**
  * Update the active agent and its message handler dynamically.
@@ -54,6 +56,7 @@ export function setActiveAgent(agentName, handler, uiAPI, agentModel) {
     }
     activeAgentName = agentName;
     activeOnMessage = handler;
+    if (uiAPI) activeUiAPI = uiAPI;
 }
 
 let currentAgentModel = "";
@@ -63,6 +66,14 @@ let currentAgentModel = "";
  */
 export function setActiveModel(model) {
     currentAgentModel = model;
+}
+
+/**
+ * Get the active UI API reference.
+ * @returns {import('./workflow.js').UiAPI | null}
+ */
+export function getActiveUiAPI() {
+    return activeUiAPI;
 }
 
 /**
@@ -515,6 +526,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
 
         try {
             if (activeOnMessage && rootSessionManager) {
+                activeUiAPI = uiAPI;
                 await activeOnMessage(userRequest, images, uiAPI, rootSessionManager);
             } else {
                 uiAPI.appendSystemMessage("Error: No active agent handler or session manager.");
