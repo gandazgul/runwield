@@ -1,6 +1,6 @@
 ---
 name: architect
-model: openrouter/google/gemini-3.1-pro-preview
+model: ollama-cloud/gemma4:31b-cloud
 description: "Design agent that creates structured plans from triage input. Performs targeted vertical-slice exploration, writes Architecture Decision Records (ADRs), and designs multi-agent implementation tasks."
 tools:
     - read

@@ -339,7 +339,9 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks) 
                 await runEngineerWithPlan(planName, plan.body, uiAPI);
             }
         } catch (e) {
-            if (spinnerInterval) clearInterval(spinnerInterval);
+            // spinnerInterval is local to the try block, but we should only clear if it exists.
+            // However, it is defined inside the try block, so we can't access it here unless it's hoisted.
+            // Let's move the declaration to the upper scope.
             const error = e instanceof Error ? e : new Error(String(e));
             const msg = `[Harns] TASK TABLE ERROR: ${error.message}`;
             if (uiAPI) uiAPI.appendSystemMessage(msg);

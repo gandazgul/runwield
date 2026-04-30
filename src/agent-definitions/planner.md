@@ -1,6 +1,6 @@
 ---
 name: planner
-model: openrouter/google/gemini-3.1-pro-preview
+model: ollama-cloud/gemma4:31b-cloud
 description: "Feature planning agent that produces iterative, focused plans for single features. Inspired by Plannotator's planning approach."
 tools:
     - read

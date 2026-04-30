@@ -14,6 +14,7 @@ import { createUserInterviewTool } from "../../tools/user-interview.js";
 import { runAgentSession } from "../../shared/session.js";
 import { extractTriageReport } from "../../shared/triage.js";
 import { askApprovalWithTasks, askPostApproval, executePlan, reviewLoop } from "../../shared/workflow.js";
+import { createDirectAgentHandler } from "../../shared/direct-agent.js";
 
 /**
  * Handle router/default command.
@@ -107,6 +108,7 @@ export async function routerCmdOnMessage(userRequest, images, uiAPI, sessionMana
                 `Quick fix executed by operator. Summary:\n${triage.summary}`,
             );
         }
+        setActiveAgent("Operator", createDirectAgentHandler("operator"));
         return;
     }
 
@@ -149,6 +151,7 @@ export async function routerCmdOnMessage(userRequest, images, uiAPI, sessionMana
                         `FEATURE plan executed: plans/${result.planName}.md. Summary: ${triage.summary}`,
                     );
                 }
+                setActiveAgent("Operator", createDirectAgentHandler("operator"));
             } else {
                 uiAPI.appendSystemMessage(
                     `Plan saved. Resume later with: ${CLI_BIN} resume ${result.planName}`,
@@ -225,6 +228,7 @@ export async function routerCmdOnMessage(userRequest, images, uiAPI, sessionMana
                         true,
                         `PROJECT plan executed: plans/${result.planName}.md. Summary: ${triage.summary}`,
                     );
+                    setActiveAgent("Operator", createDirectAgentHandler("operator"));
                 }
             } else {
                 uiAPI.appendSystemMessage(
