@@ -4,7 +4,16 @@
  * user interaction — distinct from individual agent invocations (see session.js).
  */
 
-import { Container, Editor, Image, Key, matchesKey, Spacer, Text } from "@mariozechner/pi-tui";
+import {
+    CombinedAutocompleteProvider,
+    Container,
+    Editor,
+    Image,
+    Key,
+    matchesKey,
+    Spacer,
+    Text,
+} from "@mariozechner/pi-tui";
 import { initTUI, stopTUI } from "./tui.js";
 import { editorTheme, imageTheme, theme } from "./theme.js";
 import { readClipboardImage } from "./clipboard.js";
@@ -195,121 +204,56 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
     /** @type {Map<string, (typeof invokablePromptTemplates)[number]>} */
     const promptTemplateByName = new Map(invokablePromptTemplates.map((t) => [t.name, t]));
 
-    const autocompleteProvider = {
-        /**
-         * @param {string[]} lines
-         * @param {number} cursorLine
-         * @param {number} cursorCol
-         * @param {any} _options
-         */
-        async getSuggestions(lines, cursorLine, cursorCol, _options) {
-            const currentLine = lines[cursorLine] || "";
-            const textBeforeCursor = currentLine.slice(0, cursorCol);
-
-            if (textBeforeCursor.startsWith("/") && !textBeforeCursor.includes(" ")) {
-                const prefix = textBeforeCursor.slice(1);
-                const commandDefs = [
-                    {
-                        name: "quit",
-                        aliases: ["exit", "q"],
-                        description: "Exit the application",
-                    },
-                    ...CHAT_COMMAND_HANDLERS.map((name) => ({
-                        name,
-                        aliases: [],
-                        description: name === "resume" ? "Resume a saved plan" : "Command",
-                    })),
-                    { name: "agent", aliases: [], description: "Switch active agent" },
-                ];
-
-                const items = [];
-                for (const cmd of commandDefs) {
-                    const matchTarget = [cmd.name, ...cmd.aliases];
-                    if (matchTarget.some((t) => t.startsWith(prefix))) {
-                        items.push({
-                            value: cmd.name,
-                            label: cmd.name,
-                            description: cmd.description,
-                        });
-                    }
-                }
-
-                // Prompt templates (excluding blocked collisions with built-ins)
-                for (const t of invokablePromptTemplates) {
-                    if (t.name.startsWith(prefix)) {
-                        const label = t.argumentHint ? `${t.name} ${t.argumentHint}` : t.name;
-                        items.push({
-                            value: t.name,
-                            label,
-                            description: t.description,
-                        });
-                    }
-                }
-
-                if (items.length === 0) return null;
-                return { items, prefix: textBeforeCursor };
-            }
-
-            if (textBeforeCursor.startsWith("/resume ")) {
-                const prefix = textBeforeCursor.slice(8);
-                const plans = await listPlans(Deno.cwd());
-                const items = plans
-                    .filter((p) => p.name.startsWith(prefix))
-                    .map((p) => ({
-                        value: p.name,
-                        label: p.name,
-                        description: `${p.attrs.classification} - ${p.attrs.status}`,
-                    }));
-                if (items.length === 0) return null;
-                return { items, prefix };
-            }
-
-            if (textBeforeCursor.startsWith("/agent ")) {
-                const prefix = textBeforeCursor.slice(7);
-                const agents = await listAvailableAgents();
-                const items = [
-                    { value: "router", label: "router", description: "Reset to default router (triage) flow" },
-                    ...agents
-                        .filter((a) => a.name.startsWith(prefix))
-                        .map((a) => ({
+    const autocompleteProvider = new CombinedAutocompleteProvider(
+        [
+            {
+                name: "quit",
+                description: "Exit the application",
+            },
+            ...CHAT_COMMAND_HANDLERS.map((name) => {
+                /** @type {import('@mariozechner/pi-tui').SlashCommand} */
+                const cmd = {
+                    name,
+                    description: name === "resume" ? "Resume a saved plan" : "Command",
+                    getArgumentCompletions: name === "resume"
+                        ? async (argumentPrefix) => {
+                            const plans = await listPlans(Deno.cwd());
+                            return plans
+                                .filter((p) => p.name.startsWith(argumentPrefix))
+                                .map((p) => ({
+                                    value: p.name,
+                                    label: p.name,
+                                    description: `${p.attrs.classification} - ${p.attrs.status}`,
+                                }));
+                        }
+                        : undefined,
+                };
+                return cmd;
+            }),
+            /** @type {import('@mariozechner/pi-tui').SlashCommand} */
+            ({
+                name: "agent",
+                description: "Switch active agent",
+                getArgumentCompletions: async (argumentPrefix) => {
+                    const agents = await listAvailableAgents();
+                    return [
+                        { value: "router", label: "router", description: "Reset to default router (triage) flow" },
+                        ...agents.map((a) => ({
                             value: a.name,
                             label: a.name,
                             description: a.description,
                         })),
-                ].filter((item) => item.value.startsWith(prefix));
-                if (items.length === 0) return null;
-                return { items, prefix };
-            }
-
-            return null;
-        },
-        /**
-         * @param {string[]} lines
-         * @param {number} cursorLine
-         * @param {number} cursorCol
-         * @param {any} item
-         * @param {string} prefix
-         */
-        applyCompletion(lines, cursorLine, cursorCol, item, prefix) {
-            const currentLine = lines[cursorLine] || "";
-            const beforePrefix = currentLine.slice(0, cursorCol - prefix.length);
-            const afterCursor = currentLine.slice(cursorCol);
-
-            let newLine;
-            let offset;
-            if (beforePrefix === "") {
-                newLine = `/${item.value} ${afterCursor}`;
-                offset = item.value.length + 2;
-            } else {
-                newLine = `${beforePrefix}${item.value}${afterCursor}`;
-                offset = beforePrefix.length + item.value.length;
-            }
-
-            const newLines = [...lines];
-            newLines[cursorLine] = newLine;
-            return { lines: newLines, cursorLine, cursorCol: offset };
-        },
-    };
+                    ].filter((item) => item.value.startsWith(argumentPrefix));
+                },
+            }),
+            ...invokablePromptTemplates.map((t) => ({
+                name: t.name,
+                argumentHint: t.argumentHint,
+                description: t.description,
+            })),
+        ],
+        Deno.cwd(),
+    );
     editor.setAutocompleteProvider(autocompleteProvider);
 
     // Expose a UI API for agents to append to the message list
