@@ -231,6 +231,7 @@ When to use memory:
             return {
                 content: [{ type: "text", text: result.trim() }],
                 details: params,
+                callMessage: `Storing project memory:\n\n${params.content}`,
             };
         },
     });
@@ -265,6 +266,7 @@ When to use memory:
             return {
                 content: [{ type: "text", text: result.trim() }],
                 details: params,
+                callMessage: `Storing global memory:\n\n${params.content}`,
             };
         },
     });
