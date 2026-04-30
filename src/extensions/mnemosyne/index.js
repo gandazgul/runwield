@@ -138,6 +138,12 @@ When to use memory:
 
         invalidateCache();
         await ensureCacheValid();
+
+        const { getActiveUiAPI } = await import("../../shared/chat-session.js");
+        const uiAPI = getActiveUiAPI();
+        if (uiAPI && cachedCoreBlock) {
+            uiAPI.appendSystemMessage(cachedCoreBlock.trim());
+        }
     });
 
     pi.on("before_agent_start", async (event) => {
