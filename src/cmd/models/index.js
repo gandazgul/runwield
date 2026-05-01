@@ -4,6 +4,7 @@
  */
 
 import { setActiveModel } from "../../shared/chat-session.js";
+import { getModelRegistry } from "../../shared/model-registry.js";
 export { getModelCompletions } from "./getArgumentCompletions.js";
 
 /**
@@ -17,7 +18,7 @@ export async function runModelsCommand(argv, options = {}) {
 
     if (argv.length === 0) {
         if (uiAPI && editor) {
-            if (text !== "/model") {
+            if (text?.trim() !== "/model") {
                 uiAPI.appendSystemMessage("Model selection canceled.");
                 editor.setText("");
                 editor.disableSubmit = false;
@@ -55,17 +56,8 @@ export async function runModelsCommand(argv, options = {}) {
 
     const targetModel = argv[0];
 
-    const { ModelRegistry } = await import("@mariozechner/pi-coding-agent");
-    const { AuthStorage } = await import("@mariozechner/pi-coding-agent");
-
-    // Determine the standard pi agent directory to look for models.json and auth details
-    const CWD = Deno.cwd();
-    const HOME_DIR = Deno.env.get("HOME") || "";
-    const agentDir = HOME_DIR ? `${HOME_DIR}/.pi/agent` : CWD;
-
-    const authStorage = AuthStorage.create(`${agentDir}/auth.json`);
-    const modelRegistry = ModelRegistry.create(authStorage, `${agentDir}/models.json`);
-    const models = modelRegistry.getAll();
+    const modelRegistry = getModelRegistry();
+    const models = modelRegistry.getAvailable();
 
     // In pi, models are usually just the id, occasionally provider/id. For robustness, if they typed provider/id
     // let's try to match exactly, or fallback to matching just the id.
@@ -88,4 +80,6 @@ export async function runModelsCommand(argv, options = {}) {
     } else {
         console.log(`Switched model to ${modelObj.id} (${modelObj.provider})`);
     }
+
+    await Promise.resolve();
 }

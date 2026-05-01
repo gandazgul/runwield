@@ -1,17 +1,14 @@
+import { getModelRegistry } from "../../shared/model-registry.js";
+
 /**
  * @param {string} argumentPrefix
  * @returns {Promise<any[]>}
  */
 export async function getModelCompletions(argumentPrefix) {
-    const { ModelRegistry, AuthStorage } = await import("@mariozechner/pi-coding-agent");
+    const modelRegistry = getModelRegistry();
+    const models = modelRegistry.getAvailable();
 
-    const CWD = Deno.cwd();
-    const HOME_DIR = Deno.env.get("HOME") || "";
-    const agentDir = HOME_DIR ? `${HOME_DIR}/.pi/agent` : CWD;
-
-    const authStorage = AuthStorage.create(`${agentDir}/auth.json`);
-    const modelRegistry = ModelRegistry.create(authStorage, `${agentDir}/models.json`);
-    const models = modelRegistry.getAll();
+    await Promise.resolve();
 
     return models
         .sort((a, b) => a.id.localeCompare(b.id))

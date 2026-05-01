@@ -22,6 +22,7 @@ import { SpinnerBlock } from "./ui/blocks.js";
 import { abortActiveSession, listPromptTemplates, runAgentSession } from "./session.js";
 import { ensureMnemosyneBinary } from "./runtime-preflight.js";
 import { commandRegistry } from "../cmd/registry.js";
+import { getDefaultModelAndProvider } from "./model-registry.js";
 
 const UI_PADDING = { x: 0, y: 0 };
 
@@ -139,29 +140,12 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
     }
 
     const getModelAndProvider = () => {
-        let model = "gemini-2.5-flash";
-        let provider = "unknown";
-        try {
-            const homeDir = Deno.env.get("HOME") || "";
-            /** @type {Record<string, any>} */
-            let settings = {};
-            try {
-                const globalPath = `${homeDir}/.pi/agent/settings.json`;
-                settings = JSON.parse(Deno.readTextFileSync(globalPath));
-            } catch (_e) { /* ignore */ }
-            try {
-                const localPath = `${Deno.cwd()}/.pi/settings.json`;
-                const projSettings = JSON.parse(Deno.readTextFileSync(localPath));
-                settings = { ...settings, ...projSettings };
-            } catch (_e) { /* ignore */ }
+        const defaults = getDefaultModelAndProvider();
+        let { model, provider } = defaults;
 
-            if (settings.defaultModel) model = settings.defaultModel;
-            if (settings.defaultProvider) provider = settings.defaultProvider;
-
-            if (currentAgentModel) {
-                model = currentAgentModel;
-            }
-        } catch (_e) { /* ignore */ }
+        if (currentAgentModel) {
+            model = currentAgentModel;
+        }
 
         return { model, provider };
     };
