@@ -8,6 +8,7 @@ import { printCommandHelp } from "../../shared/help-text.js";
 import { setActiveAgent, startInteractiveSession } from "../../shared/chat-session.js";
 import { listAvailableAgents } from "../../shared/agents.js";
 import { createDirectAgentHandler } from "../../shared/direct-agent.js";
+export { getAgentCompletions } from "./getArgumentCompletions.js";
 
 /**
  * Handle the agents command.

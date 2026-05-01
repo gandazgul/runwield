@@ -20,25 +20,18 @@ import { readClipboardImage } from "./clipboard.js";
 import { createUiApi } from "./ui/api.js";
 import { SpinnerBlock } from "./ui/blocks.js";
 import { abortActiveSession, listPromptTemplates, runAgentSession } from "./session.js";
-import { listAvailableAgents } from "./agents.js";
 import { ensureMnemosyneBinary } from "./runtime-preflight.js";
-import { listPlans } from "../plan-store.js";
-import { COMMAND_NAMES } from '../constants.js';
+import { commandRegistry } from "../cmd/registry.js";
 
 const UI_PADDING = { x: 0, y: 0 };
 
 const CHAT_PROMPT_AGENT_NAME = "operator";
-// TODO, each command should be an object that has:
-// name, pretty name, description, execute function, slash boolean, cli boolean
-// this set should be built by filter (slash: true) + reduce to array of names
-export const CHAT_BUILTIN_SLASH_NAMES = new Set([
-    COMMAND_NAMES.QUIT,
-    COMMAND_NAMES.AGENT,
-    COMMAND_NAMES.MODEL,
-    COMMAND_NAMES.PLANS,
-    COMMAND_NAMES.RESUME,
-    COMMAND_NAMES.SLEEP,
-]);
+
+export const CHAT_BUILTIN_SLASH_NAMES = new Set(
+    Object.values(commandRegistry)
+        .filter((cmd) => cmd.isSlash)
+        .map((cmd) => cmd.name),
+);
 
 /**
  * @param {{ name: string, source: "local" | "home" | "bundled" }} template
@@ -221,73 +214,8 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
                 /** @type {import('@mariozechner/pi-tui').SlashCommand} */
                 const cmd = {
                     name,
-                    // todo this should come from registry[name].description
-                    description: name === "resume"
-                        ? "Resume a saved plan"
-                        : name === "agent"
-                        ? "Switch active agent"
-                        : name === "model"
-                        ? "Switch AI model"
-                        : "Command",
-                    // todo this should come from registry[name].getArgumentCompletions
-                    getArgumentCompletions: name === "resume"
-                        ? async (argumentPrefix) => {
-                            const plans = await listPlans(Deno.cwd());
-                            return plans
-                                .filter((p) => p.name.startsWith(argumentPrefix))
-                                .map((p) => ({
-                                    value: p.name,
-                                    label: p.name,
-                                    description: `${p.attrs.classification} - ${p.attrs.status}`,
-                                }));
-                        }
-                        : name === "agent"
-                        ? async (argumentPrefix) => {
-                            const agents = await listAvailableAgents();
-                            return [
-                                {
-                                    value: "router",
-                                    label: "router",
-                                    description: "Reset to default router (triage) flow",
-                                },
-                                ...agents.map((a) => ({
-                                    value: a.name,
-                                    label: a.name,
-                                    description: a.description,
-                                })),
-                            ].filter((item) => item.value.startsWith(argumentPrefix));
-                        }
-                        : name === "model"
-                        ? async (argumentPrefix) => {
-                            const { ModelRegistry, AuthStorage } = await import("@mariozechner/pi-coding-agent");
-
-                            const CWD = Deno.cwd();
-                            const HOME_DIR = Deno.env.get("HOME") || "";
-                            const agentDir = HOME_DIR ? `${HOME_DIR}/.pi/agent` : CWD;
-
-                            const authStorage = AuthStorage.create(`${agentDir}/auth.json`);
-                            const modelRegistry = ModelRegistry.create(authStorage, `${agentDir}/models.json`);
-                            const models = modelRegistry.getAll();
-
-                            return models
-                                // pi sorts by id, let's keep it sorted
-                                .sort((a, b) => a.id.localeCompare(b.id))
-                                .map((m) => {
-                                    const value = `${m.provider}/${m.id}`;
-                                    // if user types provider/id, autocomplete on value. If just typing id, autocomplete on id.
-                                    // the UI matches prefix on value
-                                    return {
-                                        value,
-                                        label: value,
-                                        description: m.name,
-                                    };
-                                })
-                                .filter((item) =>
-                                    item.value.startsWith(argumentPrefix) ||
-                                    item.value.split("/")[1].startsWith(argumentPrefix)
-                                );
-                        }
-                        : undefined,
+                    description: commandRegistry[name].description,
+                    getArgumentCompletions: commandRegistry[name].getArgumentCompletions,
                 };
                 return cmd;
             }),
@@ -528,7 +456,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
             if (CHAT_BUILTIN_SLASH_NAMES.has(cmd) && commandRegistry[cmd]) {
                 editor.disableSubmit = true;
                 try {
-                    await commandRegistry[cmd](args, {
+                    await commandRegistry[cmd].execute(args, {
                         uiAPI,
                         editor,
                         tui,

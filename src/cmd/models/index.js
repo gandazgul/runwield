@@ -4,6 +4,7 @@
  */
 
 import { setActiveModel } from "../../shared/chat-session.js";
+export { getModelCompletions } from "./getArgumentCompletions.js";
 
 /**
  * Handle the models command (`hns model` and `/model`).

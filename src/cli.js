@@ -36,7 +36,7 @@ async function main() {
 
     // Explicit help command: `cli.js help [command]`
     if (firstPositional === COMMAND_NAMES.HELP) {
-        await commandRegistry[COMMAND_NAMES.HELP](args.slice(1));
+        await commandRegistry[COMMAND_NAMES.HELP].execute(args.slice(1));
         return;
     }
 
@@ -48,7 +48,7 @@ async function main() {
 
     // Explicit command dispatch: `cli.js <command> ...`
     if (firstPositional && commandRegistry[firstPositional]) {
-        await commandRegistry[firstPositional](args.slice(1));
+        await commandRegistry[firstPositional].execute(args.slice(1));
         return;
     }
 
@@ -59,7 +59,7 @@ async function main() {
     }
 
     // Default command route: `cli.js "<user request>"` => router
-    await commandRegistry[COMMAND_NAMES.ROUTER](args);
+    await commandRegistry[COMMAND_NAMES.ROUTER].execute(args);
 }
 
 main().catch((err) => {

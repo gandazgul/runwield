@@ -12,6 +12,7 @@ import { createUserInterviewTool } from "../../tools/user-interview.js";
 import { askPostApproval, executePlan, reviewLoop } from "../../shared/workflow.js";
 import { printCommandHelp } from "../../shared/help-text.js";
 import { setActiveAgent, startInteractiveSession } from "../../shared/chat-session.js";
+export { getResumeCompletions } from "./getArgumentCompletions.js";
 
 /**
  * Restore default Router flow and input readiness after resume command work.
