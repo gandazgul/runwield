@@ -1,6 +1,6 @@
 ---
 name: operator
-model: ollama-cloud/gemma4:31b-cloud
+model: ollama-cloud/qwen3.5:cloud
 description: "Operational agent that executes small tasks — commits, fixes, config changes, and anything that doesn't need a plan."
 tools:
     - read

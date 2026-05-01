@@ -166,9 +166,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
         render: (w) => {
             const { model, provider } = getModelAndProvider();
             const leftStr = `${cwd} (${branch})`;
-            const rightStr = model.startsWith(`${provider}/`)
-                ? model
-                : `${provider}/${model}`;
+            const rightStr = model.startsWith(`${provider}/`) ? model : `${provider}/${model}`;
             const spaceCount = Math.max(0, w - leftStr.length - rightStr.length);
             const agentLine = " ".repeat(Math.max(0, w - activeAgentName.length)) +
                 theme.fg("accent", activeAgentName);

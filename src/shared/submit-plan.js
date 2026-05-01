@@ -69,7 +69,7 @@ async function openInDefaultBrowser(url) {
  * @param {string} opts.planName - Plan filename (without .md)
  * @param {string} opts.planPath - Absolute path to the plan .md file
  * @param {Partial<import('../plan-store.js').PlanFrontMatter>} [opts.triageMeta] - Triage metadata to ensure in front matter
- * @param {import('../shared/workflow.js').UiAPI} [opts.uiAPI] - Optional UI API for output
+ * @param {import('./workflow.js').UiAPI} [opts.uiAPI] - Optional UI API for output
  * @returns {Promise<PlanReviewResult>}
  */
 export async function submitPlanForReview({

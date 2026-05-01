@@ -9,7 +9,7 @@ import { join } from "@std/path";
 import { AGENT_DEFS_DIR, CORE_SYSTEM_PROMPT, CWD, PROMPT_TEMPLATES_DIR } from "../constants.js";
 import mnemosyneExtension from "../extensions/mnemosyne/index.js";
 import { ensureMnemosyneBinary } from "./runtime-preflight.js";
-import { switchAgentTool, switchAgentToolDef } from "../tools/switch-agent.js";
+import { switchAgentTool } from "../tools/switch-agent.js";
 
 const HOME_DIR = Deno.env.get("HOME") || "";
 const HOME_AGENT_DEFS_DIR = HOME_DIR ? join(HOME_DIR, ".hns", "agents") : null;
@@ -357,13 +357,7 @@ export async function runAgentSession(
 
     const finalCustomTools = [...(customTools || [])];
     if (tools.includes("switch_agent") && !finalCustomTools.find((t) => t.name === "switch_agent")) {
-        finalCustomTools.push(
-            /** @type {any} */
-            ({
-                ...switchAgentToolDef,
-                execute: /** @type {any} */ (switchAgentTool),
-            }),
-        );
+        finalCustomTools.push(switchAgentTool);
     }
 
     // Attempt to update the agent info in the UI footer.

@@ -6,7 +6,7 @@
 import { parseArgs } from "@std/cli/parse-args";
 import { CLI_BIN, CWD } from "../../constants.js";
 import { resolvePlan } from "../../plan-store.js";
-import { submitPlanForReview } from "../../tools/submit-plan.js";
+import { submitPlanForReview } from "../../shared/submit-plan.js";
 import { planWrittenTool } from "../../tools/plan-written.js";
 import { createUserInterviewTool } from "../../tools/user-interview.js";
 import { askPostApproval, executePlan, reviewLoop } from "../../shared/workflow.js";

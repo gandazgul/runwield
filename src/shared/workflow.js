@@ -5,7 +5,7 @@
 
 import { join } from "@std/path";
 import { CWD, MAX_PARALLEL_TASKS, PLANS_DIR_NAME } from "../constants.js";
-import { submitPlanForReview } from "../tools/submit-plan.js";
+import { submitPlanForReview } from "./submit-plan.js";
 import { loadPlan } from "../plan-store.js";
 import { runAgentSession } from "./session.js";
 import { confirm, select } from "./prompts.js";
