@@ -29,6 +29,9 @@ export async function runModelsCommand(argv, options = {}) {
             editor.cursorCol = 7;
             editor.disableSubmit = false;
 
+            // Trigger immediate render to show the new text
+            if (options.tui) options.tui.requestRender();
+
             // Delay autocomplete request slightly to ensure it fires AFTER
             // the current submission cycle is fully resolved in the pi-tui loop.
             setTimeout(() => {
@@ -43,7 +46,8 @@ export async function runModelsCommand(argv, options = {}) {
                 } else if (originalHandleInput) {
                     originalHandleInput(" ");
                 }
-            }, 50);
+                if (options.tui) options.tui.requestRender();
+            }, 10);
             return;
         } else if (uiAPI) {
             uiAPI.appendSystemMessage("Usage: /model <provider>/<model_id>");
@@ -73,12 +77,12 @@ export async function runModelsCommand(argv, options = {}) {
         return;
     }
 
-    setActiveModel(modelObj.id);
+    setActiveModel(modelObj.id, modelObj.provider);
 
     if (uiAPI) {
-        uiAPI.appendSystemMessage(`Switched model to ${modelObj.id} (${modelObj.provider})`);
+        uiAPI.appendSystemMessage(`Switched model to ${modelObj.provider}/${modelObj.id}`);
     } else {
-        console.log(`Switched model to ${modelObj.id} (${modelObj.provider})`);
+        console.log(`Switched model to ${modelObj.provider}/${modelObj.id}`);
     }
 
     await Promise.resolve();

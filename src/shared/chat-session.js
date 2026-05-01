@@ -68,11 +68,14 @@ export function setActiveAgent(agentName, handler, uiAPI, agentModel) {
 }
 
 let currentAgentModel = "";
+let currentAgentProvider = "";
 /**
  * @param {string} model
+ * @param {string} [provider]
  */
-export function setActiveModel(model) {
+export function setActiveModel(model, provider) {
     currentAgentModel = model;
+    if (provider) currentAgentProvider = provider;
 }
 
 /**
@@ -150,6 +153,9 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
         if (currentAgentModel) {
             model = currentAgentModel;
         }
+        if (currentAgentProvider) {
+            provider = currentAgentProvider;
+        }
 
         return { model, provider };
     };
@@ -160,7 +166,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
         render: (w) => {
             const { model, provider } = getModelAndProvider();
             const leftStr = `${cwd} (${branch})`;
-            const rightStr = `(${provider}) ${model}`;
+            const rightStr = `${provider}/${model}`;
             const spaceCount = Math.max(0, w - leftStr.length - rightStr.length);
             const agentLine = " ".repeat(Math.max(0, w - activeAgentName.length)) +
                 theme.fg("accent", activeAgentName);
