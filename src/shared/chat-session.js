@@ -26,7 +26,7 @@ import { ensureMnemosyneBinary } from "./runtime-preflight.js";
 
 const UI_PADDING = { x: 0, y: 0 };
 
-const CHAT_COMMAND_HANDLERS = Object.freeze(["resume", "agent"]);
+const CHAT_COMMAND_HANDLERS = Object.freeze(["resume", "agent", "model"]);
 const CHAT_PROMPT_AGENT_NAME = "operator";
 const CHAT_EXIT_COMMANDS = new Set(["quit", "exit", "q"]);
 export const CHAT_BUILTIN_SLASH_NAMES = new Set([...CHAT_EXIT_COMMANDS, "agent", ...CHAT_COMMAND_HANDLERS]);
@@ -68,7 +68,6 @@ export function setActiveAgent(agentName, handler, uiAPI, agentModel) {
 }
 
 let currentAgentModel = "";
-
 /**
  * @param {string} model
  */
@@ -217,6 +216,8 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
                         ? "Resume a saved plan"
                         : name === "agent"
                         ? "Switch active agent"
+                        : name === "model"
+                        ? "Switch AI model"
                         : "Command",
                     getArgumentCompletions: name === "resume"
                         ? async (argumentPrefix) => {
@@ -244,6 +245,36 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
                                     description: a.description,
                                 })),
                             ].filter((item) => item.value.startsWith(argumentPrefix));
+                        }
+                        : name === "model"
+                        ? async (argumentPrefix) => {
+                            const { ModelRegistry, AuthStorage } = await import("@mariozechner/pi-coding-agent");
+
+                            const CWD = Deno.cwd();
+                            const HOME_DIR = Deno.env.get("HOME") || "";
+                            const agentDir = HOME_DIR ? `${HOME_DIR}/.pi/agent` : CWD;
+
+                            const authStorage = AuthStorage.create(`${agentDir}/auth.json`);
+                            const modelRegistry = ModelRegistry.create(authStorage, `${agentDir}/models.json`);
+                            const models = modelRegistry.getAll();
+
+                            return models
+                                // pi sorts by id, let's keep it sorted
+                                .sort((a, b) => a.id.localeCompare(b.id))
+                                .map((m) => {
+                                    const value = `${m.provider}/${m.id}`;
+                                    // if user types provider/id, autocomplete on value. If just typing id, autocomplete on id.
+                                    // the UI matches prefix on value
+                                    return {
+                                        value,
+                                        label: value,
+                                        description: m.provider,
+                                    };
+                                })
+                                .filter((item) =>
+                                    item.value.startsWith(argumentPrefix) ||
+                                    item.label.split("/")[1].startsWith(argumentPrefix)
+                                );
                         }
                         : undefined,
                 };
@@ -336,7 +367,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
                 pastedImages.length = 0;
                 previewImages.clear();
 
-                // @ts-ignore
+                // @ts-ignore: TS doesn't know about UI API typing inside session management
                 if (uiAPI.appendUserMessage && !isExcluded) {
                     try {
                         const msg = {
@@ -345,7 +376,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
                         };
                         /** @type {any} */ (rootSessionManager)?.addMessage(msg);
                         uiAPI.appendUserMessage(userRequest);
-                    } catch (e) {
+                    } catch (_e) {
                         // ignore
                     }
                 }
@@ -437,7 +468,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
                                 }],
                             };
                             /** @type {any} */ (rootSessionManager)?.addMessage(resultMsg);
-                        } catch (e) {
+                        } catch (_e) {
                             // ignore session add failure
                         }
                     }
@@ -476,8 +507,10 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
             const { commandRegistry } = await import("../cmd/registry.js");
             const { COMMAND_NAMES } = await import("../constants.js");
 
-            // Look up the command in the registry handling both 'agents' (CLI mapped name) and 'agent' (slash alias)
-            const registryKey = cmd === "agent" ? COMMAND_NAMES.AGENTS : cmd;
+            // Look up the command in the registry
+            let registryKey = cmd;
+            if (cmd === "agent") registryKey = COMMAND_NAMES.AGENTS;
+            if (cmd === "model") registryKey = COMMAND_NAMES.MODELS;
 
             if (CHAT_COMMAND_HANDLERS.includes(cmd) && commandRegistry[registryKey]) {
                 editor.disableSubmit = true;

@@ -46,6 +46,7 @@ export const PLANS_DIR_NAME = "plans";
 export const COMMAND_NAMES = Object.freeze({
     ROUTER: "router",
     AGENTS: "agents",
+    MODELS: "models",
     RESUME: "resume",
     PLANS: "plans",
     SLEEP: "sleep",

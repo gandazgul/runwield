@@ -10,6 +10,7 @@ import { runResumeCommand } from "./resume/index.js";
 import { runRouterCommand } from "./router/index.js";
 import { runSleepCommand } from "./sleep/index.js";
 import { runAgentsCommand } from "./agents/index.js";
+import { runModelsCommand } from "./models/index.js";
 
 /**
  * @typedef {(argv: string[], options?: any) => Promise<void>} CommandHandler
@@ -19,6 +20,7 @@ import { runAgentsCommand } from "./agents/index.js";
 export const commandRegistry = {
     [COMMAND_NAMES.ROUTER]: runRouterCommand,
     [COMMAND_NAMES.AGENTS]: runAgentsCommand,
+    [COMMAND_NAMES.MODELS]: runModelsCommand,
     [COMMAND_NAMES.RESUME]: runResumeCommand,
     [COMMAND_NAMES.PLANS]: runPlansCommand,
     [COMMAND_NAMES.SLEEP]: runSleepCommand,
