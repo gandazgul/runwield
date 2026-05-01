@@ -399,6 +399,28 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
 
                     let outputBuffer = "";
 
+                    if (isExcluded) {
+                        try {
+                            const { stopTUI, initTUI } = await import("./tui.js");
+                            stopTUI();
+                            const { spawnSync } = await import("child_process");
+                            spawnSync(command, { stdio: "inherit", shell: true });
+                            // Re-init terminal to clear visual artifacts
+                            initTUI();
+                            editor.setText("");
+                            tui.requestRender();
+                        } catch (e) {
+                            // Ignore error
+                        } finally {
+                            editor.disableSubmit = false;
+                            if (uiAPI.setBusy) uiAPI.setBusy(false);
+                            if (uiAPI.enableInput) uiAPI.enableInput();
+                            tui.setFocus(editor);
+                            tui.requestRender();
+                        }
+                        return;
+                    }
+
                     const startTime = Date.now();
                     const code = await new Promise((resolve) => {
                         const proc = exec(command, { cwd: Deno.cwd() });
@@ -407,8 +429,6 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
                             if (!isExcluded) {
                                 toolBlock?.appendOutput(data.toString());
                                 outputBuffer += data.toString();
-                            } else {
-                                console.log(data.toString());
                             }
                         });
 
@@ -416,8 +436,6 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
                             if (!isExcluded) {
                                 toolBlock?.appendOutput(data.toString());
                                 outputBuffer += data.toString();
-                            } else {
-                                console.error(data.toString());
                             }
                         });
 
