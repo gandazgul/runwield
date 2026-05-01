@@ -1,5 +1,6 @@
 ---
 description: Optimize functional code for production by enhancing maintainability and clarity.
+model: opencode/kimi-k2.6
 ---
 
 # Identity

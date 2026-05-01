@@ -44,7 +44,10 @@ const COMMAND_DETAILS = {
         ],
     },
     [COMMAND_NAMES.MODEL]: {
-        usage: ["models <provider>/<model_id>"],
+        usage: [
+            `${bin("model <provider>/<model_id>")}`,
+            `${bin("models <provider>/<model_id>")}`,
+        ],
         notes: [
             "Switch the active AI model.",
             "Inside the interactive session, use '/model <tab>' for autocomplete.",

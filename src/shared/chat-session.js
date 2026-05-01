@@ -23,8 +23,20 @@ import { abortActiveSession, listPromptTemplates, runAgentSession } from "./sess
 import { cancelActivePlanReview } from "./submit-plan.js";
 import { ensureMnemosyneBinary } from "./runtime-preflight.js";
 import { commandRegistry } from "../cmd/registry.js";
-import { getDefaultModelAndProvider } from "./model-registry.js";
-import { clearUserModelOverride, getUserModelOverride, setUserModelOverride } from "./model-override.js";
+import { getDefaultModelAndProvider, getModelRegistry } from "./model-registry.js";
+import {
+    getActiveAgentName,
+    getActiveModelState,
+    getActiveOnMessage,
+    getActiveUiAPIState,
+    getRootSessionManager,
+    setActiveAgentName,
+    setActiveModelState,
+    setActiveOnMessage,
+    setActiveUiAPI,
+    setRootSessionManager,
+} from "./session-state.js";
+import { parseProviderModel } from "./model-validation.js";
 import { createDirectAgentHandler } from "./direct-agent.js";
 
 const UI_PADDING = { x: 0, y: 0 };
@@ -39,17 +51,8 @@ export let CHAT_BUILTIN_SLASH_NAMES = new Set();
  */
 function toUserFacingPromptPath(template) {
     if (template.source === "local") return `./.hns/prompts/${template.name}.md`;
-    if (template.source === "home") return `~/.hns/prompts/${template.name}.md`;
-    return `src/prompt-templates/${template.name}.md`;
+    return `~/.hns/prompts/${template.name}.md`;
 }
-
-let activeAgentName = "Router";
-/** @type {((userRequest: string, images: any[], uiAPI: import('./workflow.js').UiAPI, sessionManager: import('@mariozechner/pi-coding-agent').SessionManager) => Promise<void>) | null} */
-let activeOnMessage = null;
-/** @type {import('@mariozechner/pi-coding-agent').SessionManager | null} */
-let rootSessionManager = null;
-/** @type {import('./workflow.js').UiAPI | null} */
-let activeUiAPI = null;
 
 /**
  * Update the active agent and its message handler dynamically.
@@ -59,33 +62,35 @@ let activeUiAPI = null;
  * @param {import('./workflow.js').UiAPI} [uiAPI]
  */
 export function setActiveAgent(agentName, handler, uiAPI, agentModel) {
-    if (activeAgentName !== agentName) {
+    if (getActiveAgentName() !== agentName) {
         if (uiAPI) {
             const modelText = agentModel ? ` (model: ${agentModel})` : "";
             uiAPI.appendSystemMessage(`Switched to ${agentName}${modelText}.`);
         }
     }
-    activeAgentName = agentName;
-    currentAgentModel = agentModel || "";
-    clearUserModelOverride();
-    activeOnMessage = handler;
+    setActiveAgentName(agentName);
+    if (agentModel) {
+        const slashIndex = agentModel.indexOf("/");
+        if (slashIndex > 0) {
+            setActiveModelState(agentModel, agentModel.slice(0, slashIndex));
+        } else {
+            setActiveModelState(agentModel);
+        }
+    }
+    setActiveOnMessage(handler);
     if (uiAPI) {
-        activeUiAPI = uiAPI;
+        setActiveUiAPI(uiAPI);
         uiAPI.requestRender();
     }
 }
 
-let currentAgentModel = "";
-let currentAgentProvider = "";
 /**
  * @param {string} model
  * @param {string} [provider]
  */
 export function setActiveModel(model, provider) {
-    currentAgentModel = model;
-    if (provider) currentAgentProvider = provider;
-    setUserModelOverride(model, provider);
-    activeUiAPI?.requestRender();
+    setActiveModelState(model, provider || "");
+    getActiveUiAPIState()?.requestRender();
 }
 
 /**
@@ -93,7 +98,7 @@ export function setActiveModel(model, provider) {
  * @returns {import('./workflow.js').UiAPI | null}
  */
 export function getActiveUiAPI() {
-    return activeUiAPI;
+    return getActiveUiAPIState();
 }
 
 /**
@@ -101,7 +106,29 @@ export function getActiveUiAPI() {
  * @returns {string}
  */
 export function getActiveModel() {
-    return currentAgentModel;
+    return getActiveModelState().model;
+}
+
+/**
+ * Resolve and validate a template-declared model.
+ * Requires strict provider/id format and configured auth.
+ *
+ * @param {string} templateModel
+ * @param {{ find: (provider: string, model: string) => any, hasConfiguredAuth: (model: any) => boolean }} [modelRegistry]
+ * @returns {{ ok: true, provider: string, id: string } | { ok: false }}
+ */
+export function resolveTemplateModel(templateModel, modelRegistry = getModelRegistry()) {
+    const parsed = parseProviderModel(templateModel);
+    if (!parsed.ok) {
+        return { ok: false };
+    }
+
+    const resolvedModel = modelRegistry.find(parsed.provider, parsed.id);
+    if (!resolvedModel || !modelRegistry.hasConfiguredAuth(resolvedModel)) {
+        return { ok: false };
+    }
+
+    return { ok: true, provider: resolvedModel.provider, id: resolvedModel.id };
 }
 
 /**
@@ -118,8 +145,8 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
             .map((cmd) => cmd.name),
     );
 
-    rootSessionManager = SessionManager.inMemory();
-    activeOnMessage = onMessage;
+    setRootSessionManager(SessionManager.inMemory());
+    setActiveOnMessage(onMessage);
     await ensureMnemosyneBinary();
     const tui = initTUI();
 
@@ -168,31 +195,20 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
         const defaults = getDefaultModelAndProvider();
         let { model, provider } = defaults;
 
-        const userOverride = getUserModelOverride();
-        if (userOverride) {
-            const slashIndex = userOverride.model.indexOf("/");
+        const activeModel = getActiveModelState();
+        if (activeModel.model) {
+            const slashIndex = activeModel.model.indexOf("/");
             if (slashIndex > 0) {
-                provider = userOverride.model.slice(0, slashIndex);
-                model = userOverride.model.slice(slashIndex + 1);
+                provider = activeModel.model.slice(0, slashIndex);
+                model = activeModel.model.slice(slashIndex + 1);
             } else {
-                model = userOverride.model;
-                if (userOverride.provider) {
-                    provider = userOverride.provider;
+                model = activeModel.model;
+                if (activeModel.provider) {
+                    provider = activeModel.provider;
                 }
             }
-        } else if (currentAgentModel) {
-            const slashIndex = currentAgentModel.indexOf("/");
-            if (slashIndex > 0) {
-                provider = currentAgentModel.slice(0, slashIndex);
-                model = currentAgentModel.slice(slashIndex + 1);
-            } else {
-                model = currentAgentModel;
-                if (currentAgentProvider) {
-                    provider = currentAgentProvider;
-                }
-            }
-        } else if (currentAgentProvider) {
-            provider = currentAgentProvider;
+        } else if (activeModel.provider) {
+            provider = activeModel.provider;
         }
 
         return { model, provider };
@@ -206,6 +222,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
             const leftStr = `${cwd} (${branch})`;
             const rightStr = model.startsWith(`${provider}/`) ? model : `${provider}/${model}`;
             const spaceCount = Math.max(0, w - leftStr.length - rightStr.length);
+            const activeAgentName = getActiveAgentName();
             const agentLine = " ".repeat(Math.max(0, w - activeAgentName.length)) +
                 theme.fg("accent", activeAgentName);
             return [
@@ -262,8 +279,16 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
     const uiAPI = createUiApi(tui, messageList, runningTasksComponent);
 
     // Chat session specific UI overrides/extensions
-    uiAPI.setAgentInfo = (agentName, _agentModel) => {
-        activeAgentName = agentName;
+    uiAPI.setAgentInfo = (agentName, agentModel) => {
+        setActiveAgentName(agentName);
+        if (agentModel) {
+            const slashIndex = agentModel.indexOf("/");
+            if (slashIndex > 0) {
+                setActiveModelState(agentModel, agentModel.slice(0, slashIndex));
+            } else {
+                setActiveModelState(agentModel);
+            }
+        }
         tui.requestRender();
     };
 
@@ -340,7 +365,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
                             role: "user",
                             content: [{ type: "text", text: userRequest }],
                         };
-                        /** @type {any} */ (rootSessionManager)?.addMessage(msg);
+                        /** @type {any} */ (getRootSessionManager())?.addMessage(msg);
                         uiAPI.appendUserMessage(userRequest);
                     } catch (_e) {
                         // ignore
@@ -440,7 +465,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
                                     input: { command },
                                 }],
                             };
-                            /** @type {any} */ (rootSessionManager)?.addMessage(cmdMsg);
+                            /** @type {any} */ (getRootSessionManager())?.addMessage(cmdMsg);
 
                             const resultMsg = {
                                 role: "user",
@@ -451,7 +476,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
                                     content: outputBuffer,
                                 }],
                             };
-                            /** @type {any} */ (rootSessionManager)?.addMessage(resultMsg);
+                            /** @type {any} */ (getRootSessionManager())?.addMessage(resultMsg);
                         } catch (_e) {
                             // ignore session add failure
                         }
@@ -508,6 +533,18 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
                     editor.disableSubmit = true;
                     editor.setText("");
 
+                    let resolvedTemplateModel = null;
+                    if (template.model) {
+                        const resolution = resolveTemplateModel(template.model);
+                        if (!resolution.ok) {
+                            uiAPI.appendSystemMessage("Invalid template model. Use /model to switch.");
+                            editor.disableSubmit = false;
+                            return;
+                        }
+
+                        resolvedTemplateModel = resolution;
+                    }
+
                     const images = [...pastedImages];
                     pastedImages.length = 0;
                     previewImages.clear();
@@ -517,15 +554,25 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
                         if (uiAPI.appendImage) uiAPI.appendImage(img.base64, img.mimeType);
                     });
 
-                    setActiveAgent(CHAT_PROMPT_AGENT_NAME, createDirectAgentHandler(CHAT_PROMPT_AGENT_NAME), uiAPI);
+                    const templateModelValue = resolvedTemplateModel?.ok
+                        ? `${resolvedTemplateModel.provider}/${resolvedTemplateModel.id}`
+                        : undefined;
+
+                    setActiveAgent(
+                        CHAT_PROMPT_AGENT_NAME,
+                        createDirectAgentHandler(CHAT_PROMPT_AGENT_NAME),
+                        uiAPI,
+                        templateModelValue,
+                    );
 
                     try {
                         await runAgentSession({
                             agentName: CHAT_PROMPT_AGENT_NAME,
+                            modelOverride: templateModelValue,
                             userRequest,
                             images,
                             uiAPI,
-                            sessionManager: rootSessionManager || undefined,
+                            sessionManager: getRootSessionManager() || undefined,
                         });
                     } catch (err) {
                         uiAPI.appendSystemMessage(
@@ -557,8 +604,10 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
         });
 
         try {
+            const activeOnMessage = getActiveOnMessage();
+            const rootSessionManager = getRootSessionManager();
             if (activeOnMessage && rootSessionManager) {
-                activeUiAPI = uiAPI;
+                setActiveUiAPI(uiAPI);
                 await activeOnMessage(userRequest, images, uiAPI, rootSessionManager);
             } else {
                 uiAPI.appendSystemMessage("Error: No active agent handler or session manager.");

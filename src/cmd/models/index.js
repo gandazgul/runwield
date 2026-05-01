@@ -5,6 +5,7 @@
 
 import { setActiveModel } from "../../shared/chat-session.js";
 import { getModelRegistry } from "../../shared/model-registry.js";
+import { parseProviderModel } from "../../shared/model-validation.js";
 export { getModelCompletions } from "./getArgumentCompletions.js";
 
 /**
@@ -63,23 +64,29 @@ export async function runModelsCommand(argv, options = {}) {
             return;
         }
 
-        console.log("Usage: hns models <model_id>");
+        console.log("Usage: hns model <provider>/<model_id>");
         return;
     }
 
-    const targetModel = argv[0];
+    const targetModel = argv[0].trim();
+    const parsed = parseProviderModel(targetModel);
+
+    if (!parsed.ok) {
+        if (uiAPI) {
+            uiAPI.appendSystemMessage("Invalid model format. Use /model to switch.");
+        } else {
+            console.log("Invalid model format. Use provider/id.");
+        }
+        return;
+    }
 
     const modelRegistry = getModelRegistry();
-    const models = modelRegistry.getAvailable();
-
-    // In pi, models are usually just the id, occasionally provider/id. For robustness, if they typed provider/id
-    // let's try to match exactly, or fallback to matching just the id.
-    const modelObj = models.find((m) => `${m.provider}/${m.id}` === targetModel || m.id === targetModel);
+    const modelObj = modelRegistry.find(parsed.provider, parsed.id);
 
     // Provide some feedback to the user on success/failure within the correct interface
     if (!modelObj) {
         if (uiAPI) {
-            uiAPI.appendSystemMessage(`Unknown model: ${targetModel}. Use tab to see available models.`);
+            uiAPI.appendSystemMessage(`Unknown model: ${targetModel}. Use /model to switch.`);
         } else {
             console.log(`Unknown model: ${targetModel}`);
         }

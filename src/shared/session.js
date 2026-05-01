@@ -10,8 +10,9 @@ import { AGENT_DEFS_DIR, CORE_SYSTEM_PROMPT, CWD, PROMPT_TEMPLATES_DIR } from ".
 import mnemosyneExtension from "../extensions/mnemosyne/index.js";
 import { ensureMnemosyneBinary } from "./runtime-preflight.js";
 import { executeSwitchAgent, switchAgentTool, triggerAgent } from "../tools/switch-agent.js";
-import { getUserModelOverride } from "./model-override.js";
 import { getModelRegistry } from "./model-registry.js";
+import { parseProviderModel } from "./model-validation.js";
+import { getActiveModelState } from "./session-state.js";
 
 const HOME_DIR = Deno.env.get("HOME") || "";
 const HOME_AGENT_DEFS_DIR = HOME_DIR ? join(HOME_DIR, ".hns", "agents") : null;
@@ -22,11 +23,15 @@ const LOCAL_PROMPTS_DIR = join(CWD, ".hns", "prompts");
 
 /** @typedef {"local" | "home" | "bundled"} PromptTemplateSource */
 
+/** @type {Map<string, string | undefined>} */
+const promptTemplateModelByName = new Map();
+
 /**
  * @typedef {Object} PromptTemplateMeta
  * @property {string} name
  * @property {string} description
  * @property {string | undefined} argumentHint
+ * @property {string | undefined} model
  * @property {string} path
  * @property {PromptTemplateSource} source
  */
@@ -138,7 +143,7 @@ export function getPromptTemplatePaths() {
  * Parse prompt-template markdown metadata.
  *
  * @param {string} filePath
- * @returns {Promise<{ description: string, argumentHint?: string }>}
+ * @returns {Promise<{ description: string, argumentHint?: string, model?: string }>}
  */
 async function parsePromptTemplateMeta(filePath) {
     const raw = await Deno.readTextFile(filePath);
@@ -160,9 +165,12 @@ async function parsePromptTemplateMeta(filePath) {
         ? attrs["argument-hint"].trim()
         : undefined;
 
+    const model = typeof attrs.model === "string" && attrs.model.trim() ? attrs.model.trim() : undefined;
+
     return {
         description: frontmatterDescription || inferredDescription,
         argumentHint,
+        model,
     };
 }
 
@@ -175,6 +183,7 @@ async function parsePromptTemplateMeta(filePath) {
 export async function listPromptTemplates() {
     /** @type {PromptTemplateMeta[]} */
     const templates = [];
+    promptTemplateModelByName.clear();
     const seen = new Set();
 
     /** @type {Array<{dir: string, source: PromptTemplateSource}>} */
@@ -199,9 +208,11 @@ export async function listPromptTemplates() {
                     name,
                     description: meta.description,
                     argumentHint: meta.argumentHint,
+                    model: meta.model,
                     path: filePath,
                     source: layer.source,
                 });
+                promptTemplateModelByName.set(name, meta.model);
                 seen.add(name);
             } catch {
                 // Ignore unreadable prompt templates.
@@ -339,6 +350,7 @@ export function abortActiveSession() {
  * @param {string} opts.agentName
  * @param {string[]} [opts.toolNames] - Optional explicit tool override; defaults to agent frontmatter tools.
  * @param {import('@mariozechner/pi-coding-agent').ToolDefinition[]} [opts.customTools]
+ * @param {string} [opts.modelOverride] - Optional explicit model override in provider/id format.
  * @param {string} opts.userRequest - The user-facing request/instruction to send to the agent
  * @param {Array<{base64: string, mimeType: string}>} [opts.images]
  * @param {import('./workflow.js').UiAPI} [opts.uiAPI]
@@ -346,7 +358,7 @@ export function abortActiveSession() {
  * @returns {Promise<import('@mariozechner/pi-agent-core').AgentMessage[]>}
  */
 export async function runAgentSession(
-    { agentName, toolNames, customTools, userRequest, images, uiAPI, sessionManager },
+    { agentName, toolNames, customTools, modelOverride, userRequest, images, uiAPI, sessionManager },
 ) {
     await ensureMnemosyneBinary();
     const resourceAgentDir = await resolveAgentDefsDir();
@@ -371,13 +383,12 @@ export async function runAgentSession(
     // Attempt to update the agent info in the UI footer.
     if (uiAPI) {
         if (uiAPI.setAgentInfo) {
-            uiAPI.setAgentInfo(agentDef.name, agentDef.model);
+            const agentModelForUi = modelOverride || agentDef.model;
+            uiAPI.setAgentInfo(agentDef.name, agentModelForUi);
         }
-        // Removed "Loading agent" system message to prevent repetition on every prompt.
-        // The agent switch is now handled by setActiveAgent in the command handlers.
     } else {
         console.log(
-            `\n[Harns] Loading agent: ${agentDef.name} (model: ${agentDef.model})`,
+            `\n[Harns] Loading agent: ${agentDef.name} (model: ${modelOverride || agentDef.model})`,
         );
     }
 
@@ -392,10 +403,48 @@ export async function runAgentSession(
     await loader.reload();
 
     let resolvedModel = null;
-    const userOverride = getUserModelOverride();
-    if (userOverride) {
-        const modelRegistry = getModelRegistry();
-        resolvedModel = modelRegistry.find(userOverride.provider, userOverride.model);
+    const modelRegistry = getModelRegistry();
+
+    /** @type {string[]} */
+    const candidateModels = [];
+    if (modelOverride) candidateModels.push(modelOverride);
+
+    const activeModelState = getActiveModelState();
+    if (activeModelState.model) {
+        candidateModels.push(
+            activeModelState.provider
+                ? `${activeModelState.provider}/${activeModelState.model}`
+                : activeModelState.model,
+        );
+    }
+
+    if (agentDef.model) {
+        candidateModels.push(agentDef.model);
+    }
+
+    for (const candidate of candidateModels) {
+        const parsed = parseProviderModel(candidate);
+        if (!parsed.ok) {
+            throw new Error(`Invalid model format: ${candidate}. Use provider/id.`);
+        }
+
+        const found = modelRegistry.find(parsed.provider, parsed.id);
+        if (!found) {
+            if (candidate === modelOverride) {
+                throw new Error(`Unknown model: ${candidate}`);
+            }
+            continue;
+        }
+
+        if (!modelRegistry.hasConfiguredAuth(found)) {
+            if (candidate === modelOverride) {
+                throw new Error(`No API key configured for ${found.provider}/${found.id}`);
+            }
+            continue;
+        }
+
+        resolvedModel = found;
+        break;
     }
 
     const { session, extensionsResult } = await createAgentSession({
@@ -429,6 +478,15 @@ export async function runAgentSession(
 
     session.subscribe((event) => {
         switch (event.type) {
+            case "message_start": {
+                if (event.message.role === "assistant") {
+                    // Start a fresh assistant message context, but do not render a block yet.
+                    // We only create assistant blocks lazily when we receive actual text deltas
+                    // (or when rendering an assistant error on message_end).
+                    currentMarkdownBlock = null;
+                }
+                break;
+            }
             case "message_update": {
                 if (event.assistantMessageEvent.type === "text_delta") {
                     if (uiAPI) {
@@ -444,6 +502,38 @@ export async function runAgentSession(
                             new TextEncoder().encode(event.assistantMessageEvent.delta),
                         );
                     }
+                }
+                break;
+            }
+            case "message_end": {
+                if (
+                    event.message.role === "assistant" && event.message.stopReason === "error" &&
+                    uiAPI
+                ) {
+                    if (!currentMarkdownBlock) {
+                        currentMarkdownBlock = uiAPI.appendAgentMessageStart(agentDef.name);
+                    }
+                    currentMarkdownBlock.appendText(
+                        `\n\n**Error:** ${event.message.errorMessage || "Unknown LLM error"}`,
+                    );
+                    uiAPI.requestRender();
+                }
+                break;
+            }
+            case "auto_retry_start": {
+                if (uiAPI) {
+                    uiAPI.appendSystemMessage(
+                        `[Retry ${event.attempt}/${event.maxAttempts}] ${event.errorMessage} — waiting ${event.delayMs}ms...`,
+                    );
+                }
+                break;
+            }
+            case "auto_retry_end": {
+                if (uiAPI && !event.success) {
+                    uiAPI.appendSystemMessage(
+                        `Auto-retry failed after ${event.attempt} attempts: ${event.finalError || "Unknown error"}`,
+                        true,
+                    );
                 }
                 break;
             }

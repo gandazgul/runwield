@@ -65,7 +65,15 @@ export async function routerCmdOnMessage(userRequest, images, uiAPI, sessionMana
     const triage = extractTriageReport(routerMessages);
 
     if (!triage) {
-        uiAPI.appendSystemMessage("ERROR: Router did not produce a triage report.", true);
+        const lastAssistant = routerMessages.slice().reverse().find((m) => m.role === "assistant");
+        if (lastAssistant && lastAssistant.stopReason === "error") {
+            uiAPI.appendSystemMessage(
+                `Router error: ${lastAssistant.errorMessage || "Unknown LLM error"}`,
+                true,
+            );
+        } else {
+            uiAPI.appendSystemMessage("ERROR: Router did not produce a triage report.", true);
+        }
         return;
     }
 
@@ -89,7 +97,6 @@ export async function routerCmdOnMessage(userRequest, images, uiAPI, sessionMana
             `- Summary: ${triage.summary}`,
             `- Affected paths: ${triage.affectedPaths.join(", ")}`,
             "",
-            "Execute the task above. Inspect the current state, make the change or run the command, and verify the result.",
         ].join("\n");
 
         await runAgentSession({
