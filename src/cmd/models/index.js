@@ -14,40 +14,49 @@ export { getModelCompletions } from "./getArgumentCompletions.js";
  * @param {import('../registry.js').CommandContext} [options]
  */
 export async function runModelsCommand(argv, options = {}) {
-    const { uiAPI, editor, text, originalHandleInput } = options;
+    const { uiAPI, editor } = options;
 
     if (argv.length === 0) {
         if (uiAPI && editor) {
-            if (text?.trim() !== "/model") {
-                uiAPI.appendSystemMessage("Model selection canceled.");
+            const modelRegistry = getModelRegistry();
+            const models = modelRegistry.getAvailable();
+
+            if (models.length === 0) {
+                uiAPI.appendSystemMessage("No models available.");
                 editor.setText("");
                 editor.disableSubmit = false;
                 return;
             }
 
-            editor.setText("/model ");
-            editor.cursorCol = 7;
+            const modelOptions = models
+                .sort((a, b) => a.id.localeCompare(b.id))
+                .map((m) => ({
+                    value: `${m.provider}/${m.id}`,
+                    label: `${m.provider}/${m.id}`,
+                    description: m.name,
+                }));
+
+            const chosen = await uiAPI.promptSelect("Switch model:", modelOptions);
+            if (!chosen) {
+                editor.setText("");
+                editor.disableSubmit = false;
+                return;
+            }
+
+            const targetModel = chosen;
+            const modelObj = models.find((m) => `${m.provider}/${m.id}` === targetModel || m.id === targetModel);
+
+            if (!modelObj) {
+                uiAPI.appendSystemMessage(`Unknown model: ${targetModel}.`);
+                editor.setText("");
+                editor.disableSubmit = false;
+                return;
+            }
+
+            setActiveModel(modelObj.id, modelObj.provider);
+            uiAPI.appendSystemMessage(`Switched model to ${modelObj.provider}/${modelObj.id}`);
+            editor.setText("");
             editor.disableSubmit = false;
-
-            // Trigger immediate render to show the new text
-            if (options.tui) options.tui.requestRender();
-
-            // Delay autocomplete request slightly to ensure it fires AFTER
-            // the current submission cycle is fully resolved in the pi-tui loop.
-            setTimeout(() => {
-                if (typeof editor.requestAutocomplete === "function") {
-                    try {
-                        editor.requestAutocomplete({ force: true });
-                    } catch (_e) {
-                        if (originalHandleInput) {
-                            originalHandleInput(" ");
-                        }
-                    }
-                } else if (originalHandleInput) {
-                    originalHandleInput(" ");
-                }
-                if (options.tui) options.tui.requestRender();
-            }, 10);
             return;
         } else if (uiAPI) {
             uiAPI.appendSystemMessage("Usage: /model <provider>/<model_id>");

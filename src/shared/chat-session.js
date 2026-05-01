@@ -63,8 +63,12 @@ export function setActiveAgent(agentName, handler, uiAPI, agentModel) {
         }
     }
     activeAgentName = agentName;
+    currentAgentModel = agentModel || "";
     activeOnMessage = handler;
-    if (uiAPI) activeUiAPI = uiAPI;
+    if (uiAPI) {
+        activeUiAPI = uiAPI;
+        uiAPI.requestRender();
+    }
 }
 
 let currentAgentModel = "";
@@ -84,6 +88,14 @@ export function setActiveModel(model, provider) {
  */
 export function getActiveUiAPI() {
     return activeUiAPI;
+}
+
+/**
+ * Get the active model identifier (may include provider prefix).
+ * @returns {string}
+ */
+export function getActiveModel() {
+    return currentAgentModel;
 }
 
 /**
@@ -151,9 +163,17 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
         let { model, provider } = defaults;
 
         if (currentAgentModel) {
-            model = currentAgentModel;
-        }
-        if (currentAgentProvider) {
+            const slashIndex = currentAgentModel.indexOf("/");
+            if (slashIndex > 0) {
+                provider = currentAgentModel.slice(0, slashIndex);
+                model = currentAgentModel.slice(slashIndex + 1);
+            } else {
+                model = currentAgentModel;
+                if (currentAgentProvider) {
+                    provider = currentAgentProvider;
+                }
+            }
+        } else if (currentAgentProvider) {
             provider = currentAgentProvider;
         }
 
@@ -200,10 +220,6 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
 
     const autocompleteProvider = new CombinedAutocompleteProvider(
         [
-            {
-                name: "quit",
-                description: "Exit the application",
-            },
             ...Array.from(CHAT_BUILTIN_SLASH_NAMES).map((name) => {
                 /** @type {import('@mariozechner/pi-tui').SlashCommand} */
                 const cmd = {

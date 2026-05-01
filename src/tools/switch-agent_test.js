@@ -1,6 +1,6 @@
 import { assertEquals, assertMatch } from "@std/assert";
 import { switchAgentTool } from "./switch-agent.js";
-import { setActiveAgent } from "../shared/chat-session.js";
+import { getActiveModel, setActiveAgent } from "../shared/chat-session.js";
 
 /**
  * @param {any} tool
@@ -60,4 +60,27 @@ Deno.test("switchAgentTool handles router switch with mock UI API", async () => 
     assertEquals(result.isError, undefined);
     assertMatch(result.content[0].text, /Switched back to Router/i);
     assertMatch(systemMessage, /Agent hand-off: User requested return to Router/i);
+});
+
+Deno.test("switchAgentTool updates active model when switching to agent with declared model", async () => {
+    /** @type {any} */
+    const mockUiAPI = {
+        appendSystemMessage: () => {},
+        requestRender: () => {},
+        appendAgentMessageStart: () => ({ appendText: () => {} }),
+        promptSelect: () => Promise.resolve(null),
+        promptText: () => Promise.resolve(null),
+    };
+
+    setActiveAgent("Router", async () => {}, mockUiAPI);
+
+    const params = {
+        agentName: "operator",
+        reason: "Need to execute a task",
+    };
+
+    const result = await executeTool(switchAgentTool, params);
+
+    assertEquals(result.isError, undefined);
+    assertEquals(getActiveModel(), "ollama-cloud/qwen3.5:cloud");
 });

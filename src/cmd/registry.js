@@ -79,7 +79,7 @@ export const commandRegistry = {
         displayName: "Plans",
         description: "List or manage plans",
         execute: runPlansCommand,
-        isSlash: true,
+        isSlash: false,
         isCli: true,
     },
     [COMMAND_NAMES.SLEEP]: {

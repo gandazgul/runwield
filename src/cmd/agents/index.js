@@ -72,11 +72,14 @@ export async function runAgentsCommand(argv, options = {}) {
 
         // No args: show interactive selection
         const agentOptions = [
-            { value: "router", label: "router — Reset to default router (triage flow)" },
-            ...agents.map((a) => ({
-                value: a.name,
-                label: `${a.name} — ${a.description}`,
-            })),
+            { value: "router", label: "router", description: "Reset to default router (triage flow)" },
+            ...agents
+                .sort((a, b) => a.name.localeCompare(b.name))
+                .map((a) => ({
+                    value: a.name,
+                    label: a.name,
+                    description: a.description,
+                })),
         ];
 
         const chosen = await uiAPI.promptSelect("Switch agent:", agentOptions);

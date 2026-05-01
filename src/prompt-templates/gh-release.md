@@ -1,5 +1,5 @@
 ---
-description: Changelog for github release since last version.
+description: Generate a changelog for github release since last version, then create the release (vYYYY.M.D.N).
 ---
 
 Generate a changelog for the next release based on the git commit history since the last tag (vYYYY.M.D.N). The
@@ -14,4 +14,4 @@ Make the tag and push it to the repository. The tag should follow the format vYY
 the month, D is the day, and N is a sequential number (starting with 1) for multiple releases on the same day.
 
 Use gh cli to create a new release on GitHub with the generated changelog as the release notes. The release should be
-tagged with the same tag that was pushed to the repository. Name the release after the tag.
+tagged with the same tag pushed to the repository. Name the release after the tag.

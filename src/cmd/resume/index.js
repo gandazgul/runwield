@@ -53,16 +53,9 @@ export async function runResumeCommand(argv, options = {}) {
         return;
     }
 
-    const [planArg] = parsed._.map(String);
+    let [planArg] = parsed._.map(String);
     if (!planArg) {
         if (options.uiAPI && options.editor) {
-            if (options.text !== "/resume") {
-                options.uiAPI.appendSystemMessage("Resume canceled.");
-                options.editor.setText("");
-                options.editor.disableSubmit = false;
-                return;
-            }
-
             const { listPlans } = await import("../../plan-store.js");
             const plans = await listPlans(Deno.cwd());
             if (plans.length === 0) {
@@ -74,30 +67,25 @@ export async function runResumeCommand(argv, options = {}) {
                 return;
             }
 
-            options.editor.setText("/resume ");
-            options.editor.cursorCol = 8;
-            options.editor.disableSubmit = false;
+            const planOptions = plans.map((p) => ({
+                value: p.name,
+                label: p.name,
+                description: `${p.attrs.classification} - ${p.attrs.status}`,
+            }));
 
-            // Delay autocomplete request slightly to ensure it fires AFTER
-            // the current submission cycle is fully resolved in the pi-tui loop.
-            setTimeout(() => {
-                if (typeof options.editor.requestAutocomplete === "function") {
-                    try {
-                        options.editor.requestAutocomplete({ force: true });
-                    } catch (_e) {
-                        if (options.originalHandleInput) {
-                            options.originalHandleInput(" ");
-                        }
-                    }
-                } else if (options.originalHandleInput) {
-                    options.originalHandleInput(" ");
-                }
-            }, 50);
-            return;
+            const chosen = await options.uiAPI.promptSelect("Resume plan:", planOptions);
+            if (!chosen) {
+                options.uiAPI.appendSystemMessage("Resume canceled.");
+                options.editor.setText("");
+                options.editor.disableSubmit = false;
+                return;
+            }
+
+            planArg = chosen;
+        } else {
+            console.error(`Usage: ${CLI_BIN} resume <plan-name-or-path>`);
+            Deno.exit(1);
         }
-
-        console.error(`Usage: ${CLI_BIN} resume <plan-name-or-path>`);
-        Deno.exit(1);
     }
 
     let uiAPI = options.uiAPI;

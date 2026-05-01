@@ -1,4 +1,4 @@
-import { Container, Input, Markdown, SelectList, Spacer, Text } from "@mariozechner/pi-tui";
+import { Container, Input, Key, Markdown, matchesKey, SelectList, Spacer, Text } from "@mariozechner/pi-tui";
 import { markdownTheme, selectListTheme, theme } from "../theme.js";
 
 /**
@@ -345,8 +345,36 @@ export class AgentMessageBlock {
 }
 
 /**
+ * SelectList subclass that filters by substring across value, label, and description.
+ */
+class SearchableSelectList extends SelectList {
+    /**
+     * @param {import("@mariozechner/pi-tui").SelectItem[]} items
+     * @param {number} maxVisible
+     * @param {import("@mariozechner/pi-tui").SelectListTheme} theme
+     * @param {import("@mariozechner/pi-tui").SelectListLayoutOptions} [layout]
+     */
+    constructor(items, maxVisible, theme, layout = {}) {
+        super(items, maxVisible, theme, layout);
+    }
+
+    /** @override */
+    // @ts-ignore: SelectList private fields not accessible to subclass in TS
+    setFilter(filter) {
+        const lower = filter.toLowerCase();
+        // @ts-ignore: SelectList private fields not accessible to subclass in TS
+        this.filteredItems = this.items.filter((/** @type {any} */ item) =>
+            item.value.toLowerCase().includes(lower) ||
+            (item.label && item.label.toLowerCase().includes(lower))
+        );
+        // @ts-ignore: SelectList private fields not accessible to subclass in TS
+        this.selectedIndex = 0;
+    }
+}
+
+/**
  * Prompt Select Block
- * Embeds a SelectList vertically in the chat stream.
+ * Embeds a searchable SelectList vertically in the chat stream.
  */
 export class PromptSelectBlock {
     /**
@@ -362,19 +390,39 @@ export class PromptSelectBlock {
         this.header = new ColoredBlock("surface1", new PaddedBlock(2, 1, new Text(headerText, 0, 0)));
         this.container.addChild(this.header);
 
+        // Search input
+        this.input = new Input();
+        this.searchBlock = new ColoredBlock("surface0", new PaddedBlock(2, 0, this.input));
+        this.container.addChild(this.searchBlock);
+
         // Body with SelectList
-        this.list = new SelectList(items, Math.min(items.length, 10), selectListTheme);
+        this.list = new SearchableSelectList(items, Math.min(items.length, 10), selectListTheme);
 
         this.bodyBlock = new ColoredBlock("surface0", new PaddedBlock(2, 0, this.list));
         this.container.addChild(this.bodyBlock);
 
         // Footer with hint
-        const hintText = hint || "Use arrows to navigate, Enter to select, Esc to cancel";
+        const hintText = hint || "Type to search, arrows to navigate, Enter to select, Esc to cancel";
         this.footer = new ColoredBlock("surface1", new PaddedBlock(2, 1, new Text(theme.fg("dim", hintText), 0, 0)));
         this.container.addChild(this.footer);
 
         this.settled = false;
         this.chosenValue = null;
+
+        // Wire input callbacks to delegate to list selection
+        this.input.onSubmit = () => {
+            if (this.settled) return;
+            const selected = this.list.getSelectedItem();
+            if (selected && this.list.onSelect) {
+                this.list.onSelect(selected);
+            }
+        };
+        this.input.onEscape = () => {
+            if (this.settled) return;
+            if (this.list.onCancel) {
+                this.list.onCancel();
+            }
+        };
     }
 
     /**
@@ -399,16 +447,30 @@ export class PromptSelectBlock {
     /** @param {string} data */
     handleInput(data) {
         if (this.settled) return;
-        this.list.handleInput(data);
+
+        // Navigation keys go to the list
+        if (matchesKey(data, Key.up) || matchesKey(data, Key.down)) {
+            this.list.handleInput(data);
+            return;
+        }
+
+        // Enter and Escape are handled by the input's onSubmit / onEscape callbacks
+        if (matchesKey(data, Key.enter) || matchesKey(data, Key.escape)) {
+            this.input.handleInput(data);
+            return;
+        }
+
+        // Everything else (typing, backspace, etc.) goes to the input, then filter the list
+        this.input.handleInput(data);
+        this.list.setFilter(this.input.getValue());
     }
 
     focus() {
-        // the generic select-list in pi-tui doesn't have an explicit focus property
-        // so we don't need to do anything here since we handleInput directly
+        this.input.focused = true;
     }
 
     blur() {
-        // generic select-list doesn't explicitly track focus
+        this.input.focused = false;
     }
 
     invalidate() {
