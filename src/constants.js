@@ -43,14 +43,17 @@ export const COMPLEXITIES = ["LOW", "MEDIUM", "HIGH"];
 export const PLANS_DIR_NAME = "plans";
 
 /** Known CLI command names. */
+/** @type {Readonly<{ROUTER: string, AGENT: string, MODEL: string, RESUME: string, PLANS: string, SLEEP: string, HELP: string, QUIT: string, EXIT: string}>} */
 export const COMMAND_NAMES = Object.freeze({
     ROUTER: "router",
-    AGENTS: "agents",
-    MODELS: "models",
+    AGENT: "agent",
+    MODEL: "model",
     RESUME: "resume",
     PLANS: "plans",
     SLEEP: "sleep",
     HELP: "help",
+    QUIT: "quit",
+    EXIT: "exit",
 });
 
 /** Max concurrent agent tasks for PROJECT execution. */

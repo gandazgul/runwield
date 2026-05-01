@@ -58,13 +58,6 @@ async function main() {
         return;
     }
 
-    // --agent flag: delegate to agents command
-    if ("agent" in parsed) {
-        const agentArgs = parsed.agent ? [parsed.agent, ...parsed._.map(String)] : [];
-        await commandRegistry[COMMAND_NAMES.AGENTS](agentArgs);
-        return;
-    }
-
     // Default command route: `cli.js "<user request>"` => router
     await commandRegistry[COMMAND_NAMES.ROUTER](args);
 }

@@ -19,17 +19,26 @@ import { editorTheme, imageTheme, theme } from "./theme.js";
 import { readClipboardImage } from "./clipboard.js";
 import { createUiApi } from "./ui/api.js";
 import { SpinnerBlock } from "./ui/blocks.js";
-import { listPlans } from "../plan-store.js";
 import { abortActiveSession, listPromptTemplates, runAgentSession } from "./session.js";
 import { listAvailableAgents } from "./agents.js";
 import { ensureMnemosyneBinary } from "./runtime-preflight.js";
+import { listPlans } from "../plan-store.js";
+import { COMMAND_NAMES } from '../constants.js';
 
 const UI_PADDING = { x: 0, y: 0 };
 
-const CHAT_COMMAND_HANDLERS = Object.freeze(["resume", "agent", "model"]);
 const CHAT_PROMPT_AGENT_NAME = "operator";
-const CHAT_EXIT_COMMANDS = new Set(["quit", "exit", "q"]);
-export const CHAT_BUILTIN_SLASH_NAMES = new Set([...CHAT_EXIT_COMMANDS, "agent", ...CHAT_COMMAND_HANDLERS]);
+// TODO, each command should be an object that has:
+// name, pretty name, description, execute function, slash boolean, cli boolean
+// this set should be built by filter (slash: true) + reduce to array of names
+export const CHAT_BUILTIN_SLASH_NAMES = new Set([
+    COMMAND_NAMES.QUIT,
+    COMMAND_NAMES.AGENT,
+    COMMAND_NAMES.MODEL,
+    COMMAND_NAMES.PLANS,
+    COMMAND_NAMES.RESUME,
+    COMMAND_NAMES.SLEEP,
+]);
 
 /**
  * @param {{ name: string, source: "local" | "home" | "bundled" }} template
@@ -208,10 +217,11 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
                 name: "quit",
                 description: "Exit the application",
             },
-            ...CHAT_COMMAND_HANDLERS.map((name) => {
+            ...Array.from(CHAT_BUILTIN_SLASH_NAMES).map((name) => {
                 /** @type {import('@mariozechner/pi-tui').SlashCommand} */
                 const cmd = {
                     name,
+                    // todo this should come from registry[name].description
                     description: name === "resume"
                         ? "Resume a saved plan"
                         : name === "agent"
@@ -219,6 +229,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
                         : name === "model"
                         ? "Switch AI model"
                         : "Command",
+                    // todo this should come from registry[name].getArgumentCompletions
                     getArgumentCompletions: name === "resume"
                         ? async (argumentPrefix) => {
                             const plans = await listPlans(Deno.cwd());
@@ -268,12 +279,12 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
                                     return {
                                         value,
                                         label: value,
-                                        description: m.provider,
+                                        description: m.name,
                                     };
                                 })
                                 .filter((item) =>
                                     item.value.startsWith(argumentPrefix) ||
-                                    item.label.split("/")[1].startsWith(argumentPrefix)
+                                    item.value.split("/")[1].startsWith(argumentPrefix)
                                 );
                         }
                         : undefined,
@@ -409,7 +420,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
                             initTUI();
                             editor.setText("");
                             tui.requestRender();
-                        } catch (e) {
+                        } catch (_e) {
                             // Ignore error
                         } finally {
                             editor.disableSubmit = false;
@@ -508,32 +519,16 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
             const [rawCmd, ...args] = userRequest.slice(1).split(" ");
             const cmd = rawCmd.trim();
 
-            if (CHAT_EXIT_COMMANDS.has(cmd)) {
-                editor.setText("");
-                tui.requestRender();
-                setTimeout(() => {
-                    stopTUI();
-                    setTimeout(() => Deno.exit(0), 100);
-                }, 50);
-                return;
-            }
-
             // Built-in command intercepted logic to just reset editor state,
             // dispatch actually handled via standard registry for TUI route now.
             // (The `agent` command is handled in the generic registry routing block below.)
 
             const { commandRegistry } = await import("../cmd/registry.js");
-            const { COMMAND_NAMES } = await import("../constants.js");
 
-            // Look up the command in the registry
-            let registryKey = cmd;
-            if (cmd === "agent") registryKey = COMMAND_NAMES.AGENTS;
-            if (cmd === "model") registryKey = COMMAND_NAMES.MODELS;
-
-            if (CHAT_COMMAND_HANDLERS.includes(cmd) && commandRegistry[registryKey]) {
+            if (CHAT_BUILTIN_SLASH_NAMES.has(cmd) && commandRegistry[cmd]) {
                 editor.disableSubmit = true;
                 try {
-                    await commandRegistry[registryKey](args, {
+                    await commandRegistry[cmd](args, {
                         uiAPI,
                         editor,
                         tui,
@@ -654,20 +649,6 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
                     uiAPI.appendSystemMessage("[Harns] Keyboard interrupt. Press again to quit.");
                     tui.requestRender();
                 }
-                return;
-            }
-        }
-
-        // Check if Enter is pressed and text matches /quit exactly
-        if (matchesKey(data, Key.enter) || matchesKey(data, Key.return)) {
-            const currentText = /** @type {any} */ (editor).getText().trim();
-            if (CHAT_EXIT_COMMANDS.has(currentText.slice(1)) && currentText.startsWith("/")) {
-                editor.setText("");
-                tui.requestRender();
-                setTimeout(() => {
-                    stopTUI();
-                    setTimeout(() => Deno.exit(0), 100);
-                }, 50);
                 return;
             }
         }

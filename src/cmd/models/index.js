@@ -6,19 +6,49 @@
 import { setActiveModel } from "../../shared/chat-session.js";
 
 /**
- * Handle the models command (`hns models` and `/model`).
+ * Handle the models command (`hns model` and `/model`).
+ *
  * @param {string[]} argv
- * @param {any} [options]
+ * @param {import('../registry.js').CommandContext} [options]
  */
-export async function runModelsCommand(argv, options) {
-    const { uiAPI } = options || {};
+export async function runModelsCommand(argv, options = {}) {
+    const { uiAPI, editor, text, originalHandleInput } = options;
 
     if (argv.length === 0) {
-        if (uiAPI) {
-            uiAPI.appendSystemMessage("Usage: /model <model_id> (or <provider>/<model_id> optionally)");
-        } else {
-            console.log("Usage: hns models <model_id>");
+        if (uiAPI && editor) {
+            if (text !== "/model") {
+                uiAPI.appendSystemMessage("Model selection canceled.");
+                editor.setText("");
+                editor.disableSubmit = false;
+                return;
+            }
+
+            editor.setText("/model ");
+            editor.cursorCol = 7;
+            editor.disableSubmit = false;
+
+            // Delay autocomplete request slightly to ensure it fires AFTER
+            // the current submission cycle is fully resolved in the pi-tui loop.
+            setTimeout(() => {
+                if (typeof editor.requestAutocomplete === "function") {
+                    try {
+                        editor.requestAutocomplete({ force: true });
+                    } catch (_e) {
+                        if (originalHandleInput) {
+                            originalHandleInput(" ");
+                        }
+                    }
+                } else if (originalHandleInput) {
+                    originalHandleInput(" ");
+                }
+            }, 50);
+            return;
+        } else if (uiAPI) {
+            uiAPI.appendSystemMessage("Usage: /model <provider>/<model_id>");
+            return;
         }
+
+        console.log("Usage: hns models <model_id>");
         return;
     }
 

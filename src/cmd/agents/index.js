@@ -22,11 +22,7 @@ import { createDirectAgentHandler } from "../../shared/direct-agent.js";
  * - `/agent` → show interactive selection
  *
  * @param {string[]} argv
- * @param {Object} [options]
- * @param {import('../../shared/workflow.js').UiAPI} [options.uiAPI]
- * @param {any} [options.editor]
- * @param {string} [options.text]
- * @param {any} [options.tui]
+ * @param {import('../registry.js').CommandContext} [options]
  */
 export async function runAgentsCommand(argv, options = {}) {
     const parsed = parseArgs(argv, {

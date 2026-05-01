@@ -38,11 +38,7 @@ async function restoreRouterFlow(uiAPI) {
  * Handle `resume` command.
  *
  * @param {string[]} argv
- * @param {Object} [options]
- * @param {import('../../shared/workflow.js').UiAPI} [options.uiAPI]
- * @param {any} [options.editor]
- * @param {string} [options.text]
- * @param {Function} [options.originalHandleInput]
+ * @param {import('../registry.js').CommandContext} [options]
  */
 export async function runResumeCommand(argv, options = {}) {
     const parsed = parseArgs(argv, {

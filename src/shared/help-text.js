@@ -7,8 +7,8 @@ import { CLI_BIN, COMMAND_NAMES, DEV_CLI_RUN } from "../constants.js";
 
 const COMMAND_SUMMARIES = {
     [COMMAND_NAMES.ROUTER]: "Route a request through triage and execution/planning flow (default command).",
-    [COMMAND_NAMES.AGENTS]: "List available agents or talk directly to one (--agent shorthand).",
-    [COMMAND_NAMES.MODELS]: "Switch active AI model via slash command or CLI.",
+    [COMMAND_NAMES.AGENT]: "List available agents or talk directly to one (--agent shorthand).",
+    [COMMAND_NAMES.MODEL]: "Switch active AI model via slash command or CLI.",
     [COMMAND_NAMES.RESUME]: "Resume work from a saved plan by name or file path.",
     [COMMAND_NAMES.PLANS]: "List saved plans.",
     [COMMAND_NAMES.SLEEP]: "Run /sleep prompt template (via operator) for memory optimization/cleanup.",
@@ -31,19 +31,19 @@ const COMMAND_DETAILS = {
             `Source-run fallback: ${DEV_CLI_RUN} \"<user request>\"`,
         ],
     },
-    [COMMAND_NAMES.AGENTS]: {
+    [COMMAND_NAMES.AGENT]: {
         usage: [
             `${bin("--agent")}                            List available agents`,
             `${bin("--agent <name>")}                     Talk directly to an agent`,
             `${bin('--agent <name> "<user request>"')}    Start with a prompt`,
-            `${bin("agents")}                             Same as --agent`,
+            `${bin("agent")}                              Same as --agent`,
         ],
         notes: [
             "Bypasses the router triage flow — sends prompts directly to the agent.",
             "Use /agent inside the TUI to switch agents at any time.",
         ],
     },
-    [COMMAND_NAMES.MODELS]: {
+    [COMMAND_NAMES.MODEL]: {
         usage: ["models <provider>/<model_id>"],
         notes: [
             "Switch the active AI model.",
