@@ -2,7 +2,7 @@ import { listAvailableAgents } from "../../shared/agents.js";
 
 /**
  * @param {string} argumentPrefix
- * @returns {Promise<any[]>}
+ * @returns {Promise<import('../types.js').CommandCompletionItem[]>}
  */
 export async function getAgentCompletions(argumentPrefix) {
     const agents = await listAvailableAgents();
@@ -12,10 +12,10 @@ export async function getAgentCompletions(argumentPrefix) {
             label: "router",
             description: "Reset to default router (triage) flow",
         },
-        ...agents.map((a) => ({
-            value: a.name,
-            label: a.name,
-            description: a.description,
+        ...agents.map((agent) => ({
+            value: agent.name,
+            label: agent.name,
+            description: agent.description,
         })),
     ].filter((item) => item.value.startsWith(argumentPrefix));
 }

@@ -4,12 +4,12 @@
  */
 
 import { join } from "@std/path";
-import { CWD, MAX_PARALLEL_TASKS, PLANS_DIR_NAME } from "../constants.js";
+import { CWD, MAX_PARALLEL_TASKS, PLANS_DIR_NAME } from "../../constants.js";
 import { submitPlanForReview } from "./submit-plan.js";
-import { loadPlan } from "../plan-store.js";
-import { runAgentSession } from "./session.js";
-import { confirm, select } from "./prompts.js";
-import { extractPlanWritten } from "./triage.js";
+import { loadPlan } from "../../plan-store.js";
+import { runAgentSession } from "../session/session.js";
+import { confirm, select } from "../prompts.js";
+import { extractPlanWritten } from "../../cmd/router/triage.js";
 
 /**
  * Extract the last text output from the agent's assistant messages.
@@ -35,25 +35,7 @@ function extractAssistantOutput(messages) {
 }
 
 /**
- * @typedef {Object} UiAPI
- * @property {(text: string, isError?: boolean) => void} appendSystemMessage
- * @property {(agentName: string) => {appendText: (delta: string) => void}} appendAgentMessageStart
- * @property {(text: string) => void} [appendUserMessage]
- * @property {(base64: string, mimeType: string) => void} [appendImage]
- * @property {() => void} requestRender
- * @property {() => void} [advanceSpinner]
- * @property {(busy: boolean) => void} [setBusy]
- * @property {(tasks: Array<{task: number, assignee: string, description: string}>) => void} [setRunningTasks]
- * @property {(title: string, options: Array<{value: string, label: string}>) => Promise<string | null>} promptSelect
- * @property {(title: string, opts?: { defaultValue?: string, placeholder?: string, allowEmpty?: boolean }) => Promise<string | null>} promptText
- * @property {(agentName: string, agentModel: string) => void} [setAgentInfo]
- * @property {() => void} [disableInput]
- * @property {() => void} [enableInput]
- * @property {(id: string, name: string, argsStr: string) => any} [startToolExecution]
- * @property {(id: string) => any} [getActiveToolBlock]
- * @property {() => void} [toggleToolOutputsExpanded]
- * @property {(event: any) => void} [addToolInvoked]
- * @property {(event: any) => void} [addToolResult]
+ * @typedef {import('../ui/types.js').UiAPI} UiAPI
  */
 
 /**
@@ -88,7 +70,7 @@ async function resolveDeclaredPlan(messages) {
  * @param {string[]} [opts.toolNames]
  * @param {string} opts.initialRequest - The initial user request to send to the planning agent
  * @param {import('@mariozechner/pi-coding-agent').ToolDefinition[]} [opts.customTools]
- * @param {Partial<import('../plan-store.js').PlanFrontMatter>} opts.triageMeta
+ * @param {Partial<import('../../plan-store.js').PlanFrontMatter>} opts.triageMeta
  * @param {number} [opts.maxRevisions=5]
  * @param {UiAPI} [opts.uiAPI]
  * @returns {Promise<{ planName: string, planPath: string, approved: true, tasks?: Array<{task: number, assignee: string, dependencies: string, description: string}> } | null>}
@@ -247,7 +229,7 @@ export function extractTasks(planContent) {
  * Execute an approved plan.
  *
  * @param {string} planName
- * @param {Partial<import('../plan-store.js').PlanFrontMatter>} triageMeta
+ * @param {Partial<import('../../plan-store.js').PlanFrontMatter>} triageMeta
  * @param {UiAPI} [uiAPI]
  * @param {Array<{ task: number, assignee: string, dependencies: string, description: string }>} [structuredTasks]
  */
@@ -380,38 +362,38 @@ async function executeProjectTasks(
     seedFailedTasks = [],
     onRunningTasksChange,
 ) {
-    /** @type {Map<number, { status: "success" | "failed" | "blocked", error?: string, messages?: any[] }>} */
+    /** @type {Map<number, import('./types.js').TaskExecutionResult>} */
     const results = new Map();
-    const pending = new Set(tasks.map((t) => t.task));
+    const pending = new Set(tasks.map((task) => task.task));
     const running = new Set();
     const failed = new Set();
 
     // If we are retrying, seed the state
     if (seedFailedTasks.length > 0) {
-        const processed = tasks.filter((t) => !seedFailedTasks.includes(t.task)).map((t) => t.task);
+        const processed = tasks.filter((task) => !seedFailedTasks.includes(task.task)).map((task) => task.task);
         processed.forEach((id) => results.set(id, { status: "success" }));
         seedFailedTasks.forEach((id) => pending.add(id));
     }
 
     while (results.size < tasks.length) {
-        // 1. Identify ready tasks (pending, dependencies satisfied, not running)
-        const ready = tasks.filter((t) => {
-            if (!pending.has(t.task)) return false;
-            const deps = (t.dependencies || "").split(",").map((d) => d.trim()).filter((d) =>
-                d && d.toLowerCase() !== "none"
-            );
-            return deps.every((d) => {
-                const depId = parseInt(d);
+        // Ready tasks are those still pending whose dependencies have completed successfully.
+        const ready = tasks.filter((task) => {
+            if (!pending.has(task.task)) return false;
+            const deps = (task.dependencies || "").split(",").map((dependency) => dependency.trim()).filter((
+                dependency,
+            ) => dependency && dependency.toLowerCase() !== "none");
+            return deps.every((dependency) => {
+                const depId = parseInt(dependency);
                 if (isNaN(depId)) return true; // permissive for non-numeric deps
                 return results.has(depId) && results.get(depId)?.status === "success";
             });
         });
 
-        // 2. Launch up to MAX_PARALLEL_TASKS
+        // Cap launches to available worker slots to respect MAX_PARALLEL_TASKS.
         const toLaunch = ready.slice(0, MAX_PARALLEL_TASKS - running.size);
 
         if (toLaunch.length === 0 && running.size === 0 && pending.size > 0) {
-            // Deadlock or all remaining are blocked by failures
+            // No ready work and nothing running: remaining tasks are blocked/deadlocked.
             const remaining = Array.from(pending);
             remaining.forEach((id) => {
                 results.set(id, { status: "blocked" });
@@ -422,7 +404,7 @@ async function executeProjectTasks(
         const launches = toLaunch.map(async (task) => {
             running.add(task.task);
             if (onRunningTasksChange) {
-                onRunningTasksChange(tasks.filter((t) => running.has(t.task)));
+                onRunningTasksChange(tasks.filter((runningTask) => running.has(runningTask.task)));
             }
             pending.delete(task.task);
 
@@ -466,7 +448,11 @@ async function executeProjectTasks(
                         appendUserMessage: () => {},
                         appendAgentMessageStart: () => ({ appendText: () => {} }),
                         appendSystemMessage: () => {},
-                        startToolExecution: () => ({ appendOutput: () => {}, endExecution: () => {} }),
+                        startToolExecution: () => ({
+                            appendOutput: () => {},
+                            endExecution: () => {},
+                            startTime: Date.now(),
+                        }),
                         getActiveToolBlock: () => undefined,
                         setBusy: () => {},
                         advanceSpinner: () => {},
@@ -492,7 +478,8 @@ async function executeProjectTasks(
                         `=== Output text: ${outputText ? outputText.slice(0, 500) : "(empty)"} ===`,
                         `=== Total messages: ${sessionMessages.length} ===`,
                         `=== Assistant messages: ${
-                            sessionMessages.filter((m) => "role" in m && m.role === "assistant").length
+                            sessionMessages.filter((message) => "role" in message && message.role === "assistant")
+                                .length
                         } ===`,
                         `===========================================`,
                         "",
@@ -522,12 +509,13 @@ async function executeProjectTasks(
             } finally {
                 running.delete(task.task);
                 if (onRunningTasksChange) {
-                    onRunningTasksChange(tasks.filter((t) => running.has(t.task)));
+                    onRunningTasksChange(tasks.filter((runningTask) => running.has(runningTask.task)));
                 }
             }
         });
 
-        // Wait for at least one to finish to re-evaluate readiness
+        // Wait for first completion, then recompute readiness/dependencies.
+        // If nothing launched but tasks are still running, poll briefly and loop.
         if (launches.length > 0) {
             await Promise.race(launches);
         } else if (running.size > 0) {
@@ -538,15 +526,15 @@ async function executeProjectTasks(
         } else if (pending.size === 0) {
             break;
         } else {
-            // Blocked dependencies
-            tasks.filter((t) => pending.has(t.task)).forEach((t) => {
-                results.set(t.task, { status: "blocked" });
+            // Remaining pending tasks can no longer become ready due to blocked dependencies.
+            tasks.filter((task) => pending.has(task.task)).forEach((task) => {
+                results.set(task.task, { status: "blocked" });
             });
             break;
         }
     }
 
-    const failedTasks = tasks.filter((t) => results.get(t.task)?.status === "failed").map((t) => t.task);
+    const failedTasks = tasks.filter((task) => results.get(task.task)?.status === "failed").map((task) => task.task);
     return { failedTasks, results };
 }
 
@@ -574,10 +562,10 @@ function reportExecutionSummary(result, uiAPI) {
     const { results } = result;
     let successCount = 0, failedCount = 0, blockedCount = 0;
 
-    results.forEach((res) => {
-        if (res.status === "success") successCount++;
-        else if (res.status === "failed") failedCount++;
-        else if (res.status === "blocked") blockedCount++;
+    results.forEach((result) => {
+        if (result.status === "success") successCount++;
+        else if (result.status === "failed") failedCount++;
+        else if (result.status === "blocked") blockedCount++;
     });
 
     const summary =

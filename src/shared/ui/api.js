@@ -14,7 +14,7 @@ import {
  * @param {import('@mariozechner/pi-tui').TUI} tui
  * @param {import('@mariozechner/pi-tui').Container} messageList
  * @param {import('./blocks.js').SpinnerBlock} spinner
- * @returns {import('../workflow.js').UiAPI & { appendUserMessage: (text: string) => void, setBusy: (busy: boolean) => void, getActiveToolBlock: (id: string) => import('./blocks.js').ToolExecutionBlock | undefined, startToolExecution: (id: string, name: string, args: string) => import('./blocks.js').ToolExecutionBlock, toggleToolOutputsExpanded: () => void, addToolInvoked?: (event: import('@mariozechner/pi-coding-agent').SessionEvent) => void, addToolResult?: (event: import('@mariozechner/pi-coding-agent').SessionEvent) => void }}
+ * @returns {import('./types.js').UiAPI}
  */
 export function createUiApi(tui, messageList, spinner) {
     const activeToolBlocks = new Map();

@@ -14,12 +14,7 @@ import { runQuitCommand } from "./quit/index.js";
 import { getResumeCompletions, runResumeCommand } from "./resume/index.js";
 
 /**
- * @typedef {Object} CommandContext
- * @property {import('../shared/workflow.js').UiAPI} [uiAPI]
- * @property {any} [editor]
- * @property {string} [text]
- * @property {any} [tui]
- * @property {Function} [originalHandleInput]
+ * @typedef {import('./types.js').CommandContext} CommandContext
  */
 
 /**
@@ -34,7 +29,7 @@ import { getResumeCompletions, runResumeCommand } from "./resume/index.js";
  * @property {CommandHandler} execute
  * @property {boolean} isSlash
  * @property {boolean} isCli
- * @property {(argumentPrefix: string) => Promise<any[]>} [getArgumentCompletions]
+ * @property {(argumentPrefix: string) => Promise<import('./types.js').CommandCompletionItem[]>} [getArgumentCompletions]
  */
 
 /** @type {Record<string, CommandDefinition>} */

@@ -26,22 +26,22 @@ export { getAgentCompletions } from "./getArgumentCompletions.js";
  * @param {import('../registry.js').CommandContext} [options]
  */
 export async function runAgentsCommand(argv, options = {}) {
-    const parsed = parseArgs(argv, {
+    const parsedArgs = parseArgs(argv, {
         boolean: ["help"],
         alias: { h: "help" },
         stopEarly: true,
     });
 
-    if (parsed.help) {
+    if (parsedArgs.help) {
         printCommandHelp("agents");
         return;
     }
 
     const agents = await listAvailableAgents();
-    const [agentName, ...rest] = parsed._.map(String);
+    const [agentName, ...rest] = parsedArgs._.map(String);
 
     // Is this called from TUI?
-    if (options.uiAPI && options.editor) {
+    if (options.uiAPI && options.editor && options.tui) {
         options.editor.setText("");
         const targetName = agentName?.trim();
         const { tui, uiAPI } = options;
@@ -50,23 +50,29 @@ export async function runAgentsCommand(argv, options = {}) {
             // Reset to default router flow
             const { routerCmdOnMessage } = await import("../router/index.js");
             setActiveAgent("Router", routerCmdOnMessage, uiAPI);
-            tui.setFocus(options.editor);
+            tui.setFocus(
+                /** @type {import('@mariozechner/pi-tui').Component} */ (/** @type {unknown} */ (options.editor)),
+            );
             return;
         }
 
         if (targetName && targetName !== "undefined") {
             // Direct switch: /agent <name>
-            const match = agents.find((a) => a.name === targetName);
+            const match = agents.find((agent) => agent.name === targetName);
             if (!match) {
                 uiAPI.appendSystemMessage(
                     `Unknown agent: "${targetName}". Use /agent to see available agents.`,
                 );
-                tui.setFocus(options.editor);
+                tui.setFocus(
+                    /** @type {import('@mariozechner/pi-tui').Component} */ (/** @type {unknown} */ (options.editor)),
+                );
                 return;
             }
             const handler = createDirectAgentHandler(targetName);
             setActiveAgent(match.displayName, handler, uiAPI, match.model);
-            tui.setFocus(options.editor);
+            tui.setFocus(
+                /** @type {import('@mariozechner/pi-tui').Component} */ (/** @type {unknown} */ (options.editor)),
+            );
             return;
         }
 
@@ -74,17 +80,19 @@ export async function runAgentsCommand(argv, options = {}) {
         const agentOptions = [
             { value: "router", label: "router", description: "Reset to default router (triage flow)" },
             ...agents
-                .sort((a, b) => a.name.localeCompare(b.name))
-                .map((a) => ({
-                    value: a.name,
-                    label: a.name,
-                    description: a.description,
+                .sort((agentA, agentB) => agentA.name.localeCompare(agentB.name))
+                .map((agent) => ({
+                    value: agent.name,
+                    label: agent.name,
+                    description: agent.description,
                 })),
         ];
 
         const chosen = await uiAPI.promptSelect("Switch agent:", agentOptions);
         if (!chosen) {
-            tui.setFocus(options.editor);
+            tui.setFocus(
+                /** @type {import('@mariozechner/pi-tui').Component} */ (/** @type {unknown} */ (options.editor)),
+            );
             return; // cancelled
         }
 
@@ -93,10 +101,10 @@ export async function runAgentsCommand(argv, options = {}) {
             setActiveAgent("Router", routerCmdOnMessage, uiAPI);
         } else {
             const handler = createDirectAgentHandler(chosen);
-            const match = agents.find((a) => a.name === chosen);
+            const match = agents.find((agent) => agent.name === chosen);
             setActiveAgent(match?.displayName || chosen, handler, uiAPI, match?.model);
         }
-        tui.setFocus(options.editor);
+        tui.setFocus(/** @type {import('@mariozechner/pi-tui').Component} */ (/** @type {unknown} */ (options.editor)));
         return;
     }
 
@@ -104,20 +112,20 @@ export async function runAgentsCommand(argv, options = {}) {
     // No agent name: list all and exit
     if (!agentName || agentName === "undefined") {
         console.log("\nAvailable agents:\n");
-        for (const a of agents) {
-            console.log(`  ${a.name.padEnd(14)} ${a.description}`);
+        for (const agent of agents) {
+            console.log(`  ${agent.name.padEnd(14)} ${agent.description}`);
         }
         console.log(`\nUsage: hns --agent <name> ["<prompt>"]\n`);
         return;
     }
 
-    const match = agents.find((a) => a.name === agentName);
+    const match = agents.find((agent) => agent.name === agentName);
 
     if (!match) {
         console.error(`\nUnknown agent: "${agentName}"\n`);
         console.log("Available agents:");
-        for (const a of agents) {
-            console.log(`  ${a.name.padEnd(14)} ${a.description}`);
+        for (const agent of agents) {
+            console.log(`  ${agent.name.padEnd(14)} ${agent.description}`);
         }
         Deno.exit(1);
     }

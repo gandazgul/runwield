@@ -3,7 +3,7 @@
  * Utilities for extracting triage data from router output.
  */
 
-import { CLASSIFICATIONS, COMPLEXITIES } from "../constants.js";
+import { CLASSIFICATIONS, COMPLEXITIES } from "../../constants.js";
 
 /**
  * Extract triage report from router conversation messages.
@@ -24,7 +24,7 @@ export function extractTriageReport(messages) {
         }
     }
 
-    const assistantMsgs = messages.filter((m) => "role" in m && m.role === "assistant");
+    const assistantMsgs = messages.filter((message) => "role" in message && message.role === "assistant");
     for (let i = assistantMsgs.length - 1; i >= 0; i--) {
         const msg = assistantMsgs[i];
         if (!("content" in msg) || !Array.isArray(msg.content)) continue;
@@ -83,7 +83,7 @@ export function parseTriageFromText(text) {
     if (affectedPaths.length === 0) {
         const yamlBlock = text.match(/affectedPaths[:\s]*\n((?:\s+-\s+.+\n?)*)/);
         if (yamlBlock) {
-            affectedPaths = [...yamlBlock[1].matchAll(/-\s+(.+)/g)].map((m) => m[1].trim());
+            affectedPaths = [...yamlBlock[1].matchAll(/-\s+(.+)/g)].map((match) => match[1].trim());
         }
     }
 

@@ -4,8 +4,8 @@
  */
 
 import { setActiveModel } from "../../shared/chat-session.js";
-import { getModelRegistry } from "../../shared/model-registry.js";
-import { parseProviderModel } from "../../shared/model-validation.js";
+import { getModelRegistry } from "../../shared/models/model-registry.js";
+import { parseProviderModel } from "../../shared/models/model-validation.js";
 export { getModelCompletions } from "./getArgumentCompletions.js";
 
 /**
@@ -30,11 +30,11 @@ export async function runModelsCommand(argv, options = {}) {
             }
 
             const modelOptions = models
-                .sort((a, b) => a.id.localeCompare(b.id))
-                .map((m) => ({
-                    value: `${m.provider}/${m.id}`,
-                    label: `${m.provider}/${m.id}`,
-                    description: m.name,
+                .sort((modelA, modelB) => modelA.id.localeCompare(modelB.id))
+                .map((model) => ({
+                    value: `${model.provider}/${model.id}`,
+                    label: `${model.provider}/${model.id}`,
+                    description: model.name,
                 }));
 
             const chosen = await uiAPI.promptSelect("Switch model:", modelOptions);
@@ -45,7 +45,9 @@ export async function runModelsCommand(argv, options = {}) {
             }
 
             const targetModel = chosen;
-            const modelObj = models.find((m) => `${m.provider}/${m.id}` === targetModel || m.id === targetModel);
+            const modelObj = models.find((model) =>
+                `${model.provider}/${model.id}` === targetModel || model.id === targetModel
+            );
 
             if (!modelObj) {
                 uiAPI.appendSystemMessage(`Unknown model: ${targetModel}.`);
@@ -69,9 +71,9 @@ export async function runModelsCommand(argv, options = {}) {
     }
 
     const targetModel = argv[0].trim();
-    const parsed = parseProviderModel(targetModel);
+    const parsedArgs = parseProviderModel(targetModel);
 
-    if (!parsed.ok) {
+    if (!parsedArgs.ok) {
         if (uiAPI) {
             uiAPI.appendSystemMessage("Invalid model format. Use /model to switch.");
         } else {
@@ -81,7 +83,7 @@ export async function runModelsCommand(argv, options = {}) {
     }
 
     const modelRegistry = getModelRegistry();
-    const modelObj = modelRegistry.find(parsed.provider, parsed.id);
+    const modelObj = modelRegistry.find(parsedArgs.provider, parsedArgs.id);
 
     // Provide some feedback to the user on success/failure within the correct interface
     if (!modelObj) {

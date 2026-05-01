@@ -25,7 +25,7 @@ export function getDefaultModelAndProvider() {
         const homeDir = Deno.env.get("HOME") || "";
         const agentDir = join(homeDir, ".pi", "agent");
 
-        /** @type {Record<string, any>} */
+        /** @type {{ defaultModel?: string, defaultProvider?: string, [key: string]: unknown }} */
         let settings = {};
         try {
             const globalPath = join(agentDir, "settings.json");

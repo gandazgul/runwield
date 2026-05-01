@@ -1,5 +1,5 @@
 import { Container, Input, Key, Markdown, matchesKey, SelectList, Spacer, Text } from "@mariozechner/pi-tui";
-import { markdownTheme, selectListTheme, theme } from "../theme.js";
+import { markdownTheme, selectListTheme, theme } from "../ui/theme.js";
 
 /**
  * Format system line text. If line starts with a bracketed prefix (e.g. `[Harns]`),
@@ -40,7 +40,7 @@ function applyBackground(lines, bgColor) {
 export class ColoredBlock {
     /**
      * @param {string} bgColor
-     * @param {any} child - pi-tui component with render(w) method
+     * @param {{ render: (w: number) => string[], invalidate?: () => void } | null | undefined} child - pi-tui component with render(w) method
      */
     constructor(bgColor, child) {
         this.bgColor = bgColor;
@@ -68,7 +68,7 @@ export class PaddedBlock {
     /**
      * @param {number} paddingX
      * @param {number} paddingY
-     * @param {any} child
+     * @param {{ render: (w: number) => string[], invalidate?: () => void } | null | undefined} child
      */
     constructor(paddingX, paddingY, child) {
         this.paddingX = paddingX;
@@ -363,7 +363,7 @@ class SearchableSelectList extends SelectList {
     setFilter(filter) {
         const lower = filter.toLowerCase();
         // @ts-ignore: SelectList private fields not accessible to subclass in TS
-        this.filteredItems = this.items.filter((/** @type {any} */ item) =>
+        this.filteredItems = this.items.filter((/** @type {import("@mariozechner/pi-tui").SelectItem} */ item) =>
             item.value.toLowerCase().includes(lower) ||
             (item.label && item.label.toLowerCase().includes(lower))
         );

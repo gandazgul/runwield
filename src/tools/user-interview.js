@@ -69,6 +69,44 @@ const interviewParametersSchema = Type.Object({
  */
 
 /**
+ * @typedef {{ value: string, label?: string }} InterviewChoice
+ */
+
+/**
+ * @typedef {{
+ *   id?: string,
+ *   type: "yes_no",
+ *   prompt: string,
+ *   default?: boolean,
+ * }} YesNoInterviewQuestion
+ */
+
+/**
+ * @typedef {{
+ *   id?: string,
+ *   type: "text",
+ *   prompt: string,
+ *   default?: string,
+ *   placeholder?: string,
+ *   allowEmpty?: boolean,
+ * }} TextInterviewQuestion
+ */
+
+/**
+ * @typedef {{
+ *   id?: string,
+ *   type: "multiple_choice",
+ *   prompt: string,
+ *   choices: InterviewChoice[],
+ *   default?: string,
+ * }} MultipleChoiceInterviewQuestion
+ */
+
+/**
+ * @typedef {YesNoInterviewQuestion | TextInterviewQuestion | MultipleChoiceInterviewQuestion} InterviewQuestion
+ */
+
+/**
  * @typedef {{
  *   status: "completed" | "canceled" | "invalid_request" | "validation_error",
  *   canceled: boolean,
@@ -83,7 +121,7 @@ const interviewParametersSchema = Type.Object({
  */
 
 /**
- * @param {import('../shared/workflow.js').UiAPI | undefined} uiAPI
+ * @param {import('../shared/workflow/workflow.js').UiAPI | undefined} uiAPI
  */
 export function createUserInterviewTool(uiAPI) {
     return defineTool({
@@ -95,7 +133,9 @@ export function createUserInterviewTool(uiAPI) {
             "user_interview(question|questions): Ask one or a small 1-3 question batch before finalizing planning decisions.",
         parameters: interviewParametersSchema,
         async execute(_toolCallId, params) {
-            const normalized = normalizeBatch(params);
+            const normalized = normalizeBatch(
+                /** @type {{ question?: InterviewQuestion, questions?: InterviewQuestion[] }} */ (params),
+            );
             if (!normalized.ok) {
                 return buildResult({
                     status: "invalid_request",
@@ -205,8 +245,8 @@ export function createUserInterviewTool(uiAPI) {
 }
 
 /**
- * @param {{ question?: any, questions?: any[] }} params
- * @returns {{ ok: true, questions: any[] } | { ok: false, questions: any[], error: string }}
+ * @param {{ question?: InterviewQuestion, questions?: InterviewQuestion[] }} params
+ * @returns {{ ok: true, questions: InterviewQuestion[] } | { ok: false, questions: InterviewQuestion[], error: string }}
  */
 function normalizeBatch(params) {
     const hasQuestion = !!params.question;
@@ -229,11 +269,11 @@ function normalizeBatch(params) {
         return { ok: false, questions: [], error: "Invalid batch size. Ask 1 to 3 questions per tool call." };
     }
 
-    return { ok: true, questions };
+    return { ok: true, questions: /** @type {InterviewQuestion[]} */ (questions.filter(Boolean)) };
 }
 
 /**
- * @param {any[]} questions
+ * @param {InterviewQuestion[]} questions
  * @returns {InterviewError[]}
  */
 function validateBatch(questions) {
@@ -242,7 +282,8 @@ function validateBatch(questions) {
     const ids = new Set();
 
     for (let i = 0; i < questions.length; i++) {
-        const q = questions[i];
+        const question = questions[i];
+        const q = question;
         const idx = i + 1;
 
         if (q.id) {
@@ -322,8 +363,8 @@ function validateBatch(questions) {
 }
 
 /**
- * @param {any} question
- * @param {import('../shared/workflow.js').UiAPI | undefined} uiAPI
+ * @param {InterviewQuestion} question
+ * @param {import('../shared/ui/types.js').UiAPI | undefined} uiAPI
  * @returns {Promise<{ canceled?: true, value?: string | boolean, valueLabel?: string, error?: InterviewError }>}
  */
 async function askQuestion(question, uiAPI) {

@@ -6,7 +6,7 @@
 import { Container, Input, SelectList, Text } from "@mariozechner/pi-tui";
 import { getTUI } from "./tui.js";
 import { readUserInput } from "./input.js";
-import { selectListTheme, theme } from "./theme.js";
+import { selectListTheme, theme } from "./ui/theme.js";
 
 /**
  * @returns {{ tui: import('@mariozechner/pi-tui').TUI } | null}

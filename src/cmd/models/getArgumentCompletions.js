@@ -1,8 +1,8 @@
-import { getModelRegistry } from "../../shared/model-registry.js";
+import { getModelRegistry } from "../../shared/models/model-registry.js";
 
 /**
  * @param {string} argumentPrefix
- * @returns {Promise<any[]>}
+ * @returns {Promise<import('../types.js').CommandCompletionItem[]>}
  */
 export async function getModelCompletions(argumentPrefix) {
     const modelRegistry = getModelRegistry();
@@ -12,15 +12,15 @@ export async function getModelCompletions(argumentPrefix) {
 
     const lowerPrefix = argumentPrefix.toLowerCase();
     return models
-        .sort((a, b) => a.id.localeCompare(b.id))
-        .map((m) => {
-            const value = `${m.provider}/${m.id}`;
+        .sort((modelA, modelB) => modelA.id.localeCompare(modelB.id))
+        .map((model) => {
+            const value = `${model.provider}/${model.id}`;
             return {
                 value,
                 label: value,
-                description: m.name,
-                provider: m.provider,
-                id: m.id,
+                description: model.name,
+                provider: model.provider,
+                id: model.id,
             };
         })
         .filter((item) =>

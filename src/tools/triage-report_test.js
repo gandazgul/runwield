@@ -2,11 +2,14 @@ import { assertEquals, assertMatch } from "@std/assert";
 import { triageReportTool } from "./triage-report.js";
 
 /**
- * @param {any} tool
- * @param {any} params
+ * @param {{ execute: unknown }} tool
+ * @param {{ classification: string, complexity: string, summary: string, affectedPaths: string[] }} params
  */
 async function executeTool(tool, params) {
-    return await tool.execute("tool-call-1", params, new AbortController().signal, () => {}, {});
+    const execute =
+        /** @type {(id: string, params: { classification: string, complexity: string, summary: string, affectedPaths: string[] }, signal: AbortSignal, onUpdate: () => void, context: object) => Promise<{ content: Array<{ type: string, text?: string }>, details: unknown }>} */ (tool
+            .execute);
+    return await execute("tool-call-1", params, new AbortController().signal, () => {}, {});
 }
 
 /**

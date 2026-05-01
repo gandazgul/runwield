@@ -5,19 +5,19 @@ import mnemosyneExtension from "./index.js";
  * @param {(command: string, args: string[], opts: { cwd: string }) => Promise<{code: number, stdout: string, stderr: string}> | {code: number, stdout: string, stderr: string}} execImpl
  */
 function setup(execImpl) {
-    /** @type {Map<string, (event: any, ctx: any) => any>} */
+    /** @type {Map<string, (event: object, ctx: object) => unknown>} */
     const handlers = new Map();
-    /** @type {Array<any>} */
+    /** @type {Array<{ name: string, execute: (id: string, params: object, signal: AbortSignal, onUpdate: () => void, context: object) => Promise<{ content: Array<{ type: string, text?: string }>, details: object | null }>, label: string, description: string, parameters: object }>} */
     const tools = [];
     /** @type {Array<{command: string, args: string[], opts: { cwd: string }}>} */
     const calls = [];
 
-    const pi = /** @type {import('@mariozechner/pi-coding-agent').ExtensionAPI} */ (/** @type {any} */ ({
-        on(/** @type {string} */ event, /** @type {(event: any, ctx: any) => any} */ handler) {
-            handlers.set(event, handler);
+    const pi = /** @type {import('@mariozechner/pi-coding-agent').ExtensionAPI} */ ({
+        on(event, handler) {
+            handlers.set(event, /** @type {(event: object, ctx: object) => unknown} */ (handler));
         },
-        registerTool(/** @type {any} */ tool) {
-            tools.push(tool);
+        registerTool(tool) {
+            tools.push(/** @type {typeof tools[number]} */ (tool));
         },
         async exec(
             /** @type {string} */ command,
@@ -27,22 +27,29 @@ function setup(execImpl) {
             calls.push({ command, args, opts });
             return await execImpl(command, args, opts);
         },
-    }));
+    });
 
     mnemosyneExtension(pi);
 
     /** @param {string} name */
-    const getTool = (name) => tools.find((tool) => tool.name === name);
+    const getTool = (name) => {
+        const tool = tools.find((registeredTool) => registeredTool.name === name);
+        if (!tool) throw new Error(`Tool not found in test setup: ${name}`);
+        return tool;
+    };
 
     return { handlers, tools, calls, getTool };
 }
 
 /**
- * @param {any} tool
- * @param {any} params
+ * @param {{ execute: unknown }} tool
+ * @param {object} params
  */
 async function executeTool(tool, params) {
-    return await tool.execute("tool-call-1", params, new AbortController().signal, () => {}, {});
+    const execute =
+        /** @type {(id: string, params: object, signal: AbortSignal, onUpdate: () => void, context: object) => Promise<{ content: Array<{ type: string, text?: string }>, details: unknown }>} */ (tool
+            .execute);
+    return await execute("tool-call-1", params, new AbortController().signal, () => {}, {});
 }
 
 /**

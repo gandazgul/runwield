@@ -2,15 +2,15 @@ import { listPlans } from "../../plan-store.js";
 
 /**
  * @param {string} argumentPrefix
- * @returns {Promise<any[]>}
+ * @returns {Promise<import('../types.js').CommandCompletionItem[]>}
  */
 export async function getResumeCompletions(argumentPrefix) {
     const plans = await listPlans(Deno.cwd());
     return plans
-        .filter((p) => p.name.startsWith(argumentPrefix))
-        .map((p) => ({
-            value: p.name,
-            label: p.name,
-            description: `${p.attrs.classification} - ${p.attrs.status}`,
+        .filter((plan) => plan.name.startsWith(argumentPrefix))
+        .map((plan) => ({
+            value: plan.name,
+            label: plan.name,
+            description: `${plan.attrs.classification} - ${plan.attrs.status}`,
         }));
 }

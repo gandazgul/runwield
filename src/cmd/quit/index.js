@@ -6,6 +6,7 @@ import { stopTUI } from "../../shared/tui.js";
  */
 async function runQuitCommand(_argv, options = {}) {
     const { editor, tui } = options;
+    if (!editor || !tui) return;
 
     editor.setText("");
     tui.requestRender();

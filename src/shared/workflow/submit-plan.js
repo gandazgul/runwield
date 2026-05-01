@@ -6,7 +6,7 @@
  * to call the server in-process, eliminating the need for the plannotator CLI.
  */
 
-import { injectFrontMatter, parsePlanFrontMatter, updatePlanStatus } from "../plan-store.js";
+import { injectFrontMatter, parsePlanFrontMatter, updatePlanStatus } from "../../plan-store.js";
 import { startPlanReviewServer } from "@gandazgul/plannotator-pi-extension-compiled/server";
 import { plannotatorHtml } from "@gandazgul/plannotator-pi-extension-compiled/assets";
 
@@ -85,8 +85,8 @@ export function cancelActivePlanReview() {
  * @param {string} opts.cwd - Project root
  * @param {string} opts.planName - Plan filename (without .md)
  * @param {string} opts.planPath - Absolute path to the plan .md file
- * @param {Partial<import('../plan-store.js').PlanFrontMatter>} [opts.triageMeta] - Triage metadata to ensure in front matter
- * @param {import('./workflow.js').UiAPI} [opts.uiAPI] - Optional UI API for output
+ * @param {Partial<import('../../plan-store.js').PlanFrontMatter>} [opts.triageMeta] - Triage metadata to ensure in front matter
+ * @param {import('../ui/types.js').UiAPI} [opts.uiAPI] - Optional UI API for output
  * @returns {Promise<PlanReviewResult>}
  */
 export async function submitPlanForReview({

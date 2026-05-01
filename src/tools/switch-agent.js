@@ -13,11 +13,11 @@ import { listAvailableAgents } from "../shared/agents.js";
  * Trigger the target agent with the given reason.
  * @param {string} target
  * @param {string} reason
- * @param {import('../shared/workflow.js').UiAPI} uiAPI
+ * @param {import('../shared/workflow/workflow.js').UiAPI} uiAPI
  * @param {import('@mariozechner/pi-coding-agent').SessionManager | undefined} sessionManager
  */
 export async function triggerAgent(target, reason, uiAPI, sessionManager) {
-    const { runAgentSession } = await import("../shared/session.js");
+    const { runAgentSession } = await import("../shared/session/session.js");
     await runAgentSession({
         agentName: target,
         userRequest: reason,
@@ -26,7 +26,7 @@ export async function triggerAgent(target, reason, uiAPI, sessionManager) {
     });
 }
 
-/** @type {(target: string, reason: string, uiAPI: import('../shared/workflow.js').UiAPI, sessionManager?: import('@mariozechner/pi-coding-agent').SessionManager) => Promise<void>} */
+/** @type {(target: string, reason: string, uiAPI: import('../shared/workflow/workflow.js').UiAPI, sessionManager?: import('@mariozechner/pi-coding-agent').SessionManager) => Promise<void>} */
 const noOpTrigger = async () => {};
 
 /**
@@ -35,10 +35,10 @@ const noOpTrigger = async () => {};
  * @param {Object} params
  * @param {string} params.agentName
  * @param {string} params.reason
- * @param {import('../shared/workflow.js').UiAPI | null | undefined} uiAPI
+ * @param {import('../shared/workflow/workflow.js').UiAPI | null | undefined} uiAPI
  * @param {import('@mariozechner/pi-coding-agent').ExtensionContext | undefined} context
- * @param {(target: string, reason: string, uiAPI: import('../shared/workflow.js').UiAPI, sessionManager?: import('@mariozechner/pi-coding-agent').SessionManager) => Promise<void>} [triggerFn]
- * @returns {Promise<import('@mariozechner/pi-coding-agent').AgentToolResult<any>>}
+ * @param {(target: string, reason: string, uiAPI: import('../shared/workflow/workflow.js').UiAPI, sessionManager?: import('@mariozechner/pi-coding-agent').SessionManager) => Promise<void>} [triggerFn]
+ * @returns {Promise<import('@mariozechner/pi-coding-agent').AgentToolResult<null>>}
  */
 export async function executeSwitchAgent(params, uiAPI, context, triggerFn = noOpTrigger) {
     const { agentName, reason } = params;
@@ -62,7 +62,14 @@ export async function executeSwitchAgent(params, uiAPI, context, triggerFn = noO
         uiAPI.appendSystemMessage(`Agent hand-off: User requested return to Router. Reason: ${reason}`);
 
         // Immediately trigger router with the reason
-        await triggerFn(target, reason, uiAPI, /** @type {any} */ (context?.sessionManager));
+        await triggerFn(
+            target,
+            reason,
+            uiAPI,
+            /** @type {import('@mariozechner/pi-coding-agent').SessionManager | undefined} */ (
+                /** @type {unknown} */ (context?.sessionManager)
+            ),
+        );
 
         return {
             content: [{
@@ -74,13 +81,15 @@ export async function executeSwitchAgent(params, uiAPI, context, triggerFn = noO
     }
 
     const agents = await listAvailableAgents();
-    const match = agents.find((a) => a.name === target);
+    const match = agents.find((agent) => agent.name === target);
 
     if (!match) {
         return {
             content: [{
                 type: "text",
-                text: `Error: Unknown agent "${agentName}". Available agents: ${agents.map((a) => a.name).join(", ")}`,
+                text: `Error: Unknown agent "${agentName}". Available agents: ${
+                    agents.map((agent) => agent.name).join(", ")
+                }`,
             }],
             details: null,
         };
@@ -91,7 +100,14 @@ export async function executeSwitchAgent(params, uiAPI, context, triggerFn = noO
     uiAPI.appendSystemMessage(`Agent hand-off: Switching to ${match.displayName}. Reason: ${reason}`);
 
     // Immediately trigger the new agent with the reason
-    await triggerFn(target, reason, uiAPI, /** @type {any} */ (context?.sessionManager));
+    await triggerFn(
+        target,
+        reason,
+        uiAPI,
+        /** @type {import('@mariozechner/pi-coding-agent').SessionManager | undefined} */ (
+            /** @type {unknown} */ (context?.sessionManager)
+        ),
+    );
 
     return {
         content: [{

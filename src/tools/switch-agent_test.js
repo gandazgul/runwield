@@ -1,14 +1,17 @@
 import { assertEquals, assertMatch } from "@std/assert";
 import { executeSwitchAgent, switchAgentTool } from "./switch-agent.js";
 import { getActiveModel, setActiveAgent } from "../shared/chat-session.js";
-import { loadAgentDef } from "../shared/session.js";
+import { loadAgentDef } from "../shared/session/session.js";
 
 /**
- * @param {any} tool
- * @param {any} params
+ * @param {{ execute: unknown }} tool
+ * @param {{ agentName: string, reason: string }} params
  */
 async function executeTool(tool, params) {
-    return await tool.execute("tool-call-1", params, new AbortController().signal, () => {}, {});
+    const execute =
+        /** @type {(id: string, params: { agentName: string, reason: string }, signal: AbortSignal, onUpdate: () => void, context: object) => Promise<{ content: Array<{ type: string, text?: string }>, details: unknown }>} */ (tool
+            .execute);
+    return await execute("tool-call-1", params, new AbortController().signal, () => {}, {});
 }
 
 Deno.test("switchAgentTool exposes expected metadata", () => {
@@ -21,7 +24,7 @@ Deno.test("switchAgentTool exposes expected metadata", () => {
 
 Deno.test("switchAgentTool returns error when no UI API is active", async () => {
     // Ensure no active UI API
-    setActiveAgent("Router", async () => {}, /** @type {any} */ (null));
+    setActiveAgent("Router", async () => {}, undefined);
 
     const params = {
         agentName: "engineer",
@@ -38,7 +41,7 @@ Deno.test("switchAgentTool returns error when no UI API is active", async () => 
 
 Deno.test("switchAgentTool handles router switch with mock UI API", async () => {
     let systemMessage = "";
-    /** @type {any} */
+    /** @type {import('../shared/ui/types.js').UiAPI} */
     const mockUiAPI = {
         appendSystemMessage: (/** @type {string} */ msg) => {
             systemMessage = msg;
@@ -68,7 +71,7 @@ Deno.test("switchAgentTool handles router switch with mock UI API", async () => 
 });
 
 Deno.test("switchAgentTool updates active model when switching to agent with declared model", async () => {
-    /** @type {any} */
+    /** @type {import('../shared/ui/types.js').UiAPI} */
     const mockUiAPI = {
         appendSystemMessage: () => {},
         requestRender: () => {},
@@ -92,9 +95,11 @@ Deno.test("switchAgentTool updates active model when switching to agent with dec
 
 Deno.test("executeSwitchAgent succeeds when given a direct uiAPI without global state", async () => {
     let systemMessage = "";
+    /** @type {string | null} */
     let triggeredAgent = null;
+    /** @type {string | null} */
     let triggeredReason = null;
-    /** @type {any} */
+    /** @type {import('../shared/ui/types.js').UiAPI} */
     const mockUiAPI = {
         appendSystemMessage: (/** @type {string} */ msg) => {
             systemMessage = msg;
@@ -106,7 +111,7 @@ Deno.test("executeSwitchAgent succeeds when given a direct uiAPI without global 
     };
 
     // Ensure global state is NOT set
-    setActiveAgent("Router", async () => {}, /** @type {any} */ (null));
+    setActiveAgent("Router", async () => {}, undefined);
 
     const params = {
         agentName: "router",

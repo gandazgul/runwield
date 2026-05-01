@@ -6,22 +6,22 @@
 import { parseArgs } from "@std/cli/parse-args";
 import { CLI_BIN, CWD } from "../../constants.js";
 import { resolvePlan } from "../../plan-store.js";
-import { submitPlanForReview } from "../../shared/submit-plan.js";
+import { submitPlanForReview } from "../../shared/workflow/submit-plan.js";
 import { planWrittenTool } from "../../tools/plan-written.js";
 import { createUserInterviewTool } from "../../tools/user-interview.js";
-import { askPostApproval, executePlan, reviewLoop } from "../../shared/workflow.js";
+import { askPostApproval, executePlan, reviewLoop } from "../../shared/workflow/workflow.js";
 import { printCommandHelp } from "../../shared/help-text.js";
 import { setActiveAgent, startInteractiveSession } from "../../shared/chat-session.js";
+import { buildRepairPrompt, resetTuiState } from "../../cmd/command-helpers.js";
 export { getResumeCompletions } from "./getArgumentCompletions.js";
 
 /**
  * Restore default Router flow and input readiness after resume command work.
  *
- * @param {import('../../shared/workflow.js').UiAPI} uiAPI
+ * @param {import('../../shared/workflow/workflow.js').UiAPI} uiAPI
  */
 async function restoreRouterFlow(uiAPI) {
-    if (uiAPI.setBusy) uiAPI.setBusy(false);
-    if (uiAPI.enableInput) uiAPI.enableInput();
+    resetTuiState(undefined, uiAPI, undefined);
 
     try {
         const { routerCmdOnMessage } = await import("../router/index.js");
@@ -42,18 +42,18 @@ async function restoreRouterFlow(uiAPI) {
  * @param {import('../registry.js').CommandContext} [options]
  */
 export async function runResumeCommand(argv, options = {}) {
-    const parsed = parseArgs(argv, {
+    const parsedArgs = parseArgs(argv, {
         boolean: ["help"],
         alias: { h: "help" },
         stopEarly: true,
     });
 
-    if (parsed.help) {
+    if (parsedArgs.help) {
         printCommandHelp("resume");
         return;
     }
 
-    let [planArg] = parsed._.map(String);
+    let [planArg] = parsedArgs._.map(String);
     if (!planArg) {
         if (options.uiAPI && options.editor) {
             const { listPlans } = await import("../../plan-store.js");
@@ -140,8 +140,10 @@ export async function runResumeCommand(argv, options = {}) {
                         await reviewLoop({
                             agentName,
                             customTools: [planWrittenTool, createUserInterviewTool(uiAPI)],
-                            initialRequest:
-                                `The previously approved plan "${plan.planName}" had a malformed Tasks table: ${execRes.error}.\n\nPlease fix the table to ensure it follows the required format (Task ID | Assignee | Dependencies | Description). If any requirement is unclear, use user_interview (1-3 focused questions) before finalizing, then call plan_written again.`,
+                            initialRequest: buildRepairPrompt(
+                                plan.planName,
+                                execRes.error || "Unknown task table error",
+                            ),
                             triageMeta: plan.attrs,
                             uiAPI,
                         });
@@ -230,8 +232,7 @@ export async function runResumeCommand(argv, options = {}) {
                 await reviewLoop({
                     agentName,
                     customTools: [planWrittenTool, createUserInterviewTool(uiAPI)],
-                    initialRequest:
-                        `The previously approved plan "${result.planName}" had a malformed Tasks table: ${execRes.error}.\n\nPlease fix the table to ensure it follows the required format (Task ID | Assignee | Dependencies | Description). If any requirement is unclear, use user_interview (1-3 focused questions) before finalizing, then call plan_written again.`,
+                    initialRequest: buildRepairPrompt(result.planName, execRes.error || "Unknown task table error"),
                     triageMeta,
                     uiAPI,
                 });

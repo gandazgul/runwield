@@ -2,11 +2,14 @@ import { assertEquals, assertMatch } from "@std/assert";
 import { planWrittenTool } from "./plan-written.js";
 
 /**
- * @param {any} tool
- * @param {any} params
+ * @param {{ execute: unknown }} tool
+ * @param {{ planName: string, tasks?: Array<{ task: number, assignee: string, dependencies: string, description: string }> }} params
  */
 async function executeTool(tool, params) {
-    return await tool.execute("tool-call-1", params, new AbortController().signal, () => {}, {});
+    const execute =
+        /** @type {(id: string, params: { planName: string, tasks?: Array<{ task: number, assignee: string, dependencies: string, description: string }> }, signal: AbortSignal, onUpdate: () => void, context: object) => Promise<{ content: Array<{ type: string, text?: string }>, details: unknown }>} */ (tool
+            .execute);
+    return await execute("tool-call-1", params, new AbortController().signal, () => {}, {});
 }
 
 /**

@@ -6,12 +6,12 @@
 import { createAgentSession, DefaultResourceLoader, SessionManager } from "@mariozechner/pi-coding-agent";
 import { extractYaml, test as hasFrontMatter } from "@std/front-matter";
 import { join } from "@std/path";
-import { AGENT_DEFS_DIR, CORE_SYSTEM_PROMPT, CWD, PROMPT_TEMPLATES_DIR } from "../constants.js";
-import mnemosyneExtension from "../extensions/mnemosyne/index.js";
-import { ensureMnemosyneBinary } from "./runtime-preflight.js";
-import { executeSwitchAgent, switchAgentTool, triggerAgent } from "../tools/switch-agent.js";
-import { getModelRegistry } from "./model-registry.js";
-import { parseProviderModel } from "./model-validation.js";
+import { AGENT_DEFS_DIR, CORE_SYSTEM_PROMPT, CWD, PROMPT_TEMPLATES_DIR } from "../../constants.js";
+import mnemosyneExtension from "../../extensions/mnemosyne/index.js";
+import { ensureMnemosyneBinary } from "../runtime-preflight.js";
+import { executeSwitchAgent, switchAgentTool, triggerAgent } from "../../tools/switch-agent.js";
+import { getModelRegistry } from "../models/model-registry.js";
+import { parseProviderModel } from "../models/model-validation.js";
 import { getActiveModelState } from "./session-state.js";
 
 const HOME_DIR = Deno.env.get("HOME") || "";
@@ -89,7 +89,7 @@ async function fileExists(path) {
  * appending any new higher-layer tools.
  *
  * @param {string[]} baseTools
- * @param {unknown} nextTools
+ * @param {unknown[] | undefined} nextTools
  * @returns {string[]}
  */
 function mergeTools(baseTools, nextTools) {
@@ -148,7 +148,7 @@ export function getPromptTemplatePaths() {
 async function parsePromptTemplateMeta(filePath) {
     const raw = await Deno.readTextFile(filePath);
 
-    /** @type {Record<string, unknown>} */
+    /** @type {{ description?: string, model?: string, [key: string]: unknown }} */
     let attrs = {};
     let body = raw;
 
@@ -267,7 +267,7 @@ export async function listAgentDefNames() {
 export async function loadAgentDef(agentName) {
     const layerDirs = getAgentDefLayerDirs();
 
-    /** @type {Record<string, unknown>} */
+    /** @type {{ name?: string, model?: string, description?: string, promptOverride?: boolean, tools?: unknown[], [key: string]: unknown }} */
     let mergedAttrs = {};
     /** @type {string[]} */
     let mergedTools = [];
@@ -353,7 +353,7 @@ export function abortActiveSession() {
  * @param {string} [opts.modelOverride] - Optional explicit model override in provider/id format.
  * @param {string} opts.userRequest - The user-facing request/instruction to send to the agent
  * @param {Array<{base64: string, mimeType: string}>} [opts.images]
- * @param {import('./workflow.js').UiAPI} [opts.uiAPI]
+ * @param {import('../workflow/workflow.js').UiAPI} [opts.uiAPI]
  * @param {import('@mariozechner/pi-coding-agent').SessionManager} [opts.sessionManager]
  * @returns {Promise<import('@mariozechner/pi-agent-core').AgentMessage[]>}
  */
@@ -375,7 +375,12 @@ export async function runAgentSession(
         finalCustomTools.push({
             ...switchAgentTool,
             execute(_toolCallId, params, _signal, _onUpdate, context) {
-                return executeSwitchAgent(/** @type {any} */ (params), uiAPI, context, triggerAgent);
+                return executeSwitchAgent(
+                    /** @type {{ agentName: string, reason: string }} */ (params),
+                    uiAPI,
+                    context,
+                    triggerAgent,
+                );
             },
         });
     }
@@ -473,7 +478,7 @@ export async function runAgentSession(
     // Ensure extension lifecycle hooks (e.g. session_start) are activated for this agent invocation.
     await session.bindExtensions({});
 
-    /** @type {any} */
+    /** @type {{ appendText: (delta: string) => void } | null} */
     let currentMarkdownBlock = null;
 
     session.subscribe((event) => {
@@ -561,7 +566,10 @@ export async function runAgentSession(
                 if (uiAPI && uiAPI.getActiveToolBlock) {
                     const block = uiAPI.getActiveToolBlock(event.toolCallId);
                     if (block && event.partialResult && event.partialResult.content) {
-                        const newContentText = event.partialResult.content.map((/** @type {any} */ c) => c.text || "")
+                        const newContentText = event.partialResult.content
+                            .map((/** @type {{ text?: string } | null | undefined } */ contentBlock) =>
+                                contentBlock && typeof contentBlock === "object" ? String(contentBlock.text || "") : ""
+                            )
                             .join("");
                         const currentText = block.bodyText || "";
                         if (newContentText.length > currentText.length) {
@@ -577,7 +585,12 @@ export async function runAgentSession(
                     if (block) {
                         // Make sure we append any final result text that wasn't streamed
                         if (event.result && event.result.content) {
-                            const newContentText = event.result.content.map((/** @type {any} */ c) => c.text || "")
+                            const newContentText = event.result.content
+                                .map((/** @type {{ text?: string } | null | undefined } */ contentBlock) =>
+                                    contentBlock && typeof contentBlock === "object"
+                                        ? String(contentBlock.text || "")
+                                        : ""
+                                )
                                 .join("");
                             const currentText = block.bodyText || "";
                             if (newContentText.length > currentText.length) {
@@ -648,7 +661,7 @@ export async function runAgentSession(
  * Extract file path from tool arguments for read/edit/write tools.
  *
  * @param {string} toolName
- * @param {Record<string, unknown>} args
+ * @param {{ path?: string, file_path?: string }} args
  * @returns {string | null}
  */
 function getFilePathForTool(toolName, args) {

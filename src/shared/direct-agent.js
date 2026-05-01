@@ -5,7 +5,7 @@
  * the TUI with full streaming output (not suppressed like parallel tasks).
  */
 
-import { runAgentSession } from "./session.js";
+import { runAgentSession } from "./session/session.js";
 
 /**
  * Create an onMessage handler that sends prompts directly to a specific agent.
@@ -14,7 +14,7 @@ import { runAgentSession } from "./session.js";
  * signature used by `setActiveAgent()` / `startInteractiveSession()`.
  *
  * @param {string} agentName - Agent definition name (filename without .md)
- * @returns {(userRequest: string, images: Array<{base64: string, mimeType: string}>, uiAPI: import('./workflow.js').UiAPI, sessionManager?: import('@mariozechner/pi-coding-agent').SessionManager) => Promise<void>}
+ * @returns {import('./session/types.js').AgentMessageHandler}
  */
 export function createDirectAgentHandler(agentName) {
     return async (userRequest, images, uiAPI, sessionManager) => {

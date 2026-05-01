@@ -15,15 +15,15 @@ import {
     Text,
 } from "@mariozechner/pi-tui";
 import { initTUI, stopTUI } from "./tui.js";
-import { editorTheme, imageTheme, theme } from "./theme.js";
+import { editorTheme, imageTheme, theme } from "./ui/theme.js";
 import { readClipboardImage } from "./clipboard.js";
 import { createUiApi } from "./ui/api.js";
 import { SpinnerBlock } from "./ui/blocks.js";
-import { abortActiveSession, listPromptTemplates, runAgentSession } from "./session.js";
-import { cancelActivePlanReview } from "./submit-plan.js";
+import { abortActiveSession, listPromptTemplates, runAgentSession } from "./session/session.js";
+import { cancelActivePlanReview } from "./workflow/submit-plan.js";
 import { ensureMnemosyneBinary } from "./runtime-preflight.js";
 import { commandRegistry } from "../cmd/registry.js";
-import { getDefaultModelAndProvider, getModelRegistry } from "./model-registry.js";
+import { getDefaultModelAndProvider, getModelRegistry } from "./models/model-registry.js";
 import {
     getActiveAgentName,
     getActiveModelState,
@@ -35,8 +35,8 @@ import {
     setActiveOnMessage,
     setActiveUiAPI,
     setRootSessionManager,
-} from "./session-state.js";
-import { parseProviderModel } from "./model-validation.js";
+} from "./session/session-state.js";
+import { parseProviderModel } from "./models/model-validation.js";
 import { createDirectAgentHandler } from "./direct-agent.js";
 
 const UI_PADDING = { x: 0, y: 0 };
@@ -57,9 +57,9 @@ function toUserFacingPromptPath(template) {
 /**
  * Update the active agent and its message handler dynamically.
  * @param {string} agentName
+ * @param {import('./session/types.js').AgentMessageHandler} handler
+ * @param {import('./ui/types.js').UiAPI} [uiAPI]
  * @param {string} [agentModel]
- * @param {(userRequest: string, images: any[], uiAPI: import('./workflow.js').UiAPI, sessionManager: import('@mariozechner/pi-coding-agent').SessionManager) => Promise<void>} handler
- * @param {import('./workflow.js').UiAPI} [uiAPI]
  */
 export function setActiveAgent(agentName, handler, uiAPI, agentModel) {
     if (getActiveAgentName() !== agentName) {
@@ -95,7 +95,7 @@ export function setActiveModel(model, provider) {
 
 /**
  * Get the active UI API reference.
- * @returns {import('./workflow.js').UiAPI | null}
+ * @returns {import('./workflow/workflow.js').UiAPI | null}
  */
 export function getActiveUiAPI() {
     return getActiveUiAPIState();
@@ -114,35 +114,40 @@ export function getActiveModel() {
  * Requires strict provider/id format and configured auth.
  *
  * @param {string} templateModel
- * @param {{ find: (provider: string, model: string) => any, hasConfiguredAuth: (model: any) => boolean }} [modelRegistry]
+ * @param {object} [modelRegistry]
  * @returns {{ ok: true, provider: string, id: string } | { ok: false }}
  */
-export function resolveTemplateModel(templateModel, modelRegistry = getModelRegistry()) {
+export function resolveTemplateModel(templateModel, modelRegistry) {
+    const registry =
+        /** @type {{ find: (provider: string, model: string) => unknown, hasConfiguredAuth: (model: unknown) => boolean }} */ (
+            modelRegistry || getModelRegistry()
+        );
     const parsed = parseProviderModel(templateModel);
     if (!parsed.ok) {
         return { ok: false };
     }
 
-    const resolvedModel = modelRegistry.find(parsed.provider, parsed.id);
-    if (!resolvedModel || !modelRegistry.hasConfiguredAuth(resolvedModel)) {
+    const resolvedModel = registry.find(parsed.provider, parsed.id);
+    if (!resolvedModel || !registry.hasConfiguredAuth(resolvedModel)) {
         return { ok: false };
     }
 
-    return { ok: true, provider: resolvedModel.provider, id: resolvedModel.id };
+    const configuredModel = /** @type {{ provider: string, id: string }} */ (resolvedModel);
+    return { ok: true, provider: configuredModel.provider, id: configuredModel.id };
 }
 
 /**
  * Starts the interactive TUI loop.
  * @param {string | null} initialUserRequest
- * @param {((userRequest: string, images: any[], uiAPI: import('./workflow.js').UiAPI, sessionManager: import('@mariozechner/pi-coding-agent').SessionManager) => Promise<void>) | null} onMessage - Handler for user submissions
+ * @param {import('./session/types.js').AgentMessageHandler | null} onMessage - Handler for user submissions
  */
 export async function startInteractiveSession(initialUserRequest, onMessage) {
     const { SessionManager } = await import("@mariozechner/pi-coding-agent");
 
     CHAT_BUILTIN_SLASH_NAMES = new Set(
         Object.values(commandRegistry)
-            .filter((cmd) => cmd.isSlash)
-            .map((cmd) => cmd.name),
+            .filter((command) => command.isSlash)
+            .map((command) => command.name),
     );
 
     setRootSessionManager(SessionManager.inMemory());
@@ -170,7 +175,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
     const runningTasksComponent = new SpinnerBlock();
     container.addChild(runningTasksComponent);
 
-    /** @type {Array<{base64: string, mimeType: string}>} */
+    /** @type {import('./session/types.js').ImageAttachment[]} */
     const pastedImages = [];
     const previewImages = new Container();
     container.addChild(previewImages);
@@ -248,26 +253,26 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
 
     // Load prompt-template metadata once per interactive session.
     const promptTemplates = await listPromptTemplates();
-    const invokablePromptTemplates = promptTemplates.filter((t) => !CHAT_BUILTIN_SLASH_NAMES.has(t.name));
-    const blockedPromptTemplates = promptTemplates.filter((t) => CHAT_BUILTIN_SLASH_NAMES.has(t.name));
+    const invokablePromptTemplates = promptTemplates.filter((template) => !CHAT_BUILTIN_SLASH_NAMES.has(template.name));
+    const blockedPromptTemplates = promptTemplates.filter((template) => CHAT_BUILTIN_SLASH_NAMES.has(template.name));
     /** @type {Map<string, (typeof invokablePromptTemplates)[number]>} */
-    const promptTemplateByName = new Map(invokablePromptTemplates.map((t) => [t.name, t]));
+    const promptTemplateByName = new Map(invokablePromptTemplates.map((template) => [template.name, template]));
 
     const autocompleteProvider = new CombinedAutocompleteProvider(
         [
             ...Array.from(CHAT_BUILTIN_SLASH_NAMES).map((name) => {
                 /** @type {import('@mariozechner/pi-tui').SlashCommand} */
-                const cmd = {
+                const command = {
                     name,
                     description: commandRegistry[name].description,
                     getArgumentCompletions: commandRegistry[name].getArgumentCompletions,
                 };
-                return cmd;
+                return command;
             }),
-            ...invokablePromptTemplates.map((t) => ({
-                name: t.name,
-                argumentHint: t.argumentHint,
-                description: t.description,
+            ...invokablePromptTemplates.map((template) => ({
+                name: template.name,
+                argumentHint: template.argumentHint,
+                description: template.description,
             })),
         ],
         Deno.cwd(),
@@ -344,7 +349,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
         const userRequest = text.trim();
         if (!userRequest) return;
 
-        /** @type {any} */ (editor).addToHistory(userRequest);
+        editor.addToHistory?.(userRequest);
 
         // Bash command interception
         if (userRequest.startsWith("!")) {
@@ -365,8 +370,8 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
                             role: "user",
                             content: [{ type: "text", text: userRequest }],
                         };
-                        /** @type {any} */ (getRootSessionManager())?.addMessage(msg);
-                        uiAPI.appendUserMessage(userRequest);
+                        getRootSessionManager()?.addMessage?.(msg);
+                        uiAPI.appendUserMessage?.(userRequest);
                     } catch (_e) {
                         // ignore
                     }
@@ -465,7 +470,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
                                     input: { command },
                                 }],
                             };
-                            /** @type {any} */ (getRootSessionManager())?.addMessage(cmdMsg);
+                            getRootSessionManager()?.addMessage?.(cmdMsg);
 
                             const resultMsg = {
                                 role: "user",
@@ -476,7 +481,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
                                     content: outputBuffer,
                                 }],
                             };
-                            /** @type {any} */ (getRootSessionManager())?.addMessage(resultMsg);
+                            getRootSessionManager()?.addMessage?.(resultMsg);
                         } catch (_e) {
                             // ignore session add failure
                         }
@@ -496,8 +501,8 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
         }
 
         if (userRequest.startsWith("/")) {
-            const [rawCmd, ...args] = userRequest.slice(1).split(" ");
-            const cmd = rawCmd.trim();
+            const [rawCommand, ...args] = userRequest.slice(1).split(" ");
+            const command = rawCommand.trim();
 
             // Built-in command intercepted logic to just reset editor state,
             // dispatch actually handled via standard registry for TUI route now.
@@ -505,10 +510,10 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
 
             const { commandRegistry } = await import("../cmd/registry.js");
 
-            if (CHAT_BUILTIN_SLASH_NAMES.has(cmd) && commandRegistry[cmd]) {
+            if (CHAT_BUILTIN_SLASH_NAMES.has(command) && commandRegistry[command]) {
                 editor.disableSubmit = true;
                 try {
-                    await commandRegistry[cmd].execute(args, {
+                    await commandRegistry[command].execute(args, {
                         uiAPI,
                         editor,
                         tui,
@@ -526,7 +531,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
                     tui.setFocus(editor);
                 }
             } else {
-                const template = promptTemplateByName.get(cmd);
+                const template = promptTemplateByName.get(command);
 
                 if (template) {
                     // Dispatch prompt templates to operator (not selected chat agent)
@@ -549,7 +554,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
                     pastedImages.length = 0;
                     previewImages.clear();
 
-                    uiAPI.appendUserMessage(userRequest);
+                    uiAPI.appendUserMessage?.(userRequest);
                     images.forEach((img) => {
                         if (uiAPI.appendImage) uiAPI.appendImage(img.base64, img.mimeType);
                     });
@@ -584,7 +589,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
                     return;
                 }
 
-                uiAPI.appendSystemMessage(`Unknown command: /${cmd}`);
+                uiAPI.appendSystemMessage(`Unknown command: /${command}`);
                 editor.setText("");
                 editor.disableSubmit = false;
             }
@@ -598,7 +603,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
         pastedImages.length = 0;
         previewImages.clear();
 
-        uiAPI.appendUserMessage(userRequest);
+        uiAPI.appendUserMessage?.(userRequest);
         images.forEach((img) => {
             if (uiAPI.appendImage) uiAPI.appendImage(img.base64, img.mimeType);
         });
@@ -630,7 +635,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
 
     // Custom keybindings for Editor
     const originalHandleInput = editor.handleInput.bind(editor);
-    /** @param {any} data */
+    /** @param {string} data */
     editor.handleInput = async (data) => {
         // Intercept Esc to abort agent or cancel a pending plan review
         if (matchesKey(data, Key.escape)) {
@@ -687,14 +692,16 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
         if (
             matchesKey(data, Key.shift("enter")) || matchesKey(data, Key.alt("enter"))
         ) {
-            /** @type {any} */ (editor).addNewLine();
+            // @ts-ignore: private pi-tui internals used intentionally
+            editor.addNewLine();
             tui.requestRender();
             return;
         }
         // Delete pasted images when editor is empty
         if (
-            matchesKey(data, Key.backspace) && /** @type {any} */
-            (editor).isEditorEmpty() && pastedImages.length > 0
+            matchesKey(data, Key.backspace) &&
+            // @ts-ignore: private pi-tui internals used intentionally
+            editor.isEditorEmpty() && pastedImages.length > 0
         ) {
             pastedImages.pop();
             const lastChild = previewImages.children[previewImages.children.length - 1];
@@ -707,7 +714,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
 
     // User-facing prompt listing and collision warnings
     if (invokablePromptTemplates.length > 0) {
-        const names = invokablePromptTemplates.map((t) => `/${t.name}`).join(", ");
+        const names = invokablePromptTemplates.map((template) => `/${template.name}`).join(", ");
         uiAPI.appendSystemMessage(`Loaded prompt templates (${invokablePromptTemplates.length}): ${names}`);
         uiAPI.appendSystemMessage(
             `Prompt slash commands execute via ${CHAT_PROMPT_AGENT_NAME}.`,

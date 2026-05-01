@@ -7,9 +7,9 @@
  * activeAgentName: string,
  * activeModel: string,
  * activeModelProvider: string,
- * activeOnMessage: ((userRequest: string, images: any[], uiAPI: import('./workflow.js').UiAPI, sessionManager: import('@mariozechner/pi-coding-agent').SessionManager) => Promise<void>) | null,
- * rootSessionManager: import('@mariozechner/pi-coding-agent').SessionManager | null,
- * activeUiAPI: import('./workflow.js').UiAPI | null,
+ * activeOnMessage: import('./types.js').AgentMessageHandler | null,
+ * rootSessionManager: import('./session/types.js').SessionManagerLike | null,
+ * activeUiAPI: import('./ui/types.js').UiAPI | null,
  * }} */
 const state = {
     activeAgentName: "Router",
@@ -42,7 +42,7 @@ export function getActiveModelState() {
     return { model: state.activeModel, provider: state.activeModelProvider };
 }
 
-/** @param {((userRequest: string, images: any[], uiAPI: import('./workflow.js').UiAPI, sessionManager: import('@mariozechner/pi-coding-agent').SessionManager) => Promise<void>) | null} handler */
+/** @param {import('./types.js').AgentMessageHandler | null} handler */
 export function setActiveOnMessage(handler) {
     state.activeOnMessage = handler;
 }
@@ -51,7 +51,7 @@ export function getActiveOnMessage() {
     return state.activeOnMessage;
 }
 
-/** @param {import('@mariozechner/pi-coding-agent').SessionManager | null} sessionManager */
+/** @param {import('./types.js').SessionManagerLike | null} sessionManager */
 export function setRootSessionManager(sessionManager) {
     state.rootSessionManager = sessionManager;
 }
@@ -60,7 +60,7 @@ export function getRootSessionManager() {
     return state.rootSessionManager;
 }
 
-/** @param {import('./workflow.js').UiAPI | null} uiAPI */
+/** @param {import('../ui/types.js').UiAPI | null} uiAPI */
 export function setActiveUiAPI(uiAPI) {
     state.activeUiAPI = uiAPI;
 }

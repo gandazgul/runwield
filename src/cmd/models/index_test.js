@@ -5,9 +5,8 @@ Deno.test("runModelsCommand rejects bare model id in ui mode", async () => {
     /** @type {string[]} */
     const messages = [];
     await runModelsCommand(["gpt-4.1"], {
-        /** @type {any} */
         uiAPI: {
-            appendSystemMessage: (/** @type {string} */ msg) => {
+            appendSystemMessage: (msg) => {
                 messages.push(msg);
             },
             appendAgentMessageStart: () => ({ appendText: () => {} }),

@@ -11,10 +11,11 @@ import { ensurePlansDir } from "../../plan-store.js";
 import { triageReportTool } from "../../tools/triage-report.js";
 import { planWrittenTool } from "../../tools/plan-written.js";
 import { createUserInterviewTool } from "../../tools/user-interview.js";
-import { runAgentSession } from "../../shared/session.js";
-import { extractTriageReport } from "../../shared/triage.js";
-import { askApprovalWithTasks, askPostApproval, executePlan, reviewLoop } from "../../shared/workflow.js";
+import { runAgentSession } from "../../shared/session/session.js";
+import { extractTriageReport } from "./triage.js";
+import { askApprovalWithTasks, askPostApproval, executePlan, reviewLoop } from "../../shared/workflow/workflow.js";
 import { createDirectAgentHandler } from "../../shared/direct-agent.js";
+import { buildRepairPrompt } from "../../cmd/command-helpers.js";
 
 /**
  * Handle router/default command.
@@ -22,13 +23,13 @@ import { createDirectAgentHandler } from "../../shared/direct-agent.js";
  * @param {string[]} argv
  */
 export async function runRouterCommand(argv) {
-    const parsed = parseArgs(argv, {
+    const parsedArgs = parseArgs(argv, {
         boolean: ["help"],
         alias: { h: "help" },
         stopEarly: true,
     });
 
-    if (parsed.help) {
+    if (parsedArgs.help) {
         printCommandHelp("router");
         return;
     }
@@ -45,7 +46,7 @@ export async function runRouterCommand(argv) {
  *
  * @param {string} userRequest
  * @param {Array<{base64: string, mimeType: string}>} images
- * @param {import('../../shared/workflow.js').UiAPI} uiAPI
+ * @param {import('../../shared/workflow/workflow.js').UiAPI} uiAPI
  * @param {import('@mariozechner/pi-coding-agent').SessionManager} [sessionManager]
  */
 export async function routerCmdOnMessage(userRequest, images, uiAPI, sessionManager) {
@@ -222,8 +223,7 @@ export async function routerCmdOnMessage(userRequest, images, uiAPI, sessionMana
                     await reviewLoop({
                         agentName: "architect",
                         customTools: [planWrittenTool, createUserInterviewTool(uiAPI)],
-                        initialRequest:
-                            `The previously approved plan "${result.planName}" had a malformed Tasks table: ${execRes.error}.\n\nPlease fix the table to ensure it follows the required format (Task ID | Assignee | Dependencies | Description). If any requirement is unclear, use user_interview (1-3 focused questions) before finalizing, then call plan_written again.`,
+                        initialRequest: buildRepairPrompt(result.planName, execRes.error || "Unknown task table error"),
                         triageMeta: triage,
                         uiAPI,
                     });

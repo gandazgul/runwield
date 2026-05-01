@@ -3,7 +3,7 @@
  * Agent discovery — scans agent definitions (bundled + overrides) and returns merged metadata.
  */
 
-import { listAgentDefNames, loadAgentDef } from "./session.js";
+import { listAgentDefNames, loadAgentDef } from "./session/session.js";
 
 /**
  * @typedef {Object} AgentInfo
@@ -37,6 +37,6 @@ export async function listAvailableAgents() {
         }
     }
 
-    agents.sort((a, b) => a.name.localeCompare(b.name));
+    agents.sort((agentA, agentB) => agentA.name.localeCompare(agentB.name));
     return agents;
 }
