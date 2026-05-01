@@ -13,6 +13,7 @@
     "jsr:@std/toml@^1.0.3": "1.0.11",
     "jsr:@std/yaml@^1.0.5": "1.1.0",
     "npm:@gandazgul/plannotator-pi-extension-compiled@1": "1.0.0_@mariozechner+pi-agent-core@0.68.1__zod@4.3.6_@mariozechner+pi-ai@0.68.1__zod@4.3.6_@mariozechner+pi-coding-agent@0.68.1__zod@4.3.6_@mariozechner+pi-tui@0.68.1",
+    "npm:@gandazgul/plannotator-pi-extension-compiled@1.0.0": "1.0.0_@mariozechner+pi-agent-core@0.68.1__zod@4.3.6_@mariozechner+pi-ai@0.68.1__zod@4.3.6_@mariozechner+pi-coding-agent@0.68.1__zod@4.3.6_@mariozechner+pi-tui@0.68.1",
     "npm:@joplin/turndown-plugin-gfm@^1.0.64": "1.0.64",
     "npm:@mariozechner/pi-agent-core@0.68.1": "0.68.1_zod@4.3.6",
     "npm:@mariozechner/pi-agent-core@~0.68.1": "0.68.1_zod@4.3.6",

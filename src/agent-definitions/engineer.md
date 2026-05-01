@@ -1,6 +1,6 @@
 ---
 name: engineer
-model: ollama-cloud/qwen3.5:cloud
+model: opencode/big-pickle
 description: "Code execution agent that implements approved plans and individual tasks while adhering strictly to DAG scope."
 tools:
     - read

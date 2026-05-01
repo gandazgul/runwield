@@ -20,6 +20,7 @@ import { readClipboardImage } from "./clipboard.js";
 import { createUiApi } from "./ui/api.js";
 import { SpinnerBlock } from "./ui/blocks.js";
 import { abortActiveSession, listPromptTemplates, runAgentSession } from "./session.js";
+import { cancelActivePlanReview } from "./submit-plan.js";
 import { ensureMnemosyneBinary } from "./runtime-preflight.js";
 import { commandRegistry } from "../cmd/registry.js";
 import { getDefaultModelAndProvider } from "./model-registry.js";
@@ -564,10 +565,13 @@ export async function startInteractiveSession(initialUserRequest, onMessage) {
     const originalHandleInput = editor.handleInput.bind(editor);
     /** @param {any} data */
     editor.handleInput = async (data) => {
-        // Intercept Esc to abort agent
+        // Intercept Esc to abort agent or cancel a pending plan review
         if (matchesKey(data, Key.escape)) {
             if (abortActiveSession()) {
                 uiAPI.appendSystemMessage("[Harns] Canceling operation...");
+                tui.requestRender();
+            } else if (cancelActivePlanReview()) {
+                uiAPI.appendSystemMessage("[Harns] Cancelling plan review...");
                 tui.requestRender();
             }
             return;

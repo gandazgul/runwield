@@ -97,7 +97,7 @@ export const selectListTheme = {
 
 export const editorTheme = {
     /** @param {string} s */
-    borderColor: (s) => chalk.hex(colors.surface1)(s),
+    borderColor: (s) => chalk.hex(colors.teal)(s),
     selectList: selectListTheme,
 };
 

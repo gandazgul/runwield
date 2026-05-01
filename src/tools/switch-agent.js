@@ -10,6 +10,99 @@ import { createDirectAgentHandler } from "../shared/direct-agent.js";
 import { listAvailableAgents } from "../shared/agents.js";
 
 /**
+ * Trigger the target agent with the given reason.
+ * @param {string} target
+ * @param {string} reason
+ * @param {import('../shared/workflow.js').UiAPI} uiAPI
+ * @param {import('@mariozechner/pi-coding-agent').SessionManager | undefined} sessionManager
+ */
+export async function triggerAgent(target, reason, uiAPI, sessionManager) {
+    const { runAgentSession } = await import("../shared/session.js");
+    await runAgentSession({
+        agentName: target,
+        userRequest: reason,
+        uiAPI,
+        sessionManager,
+    });
+}
+
+/** @type {(target: string, reason: string, uiAPI: import('../shared/workflow.js').UiAPI, sessionManager?: import('@mariozechner/pi-coding-agent').SessionManager) => Promise<void>} */
+const noOpTrigger = async () => {};
+
+/**
+ * Core logic for switching the active agent.
+ *
+ * @param {Object} params
+ * @param {string} params.agentName
+ * @param {string} params.reason
+ * @param {import('../shared/workflow.js').UiAPI | null | undefined} uiAPI
+ * @param {import('@mariozechner/pi-coding-agent').ExtensionContext | undefined} context
+ * @param {(target: string, reason: string, uiAPI: import('../shared/workflow.js').UiAPI, sessionManager?: import('@mariozechner/pi-coding-agent').SessionManager) => Promise<void>} [triggerFn]
+ * @returns {Promise<import('@mariozechner/pi-coding-agent').AgentToolResult<any>>}
+ */
+export async function executeSwitchAgent(params, uiAPI, context, triggerFn = noOpTrigger) {
+    const { agentName, reason } = params;
+
+    if (!uiAPI) {
+        return {
+            content: [{
+                type: "text",
+                text:
+                    "Error: This tool requires an active UI session to perform the switch. Please ensure you're running in interactive mode.",
+            }],
+            details: null,
+        };
+    }
+
+    const target = agentName.toLowerCase().trim();
+
+    if (target === "router") {
+        const { routerCmdOnMessage } = await import("../cmd/router/index.js");
+        setActiveAgent("Router", routerCmdOnMessage, uiAPI);
+        uiAPI.appendSystemMessage(`Agent hand-off: User requested return to Router. Reason: ${reason}`);
+
+        // Immediately trigger router with the reason
+        await triggerFn(target, reason, uiAPI, /** @type {any} */ (context?.sessionManager));
+
+        return {
+            content: [{
+                type: "text",
+                text: `Switched to Router. Reason: ${reason}`,
+            }],
+            details: null,
+        };
+    }
+
+    const agents = await listAvailableAgents();
+    const match = agents.find((a) => a.name === target);
+
+    if (!match) {
+        return {
+            content: [{
+                type: "text",
+                text: `Error: Unknown agent "${agentName}". Available agents: ${agents.map((a) => a.name).join(", ")}`,
+            }],
+            details: null,
+        };
+    }
+
+    const handler = createDirectAgentHandler(target);
+    setActiveAgent(match.displayName, handler, uiAPI, match.model);
+    uiAPI.appendSystemMessage(`Agent hand-off: Switching to ${match.displayName}. Reason: ${reason}`);
+
+    // Immediately trigger the new agent with the reason
+    await triggerFn(target, reason, uiAPI, /** @type {any} */ (context?.sessionManager));
+
+    return {
+        content: [{
+            type: "text",
+            text: `Switched to ${match.displayName}. Reason: ${reason}`,
+        }],
+        details: null,
+    };
+}
+
+/**
  * Tool for switching the active agent in the interactive session.
  */
 export const switchAgentTool = defineTool({
@@ -27,64 +120,7 @@ export const switchAgentTool = defineTool({
                 "The reason for switching agents, explaining why the target agent is more appropriate for the current state of the conversation.",
         }),
     }),
-    async execute(_toolCallId, params, _signal, _onUpdate, _context) {
-        const { agentName, reason } = params;
-        // Use the stored active UI API from the chat session
-        const uiAPI = getActiveUiAPI();
-
-        if (!uiAPI) {
-            return {
-                content: [{
-                    type: "text",
-                    text:
-                        "Error: This tool requires an active UI session to perform the switch. Please ensure you're running in interactive mode.",
-                }],
-                isError: true,
-                details: null,
-            };
-        }
-
-        const target = agentName.toLowerCase().trim();
-
-        if (target === "router") {
-            const { routerCmdOnMessage } = await import("../cmd/router/index.js");
-            setActiveAgent("Router", routerCmdOnMessage, uiAPI);
-            uiAPI.appendSystemMessage(`Agent hand-off: User requested return to Router. Reason: ${reason}`);
-            return {
-                content: [{
-                    type: "text",
-                    text: `Switched back to Router. Reason: ${reason}`,
-                }],
-                details: null,
-            };
-        }
-
-        const agents = await listAvailableAgents();
-        const match = agents.find((a) => a.name === target);
-
-        if (!match) {
-            return {
-                content: [{
-                    type: "text",
-                    text: `Error: Unknown agent "${agentName}". Available agents: ${
-                        agents.map((a) => a.name).join(", ")
-                    }`,
-                }],
-                isError: true,
-                details: null,
-            };
-        }
-
-        const handler = createDirectAgentHandler(target);
-        setActiveAgent(match.displayName, handler, uiAPI, match.model);
-        uiAPI.appendSystemMessage(`Agent hand-off: Switching to ${match.displayName}. Reason: ${reason}`);
-
-        return {
-            content: [{
-                type: "text",
-                text: `Successfully switched to ${match.displayName}. Reason: ${reason}`,
-            }],
-            details: null,
-        };
+    execute(_toolCallId, params, _signal, _onUpdate, context) {
+        return executeSwitchAgent(params, getActiveUiAPI(), context);
     },
 });

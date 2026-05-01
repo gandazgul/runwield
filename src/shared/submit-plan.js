@@ -50,6 +50,23 @@ async function openInDefaultBrowser(url) {
     }
 }
 
+// ─── Cancellation State ───────────────────────────────────────────────
+
+/** @type {(() => void) | null} */
+let activePlanReviewCancel = null;
+
+/**
+ * Cancel an in-flight plan review wait, if any.
+ * @returns {boolean} true if a review was active and cancelled
+ */
+export function cancelActivePlanReview() {
+    if (activePlanReviewCancel) {
+        activePlanReviewCancel();
+        return true;
+    }
+    return false;
+}
+
 // ─── Types ────────────────────────────────────────────────────────────
 
 /**
@@ -133,12 +150,32 @@ export async function submitPlanForReview({
 
     log(`[Harns] Waiting for user decision...`);
 
+    /** @type {(() => void) | null} */
+    let localCancel = null;
+    const cancelPromise = new Promise((resolve) => {
+        localCancel = () => resolve({ _cancelled: true });
+    });
+    activePlanReviewCancel = localCancel;
+
     try {
         // 5. Disable input while waiting for review via server
         if (uiAPI && uiAPI.disableInput) uiAPI.disableInput();
 
-        // Wait for user decide (blocks until approve/deny)
-        const decision = await server.waitForDecision();
+        // Wait for user decide (blocks until approve/deny), but allow Esc cancellation
+        const decision = await Promise.race([
+            server.waitForDecision(),
+            cancelPromise,
+        ]);
+
+        // Handle cancellation triggered from the TUI
+        if (decision && typeof decision === "object" && "_cancelled" in decision) {
+            await updatePlanStatus(cwd, planName, "denied");
+            log(`[Harns] ❌ Plan review cancelled: ${planName}`);
+            return {
+                approved: false,
+                feedback: "Cancelled by user (Esc)",
+            };
+        }
 
         // 6. Update status
         if (decision.approved) {
@@ -154,6 +191,7 @@ export async function submitPlanForReview({
             feedback: decision.feedback,
         };
     } finally {
+        activePlanReviewCancel = null;
         if (uiAPI && uiAPI.enableInput) uiAPI.enableInput();
         // Ensure server is stopped regardless of outcome
         server.stop();

@@ -1,6 +1,7 @@
 import { assertEquals, assertMatch } from "@std/assert";
-import { switchAgentTool } from "./switch-agent.js";
+import { executeSwitchAgent, switchAgentTool } from "./switch-agent.js";
 import { getActiveModel, setActiveAgent } from "../shared/chat-session.js";
+import { loadAgentDef } from "../shared/session.js";
 
 /**
  * @param {any} tool
@@ -29,8 +30,10 @@ Deno.test("switchAgentTool returns error when no UI API is active", async () => 
 
     const result = await executeTool(switchAgentTool, params);
 
-    assertEquals(result.isError, true);
-    assertMatch(result.content[0].text, /requires an active UI session/i);
+    assertMatch(
+        /** @type {{ type: "text", text: string }} */ (result.content[0]).text,
+        /requires an active UI session/i,
+    );
 });
 
 Deno.test("switchAgentTool handles router switch with mock UI API", async () => {
@@ -57,8 +60,10 @@ Deno.test("switchAgentTool handles router switch with mock UI API", async () => 
 
     const result = await executeTool(switchAgentTool, params);
 
-    assertEquals(result.isError, undefined);
-    assertMatch(result.content[0].text, /Switched back to Router/i);
+    assertMatch(
+        /** @type {{ type: "text", text: string }} */ (result.content[0]).text,
+        /Switched to Router\. Reason: Back to start/i,
+    );
     assertMatch(systemMessage, /Agent hand-off: User requested return to Router/i);
 });
 
@@ -79,8 +84,48 @@ Deno.test("switchAgentTool updates active model when switching to agent with dec
         reason: "Need to execute a task",
     };
 
-    const result = await executeTool(switchAgentTool, params);
+    await executeTool(switchAgentTool, params);
 
-    assertEquals(result.isError, undefined);
-    assertEquals(getActiveModel(), "ollama-cloud/qwen3.5:cloud");
+    const operatorDef = await loadAgentDef("operator");
+    assertEquals(getActiveModel(), operatorDef.model);
+});
+
+Deno.test("executeSwitchAgent succeeds when given a direct uiAPI without global state", async () => {
+    let systemMessage = "";
+    let triggeredAgent = null;
+    let triggeredReason = null;
+    /** @type {any} */
+    const mockUiAPI = {
+        appendSystemMessage: (/** @type {string} */ msg) => {
+            systemMessage = msg;
+        },
+        requestRender: () => {},
+        appendAgentMessageStart: () => ({ appendText: () => {} }),
+        promptSelect: () => Promise.resolve(null),
+        promptText: () => Promise.resolve(null),
+    };
+
+    // Ensure global state is NOT set
+    setActiveAgent("Router", async () => {}, /** @type {any} */ (null));
+
+    const params = {
+        agentName: "router",
+        reason: "Back to start",
+    };
+
+    const result = await executeSwitchAgent(
+        params,
+        mockUiAPI,
+        undefined,
+        (target, reason) => {
+            triggeredAgent = target;
+            triggeredReason = reason;
+            return Promise.resolve();
+        },
+    );
+
+    assertMatch(/** @type {{ type: "text", text: string }} */ (result.content[0]).text, /Switched to Router/i);
+    assertMatch(systemMessage, /Agent hand-off: User requested return to Router/i);
+    assertEquals(triggeredAgent, "router");
+    assertEquals(triggeredReason, "Back to start");
 });

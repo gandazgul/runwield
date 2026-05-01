@@ -1,6 +1,6 @@
 ---
 name: tester
-model: ollama-cloud/qwen3.5:cloud
+model: opencode/big-pickle
 description: "Test-writing agent responsible for creating, running, and updating test suites based on approved plans and existing project conventions."
 tools:
     - read
