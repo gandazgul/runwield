@@ -2,7 +2,7 @@ import { listPlans } from "../../plan-store.js";
 
 /**
  * @param {string} argumentPrefix
- * @returns {Promise<import('../types.js').CommandCompletionItem[]>}
+ * @returns {Promise<import('../registry.js').CommandCompletionItem[]>}
  */
 export async function getResumeCompletions(argumentPrefix) {
     const plans = await listPlans(Deno.cwd());

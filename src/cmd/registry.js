@@ -18,7 +18,18 @@ import { runExportCommand } from "./export/index.js";
 const bin = (...parts) => [CLI_BIN, ...parts].join(" ");
 
 /**
- * @typedef {import('./types.js').CommandContext} CommandContext
+ * @typedef {{ value: string, label: string, description?: string, [key: string]: unknown }} CommandCompletionItem
+ */
+
+/**
+ * @typedef {Object} CommandContext
+ * @property {import('../shared/ui/types.js').UiAPI} [uiAPI]
+ * @property {import('../shared/ui/types.js').EditorAPI} [editor]
+ * @property {import('../shared/session/types.js').SessionManagerLike} [sessionManager]
+ * @property {string} [sessionStartedAt]
+ * @property {string} [text]
+ * @property {import('../shared/ui/types.js').TuiAPI} [tui]
+ * @property {(data: string) => void | Promise<void>} [originalHandleInput]
  */
 
 /**
@@ -37,7 +48,7 @@ const bin = (...parts) => [CLI_BIN, ...parts].join(" ");
  * @property {CommandHandler} execute
  * @property {boolean} isSlash
  * @property {boolean} isCli
- * @property {(argumentPrefix: string) => Promise<import('./types.js').CommandCompletionItem[]>} [getArgumentCompletions]
+ * @property {(argumentPrefix: string) => Promise<CommandCompletionItem[]>} [getArgumentCompletions]
  */
 
 /** @type {Record<string, CommandDefinition>} */
@@ -67,10 +78,9 @@ export const commandRegistry = {
         description: "Switch active agent",
         summary: "List available agents or talk directly to one (--agent shorthand).",
         usage: [
-            `${bin("--agent")}                            List available agents`,
-            `${bin("--agent <name>")}                     Talk directly to an agent`,
-            `${bin('--agent <name> "<user request>"')}    Start with a prompt`,
-            `${bin("agent")}                              Same as --agent`,
+            `${bin("agent")}                            List available agents`,
+            `${bin("agent <name>")}                     Talk directly to an agent`,
+            `${bin('agent <name> "<user request>"')}    Start with a prompt`,
         ],
         notes: [
             "Bypasses the router triage flow — sends prompts directly to the agent.",

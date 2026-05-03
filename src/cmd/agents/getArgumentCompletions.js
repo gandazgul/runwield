@@ -2,7 +2,7 @@ import { listAvailableAgents } from "../../shared/agents.js";
 
 /**
  * @param {string} argumentPrefix
- * @returns {Promise<import('../types.js').CommandCompletionItem[]>}
+ * @returns {Promise<import('../registry.js').CommandCompletionItem[]>}
  */
 export async function getAgentCompletions(argumentPrefix) {
     const agents = await listAvailableAgents();

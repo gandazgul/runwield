@@ -50,7 +50,7 @@ function parseOptionalPathArg(text) {
  * Handle `/export` command (slash-only).
  *
  * @param {string[]} argv
- * @param {import('../types.js').CommandContext} [options]
+ * @param {import('../registry.js').CommandContext} [options]
  */
 export async function runExportCommand(argv, options = {}) {
     const { uiAPI, editor, sessionManager, text, sessionStartedAt } = options;

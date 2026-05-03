@@ -2,7 +2,7 @@ import { getModelRegistry } from "../../shared/models/model-registry.js";
 
 /**
  * @param {string} argumentPrefix
- * @returns {Promise<import('../types.js').CommandCompletionItem[]>}
+ * @returns {Promise<import('../registry.js').CommandCompletionItem[]>}
  */
 export async function getModelCompletions(argumentPrefix) {
     const modelRegistry = getModelRegistry();

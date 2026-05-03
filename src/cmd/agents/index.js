@@ -3,119 +3,33 @@
  * Agent command — list available agents or start a direct agent session.
  */
 
-import { parseArgs } from "@std/cli/parse-args";
 import { printCommandHelp } from "../help/index.js";
+import { routerCmdOnMessage } from "../router/index.js";
 import { setActiveAgent, startInteractiveSession } from "../../shared/chat-session.js";
 import { listAvailableAgents } from "../../shared/agents.js";
+import { COMMAND_NAMES } from "../../constants.js";
 import { createDirectAgentHandler } from "../../shared/direct-agent.js";
+
 export { getAgentCompletions } from "./getArgumentCompletions.js";
 
 /**
- * Handle the agents command.
+ * Run the agents command in CLI mode.
  *
- * - `hns --agent` / `hns agents` → list available agents
- * - `hns --agent <name>` → start TUI with that agent
- * - `hns --agent <name> "<prompt>"` → start TUI with agent + initial prompt
+ * @param {string} agentName
+ * @param {string[]} rest
  *
- * Inside the TUI (`/agent`):
- * - `/agent router` → reset to default router flow
- * - `/agent <name>` → direct switch agent
- * - `/agent` → show interactive selection
- *
- * @param {string[]} argv
- * @param {import('../registry.js').CommandContext} [options]
+ * @returns {Promise<void>}
  */
-export async function runAgentsCommand(argv, options = {}) {
-    const parsedArgs = parseArgs(argv, {
-        boolean: ["help"],
-        alias: { h: "help" },
-        stopEarly: true,
-    });
-
-    if (parsedArgs.help) {
-        printCommandHelp("agent");
-        return;
-    }
-
+async function runAgentsCommandCli(agentName, rest) {
     const agents = await listAvailableAgents();
-    const [agentName, ...rest] = parsedArgs._.map(String);
 
-    // Is this called from TUI?
-    if (options.uiAPI && options.editor && options.tui) {
-        options.editor.setText("");
-        const targetName = agentName?.trim();
-        const { tui, uiAPI } = options;
-
-        if (targetName === "router") {
-            // Reset to default router flow
-            const { routerCmdOnMessage } = await import("../router/index.js");
-            setActiveAgent("Router", routerCmdOnMessage, uiAPI);
-            tui.setFocus(
-                /** @type {import('@mariozechner/pi-tui').Component} */ (/** @type {unknown} */ (options.editor)),
-            );
-            return;
-        }
-
-        if (targetName && targetName !== "undefined") {
-            // Direct switch: /agent <name>
-            const match = agents.find((agent) => agent.name === targetName);
-            if (!match) {
-                uiAPI.appendSystemMessage(
-                    `Unknown agent: "${targetName}". Use /agent to see available agents.`,
-                );
-                tui.setFocus(
-                    /** @type {import('@mariozechner/pi-tui').Component} */ (/** @type {unknown} */ (options.editor)),
-                );
-                return;
-            }
-            const handler = createDirectAgentHandler(targetName);
-            setActiveAgent(match.displayName, handler, uiAPI, match.model);
-            tui.setFocus(
-                /** @type {import('@mariozechner/pi-tui').Component} */ (/** @type {unknown} */ (options.editor)),
-            );
-            return;
-        }
-
-        // No args: show interactive selection
-        const agentOptions = [
-            { value: "router", label: "router", description: "Reset to default router (triage flow)" },
-            ...agents
-                .sort((agentA, agentB) => agentA.name.localeCompare(agentB.name))
-                .map((agent) => ({
-                    value: agent.name,
-                    label: agent.name,
-                    description: agent.description,
-                })),
-        ];
-
-        const chosen = await uiAPI.promptSelect("Switch agent:", agentOptions);
-        if (!chosen) {
-            tui.setFocus(
-                /** @type {import('@mariozechner/pi-tui').Component} */ (/** @type {unknown} */ (options.editor)),
-            );
-            return; // cancelled
-        }
-
-        if (chosen === "router") {
-            const { routerCmdOnMessage } = await import("../router/index.js");
-            setActiveAgent("Router", routerCmdOnMessage, uiAPI);
-        } else {
-            const handler = createDirectAgentHandler(chosen);
-            const match = agents.find((agent) => agent.name === chosen);
-            setActiveAgent(match?.displayName || chosen, handler, uiAPI, match?.model);
-        }
-        tui.setFocus(/** @type {import('@mariozechner/pi-tui').Component} */ (/** @type {unknown} */ (options.editor)));
-        return;
-    }
-
-    // Standard CLI flow
     // No agent name: list all and exit
-    if (!agentName || agentName === "undefined") {
+    if (!agentName) {
         console.log("\nAvailable agents:\n");
         for (const agent of agents) {
             console.log(`  ${agent.name.padEnd(14)} ${agent.description}`);
         }
-        console.log(`\nUsage: hns --agent <name> ["<prompt>"]\n`);
+        console.log(`\nUsage: hns agent <name> ["<prompt>"]\n`);
         return;
     }
 
@@ -135,4 +49,85 @@ export async function runAgentsCommand(argv, options = {}) {
 
     setActiveAgent(match.displayName, handler);
     await startInteractiveSession(userRequest || null, handler);
+}
+
+/**
+ * Run the agents command in TUI mode.
+ *
+ * @param {string} agentName
+ * @param {string[]} rest
+ * @param {import('../registry.js').CommandContext} [options]
+ *
+ * @return {Promise<void>}
+ */
+async function runAgentsCommandTUI(agentName, rest, options) {
+    const agents = await listAvailableAgents();
+    const { tui, uiAPI, editor } = options;
+    editor?.setText("");
+
+    let chosenAgent = agentName;
+
+    // if none was passed let the user choose
+    if (!chosenAgent) {
+        // No args: show interactive selection
+        const agentOptions = [
+            { value: "router", label: "router", description: "Reset to default router (triage flow)" },
+            ...agents
+                .sort((agentA, agentB) => agentA.name.localeCompare(agentB.name))
+                .map((agent) => ({
+                    value: agent.name,
+                    label: agent.name,
+                    description: agent.description,
+                })),
+        ];
+
+        chosenAgent = await uiAPI.promptSelect("Switch agent:", agentOptions)
+    }
+
+    const match = agents.find((agent) => agent.name === chosenAgent);
+    if (!match) {
+        uiAPI.appendSystemMessage(`Agent "${chosenAgent}" not found`);
+        return;
+    }
+
+    const handler = chosenAgent == "router" ? routerCmdOnMessage : createDirectAgentHandler(chosenAgent);
+
+    setActiveAgent(match?.displayName || chosenAgent, handler, uiAPI, match?.model);
+    tui.setFocus(/** @type {import('@mariozechner/pi-tui').Component} */ (/** @type {unknown} */ (options.editor)));
+
+    return;
+}
+
+/**
+ * Handle the agents command.
+ *
+ * - `hns agent` / `hns agents` → list available agents
+ * - `hns agent <name>` → start TUI with that agent
+ * - `hns agent <name> "<prompt>"` → start TUI with agent + initial prompt
+ *
+ * Inside the TUI (`/agent`):
+ * - `/agent router` → reset to default router flow
+ * - `/agent <name>` → direct switch agent
+ * - `/agent` → show interactive selection
+ *
+ * @param {string[]} argv
+ * @param {import('../registry.js').CommandContext} [options]
+ *
+ * @return {Promise<void>}
+ */
+export async function runAgentsCommand(argv, options = {}) {
+    const [agentName, ...rest] = argv;
+
+    if (agentName === 'help') {
+        printCommandHelp(COMMAND_NAMES.AGENT);
+        return;
+    }
+
+    // Is this called from TUI?
+    if (options.uiAPI && options.editor && options.tui) {
+        return await runAgentsCommandTUI(agentName, rest, options);
+    }
+
+    // Standard CLI flow
+    return await runAgentsCommandCli(agentName, rest);
 }
