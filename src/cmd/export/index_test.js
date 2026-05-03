@@ -48,24 +48,30 @@ Deno.test("runExportCommand exports jsonl from root session manager", async () =
         }],
     });
 
-    await runExportCommand([outPath], {
-        uiAPI: {
-            appendSystemMessage: (msg) => messages.push(msg),
-            appendAgentMessageStart: () => ({ appendText: () => {} }),
-            requestRender: () => {},
-            promptSelect: () => Promise.resolve(null),
-            promptText: () => Promise.resolve(null),
-        },
-        editor: {
-            disableSubmit: false,
-            setText: () => {},
-            setAutocompleteProvider: () => {},
-            handleInput: () => {},
-        },
-        sessionManager,
-    });
+    try {
+        await runExportCommand([outPath], {
+            uiAPI: {
+                appendSystemMessage: (msg) => messages.push(msg),
+                appendAgentMessageStart: () => ({ appendText: () => {} }),
+                requestRender: () => {},
+                promptSelect: () => Promise.resolve(null),
+                promptText: () => Promise.resolve(null),
+            },
+            editor: {
+                disableSubmit: false,
+                setText: () => {},
+                setAutocompleteProvider: () => {},
+                handleInput: () => {},
+            },
+            sessionManager,
+        });
 
-    assertEquals(messages.length, 1);
-    assertMatch(messages[0], /Session exported to:/);
-    assertEquals(existsSync(outPath), true);
+        assertEquals(messages.length, 1);
+        assertMatch(messages[0], /Session exported to:/);
+        assertEquals(existsSync(outPath), true);
+    } finally {
+        if (existsSync(outPath)) {
+            await Deno.remove(outPath);
+        }
+    }
 });
