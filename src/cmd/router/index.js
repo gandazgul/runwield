@@ -3,10 +3,9 @@
  * Router command implementation (also used as default command).
  */
 
-import { parseArgs } from "@std/cli/parse-args";
 import { printCommandHelp } from "../help/index.js";
 import { setActiveAgent, startInteractiveSession } from "../../shared/chat-session.js";
-import { CLI_BIN, CWD, COMMAND_NAMES } from "../../constants.js";
+import { CLI_BIN, COMMAND_NAMES, CWD } from "../../constants.js";
 import { ensurePlansDir } from "../../plan-store.js";
 import { triageReportTool } from "../../tools/triage-report.js";
 import { planWrittenTool } from "../../tools/plan-written.js";
@@ -25,8 +24,9 @@ import { buildRepairPrompt } from "../command-helpers.js";
 export async function runRouterCommand(argv) {
     const userRequest = argv.join(" ").trim();
 
-    if (userRequest === 'help') {
-        return printCommandHelp(COMMAND_NAMES.ROUTER);
+    if (userRequest === "help") {
+        printCommandHelp(COMMAND_NAMES.ROUTER);
+        return;
     }
 
     // Launch the interactive loop with the router as the default handler

@@ -55,16 +55,21 @@ async function runAgentsCommandCli(agentName, rest) {
  * Run the agents command in TUI mode.
  *
  * @param {string} agentName
- * @param {string[]} rest
- * @param {import('../registry.js').CommandContext} [options]
+ * @param {string[]} _rest
+ * @param {{
+ *   tui: import('../../shared/ui/types.js').TuiAPI,
+ *   uiAPI: import('../../shared/ui/types.js').UiAPI,
+ *   editor: import('../../shared/ui/types.js').EditorAPI,
+ * }} options
  *
  * @return {Promise<void>}
  */
-async function runAgentsCommandTUI(agentName, rest, options) {
+async function runAgentsCommandTUI(agentName, _rest, options) {
     const agents = await listAvailableAgents();
     const { tui, uiAPI, editor } = options;
-    editor?.setText("");
+    editor.setText("");
 
+    /** @type {string|null} */
     let chosenAgent = agentName;
 
     // if none was passed let the user choose
@@ -81,7 +86,8 @@ async function runAgentsCommandTUI(agentName, rest, options) {
                 })),
         ];
 
-        chosenAgent = await uiAPI.promptSelect("Switch agent:", agentOptions)
+        const selected = await uiAPI.promptSelect("Switch agent:", agentOptions);
+        chosenAgent = selected;
     }
 
     const match = agents.find((agent) => agent.name === chosenAgent);
@@ -90,10 +96,10 @@ async function runAgentsCommandTUI(agentName, rest, options) {
         return;
     }
 
-    const handler = chosenAgent == "router" ? routerCmdOnMessage : createDirectAgentHandler(chosenAgent);
+    const handler = match.name == "router" ? routerCmdOnMessage : createDirectAgentHandler(match.name);
 
-    setActiveAgent(match?.displayName || chosenAgent, handler, uiAPI, match?.model);
-    tui.setFocus(/** @type {import('@mariozechner/pi-tui').Component} */ (/** @type {unknown} */ (options.editor)));
+    setActiveAgent(match.displayName, handler, uiAPI, match.model);
+    tui.setFocus(/** @type {import('@mariozechner/pi-tui').Component} */ (/** @type {unknown} */ (editor)));
 
     return;
 }
@@ -118,14 +124,18 @@ async function runAgentsCommandTUI(agentName, rest, options) {
 export async function runAgentsCommand(argv, options = {}) {
     const [agentName, ...rest] = argv;
 
-    if (agentName === 'help') {
+    if (agentName === "help") {
         printCommandHelp(COMMAND_NAMES.AGENT);
         return;
     }
 
     // Is this called from TUI?
     if (options.uiAPI && options.editor && options.tui) {
-        return await runAgentsCommandTUI(agentName, rest, options);
+        return await runAgentsCommandTUI(agentName, rest, {
+            uiAPI: options.uiAPI,
+            editor: options.editor,
+            tui: options.tui,
+        });
     }
 
     // Standard CLI flow

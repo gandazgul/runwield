@@ -348,10 +348,10 @@ export function abortActiveSession() {
  * 1) Explicit model override passed to `runAgentSession`
  * 2) Active model state (e.g. from a previous /model switch)
  *
- * @param {string} modelOverride
+ * @param {string | undefined} modelOverride
  * @param {AgentDef} agentDef
  *
- * @returns {null|string}
+ * @returns {any | null}
  */
 function resolveModel(modelOverride, agentDef) {
     let resolvedModel = null;
@@ -446,7 +446,9 @@ export async function runAgentSession(
 
     // Update the agent info in the UI footer.
     const agentModelForUi = modelOverride || agentDef.model;
-    uiAPI.setAgentInfo(agentDef.name, agentModelForUi);
+    if (uiAPI?.setAgentInfo) {
+        uiAPI.setAgentInfo(agentDef.name, agentModelForUi);
+    }
 
     const loader = new DefaultResourceLoader({
         cwd: CWD,
@@ -458,7 +460,7 @@ export async function runAgentSession(
     });
     await loader.reload();
 
-    let resolvedModel = resolveModel(modelOverride, agentDef);
+    const resolvedModel = resolveModel(modelOverride, agentDef);
 
     const { session, extensionsResult } = await createAgentSession({
         cwd: CWD,
