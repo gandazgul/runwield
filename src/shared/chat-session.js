@@ -148,6 +148,10 @@ function blockToDisplayText(block) {
         return typeof block.text === "string" ? block.text : "";
     }
 
+    if (block.type === "thinking") {
+        return typeof block.thinking === "string" ? block.thinking : "";
+    }
+
     if (block.type === "tool_result") {
         const content = block.content;
         if (typeof content === "string") {
@@ -215,29 +219,50 @@ function restorePersistedMessagesToUi(sessionManager, uiAPI) {
 
         if (role === "assistant") {
             const content = /** @type {{ content?: unknown }} */ (message).content;
-            const text = messageToDisplayText(message);
-
-            if (text) {
-                const appender = uiAPI.appendAgentMessageStart(getActiveAgentName() || "assistant");
-                appender.appendText(text);
-            }
 
             if (Array.isArray(content)) {
+                /** @type {{ appendText: (delta: string) => void } | null} */
+                let appender = null;
+
                 for (const block of content) {
-                    if (
-                        block && typeof block === "object" &&
-                        /** @type {{ type?: string }} */ (block).type === "tool_use"
-                    ) {
-                        const toolName = typeof /** @type {{ name?: unknown }} */ (block).name === "string"
-                            ? /** @type {{ name: string }} */ (block).name
-                            : "tool";
-                        const toolId = typeof /** @type {{ id?: unknown }} */ (block).id === "string"
-                            ? /** @type {{ id: string }} */ (block).id
+                    if (!block || typeof block !== "object") continue;
+
+                    const typedBlock =
+                        /** @type {{ type?: string, text?: unknown, thinking?: unknown, name?: unknown, id?: unknown }} */ (block);
+
+                    if (typedBlock.type === "thinking") {
+                        if (typeof typedBlock.thinking === "string" && typedBlock.thinking.trim()) {
+                            uiAPI.appendSystemMessage(typedBlock.thinking);
+                        }
+                        continue;
+                    }
+
+                    if (typedBlock.type === "text") {
+                        if (typeof typedBlock.text === "string" && typedBlock.text) {
+                            if (!appender) {
+                                appender = uiAPI.appendAgentMessageStart(getActiveAgentName() || "assistant");
+                            }
+                            appender.appendText(typedBlock.text);
+                        }
+                        continue;
+                    }
+
+                    if (typedBlock.type === "tool_use") {
+                        const toolName = typeof typedBlock.name === "string" ? typedBlock.name : "tool";
+                        const toolId = typeof typedBlock.id === "string"
+                            ? typedBlock.id
                             : `restored-tool-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
                         const toolBlock = uiAPI.startToolExecution?.(toolId, toolName, "");
                         toolBlock?.endExecution(false, 0);
                     }
                 }
+                continue;
+            }
+
+            const text = messageToDisplayText(message);
+            if (text) {
+                const appender = uiAPI.appendAgentMessageStart(getActiveAgentName() || "assistant");
+                appender.appendText(text);
             }
             continue;
         }

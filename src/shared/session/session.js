@@ -492,6 +492,22 @@ export async function runAgentSession(
     let currentMarkdownBlock = null;
     /** @type {string[]} */
     const invokedToolNames = [];
+    let pendingThinkingText = "";
+
+    const flushThinking = () => {
+        if (!pendingThinkingText.trim()) {
+            pendingThinkingText = "";
+            return;
+        }
+
+        if (uiAPI) {
+            uiAPI.appendSystemMessage(pendingThinkingText);
+        } else {
+            console.log(`\n${pendingThinkingText}`);
+        }
+
+        pendingThinkingText = "";
+    };
 
     session.subscribe((event) => {
         switch (event.type) {
@@ -501,11 +517,23 @@ export async function runAgentSession(
                     // We only create assistant blocks lazily when we receive actual text deltas
                     // (or when rendering an assistant error on message_end).
                     currentMarkdownBlock = null;
+                    pendingThinkingText = "";
                 }
                 break;
             }
             case "message_update": {
+                if (event.assistantMessageEvent.type === "thinking_delta") {
+                    pendingThinkingText += event.assistantMessageEvent.delta;
+                    break;
+                }
+
+                if (event.assistantMessageEvent.type === "thinking_end") {
+                    flushThinking();
+                    break;
+                }
+
                 if (event.assistantMessageEvent.type === "text_delta") {
+                    flushThinking();
                     if (uiAPI) {
                         if (!currentMarkdownBlock) {
                             currentMarkdownBlock = uiAPI.appendAgentMessageStart(
@@ -523,6 +551,10 @@ export async function runAgentSession(
                 break;
             }
             case "message_end": {
+                if (event.message.role === "assistant") {
+                    flushThinking();
+                }
+
                 if (
                     event.message.role === "assistant" && event.message.stopReason === "error" &&
                     uiAPI
