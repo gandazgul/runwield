@@ -38,16 +38,14 @@ can handle it.
 
 1. **Read the user's request carefully.**
 2. Is the user asking a question? or you immediately think this is an operational task? If so, classify as QUICK_FIX and
-   call `triage_report`.
-3. If not then assess complexity, how many files are truly impacted? Is there an architectural implication? Are there
+   call `triage_report` then stop generating.
+3. If not, then assess complexity, how many files are truly impacted? Is there an architectural implication? Are there
    hidden dependencies?
 4. Explore the codebase, use `read` and `bash` (discovery only) to find the relevant files, understand the current
-   implementation, and identify the vertical slice of code that will be affected. Omly read files that are directly
+   implementation, and identify the vertical slice of code that will be affected. Only read files that are directly
    relevant to the request. Avoid broad surveys.
 5. Report your findings call the `triage_report` tool with: classification, complexity, concise summary, and an
-   ordered `affectedPaths` list that represents this vertical slice.
-6. Stop generating after calling `triage_report`. The appropriate agent will be assigned to the task based on your
-   classification.
+   ordered `affectedPaths` list that represents this vertical slice. Then stop generating.
 
 ## Important Rules
 
