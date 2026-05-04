@@ -169,7 +169,7 @@ export async function submitPlanForReview({
 
         // Handle cancellation triggered from the TUI
         if (decision && typeof decision === "object" && "_cancelled" in decision) {
-            await updatePlanStatus(cwd, planName, "denied");
+            await updatePlanStatus(cwd, planName, "denied", triageMeta);
             log(`[Harns] ❌ Plan review cancelled: ${planName}`);
             return {
                 approved: false,
@@ -179,10 +179,10 @@ export async function submitPlanForReview({
 
         // 6. Update status
         if (decision.approved) {
-            await updatePlanStatus(cwd, planName, "approved");
+            await updatePlanStatus(cwd, planName, "approved", triageMeta);
             log(`[Harns] ✅ Plan approved: ${planName}`);
         } else {
-            await updatePlanStatus(cwd, planName, "denied");
+            await updatePlanStatus(cwd, planName, "denied", triageMeta);
             log(`[Harns] ❌ Plan denied: ${planName}`);
         }
 

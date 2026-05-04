@@ -3,10 +3,10 @@ classification: "FEATURE"
 complexity: "LOW"
 summary: "Enhance the `user_interview` tool to support open-ended responses in multiple-choice and yes/no questions. This involves adding an `allowOther` boolean to `multipleChoiceQuestionSchema` and `yesNoQuestionSchema`, updating the validation and execution logic to handle \"Other\" responses, and ensuring the existing `text` question type is clearly positioned as the primary open-ended option."
 affectedPaths:
-  - "<|"|src/tools/user-interview.js<|"|"
+  - "src/tools/user-interview.js"
 createdAt: "2026-05-04T00:00:00.000Z"
 updatedAt: "2026-05-04T13:52:48.868Z"
-status: "in_review"
+status: "approved"
 origin: "triage"
 ---
 ## Objective

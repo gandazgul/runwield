@@ -69,27 +69,36 @@ const DEFAULT_FRONT_MATTER = {
 };
 
 /**
+ * Escape a scalar for YAML double-quoted style.
+ * @param {unknown} value
+ * @returns {string}
+ */
+function escapeYamlDoubleQuoted(value) {
+    return String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+/**
  * Build YAML front matter string from a PlanFrontMatter object.
  * @param {PlanFrontMatter} fm
  * @returns {string}
  */
 function formatFrontMatter(fm) {
     const lines = ["---"];
-    lines.push(`classification: "${fm.classification}"`);
-    lines.push(`complexity: "${fm.complexity}"`);
-    lines.push(`summary: "${fm.summary.replace(/"/g, '\\"')}"`);
+    lines.push(`classification: "${escapeYamlDoubleQuoted(fm.classification)}"`);
+    lines.push(`complexity: "${escapeYamlDoubleQuoted(fm.complexity)}"`);
+    lines.push(`summary: "${escapeYamlDoubleQuoted(fm.summary)}"`);
     lines.push(`affectedPaths:`);
     if (fm.affectedPaths.length === 0) {
         lines.push(`  []`);
     } else {
         for (const p of fm.affectedPaths) {
-            lines.push(`  - "${p}"`);
+            lines.push(`  - "${escapeYamlDoubleQuoted(p)}"`);
         }
     }
-    lines.push(`createdAt: "${fm.createdAt}"`);
-    if (fm.updatedAt) lines.push(`updatedAt: "${fm.updatedAt}"`);
-    lines.push(`status: "${fm.status}"`);
-    if (fm.origin) lines.push(`origin: "${fm.origin}"`);
+    lines.push(`createdAt: "${escapeYamlDoubleQuoted(fm.createdAt)}"`);
+    if (fm.updatedAt) lines.push(`updatedAt: "${escapeYamlDoubleQuoted(fm.updatedAt)}"`);
+    lines.push(`status: "${escapeYamlDoubleQuoted(fm.status)}"`);
+    if (fm.origin) lines.push(`origin: "${escapeYamlDoubleQuoted(fm.origin)}"`);
     lines.push("---");
     return lines.join("\n");
 }
@@ -236,11 +245,55 @@ export async function loadExternalPlan(absolutePath) {
  * @param {string} status - draft | in_review | approved | denied
  * @returns {Promise<void>}
  */
-export async function updatePlanStatus(cwd, planName, status) {
+/**
+ * Remove a leading front matter block if present, even if malformed.
+ * @param {string} markdown
+ * @returns {string}
+ */
+function stripLeadingFrontMatterBlock(markdown) {
+    if (!markdown.startsWith("---")) return markdown;
+    const close = markdown.indexOf("\n---", 3);
+    if (close === -1) return markdown;
+    const afterClose = markdown.slice(close + 4);
+    return afterClose.startsWith("\n") ? afterClose.slice(1) : afterClose;
+}
+
+/**
+ * Update the status field in a plan's front matter.
+ *
+ * If the plan file exists but has malformed front matter,
+ * this function self-heals by rewriting front matter using
+ * provided recovery metadata and then applying the target status.
+ *
+ * @param {string} cwd
+ * @param {string} planName
+ * @param {string} status - draft | in_review | approved | denied
+ * @param {Partial<PlanFrontMatter>} [recoveryAttrs]
+ * @returns {Promise<void>}
+ */
+export async function updatePlanStatus(cwd, planName, status, recoveryAttrs = {}) {
     const plan = await loadPlan(cwd, planName);
-    if (!plan) throw new Error(`Plan not found: ${planName}`);
-    const withFm = injectFrontMatter(plan.body, { ...plan.attrs, status });
-    await Deno.writeTextFile(plan.path, withFm);
+    if (plan) {
+        const withFm = injectFrontMatter(plan.body, { ...plan.attrs, status });
+        await Deno.writeTextFile(plan.path, withFm);
+        return;
+    }
+
+    const filePath = join(getPlansDir(cwd), `${planName}.md`);
+    let markdown;
+    try {
+        markdown = await Deno.readTextFile(filePath);
+    } catch {
+        throw new Error(`Plan not found: ${planName}`);
+    }
+
+    const body = stripLeadingFrontMatterBlock(markdown);
+    const healed = injectFrontMatter(body, {
+        ...recoveryAttrs,
+        status,
+        updatedAt: new Date().toISOString(),
+    });
+    await Deno.writeTextFile(filePath, healed);
 }
 
 /**
