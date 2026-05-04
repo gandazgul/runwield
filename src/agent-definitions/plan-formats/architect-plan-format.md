@@ -3,8 +3,8 @@ classification: "PROJECT"
 complexity: "HIGH"
 summary: "<Brief summary of the project-level change>"
 affectedPaths:
-  - "path/to/file1"
-  - "path/to/file2"
+    - "path/to/file1"
+    - "path/to/file2"
 createdAt: "<ISO-8601 timestamp>"
 status: "draft"
 ---

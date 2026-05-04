@@ -36,7 +36,7 @@ Tools that are infrastructure for the Harns SDLC. They cannot be removed by user
 
 ### Agent Tools
 
-Tools that define what an agent *can do* — customizable via frontmatter overrides:
+Tools that define what an agent _can do_ — customizable via frontmatter overrides:
 
 - `read`, `grep`, `find`, `ls`, `edit`, `write`, `bash`, `user_interview`, etc.
 
@@ -50,9 +50,10 @@ layer are always present in the final tool set. User overrides cannot remove the
 deduplicated.
 
 Concretely:
+
 - Bundled `router.md` lists `triage_report`, `codebase_search`, `memory_recall`, etc.
-- A user override at `.hns/agents/router.md` with `tools: [read, bash]` won't strip the core tools — they're
-  re-injected from the bundled layer.
+- A user override at `.hns/agents/router.md` with `tools: [read, bash]` won't strip the core tools — they're re-injected
+  from the bundled layer.
 - Users CAN add core tools to agents that don't have them by default (e.g., adding `memory_list` to a custom agent).
 
 ### Escape Hatch

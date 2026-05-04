@@ -3,8 +3,8 @@ classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "<Brief summary of the feature change>"
 affectedPaths:
-  - "path/to/file1"
-  - "path/to/file2"
+    - "path/to/file1"
+    - "path/to/file2"
 createdAt: "<ISO-8601 timestamp>"
 status: "draft"
 ---

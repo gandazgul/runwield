@@ -123,7 +123,70 @@ Deno.test("routerCmdOnMessage handles QUICK_FIX path", async () => {
 
 Deno.test("routerCmdOnMessage handles FEATURE proceed", async () => {
     const { ui } = makeUi();
-    let executed = "";
+    let switched = "";
+    let lifecycleCalled = false;
+
+    await routerCmdOnMessage(
+        "add feature",
+        [],
+        ui,
+        undefined,
+        /** @type {any} */ ({
+            ensurePlansDir: () => Promise.resolve("plans"),
+            runAgentSession: () => Promise.resolve([]),
+            extractTriageReport: () => ({
+                classification: "FEATURE",
+                complexity: "MEDIUM",
+                summary: "Feature summary",
+                affectedPaths: ["src/f.js"],
+            }),
+            createUserInterviewTool: () => ({ name: "user_interview" }),
+            runPlanLifecycle: () => {
+                lifecycleCalled = true;
+                return Promise.resolve({ status: "executed", planName: "feature-plan" });
+            },
+            createDirectAgentHandler: () => async () => {},
+            setActiveAgent: (/** @type {string} */ name) => {
+                switched = name;
+            },
+        }),
+    );
+
+    assertEquals(lifecycleCalled, true);
+    assertEquals(switched, "Operator");
+});
+
+Deno.test("routerCmdOnMessage handles FEATURE save-for-later", async () => {
+    const { ui } = makeUi();
+    let lifecycleCalled = false;
+
+    await routerCmdOnMessage(
+        "add feature",
+        [],
+        ui,
+        undefined,
+        /** @type {any} */ ({
+            ensurePlansDir: () => Promise.resolve("plans"),
+            runAgentSession: () => Promise.resolve([]),
+            extractTriageReport: () => ({
+                classification: "FEATURE",
+                complexity: "MEDIUM",
+                summary: "Feature summary",
+                affectedPaths: ["src/f.js"],
+            }),
+            createUserInterviewTool: () => ({ name: "user_interview" }),
+            runPlanLifecycle: () => {
+                lifecycleCalled = true;
+                return Promise.resolve({ status: "saved", planName: "feature-plan" });
+            },
+        }),
+    );
+
+    assertEquals(lifecycleCalled, true);
+});
+
+Deno.test("routerCmdOnMessage keeps planner active when FEATURE lifecycle canceled", async () => {
+    const { ui } = makeUi();
     let switched = "";
 
     await routerCmdOnMessage(
@@ -141,13 +204,7 @@ Deno.test("routerCmdOnMessage handles FEATURE proceed", async () => {
                 affectedPaths: ["src/f.js"],
             }),
             createUserInterviewTool: () => ({ name: "user_interview" }),
-            reviewLoop: () =>
-                Promise.resolve({ planName: "feature-plan", planPath: "plans/feature-plan.md", approved: true }),
-            askPostApproval: () => Promise.resolve("proceed"),
-            executePlan: (/** @type {string} */ planName) => {
-                executed = planName;
-                return Promise.resolve(undefined);
-            },
+            runPlanLifecycle: () => Promise.resolve({ status: "canceled" }),
             createDirectAgentHandler: () => async () => {},
             setActiveAgent: (/** @type {string} */ name) => {
                 switched = name;
@@ -155,41 +212,12 @@ Deno.test("routerCmdOnMessage handles FEATURE proceed", async () => {
         }),
     );
 
-    assertEquals(executed, "feature-plan");
-    assertEquals(switched, "Operator");
-});
-
-Deno.test("routerCmdOnMessage handles FEATURE save-for-later", async () => {
-    const { ui, messages } = makeUi();
-
-    await routerCmdOnMessage(
-        "add feature",
-        [],
-        ui,
-        undefined,
-        /** @type {any} */ ({
-            ensurePlansDir: () => Promise.resolve("plans"),
-            runAgentSession: () => Promise.resolve([]),
-            extractTriageReport: () => ({
-                classification: "FEATURE",
-                complexity: "MEDIUM",
-                summary: "Feature summary",
-                affectedPaths: ["src/f.js"],
-            }),
-            createUserInterviewTool: () => ({ name: "user_interview" }),
-            reviewLoop: () =>
-                Promise.resolve({ planName: "feature-plan", planPath: "plans/feature-plan.md", approved: true }),
-            askPostApproval: () => Promise.resolve("save"),
-        }),
-    );
-
-    assert(messages.some((m) => m.includes("Resume later with: hns resume feature-plan")));
+    assertEquals(switched, "Planner");
 });
 
 Deno.test("routerCmdOnMessage handles PROJECT repair flow", async () => {
-    const { ui, messages } = makeUi();
-    /** @type {string[]} */
-    const reviewCalls = [];
+    const { ui } = makeUi();
+    let lifecycleCalled = false;
 
     await routerCmdOnMessage(
         "big refactor",
@@ -206,24 +234,14 @@ Deno.test("routerCmdOnMessage handles PROJECT repair flow", async () => {
                 affectedPaths: ["src/p.js"],
             }),
             createUserInterviewTool: () => ({ name: "user_interview" }),
-            reviewLoop: (/** @type {{ initialRequest: string }} */ opts) => {
-                reviewCalls.push(opts.initialRequest.startsWith("repair") ? "repair" : "initial");
-                return Promise.resolve({
-                    planName: "project-plan",
-                    planPath: "plans/project-plan.md",
-                    approved: true,
-                    tasks: [{ task: 1 }],
-                });
+            runPlanLifecycle: () => {
+                lifecycleCalled = true;
+                return Promise.resolve({ status: "executed", planName: "project-plan" });
             },
-            askApprovalWithTasks: () => Promise.resolve("proceed"),
-            executePlan: () => Promise.resolve({ repairRequired: true, error: "bad table" }),
-            buildRepairPrompt: (/** @type {string} */ planName, /** @type {string} */ error) =>
-                `repair ${planName} ${error}`,
         }),
     );
 
-    assertEquals(reviewCalls, ["initial", "repair"]);
-    assert(messages.some((m) => m.includes("Rerouting to Architect for repair")));
+    assertEquals(lifecycleCalled, true);
 });
 
 Deno.test("routerCmdOnMessage handles PROJECT proceed success", async () => {
@@ -249,15 +267,7 @@ Deno.test("routerCmdOnMessage handles PROJECT proceed success", async () => {
                 affectedPaths: ["src/p.js"],
             }),
             createUserInterviewTool: () => ({ name: "user_interview" }),
-            reviewLoop: () =>
-                Promise.resolve({
-                    planName: "project-plan",
-                    planPath: "plans/project-plan.md",
-                    approved: true,
-                    tasks: [{ task: 1 }],
-                }),
-            askApprovalWithTasks: () => Promise.resolve("proceed"),
-            executePlan: () => Promise.resolve({ repairRequired: false }),
+            runPlanLifecycle: () => Promise.resolve({ status: "executed", planName: "project-plan" }),
             createDirectAgentHandler: () => async () => {},
             setActiveAgent: (/** @type {string} */ name) => {
                 switched = name;
@@ -269,7 +279,8 @@ Deno.test("routerCmdOnMessage handles PROJECT proceed success", async () => {
 });
 
 Deno.test("routerCmdOnMessage handles PROJECT save-for-later", async () => {
-    const { ui, messages } = makeUi();
+    const { ui } = makeUi();
+    let lifecycleCalled = false;
 
     await routerCmdOnMessage(
         "big refactor",
@@ -286,16 +297,42 @@ Deno.test("routerCmdOnMessage handles PROJECT save-for-later", async () => {
                 affectedPaths: ["src/p.js"],
             }),
             createUserInterviewTool: () => ({ name: "user_interview" }),
-            reviewLoop: () =>
-                Promise.resolve({
-                    planName: "project-plan",
-                    planPath: "plans/project-plan.md",
-                    approved: true,
-                    tasks: [{ task: 1 }],
-                }),
-            askApprovalWithTasks: () => Promise.resolve("save"),
+            runPlanLifecycle: () => {
+                lifecycleCalled = true;
+                return Promise.resolve({ status: "saved", planName: "project-plan" });
+            },
         }),
     );
 
-    assert(messages.some((m) => m.includes("Resume later with: hns resume project-plan")));
+    assertEquals(lifecycleCalled, true);
+});
+
+Deno.test("routerCmdOnMessage keeps architect active when PROJECT lifecycle canceled", async () => {
+    const { ui } = makeUi();
+    let switched = "";
+
+    await routerCmdOnMessage(
+        "big refactor",
+        [],
+        ui,
+        undefined,
+        /** @type {any} */ ({
+            ensurePlansDir: () => Promise.resolve("plans"),
+            runAgentSession: () => Promise.resolve([]),
+            extractTriageReport: () => ({
+                classification: "PROJECT",
+                complexity: "HIGH",
+                summary: "Project summary",
+                affectedPaths: ["src/p.js"],
+            }),
+            createUserInterviewTool: () => ({ name: "user_interview" }),
+            runPlanLifecycle: () => Promise.resolve({ status: "canceled" }),
+            createDirectAgentHandler: () => async () => {},
+            setActiveAgent: (/** @type {string} */ name) => {
+                switched = name;
+            },
+        }),
+    );
+
+    assertEquals(switched, "Architect");
 });

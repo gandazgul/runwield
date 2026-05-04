@@ -4,7 +4,7 @@
  */
 
 import { join } from "@std/path";
-import { CWD, MAX_PARALLEL_TASKS, PLANS_DIR_NAME } from "../../constants.js";
+import { CLI_BIN, CWD, MAX_PARALLEL_TASKS, PLANS_DIR_NAME } from "../../constants.js";
 import { submitPlanForReview } from "./submit-plan.js";
 import { loadPlan } from "../../plan-store.js";
 import { runAgentSession } from "../session/session.js";
@@ -63,7 +63,31 @@ async function resolveDeclaredPlan(messages) {
 }
 
 /**
- * Run the planning review loop until approved/failed.
+ * Build the planner/architect revision request after a denied plan review.
+ *
+ * @param {Object} opts
+ * @param {number} opts.round
+ * @param {string} opts.planName
+ * @param {string | undefined} opts.feedback
+ * @returns {string}
+ */
+export function buildDeniedFeedbackRequest({ round, planName, feedback }) {
+    return [
+        `## Previous Plan Feedback (Round ${round})`,
+        "",
+        "Your plan was denied. Here is the structured feedback from the user:",
+        "",
+        feedback || "(no specific feedback provided)",
+        "",
+        `Please revise your plan in plans/${planName}.md based on this feedback.`,
+        "Use the `edit` tool to make targeted revisions — do NOT rewrite the entire plan.",
+        "Address each piece of feedback specifically.",
+        "After saving revisions, call the plan_written tool again with the same plan name.",
+    ].join("\n");
+}
+
+/**
+ * Run the planning review loop until approved/canceled/failed.
  *
  * @param {Object} opts
  * @param {string} opts.agentName
@@ -71,9 +95,9 @@ async function resolveDeclaredPlan(messages) {
  * @param {string} opts.initialRequest - The initial user request to send to the planning agent
  * @param {import('@mariozechner/pi-coding-agent').ToolDefinition[]} [opts.customTools]
  * @param {Partial<import('../../plan-store.js').PlanFrontMatter>} opts.triageMeta
- * @param {number} [opts.maxRevisions=5]
+ * @param {number} [opts.maxRevisions=Infinity]
  * @param {UiAPI} [opts.uiAPI]
- * @returns {Promise<{ planName: string, planPath: string, approved: true, tasks?: Array<{task: number, assignee: string, dependencies: string, description: string}> } | null>}
+ * @returns {Promise<{ planName: string, planPath: string, approved: true, tasks?: Array<{task: number, assignee: string, dependencies: string, description: string}> } | { canceled: true } | null>}
  */
 export async function reviewLoop({
     agentName,
@@ -81,7 +105,7 @@ export async function reviewLoop({
     initialRequest,
     customTools,
     triageMeta,
-    maxRevisions = 5,
+    maxRevisions = Number.POSITIVE_INFINITY,
     uiAPI,
 }) {
     let currentRequest = initialRequest;
@@ -93,7 +117,10 @@ export async function reviewLoop({
                 uiAPI.appendSystemMessage(`[Harns] === Running ${agentName} ===`);
             } else console.log(`\n[Harns] === Running ${agentName} ===\n`);
         } else {
-            const msg = `[Harns] === Revising plan (attempt ${revision + 1}/${maxRevisions}) ===`;
+            const attemptSuffix = Number.isFinite(maxRevisions)
+                ? ` (attempt ${revision + 1}/${maxRevisions})`
+                : ` (attempt ${revision + 1})`;
+            const msg = `[Harns] === Revising plan${attemptSuffix} ===`;
             if (uiAPI) uiAPI.appendSystemMessage(msg);
             else console.log(`\n${msg}\n`);
         }
@@ -128,6 +155,12 @@ export async function reviewLoop({
             uiAPI,
         });
 
+        if (result.canceled) {
+            if (uiAPI) uiAPI.appendSystemMessage("[Harns] Plan review canceled. Returning to interactive mode.");
+            else console.log("\n[Harns] Plan review canceled. Returning to interactive mode.\n");
+            return { canceled: true };
+        }
+
         if (result.approved) {
             return {
                 planName: planInfo.name,
@@ -142,28 +175,227 @@ export async function reviewLoop({
             uiAPI.appendSystemMessage(
                 `[Harns] Plan denied. Feeding feedback back to ${agentName}...`,
             );
-        } else {console.log(
+        } else {
+            console.log(
                 `\n[Harns] Plan denied. Feeding feedback back to ${agentName}...`,
-            );}
+            );
+        }
 
-        currentRequest = [
-            `## Previous Plan Feedback (Round ${revision})`,
-            "",
-            "Your plan was denied. Here is the structured feedback from the user:",
-            "",
-            result.feedback || "(no specific feedback provided)",
-            "",
-            `Please revise your plan in plans/${planInfo.name}.md based on this feedback.`,
-            "Use the `edit` tool to make targeted revisions — do NOT rewrite the entire plan.",
-            "Address each piece of feedback specifically.",
-            "After saving revisions, call the plan_written tool again with the same plan name.",
-        ].join("\n");
+        currentRequest = buildDeniedFeedbackRequest({
+            round: revision,
+            planName: planInfo.name,
+            feedback: result.feedback,
+        });
     }
 
     const msg = `[Harns] Max revisions (${maxRevisions}) reached. Plan not approved.`;
     if (uiAPI) uiAPI.appendSystemMessage(msg);
     else console.error(`\n${msg}`);
     return null;
+}
+
+/**
+ * Ask user what to do after plan approval.
+ *
+ * @param {string} planName
+ * @param {UiAPI} [uiAPI]
+ * @returns {Promise<"proceed" | "save">}
+ */
+/**
+ * Re-open an existing plan in a denial-feedback revision loop until approved,
+ * canceled (Esc), or failure.
+ *
+ * @param {Object} opts
+ * @param {string} opts.agentName
+ * @param {string[]} [opts.toolNames]
+ * @param {import('@mariozechner/pi-coding-agent').ToolDefinition[]} [opts.customTools]
+ * @param {Partial<import('../../plan-store.js').PlanFrontMatter>} opts.triageMeta
+ * @param {string} opts.planName
+ * @param {string} opts.planPath
+ * @param {UiAPI} [opts.uiAPI]
+ * @returns {Promise<{ planName: string, planPath: string, approved: true, tasks?: Array<{task: number, assignee: string, dependencies: string, description: string}> } | { canceled: true } | null>}
+ */
+export async function reReviewLoop({
+    agentName,
+    toolNames,
+    customTools,
+    triageMeta,
+    planName,
+    planPath,
+    uiAPI,
+}) {
+    let revision = 0;
+    const currentPlanName = planName;
+    let currentPlanPath = planPath;
+    /** @type {Array<{task: number, assignee: string, dependencies: string, description: string}> | undefined} */
+    let currentTasks;
+
+    while (true) {
+        const result = await submitPlanForReview({
+            cwd: CWD,
+            planName: currentPlanName,
+            planPath: currentPlanPath,
+            triageMeta,
+            uiAPI,
+        });
+
+        if (result.canceled) {
+            if (uiAPI) uiAPI.appendSystemMessage("[Harns] Plan review canceled. Returning to interactive mode.");
+            else console.log("\n[Harns] Plan review canceled. Returning to interactive mode.\n");
+            return { canceled: true };
+        }
+
+        if (result.approved) {
+            return {
+                planName: currentPlanName,
+                planPath: currentPlanPath,
+                approved: true,
+                tasks: currentTasks,
+            };
+        }
+
+        revision++;
+        if (uiAPI) {
+            uiAPI.appendSystemMessage(
+                `[Harns] Plan denied. Feeding feedback back to ${agentName}...`,
+            );
+        } else {
+            console.log(`\n[Harns] Plan denied. Feeding feedback back to ${agentName}...`);
+        }
+
+        const currentRequest = buildDeniedFeedbackRequest({
+            round: revision,
+            planName: currentPlanName,
+            feedback: result.feedback,
+        });
+
+        const planningMessages = await runAgentSession({
+            agentName,
+            toolNames,
+            customTools,
+            userRequest: currentRequest,
+            uiAPI,
+        });
+
+        const planInfo = await resolveDeclaredPlan(planningMessages);
+        if (!planInfo) {
+            const msg = "[Harns] ERROR: Agent did not declare a valid plan via plan_written.";
+            if (uiAPI) uiAPI.appendSystemMessage(msg);
+            else console.error(`\n${msg}`);
+            return null;
+        }
+
+        if (planInfo.name !== currentPlanName) {
+            const msg = `[Harns] ERROR: Expected revised plan '${currentPlanName}' but got '${planInfo.name}'.`;
+            if (uiAPI) uiAPI.appendSystemMessage(msg);
+            else console.error(`\n${msg}`);
+            return null;
+        }
+
+        currentPlanPath = planInfo.path;
+        currentTasks = planInfo.tasks;
+    }
+}
+
+/**
+ * Unified planning lifecycle used by Router and Resume.
+ *
+ * @param {Object} opts
+ * @param {string} opts.agentName
+ * @param {Partial<import('../../plan-store.js').PlanFrontMatter>} opts.triageMeta
+ * @param {import('@mariozechner/pi-coding-agent').ToolDefinition[]} [opts.customTools]
+ * @param {string[]} [opts.toolNames]
+ * @param {string} [opts.initialRequest]
+ * @param {{ planName: string, planPath: string, tasks?: Array<{task: number, assignee: string, dependencies: string, description: string}> }} [opts.existingPlan]
+ * @param {UiAPI} [opts.uiAPI]
+ * @param {(planName: string, error: string) => string} [opts.buildRepairPrompt]
+ * @returns {Promise<{ status: "executed" | "saved" | "canceled" | "failed", planName?: string, tasks?: Array<{task: number, assignee: string, dependencies: string, description: string}> }>}
+ */
+export async function runPlanLifecycle({
+    agentName,
+    triageMeta,
+    customTools,
+    toolNames,
+    initialRequest,
+    existingPlan,
+    uiAPI,
+    buildRepairPrompt,
+}) {
+    let reviewResult;
+
+    if (existingPlan) {
+        reviewResult = await reReviewLoop({
+            agentName,
+            toolNames,
+            customTools,
+            triageMeta,
+            planName: existingPlan.planName,
+            planPath: existingPlan.planPath,
+            uiAPI,
+        });
+    } else {
+        if (!initialRequest) {
+            const msg = "[Harns] ERROR: runPlanLifecycle requires initialRequest when existingPlan is not provided.";
+            if (uiAPI) uiAPI.appendSystemMessage(msg, true);
+            else console.error(msg);
+            return { status: "failed" };
+        }
+
+        reviewResult = await reviewLoop({
+            agentName,
+            toolNames,
+            initialRequest,
+            customTools,
+            triageMeta,
+            uiAPI,
+        });
+    }
+
+    if (!reviewResult) return { status: "failed" };
+    if ("canceled" in reviewResult && reviewResult.canceled) return { status: "canceled" };
+
+    const approvedResult =
+        /** @type {{ planName: string, planPath: string, approved: true, tasks?: Array<{task: number, assignee: string, dependencies: string, description: string}> }} */ (reviewResult);
+
+    const action = triageMeta.classification === "PROJECT"
+        ? await askApprovalWithTasks(approvedResult.planName, uiAPI, approvedResult.tasks)
+        : await askPostApproval(approvedResult.planName, uiAPI);
+
+    if (action !== "proceed") {
+        if (uiAPI) {
+            uiAPI.appendSystemMessage(
+                `[Harns] Plan saved. Resume later with: ${CLI_BIN} resume ${approvedResult.planName}`,
+            );
+        }
+        return {
+            status: "saved",
+            planName: approvedResult.planName,
+            tasks: approvedResult.tasks,
+        };
+    }
+
+    const execRes = await executePlan(approvedResult.planName, triageMeta, uiAPI, approvedResult.tasks);
+    if (execRes && execRes.repairRequired && buildRepairPrompt) {
+        uiAPI?.appendSystemMessage(
+            `[Harns] Execution failed due to task table error. Rerouting to ${agentName} for repair...`,
+        );
+        await reviewLoop({
+            agentName,
+            customTools,
+            initialRequest: buildRepairPrompt(
+                approvedResult.planName,
+                execRes.error || "Unknown task table error",
+            ),
+            triageMeta,
+            uiAPI,
+        });
+    }
+
+    return {
+        status: "executed",
+        planName: approvedResult.planName,
+        tasks: approvedResult.tasks,
+    };
 }
 
 /**

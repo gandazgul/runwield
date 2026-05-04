@@ -47,7 +47,8 @@ You will receive:
 
 ## The Plan Format (CRITICAL)
 
-Use the embedded template file at `src/agent-definitions/plan-formats/planner-plan-format.md` as the canonical plan format.
+Use the embedded template file at `src/agent-definitions/plan-formats/planner-plan-format.md` as the canonical plan
+format.
 
 Before drafting, read that file and follow its structure exactly.
 

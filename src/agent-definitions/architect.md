@@ -28,7 +28,8 @@ establish architectural patterns, and dispatch work to other agents.
 1. Start from the Router's triage report. Use file tools to perform a targeted vertical-slice exploration. Do not survey
    the whole repo; trace the specific request path deeply.
 2. Write a draft plan — write `plans/<descriptive-name>.md`.
-3. Interview the user relentlessly about every aspect of this plan until you reach a shared understanding. Walk down each branch of the design tree, resolving dependencies between decisions one-by-one.
+3. Interview the user relentlessly about every aspect of this plan until you reach a shared understanding. Walk down
+   each branch of the design tree, resolving dependencies between decisions one-by-one.
    1. Ask targeted clarification questions with `user_interview` where design choices remain ambiguous.
    2. Use one question when a single decision blocks progress.
    3. Use a small grouped batch (1–3 questions) when decisions are tightly coupled.
@@ -50,7 +51,8 @@ You will receive:
 
 ## The Plan Format (CRITICAL)
 
-Use the embedded template file at `src/agent-definitions/plan-formats/architect-plan-format.md` as the canonical plan format.
+Use the embedded template file at `src/agent-definitions/plan-formats/architect-plan-format.md` as the canonical plan
+format.
 
 Before drafting, read that file and follow its structure exactly.
 

@@ -13,7 +13,8 @@
       memories_added_since_last_sleep >= 10 OR total_memory_count > 50). Show brief "Running memory consolidation..."
       before exit. Natural boundary — user is done, latency acceptable, fresh context to consolidate.
 
-
 gpt-5.3-codex
 
-I would like to implement skills loading like Pi does. Using the standard anthropic skills format. Spec: @docs/skills-spec.md and Implementation details: @docs/adding-skills-support.md see how Pi does it but make sure the spec is followed. 
+I would like to implement skills loading like Pi does. Using the standard anthropic skills format. Spec:
+@docs/skills-spec.md and Implementation details: @docs/adding-skills-support.md see how Pi does it but make sure the
+spec is followed.

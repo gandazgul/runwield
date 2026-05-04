@@ -86,6 +86,7 @@ Deno.test("runResumeCommand approved plan proceed path", async () => {
                 executed = true;
                 return Promise.resolve(undefined);
             },
+            createDirectAgentHandler: () => async () => {},
             resetTuiState: () => {},
             importRouter: () => Promise.resolve({ routerCmdOnMessage: async () => {} }),
             setActiveAgent: () => {},
@@ -95,8 +96,9 @@ Deno.test("runResumeCommand approved plan proceed path", async () => {
     assertEquals(executed, true);
 });
 
-Deno.test("runResumeCommand non-approved plan enters review loop", async () => {
-    const { uiAPI, messages } = makeUi();
+Deno.test("runResumeCommand non-approved plan enters shared plan lifecycle", async () => {
+    const { uiAPI } = makeUi();
+    let lifecycleCalled = false;
 
     await runResumeCommand(["plan-b"], {
         uiAPI,
@@ -116,13 +118,11 @@ Deno.test("runResumeCommand non-approved plan enters review loop", async () => {
                         status: "draft",
                     },
                 }),
-            reviewLoop: () =>
-                Promise.resolve({
-                    planName: "plan-b",
-                    planPath: "plans/plan-b.md",
-                    approved: true,
-                }),
-            executePlan: () => Promise.resolve(undefined),
+            runPlanLifecycle: () => {
+                lifecycleCalled = true;
+                return Promise.resolve({ status: "saved", planName: "plan-b" });
+            },
+            createDirectAgentHandler: () => async () => {},
             createUserInterviewTool: () => ({ name: "user_interview" }),
             setActiveAgent: () => {},
             resetTuiState: () => {},
@@ -130,7 +130,7 @@ Deno.test("runResumeCommand non-approved plan enters review loop", async () => {
         }),
     });
 
-    assertEquals(messages.some((m) => m.includes('Plan "plan-b" approved!')), true);
+    assertEquals(lifecycleCalled, true);
 });
 
 Deno.test("runResumeCommand approved plan view then cancel", async () => {
@@ -165,9 +165,10 @@ Deno.test("runResumeCommand approved plan view then cancel", async () => {
     assertEquals(messages.some((m) => m.includes("Resume canceled")), true);
 });
 
-Deno.test("runResumeCommand approved review denied path", async () => {
+Deno.test("runResumeCommand approved review uses shared lifecycle (no rerun hint)", async () => {
     const { uiAPI, selections, messages } = makeUi();
     selections.push("review");
+    let lifecycleCalled = false;
 
     await runResumeCommand(["plan-d"], {
         uiAPI,
@@ -187,14 +188,19 @@ Deno.test("runResumeCommand approved review denied path", async () => {
                         status: "approved",
                     },
                 }),
-            submitPlanForReview: () => Promise.resolve({ approved: false }),
+            runPlanLifecycle: () => {
+                lifecycleCalled = true;
+                return Promise.resolve({ status: "saved", planName: "plan-d" });
+            },
+            createDirectAgentHandler: () => async () => {},
             resetTuiState: () => {},
             importRouter: () => Promise.resolve({ routerCmdOnMessage: async () => {} }),
             setActiveAgent: () => {},
         }),
     });
 
-    assertEquals(messages.some((m) => m.includes("Plan denied")), true);
+    assertEquals(lifecycleCalled, true);
+    assertEquals(messages.some((m) => m.includes("To continue the revision loop, run")), false);
 });
 
 Deno.test("runResumeCommand CLI mode missing plan exits", async () => {
@@ -279,6 +285,44 @@ Deno.test("runResumeCommand starts interactive session when ui missing", async (
     assertEquals(started, true);
 });
 
+Deno.test("runResumeCommand keeps planner active when lifecycle canceled", async () => {
+    const { uiAPI } = makeUi();
+    /** @type {string[]} */
+    const activeAgents = [];
+
+    await runResumeCommand(["plan-h"], {
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: () => ({ help: false, _: ["plan-h"] }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "plan-h",
+                    path: "plans/plan-h.md",
+                    body: "body",
+                    attrs: {
+                        classification: "FEATURE",
+                        complexity: "LOW",
+                        summary: "s",
+                        affectedPaths: [],
+                        status: "draft",
+                    },
+                }),
+            runPlanLifecycle: () => Promise.resolve({ status: "canceled" }),
+            createDirectAgentHandler: () => async () => {},
+            setActiveAgent: (/** @type {string} */ name) => {
+                activeAgents.push(name);
+            },
+            resetTuiState: () => {},
+            importRouter: () => Promise.resolve({ routerCmdOnMessage: async () => {} }),
+            createUserInterviewTool: () => ({ name: "user_interview" }),
+        }),
+    });
+
+    assertEquals(activeAgents.includes("planner"), true);
+    assertEquals(activeAgents.includes("Router"), false);
+});
+
 Deno.test("runResumeCommand router restore failure appends warning", async () => {
     const { uiAPI, messages } = makeUi();
 
@@ -300,7 +344,8 @@ Deno.test("runResumeCommand router restore failure appends warning", async () =>
                         status: "draft",
                     },
                 }),
-            reviewLoop: () => Promise.resolve(null),
+            runPlanLifecycle: () => Promise.resolve({ status: "failed" }),
+            createDirectAgentHandler: () => async () => {},
             setActiveAgent: () => {},
             resetTuiState: () => {},
             importRouter: () => Promise.reject(new Error("boom")),

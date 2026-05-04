@@ -6,13 +6,12 @@
 import { parseArgs as parseArgsFn } from "@std/cli/parse-args";
 import { CLI_BIN, CWD } from "../../constants.js";
 import { resolvePlan as resolvePlanFn } from "../../plan-store.js";
-import { submitPlanForReview as submitPlanForReviewFn } from "../../shared/workflow/submit-plan.js";
 import { planWrittenTool as planWrittenToolFn } from "../../tools/plan-written.js";
 import { createUserInterviewTool as createUserInterviewToolFn } from "../../tools/user-interview.js";
 import {
-    askPostApproval as askPostApprovalFn,
     executePlan as executePlanFn,
     reviewLoop as reviewLoopFn,
+    runPlanLifecycle as runPlanLifecycleFn,
 } from "../../shared/workflow/workflow.js";
 import { printCommandHelp as printCommandHelpFn } from "../help/index.js";
 import {
@@ -20,6 +19,7 @@ import {
     startInteractiveSession as startInteractiveSessionFn,
 } from "../../shared/chat-session.js";
 import { buildRepairPrompt as buildRepairPromptFn, resetTuiState as resetTuiStateFn } from "../command-helpers.js";
+import { createDirectAgentHandler as createDirectAgentHandlerFn } from "../../shared/direct-agent.js";
 export { getResumeCompletions } from "./getArgumentCompletions.js";
 
 /**
@@ -28,11 +28,11 @@ export { getResumeCompletions } from "./getArgumentCompletions.js";
  * @property {typeof printCommandHelpFn} [printCommandHelp]
  * @property {typeof startInteractiveSessionFn} [startInteractiveSession]
  * @property {typeof resolvePlanFn} [resolvePlan]
- * @property {typeof submitPlanForReviewFn} [submitPlanForReview]
- * @property {typeof askPostApprovalFn} [askPostApproval]
  * @property {typeof executePlanFn} [executePlan]
  * @property {typeof reviewLoopFn} [reviewLoop]
+ * @property {typeof runPlanLifecycleFn} [runPlanLifecycle]
  * @property {typeof setActiveAgentFn} [setActiveAgent]
+ * @property {typeof createDirectAgentHandlerFn} [createDirectAgentHandler]
  * @property {typeof buildRepairPromptFn} [buildRepairPrompt]
  * @property {typeof resetTuiStateFn} [resetTuiState]
  * @property {typeof createUserInterviewToolFn} [createUserInterviewTool]
@@ -81,11 +81,11 @@ export async function runResumeCommand(argv, options = {}) {
         printCommandHelp: printCommandHelpDep,
         startInteractiveSession: startInteractiveSessionDep,
         resolvePlan: resolvePlanDep,
-        submitPlanForReview: submitPlanForReviewDep,
-        askPostApproval: askPostApprovalDep,
         executePlan: executePlanDep,
         reviewLoop: reviewLoopDep,
+        runPlanLifecycle: runPlanLifecycleDep,
         setActiveAgent: setActiveAgentDep,
+        createDirectAgentHandler: createDirectAgentHandlerDep,
         buildRepairPrompt: buildRepairPromptDep,
         createUserInterviewTool: createUserInterviewToolDep,
         planWrittenTool: planWrittenToolDep,
@@ -96,11 +96,11 @@ export async function runResumeCommand(argv, options = {}) {
     const printCommandHelp = printCommandHelpDep || printCommandHelpFn;
     const startInteractiveSession = startInteractiveSessionDep || startInteractiveSessionFn;
     const resolvePlan = resolvePlanDep || resolvePlanFn;
-    const submitPlanForReview = submitPlanForReviewDep || submitPlanForReviewFn;
-    const askPostApproval = askPostApprovalDep || askPostApprovalFn;
     const executePlan = executePlanDep || executePlanFn;
     const reviewLoop = reviewLoopDep || reviewLoopFn;
+    const runPlanLifecycle = runPlanLifecycleDep || runPlanLifecycleFn;
     const setActiveAgent = setActiveAgentDep || setActiveAgentFn;
+    const createDirectAgentHandler = createDirectAgentHandlerDep || createDirectAgentHandlerFn;
     const buildRepairPrompt = buildRepairPromptDep || buildRepairPromptFn;
     const createUserInterviewTool = createUserInterviewToolDep || createUserInterviewToolFn;
     const planWrittenToolDef = planWrittenToolDep || planWrittenToolFn;
@@ -166,6 +166,8 @@ export async function runResumeCommand(argv, options = {}) {
 
     if (!uiAPI) return;
 
+    let skipRouterRestore = false;
+
     try {
         uiAPI.appendSystemMessage(`[Harns] Resuming plan: ${planArg}`);
 
@@ -215,28 +217,23 @@ export async function runResumeCommand(argv, options = {}) {
                 }
 
                 if (answer === "review") {
-                    const result = await submitPlanForReview({
-                        cwd: CWD,
-                        planName: plan.planName,
-                        planPath: plan.path,
+                    const lifecycle = await runPlanLifecycle({
+                        agentName,
                         triageMeta: plan.attrs,
+                        customTools: [planWrittenToolDef, createUserInterviewTool(uiAPI)],
+                        existingPlan: {
+                            planName: plan.planName,
+                            planPath: plan.path,
+                        },
                         uiAPI,
+                        buildRepairPrompt,
                     });
 
-                    if (result.approved) {
-                        const action = await askPostApproval(plan.planName, uiAPI);
-                        if (action === "proceed") {
-                            await executePlan(plan.planName, plan.attrs, uiAPI);
-                        } else {
-                            uiAPI.appendSystemMessage(
-                                `[Harns] Plan saved. Resume later with: ${CLI_BIN} resume ${plan.planName}`,
-                            );
-                        }
-                    } else {
-                        uiAPI.appendSystemMessage(
-                            "[Harns] Plan denied. To continue the revision loop, run:",
-                        );
-                        uiAPI.appendSystemMessage(`  ${CLI_BIN} resume ${plan.planName}`);
+                    if (lifecycle.status === "executed") {
+                        setActiveAgent("Operator", createDirectAgentHandler("operator"), uiAPI);
+                    } else if (lifecycle.status === "canceled") {
+                        skipRouterRestore = true;
+                        setActiveAgent(agentName, createDirectAgentHandler(agentName), uiAPI);
                     }
                     return;
                 }
@@ -274,34 +271,24 @@ export async function runResumeCommand(argv, options = {}) {
             "Ask one question or a focused 1-3 question batch per call and adapt based on answers.",
         ].join("\n");
 
-        const result = await reviewLoop({
+        const lifecycle = await runPlanLifecycle({
             agentName,
+            triageMeta,
             customTools: [planWrittenToolDef, createUserInterviewTool(uiAPI)],
             initialRequest: resumeRequest,
-            triageMeta,
             uiAPI,
+            buildRepairPrompt,
         });
 
-        if (result) {
-            // Temporarily bypass CLI prompts inside TUI if possible
-            uiAPI.appendSystemMessage(`[Harns] Plan "${result.planName}" approved!`);
-            uiAPI.appendSystemMessage(`[Harns] Proceeding with execution...`);
-            const execRes = await executePlan(result.planName, triageMeta, uiAPI, result.tasks);
-            if (execRes && execRes.repairRequired) {
-                const repairAgentName = triageMeta.classification === "PROJECT" ? "architect" : "planner";
-                uiAPI.appendSystemMessage(
-                    `[Harns] Execution failed due to task table error. Rerouting to ${repairAgentName} for repair...`,
-                );
-                await reviewLoop({
-                    agentName: repairAgentName,
-                    customTools: [planWrittenToolDef, createUserInterviewTool(uiAPI)],
-                    initialRequest: buildRepairPrompt(result.planName, execRes.error || "Unknown task table error"),
-                    triageMeta,
-                    uiAPI,
-                });
-            }
+        if (lifecycle.status === "executed") {
+            setActiveAgent("Operator", createDirectAgentHandler("operator"), uiAPI);
+        } else if (lifecycle.status === "canceled") {
+            skipRouterRestore = true;
+            setActiveAgent(agentName, createDirectAgentHandler(agentName), uiAPI);
         }
     } finally {
-        await restoreRouterFlow(uiAPI, deps);
+        if (!skipRouterRestore) {
+            await restoreRouterFlow(uiAPI, deps);
+        }
     }
 }

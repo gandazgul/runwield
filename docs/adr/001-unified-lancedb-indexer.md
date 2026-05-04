@@ -29,12 +29,12 @@ replaces the external `mnemosyne` Go binary entirely. The engine lives at `src/s
 
 ### Technology Stack
 
-| Component | Technology | Rationale |
-|---|---|---|
-| Vector storage | `@lancedb/lancedb` (npm) | Works in Deno, fast batch upserts, SQL-like filter queries, Rust bindings |
-| Embeddings | `Snowflake/snowflake-arctic-embed-m-v1.5` via `@huggingface/transformers` | 256-dim (Matryoshka truncation), top of benchmarks for small open-weight models |
-| Reranking | `cross-encoder/ms-marco-MiniLM-L-6-v2` via `@huggingface/transformers` | High precision, same model mnemosyne used |
-| AST chunking | `tree-sitter` (native N-API via npm) | Multi-language structural parsing (JS, TS, Python, Go, Rust) |
+| Component      | Technology                                                                | Rationale                                                                       |
+| -------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| Vector storage | `@lancedb/lancedb` (npm)                                                  | Works in Deno, fast batch upserts, SQL-like filter queries, Rust bindings       |
+| Embeddings     | `Snowflake/snowflake-arctic-embed-m-v1.5` via `@huggingface/transformers` | 256-dim (Matryoshka truncation), top of benchmarks for small open-weight models |
+| Reranking      | `cross-encoder/ms-marco-MiniLM-L-6-v2` via `@huggingface/transformers`    | High precision, same model mnemosyne used                                       |
+| AST chunking   | `tree-sitter` (native N-API via npm)                                      | Multi-language structural parsing (JS, TS, Python, Go, Rust)                    |
 
 All verified working in Deno via PoC testing. Requires `"nodeModulesDir": "auto"` in deno.json for tree-sitter's native
 N-API addon.
@@ -67,17 +67,18 @@ Query → embed with snowflake (256-dim) → top-20 ANN from LanceDB → rerank 
 ```
 
 No BM25/FTS index. The agent already has `grep` for exact keyword matching — the two tools serve different purposes:
+
 - `grep` = "I know the identifier/string I'm looking for"
 - `codebase_search` = "I know what concept I need but not where it lives"
 
 ### Disk Layout
 
-| Scope | Path |
-|---|---|
-| Project code index | `.hns/index/code_chunks/` |
-| Project memories | `.hns/index/memories/` |
-| Global memories | `~/.hns/index/memories/` |
-| Model cache | `~/.hns/models/` (shared across projects) |
+| Scope              | Path                                      |
+| ------------------ | ----------------------------------------- |
+| Project code index | `.hns/index/code_chunks/`                 |
+| Project memories   | `.hns/index/memories/`                    |
+| Global memories    | `~/.hns/index/memories/`                  |
+| Model cache        | `~/.hns/models/` (shared across projects) |
 
 ### Onboarding Lifecycle
 

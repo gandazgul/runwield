@@ -72,6 +72,7 @@ export function cancelActivePlanReview() {
 /**
  * @typedef {Object} PlanReviewResult
  * @property {boolean} approved - Whether the plan was approved
+ * @property {boolean} [canceled] - Whether waiting for review was canceled via Esc
  * @property {string} [feedback] - User feedback/annotations (present on denial or approve-with-notes)
  * @property {string} [savedPath] - Optional path where plan was saved (if available)
  */
@@ -169,10 +170,10 @@ export async function submitPlanForReview({
 
         // Handle cancellation triggered from the TUI
         if (decision && typeof decision === "object" && "_cancelled" in decision) {
-            await updatePlanStatus(cwd, planName, "denied", triageMeta);
-            log(`[Harns] ❌ Plan review cancelled: ${planName}`);
+            log(`[Harns] ⏸️ Plan review wait cancelled: ${planName}`);
             return {
                 approved: false,
+                canceled: true,
                 feedback: "Cancelled by user (Esc)",
             };
         }

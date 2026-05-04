@@ -4,7 +4,7 @@ import { injectFrontMatter, parsePlanFrontMatter, updatePlanStatus } from "./pla
 Deno.test("injectFrontMatter escapes YAML double-quoted values", () => {
     const markdown = "## Plan\n\nBody";
     const withFm = injectFrontMatter(markdown, {
-        summary: "Handle \"Other\" and \\slashes",
+        summary: 'Handle "Other" and \\slashes',
         affectedPaths: ['<|"|src/tools/user-interview.js<|"|'],
     });
 
@@ -24,7 +24,7 @@ Deno.test("updatePlanStatus self-heals malformed front matter using recovery att
         const malformed = [
             "---",
             'classification: "FEATURE"',
-            'summary: "bad \"quote"',
+            'summary: "bad "quote"',
             "affectedPaths:",
             '  - "<|"|src/tools/user-interview.js<|"|"',
             'status: "in_review"',

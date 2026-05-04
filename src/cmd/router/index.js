@@ -8,19 +8,14 @@ import {
     setActiveAgent as setActiveAgentFn,
     startInteractiveSession as startInteractiveSessionFn,
 } from "../../shared/chat-session.js";
-import { CLI_BIN, COMMAND_NAMES, CWD } from "../../constants.js";
+import { COMMAND_NAMES, CWD } from "../../constants.js";
 import { ensurePlansDir as ensurePlansDirFn } from "../../plan-store.js";
 import { triageReportTool as triageReportToolFn } from "../../tools/triage-report.js";
 import { planWrittenTool as planWrittenToolFn } from "../../tools/plan-written.js";
 import { createUserInterviewTool as createUserInterviewToolFn } from "../../tools/user-interview.js";
 import { runAgentSession as runAgentSessionFn } from "../../shared/session/session.js";
 import { extractTriageReport as extractTriageReportFn } from "./triage.js";
-import {
-    askApprovalWithTasks as askApprovalWithTasksFn,
-    askPostApproval as askPostApprovalFn,
-    executePlan as executePlanFn,
-    reviewLoop as reviewLoopFn,
-} from "../../shared/workflow/workflow.js";
+import { runPlanLifecycle as runPlanLifecycleFn } from "../../shared/workflow/workflow.js";
 import { createDirectAgentHandler as createDirectAgentHandlerFn } from "../../shared/direct-agent.js";
 import { buildRepairPrompt as buildRepairPromptFn } from "../command-helpers.js";
 
@@ -66,10 +61,7 @@ export async function runRouterCommand(argv, options = {}) {
  * @property {typeof runAgentSessionFn} [runAgentSession]
  * @property {typeof extractTriageReportFn} [extractTriageReport]
  * @property {typeof createUserInterviewToolFn} [createUserInterviewTool]
- * @property {typeof reviewLoopFn} [reviewLoop]
- * @property {typeof askPostApprovalFn} [askPostApproval]
- * @property {typeof askApprovalWithTasksFn} [askApprovalWithTasks]
- * @property {typeof executePlanFn} [executePlan]
+ * @property {typeof runPlanLifecycleFn} [runPlanLifecycle]
  * @property {typeof setActiveAgentFn} [setActiveAgent]
  * @property {typeof createDirectAgentHandlerFn} [createDirectAgentHandler]
  * @property {typeof buildRepairPromptFn} [buildRepairPrompt]
@@ -92,10 +84,7 @@ export async function routerCmdOnMessage(userRequest, images, uiAPI, sessionMana
         runAgentSession: runAgentSessionDep,
         extractTriageReport: extractTriageReportDep,
         createUserInterviewTool: createUserInterviewToolDep,
-        reviewLoop: reviewLoopDep,
-        askPostApproval: askPostApprovalDep,
-        askApprovalWithTasks: askApprovalWithTasksDep,
-        executePlan: executePlanDep,
+        runPlanLifecycle: runPlanLifecycleDep,
         setActiveAgent: setActiveAgentDep,
         createDirectAgentHandler: createDirectAgentHandlerDep,
         buildRepairPrompt: buildRepairPromptDep,
@@ -107,10 +96,7 @@ export async function routerCmdOnMessage(userRequest, images, uiAPI, sessionMana
     const runAgentSession = runAgentSessionDep || runAgentSessionFn;
     const extractTriageReport = extractTriageReportDep || extractTriageReportFn;
     const createUserInterviewTool = createUserInterviewToolDep || createUserInterviewToolFn;
-    const reviewLoop = reviewLoopDep || reviewLoopFn;
-    const askPostApproval = askPostApprovalDep || askPostApprovalFn;
-    const askApprovalWithTasks = askApprovalWithTasksDep || askApprovalWithTasksFn;
-    const executePlan = executePlanDep || executePlanFn;
+    const runPlanLifecycle = runPlanLifecycleDep || runPlanLifecycleFn;
     const setActiveAgent = setActiveAgentDep || setActiveAgentFn;
     const createDirectAgentHandler = createDirectAgentHandlerDep || createDirectAgentHandlerFn;
     const buildRepairPrompt = buildRepairPromptDep || buildRepairPromptFn;
@@ -206,40 +192,36 @@ export async function routerCmdOnMessage(userRequest, images, uiAPI, sessionMana
             "Choose a descriptive, kebab-case filename (e.g., plans/add-dark-mode-toggle.md).",
         ].join("\n");
 
-        const result = await reviewLoop({
+        const lifecycle = await runPlanLifecycle({
             agentName: "planner",
             customTools: [planWrittenToolDef, createUserInterviewTool(uiAPI)],
             initialRequest: plannerRequest,
             triageMeta: triage,
             uiAPI,
+            buildRepairPrompt,
         });
 
-        if (result) {
-            const action = await askPostApproval(result.planName, uiAPI);
-            if (action === "proceed") {
-                await executePlan(result.planName, triage, uiAPI);
-                if (sessionManager) {
-                    sessionManager.appendCustomMessageEntry(
-                        "system",
-                        `FEATURE plan executed: plans/${result.planName}.md.`,
-                        true,
-                        `FEATURE plan executed: plans/${result.planName}.md. Summary: ${triage.summary}`,
-                    );
-                }
-                setActiveAgent("Operator", createDirectAgentHandler("operator"), uiAPI);
-            } else {
-                uiAPI.appendSystemMessage(
-                    `Plan saved. Resume later with: ${CLI_BIN} resume ${result.planName}`,
+        if (lifecycle.status === "executed" && lifecycle.planName) {
+            if (sessionManager) {
+                sessionManager.appendCustomMessageEntry(
+                    "system",
+                    `FEATURE plan executed: plans/${lifecycle.planName}.md.`,
+                    true,
+                    `FEATURE plan executed: plans/${lifecycle.planName}.md. Summary: ${triage.summary}`,
                 );
-                if (sessionManager) {
-                    sessionManager.appendCustomMessageEntry(
-                        "system",
-                        `FEATURE plan generated and saved: plans/${result.planName}.md.`,
-                        true,
-                        `FEATURE plan generated and saved: plans/${result.planName}.md. User decided to execute later.`,
-                    );
-                }
             }
+            setActiveAgent("Operator", createDirectAgentHandler("operator"), uiAPI);
+        } else if (lifecycle.status === "saved" && lifecycle.planName) {
+            if (sessionManager) {
+                sessionManager.appendCustomMessageEntry(
+                    "system",
+                    `FEATURE plan generated and saved: plans/${lifecycle.planName}.md.`,
+                    true,
+                    `FEATURE plan generated and saved: plans/${lifecycle.planName}.md. User decided to execute later.`,
+                );
+            }
+        } else if (lifecycle.status === "canceled") {
+            setActiveAgent("Planner", createDirectAgentHandler("planner"), uiAPI);
         }
         return;
     }
@@ -270,56 +252,36 @@ export async function routerCmdOnMessage(userRequest, images, uiAPI, sessionMana
             "Since this is a PROJECT, include a Tasks table for multi-agent execution.",
         ].join("\n");
 
-        const result = await reviewLoop({
+        const lifecycle = await runPlanLifecycle({
             agentName: "architect",
             customTools: [planWrittenToolDef, createUserInterviewTool(uiAPI)],
             initialRequest: architectRequest,
             triageMeta: triage,
             uiAPI,
+            buildRepairPrompt,
         });
 
-        if (result) {
-            const action = await askApprovalWithTasks(result.planName, uiAPI, result.tasks);
-            if (action === "proceed") {
-                const execRes = await executePlan(result.planName, triage, uiAPI, result.tasks);
-                if (execRes && execRes.repairRequired) {
-                    uiAPI.appendSystemMessage(
-                        `[Harns] Execution failed due to task table error. Rerouting to Architect for repair...`,
-                    );
-                    // Trigger immediate repair loop
-                    await reviewLoop({
-                        agentName: "architect",
-                        customTools: [planWrittenToolDef, createUserInterviewTool(uiAPI)],
-                        initialRequest: buildRepairPrompt(
-                            result.planName,
-                            execRes.error || "Unknown task table error",
-                        ),
-                        triageMeta: triage,
-                        uiAPI,
-                    });
-                    // After repair, we might want to execute again, but we'll let the user decide if it comes back to approve/proceed
-                } else if (sessionManager) {
-                    sessionManager.appendCustomMessageEntry(
-                        "system",
-                        `PROJECT plan executed: plans/${result.planName}.md.`,
-                        true,
-                        `PROJECT plan executed: plans/${result.planName}.md. Summary: ${triage.summary}`,
-                    );
-                    setActiveAgent("Operator", createDirectAgentHandler("operator"), uiAPI);
-                }
-            } else {
-                uiAPI.appendSystemMessage(
-                    `Plan saved. Resume later with: ${CLI_BIN} resume ${result.planName}`,
+        if (lifecycle.status === "executed" && lifecycle.planName) {
+            if (sessionManager) {
+                sessionManager.appendCustomMessageEntry(
+                    "system",
+                    `PROJECT plan executed: plans/${lifecycle.planName}.md.`,
+                    true,
+                    `PROJECT plan executed: plans/${lifecycle.planName}.md. Summary: ${triage.summary}`,
                 );
-                if (sessionManager) {
-                    sessionManager.appendCustomMessageEntry(
-                        "system",
-                        `PROJECT plan generated and saved: plans/${result.planName}.md.`,
-                        true,
-                        `PROJECT plan generated and saved: plans/${result.planName}.md. User decided to execute later.`,
-                    );
-                }
             }
+            setActiveAgent("Operator", createDirectAgentHandler("operator"), uiAPI);
+        } else if (lifecycle.status === "saved" && lifecycle.planName) {
+            if (sessionManager) {
+                sessionManager.appendCustomMessageEntry(
+                    "system",
+                    `PROJECT plan generated and saved: plans/${lifecycle.planName}.md.`,
+                    true,
+                    `PROJECT plan generated and saved: plans/${lifecycle.planName}.md. User decided to execute later.`,
+                );
+            }
+        } else if (lifecycle.status === "canceled") {
+            setActiveAgent("Architect", createDirectAgentHandler("architect"), uiAPI);
         }
     }
 }
