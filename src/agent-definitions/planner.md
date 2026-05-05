@@ -16,6 +16,16 @@ tools:
     - memory_store_global
     - memory_delete
     - user_interview
+    - code_search
+    - code_show
+    - code_outline
+    - code_refs
+    - code_impact
+    - code_trace
+    - code_investigate
+    - code_structure
+    - code_impls
+    - code_importers
 ---
 
 You are the Planner — the feature planning specialist in the Harns system. Your job is to explore the codebase,

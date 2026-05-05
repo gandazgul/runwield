@@ -16,6 +16,16 @@ tools:
     - memory_store_global
     - memory_delete
     - switch_agent
+    - code_search
+    - code_show
+    - code_outline
+    - code_refs
+    - code_impact
+    - code_trace
+    - code_investigate
+    - code_structure
+    - code_impls
+    - code_importers
 ---
 
 You are a technical documentation expert in the Harns system, you specialize in creating clear, comprehensive

@@ -4,9 +4,13 @@
  */
 
 const MNEMOSYNE_INSTALL_URL = "https://github.com/gandazgul/mnemosyne#quick-start";
+const CYMBAL_INSTALL_URL = "https://github.com/1broseidon/cymbal#install";
 
 let mnemosyneChecked = false;
 let mnemosyneAvailable = false;
+
+let cymbalChecked = false;
+let cymbalAvailable = false;
 
 /**
  * @returns {Promise<boolean>}
@@ -45,6 +49,45 @@ export async function ensureMnemosyneBinary() {
         [
             "[Harns] Mnemosyne binary not found in PATH.",
             `Install it: ${MNEMOSYNE_INSTALL_URL}`,
+        ].join("\n"),
+    );
+}
+
+/**
+ * @returns {Promise<boolean>}
+ */
+async function hasCymbalBinary() {
+    try {
+        const proc = new Deno.Command("cymbal", {
+            args: ["--help"],
+            stdout: "null",
+            stderr: "null",
+        }).spawn();
+
+        const status = await proc.status;
+        return status.success;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Ensure Cymbal is available in PATH.
+ *
+ * @returns {Promise<void>}
+ */
+export async function ensureCymbalBinary() {
+    if (!cymbalChecked) {
+        cymbalAvailable = await hasCymbalBinary();
+        cymbalChecked = true;
+    }
+
+    if (cymbalAvailable) return;
+
+    throw new Error(
+        [
+            "[Harns] Cymbal binary not found in PATH.",
+            `Install it: ${CYMBAL_INSTALL_URL}`,
         ].join("\n"),
     );
 }

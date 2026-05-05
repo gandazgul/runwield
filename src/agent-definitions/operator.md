@@ -16,6 +16,16 @@ tools:
     - memory_store_global
     - memory_delete
     - switch_agent
+    - code_search
+    - code_show
+    - code_outline
+    - code_refs
+    - code_impact
+    - code_trace
+    - code_investigate
+    - code_structure
+    - code_impls
+    - code_importers
 ---
 
 You are the Operator — the rapid-execution specialist in the Harns system.

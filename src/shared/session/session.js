@@ -3,29 +3,41 @@
  * Shared helpers for loading agent definitions and running agent invocations.
  */
 
-import { 
-    createAgentSession, 
-    DefaultResourceLoader, 
-    SessionManager,
+import {
+    createAgentSession,
     createBashToolDefinition,
-    createGrepToolDefinition,
+    createEditToolDefinition,
     createFindToolDefinition,
+    createGrepToolDefinition,
     createLsToolDefinition,
     createReadToolDefinition,
     createWriteToolDefinition,
-    createEditToolDefinition
+    DefaultResourceLoader,
+    SessionManager,
 } from "@mariozechner/pi-coding-agent";
 import { extractYaml, test as hasFrontMatter } from "@std/front-matter";
 import { dirname, fromFileUrl, join } from "@std/path";
 import { AGENT_DEFS_DIR, CWD, PROMPT_TEMPLATES_DIR } from "../../constants.js";
-import mnemosyneExtension, { 
-    memoryRecallToolDef,
+import mnemosyneExtension, {
+    memoryDeleteToolDef,
     memoryRecallGlobalToolDef,
-    memoryStoreToolDef,
+    memoryRecallToolDef,
     memoryStoreGlobalToolDef,
-    memoryDeleteToolDef
+    memoryStoreToolDef,
 } from "../../extensions/mnemosyne/index.js";
-import { ensureMnemosyneBinary } from "../runtime-preflight.js";
+import cymbalExtension, {
+    codeImpactToolDef,
+    codeImplsToolDef,
+    codeImportersToolDef,
+    codeInvestigateToolDef,
+    codeOutlineToolDef,
+    codeRefsToolDef,
+    codeSearchToolDef,
+    codeShowToolDef,
+    codeStructureToolDef,
+    codeTraceToolDef,
+} from "../../extensions/cymbal/index.js";
+import { ensureCymbalBinary, ensureMnemosyneBinary } from "../runtime-preflight.js";
 import { planWrittenTool } from "../../tools/plan-written.js";
 import { executeSwitchAgent, switchAgentTool, triggerAgent } from "../../tools/switch-agent.js";
 import { triageReportTool } from "../../tools/triage-report.js";
@@ -122,6 +134,16 @@ const INTERNAL_TOOL_NAMES = [
     "memory_store",
     "memory_store_global",
     "memory_delete",
+    "code_search",
+    "code_show",
+    "code_outline",
+    "code_refs",
+    "code_impact",
+    "code_trace",
+    "code_investigate",
+    "code_structure",
+    "code_impls",
+    "code_importers",
 ];
 
 /**
@@ -479,12 +501,22 @@ export async function assembleFinalSystemPrompt(agentDef, tools, finalCustomTool
         createEditToolDefinition(CWD),
     ];
 
-    const memoryTools = [
+    const extensionTools = [
         memoryRecallToolDef,
         memoryRecallGlobalToolDef,
         memoryStoreToolDef,
         memoryStoreGlobalToolDef,
-        memoryDeleteToolDef
+        memoryDeleteToolDef,
+        codeSearchToolDef,
+        codeShowToolDef,
+        codeOutlineToolDef,
+        codeRefsToolDef,
+        codeImpactToolDef,
+        codeTraceToolDef,
+        codeInvestigateToolDef,
+        codeStructureToolDef,
+        codeImplsToolDef,
+        codeImportersToolDef,
     ];
 
     let finalSystemPrompt = agentDef.systemPrompt;
@@ -494,8 +526,8 @@ export async function assembleFinalSystemPrompt(agentDef, tools, finalCustomTool
     for (const tool of finalCustomTools) {
         customToolMap.set(tool.name, tool.promptSnippet || tool.description);
     }
-    // 2. Add mnemosyne extension tool descriptions
-    for (const tool of memoryTools) {
+    // 2. Add extension tool descriptions
+    for (const tool of extensionTools) {
         customToolMap.set(tool.name, tool.promptSnippet || tool.description);
     }
     // 3. Add pi-coding-agent built-in tools
@@ -508,7 +540,6 @@ export async function assembleFinalSystemPrompt(agentDef, tools, finalCustomTool
         return `- ${t} - ${desc}`;
     }).join("\n");
     finalSystemPrompt = finalSystemPrompt.replace("{{AVAILABLE_TOOLS}}", availableToolsStr);
-
 
     let globalAgentsMd = "";
     const homeDir = Deno.env.get("HOME") || "";
@@ -536,7 +567,7 @@ export async function assembleFinalSystemPrompt(agentDef, tools, finalCustomTool
     let memories = "";
     try {
         const command = new Deno.Command("mnemosyne", {
-            args: ["list", "--tag", "core", "--format", "plain"],
+            args: ["list", "-t", "core", "-f", "plain"],
             cwd: CWD,
             stdout: "piped",
             stderr: "piped",
@@ -573,6 +604,7 @@ export async function runAgentSession(
     { agentName, toolNames, customTools, modelOverride, userRequest, images, uiAPI, sessionManager },
 ) {
     await ensureMnemosyneBinary();
+    await ensureCymbalBinary();
     const resourceAgentDir = await resolveAgentDefsDir();
     const agentDef = await loadAgentDef(agentName);
 
@@ -624,7 +656,7 @@ export async function runAgentSession(
         cwd: CWD,
         agentDir: resourceAgentDir,
         systemPromptOverride: () => finalSystemPrompt,
-        extensionFactories: [mnemosyneExtension],
+        extensionFactories: [mnemosyneExtension, cymbalExtension],
         additionalPromptTemplatePaths: getPromptTemplatePaths(),
         noPromptTemplates: true,
     });
@@ -842,16 +874,17 @@ export async function runAgentSession(
     }
 
     const debugEnabled = Deno.env.get("DEBUG") === "1";
-    if (debugEnabled && agentName === "router") {
+    if (debugEnabled) {
+        const startTitle = agentName === "router"
+            ? "ROUTER INVOCATION START"
+            : `AGENT INVOCATION START: ${agentDef.name} (${agentName})`;
         const logEntry = [
-            `===========================================`,
-            `=== ROUTER INVOCATION START ===`,
-            `=== TIMESTAMP: ${new Date().toISOString()} ===`,
-            `=== SYSTEM PROMPT ===`,
+            `Event: ${startTitle}`,
+            `Timestamp: ${new Date().toISOString()}`,
+            `System Prompt:`,
             finalSystemPrompt,
-            `=== USER REQUEST ===`,
+            `User Request:`,
             userRequest,
-            `===========================================`,
             "",
         ].join("\n");
         try {
@@ -890,20 +923,19 @@ export async function runAgentSession(
             const summary = extractAssistantSummary(messages);
             const logEntry = agentName === "router"
                 ? [
-                    `=== ROUTER INVOCATION END ===`,
-                    `=== TIMESTAMP: ${new Date().toISOString()} ===`,
-                    `=== ROUTER TOOLS USED: ${invokedToolNames.join(", ") || "(none)"} ===`,
-                    promptError ? `=== STATUS: ERROR (${promptError.message}) ===` : `=== STATUS: OK ===`,
-                    `===========================================`,
+                    `Event: ROUTER INVOCATION END`,
+                    `Timestamp: ${new Date().toISOString()}`,
+                    `Router Tools Used: ${invokedToolNames.join(", ") || "(none)"}`,
+                    promptError ? `Status: ERROR (${promptError.message})` : `Status: OK`,
                     "",
                 ].join("\n")
                 : [
-                    `=== AGENT INVOCATION END: ${agentDef.name} (${agentName}) ===`,
-                    `=== TIMESTAMP: ${new Date().toISOString()} ===`,
-                    `=== SUMMARY: ${summary || "(empty)"} ===`,
-                    `=== TOOLS USED: ${invokedToolNames.join(", ") || "(none)"} ===`,
-                    promptError ? `=== STATUS: ERROR (${promptError.message}) ===` : `=== STATUS: OK ===`,
-                    `===========================================`,
+                    `Event: AGENT INVOCATION END: ${agentDef.name} (${agentName})`,
+                    `Timestamp: ${new Date().toISOString()}`,
+                    `Tools Used: ${invokedToolNames.join(", ") || "(none)"}`,
+                    promptError ? `Status: ERROR (${promptError.message})` : `Status: OK`,
+                    `Summary:`,
+                    summary || "(empty)",
                     "",
                 ].join("\n");
             try {

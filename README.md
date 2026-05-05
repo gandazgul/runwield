@@ -1,9 +1,9 @@
 <p align="center"><img src="logo.svg" width="120" /></p>
 
-**Harns** is an opinionated, **plan-by-default coding harness** built on top of Pi agents.
+**Harns** is an opinionated, **plan-by-default coding hnsness** built on top of [Pi](https://pi.dev).
 
 It routes incoming requests through triage, creates reviewable plans for non-trivial work, runs an interactive
-Plannotator approval loop, and then executes approved work with specialized agents.
+[Plannotator](https://plannotator.ai) approval loop, and then executes approved work with specialized agents.
 
 ## Why Harns
 
@@ -55,24 +55,19 @@ flowchart TD
 
 Bundled agent definitions live in [`src/agent-definitions/`](src/agent-definitions/).
 
-| Agent      | Purpose                                                              | Prompt                                               |
-| ---------- | -------------------------------------------------------------------- | ---------------------------------------------------- |
-| Router     | Classifies incoming requests and emits structured triage data.       | [router.md](src/agent-definitions/router.md)         |
-| Operator   | Executes small, low-risk `QUICK_FIX` tasks directly.                 | [operator.md](src/agent-definitions/operator.md)     |
-| Planner    | Produces iterative, execution-ready plans for `FEATURE` requests.    | [planner.md](src/agent-definitions/planner.md)       |
-| Architect  | Produces deeper, project-scale plans (including task decomposition). | [architect.md](src/agent-definitions/architect.md)   |
-| Engineer   | Implements approved plans or assigned tasks in code.                 | [engineer.md](src/agent-definitions/engineer.md)     |
-| Tester     | Writes/updates tests for approved changes.                           | [tester.md](src/agent-definitions/tester.md)         |
-| Doc Writer | Creates or updates technical documentation artifacts.                | [doc-writer.md](src/agent-definitions/doc-writer.md) |
+| Agent      | Purpose                                                                       | Prompt                                               |
+| ---------- | ----------------------------------------------------------------------------- | ---------------------------------------------------- |
+| Router     | Classifies incoming requests and emits structured triage data.                | [router.md](src/agent-definitions/router.md)         |
+| Operator   | Executes small, low-risk `QUICK_FIX` tasks directly.                          | [operator.md](src/agent-definitions/operator.md)     |
+| Planner    | Produces iterative, execution-ready plans for `FEATURE` requests.             | [planner.md](src/agent-definitions/planner.md)       |
+| Architect  | Produces deeper, project-scale plans (including task decomposition) and ADRs. | [architect.md](src/agent-definitions/architect.md)   |
+| Engineer   | Implements approved plans or assigned tasks in code.                          | [engineer.md](src/agent-definitions/engineer.md)     |
+| Tester     | Writes/updates tests for approved changes.                                    | [tester.md](src/agent-definitions/tester.md)         |
+| Doc Writer | Creates or updates technical documentation artifacts.                         | [doc-writer.md](src/agent-definitions/doc-writer.md) |
 
 ### Agent Overrides (`.hns/agents`)
 
-You can override bundled agent definitions with markdown files in:
-
-- Home: `~/.hns/agents/<agent>.md`
-- Project-local: `<repo>/.hns/agents/<agent>.md`
-
-Precedence (highest to lowest):
+You can override bundled agent definitions with markdown files in these locations, with Precedence (highest to lowest):
 
 1. Local (`<repo>/.hns/agents`)
 2. Home (`~/.hns/agents`)
@@ -89,16 +84,16 @@ Merge behavior:
 
 ## Runtime & Dependencies
 
-- End-user runtime: **Standalone `har` binary** (no Deno required)
+- End-user runtime: **Standalone `hns` binary** (no Deno required)
 - Contributor/dev runtime: **Deno**
 - Core libraries:
   - `@mariozechner/pi-coding-agent`
   - `@mariozechner/pi-ai`
   - `@mariozechner/pi-agent-core`
-- Plan review integration:
-  - `@gandazgul/plannotator-pi-extension-compiled` (npm package)
+  - `@plannotator/pi-extension`
+  - `@gandazgul/plannotator-pi-extension-compiled` (compiled Plannotator UI assets for in-process review)
 - Memory layer:
-  - **Mnemosyne** (integrated persistent memory)
+  - **[Mnemosyne](https://github.com/gandazgul/mnemosyne)** (integrated persistent memory)
 
 ---
 
@@ -107,35 +102,30 @@ Merge behavior:
 ### macOS / Linux (recommended)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/<owner>/harns/main/install.sh | bash
-```
-
-If your fork/repo name differs, set `HAR_REPO`:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/main/install.sh | HAR_REPO=<owner>/<repo> bash
+curl -fsSL https://raw.githubusercontent.com/gandazgul/harns/main/install.sh | bash
 ```
 
 Then verify:
 
 ```bash
-har --help
+hns --help
 ```
 
 ### Source-run (contributors)
 
 1. Install Deno: https://docs.deno.com/runtime/getting_started/installation/
 
-2. Cache deps:
-
-```bash
-deno cache src/cli.js
-```
-
-3. Run from source:
+2. Run from source:
 
 ```bash
 deno run -A src/cli.js --help
+```
+
+3. Or compile
+
+```bash
+deno run compile
+./bin/hns --help
 ```
 
 ---
@@ -145,30 +135,29 @@ deno run -A src/cli.js --help
 ### Run a new request (default router command)
 
 ```bash
-har "your request here"
+hns "your request here"
 ```
 
-Equivalent explicit form:
+Equivalent explicit form (router is the default command):
 
 ```bash
-har router "your request here"
+hns router "your request here"
 ```
 
 Examples:
 
 ```bash
-har "fix typo in README"
-har router "add JWT auth to API"
-har "refactor data layer and add migration plan"
+hns "fix typo in README"
+hns router "add JWT auth to API"
+hns "refactor data layer and add migration plan"
 ```
 
 ### Show help
 
 ```bash
-har --help
-har help
-har help resume
-har resume --help
+hns --help # or hns help
+hns help <command>
+hns <command> --help
 ```
 
 ### Resume a saved plan
@@ -176,25 +165,25 @@ har resume --help
 By plan name:
 
 ```bash
-har resume integrate-mnemosyne
+hns resume integrate-mnemosyne
 ```
 
 By path:
 
 ```bash
-har resume plans/integrate-mnemosyne.md
+hns resume plans/integrate-mnemosyne.md
 ```
 
 ### List saved plans
 
 ```bash
-har plans
+hns plans
 ```
 
 ### Optimize memory
 
 ```bash
-har sleep
+hns sleep
 ```
 
 ---
@@ -205,8 +194,7 @@ Defined in [`deno.json`](deno.json):
 
 ```bash
 deno task cli "your request"
-deno task resume <plan-name>
-deno task check
+deno task ci # runs lint, typecheck, format checks and tests
 deno task compile
 ```
 
@@ -221,7 +209,7 @@ Common statuses:
 - `draft`
 - `in_review`
 - `approved`
-- `denied`
+- `done`
 
 Harns updates these statuses during the review loop and resume flow.
 
@@ -230,26 +218,51 @@ Harns updates these statuses during the review loop and resume flow.
 ## Project Structure
 
 ```text
-.
-├── .hns/agents/             # Optional project-local agent overrides
+├── docs/                    # Documentation (ADR, skills spec, etc.)
+│   └── adr/                 # Architecture Decision Records
 ├── plans/                   # Generated/saved plan files
-├── src/
-│   ├── agent-definitions/   # Bundled default agent markdown definitions
-│   ├── cli.js               # CLI entrypoint + command dispatch
-│   ├── constants.js         # Shared CLI/runtime constants
-│   ├── cmd/
-│   │   ├── registry.js      # Command registry
-│   │   ├── _shared/         # Shared command/workflow helpers
-│   │   ├── help/            # Global/per-command help command
-│   │   ├── plans/           # List plans command
-│   │   ├── resume/          # Resume command
-│   │   └── router/          # Default request routing command
-│   ├── plan-store.js        # Plan persistence/front matter utilities
-│   └── tools/
-│       ├── triage-report.js # Router structured triage tool
-│       └── submit-plan.js   # In-process Plannotator review integration
-├── deno.json
-└── README.md
+└── src/
+    ├── agent-definitions/   # Bundled default agent markdown definitions
+    ├── cli.js               # CLI entrypoint + command dispatch
+    ├── cmd/                 # Command handlers (one subdirectory per command)
+    │   ├── agents/          # agents command (list/view agents)
+    │   ├── export/          # export command
+    │   ├── help/            # Global/per-command help command
+    │   ├── models/          # models command
+    │   ├── new/             # new command
+    │   ├── plans/           # plans command (list saved plans)
+    │   ├── quit/            # quit command
+    │   ├── registry.js      # Command registry
+    │   ├── resume/          # resume command
+    │   ├── resume-plan/     # resume-plan command
+    │   ├── router/          # Default request routing command
+    │   ├── session/         # session command
+    │   └── sleep/           # sleep command (memory optimization)
+    ├── constants.js         # CLI/runtime constants
+    ├── extensions/          # Extension integrations
+    │   ├── cymbal/          # Cymbal code search extension
+    │   └── mnemosyne/       # Mnemosyne memory layer extension
+    ├── plan-store.js        # Plan persistence/front matter utilities
+    ├── prompt-templates/    # Reusable prompt template files
+    ├── shared/              # Shared core modules
+    │   ├── agents.js        # Agent resolution & loading
+    │   ├── chat-session.js  # Interactive TUI session
+    │   ├── clipboard.js     # Clipboard utilities
+    │   ├── direct-agent.js  # Direct single-agent execution
+    │   ├── input.js         # Input parsing helpers
+    │   ├── models/          # Model registry & validation
+    │   ├── output-sanitize.js
+    │   ├── prompts.js       # Prompt construction helpers
+    │   ├── runtime-preflight.js
+    │   ├── session/         # Session state management
+    │   ├── tui.js           # Terminal UI helpers
+    │   ├── ui/              # UI component blocks & theme
+    │   └── workflow/        # Plan workflow & Plannotator review
+    └── tools/               # Agent-accessible tool implementations
+        ├── plan-written.js
+        ├── switch-agent.js
+        ├── triage-report.js
+        └── user-interview.js
 ```
 
 ---
@@ -265,7 +278,7 @@ Harns updates these statuses during the review loop and resume flow.
 
 ### Resume can’t find your plan
 
-- Use `har plans` to list available plan names.
+- Use `hns plans` to list available plan names.
 - Use `plans/<name>.md` path form if needed.
 - Don’t prefix with `@plans/...`; use `plans/...`.
 
@@ -285,7 +298,7 @@ Harns updates these statuses during the review loop and resume flow.
 3. Run:
 
 ```bash
-deno task check
+deno task ci
 ```
 
 4. Open a PR with:
@@ -297,4 +310,5 @@ deno task check
 
 ## License
 
-Add your license here (e.g. MIT) if/when this repository is public.
+Unlicensed for now. I retain full copyright and all rights reserved, but you can view the code and open issues. If you
+want to contribute or use parts of the code, please reach out.
