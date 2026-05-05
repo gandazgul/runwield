@@ -6,7 +6,7 @@
 import { join } from "@std/path";
 import { CLI_BIN, CWD, MAX_PARALLEL_TASKS, PLANS_DIR_NAME } from "../../constants.js";
 import { submitPlanForReview } from "./submit-plan.js";
-import { loadPlan } from "../../plan-store.js";
+import { loadPlan, updatePlanStatus } from "../../plan-store.js";
 import { runAgentSession } from "../session/session.js";
 import { confirm, select } from "../prompts.js";
 import { extractPlanWritten } from "../../cmd/router/triage.js";
@@ -575,6 +575,7 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks) 
             `[Harns] ✅ Plan execution complete: ${planName}`,
         );
     } else console.log(`\n[Harns] ✅ Plan execution complete: ${planName}`);
+    await updatePlanStatus(CWD, planName, "completed", triageMeta);
     return { repairRequired: false };
 }
 

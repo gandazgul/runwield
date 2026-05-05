@@ -3,11 +3,28 @@
  * Shared helpers for loading agent definitions and running agent invocations.
  */
 
-import { createAgentSession, DefaultResourceLoader, SessionManager } from "@mariozechner/pi-coding-agent";
+import { 
+    createAgentSession, 
+    DefaultResourceLoader, 
+    SessionManager,
+    createBashToolDefinition,
+    createGrepToolDefinition,
+    createFindToolDefinition,
+    createLsToolDefinition,
+    createReadToolDefinition,
+    createWriteToolDefinition,
+    createEditToolDefinition
+} from "@mariozechner/pi-coding-agent";
 import { extractYaml, test as hasFrontMatter } from "@std/front-matter";
-import { join } from "@std/path";
-import { AGENT_DEFS_DIR, CORE_SYSTEM_PROMPT, CWD, PROMPT_TEMPLATES_DIR } from "../../constants.js";
-import mnemosyneExtension from "../../extensions/mnemosyne/index.js";
+import { dirname, fromFileUrl, join } from "@std/path";
+import { AGENT_DEFS_DIR, CWD, PROMPT_TEMPLATES_DIR } from "../../constants.js";
+import mnemosyneExtension, { 
+    memoryRecallToolDef,
+    memoryRecallGlobalToolDef,
+    memoryStoreToolDef,
+    memoryStoreGlobalToolDef,
+    memoryDeleteToolDef
+} from "../../extensions/mnemosyne/index.js";
 import { ensureMnemosyneBinary } from "../runtime-preflight.js";
 import { planWrittenTool } from "../../tools/plan-written.js";
 import { executeSwitchAgent, switchAgentTool, triggerAgent } from "../../tools/switch-agent.js";
@@ -23,6 +40,9 @@ const LOCAL_AGENT_DEFS_DIR = join(CWD, ".hns", "agents");
 
 const HOME_PROMPTS_DIR = HOME_DIR ? join(HOME_DIR, ".hns", "prompts") : null;
 const LOCAL_PROMPTS_DIR = join(CWD, ".hns", "prompts");
+
+const __dirname = dirname(fromFileUrl(import.meta.url));
+const CORE_SYSTEM_PROMPT = await Deno.readTextFile(join(__dirname, "SYSTEM_PROMPT_TEMPLATE.md"));
 
 /** @typedef {"local" | "home" | "bundled"} PromptTemplateSource */
 
@@ -354,7 +374,7 @@ export async function loadAgentDef(agentName) {
     const description = typeof mergedAttrs.description === "string" ? mergedAttrs.description : "";
 
     const mergedPromptBody = promptSegments.join("\n\n").trim();
-    const systemPrompt = mergedPromptBody ? `${CORE_SYSTEM_PROMPT}\n\n${mergedPromptBody}` : CORE_SYSTEM_PROMPT;
+    const systemPrompt = CORE_SYSTEM_PROMPT.replace("{{AGENT_PROMPT}}", mergedPromptBody);
 
     return {
         name,
@@ -441,6 +461,102 @@ function resolveModel(modelOverride, agentDef) {
 }
 
 /**
+ * Assemble the final system prompt by resolving placeholders.
+ *
+ * @param {AgentDef} agentDef
+ * @param {string[]} tools
+ * @param {import('@mariozechner/pi-coding-agent').ToolDefinition[]} finalCustomTools
+ * @returns {Promise<string>}
+ */
+export async function assembleFinalSystemPrompt(agentDef, tools, finalCustomTools) {
+    const piTools = [
+        createBashToolDefinition(CWD),
+        createGrepToolDefinition(CWD),
+        createFindToolDefinition(CWD),
+        createLsToolDefinition(CWD),
+        createReadToolDefinition(CWD),
+        createWriteToolDefinition(CWD),
+        createEditToolDefinition(CWD),
+    ];
+
+    const memoryTools = [
+        memoryRecallToolDef,
+        memoryRecallGlobalToolDef,
+        memoryStoreToolDef,
+        memoryStoreGlobalToolDef,
+        memoryDeleteToolDef
+    ];
+
+    let finalSystemPrompt = agentDef.systemPrompt;
+
+    const customToolMap = new Map();
+    // 1. Add custom tools and dynamically injected tools
+    for (const tool of finalCustomTools) {
+        customToolMap.set(tool.name, tool.promptSnippet || tool.description);
+    }
+    // 2. Add mnemosyne extension tool descriptions
+    for (const tool of memoryTools) {
+        customToolMap.set(tool.name, tool.promptSnippet || tool.description);
+    }
+    // 3. Add pi-coding-agent built-in tools
+    for (const tool of piTools) {
+        customToolMap.set(tool.name, tool.promptSnippet || tool.description);
+    }
+
+    const availableToolsStr = tools.map((t) => {
+        const desc = customToolMap.get(t) || "Built-in tool";
+        return `- ${t} - ${desc}`;
+    }).join("\n");
+    finalSystemPrompt = finalSystemPrompt.replace("{{AVAILABLE_TOOLS}}", availableToolsStr);
+
+    finalSystemPrompt = finalSystemPrompt.replace("{{CWD}}", CWD);
+    finalSystemPrompt = finalSystemPrompt.replace("{{CURRENT_DATE}}", new Date().toISOString());
+
+    let globalAgentsMd = "";
+    const homeDir = Deno.env.get("HOME") || "";
+    if (homeDir) {
+        try {
+            globalAgentsMd = await Deno.readTextFile(join(homeDir, ".hns", "AGENTS.md"));
+        } catch {
+            try {
+                globalAgentsMd = await Deno.readTextFile(join(homeDir, ".pi", "agent", "AGENTS.md"));
+            } catch {
+                globalAgentsMd = "";
+            }
+        }
+    }
+    finalSystemPrompt = finalSystemPrompt.replace("{{GLOBAL_AGENTSMD}}", globalAgentsMd);
+
+    let projectAgentsMd = "";
+    try {
+        projectAgentsMd = await Deno.readTextFile(join(CWD, "AGENTS.md"));
+    } catch {
+        projectAgentsMd = "";
+    }
+    finalSystemPrompt = finalSystemPrompt.replace("{{PROJECT_AGENTSMD}}", projectAgentsMd);
+
+    let memories = "";
+    try {
+        const command = new Deno.Command("mnemosyne", {
+            args: ["list", "--tag", "core", "--format", "plain"],
+            cwd: CWD,
+            stdout: "piped",
+            stderr: "piped",
+        });
+        const output = await command.output();
+        if (output.success) {
+            memories = new TextDecoder().decode(output.stdout).trim();
+            if (memories.startsWith("No documents") || memories.startsWith("Error:")) memories = "";
+        }
+    } catch {
+        memories = "";
+    }
+    finalSystemPrompt = finalSystemPrompt.replace("{{MEMORIES}}", memories);
+
+    return finalSystemPrompt;
+}
+
+/**
  * Run a single agent invocation and wait for idle.
  *
  * @param {Object} opts
@@ -503,10 +619,13 @@ export async function runAgentSession(
         uiAPI.setAgentInfo(agentDef.name, agentModelForUi);
     }
 
+    // Resolve system prompt placeholders
+    const finalSystemPrompt = await assembleFinalSystemPrompt(agentDef, tools, finalCustomTools);
+
     const loader = new DefaultResourceLoader({
         cwd: CWD,
         agentDir: resourceAgentDir,
-        systemPromptOverride: () => agentDef.systemPrompt,
+        systemPromptOverride: () => finalSystemPrompt,
         extensionFactories: [mnemosyneExtension],
         additionalPromptTemplatePaths: getPromptTemplatePaths(),
         noPromptTemplates: true,
@@ -731,7 +850,7 @@ export async function runAgentSession(
             `=== ROUTER INVOCATION START ===`,
             `=== TIMESTAMP: ${new Date().toISOString()} ===`,
             `=== SYSTEM PROMPT ===`,
-            agentDef.systemPrompt,
+            finalSystemPrompt,
             `=== USER REQUEST ===`,
             userRequest,
             `===========================================`,

@@ -34,6 +34,7 @@
  *   advanceSpinner?: () => void,
  *   setBusy?: (busy: boolean) => void,
  *   setRunningTasks?: (tasks: RunningTask[]) => void,
+ *   clearMessages?: () => void,
  *   promptSelect: (title: string, options: SelectOption[]) => Promise<string | null>,
  *   promptText: (title: string, options?: { defaultValue?: string, placeholder?: string, allowEmpty?: boolean }) => Promise<string | null>,
  *   setAgentInfo?: (agentName: string, agentModel: string) => void,

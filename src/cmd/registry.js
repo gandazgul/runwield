@@ -11,8 +11,11 @@ import { runHelpCommand } from "./help/index.js";
 import { getAgentCompletions, runAgentsCommand } from "./agents/index.js";
 import { getModelCompletions, runModelsCommand } from "./models/index.js";
 import { runQuitCommand } from "./quit/index.js";
-import { getResumeCompletions, runResumeCommand } from "./resume/index.js";
+import { getResumeCompletions, runResumePlanCommand } from "./resume-plan/index.js";
 import { runExportCommand } from "./export/index.js";
+import { runNewCommand } from "./new/index.js";
+import { runSessionCommand } from "./session/index.js";
+import { runResumeCommand } from "./resume/index.js";
 
 /** @param {...string} parts */
 const bin = (...parts) => [CLI_BIN, ...parts].join(" ");
@@ -111,23 +114,69 @@ export const commandRegistry = {
         isCli: false,
         getArgumentCompletions: getModelCompletions,
     },
-    [COMMAND_NAMES.RESUME]: {
-        name: COMMAND_NAMES.RESUME,
-        displayName: "Resume",
+    [COMMAND_NAMES.RESUME_PLAN]: {
+        name: COMMAND_NAMES.RESUME_PLAN,
+        displayName: "Resume Plan",
         description: "Resume a saved plan",
         summary: "Resume work from a saved plan by name or file path.",
         usage: [
-            `${bin("resume <plan-name>")}`,
-            `${bin("resume plans/<plan>.md")}`,
-            `${bin("resume --help")}`,
+            `${bin("resume-plan <plan-name>")}`,
+            `${bin("resume-plan plans/<plan>.md")}`,
+            `${bin("resume-plan --help")}`,
         ],
         notes: [
             "If the plan is approved, you can proceed, re-open review, or inspect details.",
         ],
-        execute: runResumeCommand,
+        execute: runResumePlanCommand,
         isSlash: true,
         isCli: true,
         getArgumentCompletions: getResumeCompletions,
+    },
+    [COMMAND_NAMES.RESUME]: {
+        name: COMMAND_NAMES.RESUME,
+        displayName: "Resume Session",
+        description: "Browse and resume a recent session",
+        summary: "Browse and resume a recent session.",
+        usage: [
+            "/resume",
+        ],
+        notes: [
+            "Slash command only (interactive session).",
+        ],
+        execute: runResumeCommand,
+        isSlash: true,
+        isCli: false,
+    },
+    [COMMAND_NAMES.NEW]: {
+        name: COMMAND_NAMES.NEW,
+        displayName: "New Session",
+        description: "Start a new interactive session",
+        summary: "Start a brand new root session.",
+        usage: [
+            "/new",
+            "/new <optional name>",
+        ],
+        notes: [
+            "Slash command only (interactive session).",
+        ],
+        execute: runNewCommand,
+        isSlash: true,
+        isCli: false,
+    },
+    [COMMAND_NAMES.SESSION]: {
+        name: COMMAND_NAMES.SESSION,
+        displayName: "Session Info",
+        description: "Show information about the current session",
+        summary: "Show information about the current session.",
+        usage: [
+            "/session",
+        ],
+        notes: [
+            "Slash command only (interactive session).",
+        ],
+        execute: runSessionCommand,
+        isSlash: true,
+        isCli: false,
     },
     [COMMAND_NAMES.EXPORT]: {
         name: COMMAND_NAMES.EXPORT,

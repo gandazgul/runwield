@@ -222,6 +222,11 @@ export function createUiApi(tui, messageList, spinner) {
             outputSuppressed = true;
         },
 
+        clearMessages: () => {
+            messageList.clear();
+            tui.requestRender();
+        },
+
         // Stubs that chat-session sets dynamically
         setAgentInfo: () => {},
         disableInput: () => {},

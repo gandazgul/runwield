@@ -23,16 +23,6 @@ export const AGENT_DEFS_DIR = join(SRC_DIR, "agent-definitions");
 /** Directory containing bundled default prompt template markdown files. */
 export const PROMPT_TEMPLATES_DIR = join(SRC_DIR, "prompt-templates");
 
-/**
- * Core system guidance prepended to every agent-specific system prompt.
- * Keeps cross-agent behavior aligned with Harns expectations.
- */
-export const CORE_SYSTEM_PROMPT = [
-    "You are part of the Harns system — a plan-by-default coding harness.",
-    "Always be concise, thorough, and precise in your analysis.",
-    "When you use tools, explain briefly what you're looking for.",
-].join("\n");
-
 /** Allowed triage classification values emitted by the router. */
 export const CLASSIFICATIONS = ["QUICK_FIX", "FEATURE", "PROJECT"];
 
@@ -43,13 +33,16 @@ export const COMPLEXITIES = ["LOW", "MEDIUM", "HIGH"];
 export const PLANS_DIR_NAME = "plans";
 
 /** Known CLI command names. */
-/** @type {Readonly<{ROUTER: string, AGENT: string, MODEL: string, EXPORT: string, RESUME: string, PLANS: string, SLEEP: string, HELP: string, QUIT: string, EXIT: string}>} */
+/** @type {Readonly<{ROUTER: string, AGENT: string, MODEL: string, EXPORT: string, RESUME_PLAN: string, RESUME: string, NEW: string, SESSION: string, PLANS: string, SLEEP: string, HELP: string, QUIT: string, EXIT: string}>} */
 export const COMMAND_NAMES = Object.freeze({
     ROUTER: "router",
     AGENT: "agent",
     MODEL: "model",
     EXPORT: "export",
+    RESUME_PLAN: "resume-plan",
     RESUME: "resume",
+    NEW: "new",
+    SESSION: "session",
     PLANS: "plans",
     SLEEP: "sleep",
     HELP: "help",

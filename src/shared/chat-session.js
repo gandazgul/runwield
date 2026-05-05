@@ -199,7 +199,7 @@ function messageToDisplayText(message) {
  * @param {import('@mariozechner/pi-coding-agent').SessionManager} sessionManager
  * @param {import('./ui/types.js').UiAPI} uiAPI
  */
-function restorePersistedMessagesToUi(sessionManager, uiAPI) {
+export function restorePersistedMessagesToUi(sessionManager, uiAPI) {
     const context = sessionManager.buildSessionContext();
     const messages = Array.isArray(context?.messages) ? context.messages : [];
     if (messages.length === 0) return;

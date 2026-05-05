@@ -1,7 +1,7 @@
 import { assertEquals } from "@std/assert";
 import { getAgentCompletions } from "../agents/getArgumentCompletions.js";
 import { getModelCompletions } from "../models/getArgumentCompletions.js";
-import { getResumeCompletions } from "../resume/getArgumentCompletions.js";
+import { getResumeCompletions } from "../resume-plan/getArgumentCompletions.js";
 
 Deno.test("getAgentCompletions includes router", async () => {
     const items = await getAgentCompletions("ro");
