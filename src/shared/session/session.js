@@ -509,8 +509,6 @@ export async function assembleFinalSystemPrompt(agentDef, tools, finalCustomTool
     }).join("\n");
     finalSystemPrompt = finalSystemPrompt.replace("{{AVAILABLE_TOOLS}}", availableToolsStr);
 
-    finalSystemPrompt = finalSystemPrompt.replace("{{CWD}}", CWD);
-    finalSystemPrompt = finalSystemPrompt.replace("{{CURRENT_DATE}}", new Date().toISOString());
 
     let globalAgentsMd = "";
     const homeDir = Deno.env.get("HOME") || "";

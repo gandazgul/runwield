@@ -10,11 +10,7 @@ In addition to the tools above, you may have access to other custom tools depend
 
 {{GLOBAL_AGENTSMD}}
 
-Current date: {{CURRENT_DATE}}
-
 ## Project Context
-
-Current working directory: {{CWD}}
 
 {{PROJECT_AGENTSMD}}
 
