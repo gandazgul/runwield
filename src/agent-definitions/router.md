@@ -1,6 +1,6 @@
 ---
 name: router
-model: ollama-cloud/gemma4:31b-cloud
+model: opencode/big-pickle
 description: "Triage agent that classifies user requests and explores the codebase."
 tools:
     - read
