@@ -11,8 +11,6 @@ import { StringEnum, Type } from "@mariozechner/pi-ai";
 import { defineTool } from "@mariozechner/pi-coding-agent";
 import { setActiveAgent } from "../shared/chat-session.js";
 import { createDirectAgentHandler } from "../shared/direct-agent.js";
-import { planWrittenTool } from "./plan-written.js";
-import { createUserInterviewTool } from "./user-interview.js";
 import { ensurePlansDir } from "../plan-store.js";
 import { CWD } from "../constants.js";
 
@@ -68,9 +66,9 @@ export function createTriageReportTool({ uiAPI, sessionManager, userRequest = ""
                 "",
             ].join("\n");
 
-            // Dynamic import breaks the circular dep: triage-report → session → triage-report
+            // Lazy imports break the circular dep: triage-report → session → triage-report.
             const { runAgentSession } = await import("../shared/session/session.js");
-            const { runPlanLifecycle, buildRepairPrompt } = await import("../shared/workflow/workflow.js");
+            const { runPlanningAgent } = await import("../shared/workflow/workflow.js");
 
             if (classification === "QUICK_FIX") {
                 uiAPI?.appendSystemMessage("=== Phase B: Operator (Execute) ===");
@@ -105,20 +103,14 @@ export function createTriageReportTool({ uiAPI, sessionManager, userRequest = ""
                     userRequest,
                     "",
                     triageBlock,
-                    "Based on the triage report above, explore the affected files and create a plan in the plans/ directory.",
-                    "Before finalizing, ask clarification questions via user_interview when requirements are ambiguous.",
-                    "Ask either one question or a focused batch of 1-3 questions, then incorporate the answers.",
-                    "Choose a descriptive, kebab-case filename (e.g., plans/add-dark-mode-toggle.md).",
                 ].join("\n");
 
-                await runPlanLifecycle({
+                await runPlanningAgent({
                     agentName: "planner",
-                    customTools: [planWrittenTool, createUserInterviewTool(uiAPI)],
                     initialRequest: plannerRequest,
                     triageMeta: params,
                     uiAPI,
                     sessionManager,
-                    buildRepairPrompt,
                 });
             } else if (classification === "PROJECT") {
                 uiAPI?.appendSystemMessage(
@@ -134,22 +126,14 @@ export function createTriageReportTool({ uiAPI, sessionManager, userRequest = ""
                     userRequest,
                     "",
                     triageBlock,
-                    "Start with a targeted vertical-slice exploration from the triage input (especially affected paths).",
-                    "Go deep on the request-related execution path; avoid broad repo surveys.",
-                    "Then produce a comprehensive plan in plans/ with a descriptive kebab-case filename.",
-                    "Before finalizing, ask clarification questions via user_interview when needed.",
-                    "Ask either one question or a focused batch of 1-3 questions, then incorporate the answers.",
-                    "Since this is a PROJECT, include a Tasks table for multi-agent execution.",
                 ].join("\n");
 
-                await runPlanLifecycle({
+                await runPlanningAgent({
                     agentName: "architect",
-                    customTools: [planWrittenTool, createUserInterviewTool(uiAPI)],
                     initialRequest: architectRequest,
                     triageMeta: params,
                     uiAPI,
                     sessionManager,
-                    buildRepairPrompt,
                 });
             }
 

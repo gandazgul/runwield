@@ -447,28 +447,23 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
     const uiAPI = createUiApi(tui, messageList, runningTasksComponent);
 
     // Ensure modal prompts (select/text) always return focus to the editor once settled.
-    // Otherwise a settled prompt block can keep focus and swallow Esc, making cancellation feel broken.
     const basePromptSelect = uiAPI.promptSelect?.bind(uiAPI);
     if (basePromptSelect) {
         uiAPI.promptSelect = async (title, options) => {
-            try {
-                return await basePromptSelect(title, options);
-            } finally {
-                tui.setFocus(editor);
-                tui.requestRender();
-            }
+            const result = await basePromptSelect(title, options);
+            tui.setFocus(editor);
+            tui.requestRender();
+            return result;
         };
     }
 
     const basePromptText = uiAPI.promptText?.bind(uiAPI);
     if (basePromptText) {
         uiAPI.promptText = async (title, opts) => {
-            try {
-                return await basePromptText(title, opts);
-            } finally {
-                tui.setFocus(editor);
-                tui.requestRender();
-            }
+            const result = await basePromptText(title, opts);
+            tui.setFocus(editor);
+            tui.requestRender();
+            return result;
         };
     }
 
@@ -586,13 +581,13 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         }
     };
 
-    /** Force-unset the focused component if it's a prompt block, so Esc
-     *  can return focus to the editor even when a choice/text prompt is active. */
+    /** Force-unset the focused component and resolve any hanging prompt promise.
+     *  Calling abortActivePrompt settles the promise with null, so the async chain
+     *  can gracefully unspool instead of waiting forever. */
     function dismissActivePrompt() {
-        // The TUI tracks focus via setFocus; we just need to re-focus the editor.
-        // Any pending Promise from promptSelect/promptText will stay pending until
-        // it is settled by its own block callbacks, but after focus is returned the
-        // user sees a working editor immediately.
+        if (uiAPI.abortActivePrompt) {
+            uiAPI.abortActivePrompt();
+        }
         tui.setFocus(editor);
     }
 

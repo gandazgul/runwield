@@ -36,6 +36,65 @@ paths:
 Architect agent managing that specific plan. This works seamlessly whether the TUI was already running or if it was
 started via `hns resume <plan>`.
 
+#### Routing & Lifecycle Tools
+
+Routing and the planning lifecycle are driven by two **factory tools** that are auto-wired by the session runner. Each
+factory captures TUI/session context (`uiAPI`, `sessionManager`, `triageMeta`) at session-start time, so the same tool
+name is implemented by a different concrete instance per session. The agent never knows the difference; it just calls
+the tool by name.
+
+**`triage_report` (router-only)**
+
+- **Owner:** the Router agent. The Router's only job is to explore narrowly, classify, and call this tool exactly once.
+- **Parameters:** `classification` (`QUICK_FIX | FEATURE | PROJECT`), `complexity` (`LOW | MEDIUM | HIGH`), `summary`,
+  `affectedPaths` (ordered vertical-slice).
+- **Behavior on `execute`:**
+  1. Emits the triage report to the TUI.
+  2. **Switches the active agent first**, before running any downstream work, so the user-visible agent matches what is
+     about to run.
+  3. Runs the downstream flow on the **same root session**:
+     - `QUICK_FIX` → set active agent to Operator, run `runAgentSession({ agentName: "operator" })` with the user
+       request and the triage block.
+     - `FEATURE` → set active agent to Planner, ensure `plans/`, and call `runPlanningAgent({ agentName: "planner" })`.
+       The planner's `plan_written` tool drives the rest of the lifecycle.
+     - `PROJECT` → identical to `FEATURE` but with the Architect agent and a deeper-exploration prompt; the architect's
+       `plan_written` call must include a populated `tasks` array.
+  4. After the downstream agent finishes, the active agent **stays** on the assigned planner/architect (or operator).
+     There is no automatic restoration to Router; the user can `/agent router` explicitly to triage a new request.
+- **Tool result:** explicit "Your role as Router is finished. Do not generate any further text." This is reinforced by
+  the router prompt; the router must produce zero text after this tool call.
+- **No sub-agents:** all execution happens in the same root session manager. There is no parallel router/operator
+  process model; "switching agents" is just rebinding the active agent name and message handler.
+
+**`plan_written` (planner / architect)**
+
+- **Owner:** the Planner and Architect agents. It is auto-wired into any agent whose frontmatter `tools:` list contains
+  `plan_written` (currently planner.md and architect.md).
+- **Parameters:** `planName` (filename without `.md`), `tasks` (required for `PROJECT`, optional otherwise — array of
+  `{ task, assignee, dependencies, description }` objects matching the markdown table).
+- **Behavior on `execute`:**
+  1. Validate that `plans/<planName>.md` exists; if not, return guidance text as the tool result so the agent writes the
+     file first and re-calls.
+  2. Resolve `triageMeta` (factory-captured value first, plan front matter as fallback).
+  3. For `PROJECT`, require a non-empty `tasks` array; otherwise return a corrective tool result.
+  4. Call `submitPlanForReview` (browser UI) and wait for the user's decision.
+     - **Approved:** ask save-vs-proceed; on `proceed`, run `executePlan` (engineer for FEATURE, parallel task DAG for
+       PROJECT). Successful completion returns "Your role is complete. Do not generate any further text."
+     - **Denied:** return the denial feedback as the tool result so the agent revises the plan in the same session and
+       calls `plan_written` again.
+     - **Canceled:** return a "control returned to the user" tool result; the active agent stays on the planner so the
+       user can resume the conversation.
+     - **Repair required** (PROJECT execution failed to parse the task table): return a "Plan Execution Halted — Task
+       Table Repair Required" message so the agent fixes the table and re-calls `plan_written`.
+- **Tool result `details.outcome`:** one of `executed | saved | denied | canceled | repair_required`. Callers (currently
+  the resume command and the workflow helper) use `readLatestPlanOutcome(messages)` to drive UI state — for example,
+  switching to the Operator after a successful execution, or skipping the Router restore when the planner is still
+  mid-conversation.
+- **Free-form clarification questions are allowed.** If the planner needs clarification it cannot phrase via
+  `user_interview`, it stops without calling any tool. The session ends and control returns to the user; the planner
+  remains the active agent and the conversation continues on the user's next message. There is no "agent did not declare
+  a plan" hard error — `plan_written` is the lifecycle trigger, not a session terminator.
+
 ### 3.2 Advanced Memory & Indexing
 
 - **Mnemosyne Integration:** (Active) A "Day Zero" memory system that gathers core memories, user preferences, and

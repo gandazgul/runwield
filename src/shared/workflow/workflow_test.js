@@ -1,15 +1,24 @@
 import { assertEquals, assertThrows } from "@std/assert";
-import { buildDeniedFeedbackRequest, extractTasks } from "./workflow.js";
+import { extractTasks, readLatestPlanOutcome } from "./workflow.js";
 
-Deno.test("buildDeniedFeedbackRequest includes feedback and plan path", () => {
-    const prompt = buildDeniedFeedbackRequest({
-        round: 2,
-        planName: "my-plan",
-        feedback: "Please add verification details",
-    });
+Deno.test("readLatestPlanOutcome returns the latest plan_written outcome", () => {
+    const messages = [
+        /** @type {any} */ ({
+            role: "toolResult",
+            toolName: "plan_written",
+            details: { planName: "first", outcome: "denied" },
+        }),
+        /** @type {any} */ ({
+            role: "toolResult",
+            toolName: "plan_written",
+            details: { planName: "first", outcome: "executed" },
+        }),
+    ];
+    assertEquals(readLatestPlanOutcome(messages), { outcome: "executed", planName: "first" });
+});
 
-    const expected = "## Previous Plan Feedback (Round 2)\n\nYour plan was denied. Here is the structured feedback from the user:\n\nPlease add verification details\n\nPlease revise your plan in plans/my-plan.md based on this feedback.\nUse the `edit` tool to make targeted revisions — do NOT rewrite the entire plan.\nAddress each piece of feedback specifically.\nAfter saving revisions, call the plan_written tool again with the same plan name.";
-    assertEquals(prompt, expected);
+Deno.test("readLatestPlanOutcome returns null when no plan_written tool result is present", () => {
+    assertEquals(readLatestPlanOutcome([]), null);
 });
 
 Deno.test("extractTasks parses valid markdown table", () => {

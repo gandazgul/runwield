@@ -6,20 +6,19 @@
 import { parseArgs as parseArgsFn } from "@std/cli/parse-args";
 import { CLI_BIN, CWD } from "../../constants.js";
 import { resolvePlan as resolvePlanFn, updatePlanStatus as updatePlanStatusFn } from "../../plan-store.js";
-import { planWrittenTool as planWrittenToolFn } from "../../tools/plan-written.js";
-import { createUserInterviewTool as createUserInterviewToolFn } from "../../tools/user-interview.js";
 import {
+    askApprovalWithTasks as askApprovalWithTasksFn,
+    askPostApproval as askPostApprovalFn,
     executePlan as executePlanFn,
-    reviewLoop as reviewLoopFn,
-    runPlanLifecycle as runPlanLifecycleFn,
+    runPlanningAgent as runPlanningAgentFn,
 } from "../../shared/workflow/workflow.js";
+import { submitPlanForReview as submitPlanForReviewFn } from "../../shared/workflow/submit-plan.js";
 import { printCommandHelp as printCommandHelpFn } from "../help/index.js";
 import {
     setActiveAgent as setActiveAgentFn,
     startInteractiveSession as startInteractiveSessionFn,
 } from "../../shared/chat-session.js";
 import { resetTuiState as resetTuiStateFn } from "../command-helpers.js";
-import { buildRepairPrompt as buildRepairPromptFn } from "../../shared/workflow/workflow.js";
 import { createDirectAgentHandler as createDirectAgentHandlerFn } from "../../shared/direct-agent.js";
 export { getResumeCompletions } from "./getArgumentCompletions.js";
 
@@ -30,14 +29,13 @@ export { getResumeCompletions } from "./getArgumentCompletions.js";
  * @property {typeof startInteractiveSessionFn} [startInteractiveSession]
  * @property {typeof resolvePlanFn} [resolvePlan]
  * @property {typeof executePlanFn} [executePlan]
- * @property {typeof reviewLoopFn} [reviewLoop]
- * @property {typeof runPlanLifecycleFn} [runPlanLifecycle]
+ * @property {typeof runPlanningAgentFn} [runPlanningAgent]
+ * @property {typeof submitPlanForReviewFn} [submitPlanForReview]
+ * @property {typeof askPostApprovalFn} [askPostApproval]
+ * @property {typeof askApprovalWithTasksFn} [askApprovalWithTasks]
  * @property {typeof setActiveAgentFn} [setActiveAgent]
  * @property {typeof createDirectAgentHandlerFn} [createDirectAgentHandler]
- * @property {typeof buildRepairPromptFn} [buildRepairPrompt]
  * @property {typeof resetTuiStateFn} [resetTuiState]
- * @property {typeof createUserInterviewToolFn} [createUserInterviewTool]
- * @property {typeof planWrittenToolFn} [planWrittenTool]
  * @property {(cwd: string) => Promise<Array<{name: string, attrs: {classification: string, status: string}}>>} [listPlans]
  * @property {typeof updatePlanStatusFn} [updatePlanStatus]
  */
@@ -49,7 +47,11 @@ export { getResumeCompletions } from "./getArgumentCompletions.js";
  * @param {ResumeTestDeps} [deps]
  */
 function restoreRouterFlow(uiAPI, deps = {}) {
-    const { resetTuiState: resetTuiStateDep, setActiveAgent: setActiveAgentDep, createDirectAgentHandler: createDirectAgentHandlerDep } = deps;
+    const {
+        resetTuiState: resetTuiStateDep,
+        setActiveAgent: setActiveAgentDep,
+        createDirectAgentHandler: createDirectAgentHandlerDep,
+    } = deps;
 
     const resetTuiState = resetTuiStateDep || resetTuiStateFn;
     const setActiveAgent = setActiveAgentDep || setActiveAgentFn;
@@ -58,6 +60,53 @@ function restoreRouterFlow(uiAPI, deps = {}) {
     resetTuiState(undefined, uiAPI, undefined);
     setActiveAgent("Router", createDirectAgentHandler("router"));
     uiAPI.appendSystemMessage("[Harns] Switched back to Router (triage flow).");
+}
+
+/**
+ * Build the resume request handed to the planning agent.
+ *
+ * @param {string} planName
+ * @param {{ classification: string, complexity: string, summary: string, affectedPaths?: string[], status: string }} attrs
+ * @returns {string}
+ */
+function buildResumeRequest(planName, attrs) {
+    return [
+        `## Resuming Plan: ${planName}`,
+        "",
+        `This plan was previously saved with status: ${attrs.status}.`,
+        `Continue working on it. The plan is at plans/${planName}.md.`,
+        "",
+        "## Triage Report",
+        `- Classification: ${attrs.classification}`,
+        `- Complexity: ${attrs.complexity}`,
+        `- Summary: ${attrs.summary}`,
+        `- Affected paths: ${(attrs.affectedPaths || []).join(", ")}`,
+        "",
+        "Review the current plan, make any needed updates, and finalize it.",
+        "If requirements are unclear, ask clarification questions via user_interview before locking changes.",
+        "When the plan is ready, call plan_written to submit it for review.",
+    ].join("\n");
+}
+
+/**
+ * Build the prompt that re-runs the planner after the user denies a previously
+ * approved plan and re-opens it for review.
+ *
+ * @param {string} planName
+ * @param {string | undefined} feedback
+ * @returns {string}
+ */
+function buildReReviewRevisionRequest(planName, feedback) {
+    return [
+        `## Plan Review Re-opened: ${planName}`,
+        "",
+        "The user denied the existing approved plan and provided feedback:",
+        "",
+        feedback || "(no specific feedback provided)",
+        "",
+        `Revise plans/${planName}.md based on this feedback using the edit tool.`,
+        "Then call plan_written again to submit the revision for review.",
+    ].join("\n");
 }
 
 /**
@@ -74,13 +123,12 @@ export async function runResumePlanCommand(argv, options = {}) {
         startInteractiveSession: startInteractiveSessionDep,
         resolvePlan: resolvePlanDep,
         executePlan: executePlanDep,
-        reviewLoop: reviewLoopDep,
-        runPlanLifecycle: runPlanLifecycleDep,
+        runPlanningAgent: runPlanningAgentDep,
+        submitPlanForReview: submitPlanForReviewDep,
+        askPostApproval: askPostApprovalDep,
+        askApprovalWithTasks: askApprovalWithTasksDep,
         setActiveAgent: setActiveAgentDep,
         createDirectAgentHandler: createDirectAgentHandlerDep,
-        buildRepairPrompt: buildRepairPromptDep,
-        createUserInterviewTool: createUserInterviewToolDep,
-        planWrittenTool: planWrittenToolDep,
         listPlans: listPlansDep,
         updatePlanStatus: updatePlanStatusDep,
     } = deps;
@@ -90,13 +138,12 @@ export async function runResumePlanCommand(argv, options = {}) {
     const startInteractiveSession = startInteractiveSessionDep || startInteractiveSessionFn;
     const resolvePlan = resolvePlanDep || resolvePlanFn;
     const executePlan = executePlanDep || executePlanFn;
-    const reviewLoop = reviewLoopDep || reviewLoopFn;
-    const runPlanLifecycle = runPlanLifecycleDep || runPlanLifecycleFn;
+    const runPlanningAgent = runPlanningAgentDep || runPlanningAgentFn;
+    const submitPlanForReview = submitPlanForReviewDep || submitPlanForReviewFn;
+    const askPostApproval = askPostApprovalDep || askPostApprovalFn;
+    const askApprovalWithTasks = askApprovalWithTasksDep || askApprovalWithTasksFn;
     const setActiveAgent = setActiveAgentDep || setActiveAgentFn;
     const createDirectAgentHandler = createDirectAgentHandlerDep || createDirectAgentHandlerFn;
-    const buildRepairPrompt = buildRepairPromptDep || buildRepairPromptFn;
-    const createUserInterviewTool = createUserInterviewToolDep || createUserInterviewToolFn;
-    const planWrittenToolDef = planWrittenToolDep || planWrittenToolFn;
     const updatePlanStatus = updatePlanStatusDep || updatePlanStatusFn;
 
     const parsedArgs = parseArgs(argv, {
@@ -132,7 +179,6 @@ export async function runResumePlanCommand(argv, options = {}) {
 
             const chosen = await options.uiAPI.promptSelect("Resume plan:", planOptions);
             if (!chosen) {
-                // User pressed Esc — silently cancel
                 options.editor.setText("");
                 options.editor.disableSubmit = false;
                 return;
@@ -148,7 +194,6 @@ export async function runResumePlanCommand(argv, options = {}) {
     let uiAPI = options.uiAPI;
 
     if (!uiAPI) {
-        // We were invoked from the CLI directly, boot the TUI!
         uiAPI = await startInteractiveSession(
             null,
             (_userRequest, _images, currentUiAPI) => {
@@ -197,25 +242,27 @@ export async function runResumePlanCommand(argv, options = {}) {
                     { value: "view", label: "View plan details" },
                 ]);
 
-                if (!answer) {
-                    // User pressed Esc — silently cancel
-                    return;
-                }
+                if (!answer) return;
 
                 if (answer === "proceed") {
                     const execRes = await executePlan(plan.planName, plan.attrs, uiAPI);
                     if (execRes && execRes.repairRequired) {
-                        const repairAgentName = triageMeta.classification === "PROJECT" ? "architect" : "planner";
                         uiAPI.appendSystemMessage(
-                            `[Harns] Execution failed due to task table error. Rerouting to ${repairAgentName} for repair...`,
+                            `[Harns] Execution failed due to task table error. Rerouting to ${agentName} for repair...`,
                         );
-                        await reviewLoop({
-                            agentName: repairAgentName,
-                            customTools: [planWrittenToolDef, createUserInterviewTool(uiAPI)],
-                            initialRequest: buildRepairPrompt(
-                                plan.planName,
-                                execRes.error || "Unknown task table error",
-                            ),
+                        setActiveAgent(agentName, createDirectAgentHandler(agentName), uiAPI);
+                        await runPlanningAgent({
+                            agentName,
+                            initialRequest: [
+                                `## Plan Execution Halted — Task Table Repair Required`,
+                                "",
+                                `The plan "${plan.planName}" had a malformed Tasks table: ${
+                                    execRes.error || "Unknown task table error"
+                                }.`,
+                                "",
+                                "Fix the table to follow (Task ID | Assignee | Dependencies | Description),",
+                                "then call plan_written again with the corrected tasks array.",
+                            ].join("\n"),
                             triageMeta: plan.attrs,
                             uiAPI,
                         });
@@ -224,23 +271,50 @@ export async function runResumePlanCommand(argv, options = {}) {
                 }
 
                 if (answer === "review") {
-                    const lifecycle = await runPlanLifecycle({
-                        agentName,
+                    setActiveAgent(agentName, createDirectAgentHandler(agentName), uiAPI);
+
+                    const reviewResult = await submitPlanForReview({
+                        cwd: CWD,
+                        planName: plan.planName,
+                        planPath: plan.path,
                         triageMeta: plan.attrs,
-                        customTools: [planWrittenToolDef, createUserInterviewTool(uiAPI)],
-                        existingPlan: {
-                            planName: plan.planName,
-                            planPath: plan.path,
-                        },
                         uiAPI,
-                        buildRepairPrompt,
                     });
 
-                    if (lifecycle.status === "executed") {
-                        setActiveAgent("Operator", createDirectAgentHandler("operator"), uiAPI);
-                    } else if (lifecycle.status === "canceled") {
+                    if (reviewResult.canceled) {
+                        uiAPI.appendSystemMessage("[Harns] Plan review canceled.");
                         skipRouterRestore = true;
-                        setActiveAgent(agentName, createDirectAgentHandler(agentName), uiAPI);
+                        return;
+                    }
+
+                    if (reviewResult.approved) {
+                        const action = plan.attrs.classification === "PROJECT"
+                            ? await askApprovalWithTasks(plan.planName, uiAPI)
+                            : await askPostApproval(plan.planName, uiAPI);
+                        if (action === "proceed") {
+                            await executePlan(plan.planName, plan.attrs, uiAPI);
+                            setActiveAgent("Operator", createDirectAgentHandler("operator"), uiAPI);
+                        } else {
+                            uiAPI.appendSystemMessage(
+                                `[Harns] Plan saved. Resume later with: ${CLI_BIN} resume ${plan.planName}`,
+                            );
+                            skipRouterRestore = true;
+                        }
+                        return;
+                    }
+
+                    // Denied — kick off the planning agent with the user's feedback.
+                    const outcome = await runPlanningAgent({
+                        agentName,
+                        initialRequest: buildReReviewRevisionRequest(plan.planName, reviewResult.feedback),
+                        triageMeta: plan.attrs,
+                        uiAPI,
+                    });
+
+                    if (outcome.outcome === "executed") {
+                        setActiveAgent("Operator", createDirectAgentHandler("operator"), uiAPI);
+                    } else if (outcome.outcome === "canceled" || outcome.outcome === "no_call") {
+                        skipRouterRestore = true;
                     }
                     return;
                 }
@@ -251,47 +325,20 @@ export async function runResumePlanCommand(argv, options = {}) {
             }
         }
 
-        // Not approved - enter review loop
-        // deno-lint-ignore require-await
-        setActiveAgent(agentName, async (_userRequest, _images, currentUiAPI) => {
-            // The review loop drives the agent invocations internally.
-            // Manual input during an active agent invocation is not yet supported.
-            currentUiAPI.appendSystemMessage(
-                "Warning: Manual input while agent is running is not yet handled.",
-            );
-        });
+        // Not approved — kick off the planning agent. plan_written handles review/save/execute.
+        setActiveAgent(agentName, createDirectAgentHandler(agentName), uiAPI);
 
-        const resumeRequest = [
-            `## Resuming Plan: ${plan.planName}`,
-            "",
-            `This plan was previously saved with status: ${plan.attrs.status}.`,
-            `Continue working on it. The plan is at plans/${plan.planName}.md.`,
-            "",
-            "## Triage Report",
-            `- Classification: ${triageMeta.classification}`,
-            `- Complexity: ${triageMeta.complexity}`,
-            `- Summary: ${triageMeta.summary}`,
-            `- Affected paths: ${(triageMeta.affectedPaths || []).join(", ")}`,
-            "",
-            "Review the current plan, make any needed updates, and finalize it.",
-            "If requirements are unclear, ask clarification questions via user_interview before locking changes.",
-            "Ask one question or a focused 1-3 question batch per call and adapt based on answers.",
-        ].join("\n");
-
-        const lifecycle = await runPlanLifecycle({
+        const outcome = await runPlanningAgent({
             agentName,
+            initialRequest: buildResumeRequest(plan.planName, plan.attrs),
             triageMeta,
-            customTools: [planWrittenToolDef, createUserInterviewTool(uiAPI)],
-            initialRequest: resumeRequest,
             uiAPI,
-            buildRepairPrompt,
         });
 
-        if (lifecycle.status === "executed") {
+        if (outcome.outcome === "executed") {
             setActiveAgent("Operator", createDirectAgentHandler("operator"), uiAPI);
-        } else if (lifecycle.status === "canceled") {
+        } else if (outcome.outcome === "canceled" || outcome.outcome === "no_call") {
             skipRouterRestore = true;
-            setActiveAgent(agentName, createDirectAgentHandler(agentName), uiAPI);
         }
     } finally {
         if (!skipRouterRestore) {

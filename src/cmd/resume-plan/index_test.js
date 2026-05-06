@@ -94,7 +94,7 @@ Deno.test("runResumePlanCommand approved plan proceed path", async () => {
     assertEquals(executed, true);
 });
 
-Deno.test("runResumePlanCommand non-approved plan enters shared plan lifecycle", async () => {
+Deno.test("runResumePlanCommand non-approved plan kicks off planning agent", async () => {
     const { uiAPI } = makeUi();
     let lifecycleCalled = false;
 
@@ -116,12 +116,11 @@ Deno.test("runResumePlanCommand non-approved plan enters shared plan lifecycle",
                         status: "draft",
                     },
                 }),
-            runPlanLifecycle: () => {
+            runPlanningAgent: () => {
                 lifecycleCalled = true;
-                return Promise.resolve({ status: "saved", planName: "plan-b" });
+                return Promise.resolve({ outcome: "saved", planName: "plan-b" });
             },
             createDirectAgentHandler: () => async () => {},
-            createUserInterviewTool: () => ({ name: "user_interview" }),
             setActiveAgent: () => {},
             resetTuiState: () => {},
         }),
@@ -158,14 +157,14 @@ Deno.test("runResumePlanCommand approved plan view then cancel", async () => {
     });
 
     assertEquals(messages.some((m) => m.includes("plan body content")), true);
-    // Esc cancels silently (no "Resume canceled" message)
     assertEquals(messages.some((m) => m.includes("Resume canceled")), false);
 });
 
-Deno.test("runResumePlanCommand approved review uses shared lifecycle (no rerun hint)", async () => {
-    const { uiAPI, selections, messages } = makeUi();
+Deno.test("runResumePlanCommand approved review approves directly via submitPlanForReview", async () => {
+    const { uiAPI, selections } = makeUi();
     selections.push("review");
-    let lifecycleCalled = false;
+    let submitCalled = false;
+    let executed = false;
 
     await runResumePlanCommand(["plan-d"], {
         uiAPI,
@@ -185,9 +184,14 @@ Deno.test("runResumePlanCommand approved review uses shared lifecycle (no rerun 
                         status: "approved",
                     },
                 }),
-            runPlanLifecycle: () => {
-                lifecycleCalled = true;
-                return Promise.resolve({ status: "saved", planName: "plan-d" });
+            submitPlanForReview: () => {
+                submitCalled = true;
+                return Promise.resolve({ approved: true });
+            },
+            askPostApproval: () => Promise.resolve("save"),
+            executePlan: () => {
+                executed = true;
+                return Promise.resolve(undefined);
             },
             createDirectAgentHandler: () => async () => {},
             resetTuiState: () => {},
@@ -195,14 +199,51 @@ Deno.test("runResumePlanCommand approved review uses shared lifecycle (no rerun 
         }),
     });
 
-    assertEquals(lifecycleCalled, true);
-    assertEquals(messages.some((m) => m.includes("To continue the revision loop, run")), false);
+    assertEquals(submitCalled, true);
+    assertEquals(executed, false);
 });
 
-Deno.test("runResumePlanCommand approved proceed with repair reroutes review", async () => {
+Deno.test("runResumePlanCommand approved review kicks off planner on denial", async () => {
+    const { uiAPI, selections } = makeUi();
+    selections.push("review");
+    let plannerCalled = false;
+
+    await runResumePlanCommand(["plan-d2"], {
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: () => ({ help: false, _: ["plan-d2"] }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "plan-d2",
+                    path: "plans/plan-d2.md",
+                    body: "body",
+                    attrs: {
+                        classification: "FEATURE",
+                        complexity: "LOW",
+                        summary: "s",
+                        affectedPaths: [],
+                        status: "approved",
+                    },
+                }),
+            submitPlanForReview: () => Promise.resolve({ approved: false, feedback: "missing tests" }),
+            runPlanningAgent: () => {
+                plannerCalled = true;
+                return Promise.resolve({ outcome: "saved", planName: "plan-d2" });
+            },
+            createDirectAgentHandler: () => async () => {},
+            resetTuiState: () => {},
+            setActiveAgent: () => {},
+        }),
+    });
+
+    assertEquals(plannerCalled, true);
+});
+
+Deno.test("runResumePlanCommand approved proceed with repair reroutes to planner", async () => {
     const { uiAPI, selections, messages } = makeUi();
     selections.push("proceed");
-    let reviewCalled = false;
+    let plannerCalled = false;
 
     await runResumePlanCommand(["plan-e"], {
         uiAPI,
@@ -223,17 +264,17 @@ Deno.test("runResumePlanCommand approved proceed with repair reroutes review", a
                     },
                 }),
             executePlan: () => Promise.resolve({ repairRequired: true, error: "bad tasks" }),
-            reviewLoop: () => {
-                reviewCalled = true;
-                return Promise.resolve(null);
+            runPlanningAgent: () => {
+                plannerCalled = true;
+                return Promise.resolve({ outcome: "executed", planName: "plan-e" });
             },
-            createUserInterviewTool: () => ({ name: "user_interview" }),
+            createDirectAgentHandler: () => async () => {},
             resetTuiState: () => {},
             setActiveAgent: () => {},
         }),
     });
 
-    assertEquals(reviewCalled, true);
+    assertEquals(plannerCalled, true);
     assertEquals(
         messages.some((m) =>
             m.includes("Rerouting to architect for repair") || m.includes("Rerouting to planner for repair")
@@ -280,13 +321,12 @@ Deno.test("runResumePlanCommand keeps planner active when lifecycle canceled", a
                         status: "draft",
                     },
                 }),
-            runPlanLifecycle: () => Promise.resolve({ status: "canceled" }),
+            runPlanningAgent: () => Promise.resolve({ outcome: "canceled" }),
             createDirectAgentHandler: () => async () => {},
             setActiveAgent: (/** @type {string} */ name) => {
                 activeAgents.push(name);
             },
             resetTuiState: () => {},
-            createUserInterviewTool: () => ({ name: "user_interview" }),
         }),
     });
 
@@ -294,7 +334,41 @@ Deno.test("runResumePlanCommand keeps planner active when lifecycle canceled", a
     assertEquals(activeAgents.includes("Router"), false);
 });
 
-Deno.test("runResumePlanCommand restores router flow after lifecycle failure", async () => {
+Deno.test("runResumePlanCommand keeps planner active when agent ends without plan_written", async () => {
+    const { uiAPI } = makeUi();
+    /** @type {string[]} */
+    const activeAgents = [];
+
+    await runResumePlanCommand(["plan-i"], {
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: () => ({ help: false, _: ["plan-i"] }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "plan-i",
+                    path: "plans/plan-i.md",
+                    body: "body",
+                    attrs: {
+                        classification: "FEATURE",
+                        complexity: "LOW",
+                        summary: "s",
+                        affectedPaths: [],
+                        status: "draft",
+                    },
+                }),
+            runPlanningAgent: () => Promise.resolve({ outcome: "no_call" }),
+            createDirectAgentHandler: () => async () => {},
+            setActiveAgent: (/** @type {string} */ name) => activeAgents.push(name),
+            resetTuiState: () => {},
+        }),
+    });
+
+    assertEquals(activeAgents.includes("planner"), true);
+    assertEquals(activeAgents.includes("Router"), false);
+});
+
+Deno.test("runResumePlanCommand restores router flow after lifecycle saves a plan", async () => {
     const { uiAPI, messages } = makeUi();
     /** @type {string[]} */
     const restoredAgents = [];
@@ -317,11 +391,10 @@ Deno.test("runResumePlanCommand restores router flow after lifecycle failure", a
                         status: "draft",
                     },
                 }),
-            runPlanLifecycle: () => Promise.resolve({ status: "failed" }),
+            runPlanningAgent: () => Promise.resolve({ outcome: "saved", planName: "plan-g" }),
             createDirectAgentHandler: () => async () => {},
             setActiveAgent: (/** @type {string} */ name) => restoredAgents.push(name),
             resetTuiState: () => {},
-            createUserInterviewTool: () => ({ name: "user_interview" }),
         }),
     });
 

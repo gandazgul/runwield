@@ -15,4 +15,3 @@ export function resetTuiState(editor, uiAPI, tui) {
         tui.setFocus(/** @type {import('@mariozechner/pi-tui').Component} */ (/** @type {unknown} */ (editor)));
     }
 }
-

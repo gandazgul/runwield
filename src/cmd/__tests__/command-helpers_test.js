@@ -1,12 +1,5 @@
-import { assertEquals, assertMatch } from "@std/assert";
+import { assertEquals } from "@std/assert";
 import { resetTuiState } from "../command-helpers.js";
-import { buildRepairPrompt } from "../../shared/workflow/workflow.js";
-
-Deno.test("buildRepairPrompt includes plan name and error", () => {
-    const text = buildRepairPrompt("my-plan", "bad format");
-    assertMatch(text, /my-plan/);
-    assertMatch(text, /bad format/);
-});
 
 Deno.test("resetTuiState re-enables input and focus", () => {
     let busy = true;

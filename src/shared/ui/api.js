@@ -19,11 +19,26 @@ import {
 export function createUiApi(tui, messageList, spinner) {
     const activeToolBlocks = new Map();
 
-    /** @type {number | null} */
-    let spinnerInterval = null;
+    let isBusy = false;
+    /** @type {ReturnType<typeof setTimeout> | null} */
+    let spinnerTimer = null;
+
+    /** @type {(() => void) | null} */
+    let activePromptCancel = null;
 
     let toolsExpanded = false;
     let outputSuppressed = false;
+
+    /** Recursive setTimeout loop — self-terminates when isBusy is cleared. */
+    const runSpinner = () => {
+        if (!isBusy) {
+            spinnerTimer = null;
+            return;
+        }
+        spinner.advance();
+        tui.requestRender();
+        spinnerTimer = setTimeout(runSpinner, 80);
+    };
 
     return {
         /** @param {string} text */
@@ -130,17 +145,15 @@ export function createUiApi(tui, messageList, spinner) {
         /** @param {boolean} busy */
         setBusy: (busy) => {
             if (outputSuppressed && busy) return;
+
+            isBusy = busy;
             spinner.setBusy(busy, spinner.tasks);
-            if (busy && !spinnerInterval) {
-                if (typeof setInterval !== "undefined") {
-                    spinnerInterval = setInterval(() => {
-                        spinner.advance();
-                        tui.requestRender();
-                    }, 80);
-                }
-            } else if (!busy && spinnerInterval) {
-                clearInterval(spinnerInterval);
-                spinnerInterval = null;
+
+            if (busy && !spinnerTimer) {
+                runSpinner();
+            } else if (!busy && spinnerTimer) {
+                clearTimeout(spinnerTimer);
+                spinnerTimer = null;
             }
             tui.requestRender();
         },
@@ -149,6 +162,14 @@ export function createUiApi(tui, messageList, spinner) {
         setRunningTasks: (tasks) => {
             spinner.tasks = tasks;
             if (!outputSuppressed) tui.requestRender();
+        },
+
+        /** Forcefully cancel the active prompt, resolving its promise with null. */
+        abortActivePrompt: () => {
+            if (activePromptCancel) {
+                activePromptCancel();
+                activePromptCancel = null;
+            }
         },
 
         /**
@@ -163,17 +184,19 @@ export function createUiApi(tui, messageList, spinner) {
                 tui.setFocus(block);
                 tui.requestRender();
 
-                // Override settle in block to handle promise resolution and focus
-                const originalSettle = block.settle.bind(block);
-                block.settle = (value) => {
-                    originalSettle(value);
+                // Single path for settling and cleanup
+                const settleAndCleanup = (/** @type {string | null} */ value) => {
+                    activePromptCancel = null;
+                    block.settle(value);
                     resolve(value);
                     tui.requestRender();
                 };
 
-                // Forward list events to block's settle method
-                block.list.onSelect = (item) => block.settle(item.value);
-                block.list.onCancel = () => block.settle(null);
+                // Expose the cancel function so abortActivePrompt can resolve this promise
+                activePromptCancel = () => settleAndCleanup(null);
+
+                block.list.onSelect = (item) => settleAndCleanup(item.value);
+                block.list.onCancel = () => settleAndCleanup(null);
             });
         },
 
@@ -199,20 +222,24 @@ export function createUiApi(tui, messageList, spinner) {
                 tui.setFocus(block);
                 tui.requestRender();
 
-                const originalSettle = block.settle.bind(block);
-                block.settle = (value) => {
-                    originalSettle(value);
+                // Single path for settling and cleanup
+                const settleAndCleanup = (/** @type {string | null} */ value) => {
+                    activePromptCancel = null;
+                    block.settle(value);
                     resolve(value);
                     tui.requestRender();
                 };
 
+                // Expose the cancel function so abortActivePrompt can resolve this promise
+                activePromptCancel = () => settleAndCleanup(null);
+
                 block.input.onSubmit = (value) => {
                     const finalValue = value || defaultValue || "";
                     if (!allowEmpty && !finalValue.trim()) return;
-                    block.settle(finalValue);
+                    settleAndCleanup(finalValue);
                 };
 
-                block.input.onEscape = () => block.settle(null);
+                block.input.onEscape = () => settleAndCleanup(null);
             });
         },
 

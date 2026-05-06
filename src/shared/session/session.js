@@ -38,7 +38,6 @@ import cymbalExtension, {
     codeTraceToolDef,
 } from "../../extensions/cymbal/index.js";
 import { ensureCymbalBinary, ensureMnemosyneBinary } from "../runtime-preflight.js";
-import { planWrittenTool } from "../../tools/plan-written.js";
 import { executeSwitchAgent, switchAgentTool, triggerAgent } from "../../tools/switch-agent.js";
 import { createUserInterviewTool } from "../../tools/user-interview.js";
 import { PROTECTED_TOOL_NAMES } from "../../tools/registry.js";
@@ -616,11 +615,12 @@ export async function assembleFinalSystemPrompt(agentDef, tools, finalCustomTool
  * @param {Array<{base64: string, mimeType: string}>} [opts.images]
  * @param {import('../workflow/workflow.js').UiAPI} [opts.uiAPI]
  * @param {import('@mariozechner/pi-coding-agent').SessionManager} [opts.sessionManager]
+ * @param {import('../../tools/plan-written.js').TriageMeta} [opts.triageMeta] - Optional triage metadata threaded into auto-wired plan_written.
  *
  * @returns {Promise<import('@mariozechner/pi-agent-core').AgentMessage[]>}
  */
 export async function runAgentSession(
-    { agentName, toolNames, customTools, modelOverride, userRequest, images, uiAPI, sessionManager },
+    { agentName, toolNames, customTools, modelOverride, userRequest, images, uiAPI, sessionManager, triageMeta },
 ) {
     await ensureMnemosyneBinary();
     await ensureCymbalBinary();
@@ -651,7 +651,8 @@ export async function runAgentSession(
     }
 
     if (tools.includes("plan_written") && !finalCustomTools.find((t) => t.name === "plan_written")) {
-        finalCustomTools.push(planWrittenTool);
+        const { createPlanWrittenTool } = await import("../../tools/plan-written.js");
+        finalCustomTools.push(createPlanWrittenTool({ uiAPI, sessionManager, triageMeta, agentName }));
     }
 
     if (tools.includes("triage_report") && !finalCustomTools.find((t) => t.name === "triage_report")) {

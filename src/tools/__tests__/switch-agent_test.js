@@ -67,7 +67,7 @@ Deno.test("switchAgentTool handles router switch with mock UI API", async () => 
         /** @type {{ type: "text", text: string }} */ (result.content[0]).text,
         /Switched to Router\. Reason: Back to start/i,
     );
-    assertMatch(systemMessage, /Agent hand-off: User requested return to Router/i);
+    assertMatch(systemMessage, /Agent hand-off: Switching to router/i);
 });
 
 Deno.test("switchAgentTool updates active model when switching to agent with declared model", async () => {
@@ -130,7 +130,7 @@ Deno.test("executeSwitchAgent succeeds when given a direct uiAPI without global 
     );
 
     assertMatch(/** @type {{ type: "text", text: string }} */ (result.content[0]).text, /Switched to Router/i);
-    assertMatch(systemMessage, /Agent hand-off: User requested return to Router/i);
+    assertMatch(systemMessage, /Agent hand-off: Switching to router/i);
     assertEquals(triggeredAgent, "router");
     assertEquals(triggeredReason, "Back to start");
 });

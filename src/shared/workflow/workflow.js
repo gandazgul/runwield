@@ -1,24 +1,19 @@
 /**
  * @module shared/workflow
- * Shared review-loop and execution helpers reused by router/resume commands.
+ * Plan-execution helpers used by the plan_written tool, the resume command,
+ * and the router triage flow.
+ *
+ * The lifecycle (review → save/execute) lives inside the plan_written tool
+ * itself (see `src/tools/plan-written.js`). This module exports the executor
+ * and post-approval prompts that the tool calls, plus a thin helper for
+ * kicking off a planning agent without an outer review loop.
  */
 
 import { join } from "@std/path";
-import { CLI_BIN, CWD, MAX_PARALLEL_TASKS, PLANS_DIR_NAME } from "../../constants.js";
-import { submitPlanForReview } from "./submit-plan.js";
+import { CWD, MAX_PARALLEL_TASKS } from "../../constants.js";
 import { loadPlan, updatePlanStatus } from "../../plan-store.js";
 import { runAgentSession } from "../session/session.js";
 import { confirm, select } from "../prompts.js";
-import { extractPlanWritten } from "../../cmd/router/triage.js";
-
-/**
- * @param {string} planName
- * @param {string} error
- * @returns {string}
- */
-export function buildRepairPrompt(planName, error) {
-    return `The previously approved plan "${planName}" had a malformed Tasks table: ${error}.\n\nPlease fix the table to ensure it follows the required format (Task ID | Assignee | Dependencies | Description). If any requirement is unclear, use user_interview (1-3 focused questions) before finalizing, then call plan_written again.`;
-}
 
 /**
  * Extract the last text output from the agent's assistant messages.
@@ -33,7 +28,6 @@ function extractAssistantOutput(messages) {
         const msg = messages[i];
         if (!("role" in msg) || msg.role !== "assistant") continue;
         if (!Array.isArray(msg.content)) continue;
-        // Scan all content blocks for a text block
         for (const block of msg.content) {
             if (block && typeof block === "object" && "type" in block && block.type === "text" && block.text?.trim()) {
                 return block.text.trim();
@@ -48,390 +42,60 @@ function extractAssistantOutput(messages) {
  */
 
 /**
- * Resolve the declared plan path from planner/architect tool output.
+ * @typedef {"executed" | "saved" | "denied" | "canceled" | "repair_required" | "no_call"} PlanOutcome
+ */
+
+/**
+ * Read the latest plan_written tool result's outcome from a message stream.
  *
  * @param {import('@mariozechner/pi-agent-core').AgentMessage[]} messages
- * @returns {Promise<{ name: string, path: string, tasks?: Array<{task: number, assignee: string, dependencies: string, description: string}> } | null>}
+ * @returns {{ outcome: PlanOutcome, planName?: string } | null}
  */
-async function resolveDeclaredPlan(messages) {
-    const declared = extractPlanWritten(messages);
-    if (!declared) return null;
-
-    const planName = declared.planName.replace(/\.md$/i, "");
-    if (!planName) return null;
-
-    const planPath = join(CWD, PLANS_DIR_NAME, `${planName}.md`);
-    try {
-        const stat = await Deno.stat(planPath);
-        if (!stat.isFile) return null;
-    } catch {
-        return null;
+export function readLatestPlanOutcome(messages) {
+    for (let i = messages.length - 1; i >= 0; i--) {
+        const msg = messages[i];
+        if (
+            msg && "role" in msg && msg.role === "toolResult" &&
+            "toolName" in msg && msg.toolName === "plan_written"
+        ) {
+            // @ts-ignore details set by tool implementation
+            const details = msg.details || {};
+            const outcome = details.outcome;
+            if (outcome) {
+                return { outcome, planName: details.planName };
+            }
+        }
     }
-
-    return { name: planName, path: planPath, tasks: declared.tasks };
-}
-
-/**
- * Build the planner/architect revision request after a denied plan review.
- *
- * @param {Object} opts
- * @param {number} opts.round
- * @param {string} opts.planName
- * @param {string | undefined} opts.feedback
- * @returns {string}
- */
-export function buildDeniedFeedbackRequest({ round, planName, feedback }) {
-    return [
-        `## Previous Plan Feedback (Round ${round})`,
-        "",
-        "Your plan was denied. Here is the structured feedback from the user:",
-        "",
-        feedback || "(no specific feedback provided)",
-        "",
-        `Please revise your plan in plans/${planName}.md based on this feedback.`,
-        "Use the `edit` tool to make targeted revisions — do NOT rewrite the entire plan.",
-        "Address each piece of feedback specifically.",
-        "After saving revisions, call the plan_written tool again with the same plan name.",
-    ].join("\n");
-}
-
-/**
- * Run the planning review loop until approved/canceled/failed.
- *
- * @param {Object} opts
- * @param {string} opts.agentName
- * @param {string[]} [opts.toolNames]
- * @param {string} opts.initialRequest - The initial user request to send to the planning agent
- * @param {import('@mariozechner/pi-coding-agent').ToolDefinition[]} [opts.customTools]
- * @param {Partial<import('../../plan-store.js').PlanFrontMatter>} opts.triageMeta
- * @param {number} [opts.maxRevisions=Infinity]
- * @param {UiAPI} [opts.uiAPI]
- * @param {import('@mariozechner/pi-coding-agent').SessionManager} [opts.sessionManager]
- * @returns {Promise<{ planName: string, planPath: string, approved: true, tasks?: Array<{task: number, assignee: string, dependencies: string, description: string}> } | { canceled: true } | null>}
- */
-export async function reviewLoop({
-    agentName,
-    toolNames,
-    initialRequest,
-    customTools,
-    triageMeta,
-    maxRevisions = Number.POSITIVE_INFINITY,
-    uiAPI,
-    sessionManager,
-}) {
-    let currentRequest = initialRequest;
-    let revision = 0;
-
-    while (revision < maxRevisions) {
-        if (revision === 0) {
-            if (uiAPI) {
-                uiAPI.appendSystemMessage(`[Harns] === Running ${agentName} ===`);
-            } else console.log(`\n[Harns] === Running ${agentName} ===\n`);
-        } else {
-            const attemptSuffix = Number.isFinite(maxRevisions)
-                ? ` (attempt ${revision + 1}/${maxRevisions})`
-                : ` (attempt ${revision + 1})`;
-            const msg = `[Harns] === Revising plan${attemptSuffix} ===`;
-            if (uiAPI) uiAPI.appendSystemMessage(msg);
-            else console.log(`\n${msg}\n`);
-        }
-
-        const planningMessages = await runAgentSession({
-            agentName,
-            toolNames,
-            customTools,
-            userRequest: currentRequest,
-            uiAPI,
-            sessionManager,
-        });
-
-        const planInfo = await resolveDeclaredPlan(planningMessages);
-        if (!planInfo) {
-            const msg = "[Harns] ERROR: Agent did not declare a valid plan via plan_written.";
-            if (uiAPI) uiAPI.appendSystemMessage(msg);
-            else console.error(`\n${msg}`);
-            return null;
-        }
-
-        // Enforce PROJECT-only validation: if classification is PROJECT, tasks must be present and non-empty.
-        if (triageMeta?.classification === "PROJECT" && (!planInfo.tasks || planInfo.tasks.length === 0)) {
-            const msg = "[Harns] ERROR: Project plans must include a non-empty tasks array in the plan_written tool call.";
-            if (uiAPI) uiAPI.appendSystemMessage(msg);
-            else console.error(`\n${msg}`);
-            return null;
-        }
-
-        if (uiAPI) {
-            uiAPI.appendSystemMessage(
-                `[Harns] Plan created: plans/${planInfo.name}.md`,
-            );
-        } else console.log(`\n[Harns] Plan created: plans/${planInfo.name}.md`);
-
-        const result = await submitPlanForReview({
-            cwd: CWD,
-            planName: planInfo.name,
-            planPath: planInfo.path,
-            triageMeta,
-            uiAPI,
-        });
-
-        if (result.canceled) {
-            if (uiAPI) uiAPI.appendSystemMessage("[Harns] Plan review canceled. Returning to interactive mode.");
-            else console.log("\n[Harns] Plan review canceled. Returning to interactive mode.\n");
-            return { canceled: true };
-        }
-
-        if (result.approved) {
-            return {
-                planName: planInfo.name,
-                planPath: planInfo.path,
-                approved: true,
-                tasks: planInfo.tasks,
-            };
-        }
-
-        revision++;
-        if (uiAPI) {
-            uiAPI.appendSystemMessage(
-                `[Harns] Plan denied. Feeding feedback back to ${agentName}...`,
-            );
-        } else {
-            console.log(
-                `\n[Harns] Plan denied. Feeding feedback back to ${agentName}...`,
-            );
-        }
-
-        currentRequest = buildDeniedFeedbackRequest({
-            round: revision,
-            planName: planInfo.name,
-            feedback: result.feedback,
-        });
-    }
-
-    const msg = `[Harns] Max revisions (${maxRevisions}) reached. Plan not approved.`;
-    if (uiAPI) uiAPI.appendSystemMessage(msg);
-    else console.error(`\n${msg}`);
     return null;
 }
 
 /**
- * Ask user what to do after plan approval.
- *
- * @param {string} planName
- * @param {UiAPI} [uiAPI]
- * @returns {Promise<"proceed" | "save">}
- */
-/**
- * Re-open an existing plan in a denial-feedback revision loop until approved,
- * canceled (Esc), or failure.
+ * Run a planning agent (planner/architect) once and return the lifecycle outcome.
+ * The plan_written tool inside the session handles review/save/execute and writes
+ * the outcome to its tool result, which we surface here for the caller.
  *
  * @param {Object} opts
  * @param {string} opts.agentName
- * @param {string[]} [opts.toolNames]
- * @param {import('@mariozechner/pi-coding-agent').ToolDefinition[]} [opts.customTools]
- * @param {Partial<import('../../plan-store.js').PlanFrontMatter>} opts.triageMeta
- * @param {string} opts.planName
- * @param {string} opts.planPath
+ * @param {string} opts.initialRequest
+ * @param {import('../../tools/plan-written.js').TriageMeta} [opts.triageMeta]
  * @param {UiAPI} [opts.uiAPI]
  * @param {import('@mariozechner/pi-coding-agent').SessionManager} [opts.sessionManager]
- * @returns {Promise<{ planName: string, planPath: string, approved: true, tasks?: Array<{task: number, assignee: string, dependencies: string, description: string}> } | { canceled: true } | null>}
+ * @returns {Promise<{ outcome: PlanOutcome, planName?: string }>}
  */
-export async function reReviewLoop({
-    agentName,
-    toolNames,
-    customTools,
-    triageMeta,
-    planName,
-    planPath,
-    uiAPI,
-    sessionManager,
-}) {
-    let revision = 0;
-    const currentPlanName = planName;
-    let currentPlanPath = planPath;
-    /** @type {Array<{task: number, assignee: string, dependencies: string, description: string}> | undefined} */
-    let currentTasks;
+export async function runPlanningAgent({ agentName, initialRequest, triageMeta, uiAPI, sessionManager }) {
+    if (uiAPI) uiAPI.appendSystemMessage(`[Harns] === Running ${agentName} ===`);
+    else console.log(`\n[Harns] === Running ${agentName} ===\n`);
 
-    while (true) {
-        const result = await submitPlanForReview({
-            cwd: CWD,
-            planName: currentPlanName,
-            planPath: currentPlanPath,
-            triageMeta,
-            uiAPI,
-        });
+    const messages = await runAgentSession({
+        agentName,
+        userRequest: initialRequest,
+        triageMeta,
+        uiAPI,
+        sessionManager,
+    });
 
-        if (result.canceled) {
-            if (uiAPI) uiAPI.appendSystemMessage("[Harns] Plan review canceled. Returning to interactive mode.");
-            else console.log("\n[Harns] Plan review canceled. Returning to interactive mode.\n");
-            return { canceled: true };
-        }
-
-        if (result.approved) {
-            return {
-                planName: currentPlanName,
-                planPath: currentPlanPath,
-                approved: true,
-                tasks: currentTasks,
-            };
-        }
-
-        revision++;
-        if (uiAPI) {
-            uiAPI.appendSystemMessage(
-                `[Harns] Plan denied. Feeding feedback back to ${agentName}...`,
-            );
-        } else {
-            console.log(`\n[Harns] Plan denied. Feeding feedback back to ${agentName}...`);
-        }
-
-        const currentRequest = buildDeniedFeedbackRequest({
-            round: revision,
-            planName: currentPlanName,
-            feedback: result.feedback,
-        });
-
-        const planningMessages = await runAgentSession({
-            agentName,
-            toolNames,
-            customTools,
-            userRequest: currentRequest,
-            uiAPI,
-            sessionManager,
-        });
-
-        const planInfo = await resolveDeclaredPlan(planningMessages);
-        if (!planInfo) {
-            const msg = "[Harns] ERROR: Agent did not declare a valid plan via plan_written.";
-            if (uiAPI) uiAPI.appendSystemMessage(msg);
-            else console.error(`\n${msg}`);
-            return null;
-        }
-
-        // Enforce PROJECT-only validation: if classification is PROJECT, tasks must be present and non-empty.
-        if (triageMeta?.classification === "PROJECT" && (!planInfo.tasks || planInfo.tasks.length === 0)) {
-            const msg = "[Harns] ERROR: Project plans must include a non-empty tasks array in the plan_written tool call.";
-            if (uiAPI) uiAPI.appendSystemMessage(msg);
-            else console.error(`\n${msg}`);
-            return null;
-        }
-
-        if (planInfo.name !== currentPlanName) {
-            const msg = `[Harns] ERROR: Expected revised plan '${currentPlanName}' but got '${planInfo.name}'.`;
-            if (uiAPI) uiAPI.appendSystemMessage(msg);
-            else console.error(`\n${msg}`);
-            return null;
-        }
-
-        currentPlanPath = planInfo.path;
-        currentTasks = planInfo.tasks;
-    }
-}
-
-/**
- * Unified planning lifecycle used by Router and Resume.
- *
- * @param {Object} opts
- * @param {string} opts.agentName
- * @param {Partial<import('../../plan-store.js').PlanFrontMatter>} opts.triageMeta
- * @param {import('@mariozechner/pi-coding-agent').ToolDefinition[]} [opts.customTools]
- * @param {string[]} [opts.toolNames]
- * @param {string} [opts.initialRequest]
- * @param {{ planName: string, planPath: string, tasks?: Array<{task: number, assignee: string, dependencies: string, description: string}> }} [opts.existingPlan]
- * @param {UiAPI} [opts.uiAPI]
- * @param {import('@mariozechner/pi-coding-agent').SessionManager} [opts.sessionManager]
- * @param {(planName: string, error: string) => string} [opts.buildRepairPrompt]
- * @returns {Promise<{ status: "executed" | "saved" | "canceled" | "failed", planName?: string, tasks?: Array<{task: number, assignee: string, dependencies: string, description: string}> }>}
- */
-export async function runPlanLifecycle({
-    agentName,
-    triageMeta,
-    customTools,
-    toolNames,
-    initialRequest,
-    existingPlan,
-    uiAPI,
-    sessionManager,
-    buildRepairPrompt,
-}) {
-    let reviewResult;
-
-    if (existingPlan) {
-        reviewResult = await reReviewLoop({
-            agentName,
-            toolNames,
-            customTools,
-            triageMeta,
-            planName: existingPlan.planName,
-            planPath: existingPlan.planPath,
-            uiAPI,
-            sessionManager,
-        });
-    } else {
-        if (!initialRequest) {
-            const msg = "[Harns] ERROR: runPlanLifecycle requires initialRequest when existingPlan is not provided.";
-            if (uiAPI) uiAPI.appendSystemMessage(msg, true);
-            else console.error(msg);
-            return { status: "failed" };
-        }
-
-        reviewResult = await reviewLoop({
-            agentName,
-            toolNames,
-            initialRequest,
-            customTools,
-            triageMeta,
-            uiAPI,
-            sessionManager,
-        });
-    }
-
-    if (!reviewResult) return { status: "failed" };
-    if ("canceled" in reviewResult && reviewResult.canceled) return { status: "canceled" };
-
-    const approvedResult =
-        /** @type {{ planName: string, planPath: string, approved: true, tasks?: Array<{task: number, assignee: string, dependencies: string, description: string}> }} */ (reviewResult);
-
-    const action = triageMeta.classification === "PROJECT"
-        ? await askApprovalWithTasks(approvedResult.planName, uiAPI, approvedResult.tasks)
-        : await askPostApproval(approvedResult.planName, uiAPI);
-
-    if (action !== "proceed") {
-        if (uiAPI) {
-            uiAPI.appendSystemMessage(
-                `[Harns] Plan saved. Resume later with: ${CLI_BIN} resume ${approvedResult.planName}`,
-            );
-        }
-        return {
-            status: "saved",
-            planName: approvedResult.planName,
-            tasks: approvedResult.tasks,
-        };
-    }
-
-    const execRes = await executePlan(approvedResult.planName, triageMeta, uiAPI, approvedResult.tasks, sessionManager);
-    if (execRes && execRes.repairRequired && buildRepairPrompt) {
-        uiAPI?.appendSystemMessage(
-            `[Harns] Execution failed due to task table error. Rerouting to ${agentName} for repair...`,
-        );
-        await reviewLoop({
-            agentName,
-            customTools,
-            initialRequest: buildRepairPrompt(
-                approvedResult.planName,
-                execRes.error || "Unknown task table error",
-            ),
-            triageMeta,
-            uiAPI,
-            sessionManager,
-        });
-    }
-
-    return {
-        status: "executed",
-        planName: approvedResult.planName,
-        tasks: approvedResult.tasks,
-    };
+    const result = readLatestPlanOutcome(messages);
+    return result || { outcome: "no_call" };
 }
 
 /**
@@ -592,15 +256,11 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
                 await runEngineerWithPlan(planName, plan.body, uiAPI, sessionManager);
             }
         } catch (e) {
-            // spinnerInterval is local to the try block, but we should only clear if it exists.
-            // However, it is defined inside the try block, so we can't access it here unless it's hoisted.
-            // Let's move the declaration to the upper scope.
             const error = e instanceof Error ? e : new Error(String(e));
             const msg = `[Harns] TASK TABLE ERROR: ${error.message}`;
             if (uiAPI) uiAPI.appendSystemMessage(msg);
             else console.error(`\n${msg}`);
 
-            // Return status that triggers repair loop in the caller (Router/Resume)
             return { repairRequired: true, error: error.message };
         }
     } else {
@@ -638,7 +298,6 @@ async function executeProjectTasks(
     const running = new Set();
     const failed = new Set();
 
-    // If we are retrying, seed the state
     if (seedFailedTasks.length > 0) {
         const processed = tasks.filter((task) => !seedFailedTasks.includes(task.task)).map((task) => task.task);
         processed.forEach((id) => results.set(id, { status: "success" }));
@@ -646,7 +305,6 @@ async function executeProjectTasks(
     }
 
     while (results.size < tasks.length) {
-        // Ready tasks are those still pending whose dependencies have completed successfully.
         const ready = tasks.filter((task) => {
             if (!pending.has(task.task)) return false;
             const deps = (task.dependencies || "").split(",").map((dependency) => dependency.trim()).filter((
@@ -654,16 +312,14 @@ async function executeProjectTasks(
             ) => dependency && dependency.toLowerCase() !== "none");
             return deps.every((dependency) => {
                 const depId = parseInt(dependency);
-                if (isNaN(depId)) return true; // permissive for non-numeric deps
+                if (isNaN(depId)) return true;
                 return results.has(depId) && results.get(depId)?.status === "success";
             });
         });
 
-        // Cap launches to available worker slots to respect MAX_PARALLEL_TASKS.
         const toLaunch = ready.slice(0, MAX_PARALLEL_TASKS - running.size);
 
         if (toLaunch.length === 0 && running.size === 0 && pending.size > 0) {
-            // No ready work and nothing running: remaining tasks are blocked/deadlocked.
             const remaining = Array.from(pending);
             remaining.forEach((id) => {
                 results.set(id, { status: "blocked" });
@@ -704,15 +360,6 @@ async function executeProjectTasks(
             const taskTools = undefined;
 
             try {
-                // We do NOT use uiAPI directly for rendering text chunks for concurrent tasks
-                // because multiple agents printing simultaneously to the main TUI
-                // would corrupt the markdown/text block UI. Instead, we use a mock/proxy uiAPI
-                // that buffers or handles the progress animation internally, and only append
-                // exactly when the task completes.
-
-                // For now, we will notify that the task is starting, but we won't pass uiAPI
-                // so that session text output is redirected/supressed until we have a better way
-                // to visualize it.
                 const mockUiAPI = uiAPI
                     ? {
                         appendUserMessage: () => {},
@@ -736,10 +383,9 @@ async function executeProjectTasks(
                     agentName,
                     toolNames: taskTools,
                     userRequest: taskRequest,
-                    uiAPI: mockUiAPI, // Avoid concurrent TUI text writes and silence terminal
+                    uiAPI: mockUiAPI,
                 });
 
-                // Extract text from last assistant message, scanning all content blocks
                 const outputText = extractAssistantOutput(sessionMessages);
 
                 if (Deno.env.get("DEBUG") === "1") {
@@ -759,7 +405,6 @@ async function executeProjectTasks(
                     } catch (_e) { /* ignore */ }
                 }
 
-                // Always show the output block, even if empty
                 if (uiAPI) {
                     const block = uiAPI.appendAgentMessageStart(`${agentName} (Task ${task.task} Output)`);
                     block.appendText(outputText || "_no output received_");
@@ -784,19 +429,14 @@ async function executeProjectTasks(
             }
         });
 
-        // Wait for first completion, then recompute readiness/dependencies.
-        // If nothing launched but tasks are still running, poll briefly and loop.
         if (launches.length > 0) {
             await Promise.race(launches);
         } else if (running.size > 0) {
-            // Fallback to wait for all running if none ready
-            // We use a small delay and continue looping while jobs run
-            await new Promise((r) => setTimeout(r, 100)); // check again soon
+            await new Promise((r) => setTimeout(r, 100));
             continue;
         } else if (pending.size === 0) {
             break;
         } else {
-            // Remaining pending tasks can no longer become ready due to blocked dependencies.
             tasks.filter((task) => pending.has(task.task)).forEach((task) => {
                 results.set(task.task, { status: "blocked" });
             });
@@ -860,7 +500,7 @@ export async function askApprovalWithTasks(planName, uiAPI, structuredTasks) {
         try {
             tasks = extractTasks(plan.markdown);
         } catch {
-            // we'll proceed with 0 tasks and perhaps fail during execute if markdown also parsing fails
+            // proceed with 0 tasks; execution will report repair needed if markdown also fails
         }
     }
 

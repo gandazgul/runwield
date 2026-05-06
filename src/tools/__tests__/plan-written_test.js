@@ -1,50 +1,37 @@
 import { assertEquals, assertMatch } from "@std/assert";
-import { planWrittenTool } from "../plan-written.js";
+import { createPlanWrittenTool } from "../plan-written.js";
 
-/**
- * @param {{ execute: unknown }} tool
- * @param {{ planName: string, tasks?: Array<{ task: number, assignee: string, dependencies: string, description: string }> }} params
- */
-async function executeTool(tool, params) {
-    const execute =
-        /** @type {(id: string, params: { planName: string, tasks?: Array<{ task: number, assignee: string, dependencies: string, description: string }> }, signal: AbortSignal, onUpdate: () => void, context: object) => Promise<{ content: Array<{ type: string, text?: string }>, details: unknown }>} */ (tool
-            .execute);
-    return await execute("tool-call-1", params, new AbortController().signal, () => {}, {});
-}
-
-/**
- * @param {{ content: Array<{ type: string, text?: string }> }} result
- */
-function firstText(result) {
-    const first = result.content[0];
-    assertEquals(first?.type, "text");
-    if (!first || first.type !== "text") throw new Error("Expected text content.");
-    return first.text ?? "";
-}
-
-Deno.test("planWrittenTool exposes expected metadata", () => {
-    assertEquals(planWrittenTool.name, "plan_written");
-    assertEquals(planWrittenTool.label, "Plan Written");
-    assertMatch(planWrittenTool.description, /Declare the plan filename/i);
-    assertEquals(typeof planWrittenTool.execute, "function");
-    assertEquals(typeof planWrittenTool.parameters, "object");
+Deno.test("createPlanWrittenTool exposes expected metadata", () => {
+    const tool = createPlanWrittenTool();
+    assertEquals(tool.name, "plan_written");
+    assertEquals(tool.label, "Plan Written");
+    assertMatch(tool.description, /Declare the plan filename/i);
+    assertEquals(typeof tool.execute, "function");
+    assertEquals(typeof tool.parameters, "object");
 });
 
-Deno.test("planWrittenTool execute returns summary content and echoes details", async () => {
-    const params = {
-        planName: "implement-memory-system",
-        tasks: [
-            {
-                task: 1,
-                assignee: "engineer",
-                dependencies: "",
-                description: "Implement persistence layer",
-            },
-        ],
-    };
+Deno.test("createPlanWrittenTool returns guidance when planName is empty", async () => {
+    const tool = createPlanWrittenTool();
+    const result = await /** @type {any} */ (tool.execute)(
+        "tool-call-1",
+        { planName: "" },
+        new AbortController().signal,
+        () => {},
+        {},
+    );
+    const text = result.content[0]?.text ?? "";
+    assertMatch(text, /planName is empty/);
+});
 
-    const result = await executeTool(planWrittenTool, params);
-
-    assertEquals(result.details, params);
-    assertEquals(firstText(result), "Plan declared: implement-memory-system");
+Deno.test("createPlanWrittenTool returns guidance when plan file is missing", async () => {
+    const tool = createPlanWrittenTool();
+    const result = await /** @type {any} */ (tool.execute)(
+        "tool-call-1",
+        { planName: "definitely-does-not-exist-" + Math.random().toString(36).slice(2) },
+        new AbortController().signal,
+        () => {},
+        {},
+    );
+    const text = result.content[0]?.text ?? "";
+    assertMatch(text, /not found/);
 });
