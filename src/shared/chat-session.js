@@ -19,7 +19,7 @@ import { editorTheme, imageTheme, theme } from "./ui/theme.js";
 import { readClipboardImage } from "./clipboard.js";
 import { createUiApi } from "./ui/api.js";
 import { SpinnerBlock } from "./ui/blocks.js";
-import { abortActiveSession, listPromptTemplates, runAgentSession } from "./session/session.js";
+import { abortActiveSession, listPromptTemplates, runAgentSession, steerRootSession } from "./session/session.js";
 import { cancelActivePlanReview } from "./workflow/submit-plan.js";
 import { ensureMnemosyneBinary } from "./runtime-preflight.js";
 import { commandRegistry } from "../cmd/registry.js";
@@ -941,17 +941,25 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
 
         editor.addToHistory?.(userRequest);
 
-        submissionQueue.push({ text: userRequest, images: [...pastedImages] });
+        const images = [...pastedImages];
         pastedImages.length = 0;
         previewImages.clear();
         editor.setText("");
 
         if (isProcessingSubmission) {
-            uiAPI.appendSystemMessage(`[Queued message: ${userRequest}]`);
-            tui.requestRender();
+            steerRootSession(userRequest, images).then((steered) => {
+                if (steered) {
+                    uiAPI.appendSystemMessage(`[Steering: ${userRequest}]`);
+                } else {
+                    submissionQueue.push({ text: userRequest, images });
+                    uiAPI.appendSystemMessage(`[Queued message: ${userRequest}]`);
+                }
+                tui.requestRender();
+            });
             return;
         }
 
+        submissionQueue.push({ text: userRequest, images });
         processSubmissions();
     };
 

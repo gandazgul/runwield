@@ -157,7 +157,7 @@ export function createTriageReportTool({ uiAPI, sessionManager, userRequest = ""
                 content: [
                     {
                         type: "text",
-                        text: `Triage complete: ${classification} (${complexity} complexity). Summary: ${summary}`,
+                        text: `Triage complete. Your role as Router is finished. Do not generate any further text.`,
                     },
                 ],
                 details: params,

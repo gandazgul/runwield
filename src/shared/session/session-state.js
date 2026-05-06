@@ -10,13 +10,15 @@
  * activeOnMessage: import('./types.js').AgentMessageHandler | null,
  * rootSessionManager: import('./session/types.js').SessionManagerLike | null,
  * activeUiAPI: import('./ui/types.js').UiAPI | null,
+ * rootAgentSession: import('@mariozechner/pi-coding-agent').AgentSession | null,
  * }} */
 const state = {
     activeAgentName: "Router",
     activeModel: "",
     activeModelProvider: "",
     activeOnMessage: null,
-    rootSessionManager: null,
+    rootSessionManager: null, // conversation history / persistence (pi SessionManager)
+    rootAgentSession: null, // live session handle used for steering / abort (pi AgentSession)
     activeUiAPI: null,
 };
 
@@ -67,4 +69,13 @@ export function setActiveUiAPI(uiAPI) {
 
 export function getActiveUiAPIState() {
     return state.activeUiAPI;
+}
+
+/** @param {import('@mariozechner/pi-coding-agent').AgentSession | null} session */
+export function setRootAgentSession(session) {
+    state.rootAgentSession = session;
+}
+
+export function getRootAgentSession() {
+    return state.rootAgentSession;
 }

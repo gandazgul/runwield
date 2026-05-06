@@ -44,7 +44,7 @@ import { createUserInterviewTool } from "../../tools/user-interview.js";
 import { PROTECTED_TOOL_NAMES } from "../../tools/registry.js";
 import { getModelRegistry } from "../models/model-registry.js";
 import { parseProviderModel } from "../models/model-validation.js";
-import { getActiveModelState } from "./session-state.js";
+import { getActiveModelState, getRootAgentSession, setRootAgentSession } from "./session-state.js";
 
 const HOME_DIR = Deno.env.get("HOME") || "";
 const HOME_AGENT_DEFS_DIR = HOME_DIR ? join(HOME_DIR, ".hns", "agents") : null;
@@ -421,6 +421,25 @@ export function abortActiveSession() {
         session.abort();
     }
     return hadActiveSessions;
+}
+
+/**
+ * Steer the root (user-facing) session with a message injected between tool calls.
+ * Sub-agent sessions spawned by tools are intentionally excluded.
+ *
+ * @param {string} text
+ * @param {import('./types.js').ImageAttachment[]} [images]
+ * @returns {Promise<boolean>} true when the root session was steered
+ */
+export async function steerRootSession(text, images) {
+    const session = getRootAgentSession();
+    if (!session) return false;
+    /** @type {Array<{type: "image", data: string, mimeType: string}>} */
+    const imageContent = images && images.length > 0
+        ? images.map((img) => ({ type: /** @type {"image"} */ ("image"), data: img.base64, mimeType: img.mimeType }))
+        : [];
+    await session.steer(text, imageContent.length > 0 ? imageContent : undefined);
+    return true;
 }
 
 /**
@@ -898,8 +917,11 @@ export async function runAgentSession(
     /** @type {Error | null} */
     let promptError = null;
 
+    const isRoot = activeSessions.size === 0;
+
     try {
         activeSessions.add(session);
+        if (isRoot) setRootAgentSession(session);
         await session.prompt(userRequest, requestOptions);
         await session.agent.waitForIdle();
     } catch (error) {
@@ -907,6 +929,7 @@ export async function runAgentSession(
         throw error;
     } finally {
         activeSessions.delete(session);
+        if (isRoot) setRootAgentSession(null);
 
         // Defensive cleanup: clear pending thinking buffer and force idle UI state.
         // This handles abort/error edge paths where turn_end events may never fire.

@@ -153,6 +153,14 @@ export async function reviewLoop({
             return null;
         }
 
+        // Enforce PROJECT-only validation: if classification is PROJECT, tasks must be present and non-empty.
+        if (triageMeta?.classification === "PROJECT" && (!planInfo.tasks || planInfo.tasks.length === 0)) {
+            const msg = "[Harns] ERROR: Project plans must include a non-empty tasks array in the plan_written tool call.";
+            if (uiAPI) uiAPI.appendSystemMessage(msg);
+            else console.error(`\n${msg}`);
+            return null;
+        }
+
         if (uiAPI) {
             uiAPI.appendSystemMessage(
                 `[Harns] Plan created: plans/${planInfo.name}.md`,
@@ -295,6 +303,14 @@ export async function reReviewLoop({
         const planInfo = await resolveDeclaredPlan(planningMessages);
         if (!planInfo) {
             const msg = "[Harns] ERROR: Agent did not declare a valid plan via plan_written.";
+            if (uiAPI) uiAPI.appendSystemMessage(msg);
+            else console.error(`\n${msg}`);
+            return null;
+        }
+
+        // Enforce PROJECT-only validation: if classification is PROJECT, tasks must be present and non-empty.
+        if (triageMeta?.classification === "PROJECT" && (!planInfo.tasks || planInfo.tasks.length === 0)) {
+            const msg = "[Harns] ERROR: Project plans must include a non-empty tasks array in the plan_written tool call.";
             if (uiAPI) uiAPI.appendSystemMessage(msg);
             else console.error(`\n${msg}`);
             return null;
@@ -458,7 +474,7 @@ export function extractTasks(planContent) {
     }
 
     const rows = taskSection[1].matchAll(
-        /\|\s*(\d+)\s*\|\s*(\w[\w-]*)\s*\|\s*([^|]*)\s*\|\s*([^|]*)\s*\|/g,
+        /\|\s*(\d+)\s*\|\s*(\w[\w-]*)\s*\|\s*([^|]*?)\s*\|\s*([^|]*?)\s*(?:\|)?\s*$/gm,
     );
 
     for (const match of rows) {
