@@ -51,7 +51,6 @@ Deno.test("runResumePlanCommand empty plan list in TUI mode", async () => {
             parseArgs: () => ({ help: false, _: [] }),
             listPlans: () => Promise.resolve([]),
             resetTuiState: () => {},
-            importRouter: () => Promise.resolve({ routerCmdOnMessage: async () => {} }),
             setActiveAgent: () => {},
         }),
     });
@@ -88,7 +87,6 @@ Deno.test("runResumePlanCommand approved plan proceed path", async () => {
             },
             createDirectAgentHandler: () => async () => {},
             resetTuiState: () => {},
-            importRouter: () => Promise.resolve({ routerCmdOnMessage: async () => {} }),
             setActiveAgent: () => {},
         }),
     });
@@ -126,7 +124,6 @@ Deno.test("runResumePlanCommand non-approved plan enters shared plan lifecycle",
             createUserInterviewTool: () => ({ name: "user_interview" }),
             setActiveAgent: () => {},
             resetTuiState: () => {},
-            importRouter: () => Promise.resolve({ routerCmdOnMessage: async () => {} }),
         }),
     });
 
@@ -156,7 +153,6 @@ Deno.test("runResumePlanCommand approved plan view then cancel", async () => {
                     },
                 }),
             resetTuiState: () => {},
-            importRouter: () => Promise.resolve({ routerCmdOnMessage: async () => {} }),
             setActiveAgent: () => {},
         }),
     });
@@ -195,7 +191,6 @@ Deno.test("runResumePlanCommand approved review uses shared lifecycle (no rerun 
             },
             createDirectAgentHandler: () => async () => {},
             resetTuiState: () => {},
-            importRouter: () => Promise.resolve({ routerCmdOnMessage: async () => {} }),
             setActiveAgent: () => {},
         }),
     });
@@ -234,7 +229,6 @@ Deno.test("runResumePlanCommand approved proceed with repair reroutes review", a
             },
             createUserInterviewTool: () => ({ name: "user_interview" }),
             resetTuiState: () => {},
-            importRouter: () => Promise.resolve({ routerCmdOnMessage: async () => {} }),
             setActiveAgent: () => {},
         }),
     });
@@ -292,7 +286,6 @@ Deno.test("runResumePlanCommand keeps planner active when lifecycle canceled", a
                 activeAgents.push(name);
             },
             resetTuiState: () => {},
-            importRouter: () => Promise.resolve({ routerCmdOnMessage: async () => {} }),
             createUserInterviewTool: () => ({ name: "user_interview" }),
         }),
     });
@@ -301,8 +294,10 @@ Deno.test("runResumePlanCommand keeps planner active when lifecycle canceled", a
     assertEquals(activeAgents.includes("Router"), false);
 });
 
-Deno.test("runResumePlanCommand router restore failure appends warning", async () => {
+Deno.test("runResumePlanCommand restores router flow after lifecycle failure", async () => {
     const { uiAPI, messages } = makeUi();
+    /** @type {string[]} */
+    const restoredAgents = [];
 
     await runResumePlanCommand(["plan-g"], {
         uiAPI,
@@ -324,11 +319,12 @@ Deno.test("runResumePlanCommand router restore failure appends warning", async (
                 }),
             runPlanLifecycle: () => Promise.resolve({ status: "failed" }),
             createDirectAgentHandler: () => async () => {},
-            setActiveAgent: () => {},
+            setActiveAgent: (/** @type {string} */ name) => restoredAgents.push(name),
             resetTuiState: () => {},
-            importRouter: () => Promise.reject(new Error("boom")),
+            createUserInterviewTool: () => ({ name: "user_interview" }),
         }),
     });
 
-    assertEquals(messages.some((m) => m.includes("Could not reload Router automatically")), true);
+    assertEquals(restoredAgents.includes("Router"), true);
+    assertEquals(messages.some((m) => m.includes("Switched back to Router")), true);
 });

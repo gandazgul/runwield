@@ -56,30 +56,6 @@ export async function executeSwitchAgent(params, uiAPI, context, triggerFn = noO
 
     const target = agentName.toLowerCase().trim();
 
-    if (target === "router") {
-        const { routerCmdOnMessage } = await import("../cmd/router/index.js");
-        setActiveAgent("Router", routerCmdOnMessage, uiAPI);
-        uiAPI.appendSystemMessage(`Agent hand-off: User requested return to Router. Reason: ${reason}`);
-
-        // Immediately trigger router with the reason
-        await triggerFn(
-            target,
-            reason,
-            uiAPI,
-            /** @type {import('@mariozechner/pi-coding-agent').SessionManager | undefined} */ (
-                /** @type {unknown} */ (context?.sessionManager)
-            ),
-        );
-
-        return {
-            content: [{
-                type: "text",
-                text: `Switched to Router. Reason: ${reason}`,
-            }],
-            details: null,
-        };
-    }
-
     const agents = await listAvailableAgents();
     const match = agents.find((agent) => agent.name === target);
 

@@ -1,5 +1,6 @@
 import { assertEquals, assertMatch } from "@std/assert";
-import { buildRepairPrompt, resetTuiState } from "../command-helpers.js";
+import { resetTuiState } from "../command-helpers.js";
+import { buildRepairPrompt } from "../../shared/workflow/workflow.js";
 
 Deno.test("buildRepairPrompt includes plan name and error", () => {
     const text = buildRepairPrompt("my-plan", "bad format");

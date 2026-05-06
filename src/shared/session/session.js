@@ -40,7 +40,6 @@ import cymbalExtension, {
 import { ensureCymbalBinary, ensureMnemosyneBinary } from "../runtime-preflight.js";
 import { planWrittenTool } from "../../tools/plan-written.js";
 import { executeSwitchAgent, switchAgentTool, triggerAgent } from "../../tools/switch-agent.js";
-import { triageReportTool } from "../../tools/triage-report.js";
 import { createUserInterviewTool } from "../../tools/user-interview.js";
 import { PROTECTED_TOOL_NAMES } from "../../tools/registry.js";
 import { getModelRegistry } from "../models/model-registry.js";
@@ -637,7 +636,8 @@ export async function runAgentSession(
     }
 
     if (tools.includes("triage_report") && !finalCustomTools.find((t) => t.name === "triage_report")) {
-        finalCustomTools.push(triageReportTool);
+        const { createTriageReportTool } = await import("../../tools/triage-report.js");
+        finalCustomTools.push(createTriageReportTool({ uiAPI, sessionManager, userRequest, images }));
     }
 
     if (tools.includes("user_interview") && !finalCustomTools.find((t) => t.name === "user_interview")) {

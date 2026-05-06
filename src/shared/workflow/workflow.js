@@ -12,6 +12,15 @@ import { confirm, select } from "../prompts.js";
 import { extractPlanWritten } from "../../cmd/router/triage.js";
 
 /**
+ * @param {string} planName
+ * @param {string} error
+ * @returns {string}
+ */
+export function buildRepairPrompt(planName, error) {
+    return `The previously approved plan "${planName}" had a malformed Tasks table: ${error}.\n\nPlease fix the table to ensure it follows the required format (Task ID | Assignee | Dependencies | Description). If any requirement is unclear, use user_interview (1-3 focused questions) before finalizing, then call plan_written again.`;
+}
+
+/**
  * Extract the last text output from the agent's assistant messages.
  * Scans messages in reverse, checking ALL content blocks (not just [0])
  * to handle cases where tool_use blocks appear alongside text.
@@ -97,6 +106,7 @@ export function buildDeniedFeedbackRequest({ round, planName, feedback }) {
  * @param {Partial<import('../../plan-store.js').PlanFrontMatter>} opts.triageMeta
  * @param {number} [opts.maxRevisions=Infinity]
  * @param {UiAPI} [opts.uiAPI]
+ * @param {import('@mariozechner/pi-coding-agent').SessionManager} [opts.sessionManager]
  * @returns {Promise<{ planName: string, planPath: string, approved: true, tasks?: Array<{task: number, assignee: string, dependencies: string, description: string}> } | { canceled: true } | null>}
  */
 export async function reviewLoop({
@@ -107,6 +117,7 @@ export async function reviewLoop({
     triageMeta,
     maxRevisions = Number.POSITIVE_INFINITY,
     uiAPI,
+    sessionManager,
 }) {
     let currentRequest = initialRequest;
     let revision = 0;
@@ -131,6 +142,7 @@ export async function reviewLoop({
             customTools,
             userRequest: currentRequest,
             uiAPI,
+            sessionManager,
         });
 
         const planInfo = await resolveDeclaredPlan(planningMessages);
@@ -213,6 +225,7 @@ export async function reviewLoop({
  * @param {string} opts.planName
  * @param {string} opts.planPath
  * @param {UiAPI} [opts.uiAPI]
+ * @param {import('@mariozechner/pi-coding-agent').SessionManager} [opts.sessionManager]
  * @returns {Promise<{ planName: string, planPath: string, approved: true, tasks?: Array<{task: number, assignee: string, dependencies: string, description: string}> } | { canceled: true } | null>}
  */
 export async function reReviewLoop({
@@ -223,6 +236,7 @@ export async function reReviewLoop({
     planName,
     planPath,
     uiAPI,
+    sessionManager,
 }) {
     let revision = 0;
     const currentPlanName = planName;
@@ -275,6 +289,7 @@ export async function reReviewLoop({
             customTools,
             userRequest: currentRequest,
             uiAPI,
+            sessionManager,
         });
 
         const planInfo = await resolveDeclaredPlan(planningMessages);
@@ -308,6 +323,7 @@ export async function reReviewLoop({
  * @param {string} [opts.initialRequest]
  * @param {{ planName: string, planPath: string, tasks?: Array<{task: number, assignee: string, dependencies: string, description: string}> }} [opts.existingPlan]
  * @param {UiAPI} [opts.uiAPI]
+ * @param {import('@mariozechner/pi-coding-agent').SessionManager} [opts.sessionManager]
  * @param {(planName: string, error: string) => string} [opts.buildRepairPrompt]
  * @returns {Promise<{ status: "executed" | "saved" | "canceled" | "failed", planName?: string, tasks?: Array<{task: number, assignee: string, dependencies: string, description: string}> }>}
  */
@@ -319,6 +335,7 @@ export async function runPlanLifecycle({
     initialRequest,
     existingPlan,
     uiAPI,
+    sessionManager,
     buildRepairPrompt,
 }) {
     let reviewResult;
@@ -332,6 +349,7 @@ export async function runPlanLifecycle({
             planName: existingPlan.planName,
             planPath: existingPlan.planPath,
             uiAPI,
+            sessionManager,
         });
     } else {
         if (!initialRequest) {
@@ -348,6 +366,7 @@ export async function runPlanLifecycle({
             customTools,
             triageMeta,
             uiAPI,
+            sessionManager,
         });
     }
 
@@ -374,7 +393,7 @@ export async function runPlanLifecycle({
         };
     }
 
-    const execRes = await executePlan(approvedResult.planName, triageMeta, uiAPI, approvedResult.tasks);
+    const execRes = await executePlan(approvedResult.planName, triageMeta, uiAPI, approvedResult.tasks, sessionManager);
     if (execRes && execRes.repairRequired && buildRepairPrompt) {
         uiAPI?.appendSystemMessage(
             `[Harns] Execution failed due to task table error. Rerouting to ${agentName} for repair...`,
@@ -388,6 +407,7 @@ export async function runPlanLifecycle({
             ),
             triageMeta,
             uiAPI,
+            sessionManager,
         });
     }
 
@@ -464,8 +484,9 @@ export function extractTasks(planContent) {
  * @param {Partial<import('../../plan-store.js').PlanFrontMatter>} triageMeta
  * @param {UiAPI} [uiAPI]
  * @param {Array<{ task: number, assignee: string, dependencies: string, description: string }>} [structuredTasks]
+ * @param {import('@mariozechner/pi-coding-agent').SessionManager} [sessionManager]
  */
-export async function executePlan(planName, triageMeta, uiAPI, structuredTasks) {
+export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, sessionManager) {
     const plan = await loadPlan(CWD, planName);
     if (!plan) {
         const err = `[Harns] ERROR: Could not load plan ${planName}`;
@@ -552,7 +573,7 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks) 
                     uiAPI && uiAPI.appendSystemMessage(`[Harns] ✅ All tasks completed successfully.`);
                 }
             } else {
-                await runEngineerWithPlan(planName, plan.body, uiAPI);
+                await runEngineerWithPlan(planName, plan.body, uiAPI, sessionManager);
             }
         } catch (e) {
             // spinnerInterval is local to the try block, but we should only clear if it exists.
@@ -855,8 +876,9 @@ export async function askApprovalWithTasks(planName, uiAPI, structuredTasks) {
  * @param {string} planName
  * @param {string} planBody
  * @param {UiAPI} [uiAPI]
+ * @param {import('@mariozechner/pi-coding-agent').SessionManager} [sessionManager]
  */
-async function runEngineerWithPlan(planName, planBody, uiAPI) {
+async function runEngineerWithPlan(planName, planBody, uiAPI, sessionManager) {
     if (uiAPI) uiAPI.appendSystemMessage("[Harns] === Running Engineer ===");
     else console.log("[Harns] === Running Engineer ===\n");
 
@@ -872,5 +894,6 @@ async function runEngineerWithPlan(planName, planBody, uiAPI) {
         agentName: "engineer",
         userRequest: engineerRequest,
         uiAPI,
+        sessionManager,
     });
 }

@@ -16,11 +16,3 @@ export function resetTuiState(editor, uiAPI, tui) {
     }
 }
 
-/**
- * @param {string} planName
- * @param {string} error
- * @returns {string}
- */
-export function buildRepairPrompt(planName, error) {
-    return `The previously approved plan "${planName}" had a malformed Tasks table: ${error}.\n\nPlease fix the table to ensure it follows the required format (Task ID | Assignee | Dependencies | Description). If any requirement is unclear, use user_interview (1-3 focused questions) before finalizing, then call plan_written again.`;
-}

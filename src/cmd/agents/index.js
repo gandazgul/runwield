@@ -4,7 +4,6 @@
  */
 
 import { printCommandHelp as printCommandHelpFn } from "../help/index.js";
-import { routerCmdOnMessage } from "../router/index.js";
 import {
     setActiveAgent as setActiveAgentFn,
     startInteractiveSession as startInteractiveSessionFn,
@@ -138,7 +137,7 @@ async function runAgentsCommandTUI(agentName, _rest, options, deps = {}) {
         return;
     }
 
-    const handler = match.name == "router" ? routerCmdOnMessage : createDirectAgentHandler(match.name);
+    const handler = createDirectAgentHandler(match.name);
 
     setActiveAgent(match.displayName, handler, uiAPI, match.model);
     tui.setFocus(/** @type {import('@mariozechner/pi-tui').Component} */ (/** @type {unknown} */ (editor)));

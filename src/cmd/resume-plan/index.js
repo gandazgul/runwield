@@ -18,7 +18,8 @@ import {
     setActiveAgent as setActiveAgentFn,
     startInteractiveSession as startInteractiveSessionFn,
 } from "../../shared/chat-session.js";
-import { buildRepairPrompt as buildRepairPromptFn, resetTuiState as resetTuiStateFn } from "../command-helpers.js";
+import { resetTuiState as resetTuiStateFn } from "../command-helpers.js";
+import { buildRepairPrompt as buildRepairPromptFn } from "../../shared/workflow/workflow.js";
 import { createDirectAgentHandler as createDirectAgentHandlerFn } from "../../shared/direct-agent.js";
 export { getResumeCompletions } from "./getArgumentCompletions.js";
 
@@ -38,7 +39,6 @@ export { getResumeCompletions } from "./getArgumentCompletions.js";
  * @property {typeof createUserInterviewToolFn} [createUserInterviewTool]
  * @property {typeof planWrittenToolFn} [planWrittenTool]
  * @property {(cwd: string) => Promise<Array<{name: string, attrs: {classification: string, status: string}}>>} [listPlans]
- * @property {() => Promise<{ routerCmdOnMessage: import('../../shared/session/types.js').AgentMessageHandler }>} [importRouter]
  * @property {typeof updatePlanStatusFn} [updatePlanStatus]
  */
 
@@ -48,25 +48,16 @@ export { getResumeCompletions } from "./getArgumentCompletions.js";
  * @param {import('../../shared/workflow/workflow.js').UiAPI} uiAPI
  * @param {ResumeTestDeps} [deps]
  */
-async function restoreRouterFlow(uiAPI, deps = {}) {
-    const { resetTuiState: resetTuiStateDep, setActiveAgent: setActiveAgentDep, importRouter: importRouterDep } = deps;
+function restoreRouterFlow(uiAPI, deps = {}) {
+    const { resetTuiState: resetTuiStateDep, setActiveAgent: setActiveAgentDep, createDirectAgentHandler: createDirectAgentHandlerDep } = deps;
 
     const resetTuiState = resetTuiStateDep || resetTuiStateFn;
     const setActiveAgent = setActiveAgentDep || setActiveAgentFn;
-    const importRouter = importRouterDep || (async () => await import("../router/index.js"));
+    const createDirectAgentHandler = createDirectAgentHandlerDep || createDirectAgentHandlerFn;
 
     resetTuiState(undefined, uiAPI, undefined);
-
-    try {
-        const { routerCmdOnMessage } = await importRouter();
-        setActiveAgent("Router", routerCmdOnMessage);
-        uiAPI.appendSystemMessage("[Harns] Switched back to Router (triage flow).");
-    } catch (_e) {
-        uiAPI.appendSystemMessage(
-            "[Harns] Resume finished. Could not reload Router automatically; use /agent router.",
-            true,
-        );
-    }
+    setActiveAgent("Router", createDirectAgentHandler("router"));
+    uiAPI.appendSystemMessage("[Harns] Switched back to Router (triage flow).");
 }
 
 /**
@@ -304,7 +295,7 @@ export async function runResumePlanCommand(argv, options = {}) {
         }
     } finally {
         if (!skipRouterRestore) {
-            await restoreRouterFlow(uiAPI, deps);
+            restoreRouterFlow(uiAPI, deps);
         }
     }
 }
