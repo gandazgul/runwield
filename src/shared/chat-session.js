@@ -662,8 +662,6 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
 
                     const toolBlock = isExcluded ? undefined : uiAPI.startToolExecution?.(activeToolId, "$", command);
 
-                    const { exec } = await import("child_process");
-
                     let outputBuffer = "";
                     let wasCanceled = false;
 
@@ -671,9 +669,13 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
                         try {
                             const { stopTUI, initTUI } = await import("./tui.js");
                             stopTUI();
-                            const { spawnSync } = await import("child_process");
-                            spawnSync(command, { stdio: "inherit", shell: true });
-                            // Re-init terminal to clear visual artifacts
+                            const cmd = new Deno.Command("sh", {
+                                args: ["-c", command],
+                                stdin: "inherit",
+                                stdout: "inherit",
+                                stderr: "inherit",
+                            });
+                            await cmd.output();
                             initTUI();
                             tui.requestRender();
                         } catch (_e) {
@@ -688,57 +690,68 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
                     }
 
                     const startTime = Date.now();
-                    /** @type {import("child_process").ChildProcess | null} */
+                    /** @type {Deno.ChildProcess | null} */
                     let proc = null;
+                    let code = 1;
 
-                    // Register cancel callback for this bash operation
-                    activeBashProc = {
-                        kill: () => {
-                            wasCanceled = true;
-                            if (proc) {
-                                try {
-                                    proc.kill("SIGKILL");
-                                } catch (_e) { /* ignore */ }
-                            }
-                            activeBashProc = null;
-                        },
-                    };
-
-                    const code = await new Promise((resolve) => {
-                        proc = exec(command, { cwd: Deno.cwd() });
-                        if (activeBashProc) activeBashProc.pid = proc.pid;
-
-                        proc.stdout?.on("data", (data) => {
-                            if (!isExcluded && !wasCanceled) {
-                                const chunk = data.toString();
-                                toolBlock?.appendOutput(chunk);
-                                outputBuffer += chunk;
-                            }
+                    try {
+                        const commandProc = new Deno.Command("sh", {
+                            args: ["-c", command],
+                            cwd: Deno.cwd(),
+                            stdout: "piped",
+                            stderr: "piped",
                         });
+                        proc = commandProc.spawn();
 
-                        proc.stderr?.on("data", (data) => {
-                            if (!isExcluded && !wasCanceled) {
-                                const chunk = data.toString();
-                                toolBlock?.appendOutput(chunk);
-                                outputBuffer += chunk;
+                        // Register cancel callback for this bash operation
+                        activeBashProc = {
+                            kill: () => {
+                                wasCanceled = true;
+                                if (proc) {
+                                    try {
+                                        proc.kill("SIGKILL");
+                                    } catch (_e) { /* ignore */ }
+                                }
+                                activeBashProc = null;
+                            },
+                        };
+
+                        /** @param {ReadableStream<Uint8Array>} stream */
+                        const readStream = async (stream) => {
+                            const reader = stream.getReader();
+                            try {
+                                while (true) {
+                                    const { value, done } = await reader.read();
+                                    if (done) break;
+                                    if (!wasCanceled) {
+                                        const chunk = new TextDecoder().decode(value);
+                                        toolBlock?.appendOutput(chunk);
+                                        outputBuffer += chunk;
+                                    }
+                                }
+                            } finally {
+                                reader.releaseLock();
                             }
-                        });
+                        };
 
-                        proc.on("close", (code) => {
-                            resolve(code);
-                        });
-
-                        proc.on("error", (err) => {
-                            if (!isExcluded && !wasCanceled) {
-                                const chunk = `Error starting process: ${err.message}\n`;
-                                toolBlock?.appendOutput(chunk);
-                                outputBuffer += chunk;
-                            } else {
-                                console.error(`Error starting process: ${err.message}`);
-                            }
-                            resolve(1);
-                        });
-                    });
+                        const [status] = await Promise.all([
+                            proc.status,
+                            readStream(proc.stdout),
+                            readStream(proc.stderr),
+                        ]);
+                        code = status.success ? 0 : status.code || 1;
+                    } catch (err) {
+                        if (!wasCanceled) {
+                            const chunk = `Error starting process: ${
+                                err instanceof Error ? err.message : String(err)
+                            }\n`;
+                            toolBlock?.appendOutput(chunk);
+                            outputBuffer += chunk;
+                        } else {
+                            console.error(`Error starting process: ${err}`);
+                        }
+                        code = 1;
+                    }
 
                     // After wait, check if we were canceled while waiting
                     if (wasCanceled) {
