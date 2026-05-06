@@ -1,6 +1,6 @@
 ---
 name: doc-writer
-model: opencode/big-pickle
+model: ollama-cloud/gemma4:31b-cloud
 description: Create clear, comprehensive technical project documentation. Like READMEs, API docs, and user guides.
 tools:
     - read

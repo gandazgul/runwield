@@ -42,6 +42,7 @@ import { planWrittenTool } from "../../tools/plan-written.js";
 import { executeSwitchAgent, switchAgentTool, triggerAgent } from "../../tools/switch-agent.js";
 import { triageReportTool } from "../../tools/triage-report.js";
 import { createUserInterviewTool } from "../../tools/user-interview.js";
+import { PROTECTED_TOOL_NAMES } from "../../tools/registry.js";
 import { getModelRegistry } from "../models/model-registry.js";
 import { parseProviderModel } from "../models/model-validation.js";
 import { getActiveModelState } from "./session-state.js";
@@ -120,33 +121,6 @@ async function fileExists(path) {
 }
 
 /**
- * Tools that are always available in Harns regardless of frontmatter overrides.
- *
- * @type {string[]}
- */
-const INTERNAL_TOOL_NAMES = [
-    "switch_agent",
-    "plan_written",
-    "triage_report",
-    "user_interview",
-    "memory_recall",
-    "memory_recall_global",
-    "memory_store",
-    "memory_store_global",
-    "memory_delete",
-    "code_search",
-    "code_show",
-    "code_outline",
-    "code_refs",
-    "code_impact",
-    "code_trace",
-    "code_investigate",
-    "code_structure",
-    "code_impls",
-    "code_importers",
-];
-
-/**
  * Normalize unknown tool list input into a deduped array of non-empty strings.
  *
  * @param {unknown} tools
@@ -168,19 +142,33 @@ function normalizeToolNames(tools) {
 }
 
 /**
- * Append internal Harns tools while preserving existing order and avoiding duplicates.
+ * Resolve final requested tool names for a session while enforcing agent policy.
  *
- * @param {string[] | undefined} baseTools
+ * - `toolNames` may narrow the agent's tool set but cannot add tools outside `agentTools`.
+ * - `customToolNames` are always added (for user-provided dynamic/extension tools).
+ *
+ * @param {string[]} agentTools
+ * @param {unknown} toolNames
+ * @param {unknown} customToolNames
  * @returns {string[]}
  */
-function addInternalTools(baseTools) {
-    const merged = [...(baseTools || [])];
+export function resolveSessionToolNames(agentTools, toolNames, customToolNames) {
+    const normalizedAgentTools = normalizeToolNames(agentTools);
+    const selectedToolNames = normalizeToolNames(toolNames || normalizedAgentTools);
+    const normalizedCustomToolNames = normalizeToolNames(customToolNames);
+    const allowedToolNames = new Set(normalizedAgentTools);
 
-    for (const toolName of INTERNAL_TOOL_NAMES) {
-        if (!merged.includes(toolName)) merged.push(toolName);
+    /** @type {string[]} */
+    const tools = [];
+    for (const toolName of selectedToolNames) {
+        if (!allowedToolNames.has(toolName)) continue;
+        if (!tools.includes(toolName)) tools.push(toolName);
+    }
+    for (const toolName of normalizedCustomToolNames) {
+        if (!tools.includes(toolName)) tools.push(toolName);
     }
 
-    return merged;
+    return tools;
 }
 
 /**
@@ -350,10 +338,13 @@ export async function loadAgentDef(agentName) {
     /** @type {string[]} */
     let mergedTools = [];
     /** @type {string[]} */
+    let bundledTools = [];
+    /** @type {string[]} */
     let promptSegments = [];
     let found = false;
 
-    for (const dir of layerDirs) {
+    for (let index = 0; index < layerDirs.length; index++) {
+        const dir = layerDirs[index];
         const filePath = join(dir, `${agentName}.md`);
         if (!(await fileExists(filePath))) continue;
 
@@ -364,6 +355,10 @@ export async function loadAgentDef(agentName) {
 
         const { attrs, body } = extractYaml(raw);
         found = true;
+
+        if (index === 0 && Object.prototype.hasOwnProperty.call(attrs, "tools")) {
+            bundledTools = normalizeToolNames(attrs.tools);
+        }
 
         mergedAttrs = { ...mergedAttrs, ...attrs };
         if (Object.prototype.hasOwnProperty.call(attrs, "tools")) {
@@ -398,11 +393,17 @@ export async function loadAgentDef(agentName) {
     const mergedPromptBody = promptSegments.join("\n\n").trim();
     const systemPrompt = CORE_SYSTEM_PROMPT.replace("{{AGENT_PROMPT}}", mergedPromptBody);
 
+    const protectedToolsForAgent = bundledTools.filter((toolName) => PROTECTED_TOOL_NAMES.includes(toolName));
+    const tools = [...mergedTools];
+    for (const toolName of protectedToolsForAgent) {
+        if (!tools.includes(toolName)) tools.push(toolName);
+    }
+
     return {
         name,
         model,
         description,
-        tools: addInternalTools(mergedTools),
+        tools,
         systemPrompt,
     };
 }
@@ -545,10 +546,10 @@ export async function assembleFinalSystemPrompt(agentDef, tools, finalCustomTool
     const homeDir = Deno.env.get("HOME") || "";
     if (homeDir) {
         try {
-            globalAgentsMd = await Deno.readTextFile(join(homeDir, ".hns", "AGENTS.md"));
+            globalAgentsMd = await Deno.readTextFile(join(homeDir, ".hns", "HARNS.md"));
         } catch {
             try {
-                globalAgentsMd = await Deno.readTextFile(join(homeDir, ".pi", "agent", "AGENTS.md"));
+                globalAgentsMd = await Deno.readTextFile(join(homeDir, ".pi", "agent", "HARNS.md"));
             } catch {
                 globalAgentsMd = "";
             }
@@ -558,7 +559,7 @@ export async function assembleFinalSystemPrompt(agentDef, tools, finalCustomTool
 
     let projectAgentsMd = "";
     try {
-        projectAgentsMd = await Deno.readTextFile(join(CWD, "AGENTS.md"));
+        projectAgentsMd = await Deno.readTextFile(join(CWD, "HARNS.md"));
     } catch {
         projectAgentsMd = "";
     }
@@ -609,8 +610,8 @@ export async function runAgentSession(
     const agentDef = await loadAgentDef(agentName);
 
     const customToolNames = (customTools || []).map((t) => t.name);
-    const selectedToolNames = toolNames || agentDef.tools;
-    const tools = addInternalTools([...new Set([...(selectedToolNames || []), ...customToolNames])]);
+    const tools = resolveSessionToolNames(agentDef.tools, toolNames, customToolNames);
+
     const finalCustomTools = [...(customTools || [])];
 
     // Auto-wire internal custom tools if requested by name and not already provided.

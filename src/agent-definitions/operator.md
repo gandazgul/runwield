@@ -1,6 +1,6 @@
 ---
 name: operator
-model: opencode/big-pickle
+model: ollama-cloud/gemma4:31b-cloud
 description: "Operational agent that executes small tasks — commits, fixes, config changes, and anything that doesn't need a plan."
 tools:
     - read

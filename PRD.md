@@ -54,6 +54,70 @@ started via `hns resume <plan>`.
 - **Customization:** Users can "plug in" skills to create specialized agents (e.g., "Playwright Test Writer").
 - **Self-Evolution:** The agent must be capable of building its own specializations or extensions.
 
+#### Agent Tool Policy
+
+Every agent's capabilities are defined declaratively via a YAML frontmatter `tools` list in its agent definition file.
+Tools are resolved using a layered override system with a strict allowlist policy.
+
+**Definition format:**
+
+```yaml
+---
+name: router
+model: ollama-cloud/gemma4:31b-cloud
+description: "Triage agent that classifies user requests."
+tools:
+    - read
+    - grep
+      ...
+---
+
+System prompt goes here. You can use the tools defined above to perform actions.
+```
+
+**Layered override precedence (highest wins):**
+
+1. **Local overrides:** `./.hns/agents/<agent>.md`
+2. **Home overrides:** `~/.hns/agents/<agent>.md`
+3. **Bundled defaults:** `src/agent-definitions/<agent>.md`
+
+Each layer that defines a `tools` list replaces the lower layer's tool set entirely. Prompt bodies append by default
+unless `promptOverride: true` is set.
+
+**Protected tools:**
+
+A core set of tools cannot be removed by any override. The protected set is computed per-agent as the intersection of:
+
+- That agent's bundled (`src/agent-definitions/`) frontmatter tools, and
+- The global `PROTECTED_TOOL_NAMES` list (exported from `src/tools/registry.js`).
+
+If a bundled agent declares a protected tool in its frontmatter, it cannot be removed by any override. If a bundled
+agent does not declare a protected tool, it is not granted to that agent.
+
+**Final tool resolution:**
+
+For each agent, effective tools = `merged_override_tools ∪ (bundled_tools ∩ PROTECTED_TOOL_NAMES)`.
+
+This means:
+
+- Overrides can add any tool (including user-installed extension tools).
+- Overrides can remove non-protected bundled tools (e.g., `bash`, `edit`, `write`).
+- Overrides cannot remove protected tools that were present in the bundled definition.
+- At runtime, `toolNames` overrides can narrow the tool set but cannot add tools outside the effective set.
+- At runtime, `customTools` (user-provided or extension tools) are always available when passed through the API.
+
+**Example:**
+
+If bundled `router.md` declares `[read, grep, find, ls, bash, triage_report]` and a local override declares
+`tools: [read]`, the final tool set is:
+
+```yaml
+- read
+- triage_report # protected (was in bundled frontmatter and in protected list)
+```
+
+`bash`, `grep`, `find`, and `ls` are removed because they are not in the protected list.
+
 ### 3.4 Multi-Model Broker
 
 - **Mapping:** Configuration-based mapping of LLMs to tasks based on Price/Skill ratio.
