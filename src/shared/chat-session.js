@@ -25,6 +25,7 @@ import { ensureMnemosyneBinary } from "./runtime-preflight.js";
 import { commandRegistry } from "../cmd/registry.js";
 import { getDefaultModelAndProvider, getModelRegistry } from "./models/model-registry.js";
 import {
+    clearUserModelOverride,
     getActiveAgentName,
     getActiveModelState,
     getActiveOnMessage,
@@ -64,6 +65,7 @@ function toUserFacingPromptPath(template) {
  */
 export function setActiveAgent(agentName, handler, uiAPI, agentModel) {
     if (getActiveAgentName() !== agentName) {
+        clearUserModelOverride();
         if (uiAPI) {
             const modelText = agentModel ? ` (model: ${agentModel})` : "";
             uiAPI.appendSystemMessage(`Switched to ${agentName}${modelText}.`);
@@ -73,9 +75,9 @@ export function setActiveAgent(agentName, handler, uiAPI, agentModel) {
     if (agentModel) {
         const slashIndex = agentModel.indexOf("/");
         if (slashIndex > 0) {
-            setActiveModelState(agentModel, agentModel.slice(0, slashIndex));
+            setActiveModelState(agentModel, agentModel.slice(0, slashIndex), false);
         } else {
-            setActiveModelState(agentModel);
+            setActiveModelState(agentModel, "", false);
         }
     }
     setActiveOnMessage(handler);
@@ -90,7 +92,7 @@ export function setActiveAgent(agentName, handler, uiAPI, agentModel) {
  * @param {string} [provider]
  */
 export function setActiveModel(model, provider) {
-    setActiveModelState(model, provider || "");
+    setActiveModelState(model, provider || "", true);
     getActiveUiAPIState()?.requestRender();
 }
 

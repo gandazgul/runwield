@@ -37,7 +37,7 @@
  *   clearMessages?: () => void,
  *   promptSelect: (title: string, options: SelectOption[]) => Promise<string | null>,
  *   promptText: (title: string, options?: { defaultValue?: string, placeholder?: string, allowEmpty?: boolean }) => Promise<string | null>,
- *   setAgentInfo?: (agentName: string, agentModel: string) => void,
+ *   setAgentInfo?: (agentName: string, agentModel?: string) => void,
  *   disableInput?: () => void,
  *   enableInput?: () => void,
  *   startToolExecution?: (id: string, name: string, argsStr: string) => ToolExecutionBlockApi,

@@ -43,16 +43,17 @@ import { createUserInterviewTool } from "../../tools/user-interview.js";
 import { PROTECTED_TOOL_NAMES } from "../../tools/registry.js";
 import { getModelRegistry } from "../models/model-registry.js";
 import { parseProviderModel } from "../models/model-validation.js";
-import { getActiveModelState, getRootAgentSession, setRootAgentSession } from "./session-state.js";
+import { getActiveModelState, getRootAgentSession, isUserModelOverride, setRootAgentSession } from "./session-state.js";
 
+const __dirname = dirname(fromFileUrl(import.meta.url));
 const HOME_DIR = Deno.env.get("HOME") || "";
+
 const HOME_AGENT_DEFS_DIR = HOME_DIR ? join(HOME_DIR, ".hns", "agents") : null;
 const LOCAL_AGENT_DEFS_DIR = join(CWD, ".hns", "agents");
 
 const HOME_PROMPTS_DIR = HOME_DIR ? join(HOME_DIR, ".hns", "prompts") : null;
 const LOCAL_PROMPTS_DIR = join(CWD, ".hns", "prompts");
 
-const __dirname = dirname(fromFileUrl(import.meta.url));
 const CORE_SYSTEM_PROMPT = await Deno.readTextFile(join(__dirname, "SYSTEM_PROMPT_TEMPLATE.md"));
 
 /** @typedef {"local" | "home" | "bundled"} PromptTemplateSource */
@@ -665,9 +666,14 @@ export async function runAgentSession(
     }
 
     // Update the agent info in the UI footer.
-    const agentModelForUi = modelOverride || agentDef.model;
     if (uiAPI?.setAgentInfo) {
-        uiAPI.setAgentInfo(agentDef.name, agentModelForUi);
+        // If the user has an active /model override, don't clobber it — only update the agent name.
+        if (isUserModelOverride()) {
+            uiAPI.setAgentInfo(agentDef.name);
+        } else {
+            const agentModelForUi = modelOverride || agentDef.model;
+            uiAPI.setAgentInfo(agentDef.name, agentModelForUi);
+        }
     }
 
     // Resolve system prompt placeholders

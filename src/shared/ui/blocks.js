@@ -1,19 +1,19 @@
-import { Container, Input, Key, Markdown, matchesKey, SelectList, Spacer, Text } from "@mariozechner/pi-tui";
+import {
+    Container,
+    Input,
+    Key,
+    Markdown,
+    matchesKey,
+    SelectList,
+    Spacer,
+    Text,
+    truncateToWidth,
+    visibleWidth,
+} from "@mariozechner/pi-tui";
 import { markdownTheme, selectListTheme, theme } from "../ui/theme.js";
 import stripAnsi from "strip-ansi";
 
 // ─── Utilities ───────────────────────────────────────────────────────────────
-
-/**
- * Get the visible length of a string by stripping all ANSI/terminal escape sequences.
- * Handles CSI SGR codes (\x1b[...m), APC sequences (\x1b_...\x07), and OSC sequences (\x1b]...\x07).
- * @param {string} str
- * @returns {number}
- */
-function visibleLength(str) {
-    // deno-lint-ignore no-control-regex
-    return str.replace(/\x1b\[[0-9;]*m|\x1b[_\]].*?\x07/g, "").length;
-}
 
 /**
  * Format system line text. If line starts with a bracketed prefix (e.g. `[Harns]`),
@@ -122,8 +122,11 @@ export class StyledBlock {
         const emptyLine = " ".repeat(w);
 
         const lines = innerLines.map((/** @type {string} */ line) => {
-            const rightPad = " ".repeat(Math.max(0, w - this.paddingX - visibleLength(line)));
-            return padX + line + rightPad;
+            const vw = visibleWidth(line);
+            const clamped = vw > innerW ? truncateToWidth(line, innerW) : line;
+            const clampedW = vw > innerW ? visibleWidth(clamped) : vw;
+            const rightPad = " ".repeat(Math.max(0, w - this.paddingX - clampedW));
+            return padX + clamped + rightPad;
         });
 
         const padY = Array.from({ length: this.paddingY }, () => emptyLine);
@@ -312,7 +315,10 @@ export class ToolExecutionBlock {
         const allLines = [];
 
         // ── Header: bold tool name, with vertical padding ──
-        const headerLine = theme.fg("text", theme.bold(this.headerText));
+        const rawHeaderLine = theme.fg("text", theme.bold(this.headerText));
+        const headerLine = visibleWidth(rawHeaderLine) > innerW
+            ? truncateToWidth(rawHeaderLine, innerW)
+            : rawHeaderLine;
         const headerBlock = new StyledBlock(bg, paddingX, 1, { render: () => [headerLine], invalidate: () => {} });
         allLines.push(...headerBlock.render(w));
 
@@ -322,8 +328,11 @@ export class ToolExecutionBlock {
             const bodyLines = this.bodyTextComponent.render(innerW);
             const padX = " ".repeat(paddingX);
             for (const line of bodyLines) {
-                const rightPad = " ".repeat(Math.max(0, w - paddingX - visibleLength(line)));
-                allLines.push(applyBg(bgCode, padX + line + rightPad));
+                const vw = visibleWidth(line);
+                const clamped = vw > innerW ? truncateToWidth(line, innerW) : line;
+                const clampedW = vw > innerW ? visibleWidth(clamped) : vw;
+                const rightPad = " ".repeat(Math.max(0, w - paddingX - clampedW));
+                allLines.push(applyBg(bgCode, padX + clamped + rightPad));
             }
         }
 
@@ -356,14 +365,14 @@ export class ToolExecutionBlock {
         if (!left && !right) return [];
 
         if (!left) {
-            const rightPad = " ".repeat(Math.max(0, innerW - visibleLength(right)));
+            const rightPad = " ".repeat(Math.max(0, innerW - visibleWidth(right)));
             return [`${rightPad}${right}`];
         }
 
         if (!right) return [left];
 
-        const leftLen = visibleLength(left);
-        const rightLen = visibleLength(right);
+        const leftLen = visibleWidth(left);
+        const rightLen = visibleWidth(right);
 
         if (leftLen + 1 + rightLen <= innerW) {
             const spacing = " ".repeat(Math.max(1, innerW - leftLen - rightLen));
@@ -620,12 +629,12 @@ export class SpinnerBlock {
             return this.tasks.map((t) => {
                 const line = theme.fg("accent", f) + " " + theme.fg("success", t.assignee) + " " +
                     theme.fg("dim", `(Task ${t.task})`);
-                return line + " ".repeat(Math.max(0, w - visibleLength(line)));
+                return line + " ".repeat(Math.max(0, w - visibleWidth(line)));
             });
         }
 
         // Generic busy spinner
         const line = theme.fg("accent", `${f} Thinking...`);
-        return [line + " ".repeat(Math.max(0, w - visibleLength(line)))];
+        return [line + " ".repeat(Math.max(0, w - visibleWidth(line)))];
     }
 }

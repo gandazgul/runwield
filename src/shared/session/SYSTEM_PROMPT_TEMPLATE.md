@@ -6,6 +6,14 @@
 
 In addition to the tools above, you may have access to other custom tools depending on the project.
 
+## Skills
+
+The following skills provide specialized instructions for specific tasks. Use the read tool to load a skill's file when
+the task matches its description. When a skill file references a relative path, resolve it against the skill directory
+(parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.
+
+{{SKILLS}}
+
 ## Memory System
 
 - Use `memory_recall` and `memory_recall_global` to search relevant memories. Use this before making any decisions or

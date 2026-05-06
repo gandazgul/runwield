@@ -7,6 +7,7 @@
  * activeAgentName: string,
  * activeModel: string,
  * activeModelProvider: string,
+ * userModelOverride: boolean,
  * activeOnMessage: import('./types.js').AgentMessageHandler | null,
  * rootSessionManager: import('./session/types.js').SessionManagerLike | null,
  * activeUiAPI: import('./ui/types.js').UiAPI | null,
@@ -16,6 +17,7 @@ const state = {
     activeAgentName: "Router",
     activeModel: "",
     activeModelProvider: "",
+    userModelOverride: false,
     activeOnMessage: null,
     rootSessionManager: null, // conversation history / persistence (pi SessionManager)
     rootAgentSession: null, // live session handle used for steering / abort (pi AgentSession)
@@ -34,14 +36,25 @@ export function setActiveAgentName(name) {
 /**
  * @param {string} model
  * @param {string} [provider]
+ * @param {boolean} [isUserOverride] - true when set explicitly via /model
  */
-export function setActiveModelState(model, provider = "") {
+export function setActiveModelState(model, provider = "", isUserOverride = false) {
     state.activeModel = model;
     if (provider) state.activeModelProvider = provider;
+    state.userModelOverride = isUserOverride;
 }
 
 export function getActiveModelState() {
     return { model: state.activeModel, provider: state.activeModelProvider };
+}
+
+/** @returns {boolean} true when the active model was explicitly chosen by the user via /model */
+export function isUserModelOverride() {
+    return state.userModelOverride;
+}
+
+export function clearUserModelOverride() {
+    state.userModelOverride = false;
 }
 
 /** @param {import('./types.js').AgentMessageHandler | null} handler */
