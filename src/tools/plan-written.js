@@ -148,7 +148,8 @@ export function createPlanWrittenTool(
         description: "Declare the plan filename you created in plans/ and submit it for user review. " +
             "This triggers the full lifecycle (review → approve/save/execute or revise). " +
             "Call this once after writing the plan; the user reviews it in a browser UI. " +
-            "If denied, the tool result contains the user's feedback so you can revise in this same session.",
+            "If the user submits feedback instead of approving, the tool result contains that feedback so you can " +
+            "revise in this same session.",
         parameters: TOOL_PARAMS,
         async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
             const planName = String(params.planName || "").replace(/\.md$/i, "").trim();
@@ -217,7 +218,7 @@ export function createPlanWrittenTool(
                         planName,
                         feedback: reviewResult.feedback,
                     }),
-                    { ...params, outcome: "denied", feedback: reviewResult.feedback },
+                    { ...params, outcome: "feedback", feedback: reviewResult.feedback },
                 );
             }
 

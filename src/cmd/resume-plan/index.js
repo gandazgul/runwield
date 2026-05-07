@@ -89,8 +89,8 @@ function buildResumeRequest(planName, attrs) {
 }
 
 /**
- * Build the prompt that re-runs the planner after the user denies a previously
- * approved plan and re-opens it for review.
+ * Build the prompt that re-runs the planner after the user submits feedback on a
+ * previously approved plan that was re-opened for review.
  *
  * @param {string} planName
  * @param {string | undefined} feedback
@@ -100,7 +100,7 @@ function buildReReviewRevisionRequest(planName, feedback) {
     return [
         `## Plan Review Re-opened: ${planName}`,
         "",
-        "The user denied the existing approved plan and provided feedback:",
+        "The user provided feedback on the previously approved plan:",
         "",
         feedback || "(no specific feedback provided)",
         "",
@@ -303,7 +303,7 @@ export async function runResumePlanCommand(argv, options = {}) {
                         return;
                     }
 
-                    // Denied — kick off the planning agent with the user's feedback.
+                    // User submitted feedback — kick off the planning agent to revise.
                     const outcome = await runPlanningAgent({
                         agentName,
                         initialRequest: buildReReviewRevisionRequest(plan.planName, reviewResult.feedback),
@@ -313,7 +313,10 @@ export async function runResumePlanCommand(argv, options = {}) {
 
                     if (outcome.outcome === "executed") {
                         setActiveAgent("Operator", createDirectAgentHandler("operator"), uiAPI);
-                    } else if (outcome.outcome === "canceled" || outcome.outcome === "no_call") {
+                    } else if (
+                        outcome.outcome === "canceled" || outcome.outcome === "no_call" ||
+                        outcome.outcome === "feedback" || outcome.outcome === "repair_required"
+                    ) {
                         skipRouterRestore = true;
                     }
                     return;
@@ -337,7 +340,10 @@ export async function runResumePlanCommand(argv, options = {}) {
 
         if (outcome.outcome === "executed") {
             setActiveAgent("Operator", createDirectAgentHandler("operator"), uiAPI);
-        } else if (outcome.outcome === "canceled" || outcome.outcome === "no_call") {
+        } else if (
+            outcome.outcome === "canceled" || outcome.outcome === "no_call" ||
+            outcome.outcome === "feedback" || outcome.outcome === "repair_required"
+        ) {
             skipRouterRestore = true;
         }
     } finally {

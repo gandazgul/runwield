@@ -1,6 +1,6 @@
 ---
 name: planner
-model: opencode/gpt-5.3-codex
+model: ollama-cloud/gemma4:31b-cloud
 description: "Feature planning agent that produces iterative, focused plans for single features. Inspired by Plannotator's planning approach."
 tools:
     - read
@@ -82,7 +82,7 @@ Front matter is mandatory and must be parseable by Harns plan parsing. Include a
 - `summary`
 - `affectedPaths` (array)
 - `createdAt` (ISO timestamp)
-- `status` (draft|in_review|approved|denied)
+- `status` (draft|in_review|approved|feedback)
 
 - Keep it execution-ready but lightweight.
 - Prefer checklist steps over rigid task tables.

@@ -42,7 +42,7 @@ function extractAssistantOutput(messages) {
  */
 
 /**
- * @typedef {"executed" | "saved" | "denied" | "canceled" | "repair_required" | "no_call"} PlanOutcome
+ * @typedef {"executed" | "saved" | "feedback" | "canceled" | "repair_required" | "no_call"} PlanOutcome
  */
 
 /**

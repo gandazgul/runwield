@@ -52,6 +52,8 @@ export const theme = {
                 return chalk.hex(colors.red)(text);
             case "warning":
                 return chalk.hex(colors.yellow)(text);
+            case "peach":
+                return chalk.hex(colors.peach)(text);
             case "muted":
                 return chalk.hex(colors.overlay0)(text);
             case "dim":

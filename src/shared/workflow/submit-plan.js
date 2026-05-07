@@ -73,7 +73,7 @@ export function cancelActivePlanReview() {
  * @typedef {Object} PlanReviewResult
  * @property {boolean} approved - Whether the plan was approved
  * @property {boolean} [canceled] - Whether waiting for review was canceled via Esc
- * @property {string} [feedback] - User feedback/annotations (present on denial or approve-with-notes)
+ * @property {string} [feedback] - User feedback/annotations (present when the user submits feedback or approves with notes)
  * @property {string} [savedPath] - Optional path where plan was saved (if available)
  */
 
@@ -183,8 +183,8 @@ export async function submitPlanForReview({
             await updatePlanStatus(cwd, planName, "approved", triageMeta);
             log(`[Harns] ✅ Plan approved: ${planName}`);
         } else {
-            await updatePlanStatus(cwd, planName, "denied", triageMeta);
-            log(`[Harns] ❌ Plan denied: ${planName}`);
+            await updatePlanStatus(cwd, planName, "feedback", triageMeta);
+            log(`[Harns] Plan returned with feedback: ${planName}`);
         }
 
         return {

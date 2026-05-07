@@ -6,7 +6,7 @@ Deno.test("readLatestPlanOutcome returns the latest plan_written outcome", () =>
         /** @type {any} */ ({
             role: "toolResult",
             toolName: "plan_written",
-            details: { planName: "first", outcome: "denied" },
+            details: { planName: "first", outcome: "feedback" },
         }),
         /** @type {any} */ ({
             role: "toolResult",

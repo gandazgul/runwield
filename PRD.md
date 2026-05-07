@@ -80,16 +80,16 @@ the tool by name.
   4. Call `submitPlanForReview` (browser UI) and wait for the user's decision.
      - **Approved:** ask save-vs-proceed; on `proceed`, run `executePlan` (engineer for FEATURE, parallel task DAG for
        PROJECT). Successful completion returns "Your role is complete. Do not generate any further text."
-     - **Denied:** return the denial feedback as the tool result so the agent revises the plan in the same session and
-       calls `plan_written` again.
+     - **Feedback submitted:** return the user's feedback as the tool result so the agent revises the plan in the same
+       session and calls `plan_written` again.
      - **Canceled:** return a "control returned to the user" tool result; the active agent stays on the planner so the
        user can resume the conversation.
      - **Repair required** (PROJECT execution failed to parse the task table): return a "Plan Execution Halted — Task
        Table Repair Required" message so the agent fixes the table and re-calls `plan_written`.
-- **Tool result `details.outcome`:** one of `executed | saved | denied | canceled | repair_required`. Callers (currently
-  the resume command and the workflow helper) use `readLatestPlanOutcome(messages)` to drive UI state — for example,
-  switching to the Operator after a successful execution, or skipping the Router restore when the planner is still
-  mid-conversation.
+- **Tool result `details.outcome`:** one of `executed | saved | feedback | canceled | repair_required`. Callers
+  (currently the resume command and the workflow helper) use `readLatestPlanOutcome(messages)` to drive UI state — for
+  example, switching to the Operator after a successful execution, or skipping the Router restore when the planner is
+  still mid-conversation.
 - **Free-form clarification questions are allowed.** If the planner needs clarification it cannot phrase via
   `user_interview`, it stops without calling any tool. The session ends and control returns to the user; the planner
   remains the active agent and the conversation continues on the user's next message. There is no "agent did not declare

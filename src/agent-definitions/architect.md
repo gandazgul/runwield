@@ -1,6 +1,6 @@
 ---
 name: architect
-model: opencode/gpt-5.3-codex
+model: ollama-cloud/gemma4:31b-cloud
 description: "Interviews users about the request, creates detailed plans, writes ADRs, and breaks implementation into tasks."
 tools:
     - read
@@ -78,7 +78,7 @@ Front matter is mandatory and must be parseable by Harns plan parsing. Include a
 - `summary`
 - `affectedPaths` (array)
 - `createdAt` (ISO timestamp)
-- `status` (draft|in_review|approved|denied)
+- `status` (draft|in_review|approved|feedback)
 
 Task structure requirements for PROJECT plans:
 
