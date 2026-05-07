@@ -15,7 +15,7 @@ Deno.test("runRouterCommand prints help when userRequest is help", async () => {
                 started = true;
                 return Promise.resolve(/** @type {import('../../shared/workflow/workflow.js').UiAPI} */ ({}));
             },
-            createDirectAgentHandler: () => async () => {},
+            createHandler: () => async () => {},
         },
     });
 
@@ -41,7 +41,7 @@ Deno.test("runRouterCommand starts session with provided request", async () => {
                 mode = opts?.sessionStartMode || null;
                 return Promise.resolve(/** @type {import('../../shared/workflow/workflow.js').UiAPI} */ ({}));
             },
-            createDirectAgentHandler: () => async () => {},
+            createHandler: () => async () => {},
         },
     });
 
@@ -61,7 +61,7 @@ Deno.test("runRouterCommand passes null when no user request", async () => {
                 initial = userRequest;
                 return Promise.resolve(/** @type {import('../../shared/workflow/workflow.js').UiAPI} */ ({}));
             },
-            createDirectAgentHandler: () => async () => {},
+            createHandler: () => async () => {},
         },
     });
 

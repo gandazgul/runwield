@@ -255,7 +255,7 @@ export async function runResumePlanCommand(argv, options = {}) {
                             "Harns",
                         );
                         setActiveAgent(agentName, createDirectAgentHandler(agentName), uiAPI);
-                        await runPlanningAgent({
+                        const repairOutcome = await runPlanningAgent({
                             agentName,
                             initialRequest: [
                                 `## Plan Execution Halted — Task Table Repair Required`,
@@ -270,6 +270,14 @@ export async function runResumePlanCommand(argv, options = {}) {
                             triageMeta: plan.attrs,
                             uiAPI,
                         });
+                        if (repairOutcome.outcome === "approved_execute" && repairOutcome.planName) {
+                            await executePlan(
+                                repairOutcome.planName,
+                                repairOutcome.triageMeta || plan.attrs,
+                                uiAPI,
+                                repairOutcome.tasks,
+                            );
+                        }
                     }
                     return;
                 }
@@ -317,7 +325,13 @@ export async function runResumePlanCommand(argv, options = {}) {
                         uiAPI,
                     });
 
-                    if (outcome.outcome === "executed") {
+                    if (outcome.outcome === "approved_execute" && outcome.planName) {
+                        await executePlan(
+                            outcome.planName,
+                            outcome.triageMeta || plan.attrs,
+                            uiAPI,
+                            outcome.tasks,
+                        );
                         setActiveAgent("Operator", createDirectAgentHandler("operator"), uiAPI);
                     } else if (
                         outcome.outcome === "canceled" || outcome.outcome === "no_call" ||
@@ -344,7 +358,13 @@ export async function runResumePlanCommand(argv, options = {}) {
             uiAPI,
         });
 
-        if (outcome.outcome === "executed") {
+        if (outcome.outcome === "approved_execute" && outcome.planName) {
+            await executePlan(
+                outcome.planName,
+                outcome.triageMeta || plan.attrs,
+                uiAPI,
+                outcome.tasks,
+            );
             setActiveAgent("Operator", createDirectAgentHandler("operator"), uiAPI);
         } else if (
             outcome.outcome === "canceled" || outcome.outcome === "no_call" ||

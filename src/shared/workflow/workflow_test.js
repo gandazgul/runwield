@@ -11,10 +11,20 @@ Deno.test("readLatestPlanOutcome returns the latest plan_written outcome", () =>
         /** @type {any} */ ({
             role: "toolResult",
             toolName: "plan_written",
-            details: { planName: "first", outcome: "executed" },
+            details: {
+                planName: "first",
+                outcome: "approved_execute",
+                tasks: [{ task: 1, assignee: "engineer", dependencies: "", description: "X" }],
+                triageMeta: { classification: "FEATURE" },
+            },
         }),
     ];
-    assertEquals(readLatestPlanOutcome(messages), { outcome: "executed", planName: "first" });
+    assertEquals(readLatestPlanOutcome(messages), {
+        outcome: "approved_execute",
+        planName: "first",
+        tasks: [{ task: 1, assignee: "engineer", dependencies: "", description: "X" }],
+        triageMeta: { classification: "FEATURE" },
+    });
 });
 
 Deno.test("readLatestPlanOutcome returns null when no plan_written tool result is present", () => {

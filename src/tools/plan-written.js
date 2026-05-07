@@ -1,12 +1,15 @@
 /**
  * @module plan-written
  * Custom tool for planning agents (Planner/Architect) to declare a plan and
- * trigger the full review/save/execute lifecycle.
+ * run the review-and-approve lifecycle.
  *
- * createPlanWrittenTool captures TUI context, session manager, and triage metadata
- * at session-start time. Calling the tool runs the lifecycle in execute() and
- * returns the outcome via tool result so the planner can react in the same session
- * (e.g., revising on user feedback, repairing on malformed task tables).
+ * createPlanWrittenTool captures TUI context and triage metadata at session-start
+ * time. The tool runs review (and optional save-vs-execute prompt) inside execute,
+ * but does NOT execute the plan — that's the orchestrator's job after the planning
+ * session ends. The outcome (`approved_execute`, `saved`, `feedback`, `canceled`,
+ * `repair_required`) is returned via `details.outcome` so the orchestrator can
+ * dispatch the next agent, while `feedback` and `repair_required` keep the planner
+ * in-session to iterate.
  */
 
 import { join } from "@std/path";
@@ -76,35 +79,19 @@ function buildFeedbackRequestText({ round, planName, feedback }) {
 }
 
 /**
- * Build the repair prompt returned to the agent when a PROJECT plan's task table
- * could not be parsed during execution.
- *
- * @param {string} planName
- * @param {string} error
- * @returns {string}
- */
-function buildRepairFeedbackText(planName, error) {
-    return [
-        `## Plan Execution Halted — Task Table Repair Required`,
-        "",
-        `The previously approved plan "${planName}" had a malformed Tasks table: ${error}.`,
-        "",
-        "Fix the table to follow the required format (Task ID | Assignee | Dependencies | Description).",
-        "If any requirement is unclear, use user_interview (1-3 focused questions) before finalizing.",
-        "Then call plan_written again with the corrected tasks array.",
-    ].join("\n");
-}
-
-/**
  * @param {string} text
  * @param {unknown} [details]
+ * @param {boolean} [terminate]
  * @returns {import('@mariozechner/pi-coding-agent').AgentToolResult<unknown>}
  */
-function textResult(text, details) {
-    return {
+function textResult(text, details, terminate) {
+    /** @type {import('@mariozechner/pi-coding-agent').AgentToolResult<unknown>} */
+    const result = {
         content: [{ type: "text", text }],
         details: details ?? null,
     };
+    if (terminate) result.terminate = true;
+    return result;
 }
 
 /**
@@ -133,20 +120,20 @@ async function resolveTriageMeta(triageMeta, planName) {
  *
  * @param {{
  *   uiAPI?: import('../shared/workflow/workflow.js').UiAPI,
- *   sessionManager?: import('@mariozechner/pi-coding-agent').SessionManager,
  *   triageMeta?: TriageMeta,
  *   agentName?: string,
  * }} [opts]
  * @returns {import('@mariozechner/pi-coding-agent').ToolDefinition}
  */
 export function createPlanWrittenTool(
-    { uiAPI, sessionManager, triageMeta, agentName = "planner" } = {},
+    { uiAPI, triageMeta, agentName = "planner" } = {},
 ) {
     return defineTool({
         name: "plan_written",
         label: "Plan Written",
         description: "Declare the plan filename you created in plans/ and submit it for user review. " +
-            "This triggers the full lifecycle (review → approve/save/execute or revise). " +
+            "Triggers review and (on approval) a save-vs-execute prompt. Execution itself runs after " +
+            "your turn ends — orchestrator picks it up from this tool's outcome. " +
             "Call this once after writing the plan; the user reviews it in a browser UI. " +
             "If the user submits feedback instead of approving, the tool result contains that feedback so you can " +
             "revise in this same session.",
@@ -191,9 +178,7 @@ export function createPlanWrittenTool(
 
             // Lazy imports break the circular dep: plan-written → workflow → session → plan-written.
             const { submitPlanForReview } = await import("../shared/workflow/submit-plan.js");
-            const { askApprovalWithTasks, askPostApproval, executePlan } = await import(
-                "../shared/workflow/workflow.js"
-            );
+            const { askApprovalWithTasks, askPostApproval } = await import("../shared/workflow/workflow.js");
 
             const reviewResult = await submitPlanForReview({
                 cwd: CWD,
@@ -208,6 +193,7 @@ export function createPlanWrittenTool(
                 return textResult(
                     "Plan review canceled by the user. Stop generating; control has returned to the user.",
                     { ...params, outcome: "canceled" },
+                    true,
                 );
             }
 
@@ -235,27 +221,14 @@ export function createPlanWrittenTool(
                 return textResult(
                     `Plan "${planName}" approved and saved for later execution. Your role as ${agentName} is complete. Do not generate any further text.`,
                     { ...params, outcome: "saved", planName },
-                );
-            }
-
-            const execRes = await executePlan(
-                planName,
-                effectiveMeta,
-                uiAPI,
-                structuredTasks,
-                sessionManager,
-            );
-
-            if (execRes && execRes.repairRequired) {
-                return textResult(
-                    buildRepairFeedbackText(planName, execRes.error || "Unknown task table error"),
-                    { ...params, outcome: "repair_required", error: execRes.error },
+                    true,
                 );
             }
 
             return textResult(
-                `Plan "${planName}" executed successfully. Your role as ${agentName} is complete. Do not generate any further text.`,
-                { ...params, outcome: "executed", planName },
+                `Plan "${planName}" approved for execution. Your role as ${agentName} is complete. Do not generate any further text.`,
+                { ...params, outcome: "approved_execute", planName, tasks: structuredTasks, triageMeta: effectiveMeta },
+                true,
             );
         },
     });

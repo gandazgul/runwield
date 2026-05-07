@@ -42,14 +42,22 @@ function extractAssistantOutput(messages) {
  */
 
 /**
- * @typedef {"executed" | "saved" | "feedback" | "canceled" | "repair_required" | "no_call"} PlanOutcome
+ * @typedef {"approved_execute" | "saved" | "feedback" | "canceled" | "repair_required" | "no_call"} PlanOutcome
+ */
+
+/**
+ * @typedef {Object} PlanOutcomeResult
+ * @property {PlanOutcome} outcome
+ * @property {string} [planName]
+ * @property {Array<{ task: number, assignee: string, dependencies: string, description: string }>} [tasks]
+ * @property {import('../../tools/plan-written.js').TriageMeta} [triageMeta]
  */
 
 /**
  * Read the latest plan_written tool result's outcome from a message stream.
  *
  * @param {import('@mariozechner/pi-agent-core').AgentMessage[]} messages
- * @returns {{ outcome: PlanOutcome, planName?: string } | null}
+ * @returns {PlanOutcomeResult | null}
  */
 export function readLatestPlanOutcome(messages) {
     for (let i = messages.length - 1; i >= 0; i--) {
@@ -62,7 +70,12 @@ export function readLatestPlanOutcome(messages) {
             const details = msg.details || {};
             const outcome = details.outcome;
             if (outcome) {
-                return { outcome, planName: details.planName };
+                return {
+                    outcome,
+                    planName: details.planName,
+                    tasks: details.tasks,
+                    triageMeta: details.triageMeta,
+                };
             }
         }
     }
@@ -70,9 +83,9 @@ export function readLatestPlanOutcome(messages) {
 }
 
 /**
- * Run a planning agent (planner/architect) once and return the lifecycle outcome.
- * The plan_written tool inside the session handles review/save/execute and writes
- * the outcome to its tool result, which we surface here for the caller.
+ * Run a planning agent (planner/architect) once and return the lifecycle outcome
+ * captured by plan_written. Does NOT execute the plan — call `executePlan`
+ * afterwards if the outcome is `approved_execute`.
  *
  * @param {Object} opts
  * @param {string} opts.agentName
@@ -80,7 +93,7 @@ export function readLatestPlanOutcome(messages) {
  * @param {import('../../tools/plan-written.js').TriageMeta} [opts.triageMeta]
  * @param {UiAPI} [opts.uiAPI]
  * @param {import('@mariozechner/pi-coding-agent').SessionManager} [opts.sessionManager]
- * @returns {Promise<{ outcome: PlanOutcome, planName?: string }>}
+ * @returns {Promise<PlanOutcomeResult>}
  */
 export async function runPlanningAgent({ agentName, initialRequest, triageMeta, uiAPI, sessionManager }) {
     if (uiAPI) uiAPI.appendSystemMessage(`=== Running ${agentName} ===`, false, "Harns");

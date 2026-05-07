@@ -732,12 +732,12 @@ export async function runAgentSession(
 
     if (tools.includes("plan_written") && !finalCustomTools.find((t) => t.name === "plan_written")) {
         const { createPlanWrittenTool } = await import("../../tools/plan-written.js");
-        finalCustomTools.push(createPlanWrittenTool({ uiAPI, sessionManager, triageMeta, agentName }));
+        finalCustomTools.push(createPlanWrittenTool({ uiAPI, triageMeta, agentName }));
     }
 
     if (tools.includes("triage_report") && !finalCustomTools.find((t) => t.name === "triage_report")) {
         const { createTriageReportTool } = await import("../../tools/triage-report.js");
-        finalCustomTools.push(createTriageReportTool({ uiAPI, sessionManager, userRequest, images }));
+        finalCustomTools.push(createTriageReportTool({ uiAPI }));
     }
 
     if (tools.includes("user_interview") && !finalCustomTools.find((t) => t.name === "user_interview")) {

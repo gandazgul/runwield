@@ -1,18 +1,15 @@
 /**
  * @module triage-report
- * Custom tool for the Router to output a structured triage report and route
- * to the appropriate downstream agent.
+ * Custom tool for the Router to output a structured triage report.
  *
- * createTriageReportTool captures TUI context at session-start time and handles
- * all routing in execute — keeping this logic out of the router command.
+ * The tool only captures classification + summary + affectedPaths and surfaces
+ * them via the tool result. Post-triage dispatch (Operator/Planner/Architect)
+ * is handled by the router orchestrator in `src/cmd/router/index.js`, which
+ * reads the latest triage_report outcome after the router session ends.
  */
 
 import { StringEnum, Type } from "@mariozechner/pi-ai";
 import { defineTool } from "@mariozechner/pi-coding-agent";
-import { setActiveAgent } from "../shared/chat-session.js";
-import { createDirectAgentHandler } from "../shared/direct-agent.js";
-import { ensurePlansDir } from "../plan-store.js";
-import { CWD } from "../constants.js";
 
 const TOOL_PARAMS = Type.Object({
     classification: StringEnum(["QUICK_FIX", "FEATURE", "PROJECT"], {
@@ -32,17 +29,15 @@ const TOOL_PARAMS = Type.Object({
 });
 
 /**
- * Create the triage_report tool with routing context captured at session start.
+ * Create the triage_report tool. The tool only emits the classification —
+ * dispatch to the next agent happens in the router orchestrator.
  *
  * @param {{
  *   uiAPI?: import('../shared/workflow/workflow.js').UiAPI,
- *   sessionManager?: import('@mariozechner/pi-coding-agent').SessionManager,
- *   userRequest?: string,
- *   images?: Array<{base64: string, mimeType: string}>,
  * }} [opts]
  * @returns {import('@mariozechner/pi-coding-agent').ToolDefinition}
  */
-export function createTriageReportTool({ uiAPI, sessionManager, userRequest = "", images } = {}) {
+export function createTriageReportTool({ uiAPI } = {}) {
     return defineTool({
         name: "triage_report",
         label: "Triage Report",
@@ -50,94 +45,15 @@ export function createTriageReportTool({ uiAPI, sessionManager, userRequest = ""
             "You MUST call this tool exactly once after exploring the codebase. " +
             "Do not output the classification as freeform text — use this tool.",
         parameters: TOOL_PARAMS,
+        // deno-lint-ignore require-await
         async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-            const { classification, complexity, summary, affectedPaths } = params;
+            const { classification, complexity, summary } = params;
 
             uiAPI?.appendSystemMessage(
                 `Classification: ${classification}, Complexity: ${complexity}. Summary: ${summary}`,
                 false,
                 "Router",
             );
-
-            const triageBlock = [
-                "## Triage Report",
-                `- Classification: ${classification}`,
-                `- Complexity: ${complexity}`,
-                `- Summary: ${summary}`,
-                `- Affected paths: ${affectedPaths.join(", ")}`,
-                "",
-            ].join("\n");
-
-            // Lazy imports break the circular dep: triage-report → session → triage-report.
-            const { runAgentSession } = await import("../shared/session/session.js");
-            const { runPlanningAgent } = await import("../shared/workflow/workflow.js");
-
-            if (classification === "QUICK_FIX") {
-                uiAPI?.appendSystemMessage("=== Phase B: Operator (Execute) ===");
-                setActiveAgent("Operator", createDirectAgentHandler("operator"), uiAPI);
-
-                const operatorRequest = ["## User Request", userRequest, "", triageBlock].join("\n");
-
-                await runAgentSession({
-                    agentName: "operator",
-                    userRequest: operatorRequest,
-                    images,
-                    uiAPI,
-                    sessionManager,
-                });
-
-                uiAPI?.appendSystemMessage("✅ Operator execution complete.");
-                sessionManager?.appendCustomMessageEntry?.(
-                    "system",
-                    "Quick fix executed by operator.",
-                    true,
-                    `Quick fix executed by operator. Summary:\n${summary}`,
-                );
-            } else if (classification === "FEATURE") {
-                uiAPI?.appendSystemMessage("FEATURE detected. Handing off to Planner...");
-                uiAPI?.appendSystemMessage("=== Phase B: Planner ===");
-                setActiveAgent("Planner", createDirectAgentHandler("planner"), uiAPI);
-
-                await ensurePlansDir(CWD);
-
-                const plannerRequest = [
-                    "## User Request",
-                    userRequest,
-                    "",
-                    triageBlock,
-                ].join("\n");
-
-                await runPlanningAgent({
-                    agentName: "planner",
-                    initialRequest: plannerRequest,
-                    triageMeta: params,
-                    uiAPI,
-                    sessionManager,
-                });
-            } else if (classification === "PROJECT") {
-                uiAPI?.appendSystemMessage(
-                    "PROJECT detected. Handing off to Architect for targeted deep exploration + planning...",
-                );
-                uiAPI?.appendSystemMessage("=== Phase B: Architect ===");
-                setActiveAgent("Architect", createDirectAgentHandler("architect"), uiAPI);
-
-                await ensurePlansDir(CWD);
-
-                const architectRequest = [
-                    "## User Request",
-                    userRequest,
-                    "",
-                    triageBlock,
-                ].join("\n");
-
-                await runPlanningAgent({
-                    agentName: "architect",
-                    initialRequest: architectRequest,
-                    triageMeta: params,
-                    uiAPI,
-                    sessionManager,
-                });
-            }
 
             return {
                 content: [
@@ -147,6 +63,7 @@ export function createTriageReportTool({ uiAPI, sessionManager, userRequest = ""
                     },
                 ],
                 details: params,
+                terminate: true,
             };
         },
     });
