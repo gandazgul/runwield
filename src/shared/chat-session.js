@@ -29,7 +29,8 @@ import {
 import { cancelActivePlanReview } from "./workflow/submit-plan.js";
 import { ensureMnemosyneBinary } from "./runtime-preflight.js";
 import { commandRegistry } from "../cmd/registry.js";
-import { getDefaultModelAndProvider, getModelRegistry } from "./models/model-registry.js";
+import { getModelRegistry } from "./models/model-registry.js";
+import { initSettings, getSettingsManager } from "./settings.js";
 import {
     clearUserModelOverride,
     getActiveAgentName,
@@ -322,6 +323,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
 
     const rootSessionManager = await createRootSessionManager(options.sessionStartMode || "new", Deno.cwd());
     setRootSessionManager(rootSessionManager);
+    initSettings();
     const sessionStartedAt = rootSessionManager.getHeader()?.timestamp || new Date().toISOString();
     setActiveOnMessage(onMessage);
     await ensureMnemosyneBinary();
@@ -370,7 +372,11 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
     }
 
     const getModelAndProvider = () => {
-        const defaults = getDefaultModelAndProvider();
+        const settingsManager = getSettingsManager();
+        const defaults = {
+            model: settingsManager.getDefaultModel() ?? "gemini-2.0-flash",
+            provider: settingsManager.getDefaultProvider() ?? "google",
+        };
         let { model, provider } = defaults;
 
         const activeModel = getActiveModelState();
