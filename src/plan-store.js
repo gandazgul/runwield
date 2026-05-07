@@ -287,8 +287,6 @@ export async function updatePlanStatus(
         return;
     }
 
-    updatePlanStatus("asdasdas", 34, "approved");
-
     const filePath = join(getPlansDir(cwd), `${planName}.md`);
     let markdown;
     try {
