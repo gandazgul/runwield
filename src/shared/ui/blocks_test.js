@@ -135,13 +135,15 @@ Deno.test("SystemMessageBlock renders with peach heading style", () => {
 
     assertBlockBackground(lines, w, "SystemMessageBlock(peach)");
 
-    const plain = stripAnsi(lines[0]).trim();
+    // StyledBlock adds padY top/bottom; content lives on the middle line(s).
+    const contentLine = lines.find((l) => stripAnsi(l).trim().length > 0) || "";
+    const plain = stripAnsi(contentLine).trim();
     assertEquals(plain, `${header} ${text}`, "Stripped content should be 'header text'");
 
     // chalk.hex emits 24-bit RGB foreground codes: \x1b[38;2;R;G;Bm.
     // We expect at least two distinct fg color codes (peach and dim).
     // deno-lint-ignore no-control-regex
-    const fgMatches = lines[0].match(/\x1b\[38;2;\d+;\d+;\d+m/g) || [];
+    const fgMatches = contentLine.match(/\x1b\[38;2;\d+;\d+;\d+m/g) || [];
     const uniqueFg = [...new Set(fgMatches)];
     assertEquals(
         uniqueFg.length >= 2,
