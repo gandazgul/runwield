@@ -26,7 +26,7 @@
 
 /**
  * @typedef {{
- *   appendSystemMessage: (text: string, isError?: boolean) => void,
+ *   appendSystemMessage: (text: string, isError?: boolean, header?: string, style?: { headingColor?: string }) => void,
  *   appendAgentMessageStart: (agentName: string) => AgentMessageAppender,
  *   appendUserMessage?: (text: string) => void,
  *   appendImage?: (base64: string, mimeType: string) => void,

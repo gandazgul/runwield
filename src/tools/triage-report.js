@@ -54,7 +54,9 @@ export function createTriageReportTool({ uiAPI, sessionManager, userRequest = ""
             const { classification, complexity, summary, affectedPaths } = params;
 
             uiAPI?.appendSystemMessage(
-                `[Router] Classification: ${classification}, Complexity: ${complexity}. Summary: ${summary}`,
+                `Classification: ${classification}, Complexity: ${complexity}. Summary: ${summary}`,
+                false,
+                "Router",
             );
 
             const triageBlock = [

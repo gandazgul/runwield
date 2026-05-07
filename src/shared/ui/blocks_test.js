@@ -125,6 +125,48 @@ Deno.test("SystemMessageBlock error renders with consistent background", () => {
     assertBlockBackground(lines, w, "SystemMessageBlock(error)");
 });
 
+Deno.test("SystemMessageBlock renders with peach heading style", () => {
+    const w = 100;
+    const text = "skill1, skill2";
+    const header = "Loaded skills (2):";
+    const style = { headingColor: "peach" };
+    const block = new SystemMessageBlock(text, false, header, style);
+    const lines = block.render(w);
+
+    assertBlockBackground(lines, w, "SystemMessageBlock(peach)");
+
+    const plain = stripAnsi(lines[0]).trim();
+    assertEquals(plain, `${header} ${text}`, "Stripped content should be 'header text'");
+
+    // chalk.hex emits 24-bit RGB foreground codes: \x1b[38;2;R;G;Bm.
+    // We expect at least two distinct fg color codes (peach and dim).
+    // deno-lint-ignore no-control-regex
+    const fgMatches = lines[0].match(/\x1b\[38;2;\d+;\d+;\d+m/g) || [];
+    const uniqueFg = [...new Set(fgMatches)];
+    assertEquals(
+        uniqueFg.length >= 2,
+        true,
+        "Should have at least two distinct foreground colors (peach and dim)",
+    );
+
+    // The peach color is #fab387 → 250;179;135. Verify it's actually rendered.
+    const hasPeach = fgMatches.some((m) => m === "\x1b[38;2;250;179;135m");
+    assertEquals(hasPeach, true, "Should contain the peach (250;179;135) ANSI code");
+});
+
+Deno.test("SystemMessageBlock appendText uses header and style", () => {
+    const w = 100;
+    const block = new SystemMessageBlock("First line");
+    block.appendText("s1", "Loaded skills (1):", { headingColor: "peach" });
+    const lines = block.render(w);
+
+    assertBlockBackground(lines, w, "SystemMessageBlock(append)");
+
+    const plain = lines.map((l) => stripAnsi(l)).join("\n");
+    assertEquals(plain.includes("First line"), true);
+    assertEquals(plain.includes("Loaded skills (1): s1"), true);
+});
+
 // ─── ToolExecutionBlock ──────────────────────────────────────────────────────
 
 Deno.test("ToolExecutionBlock renders with consistent background (no output)", () => {

@@ -73,8 +73,10 @@ export function createUiApi(tui, messageList, spinner) {
         /**
          * @param {string} text
          * @param {boolean} [isError=false]
+         * @param {string} [header='']
+         * @param {{ headingColor?: string }} [style]
          */
-        appendSystemMessage: (text, isError = false) => {
+        appendSystemMessage: (text, isError = false, header = "", style = {}) => {
             if (outputSuppressed) return;
             const children = messageList.children;
             let lastBlockIndex = children.length - 1;
@@ -84,13 +86,16 @@ export function createUiApi(tui, messageList, spinner) {
 
             const lastBlock = lastBlockIndex >= 0 ? children[lastBlockIndex] : null;
 
-            if (lastBlock instanceof SystemMessageBlock && lastBlock.isError === isError) {
-                lastBlock.appendText(text);
+            if (
+                lastBlock instanceof SystemMessageBlock && lastBlock.isError === isError &&
+                JSON.stringify(lastBlock.style) === JSON.stringify(style)
+            ) {
+                lastBlock.appendText(text, header, style);
                 tui.requestRender();
                 return;
             }
 
-            const block = new SystemMessageBlock(text, isError);
+            const block = new SystemMessageBlock(text, isError, header, style);
             messageList.addChild(block);
             messageList.addChild(new Spacer(1));
             tui.requestRender();

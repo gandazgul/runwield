@@ -17,7 +17,7 @@ import {
 } from "@mariozechner/pi-coding-agent";
 import { extractYaml, test as hasFrontMatter } from "@std/front-matter";
 import { dirname, fromFileUrl, join } from "@std/path";
-import { AGENT_DEFS_DIR, CWD, PROMPT_TEMPLATES_DIR } from "../../constants.js";
+import { AGENT_DEFS_DIR, CWD, PROMPT_TEMPLATES_DIR, SKILLS_DIR } from "../../constants.js";
 import mnemosyneExtension, {
     memoryDeleteToolDef,
     memoryRecallGlobalToolDef,
@@ -286,6 +286,73 @@ export async function listPromptTemplates() {
     }
 
     return templates;
+}
+
+/**
+ * @typedef {Object} SkillMeta
+ * @property {string} name
+ * @property {string} description
+ * @property {string} path
+ * @property {"local" | "home" | "bundled"} source
+ */
+
+/**
+ * List all known skills across bundled + home + local layers.
+ * First name wins, based on priority local > home > bundled.
+ *
+ * @returns {Promise<SkillMeta[]>}
+ */
+export async function listSkills() {
+    const skills = [];
+    const seen = new Set();
+
+    const layers = [
+        { dir: join(CWD, ".hns", "skills"), source: /** @type {"local" | "home" | "bundled"} */ ("local") },
+        ...(HOME_DIR
+            ? [{ dir: join(HOME_DIR, ".hns", "skills"), source: /** @type {"local" | "home" | "bundled"} */ ("home") }]
+            : []),
+        { dir: SKILLS_DIR, source: /** @type {"local" | "home" | "bundled"} */ ("bundled") },
+    ];
+
+    for (const layer of layers) {
+        if (!(await directoryExists(layer.dir))) continue;
+
+        for await (const entry of Deno.readDir(layer.dir)) {
+            if (!entry.isDirectory) continue;
+
+            const skillName = entry.name;
+            if (seen.has(skillName)) continue;
+
+            const skillMdPath = join(layer.dir, entry.name, "SKILL.md");
+            if (!(await fileExists(skillMdPath))) continue;
+
+            try {
+                const raw = await Deno.readTextFile(skillMdPath);
+                /** @type {{ name?: string, description?: string, [key: string]: unknown }} */
+                let attrs = {};
+                if (hasFrontMatter(raw)) {
+                    attrs = extractYaml(raw).attrs;
+                }
+
+                const name = typeof attrs.name === "string" ? attrs.name.trim() : skillName;
+                const description = typeof attrs.description === "string"
+                    ? attrs.description.trim()
+                    : "No description provided";
+
+                skills.push({
+                    name,
+                    description,
+                    path: skillMdPath,
+                    source: layer.source,
+                });
+                seen.add(skillName);
+            } catch {
+                // Ignore unreadable skills.
+            }
+        }
+    }
+
+    return skills;
 }
 
 /**
@@ -600,6 +667,18 @@ export async function assembleFinalSystemPrompt(agentDef, tools, finalCustomTool
         memories = "";
     }
     finalSystemPrompt = finalSystemPrompt.replace("{{MEMORIES}}", memories);
+
+    let skillsBlock = "";
+    try {
+        const skills = await listSkills();
+        skillsBlock = skills
+            .filter((skill) => skill.name && skill.description)
+            .map((skill) => `- ${skill.name} - ${skill.description}`)
+            .join("\n");
+    } catch {
+        skillsBlock = "";
+    }
+    finalSystemPrompt = finalSystemPrompt.replace("{{SKILLS}}", skillsBlock);
 
     return finalSystemPrompt;
 }

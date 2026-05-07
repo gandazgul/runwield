@@ -1,6 +1,6 @@
 ---
 name: router
-model: ollama/qwen/qwen3.6-27b
+model: ollama-cloud/gemma4:31b-cloud
 description: "Triage agent that classifies user requests and explores the codebase."
 tools:
     - read

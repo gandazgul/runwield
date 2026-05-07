@@ -187,7 +187,7 @@ export function createPlanWrittenTool(
                 );
             }
 
-            uiAPI?.appendSystemMessage(`[Harns] Plan declared: plans/${planName}.md`);
+            uiAPI?.appendSystemMessage(`Plan declared: plans/${planName}.md`, false, "Harns");
 
             // Lazy imports break the circular dep: plan-written → workflow → session → plan-written.
             const { submitPlanForReview } = await import("../shared/workflow/submit-plan.js");
@@ -204,7 +204,7 @@ export function createPlanWrittenTool(
             });
 
             if (reviewResult.canceled) {
-                uiAPI?.appendSystemMessage("[Harns] Plan review canceled. Returning control to user.");
+                uiAPI?.appendSystemMessage("Plan review canceled. Returning control to user.", false, "Harns");
                 return textResult(
                     "Plan review canceled by the user. Stop generating; control has returned to the user.",
                     { ...params, outcome: "canceled" },
@@ -228,7 +228,9 @@ export function createPlanWrittenTool(
 
             if (action !== "proceed") {
                 uiAPI?.appendSystemMessage(
-                    `[Harns] Plan saved. Resume later with: ${CLI_BIN} resume ${planName}`,
+                    `Plan saved. Resume later with: ${CLI_BIN} resume ${planName}`,
+                    false,
+                    "Harns",
                 );
                 return textResult(
                     `Plan "${planName}" approved and saved for later execution. Your role as ${agentName} is complete. Do not generate any further text.`,

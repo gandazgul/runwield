@@ -19,7 +19,13 @@ import { editorTheme, imageTheme, theme } from "./ui/theme.js";
 import { readClipboardImage } from "./clipboard.js";
 import { createUiApi } from "./ui/api.js";
 import { SpinnerBlock } from "./ui/blocks.js";
-import { abortActiveSession, listPromptTemplates, runAgentSession, steerRootSession } from "./session/session.js";
+import {
+    abortActiveSession,
+    listPromptTemplates,
+    listSkills,
+    runAgentSession,
+    steerRootSession,
+} from "./session/session.js";
 import { cancelActivePlanReview } from "./workflow/submit-plan.js";
 import { ensureMnemosyneBinary } from "./runtime-preflight.js";
 import { commandRegistry } from "../cmd/registry.js";
@@ -756,7 +762,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
                             toolBlock.appendOutput("\n[Harns] Command canceled by user.");
                             toolBlock.endExecution(true, Date.now() - startTime);
                         }
-                        uiAPI.appendSystemMessage("[Harns] Bash command canceled.");
+                        uiAPI.appendSystemMessage("Bash command canceled.", false, "Harns");
                     } else if (!isExcluded && generationStillCurrent(thisGen)) {
                         const durationMs = Date.now() - startTime;
                         toolBlock?.endExecution(code !== 0, durationMs);
@@ -946,10 +952,10 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         if (isProcessingSubmission) {
             steerRootSession(userRequest, images).then((steered) => {
                 if (steered) {
-                    uiAPI.appendSystemMessage(`[Steering: ${userRequest}]`);
+                    uiAPI.appendSystemMessage(userRequest, false, "Steering:");
                 } else {
                     submissionQueue.push({ text: userRequest, images });
-                    uiAPI.appendSystemMessage(`[Queued message: ${userRequest}]`);
+                    uiAPI.appendSystemMessage(userRequest, false, "Queued message:");
                 }
                 tui.requestRender();
             });
@@ -987,15 +993,15 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
             forceResetUI();
             // 7. Give user feedback about what was canceled
             if (opCanceled) {
-                uiAPI.appendSystemMessage("[Harns] Operation canceled.");
+                uiAPI.appendSystemMessage("Operation canceled.", false, "Harns");
             } else if (sessionAborted) {
-                uiAPI.appendSystemMessage("[Harns] Agent run canceled.");
+                uiAPI.appendSystemMessage("Agent run canceled.", false, "Harns");
             } else if (planCanceled) {
-                uiAPI.appendSystemMessage("[Harns] Plan review canceled.");
+                uiAPI.appendSystemMessage("Plan review canceled.", false, "Harns");
             } else {
                 // Nothing was actively running, but we still reset UI for safety
                 // (covers stale Thinking... state after provider errors)
-                uiAPI.appendSystemMessage("[Harns] Cleared.");
+                uiAPI.appendSystemMessage("Cleared.", false, "Harns");
             }
             tui.requestRender();
             return;
@@ -1012,7 +1018,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
                 lastCtrlC = now;
                 const aborted = abortActiveSession();
                 if (aborted) {
-                    uiAPI.appendSystemMessage("[Harns] Keyboard interrupt. Press again to quit.");
+                    uiAPI.appendSystemMessage("Keyboard interrupt. Press again to quit.", false, "Harns");
                     tui.requestRender();
                 }
                 return;
@@ -1064,15 +1070,26 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         originalHandleInput(data);
     };
 
-    // User-facing prompt listing and collision warnings
+    // User-facing prompt listing and collision warnings — boot summary block.
+    const peachStyle = { headingColor: "peach" };
     if (invokablePromptTemplates.length > 0) {
         const names = invokablePromptTemplates.map((template) => `/${template.name}`).join(", ");
-        uiAPI.appendSystemMessage(`Loaded prompt templates (${invokablePromptTemplates.length}): ${names}`);
         uiAPI.appendSystemMessage(
-            `Prompt slash commands execute via ${CHAT_PROMPT_AGENT_NAME}.`,
+            `${names} (slash commands execute via ${CHAT_PROMPT_AGENT_NAME})`,
+            false,
+            `Loaded prompt templates (${invokablePromptTemplates.length}):`,
+            peachStyle,
         );
     } else {
-        uiAPI.appendSystemMessage("Loaded prompt templates: none");
+        uiAPI.appendSystemMessage("none", false, "Loaded prompt templates:", peachStyle);
+    }
+
+    const skills = await listSkills();
+    if (skills && skills.length > 0) {
+        const skillNames = skills.map((s) => s.name).join(", ");
+        uiAPI.appendSystemMessage(skillNames, false, `Loaded skills (${skills.length}):`, peachStyle);
+    } else {
+        uiAPI.appendSystemMessage("none", false, "Loaded skills:", peachStyle);
     }
 
     for (const blocked of blockedPromptTemplates) {

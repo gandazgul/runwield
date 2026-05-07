@@ -23,6 +23,9 @@ export const AGENT_DEFS_DIR = join(SRC_DIR, "agent-definitions");
 /** Directory containing bundled default prompt template markdown files. */
 export const PROMPT_TEMPLATES_DIR = join(SRC_DIR, "prompt-templates");
 
+/** Directory containing bundled default skill definitions. */
+export const SKILLS_DIR = join(SRC_DIR, "skills");
+
 /** Allowed triage classification values emitted by the router. */
 export const CLASSIFICATIONS = ["QUICK_FIX", "FEATURE", "PROJECT"];
 

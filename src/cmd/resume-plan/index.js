@@ -59,7 +59,7 @@ function restoreRouterFlow(uiAPI, deps = {}) {
 
     resetTuiState(undefined, uiAPI, undefined);
     setActiveAgent("Router", createDirectAgentHandler("router"));
-    uiAPI.appendSystemMessage("[Harns] Switched back to Router (triage flow).");
+    uiAPI.appendSystemMessage("Switched back to Router (triage flow).", false, "Harns");
 }
 
 /**
@@ -208,19 +208,21 @@ export async function runResumePlanCommand(argv, options = {}) {
     let skipRouterRestore = false;
 
     try {
-        uiAPI.appendSystemMessage(`[Harns] Resuming plan: ${planArg}`);
+        uiAPI.appendSystemMessage(`Resuming plan: ${planArg}`, false, "Harns");
 
         const plan = await resolvePlan(CWD, planArg);
-        uiAPI.appendSystemMessage(`[Harns] Plan loaded: ${plan.planName}`);
+        uiAPI.appendSystemMessage(`Plan loaded: ${plan.planName}`, false, "Harns");
         uiAPI.appendSystemMessage(
-            `[Harns] Classification: ${plan.attrs.classification}, Status: ${plan.attrs.status}`,
+            `Classification: ${plan.attrs.classification}, Status: ${plan.attrs.status}`,
+            false,
+            "Harns",
         );
 
         const triageMeta = plan.attrs;
         const agentName = triageMeta.classification === "PROJECT" ? "architect" : "planner";
 
         if (plan.attrs.status === "completed") {
-            uiAPI.appendSystemMessage("[Harns] Warning: This plan is already marked as completed.");
+            uiAPI.appendSystemMessage("Warning: This plan is already marked as completed.", false, "Harns");
             const answer = await uiAPI.promptSelect("Are you sure you want to resume it?", [
                 { value: "yes", label: "Yes, resume and reset to in_review" },
                 { value: "no", label: "No, cancel" },
@@ -233,7 +235,7 @@ export async function runResumePlanCommand(argv, options = {}) {
         }
 
         if (plan.attrs.status === "approved") {
-            uiAPI.appendSystemMessage("[Harns] This plan has already been approved.");
+            uiAPI.appendSystemMessage("This plan has already been approved.", false, "Harns");
 
             while (true) {
                 const answer = await uiAPI.promptSelect("What would you like to do?", [
@@ -248,7 +250,9 @@ export async function runResumePlanCommand(argv, options = {}) {
                     const execRes = await executePlan(plan.planName, plan.attrs, uiAPI);
                     if (execRes && execRes.repairRequired) {
                         uiAPI.appendSystemMessage(
-                            `[Harns] Execution failed due to task table error. Rerouting to ${agentName} for repair...`,
+                            `Execution failed due to task table error. Rerouting to ${agentName} for repair...`,
+                            false,
+                            "Harns",
                         );
                         setActiveAgent(agentName, createDirectAgentHandler(agentName), uiAPI);
                         await runPlanningAgent({
@@ -282,7 +286,7 @@ export async function runResumePlanCommand(argv, options = {}) {
                     });
 
                     if (reviewResult.canceled) {
-                        uiAPI.appendSystemMessage("[Harns] Plan review canceled.");
+                        uiAPI.appendSystemMessage("Plan review canceled.", false, "Harns");
                         skipRouterRestore = true;
                         return;
                     }
@@ -296,7 +300,9 @@ export async function runResumePlanCommand(argv, options = {}) {
                             setActiveAgent("Operator", createDirectAgentHandler("operator"), uiAPI);
                         } else {
                             uiAPI.appendSystemMessage(
-                                `[Harns] Plan saved. Resume later with: ${CLI_BIN} resume ${plan.planName}`,
+                                `Plan saved. Resume later with: ${CLI_BIN} resume ${plan.planName}`,
+                                false,
+                                "Harns",
                             );
                             skipRouterRestore = true;
                         }

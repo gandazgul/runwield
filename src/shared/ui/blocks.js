@@ -16,28 +16,28 @@ import stripAnsi from "strip-ansi";
 // ─── Utilities ───────────────────────────────────────────────────────────────
 
 /**
- * Format system line text. If line starts with a bracketed prefix (e.g. `[Harns]`),
- * render the prefix in accent/error color without brackets to avoid terminal glyph
- * alignment issues for `[` in some fonts.
+ * Format a system line from explicit text/header/style parts (no parsing).
+ * `header` (when provided) is rendered bold in `style.headingColor` (default
+ * `accent` / `error` based on isError). The body text uses the base color.
  *
  * @param {string} text
  * @param {boolean} isError
+ * @param {string} [header]
+ * @param {{ headingColor?: string }} [style]
  * @returns {string}
  */
-function formatSystemLine(text, isError) {
+function formatSystemLine(text, isError, header = "", style) {
     const baseColor = isError ? "error" : "dim";
-    const prefixMatch = text.match(/^\[([^\]]+)\]\s*(.*)$/);
 
-    if (!prefixMatch) {
+    if (!header) {
         return theme.fg(baseColor, text);
     }
 
-    const [, prefix, rest] = prefixMatch;
-    const prefixColor = isError ? "error" : "accent";
-    const renderedPrefix = theme.fg(prefixColor, theme.bold(prefix));
+    const headerColor = style?.headingColor || (isError ? "error" : "accent");
+    const renderedHeader = theme.fg(headerColor, theme.bold(header));
 
-    if (!rest) return renderedPrefix;
-    return `${renderedPrefix} ${theme.fg(baseColor, rest)}`;
+    if (!text) return renderedHeader;
+    return `${renderedHeader} ${theme.fg(baseColor, text)}`;
 }
 
 // ─── Layout Primitives ───────────────────────────────────────────────────────
@@ -204,17 +204,26 @@ export class SystemMessageBlock {
     /**
      * @param {string} text
      * @param {boolean} [isError=false]
+     * @param {string} [header='']
+     * @param {{ headingColor?: string }} [style]
      */
-    constructor(text, isError = false) {
+    constructor(text, isError = false, header = "", style = {}) {
         this.container = new Container();
         this.isError = isError;
-        this.container.addChild(new Text(formatSystemLine(text, isError), 0, 0));
+        this.style = style;
+        this.container.addChild(new Text(formatSystemLine(text, isError, header, style), 0, 0));
         this.block = new StyledBlock("mantle", 2, 1, this.container);
     }
 
-    /** @param {string} text */
-    appendText(text) {
-        this.container.addChild(new Text(formatSystemLine(text, this.isError), 0, 0));
+    /**
+     * @param {string} text
+     * @param {string} [header='']
+     * @param {{ headingColor?: string }} [style]
+     */
+    appendText(text, header = "", style) {
+        this.container.addChild(
+            new Text(formatSystemLine(text, this.isError, header, style || this.style), 0, 0),
+        );
         this.invalidate();
     }
 
