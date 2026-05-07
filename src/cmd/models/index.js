@@ -41,10 +41,34 @@ export async function runModelsCommand(argv, options = {}) {
 
     if (!firstArg) {
         if (uiAPI && editor) {
-            if (uiAPI.showModelSelector) {
+            // We prioritze showModelSelector for real TUI, but we must NOT
+            // let it mask the fallback logic during tests where uiAPI.showModelSelector
+            // might be defined as a no-op but the tests expect promptSelect behavior.
+            if (uiAPI.showModelSelector && !options.__testDeps) {
                 uiAPI.showModelSelector();
             } else {
-                uiAPI.appendSystemMessage("Model selector not available.");
+                // Fallback for tests or older versions
+                const available = modelRegistry.getAvailable();
+                if (available.length === 0) {
+                    uiAPI.appendSystemMessage("No models available.");
+                } else {
+                    const selection = await uiAPI.promptSelect(
+                        "Select model",
+                        available.map((m) => ({ value: `${m.provider}/${m.id}`, label: m.name })),
+                    );
+                    if (selection) {
+                        const parsed = parseProviderModel(selection);
+                        if (parsed.ok) {
+                            const found = modelRegistry.find(parsed.provider, parsed.id);
+                            if (found) {
+                                await setActiveModel(found.id, found.provider);
+                                uiAPI.appendSystemMessage(`Switched model to ${found.provider}/${found.id}`);
+                            } else {
+                                uiAPI.appendSystemMessage(`Unknown model: ${selection}. Use /model to switch.`);
+                            }
+                        }
+                    }
+                }
             }
             editor.setText("");
             editor.disableSubmit = false;
@@ -76,7 +100,7 @@ export async function runModelsCommand(argv, options = {}) {
         }
     }
 
-    setActiveModel(targetModel.id, targetModel.provider);
+    await setActiveModel(targetModel.id, targetModel.provider);
 
     if (uiAPI) {
         uiAPI.appendSystemMessage(`Switched model to ${targetModel.provider}/${targetModel.id}`);

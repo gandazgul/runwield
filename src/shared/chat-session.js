@@ -14,7 +14,7 @@ import {
     Spacer,
     Text,
 } from "@mariozechner/pi-tui";
-import { ModelSelectorComponent } from "../../../pi-mono/packages/coding-agent/src/modes/interactive/components/model-selector.ts";
+import { ModelSelectorComponent } from "@mariozechner/pi-coding-agent";
 import { initTUI, stopTUI } from "./tui.js";
 import { getEditorTheme, imageTheme, initHarnsTheme, theme } from "./ui/theme.js";
 import { readClipboardImage } from "./clipboard.js";
@@ -572,39 +572,39 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         }
     };
 
-        uiAPI.showModelSelector = () => {
-            const settingsManager = getSettingsManager();
-            const modelRegistry = getModelRegistry();
-            const activeModelState = getActiveModelState();
-            const currentModel = modelRegistry.find(activeModelState.provider, activeModelState.model);
+    uiAPI.showModelSelector = () => {
+        const settingsManager = getSettingsManager();
+        const modelRegistry = getModelRegistry();
+        const activeModelState = getActiveModelState();
+        const currentModel = modelRegistry.find(activeModelState.provider, activeModelState.model);
 
-            const selector = new ModelSelectorComponent(
-                tui,
-                currentModel,
-                settingsManager,
-                modelRegistry,
-                [], // No scoped models for now
-                (model) => {
-                    setActiveModel(model.id, model.provider);
-                    restoreSelector();
-                },
-                () => {
-                    restoreSelector();
-                }
-            );
+        const selector = new ModelSelectorComponent(
+            tui,
+            currentModel,
+            settingsManager,
+            modelRegistry,
+            [], // No scoped models for now
+            (model) => {
+                setActiveModel(model.id, model.provider);
+                restoreSelector();
+            },
+            () => {
+                restoreSelector();
+            },
+        );
 
-            function restoreSelector() {
-                container.removeChild(selector);
-                container.addChild(editor);
-                tui.setFocus(editor);
-                tui.requestRender();
-            }
-
-            container.removeChild(editor);
-            container.addChild(selector);
-            tui.setFocus(selector);
+        function restoreSelector() {
+            container.removeChild(selector);
+            container.addChild(editor);
+            tui.setFocus(editor);
             tui.requestRender();
-        };
+        }
+
+        container.removeChild(editor);
+        container.addChild(selector);
+        tui.setFocus(selector);
+        tui.requestRender();
+    };
 
     uiAPI.appendImage = (base64, mimeType) => {
         if (uiAPI.isOutputSuppressed?.()) return;

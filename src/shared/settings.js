@@ -1,6 +1,6 @@
 import { SettingsManager } from "@mariozechner/pi-coding-agent";
 import { dirname, join } from "@std/path";
-import lockfile from "npm:proper-lockfile";
+import lockfile from "proper-lockfile";
 
 /**
  * Harns custom storage for SettingsManager.

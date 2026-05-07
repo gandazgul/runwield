@@ -20,7 +20,12 @@ function makeUi() {
         requestRender: () => {},
         promptSelect: () => Promise.resolve(selections.shift() ?? null),
         promptText: () => Promise.resolve(null),
-        showModelSelector: () => {},
+        showModelSelector: () => {
+            // For tests, we mimic the promptSelect behavior when showModelSelector is called
+            // but since runModelsCommand now uses showModelSelector, we need to handle it.
+            // Actually, runModelsCommand only calls showModelSelector() and then returns.
+            // The tests currently rely on promptSelect.
+        },
     });
 
     return { messages, selections, uiAPI, editor };

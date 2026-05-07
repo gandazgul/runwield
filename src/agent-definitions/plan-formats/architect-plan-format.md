@@ -48,8 +48,8 @@ Tasks must form a Directed Acyclic Graph (DAG). Do not combine tasks that can be
 
 _Allowed Assignees: `engineer`, `tester`, `doc-writer`._
 
-The final row above is the **mandatory global verification task**: every PROJECT plan must end with a `tester` task
-that depends on all prior tasks and runs the project's full verification command.
+The final row above is the **mandatory global verification task**: every PROJECT plan must end with a `tester` task that
+depends on all prior tasks and runs the project's full verification command.
 
 ## Verification Plan
 

@@ -52,14 +52,14 @@ Deno.test("runExportCommand exports jsonl from root session manager", async () =
 
     try {
         await runExportCommand([outPath], {
-        uiAPI: {
-            appendSystemMessage: (msg) => messages.push(msg),
-            appendAgentMessageStart: () => ({ appendText: () => {} }),
-            requestRender: () => {},
-            promptSelect: () => Promise.resolve(null),
-            promptText: () => Promise.resolve(null),
-            showModelSelector: () => {},
-        },
+            uiAPI: {
+                appendSystemMessage: (msg) => messages.push(msg),
+                appendAgentMessageStart: () => ({ appendText: () => {} }),
+                requestRender: () => {},
+                promptSelect: () => Promise.resolve(null),
+                promptText: () => Promise.resolve(null),
+                showModelSelector: () => {},
+            },
             editor: {
                 disableSubmit: false,
                 setText: () => {},

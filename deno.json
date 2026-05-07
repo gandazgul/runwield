@@ -19,7 +19,8 @@
         "turndown": "npm:turndown@^7.2.4",
         "@joplin/turndown-plugin-gfm": "npm:@joplin/turndown-plugin-gfm@^1.0.64",
         "strip-ansi": "npm:strip-ansi@^7.1.2",
-        "quikdown/ast": "npm:quikdown@^1.2.12/ast"
+        "quikdown/ast": "npm:quikdown@^1.2.12/ast",
+        "proper-lockfile": "npm:proper-lockfile@^3.0.0"
     },
     "tasks": {
         "ci": "deno task check && deno lint && deno fmt --check && deno task test",

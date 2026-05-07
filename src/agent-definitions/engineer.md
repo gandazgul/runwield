@@ -58,16 +58,16 @@ You will receive either:
    `deno.json`, etc.) to figure out how to run the project's full verification command (linter, type-checker, tests,
    build — whatever the project defines as "ci"). Run the full command, not just a check of the file you edited.
 
-    **When errors appear, you must act, not narrate:**
+   **When errors appear, you must act, not narrate:**
 
-    - Errors surfacing in files you touched are yours to fix. Fix them.
-    - For errors in files you did not touch, fix them if the fix is trivially in scope; otherwise report them
-      explicitly in your final output as unresolved failures the user must address.
-    - Do **NOT** dismiss errors as "pre-existing", "external dependency", or "unrelated" without baseline proof
-      (e.g., a clean `git stash` + re-run showing the same failure). Phrases like "likely related to external
-      dependencies" or "did not introduce new regressions" are forbidden as substitutes for actually fixing or
-      explicitly reporting the failure.
-    - If verification did not pass cleanly, your report must say so plainly — never minimize.
+   - Errors surfacing in files you touched are yours to fix. Fix them.
+   - For errors in files you did not touch, fix them if the fix is trivially in scope; otherwise report them explicitly
+     in your final output as unresolved failures the user must address.
+   - Do **NOT** dismiss errors as "pre-existing", "external dependency", or "unrelated" without baseline proof (e.g., a
+     clean `git stash` + re-run showing the same failure). Phrases like "likely related to external dependencies" or
+     "did not introduce new regressions" are forbidden as substitutes for actually fixing or explicitly reporting the
+     failure.
+   - If verification did not pass cleanly, your report must say so plainly — never minimize.
 6. **Confirm Completion (FEATURE plans only)** — Before reporting, walk back through every Implementation Step and the
    Verification Plan and confirm each is actually done. If any step was skipped or only partially done, finish it now.
    Switch to `tester` if you need help running the verification.

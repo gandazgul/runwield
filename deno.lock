@@ -26,6 +26,7 @@
     "npm:chalk@*": "5.6.2",
     "npm:chalk@^5.4.1": "5.6.2",
     "npm:proper-lockfile@*": "4.1.2",
+    "npm:proper-lockfile@3": "3.2.0",
     "npm:quikdown@^1.2.12": "1.2.12",
     "npm:strip-ansi@*": "7.2.0",
     "npm:strip-ansi@^7.1.2": "7.2.0",
@@ -699,7 +700,7 @@
         "ignore",
         "marked",
         "minimatch",
-        "proper-lockfile",
+        "proper-lockfile@4.1.2",
         "strip-ansi@7.2.0",
         "typebox",
         "undici",
@@ -1681,6 +1682,14 @@
     "pend@1.2.0": {
       "integrity": "sha512-F3asv42UuXchdzt+xXqfW1OGlVBe+mxa2mqI0pg5yAHZPvFmY3Y6drSf/GQ1A86WgWEN9Kzh/WrgKa6iGcHXLg=="
     },
+    "proper-lockfile@3.2.0": {
+      "integrity": "sha512-iMghHHXv2bsxl6NchhEaFck8tvX3F9cknEEh1SUpguUOBjN7PAAW9BLzmbc1g/mCD1gY3EE2EABBHPJfFdHFmA==",
+      "dependencies": [
+        "graceful-fs",
+        "retry@0.12.0",
+        "signal-exit"
+      ]
+    },
     "proper-lockfile@4.1.2": {
       "integrity": "sha512-TjNPblN4BwAWMXU8s9AEz4JmQxnD1NNL7bNOY/AKUzyamc379FWASUhc/K1pL2noVb+XmZKLL68cjzLsiOAMaA==",
       "dependencies": [
@@ -1967,6 +1976,7 @@
       "npm:@mariozechner/pi-tui@0.73",
       "npm:@sinclair/typebox@~0.34.41",
       "npm:chalk@^5.4.1",
+      "npm:proper-lockfile@3",
       "npm:quikdown@^1.2.12",
       "npm:strip-ansi@^7.1.2",
       "npm:turndown@^7.2.4"
