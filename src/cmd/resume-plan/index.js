@@ -222,16 +222,22 @@ export async function runResumePlanCommand(argv, options = {}) {
         const agentName = triageMeta.classification === "PROJECT" ? "architect" : "planner";
 
         if (plan.attrs.status === "completed") {
-            uiAPI.appendSystemMessage("Warning: This plan is already marked as completed.", false, "Harns");
-            const answer = await uiAPI.promptSelect("Are you sure you want to resume it?", [
-                { value: "yes", label: "Yes, resume and reset to in_review" },
-                { value: "no", label: "No, cancel" },
+            uiAPI.appendSystemMessage("This plan is already marked as completed.", false, "Harns");
+            const answer = await uiAPI.promptSelect("What would you like to do?", [
+                { value: "execute", label: "Re-execute the plan as-is" },
+                { value: "review", label: "Re-open for review (planner/architect)" },
+                { value: "cancel", label: "Cancel" },
             ]);
-            if (answer !== "yes") {
+            if (!answer || answer === "cancel") {
                 return;
             }
-            await updatePlanStatus(CWD, plan.planName, "in_review", plan.attrs);
-            plan.attrs.status = "in_review";
+            if (answer === "execute") {
+                await updatePlanStatus(CWD, plan.planName, "approved", plan.attrs);
+                plan.attrs.status = "approved";
+            } else {
+                await updatePlanStatus(CWD, plan.planName, "in_review", plan.attrs);
+                plan.attrs.status = "in_review";
+            }
         }
 
         if (plan.attrs.status === "approved") {

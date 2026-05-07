@@ -349,13 +349,7 @@ async function executeProjectTasks(
             }
             pending.delete(task.task);
 
-            const agentName = task.assignee === "engineer"
-                ? "engineer"
-                : task.assignee === "tester"
-                ? "tester"
-                : task.assignee === "doc-writer"
-                ? "doc-writer"
-                : "engineer";
+            const agentName = task.assignee || "engineer";
 
             const taskHeader = `--- Task ${task.task}: ${task.description} (→ ${agentName}) ---`;
             if (uiAPI) uiAPI.appendSystemMessage(taskHeader, false, "Harns");
@@ -363,7 +357,7 @@ async function executeProjectTasks(
 
             const taskRequest = [
                 "## Task Assignment",
-                `You are assigned Task ${task.task} from the plan "${planName}".`,
+                `You are assigned Task ${task.task} from the plan "${planName}". This is a PROJECT plan, only execute the assigned task then halt.`,
                 "### Task Description",
                 task.description,
                 "### Dependencies",
@@ -559,7 +553,7 @@ async function runEngineerWithPlan(planName, planBody, uiAPI, sessionManager) {
     const engineerRequest = [
         `## Approved Plan: ${planName}`,
         "",
-        "Execute the following plan step by step. Implement each step, verify the result, then move on.",
+        "Execute the following plan step by step. This is a FEATURE request. Complete all Implementation Steps and the Verification Plan before halting.",
         "",
         planBody,
     ].join("\n");
