@@ -1,6 +1,6 @@
 ---
 classification: "PROJECT"
-complexity: "HIGH"
+complexity: "LOW|MEDIUM|HIGH"
 summary: "<Brief summary of the project-level change>"
 affectedPaths:
     - "path/to/file1"

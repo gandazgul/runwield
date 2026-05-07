@@ -1,6 +1,6 @@
 ---
 classification: "FEATURE"
-complexity: "MEDIUM"
+complexity: "LOW|MEDIUM|HIGH"
 summary: "<Brief summary of the feature change>"
 affectedPaths:
     - "path/to/file1"

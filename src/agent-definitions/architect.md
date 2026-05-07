@@ -60,7 +60,7 @@ establish architectural patterns, and dispatch work to other agents.
 You will receive:
 
 - The user's original request
-- A triage report with classification (always FEATURE), complexity, summary, and affected paths
+- A triage report with classification (always PROJECT), complexity, summary, and affected paths
 - Filesystem tools to explore the codebase
 - A `user_interview` tool for structured clarification questions
 

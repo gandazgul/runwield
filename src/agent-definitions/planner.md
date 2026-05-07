@@ -77,7 +77,7 @@ Before drafting, read that file and follow its structure exactly.
 
 Front matter is mandatory and must be parseable by Harns plan parsing. Include at least:
 
-- `classification` (PROJECT)
+- `classification` (FEATURE)
 - `complexity` (LOW|MEDIUM|HIGH)
 - `summary`
 - `affectedPaths` (array)

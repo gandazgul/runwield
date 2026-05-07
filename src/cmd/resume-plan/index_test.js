@@ -283,6 +283,149 @@ Deno.test("runResumePlanCommand approved proceed with repair reroutes to planner
     );
 });
 
+Deno.test("runResumePlanCommand completed plan execute path re-executes", async () => {
+    const { uiAPI, selections } = makeUi();
+    // First select: completed-plan menu → execute. Second select: approved-block → proceed.
+    selections.push("execute", "proceed");
+    let executed = false;
+    /** @type {string | null} */
+    let statusUpdated = null;
+
+    await runResumePlanCommand(["plan-completed-exec"], {
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: () => ({ help: false, _: ["plan-completed-exec"] }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "plan-completed-exec",
+                    path: "plans/plan-completed-exec.md",
+                    body: "body",
+                    attrs: {
+                        classification: "FEATURE",
+                        complexity: "LOW",
+                        summary: "s",
+                        affectedPaths: [],
+                        status: "completed",
+                    },
+                }),
+            updatePlanStatus: (
+                /** @type {string} */ _cwd,
+                /** @type {string} */ _name,
+                /** @type {string} */ status,
+            ) => {
+                statusUpdated = status;
+                return Promise.resolve();
+            },
+            executePlan: () => {
+                executed = true;
+                return Promise.resolve(undefined);
+            },
+            createDirectAgentHandler: () => async () => {},
+            resetTuiState: () => {},
+            setActiveAgent: () => {},
+        }),
+    });
+
+    assertEquals(statusUpdated, "approved");
+    assertEquals(executed, true);
+});
+
+Deno.test("runResumePlanCommand completed plan review path resets to in_review", async () => {
+    const { uiAPI, selections } = makeUi();
+    selections.push("review");
+    let lifecycleCalled = false;
+    /** @type {string | null} */
+    let statusUpdated = null;
+
+    await runResumePlanCommand(["plan-completed-review"], {
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: () => ({ help: false, _: ["plan-completed-review"] }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "plan-completed-review",
+                    path: "plans/plan-completed-review.md",
+                    body: "body",
+                    attrs: {
+                        classification: "FEATURE",
+                        complexity: "LOW",
+                        summary: "s",
+                        affectedPaths: [],
+                        status: "completed",
+                    },
+                }),
+            updatePlanStatus: (
+                /** @type {string} */ _cwd,
+                /** @type {string} */ _name,
+                /** @type {string} */ status,
+            ) => {
+                statusUpdated = status;
+                return Promise.resolve();
+            },
+            runPlanningAgent: () => {
+                lifecycleCalled = true;
+                return Promise.resolve({ outcome: "saved", planName: "plan-completed-review" });
+            },
+            createDirectAgentHandler: () => async () => {},
+            resetTuiState: () => {},
+            setActiveAgent: () => {},
+        }),
+    });
+
+    assertEquals(statusUpdated, "in_review");
+    assertEquals(lifecycleCalled, true);
+});
+
+Deno.test("runResumePlanCommand completed plan cancel returns without changes", async () => {
+    const { uiAPI, selections } = makeUi();
+    selections.push("cancel");
+    let executed = false;
+    let lifecycleCalled = false;
+    let statusUpdateCalls = 0;
+
+    await runResumePlanCommand(["plan-completed-cancel"], {
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: () => ({ help: false, _: ["plan-completed-cancel"] }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "plan-completed-cancel",
+                    path: "plans/plan-completed-cancel.md",
+                    body: "body",
+                    attrs: {
+                        classification: "FEATURE",
+                        complexity: "LOW",
+                        summary: "s",
+                        affectedPaths: [],
+                        status: "completed",
+                    },
+                }),
+            updatePlanStatus: () => {
+                statusUpdateCalls += 1;
+                return Promise.resolve();
+            },
+            executePlan: () => {
+                executed = true;
+                return Promise.resolve(undefined);
+            },
+            runPlanningAgent: () => {
+                lifecycleCalled = true;
+                return Promise.resolve({ outcome: "saved" });
+            },
+            createDirectAgentHandler: () => async () => {},
+            resetTuiState: () => {},
+            setActiveAgent: () => {},
+        }),
+    });
+
+    assertEquals(statusUpdateCalls, 0);
+    assertEquals(executed, false);
+    assertEquals(lifecycleCalled, false);
+});
+
 Deno.test("runResumePlanCommand starts interactive session when ui missing", async () => {
     let started = false;
     await runResumePlanCommand(["plan-f"], {
