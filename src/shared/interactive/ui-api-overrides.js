@@ -10,11 +10,7 @@ import { Image } from "@mariozechner/pi-tui";
 import { ModelSelectorComponent } from "@mariozechner/pi-coding-agent";
 import { getModelRegistry } from "../models/model-registry.js";
 import { getSettingsManager } from "../settings.js";
-import {
-    getActiveModelState,
-    setActiveAgentName,
-    setActiveModelState,
-} from "../session/session-state.js";
+import { getActiveModelState, setActiveAgentName, setActiveModelState } from "../session/session-state.js";
 import { imageTheme } from "../ui/theme.js";
 
 /**

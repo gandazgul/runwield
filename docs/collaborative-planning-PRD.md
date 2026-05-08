@@ -1,38 +1,41 @@
 # Collaborative Planning — PRD
 
-**Status:** Draft v1
-**Author:** Ganda
-**Last Updated:** 2026-05-08
+**Status:** Draft v1 **Author:** Ganda **Last Updated:** 2026-05-08
 
 ---
 
 ## 1. Objective
 
-Enable Harns users to share plans with their team (technical and non-technical), collect structured feedback in a shared space, and iteratively refine plans through revision cycles — all with end-to-end encryption so the server (including any self-hosted instance) never sees plaintext plan content.
+Enable Harns users to share plans with their team (technical and non-technical), collect structured feedback in a shared
+space, and iteratively refine plans through revision cycles — all with end-to-end encryption so the server (including
+any self-hosted instance) never sees plaintext plan content.
 
 ## 2. Problem Statement
 
 Harns is currently a single-user planning tool. Users generate plans locally but have no mechanism to:
+
 - Share a plan with non-technical stakeholders (PMs, designers, clients) in a readable format.
 - Collect and organize feedback tied to specific parts of the plan.
 - Iterate on the plan with the team's input without losing context or creating link fragmentation.
 - Do any of this without requiring every participant to have a GitHub account or install tooling.
 
-Chat-based solutions (Slack, Discord, Telegram) are structurally unsuited for long-form document review. Immutable snapshot models (Plannotator's current approach) fragment discussion across multiple links. A **shared space** model with revision tracking solves both problems.
+Chat-based solutions (Slack, Discord, Telegram) are structurally unsuited for long-form document review. Immutable
+snapshot models (Plannotator's current approach) fragment discussion across multiple links. A **shared space** model
+with revision tracking solves both problems.
 
 ## 3. Resolved Assumptions
 
-| Decision | Rationale |
-|---|---|
-| **Shared space, not immutable snapshots** | Single link for the team; comments stay in one place per revision. Reduces friction for non-technical users. |
-| **Dual deployment: hosted + self-hostable** | Hosted (`plans.hns.dev`) for convenience; Docker container for teams with data residency requirements. Client is backend-agnostic (configurable base URL). |
-| **Backend: Cloudflare D1 + SQLite** | D1 provides ACID transactions and SQL for the hosted path; SQLite is the self-hosted equivalent. Identical schema across both. |
-| **Encryption: client-side only** | Plans and comments are encrypted in the browser before upload. The server stores only ciphertext. Encryption key lives in the URL fragment (`#key=...`), never sent to the server. |
-| **Auth: free-form display name** | No accounts, no passwords on the backend. Reviewers type a name when submitting a comment. Trust model: "people who have the link are the right people." Optional HTTP Basic Auth for self-hosted instances. |
-| **Revisions: comments don't carry over** | Each revision (`rev_1`, `rev_2`, …) is a frozen snapshot with its own comment thread. Devs can view previous revisions and their comments from the web UI. |
-| **LLM incorporation on sync** | `hns plan sync <ID>` presents the planner/architect agent with revision + comments and offers to generate a new revision. Privacy implications are deferred to a separate discussion. |
-| **No automated notifications v1** | Dev shares updated URLs manually. Future: gotify or similar push notification integration. |
-| **Plans become read-only on close** | Dev runs `hns plan close`. Backend sets `status = closed`. No further comments accepted. Read-only view remains available at the same URL. |
+| Decision                                    | Rationale                                                                                                                                                                                                    |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Shared space, not immutable snapshots**   | Single link for the team; comments stay in one place per revision. Reduces friction for non-technical users.                                                                                                 |
+| **Dual deployment: hosted + self-hostable** | Hosted (`plans.hns.dev`) for convenience; Docker container for teams with data residency requirements. Client is backend-agnostic (configurable base URL).                                                   |
+| **Backend: Cloudflare D1 + SQLite**         | D1 provides ACID transactions and SQL for the hosted path; SQLite is the self-hosted equivalent. Identical schema across both.                                                                               |
+| **Encryption: client-side only**            | Plans and comments are encrypted in the browser before upload. The server stores only ciphertext. Encryption key lives in the URL fragment (`#key=...`), never sent to the server.                           |
+| **Auth: free-form display name**            | No accounts, no passwords on the backend. Reviewers type a name when submitting a comment. Trust model: "people who have the link are the right people." Optional HTTP Basic Auth for self-hosted instances. |
+| **Revisions: comments don't carry over**    | Each revision (`rev_1`, `rev_2`, …) is a frozen snapshot with its own comment thread. Devs can view previous revisions and their comments from the web UI.                                                   |
+| **LLM incorporation on sync**               | `hns plan sync <ID>` presents the planner/architect agent with revision + comments and offers to generate a new revision. Privacy implications are deferred to a separate discussion.                        |
+| **No automated notifications v1**           | Dev shares updated URLs manually. Future: gotify or similar push notification integration.                                                                                                                   |
+| **Plans become read-only on close**         | Dev runs `hns plan close`. Backend sets `status = closed`. No further comments accepted. Read-only view remains available at the same URL.                                                                   |
 
 ## 4. Technical Approach
 
@@ -75,6 +78,7 @@ Chat-based solutions (Slack, Discord, Telegram) are structurally unsuited for lo
 All endpoints return JSON. The client library abstracts these calls; direct API consumers can hit the same endpoints.
 
 #### `POST /api/plans`
+
 Create a new plan (first revision).
 
 ```json
@@ -92,6 +96,7 @@ Create a new plan (first revision).
 ```
 
 #### `POST /api/plans/{plan_id}/revisions`
+
 Push a new revision (plan update).
 
 ```json
@@ -107,35 +112,38 @@ Push a new revision (plan update).
 ```
 
 #### `GET /api/plans/{plan_id}`
+
 Get plan metadata + latest revision info.
 
 ```json
 // Response 200
 {
-  "plan_id": "p_8xK3mQ2",
-  "status": "review_open",
-  "current_revision": 2,
-  "revisions": [
-    { "revision_id": 1, "created_at": "...", "created_by": "Ganda" },
-    { "revision_id": 2, "created_at": "...", "created_by": "Ganda" }
-  ]
+    "plan_id": "p_8xK3mQ2",
+    "status": "review_open",
+    "current_revision": 2,
+    "revisions": [
+        { "revision_id": 1, "created_at": "...", "created_by": "Ganda" },
+        { "revision_id": 2, "created_at": "...", "created_by": "Ganda" }
+    ]
 }
 ```
 
 #### `GET /api/plans/{plan_id}/revisions/{revision_id}`
+
 Get a specific revision's encrypted blob.
 
 ```json
 // Response 200
 {
-  "revision_id": 2,
-  "encrypted_plan": "<base64 ciphertext>",
-  "created_at": "...",
-  "created_by": "Ganda"
+    "revision_id": 2,
+    "encrypted_plan": "<base64 ciphertext>",
+    "created_at": "...",
+    "created_by": "Ganda"
 }
 ```
 
 #### `POST /api/plans/{plan_id}/revisions/{revision_id}/comments`
+
 Submit a comment on a specific revision.
 
 ```json
@@ -152,27 +160,32 @@ Submit a comment on a specific revision.
 }
 ```
 
-> **Open question:** `original_text` should probably also be encrypted client-side for full E2EE. This means the server can't even show "this comment is about the following text" without the decryption key. The client would need to include it in the comment for server-side context, OR the web viewer matches comments to text client-side after decryption. Needs a small design spike.
+> **Open question:** `original_text` should probably also be encrypted client-side for full E2EE. This means the server
+> can't even show "this comment is about the following text" without the decryption key. The client would need to
+> include it in the comment for server-side context, OR the web viewer matches comments to text client-side after
+> decryption. Needs a small design spike.
 
 #### `GET /api/plans/{plan_id}/revisions/{revision_id}/comments`
+
 List all comments on a revision (ordered by creation time).
 
 ```json
 // Response 200
 {
-  "comments": [
-    {
-      "comment_id": 42,
-      "encrypted_body": "<base64>",
-      "author_name": "Alice",
-      "block_id": "",
-      "created_at": "..."
-    }
-  ]
+    "comments": [
+        {
+            "comment_id": 42,
+            "encrypted_body": "<base64>",
+            "author_name": "Alice",
+            "block_id": "",
+            "created_at": "..."
+        }
+    ]
 }
 ```
 
 #### `PATCH /api/plans/{plan_id}/revisions/{revision_id}/comments/{comment_id}/resolve`
+
 Mark a comment as resolved. (`POST` could also work.)
 
 ```json
@@ -180,6 +193,7 @@ Mark a comment as resolved. (`POST` could also work.)
 ```
 
 #### `PATCH /api/plans/{plan_id}`
+
 Update plan status.
 
 ```json
@@ -222,7 +236,8 @@ CREATE INDEX idx_comments_revision ON comments(revision_id);
 CREATE INDEX idx_revisions_plan ON revisions(plan_id);
 ```
 
-> **SQLite note:** For the Docker container, use WAL journal mode for concurrent reads during sync. The `.db` file is a single volume mount.
+> **SQLite note:** For the Docker container, use WAL journal mode for concurrent reads during sync. The `.db` file is a
+> single volume mount.
 
 ### 4.4 Web Viewer
 
@@ -239,22 +254,24 @@ CREATE INDEX idx_revisions_plan ON revisions(plan_id);
 
 ### 4.5 CLI Commands
 
-| Command | Description |
-|---|---|
-| `hns plan share` | Encrypt `plan.md`, POST to backend, print shareable URL |
-| `hns plan sync <plan_id>` | Fetch latest revision + comments, decrypt locally, present to planner/architect for incorporation |
-| `hns plan push <plan_id>` | Encrypt updated plan, POST as new revision |
-| `hns plan close <plan_id>` | Set plan status to `closed` |
-| `hns plan list` | List plans the user has shared (by fetching plans they created — needs TODO: author tracking) |
+| Command                    | Description                                                                                       |
+| -------------------------- | ------------------------------------------------------------------------------------------------- |
+| `hns plan share`           | Encrypt `plan.md`, POST to backend, print shareable URL                                           |
+| `hns plan sync <plan_id>`  | Fetch latest revision + comments, decrypt locally, present to planner/architect for incorporation |
+| `hns plan push <plan_id>`  | Encrypt updated plan, POST as new revision                                                        |
+| `hns plan close <plan_id>` | Set plan status to `closed`                                                                       |
+| `hns plan list`            | List plans the user has shared (by fetching plans they created — needs TODO: author tracking)     |
 
 ### 4.6 Deployment Model
 
 **Hosted (`plans.hns.dev`):**
+
 - A single Cloudflare Worker backed by D1.
 - No auth at the instance level (the encryption key in the URL IS the auth).
 - The Worker is stateless and cheap (~$0/month at low volume).
 
 **Self-hosted (Docker):**
+
 - Deno server using Oak or Hono.
 - SQLite file on disk.
 - Optional `BASIC_AUTH=true` env var for HTTP Basic Auth.
@@ -278,11 +295,15 @@ CREATE INDEX idx_revisions_plan ON revisions(plan_id);
 
 ## 6. TODO Items (Future Iterations)
 
-- [ ] **Web UI spec** — Design the viewer, revision switcher, and comment sidebar in detail; hand off to a frontend contributor.
+- [ ] **Web UI spec** — Design the viewer, revision switcher, and comment sidebar in detail; hand off to a frontend
+      contributor.
 - [ ] **Notification system** — Evaluate gotify or similar for push notifications when a new revision is pushed.
-- [ ] **LLM incorporation pipeline** — Define how `hns plan sync` sends comments + plan to an LLM and what guardrails exist (privacy, cost, token limits).
-- [ ] **`original_text` encryption decision** — Determine whether comment anchor text should be encrypted client-side or sent in plaintext for server-side context.
-- [ ] **Author tracking** — Currently `hns plan list` has no way to filter "my plans." Add an `author_id` or similar field if needed.
+- [ ] **LLM incorporation pipeline** — Define how `hns plan sync` sends comments + plan to an LLM and what guardrails
+      exist (privacy, cost, token limits).
+- [ ] **`original_text` encryption decision** — Determine whether comment anchor text should be encrypted client-side or
+      sent in plaintext for server-side context.
+- [ ] **Author tracking** — Currently `hns plan list` has no way to filter "my plans." Add an `author_id` or similar
+      field if needed.
 - [ ] **Diff viewer** — Show a visual diff between revisions in the web UI.
 - [ ] **Smoothen "closed plan" DX** — Add a summary view, export to PDF, etc.
 - [ ] **Rate limiting and abuse prevention** — Needed if the hosted instance is public.
@@ -304,4 +325,5 @@ CREATE INDEX idx_revisions_plan ON revisions(plan_id);
 - Plannotator codebase: `@/../plannotator/` — sharing pipeline, encryption utilities, `SharePayload` type
 - Harns project memory: `[139] Agent tool policy`, `[104] Agent definitions`, `[103] Monorepo structure`
 - Plannotator D1 + SQLite precedent: `@/../chores-app/` uses Deno + SQLite in production
-- Relevant Harns files: `packages/ui/utils/sharing.ts`, `packages/ui/utils/planDiffEngine.ts`, `packages/shared/crypto.ts`
+- Relevant Harns files: `packages/ui/utils/sharing.ts`, `packages/ui/utils/planDiffEngine.ts`,
+  `packages/shared/crypto.ts`

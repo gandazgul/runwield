@@ -104,7 +104,15 @@ async function dispatchBuiltin(ctx, command, args, commandRegistry, thisGen) {
  * @param {number} thisGen
  */
 async function dispatchTemplate(ctx, template, thisGen) {
-    const { uiAPI, savedImages, userRequest, chatPromptAgentName, resolveTemplateModel, setActiveAgent, generationGuard } = ctx;
+    const {
+        uiAPI,
+        savedImages,
+        userRequest,
+        chatPromptAgentName,
+        resolveTemplateModel,
+        setActiveAgent,
+        generationGuard,
+    } = ctx;
 
     let resolvedTemplateModel = null;
     if (template.model) {
