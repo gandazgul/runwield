@@ -1049,10 +1049,6 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
                 uiAPI.appendSystemMessage("Agent run canceled.", false, "Harns");
             } else if (planCanceled) {
                 uiAPI.appendSystemMessage("Plan review canceled.", false, "Harns");
-            } else {
-                // Nothing was actively running, but we still reset UI for safety
-                // (covers stale Thinking... state after provider errors)
-                uiAPI.appendSystemMessage("Cleared.", false, "Harns");
             }
             tui.requestRender();
             return;
