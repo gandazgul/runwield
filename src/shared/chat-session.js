@@ -10,7 +10,7 @@ import { getEditorTheme, initHarnsTheme, theme } from "./ui/theme.js";
 import { readClipboardImage } from "./clipboard.js";
 import { createUiApi } from "./ui/api.js";
 import { SpinnerBlock } from "./ui/blocks.js";
-import { abortActiveSession, listPromptTemplates, runAgentSession, steerRootSession } from "./session/session.js";
+import { abortActiveSession, listPromptTemplates, steerRootSession } from "./session/session.js";
 import { cancelActivePlanReview } from "./workflow/submit-plan.js";
 import { ensureMnemosyneBinary } from "./runtime-preflight.js";
 import { commandRegistry } from "../cmd/registry.js";
@@ -30,13 +30,13 @@ import {
     setRootSessionManager,
 } from "./session/session-state.js";
 import { parseProviderModel } from "./models/model-validation.js";
-import { createDirectAgentHandler } from "./session/direct-agent.js";
 import { createRootSessionManager } from "./session/root-session.js";
 import { createGenerationGuard } from "./interactive/generation-guard.js";
 import { restorePersistedMessagesToUi } from "./interactive/message-hydration.js";
 import { installUiApiOverrides } from "./interactive/ui-api-overrides.js";
 import { renderBootBanner } from "./interactive/boot-banner.js";
 import { handleBashCommand } from "./interactive/bash-interceptor.js";
+import { handleSlashCommand } from "./interactive/slash-dispatch.js";
 
 const UI_PADDING = { x: 0, y: 0 };
 
@@ -435,100 +435,26 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         });
         if (handledBash) return;
 
-        if (userRequest.startsWith("/")) {
-            const [rawCommand, ...args] = userRequest.slice(1).split(" ");
-            const command = rawCommand.trim();
-
-            // Built-in command intercepted logic to just reset editor state,
-            // dispatch actually handled via standard registry for TUI route now.
-            // (The `agent` command is handled in the generic registry routing block below.)
-
-            const thisGen = generationGuard.bump();
-
-            const { commandRegistry } = await import("../cmd/registry.js");
-
-            if (CHAT_BUILTIN_SLASH_NAMES.has(command) && commandRegistry[command]) {
-                // Register cancel hook: abort any agent session started by this command
-                activeOperationCancel = () => {
-                    abortActiveSession();
-                };
-                try {
-                    await commandRegistry[command].execute(args, {
-                        uiAPI,
-                        editor,
-                        sessionManager: getRootSessionManager() || undefined,
-                        sessionStartedAt,
-                        tui,
-                        originalHandleInput,
-                    });
-                } catch (err) {
-                    if (generationStillCurrent(thisGen)) {
-                        uiAPI.appendSystemMessage(
-                            `Error: ${err instanceof Error ? err.message : String(err)}`,
-                        );
-                    }
-                } finally {
-                    activeOperationCancel = null;
-                    // forceResetUI(); handled by queue
-                }
-            } else {
-                const template = promptTemplateByName.get(command);
-
-                if (template) {
-                    // Dispatch prompt templates to operator (not selected chat agent)
-
-                    let resolvedTemplateModel = null;
-                    if (template.model) {
-                        const resolution = resolveTemplateModel(template.model);
-                        if (!resolution.ok) {
-                            uiAPI.appendSystemMessage("Invalid template model. Use /model to switch.");
-                            return;
-                        }
-
-                        resolvedTemplateModel = resolution;
-                    }
-
-                    const images = savedImages;
-
-                    uiAPI.appendUserMessage?.(userRequest);
-                    images.forEach((/** @type {import('./session/types.js').ImageAttachment} */ img) => {
-                        if (uiAPI.appendImage) uiAPI.appendImage(img.base64, img.mimeType);
-                    });
-
-                    const templateModelValue = resolvedTemplateModel?.ok
-                        ? `${resolvedTemplateModel?.provider}/${resolvedTemplateModel?.id}`
-                        : undefined;
-
-                    setActiveAgent(
-                        CHAT_PROMPT_AGENT_NAME,
-                        createDirectAgentHandler(CHAT_PROMPT_AGENT_NAME),
-                        uiAPI,
-                        templateModelValue,
-                    );
-
-                    try {
-                        await runAgentSession({
-                            agentName: CHAT_PROMPT_AGENT_NAME,
-                            modelOverride: templateModelValue,
-                            userRequest,
-                            images,
-                            uiAPI,
-                            sessionManager: getRootSessionManager() || undefined,
-                        });
-                    } catch (err) {
-                        if (generationStillCurrent(thisGen)) {
-                            uiAPI.appendSystemMessage(
-                                `Error: ${err instanceof Error ? err.message : String(err)}`,
-                            );
-                        }
-                    }
-                    return;
-                }
-
-                uiAPI.appendSystemMessage(`Unknown command: /${command}`);
-            }
-            return;
-        }
+        // Slash commands (`/builtin` or `/template`)
+        const handledSlash = await handleSlashCommand({
+            userRequest,
+            savedImages,
+            uiAPI,
+            editor,
+            tui,
+            sessionStartedAt,
+            originalHandleInput,
+            builtinNames: CHAT_BUILTIN_SLASH_NAMES,
+            promptTemplateByName,
+            chatPromptAgentName: CHAT_PROMPT_AGENT_NAME,
+            resolveTemplateModel,
+            setActiveAgent,
+            generationGuard,
+            registerOperationCancel: (cancel) => {
+                activeOperationCancel = cancel;
+            },
+        });
+        if (handledSlash) return;
 
         // Generation gating
         const thisGen = generationGuard.bump();
