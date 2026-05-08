@@ -36,6 +36,7 @@ import { createGenerationGuard } from "./interactive/generation-guard.js";
 import { restorePersistedMessagesToUi } from "./interactive/message-hydration.js";
 import { installUiApiOverrides } from "./interactive/ui-api-overrides.js";
 import { renderBootBanner } from "./interactive/boot-banner.js";
+import { handleBashCommand } from "./interactive/bash-interceptor.js";
 
 const UI_PADDING = { x: 0, y: 0 };
 
@@ -420,188 +421,19 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
 
         editor.addToHistory?.(userRequest);
 
-        // Bash command interception
-        if (userRequest.startsWith("!")) {
-            const isExcluded = userRequest.startsWith("!!");
-            const command = isExcluded ? userRequest.slice(2).trim() : userRequest.slice(1).trim();
-
-            if (command) {
-                // @ts-ignore: TS doesn't know about UI API typing inside session management
-                if (uiAPI.appendUserMessage && !isExcluded) {
-                    try {
-                        const msg = {
-                            role: "user",
-                            content: [{ type: "text", text: userRequest }],
-                        };
-                        getRootSessionManager()?.addMessage?.(msg);
-                        uiAPI.appendUserMessage?.(userRequest);
-                    } catch (_e) {
-                        // ignore
-                    }
-                }
-
-                // Generation gating: suppress late results if canceled
-                const thisGen = generationGuard.bump();
-
-                try {
-                    const activeToolId = `bash-${Date.now()}`;
-                    if (!isExcluded) {
-                        uiAPI.addToolInvoked?.({
-                            id: activeToolId,
-                            name: "bash",
-                            input: { command },
-                        });
-                    }
-
-                    const toolBlock = isExcluded ? undefined : uiAPI.startToolExecution?.(activeToolId, "$", command);
-
-                    let outputBuffer = "";
-                    let wasCanceled = false;
-
-                    if (isExcluded) {
-                        try {
-                            const { stopTUI, initTUI } = await import("./ui/tui.js");
-                            stopTUI();
-                            const cmd = new Deno.Command("sh", {
-                                args: ["-c", command],
-                                stdin: "inherit",
-                                stdout: "inherit",
-                                stderr: "inherit",
-                            });
-                            await cmd.output();
-                            initTUI();
-                            tui.requestRender();
-                        } catch (_e) {
-                            // Ignore error
-                        } finally {
-                            if (uiAPI.setBusy) uiAPI.setBusy(false);
-                            if (uiAPI.enableInput) uiAPI.enableInput();
-                            tui.setFocus(editor);
-                            tui.requestRender();
-                        }
-                        return;
-                    }
-
-                    const startTime = Date.now();
-                    /** @type {Deno.ChildProcess | null} */
-                    let proc = null;
-                    let code = 1;
-
-                    try {
-                        const commandProc = new Deno.Command("sh", {
-                            args: ["-c", command],
-                            cwd: Deno.cwd(),
-                            stdout: "piped",
-                            stderr: "piped",
-                        });
-                        proc = commandProc.spawn();
-
-                        // Register cancel callback for this bash operation
-                        activeBashProc = {
-                            kill: () => {
-                                wasCanceled = true;
-                                if (proc) {
-                                    try {
-                                        proc.kill("SIGKILL");
-                                    } catch (_e) { /* ignore */ }
-                                }
-                                activeBashProc = null;
-                            },
-                        };
-
-                        /** @param {ReadableStream<Uint8Array>} stream */
-                        const readStream = async (stream) => {
-                            const reader = stream.getReader();
-                            try {
-                                while (true) {
-                                    const { value, done } = await reader.read();
-                                    if (done) break;
-                                    if (!wasCanceled) {
-                                        const chunk = new TextDecoder().decode(value);
-                                        toolBlock?.appendOutput(chunk);
-                                        outputBuffer += chunk;
-                                    }
-                                }
-                            } finally {
-                                reader.releaseLock();
-                            }
-                        };
-
-                        const [status] = await Promise.all([
-                            proc.status,
-                            readStream(proc.stdout),
-                            readStream(proc.stderr),
-                        ]);
-                        code = status.success ? 0 : status.code || 1;
-                    } catch (err) {
-                        if (!wasCanceled) {
-                            const chunk = `Error starting process: ${
-                                err instanceof Error ? err.message : String(err)
-                            }\n`;
-                            toolBlock?.appendOutput(chunk);
-                            outputBuffer += chunk;
-                        } else {
-                            console.error(`Error starting process: ${err}`);
-                        }
-                        code = 1;
-                    }
-
-                    // After wait, check if we were canceled while waiting
-                    if (wasCanceled) {
-                        if (toolBlock) {
-                            toolBlock.appendOutput("\n[Harns] Command canceled by user.");
-                            toolBlock.endExecution(true, Date.now() - startTime);
-                        }
-                        uiAPI.appendSystemMessage("Bash command canceled.", false, "Harns");
-                    } else if (!isExcluded && generationStillCurrent(thisGen)) {
-                        const durationMs = Date.now() - startTime;
-                        toolBlock?.endExecution(code !== 0, durationMs);
-                        uiAPI.addToolResult?.({
-                            id: activeToolId,
-                            name: "bash",
-                            result: outputBuffer,
-                            isError: code !== 0,
-                            durationMs,
-                        });
-                        try {
-                            const cmdMsg = {
-                                role: "assistant",
-                                content: [{
-                                    type: "tool_use",
-                                    id: activeToolId,
-                                    name: "bash",
-                                    input: { command },
-                                }],
-                            };
-                            getRootSessionManager()?.addMessage?.(cmdMsg);
-
-                            const resultMsg = {
-                                role: "user",
-                                content: [{
-                                    type: "tool_result",
-                                    tool_use_id: activeToolId,
-                                    is_error: code !== 0,
-                                    content: outputBuffer,
-                                }],
-                            };
-                            getRootSessionManager()?.addMessage?.(resultMsg);
-                        } catch (_e) {
-                            // ignore session add failure
-                        }
-                    }
-                } catch (err) {
-                    if (generationStillCurrent(thisGen)) {
-                        uiAPI.appendSystemMessage(
-                            `Error executing bash command: ${err instanceof Error ? err.message : String(err)}`,
-                        );
-                    }
-                } finally {
-                    activeBashProc = null;
-                    // forceResetUI(); handled by queue
-                }
-                return;
-            }
-        }
+        // Bash command interception (`!cmd` and `!!cmd`)
+        const handledBash = await handleBashCommand({
+            userRequest,
+            uiAPI,
+            tui,
+            editor,
+            getSessionManager: getRootSessionManager,
+            generationGuard,
+            registerBashProc: (proc) => {
+                activeBashProc = proc;
+            },
+        });
+        if (handledBash) return;
 
         if (userRequest.startsWith("/")) {
             const [rawCommand, ...args] = userRequest.slice(1).split(" ");
