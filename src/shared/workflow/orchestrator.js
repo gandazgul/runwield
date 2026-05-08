@@ -136,6 +136,12 @@ export async function dispatchPostTriage({ triage, userRequest, images, uiAPI, s
             outcome.tasks,
             sessionManager,
         );
+
+        if (isFeature) {
+            setActiveAgent("Architect", createDirectAgentHandler("architect"), uiAPI);
+        } else {
+            setActiveAgent("Engineer", createDirectAgentHandler("engineer"), uiAPI);
+        }
     }
 }
 
