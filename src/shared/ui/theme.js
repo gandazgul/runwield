@@ -9,10 +9,10 @@ import {
     getMarkdownTheme as upstreamGetMarkdownTheme,
     getSelectListTheme as upstreamGetSelectListTheme,
     Theme,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 
 // ─── Global theme singleton key (matches the upstream) ───────────────────────
-const THEME_KEY = Symbol.for("@mariozechner/pi-coding-agent:theme");
+const THEME_KEY = Symbol.for("@earendil-works/pi-coding-agent:theme");
 
 /**
  * The theme proxy — reads from globalThis just like the upstream.
@@ -27,16 +27,16 @@ export const theme = new Proxy(/** @type {any} */ ({}), {
     },
 });
 
-/** @type {import('@mariozechner/pi-tui').MarkdownTheme | null} */
+/** @type {import('@earendil-works/pi-tui').MarkdownTheme | null} */
 let _markdownTheme = null;
 
-/** @type {import('@mariozechner/pi-tui').SelectListTheme | null} */
+/** @type {import('@earendil-works/pi-tui').SelectListTheme | null} */
 let _selectListTheme = null;
 
 /**
  * Lazily-built markdown theme from the upstream Theme singleton.
  * Must be called after initHarnsTheme().
- * @returns {import('@mariozechner/pi-tui').MarkdownTheme}
+ * @returns {import('@earendil-works/pi-tui').MarkdownTheme}
  */
 export function getMarkdownTheme() {
     if (!_markdownTheme) {
@@ -48,7 +48,7 @@ export function getMarkdownTheme() {
 /**
  * Lazily-built select list theme from the upstream Theme singleton.
  * Must be called after initHarnsTheme().
- * @returns {import('@mariozechner/pi-tui').SelectListTheme}
+ * @returns {import('@earendil-works/pi-tui').SelectListTheme}
  */
 export function getSelectListTheme() {
     if (!_selectListTheme) {
@@ -60,7 +60,7 @@ export function getSelectListTheme() {
 /**
  * Editor theme for pi-tui Editor component.
  * Lazily-built from the upstream Theme singleton.
- * @returns {import('@mariozechner/pi-tui').EditorTheme}
+ * @returns {import('@earendil-works/pi-tui').EditorTheme}
  */
 export function getEditorTheme() {
     return {
@@ -128,7 +128,7 @@ const BG_TOKEN_NAMES = new Set([
 ]);
 
 // Catppuccin Mocha theme data (inlined for deno compile compatibility).
-// Source: https://github.com/otahontas/pi-coding-agent-catppuccin
+// Source: https://github.com/otahontas-works/pi-coding-agent-catppuccin
 const CATPPUCCIN_MOCHA = {
     name: "catppuccin-mocha",
     vars: {

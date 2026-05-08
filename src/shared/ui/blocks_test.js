@@ -18,7 +18,7 @@ import {
     ToolExecutionBlock,
     UserPromptBlock,
 } from "./blocks.js";
-import { Text } from "@mariozechner/pi-tui";
+import { Text } from "@earendil-works/pi-tui";
 import stripAnsi from "strip-ansi";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

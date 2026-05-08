@@ -19,8 +19,8 @@ import { getRootSessionManager } from "../session/session-state.js";
  * @property {string} userRequest
  * @property {import('../session/types.js').ImageAttachment[]} savedImages
  * @property {import('../ui/types.js').UiAPI} uiAPI
- * @property {import('@mariozechner/pi-tui').Editor} editor
- * @property {import('@mariozechner/pi-tui').TUI} tui
+ * @property {import('@earendil-works/pi-tui').Editor} editor
+ * @property {import('@earendil-works/pi-tui').TUI} tui
  * @property {string} sessionStartedAt
  * @property {(data: string) => void} originalHandleInput
  * @property {Set<string>} builtinNames

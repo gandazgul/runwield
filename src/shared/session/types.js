@@ -24,7 +24,7 @@
  */
 
 /**
- * @typedef {import('@mariozechner/pi-coding-agent').SessionManager & {
+ * @typedef {import('@earendil-works/pi-coding-agent').SessionManager & {
  *   addMessage?: (message: SessionMessageLike) => void,
  *   appendCustomMessageEntry?: (role: string, text: string, visible: boolean, persisted?: string) => void,
  *   getHeader?: () => ({ timestamp?: string } | null),

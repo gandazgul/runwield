@@ -3,8 +3,8 @@
  * Structured user interview tool for planning agents.
  */
 
-import { StringEnum, Type } from "@mariozechner/pi-ai";
-import { defineTool } from "@mariozechner/pi-coding-agent";
+import { StringEnum, Type } from "@earendil-works/pi-ai";
+import { defineTool } from "@earendil-works/pi-coding-agent";
 import { promptText, select } from "../shared/ui/prompts.js";
 
 const OTHER_VALUE = "other";
@@ -518,7 +518,7 @@ async function askQuestion(question, uiAPI) {
 
 /**
  * @param {InterviewResultDetails} details
- * @returns {import('@mariozechner/pi-coding-agent').AgentToolResult<InterviewResultDetails>}
+ * @returns {import('@earendil-works/pi-coding-agent').AgentToolResult<InterviewResultDetails>}
  */
 function buildResult(details) {
     const payload = {

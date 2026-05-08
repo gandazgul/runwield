@@ -45,8 +45,8 @@
  *   startToolExecution?: (id: string, name: string, argsStr: string) => ToolExecutionBlockApi,
  *   getActiveToolBlock?: (id: string) => ToolExecutionBlockApi | undefined,
  *   toggleToolOutputsExpanded?: () => void,
- *   addToolInvoked?: (event: import('@mariozechner/pi-coding-agent').SessionEvent) => void,
- *   addToolResult?: (event: import('@mariozechner/pi-coding-agent').SessionEvent) => void,
+ *   addToolInvoked?: (event: import('@earendil-works/pi-coding-agent').SessionEvent) => void,
+ *   addToolResult?: (event: import('@earendil-works/pi-coding-agent').SessionEvent) => void,
  *   isOutputSuppressed?: () => boolean,
  *   suppressOutput?: () => void,
  *   abortActivePrompt?: () => void,
@@ -57,7 +57,7 @@
  * @typedef {{
  *   disableSubmit: boolean,
  *   setText: (text: string) => void,
- *   setAutocompleteProvider: (provider: import('@mariozechner/pi-tui').AutocompleteProvider) => void,
+ *   setAutocompleteProvider: (provider: import('@earendil-works/pi-tui').AutocompleteProvider) => void,
  *   handleInput: (data: string) => void | Promise<void>,
  *   onSubmit?: (text: string) => void | Promise<void>,
  *   onChange?: (text: string) => void,
@@ -70,7 +70,7 @@
 /**
  * @typedef {{
  *   requestRender: () => void,
- *   setFocus: (component: import('@mariozechner/pi-tui').Component | null) => void,
- *   addChild?: (component: import('@mariozechner/pi-tui').Component) => void,
+ *   setFocus: (component: import('@earendil-works/pi-tui').Component | null) => void,
+ *   addChild?: (component: import('@earendil-works/pi-tui').Component) => void,
  * }} TuiAPI
  */

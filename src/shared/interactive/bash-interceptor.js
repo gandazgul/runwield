@@ -20,8 +20,8 @@ import { initTUI, stopTUI } from "../ui/tui.js";
  * @typedef {Object} BashContext
  * @property {string} userRequest - Raw input (still includes leading `!` or `!!`).
  * @property {import('../ui/types.js').UiAPI} uiAPI
- * @property {import('@mariozechner/pi-tui').TUI} tui
- * @property {import('@mariozechner/pi-tui').Editor} editor
+ * @property {import('@earendil-works/pi-tui').TUI} tui
+ * @property {import('@earendil-works/pi-tui').Editor} editor
  * @property {() => (import('../session/types.js').SessionManagerLike | null)} getSessionManager
  * @property {import('./generation-guard.js').GenerationGuard} generationGuard
  * @property {(proc: { kill?: () => void } | null) => void} registerBashProc

@@ -4,7 +4,7 @@
  */
 
 import { Type } from "@sinclair/typebox";
-import { defineTool } from "@mariozechner/pi-coding-agent";
+import { defineTool } from "@earendil-works/pi-coding-agent";
 
 export const codeSearchToolDef = defineTool({
     name: "code_search",
@@ -144,7 +144,7 @@ export const codeInvestigateToolDef = defineTool({
 /**
  * Register Cymbal lifecycle hooks and tools.
  *
- * @param {import('@mariozechner/pi-coding-agent').ExtensionAPI} pi
+ * @param {import('@earendil-works/pi-coding-agent').ExtensionAPI} pi
  */
 export default function cymbalExtension(pi) {
     let projectCwd = Deno.cwd();

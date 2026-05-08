@@ -13,8 +13,8 @@
  */
 
 import { join } from "@std/path";
-import { Type } from "@mariozechner/pi-ai";
-import { defineTool } from "@mariozechner/pi-coding-agent";
+import { Type } from "@earendil-works/pi-ai";
+import { defineTool } from "@earendil-works/pi-coding-agent";
 import { CLI_BIN, CWD, PLANS_DIR_NAME } from "../constants.js";
 import { loadPlan } from "../plan-store.js";
 import { extractTasks } from "../shared/workflow/workflow.js";
@@ -61,10 +61,10 @@ function buildFeedbackRequestText({ round, planName, feedback }) {
  * @param {string} text
  * @param {unknown} [details]
  * @param {boolean} [terminate]
- * @returns {import('@mariozechner/pi-coding-agent').AgentToolResult<unknown>}
+ * @returns {import('@earendil-works/pi-coding-agent').AgentToolResult<unknown>}
  */
 function textResult(text, details, terminate) {
-    /** @type {import('@mariozechner/pi-coding-agent').AgentToolResult<unknown>} */
+    /** @type {import('@earendil-works/pi-coding-agent').AgentToolResult<unknown>} */
     const result = {
         content: [{ type: "text", text }],
         details: details ?? null,
@@ -102,7 +102,7 @@ async function resolveTriageMeta(triageMeta, planName) {
  *   triageMeta?: TriageMeta,
  *   agentName?: string,
  * }} [opts]
- * @returns {import('@mariozechner/pi-coding-agent').ToolDefinition}
+ * @returns {import('@earendil-works/pi-coding-agent').ToolDefinition}
  */
 export function createPlanWrittenTool(
     { uiAPI, triageMeta, agentName = "planner" } = {},

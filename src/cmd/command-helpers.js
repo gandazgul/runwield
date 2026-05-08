@@ -12,6 +12,6 @@ export function resetTuiState(editor, uiAPI, tui) {
     if (uiAPI?.setBusy) uiAPI.setBusy(false);
     if (uiAPI?.enableInput) uiAPI.enableInput();
     if (editor && tui) {
-        tui.setFocus(/** @type {import('@mariozechner/pi-tui').Component} */ (/** @type {unknown} */ (editor)));
+        tui.setFocus(/** @type {import('@earendil-works/pi-tui').Component} */ (/** @type {unknown} */ (editor)));
     }
 }

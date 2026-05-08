@@ -3,7 +3,7 @@
  * TUI Singleton Manager
  */
 
-import { ProcessTerminal, TUI } from "@mariozechner/pi-tui";
+import { ProcessTerminal, TUI } from "@earendil-works/pi-tui";
 
 /** @type {TUI | null} */
 let tuiInstance = null;

@@ -14,7 +14,7 @@ import {
     createWriteToolDefinition,
     DefaultResourceLoader,
     SessionManager,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 import { extractYaml, test as hasFrontMatter } from "@std/front-matter";
 import { dirname, fromFileUrl, join } from "@std/path";
 import { AGENT_DEFS_DIR, CWD, PROMPT_TEMPLATES_DIR, SKILLS_DIR } from "../../constants.js";
@@ -474,7 +474,7 @@ export async function loadAgentDef(agentName) {
     };
 }
 
-/** @type {Set<import('@mariozechner/pi-coding-agent').AgentSession>} */
+/** @type {Set<import('@earendil-works/pi-coding-agent').AgentSession>} */
 const activeSessions = new Set();
 
 /**
@@ -573,7 +573,7 @@ function resolveModel(modelOverride, agentDef) {
  *
  * @param {AgentDef} agentDef
  * @param {string[]} tools
- * @param {import('@mariozechner/pi-coding-agent').ToolDefinition[]} finalCustomTools
+ * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} finalCustomTools
  * @returns {Promise<string>}
  */
 export async function assembleFinalSystemPrompt(agentDef, tools, finalCustomTools) {
@@ -689,15 +689,15 @@ export async function assembleFinalSystemPrompt(agentDef, tools, finalCustomTool
  * @param {Object} opts
  * @param {string} opts.agentName
  * @param {string[]} [opts.toolNames] - Optional explicit tool override; defaults to agent frontmatter tools.
- * @param {import('@mariozechner/pi-coding-agent').ToolDefinition[]} [opts.customTools]
+ * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [opts.customTools]
  * @param {string} [opts.modelOverride] - Optional explicit model override in provider/id format.
  * @param {string} opts.userRequest - The user-facing request/instruction to send to the agent
  * @param {Array<{base64: string, mimeType: string}>} [opts.images]
  * @param {import('../workflow/workflow.js').UiAPI} [opts.uiAPI]
- * @param {import('@mariozechner/pi-coding-agent').SessionManager} [opts.sessionManager]
+ * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager]
  * @param {import('../../tools/plan-written.js').TriageMeta} [opts.triageMeta] - Optional triage metadata threaded into auto-wired plan_written.
  *
- * @returns {Promise<import('@mariozechner/pi-agent-core').AgentMessage[]>}
+ * @returns {Promise<import('@earendil-works/pi-agent-core').AgentMessage[]>}
  */
 export async function runAgentSession(
     { agentName, toolNames, customTools, modelOverride, userRequest, images, uiAPI, sessionManager, triageMeta },
@@ -1086,7 +1086,7 @@ function getFilePathForTool(toolName, args) {
 }
 
 /**
- * @param {import('@mariozechner/pi-agent-core').AgentMessage[]} messages
+ * @param {import('@earendil-works/pi-agent-core').AgentMessage[]} messages
  * @returns {string}
  */
 function extractAssistantSummary(messages) {

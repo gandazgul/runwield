@@ -21,7 +21,7 @@ export async function runResumeCommand(_argv, options = {}) {
 
     const { uiAPI, editor } = options;
 
-    const { SessionManager } = await import("@mariozechner/pi-coding-agent");
+    const { SessionManager } = await import("@earendil-works/pi-coding-agent");
     const cwd = Deno.cwd();
     const sessionDir = getHarnsSessionDir(cwd);
 

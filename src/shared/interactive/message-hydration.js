@@ -68,7 +68,7 @@ function messageToDisplayText(message) {
 }
 
 /**
- * @param {import('@mariozechner/pi-coding-agent').SessionManager} sessionManager
+ * @param {import('@earendil-works/pi-coding-agent').SessionManager} sessionManager
  * @param {import('../ui/types.js').UiAPI} uiAPI
  */
 export function restorePersistedMessagesToUi(sessionManager, uiAPI) {

@@ -14,7 +14,7 @@
  * cancel callbacks) is passed in by the caller — this module owns no state.
  */
 
-import { Key, matchesKey, Text } from "@mariozechner/pi-tui";
+import { Key, matchesKey, Text } from "@earendil-works/pi-tui";
 import { abortActiveSession } from "../session/session.js";
 import { cancelActivePlanReview } from "../workflow/submit-plan.js";
 import { stopTUI } from "../ui/tui.js";
@@ -23,11 +23,11 @@ import { theme } from "../ui/theme.js";
 
 /**
  * @typedef {Object} KeybindingsContext
- * @property {import('@mariozechner/pi-tui').Editor} editor
- * @property {import('@mariozechner/pi-tui').TUI} tui
+ * @property {import('@earendil-works/pi-tui').Editor} editor
+ * @property {import('@earendil-works/pi-tui').TUI} tui
  * @property {import('../ui/types.js').UiAPI} uiAPI
  * @property {import('../session/types.js').ImageAttachment[]} pastedImages
- * @property {import('@mariozechner/pi-tui').Container} previewImages
+ * @property {import('@earendil-works/pi-tui').Container} previewImages
  * @property {Array<unknown>} submissionQueue
  * @property {import('./generation-guard.js').GenerationGuard} generationGuard
  * @property {() => boolean} cancelActiveOperation

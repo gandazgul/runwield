@@ -21,7 +21,7 @@ import { confirm, select } from "../ui/prompts.js";
  * Scans messages in reverse, checking ALL content blocks (not just [0])
  * to handle cases where tool_use blocks appear alongside text.
  *
- * @param {import('@mariozechner/pi-agent-core').AgentMessage[]} messages
+ * @param {import('@earendil-works/pi-agent-core').AgentMessage[]} messages
  * @returns {string | null}
  */
 function extractAssistantOutput(messages) {
@@ -57,7 +57,7 @@ function extractAssistantOutput(messages) {
 /**
  * Read the latest plan_written tool result's outcome from a message stream.
  *
- * @param {import('@mariozechner/pi-agent-core').AgentMessage[]} messages
+ * @param {import('@earendil-works/pi-agent-core').AgentMessage[]} messages
  * @returns {PlanOutcomeResult | null}
  */
 export function readLatestPlanOutcome(messages) {
@@ -93,7 +93,7 @@ export function readLatestPlanOutcome(messages) {
  * @param {string} opts.initialRequest
  * @param {import('../../tools/plan-written.js').TriageMeta} [opts.triageMeta]
  * @param {UiAPI} [opts.uiAPI]
- * @param {import('@mariozechner/pi-coding-agent').SessionManager} [opts.sessionManager]
+ * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager]
  * @returns {Promise<PlanOutcomeResult>}
  */
 export async function runPlanningAgent({ agentName, initialRequest, triageMeta, uiAPI, sessionManager }) {
@@ -219,7 +219,7 @@ export function extractTasks(planContent) {
  * @param {Partial<import('../../plan-store.js').PlanFrontMatter>} triageMeta
  * @param {UiAPI} [uiAPI]
  * @param {Array<{ task: number, assignee: string, dependencies: string, description: string }>} [structuredTasks]
- * @param {import('@mariozechner/pi-coding-agent').SessionManager} [sessionManager]
+ * @param {import('@earendil-works/pi-coding-agent').SessionManager} [sessionManager]
  */
 export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, sessionManager) {
     const plan = await loadPlan(CWD, planName);
@@ -587,7 +587,7 @@ export async function askApprovalWithTasks(planName, uiAPI, structuredTasks) {
  * @param {string} planName
  * @param {string} planBody
  * @param {UiAPI} [uiAPI]
- * @param {import('@mariozechner/pi-coding-agent').SessionManager} [sessionManager]
+ * @param {import('@earendil-works/pi-coding-agent').SessionManager} [sessionManager]
  */
 async function runEngineerWithPlan(planName, planBody, uiAPI, sessionManager) {
     if (uiAPI) uiAPI.appendSystemMessage("=== Running Engineer ===", false, "Harns");

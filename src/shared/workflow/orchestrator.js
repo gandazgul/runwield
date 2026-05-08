@@ -34,7 +34,7 @@ import { executePlan, runPlanningAgent } from "./workflow.js";
 /**
  * Read the latest triage_report tool result's details from a message stream.
  *
- * @param {import('@mariozechner/pi-agent-core').AgentMessage[]} messages
+ * @param {import('@earendil-works/pi-agent-core').AgentMessage[]} messages
  * @returns {TriageOutcome | null}
  */
 export function readLatestTriageOutcome(messages) {
@@ -77,7 +77,7 @@ function buildTriageBlock(triage) {
  * @param {string} args.userRequest
  * @param {import('../session/types.js').ImageAttachment[] | undefined} args.images
  * @param {import('./workflow.js').UiAPI | undefined} args.uiAPI
- * @param {import('@mariozechner/pi-coding-agent').SessionManager | undefined} args.sessionManager
+ * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined} args.sessionManager
  */
 export async function dispatchPostTriage({ triage, userRequest, images, uiAPI, sessionManager }) {
     const triageBlock = buildTriageBlock(triage);

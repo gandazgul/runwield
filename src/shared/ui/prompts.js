@@ -3,7 +3,7 @@
  * Interactive user-facing prompt helpers for TUI overlays and stdin fallback.
  */
 
-import { Container, Input, SelectList, Text } from "@mariozechner/pi-tui";
+import { Container, Input, SelectList, Text } from "@earendil-works/pi-tui";
 import { getTUI } from "./tui.js";
 import { getSelectListTheme, theme } from "./theme.js";
 
@@ -24,7 +24,7 @@ async function readUserInput(maxBytes = 256) {
 }
 
 /**
- * @returns {{ tui: import('@mariozechner/pi-tui').TUI } | null}
+ * @returns {{ tui: import('@earendil-works/pi-tui').TUI } | null}
  */
 function tryGetTUI() {
     try {
@@ -63,7 +63,7 @@ export async function select(title, options) {
             getSelectListTheme(),
         );
 
-        /** @type {import('@mariozechner/pi-tui').OverlayHandle | null} */
+        /** @type {import('@earendil-works/pi-tui').OverlayHandle | null} */
         let handle = null;
 
         selectList.onSelect = (item) => {
@@ -153,7 +153,7 @@ export async function promptText(title, opts = {}) {
             ),
         );
 
-        /** @type {import('@mariozechner/pi-tui').OverlayHandle | null} */
+        /** @type {import('@earendil-works/pi-tui').OverlayHandle | null} */
         let handle = null;
 
         input.onSubmit = (value) => {

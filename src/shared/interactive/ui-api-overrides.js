@@ -6,8 +6,8 @@
  * the model-selector overlay, and inlines pasted images into the message list.
  */
 
-import { Image } from "@mariozechner/pi-tui";
-import { ModelSelectorComponent } from "@mariozechner/pi-coding-agent";
+import { Image } from "@earendil-works/pi-tui";
+import { ModelSelectorComponent } from "@earendil-works/pi-coding-agent";
 import { getModelRegistry } from "../models/model-registry.js";
 import { getSettingsManager } from "../settings.js";
 import { getActiveModelState, setActiveAgentName, setActiveModelState } from "../session/session-state.js";
@@ -16,10 +16,10 @@ import { imageTheme } from "../ui/theme.js";
 /**
  * @param {{
  *   uiAPI: import('../ui/types.js').UiAPI,
- *   tui: import('@mariozechner/pi-tui').TUI,
- *   editor: import('@mariozechner/pi-tui').Editor,
- *   container: import('@mariozechner/pi-tui').Container,
- *   messageList: import('@mariozechner/pi-tui').Container,
+ *   tui: import('@earendil-works/pi-tui').TUI,
+ *   editor: import('@earendil-works/pi-tui').Editor,
+ *   container: import('@earendil-works/pi-tui').Container,
+ *   messageList: import('@earendil-works/pi-tui').Container,
  *   setActiveModel: (model: string, provider?: string) => Promise<void> | void,
  * }} deps
  */

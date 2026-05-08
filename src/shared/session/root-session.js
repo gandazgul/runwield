@@ -53,10 +53,10 @@ function ensureDir(dir) {
  *
  * @param {RootSessionStartMode} mode
  * @param {string} cwd
- * @returns {Promise<import('@mariozechner/pi-coding-agent').SessionManager>}
+ * @returns {Promise<import('@earendil-works/pi-coding-agent').SessionManager>}
  */
 export async function createRootSessionManager(mode, cwd) {
-    const { SessionManager } = await import("@mariozechner/pi-coding-agent");
+    const { SessionManager } = await import("@earendil-works/pi-coding-agent");
     const sessionDir = getHarnsSessionDir(cwd);
     ensureDir(sessionDir);
 
@@ -112,7 +112,7 @@ function toDisplayText(value) {
 /**
  * Export current session branch as linear JSONL (Pi-like behavior).
  *
- * @param {import('@mariozechner/pi-coding-agent').SessionManager} sessionManager
+ * @param {import('@earendil-works/pi-coding-agent').SessionManager} sessionManager
  * @param {string} [outputPath]
  * @returns {string}
  */
@@ -144,7 +144,7 @@ export function exportRootSessionToJsonl(sessionManager, outputPath) {
 /**
  * Export current session branch to a simple HTML transcript.
  *
- * @param {import('@mariozechner/pi-coding-agent').SessionManager} sessionManager
+ * @param {import('@earendil-works/pi-coding-agent').SessionManager} sessionManager
  * @param {string} [outputPath]
  * @returns {Promise<string>}
  */

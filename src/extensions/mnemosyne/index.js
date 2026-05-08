@@ -5,7 +5,7 @@
 
 import { basename } from "@std/path";
 import { Type } from "@sinclair/typebox";
-import { defineTool } from "@mariozechner/pi-coding-agent";
+import { defineTool } from "@earendil-works/pi-coding-agent";
 
 const MISSING_BINARY_MSG =
     "Error: mnemosyne binary not found. Install it: https://github.com/gandazgul/mnemosyne#quick-start";
@@ -92,7 +92,7 @@ export const memoryDeleteToolDef = defineTool({
 /**
  * Register Mnemosyne lifecycle hooks and memory tools.
  *
- * @param {import('@mariozechner/pi-coding-agent').ExtensionAPI} pi
+ * @param {import('@earendil-works/pi-coding-agent').ExtensionAPI} pi
  */
 export default function mnemosyneExtension(pi) {
     let projectName = "default";

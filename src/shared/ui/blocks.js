@@ -9,7 +9,7 @@ import {
     Text,
     truncateToWidth,
     visibleWidth,
-} from "@mariozechner/pi-tui";
+} from "@earendil-works/pi-tui";
 import { getMarkdownTheme, getSelectListTheme, theme } from "../ui/theme.js";
 import stripAnsi from "strip-ansi";
 
@@ -440,10 +440,10 @@ export class ToolExecutionBlock {
  */
 class SearchableSelectList extends SelectList {
     /**
-     * @param {import("@mariozechner/pi-tui").SelectItem[]} items
+     * @param {import("@earendil-works/pi-tui").SelectItem[]} items
      * @param {number} maxVisible
-     * @param {import("@mariozechner/pi-tui").SelectListTheme} slTheme
-     * @param {import("@mariozechner/pi-tui").SelectListLayoutOptions} [layout]
+     * @param {import("@earendil-works/pi-tui").SelectListTheme} slTheme
+     * @param {import("@earendil-works/pi-tui").SelectListLayoutOptions} [layout]
      */
     constructor(items, maxVisible, slTheme, layout = {}) {
         super(items, maxVisible, slTheme, layout);
@@ -454,7 +454,7 @@ class SearchableSelectList extends SelectList {
     setFilter(filter) {
         const lower = filter.toLowerCase();
         // @ts-ignore: SelectList private fields not accessible to subclass in TS
-        this.filteredItems = this.items.filter((/** @type {import("@mariozechner/pi-tui").SelectItem} */ item) =>
+        this.filteredItems = this.items.filter((/** @type {import("@earendil-works/pi-tui").SelectItem} */ item) =>
             item.value.toLowerCase().includes(lower) ||
             (item.label && item.label.toLowerCase().includes(lower))
         );
@@ -470,7 +470,7 @@ class SearchableSelectList extends SelectList {
 export class PromptSelectBlock {
     /**
      * @param {string} promptTitle
-     * @param {import("@mariozechner/pi-tui").SelectItem[]} items
+     * @param {import("@earendil-works/pi-tui").SelectItem[]} items
      * @param {string} [hint]
      */
     constructor(promptTitle, items, hint = "") {

@@ -8,8 +8,8 @@
  * reads the latest triage_report outcome after the router session ends.
  */
 
-import { StringEnum, Type } from "@mariozechner/pi-ai";
-import { defineTool } from "@mariozechner/pi-coding-agent";
+import { StringEnum, Type } from "@earendil-works/pi-ai";
+import { defineTool } from "@earendil-works/pi-coding-agent";
 
 const TOOL_PARAMS = Type.Object({
     classification: StringEnum(["QUICK_FIX", "FEATURE", "PROJECT"], {
@@ -35,7 +35,7 @@ const TOOL_PARAMS = Type.Object({
  * @param {{
  *   uiAPI?: import('../shared/workflow/workflow.js').UiAPI,
  * }} [opts]
- * @returns {import('@mariozechner/pi-coding-agent').ToolDefinition}
+ * @returns {import('@earendil-works/pi-coding-agent').ToolDefinition}
  */
 export function createTriageReportTool({ uiAPI } = {}) {
     return defineTool({

@@ -1,4 +1,4 @@
-import { Spacer } from "@mariozechner/pi-tui";
+import { Spacer } from "@earendil-works/pi-tui";
 import {
     AgentMessageBlock,
     PromptSelectBlock,
@@ -12,8 +12,8 @@ import {
 /**
  * Creates a UiAPI object for Harns TUI.
  *
- * @param {import('@mariozechner/pi-tui').TUI} tui
- * @param {import('@mariozechner/pi-tui').Container} messageList
+ * @param {import('@earendil-works/pi-tui').TUI} tui
+ * @param {import('@earendil-works/pi-tui').Container} messageList
  * @param {import('./blocks.js').SpinnerBlock} spinner
  * @returns {import('./types.js').UiAPI}
  */

@@ -3,8 +3,8 @@
  * Tool for agents to request a hand-off to another agent.
  */
 
-import { Type } from "@mariozechner/pi-ai";
-import { defineTool } from "@mariozechner/pi-coding-agent";
+import { Type } from "@earendil-works/pi-ai";
+import { defineTool } from "@earendil-works/pi-coding-agent";
 import { getActiveUiAPI, setActiveAgent } from "../shared/interactive/chat-session.js";
 import { createDirectAgentHandler } from "../shared/session/direct-agent.js";
 import { listAvailableAgents } from "../shared/session/agents.js";
@@ -14,7 +14,7 @@ import { listAvailableAgents } from "../shared/session/agents.js";
  * @param {string} target
  * @param {string} reason
  * @param {import('../shared/workflow/workflow.js').UiAPI} uiAPI
- * @param {import('@mariozechner/pi-coding-agent').SessionManager | undefined} sessionManager
+ * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined} sessionManager
  */
 export async function triggerAgent(target, reason, uiAPI, sessionManager) {
     const { runAgentSession } = await import("../shared/session/session.js");
@@ -26,7 +26,7 @@ export async function triggerAgent(target, reason, uiAPI, sessionManager) {
     });
 }
 
-/** @type {(target: string, reason: string, uiAPI: import('../shared/workflow/workflow.js').UiAPI, sessionManager?: import('@mariozechner/pi-coding-agent').SessionManager) => Promise<void>} */
+/** @type {(target: string, reason: string, uiAPI: import('../shared/workflow/workflow.js').UiAPI, sessionManager?: import('@earendil-works/pi-coding-agent').SessionManager) => Promise<void>} */
 const noOpTrigger = async () => {};
 
 /**
@@ -36,9 +36,9 @@ const noOpTrigger = async () => {};
  * @param {string} params.agentName
  * @param {string} params.reason
  * @param {import('../shared/workflow/workflow.js').UiAPI | null | undefined} uiAPI
- * @param {import('@mariozechner/pi-coding-agent').ExtensionContext | undefined} context
- * @param {(target: string, reason: string, uiAPI: import('../shared/workflow/workflow.js').UiAPI, sessionManager?: import('@mariozechner/pi-coding-agent').SessionManager) => Promise<void>} [triggerFn]
- * @returns {Promise<import('@mariozechner/pi-coding-agent').AgentToolResult<null>>}
+ * @param {import('@earendil-works/pi-coding-agent').ExtensionContext | undefined} context
+ * @param {(target: string, reason: string, uiAPI: import('../shared/workflow/workflow.js').UiAPI, sessionManager?: import('@earendil-works/pi-coding-agent').SessionManager) => Promise<void>} [triggerFn]
+ * @returns {Promise<import('@earendil-works/pi-coding-agent').AgentToolResult<null>>}
  */
 export async function executeSwitchAgent(params, uiAPI, context, triggerFn = noOpTrigger) {
     const { agentName, reason } = params;
@@ -80,7 +80,7 @@ export async function executeSwitchAgent(params, uiAPI, context, triggerFn = noO
         target,
         reason,
         uiAPI,
-        /** @type {import('@mariozechner/pi-coding-agent').SessionManager | undefined} */ (
+        /** @type {import('@earendil-works/pi-coding-agent').SessionManager | undefined} */ (
             /** @type {unknown} */ (context?.sessionManager)
         ),
     );

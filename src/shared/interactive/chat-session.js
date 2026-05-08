@@ -4,7 +4,7 @@
  * user interaction — distinct from individual agent invocations (see session.js).
  */
 
-import { CombinedAutocompleteProvider, Container, Editor, Spacer, Text } from "@mariozechner/pi-tui";
+import { CombinedAutocompleteProvider, Container, Editor, Spacer, Text } from "@earendil-works/pi-tui";
 import { initTUI } from "../ui/tui.js";
 import { getEditorTheme, initHarnsTheme, theme } from "../ui/theme.js";
 import { createUiApi } from "../ui/api.js";
@@ -268,7 +268,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
     const autocompleteProvider = new CombinedAutocompleteProvider(
         [
             ...Array.from(CHAT_BUILTIN_SLASH_NAMES).map((name) => {
-                /** @type {import('@mariozechner/pi-tui').SlashCommand} */
+                /** @type {import('@earendil-works/pi-tui').SlashCommand} */
                 return {
                     name,
                     description: commandRegistry[name].description,

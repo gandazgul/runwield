@@ -12,7 +12,7 @@ function setup(execImpl) {
     /** @type {Array<{command: string, args: string[], opts: { cwd: string }}>} */
     const calls = [];
 
-    const pi = /** @type {import('@mariozechner/pi-coding-agent').ExtensionAPI} */ ({
+    const pi = /** @type {import('@earendil-works/pi-coding-agent').ExtensionAPI} */ ({
         on(event, handler) {
             handlers.set(event, handler);
         },

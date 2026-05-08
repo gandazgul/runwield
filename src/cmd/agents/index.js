@@ -140,7 +140,7 @@ async function runAgentsCommandTUI(agentName, _rest, options, deps = {}) {
     const handler = createDirectAgentHandler(match.name);
 
     setActiveAgent(match.displayName, handler, uiAPI, match.model);
-    tui.setFocus(/** @type {import('@mariozechner/pi-tui').Component} */ (/** @type {unknown} */ (editor)));
+    tui.setFocus(/** @type {import('@earendil-works/pi-tui').Component} */ (/** @type {unknown} */ (editor)));
 }
 
 /**
