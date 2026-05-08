@@ -37,7 +37,7 @@
  *   clearMessages?: () => void,
  *   promptSelect: (title: string, options: SelectOption[]) => Promise<string | null>,
  *   promptText: (title: string, options?: { defaultValue?: string, placeholder?: string, allowEmpty?: boolean }) => Promise<string | null>,
- *   showModelSelector: () => void,
+ *   showModelSelector: () => Promise<void> | void,
  *   setAgentInfo?: (agentName: string, agentModel?: string) => void,
  *   disableInput?: () => void,
  *   enableInput?: () => void,

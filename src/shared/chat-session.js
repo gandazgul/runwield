@@ -573,37 +573,43 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
     };
 
     uiAPI.showModelSelector = () => {
-        const settingsManager = getSettingsManager();
-        const modelRegistry = getModelRegistry();
-        const activeModelState = getActiveModelState();
-        const currentModel = modelRegistry.find(activeModelState.provider, activeModelState.model);
+        return new Promise((resolve) => {
+            const settingsManager = getSettingsManager();
+            const modelRegistry = getModelRegistry();
+            const activeModelState = getActiveModelState();
+            const currentModel = modelRegistry.find(activeModelState.provider, activeModelState.model);
 
-        const selector = new ModelSelectorComponent(
-            tui,
-            currentModel,
-            settingsManager,
-            modelRegistry,
-            [], // No scoped models for now
-            (model) => {
-                setActiveModel(model.id, model.provider);
-                restoreSelector();
-            },
-            () => {
-                restoreSelector();
-            },
-        );
+            let settled = false;
+            const restoreSelector = () => {
+                if (settled) return;
+                settled = true;
+                container.removeChild(selector);
+                container.addChild(editor);
+                tui.setFocus(editor);
+                tui.requestRender();
+                resolve();
+            };
 
-        function restoreSelector() {
-            container.removeChild(selector);
-            container.addChild(editor);
-            tui.setFocus(editor);
+            const selector = new ModelSelectorComponent(
+                tui,
+                currentModel,
+                settingsManager,
+                modelRegistry,
+                [], // No scoped models for now
+                (model) => {
+                    setActiveModel(model.id, model.provider);
+                    restoreSelector();
+                },
+                () => {
+                    restoreSelector();
+                },
+            );
+
+            container.removeChild(editor);
+            container.addChild(selector);
+            tui.setFocus(selector);
             tui.requestRender();
-        }
-
-        container.removeChild(editor);
-        container.addChild(selector);
-        tui.setFocus(selector);
-        tui.requestRender();
+        });
     };
 
     uiAPI.appendImage = (base64, mimeType) => {

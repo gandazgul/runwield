@@ -45,7 +45,7 @@ export async function runModelsCommand(argv, options = {}) {
             // let it mask the fallback logic during tests where uiAPI.showModelSelector
             // might be defined as a no-op but the tests expect promptSelect behavior.
             if (uiAPI.showModelSelector && !options.__testDeps) {
-                uiAPI.showModelSelector();
+                await uiAPI.showModelSelector();
             } else {
                 // Fallback for tests or older versions
                 const available = modelRegistry.getAvailable();
