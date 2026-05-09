@@ -96,9 +96,7 @@ class HarnsSettingsStorage {
             try {
                 return lockfile.lockSync(path, { realpath: false });
             } catch (error) {
-                const code = (error && typeof error === "object" && "code" in error)
-                    ? String(error.code)
-                    : undefined;
+                const code = (error && typeof error === "object" && "code" in error) ? String(error.code) : undefined;
                 if (code !== "ELOCKED" || attempt === maxAttempts) {
                     throw error;
                 }
