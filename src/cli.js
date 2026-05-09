@@ -18,6 +18,7 @@ import { parseArgs } from "@std/cli/parse-args";
 import { COMMAND_NAMES } from "./constants.js";
 import { commandRegistry } from "./cmd/registry.js";
 import { printGlobalHelp } from "./cmd/help/index.js";
+import { stopTUI } from "./shared/ui/tui.js";
 
 /**
  * Remove leading global flags from argv so command/default handlers receive clean positional args.
@@ -82,6 +83,9 @@ async function main() {
 }
 
 main().catch((err) => {
+    try {
+        stopTUI();
+    } catch (_e) { /* ignore */ }
     if (err instanceof Error && err.message.includes("Mnemosyne binary not found")) {
         console.error(err.message);
     } else {
