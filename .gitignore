@@ -1,6 +1,7 @@
 .DS_Store
 
 bin/
+src/shared/version.js
 
 .history/
 .pi/

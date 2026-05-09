@@ -203,7 +203,6 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
 
     container.addChild(new Spacer(1));
     container.addChild(new Text(titleLine, 0, 0));
-    container.addChild(new Spacer(1));
     container.addChild(helpText);
     container.addChild(new Spacer(1));
 
