@@ -6,21 +6,13 @@
 import { listAgentDefNames, loadAgentDef } from "./session.js";
 
 /**
- * @typedef {Object} AgentInfo
- * @property {string} name - Agent filename (without .md)
- * @property {string} displayName - Human-readable name from frontmatter
- * @property {string} description - One-line description from frontmatter
- * @property {string} model - Model identifier from frontmatter
- */
-
-/**
  * List all available merged agent definitions.
  *
- * @returns {Promise<AgentInfo[]>}
+ * @returns {Promise<import('./types.js').AgentDefinition[]>}
  */
 export async function listAvailableAgents() {
     const names = await listAgentDefNames();
-    /** @type {AgentInfo[]} */
+    /** @type {import('./types.js').AgentDefinition[]} */
     const agents = [];
 
     for (const name of names) {

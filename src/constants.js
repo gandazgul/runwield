@@ -36,7 +36,7 @@ export const COMPLEXITIES = ["LOW", "MEDIUM", "HIGH"];
 export const PLANS_DIR_NAME = "plans";
 
 /** Known CLI command names. */
-/** @type {Readonly<{ROUTER: string, AGENT: string, MODEL: string, EXPORT: string, SHARE: string, LOAD_PLAN: string, RESUME: string, NEW: string, SESSION: string, PLANS: string, SLEEP: string, HELP: string, QUIT: string, EXIT: string}>} */
+/** @type {Readonly<{ROUTER: string, AGENT: string, MODEL: string, EXPORT: string, SHARE: string, LOAD_PLAN: string, RESUME: string, NEW: string, SESSION: string, PLANS: string, SLEEP: string, HELP: string, QUIT: string, EXIT: string, INIT: string}>} */
 export const COMMAND_NAMES = Object.freeze({
     ROUTER: "router",
     AGENT: "agent",
@@ -52,6 +52,7 @@ export const COMMAND_NAMES = Object.freeze({
     HELP: "help",
     QUIT: "quit",
     EXIT: "exit",
+    INIT: "init",
 });
 
 /** Max concurrent agent tasks for PROJECT execution. */

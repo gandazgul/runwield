@@ -1,0 +1,197 @@
+/**
+ * @module cmd/init/init-state_test
+ * Tests for the global init-state module.
+ *
+ * IMPORTANT: These tests override the state path to a temp directory
+ * to avoid polluting the user's real ~/.hns/init-state.json.
+ */
+
+import { assertEquals, assertExists, assertObjectMatch } from "@std/assert";
+import { join } from "@std/path";
+import { _setTestStatePath } from "./init-state.js";
+import {
+    getCwdHash,
+    getInitState,
+    isInitDone,
+    isInitOffered,
+    recordInitDone,
+    recordInitOffered,
+} from "./init-state.js";
+
+// Isolate all state operations to a temp directory so we never touch
+// the user's real ~/.hns/init-state.json.
+const testDir = Deno.makeTempDirSync();
+const testStatePath = join(testDir, "init-state.json");
+_setTestStatePath(testStatePath);
+
+// ── init-state unit tests ──────────────────────────────────────────
+
+Deno.test("getCwdHash returns a 64-char hex string", async () => {
+    const hash = await getCwdHash();
+    assertEquals(typeof hash, "string");
+    assertEquals(hash.length, 64);
+    // Must be valid hex
+    assertEquals(/^[0-9a-f]{64}$/.test(hash), true);
+});
+
+Deno.test("getCwdHash is deterministic for the same CWD", async () => {
+    const a = await getCwdHash();
+    const b = await getCwdHash();
+    assertEquals(a, b);
+});
+
+Deno.test("getInitState returns empty object when no state file exists", async () => {
+    await cleanupState();
+    const state = await getInitState();
+    assertObjectMatch(state, {});
+});
+
+Deno.test("recordInitDone creates state file with correct structure", async () => {
+    await cleanupState();
+
+    const cwdHash = await getCwdHash();
+    await recordInitDone();
+
+    const state = await getInitState();
+    assertExists(state[cwdHash]);
+    assertEquals(state[cwdHash].initOffered, true);
+    assertEquals(state[cwdHash].initDone, true);
+
+    // Verify raw file content
+    const raw = await readRawState();
+    assertExists(raw);
+    assertExists(raw[cwdHash]);
+    assertEquals(raw[cwdHash].initOffered, true);
+    assertEquals(raw[cwdHash].initDone, true);
+
+    await cleanupState();
+});
+
+Deno.test("recordInitOffered marks only initOffered without initDone", async () => {
+    await cleanupState();
+
+    const cwdHash = await getCwdHash();
+    await recordInitOffered();
+
+    const state = await getInitState();
+    assertExists(state[cwdHash]);
+    assertEquals(state[cwdHash].initOffered, true);
+    assertEquals(state[cwdHash].initDone, false);
+
+    await cleanupState();
+});
+
+Deno.test("isInitDone returns true after recordInitDone", async () => {
+    await cleanupState();
+
+    assertEquals(await isInitDone(), false);
+    await recordInitDone();
+    assertEquals(await isInitDone(), true);
+
+    await cleanupState();
+});
+
+Deno.test("isInitDone returns false when state file does not exist", async () => {
+    await cleanupState();
+    assertEquals(await isInitDone(), false);
+});
+
+Deno.test("isInitOffered returns false when state file does not exist", async () => {
+    await cleanupState();
+    assertEquals(await isInitOffered(), false);
+});
+
+Deno.test("isInitOffered returns true after recordInitOffered", async () => {
+    await cleanupState();
+
+    assertEquals(await isInitOffered(), false);
+    await recordInitOffered();
+    assertEquals(await isInitOffered(), true);
+    // But initDone should still be false
+    assertEquals(await isInitDone(), false);
+
+    await cleanupState();
+});
+
+Deno.test("isInitOffered returns true after recordInitDone (implicit offer)", async () => {
+    await cleanupState();
+
+    await recordInitDone();
+    assertEquals(await isInitOffered(), true);
+    assertEquals(await isInitDone(), true);
+
+    await cleanupState();
+});
+
+Deno.test("state file is isolated per CWD hash", async () => {
+    await cleanupState();
+
+    const cwdHash = await getCwdHash();
+    await recordInitDone();
+
+    // Simulate a different project by manually writing another hash
+    const state = await getInitState();
+    state["0000000000000000000000000000000000000000000000000000000000000000"] = {
+        initOffered: false,
+        initDone: true,
+    };
+    await Deno.writeTextFile(testStatePath, JSON.stringify(state, null, 2));
+
+    // Reading the full state should contain both entries
+    const updated = await getInitState();
+    assertExists(updated[cwdHash]);
+    assertExists(updated["0000000000000000000000000000000000000000000000000000000000000000"]);
+
+    // isInitDone for our CWD should still be true
+    assertEquals(await isInitDone(), true);
+
+    await cleanupState();
+});
+
+Deno.test("recordInitDone preserves other CWD entries (no overwrite)", async () => {
+    await cleanupState();
+
+    // First, record init done for the current CWD
+    await recordInitDone();
+
+    // Manually add another entry
+    const state = await getInitState();
+    state["abcdef0123456789"] = { initOffered: true, initDone: false };
+    await Deno.writeTextFile(testStatePath, JSON.stringify(state, null, 2));
+
+    // Call recordInitOffered (for the same CWD) — should not clobber the other entry
+    await recordInitOffered();
+    const updated = await getInitState();
+    assertExists(updated["abcdef0123456789"]);
+    assertEquals(updated["abcdef0123456789"].initOffered, true);
+
+    await cleanupState();
+});
+
+// ── Helpers ──────────────────────────────────────────────────────
+
+async function readRawState() {
+    try {
+        const raw = await Deno.readTextFile(testStatePath);
+        return JSON.parse(raw);
+    } catch {
+        return null;
+    }
+}
+
+async function cleanupState() {
+    try {
+        await Deno.remove(testStatePath);
+    } catch {
+        // ignore
+    }
+}
+
+// Cleanup temp directory after all tests
+globalThis.addEventListener("unload", () => {
+    try {
+        Deno.removeSync(testDir, { recursive: true });
+    } catch {
+        // ignore
+    }
+});

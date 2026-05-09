@@ -12,8 +12,14 @@ import { SpinnerBlock } from "../ui/blocks.js";
 import { listPromptTemplates, steerRootSession } from "../session/session.js";
 import { ensureMnemosyneBinary } from "../runtime-preflight.js";
 import { commandRegistry } from "../../cmd/registry.js";
+import { COMMAND_NAMES } from "../../constants.js";
 import { getModelRegistry } from "../models/model-registry.js";
 import { getSettingsManager, initSettings } from "../settings.js";
+import {
+    isInitDone as isInitDoneFn,
+    isInitOffered as isInitOfferedFn,
+    recordInitOffered as recordInitOfferedFn,
+} from "../../cmd/init/init-state.js";
 import {
     clearUserModelOverride,
     getActiveAgentName,
@@ -280,8 +286,46 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
     tui.addChild(rootWrapper);
     tui.setFocus(editor);
 
+    // ── Init state check: conditionally filter /init from slash commands ──
+    const initDone = await isInitDoneFn();
+    if (initDone) {
+        CHAT_BUILTIN_SLASH_NAMES.delete("init");
+    }
+
     // Load prompt-template metadata once per interactive session.
     const promptTemplates = await listPromptTemplates();
+
+    // Expose a UI API for agents to append to the message list
+    const uiAPI = createUiApi(tui, messageList, runningTasksComponent);
+
+    // ── Init auto-offer: conditionally offer /init on first TUI visit ──
+    if (!initDone) {
+        const alreadyOffered = await isInitOfferedFn();
+        if (!alreadyOffered) {
+            const choice = await uiAPI.promptSelect(
+                "Would you like to run /init to bootstrap Harns?",
+                [
+                    { value: "yes", label: "Yes" },
+                    { value: "no", label: "No" },
+                ],
+            );
+
+            if (choice === "yes") {
+                // User accepted — run init and record success
+                await commandRegistry[COMMAND_NAMES.INIT].execute([], {
+                    uiAPI,
+                    sessionManager: rootSessionManager || undefined,
+                });
+                // Dynamically hide /init from slash commands for the rest of this session
+                CHAT_BUILTIN_SLASH_NAMES.delete("init");
+            } else {
+                // User declined or dismissed — record that init was offered
+                await recordInitOfferedFn();
+            }
+        }
+    }
+
+    // ── Build autocomplete AFTER auto-offer (so /init removal is reflected) ──
     const invokablePromptTemplates = promptTemplates.filter((template) => !CHAT_BUILTIN_SLASH_NAMES.has(template.name));
     const blockedPromptTemplates = promptTemplates.filter((template) => CHAT_BUILTIN_SLASH_NAMES.has(template.name));
     /** @type {Map<string, (typeof invokablePromptTemplates)[number]>} */
@@ -307,9 +351,6 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         "fd", // Since pi 0.20 the agent guarantees that fd is available in PATH or it polyfills it so using 'fd' directly as binary path is safe.
     );
     editor.setAutocompleteProvider(autocompleteProvider);
-
-    // Expose a UI API for agents to append to the message list
-    const uiAPI = createUiApi(tui, messageList, runningTasksComponent);
 
     // Ensure modal prompts (select/text) always return focus to the editor once settled.
     const basePromptSelect = uiAPI.promptSelect?.bind(uiAPI);

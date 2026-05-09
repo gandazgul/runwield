@@ -17,6 +17,7 @@ import { runNewCommand } from "./new/index.js";
 import { runSessionCommand } from "./session/index.js";
 import { runShareCommand } from "./share/index.js";
 import { runResumeCommand } from "./resume/index.js";
+import { runInitCommand } from "./init/index.js";
 
 /** @param {...string} parts */
 const bin = (...parts) => [CLI_BIN, ...parts].join(" ");
@@ -283,6 +284,24 @@ export const commandRegistry = {
         execute: runQuitCommand,
         isSlash: true,
         isCli: false,
+    },
+    [COMMAND_NAMES.INIT]: {
+        name: COMMAND_NAMES.INIT,
+        aliases: ["initialize"],
+        displayName: "Init",
+        description: "Initialize Harns into the current project",
+        summary: "Initialize Harns into the current project (bootstraps context index and memory).",
+        usage: [
+            `${bin("init")}`,
+        ],
+        notes: [
+            "Runs a one-time agent that explores the codebase and writes a CONTEXT.md summary.",
+            "Safe to run multiple times — subsequent runs in the same directory will warn and exit.",
+            "This command is also available as /init inside the interactive TUI.",
+        ],
+        execute: runInitCommand,
+        isSlash: true,
+        isCli: true,
     },
 };
 

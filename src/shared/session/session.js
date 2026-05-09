@@ -375,17 +375,7 @@ export async function listAgentDefNames() {
 }
 
 /**
- * @typedef {Object} AgentDef
- * @property {string} name - Agent display name (from frontmatter or filename)
- * @property {string} model - Model identifier
- * @property {string} description - One-line description from merged frontmatter
- * @property {string[]} tools - Allowed tool names from merged frontmatter
- * @property {string} systemPrompt - Core system prompt + merged agent prompt
- */
-
-/**
- * Load and merge an agent definition from layered files:
- * 1) bundled: `src/agent-definitions/<name>.md`
+ * Load and merge an agent definition from layered files: * 1) bundled: `src/agent-definitions/<name>.md`
  * 2) home override: `~/.hns/agents/<name>.md`
  * 3) local override: `<cwd>/.hns/agents/<name>.md`
  *
@@ -394,7 +384,7 @@ export async function listAgentDefNames() {
  * Tool lists are replaced when a higher layer defines `tools`.
  *
  * @param {string} agentName
- * @returns {Promise<AgentDef>}
+ * @returns {Promise<import('./types.js').AgentDefinition>}
  */
 export async function loadAgentDef(agentName) {
     const layerDirs = getAgentDefLayerDirs();
@@ -474,6 +464,51 @@ export async function loadAgentDef(agentName) {
     };
 }
 
+/**
+ * Load an agent definition from an arbitrary file path.
+ * Used for special agents (like init) that live outside the standard
+ * agent-defs directories and should not be discoverable via /agent listings.
+ *
+ * @param {string} filePath - Absolute path to the agent .md file
+ * @returns {Promise<import('./types.js').AgentDefinition>}
+ */
+export async function loadAgentDefFromPath(filePath) {
+    if (!(await fileExists(filePath))) {
+        throw new Error(`Agent def not found at ${filePath}`);
+    }
+
+    const raw = await Deno.readTextFile(filePath);
+    if (!hasFrontMatter(raw)) {
+        throw new Error(`Agent def ${filePath} has no frontmatter`);
+    }
+
+    const { attrs, body } = extractYaml(raw);
+
+    const name = typeof attrs.name === "string" && attrs.name.trim() ? attrs.name.trim() : "unknown";
+    const model = typeof attrs.model === "string" && attrs.model.trim()
+        ? attrs.model.trim()
+        : "claude-sonnet-4-20250514";
+    const description = typeof attrs.description === "string" ? attrs.description.trim() : "";
+
+    const mergedTools = normalizeToolNames(attrs.tools);
+    const promptBody = body.trim();
+    const systemPrompt = CORE_SYSTEM_PROMPT.replace("{{AGENT_PROMPT}}", promptBody);
+
+    const protectedToolsForAgent = mergedTools.filter((toolName) => PROTECTED_TOOL_NAMES.includes(toolName));
+    const tools = [...mergedTools];
+    for (const toolName of protectedToolsForAgent) {
+        if (!tools.includes(toolName)) tools.push(toolName);
+    }
+
+    return {
+        name,
+        model,
+        description,
+        tools,
+        systemPrompt,
+    };
+}
+
 /** @type {Set<import('@earendil-works/pi-coding-agent').AgentSession>} */
 const activeSessions = new Set();
 
@@ -515,7 +550,7 @@ export async function steerRootSession(text, images) {
  * 2) Active model state (e.g. from a previous /model switch)
  *
  * @param {string | undefined} modelOverride
- * @param {AgentDef} agentDef
+ * @param {import('./types.js').AgentDefinition} agentDef
  *
  * @returns {any | null}
  */
@@ -571,7 +606,7 @@ function resolveModel(modelOverride, agentDef) {
 /**
  * Assemble the final system prompt by resolving placeholders.
  *
- * @param {AgentDef} agentDef
+ * @param {import('./types.js').AgentDefinition} agentDef
  * @param {string[]} tools
  * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} finalCustomTools
  * @returns {Promise<string>}
@@ -625,7 +660,7 @@ export async function assembleFinalSystemPrompt(agentDef, tools, finalCustomTool
         const desc = customToolMap.get(t) || "Built-in tool";
         return `- ${t} - ${desc}`;
     }).join("\n");
-    finalSystemPrompt = finalSystemPrompt.replace("{{AVAILABLE_TOOLS}}", availableToolsStr);
+    finalSystemPrompt = finalSystemPrompt?.replace("{{AVAILABLE_TOOLS}}", availableToolsStr);
 
     let globalAgentsMd = "";
     const homeDir = Deno.env.get("HOME") || "";
@@ -696,16 +731,28 @@ export async function assembleFinalSystemPrompt(agentDef, tools, finalCustomTool
  * @param {import('../workflow/workflow.js').UiAPI} [opts.uiAPI]
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager]
  * @param {import('../../tools/plan-written.js').TriageMeta} [opts.triageMeta] - Optional triage metadata threaded into auto-wired plan_written.
+ * @param {import('./types.js').AgentDefinition} [opts._agentDefOverride] - Internal: skip loadAgentDef() and use this pre-loaded definition.
  *
  * @returns {Promise<import('@earendil-works/pi-agent-core').AgentMessage[]>}
  */
 export async function runAgentSession(
-    { agentName, toolNames, customTools, modelOverride, userRequest, images, uiAPI, sessionManager, triageMeta },
+    {
+        agentName,
+        toolNames,
+        customTools,
+        modelOverride,
+        userRequest,
+        images,
+        uiAPI,
+        sessionManager,
+        triageMeta,
+        _agentDefOverride,
+    },
 ) {
     await ensureMnemosyneBinary();
     await ensureCymbalBinary();
     const resourceAgentDir = await resolveAgentDefsDir();
-    const agentDef = await loadAgentDef(agentName);
+    const agentDef = _agentDefOverride || await loadAgentDef(agentName);
 
     const customToolNames = (customTools || []).map((t) => t.name);
     const tools = resolveSessionToolNames(agentDef.tools, toolNames, customToolNames);
