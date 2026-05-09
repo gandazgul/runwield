@@ -36,6 +36,7 @@ import { theme } from "../ui/theme.js";
  * @property {() => void} markCtrlCPendingExit
  * @property {() => boolean} isCtrlCPendingExit
  * @property {() => void} [toggleStartupHelp]
+ * @property {() => void} cycleThinkingLevel
  */
 
 /**
@@ -60,6 +61,7 @@ export function installKeybindings(ctx) {
         markCtrlCPendingExit,
         isCtrlCPendingExit,
         toggleStartupHelp,
+        cycleThinkingLevel,
     } = ctx;
 
     function cancelEverything() {
@@ -153,6 +155,13 @@ export function installKeybindings(ctx) {
             pastedImages.pop();
             const lastChild = previewImages.children[previewImages.children.length - 1];
             if (lastChild) previewImages.removeChild(lastChild);
+            tui.requestRender();
+            return;
+        }
+
+        // Shift+Tab: cycle thinking level
+        if (matchesKey(data, Key.shift("tab"))) {
+            cycleThinkingLevel();
             tui.requestRender();
             return;
         }

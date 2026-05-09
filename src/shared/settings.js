@@ -82,15 +82,46 @@ class HarnsSettingsStorage {
     }
 
     /**
-     * Implement the lock interface expected by SettingsManager.
+     * Acquire a sync lock with retry on ELOCKED, mirroring upstream
+     * FileSettingsStorage behavior.
+     * @param {string} path
+     * @returns {() => void}
+     */
+    #acquireLockSyncWithRetry(path) {
+        const maxAttempts = 10;
+        const delayMs = 20;
+        let lastError;
+
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                return lockfile.lockSync(path, { realpath: false });
+            } catch (error) {
+                const code = (error && typeof error === "object" && "code" in error)
+                    ? String(error.code)
+                    : undefined;
+                if (code !== "ELOCKED" || attempt === maxAttempts) {
+                    throw error;
+                }
+                lastError = error;
+                const start = Date.now();
+                while (Date.now() - start < delayMs) { /* busy-wait */ }
+            }
+        }
+
+        throw lastError ?? new Error("Failed to acquire settings lock");
+    }
+
+    /**
+     * Implement the lock interface expected by SettingsManager. Must be
+     * synchronous: SettingsManager calls this without awaiting.
      * @param {"global" | "project"} scope
      * @param {(content: string | undefined) => string | undefined} callback
      */
-    async withLock(scope, callback) {
+    withLock(scope, callback) {
         const path = this.#resolvePath(scope);
 
-        // Ensure the file exists before locking to avoid proper-lockfile errors
-        // If it doesn't exist, we create an empty JSON object.
+        // Ensure the file exists before locking; proper-lockfile requires the
+        // target to exist.
         try {
             Deno.statSync(path);
         } catch (_e) {
@@ -101,15 +132,15 @@ class HarnsSettingsStorage {
             Deno.writeTextFileSync(path, "{}");
         }
 
-        const release = await lockfile.lock(path);
+        const release = this.#acquireLockSyncWithRetry(path);
         try {
             const content = this.#readSettings(scope);
-            const newContent = await callback(content);
+            const newContent = callback(content);
             if (newContent !== undefined && newContent !== content) {
                 this.#writeSettings(scope, newContent);
             }
         } finally {
-            await release();
+            release();
         }
     }
 }

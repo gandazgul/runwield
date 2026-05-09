@@ -58,12 +58,18 @@ export function installUiApiOverrides({ uiAPI, tui, editor, container, messageLi
             const activeModelState = getActiveModelState();
             const currentModel = modelRegistry.find(activeModelState.provider, activeModelState.model);
 
+            const editorIndex = container.children.indexOf(editor);
+
             let settled = false;
             const restoreSelector = () => {
                 if (settled) return;
                 settled = true;
-                container.removeChild(selector);
-                container.addChild(editor);
+                const selectorIndex = container.children.indexOf(selector);
+                if (selectorIndex !== -1) {
+                    container.children.splice(selectorIndex, 1, editor);
+                } else {
+                    container.addChild(editor);
+                }
                 tui.setFocus(editor);
                 tui.requestRender();
                 resolve();
@@ -84,8 +90,11 @@ export function installUiApiOverrides({ uiAPI, tui, editor, container, messageLi
                 },
             );
 
-            container.removeChild(editor);
-            container.addChild(selector);
+            if (editorIndex !== -1) {
+                container.children.splice(editorIndex, 1, selector);
+            } else {
+                container.addChild(selector);
+            }
             tui.setFocus(selector);
             tui.requestRender();
         });

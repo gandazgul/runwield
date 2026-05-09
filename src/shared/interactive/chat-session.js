@@ -27,12 +27,15 @@ import {
     getActiveModelState,
     getActiveOnMessage,
     getActiveUiAPIState,
+    getRootAgentSession,
     getRootSessionManager,
+    getThinkingLevel,
     setActiveAgentName,
     setActiveModelState,
     setActiveOnMessage,
     setActiveUiAPI,
     setRootSessionManager,
+    setThinkingLevel,
 } from "../session/session-state.js";
 import { parseProviderModel } from "../models/model-validation.js";
 import { createRootSessionManager } from "../session/root-session.js";
@@ -96,6 +99,18 @@ export async function setActiveModel(model, provider) {
     }
 
     getActiveUiAPIState()?.requestRender();
+}
+
+/**
+ * @param {"off" | "minimal" | "low" | "medium" | "high" | "xhigh"} level
+ */
+export async function persistThinkingLevel(level) {
+    try {
+        const settingsManager = getSettingsManager();
+        await settingsManager.setDefaultThinkingLevel(level);
+    } catch (e) {
+        console.error(`Failed to persist thinking level: ${e}`);
+    }
 }
 
 /**
@@ -180,9 +195,9 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
             "esc          to interrupt",
             "ctrl+c       to clear input",
             "ctrl+c twice to exit",
-            "shift+tab    to cycle thinking (not-implemented)",
+            "shift+tab    to cycle thinking level",
             "ctrl+o       to expand tool outputs / collapse this help",
-            "ctrl+t       to expand thinking (not-implemented)",
+            "ctrl+t       to toggle thinking block visibility",
             "ctrl+g       for external editor (not-implemented)",
             "ctrl+v       to paste image",
             "shift+enter  to insert newline",
@@ -257,7 +272,9 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
             provider = activeModel.provider;
         }
 
-        return { model, provider };
+        const thinkingLevel = getThinkingLevel();
+
+        return { model, provider, thinkingLevel };
     };
 
     let ctrlCPendingExit = false;
@@ -275,11 +292,30 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         tui.requestRender();
     }
 
+    /** @type {Map<string, string>} */
+    const thinkingLevelTheme = new Map([
+        ["off", "thinkingOff"],
+        ["minimal", "thinkingMinimal"],
+        ["low", "thinkingLow"],
+        ["medium", "thinkingMedium"],
+        ["high", "thinkingHigh"],
+        ["xhigh", "thinkingXhigh"],
+    ]);
+
+    /**
+     * @param {string} level
+     * @returns {import('@earendil-works/pi-coding-agent').ThemeColor}
+     */
+    function getThinkingThemeToken(level) {
+        return /** @type {import('@earendil-works/pi-coding-agent').ThemeColor} */ (thinkingLevelTheme.get(level) ||
+            "thinkingOff");
+    }
+
     const footer = {
         invalidate: () => {},
         /** @param {number} w */
         render: (w) => {
-            const { model, provider } = getModelAndProvider();
+            const { model, provider, thinkingLevel } = getModelAndProvider();
             const modelStr = model.startsWith(`${provider}/`) ? model : `${provider}/${model}`;
             const activeAgentName = getActiveAgentName();
 
@@ -289,12 +325,16 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
                 " ".repeat(line1Pad) +
                 theme.fg("accent", activeAgentName);
 
+            const thinkingStr = `(${thinkingLevel})`;
+            const thinkingStyled = theme.fg(getThinkingThemeToken(thinkingLevel), thinkingStr);
             const line2LeftRaw = ctrlCPendingExit ? "Ctrl+C - Press again to exit" : "";
             const line2LeftStyled = ctrlCPendingExit ? theme.fg("warning", line2LeftRaw) : "";
-            const line2Pad = Math.max(1, w - line2LeftRaw.length - modelStr.length);
+            const thinkingPad = thinkingLevel !== "off" ? thinkingStr.length + 1 : 0;
+            const line2Pad = Math.max(1, w - line2LeftRaw.length - modelStr.length - thinkingPad);
             const line2 = line2LeftStyled +
                 " ".repeat(line2Pad) +
-                theme.fg("dim", modelStr);
+                theme.fg("dim", modelStr) +
+                (thinkingPad > 0 ? " " + thinkingStyled : "");
 
             return [line1, line2];
         },
@@ -604,6 +644,29 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         processSubmissions();
     };
 
+    // Initialize thinking level from settings
+    const settingsManager = getSettingsManager();
+    const savedThinkingLevel = settingsManager.getDefaultThinkingLevel();
+    if (savedThinkingLevel) {
+        setThinkingLevel(savedThinkingLevel);
+    }
+
+    /** Cycle the thinking level and persist to settings */
+    async function cycleThinkingLevel() {
+        const session = getRootAgentSession();
+        if (!session) {
+            return;
+        }
+        const newLevel = session.cycleThinkingLevel();
+        if (newLevel === undefined) {
+            uiAPI.appendSystemMessage("Current model does not support thinking");
+            return;
+        }
+        setThinkingLevel(newLevel);
+        await persistThinkingLevel(newLevel);
+        tui.requestRender();
+    }
+
     // Re-render UI after handling pasted images
     tui.requestRender();
 
@@ -621,6 +684,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         markCtrlCPendingExit,
         isCtrlCPendingExit: () => ctrlCPendingExit,
         toggleStartupHelp: () => setHelpExpanded(!helpExpanded),
+        cycleThinkingLevel,
     });
 
     await renderBootBanner({

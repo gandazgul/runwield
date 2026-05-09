@@ -8,6 +8,7 @@
  * activeModel: string,
  * activeModelProvider: string,
  * userModelOverride: boolean,
+ * activeThinkingLevel: "off" | "minimal" | "low" | "medium" | "high" | "xhigh",
  * activeOnMessage: import('./types.js').AgentMessageHandler | null,
  * rootSessionManager: import('./session/types.js').SessionManagerLike | null,
  * activeUiAPI: import('./ui/types.js').UiAPI | null,
@@ -18,6 +19,7 @@ const state = {
     activeModel: "",
     activeModelProvider: "",
     userModelOverride: false,
+    activeThinkingLevel: "off",
     activeOnMessage: null,
     rootSessionManager: null, // conversation history / persistence (pi SessionManager)
     rootAgentSession: null, // live session handle used for steering / abort (pi AgentSession)
@@ -91,4 +93,18 @@ export function setRootAgentSession(session) {
 
 export function getRootAgentSession() {
     return state.rootAgentSession;
+}
+
+/**
+ * @returns {"off" | "minimal" | "low" | "medium" | "high" | "xhigh"}
+ */
+export function getThinkingLevel() {
+    return state.activeThinkingLevel;
+}
+
+/**
+ * @param {"off" | "minimal" | "low" | "medium" | "high" | "xhigh"} level
+ */
+export function setThinkingLevel(level) {
+    state.activeThinkingLevel = level;
 }
