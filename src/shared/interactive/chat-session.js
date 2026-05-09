@@ -651,19 +651,39 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         setThinkingLevel(savedThinkingLevel);
     }
 
+    // Ordered thinking levels for cycling
+    /** @type {("off" | "minimal" | "low" | "medium" | "high" | "xhigh")[]} */
+    const THINKING_LEVELS = [
+        "off",
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+    ];
+
     /** Cycle the thinking level and persist to settings */
     async function cycleThinkingLevel() {
+        // If an active agent session exists, delegate to it for model-aware cycling
         const session = getRootAgentSession();
-        if (!session) {
+        if (session) {
+            const newLevel = session.cycleThinkingLevel();
+            if (newLevel === undefined) {
+                uiAPI.appendSystemMessage("Current model does not support thinking");
+                return;
+            }
+            setThinkingLevel(newLevel);
+            await persistThinkingLevel(newLevel);
+            tui.requestRender();
             return;
         }
-        const newLevel = session.cycleThinkingLevel();
-        if (newLevel === undefined) {
-            uiAPI.appendSystemMessage("Current model does not support thinking");
-            return;
-        }
-        setThinkingLevel(newLevel);
-        await persistThinkingLevel(newLevel);
+        // No active session: cycle through levels directly and persist
+        const current = getThinkingLevel();
+        const currentIdx = THINKING_LEVELS.indexOf(current);
+        const nextIdx = (currentIdx + 1) % THINKING_LEVELS.length;
+        const nextLevel = THINKING_LEVELS[nextIdx];
+        setThinkingLevel(nextLevel);
+        await persistThinkingLevel(nextLevel);
         tui.requestRender();
     }
 
