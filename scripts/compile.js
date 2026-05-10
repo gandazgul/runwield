@@ -30,8 +30,6 @@ const compile = await runCmd("deno", [
     "--include",
     "src/skills",
     "--include",
-    "src/cmd/init/CONTEXTmd-format.md",
-    "--include",
     "src/cmd/init/init-agent-prompt.md",
     "--include",
     "src/shared/ui/catppuccin-mocha.json",
