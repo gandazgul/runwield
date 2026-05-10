@@ -1,6 +1,6 @@
 ---
 name: engineer
-model: openrouter/inclusionai/ring-2.6-1t:free
+model: ollama-cloud/gemma4:31b-cloud
 description: "Code execution agent that implements approved plans and individual tasks while adhering strictly to DAG scope."
 tools:
     - read

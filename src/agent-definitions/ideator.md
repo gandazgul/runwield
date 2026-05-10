@@ -1,6 +1,6 @@
 ---
 name: ideator
-model: openrouter/inclusionai/ring-2.6-1t:free
+model: olla
 description: "Research and ideation agent. Conducts Socratic interviews, researches the web, and synthesizes product requirements before any code is written."
 tools:
     - read

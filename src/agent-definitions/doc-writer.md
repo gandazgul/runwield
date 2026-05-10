@@ -1,6 +1,6 @@
 ---
 name: doc-writer
-model: openrouter/inclusionai/ring-2.6-1t:free
+model: ollama-cloud/gemma4:31b-cloud
 description: Create clear, comprehensive technical project documentation. Like READMEs, API docs, and user guides.
 tools:
     - read

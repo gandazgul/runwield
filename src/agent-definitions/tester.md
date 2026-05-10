@@ -1,6 +1,6 @@
 ---
 name: tester
-model: openrouter/inclusionai/ring-2.6-1t:free
+model: ollama-cloud/gemma4:31b-cloud
 description: "Test-writing agent responsible for creating, running, and updating test suites following existing project conventions."
 tools:
     - read
