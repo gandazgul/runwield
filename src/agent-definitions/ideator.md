@@ -1,6 +1,6 @@
 ---
 name: ideator
-model: olla
+model: ollama-cloud/gemma4:31b-cloud
 description: "Research and ideation agent. Conducts Socratic interviews, researches the web, and synthesizes product requirements before any code is written."
 tools:
     - read

@@ -1,130 +1,65 @@
 # PRD: Theme Extension Support for Harns
 
 ## Objective
-
-Enable Harns to discover, install, list, and switch themes from external packages (ending in `.json`), while allowing
-only curated extensions. Convert the hardcoded catppuccin-mocha theme into a standard discoverable theme file so it
-participates in the same theme-selection flow as user-installed themes.
+Enable Harns to discover, install, list, and switch themes from external packages (ending in `.json`), while restricting the installation and loading of logic-based extensions. The system will transition from a hardcoded theme to a dynamic one, leveraging the `@earendil-works/pi-coding-agent` theme infrastructure.
 
 ## Problem Statement
-
-Today Harns:
-
-- Inlines a single "catppuccin-mocha" theme in `src/shared/ui/theme.js` with no mechanism to change it at runtime other
-  than editing source code.
-- Has no CLI commands for package/theme management.
-- Has no theme discovery or registration infrastructure.
-
-The upstream `pi-coding-agent` already has robust theme support (discovery, registration, selector UI, file-watcher
-reload) that Harns does not use.
+Harns currently inlines a single "catppuccin-mocha" theme, making it impossible to change the UI color scheme at runtime. While the upstream `pi-coding-agent` has a robust theme system (discovery, real-time previews, and registration), Harns does not currently utilize these features.
 
 ## Resolved Assumptions
 
-1. **Themes only, not full extensions.** We accept theme `.json` files and optionally curated extension `.ts`/`.js`
-   files, but the primary UX is theme management. Non-theme extensions require explicit allow-listing.
-2. **Use pi's existing theme infrastructure.** Rather than re-implementing theme loading, we delegate to
-   `@earendil-works/pi-coding-agent`'s theme system (`loadThemeFromPath`, `setRegisteredThemes`, `getAvailableThemes`,
-   `getAvailableThemesWithPaths`).
-3. **Settings are stored in `~/.hns/settings.json`** via the existing `SettingsManager` wrapper in
-   `src/shared/settings.js`.
-4. **Theme files live in `~/.hns/themes/`** (custom themes directory), mirroring pi's `getCustomThemesDir()` convention.
-5. **Built-in themes ship as `.json` files** inside the binary but is treated as the default and fallback option. Users
-   can switch away to an intalled extension theme, but it will always be available as a fallback if the user deletes
-   their custom themes or if a configured theme fails to load.
+1. **Permissive for Themes, Restrictive for Logic:** Packages containing at least one valid theme `.json` will be installed. However, any accompanying logic extensions (`.ts`/`.js` files) will be ignored—they will not be registered or loaded into the Harns runtime.
+2. **Pi Infrastructure Integration:** Harns will delegate theme loading and management to `@earendil-works/pi-coding-agent` (`loadThemeFromPath`, `setRegisteredThemes`, `getAvailableThemes`, etc.).
+3. **Built-in Reliability:** The default "catppuccin-mocha" theme will be embedded within the Harns binary. It serves as the primary fallback and is discoverable alongside external themes, but it cannot be edited or deleted by the user.
+4. **TUI Experience:** The theme selector must support **real-time re-skinning**. As the user navigates the list, the TUI will immediately render with the previewed theme.
+5. **Settings Compatibility:** Persistence will be handled via `~/.hns/settings.json`. The `packages` array will precisely match Pi's schema to ensure future compatibility when non-theme extensions are eventually supported.
 
 ## Technical Approach
 
-### 1. Convert catppuccin-mocha to a bundled theme file
+### 1. Theme Lifecycle & Discovery
+- **Boot:** On startup, Harns reads the active theme from settings. If missing or invalid, it falls back to the embedded `catppuccin-mocha.json`.
+- **Discovery:** Theme discovery is deferred until the `/theme` command is invoked to optimize startup time.
+- **Loading:** `src/shared/ui/theme.js` will be refactored into a thin proxy that delegates to Pi's `initTheme` and `setTheme` functions.
 
-- Keep `src/shared/ui/theme.js` as a thin compatibility layer that falls back to this file if no custom theme is
-  configured.
-- Ensure catpucchin-mocha, even though is built-in is just nother theme in the selector.
+### 2. The `/theme` Slash Command
+- **Interactive Selector:** A slash command that opens a `SelectList` of all available themes (builtin + custom).
+- **Live Preview:** Using the `onSelectionChange` event, Harns will call `setTheme(name)` to update the global theme singleton and trigger a TUI re-render.
+- **Persistence:** Only when the user presses "Enter" (confirm selection) will the choice be persisted to `~/.hns/settings.json`.
 
-### 2. Add a `theme` slash command
-
-- Add `THEME` to `COMMAND_NAMES` in `src/constants.js`.
-- Register it in `commandRegistry` as a slash command (`/theme`).
-- `/theme` with no args opens an interactive selector listing all available themes (built-in + custom).
-- `/theme <name>` switches to the specified theme if it exists, otherwise shows an error message, persist in settings.
-
-### 3. Theme discovery pipeline
-
-on startup load the theme in settings, if it fails to load or is missing, log a warning and fall back to
-catppuccin-mocha.
-
-When /theme is invoked only, discover installed themes and offer them in a selector along with the built-in theme. Just
-like Pi as the user navigates the selector, load that theme and update the TUI. If selected persist to settings and keep
-it as the new default until changed again.
-
-### 4. Settings persistence
-
-Just like pi Add two new keys to `~/.hns/settings.json`:
-
-```json
-{
-    "theme": "catppuccin-mocha",
-    "packages": [
-        {
-            "source": "git:github.com/otahontas/pi-coding-agent-catppuccin",
-            "themes": [
-                "-catppuccin-frappe.json",
-                "-catppuccin-latte.json",
-                "-catppuccin-macchiato.json"
-            ]
-        },
-        "npm:@ifi/oh-pi-themes"
-    ]
-}
-```
-
-- `theme`: the active theme name (string).
-- `packages`: list of packages installed, github links include the theme list, all the same way pi does it.
-
-### 5. Package install/remove commands (themes-focused)
-
-Add `install` and `remove` (uninstall as an alias to remove) commands (e.g. `hns install`):
-
-- `hns install <source>` installs the package
-- `hns remove <source>` removes the package
-- **Non-theme extensions** if the extension does not provide any themes, error out and do not install, tell the user
-  only themes are supported for now.
-
-### 6. Wiring into Harns' theme.js
-
-Refactor `src/shared/ui/theme.js` to:
-
-- Export `initHarnsTheme(themeName)` which delegates to pi's theme loading (`loadThemeFromPath` or `getThemeByName`) and
-  sets the global singleton.
-- Keep the `theme` proxy, `getMarkdownTheme()`, `getSelectListTheme()`, `getEditorTheme()`, `imageTheme` exports
-  unchanged — they already read from the global singleton and will pick up the new theme automatically.
-
-Defer theme discovery until /theme is invoked to save startup time.
+### 3. Package Management (`hns install`/`remove`)
+- **Source Support:** Support for `npm:`, `git:`, and `local:` sources.
+- **Filtered Installation:** Use Pi's `PackageManager` logic to fetch packages, but explicitly filter the resource collection to **only** include `themes`. All other resource types (skills, extensions, prompts) are ignored.
+- **Schema:** 
+  ```json
+  {
+      "theme": "catppuccin-mocha",
+      "packages": [
+          {
+              "source": "git:github.com/user/repo",
+              "themes": ["theme-a.json", "theme-b.json"]
+          },
+          "npm:@scope/theme-pack"
+      ]
+  }
+  ```
 
 ## Files to Modify
 
-| File                          | Change                                                                   |
-| ----------------------------- | ------------------------------------------------------------------------ |
-| `src/constants.js`            | Add `THEME` command name                                                 |
-| `src/cmd/registry.js`         | Register theme command                                                   |
-| `src/cmd/theme/index.js`      | New — theme command handler (list/select/switch)                         |
-| `src/shared/ui/theme.js`      | Refactor to use pi theme system + add `initHarnsTheme(themeName)`        |
-| `src/shared/settings.js`      | Add `getDefaultTheme()` / `setDefaultTheme()` to SettingsManager wrapper |
-| `theme/catppuccin-mocha.json` | New — extracted from inline data in current theme.js                     |
+| File | Change |
+| :--- | :--- |
+| `src/constants.js` | Add `THEME` command name |
+| `src/cmd/registry.js` | Register `/theme` slash command |
+| `src/cmd/theme/index.js` | New: Handle theme selection, switching, and installation/removal |
+| `src/shared/ui/theme.js` | Refactor to use Pi's theme system + global singleton proxy |
+| `src/shared/settings.js` | Update `SettingsManager` to support `theme` and `packages` keys |
+| `theme/catppuccin-mocha.json` | New: Extracted theme data for binary embedding |
 
-## Files to Create
-
-| File                       | Purpose                           |
-| -------------------------- | --------------------------------- |
-| `src/cmd/theme/index.js`   | Theme list/select/switch handler  |
-| `src/cmd/theme/helpers.js` | Theme discovery + install helpers |
-
-## Out of Scope (Future Iterations)
-
-- Non-theme extension installation and allow-listing
+## Out of Scope
+- Installation of non-theme extensions (logic/skills).
+- Manual editing of theme JSON files within the TUI.
 
 ## Success Metrics
-
-- `/theme` shows interactive selector listing all installed themes (including catppuccin-mocha) with names and previews
-- selected theme persists across sessions and is loaded on startup
-- Catppuccin-mocha appears as a selectable theme (not hardcoded)
-- Existing UI (messages, editor, footer) renders with the new theme immediately
+- Users can install a theme package via CLI and see it appear in the `/theme` list.
+- The TUI re-skins instantly as the user scrolls through themes in the `/theme` selector.
+- The selected theme persists across sessions.
+- The default embedded theme is always available as a safe fallback.
