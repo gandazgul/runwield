@@ -6,7 +6,8 @@
  * that would shadow a built-in slash command.
  */
 
-import { listSkills } from "../session/session.js";
+import { HOME_DIR } from "../../constants.js";
+import { listLoadedAgentMdFiles, listSkills } from "../session/session.js";
 
 /**
  * @typedef {{ name: string, source: "local" | "home" | "bundled" }} PromptTemplate
@@ -18,6 +19,16 @@ import { listSkills } from "../session/session.js";
 function toUserFacingPromptPath(template) {
     if (template.source === "local") return `./.hns/prompts/${template.name}.md`;
     return `~/.hns/prompts/${template.name}.md`;
+}
+
+/**
+ * @param {{ path: string, source: "home" | "local" }} file
+ */
+function toUserFacingAgentMdPath(file) {
+    if (file.source === "home" && HOME_DIR && file.path.startsWith(HOME_DIR)) {
+        return `~${file.path.slice(HOME_DIR.length)}`;
+    }
+    return file.path;
 }
 
 /**
@@ -54,6 +65,14 @@ export async function renderBootBanner({
         uiAPI.appendSystemMessage(skillNames, false, `Loaded skills (${skills.length}):`, peachStyle);
     } else {
         uiAPI.appendSystemMessage("none", false, "Loaded skills:", peachStyle);
+    }
+
+    const agentMdFiles = await listLoadedAgentMdFiles();
+    if (agentMdFiles.length > 0) {
+        const lines = agentMdFiles
+            .map((file) => `- ${toUserFacingAgentMdPath(file)}`)
+            .join("\n");
+        uiAPI.appendSystemMessage(`\n${lines}`, false, "Loaded Context:", peachStyle);
     }
 
     for (const blocked of blockedPromptTemplates) {

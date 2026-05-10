@@ -228,6 +228,35 @@ export async function listSkills() {
     return skills;
 }
 
+/**
+ * Report which HARNS.md files exist in the locations
+ * `assembleFinalSystemPrompt` reads from. Used by the boot banner to show
+ * the user what context was actually injected into the system prompt.
+ *
+ * @returns {Promise<{ path: string, source: "home" | "local" }[]>}
+ */
+export async function listLoadedAgentMdFiles() {
+    /** @type {{ path: string, source: "home" | "local" }[]} */
+    const results = [];
+
+    if (HOME_DIR) {
+        const homePath = join(HOME_DIR, ".hns", "HARNS.md");
+        const fallbackPath = join(HOME_DIR, ".pi", "agent", "HARNS.md");
+        if (await fileExists(homePath)) {
+            results.push({ path: homePath, source: "home" });
+        } else if (await fileExists(fallbackPath)) {
+            results.push({ path: fallbackPath, source: "home" });
+        }
+    }
+
+    const projectPath = join(CWD, "HARNS.md");
+    if (await fileExists(projectPath)) {
+        results.push({ path: projectPath, source: "local" });
+    }
+
+    return results;
+}
+
 /** @type {Set<import('@earendil-works/pi-coding-agent').AgentSession>} */
 const activeSessions = new Set();
 
