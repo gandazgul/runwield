@@ -76,15 +76,17 @@ function buildTriageBlock(triage) {
  * @param {TriageOutcome} args.triage
  * @param {string} args.userRequest
  * @param {import('../session/types.js').ImageAttachment[] | undefined} args.images
- * @param {import('./workflow.js').UiAPI | undefined} args.uiAPI
+ * @param {import('./workflow.js').UiAPI} args.uiAPI
  * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined} args.sessionManager
  */
 export async function dispatchPostTriage({ triage, userRequest, images, uiAPI, sessionManager }) {
+    if (!uiAPI) throw new Error("dispatchPostTriage: uiAPI is required");
+
     const triageBlock = buildTriageBlock(triage);
     const decoratedRequest = ["## User Request", userRequest, "", triageBlock].join("\n");
 
     if (triage.classification === "QUICK_FIX") {
-        uiAPI?.appendSystemMessage("=== Phase B: Operator (Execute) ===");
+        uiAPI.appendSystemMessage("=== Phase B: Operator (Execute) ===");
         setActiveAgent("Operator", createDirectAgentHandler("operator"), uiAPI);
 
         await runAgentSession({
@@ -95,7 +97,7 @@ export async function dispatchPostTriage({ triage, userRequest, images, uiAPI, s
             sessionManager,
         });
 
-        uiAPI?.appendSystemMessage("✅ Operator execution complete.");
+        uiAPI.appendSystemMessage("✅ Operator execution complete.");
         sessionManager?.appendCustomMessageEntry?.(
             "system",
             "Quick fix executed by operator.",
@@ -113,8 +115,8 @@ export async function dispatchPostTriage({ triage, userRequest, images, uiAPI, s
             ? "FEATURE detected. Handing off to Planner..."
             : "PROJECT detected. Handing off to Architect for targeted deep exploration + planning...";
 
-        uiAPI?.appendSystemMessage(phaseLabel);
-        uiAPI?.appendSystemMessage(`=== Phase B: ${displayName} ===`);
+        uiAPI.appendSystemMessage(phaseLabel);
+        uiAPI.appendSystemMessage(`=== Phase B: ${displayName} ===`);
         setActiveAgent(displayName, createDirectAgentHandler(agentName), uiAPI);
 
         await ensurePlansDir(CWD);
@@ -154,6 +156,8 @@ export async function dispatchPostTriage({ triage, userRequest, images, uiAPI, s
  */
 export function createRouterOrchestratorHandler() {
     return async (userRequest, images, uiAPI, sessionManager) => {
+        if (!uiAPI) throw new Error("router orchestrator handler: uiAPI is required");
+
         const messages = await runAgentSession({
             agentName: "router",
             userRequest,

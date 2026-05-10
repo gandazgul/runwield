@@ -71,7 +71,7 @@ If you do quiz, ask 1–2 questions max. Do not quiz about doc-writer/tester all
 ## Output Format
 
 Read the canonical format at `src/agent-definitions/plan-formats/slicer-tasks-format.md` before drafting. Follow its
-structure exactly: a `### Tasks` section with the markdown table, followed by a `### Slice Details` section with one
+structure exactly: a `## Tasks` section with the markdown table, followed by a `### Slice Details` section with one
 `#### Task N — <title>` block per non-tester task.
 
 Append your output **after** the Reuse Opportunities section and **before** the Verification Plan section. If a Tasks

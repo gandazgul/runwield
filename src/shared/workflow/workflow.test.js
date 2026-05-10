@@ -7,6 +7,8 @@ import {
     runSlicerAgent,
 } from "./workflow.js";
 
+const noopUiAPI = /** @type {any} */ ({ appendSystemMessage: () => {} });
+
 Deno.test("readLatestPlanOutcome returns the latest plan_written outcome", () => {
     const messages = [
         /** @type {any} */ ({
@@ -39,7 +41,7 @@ Deno.test("readLatestPlanOutcome returns null when no plan_written tool result i
 
 Deno.test("extractTasks parses valid markdown table", () => {
     const content = `
-### Tasks
+## Tasks
 | Task | Assignee | Dependencies | Description |
 |---|---|---|---|
 | 1 | engineer | None | Implement X |
@@ -53,7 +55,7 @@ Deno.test("extractTasks parses valid markdown table", () => {
 
 Deno.test("extractTasks parses markdown table with minor deviations", () => {
     const content = `
-### Tasks
+## Tasks
 | Task | Assignee | Dependencies | Description |
 |---|---|---|---|
 | 1 | engineer | None | Implement X (no trailing pipe)
@@ -66,7 +68,7 @@ Deno.test("extractTasks parses markdown table with minor deviations", () => {
 
 Deno.test("extractTasks parses markdown table with extra whitespace", () => {
     const content = `
-### Tasks
+## Tasks
 | Task | Assignee | Dependencies | Description |
 |---|---|---|---|
 | 1   |  engineer  |  None  |  Implement X  |
@@ -85,7 +87,7 @@ Deno.test("extractTasks throws error when section missing", () => {
 
 Deno.test("extractTasks throws error when table is empty", () => {
     const content = `
-### Tasks
+## Tasks
 | Task | Assignee | Dependencies | Description |
 |---|---|---|---|
 `;
@@ -134,6 +136,7 @@ Deno.test("runSlicerAgent returns ok=true when session resolves", async () => {
     const result = await runSlicerAgent({
         planName: "my-plan",
         triageMeta: { classification: "PROJECT", complexity: "LOW", summary: "x", affectedPaths: [] },
+        uiAPI: noopUiAPI,
         __deps: {
             runAgentSession: (opts) => {
                 captured = opts;
@@ -149,6 +152,7 @@ Deno.test("runSlicerAgent returns ok=true when session resolves", async () => {
 Deno.test("runSlicerAgent surfaces session errors as { ok:false, error }", async () => {
     const result = await runSlicerAgent({
         planName: "p",
+        uiAPI: noopUiAPI,
         __deps: {
             runAgentSession: () => {
                 throw new Error("boom");
@@ -162,6 +166,7 @@ Deno.test("runSlicerAgent surfaces session errors as { ok:false, error }", async
 Deno.test("runSlicerAgent surfaces non-Error throws as string", async () => {
     const result = await runSlicerAgent({
         planName: "p",
+        uiAPI: noopUiAPI,
         __deps: {
             runAgentSession: () => {
                 throw "string failure";
@@ -211,9 +216,10 @@ Deno.test("ensureSlicerTasks skips slicer when Tasks already parseable (resumed 
     const result = await ensureSlicerTasks({
         planName: "p",
         planPath: "/tmp/p.md",
+        uiAPI: noopUiAPI,
         __deps: {
             readTextFile: () =>
-                Promise.resolve("### Tasks\n| Task | A | B | C |\n|-|-|-|-|\n| 1 | engineer | none | x |"),
+                Promise.resolve("## Tasks\n| Task | A | B | C |\n|-|-|-|-|\n| 1 | engineer | none | x |"),
             extractTasks: () => [{ task: 1, assignee: "engineer", dependencies: "none", description: "x" }],
             runSlicerAgent: () => {
                 slicerCalls++;
@@ -232,6 +238,7 @@ Deno.test("ensureSlicerTasks invokes slicer when Tasks missing", async () => {
     const result = await ensureSlicerTasks({
         planName: "p",
         planPath: "/tmp/p.md",
+        uiAPI: noopUiAPI,
         __deps: {
             readTextFile: () => Promise.resolve("design only, no tasks"),
             extractTasks: () => {
@@ -254,6 +261,7 @@ Deno.test("ensureSlicerTasks returns { ok:false, stage:'slicer' } when slicer fa
     const result = await ensureSlicerTasks({
         planName: "p",
         planPath: "/tmp/p.md",
+        uiAPI: noopUiAPI,
         __deps: {
             readTextFile: () => Promise.resolve("design only"),
             extractTasks: () => {
@@ -272,6 +280,7 @@ Deno.test("ensureSlicerTasks returns { ok:false, stage:'validation' } when slice
     const result = await ensureSlicerTasks({
         planName: "p",
         planPath: "/tmp/p.md",
+        uiAPI: noopUiAPI,
         __deps: {
             readTextFile: () => Promise.resolve("design only"),
             extractTasks: () => {
@@ -290,6 +299,7 @@ Deno.test("ensureSlicerTasks falls back to slicer error message when error is mi
     const result = await ensureSlicerTasks({
         planName: "p",
         planPath: "/tmp/p.md",
+        uiAPI: noopUiAPI,
         __deps: {
             readTextFile: () => Promise.resolve("design only"),
             extractTasks: () => {

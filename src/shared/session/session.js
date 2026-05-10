@@ -496,7 +496,7 @@ export async function runAgentSession(
         });
     }
 
-    if (tools.includes("plan_written") && !finalCustomTools.find((t) => t.name === "plan_written")) {
+    if (tools.includes("plan_written") && uiAPI && !finalCustomTools.find((t) => t.name === "plan_written")) {
         const { createPlanWrittenTool } = await import("../../tools/plan-written.js");
         finalCustomTools.push(createPlanWrittenTool({ uiAPI, triageMeta, agentName }));
     }

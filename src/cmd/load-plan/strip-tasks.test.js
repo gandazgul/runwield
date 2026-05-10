@@ -1,13 +1,13 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import { stripTasksSection } from "./index.js";
 
-Deno.test("stripTasksSection removes ### Tasks block before next ## heading", () => {
+Deno.test("stripTasksSection removes ## Tasks block before next ## heading", () => {
     const input = [
         "## Reuse Opportunities",
         "",
         "- Stuff",
         "",
-        "### Tasks",
+        "## Tasks",
         "",
         "| Task | Assignee | Dependencies | Description |",
         "| ---- | -------- | ------------ | ----------- |",
@@ -21,7 +21,7 @@ Deno.test("stripTasksSection removes ### Tasks block before next ## heading", ()
     const result = stripTasksSection(input);
     assertStringIncludes(result, "## Reuse Opportunities");
     assertStringIncludes(result, "## Verification Plan");
-    assertEquals(result.includes("### Tasks"), false);
+    assertEquals(result.includes("## Tasks"), false);
     assertEquals(result.includes("engineer"), false);
 });
 
@@ -31,7 +31,7 @@ Deno.test("stripTasksSection removes Tasks + Slice Details together", () => {
         "",
         "- Stuff",
         "",
-        "### Tasks",
+        "## Tasks",
         "",
         "| Task | Assignee | Dependencies | Description |",
         "| ---- | -------- | ------------ | ----------- |",
@@ -53,7 +53,7 @@ Deno.test("stripTasksSection removes Tasks + Slice Details together", () => {
     const result = stripTasksSection(input);
     assertStringIncludes(result, "## Reuse Opportunities");
     assertStringIncludes(result, "## Verification Plan");
-    assertEquals(result.includes("### Tasks"), false);
+    assertEquals(result.includes("## Tasks"), false);
     assertEquals(result.includes("### Slice Details"), false);
     assertEquals(result.includes("#### Task 1"), false);
     assertEquals(result.includes("Lorem ipsum"), false);
@@ -80,7 +80,7 @@ Deno.test("stripTasksSection handles Tasks at end of file with no trailing ## he
         "",
         "- Stuff",
         "",
-        "### Tasks",
+        "## Tasks",
         "",
         "| Task | Assignee | Dependencies | Description |",
         "| ---- | -------- | ------------ | ----------- |",
@@ -89,7 +89,7 @@ Deno.test("stripTasksSection handles Tasks at end of file with no trailing ## he
 
     const result = stripTasksSection(input);
     assertStringIncludes(result, "## Reuse Opportunities");
-    assertEquals(result.includes("### Tasks"), false);
+    assertEquals(result.includes("## Tasks"), false);
     assertEquals(result.includes("engineer"), false);
 });
 
@@ -99,7 +99,7 @@ Deno.test("stripTasksSection collapses excess blank lines after strip", () => {
         "",
         "body",
         "",
-        "### Tasks",
+        "## Tasks",
         "",
         "task table",
         "",

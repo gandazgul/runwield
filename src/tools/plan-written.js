@@ -95,10 +95,10 @@ async function resolveTriageMeta(triageMeta, planName) {
 
 /**
  * @typedef {Object} PlanWrittenDeps
- * @property {(opts: { cwd: string, planName: string, planPath: string, triageMeta: TriageMeta, uiAPI?: any }) => Promise<{ canceled?: boolean, approved?: boolean, feedback?: string }>} [submitPlanForReview]
- * @property {(planName: string, uiAPI?: any) => Promise<"proceed" | "save">} [askApprovalWithTasks]
- * @property {(planName: string, uiAPI?: any) => Promise<"proceed" | "save">} [askPostApproval]
- * @property {(opts: { planName: string, planPath: string, triageMeta?: TriageMeta, uiAPI?: any }) => Promise<{ ok: true, slicerInvoked: boolean } | { ok: false, error: string, stage: "slicer" | "validation" }>} [ensureSlicerTasks]
+ * @property {(opts: { cwd: string, planName: string, planPath: string, triageMeta: TriageMeta, uiAPI: any }) => Promise<{ canceled?: boolean, approved?: boolean, feedback?: string }>} [submitPlanForReview]
+ * @property {(planName: string, uiAPI: any) => Promise<"proceed" | "save">} [askApprovalWithTasks]
+ * @property {(planName: string, uiAPI: any) => Promise<"proceed" | "save">} [askPostApproval]
+ * @property {(opts: { planName: string, planPath: string, triageMeta?: TriageMeta, uiAPI: any }) => Promise<{ ok: true, slicerInvoked: boolean } | { ok: false, error: string, stage: "slicer" | "validation" }>} [ensureSlicerTasks]
  * @property {(cwd: string, planName: string, status: string, recoveryAttrs?: any) => Promise<void>} [updatePlanStatus]
  * @property {(path: string) => Promise<{ isFile: boolean }>} [stat]
  * @property {string} [cwd]
@@ -108,16 +108,17 @@ async function resolveTriageMeta(triageMeta, planName) {
  * Create the plan_written tool with lifecycle context captured at session start.
  *
  * @param {{
- *   uiAPI?: import('../shared/workflow/workflow.js').UiAPI,
+ *   uiAPI: import('../shared/workflow/workflow.js').UiAPI,
  *   triageMeta?: TriageMeta,
  *   agentName?: string,
  *   __deps?: PlanWrittenDeps,
- * }} [opts]
+ * }} opts
  * @returns {import('@earendil-works/pi-coding-agent').ToolDefinition}
  */
 export function createPlanWrittenTool(
-    { uiAPI, triageMeta, agentName = "planner", __deps } = {},
+    { uiAPI, triageMeta, agentName = "planner", __deps } = /** @type {any} */ ({}),
 ) {
+    if (!uiAPI) throw new Error("createPlanWrittenTool: uiAPI is required");
     const deps = __deps || {};
     const cwd = deps.cwd ?? CWD;
     return defineTool({
@@ -156,7 +157,7 @@ export function createPlanWrittenTool(
 
             const effectiveMeta = await resolveTriageMeta(triageMeta, planName);
 
-            uiAPI?.appendSystemMessage(`Plan declared: plans/${planName}.md`, false, "Harns");
+            uiAPI.appendSystemMessage(`Plan declared: plans/${planName}.md`, false, "Harns");
 
             // Lazy imports break the circular dep: plan-written → workflow → session → plan-written.
             const submitPlanForReview = deps.submitPlanForReview ||
@@ -176,7 +177,7 @@ export function createPlanWrittenTool(
             });
 
             if (reviewResult.canceled) {
-                uiAPI?.appendSystemMessage("Plan review canceled. Returning control to user.", false, "Harns");
+                uiAPI.appendSystemMessage("Plan review canceled. Returning control to user.", false, "Harns");
                 return textResult(
                     "Plan review canceled by the user. Stop generating; control has returned to the user.",
                     { ...params, outcome: "canceled" },
@@ -230,7 +231,7 @@ export function createPlanWrittenTool(
                 : await askPostApproval(planName, uiAPI);
 
             if (action !== "proceed") {
-                uiAPI?.appendSystemMessage(
+                uiAPI.appendSystemMessage(
                     `Plan saved. Resume later with: ${CLI_BIN} resume ${planName}`,
                     false,
                     "Harns",

@@ -4,12 +4,12 @@ The architect produces a design-only plan (Context, Objective, Vertical Slice Fi
 Opportunities, Verification Plan, Edge Cases). Your job is to **append** the two sections below to that plan, after the
 Reuse Opportunities section and before the Verification Plan section. Do not modify any other section.
 
-If a `### Tasks` section already exists in the file (resumed plan, slicer being re-run), replace it and the per-slice
+If a `## Tasks` section already exists in the file (resumed plan, slicer being re-run), replace it and the per-slice
 detail blocks below it with your new output.
 
 ## Required output structure
 
-### Tasks
+## Tasks
 
 Tasks must form a Directed Acyclic Graph (DAG). Each row is a vertical slice (or a parallelizable doc/test task), not a
 horizontal layer. Numeric task IDs, `none` or comma-separated IDs in Dependencies, and an assignee from

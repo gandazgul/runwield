@@ -14,7 +14,7 @@ import quikdownAst from "quikdown/ast";
 import { CWD, MAX_PARALLEL_TASKS } from "../../constants.js";
 import { loadPlan, updatePlanStatus } from "../../plan-store.js";
 import { runAgentSession } from "../session/session.js";
-import { confirm, select } from "../ui/prompts.js";
+import { createSilentUiApi } from "../ui/api.js";
 
 /**
  * Extract the last text output from the agent's assistant messages.
@@ -92,13 +92,13 @@ export function readLatestPlanOutcome(messages) {
  * @param {string} opts.agentName
  * @param {string} opts.initialRequest
  * @param {import('../../tools/plan-written.js').TriageMeta} [opts.triageMeta]
- * @param {UiAPI} [opts.uiAPI]
+ * @param {UiAPI} opts.uiAPI
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager]
  * @returns {Promise<PlanOutcomeResult>}
  */
 export async function runPlanningAgent({ agentName, initialRequest, triageMeta, uiAPI, sessionManager }) {
-    if (uiAPI) uiAPI.appendSystemMessage(`=== Running ${agentName} ===`, false, "Harns");
-    else console.log(`\n[Harns] === Running ${agentName} ===\n`);
+    if (!uiAPI) throw new Error("runPlanningAgent: uiAPI is required");
+    uiAPI.appendSystemMessage(`=== Running ${agentName} ===`, false, "Harns");
 
     const messages = await runAgentSession({
         agentName,
@@ -154,16 +154,16 @@ export function buildSlicerRequest(planName, triageMeta) {
  * @param {Object} opts
  * @param {string} opts.planName
  * @param {import('../../tools/plan-written.js').TriageMeta} [opts.triageMeta]
- * @param {UiAPI} [opts.uiAPI]
+ * @param {UiAPI} opts.uiAPI
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager]
  * @param {{ runAgentSession?: typeof runAgentSession }} [opts.__deps] - Test-only injection point.
  * @returns {Promise<{ ok: boolean, error?: string }>}
  */
 export async function runSlicerAgent({ planName, triageMeta, uiAPI, sessionManager, __deps }) {
+    if (!uiAPI) throw new Error("runSlicerAgent: uiAPI is required");
     const session = __deps?.runAgentSession || runAgentSession;
 
-    if (uiAPI) uiAPI.appendSystemMessage(`=== Running slicer ===`, false, "Harns");
-    else console.log(`\n[Harns] === Running slicer ===\n`);
+    uiAPI.appendSystemMessage(`=== Running slicer ===`, false, "Harns");
 
     try {
         await session({
@@ -176,8 +176,7 @@ export async function runSlicerAgent({ planName, triageMeta, uiAPI, sessionManag
         return { ok: true };
     } catch (e) {
         const error = e instanceof Error ? e.message : String(e);
-        if (uiAPI) uiAPI.appendSystemMessage(`Slicer failed: ${error}`, true, "Harns");
-        else console.error(`[Harns] Slicer failed: ${error}`);
+        uiAPI.appendSystemMessage(`Slicer failed: ${error}`, true, "Harns");
         return { ok: false, error };
     }
 }
@@ -197,7 +196,7 @@ export async function runSlicerAgent({ planName, triageMeta, uiAPI, sessionManag
  * @param {string} opts.planName
  * @param {string} opts.planPath - Absolute path to the plan markdown file.
  * @param {import('../../tools/plan-written.js').TriageMeta} [opts.triageMeta]
- * @param {UiAPI} [opts.uiAPI]
+ * @param {UiAPI} opts.uiAPI
  * @param {{
  *   runSlicerAgent?: typeof runSlicerAgent,
  *   readTextFile?: (path: string) => Promise<string>,
@@ -206,6 +205,7 @@ export async function runSlicerAgent({ planName, triageMeta, uiAPI, sessionManag
  * @returns {Promise<{ ok: true, slicerInvoked: boolean } | { ok: false, error: string, stage: "slicer" | "validation" }>}
  */
 export async function ensureSlicerTasks({ planName, planPath, triageMeta, uiAPI, __deps }) {
+    if (!uiAPI) throw new Error("ensureSlicerTasks: uiAPI is required");
     const slicer = __deps?.runSlicerAgent || runSlicerAgent;
     const readTextFile = __deps?.readTextFile || Deno.readTextFile.bind(Deno);
     const parseTasks = __deps?.extractTasks || extractTasks;
@@ -240,7 +240,7 @@ export async function ensureSlicerTasks({ planName, planPath, triageMeta, uiAPI,
  * Ask user what to do after plan approval.
  *
  * @param {string} planName
- * @param {UiAPI} [uiAPI]
+ * @param {UiAPI} uiAPI
  * @returns {Promise<"proceed" | "save">}
  */
 export async function askPostApproval(planName, uiAPI) {
@@ -249,9 +249,7 @@ export async function askPostApproval(planName, uiAPI) {
         { value: "proceed", label: "Proceed with execution" },
         { value: "save", label: "Save for later" },
     ];
-    const choice = uiAPI && uiAPI.promptSelect
-        ? await uiAPI.promptSelect(title, options)
-        : await select(title, options);
+    const choice = await uiAPI.promptSelect(title, options);
     return choice === "proceed" ? "proceed" : "save";
 }
 
@@ -273,7 +271,7 @@ function inlineNodesToText(nodes) {
 
 /**
  * Parse the PROJECT Tasks table from a plan's markdown using a forgiving AST
- * parser. The plan must contain a `### Tasks` heading followed by a table with
+ * parser. The plan must contain a `## Tasks` heading followed by a table with
  * columns: Task | Assignee | Dependencies | Description.
  *
  * @param {string} planContent
@@ -296,7 +294,7 @@ export function extractTasks(planContent) {
 
     if (tasksHeadingIdx === -1) {
         throw new Error(
-            "Tasks section not found. PROJECT plans must include a '### Tasks' heading followed by a markdown table.",
+            "Tasks section not found. PROJECT plans must include a '## Tasks' heading followed by a markdown table.",
         );
     }
 
@@ -341,48 +339,38 @@ export function extractTasks(planContent) {
  *
  * @param {string} planName
  * @param {Partial<import('../../plan-store.js').PlanFrontMatter>} triageMeta
- * @param {UiAPI} [uiAPI]
+ * @param {UiAPI} uiAPI
  * @param {Array<{ task: number, assignee: string, dependencies: string, description: string }>} [structuredTasks]
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [sessionManager]
  */
 export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, sessionManager) {
+    if (!uiAPI) throw new Error("executePlan: uiAPI is required");
+
     const plan = await loadPlan(CWD, planName);
     if (!plan) {
-        if (uiAPI) {
-            uiAPI.appendSystemMessage(`ERROR: Could not load plan ${planName}`, true, "Harns");
-            return;
-        }
-        console.error(`[Harns] ERROR: Could not load plan ${planName}`);
-        Deno.exit(1);
+        uiAPI.appendSystemMessage(`ERROR: Could not load plan ${planName}`, true, "Harns");
+        return;
     }
 
-    if (uiAPI) {
-        uiAPI.appendSystemMessage(`=== Executing Plan: ${planName} ===`, false, "Harns");
-    } else console.log(`\n[Harns] === Executing Plan: ${planName} ===\n`);
+    uiAPI.appendSystemMessage(`=== Executing Plan: ${planName} ===`, false, "Harns");
 
     if (triageMeta.classification === "PROJECT") {
         try {
             const tasks = structuredTasks && structuredTasks.length > 0 ? structuredTasks : extractTasks(plan.markdown);
 
             if (tasks.length > 0) {
-                if (uiAPI) {
-                    uiAPI.appendSystemMessage(
-                        `Found ${tasks.length} tasks in plan. Executing in parallel where possible.`,
-                        false,
-                        "Harns",
-                    );
-                } else {console.log(
-                        `[Harns] Found ${tasks.length} tasks in plan. Executing in parallel where possible.\n`,
-                    );}
+                uiAPI.appendSystemMessage(
+                    `Found ${tasks.length} tasks in plan. Executing in parallel where possible.`,
+                    false,
+                    "Harns",
+                );
 
                 let localActiveTasks = 0;
                 let spinnerInterval;
 
-                if (uiAPI && uiAPI.advanceSpinner && typeof setInterval !== "undefined") {
+                if (uiAPI.advanceSpinner && typeof setInterval !== "undefined") {
                     spinnerInterval = setInterval(() => {
-                        if (localActiveTasks > 0) {
-                            if (uiAPI.advanceSpinner) uiAPI.advanceSpinner();
-                        }
+                        if (localActiveTasks > 0 && uiAPI.advanceSpinner) uiAPI.advanceSpinner();
                     }, 100);
                 }
 
@@ -394,7 +382,7 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
                     [],
                     (runningTasks) => {
                         localActiveTasks = runningTasks.length;
-                        if (uiAPI && uiAPI.setRunningTasks) uiAPI.setRunningTasks(runningTasks);
+                        if (uiAPI.setRunningTasks) uiAPI.setRunningTasks(runningTasks);
                     },
                 );
 
@@ -404,7 +392,7 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
                     const retry = await askRetryFailedTasks(executionResult, uiAPI);
                     if (retry) {
                         localActiveTasks = 0;
-                        if (uiAPI && uiAPI.advanceSpinner && typeof setInterval !== "undefined") {
+                        if (uiAPI.advanceSpinner && typeof setInterval !== "undefined") {
                             spinnerInterval = setInterval(() => {
                                 if (localActiveTasks > 0 && uiAPI.advanceSpinner) uiAPI.advanceSpinner();
                             }, 100);
@@ -417,42 +405,38 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
                             executionResult.failedTasks,
                             (runningTasks) => {
                                 localActiveTasks = runningTasks.length;
-                                if (uiAPI && uiAPI.setRunningTasks) uiAPI.setRunningTasks(runningTasks);
+                                if (uiAPI.setRunningTasks) uiAPI.setRunningTasks(runningTasks);
                             },
                         );
                         if (spinnerInterval) clearInterval(spinnerInterval);
                         if (finalResult.failedTasks.length > 0) {
-                            await reportExecutionSummary(finalResult, uiAPI);
+                            reportExecutionSummary(finalResult, uiAPI);
                         } else {
-                            uiAPI && uiAPI.appendSystemMessage(`✅ All tasks eventually completed.`, false, "Harns");
+                            uiAPI.appendSystemMessage(`✅ All tasks eventually completed.`, false, "Harns");
                         }
                     } else {
-                        await reportExecutionSummary(executionResult, uiAPI);
+                        reportExecutionSummary(executionResult, uiAPI);
                     }
                 } else {
-                    uiAPI && uiAPI.appendSystemMessage(`✅ All tasks completed successfully.`, false, "Harns");
+                    uiAPI.appendSystemMessage(`✅ All tasks completed successfully.`, false, "Harns");
                 }
             } else {
                 await runEngineerWithPlan(planName, plan.body, uiAPI, sessionManager);
             }
         } catch (e) {
             const error = e instanceof Error ? e : new Error(String(e));
-            if (uiAPI) uiAPI.appendSystemMessage(`TASK TABLE ERROR: ${error.message}`, true, "Harns");
-            else console.error(`\n[Harns] TASK TABLE ERROR: ${error.message}`);
-
+            uiAPI.appendSystemMessage(`TASK TABLE ERROR: ${error.message}`, true, "Harns");
             return { repairRequired: true, error: error.message };
         }
     } else {
         await runEngineerWithPlan(planName, plan.body, uiAPI, sessionManager);
     }
 
-    if (uiAPI) {
-        uiAPI.appendSystemMessage(
-            `✅ Plan execution complete: ${planName}`,
-            false,
-            "Harns",
-        );
-    } else console.log(`\n[Harns] ✅ Plan execution complete: ${planName}`);
+    uiAPI.appendSystemMessage(
+        `✅ Plan execution complete: ${planName}`,
+        false,
+        "Harns",
+    );
     await updatePlanStatus(CWD, planName, "completed", triageMeta);
     return { repairRequired: false };
 }
@@ -461,7 +445,7 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
  * @param {string} planName
  * @param {string} planBody
  * @param {Array<{ task: number, assignee: string, dependencies: string, description: string }>} tasks
- * @param {UiAPI} [uiAPI]
+ * @param {UiAPI} uiAPI
  * @param {number[]} [seedFailedTasks]
  * @param {(runningTasks: Array<{task: number, assignee: string, description: string}>) => void} [onRunningTasksChange]
  */
@@ -518,8 +502,7 @@ async function executeProjectTasks(
             const agentName = task.assignee || "engineer";
 
             const taskHeader = `--- Task ${task.task}: ${task.description} (→ ${agentName}) ---`;
-            if (uiAPI) uiAPI.appendSystemMessage(taskHeader, false, "Harns");
-            else console.log(`\n[Harns] ${taskHeader}\n`);
+            uiAPI.appendSystemMessage(taskHeader, false, "Harns");
 
             const taskRequest = [
                 "## Task Assignment",
@@ -532,34 +515,11 @@ async function executeProjectTasks(
                 planBody,
             ].filter(Boolean).join("\n\n");
 
-            const taskTools = undefined;
-
             try {
-                const mockUiAPI = uiAPI
-                    ? {
-                        appendUserMessage: () => {},
-                        appendAgentMessageStart: () => ({ appendText: () => {} }),
-                        appendSystemMessage: () => {},
-                        startToolExecution: () => ({
-                            appendOutput: () => {},
-                            endExecution: () => {},
-                            startTime: Date.now(),
-                        }),
-                        getActiveToolBlock: () => undefined,
-                        setBusy: () => {},
-                        advanceSpinner: () => {},
-                        requestRender: () => {},
-                        promptSelect: () => Promise.resolve(null),
-                        promptText: () => Promise.resolve(null),
-                        showModelSelector: () => {},
-                    }
-                    : undefined;
-
                 const sessionMessages = await runAgentSession({
                     agentName,
-                    toolNames: taskTools,
                     userRequest: taskRequest,
-                    uiAPI: mockUiAPI,
+                    uiAPI: createSilentUiApi(),
                 });
 
                 const outputText = extractAssistantOutput(sessionMessages);
@@ -581,24 +541,16 @@ async function executeProjectTasks(
                     } catch (_e) { /* ignore */ }
                 }
 
-                if (uiAPI) {
-                    const block = uiAPI.appendAgentMessageStart(`${agentName} (Task ${task.task} Output)`);
-                    block.appendText(outputText || "_no output received_");
-                } else if (outputText) {
-                    console.log(`\n${agentName} (Task ${task.task} Output):\n${outputText}\n`);
-                } else {
-                    console.log(`\n${agentName} (Task ${task.task} Output): no output received\n`);
-                }
+                const block = uiAPI.appendAgentMessageStart(`${agentName} (Task ${task.task} Output)`);
+                block.appendText(outputText || "_no output received_");
                 results.set(task.task, { status: "success", messages: sessionMessages });
             } catch (e) {
                 const error = e instanceof Error ? e : new Error(String(e));
-                if (uiAPI) {
-                    uiAPI.appendSystemMessage(
-                        `❌ Task ${task.task} failed (${agentName}): ${error.message}`,
-                        false,
-                        "Harns",
-                    );
-                }
+                uiAPI.appendSystemMessage(
+                    `❌ Task ${task.task} failed (${agentName}): ${error.message}`,
+                    false,
+                    "Harns",
+                );
                 results.set(task.task, { status: "failed", error: error.message });
                 failed.add(task.task);
             } finally {
@@ -630,23 +582,20 @@ async function executeProjectTasks(
 
 /**
  * @param {{ failedTasks: number[], results: Map<number, { status: string, error?: string }> }} executionResult
- * @param {UiAPI} [uiAPI]
+ * @param {UiAPI} uiAPI
  */
 async function askRetryFailedTasks(executionResult, uiAPI) {
     const { failedTasks } = executionResult;
     const msg = `[Harns] ${failedTasks.length} task(s) failed. Would you like to retry the failed tasks?`;
-    if (uiAPI && uiAPI.promptSelect) {
-        return await uiAPI.promptSelect(msg, [
-            { value: "yes", label: "Yes, retry failed tasks" },
-            { value: "no", label: "No, finalize execution" },
-        ]) === "yes";
-    }
-    return await confirm(msg);
+    return await uiAPI.promptSelect(msg, [
+        { value: "yes", label: "Yes, retry failed tasks" },
+        { value: "no", label: "No, finalize execution" },
+    ]) === "yes";
 }
 
 /**
  * @param {{ results: Map<number, { status: string, error?: string }> }} result
- * @param {UiAPI} [uiAPI]
+ * @param {UiAPI} uiAPI
  */
 function reportExecutionSummary(result, uiAPI) {
     const { results } = result;
@@ -659,15 +608,14 @@ function reportExecutionSummary(result, uiAPI) {
     });
 
     const summary = `Execution Summary: ${successCount} success, ${failedCount} failed, ${blockedCount} blocked.`;
-    if (uiAPI) uiAPI.appendSystemMessage(summary, false, "Harns");
-    else console.log(`\n[Harns] ${summary}\n`);
+    uiAPI.appendSystemMessage(summary, false, "Harns");
 }
 
 /**
  * Project-specific post-approval selection that also prints task list.
  *
  * @param {string} planName
- * @param {UiAPI} [uiAPI]
+ * @param {UiAPI} uiAPI
  * @param {Array<{ task: number, assignee: string, dependencies: string, description: string }>} [structuredTasks]
  * @returns {Promise<"proceed" | "save">}
  */
@@ -699,9 +647,7 @@ export async function askApprovalWithTasks(planName, uiAPI, structuredTasks) {
         { value: "save", label: "Save for later" },
     ];
 
-    const choice = uiAPI && uiAPI.promptSelect
-        ? await uiAPI.promptSelect(`${title}\nWhat next?`, options)
-        : await select(`${title}\nWhat next?`, options);
+    const choice = await uiAPI.promptSelect(`${title}\nWhat next?`, options);
     return choice === "proceed" ? "proceed" : "save";
 }
 
@@ -710,12 +656,11 @@ export async function askApprovalWithTasks(planName, uiAPI, structuredTasks) {
  *
  * @param {string} planName
  * @param {string} planBody
- * @param {UiAPI} [uiAPI]
+ * @param {UiAPI} uiAPI
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [sessionManager]
  */
 async function runEngineerWithPlan(planName, planBody, uiAPI, sessionManager) {
-    if (uiAPI) uiAPI.appendSystemMessage("=== Running Engineer ===", false, "Harns");
-    else console.log("[Harns] === Running Engineer ===\n");
+    uiAPI.appendSystemMessage("=== Running Engineer ===", false, "Harns");
 
     const engineerRequest = [
         `## Approved Plan: ${planName}`,

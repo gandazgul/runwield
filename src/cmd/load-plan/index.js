@@ -84,7 +84,7 @@ function extractSection(body, name) {
 }
 
 /**
- * Remove the `### Tasks` section (and any following `### Slice Details` block,
+ * Remove the `## Tasks` section (and any following `### Slice Details` block,
  * including `#### Task N` sub-blocks) from a plan body. Strips up to the next
  * `##` heading or end of file. Returns the body unchanged if no Tasks heading
  * is present.
@@ -93,7 +93,7 @@ function extractSection(body, name) {
  * @returns {string}
  */
 export function stripTasksSection(body) {
-    const re = /(^|\n)###\s+Tasks\s*\n[\s\S]*?(?=\n##\s|$)/i;
+    const re = /(^|\n)##\s+Tasks\s*\n[\s\S]*?(?=\n##\s|$)/i;
     if (!re.test(body)) return body;
     const stripped = body.replace(re, "$1").replace(/\n{3,}/g, "\n\n").trimEnd();
     return stripped + "\n";

@@ -87,7 +87,7 @@ export function cancelActivePlanReview() {
  * @param {string} opts.planName - Plan filename (without .md)
  * @param {string} opts.planPath - Absolute path to the plan .md file
  * @param {Partial<import('../../plan-store.js').PlanFrontMatter>} [opts.triageMeta] - Triage metadata to ensure in front matter
- * @param {import('../ui/types.js').UiAPI} [opts.uiAPI] - Optional UI API for output
+ * @param {import('../ui/types.js').UiAPI} opts.uiAPI - UI API for output
  * @returns {Promise<PlanReviewResult>}
  */
 export async function submitPlanForReview({
@@ -97,6 +97,8 @@ export async function submitPlanForReview({
     triageMeta,
     uiAPI,
 }) {
+    if (!uiAPI) throw new Error("submitPlanForReview: uiAPI is required");
+
     // 1. Read plan
     const planContent = await Deno.readTextFile(planPath);
 
@@ -126,13 +128,8 @@ export async function submitPlanForReview({
     // 3. Use HTML embedded in package exports (compile-safe; no runtime fs lookup).
     const htmlContent = plannotatorHtml;
 
-    const log = (/** @type {string} */ msg) => {
-        if (uiAPI) uiAPI.appendSystemMessage(msg);
-        else console.log(msg);
-    };
-
-    log(`[Harns] Opening plan review UI for: ${planName}`);
-    log(`[Harns] Plan file: ${planPath}`);
+    uiAPI.appendSystemMessage(`[Harns] Opening plan review UI for: ${planName}`);
+    uiAPI.appendSystemMessage(`[Harns] Plan file: ${planPath}`);
 
     // 4. Start review server IN-PROCESS
     const server = await startPlanReviewServer({
@@ -141,16 +138,16 @@ export async function submitPlanForReview({
         origin: "harns",
     });
 
-    log(`[Harns] Review UI available at: ${server.url}`);
+    uiAPI.appendSystemMessage(`[Harns] Review UI available at: ${server.url}`);
 
     const opened = await openInDefaultBrowser(server.url);
     if (opened) {
-        log(`[Harns] Opened review UI in your default browser.`);
+        uiAPI.appendSystemMessage(`[Harns] Opened review UI in your default browser.`);
     } else {
-        log(`[Harns] Could not auto-open browser. Open manually: ${server.url}`);
+        uiAPI.appendSystemMessage(`[Harns] Could not auto-open browser. Open manually: ${server.url}`);
     }
 
-    log(`[Harns] Waiting for user decision...`);
+    uiAPI.appendSystemMessage(`[Harns] Waiting for user decision...`);
 
     /** @type {(() => void) | null} */
     let localCancel = null;
@@ -161,7 +158,7 @@ export async function submitPlanForReview({
 
     try {
         // 5. Disable input while waiting for review via server
-        if (uiAPI && uiAPI.disableInput) uiAPI.disableInput();
+        if (uiAPI.disableInput) uiAPI.disableInput();
 
         // Wait for user decide (blocks until approve/deny), but allow Esc cancellation
         const decision = await Promise.race([
@@ -171,7 +168,7 @@ export async function submitPlanForReview({
 
         // Handle cancellation triggered from the TUI
         if (decision && typeof decision === "object" && "_cancelled" in decision) {
-            log(`[Harns] ⏸️ Plan review wait cancelled: ${planName}`);
+            uiAPI.appendSystemMessage(`[Harns] ⏸️ Plan review wait cancelled: ${planName}`);
             return {
                 approved: false,
                 canceled: true,
@@ -182,10 +179,10 @@ export async function submitPlanForReview({
         // 6. Update status
         if (decision.approved) {
             await updatePlanStatus(cwd, planName, "approved", triageMeta);
-            log(`[Harns] ✅ Plan approved: ${planName}`);
+            uiAPI.appendSystemMessage(`[Harns] ✅ Plan approved: ${planName}`);
         } else {
             await updatePlanStatus(cwd, planName, "feedback", triageMeta);
-            log(`[Harns] Plan returned with feedback: ${planName}`);
+            uiAPI.appendSystemMessage(`[Harns] Plan returned with feedback: ${planName}`);
         }
 
         return {
@@ -194,7 +191,7 @@ export async function submitPlanForReview({
         };
     } finally {
         activePlanReviewCancel = null;
-        if (uiAPI && uiAPI.enableInput) uiAPI.enableInput();
+        if (uiAPI.enableInput) uiAPI.enableInput();
         // Ensure server is stopped regardless of outcome
         server.stop();
     }

@@ -1,12 +1,14 @@
 import { assertEquals, assertMatch, assertStringIncludes } from "@std/assert";
 import { createPlanWrittenTool } from "../plan-written.js";
 
+const noopUiAPI = /** @type {any} */ ({ appendSystemMessage: () => {} });
+
 /**
  * @param {{ planName: string }} params
  * @param {any} [opts]
  */
 async function runTool(params, opts = {}) {
-    const tool = createPlanWrittenTool(opts);
+    const tool = createPlanWrittenTool({ uiAPI: noopUiAPI, ...opts });
     return await /** @type {any} */ (tool.execute)(
         "tool-call-1",
         params,
@@ -36,7 +38,7 @@ function makeDeps(overrides = {}) {
 }
 
 Deno.test("createPlanWrittenTool exposes expected metadata", () => {
-    const tool = createPlanWrittenTool();
+    const tool = createPlanWrittenTool({ uiAPI: noopUiAPI });
     assertEquals(tool.name, "plan_written");
     assertEquals(tool.label, "Plan Written");
     assertMatch(tool.description, /Declare the plan filename/i);

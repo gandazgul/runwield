@@ -10,6 +10,47 @@ import {
 } from "./blocks.js";
 
 /**
+ * Returns a fully-stubbed UiAPI whose methods all no-op. Use to suppress
+ * output for parallel subagents that share the parent UI but should not
+ * stream their own thinking/text blocks. Implements every method on the
+ * UiAPI surface so adding a new method to api.js doesn't silently fall
+ * through to stdout in subagent contexts.
+ *
+ * @returns {import('./types.js').UiAPI}
+ */
+export function createSilentUiApi() {
+    return {
+        appendThinkingStart: () => ({ appendDelta: () => {}, end: () => {} }),
+        appendUserMessage: () => {},
+        appendAgentMessageStart: () => ({ appendText: () => {} }),
+        appendImage: () => {},
+        appendSystemMessage: () => {},
+        startToolExecution: () => ({
+            appendOutput: () => {},
+            endExecution: () => {},
+            bodyText: "",
+            startTime: Date.now(),
+        }),
+        toggleToolOutputsExpanded: () => {},
+        getActiveToolBlock: () => undefined,
+        requestRender: () => {},
+        advanceSpinner: () => {},
+        setBusy: () => {},
+        setRunningTasks: () => {},
+        clearMessages: () => {},
+        promptSelect: () => Promise.resolve(null),
+        promptText: () => Promise.resolve(null),
+        showModelSelector: () => {},
+        setAgentInfo: () => {},
+        disableInput: () => {},
+        enableInput: () => {},
+        isOutputSuppressed: () => true,
+        suppressOutput: () => {},
+        abortActivePrompt: () => {},
+    };
+}
+
+/**
  * Creates a UiAPI object for Harns TUI.
  *
  * @param {import('@earendil-works/pi-tui').TUI} tui
