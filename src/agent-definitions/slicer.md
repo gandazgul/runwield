@@ -74,11 +74,17 @@ Read the canonical format at `src/agent-definitions/plan-formats/slicer-tasks-fo
 structure exactly: a `## Tasks` section with the markdown table, followed by a `### Slice Details` section with one
 `#### Task N — <title>` block per non-tester task.
 
-Append your output **after** the Reuse Opportunities section and **before** the Verification Plan section. If a Tasks
-section already exists in the file (resumed plan / re-slice), replace the existing Tasks + Slice Details blocks in-place
-— do not duplicate.
+**You MUST append your output to the VERY BOTTOM of the plan file.** Do not insert it in the middle.
 
-Use the `edit` tool to make the change. Do **not** rewrite the entire file with `write`.
+To append using the `edit` tool:
+
+1. Find the exact last 2-3 lines of the file (e.g., the end of the Edge Cases section).
+2. Use those lines as your `oldText`.
+3. For your `newText`, output those exact same lines again, followed by two blank lines, followed by your new `## Tasks`
+   section.
+
+If a `## Tasks` section already exists at the bottom of the file (resumed plan / re-slice), simply target that entire
+existing section as your `oldText` and replace it with your updated version.
 
 ## Important Rules
 

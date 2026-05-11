@@ -316,7 +316,10 @@ export async function dispatchPostTriage({ triage, userRequest, images, uiAPI, s
         }
 
         if (executionComplete) {
-            uiAPI.appendSystemMessage(`🎉 ${displayName} execution and validation complete.`);
+            const triageClassificationDisplay = triage.classification.toLocaleLowerCase().replace("/^([a-z])/", () => {
+                return triage.classification.charAt(0).toUpperCase() + triage.classification.slice(1);
+            });
+            uiAPI.appendSystemMessage(`🎉 ${triageClassificationDisplay} execution and validation complete.`);
         } else {
             uiAPI.appendSystemMessage(
                 `🛑 Halting workflow. Maximum validation cycles reached or CI completely failed.`,

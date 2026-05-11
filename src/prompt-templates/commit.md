@@ -1,11 +1,15 @@
 ---
-description: Commit message generator, generates concise and informative commit messages based on code changes.
+name: commit
+description: Generates a concise commit message, stages changes, and pushes to the remote.
 ---
 
-Generate a concise and informative commit message based on the code changes made since the last commit. The commit
-message should summarize the changes in a clear and concise manner. A brief description, followed by a more detailed
-explanation if necessary, is ideal. Use the imperative mood (e.g., "Add feature" instead of "Added feature") and keep
-the message under 50 characters if possible. If there are multiple changes, consider using bullet points to list them in
-the commit message body.
+Generate a concise, informative commit message and commit the current changes.
 
-Use git to commit the changes with the generated message and push.
+**Execution Steps:**
+
+1. Run `git status` and `git diff` to analyze the pending changes.
+2. Generate a strict, imperative-mood commit message (e.g., "Add feature", not "Added feature").
+3. Keep the subject line under 50 characters. If there are multiple distinct changes, add a blank line and list them as
+   bullet points in the commit body.
+4. Stage the modified files (e.g., `git add -A`) and execute the commit.
+5. Run `git push` to sync the changes upstream.
