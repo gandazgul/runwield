@@ -18,6 +18,9 @@ import { runSessionCommand } from "./session/index.js";
 import { runShareCommand } from "./share/index.js";
 import { runResumeCommand } from "./resume/index.js";
 import { runInitCommand } from "./init/index.js";
+import { runThemeCommand } from "./theme/index.js";
+import { runInstallCommand } from "./install/index.js";
+import { runRemoveCommand } from "./remove/index.js";
 
 /** @param {...string} parts */
 const bin = (...parts) => [CLI_BIN, ...parts].join(" ");
@@ -301,6 +304,53 @@ export const commandRegistry = {
         ],
         execute: runInitCommand,
         isSlash: true,
+        isCli: true,
+    },
+    [COMMAND_NAMES.THEME]: {
+        name: COMMAND_NAMES.THEME,
+        displayName: "Theme",
+        description: "Switch TUI theme",
+        summary: "Switch the active visual theme.",
+        usage: [
+            "/theme",
+            `${bin("theme <name>")}`,
+            `${bin("theme --list")}`,
+        ],
+        notes: [
+            "Inside the TUI, /theme opens an interactive picker with live previews.",
+        ],
+        execute: runThemeCommand,
+        isSlash: true,
+        isCli: true,
+    },
+    [COMMAND_NAMES.INSTALL]: {
+        name: COMMAND_NAMES.INSTALL,
+        displayName: "Install",
+        description: "Install a theme package",
+        summary: "Install a theme package from npm, git, or local path.",
+        usage: [
+            `${bin("install npm:<spec>")}`,
+            `${bin("install git:<url>")}`,
+            `${bin("install local:<path>")}`,
+        ],
+        notes: [
+            "Only theme (.json) resources are registered. Logic extensions (skills/prompts) are ignored.",
+        ],
+        execute: runInstallCommand,
+        isSlash: false,
+        isCli: true,
+    },
+    [COMMAND_NAMES.REMOVE]: {
+        name: COMMAND_NAMES.REMOVE,
+        displayName: "Remove",
+        description: "Remove an installed theme package",
+        summary: "Uninstall a theme package.",
+        usage: [
+            `${bin("remove <source>")}`,
+        ],
+        notes: [],
+        execute: runRemoveCommand,
+        isSlash: false,
         isCli: true,
     },
 };

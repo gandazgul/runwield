@@ -152,6 +152,19 @@ hns router "add JWT auth to API"
 hns "refactor data layer and add migration plan"
 ```
 
+### Theme Customization
+
+Harns supports dynamic TUI themes. You can switch themes interactively inside the TUI with `/theme`, or via the CLI:
+
+```bash
+hns theme <name>      # Switch and persist theme
+hns theme --list      # List available themes
+hns install <source>  # Install a theme package (npm, git, local)
+hns remove <source>   # Remove a theme package
+```
+
+For more details, see [docs/themes.md](docs/themes.md).
+
 ### Show help
 
 ```bash

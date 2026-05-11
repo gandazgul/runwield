@@ -24,7 +24,7 @@ import { createSilentUiApi } from "../ui/api.js";
  * @param {import('@earendil-works/pi-agent-core').AgentMessage[]} messages
  * @returns {string | null}
  */
-function extractAssistantOutput(messages) {
+export function extractAssistantOutput(messages) {
     for (let i = messages.length - 1; i >= 0; i--) {
         const msg = messages[i];
         if (!("role" in msg) || msg.role !== "assistant") continue;
@@ -35,6 +35,7 @@ function extractAssistantOutput(messages) {
             }
         }
     }
+
     return null;
 }
 

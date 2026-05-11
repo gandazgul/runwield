@@ -244,8 +244,9 @@ export function createUiApi(tui, messageList, spinner) {
         /**
          * @param {string} title
          * @param {Array<{value: string, label: string}>} options
+         * @param {{ onSelectionChange?: (value: string) => void }} [hooks]
          */
-        promptSelect: (title, options) => {
+        promptSelect: (title, options, hooks) => {
             return new Promise((resolve) => {
                 const block = new PromptSelectBlock(title, options);
                 messageList.addChild(block);
@@ -266,6 +267,12 @@ export function createUiApi(tui, messageList, spinner) {
 
                 block.list.onSelect = (item) => settleAndCleanup(item.value);
                 block.list.onCancel = () => settleAndCleanup(null);
+                if (hooks?.onSelectionChange) {
+                    block.list.onSelectionChange = (item) => {
+                        hooks.onSelectionChange?.(item.value);
+                        tui.requestRender();
+                    };
+                }
             });
         },
 

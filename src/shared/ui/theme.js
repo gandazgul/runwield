@@ -1,23 +1,32 @@
 /**
  * @module shared/theme
- * Theme integration — uses the upstream pi-coding-agent Theme class
- * with catppuccin-mocha colors, set as the global theme singleton.
+ * Theme integration — wraps Pi's Theme class with Harns-local registration,
+ * lookup, and a live-swap setter. We re-implement the registration/swap
+ * machinery locally because @earendil-works/pi-coding-agent only exports
+ * the Theme constructor and initTheme, not the runtime setters.
  */
 
 import process from "node:process";
 import {
+    DefaultPackageManager,
+    getAgentDir,
     getMarkdownTheme as upstreamGetMarkdownTheme,
     getSelectListTheme as upstreamGetSelectListTheme,
     Theme,
 } from "@earendil-works/pi-coding-agent";
+import { getSettingsManager } from "../settings.js";
+
+/** @typedef {import('@earendil-works/pi-coding-agent').Theme} ThemeInstance */
 
 // ─── Global theme singleton key (matches the upstream) ───────────────────────
 const THEME_KEY = Symbol.for("@earendil-works/pi-coding-agent:theme");
 
+const DEFAULT_THEME_NAME = "catppuccin-mocha";
+
 /**
  * The theme proxy — reads from globalThis just like the upstream.
  * All modules import `theme` from here and get the same singleton.
- * @type {InstanceType<typeof Theme>}
+ * @type {ThemeInstance}
  */
 export const theme = new Proxy(/** @type {any} */ ({}), {
     get(_target, prop) {
@@ -33,35 +42,19 @@ let _markdownTheme = null;
 /** @type {import('@earendil-works/pi-tui').SelectListTheme | null} */
 let _selectListTheme = null;
 
-/**
- * Lazily-built markdown theme from the upstream Theme singleton.
- * Must be called after initHarnsTheme().
- * @returns {import('@earendil-works/pi-tui').MarkdownTheme}
- */
+/** @returns {import('@earendil-works/pi-tui').MarkdownTheme} */
 export function getMarkdownTheme() {
-    if (!_markdownTheme) {
-        _markdownTheme = upstreamGetMarkdownTheme();
-    }
+    if (!_markdownTheme) _markdownTheme = upstreamGetMarkdownTheme();
     return _markdownTheme;
 }
 
-/**
- * Lazily-built select list theme from the upstream Theme singleton.
- * Must be called after initHarnsTheme().
- * @returns {import('@earendil-works/pi-tui').SelectListTheme}
- */
+/** @returns {import('@earendil-works/pi-tui').SelectListTheme} */
 export function getSelectListTheme() {
-    if (!_selectListTheme) {
-        _selectListTheme = upstreamGetSelectListTheme();
-    }
+    if (!_selectListTheme) _selectListTheme = upstreamGetSelectListTheme();
     return _selectListTheme;
 }
 
-/**
- * Editor theme for pi-tui Editor component.
- * Lazily-built from the upstream Theme singleton.
- * @returns {import('@earendil-works/pi-tui').EditorTheme}
- */
+/** @returns {import('@earendil-works/pi-tui').EditorTheme} */
 export function getEditorTheme() {
     return {
         /** @param {string} s */
@@ -70,27 +63,20 @@ export function getEditorTheme() {
     };
 }
 
-/**
- * Image theme for pi-tui Image component.
- */
 export const imageTheme = {
     /** @param {string} s */
     fallbackColor: (s) => {
         try {
             return theme.fg("dim", s);
         } catch (_e) {
-            // Theme not yet initialized — return unstyled
             return s;
         }
     },
 };
 
-// ─── Theme Color Resolution ──────────────────────────────────────────────────
+// ─── Color mode detection ────────────────────────────────────────────────────
 
-/**
- * Detect terminal color capability.
- * @returns {"truecolor" | "256color"}
- */
+/** @returns {"truecolor" | "256color"} */
 function detectColorMode() {
     const colorterm = process.env.COLORTERM;
     if (colorterm === "truecolor" || colorterm === "24bit") return "truecolor";
@@ -102,8 +88,9 @@ function detectColorMode() {
     return "truecolor";
 }
 
+// ─── Theme JSON → Theme instance ─────────────────────────────────────────────
+
 /**
- * Resolve variable references in theme color values.
  * @param {string | number} value
  * @param {Record<string, string | number>} vars
  * @param {Set<string>} [visited]
@@ -117,7 +104,6 @@ function resolveVarRef(value, vars, visited = new Set()) {
     return resolveVarRef(vars[value], vars, visited);
 }
 
-// Background color token names in the upstream Theme schema
 const BG_TOKEN_NAMES = new Set([
     "selectedBg",
     "userMessageBg",
@@ -127,24 +113,21 @@ const BG_TOKEN_NAMES = new Set([
     "toolErrorBg",
 ]);
 
-const CATPPUCCIN_MOCHA = JSON.parse(Deno.readTextFileSync(new URL("./catppuccin-mocha.json", import.meta.url)));
+const CATPPUCCIN_MOCHA_JSON = JSON.parse(
+    Deno.readTextFileSync(new URL("./catppuccin-mocha.json", import.meta.url)),
+);
 
 /**
- * Initialize the harns theme.
- * Constructs a Theme instance from catppuccin-mocha colors and sets it
- * as the global theme singleton.
- * Must be called before any UI rendering.
+ * Build a Pi Theme instance from a parsed theme JSON object.
+ * @param {any} themeJson
+ * @returns {ThemeInstance}
  */
-export function initHarnsTheme() {
-    const themeJson = CATPPUCCIN_MOCHA;
-
+function createThemeFromJson(themeJson) {
     const vars = themeJson.vars || {};
     const colorMode = detectColorMode();
 
-    /** @type {Record<string, string | number>} */
-    const fgColors = {};
-    /** @type {Record<string, string | number>} */
-    const bgColors = {};
+    const fgColors = /** @type {Record<string, string | number>} */ ({});
+    const bgColors = /** @type {Record<string, string | number>} */ ({});
 
     for (const [key, value] of Object.entries(themeJson.colors)) {
         const resolved = resolveVarRef(/** @type {string | number} */ (value), vars);
@@ -155,17 +138,151 @@ export function initHarnsTheme() {
         }
     }
 
-    const themeInstance = new Theme(
+    return new Theme(
         /** @type {any} */ (fgColors),
         /** @type {any} */ (bgColors),
         colorMode,
         { name: themeJson.name },
     );
+}
 
-    // Set the global singleton (same key the upstream theme proxy reads from)
-    /** @type {any} */ (globalThis)[THEME_KEY] = themeInstance;
+// Construct the embedded theme once at module load. It's both the boot default
+// and the merge floor for partial external themes.
+const EMBEDDED_THEME = createThemeFromJson(CATPPUCCIN_MOCHA_JSON);
 
-    // Reset cached sub-themes since the theme instance changed
-    _markdownTheme = null;
-    _selectListTheme = null;
+// ─── Local theme registry + setters (re-implemented; not in Pi's exports) ────
+
+/** @type {Map<string, ThemeInstance>} */
+const registeredThemes = new Map();
+
+/** @param {ThemeInstance} t */
+function setGlobalTheme(t) {
+    /** @type {any} */ (globalThis)[THEME_KEY] = t;
+}
+
+/** @param {ThemeInstance[]} themes */
+export function setRegisteredThemes(themes) {
+    registeredThemes.clear();
+    for (const t of themes) {
+        if (t.name) registeredThemes.set(t.name, t);
+    }
+}
+
+/** @param {ThemeInstance} themeInstance */
+export function setThemeInstance(themeInstance) {
+    setGlobalTheme(themeInstance);
+}
+
+/**
+ * Swap to a registered theme by name.
+ * Returns success false (and stays on the previous theme) if the name
+ * is not registered, instead of silently substituting.
+ * @param {string} name
+ * @returns {{ success: boolean, error?: string }}
+ */
+export function setTheme(name) {
+    const t = registeredThemes.get(name);
+    if (!t) {
+        return { success: false, error: `Theme "${name}" is not registered.` };
+    }
+    setGlobalTheme(t);
+    return { success: true };
+}
+
+/** @returns {string[]} */
+export function getAvailableThemes() {
+    return Array.from(registeredThemes.keys()).sort();
+}
+
+// ─── Boot + discovery ────────────────────────────────────────────────────────
+
+/**
+ * Synchronously install the embedded catppuccin-mocha as the boot default.
+ * Safe to call from any sync context — guarantees the theme proxy is usable
+ * before first render. External themes are discovered later via
+ * applyPersistedTheme().
+ */
+export function initHarnsTheme() {
+    setRegisteredThemes([EMBEDDED_THEME]);
+    setThemeInstance(EMBEDDED_THEME);
+}
+
+/**
+ * Lazy-discover external themes and apply the persisted theme.
+ * Awaited by the boot path before first render so the user never sees
+ * a flicker from embedded → persisted.
+ *
+ * No-op when the persisted theme is the embedded default (95% case) — avoids
+ * paying the PackageManager.resolve() cost for users who never customized.
+ *
+ * Tolerant of discovery failures: a broken settings.packages or a missing
+ * persisted theme falls back to embedded with a warning instead of crashing.
+ */
+export async function applyPersistedTheme() {
+    const settings = getSettingsManager();
+    const persisted = settings.getTheme();
+    if (!persisted || persisted === DEFAULT_THEME_NAME) return;
+
+    try {
+        await discoverAndRegisterThemes();
+    } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.warn(`Theme discovery failed: ${msg}. Using embedded theme.`);
+        return;
+    }
+
+    const result = setTheme(persisted);
+    if (!result.success) {
+        console.warn(
+            `Persisted theme "${persisted}" is not available. Using embedded theme.`,
+        );
+    }
+}
+
+/**
+ * Discover themes from installed packages and register them alongside the
+ * embedded default. Idempotent — safe to call after every install/remove.
+ *
+ * External themes whose `colors`/`vars` are partial are merged on top of the
+ * embedded JSON before instantiation, so missing tokens fall back to
+ * catppuccin-mocha values instead of throwing.
+ *
+ * External themes named "catppuccin-mocha" are dropped (builtin precedence)
+ * with a warning.
+ */
+export async function discoverAndRegisterThemes() {
+    const settings = getSettingsManager();
+    const packageManager = new DefaultPackageManager({
+        cwd: Deno.cwd(),
+        agentDir: getAgentDir(),
+        settingsManager: settings,
+    });
+
+    const resolved = await packageManager.resolve();
+    const externalThemes = [];
+
+    for (const themeResource of resolved.themes) {
+        try {
+            const themeJson = JSON.parse(Deno.readTextFileSync(themeResource.path));
+
+            if (themeJson.name === DEFAULT_THEME_NAME) {
+                // Silently ignore external themes that share the built-in name.
+                continue;
+            }
+
+            const mergedJson = {
+                ...CATPPUCCIN_MOCHA_JSON,
+                ...themeJson,
+                colors: { ...CATPPUCCIN_MOCHA_JSON.colors, ...themeJson.colors },
+                vars: { ...CATPPUCCIN_MOCHA_JSON.vars, ...(themeJson.vars || {}) },
+            };
+
+            externalThemes.push(createThemeFromJson(mergedJson));
+        } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            console.warn(`Failed to load theme from ${themeResource.path}: ${msg}`);
+        }
+    }
+
+    setRegisteredThemes([EMBEDDED_THEME, ...externalThemes]);
 }

@@ -1,6 +1,6 @@
 ---
 name: doc-writer
-model: ollama-cloud/gemma4:31b-cloud
+model: opencode-anthropic/minimax-m2.5-free
 description: Create clear, comprehensive technical project documentation. Like READMEs, API docs, and user guides.
 tools:
     - read

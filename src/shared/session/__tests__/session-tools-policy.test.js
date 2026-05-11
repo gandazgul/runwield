@@ -42,7 +42,7 @@ Deno.test("loadAgentDef preserves per-agent protected tools when override narrow
     const override = [
         "---",
         "name: router",
-        "model: ollama-cloud/gemma4:31b-cloud",
+        "model: opencode-anthropic/minimax-m2.5-free",
         'description: "router local override"',
         "tools:",
         "  - read",

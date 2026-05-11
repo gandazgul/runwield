@@ -6,7 +6,7 @@
 
 import { CombinedAutocompleteProvider, Container, Editor, Spacer, Text } from "@earendil-works/pi-tui";
 import { initTUI } from "../ui/tui.js";
-import { getEditorTheme, initHarnsTheme, theme } from "../ui/theme.js";
+import { applyPersistedTheme, getEditorTheme, initHarnsTheme, theme } from "../ui/theme.js";
 import { HNS_VERSION } from "../version.js";
 import { createUiApi } from "../ui/api.js";
 import { SpinnerBlock } from "../ui/blocks.js";
@@ -176,6 +176,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
     setActiveOnMessage(onMessage);
     await ensureMnemosyneBinary();
     initHarnsTheme();
+    await applyPersistedTheme();
     const tui = initTUI();
 
     const container = new Container();
