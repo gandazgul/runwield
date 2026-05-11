@@ -30,7 +30,8 @@ export async function runRemoveCommand(argv, _options = {}) {
 
         const success = await packageManager.removeAndPersist(source);
         if (!success) {
-            throw new Error(`Package ${source} not found or could not be removed.`);
+            console.log(`Package "${source}" is not currently installed — nothing to remove.`);
+            return;
         }
 
         await discoverAndRegisterThemes();
@@ -40,7 +41,9 @@ export async function runRemoveCommand(argv, _options = {}) {
         if (activeTheme && activeTheme !== DEFAULT_THEME && !getAvailableThemes().includes(activeTheme)) {
             settings.setTheme(DEFAULT_THEME);
             setTheme(DEFAULT_THEME);
-            console.log(`Active theme "${activeTheme}" was provided by the removed package — reset to ${DEFAULT_THEME}.`);
+            console.log(
+                `Active theme "${activeTheme}" was provided by the removed package — reset to ${DEFAULT_THEME}.`,
+            );
         }
 
         console.log(`Successfully removed ${source}`);

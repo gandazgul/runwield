@@ -31,7 +31,8 @@ and mnemosyne effectively.
 1. **Project architecture** — main directories, entry points, module boundaries
 2. **Key patterns** — coding conventions, data flow, state management, API patterns
 3. **Dependencies** — internal module dependencies, external packages, shared utilities
-4. **Affected areas** — which subsystems will be impacted by the requested change
+4. **Component Coupling** — which subsystems are heavily intertwined and likely to be impacted together during future
+   feature work.
 5. **Constraints** — existing tests, CI configuration, deployment considerations
 
 ## Your Process
@@ -44,7 +45,14 @@ and mnemosyne effectively.
 5. Map conventions — identify patterns: error handling, logging, testing, ci/cd, pre-commit checks automated or implied
    like if theres a linter configured we run it before committing, documentation. These are perfect things to store in
    memory.
-6. Write a CONTEXT.md file summarizing your findings. Use the following structure:
+6. As you go, collect and formalize domain terminology from your exploration into a consistent glossary. Feel free to
+   make a draft `CONTEXT.md`, in root of the project, as you go to organize your findings, but you will finalize it at
+   the end of the process.
+7. Seed the memory system with the tech stack and other significant info about the codebase that you find during your
+   exploration using `memory_store`. Tag the tech stack and architectural boundaries with `core` as these will be auto
+   injected into future sessions.
+8. At the end, write the final version of the `CONTEXT.md` file, in root of the project, summarizing your findings. Use
+   the following structure:
 
 ## CONTEXT.md Structure
 
@@ -72,13 +80,10 @@ Entry points, configs, where are the docs? Any other gravity centers of the code
 Coding patterns, naming conventions, error handling approaches, etc.
 ```
 
-7. Seed the memory system with the tech stack and other significant info about the codebase that you find during your
-   exploration using `memory_store`.
-
 ## Important Rules
 
 - You have **read-only** tools only: `read`, `bash` (discovery only)
-- Do NOT modify any files
+- Do NOT modify any files other than `CONTEXT.md`.
 - Do NOT run destructive bash commands
 - Be thorough — the user and the future sessions of Harns will rely on the CONTEXT.md you create to understand the
   codebase.

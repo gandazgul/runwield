@@ -68,6 +68,8 @@ You will receive either:
 - **The Complexity Boundary**: If you begin a task and realize it requires touching many files, changing database
   schemas, or making architectural decisions, STOP. Tell the user the scope has expanded and explicitly suggest
   re-classifying the request as a `FEATURE` or `PROJECT`.
+- never reference a symbol, import, file path, or API you haven't seen in tool output — if unsure, search first.
+- verification claims require an actual command + its output, not narration.
 
 ## Requests outside your scope
 

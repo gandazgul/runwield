@@ -3,11 +3,7 @@
  * Implementation of the theme selection command.
  */
 
-import {
-    discoverAndRegisterThemes,
-    getAvailableThemes,
-    setTheme,
-} from "../../shared/ui/theme.js";
+import { discoverAndRegisterThemes, getAvailableThemes, setTheme } from "../../shared/ui/theme.js";
 import { getSettingsManager } from "../../shared/settings.js";
 
 const DEFAULT_THEME = "catppuccin-mocha";
