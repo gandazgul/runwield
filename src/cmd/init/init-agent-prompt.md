@@ -1,5 +1,5 @@
 ---
-name: init
+name: Init
 model: openrouter/inclusionai/ring-2.6-1t:free
 description: "Initialize hns into a new project. Gather project context and architecture to seed the index and mnemosyne effectively."
 tools:

@@ -1,5 +1,5 @@
 ---
-name: operator
+name: Operator
 model: opencode-anthropic/minimax-m2.5-free
 description: "Operational agent that executes small tasks — commits, fixes, config changes, and anything that doesn't need a plan."
 tools:

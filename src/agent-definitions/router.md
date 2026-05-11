@@ -1,5 +1,5 @@
 ---
-name: router
+name: Router
 model: opencode-anthropic/minimax-m2.5-free
 description: "Triage agent that classifies user requests and explores the codebase."
 tools:

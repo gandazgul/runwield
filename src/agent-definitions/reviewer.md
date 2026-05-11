@@ -1,5 +1,5 @@
 ---
-name: reviewer
+name: Reviewer
 model: opencode-anthropic/minimax-m2.5-free
 description: "Semantic code reviewer. Compares implemented code against the original plan."
 tools:

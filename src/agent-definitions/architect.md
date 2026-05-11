@@ -1,5 +1,5 @@
 ---
-name: architect
+name: Architect
 model: opencode-anthropic/minimax-m2.5-free
 description: "System design and planning agent. Conducts Socratic interviews, researches technical approaches, writes ADRs, and produces design plans."
 tools:

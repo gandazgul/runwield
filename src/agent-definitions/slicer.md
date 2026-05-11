@@ -1,5 +1,5 @@
 ---
-name: slicer
+name: Slicer
 model: opencode-anthropic/minimax-m2.5-free
 description: "Task-breakdown agent. Reads a design-only plan written by the architect and appends a vertical-slice Tasks section + per-slice detail blocks. Hidden from /agent and switch_agent — invoked only by plan_written after the user approves the architect's design."
 tools:

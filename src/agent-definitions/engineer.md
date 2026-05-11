@@ -1,5 +1,5 @@
 ---
-name: engineer
+name: Engineer
 model: opencode-anthropic/minimax-m2.5-free
 description: "Code execution agent that implements approved plans and individual tasks while adhering strictly to DAG scope."
 tools:

@@ -543,10 +543,10 @@ export async function runAgentSession(
     if (uiAPI?.setAgentInfo) {
         // If the user has an active /model override, don't clobber it — only update the agent name.
         if (isUserModelOverride()) {
-            uiAPI.setAgentInfo(agentDef.name);
+            uiAPI.setAgentInfo(agentDef.displayName);
         } else {
             const agentModelForUi = modelOverride || agentDef.model;
-            uiAPI.setAgentInfo(agentDef.name, agentModelForUi);
+            uiAPI.setAgentInfo(agentDef.displayName, agentModelForUi);
         }
     }
 
@@ -640,7 +640,7 @@ export async function runAgentSession(
                     if (uiAPI) {
                         if (!currentMarkdownBlock) {
                             currentMarkdownBlock = uiAPI.appendAgentMessageStart(
-                                agentDef.name,
+                                agentDef.displayName,
                             );
                         }
                         currentMarkdownBlock.appendText(event.assistantMessageEvent.delta);
@@ -663,7 +663,7 @@ export async function runAgentSession(
                     uiAPI
                 ) {
                     if (!currentMarkdownBlock) {
-                        currentMarkdownBlock = uiAPI.appendAgentMessageStart(agentDef.name);
+                        currentMarkdownBlock = uiAPI.appendAgentMessageStart(agentDef.displayName);
                     }
                     currentMarkdownBlock.appendText(
                         `\n\n**Error:** ${event.message.errorMessage || "Unknown LLM error"}`,

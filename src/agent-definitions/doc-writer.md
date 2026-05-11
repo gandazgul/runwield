@@ -1,5 +1,5 @@
 ---
-name: doc-writer
+name: Doc Writer
 model: opencode-anthropic/minimax-m2.5-free
 description: Create clear, comprehensive technical project documentation. Like READMEs, API docs, and user guides.
 tools:

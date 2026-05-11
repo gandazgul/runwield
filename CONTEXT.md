@@ -29,6 +29,8 @@ indexing/search and **Mnemosyne** for persistent memory.
 | **CWD**                 | Current working directory — used throughout as the project root. Stored in `src/constants.js`.                                                                               |                                                                      |
 | **Prompt Template**     | Markdown files (in `src/prompt-templates/`, `~/.hns/prompts/`, or `<cwd>/.hns/prompts/`) that define slash commands available in the TUI.                                    | Not "slash command definition" — use "prompt template".              |
 | **Agent Definition**    | Markdown files with YAML front matter defining an agent's name, model, tools, and system prompt.                                                                             | Not "agent config" — use "agent definition".                         |
+| **Agent Name**          | The internal identifier for an agent, derived from the file name without the `.md` extension.                                                                                |                                                                      |
+| **Agent Display Name**  | The human-readable name specified inside the front-matter of the agent definition. Used as the header when outputting agent messages.                                        |                                                                      |
 | **Session Manager**     | From `@earendil-works/pi-coding-agent` — persists conversation history to disk (`~/.hns/sessions/`).                                                                         |                                                                      |
 
 ## Key Files
