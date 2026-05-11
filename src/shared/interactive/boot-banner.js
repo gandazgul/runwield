@@ -67,6 +67,11 @@ export async function renderBootBanner({
         uiAPI.appendSystemMessage("none", false, "Loaded skills:", peachStyle);
     }
 
+    // Report the active theme
+    const { getSettingsManager } = await import("../settings.js");
+    const activeTheme = getSettingsManager().getTheme() || "catppuccin-mocha";
+    uiAPI.appendSystemMessage(activeTheme, false, "Loaded Theme:", peachStyle);
+
     const agentMdFiles = await listLoadedAgentMdFiles();
     if (agentMdFiles.length > 0) {
         const lines = agentMdFiles

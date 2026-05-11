@@ -33,7 +33,26 @@ export async function runInstallCommand(argv, _options = {}) {
         await packageManager.installAndPersist(source);
         await discoverAndRegisterThemes();
 
-        console.log(`\nSuccessfully installed ${source}`);
+        // Surface ignored-resources notice
+        const packageManager2 = new DefaultPackageManager({
+            cwd: Deno.cwd(),
+            agentDir: getAgentDir(),
+            settingsManager: settings,
+        });
+        const resolved = await packageManager2.resolve();
+        const themeCount = resolved.themes.length;
+        const extCount = resolved.extensions.length + resolved.skills.length + resolved.prompts.length;
+        if (themeCount > 0) {
+            console.log(`Installed ${themeCount} theme(s).`);
+        } else {
+            console.log("No themes found in package.");
+        }
+        if (extCount > 0) {
+            console.log(
+                `(${extCount} non-theme resource(s) silently ignored — only .json theme files are registered.)`,
+            );
+        }
+        console.log(`Successfully installed ${source}`);
     } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         console.error(`\nInstallation failed: ${msg}`);

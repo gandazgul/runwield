@@ -143,6 +143,9 @@ class HarnsSettingsStorage {
     }
 }
 
+/** @type {HarnsSettingsStorage | null} */
+let storageInstance = null;
+
 /** @type {SettingsManager | null} */
 let settingsManager = null;
 
@@ -151,7 +154,8 @@ let settingsManager = null;
  */
 export function initSettings() {
     if (!settingsManager) {
-        settingsManager = SettingsManager.fromStorage(new HarnsSettingsStorage());
+        storageInstance = new HarnsSettingsStorage();
+        settingsManager = SettingsManager.fromStorage(storageInstance);
     }
 }
 
@@ -164,4 +168,55 @@ export function getSettingsManager() {
         initSettings();
     }
     return /** @type {SettingsManager} */ (settingsManager);
+}
+
+/**
+ * Safely reads a custom key from the underlying JSON file, bypassing SettingsManager types.
+ * @param {string} key
+ * @param {"global" | "project"} scope
+ * @returns {any}
+ */
+export function getCustomSetting(key, scope = "project") {
+    if (!storageInstance) initSettings();
+    let result = undefined;
+
+    // @ts-ignore storageInstance is definitely assigned here
+    storageInstance.withLock(scope, (content) => {
+        if (content) {
+            try {
+                const parsed = JSON.parse(content);
+                result = parsed[key];
+            } catch (_e) { /* ignore */ }
+        }
+        return undefined; // Return undefined to signify no file changes
+    });
+
+    return result;
+}
+
+/**
+ * Safely writes a custom key to the underlying JSON file, bypassing SettingsManager types,
+ * and forces the SettingsManager to sync its in-memory state.
+ * @param {string} key
+ * @param {any} value
+ * @param {"global" | "project"} scope
+ */
+export async function setCustomSetting(key, value, scope = "project") {
+    if (!storageInstance) initSettings();
+
+    // @ts-ignore storageInstance is definitely assigned here
+    storageInstance.withLock(scope, (content) => {
+        let parsed = {};
+        if (content) {
+            try {
+                parsed = JSON.parse(content);
+            } catch (_e) { /* ignore */ }
+        }
+        parsed[key] = value;
+        return JSON.stringify(parsed, null, 2);
+    });
+
+    // Force Pi's manager to reload from disk so it doesn't accidentally
+    // overwrite our custom key during its next flush() operation.
+    await getSettingsManager().reload();
 }

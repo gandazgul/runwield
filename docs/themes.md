@@ -18,10 +18,11 @@ collision, the embedded theme always takes precedence.
 
 Inside an interactive session, you can open the theme picker using the slash command: `/theme`
 
-- **Live Preview**: As you navigate the list of available themes, the TUI will instantly update to preview the
-  selection.
+- **Live Preview**: As you navigate the list of available themes, the TUI will update to preview the selection.
 - **Confirm**: Press `Enter` to apply and persist the chosen theme.
 - **Cancel**: Press `Esc` to revert to the previously active theme.
+
+> **Note**: The theme is applied immediately when selected. On startup, the persisted theme is restored.
 
 ### CLI Commands
 
@@ -29,6 +30,8 @@ You can also manage themes directly from the shell:
 
 - `hns theme <name>`: Switch the active theme and persist the choice.
 - `hns theme --list`: List all currently discoverable themes.
+- `hns install <source>`: Install a theme package.
+- `hns remove <source>`: Remove a theme package.
 
 ## Installing Themes
 

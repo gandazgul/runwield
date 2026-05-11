@@ -266,9 +266,7 @@ export async function discoverAndRegisterThemes() {
             const themeJson = JSON.parse(Deno.readTextFileSync(themeResource.path));
 
             if (themeJson.name === DEFAULT_THEME_NAME) {
-                console.warn(
-                    `External theme at ${themeResource.path} uses reserved name "${DEFAULT_THEME_NAME}" — ignored.`,
-                );
+                // Silently ignore external themes that share the built-in name.
                 continue;
             }
 
