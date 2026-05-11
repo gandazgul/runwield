@@ -110,6 +110,9 @@ export async function runInitCommand(argv, options = {}) {
             options.uiAPI.appendSystemMessage(
                 "✅ Init complete. CONTEXT.md has been written to the project root.",
             );
+            const { setActiveAgent } = await import("../../shared/interactive/chat-session.js");
+            const { createDirectAgentHandler } = await import("../../shared/session/direct-agent.js");
+            setActiveAgent("Router", createDirectAgentHandler("router"), options.uiAPI);
         } else {
             console.log(`\n[Harns] ✅ Init complete for ${cwd()}.`);
         }
