@@ -16,7 +16,8 @@
 
 bugs
 
-- after saying no to init hns locked up
-- on start in a new project we drop a .hns/setting.json that's empty we should not do this. Don't create any files until
-  we have actual content to put in them. This is especially important for the settings file which should be created on
-  demand when the user actually changes a setting, not pre-emptively on boot.
+- when we want to trully restrict an agent's write/edit access we should invoke bash commands with a user that has no
+  write permissions on the codebase. This way even if the agent tries to use bash to modify files, it will be blocked by
+  the OS permissions. We can create a separate user (e.g., "harns_operator") with read-only access to the codebase and
+  run all bash commands from that user context. This adds an extra layer of security and ensures that agents cannot
+  bypass their tool restrictions.
