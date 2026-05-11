@@ -1,6 +1,6 @@
 ---
 name: ideator
-model: ollama-cloud/gemma4:31b-cloud
+model: opencode-anthropic/minimax-m2.5-free
 description: "Research and ideation agent. Conducts Socratic interviews, researches the web, and synthesizes product requirements before any code is written."
 tools:
     - read

@@ -1,6 +1,6 @@
 ---
 name: tester
-model: ollama-cloud/gemma4:31b-cloud
+model: opencode-anthropic/minimax-m2.5-free
 description: "Test-writing agent responsible for creating, running, and updating test suites following existing project conventions."
 tools:
     - read

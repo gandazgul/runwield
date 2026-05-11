@@ -38,7 +38,7 @@ export const PLANS_DIR_NAME = "plans";
 export const HOME_DIR = Deno.env.get("HOME") || "";
 
 /** Known CLI command names. */
-/** @type {Readonly<{ROUTER: string, AGENT: string, MODEL: string, EXPORT: string, SHARE: string, LOAD_PLAN: string, RESUME: string, NEW: string, SESSION: string, PLANS: string, SLEEP: string, HELP: string, QUIT: string, EXIT: string, INIT: string}>} */
+/** @type {Readonly<{ROUTER: string, AGENT: string, MODEL: string, EXPORT: string, SHARE: string, LOAD_PLAN: string, RESUME: string, NEW: string, SESSION: string, PLANS: string, SLEEP: string, HELP: string, QUIT: string, EXIT: string, INIT: string, THEME: string, INSTALL: string, REMOVE: string}>} */
 export const COMMAND_NAMES = Object.freeze({
     ROUTER: "router",
     AGENT: "agent",
@@ -55,6 +55,9 @@ export const COMMAND_NAMES = Object.freeze({
     QUIT: "quit",
     EXIT: "exit",
     INIT: "init",
+    THEME: "theme",
+    INSTALL: "install",
+    REMOVE: "remove",
 });
 
 /** Max concurrent agent tasks for PROJECT execution. */

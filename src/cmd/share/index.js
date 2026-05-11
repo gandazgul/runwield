@@ -34,7 +34,7 @@ async function runCmd(cmd, args) {
  * @param {string[]} _argv
  * @param {CommandContext} [options]
  */
-export async function runShareCommand(_argv, options) {
+export async function runShareCommand(_argv, options = {}) {
     const { uiAPI, sessionManager } = options || {};
 
     if (!uiAPI) {
