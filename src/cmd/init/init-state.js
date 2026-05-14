@@ -48,9 +48,18 @@ async function sha256(input) {
 }
 
 /**
+ * @typedef {object} InitStateEntry
+ * @property {string} path - The clear (unhashed) absolute path this entry refers to.
+ * @property {boolean} initOffered
+ * @property {boolean} initDone
+ * @property {string | null} offeredAt - ISO timestamp when init was offered (or declined), or null.
+ * @property {string | null} doneAt - ISO timestamp when init was completed, or null.
+ */
+
+/**
  * Read the full state file from disk.
  * Returns an empty object if the file does not exist or is invalid.
- * @returns {Promise<Record<string, { initOffered: boolean, initDone: boolean }>>}
+ * @returns {Promise<Record<string, InitStateEntry>>}
  */
 async function readState() {
     const path = getStatePath();
@@ -68,7 +77,7 @@ async function readState() {
 
 /**
  * Write the full state file to disk (synchronous after init completes).
- * @param {Record<string, { initOffered: boolean, initDone: boolean }>} state
+ * @param {Record<string, InitStateEntry>} state
  */
 function writeStateSync(state) {
     const path = getStatePath();
@@ -91,7 +100,7 @@ export async function getCwdHash() {
 
 /**
  * Get the full init state object.
- * @returns {Promise<Record<string, { initOffered: boolean, initDone: boolean }>>}
+ * @returns {Promise<Record<string, InitStateEntry>>}
  */
 export async function getInitState() {
     return await readState();
@@ -99,7 +108,7 @@ export async function getInitState() {
 
 /**
  * Get the init state entry for the current CWD.
- * @returns {Promise<{ initOffered: boolean, initDone: boolean } | undefined>}
+ * @returns {Promise<InitStateEntry | undefined>}
  */
 export async function getCwdInitState() {
     const cwdHash = await getCwdHash();
@@ -108,16 +117,29 @@ export async function getCwdInitState() {
 }
 
 /**
+ * Build a fresh entry for a given path.
+ * @param {string} path
+ * @returns {InitStateEntry}
+ */
+function newEntry(path) {
+    return { path, initOffered: false, initDone: false, offeredAt: null, doneAt: null };
+}
+
+/**
  * Record that init was offered for the current CWD.
  * @returns {Promise<void>}
  */
 export async function recordInitOffered() {
+    const cwd = Deno.cwd();
     const cwdHash = await getCwdHash();
     const state = await readState();
     if (!state[cwdHash]) {
-        state[cwdHash] = { initOffered: false, initDone: false };
+        state[cwdHash] = newEntry(cwd);
+    } else {
+        state[cwdHash].path = cwd;
     }
     state[cwdHash].initOffered = true;
+    state[cwdHash].offeredAt = new Date().toISOString();
     writeStateSync(state);
 }
 
@@ -127,13 +149,19 @@ export async function recordInitOffered() {
  * @returns {Promise<void>}
  */
 export async function recordInitDone() {
+    const cwd = Deno.cwd();
     const cwdHash = await getCwdHash();
     const state = await readState();
     if (!state[cwdHash]) {
-        state[cwdHash] = { initOffered: false, initDone: false };
+        state[cwdHash] = newEntry(cwd);
+    } else {
+        state[cwdHash].path = cwd;
     }
+    const now = new Date().toISOString();
     state[cwdHash].initOffered = true;
     state[cwdHash].initDone = true;
+    if (!state[cwdHash].offeredAt) state[cwdHash].offeredAt = now;
+    state[cwdHash].doneAt = now;
     writeStateSync(state);
 }
 

@@ -56,6 +56,9 @@ Deno.test("recordInitDone creates state file with correct structure", async () =
     assertExists(state[cwdHash]);
     assertEquals(state[cwdHash].initOffered, true);
     assertEquals(state[cwdHash].initDone, true);
+    assertEquals(state[cwdHash].path, Deno.cwd());
+    assertEquals(typeof state[cwdHash].offeredAt, "string");
+    assertEquals(typeof state[cwdHash].doneAt, "string");
 
     // Verify raw file content
     const raw = await readRawState();
@@ -63,6 +66,9 @@ Deno.test("recordInitDone creates state file with correct structure", async () =
     assertExists(raw[cwdHash]);
     assertEquals(raw[cwdHash].initOffered, true);
     assertEquals(raw[cwdHash].initDone, true);
+    assertEquals(raw[cwdHash].path, Deno.cwd());
+    assertEquals(typeof raw[cwdHash].offeredAt, "string");
+    assertEquals(typeof raw[cwdHash].doneAt, "string");
 
     await cleanupState();
 });
@@ -77,6 +83,9 @@ Deno.test("recordInitOffered marks only initOffered without initDone", async () 
     assertExists(state[cwdHash]);
     assertEquals(state[cwdHash].initOffered, true);
     assertEquals(state[cwdHash].initDone, false);
+    assertEquals(state[cwdHash].path, Deno.cwd());
+    assertEquals(typeof state[cwdHash].offeredAt, "string");
+    assertEquals(state[cwdHash].doneAt, null);
 
     await cleanupState();
 });
@@ -132,8 +141,11 @@ Deno.test("state file is isolated per CWD hash", async () => {
     // Simulate a different project by manually writing another hash
     const state = await getInitState();
     state["0000000000000000000000000000000000000000000000000000000000000000"] = {
+        path: "/tmp/other-project",
         initOffered: false,
         initDone: true,
+        offeredAt: null,
+        doneAt: new Date().toISOString(),
     };
     await Deno.writeTextFile(testStatePath, JSON.stringify(state, null, 2));
 
@@ -156,7 +168,13 @@ Deno.test("recordInitDone preserves other CWD entries (no overwrite)", async () 
 
     // Manually add another entry
     const state = await getInitState();
-    state["abcdef0123456789"] = { initOffered: true, initDone: false };
+    state["abcdef0123456789"] = {
+        path: "/tmp/another-project",
+        initOffered: true,
+        initDone: false,
+        offeredAt: new Date().toISOString(),
+        doneAt: null,
+    };
     await Deno.writeTextFile(testStatePath, JSON.stringify(state, null, 2));
 
     // Call recordInitOffered (for the same CWD) — should not clobber the other entry

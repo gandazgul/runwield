@@ -19,6 +19,7 @@ import {
     recordInitDone as recordInitDoneFn,
     recordInitOffered as recordInitOfferedFn,
 } from "./init-state.js";
+import { setActiveAgentName } from "../../shared/session/session-state.js";
 
 export const __dirname = dirname(fromFileUrl(import.meta.url));
 
@@ -92,6 +93,9 @@ export async function runInitCommand(argv, options = {}) {
     const agentDef = await loadAgentDefFromPath(initAgentPath);
 
     await recordInitOffered();
+
+    // Set the footer to show the init agent's display name.
+    setActiveAgentName(agentDef.displayName);
 
     // Run the init agent session using its own definition (model, tools, system prompt).
     // We use a dedicated "init" agent name so it's distinct from the operator.
