@@ -50,8 +50,8 @@ hns install <source>
 - **local**: `hns install local:<path>` (e.g., `hns install local:./themes/my-theme-pack`)
 
 > [!IMPORTANT]
-> **Theme-only constraints**: Harns only registers `.json` theme files found within these packages. All other resources
-> (such as logic extensions, skills, or prompts) are silently ignored.
+> **Theme-only constraints**: Harns only registers `.json` theme files found within these packages. Any other resources
+> (logic extensions, skills, prompts) are ignored; `hns install` reports the count so you know what was skipped.
 
 ### Removing Themes
 

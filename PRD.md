@@ -123,7 +123,7 @@ Tools are resolved using a layered override system with a strict allowlist polic
 ```yaml
 ---
 name: router
-model: ollama-cloud/gemma4:31b-cloud
+model: super-smart-9000
 description: "Triage agent that classifies user requests."
 tools:
     - read

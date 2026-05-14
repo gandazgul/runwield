@@ -3,14 +3,11 @@
  * Harns install command wrapping Pi's PackageManager.
  */
 
-import { DefaultPackageManager } from "@earendil-works/pi-coding-agent";
+import { DefaultPackageManager, getAgentDir } from "@earendil-works/pi-coding-agent";
 import { getSettingsManager } from "../../shared/settings.js";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { discoverAndRegisterThemes } from "../../shared/ui/theme.js";
 
 /**
- * Executes the a package installation.
- *
  * @param {string[]} argv
  * @param {import('../registry.js').CommandContext} _options
  */
@@ -31,31 +28,26 @@ export async function runInstallCommand(argv, _options = {}) {
         });
 
         await packageManager.installAndPersist(source);
+
+        // Inspect what this specific package contributed. Themes are
+        // registered; everything else is ignored.
+        const resolved = await packageManager.resolve();
+        const fromSource = (/** @type {{ metadata: { source: string } }} */ r) => r.metadata.source === source;
+        const themeCount = resolved.themes.filter(fromSource).length;
+        const ignoredCount = resolved.extensions.filter(fromSource).length +
+            resolved.skills.filter(fromSource).length +
+            resolved.prompts.filter(fromSource).length;
+
         await discoverAndRegisterThemes();
 
-        // Surface ignored-resources notice
-        const packageManager2 = new DefaultPackageManager({
-            cwd: Deno.cwd(),
-            agentDir: getAgentDir(),
-            settingsManager: settings,
-        });
-        const resolved = await packageManager2.resolve();
-        const themeCount = resolved.themes.length;
-        const extCount = resolved.extensions.length + resolved.skills.length + resolved.prompts.length;
-        if (themeCount > 0) {
-            console.log(`Installed ${themeCount} theme(s).`);
-        } else {
-            console.log("No themes found in package.");
+        console.log(`Installed ${source}`);
+        console.log(`  Themes registered: ${themeCount}`);
+        if (ignoredCount > 0) {
+            console.log(`  Non-theme resources ignored: ${ignoredCount} (Harns only loads themes)`);
         }
-        if (extCount > 0) {
-            console.log(
-                `(${extCount} non-theme resource(s) silently ignored — only .json theme files are registered.)`,
-            );
-        }
-        console.log(`Successfully installed ${source}`);
     } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
-        console.error(`\nInstallation failed: ${msg}`);
+        console.error(`Installation failed: ${msg}`);
         Deno.exit(1);
     }
 }

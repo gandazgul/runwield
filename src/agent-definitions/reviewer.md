@@ -1,6 +1,6 @@
 ---
 name: Reviewer
-model: opencode-anthropic/minimax-m2.5-free
+model: ollama/unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q5_K_XL
 description: "Semantic code reviewer. Compares implemented code against the original plan."
 tools:
     - read

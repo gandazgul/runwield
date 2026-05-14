@@ -21,3 +21,5 @@ bugs
   the OS permissions. We can create a separate user (e.g., "harns_operator") with read-only access to the codebase and
   run all bash commands from that user context. This adds an extra layer of security and ensures that agents cannot
   bypass their tool restrictions.
+- !! is currently sending steering messages instead of executing bash commands.
+- Shift + tab stopped working (thinking level)

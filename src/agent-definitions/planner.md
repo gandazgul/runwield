@@ -1,6 +1,6 @@
 ---
 name: Planner
-model: opencode-anthropic/minimax-m2.5-free
+model: ollama/unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q5_K_XL
 description: "Feature planning agent that produces iterative, focused plans for single features. Inspired by Plannotator's planning approach."
 tools:
     - read
