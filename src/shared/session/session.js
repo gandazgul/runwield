@@ -170,6 +170,55 @@ export async function listPromptTemplates() {
  * @property {"local" | "home" | "bundled"} source
  */
 
+const BUNDLED_SKILLS_CACHE_DIR = HOME_DIR ? join(HOME_DIR, ".hns", "bundled-skills") : null;
+
+/** @type {Promise<string | null> | null} */
+let bundledSkillsExtractionPromise = null;
+
+/**
+ * Recursively copy `srcDir` (which may live inside a Deno-compile virtual
+ * filesystem) into `destDir` on the real filesystem, so external tools can
+ * read the files via their absolute path.
+ *
+ * @param {string} srcDir
+ * @param {string} destDir
+ */
+async function copyTreeFromBundle(srcDir, destDir) {
+    await Deno.mkdir(destDir, { recursive: true });
+    for await (const entry of Deno.readDir(srcDir)) {
+        const srcPath = join(srcDir, entry.name);
+        const destPath = join(destDir, entry.name);
+        if (entry.isDirectory) {
+            await copyTreeFromBundle(srcPath, destPath);
+        } else if (entry.isFile) {
+            const bytes = await Deno.readFile(srcPath);
+            await Deno.writeFile(destPath, bytes);
+        }
+    }
+}
+
+/**
+ * Extract bundled skills (compiled into the binary) to a real on-disk cache so
+ * external read tools can access them. Runs at most once per process.
+ *
+ * @returns {Promise<string | null>} Real path to extracted skills, or null if unavailable.
+ */
+export function extractBundledSkills() {
+    if (bundledSkillsExtractionPromise) return bundledSkillsExtractionPromise;
+    bundledSkillsExtractionPromise = (async () => {
+        if (!BUNDLED_SKILLS_CACHE_DIR) return null;
+        if (!(await directoryExists(SKILLS_DIR))) return null;
+        try {
+            await Deno.remove(BUNDLED_SKILLS_CACHE_DIR, { recursive: true });
+        } catch {
+            // Cache dir may not exist yet — fine.
+        }
+        await copyTreeFromBundle(SKILLS_DIR, BUNDLED_SKILLS_CACHE_DIR);
+        return BUNDLED_SKILLS_CACHE_DIR;
+    })();
+    return bundledSkillsExtractionPromise;
+}
+
 /**
  * List all known skills across bundled + home + local layers.
  * First name wins, based on priority local > home > bundled.
@@ -180,12 +229,14 @@ export async function listSkills() {
     const skills = [];
     const seen = new Set();
 
+    const bundledDir = (await extractBundledSkills()) ?? SKILLS_DIR;
+
     const layers = [
         { dir: join(CWD, ".hns", "skills"), source: /** @type {"local" | "home" | "bundled"} */ ("local") },
         ...(HOME_DIR
             ? [{ dir: join(HOME_DIR, ".hns", "skills"), source: /** @type {"local" | "home" | "bundled"} */ ("home") }]
             : []),
-        { dir: SKILLS_DIR, source: /** @type {"local" | "home" | "bundled"} */ ("bundled") },
+        { dir: bundledDir, source: /** @type {"local" | "home" | "bundled"} */ ("bundled") },
     ];
 
     for (const layer of layers) {
@@ -457,7 +508,7 @@ export async function assembleFinalSystemPrompt(agentDef, tools, finalCustomTool
         const skills = await listSkills();
         skillsBlock = skills
             .filter((skill) => skill.name && skill.description)
-            .map((skill) => `- ${skill.name} - ${skill.description}`)
+            .map((skill) => `- ${skill.name} - ${skill.description} (read: ${skill.path})`)
             .join("\n");
     } catch {
         skillsBlock = "";
