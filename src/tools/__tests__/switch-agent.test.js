@@ -67,11 +67,8 @@ Deno.test("switchAgentTool terminates the calling turn and records a handoff", a
 
     // Terminates the calling agent's turn.
     assertEquals(result.terminate, true);
-    // Tool result text addresses the calling agent (turn-ending).
-    assertMatch(
-        /** @type {{ type: "text", text: string }} */ (result.content[0]).text,
-        /handing off to Router/i,
-    );
+    // Content is empty on success — terminate:true halts generation, no text needed.
+    assertEquals(result.content.length, 0);
     // The reason is preserved on the result details for inspection.
     assertEquals(/** @type {{ agentName: string, reason: string }} */ (result.details).reason, reason);
     assertMatch(systemMessage, /Agent hand-off: Switching to Router/i);
