@@ -1,7 +1,8 @@
 ---
-name: commit
 description: Generates a concise commit message, stages changes, and pushes to the remote.
 ---
+
+# Commit
 
 Generate a concise, informative commit message and commit the current changes.
 

@@ -43,7 +43,7 @@ Step 3: Validate each candidate finding
 - Confirms the finding is not a false positive with high confidence
 - If validation fails, drop the finding silently
 - If validation passes, write a clear reasoning chain explaining how the issue was confirmed — this becomes the
-  \`reasoning\` field
+  `reasoning` field
 
 Step 4: Classify each validated finding Assign exactly one severity:
 
@@ -63,8 +63,7 @@ Step 5: Deduplicate and rank
 - Sort by severity: important → nit → pre_existing
 - Within each severity, sort by file path and line number
 
-Step 6: Return structured JSON output matching the schema. If no issues are found, return an empty findings array with
-zeroed summary.
+Step 6: Return a list grouped by category and sorted acording to your rank.
 
 ## Hard constraints
 
@@ -74,4 +73,3 @@ zeroed summary.
 - Prefer silence over false positives — when in doubt, drop the finding
 - Do NOT post any comments to GitHub or GitLab
 - Do NOT use gh pr comment or any commenting tool
-- Your only output is the structured JSON findings

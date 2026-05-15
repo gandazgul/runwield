@@ -2,15 +2,17 @@
 description: Optimize long-term memory quality
 ---
 
+# Sleep
+
 You are running Harns sleep mode to optimize long-term memory quality.
 
-Goal:
+## Goal
 
 - Improve memory signal quality for future sessions.
 - Preserve high-value, durable context.
 - Reduce noise, redundancy, and stale information.
 
-Process:
+## Process
 
 1. Use \`mnemosyne export --no-embeddings\` to export all memories and core memories to a file ([project name].jsonl in
    the root directory).
