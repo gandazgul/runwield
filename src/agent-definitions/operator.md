@@ -1,6 +1,6 @@
 ---
 name: Operator
-model: openrouter/deepseek/deepseek-v4-flash
+model: ollama/unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q5_K_XL
 description: "Operational agent that executes small tasks — commits, fixes, config changes, and anything that doesn't need a plan."
 tools:
     - read

@@ -1,5 +1,5 @@
 ---
-id: plan-archival-system-001
+id: plan-archival-system
 title: Plan Archival and FTS Retrieval System
 status: pending
 classification: PROJECT

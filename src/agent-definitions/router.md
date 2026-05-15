@@ -1,6 +1,6 @@
 ---
 name: Router
-model: openrouter/deepseek/deepseek-v4-flash
+model: ollama/unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q5_K_XL
 description: "Triage agent that classifies user requests and explores the codebase."
 tools:
     - read

@@ -1,6 +1,6 @@
 ---
 name: Reviewer
-model: openrouter/deepseek/deepseek-v4-flash
+model: ollama/unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q5_K_XL
 description: "Semantic code reviewer. Compares implemented code against the original plan."
 tools:
     - read
