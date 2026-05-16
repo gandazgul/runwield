@@ -177,7 +177,7 @@ export async function listPromptTemplates() {
  * @property {string} name
  * @property {string} description
  * @property {string} path
- * @property {"local" | "home" | "bundled"} source
+ * @property {"local" | "home" | "bundled" | "external"} source
  */
 
 const BUNDLED_SKILLS_CACHE_DIR = HOME_DIR ? join(HOME_DIR, ".hns", "bundled-skills") : null;
@@ -242,11 +242,24 @@ export async function listSkills() {
     const bundledDir = (await extractBundledSkills()) ?? SKILLS_DIR;
 
     const layers = [
-        { dir: join(CWD, ".hns", "skills"), source: /** @type {"local" | "home" | "bundled"} */ ("local") },
+        {
+            dir: join(CWD, ".hns", "skills"),
+            source: /** @type {"local" | "home" | "bundled" | "external"} */ ("local"),
+        },
         ...(HOME_DIR
-            ? [{ dir: join(HOME_DIR, ".hns", "skills"), source: /** @type {"local" | "home" | "bundled"} */ ("home") }]
+            ? [{
+                dir: join(HOME_DIR, ".hns", "skills"),
+                source: /** @type {"local" | "home" | "bundled" | "external"} */ ("home"),
+            }]
             : []),
-        { dir: bundledDir, source: /** @type {"local" | "home" | "bundled"} */ ("bundled") },
+        { dir: bundledDir, source: /** @type {"local" | "home" | "bundled" | "external"} */ ("bundled") },
+        // ── External (Pi-compatible / marketplace) skills ──
+        ...(HOME_DIR
+            ? [{
+                dir: join(HOME_DIR, ".agents", "skills"),
+                source: /** @type {"local" | "home" | "bundled" | "external"} */ ("external"),
+            }]
+            : []),
     ];
 
     for (const layer of layers) {

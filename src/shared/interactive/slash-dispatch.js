@@ -19,7 +19,7 @@ import { getRootSessionManager } from "../session/session-state.js";
  * @property {string} name
  * @property {string} description
  * @property {string} path
- * @property {"local" | "home" | "bundled"} source
+ * @property {"local" | "home" | "bundled" | "external"} source
  */
 
 /**
