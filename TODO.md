@@ -29,6 +29,5 @@
 
 bugs
 
-- /resume doesnt hydrate the entire session or the session file is not saving all of it
 - !! is currently sending steering messages instead of executing bash commands.
-- Shift + tab stopped working (thinking level)
+- Shift + tab stopped working (thinking level)?

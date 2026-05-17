@@ -56,6 +56,7 @@ import {
 import { directoryExists, fileExists } from "../helpers.js";
 import { loadAgentDef, resolveAgentDefsDir as _resolveAgentDefsDir, resolveSessionToolNames } from "./agents.js";
 import { getSettingsDir, getSettingsManager } from "../settings.js";
+import { getCustomSetting } from "../settings.js";
 
 const HOME_PROMPTS_DIR = HOME_DIR ? join(HOME_DIR, ".hns", "prompts") : null;
 const LOCAL_PROMPTS_DIR = join(CWD, ".hns", "prompts");
@@ -241,6 +242,8 @@ export async function listSkills() {
 
     const bundledDir = (await extractBundledSkills()) ?? SKILLS_DIR;
 
+    const enableExternalSkills = getCustomSetting("enableExternalSkills", "global") ?? true;
+
     const layers = [
         {
             dir: join(CWD, ".hns", "skills"),
@@ -254,7 +257,7 @@ export async function listSkills() {
             : []),
         { dir: bundledDir, source: /** @type {"local" | "home" | "bundled" | "external"} */ ("bundled") },
         // ── External (Pi-compatible / marketplace) skills ──
-        ...(HOME_DIR
+        ...(enableExternalSkills && HOME_DIR
             ? [{
                 dir: join(HOME_DIR, ".agents", "skills"),
                 source: /** @type {"local" | "home" | "bundled" | "external"} */ ("external"),

@@ -7,10 +7,10 @@
     <g transform="translate(10, 10)">
         <path
             d="M 0 0 h 20 v 40 h 20 v -40 h 20 v 100 h -20 v -40 h -20 v 40 h -20 z"
-            fill="#209fb5"
+            fill="#94e2d5"
         />
 
-        <rect x="80" y="80" width="20" height="20" fill="#209fb5">
+        <rect x="80" y="80" width="20" height="20" fill="#94e2d5">
             <animate
                 attributeName="opacity"
                 values="1;0;1"

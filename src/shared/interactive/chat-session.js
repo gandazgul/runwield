@@ -8,6 +8,7 @@ import { CombinedAutocompleteProvider, Container, Editor, Spacer, Text } from "@
 import { initTUI } from "../ui/tui.js";
 import { applyPersistedTheme, getEditorTheme, initHarnsTheme, onThemeChange, theme } from "../ui/theme.js";
 import { HNS_VERSION } from "../version.js";
+import { endBlink, renderBootLogo } from "../ui/boot-logo.js";
 import { createUiApi } from "../ui/api.js";
 import { SpinnerBlock, SystemMessageBlock } from "../ui/blocks.js";
 import { ensureRootAgentSession, listPromptTemplates, listSkills, steerRootSession } from "../session/session.js";
@@ -256,11 +257,11 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
     }`;
 
     const compactHelp = theme.fg(
-        "dim",
+        "muted",
         ["esc interrupt", "ctrl+c clear/exit", "/ commands", "! bash", "ctrl+o more"].join(" · "),
     );
     const expandedHelp = theme.fg(
-        "dim",
+        "muted",
         [
             "esc          to interrupt",
             "ctrl+c       to clear input",
@@ -285,9 +286,16 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         helpText.setText(expanded ? expandedHelp : compactHelp);
     }
 
-    container.addChild(new Spacer(1));
+    // Render the logo first
+    renderBootLogo(container);
+    // Title line
     container.addChild(new Text(titleLine, 0, 0));
+    // Help text
     container.addChild(helpText);
+
+    // Blank lines before first message
+    container.addChild(new Spacer(1));
+    container.addChild(new Spacer(1));
     container.addChild(new Spacer(1));
 
     const messageList = new Container();
@@ -770,6 +778,9 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
     }
 
     editor.onSubmit = (text) => {
+        // end the logo blink and make it static
+        endBlink();
+
         const userRequest = text.trim();
         if (!userRequest) return;
 
