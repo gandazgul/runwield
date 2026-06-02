@@ -1,6 +1,6 @@
 ---
 name: Operator
-model: ollama/unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q5_K_XL
+model: coftai/deepseek-v4-pro
 description: "Operational agent that executes small tasks — commits, fixes, config changes, and anything that doesn't need a plan."
 tools:
     - read

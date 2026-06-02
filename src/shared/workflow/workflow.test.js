@@ -100,7 +100,7 @@ Deno.test("buildSlicerRequest includes plan name and base instructions", () => {
     const text = buildSlicerRequest("my-plan", undefined);
     assertStringIncludes(text, "Slice Plan: my-plan");
     assertStringIncludes(text, "plans/my-plan.md");
-    assertStringIncludes(text, "slicer-tasks-format.md");
+    assertStringIncludes(text, "system prompt");
     // Without triage meta, the report block must not appear.
     assertEquals(text.includes("Triage Report"), false);
 });

@@ -70,8 +70,8 @@ If you do quiz, ask 1–2 questions max. Do not quiz about doc-writer/tester all
 
 ## Output Format
 
-Read the canonical format at `src/agent-definitions/plan-formats/slicer-tasks-format.md` before drafting. Follow its
-structure exactly: a `## Tasks` section with the markdown table, followed by a `### Slice Details` section with one
+Read the canonical format at `{{BUNDLED_AGENT_DEFS_DIR}}/plan-formats/slicer-tasks-format.md` before drafting. Follow
+its structure exactly: a `## Tasks` section with the markdown table, followed by a `### Slice Details` section with one
 `#### Task N — <title>` block per non-tester task.
 
 **You MUST append your output to the VERY BOTTOM of the plan file.** Do not insert it in the middle.

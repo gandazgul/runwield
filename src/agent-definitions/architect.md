@@ -81,8 +81,8 @@ You will receive:
 
 ## The Plan Format (CRITICAL)
 
-Use the embedded template file at `src/agent-definitions/plan-formats/architect-plan-format.md` as the canonical plan
-format. Before drafting, read that file and follow its structure exactly.
+Use the embedded template file at `{{BUNDLED_AGENT_DEFS_DIR}}/plan-formats/architect-plan-format.md` as the canonical
+plan format. Before drafting, read that file and follow its structure exactly.
 
 Front matter is mandatory and must be parseable by Harns plan parsing. Include at least:
 

@@ -17,7 +17,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { extractYaml, test as hasFrontMatter } from "@std/front-matter";
 import { join } from "@std/path";
-import { AGENTS, CWD, HOME_DIR, PROMPT_TEMPLATES_DIR, SKILLS_DIR } from "../../constants.js";
+import { AGENT_DEFS_DIR, AGENTS, CWD, HOME_DIR, PROMPT_TEMPLATES_DIR, SKILLS_DIR } from "../../constants.js";
 import mnemosyneExtension, {
     memoryDeleteToolDef,
     memoryRecallGlobalToolDef,
@@ -182,9 +182,13 @@ export async function listPromptTemplates() {
  */
 
 const BUNDLED_SKILLS_CACHE_DIR = HOME_DIR ? join(HOME_DIR, ".hns", "bundled-skills") : null;
+const BUNDLED_AGENT_DEFS_CACHE_DIR = HOME_DIR ? join(HOME_DIR, ".hns", "bundled-agent-definitions") : null;
 
 /** @type {Promise<string | null> | null} */
 let bundledSkillsExtractionPromise = null;
+
+/** @type {Promise<string | null> | null} */
+let bundledAgentDefsExtractionPromise = null;
 
 /**
  * Recursively copy `srcDir` (which may live inside a Deno-compile virtual
@@ -228,6 +232,49 @@ export function extractBundledSkills() {
         return BUNDLED_SKILLS_CACHE_DIR;
     })();
     return bundledSkillsExtractionPromise;
+}
+
+/**
+ * Extract bundled agent definitions (compiled into the binary) to a real
+ * on-disk cache so external read tools can access them. Runs at most once
+ * per process. Mirrors the bundled-skills extraction pattern.
+ *
+ * @returns {Promise<string | null>} Real path to extracted agent defs, or null if unavailable.
+ */
+export function extractBundledAgentDefs() {
+    if (bundledAgentDefsExtractionPromise) return bundledAgentDefsExtractionPromise;
+    bundledAgentDefsExtractionPromise = (async () => {
+        if (!BUNDLED_AGENT_DEFS_CACHE_DIR) return null;
+        if (!(await directoryExists(AGENT_DEFS_DIR))) return null;
+        try {
+            await Deno.remove(BUNDLED_AGENT_DEFS_CACHE_DIR, { recursive: true });
+        } catch {
+            // Cache dir may not exist yet — fine.
+        }
+        await copyTreeFromBundle(AGENT_DEFS_DIR, BUNDLED_AGENT_DEFS_CACHE_DIR);
+        return BUNDLED_AGENT_DEFS_CACHE_DIR;
+    })();
+    return bundledAgentDefsExtractionPromise;
+}
+
+/**
+ * Resolve the runtime-readable bundled agent definitions directory.
+ * Returns the extracted cache path when available (compiled binary or first-run),
+ * falling back to the bundled source directory.
+ *
+ * @returns {Promise<string>} Absolute path to the agent-defs root.
+ */
+export function getBundledAgentDefsPath() {
+    return getBundledAgentDefsPathInner();
+}
+
+/** @type {Promise<string> | null} */
+let bundledAgentDefsPathPromise = null;
+
+function getBundledAgentDefsPathInner() {
+    if (bundledAgentDefsPathPromise) return bundledAgentDefsPathPromise;
+    bundledAgentDefsPathPromise = extractBundledAgentDefs().then((extracted) => extracted ?? AGENT_DEFS_DIR);
+    return bundledAgentDefsPathPromise;
 }
 
 /**
@@ -561,6 +608,10 @@ export async function assembleFinalSystemPrompt(agentDef, tools, finalCustomTool
         skillsBlock = "";
     }
     finalSystemPrompt = finalSystemPrompt.replace("{{SKILLS}}", skillsBlock);
+
+    // Resolve the bundled agent definitions path (extracted cache or fallback)
+    const bundledAgentDefsPath = await getBundledAgentDefsPath();
+    finalSystemPrompt = finalSystemPrompt.replace("{{BUNDLED_AGENT_DEFS_DIR}}", bundledAgentDefsPath);
 
     return finalSystemPrompt;
 }

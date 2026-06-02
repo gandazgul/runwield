@@ -128,7 +128,7 @@ export function buildSlicerRequest(planName, triageMeta) {
         "",
         `The architect has finished a design-only plan at plans/${planName}.md. The user approved the design.`,
         "Your job: read the plan, then append a Tasks section and per-slice detail blocks using the edit tool.",
-        "Follow the format at src/agent-definitions/plan-formats/slicer-tasks-format.md exactly.",
+        "Follow the slicer tasks format file referenced in your system prompt exactly.",
         "",
     ];
     if (triageMeta) {
