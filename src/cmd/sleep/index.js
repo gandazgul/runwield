@@ -21,7 +21,7 @@ import { ensureMnemosyneBinary as ensureMnemosyneBinaryFn } from "../../shared/r
  * Handle `sleep` command.
  *
  * @param {string[]} argv
- * @param {{ __testDeps?: CommandDependencies }} [options]
+ * @param {{ __testDeps?: CommandDependencies, uiAPI?: { appendSystemMessage?: (message: string) => void } }} [options]
  */
 export async function runSleepCommand(argv, options = {}) {
     const deps = /** @type {CommandDependencies} */ ((/** @type {any} */ (options)).__testDeps || {});
@@ -50,7 +50,17 @@ export async function runSleepCommand(argv, options = {}) {
 
     await ensureMnemosyneBinary();
 
-    console.log("[Harns] Running sleep mode (memory optimization)...\n");
+    const uiAPI = options.uiAPI;
+    /** @param {string} message */
+    const notify = (message) => {
+        if (uiAPI?.appendSystemMessage) {
+            uiAPI.appendSystemMessage(message);
+            return;
+        }
+        console.log(message);
+    };
+
+    notify("[Harns] Running sleep mode (memory optimization)...");
 
     // Route through the /sleep prompt template using the operator agent
     await runAgentSession({
@@ -58,5 +68,5 @@ export async function runSleepCommand(argv, options = {}) {
         userRequest: "/sleep",
     });
 
-    console.log("\n[Harns] ✅ Sleep complete.");
+    notify("[Harns] ✅ Sleep complete.");
 }
