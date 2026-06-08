@@ -152,7 +152,7 @@ Deno.test("SystemMessageBlock renders with mdHeading heading style", () => {
 
     // We expect at least two distinct fg color codes.
     // deno-lint-ignore no-control-regex
-    const fgMatches = contentLine.match(/\x1b\[38;2;\d+;\d+;\d+m/g) || [];
+    const fgMatches = contentLine.match(/\x1b\[(?:38;2;\d+;\d+;\d+|38;5;\d+)m/g) || [];
     const uniqueFg = [...new Set(fgMatches)];
     assertEquals(
         uniqueFg.length >= 2,
@@ -160,9 +160,9 @@ Deno.test("SystemMessageBlock renders with mdHeading heading style", () => {
         "Should have at least two distinct foreground colors",
     );
 
-    // The mdHeading color is peach (#fab387) → 250;179;135. Verify it's actually rendered.
-    const hasPeach = fgMatches.some((m) => m === "\x1b[38;2;250;179;135m");
-    assertEquals(hasPeach, true, "Should contain the peach/mdHeading (250;179;135) ANSI code");
+    // The mdHeading color is peach (#fab387) → 250;179;135 (truecolor) or 216 (256-color).
+    const hasPeach = fgMatches.some((m) => m === "\x1b[38;2;250;179;135m" || m === "\x1b[38;5;216m");
+    assertEquals(hasPeach, true, "Should contain the peach/mdHeading ANSI code");
 });
 
 Deno.test("SystemMessageBlock appendText uses header and style", () => {

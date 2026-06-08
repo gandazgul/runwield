@@ -31,11 +31,4 @@
 
 bugs
 
-- !! is currently sending steering messages instead of executing bash commands.
 - Shift + tab stopped working (thinking level)?
-
-- the planner and probably the architect cant find the plan format\
-  read src/agent-definitions/plan-formats/planner-plan-format.md
-
-  ENOENT: no such file or directory, access
-  '/Users/gandazgul/Documents/web/berenstain-bears/src/agent-definitions/plan-formats/planner-plan-format.md'

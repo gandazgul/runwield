@@ -17,10 +17,17 @@
  *   next agent's first turn. Sent as a user message after the root swap.
  */
 
+/**
+ * @typedef {Object} AgentInfo
+ * @property {string} displayName
+ * @property {string} model
+ * @property {string} provider
+ */
+
 /** @type {{
- * activeAgentName: string,
- * activeModel: string,
- * activeModelProvider: string,
+ * agentInfoStack: AgentInfo[],
+ * userModelOverrideId: string,
+ * userModelOverrideProvider: string,
  * userModelOverride: boolean,
  * activeThinkingLevel: "off" | "minimal" | "low" | "medium" | "high" | "xhigh",
  * activeOnMessage: import('./types.js').AgentMessageHandler | null,
@@ -35,9 +42,9 @@
 const state = {
     // Initial placeholder; overwritten by startInteractiveSession() once the
     // agent definitions have been loaded and the real display name is known.
-    activeAgentName: "",
-    activeModel: "",
-    activeModelProvider: "",
+    agentInfoStack: [],
+    userModelOverrideId: "",
+    userModelOverrideProvider: "",
     userModelOverride: false,
     activeThinkingLevel: "off",
     activeOnMessage: null,
@@ -50,13 +57,31 @@ const state = {
     activeUiAPI: null,
 };
 
-export function getActiveAgentName() {
-    return state.activeAgentName;
+/**
+ * @param {string} displayName
+ * @param {string} [model=""]
+ * @param {string} [provider=""]
+ */
+export function pushAgentInfo(displayName, model = "", provider = "") {
+    state.agentInfoStack.push({ displayName, model, provider });
 }
 
-/** @param {string} name */
-export function setActiveAgentName(name) {
-    state.activeAgentName = name;
+export function popAgentInfo() {
+    state.agentInfoStack.pop();
+}
+
+/**
+ * @param {string} displayName
+ * @param {string} [model=""]
+ * @param {string} [provider=""]
+ */
+export function resetAgentInfoStack(displayName, model = "", provider = "") {
+    state.agentInfoStack = [{ displayName, model, provider }];
+}
+
+export function getActiveAgentName() {
+    if (state.agentInfoStack.length === 0) return "";
+    return state.agentInfoStack[state.agentInfoStack.length - 1].displayName;
 }
 
 /**
@@ -65,13 +90,26 @@ export function setActiveAgentName(name) {
  * @param {boolean} [isUserOverride] - true when set explicitly via /model
  */
 export function setActiveModelState(model, provider = "", isUserOverride = false) {
-    state.activeModel = model;
-    if (provider) state.activeModelProvider = provider;
-    state.userModelOverride = isUserOverride;
+    if (isUserOverride) {
+        state.userModelOverrideId = model;
+        state.userModelOverrideProvider = provider;
+        state.userModelOverride = true;
+    } else {
+        if (state.agentInfoStack.length > 0) {
+            const top = state.agentInfoStack[state.agentInfoStack.length - 1];
+            top.model = model;
+            top.provider = provider;
+        }
+    }
 }
 
 export function getActiveModelState() {
-    return { model: state.activeModel, provider: state.activeModelProvider };
+    if (state.userModelOverride) {
+        return { model: state.userModelOverrideId, provider: state.userModelOverrideProvider };
+    }
+    if (state.agentInfoStack.length === 0) return { model: "", provider: "" };
+    const top = state.agentInfoStack[state.agentInfoStack.length - 1];
+    return { model: top.model, provider: top.provider };
 }
 
 /** @returns {boolean} true when the active model was explicitly chosen by the user via /model */
@@ -81,8 +119,8 @@ export function isUserModelOverride() {
 
 export function clearUserModelOverride() {
     state.userModelOverride = false;
-    state.activeModel = "";
-    state.activeModelProvider = "";
+    state.userModelOverrideId = "";
+    state.userModelOverrideProvider = "";
 }
 
 /** @param {import('./types.js').AgentMessageHandler | null} handler */

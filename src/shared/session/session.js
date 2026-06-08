@@ -49,12 +49,20 @@ import {
     getRootAgentSession,
     getSubAgentSessions,
     isUserModelOverride,
+    popAgentInfo,
+    pushAgentInfo,
     removeSubAgentSession,
+    resetAgentInfoStack,
     setRootAgentName,
     setRootAgentSession,
 } from "./session-state.js";
 import { directoryExists, fileExists } from "../helpers.js";
-import { loadAgentDef, resolveAgentDefsDir as _resolveAgentDefsDir, resolveSessionToolNames } from "./agents.js";
+import {
+    _AGENT_REMINDERS,
+    loadAgentDef,
+    resolveAgentDefsDir as _resolveAgentDefsDir,
+    resolveSessionToolNames,
+} from "./agents.js";
 import { getCustomSetting, getMergedCustomSetting, getSettingsDir, getSettingsManager } from "../settings.js";
 
 const HOME_PROMPTS_DIR = HOME_DIR ? join(HOME_DIR, ".hns", "prompts") : null;
@@ -437,7 +445,7 @@ export async function steerRootSession(text, images) {
  * @param {string} agentName
  * @returns {string | undefined}
  */
-function getConfiguredAgentModel(agentName) {
+export function getConfiguredAgentModel(agentName) {
     const agents = /** @type {Record<string, { model?: string }> | undefined} */ (
         getMergedCustomSetting("agents")
     );
@@ -679,7 +687,14 @@ export async function assembleFinalSystemPrompt(agentDef, tools, finalCustomTool
  * @param {import('../../tools/plan-written.js').TriageMeta} [opts.triageMeta]
  * @param {import('./types.js').AgentDefinition} [opts._agentDefOverride]
  *
- * @returns {Promise<{ session: import('@earendil-works/pi-coding-agent').AgentSession, agentDef: import('./types.js').AgentDefinition, promptState: { text: string }, tools: string[], finalCustomTools: import('@earendil-works/pi-coding-agent').ToolDefinition[] }>}
+ * @returns {Promise<{
+ *   session: import('@earendil-works/pi-coding-agent').AgentSession,
+ *   agentDef: import('./types.js').AgentDefinition,
+ *   promptState: { text: string },
+ *   tools: string[],
+ *   finalCustomTools: import('@earendil-works/pi-coding-agent').ToolDefinition[],
+ *   resolvedModel: import('../models/types.js').ModelInfo | undefined
+ * }>}
  */
 export async function buildAgentSession({
     agentName,
@@ -728,25 +743,6 @@ export async function buildAgentSession({
 
     if (tools.includes("user_interview") && !finalCustomTools.find((t) => t.name === "user_interview")) {
         finalCustomTools.push(createUserInterviewTool(uiAPI));
-    }
-
-    // Update the agent info in the UI footer.
-    if (uiAPI?.setAgentInfo) {
-        // Priority: configured per-agent model > agentDef.model > Default Settings.
-        // The active model state is NOT used here — it may be stale from a
-        // previous agent. It is only considered by resolveModel() when the
-        // user explicitly selected it via /model (guarded by isUserModelOverride).
-        const configuredModel = getConfiguredAgentModel(agentName);
-        const settingsManager = getSettingsManager();
-        const defaultModelId = settingsManager.getDefaultModel();
-        const defaultProvider = settingsManager.getDefaultProvider();
-        const defaultSettingModel = defaultModelId
-            ? (defaultProvider ? `${defaultProvider}/${defaultModelId}` : defaultModelId)
-            : null;
-
-        const finalModelForUi = configuredModel || agentDef.model || defaultSettingModel || undefined;
-
-        uiAPI.setAgentInfo(agentDef.displayName, finalModelForUi);
     }
 
     // Resolve system prompt placeholders
@@ -799,7 +795,7 @@ export async function buildAgentSession({
     // Ensure extension lifecycle hooks (e.g. session_start) are activated for this agent invocation.
     await session.bindExtensions({});
 
-    return { session, agentDef, promptState, tools, finalCustomTools };
+    return { session, agentDef, promptState, tools, finalCustomTools, resolvedModel };
 }
 
 /**
@@ -1183,8 +1179,11 @@ export async function ensureRootAgentSession(opts) {
         setRootAgentName(null);
     }
 
-    const { session, agentDef, promptState, tools, finalCustomTools } = await buildAgentSession(opts);
+    const { session, agentDef, promptState, tools, finalCustomTools, resolvedModel } = await buildAgentSession(opts);
     const subscriberState = attachUiSubscribers(session, agentDef, opts.uiAPI);
+
+    const finalModelForUi = resolvedModel ? `${resolvedModel.provider}/${resolvedModel.id}` : undefined;
+    resetAgentInfoStack(agentDef.displayName, finalModelForUi);
 
     setRootAgentSession(session);
     setRootAgentName(opts.agentName);
@@ -1261,22 +1260,36 @@ export async function runRootTurn({ agentName, userRequest, images, uiAPI }) {
  * @returns {Promise<import('@earendil-works/pi-agent-core').AgentMessage[]>}
  */
 export async function runAgentSession(opts) {
-    const { session, agentDef, promptState } = await buildAgentSession(opts);
+    const { session, agentDef, promptState, resolvedModel } = await buildAgentSession(opts);
     const subscriberState = attachUiSubscribers(session, agentDef, opts.uiAPI);
     addSubAgentSession(session);
+
+    const suppressUI = opts.uiAPI?.isOutputSuppressed?.();
+    if (!suppressUI) {
+        const finalModelForUi = resolvedModel ? `${resolvedModel.provider}/${resolvedModel.id}` : undefined;
+        pushAgentInfo(agentDef.displayName, finalModelForUi);
+        opts.uiAPI?.requestRender?.();
+    }
+
+    const reminder = _AGENT_REMINDERS[opts.agentName] || "";
+    const finalRequest = reminder ? `${opts.userRequest}${reminder}` : opts.userRequest;
 
     try {
         return await runPrompt({
             session,
             agentDef,
             agentName: opts.agentName,
-            userRequest: opts.userRequest,
+            userRequest: finalRequest,
             finalSystemPrompt: promptState.text,
             images: opts.images,
             uiAPI: opts.uiAPI,
             subscriberState,
         });
     } finally {
+        if (!suppressUI) {
+            popAgentInfo();
+            opts.uiAPI?.requestRender?.();
+        }
         removeSubAgentSession(session);
         try {
             subscriberState.unsubscribe();
@@ -1400,6 +1413,35 @@ export async function expandSkillCommand(skillName, additionalInstructions) {
     } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         throw new Error(`Failed to read skill "${skill.name}": ${message}`);
+    }
+}
+
+/**
+ * Expand a prompt template file into a final user request string.
+ *
+ * @param {string} templatePath
+ * @param {string} [additionalInstructions]
+ * @returns {Promise<string>} Formatted prompt template string
+ */
+export async function expandPromptTemplate(templatePath, additionalInstructions) {
+    try {
+        const raw = await Deno.readTextFile(templatePath);
+        let body = raw;
+
+        // Strip YAML frontmatter if present
+        if (hasFrontMatter(raw)) {
+            body = extractYaml(raw).body;
+        }
+        body = body.trim();
+
+        // Append user instructions after the template block
+        if (additionalInstructions) {
+            return `${body}\n\n${additionalInstructions}`;
+        }
+        return body;
+    } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        throw new Error(`Failed to read prompt template at "${templatePath}": ${message}`);
     }
 }
 

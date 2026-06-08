@@ -821,6 +821,15 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         }
 
         if (isProcessingSubmission) {
+            if (userRequest === "/model" || userRequest.startsWith("/model ")) {
+                uiAPI.appendSystemMessage(
+                    "I'm not able to change the model right now wait until idle or cancel with Esc.",
+                    false,
+                    "Harns",
+                );
+                return;
+            }
+
             steerRootSession(userRequest, images).then((steered) => {
                 if (steered) {
                     uiAPI.appendSystemMessage(userRequest, false, "Steering:");

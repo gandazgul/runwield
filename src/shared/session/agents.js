@@ -14,9 +14,7 @@ const LOCAL_AGENT_DEFS_DIR = join(CWD, ".hns", "agents");
 
 export const __dirname = dirname(fromFileUrl(import.meta.url));
 
-// TODO: insert these reminders after the user request when calling agents. This will remind smaller models or models without a system prompt field of their core role and make them <hopefully> pay attention.
-// @ts-ignore: pending implementation
-const _AGENT_REMINDERS = {
+export const _AGENT_REMINDERS = {
     [AGENTS.ROUTER]:
         "\n\n[CRITICAL REMINDER: You are the Router. You must evaluate the request and immediately call the `triage_report` tool. Do not converse with the user or write code.]",
     [AGENTS.OPERATOR]:

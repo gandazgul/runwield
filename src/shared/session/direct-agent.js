@@ -10,7 +10,10 @@ import {
     executePlan as executePlanFn,
     readLatestPlanOutcome as readLatestPlanOutcomeFn,
 } from "../workflow/workflow.js";
-import { getRootAgentName } from "./session-state.js";
+import { consumePendingSwitchHandoff, getRootAgentName } from "./session-state.js";
+import { runValidationLoop } from "../workflow/orchestrator.js";
+import { join } from "@std/path";
+import { CWD } from "../../constants.js";
 
 /**
  * Create an onMessage handler that sends prompts directly to a specific agent.
@@ -31,6 +34,7 @@ import { getRootAgentName } from "./session-state.js";
  *   runRootTurn?: typeof runRootTurnFn,
  *   readLatestPlanOutcome?: typeof readLatestPlanOutcomeFn,
  *   executePlan?: typeof executePlanFn,
+ *   runValidationLoop?: typeof runValidationLoop,
  * }} [__deps] - Test-only injection point.
  * @returns {import('./types.js').AgentMessageHandler}
  */
@@ -39,6 +43,7 @@ export function createDirectAgentHandler(agentName, __deps) {
     const runRootTurn = __deps?.runRootTurn || runRootTurnFn;
     const readLatestPlanOutcome = __deps?.readLatestPlanOutcome || readLatestPlanOutcomeFn;
     const executePlan = __deps?.executePlan || executePlanFn;
+    const runValidationLoopImpl = __deps?.runValidationLoop || runValidationLoop;
 
     return async (userRequest, images, uiAPI, sessionManager) => {
         // If the live root is already this agent (the common case after a switch has been
@@ -67,6 +72,23 @@ export function createDirectAgentHandler(agentName, __deps) {
                 outcome.tasks,
                 sessionManager,
             );
+
+            consumePendingSwitchHandoff(); // Drain any switch requests from execution sub-agents
+
+            let planContent = "";
+            try {
+                planContent = await Deno.readTextFile(join(CWD, "plans", `${outcome.planName}.md`));
+            } catch {
+                // Ignore in tests or if the file doesn't exist
+            }
+
+            await runValidationLoopImpl({
+                planName: outcome.planName,
+                planContent,
+                triageMeta: outcome.triageMeta || {},
+                uiAPI,
+                sessionManager,
+            });
         }
     };
 }

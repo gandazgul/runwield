@@ -23,7 +23,12 @@ import { setActiveAgent } from "../interactive/chat-session.js";
 import { createDirectAgentHandler } from "../session/direct-agent.js";
 import { runAgentSession, runRootTurn } from "../session/session.js";
 import { getAgentDisplayName } from "../session/agents.js";
-import { getRootAgentName } from "../session/session-state.js";
+import {
+    consumePendingSwitchHandoff,
+    getRootAgentName,
+    popAgentInfo,
+    pushAgentInfo,
+} from "../session/session-state.js";
 import { getCustomSetting, setCustomSetting } from "../settings.js";
 import { createSilentUiApi } from "../ui/api.js";
 import { executePlan, extractAssistantOutput, runPlanningAgent } from "./workflow.js";
@@ -172,7 +177,6 @@ export async function dispatchPostTriage({ triage, userRequest, images, uiAPI, s
     if (triage.classification === "QUICK_FIX") {
         const operatorDisplay = getAgentDisplayName(AGENTS.OPERATOR);
         uiAPI.appendSystemMessage(`=== Phase B: ${operatorDisplay} (Execute) ===`);
-        setActiveAgent(AGENTS.OPERATOR, createDirectAgentHandler(AGENTS.OPERATOR), uiAPI);
 
         await runAgentSession({
             agentName: AGENTS.OPERATOR,
@@ -181,6 +185,7 @@ export async function dispatchPostTriage({ triage, userRequest, images, uiAPI, s
             uiAPI,
             sessionManager,
         });
+        consumePendingSwitchHandoff(); // drain any switch requests so they don't leak
 
         uiAPI.appendSystemMessage(`✅ ${operatorDisplay} execution complete.`);
         sessionManager?.appendCustomMessageEntry?.(
@@ -189,6 +194,7 @@ export async function dispatchPostTriage({ triage, userRequest, images, uiAPI, s
             true,
             `Quick fix executed by ${operatorDisplay}. Summary:\n${triage.summary}`,
         );
+        setActiveAgent(AGENTS.OPERATOR, createDirectAgentHandler(AGENTS.OPERATOR), uiAPI);
         return;
     }
 
@@ -202,138 +208,166 @@ export async function dispatchPostTriage({ triage, userRequest, images, uiAPI, s
 
         uiAPI.appendSystemMessage(phaseLabel);
         uiAPI.appendSystemMessage(`=== Phase B: ${displayName} ===`);
-        setActiveAgent(agentName, createDirectAgentHandler(agentName), uiAPI);
 
-        await ensurePlansDir(CWD);
+        const { getConfiguredAgentModel } = await import("../session/session.js");
+        pushAgentInfo(displayName, getConfiguredAgentModel(agentName));
 
-        const outcome = await runPlanningAgent({
-            agentName,
-            initialRequest: decoratedRequest,
-            triageMeta: triage,
-            uiAPI,
-            sessionManager,
-        });
+        try {
+            await ensurePlansDir(CWD);
 
-        if (outcome.outcome !== "approved_execute" || !outcome.planName) return;
-
-        // ... (planner/architect runs, returns approved_execute) ...
-
-        await executePlan(
-            outcome.planName,
-            outcome.triageMeta || triage,
-            uiAPI,
-            outcome.tasks,
-            sessionManager,
-        );
-
-        // ==========================================
-        // PHASE C & D: THE UNIFIED VALIDATION LOOP
-        // ==========================================
-        let executionComplete = false;
-        let validationCycles = 0;
-        const MAX_VALIDATION_CYCLES = 3; // How many times we allow the Engineer to attempt fixes
-
-        // Read the plan text once to feed to the reviewer
-        const planContent = await Deno.readTextFile(join(CWD, "plans", `${outcome.planName}.md`));
-
-        while (!executionComplete && validationCycles < MAX_VALIDATION_CYCLES) {
-            validationCycles++;
-            uiAPI.appendSystemMessage(`\n🔄 Starting Validation Cycle ${validationCycles}/${MAX_VALIDATION_CYCLES}`);
-
-            // ------------------------------------------
-            // Step 1: Mechanical Validation (CI)
-            // ------------------------------------------
-            let buildPasses = false;
-            let mechanicalAttempts = 0;
-
-            while (!buildPasses && mechanicalAttempts < 3) {
-                mechanicalAttempts++;
-                uiAPI.appendSystemMessage(`⚙️ Running CI Validation (Attempt ${mechanicalAttempts}/3)...`);
-                const ciResult = await runLocalCI(uiAPI);
-
-                if (ciResult.exitCode === 0) {
-                    buildPasses = true;
-                    uiAPI.appendSystemMessage("✅ Build and tests passed!");
-                } else {
-                    uiAPI.appendSystemMessage(
-                        `❌ Build failed. Dispatching ${getAgentDisplayName(AGENTS.OPERATOR)} to fix syntax/types...`,
-                    );
-                    setActiveAgent(AGENTS.OPERATOR, createDirectAgentHandler(AGENTS.OPERATOR), uiAPI);
-                    await runAgentSession({
-                        agentName: AGENTS.OPERATOR,
-                        userRequest:
-                            `The project failed CI validation. Fix the following build errors:\n\n${ciResult.output}`,
-                        uiAPI,
-                        sessionManager,
-                    });
-                }
-            }
-
-            if (!buildPasses) {
-                uiAPI.appendSystemMessage("⚠️ Mechanical validation failed 3 times. Halting cycle for human review.");
-                break; // Break out of the unified loop, halt execution
-            }
-
-            // ------------------------------------------
-            // Step 2: Semantic Code Review
-            // ------------------------------------------
-            uiAPI.appendSystemMessage(`🧐 Running Semantic Code Review...`);
-
-            const diffCmd = new Deno.Command("git", { args: ["diff"], cwd: CWD, stdout: "piped" });
-            const { stdout: diffOut } = await diffCmd.output();
-            const diffText = new TextDecoder().decode(diffOut);
-
-            if (!diffText.trim()) {
-                uiAPI.appendSystemMessage("✅ No changes detected in diff. Assuming approved.");
-                executionComplete = true;
-                break;
-            }
-
-            const reviewPrompt =
-                `Compare the current implementation diff against the original plan. If the code fully satisfies the plan, reply ONLY with the word 'APPROVED'. Otherwise, list the missing semantic requirements.\n\n### Original Plan\n${planContent}\n\n### Git Diff\n${diffText}`;
-
-            const sessionMessages = await runAgentSession({
-                agentName: AGENTS.REVIEWER,
-                userRequest: reviewPrompt,
-                uiAPI: createSilentUiApi(),
+            const outcome = await runPlanningAgent({
+                agentName,
+                initialRequest: decoratedRequest,
+                triageMeta: triage,
+                uiAPI,
                 sessionManager,
             });
+            consumePendingSwitchHandoff(); // Drain any switch requests from planner
 
-            const reviewResponse = extractAssistantOutput(sessionMessages) || "";
+            if (outcome.outcome !== "approved_execute" || !outcome.planName) return;
 
-            if (reviewResponse.includes("APPROVED")) {
-                uiAPI.appendSystemMessage("✅ Semantic Code Review Approved!");
-                executionComplete = true;
-                // This will exit the while loop cleanly!
+            await executePlan(
+                outcome.planName,
+                outcome.triageMeta || triage,
+                uiAPI,
+                outcome.tasks,
+                sessionManager,
+            );
+            consumePendingSwitchHandoff(); // Drain any switch requests from execution sub-agents
+
+            let planContent = "";
+            try {
+                planContent = await Deno.readTextFile(join(CWD, "plans", `${outcome.planName}.md`));
+            } catch {
+                // Ignore in tests or if the file doesn't exist
+            }
+
+            await runValidationLoop({
+                planName: outcome.planName,
+                planContent,
+                triageMeta: outcome.triageMeta || triage,
+                uiAPI,
+                sessionManager,
+            });
+        } finally {
+            popAgentInfo();
+        }
+        setActiveAgent(AGENTS.ENGINEER, createDirectAgentHandler(AGENTS.ENGINEER), uiAPI);
+    }
+}
+
+/**
+ * Unified validation loop (Phase C & D). Runs CI validation and semantic code review.
+ * @param {Object} args
+ * @param {string} args.planName
+ * @param {string} args.planContent
+ * @param {import('../../tools/plan-written.js').TriageMeta} args.triageMeta
+ * @param {import('./workflow.js').UiAPI} args.uiAPI
+ * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined} args.sessionManager
+ */
+export async function runValidationLoop({ planName: _planName, planContent, triageMeta, uiAPI, sessionManager }) {
+    let executionComplete = false;
+    let validationCycles = 0;
+    const MAX_VALIDATION_CYCLES = 3; // How many times we allow the Engineer to attempt fixes
+
+    while (!executionComplete && validationCycles < MAX_VALIDATION_CYCLES) {
+        validationCycles++;
+        uiAPI?.appendSystemMessage?.(`\n🔄 Starting Validation Cycle ${validationCycles}/${MAX_VALIDATION_CYCLES}`);
+
+        // ------------------------------------------
+        // Step 1: Mechanical Validation (CI)
+        // ------------------------------------------
+        let buildPasses = false;
+        let mechanicalAttempts = 0;
+
+        while (!buildPasses && mechanicalAttempts < 3) {
+            mechanicalAttempts++;
+            uiAPI?.appendSystemMessage?.(`⚙️ Running CI Validation (Attempt ${mechanicalAttempts}/3)...`);
+            const ciResult = await runLocalCI(uiAPI);
+
+            if (ciResult.exitCode === 0) {
+                buildPasses = true;
+                uiAPI?.appendSystemMessage?.("✅ Build and tests passed!");
             } else {
-                uiAPI.appendSystemMessage(
-                    `❌ Review failed. Sending feedback back to ${getAgentDisplayName(AGENTS.ENGINEER)}...`,
+                uiAPI?.appendSystemMessage?.(
+                    `❌ Build failed. Dispatching ${getAgentDisplayName(AGENTS.OPERATOR)} to fix syntax/types...`,
                 );
-                setActiveAgent(AGENTS.ENGINEER, createDirectAgentHandler(AGENTS.ENGINEER), uiAPI);
                 await runAgentSession({
-                    agentName: AGENTS.ENGINEER,
+                    agentName: AGENTS.OPERATOR,
                     userRequest:
-                        `The code reviewer found issues with your implementation. Please fix them. Do not break existing tests.\n\nReviewer Feedback:\n${reviewResponse}`,
+                        `The project failed CI validation. Fix the following build errors:\n\n${ciResult.output}`,
                     uiAPI,
                     sessionManager,
                 });
-                // The loop continues -> goes back to Step 1 (Mechanical) to ensure the Engineer's fixes compile!
+                consumePendingSwitchHandoff(); // drain any switch requests so they don't leak
             }
         }
 
-        if (executionComplete) {
-            const triageClassificationDisplay = triage.classification.toLocaleLowerCase().replace("/^([a-z])/", () => {
-                return triage.classification.charAt(0).toUpperCase() + triage.classification.slice(1);
-            });
-            uiAPI.appendSystemMessage(`🎉 ${triageClassificationDisplay} execution and validation complete.`);
-        } else {
-            uiAPI.appendSystemMessage(
-                `🛑 Halting workflow. Maximum validation cycles reached or CI completely failed.`,
-            );
+        if (!buildPasses) {
+            uiAPI?.appendSystemMessage?.("⚠️ Mechanical validation failed 3 times. Halting cycle for human review.");
+            break; // Break out of the unified loop, halt execution
         }
 
-        setActiveAgent(AGENTS.ENGINEER, createDirectAgentHandler(AGENTS.ENGINEER), uiAPI);
+        // ------------------------------------------
+        // Step 2: Semantic Code Review
+        // ------------------------------------------
+        uiAPI?.appendSystemMessage?.(`🧐 Running Semantic Code Review...`);
+
+        const diffCmd = new Deno.Command("git", { args: ["diff"], cwd: CWD, stdout: "piped" });
+        const { stdout: diffOut } = await diffCmd.output();
+        const diffText = new TextDecoder().decode(diffOut);
+
+        if (!diffText.trim()) {
+            uiAPI?.appendSystemMessage?.("✅ No changes detected in diff. Assuming approved.");
+            executionComplete = true;
+            break;
+        }
+
+        const reviewPrompt =
+            `Compare the current implementation diff against the original plan. If the code fully satisfies the plan, reply ONLY with the word 'APPROVED'. Otherwise, list the missing semantic requirements.\n\n### Original Plan\n${planContent}\n\n### Git Diff\n${diffText}`;
+
+        const sessionMessages = await runAgentSession({
+            agentName: AGENTS.REVIEWER,
+            userRequest: reviewPrompt,
+            uiAPI: createSilentUiApi(),
+            sessionManager,
+        });
+        consumePendingSwitchHandoff(); // drain any switch requests so they don't leak
+
+        const reviewResponse = extractAssistantOutput(sessionMessages) || "";
+
+        if (reviewResponse.includes("APPROVED")) {
+            uiAPI?.appendSystemMessage?.("✅ Semantic Code Review Approved!");
+            executionComplete = true;
+            // This will exit the while loop cleanly!
+        } else {
+            uiAPI?.appendSystemMessage?.(
+                `❌ Review failed. Sending feedback back to ${getAgentDisplayName(AGENTS.ENGINEER)}...`,
+            );
+            await runAgentSession({
+                agentName: AGENTS.ENGINEER,
+                userRequest:
+                    `The code reviewer found issues with your implementation. Please fix them. Do not break existing tests.\n\nReviewer Feedback:\n${reviewResponse}`,
+                uiAPI,
+                sessionManager,
+            });
+            consumePendingSwitchHandoff(); // drain any switch requests so they don't leak
+            // The loop continues -> goes back to Step 1 (Mechanical) to ensure the Engineer's fixes compile!
+        }
     }
+
+    if (executionComplete) {
+        const triageClassificationDisplay = triageMeta?.classification
+            ? triageMeta.classification.toLocaleLowerCase().replace(/^([a-z])/, (c) => c.toUpperCase())
+            : "Plan";
+        uiAPI.appendSystemMessage(`🎉 ${triageClassificationDisplay} execution and validation complete.`);
+    } else {
+        uiAPI.appendSystemMessage(
+            `🛑 Halting workflow. Maximum validation cycles reached or CI completely failed.`,
+        );
+    }
+
+    setActiveAgent(AGENTS.ENGINEER, createDirectAgentHandler(AGENTS.ENGINEER), uiAPI);
 }
 
 /**

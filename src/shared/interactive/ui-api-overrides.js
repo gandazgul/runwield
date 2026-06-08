@@ -10,7 +10,7 @@ import { Image } from "@earendil-works/pi-tui";
 import { ModelSelectorComponent } from "@earendil-works/pi-coding-agent";
 import { getModelRegistry } from "../models/model-registry.js";
 import { getSettingsManager } from "../settings.js";
-import { getActiveModelState, setActiveAgentName, setActiveModelState } from "../session/session-state.js";
+import { getActiveModelState } from "../session/session-state.js";
 import { imageTheme } from "../ui/theme.js";
 
 /**
@@ -24,19 +24,6 @@ import { imageTheme } from "../ui/theme.js";
  * }} deps
  */
 export function installUiApiOverrides({ uiAPI, tui, editor, container, messageList, setActiveModel }) {
-    uiAPI.setAgentInfo = (agentName, agentModel) => {
-        setActiveAgentName(agentName);
-        if (agentModel) {
-            const slashIndex = agentModel.indexOf("/");
-            if (slashIndex > 0) {
-                setActiveModelState(agentModel, agentModel.slice(0, slashIndex));
-            } else {
-                setActiveModelState(agentModel);
-            }
-        }
-        tui.requestRender();
-    };
-
     uiAPI.disableInput = () => {
         if (editor) {
             // editor.disableSubmit = true;

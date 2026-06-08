@@ -23,6 +23,7 @@ Deno.test("direct-agent calls executePlan when outcome is approved_execute", asy
             executeCalls.push(args);
             return Promise.resolve(undefined);
         }),
+        runValidationLoop: () => Promise.resolve(),
     });
 
     await handler("the request", [], /** @type {any} */ (undefined), /** @type {any} */ (undefined));
@@ -39,6 +40,7 @@ Deno.test("direct-agent does NOT call executePlan when outcome is saved", async 
             executeCount++;
             return Promise.resolve(undefined);
         }),
+        runValidationLoop: () => Promise.resolve(),
     });
 
     await handler("req", [], /** @type {any} */ (undefined), /** @type {any} */ (undefined));
@@ -54,6 +56,7 @@ Deno.test("direct-agent does NOT call executePlan when outcome is feedback", asy
             executeCount++;
             return Promise.resolve(undefined);
         }),
+        runValidationLoop: () => Promise.resolve(),
     });
 
     await handler("req", [], /** @type {any} */ (undefined), /** @type {any} */ (undefined));
@@ -69,6 +72,7 @@ Deno.test("direct-agent does NOT call executePlan when no plan_written outcome p
             executeCount++;
             return Promise.resolve(undefined);
         }),
+        runValidationLoop: () => Promise.resolve(),
     });
 
     await handler("req", [], /** @type {any} */ (undefined), /** @type {any} */ (undefined));
@@ -85,6 +89,7 @@ Deno.test("direct-agent does NOT call executePlan when planName missing on appro
             executeCount++;
             return Promise.resolve(undefined);
         }),
+        runValidationLoop: () => Promise.resolve(),
     });
 
     await handler("req", [], /** @type {any} */ (undefined), /** @type {any} */ (undefined));
@@ -109,6 +114,7 @@ Deno.test("direct-agent passes triageMeta and tasks through to executePlan", asy
             executeCalls.push(args);
             return Promise.resolve(undefined);
         }),
+        runValidationLoop: () => Promise.resolve(),
     });
 
     await handler("req", [], /** @type {any} */ (undefined), /** @type {any} */ (undefined));
@@ -127,6 +133,7 @@ Deno.test("direct-agent falls back to empty triageMeta when outcome lacks one", 
             executeCalls.push(args);
             return Promise.resolve(undefined);
         }),
+        runValidationLoop: () => Promise.resolve(),
     });
 
     await handler("req", [], /** @type {any} */ (undefined), /** @type {any} */ (undefined));

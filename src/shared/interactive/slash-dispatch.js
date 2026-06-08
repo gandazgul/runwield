@@ -10,7 +10,7 @@
  * a template-declared model.
  */
 
-import { abortActiveSession, expandSkillCommand, runAgentSession } from "../session/session.js";
+import { abortActiveSession, expandPromptTemplate, expandSkillCommand, runAgentSession } from "../session/session.js";
 import { createDirectAgentHandler } from "../session/direct-agent.js";
 import { getRootSessionManager } from "../session/session-state.js";
 
@@ -66,7 +66,7 @@ export async function handleSlashCommand(ctx) {
 
     const template = ctx.promptTemplateByName.get(command);
     if (template) {
-        await dispatchTemplate(ctx, template, thisGen);
+        await dispatchTemplate(ctx, template, args.join(" "), thisGen);
         return true;
     }
 
@@ -151,7 +151,7 @@ async function dispatchSkill(ctx, skill, additionalInstructions, thisGen) {
     try {
         const expandedText = await expandSkillCommand(skill.name, additionalInstructions || undefined);
 
-        uiAPI.appendUserMessage?.(expandedText);
+        uiAPI.appendUserMessage?.(ctx.userRequest);
         savedImages.forEach((img) => {
             if (uiAPI.appendImage) uiAPI.appendImage(img.base64, img.mimeType);
         });
@@ -174,14 +174,14 @@ async function dispatchSkill(ctx, skill, additionalInstructions, thisGen) {
 
 /**
  * @param {SlashContext} ctx
- * @param {{ name: string, model?: string }} template
+ * @param {{ name: string, model?: string, path?: string }} template
+ * @param {string} additionalInstructions
  * @param {number} thisGen
  */
-async function dispatchTemplate(ctx, template, thisGen) {
+async function dispatchTemplate(ctx, template, additionalInstructions, thisGen) {
     const {
         uiAPI,
         savedImages,
-        userRequest,
         chatPromptAgentName,
         resolveTemplateModel,
         setActiveAgent,
@@ -200,7 +200,22 @@ async function dispatchTemplate(ctx, template, thisGen) {
 
     const images = savedImages;
 
-    uiAPI.appendUserMessage?.(userRequest);
+    let expandedText = "";
+    try {
+        if (template.path) {
+            expandedText = await expandPromptTemplate(template.path, additionalInstructions || undefined);
+        } else {
+            // Fallback just in case path is somehow missing
+            expandedText = `/${template.name} ${additionalInstructions}`.trim();
+        }
+    } catch (err) {
+        if (generationGuard.isCurrent(thisGen)) {
+            uiAPI.appendSystemMessage(`Error expanding template: ${err instanceof Error ? err.message : String(err)}`);
+        }
+        return;
+    }
+
+    uiAPI.appendUserMessage?.(ctx.userRequest);
     images.forEach((/** @type {import('../session/types.js').ImageAttachment} */ img) => {
         if (uiAPI.appendImage) uiAPI.appendImage(img.base64, img.mimeType);
     });
@@ -220,7 +235,7 @@ async function dispatchTemplate(ctx, template, thisGen) {
         await runAgentSession({
             agentName: chatPromptAgentName,
             modelOverride: templateModelValue,
-            userRequest,
+            userRequest: expandedText,
             images,
             uiAPI,
             sessionManager: getRootSessionManager() || undefined,
