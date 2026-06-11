@@ -15,22 +15,6 @@ const TOOL_PARAMS = Type.Object({
 });
 
 /**
- * @param {string} text
- * @param {unknown} [details]
- * @param {boolean} [terminate]
- * @returns {import('@earendil-works/pi-coding-agent').AgentToolResult<unknown>}
- */
-function textResult(text, details, terminate) {
-    /** @type {import('@earendil-works/pi-coding-agent').AgentToolResult<unknown>} */
-    const result = {
-        content: [{ type: "text", text }],
-        details: details ?? null,
-    };
-    if (terminate) result.terminate = true;
-    return result;
-}
-
-/**
  * Create the task_completed tool.
  *
  * @param {{
@@ -55,11 +39,11 @@ export function createTaskCompletedTool({ uiAPI, agentName = "agent" } = /** @ty
             const msg = params.message ? `: ${params.message}` : "";
             uiAPI.appendSystemMessage(`Task declared completed by ${agentName}${msg}`, false, "Harns");
 
-            return textResult(
-                `You have declared the task completed. Your role as ${agentName} is done. Do not generate any further text.`,
-                { outcome: "task_completed", message: params.message },
-                true,
-            );
+            return {
+                content: [],
+                details: { outcome: "task_completed", message: params.message },
+                terminate: true,
+            };
         },
     });
 }

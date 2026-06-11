@@ -946,6 +946,43 @@ export function attachUiSubscribers(session, agentDef, uiAPI) {
                     headerArgs = `${event.args?.pattern} in ${event.args?.path || "."}`;
                 } else if (event.toolName === "find") {
                     headerArgs = `${event.args?.pattern} in ${event.args?.path || "."}`;
+                } else if (event.toolName === "ls") {
+                    headerArgs = event.args?.path || ".";
+                } else if (event.toolName === "code_search") {
+                    const q = event.args?.query || "";
+                    headerArgs = event.args?.textSearch ? `${q} (text)` : q;
+                } else if (event.toolName === "code_show") {
+                    headerArgs = event.args?.target || "";
+                } else if (event.toolName === "code_outline") {
+                    headerArgs = event.args?.file || "";
+                } else if (
+                    event.toolName === "code_refs" || event.toolName === "code_impact" ||
+                    event.toolName === "code_trace" || event.toolName === "code_investigate" ||
+                    event.toolName === "code_impls"
+                ) {
+                    headerArgs = event.args?.symbol || "";
+                } else if (event.toolName === "code_importers") {
+                    headerArgs = event.args?.target || "";
+                } else if (
+                    event.toolName === "code_structure" || event.toolName === "code_codebase_info"
+                ) {
+                    // no args to show
+                } else if (
+                    event.toolName === "memory_recall" || event.toolName === "memory_recall_global"
+                ) {
+                    headerArgs = event.args?.query || "";
+                } else if (
+                    event.toolName === "memory_store" || event.toolName === "memory_store_global"
+                ) {
+                    const c = event.args?.content || "";
+                    headerArgs = c.length > 80 ? c.slice(0, 77) + "..." : c;
+                } else if (event.toolName === "memory_delete") {
+                    headerArgs = `id: ${event.args?.id}`;
+                } else if (event.toolName === "task_completed") {
+                    const m = event.args?.message || "";
+                    headerArgs = m.length > 60 ? m.slice(0, 57) + "..." : m;
+                } else if (event.toolName === "switch_agent") {
+                    headerArgs = `to ${event.args?.agentName || "?"}`;
                 }
 
                 if (uiAPI && uiAPI.startToolExecution) {
