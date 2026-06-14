@@ -15,7 +15,6 @@ concurrency:
 
 env:
     PACKAGE_NAME: "@gandazgul/plannotator-pi-extension-compiled"
-    BASE_IMPORT: "@gandazgul/plannotator-pi-extension-compiled"
 
 jobs:
     update:
