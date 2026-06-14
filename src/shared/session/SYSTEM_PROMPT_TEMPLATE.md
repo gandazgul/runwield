@@ -12,6 +12,9 @@ The following skills provide specialized instructions for specific tasks. Use th
 the task matches its description. When a skill file references a relative path, resolve it against the skill directory
 (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.
 
+When the user sends you a `<skill>` XML block in their message, they are **invoking that skill right now** — the
+instructions inside it are directed at you. Follow them immediately.
+
 {{SKILLS}}
 
 ## Memory System

@@ -1,7 +1,7 @@
 # TODO
 
 - [x] edit should automatically return the file or a 1000 line chunk if write fails.
-- [ ] Add this tool multi_replace_file_content
+- [x] Add this tool multi_replace_file_content
 - [ ] Grill me and grill me with code should use ideator and not operator as the base.
 - [ ] when using /resume on a long session (we have to define long but probably more than 50% of the small models
       contexts) offer to compact it before loading it.

@@ -9,6 +9,7 @@ tools:
     - ls
     - edit
     - write
+    - multi_replace_file_content
     - bash
     - task_completed
     - memory_recall

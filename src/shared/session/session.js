@@ -1465,11 +1465,16 @@ export async function expandSkillCommand(skillName, additionalInstructions) {
             skill.path.replace(/\/SKILL\.md$/, "")
         }.\n\n${body}\n</skill>`;
 
+        // Prepend an invocation header so the LLM understands this is an active command,
+        // not just a passive skill reference.
+        const header = `The user has invoked the "${skill.name}" skill. Follow the instructions below:`;
+        const expanded = `${header}\n\n${skillBlock}`;
+
         // Append user instructions after the skill block
         if (additionalInstructions) {
-            return `${skillBlock}\n\n${additionalInstructions}`;
+            return `${expanded}\n\n${additionalInstructions}`;
         }
-        return skillBlock;
+        return expanded;
     } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         throw new Error(`Failed to read skill "${skill.name}": ${message}`);
