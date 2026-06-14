@@ -392,6 +392,7 @@ Deno.test("runLoadPlanCommand approved proceed with repair reroutes to planner",
     const { uiAPI, selections, messages } = makeUi();
     selections.push("proceed");
     let plannerCalled = false;
+    let repairRequest = "";
 
     await runLoadPlanCommand(["plan-e"], {
         uiAPI,
@@ -414,8 +415,9 @@ Deno.test("runLoadPlanCommand approved proceed with repair reroutes to planner",
             ensureSlicerTasks: () => Promise.resolve({ ok: true, slicerInvoked: false }),
             executePlan: () => Promise.resolve({ repairRequired: true, error: "bad tasks" }),
             recordPlanEvent: noOpRecordPlanEvent,
-            runPlanningAgent: () => {
+            runPlanningAgent: (/** @type {{ initialRequest: string }} */ opts) => {
                 plannerCalled = true;
+                repairRequest = opts.initialRequest;
                 return Promise.resolve({ outcome: "executed", planName: "plan-e" });
             },
             createDirectAgentHandler: () => async () => {},
@@ -425,6 +427,8 @@ Deno.test("runLoadPlanCommand approved proceed with repair reroutes to planner",
     });
 
     assertEquals(plannerCalled, true);
+    assertEquals(repairRequest.includes("| Task | Assignee | Dependencies | Write Scope | Description |"), true);
+    assertEquals(repairRequest.includes("corrected tasks array"), false);
     assertEquals(
         messages.some((m) =>
             m.includes("Rerouting to architect for repair") || m.includes("Rerouting to planner for repair")

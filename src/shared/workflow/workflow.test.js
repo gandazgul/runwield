@@ -2,6 +2,7 @@ import { assertEquals, assertMatch, assertStringIncludes, assertThrows } from "@
 import {
     buildSlicerRequest,
     ensureSlicerTasks,
+    executeProjectTasks,
     extractTasks,
     parseTaskWriteScope,
     readLatestPlanOutcome,
@@ -234,6 +235,56 @@ Deno.test("selectNonConflictingTasks skips ready tasks that overlap running or s
         { task: 1, writeScope: "src/a.js" },
         { task: 2, writeScope: "src/b.js" },
     ]);
+});
+
+Deno.test("executeProjectTasks passes successful dependency output to dependent task request", async () => {
+    const tasks = [
+        { task: 1, assignee: "engineer", dependencies: "none", writeScope: "src/a.js", description: "Implement alpha" },
+        { task: 2, assignee: "tester", dependencies: "1", writeScope: "none", description: "Verify alpha" },
+    ];
+    /** @type {string[]} */
+    const requests = [];
+    /** @type {string[]} */
+    const rootEntries = [];
+    const uiAPI = /** @type {any} */ ({
+        appendSystemMessage: () => {},
+        appendAgentMessageStart: () => ({ appendText: () => {} }),
+    });
+    const sessionManager = /** @type {any} */ ({
+        appendCustomMessageEntry: (
+            /** @type {string} */ _type,
+            /** @type {string} */ content,
+        ) => rootEntries.push(content),
+    });
+
+    const result = await executeProjectTasks(
+        "project-plan",
+        "Full plan body",
+        tasks,
+        uiAPI,
+        [],
+        undefined,
+        sessionManager,
+        undefined,
+        /** @type {any} */ ((/** @type {any} */ opts) => {
+            requests.push(opts.userRequest);
+            return Promise.resolve([
+                {
+                    role: "assistant",
+                    content: [{
+                        type: "text",
+                        text: opts.agentName === "engineer" ? "Implemented alpha." : "Verified alpha.",
+                    }],
+                },
+                { role: "toolResult", toolName: "task_completed", details: { outcome: "task_completed" } },
+            ]);
+        }),
+    );
+
+    assertEquals(result.failedTasks, []);
+    assertEquals(rootEntries.length, 2);
+    assertStringIncludes(requests[1], "### Dependency Outputs");
+    assertStringIncludes(requests[1], rootEntries[0]);
 });
 
 // ── buildSlicerRequest ─────────────────────────────────────────────

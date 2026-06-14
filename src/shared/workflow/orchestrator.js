@@ -2,7 +2,7 @@
  * @module shared/workflow/orchestrator
  * Session-level orchestrator for the triage flow.
  *
- * Each user message goes through the router agent first. When the router calls
+ * New interactive sessions start with the router agent. When the router calls
  * `triage_report`, the tool terminates the router's turn and returns the
  * classification. This orchestrator wakes up at that point, reads the outcome,
  * and dispatches the next agent:
@@ -10,6 +10,11 @@
  * QUICK_FIX → Operator
  * FEATURE   → Planner   → on `approved_execute`, runs `executePlan`
  * PROJECT   → Architect → on `approved_execute`, runs `executePlan` (parallel tasks)
+ *
+ * After dispatch, the specialist remains the active root agent so follow-up
+ * messages can continue the same topic with useful context. Users can start a
+ * fresh routed thread with /new, or explicitly return to routing with
+ * /agent router.
  *
  * Plan-feedback loops stay inside the planning session because plan_written
  * returns `feedback` non-terminating — the planner sees the tool result and

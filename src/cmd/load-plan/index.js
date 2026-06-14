@@ -316,7 +316,7 @@ async function executeReadyPlanWithRepair({
     let currentPlanName = plan.planName;
     /** @type {Partial<import('../../plan-store.js').PlanFrontMatter>} */
     let currentMeta = plan.attrs;
-    /** @type {Array<{ task: number, assignee: string, dependencies: string, description: string }> | undefined} */
+    /** @type {Array<{ task: number, assignee: string, dependencies: string, description: string, writeScope?: string }> | undefined} */
     let currentTasks = undefined;
 
     for (let attempt = 0; attempt <= MAX_REPAIR_ATTEMPTS; attempt++) {
@@ -360,8 +360,12 @@ async function executeReadyPlanWithRepair({
                     execRes.error || "Unknown task table error"
                 }.`,
                 "",
-                "Fix the table to follow (Task ID | Assignee | Dependencies | Description),",
-                "then call plan_written again with the corrected tasks array.",
+                "Fix the markdown Tasks table to follow:",
+                "",
+                "| Task | Assignee | Dependencies | Write Scope | Description |",
+                "",
+                "Use numeric task IDs, valid assignees, numeric dependency IDs or `none`, narrow repo-relative write scopes, and a final tester verification task that depends on every prior task.",
+                "Then call plan_written again with the plan name.",
             ].join("\n"),
             triageMeta: currentMeta,
             uiAPI,

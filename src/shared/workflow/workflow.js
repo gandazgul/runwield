@@ -655,6 +655,7 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
                                 if (uiAPI.setRunningTasks) uiAPI.setRunningTasks(runningTasks);
                             },
                             sessionManager,
+                            executionResult.results,
                         );
                         if (spinnerInterval) clearInterval(spinnerInterval);
                         if (finalResult.failedTasks.length > 0) {
@@ -787,8 +788,12 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [sessionManager]
  *   Root session manager; receives a custom_message per finished task. Tasks
  *   themselves still run in-memory.
+ * @param {Map<number, import('./types.js').TaskExecutionResult>} [seedResults]
+ *   Results from a previous run, used when retrying failed tasks so upstream
+ *   handoff context remains available.
+ * @param {typeof runAgentSession} [agentSessionRunner]
  */
-async function executeProjectTasks(
+export async function executeProjectTasks(
     planName,
     planBody,
     tasks,
@@ -796,6 +801,8 @@ async function executeProjectTasks(
     seedFailedTasks = [],
     onRunningTasksChange,
     sessionManager,
+    seedResults = new Map(),
+    agentSessionRunner = runAgentSession,
 ) {
     /** @type {Map<number, import('./types.js').TaskExecutionResult>} */
     const results = new Map();
@@ -805,7 +812,10 @@ async function executeProjectTasks(
 
     if (seedFailedTasks.length > 0) {
         const processed = tasks.filter((task) => !retryTaskIds.has(task.task)).map((task) => task.task);
-        processed.forEach((id) => results.set(id, { status: "success" }));
+        processed.forEach((id) => {
+            const seedResult = seedResults.get(id);
+            results.set(id, seedResult?.status === "success" ? seedResult : { status: "success" });
+        });
     }
 
     while (results.size < tasks.length) {
@@ -844,6 +854,7 @@ async function executeProjectTasks(
             const taskHeader = `--- Task ${task.task}: ${task.description} (→ ${getAgentDisplayName(agentName)}) ---`;
             uiAPI.appendSystemMessage(taskHeader, false, "Harns");
 
+            const dependencyOutputs = buildDependencyOutputsContext(task, results);
             const taskRequest = [
                 "## Task Assignment",
                 `You are assigned Task ${task.task} from the plan "${planName}". This is a PROJECT plan, only execute the assigned task then halt.`,
@@ -851,6 +862,8 @@ async function executeProjectTasks(
                 task.description,
                 "### Dependencies",
                 task.dependencies || "None",
+                dependencyOutputs ? "### Dependency Outputs" : "",
+                dependencyOutputs,
                 "### Write Scope",
                 task.writeScope || "unknown",
                 "### Full Plan Context",
@@ -858,7 +871,7 @@ async function executeProjectTasks(
             ].filter(Boolean).join("\n\n");
 
             try {
-                const sessionMessages = await runAgentSession({
+                const sessionMessages = await agentSessionRunner({
                     agentName,
                     userRequest: taskRequest,
                     uiAPI: createSilentUiApi(),
@@ -911,14 +924,18 @@ async function executeProjectTasks(
                     return;
                 }
 
-                results.set(task.task, { status: "success", messages: sessionMessages });
+                const display = buildTaskResultDisplay(task, agentName, outputText);
+                results.set(task.task, {
+                    status: "success",
+                    messages: sessionMessages,
+                    output: outputText || "",
+                    display,
+                });
 
                 // Append a single record of the task's final assistant output to the root
                 // session, so /resume can replay a complete picture of what each parallel
                 // sub-agent did. The transient in-memory session itself is discarded.
                 if (sessionManager?.appendCustomMessageEntry) {
-                    const display = `Task ${task.task} (${getAgentDisplayName(agentName)}) — ${task.description}\n\n` +
-                        (outputText || "(no output)");
                     sessionManager.appendCustomMessageEntry(
                         "task_result",
                         display,
@@ -973,6 +990,31 @@ async function executeProjectTasks(
         })
         .map((task) => task.task);
     return { failedTasks, results };
+}
+
+/**
+ * @param {{ task: number, description: string }} task
+ * @param {string} agentName
+ * @param {string | null} outputText
+ * @returns {string}
+ */
+function buildTaskResultDisplay(task, agentName, outputText) {
+    return `Task ${task.task} (${getAgentDisplayName(agentName)}) — ${task.description}\n\n` +
+        (outputText || "(no output)");
+}
+
+/**
+ * @param {{ dependencies: string }} task
+ * @param {Map<number, import('./types.js').TaskExecutionResult>} results
+ * @returns {string}
+ */
+function buildDependencyOutputsContext(task, results) {
+    const outputs = parseTaskDependencies(task.dependencies)
+        .map((dependencyId) => results.get(dependencyId))
+        .filter((result) => result?.status === "success" && result.display)
+        .map((result) => result?.display || "");
+
+    return outputs.join("\n\n---\n\n");
 }
 
 /**

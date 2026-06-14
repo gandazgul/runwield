@@ -134,6 +134,10 @@ The default command is `router`, so this is equivalent:
 hns router "fix the failing parser test"
 ```
 
+Interactive sessions are optimized for one topic at a time. A new session starts with Router, but after Router hands off
+to a specialist, that specialist remains active so follow-up messages keep the useful working context. Use `/new` to
+start a fresh session, or `/agent router` when you want the next message in the same session to go through triage again.
+
 ## Common Commands
 
 ```bash
