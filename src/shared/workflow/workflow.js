@@ -56,7 +56,7 @@ export function extractAssistantOutput(messages) {
  * @typedef {Object} PlanOutcomeResult
  * @property {PlanOutcome} outcome
  * @property {string} [planName]
- * @property {Array<{ task: number, assignee: string, dependencies: string, description: string }>} [tasks]
+ * @property {Array<{ task: number, assignee: string, dependencies: string, description: string, writeScope?: string }>} [tasks]
  * @property {import('../../tools/plan-written.js').TriageMeta} [triageMeta]
  */
 
@@ -313,10 +313,10 @@ function inlineNodesToText(nodes) {
 /**
  * Parse the PROJECT Tasks table from a plan's markdown using a forgiving AST
  * parser. The plan must contain a `## Tasks` heading followed by a table with
- * columns: Task | Assignee | Dependencies | Description.
+ * columns: Task | Assignee | Dependencies | Write Scope | Description.
  *
  * @param {string} planContent
- * @returns {Array<{ task: number, assignee: string, dependencies: string, description: string }>}
+ * @returns {Array<{ task: number, assignee: string, dependencies: string, description: string, writeScope: string }>}
  * @throws {Error} If a Tasks section + table can't be located or parsed.
  */
 export function extractTasks(planContent) {
@@ -354,17 +354,34 @@ export function extractTasks(planContent) {
         throw new Error("Tasks section found but no markdown table follows the heading.");
     }
 
+    const headers = Array.isArray(tableNode.headers)
+        ? tableNode.headers.map((header) => inlineNodesToText(header).toLowerCase().replace(/[^a-z]/g, ""))
+        : [];
+    const findHeader = (/** @type {string[]} */ names, /** @type {number} */ fallback) => {
+        for (const name of names) {
+            const idx = headers.indexOf(name);
+            if (idx !== -1) return idx;
+        }
+        return fallback;
+    };
+    const taskIdx = findHeader(["task", "id"], 0);
+    const assigneeIdx = findHeader(["assignee"], 1);
+    const dependenciesIdx = findHeader(["dependencies", "deps"], 2);
+    const writeScopeIdx = findHeader(["writescope", "writescopepaths", "paths", "files", "scope"], -1);
+    const descriptionIdx = findHeader(["description"], writeScopeIdx === -1 ? 3 : 4);
+
     const tasks = [];
     for (const row of tableNode.rows) {
         if (!Array.isArray(row) || row.length < 4) continue;
-        const taskCell = inlineNodesToText(row[0]);
+        const taskCell = inlineNodesToText(row[taskIdx]);
         const taskId = parseInt(taskCell, 10);
         if (Number.isNaN(taskId)) continue; // skip non-numeric rows (e.g. separator-style)
         tasks.push({
             task: taskId,
-            assignee: inlineNodesToText(row[1]),
-            dependencies: inlineNodesToText(row[2]),
-            description: inlineNodesToText(row[3]),
+            assignee: inlineNodesToText(row[assigneeIdx]),
+            dependencies: inlineNodesToText(row[dependenciesIdx]),
+            writeScope: writeScopeIdx === -1 ? "unknown" : inlineNodesToText(row[writeScopeIdx]),
+            description: inlineNodesToText(row[descriptionIdx]),
         });
     }
 
@@ -376,6 +393,8 @@ export function extractTasks(planContent) {
 }
 
 const PROJECT_TASK_ASSIGNEES = new Set([AGENTS.ENGINEER, AGENTS.TESTER, AGENTS.DOC_WRITER]);
+const BROAD_WRITE_SCOPES = new Set(["*", "**", "all", "repo", "repository", "unknown", "tbd", "any"]);
+const NO_WRITE_SCOPES = new Set(["none", "no", "readonly", "read-only", "n/a", "na"]);
 
 /**
  * @param {string} dependencies
@@ -394,9 +413,86 @@ function parseTaskDependencies(dependencies) {
 }
 
 /**
+ * Parse a task write scope into normalized path-ish tokens. Missing or unknown
+ * scope is intentionally broad so the scheduler serializes it conservatively.
+ *
+ * @param {string | undefined} writeScope
+ * @returns {{ broad: boolean, paths: string[] }}
+ */
+export function parseTaskWriteScope(writeScope) {
+    const raw = String(writeScope || "").trim();
+    if (!raw) return { broad: true, paths: [] };
+
+    const parts = raw.split(/[,;\n]/).map((part) => part.trim()).filter(Boolean);
+    if (parts.length === 0) return { broad: true, paths: [] };
+
+    /** @type {string[]} */
+    const paths = [];
+    for (const part of parts) {
+        const normalized = part.replace(/^`|`$/g, "").replace(/^\.\//, "").replace(/\/+$/, "").toLowerCase();
+        if (!normalized) continue;
+        if (NO_WRITE_SCOPES.has(normalized)) continue;
+        if (BROAD_WRITE_SCOPES.has(normalized) || normalized.includes("*")) {
+            return { broad: true, paths: [] };
+        }
+        paths.push(normalized);
+    }
+
+    return { broad: false, paths };
+}
+
+/**
+ * @param {string} a
+ * @param {string} b
+ * @returns {boolean}
+ */
+function pathsOverlap(a, b) {
+    return a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
+}
+
+/**
+ * @param {{ writeScope?: string }} a
+ * @param {{ writeScope?: string }} b
+ * @returns {boolean}
+ */
+export function taskWriteScopesOverlap(a, b) {
+    const aScope = parseTaskWriteScope(a.writeScope);
+    const bScope = parseTaskWriteScope(b.writeScope);
+    if (aScope.paths.length === 0 && !aScope.broad) return false;
+    if (bScope.paths.length === 0 && !bScope.broad) return false;
+    if (aScope.broad || bScope.broad) return true;
+
+    return aScope.paths.some((aPath) => bScope.paths.some((bPath) => pathsOverlap(aPath, bPath)));
+}
+
+/**
+ * Select tasks that are dependency-ready and safe to launch together in the
+ * shared worktree. The DAG controls semantic readiness; write scope controls
+ * concurrent launch safety.
+ *
+ * @template {{ task: number, writeScope?: string }} T
+ * @param {T[]} readyTasks
+ * @param {T[]} runningTasks
+ * @param {number} maxToLaunch
+ * @returns {T[]}
+ */
+export function selectNonConflictingTasks(readyTasks, runningTasks, maxToLaunch) {
+    /** @type {T[]} */
+    const selected = [];
+    for (const task of readyTasks) {
+        if (selected.length >= maxToLaunch) break;
+        const conflictsWithRunning = runningTasks.some((runningTask) => taskWriteScopesOverlap(task, runningTask));
+        const conflictsWithSelected = selected.some((selectedTask) => taskWriteScopesOverlap(task, selectedTask));
+        if (conflictsWithRunning || conflictsWithSelected) continue;
+        selected.push(task);
+    }
+    return selected;
+}
+
+/**
  * Validate the PROJECT task graph contract before showing or executing tasks.
  *
- * @param {Array<{ task: number, assignee: string, dependencies: string, description: string }>} tasks
+ * @param {Array<{ task: number, assignee: string, dependencies: string, description: string, writeScope?: string }>} tasks
  * @returns {void}
  */
 export function validateProjectTasks(tasks) {
@@ -479,7 +575,7 @@ export function validateProjectTasks(tasks) {
  * @param {string} planName
  * @param {Partial<import('../../plan-store.js').PlanFrontMatter>} triageMeta
  * @param {UiAPI} uiAPI
- * @param {Array<{ task: number, assignee: string, dependencies: string, description: string }>} [structuredTasks]
+ * @param {Array<{ task: number, assignee: string, dependencies: string, description: string, writeScope?: string }>} [structuredTasks]
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [sessionManager]
  * @returns {Promise<PlanExecutionResult>}
  */
@@ -684,7 +780,7 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
  *
  * @param {string} planName
  * @param {string} planBody
- * @param {Array<{ task: number, assignee: string, dependencies: string, description: string }>} tasks
+ * @param {Array<{ task: number, assignee: string, dependencies: string, description: string, writeScope?: string }>} tasks
  * @param {UiAPI} uiAPI
  * @param {number[]} [seedFailedTasks]
  * @param {(runningTasks: Array<{task: number, assignee: string, description: string}>) => void} [onRunningTasksChange]
@@ -725,7 +821,8 @@ async function executeProjectTasks(
             });
         });
 
-        const toLaunch = ready.slice(0, MAX_PARALLEL_TASKS - running.size);
+        const runningTasks = tasks.filter((task) => running.has(task.task));
+        const toLaunch = selectNonConflictingTasks(ready, runningTasks, MAX_PARALLEL_TASKS - running.size);
 
         if (toLaunch.length === 0 && running.size === 0 && pending.size > 0) {
             const remaining = Array.from(pending);
@@ -754,6 +851,8 @@ async function executeProjectTasks(
                 task.description,
                 "### Dependencies",
                 task.dependencies || "None",
+                "### Write Scope",
+                task.writeScope || "unknown",
                 "### Full Plan Context",
                 planBody,
             ].filter(Boolean).join("\n\n");
@@ -912,7 +1011,7 @@ function reportExecutionSummary(result, uiAPI) {
  *
  * @param {string} planName
  * @param {UiAPI} uiAPI
- * @param {Array<{ task: number, assignee: string, dependencies: string, description: string }>} [structuredTasks]
+ * @param {Array<{ task: number, assignee: string, dependencies: string, description: string, writeScope?: string }>} [structuredTasks]
  * @returns {Promise<"proceed" | "save">}
  */
 export async function askApprovalWithTasks(planName, uiAPI, structuredTasks) {

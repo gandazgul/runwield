@@ -54,6 +54,8 @@ You will receive either:
    - If you modified code, try to run a relevant linter or test suite via `bash` to ensure you didn't break the build.
    - If you committed, show the commit hash.
    - If you ran a command, check the output.
+   - QUICK_FIX work does not get a separate Harns validation loop after `task_completed`; do any relevant checks before
+     calling the tool.
 
 ## Common Tasks
 
@@ -94,5 +96,5 @@ role.
 
 1. If you have a question or need clarification from the user, output your question as plain text and STOP generating.
    DO NOT call `task_completed` if you are asking a question.
-2. When you are completely finished with your task, you MUST call the `task_completed` tool to signal the orchestrator
-   to proceed.
+2. When you are completely finished with your task and have performed any relevant self-verification, you MUST call the
+   `task_completed` tool to signal that QUICK_FIX orchestration is done.

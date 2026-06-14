@@ -2,7 +2,7 @@
  * @module task-completed
  * Custom tool for executing agents (Engineer/Operator) to declare they have
  * finished their current execution task. This returns a terminal outcome
- * that signals the orchestrator to proceed with the validation phase.
+ * that lets the orchestrator advance the active workflow.
  */
 
 import { Type } from "@earendil-works/pi-ai";
@@ -30,7 +30,8 @@ export function createTaskCompletedTool({ uiAPI, agentName = "agent" } = /** @ty
         name: "task_completed",
         label: "Task Completed",
         description: "Declare that you have finished your assigned execution task. " +
-            "If a workflow is active, this signals the orchestrator to begin the validation phase. " +
+            "For FEATURE and PROJECT workflows, this signals the orchestrator to begin validation. " +
+            "For QUICK_FIX work, verify your own work before calling this tool. " +
             "Call this exactly once when you are completely finished with your work. " +
             "If you need to ask the user a clarifying question before finishing, DO NOT call this tool — " +
             "just output the question in text. Only call this tool when your code changes are done.",

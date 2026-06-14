@@ -1,6 +1,7 @@
 import { assertEquals } from "@std/assert";
 import { runLoadPlanCommand } from "./index.js";
 import { AGENTS } from "../../constants.js";
+import { clearActiveExecutionWorkflow, getActiveExecutionWorkflow } from "../../shared/session/session-state.js";
 
 function makeUi() {
     /** @type {string[]} */
@@ -310,6 +311,46 @@ Deno.test("runLoadPlanCommand approved PROJECT review runs slicer before proceed
     assertEquals(validated, true);
 });
 
+Deno.test("runLoadPlanCommand approved review proceed restores initial agent without transient operator switch", async () => {
+    const { uiAPI, selections } = makeUi();
+    selections.push("review");
+    /** @type {string[]} */
+    const activeAgents = [];
+
+    await runLoadPlanCommand(["plan-project-review"], {
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: () => ({ help: false, _: ["plan-project-review"] }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "plan-project-review",
+                    path: "plans/plan-project-review.md",
+                    body: "body",
+                    markdown: "markdown",
+                    attrs: {
+                        classification: "PROJECT",
+                        complexity: "HIGH",
+                        summary: "s",
+                        affectedPaths: [],
+                        status: "approved",
+                    },
+                }),
+            submitPlanForReview: () => Promise.resolve({ approved: true }),
+            ensureSlicerTasks: () => Promise.resolve({ ok: true, slicerInvoked: true }),
+            askApprovalWithTasks: () => Promise.resolve("proceed"),
+            executePlan: () => Promise.resolve({ repairRequired: false, executionComplete: true }),
+            runValidationLoop: () => Promise.resolve(),
+            recordPlanEvent: noOpRecordPlanEvent,
+            createDirectAgentHandler: () => async () => {},
+            resetTuiState: () => {},
+            setActiveAgent: (/** @type {string} */ name) => activeAgents.push(name),
+        }),
+    });
+
+    assertEquals(activeAgents, [AGENTS.ARCHITECT, AGENTS.ROUTER]);
+});
+
 Deno.test("runLoadPlanCommand approved review kicks off planner on denial", async () => {
     const { uiAPI, selections } = makeUi();
     selections.push("review");
@@ -566,6 +607,8 @@ Deno.test("runLoadPlanCommand implemented plan retries validation", async () => 
     const { uiAPI, selections } = makeUi();
     selections.push("validate");
     let validated = false;
+    /** @type {unknown} */
+    let workflowDuringValidation = null;
 
     await runLoadPlanCommand(["plan-implemented"], {
         uiAPI,
@@ -590,6 +633,8 @@ Deno.test("runLoadPlanCommand implemented plan retries validation", async () => 
                 }),
             runValidationLoop: () => {
                 validated = true;
+                workflowDuringValidation = getActiveExecutionWorkflow();
+                clearActiveExecutionWorkflow();
                 return Promise.resolve();
             },
             createDirectAgentHandler: () => async () => {},
@@ -599,6 +644,19 @@ Deno.test("runLoadPlanCommand implemented plan retries validation", async () => 
     });
 
     assertEquals(validated, true);
+    assertEquals(workflowDuringValidation, {
+        planName: "plan-implemented",
+        triageMeta: {
+            classification: "FEATURE",
+            complexity: "LOW",
+            summary: "s",
+            affectedPaths: [],
+            status: "implemented",
+            failureReason: "CI failed",
+            executionBaselineTree: "baseline-tree",
+        },
+        baselineTree: "baseline-tree",
+    });
 });
 
 Deno.test("runLoadPlanCommand verified plan review path records review_reopened", async () => {

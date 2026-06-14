@@ -25,10 +25,10 @@ done with the right amount of ceremony.
   test work, Doc Writers stay limited to docs, and Reviewers compare the final diff to the plan.
 - **Parallel work keeps a single trail.** Project tasks can run in dependency order with bounded parallelism, while
   their final outputs are summarized back into the root session.
-- **Completion has a handshake.** Execution agents are expected to call `task_completed`; Harns treats that as the
-  strong signal before running validation.
-- **Validation is built into the workflow.** After completed work, Harns runs the configured local verification command
-  and then a semantic review loop against the original plan.
+- **Completion has a handshake.** Execution agents are expected to call `task_completed`; for saved plan execution,
+  Harns treats that as the strong signal before running validation.
+- **Validation is built into plan workflows.** After completed `FEATURE` or `PROJECT` plan work, Harns runs the
+  configured local verification command and then a semantic review loop against the original plan.
 - **Context is durable.** Sessions live under `~/.hns/sessions/`, settings under `~/.hns/settings.json`, plans in the
   repo, and Mnemosyne keeps recallable project and global memory.
 
@@ -43,7 +43,7 @@ flowchart TD
 
     R -->|QUICK_FIX| O[Operator executes directly]
     O --> TC1{task_completed?}
-    TC1 -->|yes| V1[Local verification + semantic review]
+    TC1 -->|yes| QD[Done]
     TC1 -->|no| W1[Wait for completion signal]
 
     R -->|FEATURE| P[Planner writes plans/*.md]

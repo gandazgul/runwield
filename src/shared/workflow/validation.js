@@ -189,6 +189,14 @@ function requiresImplementationDiff(triageMeta) {
 }
 
 /**
+ * @param {import('../../tools/plan-written.js').TriageMeta} triageMeta
+ * @returns {boolean}
+ */
+export function shouldRunWorkflowValidation(triageMeta) {
+    return triageMeta?.classification === "FEATURE" || triageMeta?.classification === "PROJECT";
+}
+
+/**
  * Unified validation loop. Runs local verification and semantic code review.
  *
  * @param {Object} args

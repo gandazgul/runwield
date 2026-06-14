@@ -18,7 +18,7 @@
 
 import { AGENTS, CWD } from "../../constants.js";
 import { ensurePlansDir, loadPlan } from "../../plan-store.js";
-import { setActiveAgent } from "../interactive/chat-session.js";
+import { applyPendingRootSwap, setActiveAgent } from "../interactive/chat-session.js";
 import { createDirectAgentHandler } from "../session/direct-agent.js";
 import { runAgentSession, runRootTurn } from "../session/session.js";
 import { getAgentDisplayName } from "../session/agents.js";
@@ -29,8 +29,7 @@ import {
     pushAgentInfo,
 } from "../session/session-state.js";
 import { executePlan, readLatestTaskCompletedOutcome, runPlanningAgent } from "./workflow.js";
-import { runValidationLoop } from "./validation.js";
-import { captureWorktreeTree } from "./git-snapshot.js";
+import { runValidationLoop, shouldRunWorkflowValidation } from "./validation.js";
 
 export { runLocalCI, runValidationLoop } from "./validation.js";
 
@@ -89,46 +88,46 @@ function buildTriageBlock(triage) {
  * @param {import('../session/types.js').ImageAttachment[] | undefined} args.images
  * @param {import('./workflow.js').UiAPI} args.uiAPI
  * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined} args.sessionManager
+ * @param {{
+ *   applyPendingRootSwap?: typeof applyPendingRootSwap,
+ *   createDirectAgentHandler?: typeof createDirectAgentHandler,
+ *   readLatestTaskCompletedOutcome?: typeof readLatestTaskCompletedOutcome,
+ *   runRootTurn?: typeof runRootTurn,
+ *   runValidationLoop?: typeof runValidationLoop,
+ *   setActiveAgent?: typeof setActiveAgent,
+ * }} [args.__deps]
  */
-export async function dispatchPostTriage({ triage, userRequest, images, uiAPI, sessionManager }) {
+export async function dispatchPostTriage({ triage, userRequest, images, uiAPI, sessionManager, __deps }) {
     if (!uiAPI) throw new Error("dispatchPostTriage: uiAPI is required");
 
     const triageBlock = buildTriageBlock(triage);
     const decoratedRequest = ["## User Request", userRequest, "", triageBlock].join("\n");
+    const runValidationLoopImpl = __deps?.runValidationLoop || runValidationLoop;
 
     if (triage.classification === "QUICK_FIX") {
         const operatorDisplay = getAgentDisplayName(AGENTS.OPERATOR);
         uiAPI.appendSystemMessage(`=== Phase B: ${operatorDisplay} (Execute) ===`);
 
-        const { setActiveExecutionWorkflow } = await import("../session/session-state.js");
-        const baselineTree = await captureWorktreeTree(CWD);
-        setActiveExecutionWorkflow({ planName: "quick-fix", triageMeta: triage, baselineTree });
+        const setActiveAgentImpl = __deps?.setActiveAgent || setActiveAgent;
+        const createDirectAgentHandlerImpl = __deps?.createDirectAgentHandler || createDirectAgentHandler;
+        const applyPendingRootSwapImpl = __deps?.applyPendingRootSwap || applyPendingRootSwap;
+        const runRootTurnImpl = __deps?.runRootTurn || runRootTurn;
+        const readLatestTaskCompletedOutcomeImpl = __deps?.readLatestTaskCompletedOutcome ||
+            readLatestTaskCompletedOutcome;
 
-        const { setActiveAgent, applyPendingRootSwap } = await import("../interactive/chat-session.js");
-        const { createDirectAgentHandler } = await import("../session/direct-agent.js");
-        setActiveAgent(AGENTS.OPERATOR, createDirectAgentHandler(AGENTS.OPERATOR), uiAPI);
-        await applyPendingRootSwap(uiAPI);
+        setActiveAgentImpl(AGENTS.OPERATOR, createDirectAgentHandlerImpl(AGENTS.OPERATOR), uiAPI);
+        await applyPendingRootSwapImpl(uiAPI);
 
-        const { runRootTurn } = await import("../session/session.js");
-        const messages = await runRootTurn({
+        const messages = await runRootTurnImpl({
             agentName: AGENTS.OPERATOR,
             userRequest: decoratedRequest,
             images,
             uiAPI,
         });
-        const completed = readLatestTaskCompletedOutcome(messages);
-        if (completed) {
-            await runValidationLoop({
-                planName: "quick-fix",
-                planContent: decoratedRequest,
-                triageMeta: triage,
-                uiAPI,
-                sessionManager,
-                finalAgentName: AGENTS.OPERATOR,
-            });
-        } else {
+        const completed = readLatestTaskCompletedOutcomeImpl(messages);
+        if (!completed) {
             uiAPI.appendSystemMessage(
-                `${operatorDisplay} stopped without task_completed; validation is waiting for a completion signal.`,
+                `${operatorDisplay} stopped without task_completed; QUICK_FIX may be incomplete.`,
                 false,
                 "Harns",
             );
@@ -178,14 +177,16 @@ export async function dispatchPostTriage({ triage, userRequest, images, uiAPI, s
             );
             if (executionResult.executionComplete) {
                 const plan = await loadPlan(CWD, outcome.planName);
-                await runValidationLoop({
-                    planName: outcome.planName,
-                    planContent: plan?.markdown || "",
-                    triageMeta: outcome.triageMeta || triage,
-                    uiAPI,
-                    sessionManager,
-                    finalAgentName: agentName,
-                });
+                if (shouldRunWorkflowValidation(outcome.triageMeta || triage)) {
+                    await runValidationLoopImpl({
+                        planName: outcome.planName,
+                        planContent: plan?.markdown || "",
+                        triageMeta: outcome.triageMeta || triage,
+                        uiAPI,
+                        sessionManager,
+                        finalAgentName: agentName,
+                    });
+                }
             } else {
                 setActiveAgent(agentName, createDirectAgentHandler(agentName), uiAPI);
             }

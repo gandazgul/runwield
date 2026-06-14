@@ -27,7 +27,10 @@ import {
     setActiveAgent as setActiveAgentFn,
     startInteractiveSession as startInteractiveSessionFn,
 } from "../../shared/interactive/chat-session.js";
-import { getRootAgentName as getRootAgentNameFn } from "../../shared/session/session-state.js";
+import {
+    getRootAgentName as getRootAgentNameFn,
+    setActiveExecutionWorkflow,
+} from "../../shared/session/session-state.js";
 import { resetTuiState as resetTuiStateFn } from "../command-helpers.js";
 import { createDirectAgentHandler as createDirectAgentHandlerFn } from "../../shared/session/direct-agent.js";
 export { getLoadPlanCompletions } from "./getArgumentCompletions.js";
@@ -228,6 +231,13 @@ async function validateCompletedExecution(
         planContent = latestPlan?.markdown || latestPlan?.body || fallbackPlanContent;
     } catch {
         // Keep fallback content in tests or if the plan was removed.
+    }
+    if (triageMeta.executionBaselineTree) {
+        setActiveExecutionWorkflow({
+            planName,
+            triageMeta,
+            baselineTree: triageMeta.executionBaselineTree,
+        });
     }
     await runValidationLoop({
         planName,
@@ -832,7 +842,6 @@ export async function runLoadPlanCommand(argv, options = {}) {
                                 runValidationLoop,
                                 loadPlan,
                             );
-                            setActiveAgent(AGENTS.OPERATOR, createDirectAgentHandler(AGENTS.OPERATOR), uiAPI);
                         } else {
                             uiAPI.appendSystemMessage(
                                 `Plan saved. Resume later with: ${CLI_BIN} load-plan ${plan.planName}`,
@@ -869,7 +878,6 @@ export async function runLoadPlanCommand(argv, options = {}) {
                             runValidationLoop,
                             loadPlan,
                         );
-                        setActiveAgent(AGENTS.OPERATOR, createDirectAgentHandler(AGENTS.OPERATOR), uiAPI);
                     } else if (
                         outcome.outcome === "canceled" || outcome.outcome === "no_call" ||
                         outcome.outcome === "feedback" || outcome.outcome === "repair_required"
@@ -912,7 +920,6 @@ export async function runLoadPlanCommand(argv, options = {}) {
                 runValidationLoop,
                 loadPlan,
             );
-            setActiveAgent(AGENTS.OPERATOR, createDirectAgentHandler(AGENTS.OPERATOR), uiAPI);
         } else if (
             outcome.outcome === "canceled" || outcome.outcome === "no_call" ||
             outcome.outcome === "feedback" || outcome.outcome === "repair_required"

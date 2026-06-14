@@ -56,7 +56,7 @@ const state = {
     pendingRootSwap: null, // recorded when setActiveAgent is called during an in-flight turn
     pendingSwitchHandoff: null, // recorded by switch_agent to seed the next agent's first turn
     activeUiAPI: null,
-    activeExecutionWorkflow: null, // tracks the current workflow context (plan execution or quick-fix)
+    activeExecutionWorkflow: null, // tracks FEATURE/PROJECT execution context until validation starts
 };
 
 /**

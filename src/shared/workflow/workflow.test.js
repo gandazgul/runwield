@@ -3,8 +3,11 @@ import {
     buildSlicerRequest,
     ensureSlicerTasks,
     extractTasks,
+    parseTaskWriteScope,
     readLatestPlanOutcome,
     runSlicerAgent,
+    selectNonConflictingTasks,
+    taskWriteScopesOverlap,
     validateProjectTasks,
 } from "./workflow.js";
 
@@ -50,8 +53,45 @@ Deno.test("extractTasks parses valid markdown table", () => {
 `;
     const tasks = extractTasks(content);
     assertEquals(tasks.length, 2);
-    assertEquals(tasks[0], { task: 1, assignee: "engineer", dependencies: "None", description: "Implement X" });
-    assertEquals(tasks[1], { task: 2, assignee: "tester", dependencies: "1", description: "Test X" });
+    assertEquals(tasks[0], {
+        task: 1,
+        assignee: "engineer",
+        dependencies: "None",
+        writeScope: "unknown",
+        description: "Implement X",
+    });
+    assertEquals(tasks[1], {
+        task: 2,
+        assignee: "tester",
+        dependencies: "1",
+        writeScope: "unknown",
+        description: "Test X",
+    });
+});
+
+Deno.test("extractTasks parses write scope column when present", () => {
+    const content = `
+## Tasks
+| Task | Assignee | Dependencies | Write Scope | Description |
+|---|---|---|---|---|
+| 1 | engineer | None | src/shared/workflow | Implement workflow scheduling |
+| 2 | tester | 1 | none | Run verification |
+`;
+    const tasks = extractTasks(content);
+    assertEquals(tasks[0], {
+        task: 1,
+        assignee: "engineer",
+        dependencies: "None",
+        writeScope: "src/shared/workflow",
+        description: "Implement workflow scheduling",
+    });
+    assertEquals(tasks[1], {
+        task: 2,
+        assignee: "tester",
+        dependencies: "1",
+        writeScope: "none",
+        description: "Run verification",
+    });
 });
 
 Deno.test("extractTasks parses markdown table with minor deviations", () => {
@@ -77,8 +117,20 @@ Deno.test("extractTasks parses markdown table with extra whitespace", () => {
 `;
     const tasks = extractTasks(content);
     assertEquals(tasks.length, 2);
-    assertEquals(tasks[0], { task: 1, assignee: "engineer", dependencies: "None", description: "Implement X" });
-    assertEquals(tasks[1], { task: 2, assignee: "tester", dependencies: "1", description: "Test X" });
+    assertEquals(tasks[0], {
+        task: 1,
+        assignee: "engineer",
+        dependencies: "None",
+        writeScope: "unknown",
+        description: "Implement X",
+    });
+    assertEquals(tasks[1], {
+        task: 2,
+        assignee: "tester",
+        dependencies: "1",
+        writeScope: "unknown",
+        description: "Test X",
+    });
 });
 
 Deno.test("extractTasks throws error when section missing", () => {
@@ -138,6 +190,50 @@ Deno.test("validateProjectTasks rejects cyclic dependencies", () => {
         Error,
         "cycle",
     );
+});
+
+// ── write scope scheduling ───────────────────────────────────────
+
+Deno.test("parseTaskWriteScope treats missing and unknown scopes as broad", () => {
+    assertEquals(parseTaskWriteScope(undefined), { broad: true, paths: [] });
+    assertEquals(parseTaskWriteScope("unknown"), { broad: true, paths: [] });
+    assertEquals(parseTaskWriteScope("src/**"), { broad: true, paths: [] });
+});
+
+Deno.test("parseTaskWriteScope treats none as read-only", () => {
+    assertEquals(parseTaskWriteScope("none"), { broad: false, paths: [] });
+});
+
+Deno.test("taskWriteScopesOverlap detects exact and parent path overlaps", () => {
+    assertEquals(
+        taskWriteScopesOverlap({ writeScope: "src/shared/workflow" }, {
+            writeScope: "src/shared/workflow/workflow.js",
+        }),
+        true,
+    );
+    assertEquals(
+        taskWriteScopesOverlap({ writeScope: "src/shared/workflow" }, { writeScope: "docs/plan-lifecycle.md" }),
+        false,
+    );
+});
+
+Deno.test("taskWriteScopesOverlap serializes broad scopes but not read-only scopes", () => {
+    assertEquals(taskWriteScopesOverlap({ writeScope: "unknown" }, { writeScope: "src/foo.js" }), true);
+    assertEquals(taskWriteScopesOverlap({ writeScope: "none" }, { writeScope: "src/foo.js" }), false);
+});
+
+Deno.test("selectNonConflictingTasks skips ready tasks that overlap running or selected tasks", () => {
+    const ready = [
+        { task: 1, writeScope: "src/a.js" },
+        { task: 2, writeScope: "src/b.js" },
+        { task: 3, writeScope: "src/a.js" },
+        { task: 4, writeScope: "unknown" },
+    ];
+    const running = [{ task: 9, writeScope: "docs" }];
+    assertEquals(selectNonConflictingTasks(ready, running, 4), [
+        { task: 1, writeScope: "src/a.js" },
+        { task: 2, writeScope: "src/b.js" },
+    ]);
 });
 
 // ── buildSlicerRequest ─────────────────────────────────────────────
@@ -267,8 +363,8 @@ Deno.test("ensureSlicerTasks skips slicer when Tasks already parseable (resumed 
             readTextFile: () =>
                 Promise.resolve("## Tasks\n| Task | A | B | C |\n|-|-|-|-|\n| 1 | engineer | none | x |"),
             extractTasks: () => [
-                { task: 1, assignee: "engineer", dependencies: "none", description: "x" },
-                { task: 2, assignee: "tester", dependencies: "1", description: "Run verification" },
+                { task: 1, assignee: "engineer", dependencies: "none", writeScope: "src/x.js", description: "x" },
+                { task: 2, assignee: "tester", dependencies: "1", writeScope: "none", description: "Run verification" },
             ],
             runSlicerAgent: () => {
                 slicerCalls++;
@@ -294,8 +390,14 @@ Deno.test("ensureSlicerTasks invokes slicer when Tasks missing", async () => {
                 parseCalls++;
                 if (parseCalls === 1) throw new Error("Tasks section not found");
                 return [
-                    { task: 1, assignee: "engineer", dependencies: "none", description: "x" },
-                    { task: 2, assignee: "tester", dependencies: "1", description: "Run verification" },
+                    { task: 1, assignee: "engineer", dependencies: "none", writeScope: "src/x.js", description: "x" },
+                    {
+                        task: 2,
+                        assignee: "tester",
+                        dependencies: "1",
+                        writeScope: "none",
+                        description: "Run verification",
+                    },
                 ];
             },
             runSlicerAgent: () => {

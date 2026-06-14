@@ -52,9 +52,13 @@ Before you call `edit`, validate your draft slices against these rules. If any c
      change). Not for internal refactors, bug fixes without behavior change, or test-only work.
    - **tester** in a slice row: only when the slice introduces net-new test infrastructure. Otherwise per-slice
      acceptance criteria are the engineer's responsibility.
-5. **Always end with the mandatory cross-slice tester task.** Final row, assignee `tester`, dependencies list every
-   prior task ID, description directs the tester to run the project's full verification command and report failures.
-   This is the global checkpoint — it is always present, even for one-engineer plans.
+5. **Declare write scopes.** Each row must include a `Write Scope` value: comma-separated paths or directories the task
+   is expected to edit. Use the narrowest honest scope. Use `none` for read-only verification and `unknown` only when
+   the task genuinely cannot be scoped; `unknown` causes Harns to serialize that task with other writers.
+6. **Always end with the mandatory cross-slice tester task.** Final row, assignee `tester`, dependencies list every
+   prior task ID, write scope `none` unless it will edit tests, and description directs the tester to run the project's
+   full verification command and report failures. This is the global checkpoint — it is always present, even for
+   one-engineer plans.
 
 ## When to Quiz the User
 
@@ -94,4 +98,6 @@ existing section as your `oldText` and replace it with your updated version.
 - You do **not** explore the codebase. The architect already did that work.
 - Numeric task IDs in the table; `none` or comma-separated IDs in Dependencies.
 - Allowed assignees: `engineer`, `tester`, `doc-writer`.
+- `Write Scope` is a scheduler hint, not a design dependency: use comma-separated repo-relative paths or directories,
+  `none` for read-only tasks, and `unknown` for tasks that must not run concurrently with other writers.
 - After editing, end your turn. Do not generate further text — `plan_written` will pick up the file.

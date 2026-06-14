@@ -48,11 +48,13 @@ fails or produces invalid Tasks, the Plan stays `approved` and records no execut
 
 ## Workflow Validation
 
-Workflow Validation promotes `implemented` to `verified` only after local verification and semantic review pass.
+Workflow Validation applies only to FEATURE and PROJECT Plans. It promotes `implemented` to `verified` only after local
+verification and semantic review pass.
 
 For FEATURE and PROJECT Plans, the workflow diff must contain implementation changes. An empty scoped diff, or a diff
-that only changes Plan documents under `plans/`, is a validation failure. QUICK_FIX workflows may still auto-complete
-when the scoped diff is empty because they are operational and are not saved as executable Plans.
+that only changes Plan documents under `plans/`, is a validation failure. QUICK_FIX workflows are operational and are
+not saved as executable Plans, so the Operator is responsible for any needed self-verification before calling
+`task_completed`.
 
 ## Front Matter Fields
 
@@ -87,7 +89,8 @@ Loading a `failed` Plan should offer the same recovery options except that the f
 menu.
 
 Loading an `implemented` Plan should favor validation recovery: retry Workflow Validation, inspect/report, reset to the
-execution baseline tree, or re-open for review.
+execution baseline tree, or re-open for review. Retried Workflow Validation must rehydrate `executionBaselineTree` so
+the semantic review diff is scoped to the original execution attempt rather than unrelated local changes.
 
 ## Invariants
 

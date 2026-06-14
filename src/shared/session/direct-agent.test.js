@@ -242,3 +242,34 @@ Deno.test("direct-agent preserves active workflow baseline until continuation va
         baselineTree: "baseline-tree",
     });
 });
+
+Deno.test("direct-agent skips validation and clears workflow marker for QUICK_FIX completion", async () => {
+    let validationCount = 0;
+    setActiveExecutionWorkflow({
+        planName: "quick-fix",
+        triageMeta: { classification: "QUICK_FIX" },
+        baselineTree: "baseline-tree",
+    });
+
+    const handler = createDirectAgentHandler("operator", {
+        runAgentSession: () =>
+            Promise.resolve(
+                /** @type {any} */ ([{
+                    role: "toolResult",
+                    toolName: "task_completed",
+                    details: { outcome: "task_completed" },
+                }]),
+            ),
+        readLatestPlanOutcome: () => null,
+        readLatestTaskCompletedOutcome: () => true,
+        runValidationLoop: () => {
+            validationCount++;
+            return Promise.resolve();
+        },
+    });
+
+    await handler("answer", [], /** @type {any} */ ({}), /** @type {any} */ (undefined));
+
+    assertEquals(validationCount, 0);
+    assertEquals(getActiveExecutionWorkflow(), null);
+});

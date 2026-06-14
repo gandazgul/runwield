@@ -226,7 +226,9 @@ command definition, prompt command
 - **Task Dispatch** sends each ready **Task** to an **Agent Session** for its **Assignee**.
 - An execution **Agent Session** must emit **Task Completion** before the workflow can proceed to **Workflow
   Validation**.
-- **Workflow Validation** runs after completed `QUICK_FIX`, `FEATURE`, and `PROJECT` workflow loops.
+- **Workflow Validation** runs only after completed `FEATURE` and `PROJECT` Plan execution loops.
+- `QUICK_FIX` work ends when the **Operator** emits **Task Completion**; the **Operator** is responsible for any needed
+  self-verification before that signal.
 - Every **Agent Session** loads exactly one **Agent Definition** after bundled, home, and local layers are merged.
 - **Core Memories** are injected into every **Agent Session** by the **Mnemosyne** extension.
 - **Prompt Templates** become slash commands in the **TUI**.

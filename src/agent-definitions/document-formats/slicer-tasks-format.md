@@ -12,18 +12,28 @@ detail blocks below it with your new output.
 ## Tasks
 
 Tasks must form a Directed Acyclic Graph (DAG). Each row is a vertical slice (or a parallelizable doc/test task), not a
-horizontal layer. Numeric task IDs, `none` or comma-separated IDs in Dependencies, and an assignee from
-`engineer | tester | doc-writer`.
+horizontal layer. Numeric task IDs, `none` or comma-separated IDs in Dependencies, comma-separated repo-relative paths
+in Write Scope, and an assignee from `engineer | tester | doc-writer`.
 
-| Task | Assignee   | Dependencies | Description                                                                                          |
-| ---- | ---------- | ------------ | ---------------------------------------------------------------------------------------------------- |
-| 1    | engineer   | none         | One-line summary of slice 1 (full detail in the per-slice block below).                              |
-| 2    | engineer   | none         | One-line summary of slice 2.                                                                         |
-| 3    | doc-writer | none         | One-line summary of doc work (only if there's user-facing surface).                                  |
-| 4    | tester     | 1, 2, 3      | Run the project's full verification command. Report failures explicitly so a follow-up task can fix. |
+| Task | Assignee   | Dependencies | Write Scope       | Description                                                                                          |
+| ---- | ---------- | ------------ | ----------------- | ---------------------------------------------------------------------------------------------------- |
+| 1    | engineer   | none         | src/auth, src/api | One-line summary of slice 1 (full detail in the per-slice block below).                              |
+| 2    | engineer   | none         | src/ui            | One-line summary of slice 2.                                                                         |
+| 3    | doc-writer | none         | README.md         | One-line summary of doc work (only if there's user-facing surface).                                  |
+| 4    | tester     | 1, 2, 3      | none              | Run the project's full verification command. Report failures explicitly so a follow-up task can fix. |
 
 The final row is the **mandatory cross-slice verification task**: assignee `tester`, dependencies list every prior task
-ID, description directs the tester to run the project's full verification command.
+ID, write scope `none` unless it edits tests, and description directs the tester to run the project's full verification
+command.
+
+The Write Scope column controls Harns' shared-worktree scheduler:
+
+- Use the narrowest honest repo-relative file or directory paths, comma-separated.
+- Use `none` for read-only verification tasks.
+- Use `unknown` only when the task cannot be scoped; Harns treats it as broad and will not run it concurrently with
+  other writer tasks.
+- Dependencies still describe semantic ordering. Write Scope only describes whether dependency-ready tasks can safely
+  launch at the same time.
 
 If a description must contain a literal `|`, escape it as `\|`.
 
@@ -58,4 +68,4 @@ specifies a precise shape (state machine, schema, type) that prose can't capture
     verification task.
 - Engineer slices are vertical (cut through every layer they touch). Doc-writer tasks usually have no engineer
   dependency — they read finished or near-finished code in parallel. Mark them with `none` in Dependencies when truly
-  parallel.
+  parallel, and declare the exact docs they edit in Write Scope.
