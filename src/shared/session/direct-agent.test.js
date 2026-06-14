@@ -31,6 +31,38 @@ Deno.test("direct-agent calls executePlan when outcome is approved_execute", asy
     assertEquals(executeCalls[0][0], "my-plan");
 });
 
+Deno.test("direct-agent validates after approved_execute only when execution completed", async () => {
+    let validationCount = 0;
+    const handler = createDirectAgentHandler("planner", {
+        runAgentSession: () => Promise.resolve(/** @type {any} */ ([])),
+        readLatestPlanOutcome: () => /** @type {any} */ ({ outcome: "approved_execute", planName: "p" }),
+        executePlan: /** @type {any} */ (() => Promise.resolve({ repairRequired: false, executionComplete: true })),
+        runValidationLoop: () => {
+            validationCount++;
+            return Promise.resolve();
+        },
+    });
+
+    await handler("req", [], /** @type {any} */ (undefined), /** @type {any} */ (undefined));
+    assertEquals(validationCount, 1);
+});
+
+Deno.test("direct-agent skips validation when approved_execute did not complete execution", async () => {
+    let validationCount = 0;
+    const handler = createDirectAgentHandler("planner", {
+        runAgentSession: () => Promise.resolve(/** @type {any} */ ([])),
+        readLatestPlanOutcome: () => /** @type {any} */ ({ outcome: "approved_execute", planName: "p" }),
+        executePlan: /** @type {any} */ (() => Promise.resolve({ repairRequired: false, executionComplete: false })),
+        runValidationLoop: () => {
+            validationCount++;
+            return Promise.resolve();
+        },
+    });
+
+    await handler("req", [], /** @type {any} */ (undefined), /** @type {any} */ (undefined));
+    assertEquals(validationCount, 0);
+});
+
 Deno.test("direct-agent does NOT call executePlan when outcome is saved", async () => {
     let executeCount = 0;
     const handler = createDirectAgentHandler("planner", {

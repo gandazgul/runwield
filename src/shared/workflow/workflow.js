@@ -58,6 +58,14 @@ export function extractAssistantOutput(messages) {
  */
 
 /**
+ * @typedef {Object} PlanExecutionResult
+ * @property {boolean} repairRequired
+ * @property {boolean} executionComplete
+ * @property {string} [error]
+ * @property {number[]} [failedTasks]
+ */
+
+/**
  * Read the latest plan_written tool result's outcome from a message stream.
  *
  * @param {import('@earendil-works/pi-agent-core').AgentMessage[]} messages
@@ -370,6 +378,7 @@ export function extractTasks(planContent) {
  * @param {UiAPI} uiAPI
  * @param {Array<{ task: number, assignee: string, dependencies: string, description: string }>} [structuredTasks]
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [sessionManager]
+ * @returns {Promise<PlanExecutionResult>}
  */
 export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, sessionManager) {
     if (!uiAPI) throw new Error("executePlan: uiAPI is required");
@@ -377,7 +386,7 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
     const plan = await loadPlan(CWD, planName);
     if (!plan) {
         uiAPI.appendSystemMessage(`ERROR: Could not load plan ${planName}`, true, "Harns");
-        return;
+        return { repairRequired: false, executionComplete: false, error: `Could not load plan ${planName}` };
     }
 
     uiAPI.appendSystemMessage(`=== Executing Plan: ${planName} ===`, false, "Harns");
@@ -441,25 +450,47 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
                         if (spinnerInterval) clearInterval(spinnerInterval);
                         if (finalResult.failedTasks.length > 0) {
                             reportExecutionSummary(finalResult, uiAPI);
+                            return {
+                                repairRequired: false,
+                                executionComplete: false,
+                                failedTasks: finalResult.failedTasks,
+                            };
                         } else {
                             uiAPI.appendSystemMessage(`✅ All tasks eventually completed.`, false, "Harns");
                         }
                     } else {
                         reportExecutionSummary(executionResult, uiAPI);
+                        return {
+                            repairRequired: false,
+                            executionComplete: false,
+                            failedTasks: executionResult.failedTasks,
+                        };
                     }
                 } else {
                     uiAPI.appendSystemMessage(`✅ All tasks completed successfully.`, false, "Harns");
                 }
             } else {
-                await runEngineerWithPlan(planName, plan.body, uiAPI, sessionManager);
+                const engineerResult = await runEngineerWithPlan(
+                    planName,
+                    plan.body,
+                    uiAPI,
+                    sessionManager,
+                    triageMeta,
+                );
+                if (!engineerResult.completed) {
+                    return { repairRequired: false, executionComplete: false };
+                }
             }
         } catch (e) {
             const error = e instanceof Error ? e : new Error(String(e));
             uiAPI.appendSystemMessage(`TASK TABLE ERROR: ${error.message}`, true, "Harns");
-            return { repairRequired: true, error: error.message };
+            return { repairRequired: true, executionComplete: false, error: error.message };
         }
     } else {
-        await runEngineerWithPlan(planName, plan.body, uiAPI, sessionManager);
+        const engineerResult = await runEngineerWithPlan(planName, plan.body, uiAPI, sessionManager, triageMeta);
+        if (!engineerResult.completed) {
+            return { repairRequired: false, executionComplete: false };
+        }
     }
 
     uiAPI.appendSystemMessage(
@@ -468,7 +499,7 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
         "Harns",
     );
     await updatePlanStatus(CWD, planName, "completed", triageMeta);
-    return { repairRequired: false };
+    return { repairRequired: false, executionComplete: true };
 }
 
 /**
@@ -500,14 +531,13 @@ async function executeProjectTasks(
 ) {
     /** @type {Map<number, import('./types.js').TaskExecutionResult>} */
     const results = new Map();
-    const pending = new Set(tasks.map((task) => task.task));
+    const retryTaskIds = new Set(seedFailedTasks);
+    const pending = new Set(seedFailedTasks.length > 0 ? seedFailedTasks : tasks.map((task) => task.task));
     const running = new Set();
-    const failed = new Set();
 
     if (seedFailedTasks.length > 0) {
-        const processed = tasks.filter((task) => !seedFailedTasks.includes(task.task)).map((task) => task.task);
+        const processed = tasks.filter((task) => !retryTaskIds.has(task.task)).map((task) => task.task);
         processed.forEach((id) => results.set(id, { status: "success" }));
-        seedFailedTasks.forEach((id) => pending.add(id));
     }
 
     while (results.size < tasks.length) {
@@ -564,6 +594,7 @@ async function executeProjectTasks(
                 });
 
                 const outputText = extractAssistantOutput(sessionMessages);
+                const completed = readLatestTaskCompletedOutcome(sessionMessages);
 
                 if (Deno.env.get("DEBUG") === "1") {
                     const debugEntry = [
@@ -586,6 +617,29 @@ async function executeProjectTasks(
                     `${getAgentDisplayName(agentName)} (Task ${task.task} Output)`,
                 );
                 block.appendText(outputText || "_no output received_");
+
+                if (!completed) {
+                    const error = "Task ended without calling task_completed.";
+                    uiAPI.appendSystemMessage(
+                        `Task ${task.task} incomplete (${getAgentDisplayName(agentName)}): ${error}`,
+                        false,
+                        "Harns",
+                    );
+                    results.set(task.task, { status: "failed", error, messages: sessionMessages });
+
+                    if (sessionManager?.appendCustomMessageEntry) {
+                        sessionManager.appendCustomMessageEntry(
+                            "task_result",
+                            `Task ${task.task} (${getAgentDisplayName(agentName)}) INCOMPLETE: ${error}\n\n${
+                                outputText || "(no output)"
+                            }`,
+                            true,
+                            { taskId: task.task, agentName, status: "failed", error, output: outputText || "" },
+                        );
+                    }
+                    return;
+                }
+
                 results.set(task.task, { status: "success", messages: sessionMessages });
 
                 // Append a single record of the task's final assistant output to the root
@@ -609,7 +663,6 @@ async function executeProjectTasks(
                     "Harns",
                 );
                 results.set(task.task, { status: "failed", error: error.message });
-                failed.add(task.task);
 
                 if (sessionManager?.appendCustomMessageEntry) {
                     sessionManager.appendCustomMessageEntry(
@@ -642,7 +695,12 @@ async function executeProjectTasks(
         }
     }
 
-    const failedTasks = tasks.filter((task) => results.get(task.task)?.status === "failed").map((task) => task.task);
+    const failedTasks = tasks
+        .filter((task) => {
+            const status = results.get(task.task)?.status;
+            return status === "failed" || status === "blocked";
+        })
+        .map((task) => task.task);
     return { failedTasks, results };
 }
 
@@ -724,8 +782,10 @@ export async function askApprovalWithTasks(planName, uiAPI, structuredTasks) {
  * @param {string} planBody
  * @param {UiAPI} uiAPI
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [_sessionManager]
+ * @param {Partial<import('../../plan-store.js').PlanFrontMatter>} [triageMeta]
+ * @returns {Promise<{ completed: boolean, messages: import('@earendil-works/pi-agent-core').AgentMessage[] }>}
  */
-async function runEngineerWithPlan(planName, planBody, uiAPI, _sessionManager) {
+async function runEngineerWithPlan(planName, planBody, uiAPI, _sessionManager, triageMeta = {}) {
     uiAPI.appendSystemMessage(
         `=== Running ${getAgentDisplayName(AGENTS.ENGINEER)} ===`,
         false,
@@ -741,7 +801,7 @@ async function runEngineerWithPlan(planName, planBody, uiAPI, _sessionManager) {
     ].join("\n");
 
     const { setActiveExecutionWorkflow } = await import("../session/session-state.js");
-    setActiveExecutionWorkflow({ planName, triageMeta: {} });
+    setActiveExecutionWorkflow({ planName, triageMeta });
 
     const { setActiveAgent, applyPendingRootSwap } = await import("../interactive/chat-session.js");
     const { createDirectAgentHandler } = await import("../session/direct-agent.js");
@@ -749,9 +809,25 @@ async function runEngineerWithPlan(planName, planBody, uiAPI, _sessionManager) {
     await applyPendingRootSwap(uiAPI);
 
     const { runRootTurn } = await import("../session/session.js");
-    await runRootTurn({
+    const messages = await runRootTurn({
         agentName: AGENTS.ENGINEER,
         userRequest: engineerRequest,
         uiAPI,
     });
+
+    const completed = readLatestTaskCompletedOutcome(messages);
+    if (completed) {
+        const { clearActiveExecutionWorkflow } = await import("../session/session-state.js");
+        clearActiveExecutionWorkflow();
+    } else {
+        uiAPI.appendSystemMessage(
+            `${
+                getAgentDisplayName(AGENTS.ENGINEER)
+            } stopped without task_completed; validation is waiting for a completion signal.`,
+            false,
+            "Harns",
+        );
+    }
+
+    return { completed, messages };
 }

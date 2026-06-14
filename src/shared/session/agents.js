@@ -32,9 +32,9 @@ export const _AGENT_REMINDERS = {
     [AGENTS.SLICER]:
         "\n\n[CRITICAL REMINDER: You are the Slicer. Read the plan and use the edit tool to insert the Tasks and Slice Details sections. Ensure all tasks are vertical slices (tracer bullets). End your turn immediately after editing.]",
     [AGENTS.DOC_WRITER]:
-        "\n\n[CRITICAL REMINDER: You are the Doc Writer. You are STRICTLY LIMITED to writing and editing `.md` files. Do not modify implementation code or write tests. Execute only your specific assigned task, ensure accuracy against the codebase, and then halt.]",
+        "\n\n[CRITICAL REMINDER: You are the Doc Writer. You are STRICTLY LIMITED to writing and editing `.md` files. Do not modify implementation code or write tests. Execute only your specific assigned task, ensure accuracy against the codebase, and then call `task_completed`.]",
     [AGENTS.TESTER]:
-        "\n\n[CRITICAL REMINDER: You are the Tester. Execute ONLY your assigned task. You MUST run the tests using `bash` to prove they pass—narrations are not allowed. If the feature implementation is fundamentally broken, DO NOT rewrite it; report the exact failure and halt. Use the Zero-Trust Protocol for all imports.]",
+        "\n\n[CRITICAL REMINDER: You are the Tester. Execute ONLY your assigned task. You MUST run the tests using `bash` to prove they pass—narrations are not allowed. If the feature implementation is fundamentally broken, DO NOT rewrite it; report the exact failure and call `task_completed`. Use the Zero-Trust Protocol for all imports.]",
 };
 
 /**

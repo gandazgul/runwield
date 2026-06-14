@@ -16,9 +16,11 @@ import {
 import {
     askApprovalWithTasks as askApprovalWithTasksFn,
     askPostApproval as askPostApprovalFn,
+    ensureSlicerTasks as ensureSlicerTasksFn,
     executePlan as executePlanFn,
     runPlanningAgent as runPlanningAgentFn,
 } from "../../shared/workflow/workflow.js";
+import { runValidationLoop as runValidationLoopFn } from "../../shared/workflow/validation.js";
 import { submitPlanForReview as submitPlanForReviewFn } from "../../shared/workflow/submit-plan.js";
 import { printCommandHelp as printCommandHelpFn } from "../help/index.js";
 import {
@@ -40,6 +42,8 @@ export { getLoadPlanCompletions } from "./getArgumentCompletions.js";
  * @property {typeof submitPlanForReviewFn} [submitPlanForReview]
  * @property {typeof askPostApprovalFn} [askPostApproval]
  * @property {typeof askApprovalWithTasksFn} [askApprovalWithTasks]
+ * @property {typeof ensureSlicerTasksFn} [ensureSlicerTasks]
+ * @property {typeof runValidationLoopFn} [runValidationLoop]
  * @property {typeof setActiveAgentFn} [setActiveAgent]
  * @property {typeof createDirectAgentHandlerFn} [createDirectAgentHandler]
  * @property {typeof resetTuiStateFn} [resetTuiState]
@@ -198,6 +202,33 @@ function buildReReviewRevisionRequest(planName, feedback) {
 }
 
 /**
+ * @param {unknown} executionResult
+ * @param {string} planName
+ * @param {string} planContent
+ * @param {import('../../plan-store.js').PlanFrontMatter} triageMeta
+ * @param {import('../../shared/workflow/workflow.js').UiAPI} uiAPI
+ * @param {typeof runValidationLoopFn} runValidationLoop
+ */
+async function validateCompletedExecution(
+    executionResult,
+    planName,
+    planContent,
+    triageMeta,
+    uiAPI,
+    runValidationLoop,
+) {
+    if (!(executionResult && typeof executionResult === "object" && "executionComplete" in executionResult)) return;
+    if (!/** @type {{ executionComplete?: boolean }} */ (executionResult).executionComplete) return;
+    await runValidationLoop({
+        planName,
+        planContent,
+        triageMeta,
+        uiAPI,
+        sessionManager: undefined,
+    });
+}
+
+/**
  * Handle `load-plan` command.
  *
  * @param {string[]} argv
@@ -215,6 +246,8 @@ export async function runLoadPlanCommand(argv, options = {}) {
         submitPlanForReview: submitPlanForReviewDep,
         askPostApproval: askPostApprovalDep,
         askApprovalWithTasks: askApprovalWithTasksDep,
+        ensureSlicerTasks: ensureSlicerTasksDep,
+        runValidationLoop: runValidationLoopDep,
         setActiveAgent: setActiveAgentDep,
         createDirectAgentHandler: createDirectAgentHandlerDep,
         listPlans: listPlansDep,
@@ -230,6 +263,8 @@ export async function runLoadPlanCommand(argv, options = {}) {
     const submitPlanForReview = submitPlanForReviewDep || submitPlanForReviewFn;
     const askPostApproval = askPostApprovalDep || askPostApprovalFn;
     const askApprovalWithTasks = askApprovalWithTasksDep || askApprovalWithTasksFn;
+    const ensureSlicerTasks = ensureSlicerTasksDep || ensureSlicerTasksFn;
+    const runValidationLoop = runValidationLoopDep || runValidationLoopFn;
     const setActiveAgent = setActiveAgentDep || setActiveAgentFn;
     const createDirectAgentHandler = createDirectAgentHandlerDep || createDirectAgentHandlerFn;
     const updatePlanStatus = updatePlanStatusDep || updatePlanStatusFn;
@@ -361,7 +396,17 @@ export async function runLoadPlanCommand(argv, options = {}) {
 
                     for (let attempt = 0; attempt <= MAX_REPAIR_ATTEMPTS; attempt++) {
                         const execRes = await executePlan(currentPlanName, currentMeta, uiAPI, currentTasks);
-                        if (!execRes || !execRes.repairRequired) break;
+                        if (!execRes || !execRes.repairRequired) {
+                            await validateCompletedExecution(
+                                execRes,
+                                currentPlanName,
+                                plan.markdown || plan.body || "",
+                                /** @type {import('../../plan-store.js').PlanFrontMatter} */ (currentMeta),
+                                uiAPI,
+                                runValidationLoop,
+                            );
+                            break;
+                        }
 
                         if (attempt === MAX_REPAIR_ATTEMPTS) {
                             uiAPI.appendSystemMessage(
@@ -432,11 +477,36 @@ export async function runLoadPlanCommand(argv, options = {}) {
                     }
 
                     if (reviewResult.approved) {
+                        if (plan.attrs.classification === "PROJECT") {
+                            const sliceResult = await ensureSlicerTasks({
+                                planName: plan.planName,
+                                planPath: plan.path,
+                                triageMeta: plan.attrs,
+                                uiAPI,
+                            });
+                            if (!sliceResult.ok) {
+                                uiAPI.appendSystemMessage(
+                                    `Slicer failed before execution: ${sliceResult.error}`,
+                                    true,
+                                    "Harns",
+                                );
+                                skipRouterRestore = true;
+                                return;
+                            }
+                        }
                         const action = plan.attrs.classification === "PROJECT"
                             ? await askApprovalWithTasks(plan.planName, uiAPI)
                             : await askPostApproval(plan.planName, uiAPI);
                         if (action === "proceed") {
-                            await executePlan(plan.planName, plan.attrs, uiAPI);
+                            const execRes = await executePlan(plan.planName, plan.attrs, uiAPI);
+                            await validateCompletedExecution(
+                                execRes,
+                                plan.planName,
+                                plan.markdown || plan.body || "",
+                                plan.attrs,
+                                uiAPI,
+                                runValidationLoop,
+                            );
                             setActiveAgent(AGENTS.OPERATOR, createDirectAgentHandler(AGENTS.OPERATOR), uiAPI);
                         } else {
                             uiAPI.appendSystemMessage(
@@ -458,11 +528,20 @@ export async function runLoadPlanCommand(argv, options = {}) {
                     });
 
                     if (outcome.outcome === "approved_execute" && outcome.planName) {
-                        await executePlan(
+                        const execRes = await executePlan(
                             outcome.planName,
                             outcome.triageMeta || plan.attrs,
                             uiAPI,
                             outcome.tasks,
+                        );
+                        await validateCompletedExecution(
+                            execRes,
+                            outcome.planName,
+                            plan.markdown || plan.body || "",
+                            /** @type {import('../../plan-store.js').PlanFrontMatter} */ (outcome.triageMeta ||
+                                plan.attrs),
+                            uiAPI,
+                            runValidationLoop,
                         );
                         setActiveAgent(AGENTS.OPERATOR, createDirectAgentHandler(AGENTS.OPERATOR), uiAPI);
                     } else if (
@@ -492,11 +571,19 @@ export async function runLoadPlanCommand(argv, options = {}) {
         });
 
         if (outcome.outcome === "approved_execute" && outcome.planName) {
-            await executePlan(
+            const execRes = await executePlan(
                 outcome.planName,
                 outcome.triageMeta || plan.attrs,
                 uiAPI,
                 outcome.tasks,
+            );
+            await validateCompletedExecution(
+                execRes,
+                outcome.planName,
+                plan.markdown || plan.body || "",
+                /** @type {import('../../plan-store.js').PlanFrontMatter} */ (outcome.triageMeta || plan.attrs),
+                uiAPI,
+                runValidationLoop,
             );
             setActiveAgent(AGENTS.OPERATOR, createDirectAgentHandler(AGENTS.OPERATOR), uiAPI);
         } else if (

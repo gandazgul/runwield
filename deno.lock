@@ -16,7 +16,8 @@
     "npm:@earendil-works/pi-ai@0.74": "0.74.2_zod@4.4.3",
     "npm:@earendil-works/pi-coding-agent@0.74": "0.74.2_zod@4.4.3",
     "npm:@earendil-works/pi-tui@0.74": "0.74.2",
-    "npm:@gandazgul/plannotator-pi-extension-compiled@~0.19.27": "0.19.27_@mariozechner+pi-agent-core@0.73.1_@mariozechner+pi-ai@0.73.1_@mariozechner+pi-coding-agent@0.73.1_@mariozechner+pi-tui@0.73.1",
+    "npm:@gandazgul/plannotator-pi-extension-compiled@0.20.1": "0.20.1_@mariozechner+pi-agent-core@0.73.1_@mariozechner+pi-ai@0.73.1_@mariozechner+pi-coding-agent@0.73.1_@mariozechner+pi-tui@0.73.1",
+    "npm:@gandazgul/plannotator-pi-extension-compiled@~0.20.1": "0.20.1_@mariozechner+pi-agent-core@0.73.1_@mariozechner+pi-ai@0.73.1_@mariozechner+pi-coding-agent@0.73.1_@mariozechner+pi-tui@0.73.1",
     "npm:@sinclair/typebox@~0.34.41": "0.34.49",
     "npm:chalk@^5.4.1": "5.6.2",
     "npm:proper-lockfile@3": "3.2.0",
@@ -411,8 +412,8 @@
         "koffi"
       ]
     },
-    "@gandazgul/plannotator-pi-extension-compiled@0.19.27_@mariozechner+pi-agent-core@0.73.1_@mariozechner+pi-ai@0.73.1_@mariozechner+pi-coding-agent@0.73.1_@mariozechner+pi-tui@0.73.1": {
-      "integrity": "sha512-c255vGwHC4/WXHTESpLftXXY91ieofe3YVLPiB+02qx67SSxQM2BD+Pl4YnJuhw+HdsaH9OZ2VAeLvomQ38Kxw==",
+    "@gandazgul/plannotator-pi-extension-compiled@0.20.1_@mariozechner+pi-agent-core@0.73.1_@mariozechner+pi-ai@0.73.1_@mariozechner+pi-coding-agent@0.73.1_@mariozechner+pi-tui@0.73.1": {
+      "integrity": "sha512-cao/PvWIzG3EC45mkeA2YPMME8rYijgVvcIe14q53CTxIRQ/aYiODTSAVDVBy9a2CtOW6XDqUvjJN7170mdpfg==",
       "dependencies": [
         "@joplin/turndown-plugin-gfm",
         "@mariozechner/pi-agent-core",
@@ -1455,7 +1456,7 @@
       "npm:@earendil-works/pi-ai@0.74",
       "npm:@earendil-works/pi-coding-agent@0.74",
       "npm:@earendil-works/pi-tui@0.74",
-      "npm:@gandazgul/plannotator-pi-extension-compiled@~0.19.27",
+      "npm:@gandazgul/plannotator-pi-extension-compiled@~0.20.1",
       "npm:@sinclair/typebox@~0.34.41",
       "npm:chalk@^5.4.1",
       "npm:proper-lockfile@3",

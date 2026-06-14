@@ -206,6 +206,62 @@ Deno.test("runLoadPlanCommand approved review approves directly via submitPlanFo
     assertEquals(executed, false);
 });
 
+Deno.test("runLoadPlanCommand approved PROJECT review runs slicer before proceed", async () => {
+    const { uiAPI, selections } = makeUi();
+    selections.push("review");
+    let sliced = false;
+    let askedWithTasks = false;
+    let executed = false;
+    let validated = false;
+
+    await runLoadPlanCommand(["plan-project-review"], {
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: () => ({ help: false, _: ["plan-project-review"] }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "plan-project-review",
+                    path: "plans/plan-project-review.md",
+                    body: "body",
+                    markdown: "markdown",
+                    attrs: {
+                        classification: "PROJECT",
+                        complexity: "HIGH",
+                        summary: "s",
+                        affectedPaths: [],
+                        status: "approved",
+                    },
+                }),
+            submitPlanForReview: () => Promise.resolve({ approved: true }),
+            ensureSlicerTasks: () => {
+                sliced = true;
+                return Promise.resolve({ ok: true, slicerInvoked: true });
+            },
+            askApprovalWithTasks: () => {
+                askedWithTasks = true;
+                return Promise.resolve("proceed");
+            },
+            executePlan: () => {
+                executed = true;
+                return Promise.resolve({ repairRequired: false, executionComplete: true });
+            },
+            runValidationLoop: () => {
+                validated = true;
+                return Promise.resolve();
+            },
+            createDirectAgentHandler: () => async () => {},
+            resetTuiState: () => {},
+            setActiveAgent: () => {},
+        }),
+    });
+
+    assertEquals(sliced, true);
+    assertEquals(askedWithTasks, true);
+    assertEquals(executed, true);
+    assertEquals(validated, true);
+});
+
 Deno.test("runLoadPlanCommand approved review kicks off planner on denial", async () => {
     const { uiAPI, selections } = makeUi();
     selections.push("review");

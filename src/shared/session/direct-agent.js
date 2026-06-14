@@ -17,7 +17,7 @@ import {
     getActiveExecutionWorkflow,
     getRootAgentName,
 } from "./session-state.js";
-import { runValidationLoop } from "../workflow/orchestrator.js";
+import { runValidationLoop } from "../workflow/validation.js";
 import { join } from "@std/path";
 import { CWD } from "../../constants.js";
 
@@ -73,7 +73,7 @@ export function createDirectAgentHandler(agentName, __deps) {
         // appropriately inside plan_written.
         const outcome = readLatestPlanOutcome(messages);
         if (outcome && outcome.outcome === "approved_execute" && outcome.planName) {
-            await executePlan(
+            const executionResult = await executePlan(
                 outcome.planName,
                 outcome.triageMeta || {},
                 uiAPI,
@@ -90,13 +90,15 @@ export function createDirectAgentHandler(agentName, __deps) {
                 // Ignore in tests or if the file doesn't exist
             }
 
-            await runValidationLoopImpl({
-                planName: outcome.planName,
-                planContent,
-                triageMeta: outcome.triageMeta || {},
-                uiAPI,
-                sessionManager,
-            });
+            if (executionResult?.executionComplete) {
+                await runValidationLoopImpl({
+                    planName: outcome.planName,
+                    planContent,
+                    triageMeta: outcome.triageMeta || {},
+                    uiAPI,
+                    sessionManager,
+                });
+            }
             return;
         }
 

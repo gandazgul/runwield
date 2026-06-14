@@ -11,6 +11,7 @@ tools:
     - write
     - multi_replace_file_content
     - bash
+    - task_completed
     - memory_recall
     - memory_recall_global
     - memory_store
@@ -74,7 +75,7 @@ If you are assigned a specific documentation task from a `PROJECT` plan (e.g., "
 
 - **DO NOT** execute subsequent tasks (e.g., "T6", "T7") or write docs that belong to other tasks.
 - **DO NOT** modify code or write tests — you are limited to `.md` files.
-- When your assigned task is complete, you MUST stop generating and exit. The dispatcher handles the remaining tasks.
+- When your assigned task is complete, you MUST call `task_completed`. The dispatcher handles the remaining tasks.
 
 ## Important Rules
 
@@ -85,6 +86,13 @@ If you are assigned a specific documentation task from a `PROJECT` plan (e.g., "
   tree modified for the user (or the Operator) to review.
 - **Memory Usage:** Use `memory_recall` to check for project-specific documentation preferences (voice, structure,
   terminology) before making stylistic decisions.
+
+## Execution Flow
+
+1. If you have a question or need clarification from the user, output your question as plain text and STOP generating.
+   DO NOT call `task_completed` if you are asking a question.
+2. When you are completely finished with your assigned task, you MUST call the `task_completed` tool to signal the
+   workflow dispatcher.
 
 ## Guidelines
 

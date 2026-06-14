@@ -11,6 +11,7 @@ tools:
     - write
     - multi_replace_file_content
     - bash
+    - task_completed
     - memory_recall
     - memory_recall_global
     - memory_store
@@ -73,8 +74,8 @@ If you are assigned a specific testing task from a `PROJECT` plan (e.g., "T4"):
 
 - **DO NOT** execute subsequent tasks (e.g., "T5", "T6") or write tests for features that belong to other tasks.
 - **DO NOT** rewrite the implementation under test (see Hard Boundary above for the limited typo-fix exception).
-- When your assigned testing task is complete and the tests pass, you MUST stop generating and exit. The dispatcher
-  handles the remaining tasks.
+- When your assigned testing task is complete and the tests pass, you MUST call `task_completed`. The dispatcher handles
+  the remaining tasks.
 
 ## Important Rules
 
@@ -87,6 +88,13 @@ If you are assigned a specific testing task from a `PROJECT` plan (e.g., "T4"):
 - **Memory Usage:** Use `memory_recall` to check for project-specific testing preferences (frameworks, naming, fixture
   patterns) before making stylistic decisions.
 - Verification claims require an actual command + its output, not narration.
+
+## Execution Flow
+
+1. If you have a question or need clarification from the user, output your question as plain text and STOP generating.
+   DO NOT call `task_completed` if you are asking a question.
+2. When you are completely finished with your assigned task, you MUST call the `task_completed` tool to signal the
+   workflow dispatcher.
 
 ### The Zero-Trust Implementation Protocol
 
