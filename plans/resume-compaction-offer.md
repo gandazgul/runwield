@@ -3,40 +3,52 @@ classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Modify the `/resume` command to check the token count of a session before loading it. If the session size exceeds a threshold (e.g., 50% of the model's context window), the user should be prompted whether they want to compact the session before proceeding with the resume. This prevents loading oversized contexts that could degrade model performance or exceed limits."
 affectedPaths:
-  - "src/cmd/resume/index.js"
+    - "src/cmd/resume/index.js"
 createdAt: "2026-06-13T15:00:00.000Z"
 updatedAt: "2026-06-14T02:27:08.779Z"
 status: "approved"
 origin: "internal"
 ---
+
 # Resume Compaction Offer
 
 ## Context
 
-When resuming a long session via `/resume`, the full conversation history is loaded into the LLM context. If the session is large (e.g. >50% of the current model's context window), the user may want to compact it first to avoid hitting context limits or degrading model performance.
+When resuming a long session via `/resume`, the full conversation history is loaded into the LLM context. If the session
+is large (e.g. >50% of the current model's context window), the user may want to compact it first to avoid hitting
+context limits or degrading model performance.
 
 Currently there is no warning — the session loads as-is and the user must manually run `/compact` afterward.
 
 ## Objective
 
-After the user selects a session in `/resume` but **before** loading it, estimate the session's total token count. If it exceeds a configurable percentage of the current model's context window, ask the user: compact now, resume as-is, or cancel. If they choose compact, run compaction immediately before restoring the conversation.
+After the user selects a session in `/resume` but **before** loading it, estimate the session's total token count. If it
+exceeds a configurable percentage of the current model's context window, ask the user: compact now, resume as-is, or
+cancel. If they choose compact, run compaction immediately before restoring the conversation.
 
 ## Approach
 
-1. **Token estimation from raw session file** — read the JSONL file and estimate tokens using pi's existing `estimateTokens()` from `@earendil-works/pi-coding-agent` (chars/4 heuristic). For `compaction` entries, read the `tokensBefore` field directly.
-2. **Model context window** — resolve the **currently configured default model** (not the session's original model) using `getModelRegistry()` and the settings' default provider/model.
-3. **Threshold setting** — store `compactOnResumeThresholdPercent` as a Harns custom setting (default 50). Configurable via existing `setCustomSetting` API.
+1. **Token estimation from raw session file** — read the JSONL file and estimate tokens using pi's existing
+   `estimateTokens()` from `@earendil-works/pi-coding-agent` (chars/4 heuristic). For `compaction` entries, read the
+   `tokensBefore` field directly.
+2. **Model context window** — resolve the **currently configured default model** (not the session's original model)
+   using `getModelRegistry()` and the settings' default provider/model.
+3. **Threshold setting** — store `compactOnResumeThresholdPercent` as a Harns custom setting (default 50). Configurable
+   via existing `setCustomSetting` API.
 4. **User prompt** — a 3-option `promptSelect`: Compact now, Resume as-is, Cancel.
-5. **Compact-then-resume flow** — if user picks compact: open the SessionManager, create/resolve the AgentSession, call `session.compact()`, then proceed with the normal restore/UI hydration flow.
+5. **Compact-then-resume flow** — if user picks compact: open the SessionManager, create/resolve the AgentSession, call
+   `session.compact()`, then proceed with the normal restore/UI hydration flow.
 
 ## Files to Modify
 
 - `src/cmd/resume/index.js` — all the core logic: token estimation, user prompt, compact-on-resume flow
-- `src/shared/settings.js` — no structural changes needed, but document that `compactOnResumeThresholdPercent` (integer, 1–100, default 50) is the canonical key for this setting
+- `src/shared/settings.js` — no structural changes needed, but document that `compactOnResumeThresholdPercent` (integer,
+  1–100, default 50) is the canonical key for this setting
 
 ## Reuse Opportunities
 
-- `@earendil-works/pi-coding-agent` → `estimateTokens` — already imported in `src/cmd/compact/index.js`, used to token-count individual messages
+- `@earendil-works/pi-coding-agent` → `estimateTokens` — already imported in `src/cmd/compact/index.js`, used to
+  token-count individual messages
 - `src/shared/models/model-registry.js` → `getModelRegistry()` — resolve current model's `contextWindow`
 - `src/shared/settings.js` → `getCustomSetting()` / `setCustomSetting()` — read/write `compactOnResumeThresholdPercent`
 - `src/shared/session/session-state.js` → `setRootSessionManager()`, `getRootAgentSession()` — manage session lifecycle
@@ -68,8 +80,10 @@ After the user selects a session in `/resume` but **before** loading it, estimat
 - [ ] **Step 3: Add threshold constant and settings reader**
 
   Define `DEFAULT_COMPACT_ON_RESUME_PCT = 50`.
-  
-  Create a helper `getCompactThresholdPercent()` that reads `compactOnResumeThresholdPercent` from merged custom settings (project scope preferred, falling back to global) via `getMergedCustomSetting()`, validates it's 1–100, and returns the value (or default).
+
+  Create a helper `getCompactThresholdPercent()` that reads `compactOnResumeThresholdPercent` from merged custom
+  settings (project scope preferred, falling back to global) via `getMergedCustomSetting()`, validates it's 1–100, and
+  returns the value (or default).
 
 - [ ] **Step 4: Insert the compaction offer into the resume flow**
 
@@ -110,7 +124,8 @@ After the user selects a session in `/resume` but **before** loading it, estimat
 
   - **Session file unreadable** — catch errors, log warning, proceed with normal resume (no prompt)
   - **No model configured** — use default 128000 context window, show prompt based on that
-  - **Session already compacted** — the estimate still reflects total size, prompt is still valid; compaction just won't do much (pi skips if last entry is compaction). That's fine.
+  - **Session already compacted** — the estimate still reflects total size, prompt is still valid; compaction just won't
+    do much (pi skips if last entry is compaction). That's fine.
   - **Zero or tiny sessions** — threshold won't trigger, no prompt
   - **Cancelled compaction** — catch, show "Compaction cancelled, resuming as-is", proceed with normal resume
   - **Compaction fails** — catch, show error, proceed with normal resume
@@ -135,8 +150,14 @@ After the user selects a session in `/resume` but **before** loading it, estimat
 
 ## Edge Cases & Considerations
 
-- **Compaction during resume should not auto-retry** — pi's `session.compact()` without arguments uses the manual path (no auto-retry after compact). Confirm this in pi's source.
-- **Token estimation is approximate (chars/4)** — it may overcount or undercount vs the LLM's actual tokenizer. That's acceptable for a threshold check; the user can always skip compaction.
-- **The model used during compact** is whatever `ensureRootAgentSession` configures (the current default). If user switches models between sessions, the compact summary is generated by the current model — which is fine and intentional.
-- **Avoid loading the SessionManager twice** — the compact path opens the session once, compacts, then uses the same manager for the resume; the normal path opens it once. No double-load.
-- **Performance** — reading + parsing a large session file (~5000 lines) is fast (<50ms). This happens in the event loop between user selection and session open, and the user is waiting anyway.
+- **Compaction during resume should not auto-retry** — pi's `session.compact()` without arguments uses the manual path
+  (no auto-retry after compact). Confirm this in pi's source.
+- **Token estimation is approximate (chars/4)** — it may overcount or undercount vs the LLM's actual tokenizer. That's
+  acceptable for a threshold check; the user can always skip compaction.
+- **The model used during compact** is whatever `ensureRootAgentSession` configures (the current default). If user
+  switches models between sessions, the compact summary is generated by the current model — which is fine and
+  intentional.
+- **Avoid loading the SessionManager twice** — the compact path opens the session once, compacts, then uses the same
+  manager for the resume; the normal path opens it once. No double-load.
+- **Performance** — reading + parsing a large session file (~5000 lines) is fast (<50ms). This happens in the event loop
+  between user selection and session open, and the user is waiting anyway.

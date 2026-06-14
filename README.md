@@ -1,320 +1,303 @@
 <p align="center"><img src="logo.svg" width="120" /></p>
 
-**Harns** is an opinionated, **plan-by-default coding hnsness** built on top of [Pi](https://pi.dev).
+# Harns
 
-It routes incoming requests through triage, creates reviewable plans for non-trivial work, runs an interactive
-[Plannotator](https://plannotator.ai) approval loop, and then executes approved work with specialized agents.
+**Harns** is an opinionated, plan-by-default coding harness for developers who want agents to slow down at the right
+moments: classify the work, write a reviewable plan when the blast radius is real, execute through specialized roles,
+and then prove the result.
+
+It is built on top of [Pi](https://pi.dev), with a Deno CLI, an interactive TUI, a browser-based plan review loop via
+[Plannotator](https://plannotator.ai), [Cymbal](https://github.com/1broseidon/cymbal) for code intelligence, and
+[Mnemosyne](https://github.com/gandazgul/mnemosyne) for project/global memory.
 
 ## Why Harns
 
-- **Plan-first by default** for medium/large requests
-- **Explicit triage** (`QUICK_FIX`, `FEATURE`, `PROJECT`)
-- **Human-in-the-loop review** before execution
-- **Multi-agent execution** for project-scale plans
-- **Resume support** for saved/paused plans
+Most coding harnesses optimize for getting an agent typing quickly. Harns optimizes for getting the right kind of work
+done with the right amount of ceremony.
 
----
+- **Triage is explicit.** Every routed request becomes `QUICK_FIX`, `FEATURE`, or `PROJECT`, with complexity and
+  affected paths recorded before execution.
+- **Planning is a product surface, not a prompt vibe.** Non-trivial work becomes a markdown plan in `plans/`, goes
+  through Plannotator review, and can be approved, revised, saved, re-opened, or executed later.
+- **Architecture and task slicing are separate jobs.** Large `PROJECT` work is designed by the Architect, then sliced
+  into dependency-aware vertical tasks by the Slicer after approval.
+- **Execution is role-scoped.** Operators handle small fixes, Engineers implement approved plans, Testers write or run
+  test work, Doc Writers stay limited to docs, and Reviewers compare the final diff to the plan.
+- **Parallel work keeps a single trail.** Project tasks can run in dependency order with bounded parallelism, while
+  their final outputs are summarized back into the root session.
+- **Completion has a handshake.** Execution agents are expected to call `task_completed`; Harns treats that as the
+  strong signal before running validation.
+- **Validation is built into the workflow.** After completed work, Harns runs the configured local verification command
+  and then a semantic review loop against the original plan.
+- **Context is durable.** Sessions live under `~/.hns/sessions/`, settings under `~/.hns/settings.json`, plans in the
+  repo, and Mnemosyne keeps recallable project and global memory.
+
+Use Harns when you want an agent workflow that leaves durable plans, review points, verification notes, and a clear
+record of why each change happened. Use a lighter harness when you only want a one-shot chat wrapper around edit tools.
 
 ## High-Level Flow
 
 ```mermaid
 flowchart TD
-    U[User Request] --> R[Router\ntriage_report]
+    U[User request] --> R[Router calls triage_report]
 
-    R -->|QUICK_FIX| O[Operator\nExecutes directly]
-    O --> QD[Done]
+    R -->|QUICK_FIX| O[Operator executes directly]
+    O --> TC1{task_completed?}
+    TC1 -->|yes| V1[Local verification + semantic review]
+    TC1 -->|no| W1[Wait for completion signal]
 
-    R -->|FEATURE| P[Planner\nCreates plan in plans/*.md]
-    P --> PR[Plannotator Review UI]
-    PR -->|Denied| PF[Feedback returned]
-    PF --> P
-    PR -->|Approved| PA{Proceed now?}
-    PA -->|Yes| E1[Engineer executes plan]
-    E1 --> FD1[Done]
-    PA -->|No| S1[Saved for resume]
+    R -->|FEATURE| P[Planner writes plans/*.md]
+    P --> PR[Plannotator review]
+    PR -->|feedback| P
+    PR -->|approved| PA{Proceed now?}
+    PA -->|yes| E[Engineer executes approved plan]
+    PA -->|no| SP[Saved plan]
+    E --> TC2{task_completed?}
+    TC2 -->|yes| V2[Local verification + semantic review]
 
-    R -->|PROJECT| A[Architect\nDeep exploration + plan + tasks]
-    A --> PR2[Plannotator Review UI]
-    PR2 -->|Denied| AF[Feedback returned]
-    AF --> A
-    PR2 -->|Approved| PA2{Proceed now?}
-    PA2 -->|Yes| T[Task dispatch\nengineer/tester/doc-writer]
-    T --> FD2[Done]
-    PA2 -->|No| S2[Saved for resume]
+    R -->|PROJECT| A[Architect writes design plan]
+    A --> PR2[Plannotator review]
+    PR2 -->|feedback| A
+    PR2 -->|approved| S[Slicer appends vertical task table]
+    S --> PX{Proceed now?}
+    PX -->|yes| T[Engineer/Tester/Doc Writer tasks run by dependency order]
+    PX -->|no| SP
+    T --> V3[Local verification + semantic review]
 
-    S1 --> RES[Resume Command]
-    S2 --> RES
-    RES --> RR{Plan status}
-    RR -->|approved| PX[Proceed/Review/View]
-    RR -->|draft/denied/in_review| RL[Re-enter review loop]
+    SP --> LP[hns load-plan]
 ```
-
----
-
-## Agent Catalog
-
-Bundled agent definitions live in [`src/agent-definitions/`](src/agent-definitions/).
-
-| Agent      | Purpose                                                                       | Prompt                                               |
-| ---------- | ----------------------------------------------------------------------------- | ---------------------------------------------------- |
-| Router     | Classifies incoming requests and emits structured triage data.                | [router.md](src/agent-definitions/router.md)         |
-| Operator   | Executes small, low-risk `QUICK_FIX` tasks directly.                          | [operator.md](src/agent-definitions/operator.md)     |
-| Planner    | Produces iterative, execution-ready plans for `FEATURE` requests.             | [planner.md](src/agent-definitions/planner.md)       |
-| Architect  | Produces deeper, project-scale plans (including task decomposition) and ADRs. | [architect.md](src/agent-definitions/architect.md)   |
-| Engineer   | Implements approved plans or assigned tasks in code.                          | [engineer.md](src/agent-definitions/engineer.md)     |
-| Tester     | Writes/updates tests for approved changes.                                    | [tester.md](src/agent-definitions/tester.md)         |
-| Doc Writer | Creates or updates technical documentation artifacts.                         | [doc-writer.md](src/agent-definitions/doc-writer.md) |
-
-### Agent Overrides (`.hns/agents`)
-
-You can override bundled agent definitions with markdown files in these locations, with Precedence (highest to lowest):
-
-1. Local (`<repo>/.hns/agents`)
-2. Home (`~/.hns/agents`)
-3. Bundled (`src/agent-definitions`)
-
-Merge behavior:
-
-- Frontmatter scalar fields (`name`, `model`, `description`, etc.) override by precedence.
-- `tools` arrays are merged (union + dedupe), so higher layers can add tools without removing defaults.
-- Prompt body appends by default across layers.
-- If a layer sets `promptOverride: true`, lower-layer prompt content is discarded and replaced from that layer onward.
-
----
-
-## Runtime & Dependencies
-
-- End-user runtime: **Standalone `hns` binary** (no Deno required)
-- Contributor/dev runtime: **Deno**
-- Core libraries:
-  - `@mariozechner/pi-coding-agent`
-  - `@mariozechner/pi-ai`
-  - `@mariozechner/pi-agent-core`
-  - `@plannotator/pi-extension`
-  - `@gandazgul/plannotator-pi-extension-compiled` (compiled Plannotator UI assets for in-process review)
-- Memory layer:
-  - **[Mnemosyne](https://github.com/gandazgul/mnemosyne)** (integrated persistent memory)
-
----
 
 ## Installation
 
-### macOS / Linux (recommended)
+### macOS / Linux
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/gandazgul/harns/main/install.sh | bash
-```
-
-Then verify:
-
-```bash
 hns --help
 ```
 
-### Source-run (contributors)
+The installer downloads the latest release binary for macOS or Linux, verifies checksums, and installs `hns`.
 
-1. Install Deno: https://docs.deno.com/runtime/getting_started/installation/
-
-2. Run from source:
+### From Source
 
 ```bash
 deno run -A src/cli.js --help
-```
-
-3. Or compile
-
-```bash
-deno run compile
+deno task compile
 ./bin/hns --help
 ```
 
----
+## Runtime Requirements
 
-## Usage
+End users run the standalone `hns` binary. Contributors use Deno.
 
-### Run a new request (default router command)
+Interactive agent workflows require these binaries in `PATH`:
+
+- `mnemosyne` for project/global memory
+- `cymbal` for code search, symbol lookup, impact analysis, and tracing
+
+Harns stores its own data under `~/.hns/`:
+
+- `~/.hns/sessions/` for session history
+- `~/.hns/settings.json` for global settings
+- `~/.hns/agents/` for home-level agent overrides
+- `~/.hns/prompts/` for home-level prompt templates
+
+Project-level plans and optional overrides live in the current repository:
+
+- `plans/*.md`
+- `.hns/settings.json`
+- `.hns/agents/*.md`
+- `.hns/prompts/*.md`
+
+## First Run
+
+Initialize Harns in a project when you want it to build durable context:
 
 ```bash
-hns "your request here"
+hns init
 ```
 
-Equivalent explicit form (router is the default command):
+The init agent explores the repository, writes `CONTEXT.md`, stores core memories, and records that init has run for
+that project. You can also run `/init` inside an interactive session.
+
+Then start a request:
 
 ```bash
-hns router "your request here"
+hns "fix the failing parser test"
 ```
 
-Examples:
+The default command is `router`, so this is equivalent:
 
 ```bash
-hns "fix typo in README"
-hns router "add JWT auth to API"
-hns "refactor data layer and add migration plan"
+hns router "fix the failing parser test"
 ```
 
-### Theme Customization
-
-Harns supports dynamic TUI themes. You can switch themes interactively inside the TUI with `/theme`, or via the CLI:
+## Common Commands
 
 ```bash
-hns theme <name>      # Switch and persist theme
-hns theme --list      # List available themes
-hns install <source>  # Install a theme package (npm, git, local)
-hns remove <source>   # Remove a theme package
-```
-
-For more details, see [docs/themes.md](docs/themes.md).
-
-### Show help
-
-```bash
-hns --help # or hns help
+hns "your request"                  # route through triage
+hns router "your request"           # explicit router form
+hns agent                           # list available agents
+hns agent engineer "implement X"    # bypass router and talk to one agent
+hns plans                           # list saved plans
+hns load-plan <name-or-path>        # review, execute, or continue a plan
+hns sleep                           # run memory optimization
+hns init                            # bootstrap project context
+hns install <source>                # install a theme package
+hns remove <source>                 # remove a theme package
+hns --help
 hns help <command>
-hns <command> --help
 ```
 
-### Resume a saved plan
+Inside the TUI, built-in slash commands include:
 
-By plan name:
+```text
+/agent      /compact    /exit       /export     /init
+/load-plan  /model      /new        /quit       /reload
+/resume     /session    /share      /sleep      /theme
+```
+
+Prompt templates from `src/prompt-templates/`, `~/.hns/prompts/`, and `.hns/prompts/` also become slash commands when
+they do not collide with built-ins. Bundled skills can be invoked as `/skill:<name>`.
+
+## Plans
+
+Plans are markdown files with YAML front matter in `plans/`. Harns records:
+
+- classification: `QUICK_FIX`, `FEATURE`, or `PROJECT`
+- complexity: `LOW`, `MEDIUM`, or `HIGH`
+- summary and affected paths
+- status: `draft`, `in_review`, `approved`, `ready_for_work`, `feedback`, or `completed`
+- origin: `internal` or `external`
+
+Use `hns plans` to list saved plans.
+
+Use `hns load-plan <name-or-path>` to:
+
+- execute an approved plan
+- re-open an approved or completed plan for review
+- view plan details
+- continue a draft, feedback, or in-review plan
+- load an external markdown plan and let Harns add front matter
+
+`/resume` is different: it resumes a recent interactive chat session, not a plan file.
+
+## Agents
+
+Bundled agent definitions live in [`src/agent-definitions/`](src/agent-definitions/). They are markdown files with front
+matter for name, model, description, and tools.
+
+| Agent      | Purpose                                                             |
+| ---------- | ------------------------------------------------------------------- |
+| Router     | Classifies incoming requests and calls `triage_report`.             |
+| Operator   | Executes small `QUICK_FIX` tasks and operational work directly.     |
+| Planner    | Writes reviewable plans for `FEATURE` work.                         |
+| Architect  | Designs `PROJECT` plans without implementing code.                  |
+| Slicer     | Converts approved project designs into vertical task tables.        |
+| Engineer   | Implements approved plans or assigned project tasks.                |
+| Tester     | Writes, updates, and runs tests for assigned work.                  |
+| Doc Writer | Updates markdown documentation only.                                |
+| Reviewer   | Compares the final diff against the original plan.                  |
+| Ideator    | Researches and sharpens vague ideas before implementation planning. |
+
+### Agent Overrides
+
+Agent definitions are layered in this order, highest precedence first:
+
+1. Local: `<repo>/.hns/agents`
+2. Home: `~/.hns/agents`
+3. Bundled: `src/agent-definitions`
+
+Scalar front matter fields override lower layers. Prompt bodies append by default. A layer can set
+`promptOverride: true` to replace lower-layer prompt content. Tool lists replace lower layers, but Harns re-adds
+protected tools required for its workflow.
+
+## Themes
+
+Harns includes the embedded `catppuccin-mocha` theme and supports theme packages from npm, git, or local paths.
 
 ```bash
-hns resume integrate-mnemosyne
+hns install npm:<package-spec>
+hns install git:<url>
+hns install local:<path>
+hns remove <source>
 ```
 
-By path:
+Only JSON theme files are registered. Logic extensions, JavaScript, prompts, and skills inside packages are ignored.
 
-```bash
-hns resume plans/integrate-mnemosyne.md
-```
+Switch themes inside the TUI with `/theme`; the picker previews themes live and persists the selected theme.
 
-### List saved plans
+See [docs/themes.md](docs/themes.md) for theme package details.
 
-```bash
-hns plans
-```
-
-### Optimize memory
-
-```bash
-hns sleep
-```
-
----
-
-## Deno Tasks
-
-Defined in [`deno.json`](deno.json):
+## Development
 
 ```bash
 deno task cli "your request"
-deno task ci # runs lint, typecheck, format checks and tests
+deno task check
+deno task test
+deno task ci
 deno task compile
 ```
 
----
+`deno task ci` runs check, lint, format check, and tests.
 
-## Plan Files & Status
-
-Plans are stored in [`plans/`](plans/) as markdown files with YAML front matter.
-
-Common statuses:
-
-- `draft`
-- `in_review`
-- `approved`
-- `done`
-
-Harns updates these statuses during the review loop and resume flow.
-
----
+The codebase is pure JavaScript with JSDoc typing. Do not add TypeScript files or TypeScript syntax.
 
 ## Project Structure
 
 ```text
-├── docs/                    # Documentation (ADR, skills spec, etc.)
-│   └── adr/                 # Architecture Decision Records
-├── plans/                   # Generated/saved plan files
-└── src/
-    ├── agent-definitions/   # Bundled default agent markdown definitions
-    ├── cli.js               # CLI entrypoint + command dispatch
-    ├── cmd/                 # Command handlers (one subdirectory per command)
-    │   ├── agents/          # agents command (list/view agents)
-    │   ├── export/          # export command
-    │   ├── help/            # Global/per-command help command
-    │   ├── models/          # models command
-    │   ├── new/             # new command
-    │   ├── plans/           # plans command (list saved plans)
-    │   ├── quit/            # quit command
-    │   ├── registry.js      # Command registry
-    │   ├── resume/          # resume command
-    │   ├── resume-plan/     # resume-plan command
-    │   ├── router/          # Default request routing command
-    │   ├── session/         # session command
-    │   └── sleep/           # sleep command (memory optimization)
-    ├── constants.js         # CLI/runtime constants
-    ├── extensions/          # Extension integrations
-    │   ├── cymbal/          # Cymbal code search extension
-    │   └── mnemosyne/       # Mnemosyne memory layer extension
-    ├── plan-store.js        # Plan persistence/front matter utilities
-    ├── prompt-templates/    # Reusable prompt template files
-    ├── shared/              # Shared core modules
-    │   ├── clipboard.js     # Clipboard utilities
-    │   ├── interactive/     # Interactive TUI loop (chat-session, bash/slash dispatch, keybindings, etc.)
-    │   ├── models/          # Model registry & validation
-    │   ├── runtime-preflight.js
-    │   ├── session/         # Session state, agent discovery, direct-agent handler
-    │   ├── settings.js      # Settings manager singleton
-    │   ├── ui/              # UI components, theme, TUI singleton, prompt overlays
-    │   └── workflow/        # Plan workflow & Plannotator review
-    └── tools/               # Agent-accessible tool implementations
-        ├── plan-written.js
-        ├── switch-agent.js
-        ├── triage-report.js
-        └── user-interview.js
+src/
+  agent-definitions/   bundled agent markdown definitions
+  cmd/                 command handlers and registry
+  extensions/          Cymbal and Mnemosyne integrations
+  prompt-templates/    bundled slash-command prompt templates
+  shared/
+    interactive/       TUI chat loop, slash dispatch, keybindings
+    models/            model registry and validation
+    session/           agent/session loading and execution
+    ui/                TUI components and theme glue
+    workflow/          triage dispatch, plan execution, validation
+  skills/              bundled skill definitions
+  tools/               Harns-specific agent tools
+plans/                 persisted plans
+docs/                  ADRs, PRDs, and feature docs
 ```
-
----
 
 ## Troubleshooting
 
-### Plan review UI does not open
+### Mnemosyne or Cymbal Is Missing
 
-- Confirm `src/tools/submit-plan.js` can resolve:
-  - `@gandazgul/plannotator-pi-extension-compiled/server`
-  - `@gandazgul/plannotator-pi-extension-compiled/assets`
-- Verify you are on a version where the package exports `plannotatorHtml`.
+Interactive agent workflows require both binaries in `PATH`.
 
-### Resume can’t find your plan
+- Mnemosyne: https://github.com/gandazgul/mnemosyne#quick-start
+- Cymbal: https://github.com/1broseidon/cymbal#install
 
-- Use `hns plans` to list available plan names.
-- Use `plans/<name>.md` path form if needed.
-- Don’t prefix with `@plans/...`; use `plans/...`.
+### Plan Review UI Does Not Open
 
-### Agent behavior looks off
+Confirm the compiled Plannotator package can resolve:
 
-- Installed binaries use bundled defaults from `src/agent-definitions/`.
-- Check for overrides in `~/.hns/agents/` and `<repo>/.hns/agents/`.
-- For source runs, inspect/edit the relevant bundled prompt in `src/agent-definitions/` (or provide an override) and
-  re-run.
+- `@gandazgul/plannotator-pi-extension-compiled/server`
+- `@gandazgul/plannotator-pi-extension-compiled/assets`
 
----
+### A Saved Plan Is Not Loading
+
+- Use `hns plans` to list plan names.
+- Use `hns load-plan <name>` for a plan in `plans/`.
+- Use `hns load-plan plans/<name>.md` for a direct path.
+- Use `/resume` only for chat sessions.
+
+### Agent Behavior Looks Off
+
+- Check local overrides in `<repo>/.hns/agents/`.
+- Check home overrides in `~/.hns/agents/`.
+- Run `/reload` in the TUI after changing memories, settings, prompt templates, skills, models, or themes.
 
 ## Contributing
 
-1. Create a branch
-2. Make focused changes
-3. Run:
-
-```bash
-deno task ci
-```
-
-4. Open a PR with:
-   - summary
-   - affected flow (`QUICK_FIX`/`FEATURE`/`PROJECT`)
-   - test/verification notes
-
----
+1. Create a branch.
+2. Make focused changes.
+3. Run `deno task ci`.
+4. Open a PR with a summary, affected flow (`QUICK_FIX`, `FEATURE`, or `PROJECT`), and verification notes.
 
 ## License
 

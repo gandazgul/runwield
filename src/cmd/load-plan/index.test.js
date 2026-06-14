@@ -87,13 +87,53 @@ Deno.test("runLoadPlanCommand approved plan proceed path", async () => {
                 executed = true;
                 return Promise.resolve(undefined);
             },
-            createDirectAgentHandler: () => async () => {},
+            createDirectAgentHandler: () => () => Promise.resolve(),
             resetTuiState: () => {},
             setActiveAgent: () => {},
         }),
     });
 
     assertEquals(executed, true);
+});
+
+Deno.test("runLoadPlanCommand validates completed execution against freshly loaded plan content", async () => {
+    const { uiAPI, selections } = makeUi();
+    selections.push("proceed");
+    /** @type {string | undefined} */
+    let validatedPlanContent;
+
+    await runLoadPlanCommand(["plan-fresh"], {
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: () => ({ help: false, _: ["plan-fresh"] }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "plan-fresh",
+                    path: "plans/plan-fresh.md",
+                    body: "stale body",
+                    markdown: "stale markdown",
+                    attrs: {
+                        classification: "FEATURE",
+                        complexity: "LOW",
+                        summary: "s",
+                        affectedPaths: [],
+                        status: "approved",
+                    },
+                }),
+            executePlan: () => Promise.resolve({ repairRequired: false, executionComplete: true }),
+            loadPlan: () => Promise.resolve({ markdown: "fresh markdown", body: "fresh body", attrs: {} }),
+            runValidationLoop: (/** @type {{ planContent: string }} */ args) => {
+                validatedPlanContent = args.planContent;
+                return Promise.resolve();
+            },
+            createDirectAgentHandler: () => async () => {},
+            resetTuiState: () => {},
+            setActiveAgent: () => {},
+        }),
+    });
+
+    assertEquals(validatedPlanContent, "fresh markdown");
 });
 
 Deno.test("runLoadPlanCommand non-approved plan kicks off planning agent", async () => {
@@ -602,4 +642,40 @@ Deno.test("runLoadPlanCommand restores router flow after lifecycle saves a plan"
 
     assertEquals(restoredAgents.includes(AGENTS.ROUTER), true);
     assertEquals(messages.some((m) => m.includes("Switched back to Router")), true);
+});
+
+Deno.test("runLoadPlanCommand restores the initially active agent after lifecycle saves a plan", async () => {
+    const { uiAPI, messages } = makeUi();
+    /** @type {string[]} */
+    const restoredAgents = [];
+
+    await runLoadPlanCommand(["plan-j"], {
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: () => ({ help: false, _: ["plan-j"] }),
+            getRootAgentName: () => AGENTS.IDEATOR,
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "plan-j",
+                    path: "plans/plan-j.md",
+                    body: "body",
+                    attrs: {
+                        classification: "FEATURE",
+                        complexity: "LOW",
+                        summary: "s",
+                        affectedPaths: [],
+                        status: "draft",
+                    },
+                }),
+            runPlanningAgent: () => Promise.resolve({ outcome: "saved", planName: "plan-j" }),
+            createDirectAgentHandler: () => async () => {},
+            setActiveAgent: (/** @type {string} */ name) => restoredAgents.push(name),
+            resetTuiState: () => {},
+        }),
+    });
+
+    assertEquals(restoredAgents.includes(AGENTS.IDEATOR), true);
+    assertEquals(restoredAgents.includes(AGENTS.ROUTER), false);
+    assertEquals(messages.some((m) => m.includes("Switched back to Ideator")), true);
 });

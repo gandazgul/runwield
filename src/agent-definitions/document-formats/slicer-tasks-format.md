@@ -1,8 +1,8 @@
 ## How the slicer appends to a plan
 
 The architect produces a design-only plan (Context, Objective, Vertical Slice Findings, Files to Modify, Reuse
-Opportunities, Verification Plan, Edge Cases). Your job is to **append** the two sections below to that plan, after the
-Reuse Opportunities section and before the Verification Plan section. Do not modify any other section.
+Opportunities, Verification Plan, Edge Cases). Your job is to **append** the two sections below to the bottom of that
+plan. Do not modify any other section.
 
 If a `## Tasks` section already exists in the file (resumed plan, slicer being re-run), replace it and the per-slice
 detail blocks below it with your new output.

@@ -237,6 +237,7 @@ export async function runSlicerAgent({ planName, triageMeta, uiAPI, sessionManag
  *   runSlicerAgent?: typeof runSlicerAgent,
  *   readTextFile?: (path: string) => Promise<string>,
  *   extractTasks?: typeof extractTasks,
+ *   validateProjectTasks?: typeof validateProjectTasks,
  * }} [opts.__deps] - Test-only injection point.
  * @returns {Promise<{ ok: true, slicerInvoked: boolean } | { ok: false, error: string, stage: "slicer" | "validation" }>}
  */
@@ -245,11 +246,12 @@ export async function ensureSlicerTasks({ planName, planPath, triageMeta, uiAPI,
     const slicer = __deps?.runSlicerAgent || runSlicerAgent;
     const readTextFile = __deps?.readTextFile || Deno.readTextFile.bind(Deno);
     const parseTasks = __deps?.extractTasks || extractTasks;
+    const validateTasks = __deps?.validateProjectTasks || validateProjectTasks;
 
     // If the plan already has a parseable Tasks section (resumed plan), skip the slicer.
     try {
         const currentMd = await readTextFile(planPath);
-        parseTasks(currentMd);
+        validateTasks(parseTasks(currentMd));
         return { ok: true, slicerInvoked: false };
     } catch {
         // Tasks missing or unparseable — slicer must run.
@@ -263,7 +265,7 @@ export async function ensureSlicerTasks({ planName, planPath, triageMeta, uiAPI,
     // Validate that the slicer's output is parseable.
     try {
         const slicedMd = await readTextFile(planPath);
-        parseTasks(slicedMd);
+        validateTasks(parseTasks(slicedMd));
     } catch (e) {
         const error = e instanceof Error ? e.message : String(e);
         return { ok: false, error, stage: "validation" };
@@ -370,6 +372,104 @@ export function extractTasks(planContent) {
     return tasks;
 }
 
+const PROJECT_TASK_ASSIGNEES = new Set([AGENTS.ENGINEER, AGENTS.TESTER, AGENTS.DOC_WRITER]);
+
+/**
+ * @param {string} dependencies
+ * @returns {number[]}
+ */
+function parseTaskDependencies(dependencies) {
+    return (dependencies || "").split(",").map((dependency) => dependency.trim()).filter((dependency) =>
+        dependency && dependency.toLowerCase() !== "none"
+    ).map((dependency) => {
+        const depId = Number.parseInt(dependency, 10);
+        if (!/^\d+$/.test(dependency) || Number.isNaN(depId)) {
+            throw new Error(`Task dependency "${dependency}" is not a numeric task ID.`);
+        }
+        return depId;
+    });
+}
+
+/**
+ * Validate the PROJECT task graph contract before showing or executing tasks.
+ *
+ * @param {Array<{ task: number, assignee: string, dependencies: string, description: string }>} tasks
+ * @returns {void}
+ */
+export function validateProjectTasks(tasks) {
+    if (!Array.isArray(tasks) || tasks.length === 0) {
+        throw new Error("PROJECT plans must include at least one task.");
+    }
+
+    const ids = new Set();
+    for (const task of tasks) {
+        if (!Number.isInteger(task.task) || task.task <= 0) {
+            throw new Error(`Task ID "${task.task}" must be a positive integer.`);
+        }
+        if (ids.has(task.task)) {
+            throw new Error(`Duplicate task ID ${task.task}.`);
+        }
+        ids.add(task.task);
+
+        if (!PROJECT_TASK_ASSIGNEES.has(task.assignee)) {
+            throw new Error(
+                `Task ${task.task} has invalid assignee "${task.assignee}". ` +
+                    "Allowed assignees are engineer, tester, and doc-writer.",
+            );
+        }
+    }
+
+    /** @type {Map<number, number[]>} */
+    const dependencyMap = new Map();
+    for (const task of tasks) {
+        const dependencies = parseTaskDependencies(task.dependencies);
+        dependencyMap.set(task.task, dependencies);
+        for (const depId of dependencies) {
+            if (!ids.has(depId)) {
+                throw new Error(`Task ${task.task} depends on unknown task ${depId}.`);
+            }
+            if (depId === task.task) {
+                throw new Error(`Task ${task.task} cannot depend on itself.`);
+            }
+        }
+    }
+
+    /** @type {Set<number>} */
+    const visiting = new Set();
+    /** @type {Set<number>} */
+    const visited = new Set();
+    /**
+     * @param {number} taskId
+     */
+    function visit(taskId) {
+        if (visited.has(taskId)) return;
+        if (visiting.has(taskId)) {
+            throw new Error(`Task dependency graph contains a cycle at task ${taskId}.`);
+        }
+        visiting.add(taskId);
+        for (const depId of dependencyMap.get(taskId) || []) visit(depId);
+        visiting.delete(taskId);
+        visited.add(taskId);
+    }
+    for (const task of tasks) visit(task.task);
+
+    const finalTask = tasks[tasks.length - 1];
+    if (finalTask.assignee !== AGENTS.TESTER) {
+        throw new Error("The final PROJECT task must be assigned to tester for cross-slice verification.");
+    }
+    if (!/verification/i.test(finalTask.description || "")) {
+        throw new Error("The final tester task description must direct the tester to run verification.");
+    }
+
+    const finalDependencies = new Set(dependencyMap.get(finalTask.task) || []);
+    const priorTaskIds = tasks.slice(0, -1).map((task) => task.task);
+    for (const taskId of priorTaskIds) {
+        if (!finalDependencies.has(taskId)) {
+            throw new Error(`The final tester task must depend on prior task ${taskId}.`);
+        }
+    }
+}
+
 /**
  * Execute an approved plan.
  *
@@ -394,6 +494,7 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
     if (triageMeta.classification === "PROJECT") {
         try {
             const tasks = structuredTasks && structuredTasks.length > 0 ? structuredTasks : extractTasks(plan.markdown);
+            validateProjectTasks(tasks);
 
             if (tasks.length > 0) {
                 uiAPI.appendSystemMessage(
@@ -750,6 +851,7 @@ export async function askApprovalWithTasks(planName, uiAPI, structuredTasks) {
     if (tasks.length === 0 && plan) {
         try {
             tasks = extractTasks(plan.markdown);
+            validateProjectTasks(tasks);
         } catch {
             // proceed with 0 tasks; execution will report repair needed if markdown also fails
         }

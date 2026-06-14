@@ -33,18 +33,22 @@ Deno.test("direct-agent calls executePlan when outcome is approved_execute", asy
 
 Deno.test("direct-agent validates after approved_execute only when execution completed", async () => {
     let validationCount = 0;
+    /** @type {string | undefined} */
+    let finalAgentName;
     const handler = createDirectAgentHandler("planner", {
         runAgentSession: () => Promise.resolve(/** @type {any} */ ([])),
         readLatestPlanOutcome: () => /** @type {any} */ ({ outcome: "approved_execute", planName: "p" }),
         executePlan: /** @type {any} */ (() => Promise.resolve({ repairRequired: false, executionComplete: true })),
-        runValidationLoop: () => {
+        runValidationLoop: (args) => {
             validationCount++;
+            finalAgentName = /** @type {any} */ (args).finalAgentName;
             return Promise.resolve();
         },
     });
 
     await handler("req", [], /** @type {any} */ (undefined), /** @type {any} */ (undefined));
     assertEquals(validationCount, 1);
+    assertEquals(finalAgentName, "planner");
 });
 
 Deno.test("direct-agent skips validation when approved_execute did not complete execution", async () => {

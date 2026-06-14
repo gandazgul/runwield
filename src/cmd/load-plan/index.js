@@ -10,6 +10,7 @@ import { AGENTS, CLI_BIN, CWD } from "../../constants.js";
 import { getAgentDisplayName } from "../../shared/session/agents.js";
 import {
     injectFrontMatter,
+    loadPlan as loadPlanFn,
     resolvePlan as resolvePlanFn,
     updatePlanStatus as updatePlanStatusFn,
 } from "../../plan-store.js";
@@ -27,6 +28,7 @@ import {
     setActiveAgent as setActiveAgentFn,
     startInteractiveSession as startInteractiveSessionFn,
 } from "../../shared/interactive/chat-session.js";
+import { getRootAgentName as getRootAgentNameFn } from "../../shared/session/session-state.js";
 import { resetTuiState as resetTuiStateFn } from "../command-helpers.js";
 import { createDirectAgentHandler as createDirectAgentHandlerFn } from "../../shared/session/direct-agent.js";
 export { getLoadPlanCompletions } from "./getArgumentCompletions.js";
@@ -44,20 +46,23 @@ export { getLoadPlanCompletions } from "./getArgumentCompletions.js";
  * @property {typeof askApprovalWithTasksFn} [askApprovalWithTasks]
  * @property {typeof ensureSlicerTasksFn} [ensureSlicerTasks]
  * @property {typeof runValidationLoopFn} [runValidationLoop]
+ * @property {typeof loadPlanFn} [loadPlan]
  * @property {typeof setActiveAgentFn} [setActiveAgent]
  * @property {typeof createDirectAgentHandlerFn} [createDirectAgentHandler]
  * @property {typeof resetTuiStateFn} [resetTuiState]
+ * @property {typeof getRootAgentNameFn} [getRootAgentName]
  * @property {(cwd: string) => Promise<Array<{name: string, attrs: {classification: string, status: string}}>>} [listPlans]
  * @property {typeof updatePlanStatusFn} [updatePlanStatus]
  */
 
 /**
- * Restore default router flow and input readiness after resume command work.
+ * Restore the agent that owned the session before load-plan command work.
  *
  * @param {import('../../shared/workflow/workflow.js').UiAPI} uiAPI
+ * @param {string} agentName
  * @param {LoadPlanTestDeps} [deps]
  */
-function restoreRouterFlow(uiAPI, deps = {}) {
+function restorePreviousAgentFlow(uiAPI, agentName, deps = {}) {
     const {
         resetTuiState: resetTuiStateDep,
         setActiveAgent: setActiveAgentDep,
@@ -69,9 +74,9 @@ function restoreRouterFlow(uiAPI, deps = {}) {
     const createDirectAgentHandler = createDirectAgentHandlerDep || createDirectAgentHandlerFn;
 
     resetTuiState(undefined, uiAPI, undefined);
-    setActiveAgent(AGENTS.ROUTER, createDirectAgentHandler(AGENTS.ROUTER));
+    setActiveAgent(agentName, createDirectAgentHandler(agentName));
     uiAPI.appendSystemMessage(
-        `Switched back to ${getAgentDisplayName(AGENTS.ROUTER)} (triage flow).`,
+        `Switched back to ${getAgentDisplayName(agentName)}.`,
         false,
         "Harns",
     );
@@ -204,21 +209,30 @@ function buildReReviewRevisionRequest(planName, feedback) {
 /**
  * @param {unknown} executionResult
  * @param {string} planName
- * @param {string} planContent
+ * @param {string} fallbackPlanContent
  * @param {import('../../plan-store.js').PlanFrontMatter} triageMeta
  * @param {import('../../shared/workflow/workflow.js').UiAPI} uiAPI
  * @param {typeof runValidationLoopFn} runValidationLoop
+ * @param {typeof loadPlanFn} loadPlan
  */
 async function validateCompletedExecution(
     executionResult,
     planName,
-    planContent,
+    fallbackPlanContent,
     triageMeta,
     uiAPI,
     runValidationLoop,
+    loadPlan,
 ) {
     if (!(executionResult && typeof executionResult === "object" && "executionComplete" in executionResult)) return;
     if (!/** @type {{ executionComplete?: boolean }} */ (executionResult).executionComplete) return;
+    let planContent = fallbackPlanContent;
+    try {
+        const latestPlan = await loadPlan(CWD, planName);
+        planContent = latestPlan?.markdown || latestPlan?.body || fallbackPlanContent;
+    } catch {
+        // Keep fallback content in tests or if the plan was removed.
+    }
     await runValidationLoop({
         planName,
         planContent,
@@ -248,8 +262,10 @@ export async function runLoadPlanCommand(argv, options = {}) {
         askApprovalWithTasks: askApprovalWithTasksDep,
         ensureSlicerTasks: ensureSlicerTasksDep,
         runValidationLoop: runValidationLoopDep,
+        loadPlan: loadPlanDep,
         setActiveAgent: setActiveAgentDep,
         createDirectAgentHandler: createDirectAgentHandlerDep,
+        getRootAgentName: getRootAgentNameDep,
         listPlans: listPlansDep,
         updatePlanStatus: updatePlanStatusDep,
     } = deps;
@@ -265,8 +281,10 @@ export async function runLoadPlanCommand(argv, options = {}) {
     const askApprovalWithTasks = askApprovalWithTasksDep || askApprovalWithTasksFn;
     const ensureSlicerTasks = ensureSlicerTasksDep || ensureSlicerTasksFn;
     const runValidationLoop = runValidationLoopDep || runValidationLoopFn;
+    const loadPlan = loadPlanDep || loadPlanFn;
     const setActiveAgent = setActiveAgentDep || setActiveAgentFn;
     const createDirectAgentHandler = createDirectAgentHandlerDep || createDirectAgentHandlerFn;
+    const getRootAgentName = getRootAgentNameDep || getRootAgentNameFn;
     const updatePlanStatus = updatePlanStatusDep || updatePlanStatusFn;
 
     const parsedArgs = parseArgs(argv, {
@@ -329,6 +347,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
     if (!uiAPI) return;
 
     let skipRouterRestore = false;
+    const initialAgentName = getRootAgentName() || AGENTS.ROUTER;
 
     try {
         uiAPI.appendSystemMessage(`Loading plan: ${planArg}`, false, "Harns");
@@ -404,6 +423,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                                 /** @type {import('../../plan-store.js').PlanFrontMatter} */ (currentMeta),
                                 uiAPI,
                                 runValidationLoop,
+                                loadPlan,
                             );
                             break;
                         }
@@ -506,6 +526,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                                 plan.attrs,
                                 uiAPI,
                                 runValidationLoop,
+                                loadPlan,
                             );
                             setActiveAgent(AGENTS.OPERATOR, createDirectAgentHandler(AGENTS.OPERATOR), uiAPI);
                         } else {
@@ -542,6 +563,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                                 plan.attrs),
                             uiAPI,
                             runValidationLoop,
+                            loadPlan,
                         );
                         setActiveAgent(AGENTS.OPERATOR, createDirectAgentHandler(AGENTS.OPERATOR), uiAPI);
                     } else if (
@@ -584,6 +606,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                 /** @type {import('../../plan-store.js').PlanFrontMatter} */ (outcome.triageMeta || plan.attrs),
                 uiAPI,
                 runValidationLoop,
+                loadPlan,
             );
             setActiveAgent(AGENTS.OPERATOR, createDirectAgentHandler(AGENTS.OPERATOR), uiAPI);
         } else if (
@@ -594,7 +617,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
         }
     } finally {
         if (!skipRouterRestore) {
-            restoreRouterFlow(uiAPI, deps);
+            restorePreviousAgentFlow(uiAPI, initialAgentName, deps);
         }
     }
 }

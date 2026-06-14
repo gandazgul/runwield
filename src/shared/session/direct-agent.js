@@ -97,6 +97,7 @@ export function createDirectAgentHandler(agentName, __deps) {
                     triageMeta: outcome.triageMeta || {},
                     uiAPI,
                     sessionManager,
+                    finalAgentName: agentName,
                 });
             }
             return;
@@ -124,6 +125,7 @@ export function createDirectAgentHandler(agentName, __deps) {
                     triageMeta: workflow.triageMeta,
                     uiAPI,
                     sessionManager,
+                    finalAgentName: agentName,
                 });
             }
         }

@@ -5,6 +5,7 @@ import {
     extractTasks,
     readLatestPlanOutcome,
     runSlicerAgent,
+    validateProjectTasks,
 } from "./workflow.js";
 
 const noopUiAPI = /** @type {any} */ ({ appendSystemMessage: () => {} });
@@ -92,6 +93,51 @@ Deno.test("extractTasks throws error when table is empty", () => {
 |---|---|---|---|
 `;
     assertThrows(() => extractTasks(content), Error, "Tasks table found but contains no valid task rows");
+});
+
+// ── validateProjectTasks ──────────────────────────────────────────
+
+Deno.test("validateProjectTasks accepts a valid PROJECT task DAG with final tester verification", () => {
+    validateProjectTasks([
+        { task: 1, assignee: "engineer", dependencies: "none", description: "Implement slice" },
+        { task: 2, assignee: "doc-writer", dependencies: "none", description: "Document user-facing behavior" },
+        { task: 3, assignee: "tester", dependencies: "1, 2", description: "Run full verification command" },
+    ]);
+});
+
+Deno.test("validateProjectTasks rejects missing final tester verification task", () => {
+    assertThrows(
+        () =>
+            validateProjectTasks([
+                { task: 1, assignee: "engineer", dependencies: "none", description: "Implement slice" },
+            ]),
+        Error,
+        "final PROJECT task must be assigned to tester",
+    );
+});
+
+Deno.test("validateProjectTasks rejects invalid assignees", () => {
+    assertThrows(
+        () =>
+            validateProjectTasks([
+                { task: 1, assignee: "planner", dependencies: "none", description: "Implement slice" },
+                { task: 2, assignee: "tester", dependencies: "1", description: "Run verification" },
+            ]),
+        Error,
+        "invalid assignee",
+    );
+});
+
+Deno.test("validateProjectTasks rejects cyclic dependencies", () => {
+    assertThrows(
+        () =>
+            validateProjectTasks([
+                { task: 1, assignee: "engineer", dependencies: "2", description: "Implement slice" },
+                { task: 2, assignee: "tester", dependencies: "1", description: "Run verification" },
+            ]),
+        Error,
+        "cycle",
+    );
 });
 
 // ── buildSlicerRequest ─────────────────────────────────────────────
@@ -220,7 +266,10 @@ Deno.test("ensureSlicerTasks skips slicer when Tasks already parseable (resumed 
         __deps: {
             readTextFile: () =>
                 Promise.resolve("## Tasks\n| Task | A | B | C |\n|-|-|-|-|\n| 1 | engineer | none | x |"),
-            extractTasks: () => [{ task: 1, assignee: "engineer", dependencies: "none", description: "x" }],
+            extractTasks: () => [
+                { task: 1, assignee: "engineer", dependencies: "none", description: "x" },
+                { task: 2, assignee: "tester", dependencies: "1", description: "Run verification" },
+            ],
             runSlicerAgent: () => {
                 slicerCalls++;
                 return Promise.resolve({ ok: true });
@@ -244,7 +293,10 @@ Deno.test("ensureSlicerTasks invokes slicer when Tasks missing", async () => {
             extractTasks: () => {
                 parseCalls++;
                 if (parseCalls === 1) throw new Error("Tasks section not found");
-                return [{ task: 1, assignee: "engineer", dependencies: "none", description: "x" }];
+                return [
+                    { task: 1, assignee: "engineer", dependencies: "none", description: "x" },
+                    { task: 2, assignee: "tester", dependencies: "1", description: "Run verification" },
+                ];
             },
             runSlicerAgent: () => {
                 slicerCalls++;

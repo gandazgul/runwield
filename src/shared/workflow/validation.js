@@ -9,7 +9,7 @@ import { runAgentSession } from "../session/session.js";
 import { consumePendingSwitchHandoff } from "../session/session-state.js";
 import { getCustomSetting, setCustomSetting } from "../settings.js";
 import { createSilentUiApi } from "../ui/api.js";
-import { extractAssistantOutput } from "./workflow.js";
+import { extractAssistantOutput, readLatestTaskCompletedOutcome } from "./workflow.js";
 import { setActiveAgent } from "../interactive/chat-session.js";
 
 /**
@@ -86,6 +86,54 @@ export async function runLocalCI(uiAPI) {
 }
 
 /**
+ * @param {Object} args
+ * @param {string} args.agentName
+ * @param {string} args.userRequest
+ * @param {import('./workflow.js').UiAPI} args.uiAPI
+ * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined} args.sessionManager
+ * @param {typeof runAgentSession} [args.runAgentSession]
+ * @param {typeof readLatestTaskCompletedOutcome} [args.readLatestTaskCompletedOutcome]
+ * @returns {Promise<boolean>}
+ */
+async function runCompletionGatedRepair({
+    agentName,
+    userRequest,
+    uiAPI,
+    sessionManager,
+    runAgentSession: runAgentSessionImpl = runAgentSession,
+    readLatestTaskCompletedOutcome: readTaskCompleted = readLatestTaskCompletedOutcome,
+}) {
+    const messages = await runAgentSessionImpl({
+        agentName,
+        userRequest,
+        uiAPI,
+        sessionManager,
+    });
+    consumePendingSwitchHandoff();
+
+    const completed = readTaskCompleted(messages);
+    if (!completed) {
+        uiAPI?.appendSystemMessage?.(
+            `${
+                getAgentDisplayName(agentName)
+            } stopped without task_completed during validation repair. Halting for human review.`,
+            false,
+            "Harns",
+        );
+    }
+    return completed;
+}
+
+/**
+ * @returns {Promise<string>}
+ */
+async function getGitDiffText() {
+    const diffCmd = new Deno.Command("git", { args: ["diff"], cwd: CWD, stdout: "piped" });
+    const { stdout: diffOut } = await diffCmd.output();
+    return new TextDecoder().decode(diffOut);
+}
+
+/**
  * @param {string} response
  * @returns {boolean}
  */
@@ -102,8 +150,36 @@ function isApprovedReviewResponse(response) {
  * @param {import('../../tools/plan-written.js').TriageMeta} args.triageMeta
  * @param {import('./workflow.js').UiAPI} args.uiAPI
  * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined} args.sessionManager
+ * @param {string | undefined} [args.finalAgentName] Agent to restore after router-started or direct workflows.
+ * @param {{
+ *   runLocalCI?: typeof runLocalCI,
+ *   runAgentSession?: typeof runAgentSession,
+ *   runCompletionGatedRepair?: typeof runCompletionGatedRepair,
+ *   readLatestTaskCompletedOutcome?: typeof readLatestTaskCompletedOutcome,
+ *   getDiffText?: typeof getGitDiffText,
+ *   setActiveAgent?: typeof setActiveAgent,
+ *   createDirectAgentHandler?: (agentName: string) => import('../session/types.js').AgentMessageHandler,
+ * }} [args.__deps] Test-only injection point.
  */
-export async function runValidationLoop({ planName: _planName, planContent, triageMeta, uiAPI, sessionManager }) {
+export async function runValidationLoop({
+    planName: _planName,
+    planContent,
+    triageMeta,
+    uiAPI,
+    sessionManager,
+    finalAgentName,
+    __deps,
+}) {
+    const runLocalCIImpl = __deps?.runLocalCI || runLocalCI;
+    const repair = __deps?.runCompletionGatedRepair ||
+        ((args) =>
+            runCompletionGatedRepair({
+                ...args,
+                runAgentSession: __deps?.runAgentSession,
+                readLatestTaskCompletedOutcome: __deps?.readLatestTaskCompletedOutcome,
+            }));
+    const getDiffText = __deps?.getDiffText || getGitDiffText;
+    const setActiveAgentImpl = __deps?.setActiveAgent || setActiveAgent;
     let executionComplete = false;
     let validationCycles = 0;
     const MAX_VALIDATION_CYCLES = 3;
@@ -118,7 +194,7 @@ export async function runValidationLoop({ planName: _planName, planContent, tria
         while (!buildPasses && mechanicalAttempts < 3) {
             mechanicalAttempts++;
             uiAPI?.appendSystemMessage?.(`Running CI Validation (Attempt ${mechanicalAttempts}/3)...`);
-            const ciResult = await runLocalCI(uiAPI);
+            const ciResult = await runLocalCIImpl(uiAPI);
 
             if (ciResult.exitCode === 0) {
                 buildPasses = true;
@@ -127,14 +203,15 @@ export async function runValidationLoop({ planName: _planName, planContent, tria
                 uiAPI?.appendSystemMessage?.(
                     `Build failed. Dispatching ${getAgentDisplayName(AGENTS.OPERATOR)} to fix syntax/types...`,
                 );
-                await runAgentSession({
+                const completed = await repair({
                     agentName: AGENTS.OPERATOR,
                     userRequest:
-                        `The project failed CI validation. Fix the following build errors:\n\n${ciResult.output}`,
+                        "The project failed CI validation. Fix the following build errors, then call task_completed " +
+                        `when the repair is complete:\n\n${ciResult.output}`,
                     uiAPI,
                     sessionManager,
                 });
-                consumePendingSwitchHandoff();
+                if (!completed) break;
             }
         }
 
@@ -145,9 +222,7 @@ export async function runValidationLoop({ planName: _planName, planContent, tria
 
         uiAPI?.appendSystemMessage?.("Running Semantic Code Review...");
 
-        const diffCmd = new Deno.Command("git", { args: ["diff"], cwd: CWD, stdout: "piped" });
-        const { stdout: diffOut } = await diffCmd.output();
-        const diffText = new TextDecoder().decode(diffOut);
+        const diffText = await getDiffText();
 
         if (!diffText.trim()) {
             uiAPI?.appendSystemMessage?.("No changes detected in diff. Assuming approved.");
@@ -175,14 +250,14 @@ export async function runValidationLoop({ planName: _planName, planContent, tria
             uiAPI?.appendSystemMessage?.(
                 `Review failed. Sending feedback back to ${getAgentDisplayName(AGENTS.ENGINEER)}...`,
             );
-            await runAgentSession({
+            const completed = await repair({
                 agentName: AGENTS.ENGINEER,
-                userRequest:
-                    `The code reviewer found issues with your implementation. Please fix them. Do not break existing tests.\n\nReviewer Feedback:\n${reviewResponse}`,
+                userRequest: "The code reviewer found issues with your implementation. Please fix them, do not break " +
+                    `existing tests, and call task_completed when finished.\n\nReviewer Feedback:\n${reviewResponse}`,
                 uiAPI,
                 sessionManager,
             });
-            consumePendingSwitchHandoff();
+            if (!completed) break;
         }
     }
 
@@ -197,6 +272,9 @@ export async function runValidationLoop({ planName: _planName, planContent, tria
         );
     }
 
-    const { createDirectAgentHandler } = await import("../session/direct-agent.js");
-    setActiveAgent(AGENTS.ENGINEER, createDirectAgentHandler(AGENTS.ENGINEER), uiAPI);
+    if (finalAgentName) {
+        const createDirectAgentHandler = __deps?.createDirectAgentHandler ||
+            (await import("../session/direct-agent.js")).createDirectAgentHandler;
+        setActiveAgentImpl(finalAgentName, createDirectAgentHandler(finalAgentName), uiAPI);
+    }
 }

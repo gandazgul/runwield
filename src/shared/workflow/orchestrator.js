@@ -124,6 +124,7 @@ export async function dispatchPostTriage({ triage, userRequest, images, uiAPI, s
                 triageMeta: triage,
                 uiAPI,
                 sessionManager,
+                finalAgentName: AGENTS.OPERATOR,
             });
         } else {
             uiAPI.appendSystemMessage(
@@ -183,6 +184,7 @@ export async function dispatchPostTriage({ triage, userRequest, images, uiAPI, s
                     triageMeta: outcome.triageMeta || triage,
                     uiAPI,
                     sessionManager,
+                    finalAgentName: agentName,
                 });
             }
         } finally {
