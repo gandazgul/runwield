@@ -1,5 +1,10 @@
 import { assertEquals } from "@std/assert";
 import { createDirectAgentHandler } from "./direct-agent.js";
+import {
+    clearActiveExecutionWorkflow,
+    getActiveExecutionWorkflow,
+    setActiveExecutionWorkflow,
+} from "./session-state.js";
 
 Deno.test("direct-agent calls executePlan when outcome is approved_execute", async () => {
     /** @type {Array<unknown[]>} */
@@ -200,4 +205,40 @@ Deno.test("direct-agent falls back to empty triageMeta when outcome lacks one", 
     await handler("req", [], /** @type {any} */ (undefined), /** @type {any} */ (undefined));
     // Empty object — not undefined — preserves the executePlan signature.
     assertEquals(executeCalls[0][1], {});
+});
+
+Deno.test("direct-agent preserves active workflow baseline until continuation validation starts", async () => {
+    /** @type {unknown} */
+    let workflowDuringValidation = null;
+    setActiveExecutionWorkflow({
+        planName: "p",
+        triageMeta: { classification: "FEATURE" },
+        baselineTree: "baseline-tree",
+    });
+
+    const handler = createDirectAgentHandler("engineer", {
+        runAgentSession: () =>
+            Promise.resolve(
+                /** @type {any} */ ([{
+                    role: "toolResult",
+                    toolName: "task_completed",
+                    details: { outcome: "task_completed" },
+                }]),
+            ),
+        readLatestPlanOutcome: () => null,
+        readLatestTaskCompletedOutcome: () => true,
+        runValidationLoop: () => {
+            workflowDuringValidation = getActiveExecutionWorkflow();
+            clearActiveExecutionWorkflow();
+            return Promise.resolve();
+        },
+    });
+
+    await handler("continue", [], /** @type {any} */ ({}), /** @type {any} */ (undefined));
+
+    assertEquals(workflowDuringValidation, {
+        planName: "p",
+        triageMeta: { classification: "FEATURE" },
+        baselineTree: "baseline-tree",
+    });
 });

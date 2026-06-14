@@ -6,11 +6,16 @@
 import { AGENTS, CWD } from "../../constants.js";
 import { getAgentDisplayName } from "../session/agents.js";
 import { runAgentSession } from "../session/session.js";
-import { consumePendingSwitchHandoff } from "../session/session-state.js";
+import {
+    clearActiveExecutionWorkflow,
+    consumePendingSwitchHandoff,
+    getActiveExecutionWorkflow,
+} from "../session/session-state.js";
 import { getCustomSetting, setCustomSetting } from "../settings.js";
 import { createSilentUiApi } from "../ui/api.js";
 import { extractAssistantOutput, readLatestTaskCompletedOutcome } from "./workflow.js";
 import { setActiveAgent } from "../interactive/chat-session.js";
+import { getWorkflowDiff } from "./git-snapshot.js";
 
 /**
  * @param {import('./workflow.js').UiAPI} uiAPI
@@ -115,12 +120,11 @@ async function runCompletionGatedRepair({
 }
 
 /**
+ * @param {string | undefined} baselineTree
  * @returns {Promise<string>}
  */
-async function getGitDiffText() {
-    const diffCmd = new Deno.Command("git", { args: ["diff"], cwd: CWD, stdout: "piped" });
-    const { stdout: diffOut } = await diffCmd.output();
-    return new TextDecoder().decode(diffOut);
+async function getGitDiffText(baselineTree) {
+    return await getWorkflowDiff(CWD, baselineTree);
 }
 
 /**
@@ -170,6 +174,11 @@ export async function runValidationLoop({
                 readLatestTaskCompletedOutcome: __deps?.readLatestTaskCompletedOutcome,
             }));
     const getDiffText = __deps?.getDiffText || getGitDiffText;
+    const activeWorkflow = getActiveExecutionWorkflow();
+    const baselineTree = activeWorkflow?.baselineTree;
+    if (activeWorkflow) {
+        clearActiveExecutionWorkflow();
+    }
     const setActiveAgentImpl = __deps?.setActiveAgent || setActiveAgent;
     let executionComplete = false;
     /** @type {string | null} */
@@ -220,7 +229,7 @@ export async function runValidationLoop({
 
         uiAPI?.appendSystemMessage?.("Running Semantic Code Review...");
 
-        const diffText = await getDiffText();
+        const diffText = await getDiffText(baselineTree);
 
         if (!diffText.trim()) {
             uiAPI?.appendSystemMessage?.("No changes detected in diff. Assuming approved.");

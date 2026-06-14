@@ -1,5 +1,6 @@
 import { assertEquals } from "@std/assert";
 import { runValidationLoop } from "./validation.js";
+import { getActiveExecutionWorkflow, setActiveExecutionWorkflow } from "../session/session-state.js";
 
 /**
  * @returns {any & { messages: string[] }}
@@ -129,4 +130,49 @@ Deno.test("runValidationLoop reports exact semantic repair halt reason", async (
         uiAPI.messages.some((/** @type {string} */ m) => m.includes("Maximum validation cycles")),
         false,
     );
+});
+
+Deno.test("runValidationLoop reviews the diff scoped to the active workflow baseline", async () => {
+    const uiAPI = makeUi();
+    /** @type {string[]} */
+    const reviewPrompts = [];
+    /** @type {Array<string | undefined>} */
+    const baselineArgs = [];
+
+    setActiveExecutionWorkflow({
+        planName: "p",
+        triageMeta: { classification: "FEATURE" },
+        baselineTree: "baseline-tree",
+    });
+
+    await runValidationLoop({
+        planName: "p",
+        planContent: "plan",
+        triageMeta: { classification: "FEATURE" },
+        uiAPI,
+        sessionManager: undefined,
+        __deps: /** @type {any} */ ({
+            runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
+            getDiffText: (/** @type {string | undefined} */ baselineTree) => {
+                baselineArgs.push(baselineTree);
+                return Promise.resolve("diff --git a/workflow.js b/workflow.js\n+scoped workflow change\n");
+            },
+            runAgentSession: (/** @type {any} */ opts) => {
+                reviewPrompts.push(opts.userRequest);
+                return Promise.resolve(
+                    /** @type {any} */ ([{
+                        role: "assistant",
+                        content: [{ type: "text", text: "APPROVED" }],
+                    }]),
+                );
+            },
+            setActiveAgent: () => {},
+        }),
+    });
+
+    assertEquals(baselineArgs, ["baseline-tree"]);
+    assertEquals(reviewPrompts.length, 1);
+    assertEquals(reviewPrompts[0].includes("scoped workflow change"), true);
+    assertEquals(reviewPrompts[0].includes("pre-existing dirty change"), false);
+    assertEquals(getActiveExecutionWorkflow(), null);
 });

@@ -1,146 +1,222 @@
-# Harns — Context Overview
+# Harns Context
 
-**Harns** (Plan-by-Default Coding Harness) is an AI-powered CLI and interactive TUI agent that helps developers plan,
-implement, and execute coding tasks. It uses a triage-based workflow: a **Router** agent classifies incoming requests,
-then dispatches them to specialized agents (Operator for quick fixes, Planner for features, Architect for projects).
-Plans are persisted as markdown files with YAML front matter and can be reviewed via a browser-based UI (Plannotator).
-The system is built on top of the `@earendil-works/pi-coding-agent` framework and uses **Cymbal** for codebase
-indexing/search and **Mnemosyne** for persistent memory.
+Harns is an opinionated, plan-by-default coding harness that routes development requests through triage, planning,
+review, execution, and validation. This context defines the project language used by agents, docs, plans, and code.
 
 ## Language
 
-### Key Concepts
+### Harness
 
-| Term                    | Definition                                                                                                                                                                   | Aliases to avoid                                                     |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| **Router**              | The triage agent that classifies user requests into QUICK_FIX, FEATURE, or PROJECT and dispatches to the appropriate downstream agent.                                       | Avoid calling it "dispatcher" or "orchestrator" in user-facing text. |
-| **Operator**            | The execution agent for QUICK_FIX tasks — makes small, focused changes (edits, commits, config tweaks).                                                                      | Not "executor" or "runner".                                          |
-| **Planner**             | Agent for FEATURE-classified requests — writes a plan, submits it for review, and upon approval triggers execution.                                                          |                                                                      |
-| **Architect**           | Agent for PROJECT-classified requests — does deep exploration, writes structured plans with task tables, and coordinates parallel task execution.                            |                                                                      |
-| **Engineer**            | Agent that executes approved plan bodies (for FEATURE) or individual tasks (for PROJECT).                                                                                    |                                                                      |
-| **Triage**              | The classification step: assigns `classification` (QUICK_FIX/FEATURE/PROJECT), `complexity` (LOW/MEDIUM/HIGH), `summary`, and `affectedPaths`.                               |                                                                      |
-| **Plan**                | A markdown file in `plans/` with YAML front matter (classification, complexity, status, etc.). Plans go through draft → in_review → approved/feedback → completed lifecycle. |                                                                      |
-| **Plan-Written Tool**   | Custom tool (`plan_written`) that triggers the plan review lifecycle — opens browser UI, waits for user approval/feedback, returns outcome to the agent.                     |                                                                      |
-| **Triage-Report Tool**  | Custom tool (`triage_report`) that the Router calls to emit its classification. Terminates the Router's turn and triggers orchestrator dispatch.                             |                                                                      |
-| **Switch-Agent Tool**   | Custom tool (`switch_agent`) that lets an agent hand off to another agent mid-conversation.                                                                                  |                                                                      |
-| **User-Interview Tool** | Custom tool (`user_interview`) for structured multi-question clarification flows.                                                                                            |                                                                      |
-| **Cymbal**              | External binary for AST-aware code indexing, search, symbol tracing, and impact analysis.                                                                                    |                                                                      |
-| **Mnemosyne**           | External binary for persistent semantic memory storage and retrieval (project + global scopes).                                                                              |                                                                      |
-| **CWD**                 | Current working directory — used throughout as the project root. Stored in `src/constants.js`.                                                                               |                                                                      |
-| **Prompt Template**     | Markdown files (in `src/prompt-templates/`, `~/.hns/prompts/`, or `<cwd>/.hns/prompts/`) that define slash commands available in the TUI.                                    | Not "slash command definition" — use "prompt template".              |
-| **Agent Definition**    | Markdown files with YAML front matter defining an agent's name, model, tools, and system prompt.                                                                             | Not "agent config" — use "agent definition".                         |
-| **Agent Name**          | The internal identifier for an agent, derived from the file name without the `.md` extension.                                                                                |                                                                      |
-| **Agent Display Name**  | The human-readable name specified inside the front-matter of the agent definition. Used as the header when outputting agent messages.                                        |                                                                      |
-| **Session Manager**     | From `@earendil-works/pi-coding-agent` — persists conversation history to disk (`~/.hns/sessions/`).                                                                         |                                                                      |
+**Harns**: The plan-by-default coding harness that routes user requests through triage and specialized agents. _Avoid_:
+Harness, tool, framework
 
-## Key Files
+**TUI**: The terminal-based interactive user interface that hosts agent conversations and renders workflow output.
+_Avoid_: Shell, console
 
-| File                                                   | Purpose                                                                               |
-| ------------------------------------------------------ | ------------------------------------------------------------------------------------- |
-| `src/cli.js`                                           | CLI entry point — parses args, dispatches commands                                    |
-| `src/cmd/registry.js`                                  | Central command registry mapping command names to handler functions and metadata      |
-| `src/cli.js` → `commandRegistry[COMMAND_NAMES.ROUTER]` | Default route — launches the interactive TUI with the router orchestrator             |
-| `src/cmd/router/index.js`                              | Router command handler — starts interactive session with triage flow                  |
-| `src/shared/session/session.js`                        | Core `runAgentSession()` — orchestrates a single agent invocation end-to-end          |
-| `src/shared/session/agents.js`                         | Agent definition loading, merging, and discovery across layered dirs                  |
-| `src/shared/session/types.js`                          | Type definitions: AgentDefinition, AgentMessageHandler, SessionManagerLike            |
-| `src/shared/session/direct-agent.js`                   | Creates a direct agent handler (bypasses router triage)                               |
-| `src/shared/session/root-session.js`                   | Root session lifecycle — creates SessionManager, exports to HTML/JSONL                |
-| `src/shared/session/session-state.js`                  | Mutable global state for the interactive session (active agent, model, UI API)        |
-| `src/shared/workflow/orchestrator.js`                  | Post-triage dispatcher — reads triage outcome, routes to Operator/Planner/Architect   |
-| `src/shared/workflow/workflow.js`                      | Plan execution logic — runs planning agents, executes plans, manages parallel tasks   |
-| `src/shared/workflow/submit-plan.js`                   | Plan review submission — starts Plannotator server, opens browser, waits for decision |
-| `src/plan-store.js`                                    | Plan persistence — front matter injection, save/load/list/resolve plans               |
-| `src/tools/triage-report.js`                           | `triage_report` tool definition — emits structured classification                     |
-| `src/tools/plan-written.js`                            | `plan_written` tool — plan review lifecycle (declare, review, approve, save)          |
-| `src/tools/switch-agent.js`                            | `switch_agent` tool — agent hand-off mid-conversation                                 |
-| `src/tools/user-interview.js`                          | `user_interview` tool — structured clarification questions                            |
-| `src/tools/registry.js`                                | PROTECTED_TOOL_NAMES — tools that cannot be removed from an agent's tool list         |
-| `src/extensions/cymbal/index.js`                       | Cymbal extension — wraps cymbal binary as code_search, code_trace, etc. tools         |
-| `src/extensions/mnemosyne/index.js`                    | Mnemosyne extension — wraps mnemosyne binary as memory_recall, memory_store, etc.     |
-| `src/shared/interactive/chat-session.js`               | Main TUI loop — manages editor, message rendering, slash commands, agent switching    |
-| `src/shared/interactive/slash-dispatch.js`             | Routes `/command` submissions to built-in commands or prompt templates                |
-| `src/shared/interactive/generation-guard.js`           | Generation gating — prevents stale async results from leaking into UI                 |
-| `src/shared/ui/api.js`                                 | UiAPI factory — all UI interactions (messages, prompts, tool blocks, spinner)         |
-| `src/shared/settings.js`                               | SettingsManager with Harns custom storage (global + project scoped)                   |
-| `src/agent-definitions/*.md`                           | Bundled agent definitions (router, operator, planner, architect, engineer, etc.)      |
-| `src/prompt-templates/*.md`                            | Bundled prompt templates (slash commands like /sleep, /grill-me, etc.)                |
-| `src/skills/*/SKILL.md`                                | Bundled skill definitions                                                             |
-| `deno.json`                                            | Project config — dependencies, tasks (ci, test, check, fmt, compile)                  |
+**User Request**: A natural-language request submitted by the user for triage and execution. _Avoid_: Prompt, input,
+query
 
-## Patterns & Conventions
+### Triage & Classification
 
-### Architecture
+**Triage**: The Router's structured classification of a User Request by workflow type and complexity. _Avoid_:
+Assessment, evaluation, analysis
 
-- **Thin CLI entry**: `src/cli.js` only parses global flags and delegates to `commandRegistry` handlers
-- **All business logic lives in `src/cmd/<command>/index.js`** modules
-- **Agent definitions** are markdown files with YAML front matter, layered: bundled < home (`~/.hns/agents/`) < local
-  (`.hns/agents/`)
-- **Prompt templates** follow the same layered priority: bundled < home (`~/.hns/prompts/`) < local (`.hns/prompts/`)
-- **Extensions** (Cymbal, Mnemosyne) wrap external binaries as tools and register lifecycle hooks via `pi.on()` events
+**Triage Report**: The structured output of Triage containing classification, complexity, summary, and affected paths.
+_Avoid_: Triage result, classification result
 
-### Data Flow
+**Classification**: Exactly one workflow category emitted by Triage: `QUICK_FIX`, `FEATURE`, or `PROJECT`. _Avoid_:
+Type, category, kind
 
-1. User submits request via CLI or TUI editor
-2. Router agent classifies via `triage_report` tool (QUICK_FIX / FEATURE / PROJECT)
-3. Orchestrator reads triage outcome from message stream and dispatches to:
-   - **QUICK_FIX** → Operator (direct execution)
-   - **FEATURE** → Planner (writes plan, review, then Engineer executes)
-   - **PROJECT** → Architect (deep exploration, structured plan with task table, parallel execution)
-4. Plans are saved as `plans/<name>.md` with YAML front matter; lifecycle: draft → in_review → approved/feedback →
-   completed
-5. Plan review happens via Plannotator browser UI (in-process server)
+**QUICK_FIX**: A Classification for a small direct change with no planning phase. _Avoid_: Hotfix, patch, bug fix
 
-### Tool System
+**FEATURE**: A Classification for new functionality that requires a reviewed implementation Plan. _Avoid_: Enhancement,
+change request
 
-- Tools are defined via `@earendil-works/pi-coding-agent`'s `defineTool()` with Zod-like schema from `@sinclair/typebox`
-- **PROTECTED_TOOL_NAMES** (`src/tools/registry.js`) are always re-added to agents even if a higher layer narrows the
-  tool list
-- Custom tools (switch_agent, plan_written, triage_report, user_interview) are auto-wired when referenced in agent front
-  matter
-- Extension tools (cymbal, mnemosyne) register at session start via extension factories
+**PROJECT**: A Classification for large architectural or multi-role work that requires deep exploration and task
+dispatch. _Avoid_: Epic, initiative, refactor
 
-### Coding Style
+**Complexity**: A `LOW`, `MEDIUM`, or `HIGH` rating assigned during Triage. _Avoid_: Difficulty, effort, severity
 
-- JSDoc `@module`, `@typedef`, `@param`, `@returns` documentation throughout
-- Named exports for testability (`runInitCommand`, `createRouterOrchestratorHandler`, etc.)
-- Dependency injection via `options.__testDeps` for testing (mockable functions)
-- `Deno` APIs used directly (no Node.js compatibility layer); `Deno.readTextFile`, `Deno.writeTextFile`, `Deno.readDir`,
-  etc.
-- Import map in `deno.json` uses `jsr:` and `npm:` specifiers
-- Formatting: 4-space indent, 120-char line width (per `deno.json`)
+**Affected Paths**: The ordered set of files identified during Triage as the likely vertical slice for a User Request.
+_Avoid_: Impacted files, file list
 
-### Error Handling
+**Vertical Slice**: A narrow, end-to-end trace through the codebase from entry point to boundary for one request.
+_Avoid_: Cross-section, code path
 
-- Graceful fallbacks: file-not-found returns null, missing front matter gets defaults
-- Extension warnings logged but don't crash (e.g., mnemosyne binary missing)
-- Init state guard prevents duplicate init runs (with manual override via `~/.hns/init-state.json`)
+### Plans & Review
 
-### Testing
+**Plan**: A markdown file in `plans/` with YAML Front Matter that describes the implementation strategy for a User
+Request. _Avoid_: Blueprint, spec, design doc
 
-- Tests use Deno's built-in `Deno.test()` with `@std/assert` (assertEquals, assertMatch)
-- Test files live alongside source as `__tests__/` directories or `*.test.js` / `*_test.js` patterns
-- Tools tested via mock UiAPI and direct `executeTool()` calls
-- Key test files: `switch-agent_test.js`, `user-interview_test.js`, `user-interview-combinations_test.js`,
-  `plan-written_test.js`, `triage-report_test.js`
+**Front Matter**: YAML metadata at the top of a Plan containing classification, complexity, status, timestamps, and
+origin. _Avoid_: Metadata, header, YAML block
 
-### CI / Deployment
+**Plan Status**: The lifecycle state of a Plan: `draft`, `in_review`, `approved`, `ready_for_work`, `feedback`, or
+`completed`. _Avoid_: Phase, stage
 
-- `deno task ci` runs: check → lint → fmt:check → test
-- `deno task compile` builds the binary via `scripts/compile.js`
-- `deno task cli` runs the CLI in source mode: `deno run -A src/cli.js`
-- External dependencies: `mnemosyne` and `cymbal` binaries must be in PATH
+**Review Loop**: The cycle where a planning agent writes or revises a Plan and the user approves or returns it through
+Plannotator. _Avoid_: Feedback loop, approval cycle
+
+**Plannotator**: The browser-based review UI where users approve, save, deny, or annotate a Plan. _Avoid_: Review UI,
+approval screen
+
+**Feedback**: Structured user annotations returned when a Plan is denied or re-opened in Plannotator. _Avoid_: Comments,
+notes
+
+**Revision**: A single planning pass that updates a Plan in response to Feedback. _Avoid_: Iteration, amendment
+
+**Resume**: Re-entering workflow for an existing Plan or session instead of starting from a fresh User Request. _Avoid_:
+Continue, reopen, pick up
+
+**Origin**: A Plan Front Matter value of `internal` for Harns-created plans or `external` for imported markdown.
+_Avoid_: Source, provenance
+
+### Agents
+
+**Agent**: A specialized LLM-powered role with a dedicated Agent Definition, model binding, and tool set. _Avoid_: Bot,
+assistant, model
+
+**Router**: The default triage Agent that classifies a User Request and identifies its Affected Paths. _Avoid_:
+Dispatcher, orchestrator, classifier, triager
+
+**Operator**: The execution Agent for `QUICK_FIX` work. _Avoid_: Executor, fixer, worker
+
+**Planner**: The planning Agent for `FEATURE` work. _Avoid_: Designer, strategist
+
+**Architect**: The planning Agent for `PROJECT` work. _Avoid_: Designer, lead
+
+**Slicer**: The Agent that converts an approved PROJECT design Plan into executable task slices. _Avoid_: Task planner,
+splitter
+
+**Engineer**: The execution Agent that implements approved Plans or individual Tasks. _Avoid_: Coder, implementer,
+developer
+
+**Tester**: The Agent that writes or updates tests for assigned Tasks. _Avoid_: QA, test writer
+
+**Doc Writer**: The Agent that creates or updates technical documentation for assigned Tasks. _Avoid_: Documenter, tech
+writer
+
+**Agent Definition**: A markdown file with YAML Front Matter defining an Agent's display name, model, tools, and system
+prompt. _Avoid_: Agent def, agent prompt, agent config
+
+**Agent Name**: The internal identifier for an Agent, derived from its Agent Definition filename without `.md`. _Avoid_:
+Display name, label
+
+**Agent Display Name**: The human-readable name in Agent Definition Front Matter used when rendering agent messages.
+_Avoid_: Agent name, file name
+
+**Agent Session**: One invocation of an Agent with merged Agent Definition data, bound tools, extensions, and message
+history. _Avoid_: Run, interaction, conversation
+
+### Execution & Tools
+
+**Workflow Orchestrator**: The runtime coordinator that consumes tool outcomes and starts the next Agent Session.
+_Avoid_: Router, dispatcher agent
+
+**Task**: A numbered, assignable unit of work inside a `PROJECT` Plan with an assignee and dependency list. _Avoid_:
+Step, subtask, work item
+
+**Assignee**: The Agent role designated to execute a Task. _Avoid_: Owner, handler, responsible
+
+**Task Dispatch**: Executing PROJECT Tasks in dependency order by routing each Task to its Assignee. _Avoid_: Task
+execution, orchestration
+
+**Task Completion**: The `task_completed` signal an execution Agent emits when its assigned work is complete. _Avoid_:
+Done message, final response
+
+**Workflow Validation**: Harns' independent verification pass after a completed workflow loop. _Avoid_: Agent
+self-check, final summary
+
+**Toolset**: A named bundle of tool names granted to an Agent Session. _Avoid_: Tool list, capabilities
+
+**Custom Tool**: A Harns-defined tool registered alongside built-in pi tools. _Avoid_: Internal tool, Harns tool
+
+**Triage-Report Tool**: The `triage_report` Custom Tool that emits a Triage Report and ends the Router turn. _Avoid_:
+Classification tool, triage result tool
+
+**Plan-Written Tool**: The `plan_written` Custom Tool that starts the Review Loop and returns the Plan outcome. _Avoid_:
+Review tool, approval tool
+
+**Switch-Agent Tool**: The `switch_agent` Custom Tool that hands a conversation to another Agent. _Avoid_: Handoff tool,
+agent router
+
+**User-Interview Tool**: The `user_interview` Custom Tool for structured clarification questions. _Avoid_: Question
+tool, clarification form
 
 ### Memory & Persistence
 
-- **Mnemosyne** stores project memories in `~/.mnemosyne/<project-name>/` and global memories in `~/.mnemosyne/global/`
-- **Session state** persisted via `SessionManager` to `~/.hns/sessions/`
-- **Settings** stored at `~/.hns/settings.json` (global) and `<cwd>/.hns/settings.json` (project)
-- **Init state** tracked at `~/.hns/init-state.json` keyed by SHA-256(CWD)
+**Mnemosyne**: The external semantic memory system for project and global memories. _Avoid_: Memory layer, memory store
 
-### Front Matter Convention
+**Memory**: A concise fact, decision, or preference stored in Mnemosyne for future retrieval. _Avoid_: Note, record,
+entry
 
-- YAML front matter `---` blocks used in plans, agent definitions, and skill files
-- Plan front matter fields: `classification`, `complexity`, `summary`, `affectedPaths`, `createdAt`, `updatedAt`,
-  `status`, `origin`
-- Agent definition front matter fields: `name`, `model`, `description`, `tools`, `promptOverride`
+**Core Memory**: A Memory tagged `core` that is injected into every Agent Session. _Avoid_: Critical memory, pinned
+memory
+
+**Global Memory**: A Memory stored in the cross-project collection. _Avoid_: Shared memory, universal memory
+
+**Sleep**: A maintenance workflow that exports, analyzes, and improves the Mnemosyne collection. _Avoid_: Memory
+cleanup, memory maintenance
+
+**Project Name**: The basename of the working directory used as the Mnemosyne collection identifier. _Avoid_:
+Collection, namespace
+
+**Cymbal**: The external code indexing and search system exposed to agents as codebase tools. _Avoid_: Search layer,
+indexer
+
+**Prompt Template**: A layered markdown template that defines a slash command available in the TUI. _Avoid_: Slash
+command definition, prompt command
+
+## Relationships
+
+- A **User Request** is classified by the **Router** into exactly one **Triage Report**.
+- A **Triage Report** contains exactly one **Classification**, one **Complexity**, one summary, and zero or more
+  **Affected Paths**.
+- A **QUICK_FIX** is executed directly by the **Operator** and creates no **Plan**.
+- A **FEATURE** is planned by the **Planner**, reviewed through one **Review Loop**, and executed by the **Engineer**
+  after approval.
+- A **PROJECT** is planned by the **Architect**, optionally sliced by the **Slicer**, and executed as one or more
+  **Tasks**.
+- A **Plan** has exactly one **Plan Status**, exactly one **Origin**, and one **Front Matter** block.
+- A denied **Plan** produces **Feedback**, and each **Feedback** response triggers one **Revision**.
+- A **Task** has exactly one **Assignee** and may depend on zero or more other **Tasks**.
+- **Task Dispatch** sends each ready **Task** to an **Agent Session** for its **Assignee**.
+- An execution **Agent Session** must emit **Task Completion** before the workflow can proceed to **Workflow
+  Validation**.
+- **Workflow Validation** runs after completed `QUICK_FIX`, `FEATURE`, and `PROJECT` workflow loops.
+- Every **Agent Session** loads exactly one **Agent Definition** after bundled, home, and local layers are merged.
+- **Core Memories** are injected into every **Agent Session** by the **Mnemosyne** extension.
+- **Prompt Templates** become slash commands in the **TUI**.
+
+## Example dialogue
+
+> **Dev:** "A user submitted the **User Request** 'add JWT auth to the API'. What happens first?"
+>
+> **Domain expert:** "The **Router** performs **Triage** and emits one **Triage Report** with a **Classification**,
+> **Complexity**, summary, and **Affected Paths**."
+>
+> **Dev:** "Since that spans multiple files, is it a **FEATURE**?"
+>
+> **Domain expert:** "Yes. The **Planner** writes a **Plan**, then the user reviews it in **Plannotator** during the
+> **Review Loop**."
+>
+> **Dev:** "If the user denies it, does the **Engineer** start anyway?"
+>
+> **Domain expert:** "No. The denied **Plan** returns **Feedback**, the **Planner** makes a **Revision**, and execution
+> waits until the Plan is approved."
+>
+> **Dev:** "What changes for a **PROJECT**?"
+>
+> **Domain expert:** "The **Architect** writes the design Plan, the **Slicer** can turn it into **Tasks**, and **Task
+> Dispatch** routes each Task to its **Assignee** such as **Engineer**, **Tester**, or **Doc Writer**."
+
+## Flagged ambiguities
+
+- "router", "dispatcher", and "orchestrator" were used interchangeably; resolved: **Router** classifies User Requests,
+  while **Workflow Orchestrator** coordinates post-triage Agent Sessions.
+- "agent def" and "agent config" appeared as aliases; resolved: use **Agent Definition** for the markdown source, and
+  use **Agent Name** or **Agent Display Name** only for identifiers.
+- "feedback" can mean any response in ordinary prose; resolved: **Feedback** means Plannotator annotations returned to a
+  planning Agent.
+- "completed" can describe either a Plan lifecycle state or an execution signal; resolved: use **Plan Status** for
+  `completed` plans and **Task Completion** for the `task_completed` tool outcome.

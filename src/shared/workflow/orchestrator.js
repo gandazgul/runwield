@@ -23,7 +23,6 @@ import { createDirectAgentHandler } from "../session/direct-agent.js";
 import { runAgentSession, runRootTurn } from "../session/session.js";
 import { getAgentDisplayName } from "../session/agents.js";
 import {
-    clearActiveExecutionWorkflow,
     consumePendingSwitchHandoff,
     getRootAgentName,
     popAgentInfo,
@@ -31,6 +30,7 @@ import {
 } from "../session/session-state.js";
 import { executePlan, readLatestTaskCompletedOutcome, runPlanningAgent } from "./workflow.js";
 import { runValidationLoop } from "./validation.js";
+import { captureWorktreeTree } from "./git-snapshot.js";
 
 export { runLocalCI, runValidationLoop } from "./validation.js";
 
@@ -101,7 +101,8 @@ export async function dispatchPostTriage({ triage, userRequest, images, uiAPI, s
         uiAPI.appendSystemMessage(`=== Phase B: ${operatorDisplay} (Execute) ===`);
 
         const { setActiveExecutionWorkflow } = await import("../session/session-state.js");
-        setActiveExecutionWorkflow({ planName: "quick-fix", triageMeta: triage });
+        const baselineTree = await captureWorktreeTree(CWD);
+        setActiveExecutionWorkflow({ planName: "quick-fix", triageMeta: triage, baselineTree });
 
         const { setActiveAgent, applyPendingRootSwap } = await import("../interactive/chat-session.js");
         const { createDirectAgentHandler } = await import("../session/direct-agent.js");
@@ -117,7 +118,6 @@ export async function dispatchPostTriage({ triage, userRequest, images, uiAPI, s
         });
         const completed = readLatestTaskCompletedOutcome(messages);
         if (completed) {
-            clearActiveExecutionWorkflow();
             await runValidationLoop({
                 planName: "quick-fix",
                 planContent: decoratedRequest,

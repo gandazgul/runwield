@@ -17,6 +17,8 @@ import { loadPlan, updatePlanStatus } from "../../plan-store.js";
 import { runAgentSession } from "../session/session.js";
 import { getAgentDisplayName } from "../session/agents.js";
 import { createSilentUiApi } from "../ui/api.js";
+import { captureWorktreeTree } from "./git-snapshot.js";
+import { getActiveExecutionWorkflow, setActiveExecutionWorkflow } from "../session/session-state.js";
 
 /**
  * Extract the last text output from the agent's assistant messages.
@@ -497,6 +499,7 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
             validateProjectTasks(tasks);
 
             if (tasks.length > 0) {
+                await startActiveExecutionWorkflow(planName, triageMeta);
                 uiAPI.appendSystemMessage(
                     `Found ${tasks.length} tasks in plan. Executing in parallel where possible.`,
                     false,
@@ -571,6 +574,7 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
                     uiAPI.appendSystemMessage(`✅ All tasks completed successfully.`, false, "Harns");
                 }
             } else {
+                await startActiveExecutionWorkflow(planName, triageMeta);
                 const engineerResult = await runEngineerWithPlan(
                     planName,
                     plan.body,
@@ -588,6 +592,7 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
             return { repairRequired: true, executionComplete: false, error: error.message };
         }
     } else {
+        await startActiveExecutionWorkflow(planName, triageMeta);
         const engineerResult = await runEngineerWithPlan(planName, plan.body, uiAPI, sessionManager, triageMeta);
         if (!engineerResult.completed) {
             return { repairRequired: false, executionComplete: false };
@@ -884,10 +889,10 @@ export async function askApprovalWithTasks(planName, uiAPI, structuredTasks) {
  * @param {string} planBody
  * @param {UiAPI} uiAPI
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [_sessionManager]
- * @param {Partial<import('../../plan-store.js').PlanFrontMatter>} [triageMeta]
+ * @param {Partial<import('../../plan-store.js').PlanFrontMatter>} [_triageMeta]
  * @returns {Promise<{ completed: boolean, messages: import('@earendil-works/pi-agent-core').AgentMessage[] }>}
  */
-async function runEngineerWithPlan(planName, planBody, uiAPI, _sessionManager, triageMeta = {}) {
+async function runEngineerWithPlan(planName, planBody, uiAPI, _sessionManager, _triageMeta = {}) {
     uiAPI.appendSystemMessage(
         `=== Running ${getAgentDisplayName(AGENTS.ENGINEER)} ===`,
         false,
@@ -902,9 +907,6 @@ async function runEngineerWithPlan(planName, planBody, uiAPI, _sessionManager, t
         planBody,
     ].join("\n");
 
-    const { setActiveExecutionWorkflow } = await import("../session/session-state.js");
-    setActiveExecutionWorkflow({ planName, triageMeta });
-
     const { setActiveAgent, applyPendingRootSwap } = await import("../interactive/chat-session.js");
     const { createDirectAgentHandler } = await import("../session/direct-agent.js");
     setActiveAgent(AGENTS.ENGINEER, createDirectAgentHandler(AGENTS.ENGINEER), uiAPI);
@@ -918,10 +920,7 @@ async function runEngineerWithPlan(planName, planBody, uiAPI, _sessionManager, t
     });
 
     const completed = readLatestTaskCompletedOutcome(messages);
-    if (completed) {
-        const { clearActiveExecutionWorkflow } = await import("../session/session-state.js");
-        clearActiveExecutionWorkflow();
-    } else {
+    if (!completed) {
         uiAPI.appendSystemMessage(
             `${
                 getAgentDisplayName(AGENTS.ENGINEER)
@@ -932,4 +931,20 @@ async function runEngineerWithPlan(planName, planBody, uiAPI, _sessionManager, t
     }
 
     return { completed, messages };
+}
+
+/**
+ * @param {string} planName
+ * @param {Partial<import('../../plan-store.js').PlanFrontMatter>} triageMeta
+ * @returns {Promise<void>}
+ */
+async function startActiveExecutionWorkflow(planName, triageMeta) {
+    const existing = getActiveExecutionWorkflow();
+    if (existing?.planName === planName && existing.baselineTree) {
+        setActiveExecutionWorkflow({ ...existing, triageMeta });
+        return;
+    }
+
+    const baselineTree = await captureWorktreeTree(CWD);
+    setActiveExecutionWorkflow({ planName, triageMeta, baselineTree });
 }

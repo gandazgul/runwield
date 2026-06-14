@@ -38,7 +38,7 @@
  * subAgentSessions: Set<import('@earendil-works/pi-coding-agent').AgentSession>,
  * pendingRootSwap: PendingRootSwap | null,
  * pendingSwitchHandoff: PendingSwitchHandoff | null,
- * activeExecutionWorkflow: { planName: string, triageMeta: any } | null,
+ * activeExecutionWorkflow: { planName: string, triageMeta: any, baselineTree?: string } | null,
  * }} */
 const state = {
     // Initial placeholder; overwritten by startInteractiveSession() once the
@@ -229,7 +229,7 @@ export function getActiveExecutionWorkflow() {
     return state.activeExecutionWorkflow;
 }
 
-/** @param {{ planName: string, triageMeta: any } | null} workflow */
+/** @param {{ planName: string, triageMeta: any, baselineTree?: string } | null} workflow */
 export function setActiveExecutionWorkflow(workflow) {
     state.activeExecutionWorkflow = workflow;
 }

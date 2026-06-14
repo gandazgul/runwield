@@ -11,12 +11,7 @@ import {
     readLatestPlanOutcome as readLatestPlanOutcomeFn,
     readLatestTaskCompletedOutcome as readLatestTaskCompletedOutcomeFn,
 } from "../workflow/workflow.js";
-import {
-    clearActiveExecutionWorkflow,
-    consumePendingSwitchHandoff,
-    getActiveExecutionWorkflow,
-    getRootAgentName,
-} from "./session-state.js";
+import { consumePendingSwitchHandoff, getActiveExecutionWorkflow, getRootAgentName } from "./session-state.js";
 import { runValidationLoop } from "../workflow/validation.js";
 import { setActiveAgent as setActiveAgentFn } from "../interactive/chat-session.js";
 import { join } from "@std/path";
@@ -113,8 +108,6 @@ export function createDirectAgentHandler(agentName, __deps) {
         if (taskCompleted) {
             const workflow = getActiveExecutionWorkflow();
             if (workflow) {
-                clearActiveExecutionWorkflow();
-
                 let planContent = "";
                 if (workflow.planName && workflow.planName !== "quick-fix") {
                     try {
