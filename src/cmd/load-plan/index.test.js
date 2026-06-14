@@ -632,10 +632,14 @@ Deno.test("runLoadPlanCommand restores router flow after lifecycle saves a plan"
                         affectedPaths: [],
                         status: "draft",
                     },
-            }),
+                }),
             runPlanningAgent: () => Promise.resolve({ outcome: "saved", planName: "plan-g" }),
             createDirectAgentHandler: () => async () => {},
-            setActiveAgent: (/** @type {string} */ name, /** @type {unknown} */ _handler, /** @type {any} */ actualUiAPI) => {
+            setActiveAgent: (
+                /** @type {string} */ name,
+                /** @type {unknown} */ _handler,
+                /** @type {any} */ actualUiAPI,
+            ) => {
                 restoredAgents.push(name);
                 assertEquals(actualUiAPI, uiAPI);
             },
@@ -669,10 +673,14 @@ Deno.test("runLoadPlanCommand restores the initially active agent after lifecycl
                         affectedPaths: [],
                         status: "draft",
                     },
-            }),
+                }),
             runPlanningAgent: () => Promise.resolve({ outcome: "saved", planName: "plan-j" }),
             createDirectAgentHandler: () => async () => {},
-            setActiveAgent: (/** @type {string} */ name, /** @type {unknown} */ _handler, /** @type {any} */ actualUiAPI) => {
+            setActiveAgent: (
+                /** @type {string} */ name,
+                /** @type {unknown} */ _handler,
+                /** @type {any} */ actualUiAPI,
+            ) => {
                 restoredAgents.push(name);
                 assertEquals(actualUiAPI, uiAPI);
             },

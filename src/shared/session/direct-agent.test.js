@@ -78,7 +78,11 @@ Deno.test("direct-agent restores invoking agent when approved_execute execution 
         runValidationLoop: () => {
             throw new Error("should not validate incomplete execution");
         },
-        setActiveAgent: (/** @type {string} */ name, /** @type {unknown} */ _handler, /** @type {any} */ actualUiAPI) => {
+        setActiveAgent: (
+            /** @type {string} */ name,
+            /** @type {unknown} */ _handler,
+            /** @type {any} */ actualUiAPI,
+        ) => {
             restoredAgents.push(name);
             assertEquals(actualUiAPI, uiAPI);
         },
