@@ -111,3 +111,10 @@ Deno.test("resolveEffectiveSessionToolNames filters return_to_router unless expl
         ["read", "return_to_router", "memory_recall"],
     );
 });
+
+Deno.test("resolveEffectiveSessionToolNames normalizes legacy multi replace tool name", () => {
+    assertEquals(
+        resolveEffectiveSessionToolNames(["read", "edit", "multi_replace_file_content"], undefined, []),
+        ["read", "edit", "multi_file_edit"],
+    );
+});

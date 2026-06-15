@@ -6,7 +6,7 @@ import { createEditWithFallbackToolDefinition } from "../edit-with-fallback.js";
  * Helper to execute the edit tool with typed parameters.
  *
  * @param {import('@earendil-works/pi-coding-agent').ToolDefinition<any, any>} tool
- * @param {{ path: string, edits: Array<{ oldText: string, newText: string }> }} params
+ * @param {unknown} params
  * @returns {Promise<{ content: Array<{ type: string, text?: string }>, details?: { diff?: string, firstChangedLine?: number } }>}
  */
 async function executeEdit(tool, params) {
@@ -20,9 +20,12 @@ Deno.test("createEditWithFallbackToolDefinition exposes expected metadata", () =
     const tool = createEditWithFallbackToolDefinition("/tmp");
     assertEquals(tool.name, "edit");
     assertEquals(tool.label, "edit");
-    assertMatch(tool.description, /exact text replacement/i);
+    assertMatch(tool.description, /single file/i);
     assertEquals(typeof tool.execute, "function");
     assertEquals(typeof tool.parameters, "object");
+
+    const properties = /** @type {{ properties: Record<string, unknown> }} */ (tool.parameters).properties;
+    assertEquals(Object.keys(properties), ["path", "oldText", "newText"]);
 });
 
 Deno.test("edit-with-fallback: normal successful edit", async () => {
@@ -34,7 +37,8 @@ Deno.test("edit-with-fallback: normal successful edit", async () => {
     const tool = createEditWithFallbackToolDefinition(dir);
     const result = await executeEdit(tool, {
         path: "test.txt",
-        edits: [{ oldText: "Foo bar", newText: "Foo baz" }],
+        oldText: "Foo bar",
+        newText: "Foo baz",
     });
 
     const text = result.content.map((c) => c.text || "").join("");
@@ -63,7 +67,8 @@ Deno.test("edit-with-fallback: returns file contents on permission error", async
     const tool = createEditWithFallbackToolDefinition(dir);
     const result = await executeEdit(tool, {
         path: filePath, // use absolute path so cwd doesn't matter
-        edits: [{ oldText: "Line 2: beta", newText: "Line 2: replaced" }],
+        oldText: "Line 2: beta",
+        newText: "Line 2: replaced",
     });
 
     const text = result.content.map((c) => c.text || "").join("");
@@ -103,7 +108,8 @@ Deno.test("edit-with-fallback: truncates to 1000 lines on large file", async () 
     const tool = createEditWithFallbackToolDefinition(dir);
     const result = await executeEdit(tool, {
         path: filePath,
-        edits: [{ oldText: "Line 500: content data here", newText: "Line 500: REPLACED" }],
+        oldText: "Line 500: content data here",
+        newText: "Line 500: REPLACED",
     });
 
     const text = result.content.map((c) => c.text || "").join("");
@@ -128,7 +134,8 @@ Deno.test("edit-with-fallback: rethrows original error when file does not exist"
     try {
         await executeEdit(tool, {
             path: "nonexistent-file.txt",
-            edits: [{ oldText: "anything", newText: "replacement" }],
+            oldText: "anything",
+            newText: "replacement",
         });
         fail("Expected an error but edit succeeded");
     } catch (err) {
@@ -151,7 +158,8 @@ Deno.test("edit-with-fallback: rethrows error when path is empty", async () => {
     try {
         await executeEdit(tool, {
             path: "",
-            edits: [{ oldText: "a", newText: "b" }],
+            oldText: "a",
+            newText: "b",
         });
         fail("Expected an error but edit succeeded");
     } catch {
@@ -168,11 +176,37 @@ Deno.test("edit-with-fallback: works with relative path", async () => {
     const tool = createEditWithFallbackToolDefinition(dir);
     const result = await executeEdit(tool, {
         path: "relative-test.txt",
-        edits: [{ oldText: "Second line", newText: "Second line (edited)" }],
+        oldText: "Second line",
+        newText: "Second line (edited)",
     });
 
     const text = result.content.map((c) => c.text || "").join("");
     assertMatch(text, /successfully replaced/i);
+
+    await Deno.remove(dir, { recursive: true });
+});
+
+Deno.test("edit-with-fallback: accepts legacy single-entry edits array", async () => {
+    const dir = await Deno.makeTempDir();
+    const filePath = join(dir, "legacy-test.txt");
+    await Deno.writeTextFile(filePath, "First line\nSecond line\n");
+
+    const tool = createEditWithFallbackToolDefinition(dir);
+    const prepared = tool.prepareArguments?.({
+        path: "legacy-test.txt",
+        edits: [{ oldText: "Second line", newText: "Updated line" }],
+    });
+
+    assertEquals(prepared, {
+        path: "legacy-test.txt",
+        oldText: "Second line",
+        newText: "Updated line",
+    });
+
+    const result = await executeEdit(tool, prepared);
+    const text = result.content.map((c) => c.text || "").join("");
+    assertMatch(text, /successfully replaced/i);
+    assertEquals(await Deno.readTextFile(filePath), "First line\nUpdated line\n");
 
     await Deno.remove(dir, { recursive: true });
 });

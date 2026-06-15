@@ -84,9 +84,13 @@ const LOCAL_PROMPTS_DIR = join(CWD, ".hns", "prompts");
  */
 export function resolveEffectiveSessionToolNames(agentTools, toolNames, customToolNames, options = {}) {
     const resolvedTools = resolveSessionToolNames(agentTools, toolNames, customToolNames);
+    const normalizedTools = resolvedTools.map((toolName) =>
+        toolName === "multi_replace_file_content" ? "multi_file_edit" : toolName
+    );
+    const dedupedTools = [...new Set(normalizedTools)];
     return options.allowReturnToRouter === true
-        ? resolvedTools
-        : resolvedTools.filter((toolName) => toolName !== "return_to_router");
+        ? dedupedTools
+        : dedupedTools.filter((toolName) => toolName !== "return_to_router");
 }
 
 /** @typedef {"local" | "home" | "bundled"} PromptTemplateSource */
@@ -541,6 +545,41 @@ export function getConfiguredAgentModel(agentName) {
 }
 
 /**
+ * Get the configured thinking level override for an agent from merged (global + project) settings.
+ *
+ * Resolution order:
+ * 1. If `activeModelPreset` is set and names a preset in `modelPresets`,
+ *    and that preset has an `agents.<agentName>.thinkingLevel` entry, use that.
+ * 2. Otherwise, fall back to `agents.<agentName>.thinkingLevel` from base config.
+ *
+ * @param {string} agentName
+ * @returns {string | undefined}
+ */
+export function getConfiguredAgentThinkingLevel(agentName) {
+    const agents = /** @type {Record<string, { thinkingLevel?: string }> | undefined} */ (
+        getMergedCustomSetting("agents")
+    );
+    if (!agents) return undefined;
+
+    // Check active preset first
+    const activeModelPreset = /** @type {string | undefined} */ (
+        getMergedCustomSetting("activeModelPreset")
+    );
+    if (activeModelPreset) {
+        const modelPresets =
+            /** @type {Record<string, { agents?: Record<string, { thinkingLevel?: string }> }> | undefined} */ (
+                getMergedCustomSetting("modelPresets")
+            );
+        const preset = modelPresets?.[activeModelPreset];
+        const presetLevel = preset?.agents?.[agentName]?.thinkingLevel;
+        if (presetLevel) return presetLevel;
+    }
+
+    // Fall back to base agents config
+    return agents[agentName]?.thinkingLevel;
+}
+
+/**
  * Resolve the model to use for an agent invocation, based on the following priority:
  * 1) Explicit model override passed to `runAgentSession`
  * 2) Active model state (e.g. from a previous /model switch)
@@ -662,16 +701,16 @@ export async function assembleFinalSystemPrompt(agentDef, tools, finalCustomTool
     let finalSystemPrompt = agentDef.systemPrompt;
 
     const customToolMap = new Map();
-    // 1. Add custom tools and dynamically injected tools
-    for (const tool of finalCustomTools) {
+    // 1. Add pi-coding-agent built-in tools.
+    for (const tool of piTools) {
         customToolMap.set(tool.name, tool.promptSnippet || tool.description);
     }
-    // 2. Add extension tool descriptions
+    // 2. Add extension tool descriptions.
     for (const tool of extensionTools) {
         customToolMap.set(tool.name, tool.promptSnippet || tool.description);
     }
-    // 3. Add pi-coding-agent built-in tools
-    for (const tool of piTools) {
+    // 3. Add custom tools last so runtime overrides are reflected in the prompt.
+    for (const tool of finalCustomTools) {
         customToolMap.set(tool.name, tool.promptSnippet || tool.description);
     }
 
@@ -818,9 +857,10 @@ export async function buildAgentSession({
     // Override the built-in edit tool to return file contents on failure.
     finalCustomTools.push(createEditWithFallbackToolDefinition(CWD));
 
-    // Register multi_replace_file_content as a complementary edit tool.
-    const { createMultiReplaceFileContentTool } = await import("../../tools/multi_replace_file_content.js");
-    finalCustomTools.push(createMultiReplaceFileContentTool(CWD));
+    if (tools.includes("multi_file_edit") && !finalCustomTools.find((t) => t.name === "multi_file_edit")) {
+        const { createMultiFileEditTool } = await import("../../tools/multi_file_edit.js");
+        finalCustomTools.push(createMultiFileEditTool(CWD));
+    }
 
     // Resolve system prompt placeholders
     const finalSystemPrompt = await assembleFinalSystemPrompt(agentDef, tools, finalCustomTools);
@@ -877,6 +917,17 @@ export async function buildAgentSession({
                 else console.warn(msg2);
             }
         }
+    }
+
+    // Apply thinking level — settings per-agent override takes priority over frontmatter
+    let resolvedThinkingLevel = agentName ? getConfiguredAgentThinkingLevel(agentName) : undefined;
+    if (!resolvedThinkingLevel) {
+        resolvedThinkingLevel = agentDef.thinkingLevel;
+    }
+    if (resolvedThinkingLevel) {
+        session.setThinkingLevel(
+            /** @type {import('@earendil-works/pi-agent-core').ThinkingLevel} */ (resolvedThinkingLevel),
+        );
     }
 
     // Ensure extension lifecycle hooks (e.g. session_start) are activated for this agent invocation.
@@ -1521,10 +1572,14 @@ export async function reloadRootAgentSession(uiAPI) {
         }
     }
 
-    // 5. Apply thinking level from settings
-    const newThinkingLevel = settings.getDefaultThinkingLevel();
+    // 5. Apply thinking level — settings per-agent > frontmatter > settings default
+    const rootName = getRootAgentName() || "";
+    const newThinkingLevel = getConfiguredAgentThinkingLevel(rootName) || meta.agentDef.thinkingLevel ||
+        settings.getDefaultThinkingLevel();
     if (newThinkingLevel !== undefined) {
-        session.setThinkingLevel(newThinkingLevel);
+        session.setThinkingLevel(
+            /** @type {import('@earendil-works/pi-agent-core').ThinkingLevel} */ (newThinkingLevel),
+        );
     }
 
     return true;
@@ -1609,7 +1664,7 @@ export async function expandPromptTemplate(templatePath, additionalInstructions)
  * Extract file path from tool arguments for read/edit/write tools.
  *
  * @param {string} toolName
- * @param {{ path?: string, file_path?: string }} args
+ * @param {{ path?: string, file_path?: string, edits?: Array<{ path?: string, file_path?: string }> }} args
  * @returns {string | null}
  */
 function getFilePathForTool(toolName, args) {
@@ -1625,6 +1680,22 @@ function getFilePathForTool(toolName, args) {
                 ? args.file_path
                 : null;
             return path;
+        }
+        case "multi_file_edit": {
+            if (!Array.isArray(args.edits) || args.edits.length === 0) return null;
+            const paths = args.edits
+                .map((edit) =>
+                    typeof edit.path === "string"
+                        ? edit.path
+                        : typeof edit.file_path === "string"
+                        ? edit.file_path
+                        : null
+                )
+                .filter(Boolean);
+            const uniquePaths = [...new Set(paths)];
+            if (uniquePaths.length === 0) return null;
+            if (uniquePaths.length === 1) return uniquePaths[0];
+            return `${uniquePaths[0]} +${uniquePaths.length - 1} files`;
         }
         default:
             return null;
