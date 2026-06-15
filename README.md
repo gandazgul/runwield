@@ -74,7 +74,7 @@ flowchart TD
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/gandazgul/harns/main/install.sh | bash
-hns --help
+hns help
 ```
 
 The installer downloads the latest release binary for macOS or Linux, verifies checksums, and installs `hns`. By default
@@ -84,9 +84,9 @@ it installs to `~/.local/bin` and does not require root. To choose another user-
 ### From Source
 
 ```bash
-deno run -A src/cli.js --help
+deno run -A src/cli.js help
 deno task compile
-./bin/hns --help
+./bin/hns help
 ```
 
 ## Runtime Requirements
@@ -154,11 +154,11 @@ hns agent engineer "implement X"    # bypass router and talk to one agent
 hns plans                           # list saved plans
 hns load-plan <name-or-path>        # review, execute, or continue a plan
 hns init                            # bootstrap project context
-hns --help
+hns help
 hns help <command>
 ```
 
-`hns --help` and `hns help <command>` are generated from the command registry. Inside the TUI, `/` autocomplete is built
+`hns help` and `hns help <command>` are generated from the command registry. Inside the TUI, `/` autocomplete is built
 from the same registry plus installed prompt templates and skills.
 
 Prompt templates from `src/prompt-templates/`, `~/.hns/prompts/`, and `.hns/prompts/` also become slash commands when

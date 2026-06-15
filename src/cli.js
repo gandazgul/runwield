@@ -8,7 +8,7 @@
  *   hns load-plan <plan-name-or-path>
  *   hns plans
  *   hns sleep
- *   hns --help
+ *   hns help
  *
  * Source-run fallback for contributors:
  *   deno run -A src/cli.js "<user request>"

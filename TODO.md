@@ -1,8 +1,5 @@
 # TODO
 
-- [ ] allow installing skills from a package like themes. First prompt the user saying that skills should be installed
-      to ~/.agents/skills by skill management tools (e.g. npx skills@latest add). Advise that this install will be harns
-      specific. If yes, then proceed with the install.
 - [ ] more tests
 - [ ] Start implementing the code indexing (cymbal is good for now)
 - [ ] Auto-sleep: trigger memory consolidation automatically at session end when a threshold is crossed (e.g.,

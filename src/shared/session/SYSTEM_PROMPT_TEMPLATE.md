@@ -4,7 +4,7 @@
 
 {{AVAILABLE_TOOLS}}
 
-In addition to the tools above, you may have access to other custom tools depending on the project.
+The tools listed above are the tools available in this session.
 
 ## Skills
 
