@@ -2,19 +2,23 @@
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Add a token consumption data footer to the TUI, mirroring Pi.dev. This involves:
-1. Tracking token usage (sent, received, cache reads) from the `@earendil-works/pi-coding-agent` session events.
-2. Calculating the context window percentage using model data from `models.json`.
-3. (Optional/Investigation) Determining a way to calculate costs based on provider pricing.
-4. Updating the footer render logic in `chat-session.js` to display this information."
+    1. Tracking token usage (sent, received, cache reads) from the `@earendil-works/pi-coding-agent` session events.
+    2. Calculating the context window percentage using model data from `models.json`.
+    3. (Optional/Investigation) Determining a way to calculate costs based on provider pricing.
+    4. Updating the footer render logic in `chat-session.js` to display this information."
 affectedPaths:
-  - "src/shared/interactive/chat-session.js"
-  - "src/shared/session/session.js"
-  - "src/shared/session/session-state.js"
+    - "src/shared/interactive/chat-session.js"
+    - "src/shared/session/session.js"
+    - "src/shared/session/session-state.js"
 createdAt: "2026-06-15T13:30:00.000Z"
-updatedAt: "2026-06-15T20:43:43.779Z"
-status: "draft"
+updatedAt: "2026-06-15T20:50:56.200Z"
+status: "verified"
 origin: "internal"
+implementedAt: "2026-06-15T20:49:52.804Z"
+verifiedAt: "2026-06-15T20:50:56.200Z"
+executionBaselineTree: "138796165d084e98b01e46ade1dc939cd16c17f2"
 ---
+
 # Footer Token Consumption Data
 
 ## Context
@@ -66,10 +70,10 @@ message. Harns reads the already-computed cumulative cost from session entries.
   `@earendil-works/pi-coding-agent/src/modes/interactive/components/footer.ts`. It **is** exported from the package but
   has three blockers for direct use:
   1. Depends on Pi's internal theme system (`theme.fg()`) with different color keys than Harns.
-  2. Depends on `ReadonlyFooterDataProvider` for git branch — only the *type* is exported, not the concrete class.
+  2. Depends on `ReadonlyFooterDataProvider` for git branch — only the _type_ is exported, not the concrete class.
   3. Missing the agent-name-on-line-1 display that Harns has.
-  
-  → **Decision:** Reuse the *formatting logic* (`formatTokens`, token summation, context percentage rendering, cost
+
+  → **Decision:** Reuse the _formatting logic_ (`formatTokens`, token summation, context percentage rendering, cost
   display) by reference, but implement directly in `chat-session.js` to match Harns' existing footer structure.
 
 - `getRootAgentSession()` from `src/shared/session/session-state.js` — already used throughout `chat-session.js`.
@@ -132,8 +136,8 @@ message. Harns reads the already-computed cumulative cost from session entries.
           contextStr = pctValue > 90
               ? theme.fg("error", rawContext)
               : pctValue > 70
-                  ? theme.fg("warning", rawContext)
-                  : rawContext;
+              ? theme.fg("warning", rawContext)
+              : rawContext;
       }
   }
   ```
@@ -147,9 +151,7 @@ message. Harns reads the already-computed cumulative cost from session entries.
   if (totalCacheRead > 0) statsParts.push(`R${formatTokens(totalCacheRead)}`);
 
   // Cost — only show if non-zero or if using OAuth subscription
-  const usingSubscription = session?.state?.model
-      ? session.modelRegistry?.isUsingOAuth?.(session.state.model)
-      : false;
+  const usingSubscription = session?.state?.model ? session.modelRegistry?.isUsingOAuth?.(session.state.model) : false;
   if (totalCost > 0 || usingSubscription) {
       statsParts.push(`$${totalCost.toFixed(3)}${usingSubscription ? " (sub)" : ""}`);
   }
@@ -180,12 +182,8 @@ message. Harns reads the already-computed cumulative cost from session entries.
   Change it to:
 
   ```js
-  const line2LeftRaw = ctrlCPendingExit
-      ? "Ctrl+C - Press again to exit"
-      : statsSegment;
-  const line2LeftStyled = ctrlCPendingExit
-      ? theme.fg("warning", line2LeftRaw)
-      : statsSegment;
+  const line2LeftRaw = ctrlCPendingExit ? "Ctrl+C - Press again to exit" : statsSegment;
+  const line2LeftStyled = ctrlCPendingExit ? theme.fg("warning", line2LeftRaw) : statsSegment;
   const thinkingPad = thinkingLevel !== "off" ? thinkingStr.length + 1 : 0;
   const line2Pad = Math.max(1, w - line2LeftRaw.length - modelStr.length - thinkingPad);
   const line2 = line2LeftStyled +
@@ -224,7 +222,7 @@ message. Harns reads the already-computed cumulative cost from session entries.
 - **Cost precision:** Pi.dev shows 3 decimal places (`$0.000`). Match this.
 - **Performance:** The footer renders on every keystroke. Iterating session entries should be fast for typical session
   sizes (<1000 entries). No memoization needed.
-- **OAuth subscription detection:** Use `session.modelRegistry?.isUsingOAuth?.(model)` — optional chaining guards against
-  `modelRegistry` not being available.
+- **OAuth subscription detection:** Use `session.modelRegistry?.isUsingOAuth?.(model)` — optional chaining guards
+  against `modelRegistry` not being available.
 - **No existing tests to modify:** The footer is rendered inside a closure with no isolated test. Rely on manual
   verification and `deno run ci`.

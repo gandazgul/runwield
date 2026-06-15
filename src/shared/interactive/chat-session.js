@@ -58,6 +58,19 @@ const CHAT_PROMPT_AGENT_NAME = AGENTS.OPERATOR;
 export let CHAT_BUILTIN_SLASH_NAMES = new Set();
 
 /**
+ * Format token counts for footer display (same formatting as Pi.dev).
+ * @param {number} count
+ * @returns {string}
+ */
+function formatTokens(count) {
+    if (count < 1000) return String(count);
+    if (count < 10000) return `${(count / 1000).toFixed(1)}k`;
+    if (count < 1000000) return `${Math.round(count / 1000)}k`;
+    if (count < 10000000) return `${(count / 1000000).toFixed(1)}M`;
+    return `${Math.round(count / 1000000)}M`;
+}
+
+/**
  * @type {Map<string, { text: string, images: import('../session/types.js').ImageAttachment[], systemBlock: SystemMessageBlock, spacer: Spacer }>}
  * Tracks steering messages that have been queued on the agent but not yet consumed by the LLM.
  * Keyed by message text (consistent with AgentSession._steeringMessages matching by text).
@@ -479,10 +492,64 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
                 " ".repeat(line1Pad) +
                 theme.fg("accent", activeAgentName);
 
+            // ── Token consumption data (Pi.dev-style footer) ──
+            const session = getRootAgentSession();
+            let totalInput = 0;
+            let totalOutput = 0;
+            let totalCacheRead = 0;
+            let totalCost = 0;
+            let contextStr = "";
+
+            if (session) {
+                for (const entry of session.sessionManager.getEntries()) {
+                    if (entry.type === "message" && entry.message.role === "assistant") {
+                        totalInput += entry.message.usage.input;
+                        totalOutput += entry.message.usage.output;
+                        totalCacheRead += entry.message.usage.cacheRead;
+                        totalCost += entry.message.usage.cost.total;
+                    }
+                }
+
+                const contextUsage = session.getContextUsage();
+                if (contextUsage) {
+                    const cw = contextUsage.contextWindow ?? 0;
+                    const pct = contextUsage.percent;
+                    const pctDisplay = pct !== null ? `${pct.toFixed(1)}%` : "?";
+                    const cwStr = formatTokens(cw);
+                    const compactionSettings = session?.settingsManager?.getCompactionSettings?.();
+                    const compactEnabled = compactionSettings ? compactionSettings.enabled : true;
+                    const autoIndicator = compactEnabled ? " (Auto-compact)" : "";
+                    const rawContext = `${pctDisplay}/${cwStr}${autoIndicator}`;
+                    const pctValue = pct ?? 0;
+                    contextStr = pctValue > 90
+                        ? theme.fg("error", rawContext)
+                        : pctValue > 70
+                        ? theme.fg("warning", rawContext)
+                        : rawContext;
+                }
+            }
+
+            const statsParts = [];
+            if (totalInput > 0) statsParts.push(`↑${formatTokens(totalInput)}`);
+            if (totalOutput > 0) statsParts.push(`↓${formatTokens(totalOutput)}`);
+            if (totalCacheRead > 0) statsParts.push(`R${formatTokens(totalCacheRead)}`);
+
+            const usingSubscription = session?.state?.model
+                ? session.modelRegistry?.isUsingOAuth?.(session.state.model)
+                : false;
+            if (totalCost > 0 || usingSubscription) {
+                statsParts.push(`$${totalCost.toFixed(3)}${usingSubscription ? " (sub)" : ""}`);
+            }
+
+            if (contextStr) statsParts.push(contextStr);
+            const statsSegment = statsParts.length > 0 ? statsParts.join(" ") : "";
+
             const thinkingStr = `(${thinkingLevel})`;
             const thinkingStyled = theme.fg(getThinkingThemeToken(thinkingLevel), thinkingStr);
-            const line2LeftRaw = ctrlCPendingExit ? "Ctrl+C - Press again to exit" : "";
-            const line2LeftStyled = ctrlCPendingExit ? theme.fg("warning", line2LeftRaw) : "";
+            const line2LeftRaw = ctrlCPendingExit ? "Ctrl+C - Press again to exit" : statsSegment;
+            const line2LeftStyled = ctrlCPendingExit
+                ? theme.fg("warning", line2LeftRaw)
+                : theme.fg("dim", statsSegment);
             const thinkingPad = thinkingLevel !== "off" ? thinkingStr.length + 1 : 0;
             const line2Pad = Math.max(1, w - line2LeftRaw.length - modelStr.length - thinkingPad);
             const line2 = line2LeftStyled +
