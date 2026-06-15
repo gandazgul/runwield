@@ -364,22 +364,27 @@ export async function listSkills() {
 
 /**
  * @param {string} homeDir
+ * @param {{ includeExternal?: boolean }} [options]
  * @returns {string[]}
  */
-export function getGlobalAgentMdPaths(homeDir) {
+export function getGlobalAgentMdPaths(homeDir, options = {}) {
     if (!homeDir) return [];
+    const includeExternal = options.includeExternal ??
+        (getCustomSetting("enableExternalGlobalAgentsMd", "global") ?? true);
     return [
         join(homeDir, ".hns", "HARNS.md"),
         join(homeDir, ".hns", "AGENTS.md"),
+        ...(includeExternal ? [join(homeDir, ".agents", "AGENTS.md")] : []),
     ];
 }
 
 /**
  * @param {string} homeDir
+ * @param {{ includeExternal?: boolean }} [options]
  * @returns {Promise<string>}
  */
-export async function readGlobalAgentMd(homeDir) {
-    for (const path of getGlobalAgentMdPaths(homeDir)) {
+export async function readGlobalAgentMd(homeDir, options = {}) {
+    for (const path of getGlobalAgentMdPaths(homeDir, options)) {
         try {
             return await Deno.readTextFile(path);
         } catch {
@@ -394,15 +399,18 @@ export async function readGlobalAgentMd(homeDir) {
  * `assembleFinalSystemPrompt` reads from. Used by the boot banner to show
  * the user what context was actually injected into the system prompt.
  *
- * @returns {Promise<{ path: string, source: "home" | "local" }[]>}
+ * @returns {Promise<{ path: string, source: "home" | "external" | "local" }[]>}
  */
 export async function listLoadedAgentMdFiles() {
-    /** @type {{ path: string, source: "home" | "local" }[]} */
+    /** @type {{ path: string, source: "home" | "external" | "local" }[]} */
     const results = [];
 
     for (const homePath of getGlobalAgentMdPaths(HOME_DIR)) {
         if (await fileExists(homePath)) {
-            results.push({ path: homePath, source: "home" });
+            const source = homePath === join(HOME_DIR, ".agents", "AGENTS.md")
+                ? /** @type {"external"} */ ("external")
+                : /** @type {"home"} */ ("home");
+            results.push({ path: homePath, source });
             break;
         }
     }
@@ -795,6 +803,7 @@ export async function buildAgentSession({
         systemPromptOverride: () => promptState.text,
         extensionFactories: [mnemosyneExtension, cymbalExtension],
         additionalPromptTemplatePaths: getPromptTemplatePaths(),
+        noContextFiles: true,
         noPromptTemplates: true,
     });
     await loader.reload();

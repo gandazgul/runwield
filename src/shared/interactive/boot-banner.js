@@ -22,10 +22,10 @@ function toUserFacingPromptPath(template) {
 }
 
 /**
- * @param {{ path: string, source: "home" | "local" }} file
+ * @param {{ path: string, source: "home" | "external" | "local" }} file
  */
 function toUserFacingAgentMdPath(file) {
-    if (file.source === "home" && HOME_DIR && file.path.startsWith(HOME_DIR)) {
+    if ((file.source === "home" || file.source === "external") && HOME_DIR && file.path.startsWith(HOME_DIR)) {
         return `~${file.path.slice(HOME_DIR.length)}`;
     }
     return file.path;

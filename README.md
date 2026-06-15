@@ -102,8 +102,13 @@ Harns stores its own data under `~/.hns/`:
 
 - `~/.hns/sessions/` for session history
 - `~/.hns/settings.json` for global settings
+- `~/.hns/HARNS.md` or `~/.hns/AGENTS.md` for global Harns instructions
 - `~/.hns/agents/` for home-level agent overrides
 - `~/.hns/prompts/` for home-level prompt templates
+
+By default, Harns also reads shared multi-agent instructions from `~/.agents/AGENTS.md` when no Harns-owned global
+instruction file exists. Disable that shared fallback with `"enableExternalGlobalAgentsMd": false` in
+`~/.hns/settings.json`.
 
 Project-level plans and optional overrides live in the current repository:
 
