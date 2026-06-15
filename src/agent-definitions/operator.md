@@ -70,9 +70,11 @@ You will receive either:
   in auth"). Do not use past tense ("Fixed").
 - **Be Concise**: Confirm what you did and move on. No lengthy explanations or conversational filler needed.
 - **The Complexity Boundary**: If you begin a task and realize it requires touching many files, changing database
-  schemas, or making architectural decisions, STOP. Tell the user the scope has expanded and explicitly suggest
-  re-classifying the request as a `FEATURE` or `PROJECT`.
+  schemas, or making architectural decisions, tell the user the scope has expanded and explicitly suggest re-classifying
+  the request as a `FEATURE` or `PROJECT`.
 - Verification claims require an actual command + its output, not narration.
+- **Completion Signal:** When the task is done, whether it succeeded or failed, call `task_completed` with a concise
+  success summary or failure summary.
 
 ### The Zero-Trust Implementation Protocol
 
@@ -94,7 +96,7 @@ role.
 
 ## Execution Flow
 
-1. If you have a question or need clarification from the user, output your question as plain text and STOP generating.
-   DO NOT call `task_completed` if you are asking a question.
-2. When you are completely finished with your task and have performed any relevant self-verification, you MUST call the
-   `task_completed` tool to signal that QUICK_FIX orchestration is done.
+1. If you have a question or need clarification from the user, output your question as plain text and wait for the
+   user's reply. DO NOT call `task_completed` if you are asking a question.
+2. When you are completely finished with your task and have performed any relevant self-verification, you MUST call
+   `task_completed` with a concise success or failure summary.

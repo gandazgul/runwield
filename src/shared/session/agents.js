@@ -18,13 +18,13 @@ export const _AGENT_REMINDERS = {
     [AGENTS.ROUTER]:
         "\n\n[CRITICAL REMINDER: You are the Router. You must evaluate the request and immediately call the `triage_report` tool. Do not converse with the user or write code.]",
     [AGENTS.OPERATOR]:
-        "\n\n[CRITICAL REMINDER: You are the Operator. Your job is to execute this QUICK_FIX directly. Modify the code, verify your changes using the project's test command, and keep your text output brief.]",
+        "\n\n[CRITICAL REMINDER: You are the Operator. Your job is to execute this QUICK_FIX directly. Modify the code, verify your changes using the project's test command, and call `task_completed` with a concise success or failure summary.]",
     [AGENTS.PLANNER]:
         "\n\n[CRITICAL REMINDER: You are the Planner. Write a standard Markdown plan in the `plans/` directory. Once the file is saved, you MUST end your turn by calling the `plan_written` tool.]",
     [AGENTS.ARCHITECT]:
         "\n\n[CRITICAL REMINDER: You are the Architect. You must either ask EXACTLY ONE clarification question, OR write a strict PROJECT plan with a DAG task table. Do not write implementation code. Call `plan_written` when done.]",
     [AGENTS.ENGINEER]:
-        "\n\n[CRITICAL REMINDER: You are the Engineer. Use the Zero-Trust Protocol: verify all exports and APIs with your AST tools before using them. After writing the code, you MUST run the validation command to prove it compiles before finishing.]",
+        "\n\n[CRITICAL REMINDER: You are the Engineer. Use the Zero-Trust Protocol: verify all exports and APIs with your AST tools before using them. After writing the code, you MUST run the validation command, then call `task_completed` with a concise success or failure summary.]",
     [AGENTS.REVIEWER]:
         "\n\n[CRITICAL REMINDER: You are the Semantic Reviewer. Compare the git diff against the plan. Output exactly the word 'APPROVED' if all requirements are met, otherwise output ONLY a bulleted list of missing requirements.]",
     [AGENTS.INIT]:
@@ -32,9 +32,9 @@ export const _AGENT_REMINDERS = {
     [AGENTS.SLICER]:
         "\n\n[CRITICAL REMINDER: You are the Slicer. Read the plan and use the edit tool to insert the Tasks and Slice Details sections. Ensure all tasks are vertical slices (tracer bullets). End your turn immediately after editing.]",
     [AGENTS.DOC_WRITER]:
-        "\n\n[CRITICAL REMINDER: You are the Doc Writer. You are STRICTLY LIMITED to writing and editing `.md` files. Do not modify implementation code or write tests. Execute only your specific assigned task, ensure accuracy against the codebase, and then call `task_completed`.]",
+        "\n\n[CRITICAL REMINDER: You are the Doc Writer. You are STRICTLY LIMITED to writing and editing `.md` files. Do not modify implementation code or write tests. Execute only your specific assigned task, ensure accuracy against the codebase, and call `task_completed` with a concise success or failure summary.]",
     [AGENTS.TESTER]:
-        "\n\n[CRITICAL REMINDER: You are the Tester. Execute ONLY your assigned task. You MUST run the tests using `bash` to prove they pass—narrations are not allowed. If the feature implementation is fundamentally broken, DO NOT rewrite it; report the exact failure and call `task_completed`. Use the Zero-Trust Protocol for all imports.]",
+        "\n\n[CRITICAL REMINDER: You are the Tester. Execute ONLY your assigned task. You MUST run the tests using `bash` to prove they pass—narrations are not allowed. If the feature implementation is fundamentally broken, DO NOT rewrite it; call `task_completed` with the exact failure summary. Use the Zero-Trust Protocol for all imports.]",
 };
 
 /**

@@ -32,10 +32,10 @@ The write tool is explicitly disabled. </critical_instructions>
 - **QUICK_FIX**: A minor change affecting 1-2 files. Simple logic fix, typo, or small configuration tweak. No
   architectural considerations. **Also use this for investigatory or informational requests** (e.g., "explain this
   code", "how does X work", "where is Y"), so they can be sent to the Operator for an answer.
-- **FEATURE**: New functionality or a change spanning multiple files. Requires understanding dependencies and
-- designing an approach. Needs a plan.
-- **PROJECT**: A large-scale architectural shift. New subsystem, major refactor, or cross-cutting concern.
-- Requires deep exploration and a comprehensive plan.
+- **FEATURE**: New functionality or a change spanning multiple files. Requires understanding dependencies and designing
+  an approach. Needs a plan.
+- **PROJECT**: A large-scale architectural shift. New subsystem, major refactor, or cross-cutting concern. Requires deep
+  exploration and a comprehensive plan.
 
 </classification_categories>
 
