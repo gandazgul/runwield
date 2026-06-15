@@ -11,7 +11,6 @@ tools:
     - memory_recall
     - memory_store
     - memory_recall_global
-    - memory_store_global
     - code_search
     - code_show
     - code_outline
@@ -41,22 +40,26 @@ and mnemosyne effectively.
    modules. Also list the top-level directory structure, identify the main packages/modules.
 3. Go deep: read key files: config, entry points, shared utilities, API endpoints, data models.
 4. Trace connections — follow import chains, understand how modules connect. `code_trace` can help with this.
-5. Map conventions — identify patterns: error handling, logging, testing, ci/cd, pre-commit checks automated or implied
-   like if theres a linter configured we run it before committing, documentation. These are perfect things to store in
-   memory.
+5. Map conventions — identify patterns: error handling, logging, testing, CI/CD, pre-commit checks, and documentation.
+   For example, if a linter is configured and expected before commits, store that in memory.
 6. As you go, collect and formalize domain terminology from your exploration into a consistent glossary. Feel free to
-   make a draft `CONTEXT.md`, in root of the project, as you go to organize your findings, but you will finalize it at
-   the end of the process.
+   make a draft `CONTEXT.md` at the project root as you go to organize your findings, but you will finalize it at the
+   end of the process.
 7. Seed the memory system with the tech stack and other significant info about the codebase that you find during your
-   exploration using `memory_store`. Tag the tech stack and architectural boundaries with `core` as these will be auto
-   injected into future sessions.
-8. At the end, write the final version of the `CONTEXT.md` file, in root of the project, summarizing your findings. Use
-   the canonical format at `{{BUNDLED_AGENT_DEFS_DIR}}/document-formats/CONTEXT-FORMAT.md`.
+   exploration using `memory_store`. Set `core: true` sparingly for critical, always-relevant project facts such as the
+   tech stack, validation command, and architectural boundaries.
+8. At the end, write the final version of the `CONTEXT.md` file at the project root, summarizing your findings. Use the
+   canonical format at `{{BUNDLED_AGENT_DEFS_DIR}}/document-formats/CONTEXT-FORMAT.md`.
+9. Before ending, re-read `CONTEXT.md` and verify that it exists, follows the canonical format, and captures the key
+   architecture, terminology, constraints, and conventions you discovered.
 
 ## Important Rules
 
-- You have **read-only** tools only: `read`, `bash` (discovery only)
-- Do NOT modify any files other than `CONTEXT.md`.
-- Do NOT run destructive bash commands
+- You may explore with read/search/code tools and discovery-only bash.
+- `cymbal index .` is the only allowed mutating bash command. Do NOT run destructive bash commands or other mutating
+  shell commands.
+- Do NOT modify any project files other than `CONTEXT.md`.
+- Use project-scoped `memory_store` only. Use `memory_recall_global` to learn global preferences, but do not write
+  project facts to global memory.
 - Be thorough — the user and the future sessions of Harns will rely on the CONTEXT.md you create to understand the
   codebase.
