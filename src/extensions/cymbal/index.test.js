@@ -107,6 +107,67 @@ Deno.test("code_search tool executes correctly", async () => {
     assertEquals(call?.args, ["search", "AuthHandler"]);
 });
 
+Deno.test("cymbal tools map public params to cymbal commands", async () => {
+    const { getTool, calls, getHandler } = setup((_command, args) => {
+        return Promise.resolve({ code: 0, stdout: `${args.join(" ")} output`, stderr: "" });
+    });
+
+    getHandler("session_start")?.({}, { cwd: "/project" });
+
+    const cases = [
+        {
+            name: "code_search",
+            params: { query: "AuthHandler", textSearch: true },
+            args: ["search", "--text", "AuthHandler"],
+        },
+        { name: "code_structure", params: {}, args: ["structure"] },
+        { name: "code_impls", params: { symbol: "Session" }, args: ["impls", "Session"] },
+        { name: "code_importers", params: { target: "./mod.js" }, args: ["importers", "./mod.js"] },
+        { name: "code_show", params: { target: "src/mod.js:1-5" }, args: ["show", "src/mod.js:1-5"] },
+        { name: "code_outline", params: { file: "src/mod.js" }, args: ["outline", "src/mod.js"] },
+        { name: "code_refs", params: { symbol: "run" }, args: ["refs", "run"] },
+        { name: "code_impact", params: { symbol: "run" }, args: ["impact", "run"] },
+        { name: "code_trace", params: { symbol: "run" }, args: ["trace", "run"] },
+        { name: "code_investigate", params: { symbol: "run" }, args: ["investigate", "run"] },
+    ];
+
+    for (const item of cases) {
+        const result = await executeTool(getTool(item.name), item.params);
+        assertEquals(result.details, item.params);
+        assertEquals(firstText(result), `${item.args.join(" ")} output`);
+    }
+
+    assertEquals(
+        calls.map((call) => ({ args: call.args, cwd: call.opts.cwd })),
+        cases.map((item) => ({ args: item.args, cwd: "/project" })),
+    );
+});
+
+Deno.test("cymbal tools normalize empty, non-zero, and thrown command results", async () => {
+    const emptySetup = setup(() => Promise.resolve({ code: 0, stdout: "", stderr: "" }));
+    assertEquals(firstText(await executeTool(emptySetup.getTool("code_structure"), {})), "No results found.");
+
+    const failingSetup = setup(() =>
+        Promise.resolve({
+            code: 2,
+            stdout: "",
+            stderr: "bad query\nUsage: cymbal search",
+        })
+    );
+    assertEquals(
+        firstText(await executeTool(failingSetup.getTool("code_refs"), { symbol: "Bad" })),
+        "Error (exit 2): bad query",
+    );
+
+    const thrownSetup = setup(() => {
+        throw new Error("missing binary");
+    });
+    assertEquals(
+        firstText(await executeTool(thrownSetup.getTool("code_show"), { target: "src/mod.js" })),
+        "Error running cymbal: missing binary",
+    );
+});
+
 Deno.test("cymbal nudge correctly intercepts bash and grep", async () => {
     const { getHandler, calls } = setup((_command, args) => {
         if (args.includes("nudge")) {
@@ -132,4 +193,45 @@ Deno.test("cymbal nudge correctly intercepts bash and grep", async () => {
     assertEquals(result.content.length, 2);
     assertEquals(result.content[0].text, "original output");
     assertStringIncludes(result.content[1].text, "Consider using cymbal search instead");
+});
+
+Deno.test("cymbal nudge handles bash commands, array paths, and ignored events", async () => {
+    const { getHandler, calls } = setup((_command, args) => {
+        if (args.includes("no-output")) {
+            return Promise.resolve({ code: 0, stdout: "", stderr: "" });
+        }
+        return Promise.resolve({ code: 0, stdout: "", stderr: "Try `cymbal refs`" });
+    });
+    const handler = getHandler("tool_result");
+    if (!handler) throw new Error("tool_result handler not registered");
+
+    const bashResult = await handler({
+        toolName: "bash",
+        input: { command: "rg Session src" },
+        content: [{ type: "text", text: "rg output" }],
+    }, {});
+
+    assertEquals(calls.at(-1)?.args, ["hook", "nudge", "--format=text", "--", "rg Session src"]);
+    assertEquals(bashResult.content.at(-1)?.text, "\n\nTry `cymbal refs`");
+
+    await handler({
+        toolName: "grep",
+        input: { pattern: "Session", path: ["src", "tests"] },
+        content: [],
+    }, {});
+    assertEquals(calls.at(-1)?.args, ["hook", "nudge", "--format=text", "--", 'grep "Session" src tests']);
+
+    const ignored = await handler({
+        toolName: "read",
+        input: {},
+        content: [{ type: "text", text: "unchanged" }],
+    }, {});
+    assertEquals(ignored, undefined);
+
+    const noOutput = await handler({
+        toolName: "bash",
+        input: { command: "no-output" },
+        content: [{ type: "text", text: "same" }],
+    }, {});
+    assertEquals(noOutput, undefined);
 });

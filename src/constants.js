@@ -78,7 +78,7 @@ export const COMMAND_NAMES = Object.freeze({
  *
  * `SLICER` is a workflow-only pseudo-agent loaded from
  * `src/shared/workflow/slicer-prompt.md`, so it also does not appear in
- * `/agent` listings or switch_agent targets.
+ * `/agent` listings or return_to_router targets.
  */
 /** @type {Readonly<{ROUTER: string, OPERATOR: string, PLANNER: string, ARCHITECT: string, ENGINEER: string, REVIEWER: string, SLICER: string, TESTER: string, IDEATOR: string, DOC_WRITER: string, INIT: string}>} */
 export const AGENTS = Object.freeze({

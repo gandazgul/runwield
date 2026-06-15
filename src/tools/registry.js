@@ -30,6 +30,6 @@ export const PROTECTED_TOOL_NAMES = Object.freeze([
     "triage_report",
     "plan_written",
     "task_completed",
-    "switch_agent",
+    "return_to_router",
     "user_interview",
 ]);

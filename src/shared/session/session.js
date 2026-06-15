@@ -39,7 +39,7 @@ import cymbalExtension, {
     codeTraceToolDef,
 } from "../../extensions/cymbal/index.js";
 import { ensureCymbalBinary, ensureMnemosyneBinary } from "../runtime-preflight.js";
-import { executeSwitchAgent, switchAgentTool } from "../../tools/switch-agent.js";
+import { executeReturnToRouter, returnToRouterTool } from "../../tools/return-to-router.js";
 import { createUserInterviewTool } from "../../tools/user-interview.js";
 import { getModelRegistry } from "../models/model-registry.js";
 import { parseProviderModel } from "../models/model-validation.js";
@@ -756,12 +756,12 @@ export async function buildAgentSession({
     // This keeps agent frontmatter declarative: adding/removing tool names controls availability,
     // while Harns runtime injects the concrete tool implementations.
 
-    if (tools.includes("switch_agent") && !finalCustomTools.find((t) => t.name === "switch_agent")) {
+    if (tools.includes("return_to_router") && !finalCustomTools.find((t) => t.name === "return_to_router")) {
         finalCustomTools.push({
-            ...switchAgentTool,
+            ...returnToRouterTool,
             execute(_toolCallId, params, _signal, _onUpdate, _context) {
-                return executeSwitchAgent(
-                    /** @type {{ agentName: string, reason: string }} */ (params),
+                return executeReturnToRouter(
+                    /** @type {{ reason: string }} */ (params),
                     uiAPI,
                 );
             },
@@ -1025,8 +1025,8 @@ export function attachUiSubscribers(session, agentDef, uiAPI) {
                 } else if (event.toolName === "task_completed") {
                     const m = event.args?.message || "";
                     headerArgs = m.length > 60 ? m.slice(0, 57) + "..." : m;
-                } else if (event.toolName === "switch_agent") {
-                    headerArgs = `to ${event.args?.agentName || "?"}`;
+                } else if (event.toolName === "return_to_router") {
+                    headerArgs = "to router";
                 }
 
                 if (uiAPI && uiAPI.startToolExecution) {

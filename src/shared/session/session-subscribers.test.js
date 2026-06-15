@@ -199,7 +199,7 @@ Deno.test("attachUiSubscribers formats tool headers, streams output deltas, and 
         ["13", "memory_recall", { query: "plans" }, "plans", "memory_recall"],
         ["14", "memory_store", { content: "short memory" }, "short memory", "memory_store"],
         ["15", "memory_delete", { id: 123 }, "id: 123", "memory_delete"],
-        ["16", "switch_agent", { agentName: "planner" }, "to planner", "switch_agent"],
+        ["16", "return_to_router", {}, "to router", "return_to_router"],
         ["17", "code_structure", {}, "", "code_structure"],
     ];
 

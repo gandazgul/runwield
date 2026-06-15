@@ -102,6 +102,122 @@ Deno.test("runLoadPlanCommand approved plan proceed path", async () => {
     assertEquals(executed, true);
 });
 
+Deno.test("runLoadPlanCommand warns and cancels execution when affected paths changed since updatedAt", async () => {
+    const { uiAPI, selections, messages } = makeUi();
+    selections.push("proceed", "cancel");
+    let executed = false;
+    /** @type {string | undefined} */
+    let checkedTimestamp;
+    /** @type {string[] | undefined} */
+    let checkedPaths;
+
+    await runLoadPlanCommand(["plan-stale"], {
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: () => ({ help: false, _: ["plan-stale"] }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "plan-stale",
+                    path: "plans/plan-stale.md",
+                    body: "body",
+                    attrs: {
+                        classification: "FEATURE",
+                        complexity: "LOW",
+                        summary: "s",
+                        affectedPaths: ["src/a.js"],
+                        createdAt: "2026-01-01T00:00:00.000Z",
+                        updatedAt: "2026-01-02T00:00:00.000Z",
+                        status: "ready_for_work",
+                    },
+                }),
+            listCommitsTouchingPathsSince: (
+                /** @type {string} */ _cwd,
+                /** @type {string} */ since,
+                /** @type {string[]} */ paths,
+            ) => {
+                checkedTimestamp = since;
+                checkedPaths = paths;
+                return Promise.resolve([
+                    {
+                        hash: "abc1234",
+                        date: "2026-01-03T00:00:00-05:00",
+                        subject: "change affected file",
+                    },
+                ]);
+            },
+            executePlan: () => {
+                executed = true;
+                return Promise.resolve(undefined);
+            },
+            createDirectAgentHandler: () => () => Promise.resolve(),
+            resetTuiState: () => {},
+            setActiveAgent: () => {},
+        }),
+    });
+
+    assertEquals(checkedTimestamp, "2026-01-02T00:00:00.000Z");
+    assertEquals(checkedPaths, ["src/a.js"]);
+    assertEquals(messages.some((m) => m.includes("change affected file")), true);
+    assertEquals(messages.some((m) => m.includes("src/a.js")), true);
+    assertEquals(messages.some((m) => m.includes("Execution canceled.")), true);
+    assertEquals(executed, false);
+});
+
+Deno.test("runLoadPlanCommand proceeds after affected path warning confirmation", async () => {
+    const { uiAPI, selections } = makeUi();
+    selections.push("proceed", "proceed");
+    let executed = false;
+    /** @type {string | undefined} */
+    let checkedTimestamp;
+
+    await runLoadPlanCommand(["plan-stale-confirmed"], {
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: () => ({ help: false, _: ["plan-stale-confirmed"] }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "plan-stale-confirmed",
+                    path: "plans/plan-stale-confirmed.md",
+                    body: "body",
+                    attrs: {
+                        classification: "FEATURE",
+                        complexity: "LOW",
+                        summary: "s",
+                        affectedPaths: ["src/a.js"],
+                        createdAt: "2026-01-01T00:00:00.000Z",
+                        status: "ready_for_work",
+                    },
+                }),
+            listCommitsTouchingPathsSince: (
+                /** @type {string} */ _cwd,
+                /** @type {string} */ since,
+                /** @type {string[]} */ _paths,
+            ) => {
+                checkedTimestamp = since;
+                return Promise.resolve([
+                    {
+                        hash: "def5678",
+                        date: "2026-01-03T00:00:00-05:00",
+                        subject: "change affected file",
+                    },
+                ]);
+            },
+            executePlan: () => {
+                executed = true;
+                return Promise.resolve(undefined);
+            },
+            createDirectAgentHandler: () => () => Promise.resolve(),
+            resetTuiState: () => {},
+            setActiveAgent: () => {},
+        }),
+    });
+
+    assertEquals(checkedTimestamp, "2026-01-01T00:00:00.000Z");
+    assertEquals(executed, true);
+});
+
 Deno.test("runLoadPlanCommand validates completed execution against freshly loaded plan content", async () => {
     const { uiAPI, selections } = makeUi();
     selections.push("proceed");

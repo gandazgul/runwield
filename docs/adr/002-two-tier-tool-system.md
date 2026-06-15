@@ -10,7 +10,7 @@ Harns uses a layered agent definition system where users can override bundled ag
 (`.hns/agents/`) or home (`~/.hns/agents/`) markdown files. The `tools:` frontmatter list determines which tools an
 agent can use.
 
-As Harns adds infrastructure tools (`codebase_search`, `memory_recall`, `switch_agent`, `triage_report`,
+As Harns adds infrastructure tools (`codebase_search`, `memory_recall`, `return_to_router`, `triage_report`,
 `plan_written`), a tension emerges: these tools are foundational to how the SDLC works — removing them breaks the
 system's ability to route, plan, and recall context. But the override system allows users to replace the entire tool
 list, potentially crippling agents unintentionally.
@@ -30,7 +30,7 @@ Tools that are infrastructure for the Harns SDLC. They cannot be removed by user
 - `memory_recall`, `memory_recall_global` — memory search
 - `memory_store`, `memory_store_global` — memory creation
 - `memory_delete` — memory removal
-- `switch_agent` — agent hand-off
+- `return_to_router` — hand-off back to Router for fresh triage
 - `triage_report` — router classification output
 - `plan_written` — planner/architect plan declaration
 

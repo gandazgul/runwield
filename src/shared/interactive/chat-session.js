@@ -805,7 +805,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         let currentRequest = userRequest;
         let currentImages = savedImages;
         let isHandoff = false;
-        // Safety cap on chained switch_agent handoffs in a single user submission.
+        // Safety cap on chained return_to_router handoffs in a single user submission.
         let handoffsLeft = 4;
 
         uiAPI.appendUserMessage?.(currentRequest);
@@ -816,7 +816,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         try {
             while (true) {
                 // Apply any root swap queued before this turn (e.g. by a slash
-                // `/agent engineer` between turns, or by a switch_agent tool call
+                // `/agent engineer` between turns, or by a return_to_router tool call
                 // in the previous iteration). Without this, the first turn after a
                 // switch would hit a transient fallback that still uses the previous
                 // agent's session history.
@@ -833,7 +833,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
                 }
                 await activeOnMessage(currentRequest, currentImages, uiAPI, rootSessionManager);
 
-                // If the agent called switch_agent, its turn was terminated and the
+                // If the agent called return_to_router, its turn was terminated and the
                 // tool recorded a handoff. Continue the loop: the next iteration
                 // applies the queued root swap and feeds `reason` as the new agent's
                 // first user message — making the chain visible and uninterrupted.
@@ -841,7 +841,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
                 if (!handoff) break;
                 if (handoffsLeft-- <= 0) {
                     uiAPI.appendSystemMessage(
-                        "switch_agent handoff limit reached — refusing further chained switches in this turn.",
+                        "return_to_router handoff limit reached — refusing further chained handoffs in this turn.",
                     );
                     break;
                 }
@@ -857,7 +857,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
             }
         } finally {
             // Drain any pending root swap recorded during the last turn (covers the
-            // case where the agent queued a swap but didn't call switch_agent).
+            // case where the agent queued a swap but didn't call return_to_router).
             await applyPendingRootSwap(uiAPI);
         }
     }

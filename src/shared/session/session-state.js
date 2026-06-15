@@ -52,9 +52,9 @@ const state = {
     rootSessionManager: null, // conversation history / persistence (pi SessionManager)
     rootAgentSession: null, // long-lived AgentSession for the user-facing agent (pi AgentSession)
     rootAgentName: null, // internal name of the agent the rootAgentSession was built for
-    subAgentSessions: new Set(), // transient AgentSessions (workflow sub-agents, switch_agent triggers)
+    subAgentSessions: new Set(), // transient AgentSessions (workflow sub-agents, return_to_router triggers)
     pendingRootSwap: null, // recorded when setActiveAgent is called during an in-flight turn
-    pendingSwitchHandoff: null, // recorded by switch_agent to seed the next agent's first turn
+    pendingSwitchHandoff: null, // recorded by return_to_router to seed Router's first turn
     activeUiAPI: null,
     activeExecutionWorkflow: null, // tracks FEATURE/PROJECT execution context until validation starts
 };
@@ -199,9 +199,9 @@ export function setPendingSwitchHandoff(handoff) {
 }
 
 /**
- * Read and clear the pending switch_agent handoff (if any). Used by the
- * chat-session loop to feed the new agent's first turn after a switch_agent
- * tool call halts the previous agent.
+ * Read and clear the pending return_to_router handoff (if any). Used by the
+ * chat-session loop to feed Router's first turn after a return_to_router tool
+ * call halts the previous agent.
  *
  * @returns {PendingSwitchHandoff | null}
  */

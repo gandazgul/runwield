@@ -1,7 +1,7 @@
 # TODO
 
 - [ ] more tests
-- [ ] Start implementing the code indexing (cymbal is good for now)
+- [ ] Start implementing the code indexing (Deferred: cymbal is good for now)
 - [ ] Auto-sleep: trigger memory consolidation automatically at session end when a threshold is crossed (e.g.,
       memories_added_since_last_sleep >= 10 OR total_memory_count > 50). Show brief "Running memory consolidation..."
       before exit. Natural boundary — user is done, latency acceptable, fresh context to consolidate.

@@ -22,6 +22,7 @@ import {
 import { isExecutablePlanStatus, recordPlanEvent as recordPlanEventFn } from "../../shared/workflow/plan-lifecycle.js";
 import {
     getWorkflowDiff as getWorkflowDiffFn,
+    listCommitsTouchingPathsSince as listCommitsTouchingPathsSinceFn,
     restoreWorktreeTree as restoreWorktreeTreeFn,
 } from "../../shared/workflow/git-snapshot.js";
 import { runValidationLoop as runValidationLoopFn } from "../../shared/workflow/validation.js";
@@ -56,6 +57,7 @@ export { getLoadPlanCompletions } from "./getArgumentCompletions.js";
  * @property {typeof runValidationLoopFn} [runValidationLoop]
  * @property {typeof loadPlanFn} [loadPlan]
  * @property {typeof getWorkflowDiffFn} [getWorkflowDiff]
+ * @property {typeof listCommitsTouchingPathsSinceFn} [listCommitsTouchingPathsSince]
  * @property {typeof restoreWorktreeTreeFn} [restoreWorktreeTree]
  * @property {typeof setActiveAgentFn} [setActiveAgent]
  * @property {typeof createDirectAgentHandlerFn} [createDirectAgentHandler]
@@ -212,6 +214,81 @@ function buildReReviewRevisionRequest(planName, feedback) {
 }
 
 /**
+ * @param {Array<{hash: string, date: string, subject: string}>} commits
+ * @returns {string[]}
+ */
+function formatCommitHeadsUp(commits) {
+    const maxVisible = 12;
+    const visible = commits.slice(0, maxVisible).map((commit) =>
+        `  - ${commit.hash} ${commit.date} ${commit.subject}`.trimEnd()
+    );
+    if (commits.length > maxVisible) {
+        visible.push(`  - ...and ${commits.length - maxVisible} more`);
+    }
+    return visible;
+}
+
+/**
+ * Warn when affected paths have changed after the plan timestamp, and confirm
+ * before execution starts.
+ *
+ * @param {Object} opts
+ * @param {string} opts.planName
+ * @param {Partial<import('../../plan-store.js').PlanFrontMatter>} opts.triageMeta
+ * @param {import('../../shared/workflow/workflow.js').UiAPI} opts.uiAPI
+ * @param {typeof listCommitsTouchingPathsSinceFn} opts.listCommitsTouchingPathsSince
+ * @returns {Promise<boolean>}
+ */
+async function confirmAffectedPathChangesBeforeExecution({
+    planName,
+    triageMeta,
+    uiAPI,
+    listCommitsTouchingPathsSince,
+}) {
+    const affectedPaths = Array.isArray(triageMeta.affectedPaths) ? triageMeta.affectedPaths : [];
+    const timestamp = triageMeta.updatedAt || triageMeta.createdAt;
+    if (!timestamp || affectedPaths.length === 0) return true;
+
+    let commits = [];
+    try {
+        commits = await listCommitsTouchingPathsSince(CWD, timestamp, affectedPaths);
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        uiAPI.appendSystemMessage(
+            `Could not check affected path history before execution: ${message}`,
+            true,
+            "Harns",
+        );
+        return true;
+    }
+
+    if (commits.length === 0) return true;
+
+    const timestampLabel = triageMeta.updatedAt ? "updatedAt" : "createdAt";
+    uiAPI.appendSystemMessage(
+        [
+            `Heads up: ${commits.length} commit(s) touched affected paths since this plan's ${timestampLabel} (${timestamp}).`,
+            "",
+            "Affected paths:",
+            ...affectedPaths.map((path) => `  - ${path}`),
+            "",
+            "Commits:",
+            ...formatCommitHeadsUp(commits),
+        ].join("\n"),
+        true,
+        "Harns",
+    );
+
+    const answer = await uiAPI.promptSelect(`Proceed with execution for "${planName}" anyway?`, [
+        { value: "proceed", label: "Proceed with execution" },
+        { value: "cancel", label: "Cancel" },
+    ]);
+    if (answer === "proceed") return true;
+    uiAPI.appendSystemMessage("Execution canceled.", false, "Harns");
+    return false;
+}
+
+/**
  * @param {unknown} executionResult
  * @param {string} planName
  * @param {string} fallbackPlanContent
@@ -300,6 +377,7 @@ async function validatePostExecutionDecision({
  * @param {typeof decidePostExecutionFn} opts.decidePostExecution
  * @param {typeof runValidationLoopFn} opts.runValidationLoop
  * @param {typeof loadPlanFn} opts.loadPlan
+ * @param {typeof listCommitsTouchingPathsSinceFn} opts.listCommitsTouchingPathsSince
  * @returns {Promise<boolean>}
  */
 async function executePostPlanningDecision({
@@ -310,6 +388,7 @@ async function executePostPlanningDecision({
     decidePostExecution,
     runValidationLoop,
     loadPlan,
+    listCommitsTouchingPathsSince,
 }) {
     if (decision.kind !== "execute_plan") return false;
 
@@ -318,6 +397,14 @@ async function executePostPlanningDecision({
     const tasks = /** @type {import('../../shared/workflow/workflow.js').PlanOutcomeResult["tasks"]} */ (
         decision.payload.tasks
     );
+
+    const confirmed = await confirmAffectedPathChangesBeforeExecution({
+        planName,
+        triageMeta,
+        uiAPI,
+        listCommitsTouchingPathsSince,
+    });
+    if (!confirmed) return true;
 
     const execRes = await executePlan(planName, triageMeta, uiAPI, tasks);
     const executionDecision = decidePostExecution(execRes, {
@@ -394,6 +481,7 @@ async function prepareApprovedPlanForWork(plan, uiAPI, ensureSlicerTasks, record
  * @param {typeof decidePostExecutionFn} opts.decidePostExecution
  * @param {typeof runValidationLoopFn} opts.runValidationLoop
  * @param {typeof loadPlanFn} opts.loadPlan
+ * @param {typeof listCommitsTouchingPathsSinceFn} opts.listCommitsTouchingPathsSince
  * @param {typeof setActiveAgentFn} opts.setActiveAgent
  * @param {typeof createDirectAgentHandlerFn} opts.createDirectAgentHandler
  * @returns {Promise<void>}
@@ -408,6 +496,7 @@ async function executeReadyPlanWithRepair({
     decidePostExecution,
     runValidationLoop,
     loadPlan,
+    listCommitsTouchingPathsSince,
     setActiveAgent,
     createDirectAgentHandler,
 }) {
@@ -417,6 +506,14 @@ async function executeReadyPlanWithRepair({
     let currentMeta = plan.attrs;
     /** @type {Array<{ task: number, assignee: string, dependencies: string, description: string, writeScope?: string }> | undefined} */
     let currentTasks = undefined;
+
+    const confirmed = await confirmAffectedPathChangesBeforeExecution({
+        planName: currentPlanName,
+        triageMeta: currentMeta,
+        uiAPI,
+        listCommitsTouchingPathsSince,
+    });
+    if (!confirmed) return;
 
     for (let attempt = 0; attempt <= MAX_REPAIR_ATTEMPTS; attempt++) {
         const execRes = await executePlan(currentPlanName, currentMeta, uiAPI, currentTasks);
@@ -555,6 +652,7 @@ async function confirmBaselineReset(planName, uiAPI) {
  * @param {typeof runValidationLoopFn} opts.runValidationLoop
  * @param {typeof loadPlanFn} opts.loadPlan
  * @param {typeof getWorkflowDiffFn} opts.getWorkflowDiff
+ * @param {typeof listCommitsTouchingPathsSinceFn} opts.listCommitsTouchingPathsSince
  * @param {typeof restoreWorktreeTreeFn} opts.restoreWorktreeTree
  * @param {typeof recordPlanEventFn} opts.recordPlanEvent
  * @param {typeof setActiveAgentFn} opts.setActiveAgent
@@ -572,6 +670,7 @@ async function handlePlanRecovery({
     runValidationLoop,
     loadPlan,
     getWorkflowDiff,
+    listCommitsTouchingPathsSince,
     restoreWorktreeTree,
     recordPlanEvent,
     setActiveAgent,
@@ -634,6 +733,7 @@ async function handlePlanRecovery({
                 decidePostExecution,
                 runValidationLoop,
                 loadPlan,
+                listCommitsTouchingPathsSince,
                 setActiveAgent,
                 createDirectAgentHandler,
             });
@@ -669,6 +769,7 @@ async function handlePlanRecovery({
                 decidePostExecution,
                 runValidationLoop,
                 loadPlan,
+                listCommitsTouchingPathsSince,
                 setActiveAgent,
                 createDirectAgentHandler,
             });
@@ -714,6 +815,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
         runValidationLoop: runValidationLoopDep,
         loadPlan: loadPlanDep,
         getWorkflowDiff: getWorkflowDiffDep,
+        listCommitsTouchingPathsSince: listCommitsTouchingPathsSinceDep,
         restoreWorktreeTree: restoreWorktreeTreeDep,
         setActiveAgent: setActiveAgentDep,
         createDirectAgentHandler: createDirectAgentHandlerDep,
@@ -737,6 +839,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
     const runValidationLoop = runValidationLoopDep || runValidationLoopFn;
     const loadPlan = loadPlanDep || loadPlanFn;
     const getWorkflowDiff = getWorkflowDiffDep || getWorkflowDiffFn;
+    const listCommitsTouchingPathsSince = listCommitsTouchingPathsSinceDep || listCommitsTouchingPathsSinceFn;
     const restoreWorktreeTree = restoreWorktreeTreeDep || restoreWorktreeTreeFn;
     const setActiveAgent = setActiveAgentDep || setActiveAgentFn;
     const createDirectAgentHandler = createDirectAgentHandlerDep || createDirectAgentHandlerFn;
@@ -831,6 +934,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                 runValidationLoop,
                 loadPlan,
                 getWorkflowDiff,
+                listCommitsTouchingPathsSince,
                 restoreWorktreeTree,
                 recordPlanEvent,
                 setActiveAgent,
@@ -911,6 +1015,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                         decidePostExecution,
                         runValidationLoop,
                         loadPlan,
+                        listCommitsTouchingPathsSince,
                         setActiveAgent,
                         createDirectAgentHandler,
                     });
@@ -963,6 +1068,14 @@ export async function runLoadPlanCommand(argv, options = {}) {
                             ? await askApprovalWithTasks(plan.planName, uiAPI)
                             : await askPostApproval(plan.planName, uiAPI);
                         if (action === "proceed") {
+                            const confirmed = await confirmAffectedPathChangesBeforeExecution({
+                                planName: plan.planName,
+                                triageMeta: plan.attrs,
+                                uiAPI,
+                                listCommitsTouchingPathsSince,
+                            });
+                            if (!confirmed) return;
+
                             const execRes = await executePlan(plan.planName, plan.attrs, uiAPI);
                             const executionDecision = decidePostExecution(execRes, {
                                 planName: plan.planName,
@@ -1007,6 +1120,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                         decidePostExecution,
                         runValidationLoop,
                         loadPlan,
+                        listCommitsTouchingPathsSince,
                     });
                     if (shouldKeepPlanningAgentActive(planningDecision)) {
                         skipRouterRestore = true;
@@ -1043,6 +1157,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
             decidePostExecution,
             runValidationLoop,
             loadPlan,
+            listCommitsTouchingPathsSince,
         });
         if (shouldKeepPlanningAgentActive(planningDecision)) {
             skipRouterRestore = true;

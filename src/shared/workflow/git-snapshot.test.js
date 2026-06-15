@@ -1,5 +1,10 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
-import { captureWorktreeTree, getWorkflowDiff, restoreWorktreeTree } from "./git-snapshot.js";
+import {
+    captureWorktreeTree,
+    getWorkflowDiff,
+    listCommitsTouchingPathsSince,
+    restoreWorktreeTree,
+} from "./git-snapshot.js";
 
 /**
  * @param {string} cwd
@@ -39,6 +44,34 @@ Deno.test("getWorkflowDiff excludes dirty worktree changes that existed before t
         assertEquals(diff.includes("preexisting.js"), false);
         assertStringIncludes(diff, "changed.js");
         assertStringIncludes(diff, "workflow change");
+    } finally {
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
+Deno.test("listCommitsTouchingPathsSince returns commits scoped to affected paths", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "harns-snapshot-test-" });
+    try {
+        await git(dir, ["init"]);
+        await git(dir, ["config", "user.email", "test@example.com"]);
+        await git(dir, ["config", "user.name", "Test User"]);
+        await Deno.mkdir(`${dir}/src`);
+
+        await Deno.writeTextFile(`${dir}/src/a.js`, "a1\n");
+        await git(dir, ["add", "src/a.js"]);
+        await git(dir, ["commit", "-m", "touch a"]);
+
+        await Deno.writeTextFile(`${dir}/src/b.js`, "b1\n");
+        await git(dir, ["add", "src/b.js"]);
+        await git(dir, ["commit", "-m", "touch b"]);
+
+        const commits = await listCommitsTouchingPathsSince(dir, "1970-01-01T00:00:00Z", ["src/a.js"]);
+        assertEquals(commits.length, 1);
+        assertEquals(commits[0].subject, "touch a");
+
+        const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+        const futureCommits = await listCommitsTouchingPathsSince(dir, tomorrow, ["src/a.js"]);
+        assertEquals(futureCommits, []);
     } finally {
         await Deno.remove(dir, { recursive: true });
     }

@@ -7,13 +7,27 @@ import { Container, Input, SelectList, Text } from "@earendil-works/pi-tui";
 import { getTUI } from "./tui.js";
 import { getSelectListTheme, theme } from "./theme.js";
 
+const defaultPromptDeps = {
+    Container,
+    Input,
+    SelectList,
+    Text,
+    getTUI,
+    getSelectListTheme,
+    theme,
+    readUserInput: readUserInputFromStdin,
+};
+
+/** @type {typeof defaultPromptDeps} */
+let promptDeps = defaultPromptDeps;
+
 /**
  * Read a single line-ish response from stdin (fallback used when no TUI is active).
  *
  * @param {number} [maxBytes=256]
  * @returns {Promise<string>}
  */
-async function readUserInput(maxBytes = 256) {
+async function readUserInputFromStdin(maxBytes = 256) {
     const buf = new Uint8Array(maxBytes);
     const bytesRead = await Deno.stdin.read(buf);
     if (bytesRead === null) return "";
@@ -28,7 +42,7 @@ async function readUserInput(maxBytes = 256) {
  */
 function tryGetTUI() {
     try {
-        return getTUI();
+        return promptDeps.getTUI();
     } catch {
         return null;
     }
@@ -51,16 +65,16 @@ export async function select(title, options) {
     const { tui } = tuiCtx;
 
     return await new Promise((resolve) => {
-        const container = new Container();
+        const container = new promptDeps.Container();
 
-        container.addChild(new Text("─".repeat(40), 1, 0));
-        container.addChild(new Text(theme.fg("accent", theme.bold(title)), 1, 0));
-        container.addChild(new Text("─".repeat(40), 1, 0));
+        container.addChild(new promptDeps.Text("─".repeat(40), 1, 0));
+        container.addChild(new promptDeps.Text(promptDeps.theme.fg("accent", promptDeps.theme.bold(title)), 1, 0));
+        container.addChild(new promptDeps.Text("─".repeat(40), 1, 0));
 
-        const selectList = new SelectList(
+        const selectList = new promptDeps.SelectList(
             options,
             Math.min(options.length, 10),
-            getSelectListTheme(),
+            promptDeps.getSelectListTheme(),
         );
 
         /** @type {import('@earendil-works/pi-tui').OverlayHandle | null} */
@@ -77,10 +91,10 @@ export async function select(title, options) {
         };
 
         container.addChild(selectList);
-        container.addChild(new Text("─".repeat(40), 1, 0));
+        container.addChild(new promptDeps.Text("─".repeat(40), 1, 0));
         container.addChild(
-            new Text(
-                theme.fg("dim", "↑↓ navigate • enter select • esc cancel"),
+            new promptDeps.Text(
+                promptDeps.theme.fg("dim", "↑↓ navigate • enter select • esc cancel"),
                 1,
                 0,
             ),
@@ -129,25 +143,25 @@ export async function promptText(title, opts = {}) {
     const { tui } = tuiCtx;
 
     return await new Promise((resolve) => {
-        const container = new Container();
-        const input = new Input();
+        const container = new promptDeps.Container();
+        const input = new promptDeps.Input();
         input.setValue(defaultValue || "");
 
-        container.addChild(new Text("─".repeat(40), 1, 0));
-        container.addChild(new Text(theme.fg("accent", theme.bold(title)), 1, 0));
+        container.addChild(new promptDeps.Text("─".repeat(40), 1, 0));
+        container.addChild(new promptDeps.Text(promptDeps.theme.fg("accent", promptDeps.theme.bold(title)), 1, 0));
         if (placeholder) {
-            container.addChild(new Text(theme.fg("dim", placeholder), 1, 0));
+            container.addChild(new promptDeps.Text(promptDeps.theme.fg("dim", placeholder), 1, 0));
         }
-        container.addChild(new Text("─".repeat(40), 1, 0));
+        container.addChild(new promptDeps.Text("─".repeat(40), 1, 0));
         container.addChild(input);
-        container.addChild(new Text("─".repeat(40), 1, 0));
+        container.addChild(new promptDeps.Text("─".repeat(40), 1, 0));
 
         const hints = ["enter submit", "esc cancel"];
         if (!allowEmpty) hints.unshift("non-empty required");
 
         container.addChild(
-            new Text(
-                theme.fg("dim", hints.join(" • ")),
+            new promptDeps.Text(
+                promptDeps.theme.fg("dim", hints.join(" • ")),
                 1,
                 0,
             ),
@@ -215,7 +229,7 @@ async function selectFallback(title, options) {
     });
     console.log("Select option number and press Enter (empty to cancel):");
 
-    const input = await readUserInput(1024);
+    const input = await promptDeps.readUserInput(1024);
     if (!input) return null;
 
     const index = Number.parseInt(input, 10);
@@ -240,7 +254,16 @@ async function promptTextFallback(title, opts) {
     }
     console.log("Enter response and press Enter (empty uses default, if provided):");
 
-    const input = await readUserInput(4096);
+    const input = await promptDeps.readUserInput(4096);
     if (!input && defaultValue !== undefined) return defaultValue;
     return input;
+}
+
+/**
+ * Override prompt dependencies for tests.
+ *
+ * @param {Partial<typeof defaultPromptDeps>} [deps]
+ */
+export function __setPromptDepsForTest(deps = {}) {
+    promptDeps = { ...defaultPromptDeps, ...deps };
 }

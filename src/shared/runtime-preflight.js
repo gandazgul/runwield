@@ -12,10 +12,14 @@ let mnemosyneAvailable = false;
 let cymbalChecked = false;
 let cymbalAvailable = false;
 
+/** @type {null | ((binary: "mnemosyne" | "cymbal") => Promise<boolean>)} */
+let binaryProbeOverride = null;
+
 /**
  * @returns {Promise<boolean>}
  */
 async function hasMnemosyneBinary() {
+    if (binaryProbeOverride) return await binaryProbeOverride("mnemosyne");
     try {
         const proc = new Deno.Command("mnemosyne", {
             args: ["--help"],
@@ -57,6 +61,7 @@ export async function ensureMnemosyneBinary() {
  * @returns {Promise<boolean>}
  */
 async function hasCymbalBinary() {
+    if (binaryProbeOverride) return await binaryProbeOverride("cymbal");
     try {
         const proc = new Deno.Command("cymbal", {
             args: ["--help"],
@@ -90,4 +95,17 @@ export async function ensureCymbalBinary() {
             `Install it: ${CYMBAL_INSTALL_URL}`,
         ].join("\n"),
     );
+}
+
+/**
+ * Reset cached runtime preflight state for tests.
+ *
+ * @param {null | ((binary: "mnemosyne" | "cymbal") => Promise<boolean>)} [probe]
+ */
+export function __resetRuntimePreflightForTest(probe = null) {
+    mnemosyneChecked = false;
+    mnemosyneAvailable = false;
+    cymbalChecked = false;
+    cymbalAvailable = false;
+    binaryProbeOverride = probe;
 }

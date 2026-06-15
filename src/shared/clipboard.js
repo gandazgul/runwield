@@ -3,6 +3,16 @@
  * Utility to read images from the system clipboard.
  */
 
+const defaultClipboardDeps = {
+    os: Deno.build.os,
+    Command: Deno.Command,
+    makeTempFile: Deno.makeTempFile,
+    remove: Deno.remove,
+};
+
+/** @type {typeof defaultClipboardDeps} */
+let clipboardDeps = defaultClipboardDeps;
+
 /**
  * Check if the clipboard contains an image, and if so, return it as base64.
  * Currently only implemented for macOS via AppleScript.
@@ -10,13 +20,13 @@
  * @returns {Promise<{ base64: string, mimeType: string } | null>}
  */
 export async function readClipboardImage() {
-    if (Deno.build.os !== "darwin") {
+    if (clipboardDeps.os !== "darwin") {
         // Silently skip on non-macOS platforms for now
         return null;
     }
 
     // 1. Check if clipboard has an image
-    const checkCmd = new Deno.Command("osascript", {
+    const checkCmd = new clipboardDeps.Command("osascript", {
         args: [
             "-e",
             `try
@@ -36,12 +46,12 @@ export async function readClipboardImage() {
     }
 
     // 2. Extract the image to a temporary file
-    const tempFile = await Deno.makeTempFile({
+    const tempFile = await clipboardDeps.makeTempFile({
         prefix: "harns-clipboard-",
         suffix: ".png",
     });
 
-    const extractCmd = new Deno.Command("osascript", {
+    const extractCmd = new clipboardDeps.Command("osascript", {
         args: [
             "-e",
             `set tempFile to "${tempFile}"
@@ -56,14 +66,14 @@ export async function readClipboardImage() {
     if (!extractRes.success) {
         // Cleanup and return null if extraction failed
         try {
-            await Deno.remove(tempFile);
+            await clipboardDeps.remove(tempFile);
         } catch (_e) { /* ignore */ }
         return null;
     }
 
     // 3. Read the image and base64 encode it
     try {
-        const base64Cmd = new Deno.Command("base64", { args: ["-i", tempFile] });
+        const base64Cmd = new clipboardDeps.Command("base64", { args: ["-i", tempFile] });
         const base64Res = await base64Cmd.output();
         if (base64Res.success) {
             const base64Data = new TextDecoder().decode(base64Res.stdout).replace(
@@ -80,9 +90,18 @@ export async function readClipboardImage() {
     } finally {
         // Cleanup
         try {
-            await Deno.remove(tempFile);
+            await clipboardDeps.remove(tempFile);
         } catch (_e) { /* ignore */ }
     }
 
     return null;
+}
+
+/**
+ * Override clipboard boundary dependencies for tests.
+ *
+ * @param {Partial<typeof defaultClipboardDeps>} [deps]
+ */
+export function __setClipboardDepsForTest(deps = {}) {
+    clipboardDeps = { ...defaultClipboardDeps, ...deps };
 }

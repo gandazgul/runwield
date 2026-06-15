@@ -32,6 +32,44 @@ async function runGit(cwd, args, env = {}) {
 }
 
 /**
+ * @typedef {Object} GitCommitSummary
+ * @property {string} hash
+ * @property {string} date
+ * @property {string} subject
+ */
+
+/**
+ * List commits on HEAD since a timestamp that touched any of the provided
+ * paths.
+ *
+ * @param {string} cwd
+ * @param {string | undefined} since
+ * @param {string[]} paths
+ * @returns {Promise<GitCommitSummary[]>}
+ */
+export async function listCommitsTouchingPathsSince(cwd, since, paths) {
+    const pathspecs = (Array.isArray(paths) ? paths : [])
+        .map((path) => String(path || "").trim())
+        .filter(Boolean);
+    if (!since || pathspecs.length === 0) return [];
+
+    const output = await runGit(cwd, [
+        "log",
+        "HEAD",
+        `--since=${since}`,
+        "--date=iso-strict",
+        "--format=%h%x1f%cd%x1f%s",
+        "--",
+        ...pathspecs,
+    ]);
+
+    return output.trim().split("\n").filter(Boolean).map((line) => {
+        const [hash = "", date = "", ...subjectParts] = line.split("\x1f");
+        return { hash, date, subject: subjectParts.join("\x1f") };
+    });
+}
+
+/**
  * List file paths contained in a git tree object.
  *
  * @param {string} cwd

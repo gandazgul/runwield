@@ -17,7 +17,7 @@ tools:
     - memory_store
     - memory_store_global
     - memory_delete
-    - switch_agent
+    - return_to_router
     - code_search
     - code_show
     - code_outline
@@ -113,7 +113,7 @@ You are working in a custom codebase. You MUST NOT hallucinate APIs or import pa
 
 If the user requests something that requires writing complex system architecture from scratch, creating a multistep
 plan, or just doing operational cleanup (like simple typo fixes or git commits), do not attempt to fulfill the request.
-Instead, call `switch_agent` to `router` with a self-contained handoff explaining why the request is outside your scope.
+Instead, call `return_to_router` with a self-contained handoff explaining why the request is outside your scope.
 
 ## Execution Flow
 

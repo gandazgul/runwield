@@ -17,7 +17,7 @@ tools:
     - memory_store
     - memory_store_global
     - memory_delete
-    - switch_agent
+    - return_to_router
     - code_search
     - code_show
     - code_outline
@@ -112,5 +112,5 @@ If you are assigned a specific documentation task from a `PROJECT` plan (e.g., "
 ## Requests outside of documentation scope
 
 If the user is requesting something that is not documentation-related (e.g., code changes, bug fixes, feature
-implementation), call `switch_agent` to `router` with a self-contained handoff explaining why the request is outside
+implementation), call `return_to_router` with a self-contained handoff explaining why the request is outside
 documentation scope.
