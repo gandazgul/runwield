@@ -6,14 +6,15 @@
  * the Theme constructor and initTheme, not the runtime setters.
  */
 
-import process from "node:process";
 import {
     DefaultPackageManager,
     getMarkdownTheme as upstreamGetMarkdownTheme,
     getSelectListTheme as upstreamGetSelectListTheme,
-    Theme,
 } from "@earendil-works/pi-coding-agent";
 import { getSettingsDir, getSettingsManager } from "../settings.js";
+import { loadExternalThemes } from "./theme-discovery.js";
+import { createThemeFromJson } from "./theme-json.js";
+import { createThemeRegistry } from "./theme-registry.js";
 
 /** @typedef {import('@earendil-works/pi-coding-agent').Theme} ThemeInstance */
 
@@ -73,77 +74,11 @@ export const imageTheme = {
     },
 };
 
-// ─── Color mode detection ────────────────────────────────────────────────────
-
-/** @returns {"truecolor" | "256color"} */
-function detectColorMode() {
-    const colorterm = process.env.COLORTERM;
-    if (colorterm === "truecolor" || colorterm === "24bit") return "truecolor";
-    if (process.env.WT_SESSION) return "truecolor";
-    const term = process.env.TERM || "";
-    if (term === "dumb" || term === "" || term === "linux") return "256color";
-    if (process.env.TERM_PROGRAM === "Apple_Terminal") return "256color";
-    if (term === "screen" || term.startsWith("screen-") || term.startsWith("screen.")) return "256color";
-    return "truecolor";
-}
-
 // ─── Theme JSON → Theme instance ─────────────────────────────────────────────
-
-/**
- * @param {string | number} value
- * @param {Record<string, string | number>} vars
- * @param {Set<string>} [visited]
- * @returns {string | number}
- */
-function resolveVarRef(value, vars, visited = new Set()) {
-    if (typeof value === "number" || value === "" || value.startsWith("#")) return value;
-    if (visited.has(value)) throw new Error(`Circular variable reference: ${value}`);
-    if (!(value in vars)) throw new Error(`Variable reference not found: ${value}`);
-    visited.add(value);
-    return resolveVarRef(vars[value], vars, visited);
-}
-
-const BG_TOKEN_NAMES = new Set([
-    "selectedBg",
-    "userMessageBg",
-    "customMessageBg",
-    "toolPendingBg",
-    "toolSuccessBg",
-    "toolErrorBg",
-]);
 
 const CATPPUCCIN_MOCHA_JSON = JSON.parse(
     Deno.readTextFileSync(new URL("./catppuccin-mocha.json", import.meta.url)),
 );
-
-/**
- * Build a Pi Theme instance from a parsed theme JSON object.
- * @param {any} themeJson
- * @returns {ThemeInstance}
- */
-function createThemeFromJson(themeJson) {
-    const vars = themeJson.vars || {};
-    const colorMode = detectColorMode();
-
-    const fgColors = /** @type {Record<string, string | number>} */ ({});
-    const bgColors = /** @type {Record<string, string | number>} */ ({});
-
-    for (const [key, value] of Object.entries(themeJson.colors)) {
-        const resolved = resolveVarRef(/** @type {string | number} */ (value), vars);
-        if (BG_TOKEN_NAMES.has(key)) {
-            bgColors[key] = resolved;
-        } else {
-            fgColors[key] = resolved;
-        }
-    }
-
-    return new Theme(
-        /** @type {any} */ (fgColors),
-        /** @type {any} */ (bgColors),
-        colorMode,
-        { name: themeJson.name },
-    );
-}
 
 // Construct the embedded theme once at module load. It's both the boot default
 // and the merge floor for partial external themes.
@@ -151,11 +86,16 @@ const EMBEDDED_THEME = createThemeFromJson(CATPPUCCIN_MOCHA_JSON);
 
 // ─── Local theme registry + setters (re-implemented; not in Pi's exports) ────
 
-/** @type {Map<string, ThemeInstance>} */
-const registeredThemes = new Map();
+/** @param {ThemeInstance} t */
+function installGlobalTheme(t) {
+    /** @type {any} */ (globalThis)[THEME_KEY] = t;
+}
 
-/** @type {Set<() => void>} */
-const themeChangeListeners = new Set();
+const themeRegistry = createThemeRegistry({
+    defaultTheme: EMBEDDED_THEME,
+    setGlobalTheme: installGlobalTheme,
+    warn: console.warn,
+});
 
 /**
  * Subscribe to theme changes. Returns an unsubscribe function.
@@ -165,34 +105,17 @@ const themeChangeListeners = new Set();
  * @returns {() => void}
  */
 export function onThemeChange(cb) {
-    themeChangeListeners.add(cb);
-    return () => themeChangeListeners.delete(cb);
-}
-
-/** @param {ThemeInstance} t */
-function setGlobalTheme(t) {
-    /** @type {any} */ (globalThis)[THEME_KEY] = t;
-    for (const cb of themeChangeListeners) {
-        try {
-            cb();
-        } catch (e) {
-            const msg = e instanceof Error ? e.message : String(e);
-            console.warn(`Theme change listener threw: ${msg}`);
-        }
-    }
+    return themeRegistry.onChange(cb);
 }
 
 /** @param {ThemeInstance[]} themes */
 export function setRegisteredThemes(themes) {
-    registeredThemes.clear();
-    for (const t of themes) {
-        if (t.name) registeredThemes.set(t.name, t);
-    }
+    themeRegistry.setRegisteredThemes(themes);
 }
 
 /** @param {ThemeInstance} themeInstance */
 export function setThemeInstance(themeInstance) {
-    setGlobalTheme(themeInstance);
+    themeRegistry.setThemeInstance(themeInstance);
 }
 
 /**
@@ -203,17 +126,12 @@ export function setThemeInstance(themeInstance) {
  * @returns {{ success: boolean, error?: string }}
  */
 export function setTheme(name) {
-    const t = registeredThemes.get(name);
-    if (!t) {
-        return { success: false, error: `Theme "${name}" is not registered.` };
-    }
-    setGlobalTheme(t);
-    return { success: true };
+    return themeRegistry.setTheme(name);
 }
 
 /** @returns {string[]} */
 export function getAvailableThemes() {
-    return Array.from(registeredThemes.keys()).sort();
+    return themeRegistry.getAvailableThemes();
 }
 
 // ─── Boot + discovery ────────────────────────────────────────────────────────
@@ -225,8 +143,8 @@ export function getAvailableThemes() {
  * applyPersistedTheme().
  */
 export function initHarnsTheme() {
-    setRegisteredThemes([EMBEDDED_THEME]);
-    setThemeInstance(EMBEDDED_THEME);
+    themeRegistry.setRegisteredThemes([]);
+    themeRegistry.setThemeInstance(EMBEDDED_THEME);
 }
 
 /**
@@ -253,12 +171,7 @@ export async function applyPersistedTheme() {
         return;
     }
 
-    const result = setTheme(persisted);
-    if (!result.success) {
-        console.warn(
-            `Persisted theme "${persisted}" is not available. Using embedded theme.`,
-        );
-    }
+    themeRegistry.applyPersistedThemeName(persisted);
 }
 
 /**
@@ -269,8 +182,7 @@ export async function applyPersistedTheme() {
  * embedded JSON before instantiation, so missing tokens fall back to
  * catppuccin-mocha values instead of throwing.
  *
- * External themes named "catppuccin-mocha" are dropped (builtin precedence)
- * with a warning.
+ * External themes named "catppuccin-mocha" are dropped (builtin precedence).
  */
 export async function discoverAndRegisterThemes() {
     const settings = getSettingsManager();
@@ -280,31 +192,14 @@ export async function discoverAndRegisterThemes() {
         settingsManager: settings,
     });
 
-    const resolved = await packageManager.resolve();
-    const externalThemes = [];
+    const externalThemes = await loadExternalThemes({
+        packageManager,
+        readTextFile: Deno.readTextFileSync,
+        warn: console.warn,
+        defaultThemeName: DEFAULT_THEME_NAME,
+        baseThemeJson: CATPPUCCIN_MOCHA_JSON,
+        createTheme: createThemeFromJson,
+    });
 
-    for (const themeResource of resolved.themes) {
-        try {
-            const themeJson = JSON.parse(Deno.readTextFileSync(themeResource.path));
-
-            if (themeJson.name === DEFAULT_THEME_NAME) {
-                // Silently ignore external themes that share the built-in name.
-                continue;
-            }
-
-            const mergedJson = {
-                ...CATPPUCCIN_MOCHA_JSON,
-                ...themeJson,
-                colors: { ...CATPPUCCIN_MOCHA_JSON.colors, ...themeJson.colors },
-                vars: { ...CATPPUCCIN_MOCHA_JSON.vars, ...(themeJson.vars || {}) },
-            };
-
-            externalThemes.push(createThemeFromJson(mergedJson));
-        } catch (e) {
-            const msg = e instanceof Error ? e.message : String(e);
-            console.warn(`Failed to load theme from ${themeResource.path}: ${msg}`);
-        }
-    }
-
-    setRegisteredThemes([EMBEDDED_THEME, ...externalThemes]);
+    setRegisteredThemes(externalThemes);
 }
