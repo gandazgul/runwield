@@ -9,8 +9,21 @@ Deno.test("getAgentCompletions includes router", async () => {
 });
 
 Deno.test("getModelCompletions can find by provider prefix", async () => {
-    const items = await getModelCompletions("open");
-    assertEquals(items.length > 0, true);
+    const originalHome = Deno.env.get("HOME");
+    const originalOpenAiKey = Deno.env.get("OPENAI_API_KEY");
+    const tempHome = await Deno.makeTempDir({ prefix: "harns-model-completions-" });
+    try {
+        Deno.env.set("HOME", tempHome);
+        Deno.env.set("OPENAI_API_KEY", "test-key");
+        const items = await getModelCompletions("open");
+        assertEquals(items.length > 0, true);
+    } finally {
+        if (originalHome === undefined) Deno.env.delete("HOME");
+        else Deno.env.set("HOME", originalHome);
+        if (originalOpenAiKey === undefined) Deno.env.delete("OPENAI_API_KEY");
+        else Deno.env.set("OPENAI_API_KEY", originalOpenAiKey);
+        await Deno.remove(tempHome, { recursive: true });
+    }
 });
 
 Deno.test("getLoadPlanCompletions handles missing plans dir", async () => {

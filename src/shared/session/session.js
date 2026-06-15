@@ -492,12 +492,12 @@ export function getConfiguredAgentModel(agentName) {
  * @param {string | undefined} modelOverride
  * @param {import('./types.js').AgentDefinition} agentDef
  * @param {string} [agentName] - Used to look up settings-based model override.
+ * @param {ReturnType<typeof getModelRegistry>} [modelRegistry]
  *
  * @returns {any | null}
  */
-function resolveModel(modelOverride, agentDef, agentName) {
+function resolveModel(modelOverride, agentDef, agentName, modelRegistry = getModelRegistry()) {
     let resolvedModel = null;
-    const modelRegistry = getModelRegistry();
 
     /** @type {string[]} */
     const candidateModels = [];
@@ -783,7 +783,8 @@ export async function buildAgentSession({
     });
     await loader.reload();
 
-    const resolvedModel = resolveModel(modelOverride, agentDef, agentName);
+    const modelRegistry = getModelRegistry();
+    const resolvedModel = resolveModel(modelOverride, agentDef, agentName, modelRegistry);
 
     if (!sessionManager && Deno.env.get("DEBUG") === "1") {
         const debugMsg =
@@ -795,6 +796,10 @@ export async function buildAgentSession({
 
     const { session, extensionsResult } = await createAgentSession({
         cwd: CWD,
+        agentDir: getSettingsDir("global"),
+        authStorage: modelRegistry.authStorage,
+        modelRegistry,
+        settingsManager: getSettingsManager(),
         tools,
         customTools: finalCustomTools,
         resourceLoader: loader,
@@ -1410,7 +1415,7 @@ export async function reloadRootAgentSession(uiAPI) {
             if (parsed.ok) {
                 const found = modelRegistry.find(parsed.provider, parsed.id);
                 if (found && modelRegistry.hasConfiguredAuth(found)) {
-                    session.setModel(found);
+                    await session.setModel(found);
                     if (uiAPI?.setAgentInfo) {
                         uiAPI.setAgentInfo(meta.agentDef.displayName, `${found.provider}/${found.id}`);
                     }
@@ -1423,7 +1428,7 @@ export async function reloadRootAgentSession(uiAPI) {
             if (defaultProvider && defaultModelId) {
                 const found = modelRegistry.find(defaultProvider, defaultModelId);
                 if (found && modelRegistry.hasConfiguredAuth(found)) {
-                    session.setModel(found);
+                    await session.setModel(found);
                     if (uiAPI?.setAgentInfo) {
                         uiAPI.setAgentInfo(meta.agentDef.displayName, `${found.provider}/${found.id}`);
                     }

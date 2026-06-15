@@ -10,6 +10,7 @@ import { runSleepCommand } from "./sleep/index.js";
 import { runHelpCommand } from "./help/index.js";
 import { getAgentCompletions, runAgentsCommand } from "./agents/index.js";
 import { getModelCompletions, runModelsCommand } from "./models/index.js";
+import { runLoginCommand, runLogoutCommand, runStatusCommand } from "./auth/index.js";
 import { runQuitCommand } from "./quit/index.js";
 import { getLoadPlanCompletions, runLoadPlanCommand } from "./load-plan/index.js";
 import { runExportCommand } from "./export/index.js";
@@ -121,6 +122,55 @@ export const commandRegistry = {
         isSlash: true,
         isCli: false,
         getArgumentCompletions: getModelCompletions,
+    },
+    [COMMAND_NAMES.LOGIN]: {
+        name: COMMAND_NAMES.LOGIN,
+        displayName: "Login",
+        description: "Configure model authentication",
+        summary: "Sign in with a subscription or save an API key for a model provider.",
+        usage: [
+            "/login",
+            "/login subscription openai-codex",
+            "/login api-key openai",
+        ],
+        notes: [
+            "Credentials are stored in Harns config at ~/.hns/auth.json.",
+            "Use /status to inspect configured providers.",
+        ],
+        execute: runLoginCommand,
+        isSlash: true,
+        isCli: false,
+    },
+    [COMMAND_NAMES.LOGOUT]: {
+        name: COMMAND_NAMES.LOGOUT,
+        displayName: "Logout",
+        description: "Remove stored model credentials",
+        summary: "Remove credentials stored by /login.",
+        usage: [
+            "/logout",
+            "/logout openai-codex",
+        ],
+        notes: [
+            "Environment variables and models.json provider config are not changed.",
+        ],
+        execute: runLogoutCommand,
+        isSlash: true,
+        isCli: false,
+    },
+    [COMMAND_NAMES.STATUS]: {
+        name: COMMAND_NAMES.STATUS,
+        displayName: "Status",
+        description: "Show model authentication status",
+        summary: "Show configured providers and available model count.",
+        usage: [
+            "/status",
+        ],
+        notes: [
+            "This reports model/auth status for the current Harns configuration.",
+        ],
+        execute: runStatusCommand,
+        isSlash: true,
+        isCli: false,
     },
     [COMMAND_NAMES.LOAD_PLAN]: {
         name: COMMAND_NAMES.LOAD_PLAN,

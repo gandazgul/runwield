@@ -215,7 +215,12 @@ export async function setActiveModel(model, provider) {
         const modelRegistry = getModelRegistry();
         const found = modelRegistry.find(provider || "", model);
         if (found && modelRegistry.hasConfiguredAuth(found)) {
-            session.setModel(found);
+            try {
+                await session.setModel(found);
+            } catch (error) {
+                const msg = error instanceof Error ? error.message : String(error);
+                getActiveUiAPIState()?.appendSystemMessage?.(`Failed to switch model: ${msg}`, true);
+            }
         }
     }
 

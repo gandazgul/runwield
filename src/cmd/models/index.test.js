@@ -34,18 +34,27 @@ function makeUi() {
 Deno.test("runModelsCommand rejects bare model id in ui mode", async () => {
     /** @type {string[]} */
     const messages = [];
-    await runModelsCommand(["gpt-4.1"], {
-        uiAPI: {
-            appendSystemMessage: (msg) => {
-                messages.push(msg);
+    await runModelsCommand(
+        ["gpt-4.1"],
+        /** @type {any} */ ({
+            uiAPI: {
+                appendSystemMessage: (/** @type {string} */ msg) => {
+                    messages.push(msg);
+                },
+                appendAgentMessageStart: () => ({ appendText: () => {} }),
+                requestRender: () => {},
+                promptSelect: () => Promise.resolve(null),
+                promptText: () => Promise.resolve(null),
+                showModelSelector: () => {},
             },
-            appendAgentMessageStart: () => ({ appendText: () => {} }),
-            requestRender: () => {},
-            promptSelect: () => Promise.resolve(null),
-            promptText: () => Promise.resolve(null),
-            showModelSelector: () => {},
-        },
-    });
+            __testDeps: {
+                getModelRegistry: () => ({
+                    find: () => null,
+                    getAvailable: () => [],
+                }),
+            },
+        }),
+    );
 
     assertEquals(messages.length, 1);
     assertEquals(messages[0], "Invalid model format. Use /model to switch.");
@@ -144,7 +153,17 @@ Deno.test("runModelsCommand cli usage when no arg", async () => {
     const orig = console.log;
     console.log = (msg) => logs.push(String(msg));
     try {
-        await runModelsCommand([], {});
+        await runModelsCommand(
+            [],
+            /** @type {any} */ ({
+                __testDeps: {
+                    getModelRegistry: () => ({
+                        find: () => null,
+                        getAvailable: () => [],
+                    }),
+                },
+            }),
+        );
     } finally {
         console.log = orig;
     }
