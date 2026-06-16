@@ -7,7 +7,7 @@
         "@earendil-works/pi-tui": "npm:@earendil-works/pi-tui@^0.79.4",
         "@earendil-works/pi-ai": "npm:@earendil-works/pi-ai@^0.79.4",
         "@earendil-works/pi-coding-agent": "npm:@earendil-works/pi-coding-agent@^0.79.4",
-        "@earendil-works/pi-agent-core": "npm:@earendil-works/pi-agent-core@^0.79.4",
+        "@earendil-works/pi-agent-core": "npm:@earendil-works/pi-agent-core@^0.79.5",
         "@sinclair/typebox": "npm:@sinclair/typebox@^0.34.41",
         "@std/front-matter": "jsr:@std/front-matter@^1.0.9",
         "@std/path": "jsr:@std/path@^1.0.0",
