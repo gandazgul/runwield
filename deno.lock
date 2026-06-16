@@ -3,15 +3,15 @@
   "specifiers": {
     "jsr:@std/assert@1": "1.0.19",
     "jsr:@std/cli@1": "1.0.30",
-    "jsr:@std/collections@^1.1.3": "1.1.7",
-    "jsr:@std/front-matter@1": "1.0.9",
+    "jsr:@std/collections@^1.1.3": "1.2.0",
+    "jsr:@std/front-matter@^1.0.9": "1.0.9",
     "jsr:@std/internal@^1.0.12": "1.0.14",
     "jsr:@std/internal@^1.0.14": "1.0.14",
     "jsr:@std/json@^1.0.2": "1.1.0",
     "jsr:@std/jsonc@1": "1.0.2",
     "jsr:@std/path@1": "1.1.5",
     "jsr:@std/toml@^1.0.3": "1.0.11",
-    "jsr:@std/yaml@^1.0.5": "1.1.0",
+    "jsr:@std/yaml@^1.0.5": "1.1.1",
     "npm:@earendil-works/pi-agent-core@0.74": "0.74.2_zod@4.4.3",
     "npm:@earendil-works/pi-ai@0.74": "0.74.2_zod@4.4.3",
     "npm:@earendil-works/pi-coding-agent@0.74": "0.74.2_zod@4.4.3",
@@ -35,8 +35,8 @@
     "@std/cli@1.0.30": {
       "integrity": "769446536522d0417d7127ebcabcafac1ab0ce6766d0eb3fca1d36326fe98d13"
     },
-    "@std/collections@1.1.7": {
-      "integrity": "56f659d011218a69740b12829cf5ea2c9b70bbed0af02597e27dc1eb5e69e208"
+    "@std/collections@1.2.0": {
+      "integrity": "47627a21d3a13138b77fd0e4d790ba9d2e603c3510b686cde6b132fe9aa98a88"
     },
     "@std/front-matter@1.0.9": {
       "integrity": "ee6201d06674cbef137dda2252f62477450b48249e7d8d9ab57a30f85ff6f051",
@@ -69,8 +69,8 @@
         "jsr:@std/collections"
       ]
     },
-    "@std/yaml@1.1.0": {
-      "integrity": "fc1c5c63e05c4c5eb6118355f557958035d41940d6c29d35b306ef7155d6edb0"
+    "@std/yaml@1.1.1": {
+      "integrity": "a57665ecf3d17b926380593a56625d8a10cc7281802f1e993b5ebc94a48e71f8"
     }
   },
   "npm": {
@@ -1450,7 +1450,7 @@
     "dependencies": [
       "jsr:@std/assert@1",
       "jsr:@std/cli@1",
-      "jsr:@std/front-matter@1",
+      "jsr:@std/front-matter@^1.0.9",
       "jsr:@std/jsonc@1",
       "jsr:@std/path@1",
       "npm:@earendil-works/pi-agent-core@0.74",
