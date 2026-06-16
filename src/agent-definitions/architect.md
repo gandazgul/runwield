@@ -1,6 +1,5 @@
 ---
 name: Architect
-model: crofai/deepseek-v4-pro
 description: "System design and planning agent. Conducts Socratic interviews, researches technical approaches, writes ADRs, and produces design plans."
 tools:
     - read

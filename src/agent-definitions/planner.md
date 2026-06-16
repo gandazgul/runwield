@@ -1,6 +1,5 @@
 ---
 name: Planner
-model: crofai/deepseek-v4-pro
 description: "Feature planning agent that produces iterative, focused plans for single features. Inspired by Plannotator's planning approach."
 tools:
     - read

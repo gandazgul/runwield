@@ -1,6 +1,5 @@
 ---
 name: Slicer
-model: ollama-cloud/gemma4:31b-cloud
 description: "Task-breakdown prompt. Reads a design-only plan written by the architect and appends a vertical-slice Tasks section + per-slice detail blocks. Hidden from /agent and return_to_router — invoked only by plan_written after the user approves the architect's design."
 tools:
     - read

@@ -1,6 +1,5 @@
 ---
 name: Ideator
-model: crofai/deepseek-v4-pro
 description: "Research and ideation agent. Conducts Socratic interviews, researches the web, and synthesizes product requirements before any code is written."
 tools:
     - read

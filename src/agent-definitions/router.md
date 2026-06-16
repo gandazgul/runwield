@@ -1,6 +1,5 @@
 ---
 name: Router
-model: ollama-cloud/gemma4:31b-cloud
 description: "Triage agent that classifies user requests and explores the codebase."
 tools:
     - read
