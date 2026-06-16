@@ -115,6 +115,16 @@ function getStoredPlanLocation(cwd, planName) {
  */
 
 /**
+ * @typedef {Object} SavedChildFeaturePlan
+ * @property {string} name - Canonical nested plan name, e.g. `epic/01-child`.
+ * @property {string} path - Absolute markdown path written.
+ * @property {string} title - Human-readable child plan title.
+ * @property {"created" | "updated"} action - Whether the derived file existed before this write.
+ * @property {string[]} dependencies - Serialized child FEATURE dependencies.
+ * @property {{ classification: "FEATURE", status: "draft", parentPlan: string, affectedPaths: string[] }} metadata - Front matter values owned by child materialization.
+ */
+
+/**
  * Default front matter for plans.
  * @type {PlanFrontMatter}
  */
@@ -458,6 +468,25 @@ function formatChildSequencePrefix(sequence) {
 }
 
 /**
+ * @param {unknown} child
+ * @returns {ChildFeaturePlanDescriptor}
+ */
+function validateChildFeaturePlanDescriptor(child) {
+    if (!child || typeof child !== "object") {
+        throw new Error("Child plan descriptor must be an object");
+    }
+
+    const descriptor = /** @type {Partial<ChildFeaturePlanDescriptor>} */ (child);
+    if (typeof descriptor.title !== "string") throw new Error("Child plan title must be a string");
+    if (typeof descriptor.summary !== "string") throw new Error("Child plan summary must be a string");
+    if (!Array.isArray(descriptor.affectedPaths)) throw new Error("Child plan affectedPaths must be an array");
+    if (!Array.isArray(descriptor.dependencies)) throw new Error("Child plan dependencies must be an array");
+    if (typeof descriptor.content !== "string") throw new Error("Child plan content must be a string");
+
+    return /** @type {ChildFeaturePlanDescriptor} */ (descriptor);
+}
+
+/**
  * @param {ChildFeaturePlanDescriptor} child
  * @returns {string}
  */
@@ -477,7 +506,7 @@ function buildChildPlanNameSegment(child) {
  * @param {string} cwd - Project root.
  * @param {string} epicPlanName - Parent Epic plan name.
  * @param {ChildFeaturePlanDescriptor[]} children - Child FEATURE descriptors.
- * @returns {Promise<Array<{ name: string, path: string, title: string, action: "created" | "updated", dependencies: string[] }>>}
+ * @returns {Promise<SavedChildFeaturePlan[]>}
  */
 export async function saveChildFeaturePlans(cwd, epicPlanName, children) {
     const { name: parentPlanName, segments: parentSegments } = canonicalizeStoredPlanName(epicPlanName);
@@ -486,11 +515,12 @@ export async function saveChildFeaturePlans(cwd, epicPlanName, children) {
     }
     if (!Array.isArray(children)) throw new Error("Child plans must be an array");
 
-    /** @type {Array<{ name: string, path: string, title: string, action: "created" | "updated", dependencies: string[] }>} */
+    /** @type {SavedChildFeaturePlan[]} */
     const results = [];
     const seen = new Set();
 
-    for (const child of children) {
+    for (const rawChild of children) {
+        const child = validateChildFeaturePlanDescriptor(rawChild);
         const childSegment = buildChildPlanNameSegment(child);
         const childPlanName = `${parentPlanName}/${childSegment}`;
         const { name, filePath, segments } = getStoredPlanLocation(cwd, childPlanName);
@@ -509,16 +539,20 @@ export async function saveChildFeaturePlans(cwd, epicPlanName, children) {
         }
 
         const dependencies = normalizeStringList(child.dependencies) || [];
-        const path = await savePlan(cwd, name, child.content, {
-            classification: "FEATURE",
-            summary: child.summary,
-            affectedPaths: normalizeStringList(child.affectedPaths) || [],
-            status: "draft",
+        const affectedPaths = normalizeStringList(child.affectedPaths) || [];
+        const metadata = {
+            classification: /** @type {const} */ ("FEATURE"),
+            status: /** @type {const} */ ("draft"),
             parentPlan: parentPlanName,
+            affectedPaths,
+        };
+        const path = await savePlan(cwd, name, child.content, {
+            ...metadata,
+            summary: child.summary,
             dependencies,
             origin: "internal",
         });
-        results.push({ name, path, title: child.title, action, dependencies });
+        results.push({ name, path, title: child.title, action, dependencies, metadata });
     }
 
     return results;
