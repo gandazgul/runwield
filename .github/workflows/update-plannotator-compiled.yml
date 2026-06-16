@@ -7,7 +7,6 @@ on:
 
 permissions:
     contents: write
-    pull-requests: write
 
 concurrency:
     group: update-plannotator-compiled
@@ -108,103 +107,23 @@ jobs:
               if: steps.versions.outputs.has_update == 'true'
               run: deno cache --reload=npm:@gandazgul/plannotator-pi-extension-compiled src/cli.js
 
-            - name: Create update commit
+            - name: Commit updated dependency
               if: steps.versions.outputs.has_update == 'true'
-              id: commit
               env:
+                  DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
                   LATEST_VERSION: ${{ steps.versions.outputs.latest }}
               run: |
                   set -euo pipefail
 
                   if git diff --quiet -- deno.json deno.lock; then
-                    echo "has_changes=false" >> "$GITHUB_OUTPUT"
                     echo "No dependency file changes after update"
                     exit 0
                   fi
 
-                  branch="automation/update-plannotator-compiled-${LATEST_VERSION}"
-                  echo "branch=$branch" >> "$GITHUB_OUTPUT"
-                  echo "has_changes=true" >> "$GITHUB_OUTPUT"
-
                   git config user.name "github-actions[bot]"
                   git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-                  git checkout -B "$branch"
                   git add deno.json deno.lock
-                  git commit -m "chore: update plannotator compiled to ${LATEST_VERSION}"
-                  git push --force-with-lease origin "$branch"
-
-            - name: Close superseded update PRs
-              if: steps.commit.outputs.has_changes == 'true'
-              env:
-                  GH_TOKEN: ${{ github.token }}
-                  BRANCH: ${{ steps.commit.outputs.branch }}
-                  LATEST_VERSION: ${{ steps.versions.outputs.latest }}
-              run: |
-                  set -euo pipefail
-
-                  prs="$(
-                    gh pr list \
-                      --state open \
-                      --search "Update @gandazgul/plannotator-pi-extension-compiled in:title" \
-                      --json number,headRefName \
-                      --jq ".[] | select(.headRefName != \"$BRANCH\") | .number"
-                  )"
-
-                  if [ -z "$prs" ]; then
-                    echo "No superseded Plannotator update PRs to close"
-                    exit 0
-                  fi
-
-                  for pr in $prs; do
-                    gh pr close "$pr" \
-                      --comment "Superseded by automated update to ${LATEST_VERSION}." \
-                      --delete-branch || \
-                    gh pr close "$pr" \
-                      --comment "Superseded by automated update to ${LATEST_VERSION}."
-                  done
-
-            - name: Open or update pull request
-              if: steps.commit.outputs.has_changes == 'true'
-              env:
-                  GH_TOKEN: ${{ github.token }}
-                  BRANCH: ${{ steps.commit.outputs.branch }}
-                  BASE_BRANCH: ${{ github.event.repository.default_branch }}
-                  CURRENT_VERSION: ${{ steps.versions.outputs.current }}
-                  LATEST_VERSION: ${{ steps.versions.outputs.latest }}
-              run: |
-                  set -euo pipefail
-
-                  body_file="$(mktemp)"
-                  {
-                    printf 'Updates `%s` from `%s` to `%s`.\n\n' \
-                      "$PACKAGE_NAME" \
-                      "$CURRENT_VERSION" \
-                      "$LATEST_VERSION"
-                    printf 'Files updated:\n'
-                    printf -- '- `deno.json`\n'
-                    printf -- '- `deno.lock`\n\n'
-                    printf 'Verification:\n'
-                    printf -- '- `deno task check`\n'
-                  } > "$body_file"
-
-                  title="Update @gandazgul/plannotator-pi-extension-compiled to ${LATEST_VERSION}"
-                  existing_pr="$(
-                    gh pr list \
-                      --state open \
-                      --head "$BRANCH" \
-                      --json number \
-                      --jq '.[0].number'
-                  )"
-
-                  if [ -n "$existing_pr" ]; then
-                    gh pr edit "$existing_pr" \
-                      --title "$title" \
-                      --body-file "$body_file" \
-                      --base "$BASE_BRANCH"
-                  else
-                    gh pr create \
-                      --title "$title" \
-                      --body-file "$body_file" \
-                      --base "$BASE_BRANCH" \
-                      --head "$BRANCH"
-                  fi
+                  git commit \
+                    -m "chore(deps): update plannotator compiled to ${LATEST_VERSION}" \
+                    -m "Automated by .github/workflows/update-plannotator-compiled.yml."
+                  git push origin "HEAD:${DEFAULT_BRANCH}"
