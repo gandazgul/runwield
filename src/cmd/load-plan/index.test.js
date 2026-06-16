@@ -436,6 +436,103 @@ Deno.test("runLoadPlanCommand approved PROJECT review runs slicer before proceed
     assertEquals(validated, true);
 });
 
+Deno.test("runLoadPlanCommand approved PROJECT Epic marks decomposition readiness without executing", async () => {
+    const { uiAPI, selections, messages } = makeUi();
+    selections.push("review");
+    let sliced = false;
+    let askedWithTasks = false;
+    let executed = false;
+    /** @type {Array<{ event: string, currentStatus: string }>} */
+    const events = [];
+
+    await runLoadPlanCommand(["epic-review"], {
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: () => ({ help: false, _: ["epic-review"] }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "epic-review",
+                    path: "plans/epic-review.md",
+                    body: "body",
+                    markdown: "markdown",
+                    attrs: {
+                        classification: "PROJECT",
+                        type: "epic",
+                        complexity: "HIGH",
+                        summary: "s",
+                        affectedPaths: [],
+                        status: "approved",
+                    },
+                }),
+            submitPlanForReview: () => Promise.resolve({ approved: true }),
+            ensureSlicerTasks: () => {
+                sliced = true;
+                return Promise.resolve({ ok: true, slicerInvoked: true });
+            },
+            askApprovalWithTasks: () => {
+                askedWithTasks = true;
+                return Promise.resolve("proceed");
+            },
+            executePlan: () => {
+                executed = true;
+                return Promise.resolve({ repairRequired: false, executionComplete: true });
+            },
+            recordPlanEvent: (/** @type {{ event: string, currentStatus: string }} */ args) => {
+                events.push({ event: args.event, currentStatus: args.currentStatus });
+                return Promise.resolve(/** @type {any} */ ({}));
+            },
+            createDirectAgentHandler: () => async () => {},
+            resetTuiState: () => {},
+            setActiveAgent: () => {},
+        }),
+    });
+
+    assertEquals(sliced, false);
+    assertEquals(askedWithTasks, false);
+    assertEquals(executed, false);
+    assertEquals(events, [{ event: "epic_readiness_passed", currentStatus: "approved" }]);
+    assertEquals(messages.some((message) => message.includes("ready for decomposition")), true);
+});
+
+Deno.test("runLoadPlanCommand ready_for_decomposition PROJECT Epic does not execute", async () => {
+    const { uiAPI, messages } = makeUi();
+    let executed = false;
+
+    await runLoadPlanCommand(["epic-ready"], {
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: () => ({ help: false, _: ["epic-ready"] }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "epic-ready",
+                    path: "plans/epic-ready.md",
+                    body: "body",
+                    markdown: "markdown",
+                    attrs: {
+                        classification: "PROJECT",
+                        type: "epic",
+                        complexity: "HIGH",
+                        summary: "s",
+                        affectedPaths: [],
+                        status: "ready_for_decomposition",
+                    },
+                }),
+            executePlan: () => {
+                executed = true;
+                return Promise.resolve({ repairRequired: false, executionComplete: true });
+            },
+            createDirectAgentHandler: () => async () => {},
+            resetTuiState: () => {},
+            setActiveAgent: () => {},
+        }),
+    });
+
+    assertEquals(executed, false);
+    assertEquals(messages.some((message) => message.includes("ready for decomposition")), true);
+});
+
 Deno.test("runLoadPlanCommand approved review proceed restores initial agent without transient operator switch", async () => {
     const { uiAPI, selections } = makeUi();
     selections.push("review");

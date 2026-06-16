@@ -24,7 +24,11 @@ import {
     decidePostExecution as decidePostExecutionFn,
     decidePostPlanning as decidePostPlanningFn,
 } from "../../shared/workflow/decisions.js";
-import { isExecutablePlanStatus, recordPlanEvent as recordPlanEventFn } from "../../shared/workflow/plan-lifecycle.js";
+import {
+    isEpicPlan,
+    isExecutablePlanStatus,
+    recordPlanEvent as recordPlanEventFn,
+} from "../../shared/workflow/plan-lifecycle.js";
 import {
     getWorkflowDiff as getWorkflowDiffFn,
     listCommitsTouchingPathsSince as listCommitsTouchingPathsSinceFn,
@@ -477,6 +481,23 @@ function shouldKeepPlanningAgentActive(decision) {
  * @returns {Promise<boolean>}
  */
 async function prepareApprovedPlanForWork(plan, uiAPI, ensureSlicerTasks, recordPlanEvent) {
+    if (isEpicPlan(plan.attrs)) {
+        await recordPlanEvent({
+            cwd: CWD,
+            planName: plan.planName,
+            event: "epic_readiness_passed",
+            currentStatus: "approved",
+            details: { triageMeta: plan.attrs },
+        });
+        plan.attrs.status = "ready_for_decomposition";
+        uiAPI.appendSystemMessage(
+            `PROJECT Epic ready for decomposition or child plan selection: ${plan.planName}`,
+            false,
+            "Harns",
+        );
+        return false;
+    }
+
     if (plan.attrs.classification === "PROJECT") {
         const sliceResult = await ensureSlicerTasks({
             planName: plan.planName,
@@ -1440,6 +1461,16 @@ export async function runLoadPlanCommand(argv, options = {}) {
                 plan.attrs.status = "feedback";
                 break;
             }
+        }
+
+        if (isEpicPlan(plan.attrs) && plan.attrs.status === "ready_for_decomposition") {
+            uiAPI.appendSystemMessage(
+                `PROJECT Epic ready for decomposition or child plan selection: ${plan.planName}`,
+                false,
+                "Harns",
+            );
+            skipRouterRestore = true;
+            return;
         }
 
         if (plan.attrs.status === "approved" || isExecutablePlanStatus(plan.attrs.status)) {

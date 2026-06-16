@@ -12,7 +12,7 @@ import { getActiveExecutionWorkflow, setActiveExecutionWorkflow } from "../sessi
 import { createExecutionWorktree, findReusableWorktree } from "../worktree.js";
 import { updateEntry as updateWorktreeRegistryEntry } from "../worktree-registry.js";
 import { captureWorktreeTree } from "./git-snapshot.js";
-import { isExecutablePlanStatus, recordPlanEvent } from "./plan-lifecycle.js";
+import { isEpicPlan, isExecutablePlanStatus, recordPlanEvent } from "./plan-lifecycle.js";
 import { executeProjectTasks } from "./project-executor.js";
 import { extractTasks, validateProjectTasks } from "./task-scheduling.js";
 import { askRetryFailedTasks, buildEngineerRequest, reportExecutionSummary } from "./workflow-prompts.js";
@@ -99,15 +99,36 @@ export async function runPlanningAgent({ agentName, initialRequest, triageMeta, 
  * @param {UiAPI} uiAPI
  * @param {Array<{ task: number, assignee: string, dependencies: string, description: string, writeScope?: string }>} [structuredTasks]
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [sessionManager]
+ * @param {{
+ *   loadPlan?: typeof loadPlan,
+ *   executeStructuredProjectPlan?: typeof executeStructuredProjectPlan,
+ *   executeSingleEngineerPlan?: typeof executeSingleEngineerPlan,
+ *   recordPlanEvent?: typeof recordPlanEvent,
+ *   markActiveWorktreeStatus?: typeof markActiveWorktreeStatus,
+ * }} [__deps]
  * @returns {Promise<PlanExecutionResult>}
  */
-export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, sessionManager) {
+export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, sessionManager, __deps = {}) {
     if (!uiAPI) throw new Error("executePlan: uiAPI is required");
 
-    const plan = await loadPlan(CWD, planName);
+    const loadPlanFn = __deps.loadPlan || loadPlan;
+    const executeStructuredProjectPlanFn = __deps.executeStructuredProjectPlan || executeStructuredProjectPlan;
+    const executeSingleEngineerPlanFn = __deps.executeSingleEngineerPlan || executeSingleEngineerPlan;
+    const recordPlanEventFn = __deps.recordPlanEvent || recordPlanEvent;
+    const markActiveWorktreeStatusFn = __deps.markActiveWorktreeStatus || markActiveWorktreeStatus;
+
+    const plan = await loadPlanFn(CWD, planName);
     if (!plan) {
         uiAPI.appendSystemMessage(`ERROR: Could not load plan ${planName}`, true, "Harns");
         return { repairRequired: false, executionComplete: false, error: `Could not load plan ${planName}` };
+    }
+
+    const effectiveMeta = { ...plan.attrs, ...(triageMeta || {}) };
+
+    if (isEpicPlan(plan.attrs)) {
+        const error = `Plan ${planName} is a PROJECT Epic container and cannot be executed directly.`;
+        uiAPI.appendSystemMessage(`ERROR: ${error}`, true, "Harns");
+        return { repairRequired: false, executionComplete: false, error };
     }
 
     if (!isExecutablePlanStatus(plan.attrs.status)) {
@@ -119,18 +140,18 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
     uiAPI.appendSystemMessage(`=== Executing Plan: ${planName} ===`, false, "Harns");
     let executionStarted = false;
 
-    if (triageMeta.classification === "PROJECT") {
+    if (effectiveMeta.classification === "PROJECT") {
         try {
             const tasks = structuredTasks && structuredTasks.length > 0 ? structuredTasks : extractTasks(plan.markdown);
             validateProjectTasks(tasks);
 
             if (tasks.length > 0) {
                 executionStarted = true;
-                const result = await executeStructuredProjectPlan({
+                const result = await executeStructuredProjectPlanFn({
                     planName,
                     planBody: plan.body,
                     tasks,
-                    triageMeta,
+                    triageMeta: effectiveMeta,
                     uiAPI,
                     sessionManager,
                     currentStatus: plan.attrs.status,
@@ -138,10 +159,10 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
                 if (!result.executionComplete) return result;
             } else {
                 executionStarted = true;
-                const result = await executeSingleEngineerPlan({
+                const result = await executeSingleEngineerPlanFn({
                     planName,
                     planBody: plan.body,
-                    triageMeta,
+                    triageMeta: effectiveMeta,
                     uiAPI,
                     sessionManager,
                     currentStatus: plan.attrs.status,
@@ -152,22 +173,22 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
             const error = e instanceof Error ? e : new Error(String(e));
             uiAPI.appendSystemMessage(`TASK TABLE ERROR: ${error.message}`, true, "Harns");
             if (executionStarted) {
-                await recordPlanEvent({
+                await recordPlanEventFn({
                     cwd: CWD,
                     planName,
                     event: "execution_failed",
                     currentStatus: "in_progress",
-                    details: { triageMeta, failureReason: error.message },
+                    details: { triageMeta: effectiveMeta, failureReason: error.message },
                 });
-                await markActiveWorktreeStatus("execution_failed");
+                await markActiveWorktreeStatusFn("execution_failed");
             }
             return { repairRequired: true, executionComplete: false, error: error.message };
         }
     } else {
-        const result = await executeSingleEngineerPlan({
+        const result = await executeSingleEngineerPlanFn({
             planName,
             planBody: plan.body,
-            triageMeta,
+            triageMeta: effectiveMeta,
             uiAPI,
             sessionManager,
             currentStatus: plan.attrs.status,
@@ -180,14 +201,14 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
         false,
         "Harns",
     );
-    await recordPlanEvent({
+    await recordPlanEventFn({
         cwd: CWD,
         planName,
         event: "implementation_finished",
         currentStatus: "in_progress",
-        details: { triageMeta },
+        details: { triageMeta: effectiveMeta },
     });
-    await markActiveWorktreeStatus("completed");
+    await markActiveWorktreeStatusFn("completed");
     return { repairRequired: false, executionComplete: true };
 }
 

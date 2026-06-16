@@ -17,14 +17,15 @@ import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { CLI_BIN, CWD, PLANS_DIR_NAME } from "../constants.js";
 import { loadPlan } from "../plan-store.js";
-import { recordPlanEvent } from "../shared/workflow/plan-lifecycle.js";
+import { isEpicPlan, recordPlanEvent } from "../shared/workflow/plan-lifecycle.js";
 
 /**
  * @typedef {{
  *   classification?: "QUICK_FIX" | "FEATURE" | "PROJECT",
  *   complexity?: "LOW" | "MEDIUM" | "HIGH",
  *   summary?: string,
- *   affectedPaths?: string[]
+ *   affectedPaths?: string[],
+ *   type?: string
  * }} TriageMeta
  */
 
@@ -197,7 +198,30 @@ export function createPlanWrittenTool(
                 );
             }
 
-            // PROJECT plans: ensure a Tasks section exists, invoking the slicer when missing.
+            // PROJECT Epics are containers. They become ready for decomposition or
+            // child selection, but they are not executable work and do not require a
+            // legacy task table.
+            if (isEpicPlan(effectiveMeta)) {
+                await recordPlanEventFn({
+                    cwd,
+                    planName,
+                    event: "epic_readiness_passed",
+                    currentStatus: "approved",
+                    details: { triageMeta: effectiveMeta },
+                });
+                uiAPI.appendSystemMessage(
+                    `PROJECT Epic ready for decomposition or child plan selection: ${planName}`,
+                    false,
+                    "Harns",
+                );
+                return textResult(
+                    `PROJECT Epic "${planName}" approved and saved for decomposition or child plan selection. It is not directly executable. Your role as ${agentName} is complete. Do not generate any further text.`,
+                    { ...params, outcome: "saved", planName, triageMeta: effectiveMeta },
+                    true,
+                );
+            }
+
+            // Legacy PROJECT plans: ensure a Tasks section exists, invoking the slicer when missing.
             // Resumed plans that already have a parseable Tasks section skip the slicer.
             if (effectiveMeta.classification === "PROJECT") {
                 // Run the slicer on the root session so its output is part of the single

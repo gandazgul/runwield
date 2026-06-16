@@ -1,5 +1,5 @@
 import { assertEquals, assertRejects, assertThrows } from "@std/assert";
-import { buildPlanEventUpdates, isExecutablePlanStatus, recordPlanEvent } from "./plan-lifecycle.js";
+import { buildPlanEventUpdates, isEpicPlan, isExecutablePlanStatus, recordPlanEvent } from "./plan-lifecycle.js";
 
 Deno.test("buildPlanEventUpdates promotes approved plans to ready_for_work", () => {
     const updates = buildPlanEventUpdates("readiness_passed", "approved", {
@@ -7,6 +7,16 @@ Deno.test("buildPlanEventUpdates promotes approved plans to ready_for_work", () 
     });
 
     assertEquals(updates.status, "ready_for_work");
+    assertEquals(updates.updatedAt, "2026-01-02T03:04:05.000Z");
+    assertEquals(updates.failureReason, null);
+});
+
+Deno.test("buildPlanEventUpdates marks approved Epics ready for decomposition", () => {
+    const updates = buildPlanEventUpdates("epic_readiness_passed", "approved", {
+        now: () => new Date("2026-01-02T03:04:05.000Z"),
+    });
+
+    assertEquals(updates.status, "ready_for_decomposition");
     assertEquals(updates.updatedAt, "2026-01-02T03:04:05.000Z");
     assertEquals(updates.failureReason, null);
 });
@@ -97,8 +107,16 @@ Deno.test("buildPlanEventUpdates only allows documented transitions", () => {
 
 Deno.test("isExecutablePlanStatus only accepts ready_for_work", () => {
     assertEquals(isExecutablePlanStatus("ready_for_work"), true);
+    assertEquals(isExecutablePlanStatus("ready_for_decomposition"), false);
     assertEquals(isExecutablePlanStatus("approved"), false);
     assertEquals(isExecutablePlanStatus("implemented"), false);
+});
+
+Deno.test("isEpicPlan detects PROJECT plans with epic type", () => {
+    assertEquals(isEpicPlan({ classification: "PROJECT", type: "epic" }), true);
+    assertEquals(isEpicPlan({ classification: "PROJECT" }), false);
+    assertEquals(isEpicPlan({ classification: "FEATURE", type: "epic" }), false);
+    assertEquals(isEpicPlan(undefined), false);
 });
 
 Deno.test("recordPlanEvent rejects invalid transitions before writing", async () => {

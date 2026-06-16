@@ -2,6 +2,7 @@ import { assertEquals, assertMatch, assertStringIncludes, assertThrows } from "@
 import {
     buildSlicerRequest,
     ensureSlicerTasks,
+    executePlan,
     executeProjectTasks,
     extractAssistantOutput,
     extractTasks,
@@ -342,6 +343,118 @@ async function setupTempDebugRoot() {
         },
     };
 }
+
+Deno.test("executePlan refuses to execute PROJECT Epic containers", async () => {
+    /** @type {string[]} */
+    const messages = [];
+    let engineerCalled = false;
+    let projectCalled = false;
+    const result = await executePlan(
+        "epic-plan",
+        { classification: "PROJECT", type: "epic" },
+        /** @type {any} */ ({
+            appendSystemMessage: (/** @type {string} */ message) => messages.push(String(message)),
+        }),
+        undefined,
+        undefined,
+        {
+            loadPlan: () =>
+                Promise.resolve(
+                    /** @type {any} */ ({
+                        attrs: { status: "ready_for_work", classification: "PROJECT", type: "epic" },
+                        body: "## Epic",
+                        markdown: "## Epic",
+                    }),
+                ),
+            executeSingleEngineerPlan: () => {
+                engineerCalled = true;
+                return Promise.resolve({ repairRequired: false, executionComplete: true });
+            },
+            executeStructuredProjectPlan: () => {
+                projectCalled = true;
+                return Promise.resolve({ repairRequired: false, executionComplete: true });
+            },
+        },
+    );
+
+    assertEquals(result.executionComplete, false);
+    assertEquals(engineerCalled, false);
+    assertEquals(projectCalled, false);
+    assertStringIncludes(result.error || "", "PROJECT Epic container");
+    assertEquals(messages.some((message) => message.includes("cannot be executed directly")), true);
+});
+
+Deno.test("executePlan refuses persisted Epic containers even when triage meta overrides classification", async () => {
+    let engineerCalled = false;
+    let projectCalled = false;
+    const result = await executePlan(
+        "epic-plan",
+        { classification: "FEATURE", type: "feature" },
+        noopUiAPI,
+        undefined,
+        undefined,
+        {
+            loadPlan: () =>
+                Promise.resolve(
+                    /** @type {any} */ ({
+                        attrs: { status: "ready_for_work", classification: "PROJECT", type: "epic" },
+                        body: "## Epic",
+                        markdown: "## Epic",
+                    }),
+                ),
+            executeSingleEngineerPlan: () => {
+                engineerCalled = true;
+                return Promise.resolve({ repairRequired: false, executionComplete: true });
+            },
+            executeStructuredProjectPlan: () => {
+                projectCalled = true;
+                return Promise.resolve({ repairRequired: false, executionComplete: true });
+            },
+        },
+    );
+
+    assertEquals(result.executionComplete, false);
+    assertEquals(engineerCalled, false);
+    assertEquals(projectCalled, false);
+    assertStringIncludes(result.error || "", "PROJECT Epic container");
+});
+
+Deno.test("executePlan still executes ready FEATURE plans", async () => {
+    let engineerCalled = false;
+    /** @type {string[]} */
+    const events = [];
+    const result = await executePlan(
+        "feature-plan",
+        { classification: "FEATURE" },
+        /** @type {any} */ ({ appendSystemMessage: () => {} }),
+        undefined,
+        undefined,
+        {
+            loadPlan: () =>
+                Promise.resolve(
+                    /** @type {any} */ ({
+                        attrs: { status: "ready_for_work", classification: "FEATURE" },
+                        body: "## Feature",
+                        markdown: "## Feature",
+                    }),
+                ),
+            executeSingleEngineerPlan: ({ triageMeta }) => {
+                engineerCalled = true;
+                assertEquals(triageMeta.classification, "FEATURE");
+                return Promise.resolve({ repairRequired: false, executionComplete: true });
+            },
+            recordPlanEvent: ({ event }) => {
+                events.push(event);
+                return Promise.resolve(/** @type {any} */ ({}));
+            },
+            markActiveWorktreeStatus: () => Promise.resolve(),
+        },
+    );
+
+    assertEquals(result, { repairRequired: false, executionComplete: true });
+    assertEquals(engineerCalled, true);
+    assertEquals(events, ["implementation_finished"]);
+});
 
 Deno.test("executeProjectTasks passes successful dependency output to dependent task request", async () => {
     const debug = await setupTempDebugRoot();
