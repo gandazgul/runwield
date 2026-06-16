@@ -18,12 +18,19 @@ jobs:
                 include:
                     - target: aarch64-apple-darwin
                       asset_suffix: darwin-arm64
+                      binary_name: hns
                     - target: x86_64-apple-darwin
                       asset_suffix: darwin-x64
+                      binary_name: hns
                     - target: x86_64-unknown-linux-gnu
                       asset_suffix: linux-x64
+                      binary_name: hns
                     - target: aarch64-unknown-linux-gnu
                       asset_suffix: linux-arm64
+                      binary_name: hns
+                    - target: x86_64-pc-windows-msvc
+                      asset_suffix: windows-x64
+                      binary_name: hns.exe
 
         steps:
             - name: Checkout
@@ -51,14 +58,14 @@ jobs:
                     --include src/skills \
                     --include src/cmd/init/init-agent-prompt.md \
                     --include src/shared/ui/catppuccin-mocha.json \
-                    --output hns \
+                    --output "${{ matrix.binary_name }}" \
                     src/cli.js
 
             - name: Package artifact
               run: |
                   VERSION="${GITHUB_REF_NAME}"
                   ASSET="hns-${VERSION}-${{ matrix.asset_suffix }}.tar.gz"
-                  tar -czf "$ASSET" hns
+                  tar -czf "$ASSET" "${{ matrix.binary_name }}"
                   sha256sum "$ASSET" > "$ASSET.sha256"
 
             - name: Upload build artifact
