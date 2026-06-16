@@ -2,6 +2,7 @@ import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
 import {
     assembleFinalSystemPrompt,
+    ensureBundledAgentDefFile,
     expandPromptTemplate,
     expandSkillCommand,
     getBundledAgentDefsPath,
@@ -119,6 +120,14 @@ Deno.test("listSkills and expandSkillCommand read local skill definitions", asyn
     } finally {
         await cleanupLocalCatalogFixtures();
     }
+});
+
+Deno.test("ensureBundledAgentDefFile resolves workflow prompt assets", async () => {
+    const path = await ensureBundledAgentDefFile(join("workflow-prompts", "reviewer-prompt.md"));
+    const prompt = await Deno.readTextFile(path);
+
+    assertStringIncludes(path, "workflow-prompts");
+    assertStringIncludes(prompt, "Workflow-only semantic review prompt");
 });
 
 Deno.test("bundled agent defs path and loaded instruction files are reported", async () => {

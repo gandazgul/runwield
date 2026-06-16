@@ -664,11 +664,19 @@ Deno.test("buildSlicerRequest omits empty affectedPaths", () => {
 
 Deno.test("runSlicerAgent returns ok=true when session resolves", async () => {
     let captured = /** @type {any} */ (null);
+    /** @type {string[]} */
+    const loadedPaths = [];
     const result = await runSlicerAgent({
         planName: "my-plan",
         triageMeta: { classification: "PROJECT", complexity: "LOW", summary: "x", affectedPaths: [] },
         uiAPI: noopUiAPI,
         __deps: {
+            ensureBundledAgentDefFile: (relativePath) =>
+                Promise.resolve(`/tmp/bundled-agent-definitions/${relativePath}`),
+            loadAgentDefFromPath: (path, opts) => {
+                loadedPaths.push(`${path}:${opts?.agentName}`);
+                return Promise.resolve(/** @type {any} */ ({ displayName: "Slicer" }));
+            },
             runAgentSession: (opts) => {
                 captured = opts;
                 return Promise.resolve([]);
@@ -676,6 +684,7 @@ Deno.test("runSlicerAgent returns ok=true when session resolves", async () => {
         },
     });
     assertEquals(result.ok, true);
+    assertEquals(loadedPaths, ["/tmp/bundled-agent-definitions/workflow-prompts/slicer-prompt.md:slicer"]);
     assertEquals(captured.agentName, "slicer");
     assertStringIncludes(captured.userRequest, "my-plan");
 });

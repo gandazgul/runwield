@@ -94,11 +94,13 @@ Deno.test("runInitCommand runs init agent and records completion in CLI mode", a
                     isInitDone: () => false,
                     parseArgs: () => ({}),
                     cwd: () => "/tmp/project",
+                    ensureBundledAgentDefFile: (/** @type {string} */ relativePath) =>
+                        Promise.resolve(`/tmp/bundled-agent-definitions/${relativePath}`),
                     loadAgentDefFromPath: (
                         /** @type {string} */ path,
                         /** @type {{ agentName: string }} */ opts,
                     ) => {
-                        events.push(`${path.endsWith("init-agent-prompt.md")}:${opts.agentName}`);
+                        events.push(`${path}:${opts.agentName}`);
                         return Promise.resolve(agentDef);
                     },
                     recordInitOffered: () => {
@@ -120,7 +122,7 @@ Deno.test("runInitCommand runs init agent and records completion in CLI mode", a
     }
 
     assertEquals(events, [
-        "true:init",
+        "/tmp/bundled-agent-definitions/workflow-prompts/init-agent-prompt.md:init",
         "offered",
         "ran",
         "done",

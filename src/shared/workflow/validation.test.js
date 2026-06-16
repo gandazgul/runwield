@@ -20,19 +20,26 @@ function noOpRecordPlanEvent() {
 }
 
 Deno.test("loadReviewerPrompt returns a bare tool-free prompt", async () => {
-    const reviewerDef = await loadReviewerPrompt(() =>
-        Promise.resolve([
-            "---",
-            "name: Reviewer",
-            'description: "Review prompt"',
-            "tools: []",
-            "---",
-            "",
-            "Review only the supplied plan and diff.",
-            "",
-        ].join("\n"))
+    /** @type {string[]} */
+    const readPaths = [];
+    const reviewerDef = await loadReviewerPrompt(
+        (path) => {
+            readPaths.push(path);
+            return Promise.resolve([
+                "---",
+                "name: Reviewer",
+                'description: "Review prompt"',
+                "tools: []",
+                "---",
+                "",
+                "Review only the supplied plan and diff.",
+                "",
+            ].join("\n"));
+        },
+        (relativePath) => Promise.resolve(`/tmp/bundled-agent-definitions/${relativePath}`),
     );
 
+    assertEquals(readPaths, ["/tmp/bundled-agent-definitions/workflow-prompts/reviewer-prompt.md"]);
     assertEquals(reviewerDef.name, "reviewer");
     assertEquals(reviewerDef.displayName, "Reviewer");
     assertEquals(reviewerDef.tools, []);

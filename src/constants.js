@@ -88,17 +88,17 @@ export const COMMAND_NAMES = Object.freeze({
  * via `getAgentDisplayName()` from `shared/session/agents.js` — never
  * hardcoded.
  *
- * `INIT` is a special pseudo-agent loaded from `src/cmd/init/init-agent-prompt.md`
- * by path rather than the agent-definitions directory, so it does not appear
- * in `/agent` listings.
+ * `INIT` is a special pseudo-agent loaded from
+ * `src/agent-definitions/workflow-prompts/init-agent-prompt.md` by path rather
+ * than top-level agent discovery, so it does not appear in `/agent` listings.
  *
  * `SLICER` is a workflow-only pseudo-agent loaded from
- * `src/shared/workflow/slicer-prompt.md`, so it also does not appear in
- * `/agent` listings or return_to_router targets.
+ * `src/agent-definitions/workflow-prompts/slicer-prompt.md`, so it also does
+ * not appear in `/agent` listings or return_to_router targets.
  *
  * `REVIEWER` is also workflow-only and is loaded from
- * `src/shared/workflow/reviewer-prompt.md` as a bare prompt, without shared
- * skills or extra tools.
+ * `src/agent-definitions/workflow-prompts/reviewer-prompt.md` as a bare
+ * prompt, without shared skills or extra tools.
  */
 /** @type {Readonly<{ROUTER: string, OPERATOR: string, PLANNER: string, ARCHITECT: string, ENGINEER: string, REVIEWER: string, SLICER: string, TESTER: string, IDEATOR: string, DOC_WRITER: string, INIT: string}>} */
 export const AGENTS = Object.freeze({

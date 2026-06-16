@@ -3,16 +3,19 @@
  * Init command handler — bootstraps Harns into a project.
  *
  * Implements both CLI (`hns init`) and TUI slash (`/init`) dispatch.
- * Uses init-state guard to warn on re-runs. Loads the init agent from
- * `src/cmd/init/init-agent-prompt.md` via loadAgentDefFromPath(), so it
- * stays invisible to /agent listings and uses its own model/tools.
+ * Uses init-state guard to warn on re-runs. Loads the init agent from the
+ * bundled workflow-prompts directory, so it stays invisible to /agent listings
+ * and uses its own model/tools.
  */
 
 import { parseArgs as parseArgsFn } from "@std/cli/parse-args";
 import { dirname, fromFileUrl, join } from "@std/path";
 import { AGENTS, COMMAND_NAMES } from "../../constants.js";
 import { loadAgentDefFromPath as loadAgentDefFromPathFn } from "../../shared/session/agents.js";
-import { runAgentSession as runAgentSessionFn } from "../../shared/session/session.js";
+import {
+    ensureBundledAgentDefFile as ensureBundledAgentDefFileFn,
+    runAgentSession as runAgentSessionFn,
+} from "../../shared/session/session.js";
 import { printCommandHelp as printCommandHelpFn } from "../help/index.js";
 import {
     isInitDone as isInitDoneFn,
@@ -31,6 +34,7 @@ export const __dirname = dirname(fromFileUrl(import.meta.url));
  * @property {typeof recordInitOfferedFn} [recordInitOffered]
  * @property {typeof runAgentSessionFn} [runAgentSession]
  * @property {typeof loadAgentDefFromPathFn} [loadAgentDefFromPath]
+ * @property {typeof ensureBundledAgentDefFileFn} [ensureBundledAgentDefFile]
  * @property {typeof Deno.cwd} [cwd]
  */
 
@@ -50,6 +54,7 @@ export async function runInitCommand(argv, options = {}) {
         recordInitOffered: recordInitOfferedDep,
         runAgentSession: runAgentSessionDep,
         loadAgentDefFromPath: loadAgentDefFromPathDep,
+        ensureBundledAgentDefFile: ensureBundledAgentDefFileDep,
         cwd: cwdDep,
     } = deps;
 
@@ -63,6 +68,7 @@ export async function runInitCommand(argv, options = {}) {
 
     const cwd = cwdDep || (() => Deno.cwd());
     const loadAgentDefFromPath = loadAgentDefFromPathDep || loadAgentDefFromPathFn;
+    const ensureBundledAgentDefFile = ensureBundledAgentDefFileDep || ensureBundledAgentDefFileFn;
 
     const parsed = parseArgs(argv, {
         boolean: ["help"],
@@ -90,7 +96,7 @@ export async function runInitCommand(argv, options = {}) {
     // ── Load init agent definition directly from bundled path ──────
     // Pass agentName: AGENTS.INIT so the display-name cache uses the canonical
     // "init" identifier rather than the file's basename ("init-agent-prompt").
-    const initAgentPath = join(__dirname, "init-agent-prompt.md");
+    const initAgentPath = await ensureBundledAgentDefFile(join("workflow-prompts", "init-agent-prompt.md"));
     const agentDef = await loadAgentDefFromPath(initAgentPath, { agentName: AGENTS.INIT });
 
     await recordInitOffered();

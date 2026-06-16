@@ -5,13 +5,14 @@
 
 import { dirname, fromFileUrl, join } from "@std/path";
 import { AGENTS } from "../../constants.js";
-import { runAgentSession } from "../session/session.js";
+import { ensureBundledAgentDefFile, runAgentSession } from "../session/session.js";
 import { loadAgentDefFromPath } from "../session/agents.js";
 import { extractTasks, validateProjectTasks } from "./task-scheduling.js";
 import { buildSlicerRequest } from "./workflow-prompts.js";
 
 export const __dirname = dirname(fromFileUrl(import.meta.url));
-const SLICER_PROMPT_PATH = join(__dirname, "slicer-prompt.md");
+const WORKFLOW_PROMPTS_DIR = "workflow-prompts";
+const SLICER_PROMPT_FILE = "slicer-prompt.md";
 
 /**
  * Run the slicer agent against an approved design-only plan.
@@ -24,6 +25,7 @@ const SLICER_PROMPT_PATH = join(__dirname, "slicer-prompt.md");
  * @param {{
  *   runAgentSession?: typeof runAgentSession,
  *   loadAgentDefFromPath?: typeof loadAgentDefFromPath,
+ *   ensureBundledAgentDefFile?: typeof ensureBundledAgentDefFile,
  * }} [opts.__deps] - Test-only injection point.
  * @returns {Promise<{ ok: boolean, error?: string }>}
  */
@@ -31,7 +33,9 @@ export async function runSlicerAgent({ planName, triageMeta, uiAPI, sessionManag
     if (!uiAPI) throw new Error("runSlicerAgent: uiAPI is required");
     const session = __deps?.runAgentSession || runAgentSession;
     const loadSlicerDef = __deps?.loadAgentDefFromPath || loadAgentDefFromPath;
-    const slicerAgentDef = await loadSlicerDef(SLICER_PROMPT_PATH, { agentName: AGENTS.SLICER });
+    const ensurePromptFile = __deps?.ensureBundledAgentDefFile || ensureBundledAgentDefFile;
+    const slicerPromptPath = await ensurePromptFile(join(WORKFLOW_PROMPTS_DIR, SLICER_PROMPT_FILE));
+    const slicerAgentDef = await loadSlicerDef(slicerPromptPath, { agentName: AGENTS.SLICER });
 
     const slicerDisplay = slicerAgentDef.displayName;
 

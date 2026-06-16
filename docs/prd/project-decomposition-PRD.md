@@ -34,19 +34,19 @@ The PROJECT path has structural problems:
 
 ## 3. Resolved Assumptions
 
-| Decision | Rationale |
-|---|---|
-| **PROJECT = container, not executable** | Router says "this is a PROJECT" — meaning "too big to execute directly." The system's job is to refine the design, then decompose into executable FEATUREs. The PROJECT plan (Epic) is never executed directly. |
-| **Epic plan lifecycle: `draft → approved → ready_for_work → in_progress → completed`, plus `on_hold`** | A clean lifecycle that tracks the Epic's aggregate state. `ready_for_work` means decomposition is complete and children exist. Completed is re-entrant — a new child can be added later. `on_hold` is a general plan status for deferred work. |
-| **FEATURE plan lifecycle unchanged** | Each child of an Epic is a regular FEATURE plan with its own existing lifecycle: `draft → approved → ready_for_work → in_progress → implemented → verified`. The FEATURE execution path is untouched. |
-| **Slicer is an interactive agent** | The Slicer transitions from a silent one-shot prompt call to an interactive PM/lead-engineer session. It converses with the user to propose chunk boundaries, iterate on decomposition, and only writes FEATURE plans when the user confirms. The session can be paused and resumed. |
-| **Architect stays the same** | The Architect writes a full design doc (the Epic). It may be clued into the goal of "this will be decomposed later" but the output format is the same. The Epic is a living document — the Architect can revise it as implementation reveals new information. |
-| **Loose parent-child pointers** | Each FEATURE plan has a `parentPlan` front matter field pointing to its Epic. The Epic does not strictly list children — the system discovers them by scanning `parentPlan`. This is a one-directional, loose coupling. |
-| **Subdirectory naming** | FEATURE plans live under `plans/<epic-name>/01-description.md`. This groups them naturally and makes `hns plans` output clean. |
-| **`load-plan` is Epic-aware** | Loading an Epic in `draft`/`approved` resumes the Slicer session. Loading an Epic in `ready_for_work` asks "Slicer to revise, or pick a FEATURE to execute?" Loading a FEATURE plan works as today. |
-| **Execution DAG machinery kept as dead code** | `project-executor.js` and `task-scheduling.js` remain in the codebase but unused. Future: multi-role FEATUREs (engineer → tester → doc-writer within a single FEATURE plan) may revive them. |
-| **Design is a living document** | The Epic plan is not frozen after approval. When a FEATURE reveals new information, the Architect revises the Epic. Affected child FEATUREs get stale flags. The user can re-run the Slicer to re-slice. |
-| **`on_hold` is a general plan status** | Any plan (Epic or FEATURE) can be put on hold. The system does not prompt about on_hold plans. This is deferred to a follow-up PRD. |
+| Decision                                                                                               | Rationale                                                                                                                                                                                                                                                                            |
+| ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **PROJECT = container, not executable**                                                                | Router says "this is a PROJECT" — meaning "too big to execute directly." The system's job is to refine the design, then decompose into executable FEATUREs. The PROJECT plan (Epic) is never executed directly.                                                                      |
+| **Epic plan lifecycle: `draft → approved → ready_for_work → in_progress → completed`, plus `on_hold`** | A clean lifecycle that tracks the Epic's aggregate state. `ready_for_work` means decomposition is complete and children exist. Completed is re-entrant — a new child can be added later. `on_hold` is a general plan status for deferred work.                                       |
+| **FEATURE plan lifecycle unchanged**                                                                   | Each child of an Epic is a regular FEATURE plan with its own existing lifecycle: `draft → approved → ready_for_work → in_progress → implemented → verified`. The FEATURE execution path is untouched.                                                                                |
+| **Slicer is an interactive agent**                                                                     | The Slicer transitions from a silent one-shot prompt call to an interactive PM/lead-engineer session. It converses with the user to propose chunk boundaries, iterate on decomposition, and only writes FEATURE plans when the user confirms. The session can be paused and resumed. |
+| **Architect stays the same**                                                                           | The Architect writes a full design doc (the Epic). It may be clued into the goal of "this will be decomposed later" but the output format is the same. The Epic is a living document — the Architect can revise it as implementation reveals new information.                        |
+| **Loose parent-child pointers**                                                                        | Each FEATURE plan has a `parentPlan` front matter field pointing to its Epic. The Epic does not strictly list children — the system discovers them by scanning `parentPlan`. This is a one-directional, loose coupling.                                                              |
+| **Subdirectory naming**                                                                                | FEATURE plans live under `plans/<epic-name>/01-description.md`. This groups them naturally and makes `hns plans` output clean.                                                                                                                                                       |
+| **`load-plan` is Epic-aware**                                                                          | Loading an Epic in `draft`/`approved` resumes the Slicer session. Loading an Epic in `ready_for_work` asks "Slicer to revise, or pick a FEATURE to execute?" Loading a FEATURE plan works as today.                                                                                  |
+| **Execution DAG machinery kept as dead code**                                                          | `project-executor.js` and `task-scheduling.js` remain in the codebase but unused. Future: multi-role FEATUREs (engineer → tester → doc-writer within a single FEATURE plan) may revive them.                                                                                         |
+| **Design is a living document**                                                                        | The Epic plan is not frozen after approval. When a FEATURE reveals new information, the Architect revises the Epic. Affected child FEATUREs get stale flags. The user can re-run the Slicer to re-slice.                                                                             |
+| **`on_hold` is a general plan status**                                                                 | Any plan (Epic or FEATURE) can be put on hold. The system does not prompt about on_hold plans. This is deferred to a follow-up PRD.                                                                                                                                                  |
 
 ## 4. Technical Approach
 
@@ -67,11 +67,11 @@ Proposed:
 
 The classification-to-execution pipeline becomes:
 
-| Classification | Behavior |
-|---|---|
-| `QUICK_FIX` | Operator executes directly (unchanged) |
-| `FEATURE` | Planner writes plan, review, execute, validate, merge (unchanged) |
-| `PROJECT` | Architect writes Epic → approved → Slicer decomposes into FEATUREs → each FEATURE follows FEATURE lifecycle |
+| Classification | Behavior                                                                                                    |
+| -------------- | ----------------------------------------------------------------------------------------------------------- |
+| `QUICK_FIX`    | Operator executes directly (unchanged)                                                                      |
+| `FEATURE`      | Planner writes plan, review, execute, validate, merge (unchanged)                                           |
+| `PROJECT`      | Architect writes Epic → approved → Slicer decomposes into FEATUREs → each FEATURE follows FEATURE lifecycle |
 
 ### 4.2 Plan Layout on Disk
 
@@ -130,6 +130,7 @@ Children can be found by scanning plan front matter for `parentPlan: <epic-name>
 The Slicer transitions from a silent one-shot to a conversational agent.
 
 **Entry points:**
+
 1. **Automatic (Architect → Slicer flow):** After the Architect's Epic is approved, the readiness gate detects
    `classification: PROJECT` and `type: epic`. Since the Epic has no executable children, it offers the Slicer.
 2. **Manual:** User invokes `/slicer <epic-name>` at any time.
@@ -149,19 +150,19 @@ The Slicer transitions from a silent one-shot to a conversational agent.
 ```
 
 **Key behaviors:**
+
 - The Slicer session is pause/resume friendly (uses existing session infrastructure under `~/.hns/sessions/`)
 - "Write a draft" is a mid-conversation action — the user can see actual plan files before committing
 - The Slicer tracks which FEATUREs the user has deferred (marked as `on_hold` or simply not generated)
 - Dependencies between FEATUREs are captured in the `dependencies` front matter field
 
-**Dependency tracking between FEATUREs:**
-During the decomposition conversation, the Slicer identifies which FEATUREs depend on others (e.g., "you can't build
-the Stripe integration without the schema first"). These are recorded as:
+**Dependency tracking between FEATUREs:** During the decomposition conversation, the Slicer identifies which FEATUREs
+depend on others (e.g., "you can't build the Stripe integration without the schema first"). These are recorded as:
 
 ```yaml
 # in 02-implement-validation.md
 dependencies:
-  - 01-define-schema-and-models
+    - 01-define-schema-and-models
 ```
 
 When a FEATURE is loaded for execution, the system checks its dependencies and prompts the user if uncompleted
@@ -199,11 +200,11 @@ Also: any state can transition to on_hold (deferred) and back.
 
 State transitions are recorded via the existing `recordPlanEvent` mechanism, with the following new events:
 
-| Event | From | To | Meaning |
-|---|---|---|---|
-| `readiness_passed` | `approved` | `ready_for_work` | Slicer finished decomposition, children exist |
-| `all_children_done` | `in_progress` | `completed` | All FEATURE children are in `verified` status |
-| `child_reassigned` | `completed` | `in_progress` | A new FEATURE child was added after completion |
+| Event               | From          | To               | Meaning                                        |
+| ------------------- | ------------- | ---------------- | ---------------------------------------------- |
+| `readiness_passed`  | `approved`    | `ready_for_work` | Slicer finished decomposition, children exist  |
+| `all_children_done` | `in_progress` | `completed`      | All FEATURE children are in `verified` status  |
+| `child_reassigned`  | `completed`   | `in_progress`    | A new FEATURE child was added after completion |
 
 The Epic lifecycle reuses the existing plan-lifecycle infrastructure. No new state machine framework is needed — just
 new event-to-status mappings.
@@ -212,15 +213,16 @@ new event-to-status mappings.
 
 Currently, `load-plan` loads a plan and offers execution. For Epics, the behavior must change:
 
-| Plan type | Status | Behavior |
-|---|---|---|
-| FEATURE | any | Existing behavior (execute if `ready_for_work`, etc.) |
-| Epic | `draft` / `approved` | Resume Slicer session for decomposition |
-| Epic | `ready_for_work` / `in_progress` | Ask: "Open Slicer to revise decomposition, or pick a FEATURE to execute?" |
-| Epic | `completed` | Show summary of completed FEATUREs |
-| Epic | `on_hold` | Show "this Epic is deferred" |
+| Plan type | Status                           | Behavior                                                                  |
+| --------- | -------------------------------- | ------------------------------------------------------------------------- |
+| FEATURE   | any                              | Existing behavior (execute if `ready_for_work`, etc.)                     |
+| Epic      | `draft` / `approved`             | Resume Slicer session for decomposition                                   |
+| Epic      | `ready_for_work` / `in_progress` | Ask: "Open Slicer to revise decomposition, or pick a FEATURE to execute?" |
+| Epic      | `completed`                      | Show summary of completed FEATUREs                                        |
+| Epic      | `on_hold`                        | Show "this Epic is deferred"                                              |
 
 When the user chooses "pick a FEATURE", the system:
+
 1. Scans for child plans via `parentPlan` pointer
 2. Shows available FEATUREs with their statuses
 3. User picks one → loads that FEATURE plan normally
@@ -249,6 +251,7 @@ the plan count in any real project (< 100 plans).
 ### 4.8 Architecture: What Changes vs What Stays
 
 **Stays (unchanged):**
+
 - `src/shared/workflow/workflow.js` — the `executePlan` function. It already handles FEATURE and PROJECT. PROJECT path
   will now check if the plan is an Epic (non-executable) and route accordingly.
 - `src/shared/workflow/plan-lifecycle.js` — the state machine framework. New event mappings added.
@@ -256,6 +259,7 @@ the plan count in any real project (< 100 plans).
 - `src/cmd/load-plan/` — load-plan command. Epic awareness added as a condition at the top.
 
 **Changes:**
+
 - **Slicer agent** (`workflow-slicer.js` + slicer-prompt.md) — completely rewritten. From a single-prompt markdown
   mutator to a full interactive agent. New prompt: "You are a PM/lead engineer. Read the Epic design. Propose
   decomposition to the user..."
@@ -268,22 +272,25 @@ the plan count in any real project (< 100 plans).
 - **`load-plan` command** — Epic-aware routing as described above.
 
 **Dead code (kept, unused):**
+
 - `src/shared/workflow/project-executor.js` — the parallel task DAG runner. Kept for future multi-role FEATUREs.
 - `src/shared/workflow/task-scheduling.js` — task table parsing and conflict detection. Kept for future use.
 - `src/shared/workflow/workflow-slicer.js` — replaced but kept for reference.
 
 ### 4.9 Slicer: "Write a Draft" Mid-Session
 
-During the Slicer conversation, the user may say "write a draft" to materialize the current decomposition as actual
-plan files. This is important for the user to inspect the generated plan quality before committing.
+During the Slicer conversation, the user may say "write a draft" to materialize the current decomposition as actual plan
+files. This is important for the user to inspect the generated plan quality before committing.
 
 When the user says "write a draft", the Slicer:
+
 1. Creates FEATURE plan files under `plans/<epic-name>/<nn>-<description>.md`
 2. Sets their status to `draft`
 3. Does NOT advance the Epic to `ready_for_work`
 4. The conversation continues — user can inspect, give feedback, and the Slicer can update the files
 
 When the user says "finalize" or the Slicer session ends with confirmed decomposition:
+
 1. FEATURE plans are finalized with `status: draft`
 2. Epic transitions to `ready_for_work`
 3. User is shown the available FEATUREs and can pick one to execute
@@ -296,6 +303,7 @@ The Slicer system prompt would include:
 You are the Slicer — a PM and lead engineer working with the user.
 
 Your job:
+
 1. Read the Epic plan to understand the full design.
 2. Propose a decomposition into independent FEATURE plans.
 3. Discuss boundaries, dependencies, and priorities with the user.
@@ -303,6 +311,7 @@ Your job:
 5. Only finalize when the user confirms the decomposition.
 
 Guidelines:
+
 - Each FEATURE should be independently shippable.
 - Dependencies between FEATUREs should be minimal and explicit.
 - The user may defer some FEATUREs — mark those as on_hold.
@@ -320,8 +329,8 @@ Guidelines:
       handled; cross-Epic dependencies are deferred.
 - [ ] **Architect revisiting the Epic mid-project.** The Epic is a living document, but the mechanics of flagging stale
       FEATUREs and re-invoking the Architect are deferred to a follow-up.
-- [ ] **Visual board.** A kanban-style board for Epics and FEATUREs (like cline/kanban) is deferred. The CLI/TUI
-      output in `hns plans` is sufficient for v1.
+- [ ] **Visual board.** A kanban-style board for Epics and FEATUREs (like cline/kanban) is deferred. The CLI/TUI output
+      in `hns plans` is sufficient for v1.
 - [ ] **Stale child detection.** A FEATURE plan may become stale if the Epic design changes. Detection and warning
       mechanics are deferred.
 
@@ -329,8 +338,8 @@ Guidelines:
 
 - [ ] **`on_hold` plan status** — Define the lifecycle, front matter mechanics, and listing behavior for deferred plans
       of any classification.
-- [ ] **Multi-role FEATUREs** — When a single FEATURE plan can trigger engineer → tester → doc-writer passes
-      internally, revive the DAG machinery. Needs a full design.
+- [ ] **Multi-role FEATUREs** — When a single FEATURE plan can trigger engineer → tester → doc-writer passes internally,
+      revive the DAG machinery. Needs a full design.
 - [ ] **Epic re-slicing** — When the Architect revises the Epic and existing FEATUREs become stale, how does the system
       flag them? Allow re-running the Slicer against a modified Epic.
 - [ ] **Dependency validation at FEATURE load time** — When loading a FEATURE with `dependencies`, check if the
@@ -358,7 +367,8 @@ Guidelines:
 - Existing PRD format: `docs/prd/collaborative-planning-PRD.md`, `docs/prd/theme-extensions.md`
 - Current Slicer implementation: `src/shared/workflow/workflow-slicer.js` — the silent one-shot agent that will be
   replaced.
-- Task execution machinery (kept as dead code): `src/shared/workflow/project-executor.js`, `src/shared/workflow/task-scheduling.js`
+- Task execution machinery (kept as dead code): `src/shared/workflow/project-executor.js`,
+  `src/shared/workflow/task-scheduling.js`
 - Plan lifecycle state machine: `src/shared/workflow/plan-lifecycle.js`, `docs/plan-lifecycle.md`
 - Plan store: `src/plan-store.js` — will need `findPlansByParent()` helper.
 - Inspiration: [cline/kanban](https://github.com/cline/kanban) — worktree-per-card, dependency chains, auto-commit

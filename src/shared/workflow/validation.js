@@ -7,7 +7,7 @@ import { extractYaml } from "@std/front-matter";
 import { dirname, fromFileUrl, join } from "@std/path";
 import { AGENTS, CWD } from "../../constants.js";
 import { getAgentDisplayName } from "../session/agents.js";
-import { runAgentSession } from "../session/session.js";
+import { ensureBundledAgentDefFile, runAgentSession } from "../session/session.js";
 import {
     clearActiveExecutionWorkflow,
     consumePendingSwitchHandoff,
@@ -23,7 +23,8 @@ import { mergeExecutionWorktree } from "../worktree.js";
 import { updateEntry as updateWorktreeRegistryEntry } from "../worktree-registry.js";
 
 export const __dirname = dirname(fromFileUrl(import.meta.url));
-const REVIEWER_PROMPT_PATH = join(__dirname, "reviewer-prompt.md");
+const WORKFLOW_PROMPTS_DIR = "workflow-prompts";
+const REVIEWER_PROMPT_FILE = "reviewer-prompt.md";
 
 /**
  * Load reviewer as a bare workflow prompt instead of a normal agent definition.
@@ -32,10 +33,15 @@ const REVIEWER_PROMPT_PATH = join(__dirname, "reviewer-prompt.md");
  * mechanical plan-vs-diff check, so it intentionally receives none of that.
  *
  * @param {(path: string) => Promise<string>} [readTextFile]
+ * @param {typeof ensureBundledAgentDefFile} [ensurePromptFile]
  * @returns {Promise<import('../session/types.js').AgentDefinition>}
  */
-export async function loadReviewerPrompt(readTextFile = Deno.readTextFile) {
-    const raw = await readTextFile(REVIEWER_PROMPT_PATH);
+export async function loadReviewerPrompt(
+    readTextFile = Deno.readTextFile,
+    ensurePromptFile = ensureBundledAgentDefFile,
+) {
+    const reviewerPromptPath = await ensurePromptFile(join(WORKFLOW_PROMPTS_DIR, REVIEWER_PROMPT_FILE));
+    const raw = await readTextFile(reviewerPromptPath);
     const { attrs, body } = extractYaml(raw);
     const displayName = typeof attrs.name === "string" && attrs.name.trim() ? attrs.name.trim() : "Reviewer";
     const description = typeof attrs.description === "string" ? attrs.description.trim() : "";

@@ -352,6 +352,32 @@ function getBundledAgentDefsPathInner() {
 }
 
 /**
+ * Resolve a bundled agent-definition asset to a real readable path. In compiled
+ * binaries, the extraction cache can be stale or missing a newly-added nested
+ * asset, so this heals the cache from the bundled virtual filesystem when
+ * possible instead of letting downstream prompt loads hard-crash.
+ *
+ * @param {string} relativePath - Path relative to `src/agent-definitions`.
+ * @returns {Promise<string>}
+ */
+export async function ensureBundledAgentDefFile(relativePath) {
+    const bundledDir = await getBundledAgentDefsPath();
+    const targetPath = join(bundledDir, relativePath);
+    if (await fileExists(targetPath)) return targetPath;
+
+    const sourcePath = join(AGENT_DEFS_DIR, relativePath);
+    try {
+        const bytes = await Deno.readFile(sourcePath);
+        await Deno.mkdir(dirname(targetPath), { recursive: true });
+        await Deno.writeFile(targetPath, bytes);
+        return targetPath;
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`Bundled agent asset is missing: ${relativePath}. ${message}`);
+    }
+}
+
+/**
  * List all known skills across bundled + home + local layers.
  * First name wins, based on priority local > home > bundled.
  *
