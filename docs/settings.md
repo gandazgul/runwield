@@ -70,7 +70,8 @@ the root agent model, the root agent thinking level, prompt templates, skills, a
     },
 
     "compactOnResumeThresholdPercent": 50,
-    "verification_command": "deno run ci"
+    "verification_command": "deno run ci",
+    "cleanupMergedWorktrees": true
 }
 ```
 
@@ -158,15 +159,16 @@ Thinking level resolution:
 
 These keys are read by Harns outside the upstream Pi `SettingsManager` schema.
 
-| Key                               | Type    | Values / default        | Scope            | Description                                                                                                      |
-| --------------------------------- | ------- | ----------------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `agents`                          | object  | agent-name map          | global + project | Base per-agent `model` and `thinkingLevel` overrides.                                                            |
-| `activeModelPreset`               | string  | unset                   | global + project | Selects a named preset from `modelPresets`.                                                                      |
-| `modelPresets`                    | object  | preset-name map         | global + project | Named per-agent override sets.                                                                                   |
-| `compactOnResumeThresholdPercent` | integer | `1`-`100`, default `50` | global + project | `/resume` offers compaction when estimated context reaches this percentage of the selected model context window. |
-| `verification_command`            | string  | no default              | project          | Command used by workflow validation. Saved when Harns asks for a validation command.                             |
-| `enableExternalSkills`            | boolean | default `true`          | global           | When true, Harns includes skills from `~/.agents/skills` after local, home, and bundled Harns skills.            |
-| `enableExternalGlobalAgentsMd`    | boolean | default `true`          | global           | When true, global prompt loading includes `~/.agents/AGENTS.md` after `~/.hns/HARNS.md` and `~/.hns/AGENTS.md`.  |
+| Key                               | Type    | Values / default        | Scope            | Description                                                                                                                                                                        |
+| --------------------------------- | ------- | ----------------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `agents`                          | object  | agent-name map          | global + project | Base per-agent `model` and `thinkingLevel` overrides.                                                                                                                              |
+| `activeModelPreset`               | string  | unset                   | global + project | Selects a named preset from `modelPresets`.                                                                                                                                        |
+| `modelPresets`                    | object  | preset-name map         | global + project | Named per-agent override sets.                                                                                                                                                     |
+| `compactOnResumeThresholdPercent` | integer | `1`-`100`, default `50` | global + project | `/resume` offers compaction when estimated context reaches this percentage of the selected model context window.                                                                   |
+| `verification_command`            | string  | no default              | project          | Command used by workflow validation. Saved when Harns asks for a validation command.                                                                                               |
+| `cleanupMergedWorktrees`          | boolean | default `true`          | global + project | When true, successful merge-back removes the execution checkout, deletes its registry entry, and clears plan worktree metadata. Set false to keep merged worktrees for inspection. |
+| `enableExternalSkills`            | boolean | default `true`          | global           | When true, Harns includes skills from `~/.agents/skills` after local, home, and bundled Harns skills.                                                                              |
+| `enableExternalGlobalAgentsMd`    | boolean | default `true`          | global           | When true, global prompt loading includes `~/.agents/AGENTS.md` after `~/.hns/HARNS.md` and `~/.hns/AGENTS.md`.                                                                    |
 
 ## Pi-Backed Keys
 

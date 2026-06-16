@@ -3,14 +3,16 @@ classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Add a focused path for materializing Slicer decomposition drafts as child FEATURE plan files."
 affectedPaths:
-    - "src/plan-store.js"
-    - "src/shared/workflow/workflow-slicer.js"
-    - "src/shared/workflow/workflow.test.js"
-    - "src/plan-store.test.js"
+  - "src/plan-store.js"
+  - "src/shared/workflow/workflow-slicer.js"
+  - "src/shared/workflow/workflow.test.js"
+  - "src/plan-store.test.js"
 createdAt: "2026-06-16T16:25:04Z"
-status: "ready_for_work"
+updatedAt: "2026-06-16T20:36:41.682Z"
+status: "verified"
+origin: "internal"
+verifiedAt: "2026-06-16T20:36:41.682Z"
 ---
-
 # Create Child FEATURE Plans from a Draft
 
 ## Context

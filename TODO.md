@@ -9,10 +9,9 @@ Refactor-first (before testing) candidates:
   controllers before test growth.
 - root-session.js: session manager persistence/bootstrap is hard-coupled to concrete external session APIs.
 
-- [ ] Start implementing the code indexing (Deferred: cymbal is good for now)
-- [x] When re-executing a completed plan, warn the user if files in `affectedPaths` have changed since the plan ran.
-      Show a list of commits between the plan's `updatedAt` (or `createdAt`) and HEAD as a heads-up before kicking off
-      execution again.
+- [ ] Add hooks/code extension support. Continue to ignore skills and other pi things.
+- [ ] Make a [colgrep](https://github.com/lightonai/next-plaid/blob/main/colgrep/README.md) extension for harns that
+      users can install separately.
 - [ ] Plan archiving: move old plans (e.g., completed > N days) into `plans/archive/` so the active plans list stays
       short. Surface archived plans only on explicit request.
 - [ ] when we want to trully restrict an agent's write/edit access we should invoke bash commands with a user that has
