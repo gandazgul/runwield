@@ -14,9 +14,9 @@
         "@std/assert": "jsr:@std/assert@^1.0.0",
         "@std/jsonc": "jsr:@std/jsonc@^1.0.0",
         "@std/cli/parse-args": "jsr:@std/cli@^1.0.0/parse-args",
-        "@gandazgul/plannotator-pi-extension-compiled": "npm:@gandazgul/plannotator-pi-extension-compiled@^0.20.1",
-        "@gandazgul/plannotator-pi-extension-compiled/server": "npm:@gandazgul/plannotator-pi-extension-compiled@^0.20.1/server",
-        "@gandazgul/plannotator-pi-extension-compiled/assets": "npm:@gandazgul/plannotator-pi-extension-compiled@^0.20.1/assets",
+        "@gandazgul/plannotator-pi-extension-compiled": "npm:@gandazgul/plannotator-pi-extension-compiled@^0.20.3",
+        "@gandazgul/plannotator-pi-extension-compiled/server": "npm:@gandazgul/plannotator-pi-extension-compiled@^0.20.3/server",
+        "@gandazgul/plannotator-pi-extension-compiled/assets": "npm:@gandazgul/plannotator-pi-extension-compiled@^0.20.3/assets",
         "strip-ansi": "npm:strip-ansi@^7.1.2",
         "quikdown/ast": "npm:quikdown@^1.2.12/ast",
         "proper-lockfile": "npm:proper-lockfile@^3.0.0"
