@@ -20,7 +20,7 @@
     "npm:@gandazgul/plannotator-pi-extension-compiled@~0.20.3": "0.20.3_@mariozechner+pi-agent-core@0.73.1_@mariozechner+pi-ai@0.73.1_@mariozechner+pi-coding-agent@0.73.1_@mariozechner+pi-tui@0.73.1",
     "npm:@mariozechner/pi-coding-agent@0.73.1": "0.73.1",
     "npm:@sinclair/typebox@~0.34.41": "0.34.49",
-    "npm:chalk@^5.4.1": "5.6.2",
+    "npm:chalk@^5.6.2": "5.6.2",
     "npm:proper-lockfile@3": "3.2.0",
     "npm:quikdown@^1.2.12": "1.2.17",
     "npm:strip-ansi@^7.1.2": "7.2.0"
@@ -1459,7 +1459,7 @@
       "npm:@earendil-works/pi-tui@0.74",
       "npm:@gandazgul/plannotator-pi-extension-compiled@~0.20.3",
       "npm:@sinclair/typebox@~0.34.41",
-      "npm:chalk@^5.4.1",
+      "npm:chalk@^5.6.2",
       "npm:proper-lockfile@3",
       "npm:quikdown@^1.2.12",
       "npm:strip-ansi@^7.1.2"
