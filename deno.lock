@@ -22,7 +22,7 @@
     "npm:chalk@^5.6.2": "5.6.2",
     "npm:proper-lockfile@3": "3.2.0",
     "npm:quikdown@^1.2.12": "1.2.17",
-    "npm:strip-ansi@^7.1.2": "7.2.0"
+    "npm:strip-ansi@^7.2.0": "7.2.0"
   },
   "jsr": {
     "@std/assert@1.0.19": {
@@ -1551,7 +1551,7 @@
       "npm:chalk@^5.6.2",
       "npm:proper-lockfile@3",
       "npm:quikdown@^1.2.12",
-      "npm:strip-ansi@^7.1.2"
+      "npm:strip-ansi@^7.2.0"
     ]
   }
 }
