@@ -19,7 +19,7 @@
         "@gandazgul/plannotator-pi-extension-compiled/assets": "npm:@gandazgul/plannotator-pi-extension-compiled@^0.20.3/assets",
         "strip-ansi": "npm:strip-ansi@^7.2.0",
         "quikdown/ast": "npm:quikdown@^1.2.12/ast",
-        "proper-lockfile": "npm:proper-lockfile@^3.0.0"
+        "proper-lockfile": "npm:proper-lockfile@^4.1.2"
     },
     "tasks": {
         "ci": "deno task check && rtk deno lint && deno fmt --check && deno task test",

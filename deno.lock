@@ -20,7 +20,7 @@
     "npm:@mariozechner/pi-coding-agent@0.73.1": "0.73.1",
     "npm:@sinclair/typebox@~0.34.41": "0.34.49",
     "npm:chalk@^5.6.2": "5.6.2",
-    "npm:proper-lockfile@3": "3.2.0",
+    "npm:proper-lockfile@^4.1.2": "4.1.2",
     "npm:quikdown@^1.2.12": "1.2.17",
     "npm:strip-ansi@^7.2.0": "7.2.0"
   },
@@ -405,7 +405,7 @@
         "ignore",
         "jiti",
         "minimatch",
-        "proper-lockfile@4.1.2",
+        "proper-lockfile",
         "semver",
         "typebox",
         "undici@8.3.0",
@@ -555,7 +555,7 @@
         "jiti",
         "marked",
         "minimatch",
-        "proper-lockfile@4.1.2",
+        "proper-lockfile",
         "strip-ansi@7.2.0",
         "typebox",
         "undici@7.27.2",
@@ -1236,14 +1236,6 @@
     "pend@1.2.0": {
       "integrity": "sha512-F3asv42UuXchdzt+xXqfW1OGlVBe+mxa2mqI0pg5yAHZPvFmY3Y6drSf/GQ1A86WgWEN9Kzh/WrgKa6iGcHXLg=="
     },
-    "proper-lockfile@3.2.0": {
-      "integrity": "sha512-iMghHHXv2bsxl6NchhEaFck8tvX3F9cknEEh1SUpguUOBjN7PAAW9BLzmbc1g/mCD1gY3EE2EABBHPJfFdHFmA==",
-      "dependencies": [
-        "graceful-fs",
-        "retry@0.12.0",
-        "signal-exit"
-      ]
-    },
     "proper-lockfile@4.1.2": {
       "integrity": "sha512-TjNPblN4BwAWMXU8s9AEz4JmQxnD1NNL7bNOY/AKUzyamc379FWASUhc/K1pL2noVb+XmZKLL68cjzLsiOAMaA==",
       "dependencies": [
@@ -1515,7 +1507,7 @@
       "npm:@gandazgul/plannotator-pi-extension-compiled@~0.20.3",
       "npm:@sinclair/typebox@~0.34.41",
       "npm:chalk@^5.6.2",
-      "npm:proper-lockfile@3",
+      "npm:proper-lockfile@^4.1.2",
       "npm:quikdown@^1.2.12",
       "npm:strip-ansi@^7.2.0"
     ]
