@@ -34,6 +34,7 @@ import {
     getRootAgentName,
     getRootAgentSession,
     getRootSessionManager,
+    getSubAgentSessions,
     getThinkingLevel,
     setActiveModelState,
     setActiveOnMessage,
@@ -68,6 +69,100 @@ function formatTokens(count) {
     if (count < 1000000) return `${Math.round(count / 1000)}k`;
     if (count < 10000000) return `${(count / 1000000).toFixed(1)}M`;
     return `${Math.round(count / 1000000)}M`;
+}
+
+/**
+ * @param {any} usage
+ * @returns {{ input: number, output: number, cacheRead: number, cacheWrite: number, cost: number }}
+ */
+function normalizeFooterUsage(usage) {
+    return {
+        input: Number(usage?.input ?? usage?.inputTokens ?? 0) || 0,
+        output: Number(usage?.output ?? usage?.outputTokens ?? 0) || 0,
+        cacheRead: Number(usage?.cacheRead ?? usage?.cacheReadTokens ?? 0) || 0,
+        cacheWrite: Number(usage?.cacheWrite ?? usage?.cacheWriteTokens ?? 0) || 0,
+        cost: Number(usage?.cost?.total ?? usage?.cost ?? 0) || 0,
+    };
+}
+
+/**
+ * @param {any} session
+ * @returns {Array<any>}
+ */
+function getFooterSessionEntries(session) {
+    try {
+        return session?.sessionManager?.getEntries?.() || [];
+    } catch {
+        return [];
+    }
+}
+
+/**
+ * @param {Array<any>} sessions
+ * @returns {{ input: number, output: number, cacheRead: number, cacheWrite: number, cost: number }}
+ */
+export function collectFooterUsage(sessions) {
+    const totals = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
+
+    for (const session of sessions) {
+        for (const entry of getFooterSessionEntries(session)) {
+            if (entry?.type !== "message" || entry?.message?.role !== "assistant") continue;
+            const usage = normalizeFooterUsage(entry.message.usage);
+            totals.input += usage.input;
+            totals.output += usage.output;
+            totals.cacheRead += usage.cacheRead;
+            totals.cacheWrite += usage.cacheWrite;
+            totals.cost += usage.cost;
+        }
+    }
+
+    return totals;
+}
+
+/**
+ * @param {any} rootSession
+ * @param {Iterable<any>} subAgentSessions
+ * @returns {Array<any>}
+ */
+export function getFooterSessions(rootSession, subAgentSessions) {
+    return [
+        ...(rootSession ? [rootSession] : []),
+        ...Array.from(subAgentSessions || []),
+    ];
+}
+
+/**
+ * @param {any} session
+ * @returns {{ provider: string, model: string } | null}
+ */
+function getSessionModelParts(session) {
+    const model = session?.state?.model;
+    if (!model) return null;
+    if (typeof model === "string") {
+        const slashIndex = model.indexOf("/");
+        if (slashIndex > 0) {
+            return { provider: model.slice(0, slashIndex), model: model.slice(slashIndex + 1) };
+        }
+        return { provider: "", model };
+    }
+    if (typeof model === "object") {
+        const provider = typeof model.provider === "string" ? model.provider : "";
+        const id = typeof model.id === "string" ? model.id : typeof model.model === "string" ? model.model : "";
+        if (id) return { provider, model: id };
+    }
+    return null;
+}
+
+/**
+ * @param {Array<any>} sessions
+ * @returns {{ provider: string, model: string } | null}
+ */
+function getMostRecentSessionModelParts(sessions) {
+    for (let i = sessions.length - 1; i >= 0; i--) {
+        const parts = getSessionModelParts(sessions[i]);
+        if (parts) return parts;
+    }
+    return null;
 }
 
 /**
@@ -439,6 +534,14 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
             provider = activeModel.provider;
         }
 
+        const sessionModel = getMostRecentSessionModelParts(
+            getFooterSessions(getRootAgentSession(), getSubAgentSessions()),
+        );
+        if (!activeModel.model && sessionModel?.model) {
+            model = sessionModel.model;
+            provider = sessionModel.provider || provider;
+        }
+
         const thinkingLevel = getThinkingLevel();
 
         return { model, provider, thinkingLevel };
@@ -483,8 +586,11 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         /** @param {number} w */
         render: (w) => {
             const { model, provider, thinkingLevel } = getModelAndProvider();
-            const modelStr = model.startsWith(`${provider}/`) ? model : `${provider}/${model}`;
-            const activeAgentName = getActiveAgentName();
+            const modelStr = model
+                ? provider && !model.startsWith(`${provider}/`) ? `${provider}/${model}` : model
+                : "";
+            const activeAgentName = getActiveAgentName() ||
+                (getRootAgentName() ? getAgentDisplayName(/** @type {string} */ (getRootAgentName())) : "");
 
             const line1Left = `${cwd} (${branch})`;
             const line1Pad = Math.max(1, w - line1Left.length - activeAgentName.length);
@@ -493,30 +599,19 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
                 theme.fg("accent", activeAgentName);
 
             // ── Token consumption data (Pi.dev-style footer) ──
-            const session = getRootAgentSession();
-            let totalInput = 0;
-            let totalOutput = 0;
-            let totalCacheRead = 0;
-            let totalCost = 0;
+            const sessions = getFooterSessions(getRootAgentSession(), getSubAgentSessions());
+            const activeUsageSession = sessions[sessions.length - 1];
+            const usage = collectFooterUsage(sessions);
             let contextStr = "";
 
-            if (session) {
-                for (const entry of session.sessionManager.getEntries()) {
-                    if (entry.type === "message" && entry.message.role === "assistant") {
-                        totalInput += entry.message.usage.input;
-                        totalOutput += entry.message.usage.output;
-                        totalCacheRead += entry.message.usage.cacheRead;
-                        totalCost += entry.message.usage.cost.total;
-                    }
-                }
-
-                const contextUsage = session.getContextUsage();
+            if (activeUsageSession) {
+                const contextUsage = activeUsageSession.getContextUsage?.();
                 if (contextUsage) {
                     const cw = contextUsage.contextWindow ?? 0;
                     const pct = contextUsage.percent;
                     const pctDisplay = pct !== null ? `${pct.toFixed(1)}%` : "?";
                     const cwStr = formatTokens(cw);
-                    const compactionSettings = session?.settingsManager?.getCompactionSettings?.();
+                    const compactionSettings = activeUsageSession?.settingsManager?.getCompactionSettings?.();
                     const compactEnabled = compactionSettings ? compactionSettings.enabled : true;
                     const autoIndicator = compactEnabled ? " (Auto-compact)" : "";
                     const rawContext = `${pctDisplay}/${cwStr}${autoIndicator}`;
@@ -530,15 +625,16 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
             }
 
             const statsParts = [];
-            if (totalInput > 0) statsParts.push(`↑${formatTokens(totalInput)}`);
-            if (totalOutput > 0) statsParts.push(`↓${formatTokens(totalOutput)}`);
-            if (totalCacheRead > 0) statsParts.push(`R${formatTokens(totalCacheRead)}`);
+            if (usage.input > 0) statsParts.push(`↑${formatTokens(usage.input)}`);
+            if (usage.output > 0) statsParts.push(`↓${formatTokens(usage.output)}`);
+            if (usage.cacheRead > 0) statsParts.push(`R${formatTokens(usage.cacheRead)}`);
+            if (usage.cacheWrite > 0) statsParts.push(`W${formatTokens(usage.cacheWrite)}`);
 
-            const usingSubscription = session?.state?.model
-                ? session.modelRegistry?.isUsingOAuth?.(session.state.model)
+            const usingSubscription = activeUsageSession?.state?.model
+                ? activeUsageSession.modelRegistry?.isUsingOAuth?.(activeUsageSession.state.model)
                 : false;
-            if (totalCost > 0 || usingSubscription) {
-                statsParts.push(`$${totalCost.toFixed(3)}${usingSubscription ? " (sub)" : ""}`);
+            if (usage.cost > 0 || usingSubscription) {
+                statsParts.push(`$${usage.cost.toFixed(3)}${usingSubscription ? " (sub)" : ""}`);
             }
 
             if (contextStr) statsParts.push(contextStr);

@@ -473,6 +473,10 @@ Deno.test("runValidationLoop records validation_passed only after worktree merge
                 actions.push(`merge:${args.projectRoot}:${args.branch}`);
                 return Promise.resolve();
             },
+            removeExecutionWorktree: (/** @type {{ projectRoot: string, path: string, branch?: string }} */ args) => {
+                actions.push(`remove:${args.projectRoot}:${args.path}:${args.branch || ""}`);
+                return Promise.resolve();
+            },
 
             updateWorktreeRegistryEntry: (
                 /** @type {string} */ _projectRoot,
@@ -493,8 +497,64 @@ Deno.test("runValidationLoop records validation_passed only after worktree merge
     assertEquals(actions, [
         "merge:/primary:harns/worktree/p-wt1",
         "registry:merged",
+        "remove:/primary:/worktree:harns/worktree/p-wt1",
         "event:validation_passed:merged",
     ]);
+});
+
+Deno.test("runValidationLoop keeps merged worktree when cleanup setting is disabled", async () => {
+    const uiAPI = makeUi();
+    /** @type {string[]} */
+    const actions = [];
+
+    setActiveExecutionWorkflow({
+        planName: "p",
+        triageMeta: { classification: "FEATURE" },
+        baselineTree: "baseline-tree",
+        projectRoot: "/primary",
+        executionCwd: "/worktree",
+        worktreeId: "wt1",
+        worktreeBranch: "harns/worktree/p-wt1",
+    });
+
+    await runValidationLoop({
+        planName: "p",
+        planContent: "plan",
+        triageMeta: { classification: "FEATURE" },
+        uiAPI,
+        sessionManager: undefined,
+        __deps: /** @type {any} */ ({
+            runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
+            getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
+            runAgentSession: () =>
+                Promise.resolve(
+                    /** @type {any} */ ([{
+                        role: "assistant",
+                        content: [{ type: "text", text: "APPROVED" }],
+                    }]),
+                ),
+            mergeExecutionWorktree: () => {
+                actions.push("merge");
+                return Promise.resolve();
+            },
+            removeExecutionWorktree: () => {
+                actions.push("remove");
+                return Promise.resolve();
+            },
+            updateWorktreeRegistryEntry: () => {
+                actions.push("registry");
+                return Promise.resolve({});
+            },
+            recordPlanEvent: (/** @type {any} */ event) => {
+                actions.push(`event:${event.event}:${event.details.cleanupMergedWorktrees}`);
+                return Promise.resolve({});
+            },
+            shouldCleanupMergedWorktrees: () => false,
+            setActiveAgent: () => {},
+        }),
+    });
+
+    assertEquals(actions, ["merge", "registry", "event:validation_passed:false"]);
 });
 
 Deno.test("runValidationLoop records worktree_merge_failed when merge-back fails", async () => {
@@ -615,6 +675,10 @@ Deno.test("runValidationLoop retries worktree merge after user fixes primary che
                 );
                 return Promise.resolve({});
             },
+            removeExecutionWorktree: () => {
+                actions.push("remove");
+                return Promise.resolve();
+            },
             setActiveAgent: () => {},
         }),
     });
@@ -625,6 +689,7 @@ Deno.test("runValidationLoop retries worktree merge after user fixes primary che
         "event:worktree_merge_failed:primary dirty",
         "merge:2",
         "registry:merged",
+        "remove",
         "event:validation_passed:merged",
     ]);
     assertEquals(uiAPI.promptSelections, ["retry"]);

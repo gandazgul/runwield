@@ -13,12 +13,12 @@ import {
     consumePendingSwitchHandoff,
     getActiveExecutionWorkflow,
 } from "../session/session-state.js";
-import { getCustomSetting, setCustomSetting } from "../settings.js";
+import { getCustomSetting, setCustomSetting, shouldCleanupMergedWorktrees } from "../settings.js";
 import { extractAssistantOutput, readLatestTaskCompletedOutcome } from "./workflow.js";
 import { setActiveAgent } from "../interactive/chat-session.js";
 import { getWorkflowDiff } from "./git-snapshot.js";
 import { recordPlanEvent } from "./plan-lifecycle.js";
-import { mergeExecutionWorktree } from "../worktree.js";
+import { mergeExecutionWorktree, removeExecutionWorktree } from "../worktree.js";
 import { updateEntry as updateWorktreeRegistryEntry } from "../worktree-registry.js";
 
 export const __dirname = dirname(fromFileUrl(import.meta.url));
@@ -283,10 +283,12 @@ export function shouldRunWorkflowValidation(triageMeta) {
  *   getDiffText?: typeof getGitDiffText,
  *   recordPlanEvent?: typeof recordPlanEvent,
  *   mergeExecutionWorktree?: typeof mergeExecutionWorktree,
+ *   removeExecutionWorktree?: typeof removeExecutionWorktree,
  *   updateWorktreeRegistryEntry?: typeof updateWorktreeRegistryEntry,
  *   setActiveAgent?: typeof setActiveAgent,
  *   createDirectAgentHandler?: (agentName: string) => import('../session/types.js').AgentMessageHandler,
  *   loadReviewerPrompt?: typeof loadReviewerPrompt,
+ *   shouldCleanupMergedWorktrees?: typeof shouldCleanupMergedWorktrees,
  * }} [args.__deps] Test-only injection point.
  */
 export async function runValidationLoop({
@@ -310,8 +312,10 @@ export async function runValidationLoop({
     const getDiffText = __deps?.getDiffText || getGitDiffText;
     const recordPlanEventImpl = __deps?.recordPlanEvent || recordPlanEvent;
     const mergeExecutionWorktreeImpl = __deps?.mergeExecutionWorktree || mergeExecutionWorktree;
+    const removeExecutionWorktreeImpl = __deps?.removeExecutionWorktree || removeExecutionWorktree;
     const updateWorktreeRegistryEntryImpl = __deps?.updateWorktreeRegistryEntry || updateWorktreeRegistryEntry;
     const loadReviewerPromptImpl = __deps?.loadReviewerPrompt || loadReviewerPrompt;
+    const shouldCleanupMergedWorktreesImpl = __deps?.shouldCleanupMergedWorktrees || shouldCleanupMergedWorktrees;
     const activeWorkflow = getActiveExecutionWorkflow();
     const baselineTree = activeWorkflow?.baselineTree;
     const projectRoot = activeWorkflow?.projectRoot || CWD;
@@ -463,10 +467,12 @@ export async function runValidationLoop({
         const triageClassificationDisplay = triageMeta?.classification
             ? triageMeta.classification.toLocaleLowerCase().replace(/^([a-z])/, (c) => c.toUpperCase())
             : "Plan";
+        let cleanupMergedWorktrees = true;
 
         if (worktreeBranch) {
             while (executionComplete) {
                 try {
+                    cleanupMergedWorktrees = shouldCleanupMergedWorktreesImpl();
                     appendHarnsSystemMessage(
                         uiAPI,
                         `Merging validated worktree branch ${worktreeBranch} into primary checkout.`,
@@ -484,6 +490,25 @@ export async function runValidationLoop({
                     });
                     if (worktreeId) {
                         await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, { status: "merged" });
+                    }
+                    if (cleanupMergedWorktrees && executionCwd) {
+                        try {
+                            await removeExecutionWorktreeImpl({
+                                projectRoot,
+                                path: executionCwd,
+                                branch: worktreeBranch,
+                                force: true,
+                            });
+                        } catch (cleanupError) {
+                            const cleanupReason = cleanupError instanceof Error
+                                ? cleanupError.message
+                                : String(cleanupError);
+                            appendHarnsSystemMessage(
+                                uiAPI,
+                                `Worktree merged, but cleanup failed: ${cleanupReason}`,
+                                true,
+                            );
+                        }
                     }
                     break;
                 } catch (/** @type {any} */ error) {
@@ -525,7 +550,11 @@ export async function runValidationLoop({
                     planName,
                     event: "validation_passed",
                     currentStatus: "implemented",
-                    details: { triageMeta, worktreeStatus: worktreeBranch ? "merged" : undefined },
+                    details: {
+                        triageMeta,
+                        worktreeStatus: worktreeBranch ? "merged" : undefined,
+                        cleanupMergedWorktrees: worktreeBranch ? cleanupMergedWorktrees : undefined,
+                    },
                 });
             }
         }

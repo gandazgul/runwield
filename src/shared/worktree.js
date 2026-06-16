@@ -3,8 +3,8 @@
  * Git worktree helpers for isolated plan execution.
  */
 
-import { basename, dirname, join } from "@std/path";
-import { WORKTREE_BRANCH_PREFIX, WORKTREE_PATH_PREFIX } from "../constants.js";
+import { basename, join } from "@std/path";
+import { HARNS_DIR_NAME, HOME_DIR, WORKTREE_BRANCH_PREFIX, WORKTREE_PATH_PREFIX } from "../constants.js";
 import { getWorkflowDiff } from "./workflow/git-snapshot.js";
 import { addEntry, listEntries, pruneStaleEntries, removeEntry } from "./worktree-registry.js";
 
@@ -110,20 +110,33 @@ async function commitDirtyWorktreeState(worktreePath, branch) {
 }
 
 /**
- * @param {{ projectRoot: string, planName: string, baseRef?: string }} opts
+ * @param {string} projectRoot
+ * @param {string} repoName
+ * @param {string | undefined} worktreeRoot
+ * @returns {string}
  */
-export async function createExecutionWorktree({ projectRoot, planName, baseRef = "HEAD" }) {
+function resolveWorktreeParent(projectRoot, repoName, worktreeRoot) {
+    if (worktreeRoot) return worktreeRoot;
+    if (HOME_DIR) return join(HOME_DIR, HARNS_DIR_NAME, "worktrees", repoName);
+    return join(projectRoot, HARNS_DIR_NAME, "worktrees");
+}
+
+/**
+ * @param {{ projectRoot: string, planName: string, baseRef?: string, worktreeRoot?: string }} opts
+ */
+export async function createExecutionWorktree({ projectRoot, planName, baseRef = "HEAD", worktreeRoot }) {
     const id = crypto.randomUUID().slice(0, 8);
     const slug = slugify(planName);
     const branch = `${WORKTREE_BRANCH_PREFIX}${slug}-${id}`;
-    const parent = dirname(projectRoot);
     const repoName = basename(projectRoot);
+    const parent = resolveWorktreeParent(projectRoot, repoName, worktreeRoot);
     const path = join(parent, `${repoName}-${WORKTREE_PATH_PREFIX}${slug}-${id}`);
     const now = new Date().toISOString();
     const baseBranch = (await runGit(projectRoot, ["branch", "--show-current"])).trim() || "HEAD";
     const baseCommit = (await runGit(projectRoot, ["rev-parse", baseRef])).trim();
     const baseTree = (await runGit(projectRoot, ["rev-parse", `${baseRef}^{tree}`])).trim();
 
+    await Deno.mkdir(parent, { recursive: true });
     await runGit(projectRoot, ["worktree", "add", "-b", branch, path, baseRef]);
 
     /** @type {import('./worktree-registry.js').WorktreeRegistryEntry} */

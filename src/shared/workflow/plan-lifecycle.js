@@ -26,6 +26,7 @@ import { updatePlanFrontMatter } from "../../plan-store.js";
  * @property {string} [worktreePath]
  * @property {string} [worktreeBranch]
  * @property {import('../../plan-store.js').PlanFrontMatter['worktreeStatus']} [worktreeStatus]
+ * @property {boolean} [cleanupMergedWorktrees]
  * @property {() => Date} [now]
  */
 
@@ -151,6 +152,11 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
 
     if (event === "validation_passed") {
         updates.worktreeStatus = details.worktreeStatus || "merged";
+        if (details.cleanupMergedWorktrees !== false) {
+            updates.worktreeId = null;
+            updates.worktreePath = null;
+            updates.worktreeBranch = null;
+        }
         updates.verifiedAt = now;
         updates.failureReason = null;
         updates.failedAt = null;

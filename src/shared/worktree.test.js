@@ -34,11 +34,12 @@ async function makeRepo() {
 
 Deno.test("createExecutionWorktree creates a unique branch/path and registry entry", async () => {
     const projectRoot = await makeRepo();
+    const worktreeRoot = await Deno.makeTempDir();
     let worktree;
     try {
-        worktree = await createExecutionWorktree({ projectRoot, planName: "Demo Plan" });
+        worktree = await createExecutionWorktree({ projectRoot, planName: "Demo Plan", worktreeRoot });
         assertMatch(worktree.branch, /^harns\/worktree\/demo-plan-[a-f0-9]{8}$/);
-        assertEquals(dirname(worktree.path), dirname(projectRoot));
+        assertEquals(dirname(worktree.path), worktreeRoot);
         assertMatch(basename(worktree.path), /harns-demo-plan-[a-f0-9]{8}$/);
         assertEquals(await git(worktree.path, ["branch", "--show-current"]), worktree.branch);
         const registryEntry = await findByPlanName(projectRoot, "Demo Plan");
@@ -58,15 +59,17 @@ Deno.test("createExecutionWorktree creates a unique branch/path and registry ent
             });
         }
         await Deno.remove(projectRoot, { recursive: true });
+        await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
     }
 });
 
 Deno.test("mergeExecutionWorktree includes uncommitted worktree changes", async () => {
     const projectRoot = await makeRepo();
+    const worktreeRoot = await Deno.makeTempDir();
     /** @type {Awaited<ReturnType<typeof createExecutionWorktree>> | undefined} */
     let worktree;
     try {
-        worktree = await createExecutionWorktree({ projectRoot, planName: "Uncommitted Merge" });
+        worktree = await createExecutionWorktree({ projectRoot, planName: "Uncommitted Merge", worktreeRoot });
         await Deno.writeTextFile(`${worktree.path}/README.md`, "base\nchanged\n");
         await Deno.writeTextFile(`${worktree.path}/feature.txt`, "feature\n");
 
@@ -89,15 +92,17 @@ Deno.test("mergeExecutionWorktree includes uncommitted worktree changes", async 
             });
         }
         await Deno.remove(projectRoot, { recursive: true });
+        await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
     }
 });
 
 Deno.test("mergeExecutionWorktree allows unrelated dirty primary checkout changes", async () => {
     const projectRoot = await makeRepo();
+    const worktreeRoot = await Deno.makeTempDir();
     /** @type {Awaited<ReturnType<typeof createExecutionWorktree>> | undefined} */
     let worktree;
     try {
-        worktree = await createExecutionWorktree({ projectRoot, planName: "Unrelated Dirty Merge" });
+        worktree = await createExecutionWorktree({ projectRoot, planName: "Unrelated Dirty Merge", worktreeRoot });
         await Deno.writeTextFile(`${worktree.path}/feature.txt`, "feature\n");
         await git(worktree.path, ["add", "."]);
         await git(worktree.path, ["commit", "-m", "feature"]);
@@ -122,15 +127,17 @@ Deno.test("mergeExecutionWorktree allows unrelated dirty primary checkout change
             });
         }
         await Deno.remove(projectRoot, { recursive: true });
+        await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
     }
 });
 
 Deno.test("mergeExecutionWorktree refuses dirty primary changes that overlap branch changes", async () => {
     const projectRoot = await makeRepo();
+    const worktreeRoot = await Deno.makeTempDir();
     /** @type {Awaited<ReturnType<typeof createExecutionWorktree>> | undefined} */
     let worktree;
     try {
-        worktree = await createExecutionWorktree({ projectRoot, planName: "Dirty Merge" });
+        worktree = await createExecutionWorktree({ projectRoot, planName: "Dirty Merge", worktreeRoot });
         await Deno.writeTextFile(`${worktree.path}/README.md`, "base\nfeature\n");
         await git(worktree.path, ["add", "."]);
         await git(worktree.path, ["commit", "-m", "feature"]);
@@ -152,5 +159,6 @@ Deno.test("mergeExecutionWorktree refuses dirty primary changes that overlap bra
             });
         }
         await Deno.remove(projectRoot, { recursive: true });
+        await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
     }
 });

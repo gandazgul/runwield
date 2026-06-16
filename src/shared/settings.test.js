@@ -4,7 +4,12 @@
 
 import { assertEquals } from "@std/assert";
 import { join } from "@std/path";
-import { migratePiSettingsOnce } from "./settings.js";
+import {
+    __resetSettingsForTests,
+    migratePiSettingsOnce,
+    setCustomSetting,
+    shouldCleanupMergedWorktrees,
+} from "./settings.js";
 
 // Use a temp dir for isolated file-based tests
 const TEMP_DIR = await Deno.makeTempDir({ prefix: "harns-settings-test-" });
@@ -155,6 +160,30 @@ Deno.test("migratePiSettingsOnce leaves existing Harns settings untouched", asyn
         assertEquals(await Deno.readTextFile(harnsPath), '{"theme":"harns"}');
     } finally {
         await Deno.remove(tempDir, { recursive: true });
+    }
+});
+
+Deno.test("shouldCleanupMergedWorktrees defaults true and honors false setting", async () => {
+    const originalHome = Deno.env.get("HOME");
+    const originalCwd = Deno.cwd();
+    const tempHome = await Deno.makeTempDir({ prefix: "harns-cleanup-setting-home-" });
+    const tempProject = await Deno.makeTempDir({ prefix: "harns-cleanup-setting-project-" });
+    try {
+        Deno.env.set("HOME", tempHome);
+        Deno.chdir(tempProject);
+        __resetSettingsForTests();
+
+        assertEquals(shouldCleanupMergedWorktrees(), true);
+
+        await setCustomSetting("cleanupMergedWorktrees", false, "project");
+        assertEquals(shouldCleanupMergedWorktrees(), false);
+    } finally {
+        Deno.chdir(originalCwd);
+        if (originalHome === undefined) Deno.env.delete("HOME");
+        else Deno.env.set("HOME", originalHome);
+        __resetSettingsForTests();
+        await Deno.remove(tempHome, { recursive: true });
+        await Deno.remove(tempProject, { recursive: true });
     }
 });
 

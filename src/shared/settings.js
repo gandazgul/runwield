@@ -323,3 +323,14 @@ export function getMergedCustomSetting(key) {
 
     return projectVal;
 }
+
+/**
+ * Whether merged execution worktrees should be removed after successful merge-back.
+ * Defaults to true; set `cleanupMergedWorktrees: false` in global or project
+ * settings to keep merged worktree checkouts for inspection.
+ *
+ * @returns {boolean}
+ */
+export function shouldCleanupMergedWorktrees() {
+    return getMergedCustomSetting("cleanupMergedWorktrees") !== false;
+}

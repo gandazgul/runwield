@@ -1,15 +1,20 @@
 import { assertEquals } from "@std/assert";
 import {
     applyPendingRootSwap,
+    collectFooterUsage,
     getActiveModel,
+    getFooterSessions,
     persistThinkingLevel,
     resolveTemplateModel,
     setActiveAgent,
     setActiveModel,
 } from "./chat-session.js";
 import {
+    addSubAgentSession,
     getActiveOnMessage,
     getPendingRootSwap,
+    getSubAgentSessions,
+    removeSubAgentSession,
     setActiveUiAPI,
     setPendingRootSwap,
     setRootAgentName,
@@ -37,6 +42,47 @@ async function withTempHome(prefix, fn) {
         await Deno.remove(tempHome, { recursive: true });
     }
 }
+
+Deno.test("footer usage includes active sub-agent sessions and cache writes", () => {
+    const rootSession = {
+        sessionManager: {
+            getEntries: () => [{
+                type: "message",
+                message: {
+                    role: "assistant",
+                    usage: { input: 100, output: 50, cacheRead: 25, cacheWrite: 10, cost: { total: 0.01 } },
+                },
+            }],
+        },
+    };
+    const subSession = {
+        sessionManager: {
+            getEntries: () => [{
+                type: "message",
+                message: {
+                    role: "assistant",
+                    usage: { inputTokens: 3, outputTokens: 2, cacheReadTokens: 1, cacheWriteTokens: 4, cost: 0.02 },
+                },
+            }],
+        },
+    };
+
+    try {
+        addSubAgentSession(/** @type {any} */ (subSession));
+        const sessions = getFooterSessions(rootSession, getSubAgentSessions());
+        assertEquals(sessions, [rootSession, subSession]);
+
+        assertEquals(collectFooterUsage(sessions), {
+            input: 103,
+            output: 52,
+            cacheRead: 26,
+            cacheWrite: 14,
+            cost: 0.03,
+        });
+    } finally {
+        removeSubAgentSession(/** @type {any} */ (subSession));
+    }
+});
 
 Deno.test("setActiveModel reports setModel rejection instead of leaving an unhandled crash", async () => {
     const originalOpenAiKey = Deno.env.get("OPENAI_API_KEY");

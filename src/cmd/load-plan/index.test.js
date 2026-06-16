@@ -1019,6 +1019,7 @@ Deno.test("runLoadPlanCommand can manually merge merge-conflict worktree recover
         const { uiAPI, selections } = makeUi();
         selections.push("merge");
         let mergedBranch = "";
+        let removedPath = "";
         let registryStatus = "";
         /** @type {string | null} */
         let lifecycleEvent = null;
@@ -1060,6 +1061,10 @@ Deno.test("runLoadPlanCommand can manually merge merge-conflict worktree recover
                     mergedBranch = args.branch;
                     return Promise.resolve();
                 },
+                removeExecutionWorktree: (/** @type {{ path: string }} */ args) => {
+                    removedPath = args.path;
+                    return Promise.resolve();
+                },
                 updateWorktreeRegistryEntry: (
                     /** @type {string} */ _cwd,
                     /** @type {string} */ _id,
@@ -1079,6 +1084,7 @@ Deno.test("runLoadPlanCommand can manually merge merge-conflict worktree recover
         });
 
         assertEquals(mergedBranch, "harns/worktree/plan-merge-conflict");
+        assertEquals(removedPath, worktreePath);
         assertEquals(registryStatus, "merged");
         assertEquals(lifecycleEvent, "validation_passed");
     } finally {

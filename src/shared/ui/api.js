@@ -51,6 +51,22 @@ export function createSilentUiApi() {
 }
 
 /**
+ * Like createSilentUiApi(), but keeps footer-facing session state live by
+ * allowing runAgentSession to push agent/model info and by forwarding renders.
+ *
+ * @param {Pick<import('./types.js').UiAPI, 'requestRender'> | undefined} parentUiAPI
+ * @returns {import('./types.js').UiAPI}
+ */
+export function createFooterOnlyUiApi(parentUiAPI) {
+    const uiAPI = createSilentUiApi();
+    return {
+        ...uiAPI,
+        requestRender: () => parentUiAPI?.requestRender?.(),
+        isOutputSuppressed: () => false,
+    };
+}
+
+/**
  * Creates a UiAPI object for Harns TUI.
  *
  * @param {import('@earendil-works/pi-tui').TUI} tui

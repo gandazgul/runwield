@@ -1,18 +1,31 @@
 {
-    "version": 1,
-    "entries": [
-        {
-            "id": "74f8b50f",
-            "planName": "project-breakdown-epic/feature1-preserve-epic-and-child-plan-metadata",
-            "baseBranch": "main",
-            "baseRef": "HEAD",
-            "baseCommit": "feac85f96ad53162de7da47203d37522ce831faf",
-            "baseTree": "1f1bdaf7cd15c62c13f9688a909f60c9aa7a8ffe",
-            "branch": "harns/worktree/project-breakdown-epic-feature1-preserve-epic-an-74f8b50f",
-            "path": "/Users/gandazgul/Documents/web/harns-harns-project-breakdown-epic-feature1-preserve-epic-an-74f8b50f",
-            "status": "merged",
-            "createdAt": "2026-06-16T17:30:30.929Z",
-            "updatedAt": "2026-06-16T19:15:25.996Z"
-        }
-    ]
+  "version": 1,
+  "entries": [
+    {
+      "id": "74f8b50f",
+      "planName": "project-breakdown-epic/feature1-preserve-epic-and-child-plan-metadata",
+      "baseBranch": "main",
+      "baseRef": "HEAD",
+      "baseCommit": "feac85f96ad53162de7da47203d37522ce831faf",
+      "baseTree": "1f1bdaf7cd15c62c13f9688a909f60c9aa7a8ffe",
+      "branch": "harns/worktree/project-breakdown-epic-feature1-preserve-epic-an-74f8b50f",
+      "path": "/Users/gandazgul/Documents/web/harns-harns-project-breakdown-epic-feature1-preserve-epic-an-74f8b50f",
+      "status": "merged",
+      "createdAt": "2026-06-16T17:30:30.929Z",
+      "updatedAt": "2026-06-16T19:15:25.996Z"
+    },
+    {
+      "id": "a5e15076",
+      "planName": "feature2-represent-project-plans-as-epics",
+      "baseBranch": "main",
+      "baseRef": "HEAD",
+      "baseCommit": "4e54d873239f091cf3c65c5065311bf902bb6c3b",
+      "baseTree": "9acc5bc734527853bbb8912f7df59e85c984a836",
+      "branch": "harns/worktree/feature2-represent-project-plans-as-epics-a5e15076",
+      "path": "/Users/gandazgul/Documents/web/harns-harns-feature2-represent-project-plans-as-epics-a5e15076",
+      "status": "merge_conflict",
+      "createdAt": "2026-06-16T19:21:58.419Z",
+      "updatedAt": "2026-06-16T19:35:34.239Z"
+    }
+  ]
 }

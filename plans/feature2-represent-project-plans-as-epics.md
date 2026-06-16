@@ -3,19 +3,19 @@ classification: "FEATURE"
 complexity: "HIGH"
 summary: "Teach workflow readiness that new PROJECT plans with type epic are containers, not directly executable plans."
 affectedPaths:
-    - "src/shared/workflow/workflow.js"
-    - "src/shared/workflow/plan-lifecycle.js"
-    - "src/tools/plan-written.js"
-    - "src/shared/workflow/workflow.test.js"
-    - "src/shared/workflow/plan-lifecycle.test.js"
-    - "src/tools/__tests__/plan-written.test.js"
+  - "src/shared/workflow/workflow.js"
+  - "src/shared/workflow/plan-lifecycle.js"
+  - "src/tools/plan-written.js"
+  - "src/shared/workflow/workflow.test.js"
+  - "src/shared/workflow/plan-lifecycle.test.js"
+  - "src/tools/__tests__/plan-written.test.js"
 createdAt: "2026-06-16T16:25:04Z"
-updatedAt: "2026-06-16T19:20:08.763Z"
-status: "feedback"
+updatedAt: "2026-06-16T19:35:34.239Z"
+status: "implemented"
 origin: "internal"
-worktreeStatus: "abandoned"
+failureReason: "Primary checkout has uncommitted changes that overlap execution worktree changes; refusing to merge: src/cmd/load-plan/index.js, src/cmd/load-plan/index.test.js, src/shared/workflow/plan-lifecycle.js, src/shared/workflow/plan-lifecycle.test.js"
+worktreeStatus: "merge_conflict"
 ---
-
 # Represent PROJECT Plans as Epics
 
 ## Context
