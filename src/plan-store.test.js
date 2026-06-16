@@ -8,6 +8,7 @@ import {
     loadPlan,
     parsePlanFrontMatter,
     resolvePlan,
+    saveChildFeaturePlans,
     savePlan,
     updatePlanFrontMatter,
     updatePlanStatus,
@@ -149,6 +150,100 @@ testWithFs("plan-store preserves Epic and nested child metadata", async () => {
 
         const children = await findPlansByParent(cwd, "project-breakdown-epic");
         assertEquals(children.map((plan) => plan.name), ["project-breakdown-epic/feature1"]);
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+testWithFs("saveChildFeaturePlans creates draft child FEATURE plans with dependencies", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        const results = await saveChildFeaturePlans(cwd, "project-breakdown-epic", [
+            {
+                sequence: 1,
+                title: "Preserve Epic and child metadata",
+                summary: "Keep parent-child links loadable",
+                affectedPaths: ["src/plan-store.js"],
+                dependencies: [],
+                content: "# Preserve Epic and child metadata\n\n## Context\nDraft slice",
+            },
+            {
+                sequence: 2,
+                title: "Load child FEATURES",
+                summary: "Let load-plan execute child features",
+                affectedPaths: ["src/cmd/load-plan/index.js"],
+                dependencies: ["project-breakdown-epic/01-preserve-epic-and-child-metadata"],
+                content: "# Load child FEATURES\n\n## Context\nDraft slice",
+            },
+        ]);
+
+        assertEquals(results.map((result) => ({ name: result.name, action: result.action })), [
+            { name: "project-breakdown-epic/01-preserve-epic-and-child-metadata", action: "created" },
+            { name: "project-breakdown-epic/02-load-child-features", action: "created" },
+        ]);
+
+        const first = await loadPlan(cwd, "project-breakdown-epic/01-preserve-epic-and-child-metadata");
+        assertEquals(first?.attrs.classification, "FEATURE");
+        assertEquals(first?.attrs.status, "draft");
+        assertEquals(first?.attrs.parentPlan, "project-breakdown-epic");
+        assertEquals(first?.attrs.summary, "Keep parent-child links loadable");
+
+        const second = await loadPlan(cwd, "project-breakdown-epic/02-load-child-features");
+        assertEquals(second?.attrs.dependencies, ["project-breakdown-epic/01-preserve-epic-and-child-metadata"]);
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+testWithFs("saveChildFeaturePlans updates existing drafts at stable child paths", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        const descriptor = {
+            sequence: 1,
+            title: "Write Draft Plans",
+            summary: "Initial summary",
+            affectedPaths: ["src/plan-store.js"],
+            dependencies: [],
+            content: "# Write Draft Plans\n\nInitial content",
+        };
+        await saveChildFeaturePlans(cwd, "epic-a", [descriptor]);
+
+        const results = await saveChildFeaturePlans(cwd, "epic-a", [{
+            ...descriptor,
+            summary: "Updated summary",
+            content: "# Write Draft Plans\n\nUpdated content",
+        }]);
+
+        assertEquals(results[0].action, "updated");
+        const loaded = await loadPlan(cwd, "epic-a/01-write-draft-plans");
+        assertEquals(loaded?.attrs.summary, "Updated summary");
+        assertEquals(loaded?.body.trim(), "# Write Draft Plans\n\nUpdated content");
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+testWithFs("saveChildFeaturePlans rejects invalid child and parent names", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await assertRejects(
+            () => saveChildFeaturePlans(cwd, "../outside", []),
+            Error,
+            "Plan name cannot escape plans/",
+        );
+        await assertRejects(
+            () =>
+                saveChildFeaturePlans(cwd, "epic-a", [{
+                    sequence: 1,
+                    title: "...",
+                    summary: "Bad child",
+                    affectedPaths: [],
+                    dependencies: [],
+                    content: "# Bad",
+                }]),
+            Error,
+            "Child plan title must produce a valid plan name",
+        );
     } finally {
         await Deno.remove(cwd, { recursive: true });
     }

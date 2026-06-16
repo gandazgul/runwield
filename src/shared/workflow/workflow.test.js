@@ -6,6 +6,7 @@ import {
     executeProjectTasks,
     extractAssistantOutput,
     extractTasks,
+    materializeSlicerDraft,
     parseTaskWriteScope,
     readLatestPlanOutcome,
     runSlicerAgent,
@@ -860,6 +861,39 @@ Deno.test("runSlicerAgent reports failure via uiAPI when present", async () => {
         },
     });
     assertEquals(messages.some((m) => m.includes("Slicer failed: kaboom")), true);
+});
+
+Deno.test("materializeSlicerDraft delegates child FEATURE draft writes", async () => {
+    /** @type {Array<{ cwd: string, epicPlanName: string, descriptors: unknown[] }>} */
+    const calls = [];
+    const children = [{
+        sequence: 1,
+        title: "Draft child",
+        summary: "Draft summary",
+        affectedPaths: ["src/plan-store.js"],
+        dependencies: [],
+        content: "# Draft child",
+    }];
+    const result = await materializeSlicerDraft({
+        cwd: "/repo",
+        epicPlanName: "epic-a",
+        children,
+        __deps: {
+            saveChildFeaturePlans: (cwd, epicPlanName, descriptors) => {
+                calls.push({ cwd, epicPlanName, descriptors });
+                return Promise.resolve([{
+                    name: "epic-a/01-draft-child",
+                    path: "/repo/plans/epic-a/01-draft-child.md",
+                    title: "Draft child",
+                    action: "created",
+                    dependencies: [],
+                }]);
+            },
+        },
+    });
+
+    assertEquals(calls, [{ cwd: "/repo", epicPlanName: "epic-a", descriptors: children }]);
+    assertEquals(result[0].name, "epic-a/01-draft-child");
 });
 
 // ── ensureSlicerTasks ──────────────────────────────────────────────

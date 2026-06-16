@@ -99,6 +99,22 @@ function getStoredPlanLocation(cwd, planName) {
  */
 
 /**
+ * Descriptor for a draft child FEATURE plan produced by the Slicer.
+ *
+ * Repeated writes are deterministic: the child file path is derived from the
+ * optional sequence number and title, and existing files at that path are
+ * overwritten with the latest draft content.
+ *
+ * @typedef {Object} ChildFeaturePlanDescriptor
+ * @property {string} title - Human-readable child plan title.
+ * @property {string} summary - Brief child FEATURE summary.
+ * @property {string[]} affectedPaths - Files that the child FEATURE expects to touch.
+ * @property {string[]} dependencies - Sibling child plan names or identifiers required first.
+ * @property {string} content - Planner-format markdown body for the child FEATURE.
+ * @property {number} [sequence] - Optional stable ordering number used in the file name.
+ */
+
+/**
  * Default front matter for plans.
  * @type {PlanFrontMatter}
  */
@@ -415,6 +431,98 @@ export function parsePlanFrontMatter(markdown, opts = {}) {
 }
 
 // ─── Save / Load / List ──────────────────────────────────────────────
+
+/**
+ * Convert a title into a filesystem-safe plan-name segment.
+ * @param {string} title
+ * @returns {string}
+ */
+function slugifyPlanTitle(title) {
+    return String(title || "")
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+}
+
+/**
+ * @param {number | undefined} sequence
+ * @returns {string}
+ */
+function formatChildSequencePrefix(sequence) {
+    if (sequence === undefined) return "";
+    if (!Number.isInteger(sequence) || sequence < 0) {
+        throw new Error(`Child plan sequence must be a non-negative integer: ${sequence}`);
+    }
+    return `${String(sequence).padStart(2, "0")}-`;
+}
+
+/**
+ * @param {ChildFeaturePlanDescriptor} child
+ * @returns {string}
+ */
+function buildChildPlanNameSegment(child) {
+    const slug = slugifyPlanTitle(child.title);
+    if (!slug) throw new Error(`Child plan title must produce a valid plan name: ${child.title}`);
+    return `${formatChildSequencePrefix(child.sequence)}${slug}`;
+}
+
+/**
+ * Save draft child FEATURE plans below `plans/<epicPlanName>/`.
+ *
+ * This helper intentionally overwrites existing draft files at the derived
+ * child path. Conflict detection/finalization belongs to the Slicer flow that
+ * promotes the decomposition, not to draft materialization.
+ *
+ * @param {string} cwd - Project root.
+ * @param {string} epicPlanName - Parent Epic plan name.
+ * @param {ChildFeaturePlanDescriptor[]} children - Child FEATURE descriptors.
+ * @returns {Promise<Array<{ name: string, path: string, title: string, action: "created" | "updated", dependencies: string[] }>>}
+ */
+export async function saveChildFeaturePlans(cwd, epicPlanName, children) {
+    const { name: parentPlanName, segments: parentSegments } = canonicalizeStoredPlanName(epicPlanName);
+    if (parentSegments.length !== 1) {
+        throw new Error(`Parent Epic plan name must be a top-level plan: ${epicPlanName}`);
+    }
+    if (!Array.isArray(children)) throw new Error("Child plans must be an array");
+
+    /** @type {Array<{ name: string, path: string, title: string, action: "created" | "updated", dependencies: string[] }>} */
+    const results = [];
+    const seen = new Set();
+
+    for (const child of children) {
+        const childSegment = buildChildPlanNameSegment(child);
+        const childPlanName = `${parentPlanName}/${childSegment}`;
+        const { name, filePath, segments } = getStoredPlanLocation(cwd, childPlanName);
+        if (segments.length !== 2 || segments[0] !== parentPlanName) {
+            throw new Error(`Invalid child plan name: ${childPlanName}`);
+        }
+        if (seen.has(name)) throw new Error(`Duplicate child plan name: ${name}`);
+        seen.add(name);
+
+        let action = /** @type {"created" | "updated"} */ ("created");
+        try {
+            const stat = await Deno.stat(filePath);
+            if (stat.isFile) action = "updated";
+        } catch {
+            // File does not exist yet.
+        }
+
+        const dependencies = normalizeStringList(child.dependencies) || [];
+        const path = await savePlan(cwd, name, child.content, {
+            classification: "FEATURE",
+            summary: child.summary,
+            affectedPaths: normalizeStringList(child.affectedPaths) || [],
+            status: "draft",
+            parentPlan: parentPlanName,
+            dependencies,
+            origin: "internal",
+        });
+        results.push({ name, path, title: child.title, action, dependencies });
+    }
+
+    return results;
+}
 
 /**
  * Save a plan to the plans directory with front matter.

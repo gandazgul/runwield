@@ -27,7 +27,7 @@ export {
     taskWriteScopesOverlap,
     validateProjectTasks,
 } from "./task-scheduling.js";
-export { ensureSlicerTasks, runSlicerAgent } from "./workflow-slicer.js";
+export { ensureSlicerTasks, materializeSlicerDraft, runSlicerAgent } from "./workflow-slicer.js";
 export {
     askApprovalWithTasks,
     askPostApproval,

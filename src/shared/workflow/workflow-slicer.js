@@ -5,6 +5,7 @@
 
 import { dirname, fromFileUrl, join } from "@std/path";
 import { AGENTS } from "../../constants.js";
+import { saveChildFeaturePlans } from "../../plan-store.js";
 import { ensureBundledAgentDefFile, runAgentSession } from "../session/session.js";
 import { loadAgentDefFromPath } from "../session/agents.js";
 import { extractTasks, validateProjectTasks } from "./task-scheduling.js";
@@ -13,6 +14,21 @@ import { buildSlicerRequest } from "./workflow-prompts.js";
 export const __dirname = dirname(fromFileUrl(import.meta.url));
 const WORKFLOW_PROMPTS_DIR = "workflow-prompts";
 const SLICER_PROMPT_FILE = "slicer-prompt.md";
+
+/**
+ * Materialize a Slicer decomposition draft into child FEATURE plan files.
+ *
+ * @param {Object} opts
+ * @param {string} opts.cwd - Project root.
+ * @param {string} opts.epicPlanName - Parent Epic plan name.
+ * @param {import('../../plan-store.js').ChildFeaturePlanDescriptor[]} opts.children
+ * @param {{ saveChildFeaturePlans?: typeof saveChildFeaturePlans }} [opts.__deps] - Test-only injection point.
+ * @returns {ReturnType<typeof saveChildFeaturePlans>}
+ */
+export function materializeSlicerDraft({ cwd, epicPlanName, children, __deps }) {
+    const saveChildren = __deps?.saveChildFeaturePlans || saveChildFeaturePlans;
+    return saveChildren(cwd, epicPlanName, children);
+}
 
 /**
  * Run the slicer agent against an approved design-only plan.
