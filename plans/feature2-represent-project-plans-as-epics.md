@@ -10,7 +10,10 @@ affectedPaths:
     - "src/shared/workflow/plan-lifecycle.test.js"
     - "src/tools/__tests__/plan-written.test.js"
 createdAt: "2026-06-16T16:25:04Z"
-status: "ready_for_work"
+updatedAt: "2026-06-16T19:20:08.763Z"
+status: "feedback"
+origin: "internal"
+worktreeStatus: "abandoned"
 ---
 
 # Represent PROJECT Plans as Epics

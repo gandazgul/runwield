@@ -15,44 +15,62 @@ import {
     setRootAgentName,
     setRootAgentSession,
 } from "../session/session-state.js";
+import { __resetSettingsForTests } from "../settings.js";
+
+/**
+ * @param {string} prefix
+ * @param {(tempHome: string) => Promise<void>} fn
+ */
+async function withTempHome(prefix, fn) {
+    const originalHome = Deno.env.get("HOME");
+    const tempHome = await Deno.makeTempDir({ prefix });
+
+    try {
+        Deno.env.set("HOME", tempHome);
+        __resetSettingsForTests();
+        await fn(tempHome);
+    } finally {
+        __resetSettingsForTests();
+        if (originalHome === undefined) Deno.env.delete("HOME");
+        else Deno.env.set("HOME", originalHome);
+        __resetSettingsForTests();
+        await Deno.remove(tempHome, { recursive: true });
+    }
+}
 
 Deno.test("setActiveModel reports setModel rejection instead of leaving an unhandled crash", async () => {
-    const originalHome = Deno.env.get("HOME");
     const originalOpenAiKey = Deno.env.get("OPENAI_API_KEY");
-    const tempHome = await Deno.makeTempDir({ prefix: "harns-set-active-model-" });
     /** @type {string[]} */
     const messages = [];
     let renderRequested = false;
 
     try {
-        Deno.env.set("HOME", tempHome);
         Deno.env.set("OPENAI_API_KEY", "test-key");
-        setActiveUiAPI(
-            /** @type {any} */ ({
-                appendSystemMessage: (/** @type {string} */ message) => messages.push(message),
-                requestRender: () => {
-                    renderRequested = true;
-                },
-            }),
-        );
-        setRootAgentSession(
-            /** @type {any} */ ({
-                setModel: () => Promise.reject(new Error("No API key for openai/gpt-5")),
-            }),
-        );
+        await withTempHome("harns-set-active-model-", async () => {
+            setActiveUiAPI(
+                /** @type {any} */ ({
+                    appendSystemMessage: (/** @type {string} */ message) => messages.push(message),
+                    requestRender: () => {
+                        renderRequested = true;
+                    },
+                }),
+            );
+            setRootAgentSession(
+                /** @type {any} */ ({
+                    setModel: () => Promise.reject(new Error("No API key for openai/gpt-5")),
+                }),
+            );
 
-        await setActiveModel("gpt-5", "openai");
+            await setActiveModel("gpt-5", "openai");
 
-        assertEquals(messages, ["Failed to switch model: No API key for openai/gpt-5"]);
-        assertEquals(renderRequested, true);
+            assertEquals(messages, ["Failed to switch model: No API key for openai/gpt-5"]);
+            assertEquals(renderRequested, true);
+        });
     } finally {
         setRootAgentSession(null);
         setActiveUiAPI(null);
-        if (originalHome === undefined) Deno.env.delete("HOME");
-        else Deno.env.set("HOME", originalHome);
         if (originalOpenAiKey === undefined) Deno.env.delete("OPENAI_API_KEY");
         else Deno.env.set("OPENAI_API_KEY", originalOpenAiKey);
-        await Deno.remove(tempHome, { recursive: true });
     }
 });
 
@@ -146,21 +164,15 @@ Deno.test("resolveTemplateModel validates provider/id format, model lookup, and 
 Deno.test("getActiveModel reflects setActiveModel state when no root session is present", async () => {
     setRootAgentSession(null);
 
-    await setActiveModel("model-a", "provider-a");
+    await withTempHome("harns-active-model-state-", async () => {
+        await setActiveModel("model-a", "provider-a");
+    });
 
     assertEquals(getActiveModel(), "model-a");
 });
 
 Deno.test("persistThinkingLevel stores the selected level without throwing", async () => {
-    const originalHome = Deno.env.get("HOME");
-    const tempHome = await Deno.makeTempDir({ prefix: "harns-thinking-level-" });
-
-    try {
-        Deno.env.set("HOME", tempHome);
+    await withTempHome("harns-thinking-level-", async () => {
         await persistThinkingLevel("high");
-    } finally {
-        if (originalHome === undefined) Deno.env.delete("HOME");
-        else Deno.env.set("HOME", originalHome);
-        await Deno.remove(tempHome, { recursive: true });
-    }
+    });
 });

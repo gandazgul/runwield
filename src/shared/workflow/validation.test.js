@@ -3,33 +3,37 @@ import { loadReviewerPrompt, runValidationLoop } from "./validation.js";
 import { getActiveExecutionWorkflow, setActiveExecutionWorkflow } from "../session/session-state.js";
 
 /**
- * @returns {any & { messages: string[], systemCalls: Array<{ message: string, isError: boolean, style: any }>, promptSelections: string[] }}
+ * @returns {any & { messages: string[], systemCalls: Array<{ message: string, isError: boolean, header: string, style: any }>, promptSelections: string[], busyStates: boolean[] }}
  */
 function makeUi() {
     /** @type {string[]} */
     const messages = [];
-    /** @type {Array<{ message: string, isError: boolean, style: any }>} */
+    /** @type {Array<{ message: string, isError: boolean, header: string, style: any }>} */
     const systemCalls = [];
     /** @type {string[]} */
     const promptSelections = [];
+    /** @type {boolean[]} */
+    const busyStates = [];
     return /** @type {any} */ ({
         messages,
         systemCalls,
         promptSelections,
+        busyStates,
         appendSystemMessage: (
             /** @type {string} */ msg,
             /** @type {boolean} */ isError = false,
-            /** @type {string} */ _header = "",
+            /** @type {string} */ header = "",
             /** @type {any} */ style = {},
         ) => {
             messages.push(String(msg));
-            systemCalls.push({ message: String(msg), isError, style });
+            systemCalls.push({ message: String(msg), isError, header, style });
         },
         promptSelect: () => {
             promptSelections.push("prompted");
             return Promise.resolve("stop");
         },
         promptText: () => Promise.resolve("deno task test"),
+        setBusy: (/** @type {boolean} */ busy) => busyStates.push(busy),
     });
 }
 
@@ -108,16 +112,29 @@ Deno.test("runValidationLoop marks validation progress and success messages with
 
     assertEquals(
         uiAPI.systemCalls.some((/** @type {{ message: string }} */ call) =>
-            call.message.includes("[spinner] Running CI Validation (Attempt 1/3)...")
+            call.message.includes("Running CI Validation (Attempt 1/3)...")
         ),
         true,
     );
     assertEquals(
+        uiAPI.systemCalls
+            .filter((/** @type {{ message: string }} */ call) =>
+                call.message.includes("Running CI Validation") || call.message === "Build and tests passed."
+            )
+            .every((/** @type {{ header: string }} */ call) => call.header === "Harns"),
+        true,
+    );
+    assertEquals(
         uiAPI.systemCalls.some((/** @type {{ message: string }} */ call) =>
-            call.message.includes("[spinner] Running Semantic Code Review...")
+            call.message.includes("Running Semantic Code Review...")
         ),
         true,
     );
+    assertEquals(
+        uiAPI.systemCalls.some((/** @type {{ message: string }} */ call) => call.message.includes("[spinner]")),
+        false,
+    );
+    assertEquals(uiAPI.busyStates, [true, false, true, false]);
     assertEquals(
         uiAPI.systemCalls.some((/** @type {{ message: string, style: any }} */ call) =>
             call.message === "Build and tests passed." && call.style.bodyColor === "success"
@@ -415,6 +432,7 @@ Deno.test("runValidationLoop runs validation and reviewer in active execution cw
     assertEquals(ciCwds, ["/worktree"]);
     assertEquals(diffCwds, ["/worktree"]);
     assertEquals(sessionCwds, ["/worktree"]);
+    assertEquals(sessionOpts[0].uiAPI, uiAPI);
     assertEquals(sessionOpts[0]._agentDefOverride.tools, []);
     assertEquals(sessionOpts[0]._agentDefOverride.systemPrompt.includes("{{SKILLS}}"), false);
     assertEquals(sessionOpts[0].includeEditFallback, false);

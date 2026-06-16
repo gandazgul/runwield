@@ -14,7 +14,6 @@ import {
     getActiveExecutionWorkflow,
 } from "../session/session-state.js";
 import { getCustomSetting, setCustomSetting } from "../settings.js";
-import { createSilentUiApi } from "../ui/api.js";
 import { extractAssistantOutput, readLatestTaskCompletedOutcome } from "./workflow.js";
 import { setActiveAgent } from "../interactive/chat-session.js";
 import { getWorkflowDiff } from "./git-snapshot.js";
@@ -197,6 +196,16 @@ async function promptForMergeFailureAction(uiAPI, reason) {
 }
 
 /**
+ * @param {import('./workflow.js').UiAPI | undefined} uiAPI
+ * @param {string} text
+ * @param {boolean} [isError]
+ * @param {{ headingColor?: string, bodyColor?: string }} [style]
+ */
+function appendHarnsSystemMessage(uiAPI, text, isError = false, style = {}) {
+    uiAPI?.appendSystemMessage?.(text, isError, "Harns", style);
+}
+
+/**
  * @param {string} path
  * @param {string} planName
  * @returns {boolean}
@@ -321,21 +330,28 @@ export async function runValidationLoop({
 
     while (!executionComplete && validationCycles < MAX_VALIDATION_CYCLES) {
         validationCycles++;
-        uiAPI?.appendSystemMessage?.(`\nStarting Validation Cycle ${validationCycles}/${MAX_VALIDATION_CYCLES}`);
+        appendHarnsSystemMessage(uiAPI, `Starting Validation Cycle ${validationCycles}/${MAX_VALIDATION_CYCLES}`);
 
         let buildPasses = false;
         let mechanicalAttempts = 0;
 
         while (!buildPasses && mechanicalAttempts < 3) {
             mechanicalAttempts++;
-            uiAPI?.appendSystemMessage?.(`[spinner] Running CI Validation (Attempt ${mechanicalAttempts}/3)...`);
-            const ciResult = await runLocalCIImpl(uiAPI, executionCwd);
+            appendHarnsSystemMessage(uiAPI, `Running CI Validation (Attempt ${mechanicalAttempts}/3)...`);
+            uiAPI?.setBusy?.(true);
+            let ciResult;
+            try {
+                ciResult = await runLocalCIImpl(uiAPI, executionCwd);
+            } finally {
+                uiAPI?.setBusy?.(false);
+            }
 
             if (ciResult.exitCode === 0) {
                 buildPasses = true;
-                uiAPI?.appendSystemMessage?.("Build and tests passed.", false, "", SUCCESS_MESSAGE_STYLE);
+                appendHarnsSystemMessage(uiAPI, "Build and tests passed.", false, SUCCESS_MESSAGE_STYLE);
             } else {
-                uiAPI?.appendSystemMessage?.(
+                appendHarnsSystemMessage(
+                    uiAPI,
                     `Build failed. Dispatching ${getAgentDisplayName(AGENTS.OPERATOR)} to fix syntax/types...`,
                     true,
                 );
@@ -362,9 +378,37 @@ export async function runValidationLoop({
             break;
         }
 
-        uiAPI?.appendSystemMessage?.("[spinner] Running Semantic Code Review...");
+        appendHarnsSystemMessage(uiAPI, "Running Semantic Code Review...");
+        uiAPI?.setBusy?.(true);
+        let diffText = "";
+        let reviewResponse = "";
+        try {
+            diffText = await getDiffText(baselineTree, executionCwd);
 
-        const diffText = await getDiffText(baselineTree, executionCwd);
+            if (
+                (!requiresImplementationDiff(triageMeta) || hasImplementationDiff(diffText, planName)) &&
+                diffText.trim()
+            ) {
+                const reviewPrompt =
+                    `Compare the current implementation diff against the original plan. If the code fully satisfies the plan, reply ONLY with the word 'APPROVED'. Otherwise, list the missing semantic requirements.\n\n### Original Plan\n${planContent}\n\n### Git Diff\n${diffText}`;
+                const reviewerAgentDef = await loadReviewerPromptImpl();
+
+                const sessionMessages = await runAgentSessionImpl({
+                    agentName: AGENTS.REVIEWER,
+                    userRequest: reviewPrompt,
+                    uiAPI,
+                    sessionManager,
+                    cwd: executionCwd,
+                    _agentDefOverride: reviewerAgentDef,
+                    includeEditFallback: false,
+                });
+                consumePendingSwitchHandoff();
+
+                reviewResponse = extractAssistantOutput(sessionMessages) || "";
+            }
+        } finally {
+            uiAPI?.setBusy?.(false);
+        }
 
         if (requiresImplementationDiff(triageMeta) && !hasImplementationDiff(diffText, planName)) {
             haltReason = diffText.trim()
@@ -374,38 +418,22 @@ export async function runValidationLoop({
         }
 
         if (!diffText.trim()) {
-            uiAPI?.appendSystemMessage?.(
+            appendHarnsSystemMessage(
+                uiAPI,
                 "No changes detected in diff. Assuming approved.",
                 false,
-                "",
                 SUCCESS_MESSAGE_STYLE,
             );
             executionComplete = true;
             break;
         }
 
-        const reviewPrompt =
-            `Compare the current implementation diff against the original plan. If the code fully satisfies the plan, reply ONLY with the word 'APPROVED'. Otherwise, list the missing semantic requirements.\n\n### Original Plan\n${planContent}\n\n### Git Diff\n${diffText}`;
-        const reviewerAgentDef = await loadReviewerPromptImpl();
-
-        const sessionMessages = await runAgentSessionImpl({
-            agentName: AGENTS.REVIEWER,
-            userRequest: reviewPrompt,
-            uiAPI: createSilentUiApi(),
-            sessionManager,
-            cwd: executionCwd,
-            _agentDefOverride: reviewerAgentDef,
-            includeEditFallback: false,
-        });
-        consumePendingSwitchHandoff();
-
-        const reviewResponse = extractAssistantOutput(sessionMessages) || "";
-
         if (isApprovedReviewResponse(reviewResponse)) {
-            uiAPI?.appendSystemMessage?.("Semantic Code Review Approved.", false, "", SUCCESS_MESSAGE_STYLE);
+            appendHarnsSystemMessage(uiAPI, "Semantic Code Review Approved.", false, SUCCESS_MESSAGE_STYLE);
             executionComplete = true;
         } else {
-            uiAPI?.appendSystemMessage?.(
+            appendHarnsSystemMessage(
+                uiAPI,
                 `Review failed. Sending feedback back to ${getAgentDisplayName(AGENTS.ENGINEER)}...\n\n` +
                     `Reviewer Feedback:\n${reviewResponse || "(no reviewer output captured)"}`,
                 true,
@@ -439,7 +467,8 @@ export async function runValidationLoop({
         if (worktreeBranch) {
             while (executionComplete) {
                 try {
-                    uiAPI.appendSystemMessage(
+                    appendHarnsSystemMessage(
+                        uiAPI,
                         `Merging validated worktree branch ${worktreeBranch} into primary checkout.`,
                     );
                     await mergeExecutionWorktreeImpl({
@@ -459,7 +488,7 @@ export async function runValidationLoop({
                     break;
                 } catch (/** @type {any} */ error) {
                     const reason = error instanceof Error ? error.message : String(error);
-                    uiAPI.appendSystemMessage(`Worktree merge failed: ${reason}`, true);
+                    appendHarnsSystemMessage(uiAPI, `Worktree merge failed: ${reason}`, true);
                     if (worktreeId) {
                         await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, { status: "merge_conflict" });
                     }
@@ -477,17 +506,17 @@ export async function runValidationLoop({
                     if (action === "retry") {
                         continue;
                     }
-                    uiAPI.appendSystemMessage(`Workflow halted: Worktree merge failed: ${reason}`, true);
+                    appendHarnsSystemMessage(uiAPI, `Workflow halted: Worktree merge failed: ${reason}`, true);
                     executionComplete = false;
                 }
             }
         }
 
         if (executionComplete) {
-            uiAPI.appendSystemMessage(
+            appendHarnsSystemMessage(
+                uiAPI,
                 `${triageClassificationDisplay} execution and validation complete.`,
                 false,
-                "",
                 SUCCESS_MESSAGE_STYLE,
             );
             if (planName && planName !== "quick-fix") {
@@ -502,7 +531,7 @@ export async function runValidationLoop({
         }
     } else {
         const reason = haltReason || "Validation stopped before completion.";
-        uiAPI.appendSystemMessage(`Workflow halted: ${reason}`, true);
+        appendHarnsSystemMessage(uiAPI, `Workflow halted: ${reason}`, true);
         if (worktreeId) {
             await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, { status: "validation_failed" });
         }

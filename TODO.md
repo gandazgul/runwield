@@ -1,9 +1,6 @@
 # TODO
 
-- [ ] "Running CI Validation (Attempt 1/3)..." when this is happening show [spinner] in front
-  - same for Running Semantic Code Review...
-  - "Build and tests passed." and other success messages should be in the success color from the theme
-  - Errors should be in the error color
+- [ ] Errors should be in the error color
 
 - [ ] more tests
 

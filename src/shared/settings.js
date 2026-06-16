@@ -209,6 +209,15 @@ export function getSettingsManager() {
 }
 
 /**
+ * Test-only escape hatch for tests that need to change HOME or cwd before
+ * exercising settings-backed behavior.
+ */
+export function __resetSettingsForTests() {
+    storageInstance = null;
+    settingsManager = null;
+}
+
+/**
  * Strip JSONC comments/trailing commas from a raw string, producing valid JSON.
  * Uses @std/jsonc parse then re-serializes for callers that expect clean JSON.
  *
