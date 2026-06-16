@@ -44,6 +44,7 @@ import {
 import {
     findById as findWorktreeByIdFn,
     findByPlanName as findWorktreeByPlanNameFn,
+    removeEntry as removeWorktreeRegistryEntryFn,
     updateEntry as updateWorktreeRegistryEntryFn,
 } from "../../shared/worktree-registry.js";
 import { runValidationLoop as runValidationLoopFn } from "../../shared/workflow/validation.js";
@@ -98,6 +99,7 @@ export { getLoadPlanCompletions } from "./getArgumentCompletions.js";
  * @property {typeof createExecutionWorktreeFn} [createExecutionWorktree]
  * @property {typeof mergeExecutionWorktreeFn} [mergeExecutionWorktree]
  * @property {typeof removeExecutionWorktreeFn} [removeExecutionWorktree]
+ * @property {typeof removeWorktreeRegistryEntryFn} [removeWorktreeRegistryEntry]
  * @property {typeof shouldCleanupMergedWorktreesFn} [shouldCleanupMergedWorktrees]
  */
 
@@ -936,6 +938,7 @@ async function confirmRecoveryWorktreeAvailable(planName, worktreeContext, uiAPI
  * @param {typeof createExecutionWorktreeFn} opts.createExecutionWorktree
  * @param {typeof mergeExecutionWorktreeFn} opts.mergeExecutionWorktree
  * @param {typeof removeExecutionWorktreeFn} opts.removeExecutionWorktree
+ * @param {typeof removeWorktreeRegistryEntryFn} opts.removeWorktreeRegistryEntry
  * @param {typeof shouldCleanupMergedWorktreesFn} opts.shouldCleanupMergedWorktrees
  * @param {typeof setActiveAgentFn} opts.setActiveAgent
  * @param {typeof createDirectAgentHandlerFn} opts.createDirectAgentHandler
@@ -963,6 +966,7 @@ async function handlePlanRecovery({
     createExecutionWorktree,
     mergeExecutionWorktree,
     removeExecutionWorktree,
+    removeWorktreeRegistryEntry,
     shouldCleanupMergedWorktrees,
     setActiveAgent,
     createDirectAgentHandler,
@@ -1179,6 +1183,9 @@ async function handlePlanRecovery({
                             branch: worktreeContext.branch,
                             force: true,
                         });
+                        if (worktreeContext.id) {
+                            await removeWorktreeRegistryEntry(CWD, worktreeContext.id);
+                        }
                     } catch (cleanupError) {
                         const cleanupReason = cleanupError instanceof Error
                             ? cleanupError.message
@@ -1391,6 +1398,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
         createExecutionWorktree: createExecutionWorktreeDep,
         mergeExecutionWorktree: mergeExecutionWorktreeDep,
         removeExecutionWorktree: removeExecutionWorktreeDep,
+        removeWorktreeRegistryEntry: removeWorktreeRegistryEntryDep,
         shouldCleanupMergedWorktrees: shouldCleanupMergedWorktreesDep,
     } = deps;
 
@@ -1425,6 +1433,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
     const createExecutionWorktree = createExecutionWorktreeDep || createExecutionWorktreeFn;
     const mergeExecutionWorktree = mergeExecutionWorktreeDep || mergeExecutionWorktreeFn;
     const removeExecutionWorktree = removeExecutionWorktreeDep || removeExecutionWorktreeFn;
+    const removeWorktreeRegistryEntry = removeWorktreeRegistryEntryDep || removeWorktreeRegistryEntryFn;
     const shouldCleanupMergedWorktrees = shouldCleanupMergedWorktreesDep || shouldCleanupMergedWorktreesFn;
 
     const parsedArgs = parseArgs(argv, {
@@ -1526,6 +1535,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                 createExecutionWorktree,
                 mergeExecutionWorktree,
                 removeExecutionWorktree,
+                removeWorktreeRegistryEntry,
                 shouldCleanupMergedWorktrees,
                 setActiveAgent,
                 createDirectAgentHandler,

@@ -155,9 +155,11 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
     if (event === "validation_passed") {
         updates.worktreeStatus = details.worktreeStatus || "merged";
         if (details.cleanupMergedWorktrees !== false) {
+            updates.executionBaselineTree = null;
             updates.worktreeId = null;
             updates.worktreePath = null;
             updates.worktreeBranch = null;
+            updates.worktreeStatus = null;
         }
         updates.verifiedAt = now;
         updates.failureReason = null;

@@ -19,7 +19,10 @@ import { setActiveAgent } from "../interactive/chat-session.js";
 import { getWorkflowDiff } from "./git-snapshot.js";
 import { recordPlanEvent } from "./plan-lifecycle.js";
 import { mergeExecutionWorktree, removeExecutionWorktree } from "../worktree.js";
-import { updateEntry as updateWorktreeRegistryEntry } from "../worktree-registry.js";
+import {
+    removeEntry as removeWorktreeRegistryEntry,
+    updateEntry as updateWorktreeRegistryEntry,
+} from "../worktree-registry.js";
 
 export const __dirname = dirname(fromFileUrl(import.meta.url));
 const WORKFLOW_PROMPTS_DIR = "workflow-prompts";
@@ -285,6 +288,7 @@ export function shouldRunWorkflowValidation(triageMeta) {
  *   recordPlanEvent?: typeof recordPlanEvent,
  *   mergeExecutionWorktree?: typeof mergeExecutionWorktree,
  *   removeExecutionWorktree?: typeof removeExecutionWorktree,
+ *   removeWorktreeRegistryEntry?: typeof removeWorktreeRegistryEntry,
  *   updateWorktreeRegistryEntry?: typeof updateWorktreeRegistryEntry,
  *   setActiveAgent?: typeof setActiveAgent,
  *   createDirectAgentHandler?: (agentName: string) => import('../session/types.js').AgentMessageHandler,
@@ -314,6 +318,7 @@ export async function runValidationLoop({
     const recordPlanEventImpl = __deps?.recordPlanEvent || recordPlanEvent;
     const mergeExecutionWorktreeImpl = __deps?.mergeExecutionWorktree || mergeExecutionWorktree;
     const removeExecutionWorktreeImpl = __deps?.removeExecutionWorktree || removeExecutionWorktree;
+    const removeWorktreeRegistryEntryImpl = __deps?.removeWorktreeRegistryEntry || removeWorktreeRegistryEntry;
     const updateWorktreeRegistryEntryImpl = __deps?.updateWorktreeRegistryEntry || updateWorktreeRegistryEntry;
     const loadReviewerPromptImpl = __deps?.loadReviewerPrompt || loadReviewerPrompt;
     const shouldCleanupMergedWorktreesImpl = __deps?.shouldCleanupMergedWorktrees || shouldCleanupMergedWorktrees;
@@ -501,6 +506,9 @@ export async function runValidationLoop({
                                 branch: worktreeBranch,
                                 force: true,
                             });
+                            if (worktreeId) {
+                                await removeWorktreeRegistryEntryImpl(projectRoot, worktreeId);
+                            }
                         } catch (cleanupError) {
                             const cleanupReason = cleanupError instanceof Error
                                 ? cleanupError.message

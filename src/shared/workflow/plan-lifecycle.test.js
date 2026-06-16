@@ -71,20 +71,24 @@ Deno.test("buildPlanEventUpdates tracks implementation and merge worktree status
         "merge_conflict",
     );
     assertEquals(
-        buildPlanEventUpdates("validation_passed", "implemented").worktreeStatus,
+        buildPlanEventUpdates("validation_passed", "implemented", { cleanupMergedWorktrees: false }).worktreeStatus,
         "merged",
     );
     const passed = buildPlanEventUpdates("validation_passed", "implemented");
+    assertEquals(passed.executionBaselineTree, null);
     assertEquals(passed.worktreeId, null);
     assertEquals(passed.worktreePath, null);
     assertEquals(passed.worktreeBranch, null);
+    assertEquals(passed.worktreeStatus, null);
 
     const retained = buildPlanEventUpdates("validation_passed", "implemented", {
         cleanupMergedWorktrees: false,
     });
+    assertEquals(retained.executionBaselineTree, undefined);
     assertEquals(retained.worktreeId, undefined);
     assertEquals(retained.worktreePath, undefined);
     assertEquals(retained.worktreeBranch, undefined);
+    assertEquals(retained.worktreeStatus, "merged");
 });
 
 Deno.test("buildPlanEventUpdates records continue recovery as ready_for_work", () => {

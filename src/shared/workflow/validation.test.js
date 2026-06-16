@@ -478,6 +478,10 @@ Deno.test("runValidationLoop records validation_passed only after worktree merge
                 actions.push(`remove:${args.projectRoot}:${args.path}:${args.branch || ""}`);
                 return Promise.resolve();
             },
+            removeWorktreeRegistryEntry: (/** @type {string} */ projectRoot, /** @type {string} */ id) => {
+                actions.push(`registry-remove:${projectRoot}:${id}`);
+                return Promise.resolve();
+            },
 
             updateWorktreeRegistryEntry: (
                 /** @type {string} */ _projectRoot,
@@ -499,6 +503,7 @@ Deno.test("runValidationLoop records validation_passed only after worktree merge
         "merge:/primary:harns/worktree/p-wt1",
         "registry:merged",
         "remove:/primary:/worktree:harns/worktree/p-wt1",
+        "registry-remove:/primary:wt1",
         "event:validation_passed:merged",
     ]);
 });
@@ -540,6 +545,10 @@ Deno.test("runValidationLoop keeps merged worktree when cleanup setting is disab
             },
             removeExecutionWorktree: () => {
                 actions.push("remove");
+                return Promise.resolve();
+            },
+            removeWorktreeRegistryEntry: () => {
+                actions.push("registry-remove");
                 return Promise.resolve();
             },
             updateWorktreeRegistryEntry: () => {

@@ -38,7 +38,8 @@ and mnemosyne effectively.
 1. Index the codebase using `cymbal index .` to create a searchable index of the project files and their contents.
 2. Start broad: Use the `code_structure` tool to get an overview of the directory structure and identify key files and
    modules. Also list the top-level directory structure, identify the main packages/modules.
-3. Go deep: read key files: config, entry points, shared utilities, API endpoints, data models.
+3. Go deep: use Cymbal for code topology, then read key source files and non-code project facts directly: config, entry
+   points, shared utilities, API endpoints, data models, docs, test setup, and scripts.
 4. Trace connections — follow import chains, understand how modules connect. `code_trace` can help with this.
 5. Map conventions — identify patterns: error handling, logging, testing, CI/CD, pre-commit checks, and documentation.
    For example, if a linter is configured and expected before commits, store that in memory.
@@ -55,7 +56,9 @@ and mnemosyne effectively.
 
 ## Important Rules
 
-- You may explore with read/search/code tools and discovery-only bash.
+- You may explore with read/search/code tools and discovery-only bash. Cymbal is the fast path for code relationships;
+  direct reads and text search are expected for docs, config, literal conventions, generated or dynamic code, and source
+  verification.
 - `cymbal index .` is the only allowed mutating bash command. Do NOT run destructive bash commands or other mutating
   shell commands.
 - Do NOT modify any project files other than `CONTEXT.md`.

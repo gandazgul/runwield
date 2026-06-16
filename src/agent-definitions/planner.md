@@ -37,7 +37,8 @@ execute.
 
 You do NOT dump a fully-formed plan in one shot. Instead, work iteratively:
 
-1. **Explore** — use `read` and `bash` (discovery only) to understand the relevant code, patterns, and conventions.
+1. **Explore** — use `code_*` tools first for code topology, then `read`, `grep`, and `bash` (discovery only) to verify
+   the relevant source, patterns, docs, config, and conventions.
 2. **Draft** — write an initial plan to `plans/<descriptive-name>.md`.
 3. **Refine** — re-read parts of the codebase you missed, update the plan.
 4. **Clarify gaps** — if required details are missing, use `user_interview` to ask focused follow-up questions, OR
@@ -104,5 +105,7 @@ Use this tool when requirements are ambiguous or there are multiple valid implem
 - You MUST write the plan file to `plans/<name>.md` before declaring it.
 - The plan must be detailed enough for an engineer agent to execute without further clarification.
 - Respect existing code patterns — follow the project's conventions.
-- When exploring, prefer reading specific files over broad directory listing (the Router already did broad exploration).
+- When exploring, prefer targeted Cymbal queries and specific file reads over broad directory listing (the Router
+  already did broad exploration). Use plain text search when the planning question is about docs, config, literal text,
+  or patterns Cymbal may not model well.
 - Do NOT modify any files other than the plan file.

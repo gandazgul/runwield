@@ -7,7 +7,12 @@ affectedPaths:
     - "src/cmd/load-plan/index.test.js"
     - "src/plan-store.js"
 createdAt: "2026-06-16T16:25:04Z"
-status: "ready_for_work"
+updatedAt: "2026-06-16T20:21:16.807Z"
+status: "verified"
+origin: "internal"
+implementedAt: "2026-06-16T20:16:51.416Z"
+verifiedAt: "2026-06-16T20:21:16.807Z"
+worktreeStatus: "merged"
 ---
 
 # Load an Epic and Select the Next Action

@@ -45,20 +45,20 @@ the Plan state machine.
 
 ## Events
 
-| Event                     | From                                                                 | To               | Notes                                                                                                  |
-| ------------------------- | -------------------------------------------------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------ |
-| `review_feedback`         | `draft`, `feedback`, `approved`                                      | `feedback`       | The user returned Feedback from Plannotator.                                                           |
-| `review_approved`         | `draft`, `feedback`, `approved`                                      | `approved`       | User approval is durable before the Readiness Gate runs.                                               |
-| `readiness_passed`        | `approved`                                                           | `ready_for_work` | FEATURE Plans pass without an LLM call; PROJECT Plans pass after valid Slicer Tasks exist.             |
-| `execution_started`       | `ready_for_work`                                                     | `in_progress`    | Captures `executionBaselineTree` and records active worktree metadata before work begins.              |
-| `execution_failed`        | `in_progress`                                                        | `failed`         | Sets `failureReason`, `failedAt`, and `worktreeStatus: "execution_failed"` when a reason is available. |
-| `implementation_finished` | `in_progress`                                                        | `implemented`    | Sets `implementedAt` and `worktreeStatus: "completed"`; Workflow Validation still needs to run.        |
-| `validation_failed`       | `implemented`                                                        | `implemented`    | Keeps implemented status and sets `worktreeStatus: "validation_failed"` plus `failureReason`.          |
-| `worktree_merge_failed`   | `implemented`                                                        | `implemented`    | Validation passed but merge-back failed/refused; sets `worktreeStatus: "merge_conflict"`.              |
-| `validation_passed`       | `implemented`                                                        | `verified`       | Recorded only after validation passes and merge-back succeeds; sets `worktreeStatus: "merged"`.        |
-| `recovery_continue`       | `in_progress`, `failed`                                              | `ready_for_work` | Records that recovery will continue from the current worktree.                                         |
-| `recovery_reset`          | `in_progress`, `failed`, `implemented`                               | `ready_for_work` | Records that recovery abandoned the current attempt before retrying.                                   |
-| `review_reopened`         | `ready_for_work`, `in_progress`, `failed`, `implemented`, `verified` | `feedback`       | The user chose to revise the Plan instead of continuing execution.                                     |
+| Event                     | From                                                                 | To               | Notes                                                                                                            |
+| ------------------------- | -------------------------------------------------------------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `review_feedback`         | `draft`, `feedback`, `approved`                                      | `feedback`       | The user returned Feedback from Plannotator.                                                                     |
+| `review_approved`         | `draft`, `feedback`, `approved`                                      | `approved`       | User approval is durable before the Readiness Gate runs.                                                         |
+| `readiness_passed`        | `approved`                                                           | `ready_for_work` | FEATURE Plans pass without an LLM call; PROJECT Plans pass after valid Slicer Tasks exist.                       |
+| `execution_started`       | `ready_for_work`                                                     | `in_progress`    | Captures `executionBaselineTree` and records active worktree metadata before work begins.                        |
+| `execution_failed`        | `in_progress`                                                        | `failed`         | Sets `failureReason`, `failedAt`, and `worktreeStatus: "execution_failed"` when a reason is available.           |
+| `implementation_finished` | `in_progress`                                                        | `implemented`    | Sets `implementedAt` and `worktreeStatus: "completed"`; Workflow Validation still needs to run.                  |
+| `validation_failed`       | `implemented`                                                        | `implemented`    | Keeps implemented status and sets `worktreeStatus: "validation_failed"` plus `failureReason`.                    |
+| `worktree_merge_failed`   | `implemented`                                                        | `implemented`    | Validation passed but merge-back failed/refused; sets `worktreeStatus: "merge_conflict"`.                        |
+| `validation_passed`       | `implemented`                                                        | `verified`       | Recorded only after validation passes and merge-back succeeds; clears worktree metadata when cleanup is enabled. |
+| `recovery_continue`       | `in_progress`, `failed`                                              | `ready_for_work` | Records that recovery will continue from the current worktree.                                                   |
+| `recovery_reset`          | `in_progress`, `failed`, `implemented`                               | `ready_for_work` | Records that recovery abandoned the current attempt before retrying.                                             |
+| `review_reopened`         | `ready_for_work`, `in_progress`, `failed`, `implemented`, `verified` | `feedback`       | The user chose to revise the Plan instead of continuing execution.                                               |
 
 ## Readiness Gate
 
@@ -95,8 +95,10 @@ For worktree-backed plans:
 4. If validation fails, Harns keeps Plan Status `implemented`, records `worktreeStatus: "validation_failed"`, and leaves
    the worktree for recovery.
 5. If validation passes, Harns attempts to merge the execution branch into the primary checkout.
-6. Only after that merge succeeds does Harns record `validation_passed`, set Plan Status `verified`, and set
-   `worktreeStatus: "merged"`.
+6. Only after that merge succeeds does Harns record `validation_passed` and set Plan Status `verified`. By default,
+   Harns removes the execution checkout, deletes its `.hns/worktrees.json` entry, and clears `executionBaselineTree`,
+   `worktreeId`, `worktreePath`, `worktreeBranch`, and `worktreeStatus` from the plan file. If `cleanupMergedWorktrees`
+   is `false`, Harns keeps the merged checkout, registry entry, and plan pointers for inspection.
 7. If merge-back fails or is refused because the primary checkout has blocking uncommitted changes, Harns records
    `worktree_merge_failed`, keeps Plan Status `implemented`, sets `worktreeStatus: "merge_conflict"`, and leaves the
    worktree intact.

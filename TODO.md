@@ -1,7 +1,5 @@
 # TODO
 
-- [ ] Errors should be in the error color
-
 - [ ] more tests
 
 Refactor-first (before testing) candidates:
@@ -27,7 +25,7 @@ Refactor-first (before testing) candidates:
       HARNS.md). Needed because the root AgentSession is built once per agent switch and bakes these in at construction;
       without /reload, mid-session changes to mnemosyne memories / installed skills / HARNS.md are not visible to the
       active agent until the next agent switch.
-- [ ] default to this theme instead? https://github.com/ifiokjr/oh-pi/blob/main/packages/themes/themes/oh-p-dark.json
+- [ ] default to this theme instead? <https://github.com/ifiokjr/oh-pi/blob/main/packages/themes/themes/oh-p-dark.json>
 
 ## Bugs
 
