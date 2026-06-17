@@ -629,6 +629,66 @@ Deno.test("runValidationLoop records worktree_merge_failed when merge-back fails
     );
 });
 
+Deno.test("runValidationLoop still prompts when merge-conflict metadata updates fail", async () => {
+    const uiAPI = makeUi();
+    /** @type {string[]} */
+    const actions = [];
+
+    setActiveExecutionWorkflow({
+        planName: "p",
+        triageMeta: { classification: "FEATURE" },
+        baselineTree: "baseline-tree",
+        projectRoot: "/primary",
+        executionCwd: "/worktree",
+        worktreeId: "wt1",
+        worktreeBranch: "harns/worktree/p-wt1",
+    });
+
+    await runValidationLoop({
+        planName: "p",
+        planContent: "plan",
+        triageMeta: { classification: "FEATURE" },
+        uiAPI,
+        sessionManager: undefined,
+        __deps: /** @type {any} */ ({
+            runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
+            getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
+            runAgentSession: () =>
+                Promise.resolve(
+                    /** @type {any} */ ([{
+                        role: "assistant",
+                        content: [{ type: "text", text: "APPROVED" }],
+                    }]),
+                ),
+            mergeExecutionWorktree: () => Promise.reject(new Error("merge conflict")),
+            updateWorktreeRegistryEntry: () => {
+                actions.push("registry-failed");
+                return Promise.reject(new SyntaxError("Expected double-quoted property name"));
+            },
+            recordPlanEvent: () => {
+                actions.push("plan-event-failed");
+                return Promise.reject(new Error("front matter conflict markers"));
+            },
+            setActiveAgent: () => {},
+        }),
+    });
+
+    assertEquals(actions, ["registry-failed", "plan-event-failed"]);
+    assertEquals(uiAPI.promptSelections, ["prompted"]);
+    assertEquals(
+        uiAPI.messages.some((/** @type {string} */ message) =>
+            message.includes("Could not update worktree registry while merge conflict is active")
+        ),
+        true,
+    );
+    assertEquals(
+        uiAPI.messages.some((/** @type {string} */ message) =>
+            message.includes("Could not update plan metadata while merge conflict is active")
+        ),
+        true,
+    );
+});
+
 Deno.test("runValidationLoop retries worktree merge after user fixes primary checkout", async () => {
     const uiAPI = makeUi();
     /** @type {string[]} */

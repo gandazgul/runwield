@@ -162,3 +162,57 @@ Deno.test("mergeExecutionWorktree refuses dirty primary changes that overlap bra
         await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
     }
 });
+
+Deno.test("mergeExecutionWorktree continues an in-progress resolved merge", async () => {
+    const projectRoot = await makeRepo();
+    const worktreeRoot = await Deno.makeTempDir();
+    /** @type {Awaited<ReturnType<typeof createExecutionWorktree>> | undefined} */
+    let worktree;
+    try {
+        worktree = await createExecutionWorktree({ projectRoot, planName: "Continue Merge", worktreeRoot });
+        const branch = worktree.branch;
+        const worktreePath = worktree.path;
+        await Deno.writeTextFile(`${worktree.path}/README.md`, "base\nfeature\n");
+        await git(worktree.path, ["add", "."]);
+        await git(worktree.path, ["commit", "-m", "feature"]);
+
+        await Deno.writeTextFile(`${projectRoot}/README.md`, "base\nprimary\n");
+        await git(projectRoot, ["add", "."]);
+        await git(projectRoot, ["commit", "-m", "primary"]);
+
+        await assertRejects(
+            () =>
+                mergeExecutionWorktree({
+                    projectRoot,
+                    branch,
+                    worktreePath,
+                }),
+            Error,
+            "CONFLICT",
+        );
+
+        await Deno.writeTextFile(`${projectRoot}/README.md`, "base\nprimary\nfeature\n");
+        await git(projectRoot, ["add", "README.md"]);
+
+        await mergeExecutionWorktree({
+            projectRoot,
+            branch,
+            worktreePath,
+        });
+
+        assertEquals(await Deno.readTextFile(`${projectRoot}/README.md`), "base\nprimary\nfeature\n");
+        assertEquals(await git(projectRoot, ["status", "--porcelain"]), "");
+        assertEquals(await git(projectRoot, ["log", "-1", "--pretty=%s"]), `Merge branch '${branch}'`);
+    } finally {
+        if (worktree) {
+            await removeExecutionWorktree({
+                projectRoot,
+                path: worktree.path,
+                branch: worktree.branch,
+                force: true,
+            });
+        }
+        await Deno.remove(projectRoot, { recursive: true });
+        await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
+    }
+});

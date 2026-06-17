@@ -190,9 +190,9 @@ function isApprovedReviewResponse(response) {
  */
 async function promptForMergeFailureAction(uiAPI, reason) {
     const choice = await uiAPI.promptSelect?.(
-        `Worktree merge failed:\n${reason}\n\nFix the primary checkout if needed, then retry the merge.`,
+        `Worktree merge failed:\n${reason}\n\nResolve and stage the conflicts, or run git merge --abort, then retry.`,
         [
-            { value: "retry", label: "Retry merge" },
+            { value: "retry", label: "Retry/continue merge" },
             { value: "stop", label: "Stop" },
         ],
     );
@@ -525,16 +525,40 @@ export async function runValidationLoop({
                     const reason = error instanceof Error ? error.message : String(error);
                     appendHarnsSystemMessage(uiAPI, `Worktree merge failed: ${reason}`, true);
                     if (worktreeId) {
-                        await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, { status: "merge_conflict" });
+                        try {
+                            await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, {
+                                status: "merge_conflict",
+                            });
+                        } catch (metadataError) {
+                            const metadataReason = metadataError instanceof Error
+                                ? metadataError.message
+                                : String(metadataError);
+                            appendHarnsSystemMessage(
+                                uiAPI,
+                                `Could not update worktree registry while merge conflict is active: ${metadataReason}`,
+                                true,
+                            );
+                        }
                     }
                     if (planName && planName !== "quick-fix") {
-                        await recordPlanEventImpl({
-                            cwd: CWD,
-                            planName,
-                            event: "worktree_merge_failed",
-                            currentStatus: "implemented",
-                            details: { triageMeta, failureReason: reason },
-                        });
+                        try {
+                            await recordPlanEventImpl({
+                                cwd: CWD,
+                                planName,
+                                event: "worktree_merge_failed",
+                                currentStatus: "implemented",
+                                details: { triageMeta, failureReason: reason },
+                            });
+                        } catch (metadataError) {
+                            const metadataReason = metadataError instanceof Error
+                                ? metadataError.message
+                                : String(metadataError);
+                            appendHarnsSystemMessage(
+                                uiAPI,
+                                `Could not update plan metadata while merge conflict is active: ${metadataReason}`,
+                                true,
+                            );
+                        }
                     }
 
                     const action = await promptForMergeFailureAction(uiAPI, reason);

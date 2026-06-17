@@ -40,6 +40,16 @@ async function pathExists(path) {
 }
 
 /**
+ * @param {string} projectRoot
+ * @returns {Promise<boolean>}
+ */
+async function isMergeInProgress(projectRoot) {
+    const mergeHeadPath = (await runGit(projectRoot, ["rev-parse", "--git-path", "MERGE_HEAD"])).trim();
+    const absoluteMergeHeadPath = mergeHeadPath.startsWith("/") ? mergeHeadPath : join(projectRoot, mergeHeadPath);
+    return await pathExists(absoluteMergeHeadPath);
+}
+
+/**
  * @param {string} statusText
  * @returns {string[]}
  */
@@ -196,6 +206,11 @@ export async function getWorktreeStatus({ path, branch, baseTree }) {
  * @param {{ projectRoot: string, branch: string, worktreePath?: string, allowedDirtyPaths?: string[] }} opts
  */
 export async function mergeExecutionWorktree({ projectRoot, branch, worktreePath, allowedDirtyPaths = [] }) {
+    if (await isMergeInProgress(projectRoot)) {
+        await runGit(projectRoot, ["-c", "core.editor=true", "merge", "--continue"]);
+        return;
+    }
+
     let resolvedWorktreePath = worktreePath;
     if (!resolvedWorktreePath) {
         const worktreeList = await runGit(projectRoot, ["worktree", "list", "--porcelain"]);

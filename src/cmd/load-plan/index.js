@@ -1209,15 +1209,37 @@ async function handlePlanRecovery({
                 const reason = error instanceof Error ? error.message : String(error);
                 uiAPI.appendSystemMessage(`Worktree merge failed: ${reason}`, true, "Harns");
                 if (worktreeContext.id) {
-                    await updateWorktreeRegistryEntry(CWD, worktreeContext.id, { status: "merge_conflict" });
+                    try {
+                        await updateWorktreeRegistryEntry(CWD, worktreeContext.id, { status: "merge_conflict" });
+                    } catch (metadataError) {
+                        const metadataReason = metadataError instanceof Error
+                            ? metadataError.message
+                            : String(metadataError);
+                        uiAPI.appendSystemMessage(
+                            `Could not update worktree registry while merge conflict is active: ${metadataReason}`,
+                            true,
+                            "Harns",
+                        );
+                    }
                 }
-                await recordPlanEvent({
-                    cwd: CWD,
-                    planName: plan.planName,
-                    event: "worktree_merge_failed",
-                    currentStatus: "implemented",
-                    details: { triageMeta: plan.attrs, failureReason: reason },
-                });
+                try {
+                    await recordPlanEvent({
+                        cwd: CWD,
+                        planName: plan.planName,
+                        event: "worktree_merge_failed",
+                        currentStatus: "implemented",
+                        details: { triageMeta: plan.attrs, failureReason: reason },
+                    });
+                } catch (metadataError) {
+                    const metadataReason = metadataError instanceof Error
+                        ? metadataError.message
+                        : String(metadataError);
+                    uiAPI.appendSystemMessage(
+                        `Could not update plan metadata while merge conflict is active: ${metadataReason}`,
+                        true,
+                        "Harns",
+                    );
+                }
             }
             return "handled";
         }
