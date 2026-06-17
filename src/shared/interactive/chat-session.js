@@ -60,6 +60,18 @@ import { installKeybindings } from "./keybindings.js";
 
 const CHAT_PROMPT_AGENT_NAME = AGENTS.OPERATOR;
 
+/** @type {() => ReturnType<typeof getSettingsManager>} */
+let getSettingsManagerForPersistence = getSettingsManager;
+
+/**
+ * Test-only hook for code paths that persist model/thinking selections.
+ *
+ * @param {(() => ReturnType<typeof getSettingsManager>) | null} provider
+ */
+export function __setSettingsManagerForPersistenceTests(provider) {
+    getSettingsManagerForPersistence = provider || getSettingsManager;
+}
+
 /** @type {Set<string>} */
 export let CHAT_BUILTIN_SLASH_NAMES = new Set();
 
@@ -409,7 +421,7 @@ export async function setActiveModel(model, provider) {
     setActiveModelState(model, provider || "", true);
 
     try {
-        const settingsManager = getSettingsManager();
+        const settingsManager = getSettingsManagerForPersistence();
         await settingsManager.setDefaultModel(model);
         await settingsManager.setDefaultProvider(provider || "");
     } catch (e) {
@@ -439,7 +451,7 @@ export async function setActiveModel(model, provider) {
  */
 export async function persistThinkingLevel(level) {
     try {
-        const settingsManager = getSettingsManager();
+        const settingsManager = getSettingsManagerForPersistence();
         await settingsManager.setDefaultThinkingLevel(level);
     } catch (e) {
         console.error(`Failed to persist thinking level: ${e}`);

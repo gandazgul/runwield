@@ -1,4 +1,18 @@
 {
-  "version": 1,
-  "entries": []
+    "version": 1,
+    "entries": [
+        {
+            "id": "db00435d",
+            "planName": "feature4-create-child-feature-plans-from-draft",
+            "baseBranch": "main",
+            "baseRef": "HEAD",
+            "baseCommit": "20bfa2933daefe427542b6b6d2dcd8bdd67809ef",
+            "baseTree": "30d75a5e3dfc1093b0eda57c31d9280f2740636f",
+            "branch": "harns/worktree/feature4-create-child-feature-plans-from-draft-db00435d",
+            "path": "/Users/gandazgul/.hns/worktrees/harns/harns-harns-feature4-create-child-feature-plans-from-draft-db00435d",
+            "status": "merge_conflict",
+            "createdAt": "2026-06-16T21:05:00.483Z",
+            "updatedAt": "2026-06-16T21:13:40.541Z"
+        }
+    ]
 }

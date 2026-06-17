@@ -1,6 +1,7 @@
 import { assertEquals } from "@std/assert";
 import {
     __resetPendingSteeringForTests,
+    __setSettingsManagerForPersistenceTests,
     __setSteeringUiRefsForTests,
     applyPendingRootSwap,
     collectFooterUsage,
@@ -212,18 +213,45 @@ Deno.test("resolveTemplateModel validates provider/id format, model lookup, and 
 
 Deno.test("getActiveModel reflects setActiveModel state when no root session is present", async () => {
     setRootAgentSession(null);
+    /** @type {string[]} */
+    const persisted = [];
 
-    await withTempHome("harns-active-model-state-", async () => {
+    try {
+        __setSettingsManagerForPersistenceTests(() => /** @type {any} */ ({
+            setDefaultModel: (/** @type {string} */ model) => {
+                persisted.push(`model:${model}`);
+                return Promise.resolve();
+            },
+            setDefaultProvider: (/** @type {string} */ provider) => {
+                persisted.push(`provider:${provider}`);
+                return Promise.resolve();
+            },
+        }));
         await setActiveModel("model-a", "provider-a");
-    });
 
-    assertEquals(getActiveModel(), "model-a");
+        assertEquals(getActiveModel(), "model-a");
+        assertEquals(persisted, ["model:model-a", "provider:provider-a"]);
+    } finally {
+        __setSettingsManagerForPersistenceTests(null);
+    }
 });
 
 Deno.test("persistThinkingLevel stores the selected level without throwing", async () => {
-    await withTempHome("harns-thinking-level-", async () => {
+    /** @type {string[]} */
+    const persisted = [];
+
+    try {
+        __setSettingsManagerForPersistenceTests(() => /** @type {any} */ ({
+            setDefaultThinkingLevel: (/** @type {string} */ level) => {
+                persisted.push(level);
+                return Promise.resolve();
+            },
+        }));
         await persistThinkingLevel("high");
-    });
+        assertEquals(persisted, ["high"]);
+    } finally {
+        __setSettingsManagerForPersistenceTests(null);
+    }
 });
 
 function makeSteeringSession() {
