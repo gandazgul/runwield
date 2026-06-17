@@ -101,11 +101,43 @@ Deno.test("buildPlanEventUpdates records continue recovery as ready_for_work", (
     assertEquals(updates.failedAt, null);
 });
 
+Deno.test("buildPlanEventUpdates marks Epics done enough as verified with metadata", () => {
+    const updates = buildPlanEventUpdates("epic_done_enough", "ready_for_work", {
+        triageMeta: { classification: "PROJECT", type: "epic" },
+        now: () => new Date("2026-06-17T00:00:00.000Z"),
+        epicDoneEnoughSummary: "Done enough: 1/2 verified.",
+    });
+
+    assertEquals(updates.status, "verified");
+    assertEquals(updates.verifiedAt, "2026-06-17T00:00:00.000Z");
+    assertEquals(updates.epicCompletionMode, "done_enough");
+    assertEquals(updates.epicDoneEnoughAt, "2026-06-17T00:00:00.000Z");
+    assertEquals(updates.epicDoneEnoughSummary, "Done enough: 1/2 verified.");
+    assertEquals(updates.failureReason, null);
+    assertEquals(updates.failedAt, null);
+});
+
 Deno.test("buildPlanEventUpdates only allows documented transitions", () => {
     assertThrows(
         () => buildPlanEventUpdates("execution_started", "approved"),
         Error,
         'execution_started cannot apply to status "approved"',
+    );
+    assertThrows(
+        () => buildPlanEventUpdates("epic_done_enough", "approved"),
+        Error,
+        'epic_done_enough cannot apply to status "approved"',
+    );
+});
+
+Deno.test("buildPlanEventUpdates only marks PROJECT Epic plans done enough", () => {
+    assertThrows(
+        () =>
+            buildPlanEventUpdates("epic_done_enough", "ready_for_work", {
+                triageMeta: { classification: "FEATURE" },
+            }),
+        Error,
+        "epic_done_enough can only apply to PROJECT Epic plans",
     );
 });
 

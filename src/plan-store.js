@@ -91,6 +91,9 @@ function getStoredPlanLocation(cwd, planName) {
  * @property {string|null} [failedAt] - ISO timestamp when execution failed
  * @property {string|null} [implementedAt] - ISO timestamp when execution finished
  * @property {string|null} [verifiedAt] - ISO timestamp when validation passed
+ * @property {"done_enough"|null} [epicCompletionMode] - Explicit Epic completion mode when an Epic is marked done enough for now
+ * @property {string|null} [epicDoneEnoughAt] - ISO timestamp when an Epic was marked done enough for now
+ * @property {string|null} [epicDoneEnoughSummary] - Human-readable summary captured when an Epic was marked done enough for now
  * @property {string|null} [executionBaselineTree] - Git tree captured before execution started
  * @property {string|null} [worktreeId] - Durable execution worktree registry id
  * @property {string|null} [worktreePath] - Filesystem path to the execution worktree
@@ -156,6 +159,9 @@ const KNOWN_FRONT_MATTER_KEYS = new Set([
     "failedAt",
     "implementedAt",
     "verifiedAt",
+    "epicCompletionMode",
+    "epicDoneEnoughAt",
+    "epicDoneEnoughSummary",
     "executionBaselineTree",
     "worktreeId",
     "worktreePath",
@@ -233,6 +239,9 @@ function formatFrontMatter(fm) {
     appendYamlField(lines, "failedAt", fm.failedAt);
     appendYamlField(lines, "implementedAt", fm.implementedAt);
     appendYamlField(lines, "verifiedAt", fm.verifiedAt);
+    appendYamlField(lines, "epicCompletionMode", fm.epicCompletionMode);
+    appendYamlField(lines, "epicDoneEnoughAt", fm.epicDoneEnoughAt);
+    appendYamlField(lines, "epicDoneEnoughSummary", fm.epicDoneEnoughSummary);
     appendYamlField(lines, "executionBaselineTree", fm.executionBaselineTree);
     appendYamlField(lines, "worktreeId", fm.worktreeId);
     appendYamlField(lines, "worktreePath", fm.worktreePath);
@@ -379,6 +388,13 @@ export function injectFrontMatter(markdown, overrides = {}) {
         failedAt: optionalFrontMatterValue(overrides, existingFm, "failedAt"),
         implementedAt: optionalFrontMatterValue(overrides, existingFm, "implementedAt"),
         verifiedAt: optionalFrontMatterValue(overrides, existingFm, "verifiedAt"),
+        epicCompletionMode: /** @type {"done_enough" | null | undefined} */ (
+            optionalFrontMatterValue(overrides, existingFm, "epicCompletionMode") === "done_enough"
+                ? "done_enough"
+                : undefined
+        ),
+        epicDoneEnoughAt: optionalFrontMatterValue(overrides, existingFm, "epicDoneEnoughAt"),
+        epicDoneEnoughSummary: optionalFrontMatterValue(overrides, existingFm, "epicDoneEnoughSummary"),
         executionBaselineTree: optionalFrontMatterValue(overrides, existingFm, "executionBaselineTree"),
         worktreeId: optionalFrontMatterValue(overrides, existingFm, "worktreeId"),
         worktreePath: optionalFrontMatterValue(overrides, existingFm, "worktreePath"),
@@ -430,6 +446,9 @@ export function parsePlanFrontMatter(markdown, opts = {}) {
             failedAt: attrs.failedAt,
             implementedAt: attrs.implementedAt,
             verifiedAt: attrs.verifiedAt,
+            epicCompletionMode: attrs.epicCompletionMode === "done_enough" ? attrs.epicCompletionMode : undefined,
+            epicDoneEnoughAt: attrs.epicDoneEnoughAt,
+            epicDoneEnoughSummary: attrs.epicDoneEnoughSummary,
             executionBaselineTree: attrs.executionBaselineTree,
             worktreeId: attrs.worktreeId,
             worktreePath: attrs.worktreePath,

@@ -1294,7 +1294,8 @@ async function handlePlanRecovery({
  * @returns {boolean}
  */
 function isDecomposedEpicStatus(attrs) {
-    return attrs.status === "ready_for_decomposition" || attrs.status === "ready_for_work";
+    return attrs.status === "ready_for_decomposition" || attrs.status === "ready_for_work" ||
+        (attrs.status === "verified" && attrs.epicCompletionMode === "done_enough");
 }
 
 /**
@@ -1304,6 +1305,60 @@ function isDecomposedEpicStatus(attrs) {
 function formatChildPlanLabel(child) {
     const summary = child.attrs.summary ? ` — ${child.attrs.summary}` : "";
     return `${child.name} [${child.attrs.status}]${summary}`;
+}
+
+/**
+ * @param {Array<{ attrs: import('../../plan-store.js').PlanFrontMatter }>} children
+ * @returns {{ total: number, verified: number, active: number, remaining: number, failed: number }}
+ */
+function countEpicChildStatuses(children) {
+    const counts = { total: children.length, verified: 0, active: 0, remaining: 0, failed: 0 };
+    for (const child of children) {
+        const status = child.attrs.status;
+        if (status === "verified") counts.verified += 1;
+        else if (status === "in_progress" || status === "implemented") counts.active += 1;
+        else if (status === "failed") counts.failed += 1;
+        else if (["draft", "approved", "ready_for_work", "ready_for_decomposition", "feedback"].includes(status)) {
+            counts.remaining += 1;
+        }
+    }
+    return counts;
+}
+
+/**
+ * @param {Array<{ attrs: import('../../plan-store.js').PlanFrontMatter }>} children
+ * @returns {string}
+ */
+function formatEpicProgressSummary(children) {
+    const counts = countEpicChildStatuses(children);
+    const label = counts.total === 1 ? "child FEATURE" : "child FEATUREs";
+    const parts = [
+        `Progress: ${counts.verified}/${counts.total} ${label} verified`,
+        `${counts.active} active/implemented`,
+        `${counts.remaining} remaining`,
+    ];
+    if (counts.failed > 0) parts.push(`${counts.failed} failed`);
+    return parts.join(" — ");
+}
+
+/**
+ * @param {Array<{ attrs: import('../../plan-store.js').PlanFrontMatter }>} children
+ * @returns {string}
+ */
+function buildEpicDoneEnoughSummary(children) {
+    const counts = countEpicChildStatuses(children);
+    const failed = counts.failed > 0 ? `, ${counts.failed} failed` : "";
+    return `Done enough for now: ${counts.verified}/${counts.total} child FEATURE${
+        counts.total === 1 ? "" : "s"
+    } verified, ${counts.active} active/implemented, ${counts.remaining} remaining${failed}.`;
+}
+
+/**
+ * @param {{ attrs: import('../../plan-store.js').PlanFrontMatter }} plan
+ * @returns {boolean}
+ */
+function isDoneEnoughEpic(plan) {
+    return plan.attrs.epicCompletionMode === "done_enough";
 }
 
 /**
@@ -1352,10 +1407,11 @@ async function confirmChildFeatureDependencies(plan, uiAPI, resolveSiblingChildP
  * @param {import('../../shared/workflow/workflow.js').UiAPI} opts.uiAPI
  * @param {typeof findPlansByParentFn} opts.findPlansByParent
  * @param {typeof runSlicerAgentFn} opts.runSlicerAgent
+ * @param {typeof recordPlanEventFn} opts.recordPlanEvent
  * @param {(childPlanName: string) => Promise<void>} opts.loadChildPlan
  * @returns {Promise<"handled" | "continue">}
  */
-async function handleEpicPlan({ plan, uiAPI, findPlansByParent, runSlicerAgent, loadChildPlan }) {
+async function handleEpicPlan({ plan, uiAPI, findPlansByParent, runSlicerAgent, recordPlanEvent, loadChildPlan }) {
     if (!isEpicPlan(plan.attrs)) return "continue";
 
     const children = (await findPlansByParent(CWD, plan.planName)).filter((child) =>
@@ -1364,15 +1420,21 @@ async function handleEpicPlan({ plan, uiAPI, findPlansByParent, runSlicerAgent, 
     const hasChildren = children.length > 0;
     const canPickChild = hasChildren && isDecomposedEpicStatus(plan.attrs);
 
-    if (plan.attrs.status === "draft" || plan.attrs.status === "approved") {
+    if (hasChildren) {
+        uiAPI.appendSystemMessage(formatEpicProgressSummary(children), false, "Harns");
+    }
+    if (isDoneEnoughEpic(plan)) {
+        const summary = plan.attrs.epicDoneEnoughSummary ? ` ${plan.attrs.epicDoneEnoughSummary}` : "";
         uiAPI.appendSystemMessage(
-            "This PROJECT Epic is not executable. Resume Slicer decomposition to create child FEATURE plans.",
+            `This Epic is marked done enough for now.${summary} Remaining child FEATURE plans stay visible and loadable.`,
             false,
             "Harns",
         );
-    } else if (canPickChild) {
+    }
+
+    if (plan.attrs.status === "draft" || plan.attrs.status === "approved") {
         uiAPI.appendSystemMessage(
-            `PROJECT Epic has ${children.length} child FEATURE plan${children.length === 1 ? "" : "s"}.`,
+            "This PROJECT Epic is not executable. Resume Slicer decomposition to create child FEATURE plans.",
             false,
             "Harns",
         );
@@ -1390,6 +1452,12 @@ async function handleEpicPlan({ plan, uiAPI, findPlansByParent, runSlicerAgent, 
         if (canPickChild) {
             epicOptions.splice(1, 0, { value: "pick_child", label: "Pick a child FEATURE plan" });
         }
+        if (hasChildren && plan.attrs.status === "ready_for_work") {
+            epicOptions.splice(canPickChild ? 2 : 1, 0, {
+                value: "done_enough",
+                label: "Mark Epic done enough for now",
+            });
+        }
 
         const answer = await uiAPI.promptSelect("What would you like to do with this Epic?", epicOptions);
         if (!answer || answer === "cancel") return "handled";
@@ -1406,6 +1474,44 @@ async function handleEpicPlan({ plan, uiAPI, findPlansByParent, runSlicerAgent, 
                 uiAPI,
             });
             return "handled";
+        }
+
+        if (answer === "done_enough") {
+            const summary = buildEpicDoneEnoughSummary(children);
+            uiAPI.appendSystemMessage(
+                [
+                    formatEpicProgressSummary(children),
+                    "Marking this Epic done enough sets the Epic status to verified for now.",
+                    "Unverified child FEATURE plans remain visible and loadable.",
+                ].join("\n"),
+                false,
+                "Harns",
+            );
+            const confirm = await uiAPI.promptSelect("Mark this Epic done enough for now?", [
+                { value: "confirm", label: "Yes, mark done enough for now" },
+                { value: "cancel", label: "Cancel" },
+            ]);
+            if (confirm !== "confirm") {
+                uiAPI.appendSystemMessage("Epic done-enough update canceled.", false, "Harns");
+                continue;
+            }
+            const updatedAttrs = await recordPlanEvent({
+                cwd: CWD,
+                planName: plan.planName,
+                event: "epic_done_enough",
+                currentStatus: plan.attrs.status,
+                details: {
+                    triageMeta: plan.attrs,
+                    epicDoneEnoughSummary: summary,
+                },
+            });
+            plan.attrs = { ...plan.attrs, ...updatedAttrs };
+            uiAPI.appendSystemMessage(
+                `Epic marked done enough for now. ${plan.attrs.epicDoneEnoughSummary || summary}`,
+                false,
+                "Harns",
+            );
+            continue;
         }
 
         if (answer === "pick_child") {
@@ -1615,6 +1721,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
             uiAPI,
             findPlansByParent,
             runSlicerAgent,
+            recordPlanEvent,
             loadChildPlan: async (childPlanName) => {
                 skipRouterRestore = true;
                 await runLoadPlanCommand([childPlanName], {

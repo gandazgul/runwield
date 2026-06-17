@@ -414,6 +414,29 @@ Deno.test("worktree front matter fields round-trip and can be cleared", () => {
     assertEquals(reparsed.attrs.worktreeStatus, undefined);
 });
 
+Deno.test("Epic done-enough front matter fields round-trip and can be cleared", () => {
+    const markdown = injectFrontMatter("## Body", {
+        epicCompletionMode: "done_enough",
+        epicDoneEnoughAt: "2026-06-17T00:00:00.000Z",
+        epicDoneEnoughSummary: "1/2 features verified",
+    });
+
+    const parsed = parsePlanFrontMatter(markdown);
+    assertEquals(parsed.attrs.epicCompletionMode, "done_enough");
+    assertEquals(parsed.attrs.epicDoneEnoughAt, "2026-06-17T00:00:00.000Z");
+    assertEquals(parsed.attrs.epicDoneEnoughSummary, "1/2 features verified");
+
+    const cleared = injectFrontMatter(markdown, {
+        epicCompletionMode: null,
+        epicDoneEnoughAt: null,
+        epicDoneEnoughSummary: null,
+    });
+    const reparsed = parsePlanFrontMatter(cleared);
+    assertEquals(reparsed.attrs.epicCompletionMode, undefined);
+    assertEquals(reparsed.attrs.epicDoneEnoughAt, undefined);
+    assertEquals(reparsed.attrs.epicDoneEnoughSummary, undefined);
+});
+
 testWithFs("updatePlanFrontMatter preserves body and clears optional fields", async () => {
     const cwd = await Deno.makeTempDir();
     try {

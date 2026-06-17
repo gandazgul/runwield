@@ -69,8 +69,25 @@ function groupPlans(plans) {
  */
 function formatChildProgress(children) {
     const verified = children.filter((child) => child.attrs.status === "verified").length;
+    const active =
+        children.filter((child) => child.attrs.status === "in_progress" || child.attrs.status === "implemented").length;
+    const failed = children.filter((child) => child.attrs.status === "failed").length;
+    const remaining = children.length - verified - active - failed;
     const label = children.length === 1 ? "feature" : "features";
-    return `${verified}/${children.length} ${label} verified`;
+    const parts = [`${verified}/${children.length} ${label} verified`];
+    if (active > 0) parts.push(`${active} active/implemented`);
+    if (remaining > 0) parts.push(`${remaining} remaining`);
+    if (failed > 0) parts.push(`${failed} failed`);
+    return parts.join(" — ");
+}
+
+/**
+ * @param {PlanEntry} epic
+ * @returns {string}
+ */
+function formatEpicCompletionState(epic) {
+    if (epic.attrs.epicCompletionMode !== "done_enough") return "";
+    return " — done enough for now";
 }
 
 /**
@@ -152,7 +169,10 @@ export async function runPlansCommand(argv, options = {}) {
             const children = childrenByParent.get(epic.name) || [];
             console.log(`  ${epic.name}`);
             printPlanDetails(epic, "    ");
-            console.log(`    Progress: ${formatChildProgress(children)}`);
+            console.log(`    Progress: ${formatChildProgress(children)}${formatEpicCompletionState(epic)}`);
+            if (epic.attrs.epicDoneEnoughSummary) {
+                console.log(`    Done enough: ${epic.attrs.epicDoneEnoughSummary}`);
+            }
             if (children.length > 0) {
                 console.log("    Features:");
                 for (const child of children) {

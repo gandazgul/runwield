@@ -271,8 +271,194 @@ Deno.test("runLoadPlanCommand Epic with children shows child FEATURE labels", as
     });
 
     assertEquals(prompts[0].options.some((option) => option.value === "pick_child"), true);
+    assertEquals(prompts[0].options.some((option) => option.value === "done_enough"), true);
     assertEquals(prompts[1].options[0].label, "epic-b/01-first [approved] — First child");
     assertEquals(prompts[1].options[1].label, "epic-b/02-second [draft] — Second child");
+});
+
+Deno.test("runLoadPlanCommand Epic done-enough confirm records lifecycle event", async () => {
+    const { uiAPI, selections, messages } = makeUi();
+    selections.push("done_enough", "confirm", "cancel");
+    /** @type {any} */
+    let recorded = null;
+
+    await runLoadPlanCommand(["epic-done"], {
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: (/** @type {string[]} */ argv) => ({ help: false, _: argv }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "epic-done",
+                    path: "plans/epic-done.md",
+                    body: "body",
+                    markdown: "body",
+                    attrs: {
+                        classification: "PROJECT",
+                        type: "epic",
+                        complexity: "HIGH",
+                        summary: "Epic summary",
+                        affectedPaths: [],
+                        status: "ready_for_work",
+                    },
+                }),
+            findPlansByParent: () =>
+                Promise.resolve([
+                    { name: "epic-done/01-first", path: "", attrs: { classification: "FEATURE", status: "verified" } },
+                    { name: "epic-done/02-second", path: "", attrs: { classification: "FEATURE", status: "draft" } },
+                ]),
+            recordPlanEvent: (/** @type {any} */ args) => {
+                recorded = args;
+                return Promise.resolve({
+                    status: "verified",
+                    epicCompletionMode: "done_enough",
+                    epicDoneEnoughSummary: args.details.epicDoneEnoughSummary,
+                });
+            },
+            createDirectAgentHandler: () => () => Promise.resolve(),
+            resetTuiState: () => {},
+            setActiveAgent: () => {},
+        }),
+    });
+
+    assertEquals(recorded.event, "epic_done_enough");
+    assertEquals(recorded.currentStatus, "ready_for_work");
+    assertEquals(messages.some((message) => message.includes("Unverified child FEATURE plans remain visible")), true);
+    assertEquals(messages.some((message) => message.includes("Epic marked done enough")), true);
+});
+
+Deno.test("runLoadPlanCommand Epic done-enough can be canceled", async () => {
+    const { uiAPI, selections, messages } = makeUi();
+    selections.push("done_enough", "cancel", "cancel");
+    let recorded = false;
+
+    await runLoadPlanCommand(["epic-cancel"], {
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: (/** @type {string[]} */ argv) => ({ help: false, _: argv }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "epic-cancel",
+                    path: "plans/epic-cancel.md",
+                    body: "body",
+                    markdown: "body",
+                    attrs: {
+                        classification: "PROJECT",
+                        type: "epic",
+                        complexity: "HIGH",
+                        summary: "Epic summary",
+                        affectedPaths: [],
+                        status: "ready_for_work",
+                    },
+                }),
+            findPlansByParent: () =>
+                Promise.resolve([
+                    {
+                        name: "epic-cancel/01-first",
+                        path: "",
+                        attrs: { classification: "FEATURE", status: "verified" },
+                    },
+                ]),
+            recordPlanEvent: () => {
+                recorded = true;
+                return Promise.resolve({});
+            },
+            createDirectAgentHandler: () => () => Promise.resolve(),
+            resetTuiState: () => {},
+            setActiveAgent: () => {},
+        }),
+    });
+
+    assertEquals(recorded, false);
+    assertEquals(messages.some((message) => message.includes("canceled")), true);
+});
+
+Deno.test("runLoadPlanCommand verified done-enough Epic remains re-enterable", async () => {
+    const { uiAPI, selections, prompts, messages } = makeUi();
+    selections.push("pick_child", null);
+
+    await runLoadPlanCommand(["epic-verified"], {
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: (/** @type {string[]} */ argv) => ({ help: false, _: argv }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "epic-verified",
+                    path: "plans/epic-verified.md",
+                    body: "body",
+                    markdown: "body",
+                    attrs: {
+                        classification: "PROJECT",
+                        type: "epic",
+                        complexity: "HIGH",
+                        summary: "Epic summary",
+                        affectedPaths: [],
+                        status: "verified",
+                        epicCompletionMode: "done_enough",
+                        epicDoneEnoughSummary: "1/2 verified",
+                    },
+                }),
+            findPlansByParent: () =>
+                Promise.resolve([
+                    {
+                        name: "epic-verified/01-first",
+                        path: "",
+                        attrs: { classification: "FEATURE", status: "verified" },
+                    },
+                    {
+                        name: "epic-verified/02-second",
+                        path: "",
+                        attrs: { classification: "FEATURE", status: "draft" },
+                    },
+                ]),
+            createDirectAgentHandler: () => () => Promise.resolve(),
+            resetTuiState: () => {},
+            setActiveAgent: () => {},
+        }),
+    });
+
+    assertEquals(prompts[0].options.some((option) => option.value === "pick_child"), true);
+    assertEquals(prompts[0].options.some((option) => option.value === "done_enough"), false);
+    assertEquals(messages.some((message) => message.includes("done enough for now")), true);
+});
+
+Deno.test("runLoadPlanCommand verified done-enough Epic shows banner without children", async () => {
+    const { uiAPI, selections, messages } = makeUi();
+    selections.push("cancel");
+
+    await runLoadPlanCommand(["epic-empty-done"], {
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: (/** @type {string[]} */ argv) => ({ help: false, _: argv }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "epic-empty-done",
+                    path: "plans/epic-empty-done.md",
+                    body: "body",
+                    markdown: "body",
+                    attrs: {
+                        classification: "PROJECT",
+                        type: "epic",
+                        complexity: "HIGH",
+                        summary: "Epic summary",
+                        affectedPaths: [],
+                        status: "verified",
+                        epicCompletionMode: "done_enough",
+                        epicDoneEnoughSummary: "No active children found.",
+                    },
+                }),
+            findPlansByParent: () => Promise.resolve([]),
+            createDirectAgentHandler: () => () => Promise.resolve(),
+            resetTuiState: () => {},
+            setActiveAgent: () => {},
+        }),
+    });
+
+    assertEquals(messages.some((message) => message.includes("done enough for now")), true);
+    assertEquals(messages.some((message) => message.includes("no child FEATURE plans yet")), true);
 });
 
 Deno.test("runLoadPlanCommand Epic child selection can be canceled", async () => {
