@@ -27,6 +27,7 @@ export {
     taskWriteScopesOverlap,
     validateProjectTasks,
 } from "./task-scheduling.js";
+// Slicer-facing helpers are re-exported from the workflow facade for callers that should not import submodules.
 export { ensureSlicerTasks, materializeSlicerDraft, runSlicerAgent } from "./workflow-slicer.js";
 export {
     askApprovalWithTasks,

@@ -25,9 +25,9 @@ const SLICER_PROMPT_FILE = "slicer-prompt.md";
  * @param {{ saveChildFeaturePlans?: typeof saveChildFeaturePlans }} [opts.__deps] - Test-only injection point.
  * @returns {ReturnType<typeof saveChildFeaturePlans>}
  */
-export function materializeSlicerDraft({ cwd, epicPlanName, children, __deps }) {
+export async function materializeSlicerDraft({ cwd, epicPlanName, children, __deps }) {
     const saveChildren = __deps?.saveChildFeaturePlans || saveChildFeaturePlans;
-    return saveChildren(cwd, epicPlanName, children);
+    return await saveChildren(cwd, epicPlanName, children);
 }
 
 /**

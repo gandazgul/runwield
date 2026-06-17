@@ -181,6 +181,12 @@ testWithFs("saveChildFeaturePlans creates draft child FEATURE plans with depende
             { name: "project-breakdown-epic/01-preserve-epic-and-child-metadata", action: "created" },
             { name: "project-breakdown-epic/02-load-child-features", action: "created" },
         ]);
+        assertEquals(results[0].metadata, {
+            classification: "FEATURE",
+            status: "draft",
+            parentPlan: "project-breakdown-epic",
+            affectedPaths: ["src/plan-store.js"],
+        });
 
         const first = await loadPlan(cwd, "project-breakdown-epic/01-preserve-epic-and-child-metadata");
         assertEquals(first?.attrs.classification, "FEATURE");
@@ -226,10 +232,29 @@ testWithFs("saveChildFeaturePlans updates existing drafts at stable child paths"
 testWithFs("saveChildFeaturePlans rejects invalid child and parent names", async () => {
     const cwd = await Deno.makeTempDir();
     try {
+        const validChild = {
+            sequence: 1,
+            title: "Draft child",
+            summary: "Draft summary",
+            affectedPaths: [],
+            dependencies: [],
+            content: "# Draft child",
+        };
+
         await assertRejects(
             () => saveChildFeaturePlans(cwd, "../outside", []),
             Error,
             "Plan name cannot escape plans/",
+        );
+        await assertRejects(
+            () => saveChildFeaturePlans(cwd, "/tmp/outside", []),
+            Error,
+            "Plan name must be relative to plans/",
+        );
+        await assertRejects(
+            () => saveChildFeaturePlans(cwd, "epic-a/nested", [validChild]),
+            Error,
+            "Parent Epic plan name must be a top-level plan",
         );
         await assertRejects(
             () =>
@@ -243,6 +268,35 @@ testWithFs("saveChildFeaturePlans rejects invalid child and parent names", async
                 }]),
             Error,
             "Child plan title must produce a valid plan name",
+        );
+        await assertRejects(
+            () => saveChildFeaturePlans(cwd, "epic-a", [{ ...validChild, sequence: -1 }]),
+            Error,
+            "Child plan sequence must be a non-negative integer",
+        );
+        await assertRejects(
+            () => saveChildFeaturePlans(cwd, "epic-a", [{ ...validChild, sequence: 1.5 }]),
+            Error,
+            "Child plan sequence must be a non-negative integer",
+        );
+        await assertRejects(
+            () =>
+                saveChildFeaturePlans(cwd, "epic-a", [
+                    { ...validChild, title: "Same child" },
+                    { ...validChild, title: "Same child" },
+                ]),
+            Error,
+            "Duplicate child plan name: epic-a/01-same-child",
+        );
+        await assertRejects(
+            () =>
+                saveChildFeaturePlans(
+                    cwd,
+                    "epic-a",
+                    /** @type {any} */ ([{ ...validChild, dependencies: "feature-1" }]),
+                ),
+            Error,
+            "Child plan dependencies must be an array",
         );
     } finally {
         await Deno.remove(cwd, { recursive: true });
