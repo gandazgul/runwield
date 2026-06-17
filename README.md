@@ -10,6 +10,8 @@ It is built on top of [Pi](https://pi.dev), with a Deno CLI, an interactive TUI,
 [Plannotator](https://plannotator.ai), [Cymbal](https://github.com/1broseidon/cymbal) for code intelligence, and
 [Mnemosyne](https://github.com/gandazgul/mnemosyne) for project/global memory.
 
+> For full documentation, see **[docs/index.md](docs/index.md)**.
+
 ## Why Harns
 
 Most coding harnesses optimize for getting an agent typing quickly. Harns optimizes for getting the right kind of work
@@ -120,6 +122,8 @@ Project-level plans and optional overrides live in the current repository:
 - `.hns/settings.json`
 - `.hns/agents/*.md`
 - `.hns/prompts/*.md`
+
+> For full documentation, see **[docs/index.md](docs/index.md)**.
 
 ## First Run
 
