@@ -12,6 +12,7 @@ import {
     injectFrontMatter,
     loadPlan as loadPlanFn,
     resolvePlan as resolvePlanFn,
+    resolveSiblingChildPlanDependencies as resolveSiblingChildPlanDependenciesFn,
     updatePlanFrontMatter as updatePlanFrontMatterFn,
 } from "../../plan-store.js";
 import {
@@ -90,6 +91,7 @@ export { getLoadPlanCompletions } from "./getArgumentCompletions.js";
  * @property {typeof getRootAgentNameFn} [getRootAgentName]
  * @property {(cwd: string) => Promise<Array<{name: string, attrs: {classification: string, status: string}}>>} [listPlans]
  * @property {typeof findPlansByParentFn} [findPlansByParent]
+ * @property {typeof resolveSiblingChildPlanDependenciesFn} [resolveSiblingChildPlanDependencies]
  * @property {typeof recordPlanEventFn} [recordPlanEvent]
  * @property {typeof updatePlanFrontMatterFn} [updatePlanFrontMatter]
  * @property {typeof findWorktreeByIdFn} [findWorktreeById]
@@ -1305,6 +1307,46 @@ function formatChildPlanLabel(child) {
 }
 
 /**
+ * @param {Array<{ dependency: string, planName?: string, status?: string, state: "verified" | "unverified" | "missing" }>} unmetDependencies
+ * @returns {string}
+ */
+function formatDependencyWarning(unmetDependencies) {
+    return [
+        "This child FEATURE declares dependencies that are not verified:",
+        "",
+        ...unmetDependencies.map((dependency) => {
+            if (dependency.state === "missing") return `  - ${dependency.dependency}: missing`;
+            return `  - ${dependency.planName || dependency.dependency}: ${dependency.status || "unknown"}`;
+        }),
+    ].join("\n");
+}
+
+/**
+ * @param {{ planName: string, attrs: import('../../plan-store.js').PlanFrontMatter }} plan
+ * @param {import('../../shared/workflow/workflow.js').UiAPI} uiAPI
+ * @param {typeof resolveSiblingChildPlanDependenciesFn} resolveSiblingChildPlanDependencies
+ * @returns {Promise<boolean>}
+ */
+async function confirmChildFeatureDependencies(plan, uiAPI, resolveSiblingChildPlanDependencies) {
+    if (plan.attrs.classification !== "FEATURE" || !plan.attrs.parentPlan) return true;
+    const dependencies = Array.isArray(plan.attrs.dependencies) ? plan.attrs.dependencies : [];
+    if (dependencies.length === 0) return true;
+
+    const dependencyStates = await resolveSiblingChildPlanDependencies(CWD, plan.attrs.parentPlan, dependencies);
+    const unmetDependencies = dependencyStates.filter((dependency) => dependency.state !== "verified");
+    if (unmetDependencies.length === 0) return true;
+
+    uiAPI.appendSystemMessage(formatDependencyWarning(unmetDependencies), true, "Harns");
+    const answer = await uiAPI.promptSelect(`Proceed with "${plan.planName}" anyway?`, [
+        { value: "proceed", label: "Proceed anyway" },
+        { value: "cancel", label: "Cancel" },
+    ]);
+    if (answer === "proceed") return true;
+    uiAPI.appendSystemMessage("Plan load canceled.", false, "Harns");
+    return false;
+}
+
+/**
  * @param {Object} opts
  * @param {{ planName: string, body: string, markdown: string, attrs: import('../../plan-store.js').PlanFrontMatter }} opts.plan
  * @param {import('../../shared/workflow/workflow.js').UiAPI} opts.uiAPI
@@ -1411,6 +1453,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
         getRootAgentName: getRootAgentNameDep,
         listPlans: listPlansDep,
         findPlansByParent: findPlansByParentDep,
+        resolveSiblingChildPlanDependencies: resolveSiblingChildPlanDependenciesDep,
         recordPlanEvent: recordPlanEventDep,
         updatePlanFrontMatter: updatePlanFrontMatterDep,
         findWorktreeById: findWorktreeByIdDep,
@@ -1446,6 +1489,8 @@ export async function runLoadPlanCommand(argv, options = {}) {
     const createDirectAgentHandler = createDirectAgentHandlerDep || createDirectAgentHandlerFn;
     const getRootAgentName = getRootAgentNameDep || getRootAgentNameFn;
     const findPlansByParent = findPlansByParentDep || findPlansByParentFn;
+    const resolveSiblingChildPlanDependencies = resolveSiblingChildPlanDependenciesDep ||
+        resolveSiblingChildPlanDependenciesFn;
     const recordPlanEvent = recordPlanEventDep || recordPlanEventFn;
     const updatePlanFrontMatter = updatePlanFrontMatterDep || updatePlanFrontMatterFn;
     const findWorktreeById = findWorktreeByIdDep || findWorktreeByIdFn;
@@ -1588,6 +1633,13 @@ export async function runLoadPlanCommand(argv, options = {}) {
             skipRouterRestore = true;
             return;
         }
+
+        const dependenciesConfirmed = await confirmChildFeatureDependencies(
+            plan,
+            uiAPI,
+            resolveSiblingChildPlanDependencies,
+        );
+        if (!dependenciesConfirmed) return;
 
         if (plan.attrs.status === "verified") {
             uiAPI.appendSystemMessage("This plan is already verified.", false, "Harns");

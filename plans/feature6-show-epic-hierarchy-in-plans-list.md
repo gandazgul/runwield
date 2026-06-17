@@ -3,15 +3,16 @@ classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Update hns plans so Epics and their child FEATURE plans are shown as a hierarchy with concise progress."
 affectedPaths:
-  - "src/cmd/plans/index.js"
-  - "src/cmd/plans/index.test.js"
-  - "src/plan-store.js"
+    - "src/cmd/plans/index.js"
+    - "src/cmd/plans/index.test.js"
+    - "src/plan-store.js"
 createdAt: "2026-06-16T16:25:04Z"
 updatedAt: "2026-06-17T15:57:11.532Z"
 status: "feedback"
 origin: "internal"
 worktreeStatus: "abandoned"
 ---
+
 # Show Epic Hierarchy in Plans List
 
 ## Context

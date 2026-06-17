@@ -769,6 +769,60 @@ export async function findPlansByParent(cwd, parentPlan) {
 }
 
 /**
+ * Resolve child FEATURE dependencies relative to a shared parent Epic.
+ *
+ * Supported dependency identifiers are either the canonical child plan name
+ * (`epic/01-first`) or the sibling child segment (`01-first`). Title-only
+ * aliases are intentionally not inferred because child plan slugs are the
+ * durable identifiers stored on disk.
+ *
+ * @param {string} cwd
+ * @param {string} parentPlan
+ * @param {unknown} dependencies
+ * @returns {Promise<Array<{ dependency: string, planName?: string, path?: string, status?: string, state: "verified" | "unverified" | "missing" }>>}
+ */
+export async function resolveSiblingChildPlanDependencies(cwd, parentPlan, dependencies) {
+    const { name: parentPlanName } = canonicalizeStoredPlanName(parentPlan);
+    const dependencyNames = normalizeStringList(dependencies) || [];
+    if (dependencyNames.length === 0) return [];
+
+    const siblings = await findPlansByParent(cwd, parentPlanName);
+    const byName = new Map(siblings.map((plan) => [plan.name, plan]));
+
+    return dependencyNames.map((rawDependency) => {
+        const dependency = String(rawDependency).trim();
+        if (!dependency) return { dependency, state: /** @type {const} */ ("missing") };
+
+        let candidateName;
+        try {
+            const canonical = canonicalizeStoredPlanName(dependency).name;
+            candidateName = canonical.includes("/") ? canonical : `${parentPlanName}/${canonical}`;
+        } catch {
+            return { dependency, state: /** @type {const} */ ("missing") };
+        }
+
+        const sibling = byName.get(candidateName);
+        if (!sibling) return { dependency, state: /** @type {const} */ ("missing") };
+        if (sibling.attrs.status === "verified") {
+            return {
+                dependency,
+                planName: sibling.name,
+                path: sibling.path,
+                status: sibling.attrs.status,
+                state: /** @type {const} */ ("verified"),
+            };
+        }
+        return {
+            dependency,
+            planName: sibling.name,
+            path: sibling.path,
+            status: sibling.attrs.status,
+            state: /** @type {const} */ ("unverified"),
+        };
+    });
+}
+
+/**
  * Resolve a plan name or path argument to a loadable plan.
  * Stored plans are tried first, including nested names such as
  * `project-breakdown-epic/feature1`. If no stored plan matches and the
