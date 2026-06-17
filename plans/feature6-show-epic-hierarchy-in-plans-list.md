@@ -7,13 +7,10 @@ affectedPaths:
   - "src/cmd/plans/index.test.js"
   - "src/plan-store.js"
 createdAt: "2026-06-16T16:25:04Z"
-updatedAt: "2026-06-17T15:51:12.535Z"
-status: "implemented"
+updatedAt: "2026-06-17T15:56:30.687Z"
+status: "verified"
 origin: "internal"
-failureReason: "git merge --no-ff harns/worktree/feature6-show-epic-hierarchy-in-plans-list-41ac9704 failed: Auto-merging .hns/worktrees.json
-CONFLICT (content): Merge conflict in .hns/worktrees.json
-Automatic merge failed; fix conflicts and then commit the result."
-worktreeStatus: "merge_conflict"
+verifiedAt: "2026-06-17T15:56:30.687Z"
 ---
 # Show Epic Hierarchy in Plans List
 
