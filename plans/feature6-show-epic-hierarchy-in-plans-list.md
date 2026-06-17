@@ -3,13 +3,16 @@ classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Update hns plans so Epics and their child FEATURE plans are shown as a hierarchy with concise progress."
 affectedPaths:
-    - "src/cmd/plans/index.js"
-    - "src/cmd/plans/index.test.js"
-    - "src/plan-store.js"
+  - "src/cmd/plans/index.js"
+  - "src/cmd/plans/index.test.js"
+  - "src/plan-store.js"
 createdAt: "2026-06-16T16:25:04Z"
-status: "ready_for_work"
+updatedAt: "2026-06-17T15:19:08.911Z"
+status: "implemented"
+origin: "internal"
+failureReason: "Primary checkout has uncommitted changes that overlap execution worktree changes; refusing to merge: plans/feature5-interactive-slicer-mvp.md"
+worktreeStatus: "merge_conflict"
 ---
-
 # Show Epic Hierarchy in Plans List
 
 ## Context
