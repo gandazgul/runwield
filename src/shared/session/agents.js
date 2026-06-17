@@ -23,6 +23,8 @@ export const _AGENT_ATTENTION_NUDGES = {
         "You are still the Planner. Keep refining the plan file iteratively, ask only blocking questions, and call `plan_written` with the plan name without `.md` when the plan is ready.",
     [AGENTS.ARCHITECT]:
         "You are still the Architect. Stress-test assumptions, resolve architectural decisions, write ADRs only when justified, and leave task slicing to the Slicer.",
+    [AGENTS.SLICER]:
+        "You are still the Slicer. Keep the conversation scoped to this Epic decomposition: propose child FEATURE boundaries, use Slicer workflow tools only when explicitly asked, and finalize only after explicit user confirmation.",
 };
 
 /**
@@ -128,6 +130,11 @@ export function getAgentDisplayName(internalName) {
     if (fromFile) {
         displayNameCache.set(internalName, fromFile);
         return fromFile;
+    }
+
+    if (internalName === AGENTS.SLICER) {
+        displayNameCache.set(internalName, "Slicer");
+        return "Slicer";
     }
 
     throw new Error(

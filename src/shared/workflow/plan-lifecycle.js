@@ -14,7 +14,7 @@ import { updatePlanFrontMatter } from "../../plan-store.js";
  */
 
 /**
- * @typedef {"review_feedback"|"review_approved"|"readiness_passed"|"epic_readiness_passed"|"execution_started"|"execution_failed"|"implementation_finished"|"validation_failed"|"validation_passed"|"worktree_merge_failed"|"recovery_continue"|"recovery_reset"|"review_reopened"} PlanEvent
+ * @typedef {"review_feedback"|"review_approved"|"readiness_passed"|"epic_readiness_passed"|"decomposition_finalized"|"execution_started"|"execution_failed"|"implementation_finished"|"validation_failed"|"validation_passed"|"worktree_merge_failed"|"recovery_continue"|"recovery_reset"|"review_reopened"} PlanEvent
  */
 
 /**
@@ -36,6 +36,7 @@ const ALLOWED_FROM = {
     review_approved: ["draft", "feedback", "approved"],
     readiness_passed: ["approved"],
     epic_readiness_passed: ["approved"],
+    decomposition_finalized: ["approved", "ready_for_decomposition"],
     execution_started: ["ready_for_work"],
     execution_failed: ["in_progress"],
     implementation_finished: ["in_progress"],
@@ -53,6 +54,7 @@ const EVENT_STATUS = {
     review_approved: "approved",
     readiness_passed: "ready_for_work",
     epic_readiness_passed: "ready_for_decomposition",
+    decomposition_finalized: "ready_for_work",
     execution_started: "in_progress",
     execution_failed: "failed",
     implementation_finished: "implemented",
@@ -112,7 +114,7 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         updates.failedAt = null;
     }
 
-    if (event === "readiness_passed" || event === "epic_readiness_passed") {
+    if (event === "readiness_passed" || event === "epic_readiness_passed" || event === "decomposition_finalized") {
         updates.failureReason = null;
         updates.failedAt = null;
         updates.verifiedAt = null;

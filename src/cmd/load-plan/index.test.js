@@ -670,6 +670,8 @@ Deno.test("runLoadPlanCommand approved PROJECT Epic opens Slicer without executi
     const { uiAPI, selections, messages } = makeUi();
     selections.push("slicer");
     let slicerOpened = false;
+    /** @type {any} */
+    let slicerArgs = null;
     let askedWithTasks = false;
     let executed = false;
     /** @type {Array<{ event: string, currentStatus: string }>} */
@@ -696,8 +698,9 @@ Deno.test("runLoadPlanCommand approved PROJECT Epic opens Slicer without executi
                     },
                 }),
             findPlansByParent: () => Promise.resolve([]),
-            runSlicerAgent: () => {
+            runSlicerAgent: (/** @type {any} */ args) => {
                 slicerOpened = true;
+                slicerArgs = args;
                 return Promise.resolve({ ok: true });
             },
             submitPlanForReview: () => Promise.resolve({ approved: true }),
@@ -723,6 +726,8 @@ Deno.test("runLoadPlanCommand approved PROJECT Epic opens Slicer without executi
     });
 
     assertEquals(slicerOpened, true);
+    assertEquals(slicerArgs.planName, "epic-review");
+    assertEquals(slicerArgs.triageMeta.type, "epic");
     assertEquals(askedWithTasks, false);
     assertEquals(executed, false);
     assertEquals(events, []);

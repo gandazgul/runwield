@@ -9,23 +9,58 @@ import { getAgentDisplayName } from "../session/agents.js";
 import { extractTasks, parseTaskDependencies, validateProjectTasks } from "./task-scheduling.js";
 
 /**
- * Build the user-request text handed to the slicer agent.
+ * @typedef {Object} SlicerChildSummary
+ * @property {string} name
+ * @property {string} [status]
+ * @property {string} [summary]
+ * @property {string[]} [dependencies]
+ * @property {string[]} [affectedPaths]
+ */
+
+/**
+ * Build the user-request text handed to the interactive Epic Slicer.
  *
- * @param {string} planName
- * @param {import('../../tools/plan-written.js').TriageMeta | undefined} triageMeta
+ * @param {{ planName?: string, epicMarkdown?: string, epicBody?: string, epicAttrs?: Partial<import('../../plan-store.js').PlanFrontMatter>, triageMeta?: import('../../tools/plan-written.js').TriageMeta, children?: SlicerChildSummary[] } | string} input
+ * @param {import('../../tools/plan-written.js').TriageMeta | undefined} [legacyTriageMeta]
  * @returns {string}
  */
-export function buildSlicerRequest(planName, triageMeta) {
+export function buildSlicerRequest(input, legacyTriageMeta) {
+    const request = /** @type {{ planName?: string, epicMarkdown?: string, epicBody?: string, epicAttrs?: Partial<import('../../plan-store.js').PlanFrontMatter>, triageMeta?: import('../../tools/plan-written.js').TriageMeta, children?: SlicerChildSummary[] }} */
+        (typeof input === "string" ? { planName: input, triageMeta: legacyTriageMeta } : input);
+    const planName = request.planName || "unknown";
+    const attrs = request.epicAttrs || {};
+    const triageMeta = request.triageMeta;
+    const children = request.children || [];
+    const epicText = request.epicBody || request.epicMarkdown || "(Epic body unavailable.)";
+
     const lines = [
+        `## Epic Slicer Session: ${planName}`,
         `## Slice Plan: ${planName}`,
         "",
-        `The architect has finished a design-only plan at plans/${planName}.md. The user approved the design.`,
-        "Your job: read the plan, then append a Tasks section and per-slice detail blocks using the edit tool.",
-        "Follow the slicer tasks format file referenced in your system prompt exactly.",
+        "You are resuming an interactive Slicer conversation for this PROJECT Epic.",
+        "First propose or refine child FEATURE boundaries conversationally. Do not write child files unless the user explicitly asks you to write/save/materialize drafts. Do not finalize unless the user explicitly confirms finalization.",
+        "Follow the Slicer system prompt: discuss FEATURE boundaries first; use workflow tools for draft writes and finalization only when explicitly requested.",
         "",
+        "## Epic Lifecycle State",
+        `- Plan: plans/${planName}.md`,
+        `- Classification: ${attrs.classification || "unknown"}`,
+        `- Type: ${attrs.type || "unknown"}`,
+        `- Status: ${attrs.status || "unknown"}`,
     ];
+
+    if (attrs.summary) lines.push(`- Summary: ${attrs.summary}`);
+    if (attrs.parentPlan) lines.push(`- Parent plan: ${attrs.parentPlan}`);
+    if (Array.isArray(attrs.dependencies) && attrs.dependencies.length) {
+        lines.push(`- Epic dependencies: ${attrs.dependencies.join(", ")}`);
+    }
+    if (Array.isArray(attrs.affectedPaths) && attrs.affectedPaths.length) {
+        lines.push(`- Epic affected paths: ${attrs.affectedPaths.join(", ")}`);
+    }
+    lines.push("");
+
     if (triageMeta) {
         lines.push("## Triage Report");
+        lines.push("## Triage Metadata");
         if (triageMeta.classification) lines.push(`- Classification: ${triageMeta.classification}`);
         if (triageMeta.complexity) lines.push(`- Complexity: ${triageMeta.complexity}`);
         if (triageMeta.summary) lines.push(`- Summary: ${triageMeta.summary}`);
@@ -34,10 +69,27 @@ export function buildSlicerRequest(planName, triageMeta) {
         }
         lines.push("");
     }
+
+    lines.push("## Existing Child FEATURE Plans");
+    if (children.length === 0) {
+        lines.push("No child FEATURE plans exist yet.");
+    } else {
+        for (const child of children) {
+            lines.push(`- ${child.name}`);
+            if (child.status) lines.push(`  - Status: ${child.status}`);
+            if (child.summary) lines.push(`  - Summary: ${child.summary}`);
+            if (child.dependencies?.length) lines.push(`  - Dependencies: ${child.dependencies.join(", ")}`);
+            if (child.affectedPaths?.length) lines.push(`  - Affected paths: ${child.affectedPaths.join(", ")}`);
+        }
+    }
     lines.push(
-        "Apply the self-check rules in your system prompt before editing. End your turn after the edit — do not " +
-            "generate further text.",
+        "",
+        "Existing child drafts may contain user edits. Do not overwrite or update an existing child draft casually; explain the overwrite risk and ask for confirmation first.",
+        "",
+        "## Epic Markdown",
+        epicText,
     );
+
     return lines.join("\n");
 }
 

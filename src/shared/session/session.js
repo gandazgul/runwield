@@ -1626,11 +1626,24 @@ export async function ensureRootAgentSession(opts) {
  * @param {string} opts.userRequest
  * @param {Array<{base64: string, mimeType: string}>} [opts.images]
  * @param {import('../workflow/workflow.js').UiAPI} [opts.uiAPI]
+ * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager]
+ * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [opts.customTools]
+ * @param {import('./types.js').AgentDefinition} [opts._agentDefOverride]
+ * @param {boolean} [opts.allowReturnToRouter]
  *
  * @returns {Promise<import('@earendil-works/pi-agent-core').AgentMessage[]>}
  */
-export async function runRootTurn({ agentName, userRequest, images, uiAPI }) {
-    const session = getRootAgentSession();
+export async function runRootTurn({
+    agentName,
+    userRequest,
+    images,
+    uiAPI,
+    sessionManager,
+    customTools,
+    _agentDefOverride,
+    allowReturnToRouter,
+}) {
+    let session = getRootAgentSession();
     if (!session) {
         throw new Error(`runRootTurn: no root AgentSession (expected agent "${agentName}")`);
     }
@@ -1639,11 +1652,31 @@ export async function runRootTurn({ agentName, userRequest, images, uiAPI }) {
             `runRootTurn: root agent is "${getRootAgentName()}", not "${agentName}". setActiveAgent must rebuild first.`,
         );
     }
-    const meta = rootSessionMetadata.get(session);
+    let meta = rootSessionMetadata.get(session);
     if (!meta) {
         throw new Error(
             "runRootTurn: root AgentSession is missing metadata (was it built via ensureRootAgentSession?)",
         );
+    }
+
+    const requiredCustomToolNames = (customTools || []).map((tool) => tool.name);
+    const existingCustomToolNames = meta.finalCustomTools.map((tool) => tool.name);
+    const hasRequiredCustomTools = requiredCustomToolNames.every((name) => existingCustomToolNames.includes(name));
+    if (!hasRequiredCustomTools && customTools?.length) {
+        session = await ensureRootAgentSession({
+            agentName,
+            uiAPI,
+            sessionManager,
+            customTools,
+            _agentDefOverride,
+            allowReturnToRouter,
+        });
+        meta = rootSessionMetadata.get(session);
+        if (!meta) {
+            throw new Error(
+                "runRootTurn: rebuilt root AgentSession is missing metadata (was it built via ensureRootAgentSession?)",
+            );
+        }
     }
 
     meta.rootTurnCount += 1;

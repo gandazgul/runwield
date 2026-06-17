@@ -1,6 +1,8 @@
 import { assertEquals, assertMatch, assertStringIncludes, assertThrows } from "@std/assert";
 import {
     buildSlicerRequest,
+    createSlicerFinalizeTool,
+    createSlicerMessageHandler,
     ensureSlicerTasks,
     executePlan,
     executeProjectTasks,
@@ -803,6 +805,31 @@ Deno.test("runSlicerAgent returns ok=true when session resolves", async () => {
     assertStringIncludes(captured.userRequest, "my-plan");
 });
 
+Deno.test("createSlicerMessageHandler preserves Slicer-only custom tools on follow-up turns", async () => {
+    /** @type {any} */
+    let captured = null;
+    const handler = createSlicerMessageHandler("epic-a", {
+        ensureBundledAgentDefFile: (relativePath) => Promise.resolve(`/tmp/${relativePath}`),
+        loadAgentDefFromPath: () => Promise.resolve(/** @type {any} */ ({ displayName: "Slicer" })),
+        createSlicerDraftTool: () => /** @type {any} */ ({ name: "slicer_write_feature_drafts" }),
+        createSlicerFinalizeTool: () => /** @type {any} */ ({ name: "slicer_finalize_decomposition" }),
+        runRootTurn: (opts) => {
+            captured = opts;
+            return Promise.resolve([]);
+        },
+    });
+
+    await handler("write the drafts", [], noopUiAPI, /** @type {any} */ ({ id: "root-session" }));
+
+    assertEquals(captured.agentName, "slicer");
+    assertEquals(captured.sessionManager, { id: "root-session" });
+    assertEquals(captured.allowReturnToRouter, false);
+    assertEquals(captured.customTools.map((/** @type {{ name: string }} */ tool) => tool.name), [
+        "slicer_write_feature_drafts",
+        "slicer_finalize_decomposition",
+    ]);
+});
+
 Deno.test("runSlicerAgent surfaces session errors as { ok:false, error }", async () => {
     const result = await runSlicerAgent({
         planName: "p",
@@ -863,6 +890,50 @@ Deno.test("runSlicerAgent reports failure via uiAPI when present", async () => {
     assertEquals(messages.some((m) => m.includes("Slicer failed: kaboom")), true);
 });
 
+Deno.test("createSlicerFinalizeTool finalizes approved Epic with child FEATURE plans", async () => {
+    /** @type {any} */
+    let recorded = null;
+    const tool = createSlicerFinalizeTool({
+        planName: "epic-a",
+        cwd: "/repo",
+        __deps: {
+            loadPlan: () =>
+                Promise.resolve(
+                    /** @type {any} */ ({
+                        attrs: { classification: "PROJECT", type: "epic", status: "approved" },
+                    }),
+                ),
+            findPlansByParent: () =>
+                Promise.resolve([
+                    /** @type {any} */ ({
+                        name: "epic-a/01-child",
+                        attrs: { classification: "FEATURE" },
+                    }),
+                ]),
+            recordPlanEvent: (args) => {
+                recorded = args;
+                return Promise.resolve(/** @type {any} */ ({ status: "ready_for_work" }));
+            },
+        },
+    });
+
+    const result = await tool.execute(
+        "call-1",
+        { confirmation: "yes, finalize" },
+        new AbortController().signal,
+        () => {},
+        /** @type {any} */ ({}),
+    );
+
+    assertEquals(recorded.event, "decomposition_finalized");
+    assertEquals(recorded.currentStatus, "approved");
+    assertEquals(result.details, {
+        status: "ready_for_work",
+        children: ["epic-a/01-child"],
+        error: "",
+    });
+});
+
 Deno.test("materializeSlicerDraft delegates child FEATURE draft writes", async () => {
     /** @type {Array<{ cwd: string, epicPlanName: string, descriptors: unknown[] }>} */
     const calls = [];
@@ -903,6 +974,62 @@ Deno.test("materializeSlicerDraft delegates child FEATURE draft writes", async (
 });
 
 // ── ensureSlicerTasks ──────────────────────────────────────────────
+
+Deno.test("ensureSlicerTasks refuses legacy task slicing for Epic plans", async () => {
+    let slicerCalls = 0;
+    let readCalls = 0;
+    const result = await ensureSlicerTasks({
+        planName: "epic-a",
+        planPath: "/tmp/epic-a.md",
+        triageMeta: /** @type {any} */ ({ classification: "PROJECT", type: "epic", status: "approved" }),
+        uiAPI: noopUiAPI,
+        __deps: {
+            readTextFile: () => {
+                readCalls++;
+                return Promise.resolve("# Epic");
+            },
+            runSlicerAgent: () => {
+                slicerCalls++;
+                return Promise.resolve({ ok: true });
+            },
+        },
+    });
+
+    assertEquals(result.ok, false);
+    assertEquals(/** @type {any} */ (result).stage, "validation");
+    assertMatch(/** @type {any} */ (result).error, /legacy task-table slicing is disabled/);
+    assertEquals(readCalls, 0);
+    assertEquals(slicerCalls, 0);
+});
+
+Deno.test("ensureSlicerTasks refuses legacy task slicing when persisted plan is an Epic", async () => {
+    let slicerCalls = 0;
+    const result = await ensureSlicerTasks({
+        planName: "epic-a",
+        planPath: "/tmp/epic-a.md",
+        uiAPI: noopUiAPI,
+        __deps: {
+            readTextFile: () =>
+                Promise.resolve([
+                    "---",
+                    "classification: PROJECT",
+                    "type: epic",
+                    "status: approved",
+                    "---",
+                    "# Epic",
+                ].join("\n")),
+            runSlicerAgent: () => {
+                slicerCalls++;
+                return Promise.resolve({ ok: true });
+            },
+        },
+    });
+
+    assertEquals(result.ok, false);
+    assertEquals(/** @type {any} */ (result).stage, "validation");
+    assertMatch(/** @type {any} */ (result).error, /legacy task-table slicing is disabled/);
+    assertEquals(slicerCalls, 0);
+});
 
 Deno.test("ensureSlicerTasks skips slicer when Tasks already parseable (resumed plan)", async () => {
     let slicerCalls = 0;
