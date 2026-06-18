@@ -49,6 +49,18 @@ Development and interactive workflow testing use these binaries in `PATH`:
 - `rtk` for compact command-output rewriting. Harns runtime treats RTK as optional, but the repository's Deno tasks use
   it for compact lint/test/check output.
 
+  **How Harns integrates RTK at runtime:**
+
+  During session setup (`src/shared/session/session.js`), Harns checks whether `rtk` is on `PATH`. If found, it
+  registers the `rtkExtension` from `src/extensions/rtk/index.js` as a `tool_call` event handler.
+
+  The extension listens for agent-initiated `bash` tool calls and runs `rtk rewrite "<original command>"` via `pi.exec`.
+  If the rewrite succeeds and returns a different command, Harns mutates the bash tool input in place so the agent sees
+  compact output from the piped command. The extension skips non-`bash` tools, empty commands, and commands already
+  prefixed with `rtk`. If RTK is missing or the rewrite fails for any reason, the original command runs unchanged
+  (fail-open). Manual `!`/`!!` shell shortcuts are never rewritten — the hook only intercepts programmatic agent bash
+  tool calls.
+
 ## Code style
 
 - Write pure JavaScript (`.js`). Do not add TypeScript files.
