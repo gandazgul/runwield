@@ -13,7 +13,7 @@
     "jsr:@std/toml@^1.0.3": "1.0.11",
     "jsr:@std/yaml@^1.0.5": "1.1.1",
     "npm:@earendil-works/pi-agent-core@~0.79.5": "0.79.5_zod@4.4.3",
-    "npm:@earendil-works/pi-ai@~0.79.4": "0.79.5_zod@4.4.3",
+    "npm:@earendil-works/pi-ai@~0.79.7": "0.79.7_zod@4.4.3",
     "npm:@earendil-works/pi-coding-agent@~0.79.4": "0.79.4_zod@4.4.3",
     "npm:@earendil-works/pi-tui@~0.79.4": "0.79.4",
     "npm:@gandazgul/plannotator-pi-extension-compiled@~0.20.3": "0.20.3_@mariozechner+pi-agent-core@0.73.1_@mariozechner+pi-ai@0.73.1_@mariozechner+pi-coding-agent@0.73.1_@mariozechner+pi-tui@0.73.1",
@@ -373,8 +373,8 @@
         "yaml"
       ]
     },
-    "@earendil-works/pi-ai@0.79.5_zod@4.4.3": {
-      "integrity": "sha512-LwZfV8HNvT90A9n5foA/a6/JMh5n/1lh1rRzOn+68kiFitf/tz3HTBpeSNFnUL4KLIdwp1lczjl4U2EJX0egvQ==",
+    "@earendil-works/pi-ai@0.79.7_zod@4.4.3": {
+      "integrity": "sha512-KTe2euBoBEmFb0W+KR05Im8Qq4coU+eo46++UgNAfT3L8OIBv3QU+/pif9EqaFQ1QUmirv8kgy4TQltvrCu7iQ==",
       "dependencies": [
         "@anthropic-ai/sdk",
         "@aws-sdk/client-bedrock-runtime",
@@ -1501,7 +1501,7 @@
       "jsr:@std/jsonc@1",
       "jsr:@std/path@1",
       "npm:@earendil-works/pi-agent-core@~0.79.5",
-      "npm:@earendil-works/pi-ai@~0.79.4",
+      "npm:@earendil-works/pi-ai@~0.79.7",
       "npm:@earendil-works/pi-coding-agent@~0.79.4",
       "npm:@earendil-works/pi-tui@~0.79.4",
       "npm:@gandazgul/plannotator-pi-extension-compiled@~0.20.3",
