@@ -3,15 +3,16 @@ classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Warn users when loading a child FEATURE whose declared sibling dependencies are not verified."
 affectedPaths:
-  - "src/cmd/load-plan/index.js"
-  - "src/cmd/load-plan/index.test.js"
-  - "src/plan-store.js"
+    - "src/cmd/load-plan/index.js"
+    - "src/cmd/load-plan/index.test.js"
+    - "src/plan-store.js"
 createdAt: "2026-06-16T16:25:04Z"
 updatedAt: "2026-06-17T16:20:59.595Z"
 status: "verified"
 origin: "internal"
 verifiedAt: "2026-06-17T16:20:59.595Z"
 ---
+
 # Warn on Unmet Child FEATURE Dependencies
 
 ## Context
