@@ -6,12 +6,12 @@
  * - a user-defined prompt template, dispatched through the operator agent.
  *
  * Built-in commands receive the full TUI context (editor, ui, tui, sessionManager).
- * Templates set the active agent and run a fresh agent session, optionally with
+ * Templates set the active Agent and run a fresh Agent Session, optionally with
  * a template-declared model.
  */
 
 import { abortActiveSession, expandPromptTemplate, expandSkillCommand, runAgentSession } from "../session/session.js";
-import { createDirectAgentHandler } from "../session/direct-agent.js";
+import { createAgentHandler } from "../session/agent-handler.js";
 import { getRootSessionManager } from "../session/session-state.js";
 
 /**
@@ -45,7 +45,7 @@ import { getRootSessionManager } from "../session/session-state.js";
  *   expandPromptTemplate?: typeof expandPromptTemplate,
  *   expandSkillCommand?: typeof expandSkillCommand,
  *   runAgentSession?: typeof runAgentSession,
- *   createDirectAgentHandler?: typeof createDirectAgentHandler,
+ *   createAgentHandler?: typeof createAgentHandler,
  *   getRootSessionManager?: typeof getRootSessionManager,
  *   commandRegistry?: Record<string, { execute: (args: string[], deps: object) => Promise<void> | void }>,
  *   getSlashCommandDefinition?: (name: string) => { name: string } | undefined,
@@ -216,7 +216,7 @@ async function dispatchTemplate(ctx, template, additionalInstructions, thisGen) 
     const deps = ctx.__deps || {};
     const expandPromptTemplateImpl = deps.expandPromptTemplate || expandPromptTemplate;
     const runAgentSessionImpl = deps.runAgentSession || runAgentSession;
-    const createDirectAgentHandlerImpl = deps.createDirectAgentHandler || createDirectAgentHandler;
+    const createAgentHandlerImpl = deps.createAgentHandler || createAgentHandler;
     const getRootSessionManagerImpl = deps.getRootSessionManager || getRootSessionManager;
 
     let resolvedTemplateModel = null;
@@ -257,7 +257,7 @@ async function dispatchTemplate(ctx, template, additionalInstructions, thisGen) 
 
     setActiveAgent(
         chatPromptAgentName,
-        createDirectAgentHandlerImpl(chatPromptAgentName),
+        createAgentHandlerImpl(chatPromptAgentName),
         uiAPI,
         templateModelValue,
     );

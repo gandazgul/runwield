@@ -1,12 +1,13 @@
 /**
  * @module shared/workflow/orchestrator
- * Session-level orchestrator for the triage flow.
+ * Workflow Orchestrator for Triage outcomes.
  *
- * New interactive sessions start with the router agent. When the router calls
- * `triage_report`, the tool terminates the router's turn and returns the
- * classification. This orchestrator wakes up at that point, reads the outcome,
- * and dispatches the next agent:
+ * When any active Agent calls `triage_report`, the tool terminates that Agent's
+ * turn and returns a Triage Report. The active Agent handler consumes the tool
+ * outcome and dispatches the next Agent:
  *
+ * INQUIRY   → Guide
+ * IDEATION  → Ideator
  * QUICK_FIX → Operator
  * FEATURE   → Planner   → on `approved_execute`, runs `executePlan`
  * PROJECT   → Architect → on `approved_execute`, runs `executePlan` (parallel tasks)
@@ -21,18 +22,12 @@
  * iterates without rebuilding LLM context.
  */
 
-import { AGENTS, CWD } from "../../constants.js";
+import { AGENTS, CWD, ROUTING_INTENTS } from "../../constants.js";
 import { ensurePlansDir, loadPlan } from "../../plan-store.js";
 import { applyPendingRootSwap, setActiveAgent } from "../interactive/chat-session.js";
-import { createDirectAgentHandler } from "../session/direct-agent.js";
-import { runAgentSession, runRootTurn } from "../session/session.js";
+import { runRootTurn } from "../session/session.js";
 import { getAgentDisplayName } from "../session/agents.js";
-import {
-    consumePendingSwitchHandoff,
-    getRootAgentName,
-    popAgentInfo,
-    pushAgentInfo,
-} from "../session/session-state.js";
+import { consumePendingSwitchHandoff } from "../session/session-state.js";
 import { decidePostExecution, decidePostPlanning } from "./decisions.js";
 import { executePlan, readLatestTaskCompletedOutcome, runPlanningAgent } from "./workflow.js";
 import { runValidationLoop, shouldRunWorkflowValidation } from "./validation.js";
@@ -41,30 +36,71 @@ export { runLocalCI, runValidationLoop } from "./validation.js";
 
 /**
  * @typedef {Object} TriageOutcome
- * @property {"QUICK_FIX" | "FEATURE" | "PROJECT"} classification
+ * @property {"INQUIRY" | "IDEATION" | "QUICK_FIX" | "FEATURE" | "PROJECT"} routingIntent
+ * @property {"FEATURE" | "PROJECT" | undefined} [classification]
  * @property {"LOW" | "MEDIUM" | "HIGH"} complexity
  * @property {string} summary
  * @property {string[]} affectedPaths
  */
 
+const PLAN_ROUTING_INTENTS = ["FEATURE", "PROJECT"];
+
+/**
+ * @param {unknown} value
+ * @returns {"INQUIRY" | "IDEATION" | "QUICK_FIX" | "FEATURE" | "PROJECT" | null}
+ */
+function asRoutingIntent(value) {
+    if (typeof value !== "string") return null;
+    if (!ROUTING_INTENTS.includes(value)) return null;
+    return /** @type {"INQUIRY" | "IDEATION" | "QUICK_FIX" | "FEATURE" | "PROJECT"} */ (value);
+}
+
+/**
+ * Normalize canonical `routingIntent` details and legacy `classification`
+ * details into a Routing Intent outcome. Plan Classification is preserved only
+ * for plan-producing intents.
+ *
+ * @param {unknown} details
+ * @returns {TriageOutcome | null}
+ */
+function normalizeTriageOutcome(details) {
+    if (!details || typeof details !== "object") return null;
+    const record = /** @type {Record<string, unknown>} */ (details);
+    const routingIntent = asRoutingIntent(record.routingIntent) || asRoutingIntent(record.classification);
+    if (!routingIntent) return null;
+
+    const outcome = /** @type {TriageOutcome} */ ({
+        ...record,
+        routingIntent,
+    });
+
+    if (PLAN_ROUTING_INTENTS.includes(routingIntent)) {
+        outcome.classification = /** @type {"FEATURE" | "PROJECT"} */ (routingIntent);
+    } else {
+        delete outcome.classification;
+    }
+
+    return outcome;
+}
+
 /**
  * Read the latest triage_report tool result's details from a message stream.
  *
  * @param {import('@earendil-works/pi-agent-core').AgentMessage[]} messages
+ * @param {number} [fromIndex]
  * @returns {TriageOutcome | null}
  */
-export function readLatestTriageOutcome(messages) {
-    for (let i = messages.length - 1; i >= 0; i--) {
+export function readLatestTriageOutcome(messages, fromIndex) {
+    const start = fromIndex != null ? fromIndex : 0;
+    for (let i = messages.length - 1; i >= start; i--) {
         const msg = messages[i];
         if (
             msg && "role" in msg && msg.role === "toolResult" &&
             "toolName" in msg && msg.toolName === "triage_report"
         ) {
             // @ts-ignore details set by tool implementation
-            const details = msg.details;
-            if (details && details.classification) {
-                return /** @type {TriageOutcome} */ (details);
-            }
+            const normalized = normalizeTriageOutcome(msg.details);
+            if (normalized) return normalized;
         }
     }
     return null;
@@ -74,18 +110,22 @@ export function readLatestTriageOutcome(messages) {
  * @param {TriageOutcome} triage
  */
 function buildTriageBlock(triage) {
-    return [
+    const lines = [
         "## Triage Report",
-        `- Classification: ${triage.classification}`,
+        `- Routing Intent: ${triage.routingIntent}`,
+    ];
+    if (triage.classification) lines.push(`- Plan Classification: ${triage.classification}`);
+    lines.push(
         `- Complexity: ${triage.complexity}`,
         `- Summary: ${triage.summary}`,
         `- Affected paths: ${(triage.affectedPaths || []).join(", ")}`,
         "",
-    ].join("\n");
+    );
+    return lines.join("\n");
 }
 
 /**
- * Dispatch the next agent based on the router's triage classification, then
+ * Dispatch the next Agent based on a Triage Report's Routing Intent, then
  * (for FEATURE/PROJECT) execute the approved plan.
  *
  * @param {Object} args
@@ -96,16 +136,13 @@ function buildTriageBlock(triage) {
  * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined} args.sessionManager
  * @param {{
  *   applyPendingRootSwap?: typeof applyPendingRootSwap,
- *   createDirectAgentHandler?: typeof createDirectAgentHandler,
+ *   createAgentHandler?: (agentName: string) => import('../session/types.js').AgentMessageHandler,
  *   readLatestTaskCompletedOutcome?: typeof readLatestTaskCompletedOutcome,
  *   decidePostPlanning?: typeof decidePostPlanning,
  *   decidePostExecution?: typeof decidePostExecution,
  *   ensurePlansDir?: typeof ensurePlansDir,
  *   executePlan?: typeof executePlan,
- *   getConfiguredAgentModel?: (agentName: string) => string | undefined,
  *   loadPlan?: typeof loadPlan,
- *   pushAgentInfo?: typeof pushAgentInfo,
- *   popAgentInfo?: typeof popAgentInfo,
  *   consumePendingSwitchHandoff?: typeof consumePendingSwitchHandoff,
  *   runPlanningAgent?: typeof runPlanningAgent,
  *   runRootTurn?: typeof runRootTurn,
@@ -117,22 +154,42 @@ function buildTriageBlock(triage) {
 export async function dispatchPostTriage({ triage, userRequest, images, uiAPI, sessionManager, __deps }) {
     if (!uiAPI) throw new Error("dispatchPostTriage: uiAPI is required");
 
-    const triageBlock = buildTriageBlock(triage);
+    const normalizedTriage = normalizeTriageOutcome(triage);
+    if (!normalizedTriage) throw new Error("dispatchPostTriage: routingIntent is required");
+
+    const triageBlock = buildTriageBlock(normalizedTriage);
     const decoratedRequest = ["## User Request", userRequest, "", triageBlock].join("\n");
     const applyPendingRootSwapImpl = __deps?.applyPendingRootSwap || applyPendingRootSwap;
-    const createDirectAgentHandlerImpl = __deps?.createDirectAgentHandler || createDirectAgentHandler;
+    const createAgentHandlerImpl = __deps?.createAgentHandler ||
+        (await import("../session/agent-handler.js")).createAgentHandler;
     const runValidationLoopImpl = __deps?.runValidationLoop || runValidationLoop;
     const decidePostPlanningImpl = __deps?.decidePostPlanning || decidePostPlanning;
     const decidePostExecutionImpl = __deps?.decidePostExecution || decidePostExecution;
     const setActiveAgentImpl = __deps?.setActiveAgent || setActiveAgent;
 
-    if (triage.classification === "QUICK_FIX") {
+    if (normalizedTriage.routingIntent === "INQUIRY" || normalizedTriage.routingIntent === "IDEATION") {
+        const agentName = normalizedTriage.routingIntent === "INQUIRY" ? AGENTS.GUIDE : AGENTS.IDEATOR;
+        const runRootTurnImpl = __deps?.runRootTurn || runRootTurn;
+
+        setActiveAgentImpl(agentName, createAgentHandlerImpl(agentName), uiAPI);
+        await applyPendingRootSwapImpl(uiAPI);
+
+        await runRootTurnImpl({
+            agentName,
+            userRequest: decoratedRequest,
+            images,
+            uiAPI,
+        });
+        return;
+    }
+
+    if (normalizedTriage.routingIntent === "QUICK_FIX") {
         const operatorDisplay = getAgentDisplayName(AGENTS.OPERATOR);
         const runRootTurnImpl = __deps?.runRootTurn || runRootTurn;
         const readLatestTaskCompletedOutcomeImpl = __deps?.readLatestTaskCompletedOutcome ||
             readLatestTaskCompletedOutcome;
 
-        setActiveAgentImpl(AGENTS.OPERATOR, createDirectAgentHandlerImpl(AGENTS.OPERATOR), uiAPI);
+        setActiveAgentImpl(AGENTS.OPERATOR, createAgentHandlerImpl(AGENTS.OPERATOR), uiAPI);
         await applyPendingRootSwapImpl(uiAPI);
 
         const messages = await runRootTurnImpl({
@@ -152,15 +209,9 @@ export async function dispatchPostTriage({ triage, userRequest, images, uiAPI, s
         return;
     }
 
-    if (triage.classification === "FEATURE" || triage.classification === "PROJECT") {
-        const isFeature = triage.classification === "FEATURE";
+    if (normalizedTriage.routingIntent === "FEATURE" || normalizedTriage.routingIntent === "PROJECT") {
+        const isFeature = normalizedTriage.routingIntent === "FEATURE";
         const agentName = isFeature ? AGENTS.PLANNER : AGENTS.ARCHITECT;
-        const displayName = getAgentDisplayName(agentName);
-
-        const getConfiguredAgentModelImpl = __deps?.getConfiguredAgentModel ||
-            (await import("../session/session.js")).getConfiguredAgentModel;
-        const pushAgentInfoImpl = __deps?.pushAgentInfo || pushAgentInfo;
-        const popAgentInfoImpl = __deps?.popAgentInfo || popAgentInfo;
         const ensurePlansDirImpl = __deps?.ensurePlansDir || ensurePlansDir;
         const runPlanningAgentImpl = __deps?.runPlanningAgent || runPlanningAgent;
         const consumePendingSwitchHandoffImpl = __deps?.consumePendingSwitchHandoff || consumePendingSwitchHandoff;
@@ -168,106 +219,65 @@ export async function dispatchPostTriage({ triage, userRequest, images, uiAPI, s
         const loadPlanImpl = __deps?.loadPlan || loadPlan;
         const shouldRunWorkflowValidationImpl = __deps?.shouldRunWorkflowValidation || shouldRunWorkflowValidation;
 
-        pushAgentInfoImpl(displayName, getConfiguredAgentModelImpl(agentName));
+        await ensurePlansDirImpl(CWD);
 
-        let shouldPop = true;
-        try {
-            await ensurePlansDirImpl(CWD);
+        const outcome = await runPlanningAgentImpl({
+            agentName,
+            initialRequest: decoratedRequest,
+            triageMeta: normalizedTriage,
+            uiAPI,
+            sessionManager,
+        });
+        consumePendingSwitchHandoffImpl(); // Drain any switch requests from planner
 
-            const outcome = await runPlanningAgentImpl({
-                agentName,
-                initialRequest: decoratedRequest,
-                triageMeta: triage,
-                uiAPI,
-                sessionManager,
-            });
-            consumePendingSwitchHandoffImpl(); // Drain any switch requests from planner
+        const decision = decidePostPlanningImpl(outcome, {
+            planningAgentName: agentName,
+            fallbackTriageMeta: normalizedTriage,
+        });
 
-            const decision = decidePostPlanningImpl(outcome, {
-                planningAgentName: agentName,
-                fallbackTriageMeta: triage,
-            });
+        if (decision.kind === "stay_with_agent" || decision.kind === "save_plan") {
+            setActiveAgentImpl(agentName, createAgentHandlerImpl(agentName), uiAPI);
+            return;
+        }
 
-            if (decision.kind === "stay_with_agent" || decision.kind === "save_plan") {
-                setActiveAgentImpl(agentName, createDirectAgentHandlerImpl(agentName), uiAPI);
-                shouldPop = false;
-                return;
+        if (decision.kind !== "execute_plan") {
+            uiAPI.appendSystemMessage(`Workflow halted: ${String(decision.payload.reason || "unknown reason")}`);
+            setActiveAgentImpl(agentName, createAgentHandlerImpl(agentName), uiAPI);
+            return;
+        }
+
+        const planName = /** @type {string} */ (decision.payload.planName);
+        const decisionTriageMeta = /** @type {TriageOutcome} */ (
+            normalizeTriageOutcome(decision.payload.triageMeta) || normalizedTriage
+        );
+        const tasks = /** @type {import('./workflow.js').PlanOutcomeResult["tasks"]} */ (decision.payload.tasks);
+
+        const executionResult = await executePlanImpl(
+            planName,
+            decisionTriageMeta,
+            uiAPI,
+            tasks,
+            sessionManager,
+        );
+        const executionDecision = decidePostExecutionImpl(executionResult, {
+            planName,
+            triageMeta: decisionTriageMeta,
+            executionAgentName: agentName,
+        });
+        if (executionDecision.kind === "run_validation") {
+            const plan = await loadPlanImpl(CWD, planName);
+            if (shouldRunWorkflowValidationImpl(decisionTriageMeta)) {
+                await runValidationLoopImpl({
+                    planName,
+                    planContent: plan?.markdown || "",
+                    triageMeta: decisionTriageMeta,
+                    uiAPI,
+                    sessionManager,
+                    finalAgentName: agentName,
+                });
             }
-
-            if (decision.kind !== "execute_plan") {
-                uiAPI.appendSystemMessage(`Workflow halted: ${String(decision.payload.reason || "unknown reason")}`);
-                setActiveAgentImpl(agentName, createDirectAgentHandlerImpl(agentName), uiAPI);
-                shouldPop = false;
-                return;
-            }
-
-            const planName = /** @type {string} */ (decision.payload.planName);
-            const decisionTriageMeta = /** @type {TriageOutcome} */ (decision.payload.triageMeta || triage);
-            const tasks = /** @type {import('./workflow.js').PlanOutcomeResult["tasks"]} */ (decision.payload.tasks);
-
-            const executionResult = await executePlanImpl(
-                planName,
-                decisionTriageMeta,
-                uiAPI,
-                tasks,
-                sessionManager,
-            );
-            const executionDecision = decidePostExecutionImpl(executionResult, {
-                planName,
-                triageMeta: decisionTriageMeta,
-                executionAgentName: agentName,
-            });
-            if (executionDecision.kind === "run_validation") {
-                const plan = await loadPlanImpl(CWD, planName);
-                if (shouldRunWorkflowValidationImpl(decisionTriageMeta)) {
-                    await runValidationLoopImpl({
-                        planName,
-                        planContent: plan?.markdown || "",
-                        triageMeta: decisionTriageMeta,
-                        uiAPI,
-                        sessionManager,
-                        finalAgentName: agentName,
-                    });
-                }
-            } else if (executionDecision.kind === "stay_with_agent") {
-                setActiveAgentImpl(agentName, createDirectAgentHandlerImpl(agentName), uiAPI);
-            }
-        } finally {
-            if (shouldPop) {
-                popAgentInfoImpl();
-            }
+        } else if (executionDecision.kind === "stay_with_agent") {
+            setActiveAgentImpl(agentName, createAgentHandlerImpl(agentName), uiAPI);
         }
     }
-}
-
-/**
- * Build the onMessage handler used as the active agent at the start of a
- * chat session. Runs the router agent, reads its triage outcome, and
- * dispatches the next agent.
- *
- * @returns {import('../session/types.js').AgentMessageHandler}
- */
-export function createRouterOrchestratorHandler() {
-    return async (userRequest, images, uiAPI, sessionManager) => {
-        if (!uiAPI) throw new Error("router orchestrator handler: uiAPI is required");
-
-        // Use the live root AgentSession when the router is already established as root
-        // (the normal startup case). Fallback to transient for tests/edge cases where the
-        // root was not pre-built.
-        const useRoot = getRootAgentName() === AGENTS.ROUTER;
-        const messages = useRoot
-            ? await runRootTurn({ agentName: AGENTS.ROUTER, userRequest, images, uiAPI })
-            : await runAgentSession({
-                agentName: AGENTS.ROUTER,
-                userRequest,
-                images,
-                uiAPI,
-                sessionManager,
-            });
-
-        const triage = readLatestTriageOutcome(messages);
-        if (!triage) return;
-
-        await dispatchPostTriage({ triage, userRequest, images, uiAPI, sessionManager });
-    };
 }

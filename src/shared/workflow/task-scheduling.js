@@ -1,6 +1,9 @@
 /**
  * @module shared/workflow/task-scheduling
- * PROJECT task table parsing, validation, and safe launch selection.
+ * Legacy PROJECT task table parsing, validation, and safe launch selection.
+ *
+ * Retained for tests and possible future multi-role FEATURE orchestration. New
+ * Epic decomposition uses child FEATURE plans instead of task tables.
  */
 
 // @ts-ignore — quikdown/ast .d.ts uses export= but ESM runtime has default export

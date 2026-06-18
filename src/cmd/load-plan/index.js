@@ -8,9 +8,11 @@
 import { parseArgs as parseArgsFn } from "@std/cli/parse-args";
 import { AGENTS, CLI_BIN, CWD } from "../../constants.js";
 import {
+    findPlansByParent as findPlansByParentFn,
     injectFrontMatter,
     loadPlan as loadPlanFn,
     resolvePlan as resolvePlanFn,
+    resolveSiblingChildPlanDependencies as resolveSiblingChildPlanDependenciesFn,
     updatePlanFrontMatter as updatePlanFrontMatterFn,
 } from "../../plan-store.js";
 import {
@@ -24,7 +26,11 @@ import {
     decidePostExecution as decidePostExecutionFn,
     decidePostPlanning as decidePostPlanningFn,
 } from "../../shared/workflow/decisions.js";
-import { isExecutablePlanStatus, recordPlanEvent as recordPlanEventFn } from "../../shared/workflow/plan-lifecycle.js";
+import {
+    isEpicPlan,
+    isExecutablePlanStatus,
+    recordPlanEvent as recordPlanEventFn,
+} from "../../shared/workflow/plan-lifecycle.js";
 import {
     getWorkflowDiff as getWorkflowDiffFn,
     listCommitsTouchingPathsSince as listCommitsTouchingPathsSinceFn,
@@ -39,9 +45,11 @@ import {
 import {
     findById as findWorktreeByIdFn,
     findByPlanName as findWorktreeByPlanNameFn,
+    removeEntry as removeWorktreeRegistryEntryFn,
     updateEntry as updateWorktreeRegistryEntryFn,
 } from "../../shared/worktree-registry.js";
 import { runValidationLoop as runValidationLoopFn } from "../../shared/workflow/validation.js";
+import { runSlicerAgent as runSlicerAgentFn } from "../../shared/workflow/workflow-slicer.js";
 import { submitPlanForReview as submitPlanForReviewFn } from "../../shared/workflow/submit-plan.js";
 import { printCommandHelp as printCommandHelpFn } from "../help/index.js";
 import {
@@ -52,8 +60,9 @@ import {
     getRootAgentName as getRootAgentNameFn,
     setActiveExecutionWorkflow,
 } from "../../shared/session/session-state.js";
+import { shouldCleanupMergedWorktrees as shouldCleanupMergedWorktreesFn } from "../../shared/settings.js";
 import { resetTuiState as resetTuiStateFn } from "../command-helpers.js";
-import { createDirectAgentHandler as createDirectAgentHandlerFn } from "../../shared/session/direct-agent.js";
+import { createAgentHandler as createAgentHandlerFn } from "../../shared/session/agent-handler.js";
 export { getLoadPlanCompletions } from "./getArgumentCompletions.js";
 
 /**
@@ -71,15 +80,18 @@ export { getLoadPlanCompletions } from "./getArgumentCompletions.js";
  * @property {typeof askApprovalWithTasksFn} [askApprovalWithTasks]
  * @property {typeof ensureSlicerTasksFn} [ensureSlicerTasks]
  * @property {typeof runValidationLoopFn} [runValidationLoop]
+ * @property {typeof runSlicerAgentFn} [runSlicerAgent]
  * @property {typeof loadPlanFn} [loadPlan]
  * @property {typeof getWorkflowDiffFn} [getWorkflowDiff]
  * @property {typeof listCommitsTouchingPathsSinceFn} [listCommitsTouchingPathsSince]
  * @property {typeof restoreWorktreeTreeFn} [restoreWorktreeTree]
  * @property {typeof setActiveAgentFn} [setActiveAgent]
- * @property {typeof createDirectAgentHandlerFn} [createDirectAgentHandler]
+ * @property {typeof createAgentHandlerFn} [createAgentHandler]
  * @property {typeof resetTuiStateFn} [resetTuiState]
  * @property {typeof getRootAgentNameFn} [getRootAgentName]
  * @property {(cwd: string) => Promise<Array<{name: string, attrs: {classification: string, status: string}}>>} [listPlans]
+ * @property {typeof findPlansByParentFn} [findPlansByParent]
+ * @property {typeof resolveSiblingChildPlanDependenciesFn} [resolveSiblingChildPlanDependencies]
  * @property {typeof recordPlanEventFn} [recordPlanEvent]
  * @property {typeof updatePlanFrontMatterFn} [updatePlanFrontMatter]
  * @property {typeof findWorktreeByIdFn} [findWorktreeById]
@@ -89,6 +101,8 @@ export { getLoadPlanCompletions } from "./getArgumentCompletions.js";
  * @property {typeof createExecutionWorktreeFn} [createExecutionWorktree]
  * @property {typeof mergeExecutionWorktreeFn} [mergeExecutionWorktree]
  * @property {typeof removeExecutionWorktreeFn} [removeExecutionWorktree]
+ * @property {typeof removeWorktreeRegistryEntryFn} [removeWorktreeRegistryEntry]
+ * @property {typeof shouldCleanupMergedWorktreesFn} [shouldCleanupMergedWorktrees]
  */
 
 /**
@@ -102,15 +116,28 @@ function restorePreviousAgentFlow(uiAPI, agentName, deps = {}) {
     const {
         resetTuiState: resetTuiStateDep,
         setActiveAgent: setActiveAgentDep,
-        createDirectAgentHandler: createDirectAgentHandlerDep,
+        createAgentHandler: createAgentHandlerDep,
     } = deps;
 
     const resetTuiState = resetTuiStateDep || resetTuiStateFn;
     const setActiveAgent = setActiveAgentDep || setActiveAgentFn;
-    const createDirectAgentHandler = createDirectAgentHandlerDep || createDirectAgentHandlerFn;
+    const createAgentHandler = createAgentHandlerDep || createAgentHandlerFn;
+    const handler = createAgentHandler(agentName);
 
     resetTuiState(undefined, uiAPI, undefined);
-    setActiveAgent(agentName, createDirectAgentHandler(agentName), uiAPI);
+    setActiveAgent(agentName, handler, uiAPI);
+}
+
+/**
+ * If a plan command was entered from Router, the plan owner should become the
+ * follow-up agent. Otherwise restore the specialist the user was already using.
+ *
+ * @param {string} initialAgentName
+ * @param {string} planAgentName
+ * @returns {string}
+ */
+function selectPlanFlowRestoreAgent(initialAgentName, planAgentName) {
+    return initialAgentName === AGENTS.ROUTER ? planAgentName : initialAgentName;
 }
 
 /**
@@ -475,6 +502,23 @@ function shouldKeepPlanningAgentActive(decision) {
  * @returns {Promise<boolean>}
  */
 async function prepareApprovedPlanForWork(plan, uiAPI, ensureSlicerTasks, recordPlanEvent) {
+    if (isEpicPlan(plan.attrs)) {
+        await recordPlanEvent({
+            cwd: CWD,
+            planName: plan.planName,
+            event: "epic_readiness_passed",
+            currentStatus: "approved",
+            details: { triageMeta: plan.attrs },
+        });
+        plan.attrs.status = "ready_for_decomposition";
+        uiAPI.appendSystemMessage(
+            `PROJECT Epic ready for decomposition or child plan selection: ${plan.planName}`,
+            false,
+            "Harns",
+        );
+        return false;
+    }
+
     if (plan.attrs.classification === "PROJECT") {
         const sliceResult = await ensureSlicerTasks({
             planName: plan.planName,
@@ -518,7 +562,7 @@ async function prepareApprovedPlanForWork(plan, uiAPI, ensureSlicerTasks, record
  * @param {typeof loadPlanFn} opts.loadPlan
  * @param {typeof listCommitsTouchingPathsSinceFn} opts.listCommitsTouchingPathsSince
  * @param {typeof setActiveAgentFn} opts.setActiveAgent
- * @param {typeof createDirectAgentHandlerFn} opts.createDirectAgentHandler
+ * @param {typeof createAgentHandlerFn} opts.createAgentHandler
  * @returns {Promise<void>}
  */
 async function executeReadyPlanWithRepair({
@@ -533,7 +577,7 @@ async function executeReadyPlanWithRepair({
     loadPlan,
     listCommitsTouchingPathsSince,
     setActiveAgent,
-    createDirectAgentHandler,
+    createAgentHandler,
 }) {
     const MAX_REPAIR_ATTEMPTS = 2;
     let currentPlanName = plan.planName;
@@ -584,7 +628,7 @@ async function executeReadyPlanWithRepair({
             false,
             "Harns",
         );
-        setActiveAgent(agentName, createDirectAgentHandler(agentName), uiAPI);
+        setActiveAgent(agentName, createAgentHandler(agentName), uiAPI);
         const repairOutcome = await runPlanningAgent({
             agentName,
             initialRequest: [
@@ -909,8 +953,10 @@ async function confirmRecoveryWorktreeAvailable(planName, worktreeContext, uiAPI
  * @param {typeof createExecutionWorktreeFn} opts.createExecutionWorktree
  * @param {typeof mergeExecutionWorktreeFn} opts.mergeExecutionWorktree
  * @param {typeof removeExecutionWorktreeFn} opts.removeExecutionWorktree
+ * @param {typeof removeWorktreeRegistryEntryFn} opts.removeWorktreeRegistryEntry
+ * @param {typeof shouldCleanupMergedWorktreesFn} opts.shouldCleanupMergedWorktrees
  * @param {typeof setActiveAgentFn} opts.setActiveAgent
- * @param {typeof createDirectAgentHandlerFn} opts.createDirectAgentHandler
+ * @param {typeof createAgentHandlerFn} opts.createAgentHandler
  * @returns {Promise<"handled" | "review">}
  */
 async function handlePlanRecovery({
@@ -935,8 +981,10 @@ async function handlePlanRecovery({
     createExecutionWorktree,
     mergeExecutionWorktree,
     removeExecutionWorktree,
+    removeWorktreeRegistryEntry,
+    shouldCleanupMergedWorktrees,
     setActiveAgent,
-    createDirectAgentHandler,
+    createAgentHandler,
 }) {
     let worktreeContext = await resolveRecoveryWorktree(plan, { findWorktreeById, findWorktreeByPlanName });
     while (true) {
@@ -1021,7 +1069,7 @@ async function handlePlanRecovery({
                 loadPlan,
                 listCommitsTouchingPathsSince,
                 setActiveAgent,
-                createDirectAgentHandler,
+                createAgentHandler,
             });
             return "handled";
         }
@@ -1103,7 +1151,7 @@ async function handlePlanRecovery({
                 loadPlan,
                 listCommitsTouchingPathsSince,
                 setActiveAgent,
-                createDirectAgentHandler,
+                createAgentHandler,
             });
             return "handled";
         }
@@ -1126,6 +1174,7 @@ async function handlePlanRecovery({
                 continue;
             }
             try {
+                const cleanupMergedWorktrees = shouldCleanupMergedWorktrees();
                 uiAPI.appendSystemMessage(`Merging worktree branch ${worktreeContext.branch} into primary checkout.`);
                 await mergeExecutionWorktree({
                     projectRoot: CWD,
@@ -1141,27 +1190,71 @@ async function handlePlanRecovery({
                 if (worktreeContext.id) {
                     await updateWorktreeRegistryEntry(CWD, worktreeContext.id, { status: "merged" });
                 }
+                if (cleanupMergedWorktrees && worktreeContext.path) {
+                    try {
+                        await removeExecutionWorktree({
+                            projectRoot: CWD,
+                            path: worktreeContext.path,
+                            branch: worktreeContext.branch,
+                            force: true,
+                        });
+                        if (worktreeContext.id) {
+                            await removeWorktreeRegistryEntry(CWD, worktreeContext.id);
+                        }
+                    } catch (cleanupError) {
+                        const cleanupReason = cleanupError instanceof Error
+                            ? cleanupError.message
+                            : String(cleanupError);
+                        uiAPI.appendSystemMessage(
+                            `Worktree merged, but cleanup failed: ${cleanupReason}`,
+                            true,
+                            "Harns",
+                        );
+                    }
+                }
                 await recordPlanEvent({
                     cwd: CWD,
                     planName: plan.planName,
                     event: "validation_passed",
                     currentStatus: "implemented",
-                    details: { triageMeta: plan.attrs, worktreeStatus: "merged" },
+                    details: { triageMeta: plan.attrs, worktreeStatus: "merged", cleanupMergedWorktrees },
                 });
                 uiAPI.appendSystemMessage("Worktree changes merged and plan marked verified.", false, "Harns");
             } catch (error) {
                 const reason = error instanceof Error ? error.message : String(error);
                 uiAPI.appendSystemMessage(`Worktree merge failed: ${reason}`, true, "Harns");
                 if (worktreeContext.id) {
-                    await updateWorktreeRegistryEntry(CWD, worktreeContext.id, { status: "merge_conflict" });
+                    try {
+                        await updateWorktreeRegistryEntry(CWD, worktreeContext.id, { status: "merge_conflict" });
+                    } catch (metadataError) {
+                        const metadataReason = metadataError instanceof Error
+                            ? metadataError.message
+                            : String(metadataError);
+                        uiAPI.appendSystemMessage(
+                            `Could not update worktree registry while merge conflict is active: ${metadataReason}`,
+                            true,
+                            "Harns",
+                        );
+                    }
                 }
-                await recordPlanEvent({
-                    cwd: CWD,
-                    planName: plan.planName,
-                    event: "worktree_merge_failed",
-                    currentStatus: "implemented",
-                    details: { triageMeta: plan.attrs, failureReason: reason },
-                });
+                try {
+                    await recordPlanEvent({
+                        cwd: CWD,
+                        planName: plan.planName,
+                        event: "worktree_merge_failed",
+                        currentStatus: "implemented",
+                        details: { triageMeta: plan.attrs, failureReason: reason },
+                    });
+                } catch (metadataError) {
+                    const metadataReason = metadataError instanceof Error
+                        ? metadataError.message
+                        : String(metadataError);
+                    uiAPI.appendSystemMessage(
+                        `Could not update plan metadata while merge conflict is active: ${metadataReason}`,
+                        true,
+                        "Harns",
+                    );
+                }
             }
             return "handled";
         }
@@ -1210,6 +1303,310 @@ async function handlePlanRecovery({
 }
 
 /**
+ * @param {import('../../plan-store.js').PlanFrontMatter} attrs
+ * @returns {boolean}
+ */
+function isDecomposedEpicStatus(attrs) {
+    return attrs.status === "ready_for_decomposition" || attrs.status === "ready_for_work" ||
+        (attrs.status === "verified" && attrs.epicCompletionMode === "done_enough");
+}
+
+/**
+ * @param {{ name: string, attrs: import('../../plan-store.js').PlanFrontMatter }} child
+ * @returns {string}
+ */
+function formatChildPlanLabel(child) {
+    const summary = child.attrs.summary ? ` — ${child.attrs.summary}` : "";
+    return `${child.name} [${child.attrs.status}]${summary}`;
+}
+
+/**
+ * @param {Array<{ attrs: import('../../plan-store.js').PlanFrontMatter }>} children
+ * @returns {{ total: number, verified: number, active: number, remaining: number, failed: number }}
+ */
+function countEpicChildStatuses(children) {
+    const counts = { total: children.length, verified: 0, active: 0, remaining: 0, failed: 0 };
+    for (const child of children) {
+        const status = child.attrs.status;
+        if (status === "verified") counts.verified += 1;
+        else if (status === "in_progress" || status === "implemented") counts.active += 1;
+        else if (status === "failed") counts.failed += 1;
+        else if (["draft", "approved", "ready_for_work", "ready_for_decomposition", "feedback"].includes(status)) {
+            counts.remaining += 1;
+        }
+    }
+    return counts;
+}
+
+/**
+ * @param {Array<{ attrs: import('../../plan-store.js').PlanFrontMatter }>} children
+ * @returns {string}
+ */
+function formatEpicProgressSummary(children) {
+    const counts = countEpicChildStatuses(children);
+    const label = counts.total === 1 ? "child FEATURE" : "child FEATUREs";
+    const parts = [
+        `Progress: ${counts.verified}/${counts.total} ${label} verified`,
+        `${counts.active} active/implemented`,
+        `${counts.remaining} remaining`,
+    ];
+    if (counts.failed > 0) parts.push(`${counts.failed} failed`);
+    return parts.join(" — ");
+}
+
+/**
+ * @param {Array<{ name: string, attrs: import('../../plan-store.js').PlanFrontMatter }>} children
+ * @returns {string}
+ */
+function formatEpicChildFeatureList(children) {
+    if (children.length === 0) return "Child FEATURE plans:\n  (none)";
+    return [
+        "Child FEATURE plans:",
+        ...children.map((child) => `  - ${formatChildPlanLabel(child)}`),
+    ].join("\n");
+}
+
+/**
+ * @param {{ attrs: import('../../plan-store.js').PlanFrontMatter, body: string, markdown: string }} plan
+ * @param {Array<{ name: string, attrs: import('../../plan-store.js').PlanFrontMatter }>} children
+ * @returns {string}
+ */
+function buildEpicPlanSummary(plan, children) {
+    const sections = [buildPlanSummary(plan)];
+    if (children.length > 0) sections.push(`Epic child progress:\n${formatEpicProgressSummary(children)}`);
+    sections.push(formatEpicChildFeatureList(children));
+    return sections.join("\n\n");
+}
+
+/**
+ * @param {Array<{ attrs: import('../../plan-store.js').PlanFrontMatter }>} children
+ * @returns {string}
+ */
+function buildEpicDoneEnoughSummary(children) {
+    const counts = countEpicChildStatuses(children);
+    const failed = counts.failed > 0 ? `, ${counts.failed} failed` : "";
+    return `Done enough for now: ${counts.verified}/${counts.total} child FEATURE${
+        counts.total === 1 ? "" : "s"
+    } verified, ${counts.active} active/implemented, ${counts.remaining} remaining${failed}.`;
+}
+
+/**
+ * @param {{ attrs: import('../../plan-store.js').PlanFrontMatter }} plan
+ * @returns {boolean}
+ */
+function isDoneEnoughEpic(plan) {
+    return plan.attrs.epicCompletionMode === "done_enough";
+}
+
+/**
+ * @param {Array<{ dependency: string, planName?: string, status?: string, state: "verified" | "unverified" | "missing" }>} unmetDependencies
+ * @returns {string}
+ */
+function formatDependencyWarning(unmetDependencies) {
+    return [
+        "This child FEATURE declares dependencies that are not verified:",
+        "",
+        ...unmetDependencies.map((dependency) => {
+            if (dependency.state === "missing") return `  - ${dependency.dependency}: missing`;
+            return `  - ${dependency.planName || dependency.dependency}: ${dependency.status || "unknown"}`;
+        }),
+    ].join("\n");
+}
+
+/**
+ * @param {{ planName: string, attrs: import('../../plan-store.js').PlanFrontMatter }} plan
+ * @param {import('../../shared/workflow/workflow.js').UiAPI} uiAPI
+ * @param {typeof resolveSiblingChildPlanDependenciesFn} resolveSiblingChildPlanDependencies
+ * @returns {Promise<boolean>}
+ */
+async function confirmChildFeatureDependencies(plan, uiAPI, resolveSiblingChildPlanDependencies) {
+    if (plan.attrs.classification !== "FEATURE" || !plan.attrs.parentPlan) return true;
+    const dependencies = Array.isArray(plan.attrs.dependencies) ? plan.attrs.dependencies : [];
+    if (dependencies.length === 0) return true;
+
+    const dependencyStates = await resolveSiblingChildPlanDependencies(CWD, plan.attrs.parentPlan, dependencies);
+    const unmetDependencies = dependencyStates.filter((dependency) => dependency.state !== "verified");
+    if (unmetDependencies.length === 0) return true;
+
+    uiAPI.appendSystemMessage(formatDependencyWarning(unmetDependencies), true, "Harns");
+    const answer = await uiAPI.promptSelect(`Proceed with "${plan.planName}" anyway?`, [
+        { value: "proceed", label: "Proceed anyway" },
+        { value: "cancel", label: "Cancel" },
+    ]);
+    if (answer === "proceed") return true;
+    uiAPI.appendSystemMessage("Plan load canceled.", false, "Harns");
+    return false;
+}
+
+/**
+ * @param {Object} opts
+ * @param {{ planName: string, body: string, markdown: string, attrs: import('../../plan-store.js').PlanFrontMatter }} opts.plan
+ * @param {import('../../shared/workflow/workflow.js').UiAPI} opts.uiAPI
+ * @param {typeof findPlansByParentFn} opts.findPlansByParent
+ * @param {typeof runSlicerAgentFn} opts.runSlicerAgent
+ * @param {typeof recordPlanEventFn} opts.recordPlanEvent
+ * @param {typeof resolvePlanFn} opts.resolvePlan
+ * @param {(childPlanName: string) => Promise<void>} opts.loadChildPlan
+ * @returns {Promise<"handled" | "continue">}
+ */
+async function handleEpicPlan({
+    plan,
+    uiAPI,
+    findPlansByParent,
+    runSlicerAgent,
+    recordPlanEvent,
+    resolvePlan,
+    loadChildPlan,
+}) {
+    if (!isEpicPlan(plan.attrs)) return "continue";
+
+    const children = (await findPlansByParent(CWD, plan.planName)).filter((child) =>
+        child.attrs.classification === "FEATURE"
+    );
+    const hasChildren = children.length > 0;
+    const canPickChild = hasChildren && isDecomposedEpicStatus(plan.attrs);
+
+    if (hasChildren) {
+        uiAPI.appendSystemMessage(formatEpicProgressSummary(children), false, "Harns");
+    }
+    if (isDoneEnoughEpic(plan)) {
+        const summary = plan.attrs.epicDoneEnoughSummary ? ` ${plan.attrs.epicDoneEnoughSummary}` : "";
+        uiAPI.appendSystemMessage(
+            `This Epic is marked done enough for now.${summary} Remaining child FEATURE plans stay visible and loadable.`,
+            false,
+            "Harns",
+        );
+    }
+
+    if (plan.attrs.status === "draft" || plan.attrs.status === "approved") {
+        uiAPI.appendSystemMessage(
+            "This PROJECT Epic is not executable. Resume Slicer decomposition to create child FEATURE plans.",
+            false,
+            "Harns",
+        );
+    } else if (!hasChildren) {
+        uiAPI.appendSystemMessage("This PROJECT Epic has no child FEATURE plans yet.", false, "Harns");
+    }
+
+    while (true) {
+        /** @type {Array<{ value: string, label: string }>} */
+        const epicOptions = [
+            { value: "slicer", label: "Open or resume Slicer decomposition" },
+            { value: "view", label: "View Epic details" },
+            { value: "cancel", label: "Cancel" },
+        ];
+        if (canPickChild) {
+            epicOptions.splice(1, 0, { value: "pick_child", label: "Pick a child FEATURE plan" });
+        }
+        if (hasChildren && plan.attrs.status === "ready_for_work") {
+            epicOptions.splice(canPickChild ? 2 : 1, 0, {
+                value: "done_enough",
+                label: "Mark Epic done enough for now",
+            });
+        }
+
+        const answer = await uiAPI.promptSelect("What would you like to do with this Epic?", epicOptions);
+        if (!answer || answer === "cancel") return "handled";
+
+        if (answer === "view") {
+            uiAPI.appendSystemMessage(buildEpicPlanSummary(plan, children), false, "Plan");
+            continue;
+        }
+
+        if (answer === "slicer") {
+            await runSlicerAgent({
+                planName: plan.planName,
+                triageMeta: plan.attrs,
+                uiAPI,
+            });
+            return "handled";
+        }
+
+        if (answer === "done_enough") {
+            const summary = buildEpicDoneEnoughSummary(children);
+            uiAPI.appendSystemMessage(
+                [
+                    formatEpicProgressSummary(children),
+                    "Marking this Epic done enough sets the Epic status to verified for now.",
+                    "Unverified child FEATURE plans remain visible and loadable.",
+                ].join("\n"),
+                false,
+                "Harns",
+            );
+            const confirm = await uiAPI.promptSelect("Mark this Epic done enough for now?", [
+                { value: "confirm", label: "Yes, mark done enough for now" },
+                { value: "cancel", label: "Cancel" },
+            ]);
+            if (confirm !== "confirm") {
+                uiAPI.appendSystemMessage("Epic done-enough update canceled.", false, "Harns");
+                continue;
+            }
+            const updatedAttrs = await recordPlanEvent({
+                cwd: CWD,
+                planName: plan.planName,
+                event: "epic_done_enough",
+                currentStatus: plan.attrs.status,
+                details: {
+                    triageMeta: plan.attrs,
+                    epicDoneEnoughSummary: summary,
+                },
+            });
+            plan.attrs = { ...plan.attrs, ...updatedAttrs };
+            uiAPI.appendSystemMessage(
+                `Epic marked done enough for now. ${plan.attrs.epicDoneEnoughSummary || summary}`,
+                false,
+                "Harns",
+            );
+            continue;
+        }
+
+        if (answer === "pick_child") {
+            while (true) {
+                const childOptions = children.map((child) => ({
+                    value: child.name,
+                    label: formatChildPlanLabel(child),
+                }));
+                const childPlanName = await uiAPI.promptSelect("Load child FEATURE plan:", childOptions);
+                if (!childPlanName) break;
+
+                while (true) {
+                    const childAction = await uiAPI.promptSelect("What would you like to do with this FEATURE?", [
+                        { value: "load", label: "Load this FEATURE" },
+                        { value: "view", label: "View FEATURE details" },
+                        { value: "back", label: "Back to child list" },
+                    ]);
+                    if (!childAction || childAction === "back") break;
+
+                    if (childAction === "load") {
+                        await loadChildPlan(String(childPlanName));
+                        return "handled";
+                    }
+
+                    if (childAction === "view") {
+                        try {
+                            const childPlan = await resolvePlan(CWD, String(childPlanName));
+                            uiAPI.appendSystemMessage(
+                                `FEATURE: ${childPlan.planName}\n\n${buildPlanSummary(childPlan)}`,
+                                false,
+                                "Plan",
+                            );
+                        } catch (err) {
+                            const message = err instanceof Error ? err.message : String(err);
+                            uiAPI.appendSystemMessage(
+                                `Could not load FEATURE details for ${String(childPlanName)}: ${message}`,
+                                false,
+                                "Harns",
+                            );
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
  * Handle `load-plan` command.
  *
  * @param {string[]} argv
@@ -1231,14 +1628,17 @@ export async function runLoadPlanCommand(argv, options = {}) {
         askApprovalWithTasks: askApprovalWithTasksDep,
         ensureSlicerTasks: ensureSlicerTasksDep,
         runValidationLoop: runValidationLoopDep,
+        runSlicerAgent: runSlicerAgentDep,
         loadPlan: loadPlanDep,
         getWorkflowDiff: getWorkflowDiffDep,
         listCommitsTouchingPathsSince: listCommitsTouchingPathsSinceDep,
         restoreWorktreeTree: restoreWorktreeTreeDep,
         setActiveAgent: setActiveAgentDep,
-        createDirectAgentHandler: createDirectAgentHandlerDep,
+        createAgentHandler: createAgentHandlerDep,
         getRootAgentName: getRootAgentNameDep,
         listPlans: listPlansDep,
+        findPlansByParent: findPlansByParentDep,
+        resolveSiblingChildPlanDependencies: resolveSiblingChildPlanDependenciesDep,
         recordPlanEvent: recordPlanEventDep,
         updatePlanFrontMatter: updatePlanFrontMatterDep,
         findWorktreeById: findWorktreeByIdDep,
@@ -1248,6 +1648,8 @@ export async function runLoadPlanCommand(argv, options = {}) {
         createExecutionWorktree: createExecutionWorktreeDep,
         mergeExecutionWorktree: mergeExecutionWorktreeDep,
         removeExecutionWorktree: removeExecutionWorktreeDep,
+        removeWorktreeRegistryEntry: removeWorktreeRegistryEntryDep,
+        shouldCleanupMergedWorktrees: shouldCleanupMergedWorktreesDep,
     } = deps;
 
     const parseArgs = parseArgsDep || parseArgsFn;
@@ -1263,13 +1665,17 @@ export async function runLoadPlanCommand(argv, options = {}) {
     const askApprovalWithTasks = askApprovalWithTasksDep || askApprovalWithTasksFn;
     const ensureSlicerTasks = ensureSlicerTasksDep || ensureSlicerTasksFn;
     const runValidationLoop = runValidationLoopDep || runValidationLoopFn;
+    const runSlicerAgent = runSlicerAgentDep || runSlicerAgentFn;
     const loadPlan = loadPlanDep || loadPlanFn;
     const getWorkflowDiff = getWorkflowDiffDep || getWorkflowDiffFn;
     const listCommitsTouchingPathsSince = listCommitsTouchingPathsSinceDep || listCommitsTouchingPathsSinceFn;
     const restoreWorktreeTree = restoreWorktreeTreeDep || restoreWorktreeTreeFn;
     const setActiveAgent = setActiveAgentDep || setActiveAgentFn;
-    const createDirectAgentHandler = createDirectAgentHandlerDep || createDirectAgentHandlerFn;
+    const createAgentHandler = createAgentHandlerDep || createAgentHandlerFn;
     const getRootAgentName = getRootAgentNameDep || getRootAgentNameFn;
+    const findPlansByParent = findPlansByParentDep || findPlansByParentFn;
+    const resolveSiblingChildPlanDependencies = resolveSiblingChildPlanDependenciesDep ||
+        resolveSiblingChildPlanDependenciesFn;
     const recordPlanEvent = recordPlanEventDep || recordPlanEventFn;
     const updatePlanFrontMatter = updatePlanFrontMatterDep || updatePlanFrontMatterFn;
     const findWorktreeById = findWorktreeByIdDep || findWorktreeByIdFn;
@@ -1279,6 +1685,8 @@ export async function runLoadPlanCommand(argv, options = {}) {
     const createExecutionWorktree = createExecutionWorktreeDep || createExecutionWorktreeFn;
     const mergeExecutionWorktree = mergeExecutionWorktreeDep || mergeExecutionWorktreeFn;
     const removeExecutionWorktree = removeExecutionWorktreeDep || removeExecutionWorktreeFn;
+    const removeWorktreeRegistryEntry = removeWorktreeRegistryEntryDep || removeWorktreeRegistryEntryFn;
+    const shouldCleanupMergedWorktrees = shouldCleanupMergedWorktreesDep || shouldCleanupMergedWorktreesFn;
 
     const parsedArgs = parseArgs(argv, {
         boolean: ["help"],
@@ -1311,7 +1719,9 @@ export async function runLoadPlanCommand(argv, options = {}) {
                 description: `${p.attrs.classification} - ${p.attrs.status}`,
             }));
 
-            const chosen = await options.uiAPI.promptSelect("Load plan:", planOptions);
+            const chosen = await options.uiAPI.promptSelect("Load plan:", planOptions, {
+                layout: { maxPrimaryColumnWidth: 48 },
+            });
             if (!chosen) {
                 options.editor.setText("");
                 options.editor.disableSubmit = false;
@@ -1341,6 +1751,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
 
     let skipRouterRestore = false;
     const initialAgentName = getRootAgentName() || AGENTS.ROUTER;
+    let restoreAgentName = initialAgentName;
 
     try {
         uiAPI.appendSystemMessage(`Loading plan: ${planArg}`, false, "Harns");
@@ -1355,8 +1766,10 @@ export async function runLoadPlanCommand(argv, options = {}) {
 
         const triageMeta = plan.attrs;
         const agentName = triageMeta.classification === "PROJECT" ? AGENTS.ARCHITECT : AGENTS.PLANNER;
+        const planFlowRestoreAgent = selectPlanFlowRestoreAgent(initialAgentName, agentName);
 
         if (["in_progress", "failed", "implemented"].includes(plan.attrs.status)) {
+            restoreAgentName = planFlowRestoreAgent;
             const result = await handlePlanRecovery({
                 plan,
                 agentName,
@@ -1379,11 +1792,46 @@ export async function runLoadPlanCommand(argv, options = {}) {
                 createExecutionWorktree,
                 mergeExecutionWorktree,
                 removeExecutionWorktree,
+                removeWorktreeRegistryEntry,
+                shouldCleanupMergedWorktrees,
                 setActiveAgent,
-                createDirectAgentHandler,
+                createAgentHandler,
             });
             if (result === "handled") return;
         }
+
+        const epicResult = await handleEpicPlan({
+            plan,
+            uiAPI,
+            findPlansByParent,
+            runSlicerAgent,
+            recordPlanEvent,
+            resolvePlan,
+            loadChildPlan: async (childPlanName) => {
+                skipRouterRestore = true;
+                await runLoadPlanCommand([childPlanName], {
+                    ...options,
+                    __testDeps: {
+                        ...deps,
+                        parseArgs: /** @type {any} */ ((/** @type {readonly string[]} */ childArgv) => ({
+                            help: false,
+                            _: [...childArgv],
+                        })),
+                    },
+                });
+            },
+        });
+        if (epicResult === "handled") {
+            skipRouterRestore = true;
+            return;
+        }
+
+        const dependenciesConfirmed = await confirmChildFeatureDependencies(
+            plan,
+            uiAPI,
+            resolveSiblingChildPlanDependencies,
+        );
+        if (!dependenciesConfirmed) return;
 
         if (plan.attrs.status === "verified") {
             uiAPI.appendSystemMessage("This plan is already verified.", false, "Harns");
@@ -1434,6 +1882,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                 if (!answer) return;
 
                 if (answer === "proceed") {
+                    restoreAgentName = planFlowRestoreAgent;
                     if (plan.attrs.status === "approved") {
                         const ready = await prepareApprovedPlanForWork(
                             plan,
@@ -1459,12 +1908,13 @@ export async function runLoadPlanCommand(argv, options = {}) {
                         loadPlan,
                         listCommitsTouchingPathsSince,
                         setActiveAgent,
-                        createDirectAgentHandler,
+                        createAgentHandler,
                     });
                     return;
                 }
 
                 if (answer === "review") {
+                    restoreAgentName = planFlowRestoreAgent;
                     // Re-opening for review: discard the slicer's tasks so the
                     // architect → slicer flow regenerates them against any revisions.
                     await stripTasksFromPlanFile(plan);
@@ -1479,7 +1929,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                         plan.attrs.status = "feedback";
                     }
 
-                    setActiveAgent(agentName, createDirectAgentHandler(agentName), uiAPI);
+                    setActiveAgent(agentName, createAgentHandler(agentName), uiAPI);
 
                     const reviewResult = await submitPlanForReview({
                         cwd: CWD,
@@ -1578,7 +2028,8 @@ export async function runLoadPlanCommand(argv, options = {}) {
 
         // Not approved — kick off the planning agent. plan_written handles review/save/execute.
         uiAPI.appendSystemMessage(buildPlanSummary(plan), false, "Plan");
-        setActiveAgent(agentName, createDirectAgentHandler(agentName), uiAPI);
+        restoreAgentName = planFlowRestoreAgent;
+        setActiveAgent(agentName, createAgentHandler(agentName), uiAPI);
 
         const outcome = await runPlanningAgent({
             agentName,
@@ -1606,7 +2057,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
         }
     } finally {
         if (!skipRouterRestore) {
-            restorePreviousAgentFlow(uiAPI, initialAgentName, deps);
+            restorePreviousAgentFlow(uiAPI, restoreAgentName, deps);
         }
     }
 }

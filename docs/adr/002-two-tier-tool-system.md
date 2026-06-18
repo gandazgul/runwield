@@ -31,7 +31,7 @@ Tools that are infrastructure for the Harns SDLC. They cannot be removed by user
 - `memory_store`, `memory_store_global` — memory creation
 - `memory_delete` — memory removal
 - `return_to_router` — hand-off back to Router for fresh triage
-- `triage_report` — router classification output
+- `triage_report` — Triage Report output that drives post-triage workflow dispatch
 - `plan_written` — planner/architect plan declaration
 
 ### Agent Tools
@@ -43,7 +43,8 @@ Tools that define what an agent _can do_ — customizable via frontmatter overri
 ### Implementation
 
 Core tools remain in the bundled agent frontmatter `tools:` lists — this is the source of truth for which agent gets
-which core tools (not every core tool goes to every agent; e.g., `triage_report` is only for the router).
+which core tools by default. Not every core tool goes to every bundled agent, but adding a workflow tool to another
+Agent should preserve the same runtime semantics.
 
 On `loadAgentDef`, after the layered merge (bundled → home → local), the system ensures core tools from the **bundled**
 layer are always present in the final tool set. User overrides cannot remove them, only add. The merged list is
@@ -54,7 +55,8 @@ Concretely:
 - Bundled `router.md` lists `triage_report`, `codebase_search`, `memory_recall`, etc.
 - A user override at `.hns/agents/router.md` with `tools: [read, bash]` won't strip the core tools — they're re-injected
   from the bundled layer.
-- Users CAN add core tools to agents that don't have them by default (e.g., adding `memory_list` to a custom agent).
+- Users CAN add core tools to agents that don't have them by default (e.g., adding `triage_report` to a custom Agent or
+  adding `memory_list` to a custom Agent).
 
 ### Escape Hatch
 

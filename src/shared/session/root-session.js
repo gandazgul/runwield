@@ -11,7 +11,7 @@ import { dirname, join, resolve } from "@std/path";
  * @param {string} cwd
  * @returns {string}
  */
-function encodeCwdForSessionDir(cwd) {
+export function encodeCwdForSessionDir(cwd) {
     return `--${cwd.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`;
 }
 

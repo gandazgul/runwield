@@ -1,8 +1,7 @@
 /**
- * @module shared/session/direct-agent
- * Handler for direct agent invocation — sends user prompts straight to
- * a named agent, bypassing the router triage flow. The agent takes over
- * the TUI with full streaming output (not suppressed like parallel tasks).
+ * @module shared/session/agent-handler
+ * Workflow-aware handler for the active Agent. It runs one Agent turn, then
+ * lets workflow tool outcomes decide whether any follow-up workflow step runs.
  */
 
 import { runAgentSession as runAgentSessionFn, runRootTurn as runRootTurnFn } from "./session.js";
@@ -11,6 +10,10 @@ import {
     readLatestPlanOutcome as readLatestPlanOutcomeFn,
     readLatestTaskCompletedOutcome as readLatestTaskCompletedOutcomeFn,
 } from "../workflow/workflow.js";
+import {
+    dispatchPostTriage as dispatchPostTriageFn,
+    readLatestTriageOutcome as readLatestTriageOutcomeFn,
+} from "../workflow/orchestrator.js";
 import {
     decidePostExecution as decidePostExecutionFn,
     decidePostPlanning as decidePostPlanningFn,
@@ -28,22 +31,21 @@ import { join } from "@std/path";
 import { CWD } from "../../constants.js";
 
 /**
- * Create an onMessage handler that sends prompts directly to a specific agent.
+ * Create an onMessage handler for the active Agent.
  *
  * The returned function matches the `(userRequest, images, uiAPI) => Promise<void>`
  * signature used by `setActiveAgent()` / `startInteractiveSession()`.
  *
- * After the agent finishes, the handler checks the message stream for a
- * `plan_written` outcome. If the outcome is `approved_execute`, it dispatches
- * `executePlan` so direct dispatch (e.g. `hns agent architect "..."` or
- * `/agent architect`) actually runs the plan after the user picks "proceed".
- * Without this, the planner/architect's plan_written would return
- * approved_execute but no caller would pick it up.
+ * After the Agent finishes, the handler checks the message stream for workflow
+ * Custom Tool outcomes. The tool outcome, not the Agent name, decides whether
+ * Harns starts Triage dispatch, Plan execution, or Workflow Validation.
  *
  * @param {string} agentName - Agent definition name (filename without .md)
  * @param {{
  *   runAgentSession?: typeof runAgentSessionFn,
  *   runRootTurn?: typeof runRootTurnFn,
+ *   readLatestTriageOutcome?: typeof readLatestTriageOutcomeFn,
+ *   dispatchPostTriage?: typeof dispatchPostTriageFn,
  *   readLatestPlanOutcome?: typeof readLatestPlanOutcomeFn,
  *   readLatestTaskCompletedOutcome?: typeof readLatestTaskCompletedOutcomeFn,
  *   decidePostPlanning?: typeof decidePostPlanningFn,
@@ -51,12 +53,17 @@ import { CWD } from "../../constants.js";
  *   executePlan?: typeof executePlanFn,
  *   runValidationLoop?: typeof runValidationLoop,
  *   setActiveAgent?: typeof setActiveAgentFn,
+ *   _agentDefOverride?: import('./types.js').AgentDefinition,
+ *   customTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[],
+ *   allowReturnToRouter?: boolean,
  * }} [__deps] - Test-only injection point.
  * @returns {import('./types.js').AgentMessageHandler}
  */
-export function createDirectAgentHandler(agentName, __deps) {
+export function createAgentHandler(agentName, __deps) {
     const runAgentSession = __deps?.runAgentSession || runAgentSessionFn;
     const runRootTurn = __deps?.runRootTurn || runRootTurnFn;
+    const readLatestTriageOutcome = __deps?.readLatestTriageOutcome || readLatestTriageOutcomeFn;
+    const dispatchPostTriage = __deps?.dispatchPostTriage || dispatchPostTriageFn;
     const readLatestPlanOutcome = __deps?.readLatestPlanOutcome || readLatestPlanOutcomeFn;
     const readLatestTaskCompletedOutcome = __deps?.readLatestTaskCompletedOutcome || readLatestTaskCompletedOutcomeFn;
     const decidePostPlanning = __deps?.decidePostPlanning || decidePostPlanningFn;
@@ -64,6 +71,11 @@ export function createDirectAgentHandler(agentName, __deps) {
     const executePlan = __deps?.executePlan || executePlanFn;
     const runValidationLoopImpl = __deps?.runValidationLoop || runValidationLoop;
     const setActiveAgent = __deps?.setActiveAgent || setActiveAgentFn;
+    const sessionOptions = {
+        _agentDefOverride: __deps?._agentDefOverride,
+        customTools: __deps?.customTools,
+        allowReturnToRouter: __deps?.allowReturnToRouter,
+    };
 
     return async (userRequest, images, uiAPI, sessionManager) => {
         // If the live root is already this agent (the common case after a switch has been
@@ -78,14 +90,30 @@ export function createDirectAgentHandler(agentName, __deps) {
         const preTurnCount = useRoot ? getRootAgentSession()?.agent?.state?.messages?.length ?? 0 : 0;
 
         const messages = useRoot
-            ? await runRootTurn({ agentName, userRequest, images, uiAPI })
+            ? await runRootTurn({ agentName, userRequest, images, uiAPI, ...sessionOptions })
             : await runAgentSession({
                 agentName,
                 userRequest,
                 images,
                 uiAPI,
                 sessionManager,
+                ...sessionOptions,
             });
+
+        const triage = readLatestTriageOutcome(messages, preTurnCount);
+        if (triage) {
+            await dispatchPostTriage({
+                triage,
+                userRequest,
+                images,
+                uiAPI,
+                sessionManager,
+                __deps: {
+                    createAgentHandler,
+                },
+            });
+            return;
+        }
 
         // If the agent's plan_written returned approved_execute, dispatch the plan.
         // Other outcomes (saved/feedback/canceled/repair_required) self-terminate
@@ -136,7 +164,7 @@ export function createDirectAgentHandler(agentName, __deps) {
                     finalAgentName: agentName,
                 });
             } else if (executionDecision.kind === "stay_with_agent") {
-                setActiveAgent(agentName, createDirectAgentHandler(agentName), uiAPI);
+                setActiveAgent(agentName, createAgentHandler(agentName), uiAPI);
             }
             return;
         }

@@ -2,21 +2,22 @@
  * @module cmd/router
  * Router command (also used as the default command).
  *
- * The router is just the entry-point of the triage orchestrator. This file
- * launches the interactive TUI with the orchestrator handler attached;
- * dispatch logic itself lives in `shared/workflow/orchestrator.js`.
+ * The router command starts an interactive session with the Router as the
+ * initial active Agent. Workflow tool outcomes are handled by the normal Agent
+ * handler; Router is not a special runtime mode.
  */
 
-import { COMMAND_NAMES } from "../../constants.js";
+import { AGENTS, COMMAND_NAMES } from "../../constants.js";
 import { startInteractiveSession as startInteractiveSessionFn } from "../../shared/interactive/chat-session.js";
-import { createRouterOrchestratorHandler as createRouterOrchestratorHandlerFn } from "../../shared/workflow/orchestrator.js";
+import { createAgentHandler as createAgentHandlerFn } from "../../shared/session/agent-handler.js";
 import { printCommandHelp as printCommandHelpFn } from "../help/index.js";
 
 /**
  * @typedef {Object} RunRouterCommandDeps
  * @property {typeof printCommandHelpFn} [printCommandHelp]
  * @property {typeof startInteractiveSessionFn} [startInteractiveSession]
- * @property {typeof createRouterOrchestratorHandlerFn} [createHandler]
+ * @property {typeof createAgentHandlerFn} [createAgentHandler]
+ * @property {() => import('../../shared/session/types.js').AgentMessageHandler} [createHandler]
  */
 
 /**
@@ -29,7 +30,8 @@ export async function runRouterCommand(argv, options = {}) {
     const deps = /** @type {RunRouterCommandDeps} */ ((/** @type {any} */ (options)).__testDeps || {});
     const printCommandHelp = deps.printCommandHelp || printCommandHelpFn;
     const startInteractiveSession = deps.startInteractiveSession || startInteractiveSessionFn;
-    const createHandler = deps.createHandler || createRouterOrchestratorHandlerFn;
+    const createAgentHandler = deps.createAgentHandler || createAgentHandlerFn;
+    const createHandler = deps.createHandler || (() => createAgentHandler(AGENTS.ROUTER));
 
     const userRequest = argv.join(" ").trim();
 

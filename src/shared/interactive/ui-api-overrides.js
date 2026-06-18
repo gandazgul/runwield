@@ -76,7 +76,7 @@ export function installUiApiOverrides({ uiAPI, tui, editor, container, messageLi
             };
 
             const selector = new ModelSelectorComponentImpl(
-                tui,
+                /** @type {any} */ (tui),
                 currentModel,
                 settingsManager,
                 modelRegistry,

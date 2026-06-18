@@ -101,7 +101,43 @@ Deno.test("returns feedback outcome and revision request when user submits feedb
     assertStringIncludes(result.content[0]?.text ?? "", "rename the foo");
 });
 
-// ── PROJECT slicer integration ──────────────────────────────────
+// ── PROJECT readiness ───────────────────────────────────────────
+
+Deno.test("PROJECT Epic records decomposition readiness without invoking slicer or execution prompt", async () => {
+    let slicerCalled = false;
+    let approvalWithTasksCalled = false;
+    /** @type {Array<{ planName: string, event: string, currentStatus: string }>} */
+    const events = [];
+    const result = await runTool(
+        { planName: "p" },
+        {
+            triageMeta: { classification: "PROJECT", type: "epic", complexity: "LOW", summary: "x", affectedPaths: [] },
+            __deps: makeDeps({
+                ensureSlicerTasks: () => {
+                    slicerCalled = true;
+                    return Promise.resolve({ ok: true, slicerInvoked: false });
+                },
+                askApprovalWithTasks: () => {
+                    approvalWithTasksCalled = true;
+                    return Promise.resolve("proceed");
+                },
+                recordPlanEvent: ({ planName, event, currentStatus }) => {
+                    events.push({ planName, event, currentStatus });
+                    return Promise.resolve(/** @type {any} */ ({}));
+                },
+            }),
+        },
+    );
+
+    assertEquals(slicerCalled, false);
+    assertEquals(approvalWithTasksCalled, false);
+    assertEquals(events, [{ planName: "p", event: "epic_readiness_passed", currentStatus: "approved" }]);
+    assertEquals(result.details.outcome, "saved");
+    assertEquals(result.terminate, true);
+    assertStringIncludes(result.content[0]?.text ?? "", "not directly executable");
+});
+
+// ── Legacy PROJECT slicer integration ────────────────────────────
 
 Deno.test("PROJECT plan invokes ensureSlicerTasks and records readiness on success", async () => {
     let slicerCalled = false;

@@ -11,6 +11,7 @@ import {
     listSkills,
     readGlobalAgentMd,
     steerRootSession,
+    steerRootSessionWithTarget,
 } from "./session.js";
 import { setRootAgentSession } from "./session-state.js";
 
@@ -120,6 +121,20 @@ Deno.test("listSkills and expandSkillCommand read local skill definitions", asyn
     } finally {
         await cleanupLocalCatalogFixtures();
     }
+});
+
+Deno.test("listSkills advertises bundled skills from the runtime-readable cache", async () => {
+    await cleanupLocalCatalogFixtures();
+    const skills = await listSkills();
+    const ketch = skills.find((item) => item.name === "ketch");
+
+    assertEquals(ketch?.source, "bundled");
+    const ketchPath = ketch?.path ?? "";
+    assertEquals(
+        ketchPath.includes(".hns/bundled-skills/ketch/SKILL.md") ||
+            ketchPath.includes("src/skills/ketch/SKILL.md"),
+        true,
+    );
 });
 
 Deno.test("ensureBundledAgentDefFile resolves workflow prompt assets", async () => {
@@ -264,6 +279,7 @@ Deno.test("steerRootSession sends image content only while root is streaming", a
             text: "interrupt",
             images: [{ type: "image", data: "abc123", mimeType: "image/png" }],
         }]);
+        assertEquals(await steerRootSessionWithTarget("targeted"), session);
     } finally {
         setRootAgentSession(null);
     }

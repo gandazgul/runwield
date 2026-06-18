@@ -4,7 +4,13 @@
 
 import { assertEquals } from "@std/assert";
 import { join } from "@std/path";
-import { migratePiSettingsOnce } from "./settings.js";
+import {
+    __resetSettingsForTests,
+    migratePiSettingsOnce,
+    preserveHarnsCustomSettingsForWrite,
+    setCustomSetting,
+    shouldCleanupMergedWorktrees,
+} from "./settings.js";
 
 // Use a temp dir for isolated file-based tests
 const TEMP_DIR = await Deno.makeTempDir({ prefix: "harns-settings-test-" });
@@ -122,6 +128,52 @@ Deno.test({
     },
 });
 
+Deno.test("preserveHarnsCustomSettingsForWrite keeps Harns custom keys across SettingsManager writes", () => {
+    const previous = JSON.stringify({
+        theme: "old-theme",
+        agents: {},
+        activeModelPreset: "codex",
+        modelPresets: {
+            codex: {
+                agents: {
+                    operator: { model: "crofai/deepseek-v4-pro" },
+                },
+            },
+        },
+    });
+    const next = JSON.stringify({
+        theme: "new-theme",
+    });
+
+    const preserved = JSON.parse(preserveHarnsCustomSettingsForWrite(previous, next));
+
+    assertEquals(preserved, {
+        theme: "new-theme",
+        agents: {},
+        activeModelPreset: "codex",
+        modelPresets: {
+            codex: {
+                agents: {
+                    operator: { model: "crofai/deepseek-v4-pro" },
+                },
+            },
+        },
+    });
+});
+
+Deno.test("preserveHarnsCustomSettingsForWrite lets explicit new custom values win", () => {
+    const previous = JSON.stringify({
+        activeModelPreset: "codex",
+    });
+    const next = JSON.stringify({
+        activeModelPreset: "crof.ai",
+    });
+
+    assertEquals(JSON.parse(preserveHarnsCustomSettingsForWrite(previous, next)), {
+        activeModelPreset: "crof.ai",
+    });
+});
+
 Deno.test("migratePiSettingsOnce copies legacy Pi settings when Harns settings are missing", async () => {
     const tempDir = await Deno.makeTempDir({ prefix: "harns-settings-migration-" });
     try {
@@ -155,6 +207,30 @@ Deno.test("migratePiSettingsOnce leaves existing Harns settings untouched", asyn
         assertEquals(await Deno.readTextFile(harnsPath), '{"theme":"harns"}');
     } finally {
         await Deno.remove(tempDir, { recursive: true });
+    }
+});
+
+Deno.test("shouldCleanupMergedWorktrees defaults true and honors false setting", async () => {
+    const originalHome = Deno.env.get("HOME");
+    const originalCwd = Deno.cwd();
+    const tempHome = await Deno.makeTempDir({ prefix: "harns-cleanup-setting-home-" });
+    const tempProject = await Deno.makeTempDir({ prefix: "harns-cleanup-setting-project-" });
+    try {
+        Deno.env.set("HOME", tempHome);
+        Deno.chdir(tempProject);
+        __resetSettingsForTests();
+
+        assertEquals(shouldCleanupMergedWorktrees(), true);
+
+        await setCustomSetting("cleanupMergedWorktrees", false, "project");
+        assertEquals(shouldCleanupMergedWorktrees(), false);
+    } finally {
+        Deno.chdir(originalCwd);
+        if (originalHome === undefined) Deno.env.delete("HOME");
+        else Deno.env.set("HOME", originalHome);
+        __resetSettingsForTests();
+        await Deno.remove(tempHome, { recursive: true });
+        await Deno.remove(tempProject, { recursive: true });
     }
 });
 

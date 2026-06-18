@@ -1,15 +1,90 @@
 import { assertEquals } from "@std/assert";
-import { createDirectAgentHandler } from "./direct-agent.js";
+import { createAgentHandler } from "./agent-handler.js";
 import {
     clearActiveExecutionWorkflow,
     getActiveExecutionWorkflow,
     setActiveExecutionWorkflow,
+    setRootAgentName,
 } from "./session-state.js";
 
-Deno.test("direct-agent calls executePlan when outcome is approved_execute", async () => {
+Deno.test("agent-handler dispatches triage_report from any agent", async () => {
+    /** @type {import('../workflow/orchestrator.js').TriageOutcome} */
+    const triage = {
+        routingIntent: "FEATURE",
+        classification: "FEATURE",
+        complexity: "LOW",
+        summary: "s",
+        affectedPaths: ["src/a.js"],
+    };
+    /** @type {unknown} */
+    let dispatchArgs = null;
+    const uiAPI = /** @type {any} */ ({});
+    const sessionManager = /** @type {any} */ ({});
+    const images = [{ base64: "abc", mimeType: "image/png" }];
+    const handler = createAgentHandler("operator", {
+        runAgentSession: () => Promise.resolve(/** @type {any} */ ([])),
+        readLatestTriageOutcome: () => triage,
+        dispatchPostTriage: (args) => {
+            dispatchArgs = args;
+            return Promise.resolve();
+        },
+        readLatestPlanOutcome: () => {
+            throw new Error("triage_report should short-circuit later workflow outcomes");
+        },
+    });
+
+    await handler("classify this", images, uiAPI, sessionManager);
+
+    assertEquals(dispatchArgs, {
+        triage,
+        userRequest: "classify this",
+        images,
+        uiAPI,
+        sessionManager,
+        __deps: {
+            createAgentHandler,
+        },
+    });
+});
+
+Deno.test("agent-handler passes agent definition overrides and custom tools to root turns", async () => {
+    /** @type {any} */
+    let captured = null;
+    const customTools = [
+        /** @type {any} */ ({ name: "slicer_write_feature_drafts" }),
+        /** @type {any} */ ({ name: "slicer_finalize_decomposition" }),
+    ];
+    const agentDef = /** @type {any} */ ({ displayName: "Slicer" });
+    const handler = createAgentHandler("slicer", {
+        _agentDefOverride: agentDef,
+        customTools,
+        allowReturnToRouter: false,
+        runRootTurn: (opts) => {
+            captured = opts;
+            return Promise.resolve([]);
+        },
+        readLatestTriageOutcome: () => null,
+        readLatestPlanOutcome: () => null,
+        readLatestTaskCompletedOutcome: () => false,
+    });
+
+    setRootAgentName("slicer");
+    try {
+        await handler("write the drafts", [], /** @type {any} */ ({}), /** @type {any} */ ({ id: "root-session" }));
+    } finally {
+        setRootAgentName(null);
+    }
+
+    assertEquals(captured.agentName, "slicer");
+    assertEquals(captured.allowReturnToRouter, false);
+    assertEquals(captured._agentDefOverride, agentDef);
+    assertEquals(captured.customTools, customTools);
+});
+
+Deno.test("agent-handler calls executePlan when outcome is approved_execute", async () => {
     /** @type {Array<unknown[]>} */
     const executeCalls = [];
-    const handler = createDirectAgentHandler("architect", {
+    const handler = createAgentHandler("architect", {
         runAgentSession: () =>
             Promise.resolve(
                 /** @type {any} */ ([{
@@ -36,11 +111,11 @@ Deno.test("direct-agent calls executePlan when outcome is approved_execute", asy
     assertEquals(executeCalls[0][0], "my-plan");
 });
 
-Deno.test("direct-agent validates after approved_execute only when execution completed", async () => {
+Deno.test("agent-handler validates after approved_execute only when execution completed", async () => {
     let validationCount = 0;
     /** @type {string | undefined} */
     let finalAgentName;
-    const handler = createDirectAgentHandler("planner", {
+    const handler = createAgentHandler("planner", {
         runAgentSession: () => Promise.resolve(/** @type {any} */ ([])),
         readLatestPlanOutcome: () => /** @type {any} */ ({ outcome: "approved_execute", planName: "p" }),
         executePlan: /** @type {any} */ (() => Promise.resolve({ repairRequired: false, executionComplete: true })),
@@ -56,9 +131,9 @@ Deno.test("direct-agent validates after approved_execute only when execution com
     assertEquals(finalAgentName, "planner");
 });
 
-Deno.test("direct-agent skips validation when approved_execute did not complete execution", async () => {
+Deno.test("agent-handler skips validation when approved_execute did not complete execution", async () => {
     let validationCount = 0;
-    const handler = createDirectAgentHandler("planner", {
+    const handler = createAgentHandler("planner", {
         runAgentSession: () => Promise.resolve(/** @type {any} */ ([])),
         readLatestPlanOutcome: () => /** @type {any} */ ({ outcome: "approved_execute", planName: "p" }),
         executePlan: /** @type {any} */ (() => Promise.resolve({ repairRequired: false, executionComplete: false })),
@@ -72,11 +147,11 @@ Deno.test("direct-agent skips validation when approved_execute did not complete 
     assertEquals(validationCount, 0);
 });
 
-Deno.test("direct-agent restores invoking agent when approved_execute execution is incomplete", async () => {
+Deno.test("agent-handler restores invoking agent when approved_execute execution is incomplete", async () => {
     /** @type {string[]} */
     const restoredAgents = [];
     const uiAPI = /** @type {any} */ ({});
-    const handler = createDirectAgentHandler("architect", {
+    const handler = createAgentHandler("architect", {
         runAgentSession: () => Promise.resolve(/** @type {any} */ ([])),
         readLatestPlanOutcome: () => /** @type {any} */ ({ outcome: "approved_execute", planName: "p" }),
         executePlan: /** @type {any} */ (() => Promise.resolve({ repairRequired: false, executionComplete: false })),
@@ -97,9 +172,9 @@ Deno.test("direct-agent restores invoking agent when approved_execute execution 
     assertEquals(restoredAgents, ["architect"]);
 });
 
-Deno.test("direct-agent does NOT call executePlan when outcome is saved", async () => {
+Deno.test("agent-handler does NOT call executePlan when outcome is saved", async () => {
     let executeCount = 0;
-    const handler = createDirectAgentHandler("planner", {
+    const handler = createAgentHandler("planner", {
         runAgentSession: () => Promise.resolve(/** @type {any} */ ([])),
         readLatestPlanOutcome: () => ({ outcome: "saved", planName: "p" }),
         executePlan: /** @type {any} */ (() => {
@@ -113,9 +188,9 @@ Deno.test("direct-agent does NOT call executePlan when outcome is saved", async 
     assertEquals(executeCount, 0);
 });
 
-Deno.test("direct-agent does NOT call executePlan when outcome is feedback", async () => {
+Deno.test("agent-handler does NOT call executePlan when outcome is feedback", async () => {
     let executeCount = 0;
-    const handler = createDirectAgentHandler("architect", {
+    const handler = createAgentHandler("architect", {
         runAgentSession: () => Promise.resolve(/** @type {any} */ ([])),
         readLatestPlanOutcome: () => ({ outcome: "feedback", planName: "p", feedback: "redo" }),
         executePlan: /** @type {any} */ (() => {
@@ -129,9 +204,9 @@ Deno.test("direct-agent does NOT call executePlan when outcome is feedback", asy
     assertEquals(executeCount, 0);
 });
 
-Deno.test("direct-agent does NOT call executePlan when no plan_written outcome present", async () => {
+Deno.test("agent-handler does NOT call executePlan when no plan_written outcome present", async () => {
     let executeCount = 0;
-    const handler = createDirectAgentHandler("operator", {
+    const handler = createAgentHandler("operator", {
         runAgentSession: () => Promise.resolve(/** @type {any} */ ([])),
         readLatestPlanOutcome: () => null,
         executePlan: /** @type {any} */ (() => {
@@ -145,10 +220,10 @@ Deno.test("direct-agent does NOT call executePlan when no plan_written outcome p
     assertEquals(executeCount, 0);
 });
 
-Deno.test("direct-agent does NOT call executePlan when planName missing on approved_execute", async () => {
+Deno.test("agent-handler does NOT call executePlan when planName missing on approved_execute", async () => {
     // Defensive: even if outcome is approved_execute but planName is absent, don't dispatch.
     let executeCount = 0;
-    const handler = createDirectAgentHandler("planner", {
+    const handler = createAgentHandler("planner", {
         runAgentSession: () => Promise.resolve(/** @type {any} */ ([])),
         readLatestPlanOutcome: () => /** @type {any} */ ({ outcome: "approved_execute" }),
         executePlan: /** @type {any} */ (() => {
@@ -162,13 +237,13 @@ Deno.test("direct-agent does NOT call executePlan when planName missing on appro
     assertEquals(executeCount, 0);
 });
 
-Deno.test("direct-agent passes triageMeta and tasks through to executePlan", async () => {
+Deno.test("agent-handler passes triageMeta and tasks through to executePlan", async () => {
     /** @type {Array<unknown[]>} */
     const executeCalls = [];
     const triage = { classification: "FEATURE", complexity: "MEDIUM", summary: "y", affectedPaths: ["a"] };
     const tasks = [{ task: 1, assignee: "engineer", dependencies: "none", description: "x" }];
 
-    const handler = createDirectAgentHandler("planner", {
+    const handler = createAgentHandler("planner", {
         runAgentSession: () => Promise.resolve(/** @type {any} */ ([])),
         readLatestPlanOutcome: () => /** @type {any} */ ({
             outcome: "approved_execute",
@@ -189,10 +264,10 @@ Deno.test("direct-agent passes triageMeta and tasks through to executePlan", asy
     assertEquals(executeCalls[0][3], tasks);
 });
 
-Deno.test("direct-agent falls back to empty triageMeta when outcome lacks one", async () => {
+Deno.test("agent-handler falls back to empty triageMeta when outcome lacks one", async () => {
     /** @type {Array<unknown[]>} */
     const executeCalls = [];
-    const handler = createDirectAgentHandler("planner", {
+    const handler = createAgentHandler("planner", {
         runAgentSession: () => Promise.resolve(/** @type {any} */ ([])),
         readLatestPlanOutcome: () => /** @type {any} */ ({ outcome: "approved_execute", planName: "p" }),
         executePlan: /** @type {any} */ ((/** @type {unknown[]} */ ...args) => {
@@ -207,7 +282,7 @@ Deno.test("direct-agent falls back to empty triageMeta when outcome lacks one", 
     assertEquals(executeCalls[0][1], {});
 });
 
-Deno.test("direct-agent preserves active workflow baseline until continuation validation starts", async () => {
+Deno.test("agent-handler preserves active workflow baseline until continuation validation starts", async () => {
     /** @type {unknown} */
     let workflowDuringValidation = null;
     setActiveExecutionWorkflow({
@@ -216,7 +291,7 @@ Deno.test("direct-agent preserves active workflow baseline until continuation va
         baselineTree: "baseline-tree",
     });
 
-    const handler = createDirectAgentHandler("engineer", {
+    const handler = createAgentHandler("engineer", {
         runAgentSession: () =>
             Promise.resolve(
                 /** @type {any} */ ([{
@@ -243,7 +318,7 @@ Deno.test("direct-agent preserves active workflow baseline until continuation va
     });
 });
 
-Deno.test("direct-agent skips validation and clears workflow marker for QUICK_FIX completion", async () => {
+Deno.test("agent-handler skips validation and clears workflow marker for QUICK_FIX completion", async () => {
     let validationCount = 0;
     setActiveExecutionWorkflow({
         planName: "quick-fix",
@@ -251,7 +326,7 @@ Deno.test("direct-agent skips validation and clears workflow marker for QUICK_FI
         baselineTree: "baseline-tree",
     });
 
-    const handler = createDirectAgentHandler("operator", {
+    const handler = createAgentHandler("operator", {
         runAgentSession: () =>
             Promise.resolve(
                 /** @type {any} */ ([{

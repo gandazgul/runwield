@@ -3,6 +3,17 @@ import { dirname, join } from "@std/path";
 import { parse as parseJsonc } from "@std/jsonc";
 import lockfile from "proper-lockfile";
 
+const HARNS_CUSTOM_SETTING_KEYS = [
+    "agents",
+    "activeModelPreset",
+    "modelPresets",
+    "compactOnResumeThresholdPercent",
+    "verification_command",
+    "cleanupMergedWorktrees",
+    "enableExternalSkills",
+    "enableExternalGlobalAgentsMd",
+];
+
 /**
  * Get the settings directory path for a given scope.
  *
@@ -157,7 +168,10 @@ class HarnsSettingsStorage {
         const path = this.#resolvePath(scope);
 
         const content = this.#readSettings(scope);
-        const newContent = callback(content);
+        let newContent = callback(content);
+        if (newContent !== undefined) {
+            newContent = preserveHarnsCustomSettingsForWrite(content, newContent);
+        }
         if (newContent !== undefined && newContent !== content) {
             // Ensure the file exists before locking; proper-lockfile requires the
             // target to exist.
@@ -209,6 +223,15 @@ export function getSettingsManager() {
 }
 
 /**
+ * Test-only escape hatch for tests that need to change HOME or cwd before
+ * exercising settings-backed behavior.
+ */
+export function __resetSettingsForTests() {
+    storageInstance = null;
+    settingsManager = null;
+}
+
+/**
  * Strip JSONC comments/trailing commas from a raw string, producing valid JSON.
  * Uses @std/jsonc parse then re-serializes for callers that expect clean JSON.
  *
@@ -223,6 +246,44 @@ function stripJsoncComments(raw) {
         // If JSONC parse fails, return original — let the caller's JSON.parse
         // throw with the real error message.
         return raw;
+    }
+}
+
+/**
+ * Preserve Harns custom settings when Pi's SettingsManager writes its known
+ * schema back to disk. Without this, operations like changing theme/model can
+ * silently drop Harns-only keys such as `modelPresets`.
+ *
+ * @param {string | undefined} previousContent
+ * @param {string} nextContent
+ * @returns {string}
+ */
+export function preserveHarnsCustomSettingsForWrite(previousContent, nextContent) {
+    if (!previousContent) return nextContent;
+
+    try {
+        const previous = /** @type {Record<string, any>} */ (parseJsonc(previousContent));
+        const next = /** @type {Record<string, any>} */ (parseJsonc(nextContent));
+        if (
+            !previous || typeof previous !== "object" || Array.isArray(previous) ||
+            !next || typeof next !== "object" || Array.isArray(next)
+        ) {
+            return nextContent;
+        }
+
+        let changed = false;
+        for (const key of HARNS_CUSTOM_SETTING_KEYS) {
+            if (
+                Object.prototype.hasOwnProperty.call(previous, key) && !Object.prototype.hasOwnProperty.call(next, key)
+            ) {
+                next[key] = previous[key];
+                changed = true;
+            }
+        }
+
+        return changed ? JSON.stringify(next, null, 2) : nextContent;
+    } catch {
+        return nextContent;
     }
 }
 
@@ -313,4 +374,15 @@ export function getMergedCustomSetting(key) {
     }
 
     return projectVal;
+}
+
+/**
+ * Whether merged execution worktrees should be removed after successful merge-back.
+ * Defaults to true; set `cleanupMergedWorktrees: false` in global or project
+ * settings to keep merged worktree checkouts for inspection.
+ *
+ * @returns {boolean}
+ */
+export function shouldCleanupMergedWorktrees() {
+    return getMergedCustomSetting("cleanupMergedWorktrees") !== false;
 }

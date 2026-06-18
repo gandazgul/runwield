@@ -68,10 +68,21 @@ Deno.test("applyAttentionNudge only injects scheduled long-lived agent nudges", 
     assertEquals(applyAttentionNudge(AGENTS.OPERATOR, "User asks", 6), "User asks");
 
     assertEquals(
+        applyAttentionNudge(AGENTS.GUIDE, "User asks", 6),
+        [
+            "<attention_nudge>",
+            "You are still the Guide. Stay read-only, answer direct questions concisely, and return to Router if the user asks for edits, plans, execution, or deeper ideation.",
+            "</attention_nudge>",
+            "",
+            "User asks",
+        ].join("\n"),
+    );
+
+    assertEquals(
         applyAttentionNudge(AGENTS.IDEATOR, "User asks", 6),
         [
             "<attention_nudge>",
-            "You are still the Ideator. Continue as a thinking partner: clarify one decision at a time, verify external facts when needed, and do not move into implementation unless the user explicitly asks.",
+            "You are still the Ideator. Continue as a thinking partner: clarify one decision at a time, verify external facts when needed, and use `return_to_router` for actionable implementation or planning requests.",
             "</attention_nudge>",
             "",
             "User asks",

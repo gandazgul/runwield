@@ -1,5 +1,6 @@
 import { assertEquals } from "@std/assert";
 import { runLoadPlanCommand } from "./index.js";
+import { resolveSiblingChildPlanDependencies, savePlan } from "../../plan-store.js";
 import { AGENTS } from "../../constants.js";
 import { clearActiveExecutionWorkflow, getActiveExecutionWorkflow } from "../../shared/session/session-state.js";
 
@@ -35,6 +36,63 @@ function makeUi() {
 function noOpRecordPlanEvent() {
     return Promise.resolve(/** @type {any} */ ({}));
 }
+
+Deno.test("resolveSiblingChildPlanDependencies supports sibling segments and canonical child names", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "epic-i", "epic", {
+            classification: "PROJECT",
+            complexity: "HIGH",
+            summary: "Epic",
+            affectedPaths: [],
+            status: "ready_for_work",
+            type: "epic",
+        });
+        await savePlan(cwd, "epic-i/01-first", "first", {
+            classification: "FEATURE",
+            complexity: "LOW",
+            summary: "First",
+            affectedPaths: [],
+            status: "verified",
+            parentPlan: "epic-i",
+        });
+        await savePlan(cwd, "epic-i/02-second", "second", {
+            classification: "FEATURE",
+            complexity: "LOW",
+            summary: "Second",
+            affectedPaths: [],
+            status: "implemented",
+            parentPlan: "epic-i",
+        });
+
+        const dependencies = await resolveSiblingChildPlanDependencies(cwd, "epic-i", [
+            "01-first",
+            "epic-i/02-second",
+            "03-missing",
+        ]);
+
+        assertEquals(
+            dependencies.map((dependency) => ({
+                dependency: dependency.dependency,
+                planName: dependency.planName,
+                status: dependency.status,
+                state: dependency.state,
+            })),
+            [
+                { dependency: "01-first", planName: "epic-i/01-first", status: "verified", state: "verified" },
+                {
+                    dependency: "epic-i/02-second",
+                    planName: "epic-i/02-second",
+                    status: "implemented",
+                    state: "unverified",
+                },
+                { dependency: "03-missing", planName: undefined, status: undefined, state: "missing" },
+            ],
+        );
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
 
 Deno.test("runLoadPlanCommand prints help", async () => {
     let helped = "";
@@ -102,13 +160,814 @@ Deno.test("runLoadPlanCommand approved plan proceed path", async () => {
                 return Promise.resolve(undefined);
             },
             recordPlanEvent: noOpRecordPlanEvent,
-            createDirectAgentHandler: () => () => Promise.resolve(),
+            createAgentHandler: () => () => Promise.resolve(),
             resetTuiState: () => {},
             setActiveAgent: () => {},
         }),
     });
 
     assertEquals(executed, true);
+});
+
+Deno.test("runLoadPlanCommand Epic with no children opens Slicer", async () => {
+    const { uiAPI, selections, messages } = makeUi();
+    selections.push("slicer");
+    let slicerPlanName = "";
+    let executed = false;
+
+    await runLoadPlanCommand(["epic-a"], {
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: (/** @type {string[]} */ argv) => ({ help: false, _: argv }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "epic-a",
+                    path: "plans/epic-a.md",
+                    body: "## Context\nEpic context",
+                    markdown: "## Context\nEpic context",
+                    attrs: {
+                        classification: "PROJECT",
+                        type: "epic",
+                        complexity: "HIGH",
+                        summary: "Epic summary",
+                        affectedPaths: [],
+                        status: "ready_for_decomposition",
+                    },
+                }),
+            findPlansByParent: () => Promise.resolve([]),
+            runSlicerAgent: (/** @type {{ planName: string }} */ opts) => {
+                slicerPlanName = opts.planName;
+                return Promise.resolve({ ok: true });
+            },
+            executePlan: () => {
+                executed = true;
+                return Promise.resolve(undefined);
+            },
+            createAgentHandler: () => () => Promise.resolve(),
+            resetTuiState: () => {},
+            setActiveAgent: () => {},
+        }),
+    });
+
+    assertEquals(messages.some((m) => m.includes("no child FEATURE plans")), true);
+    assertEquals(slicerPlanName, "epic-a");
+    assertEquals(executed, false);
+});
+
+Deno.test("runLoadPlanCommand Epic with children shows child FEATURE labels", async () => {
+    const { uiAPI, selections, prompts } = makeUi();
+    selections.push("pick_child", null);
+
+    await runLoadPlanCommand(["epic-b"], {
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: (/** @type {string[]} */ argv) => ({ help: false, _: argv }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "epic-b",
+                    path: "plans/epic-b.md",
+                    body: "body",
+                    markdown: "body",
+                    attrs: {
+                        classification: "PROJECT",
+                        type: "epic",
+                        complexity: "HIGH",
+                        summary: "Epic summary",
+                        affectedPaths: [],
+                        status: "ready_for_work",
+                    },
+                }),
+            findPlansByParent: () =>
+                Promise.resolve([
+                    {
+                        name: "epic-b/01-first",
+                        path: "plans/epic-b/01-first.md",
+                        attrs: {
+                            classification: "FEATURE",
+                            complexity: "LOW",
+                            summary: "First child",
+                            affectedPaths: [],
+                            status: "approved",
+                        },
+                    },
+                    {
+                        name: "epic-b/02-second",
+                        path: "plans/epic-b/02-second.md",
+                        attrs: {
+                            classification: "FEATURE",
+                            complexity: "LOW",
+                            summary: "Second child",
+                            affectedPaths: [],
+                            status: "draft",
+                        },
+                    },
+                ]),
+            createAgentHandler: () => () => Promise.resolve(),
+            resetTuiState: () => {},
+            setActiveAgent: () => {},
+        }),
+    });
+
+    assertEquals(prompts[0].options.some((option) => option.value === "pick_child"), true);
+    assertEquals(prompts[0].options.some((option) => option.value === "done_enough"), true);
+    assertEquals(prompts[1].options[0].label, "epic-b/01-first [approved] — First child");
+    assertEquals(prompts[1].options[1].label, "epic-b/02-second [draft] — Second child");
+});
+
+Deno.test("runLoadPlanCommand View Epic details includes child FEATURE labels and statuses", async () => {
+    const { uiAPI, selections, messages } = makeUi();
+    selections.push("view", "cancel");
+
+    await runLoadPlanCommand(["epic-view"], {
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: (/** @type {string[]} */ argv) => ({ help: false, _: argv }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "epic-view",
+                    path: "plans/epic-view.md",
+                    body: "## Context\nEpic context\n\n## Objective\nEpic objective",
+                    markdown: "## Context\nEpic context\n\n## Objective\nEpic objective",
+                    attrs: {
+                        classification: "PROJECT",
+                        type: "epic",
+                        complexity: "HIGH",
+                        summary: "Epic summary",
+                        affectedPaths: [],
+                        status: "ready_for_work",
+                    },
+                }),
+            findPlansByParent: () =>
+                Promise.resolve([
+                    {
+                        name: "epic-view/01-first",
+                        path: "plans/epic-view/01-first.md",
+                        attrs: {
+                            classification: "FEATURE",
+                            complexity: "LOW",
+                            summary: "First child",
+                            affectedPaths: [],
+                            status: "verified",
+                        },
+                    },
+                    {
+                        name: "epic-view/02-second",
+                        path: "plans/epic-view/02-second.md",
+                        attrs: {
+                            classification: "FEATURE",
+                            complexity: "LOW",
+                            summary: "Second child",
+                            affectedPaths: [],
+                            status: "ready_for_work",
+                        },
+                    },
+                ]),
+            createAgentHandler: () => () => Promise.resolve(),
+            resetTuiState: () => {},
+            setActiveAgent: () => {},
+        }),
+    });
+
+    const detailMessage = messages.find((message) => message.includes("Child FEATURE plans:")) || "";
+    assertEquals(detailMessage.includes("Progress: 1/2 child FEATUREs verified"), true);
+    assertEquals(detailMessage.includes("epic-view/01-first [verified] — First child"), true);
+    assertEquals(detailMessage.includes("epic-view/02-second [ready_for_work] — Second child"), true);
+});
+
+Deno.test("runLoadPlanCommand child FEATURE detail inspection resolves and displays details without executing", async () => {
+    const { uiAPI, selections, messages } = makeUi();
+    selections.push("pick_child", "epic-inspect/01-child", "view", "back", null, "cancel");
+    /** @type {string[]} */
+    const resolved = [];
+    let executed = false;
+
+    await runLoadPlanCommand(["epic-inspect"], {
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: (/** @type {string[]} */ argv) => ({ help: false, _: argv }),
+            resolvePlan: (/** @type {string} */ _cwd, /** @type {string} */ planName) => {
+                resolved.push(planName);
+                if (planName === "epic-inspect/01-child") {
+                    return Promise.resolve({
+                        planName,
+                        path: "plans/epic-inspect/01-child.md",
+                        body: "## Context\nChild context\n\n## Objective\nChild objective",
+                        markdown: "## Context\nChild context\n\n## Objective\nChild objective",
+                        attrs: {
+                            classification: "FEATURE",
+                            complexity: "LOW",
+                            summary: "Child summary",
+                            affectedPaths: [],
+                            status: "approved",
+                        },
+                    });
+                }
+                return Promise.resolve({
+                    planName: "epic-inspect",
+                    path: "plans/epic-inspect.md",
+                    body: "epic body",
+                    markdown: "epic body",
+                    attrs: {
+                        classification: "PROJECT",
+                        type: "epic",
+                        complexity: "HIGH",
+                        summary: "Epic summary",
+                        affectedPaths: [],
+                        status: "ready_for_work",
+                    },
+                });
+            },
+            findPlansByParent: () =>
+                Promise.resolve([
+                    {
+                        name: "epic-inspect/01-child",
+                        path: "plans/epic-inspect/01-child.md",
+                        attrs: {
+                            classification: "FEATURE",
+                            complexity: "LOW",
+                            summary: "Child summary",
+                            affectedPaths: [],
+                            status: "approved",
+                        },
+                    },
+                ]),
+            executePlan: () => {
+                executed = true;
+                return Promise.resolve(undefined);
+            },
+            createAgentHandler: () => () => Promise.resolve(),
+            resetTuiState: () => {},
+            setActiveAgent: () => {},
+        }),
+    });
+
+    const detailMessage = messages.find((message) => message.includes("FEATURE: epic-inspect/01-child")) || "";
+    assertEquals(resolved, ["epic-inspect", "epic-inspect/01-child"]);
+    assertEquals(detailMessage.includes("── Context ──\nChild context"), true);
+    assertEquals(detailMessage.includes("── Objective ──\nChild objective"), true);
+    assertEquals(executed, false);
+});
+
+Deno.test("runLoadPlanCommand child FEATURE submenu back returns without loading", async () => {
+    const { uiAPI, selections, prompts } = makeUi();
+    selections.push("pick_child", "epic-back/01-child", "back", null, "cancel");
+    let executed = false;
+
+    await runLoadPlanCommand(["epic-back"], {
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: (/** @type {string[]} */ argv) => ({ help: false, _: argv }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "epic-back",
+                    path: "plans/epic-back.md",
+                    body: "body",
+                    markdown: "body",
+                    attrs: {
+                        classification: "PROJECT",
+                        type: "epic",
+                        complexity: "HIGH",
+                        summary: "Epic summary",
+                        affectedPaths: [],
+                        status: "ready_for_work",
+                    },
+                }),
+            findPlansByParent: () =>
+                Promise.resolve([
+                    {
+                        name: "epic-back/01-child",
+                        path: "plans/epic-back/01-child.md",
+                        attrs: {
+                            classification: "FEATURE",
+                            complexity: "LOW",
+                            summary: "Child summary",
+                            affectedPaths: [],
+                            status: "approved",
+                        },
+                    },
+                ]),
+            executePlan: () => {
+                executed = true;
+                return Promise.resolve(undefined);
+            },
+            createAgentHandler: () => () => Promise.resolve(),
+            resetTuiState: () => {},
+            setActiveAgent: () => {},
+        }),
+    });
+
+    assertEquals(prompts.some((prompt) => prompt.prompt === "What would you like to do with this FEATURE?"), true);
+    assertEquals(prompts.filter((prompt) => prompt.prompt === "Load child FEATURE plan:").length, 2);
+    assertEquals(executed, false);
+});
+
+Deno.test("runLoadPlanCommand Epic done-enough confirm records lifecycle event", async () => {
+    const { uiAPI, selections, messages } = makeUi();
+    selections.push("done_enough", "confirm", "cancel");
+    /** @type {any} */
+    let recorded = null;
+
+    await runLoadPlanCommand(["epic-done"], {
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: (/** @type {string[]} */ argv) => ({ help: false, _: argv }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "epic-done",
+                    path: "plans/epic-done.md",
+                    body: "body",
+                    markdown: "body",
+                    attrs: {
+                        classification: "PROJECT",
+                        type: "epic",
+                        complexity: "HIGH",
+                        summary: "Epic summary",
+                        affectedPaths: [],
+                        status: "ready_for_work",
+                    },
+                }),
+            findPlansByParent: () =>
+                Promise.resolve([
+                    { name: "epic-done/01-first", path: "", attrs: { classification: "FEATURE", status: "verified" } },
+                    { name: "epic-done/02-second", path: "", attrs: { classification: "FEATURE", status: "draft" } },
+                ]),
+            recordPlanEvent: (/** @type {any} */ args) => {
+                recorded = args;
+                return Promise.resolve({
+                    status: "verified",
+                    epicCompletionMode: "done_enough",
+                    epicDoneEnoughSummary: args.details.epicDoneEnoughSummary,
+                });
+            },
+            createAgentHandler: () => () => Promise.resolve(),
+            resetTuiState: () => {},
+            setActiveAgent: () => {},
+        }),
+    });
+
+    assertEquals(recorded.event, "epic_done_enough");
+    assertEquals(recorded.currentStatus, "ready_for_work");
+    assertEquals(messages.some((message) => message.includes("Unverified child FEATURE plans remain visible")), true);
+    assertEquals(messages.some((message) => message.includes("Epic marked done enough")), true);
+});
+
+Deno.test("runLoadPlanCommand Epic done-enough can be canceled", async () => {
+    const { uiAPI, selections, messages } = makeUi();
+    selections.push("done_enough", "cancel", "cancel");
+    let recorded = false;
+
+    await runLoadPlanCommand(["epic-cancel"], {
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: (/** @type {string[]} */ argv) => ({ help: false, _: argv }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "epic-cancel",
+                    path: "plans/epic-cancel.md",
+                    body: "body",
+                    markdown: "body",
+                    attrs: {
+                        classification: "PROJECT",
+                        type: "epic",
+                        complexity: "HIGH",
+                        summary: "Epic summary",
+                        affectedPaths: [],
+                        status: "ready_for_work",
+                    },
+                }),
+            findPlansByParent: () =>
+                Promise.resolve([
+                    {
+                        name: "epic-cancel/01-first",
+                        path: "",
+                        attrs: { classification: "FEATURE", status: "verified" },
+                    },
+                ]),
+            recordPlanEvent: () => {
+                recorded = true;
+                return Promise.resolve({});
+            },
+            createAgentHandler: () => () => Promise.resolve(),
+            resetTuiState: () => {},
+            setActiveAgent: () => {},
+        }),
+    });
+
+    assertEquals(recorded, false);
+    assertEquals(messages.some((message) => message.includes("canceled")), true);
+});
+
+Deno.test("runLoadPlanCommand verified done-enough Epic remains re-enterable", async () => {
+    const { uiAPI, selections, prompts, messages } = makeUi();
+    selections.push("pick_child", null);
+
+    await runLoadPlanCommand(["epic-verified"], {
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: (/** @type {string[]} */ argv) => ({ help: false, _: argv }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "epic-verified",
+                    path: "plans/epic-verified.md",
+                    body: "body",
+                    markdown: "body",
+                    attrs: {
+                        classification: "PROJECT",
+                        type: "epic",
+                        complexity: "HIGH",
+                        summary: "Epic summary",
+                        affectedPaths: [],
+                        status: "verified",
+                        epicCompletionMode: "done_enough",
+                        epicDoneEnoughSummary: "1/2 verified",
+                    },
+                }),
+            findPlansByParent: () =>
+                Promise.resolve([
+                    {
+                        name: "epic-verified/01-first",
+                        path: "",
+                        attrs: { classification: "FEATURE", status: "verified" },
+                    },
+                    {
+                        name: "epic-verified/02-second",
+                        path: "",
+                        attrs: { classification: "FEATURE", status: "draft" },
+                    },
+                ]),
+            createAgentHandler: () => () => Promise.resolve(),
+            resetTuiState: () => {},
+            setActiveAgent: () => {},
+        }),
+    });
+
+    assertEquals(prompts[0].options.some((option) => option.value === "pick_child"), true);
+    assertEquals(prompts[0].options.some((option) => option.value === "done_enough"), false);
+    assertEquals(messages.some((message) => message.includes("done enough for now")), true);
+});
+
+Deno.test("runLoadPlanCommand verified done-enough Epic shows banner without children", async () => {
+    const { uiAPI, selections, messages } = makeUi();
+    selections.push("cancel");
+
+    await runLoadPlanCommand(["epic-empty-done"], {
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: (/** @type {string[]} */ argv) => ({ help: false, _: argv }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "epic-empty-done",
+                    path: "plans/epic-empty-done.md",
+                    body: "body",
+                    markdown: "body",
+                    attrs: {
+                        classification: "PROJECT",
+                        type: "epic",
+                        complexity: "HIGH",
+                        summary: "Epic summary",
+                        affectedPaths: [],
+                        status: "verified",
+                        epicCompletionMode: "done_enough",
+                        epicDoneEnoughSummary: "No active children found.",
+                    },
+                }),
+            findPlansByParent: () => Promise.resolve([]),
+            createAgentHandler: () => () => Promise.resolve(),
+            resetTuiState: () => {},
+            setActiveAgent: () => {},
+        }),
+    });
+
+    assertEquals(messages.some((message) => message.includes("done enough for now")), true);
+    assertEquals(messages.some((message) => message.includes("no child FEATURE plans yet")), true);
+});
+
+Deno.test("runLoadPlanCommand Epic child selection can be canceled", async () => {
+    const { uiAPI, selections } = makeUi();
+    selections.push("pick_child", null);
+    let executed = false;
+
+    await runLoadPlanCommand(["epic-c"], {
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: (/** @type {string[]} */ argv) => ({ help: false, _: argv }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "epic-c",
+                    path: "plans/epic-c.md",
+                    body: "body",
+                    markdown: "body",
+                    attrs: {
+                        classification: "PROJECT",
+                        type: "epic",
+                        complexity: "HIGH",
+                        summary: "Epic summary",
+                        affectedPaths: [],
+                        status: "ready_for_work",
+                    },
+                }),
+            findPlansByParent: () =>
+                Promise.resolve([
+                    {
+                        name: "epic-c/01-child",
+                        path: "plans/epic-c/01-child.md",
+                        attrs: {
+                            classification: "FEATURE",
+                            complexity: "LOW",
+                            summary: "Child",
+                            affectedPaths: [],
+                            status: "approved",
+                        },
+                    },
+                ]),
+            executePlan: () => {
+                executed = true;
+                return Promise.resolve(undefined);
+            },
+            createAgentHandler: () => () => Promise.resolve(),
+            resetTuiState: () => {},
+            setActiveAgent: () => {},
+        }),
+    });
+
+    assertEquals(executed, false);
+});
+
+Deno.test("runLoadPlanCommand Epic child selection delegates to FEATURE load behavior", async () => {
+    const { uiAPI, selections } = makeUi();
+    selections.push("pick_child", "epic-d/01-child", "load", "proceed");
+    /** @type {string[]} */
+    const resolved = [];
+    let executedPlanName = "";
+
+    await runLoadPlanCommand(["epic-d"], {
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: (/** @type {string[]} */ argv) => ({ help: false, _: argv }),
+            resolvePlan: (/** @type {string} */ _cwd, /** @type {string} */ planName) => {
+                resolved.push(planName);
+                if (planName === "epic-d/01-child") {
+                    return Promise.resolve({
+                        planName,
+                        path: "plans/epic-d/01-child.md",
+                        body: "child body",
+                        markdown: "child body",
+                        attrs: {
+                            classification: "FEATURE",
+                            complexity: "LOW",
+                            summary: "Child",
+                            affectedPaths: [],
+                            status: "ready_for_work",
+                        },
+                    });
+                }
+                return Promise.resolve({
+                    planName: "epic-d",
+                    path: "plans/epic-d.md",
+                    body: "epic body",
+                    markdown: "epic body",
+                    attrs: {
+                        classification: "PROJECT",
+                        type: "epic",
+                        complexity: "HIGH",
+                        summary: "Epic summary",
+                        affectedPaths: [],
+                        status: "ready_for_work",
+                    },
+                });
+            },
+            findPlansByParent: () =>
+                Promise.resolve([
+                    {
+                        name: "epic-d/01-child",
+                        path: "plans/epic-d/01-child.md",
+                        attrs: {
+                            classification: "FEATURE",
+                            complexity: "LOW",
+                            summary: "Child",
+                            affectedPaths: [],
+                            status: "ready_for_work",
+                        },
+                    },
+                ]),
+            executePlan: (/** @type {string} */ planName) => {
+                executedPlanName = planName;
+                return Promise.resolve(undefined);
+            },
+            createAgentHandler: () => () => Promise.resolve(),
+            resetTuiState: () => {},
+            setActiveAgent: () => {},
+        }),
+    });
+
+    assertEquals(resolved, ["epic-d", "epic-d/01-child"]);
+    assertEquals(executedPlanName, "epic-d/01-child");
+});
+
+Deno.test("runLoadPlanCommand child FEATURE with verified dependencies executes without warning", async () => {
+    const { uiAPI, selections, messages } = makeUi();
+    selections.push("proceed");
+    let executed = false;
+
+    await runLoadPlanCommand(["epic-e/02-second"], {
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: (/** @type {string[]} */ argv) => ({ help: false, _: argv }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "epic-e/02-second",
+                    path: "plans/epic-e/02-second.md",
+                    body: "child body",
+                    markdown: "child body",
+                    attrs: {
+                        classification: "FEATURE",
+                        complexity: "LOW",
+                        summary: "Second child",
+                        affectedPaths: [],
+                        status: "ready_for_work",
+                        parentPlan: "epic-e",
+                        dependencies: ["01-first"],
+                    },
+                }),
+            resolveSiblingChildPlanDependencies: () =>
+                Promise.resolve([
+                    {
+                        dependency: "01-first",
+                        planName: "epic-e/01-first",
+                        status: "verified",
+                        state: "verified",
+                    },
+                ]),
+            executePlan: () => {
+                executed = true;
+                return Promise.resolve(undefined);
+            },
+            createAgentHandler: () => () => Promise.resolve(),
+            resetTuiState: () => {},
+            setActiveAgent: () => {},
+        }),
+    });
+
+    assertEquals(messages.some((message) => message.includes("dependencies that are not verified")), false);
+    assertEquals(executed, true);
+});
+
+Deno.test("runLoadPlanCommand child FEATURE warns for unverified dependencies and can proceed", async () => {
+    const { uiAPI, selections, messages, prompts } = makeUi();
+    selections.push("proceed", "proceed");
+    let executed = false;
+
+    await runLoadPlanCommand(["epic-f/02-second"], {
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: (/** @type {string[]} */ argv) => ({ help: false, _: argv }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "epic-f/02-second",
+                    path: "plans/epic-f/02-second.md",
+                    body: "child body",
+                    markdown: "child body",
+                    attrs: {
+                        classification: "FEATURE",
+                        complexity: "LOW",
+                        summary: "Second child",
+                        affectedPaths: [],
+                        status: "ready_for_work",
+                        parentPlan: "epic-f",
+                        dependencies: ["01-first"],
+                    },
+                }),
+            resolveSiblingChildPlanDependencies: () =>
+                Promise.resolve([
+                    {
+                        dependency: "01-first",
+                        planName: "epic-f/01-first",
+                        status: "implemented",
+                        state: "unverified",
+                    },
+                ]),
+            executePlan: () => {
+                executed = true;
+                return Promise.resolve(undefined);
+            },
+            createAgentHandler: () => () => Promise.resolve(),
+            resetTuiState: () => {},
+            setActiveAgent: () => {},
+        }),
+    });
+
+    assertEquals(messages.some((message) => message.includes("epic-f/01-first: implemented")), true);
+    assertEquals(prompts[0].prompt, 'Proceed with "epic-f/02-second" anyway?');
+    assertEquals(executed, true);
+});
+
+Deno.test("runLoadPlanCommand child FEATURE warns for missing dependencies", async () => {
+    const { uiAPI, selections, messages } = makeUi();
+    selections.push("proceed", "proceed");
+    let executed = false;
+
+    await runLoadPlanCommand(["epic-g/02-second"], {
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: (/** @type {string[]} */ argv) => ({ help: false, _: argv }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "epic-g/02-second",
+                    path: "plans/epic-g/02-second.md",
+                    body: "child body",
+                    markdown: "child body",
+                    attrs: {
+                        classification: "FEATURE",
+                        complexity: "LOW",
+                        summary: "Second child",
+                        affectedPaths: [],
+                        status: "ready_for_work",
+                        parentPlan: "epic-g",
+                        dependencies: ["01-first"],
+                    },
+                }),
+            resolveSiblingChildPlanDependencies: () =>
+                Promise.resolve([
+                    {
+                        dependency: "01-first",
+                        state: "missing",
+                    },
+                ]),
+            executePlan: () => {
+                executed = true;
+                return Promise.resolve(undefined);
+            },
+            createAgentHandler: () => () => Promise.resolve(),
+            resetTuiState: () => {},
+            setActiveAgent: () => {},
+        }),
+    });
+
+    assertEquals(messages.some((message) => message.includes("01-first: missing")), true);
+    assertEquals(executed, true);
+});
+
+Deno.test("runLoadPlanCommand child FEATURE dependency warning can be canceled", async () => {
+    const { uiAPI, selections, messages } = makeUi();
+    selections.push("cancel");
+    let executed = false;
+
+    await runLoadPlanCommand(["epic-h/02-second"], {
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: (/** @type {string[]} */ argv) => ({ help: false, _: argv }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "epic-h/02-second",
+                    path: "plans/epic-h/02-second.md",
+                    body: "child body",
+                    markdown: "child body",
+                    attrs: {
+                        classification: "FEATURE",
+                        complexity: "LOW",
+                        summary: "Second child",
+                        affectedPaths: [],
+                        status: "ready_for_work",
+                        parentPlan: "epic-h",
+                        dependencies: ["01-first"],
+                    },
+                }),
+            resolveSiblingChildPlanDependencies: () =>
+                Promise.resolve([
+                    {
+                        dependency: "01-first",
+                        planName: "epic-h/01-first",
+                        status: "ready_for_work",
+                        state: "unverified",
+                    },
+                ]),
+            executePlan: () => {
+                executed = true;
+                return Promise.resolve(undefined);
+            },
+            createAgentHandler: () => () => Promise.resolve(),
+            resetTuiState: () => {},
+            setActiveAgent: () => {},
+        }),
+    });
+
+    assertEquals(messages.includes("Plan load canceled."), true);
+    assertEquals(executed, false);
 });
 
 Deno.test("runLoadPlanCommand warns and cancels execution when affected paths changed since updatedAt", async () => {
@@ -159,7 +1018,7 @@ Deno.test("runLoadPlanCommand warns and cancels execution when affected paths ch
                 executed = true;
                 return Promise.resolve(undefined);
             },
-            createDirectAgentHandler: () => () => Promise.resolve(),
+            createAgentHandler: () => () => Promise.resolve(),
             resetTuiState: () => {},
             setActiveAgent: () => {},
         }),
@@ -217,7 +1076,7 @@ Deno.test("runLoadPlanCommand proceeds after affected path warning confirmation"
                 executed = true;
                 return Promise.resolve(undefined);
             },
-            createDirectAgentHandler: () => () => Promise.resolve(),
+            createAgentHandler: () => () => Promise.resolve(),
             resetTuiState: () => {},
             setActiveAgent: () => {},
         }),
@@ -259,7 +1118,7 @@ Deno.test("runLoadPlanCommand validates completed execution against freshly load
                 return Promise.resolve();
             },
             recordPlanEvent: noOpRecordPlanEvent,
-            createDirectAgentHandler: () => async () => {},
+            createAgentHandler: () => async () => {},
             resetTuiState: () => {},
             setActiveAgent: () => {},
         }),
@@ -294,7 +1153,7 @@ Deno.test("runLoadPlanCommand non-approved plan kicks off planning agent", async
                 lifecycleCalled = true;
                 return Promise.resolve({ outcome: "saved", planName: "plan-b" });
             },
-            createDirectAgentHandler: () => async () => {},
+            createAgentHandler: () => async () => {},
             setActiveAgent: () => {},
             resetTuiState: () => {},
         }),
@@ -369,7 +1228,7 @@ Deno.test("runLoadPlanCommand approved review approves directly via submitPlanFo
                 return Promise.resolve(undefined);
             },
             recordPlanEvent: noOpRecordPlanEvent,
-            createDirectAgentHandler: () => async () => {},
+            createAgentHandler: () => async () => {},
             resetTuiState: () => {},
             setActiveAgent: () => {},
         }),
@@ -424,7 +1283,7 @@ Deno.test("runLoadPlanCommand approved PROJECT review runs slicer before proceed
                 return Promise.resolve();
             },
             recordPlanEvent: noOpRecordPlanEvent,
-            createDirectAgentHandler: () => async () => {},
+            createAgentHandler: () => async () => {},
             resetTuiState: () => {},
             setActiveAgent: () => {},
         }),
@@ -436,7 +1295,114 @@ Deno.test("runLoadPlanCommand approved PROJECT review runs slicer before proceed
     assertEquals(validated, true);
 });
 
-Deno.test("runLoadPlanCommand approved review proceed restores initial agent without transient operator switch", async () => {
+Deno.test("runLoadPlanCommand approved PROJECT Epic opens Slicer without executing", async () => {
+    const { uiAPI, selections, messages } = makeUi();
+    selections.push("slicer");
+    let slicerOpened = false;
+    /** @type {any} */
+    let slicerArgs = null;
+    let askedWithTasks = false;
+    let executed = false;
+    /** @type {Array<{ event: string, currentStatus: string }>} */
+    const events = [];
+
+    await runLoadPlanCommand(["epic-review"], {
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: () => ({ help: false, _: ["epic-review"] }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "epic-review",
+                    path: "plans/epic-review.md",
+                    body: "body",
+                    markdown: "markdown",
+                    attrs: {
+                        classification: "PROJECT",
+                        type: "epic",
+                        complexity: "HIGH",
+                        summary: "s",
+                        affectedPaths: [],
+                        status: "approved",
+                    },
+                }),
+            findPlansByParent: () => Promise.resolve([]),
+            runSlicerAgent: (/** @type {any} */ args) => {
+                slicerOpened = true;
+                slicerArgs = args;
+                return Promise.resolve({ ok: true });
+            },
+            submitPlanForReview: () => Promise.resolve({ approved: true }),
+            ensureSlicerTasks: () => {
+                throw new Error("Legacy task slicer should not run for Epics");
+            },
+            askApprovalWithTasks: () => {
+                askedWithTasks = true;
+                return Promise.resolve("proceed");
+            },
+            executePlan: () => {
+                executed = true;
+                return Promise.resolve({ repairRequired: false, executionComplete: true });
+            },
+            recordPlanEvent: (/** @type {{ event: string, currentStatus: string }} */ args) => {
+                events.push({ event: args.event, currentStatus: args.currentStatus });
+                return Promise.resolve(/** @type {any} */ ({}));
+            },
+            createAgentHandler: () => async () => {},
+            resetTuiState: () => {},
+            setActiveAgent: () => {},
+        }),
+    });
+
+    assertEquals(slicerOpened, true);
+    assertEquals(slicerArgs.planName, "epic-review");
+    assertEquals(slicerArgs.triageMeta.type, "epic");
+    assertEquals(askedWithTasks, false);
+    assertEquals(executed, false);
+    assertEquals(events, []);
+    assertEquals(messages.some((message) => message.includes("not executable")), true);
+});
+
+Deno.test("runLoadPlanCommand ready_for_decomposition PROJECT Epic does not execute", async () => {
+    const { uiAPI, messages } = makeUi();
+    let executed = false;
+
+    await runLoadPlanCommand(["epic-ready"], {
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: () => ({ help: false, _: ["epic-ready"] }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "epic-ready",
+                    path: "plans/epic-ready.md",
+                    body: "body",
+                    markdown: "markdown",
+                    attrs: {
+                        classification: "PROJECT",
+                        type: "epic",
+                        complexity: "HIGH",
+                        summary: "s",
+                        affectedPaths: [],
+                        status: "ready_for_decomposition",
+                    },
+                }),
+            findPlansByParent: () => Promise.resolve([]),
+            executePlan: () => {
+                executed = true;
+                return Promise.resolve({ repairRequired: false, executionComplete: true });
+            },
+            createAgentHandler: () => async () => {},
+            resetTuiState: () => {},
+            setActiveAgent: () => {},
+        }),
+    });
+
+    assertEquals(executed, false);
+    assertEquals(messages.some((message) => message.includes("no child FEATURE plans")), true);
+});
+
+Deno.test("runLoadPlanCommand approved review proceed keeps plan owner without transient operator switch", async () => {
     const { uiAPI, selections } = makeUi();
     selections.push("review");
     /** @type {string[]} */
@@ -467,13 +1433,13 @@ Deno.test("runLoadPlanCommand approved review proceed restores initial agent wit
             executePlan: () => Promise.resolve({ repairRequired: false, executionComplete: true }),
             runValidationLoop: () => Promise.resolve(),
             recordPlanEvent: noOpRecordPlanEvent,
-            createDirectAgentHandler: () => async () => {},
+            createAgentHandler: () => async () => {},
             resetTuiState: () => {},
             setActiveAgent: (/** @type {string} */ name) => activeAgents.push(name),
         }),
     });
 
-    assertEquals(activeAgents, [AGENTS.ARCHITECT, AGENTS.ROUTER]);
+    assertEquals(activeAgents, [AGENTS.ARCHITECT, AGENTS.ARCHITECT]);
 });
 
 Deno.test("runLoadPlanCommand approved review kicks off planner on denial", async () => {
@@ -504,7 +1470,7 @@ Deno.test("runLoadPlanCommand approved review kicks off planner on denial", asyn
                 plannerCalled = true;
                 return Promise.resolve({ outcome: "saved", planName: "plan-d2" });
             },
-            createDirectAgentHandler: () => async () => {},
+            createAgentHandler: () => async () => {},
             resetTuiState: () => {},
             setActiveAgent: () => {},
         }),
@@ -545,7 +1511,7 @@ Deno.test("runLoadPlanCommand approved proceed with repair reroutes to planner",
                 repairRequest = opts.initialRequest;
                 return Promise.resolve({ outcome: "executed", planName: "plan-e" });
             },
-            createDirectAgentHandler: () => async () => {},
+            createAgentHandler: () => async () => {},
             resetTuiState: () => {},
             setActiveAgent: () => {},
         }),
@@ -589,7 +1555,7 @@ Deno.test("runLoadPlanCommand ready_for_work plan proceed path executes", async 
                 executed = true;
                 return Promise.resolve(undefined);
             },
-            createDirectAgentHandler: () => async () => {},
+            createAgentHandler: () => async () => {},
             resetTuiState: () => {},
             setActiveAgent: () => {},
         }),
@@ -633,7 +1599,7 @@ Deno.test("runLoadPlanCommand in_progress plan can continue from current worktre
                 executed = true;
                 return Promise.resolve(undefined);
             },
-            createDirectAgentHandler: () => async () => {},
+            createAgentHandler: () => async () => {},
             resetTuiState: () => {},
             setActiveAgent: () => {},
         }),
@@ -684,7 +1650,7 @@ Deno.test("runLoadPlanCommand failed plan can reset baseline and start over", as
                 executed = true;
                 return Promise.resolve(undefined);
             },
-            createDirectAgentHandler: () => async () => {},
+            createAgentHandler: () => async () => {},
             resetTuiState: () => {},
             setActiveAgent: () => {},
         }),
@@ -735,7 +1701,7 @@ Deno.test("runLoadPlanCommand refuses worktree reset when recorded recreate base
                 recreated = true;
                 return Promise.resolve(/** @type {any} */ ({}));
             },
-            createDirectAgentHandler: () => async () => {},
+            createAgentHandler: () => async () => {},
             resetTuiState: () => {},
             setActiveAgent: () => {},
         }),
@@ -819,7 +1785,7 @@ Deno.test("runLoadPlanCommand recreates worktree reset from recorded base commit
                 executed = true;
                 return Promise.resolve(undefined);
             },
-            createDirectAgentHandler: () => async () => {},
+            createAgentHandler: () => async () => {},
             resetTuiState: () => {},
             setActiveAgent: () => {},
         }),
@@ -857,7 +1823,7 @@ Deno.test("runLoadPlanCommand in_progress inspect reports failure and baseline d
                 }),
             getWorkflowDiff: (/** @type {string} */ _cwd, /** @type {string} */ baselineTree) =>
                 Promise.resolve(`diff for ${baselineTree}`),
-            createDirectAgentHandler: () => async () => {},
+            createAgentHandler: () => async () => {},
             resetTuiState: () => {},
             setActiveAgent: () => {},
         }),
@@ -901,7 +1867,7 @@ Deno.test("runLoadPlanCommand implemented plan retries validation", async () => 
                 clearActiveExecutionWorkflow();
                 return Promise.resolve();
             },
-            createDirectAgentHandler: () => async () => {},
+            createAgentHandler: () => async () => {},
             resetTuiState: () => {},
             setActiveAgent: () => {},
         }),
@@ -952,7 +1918,7 @@ Deno.test("runLoadPlanCommand only offers manual merge for merge-conflict worktr
                     }),
                 findWorktreeById: () => Promise.resolve(null),
                 findWorktreeByPlanName: () => Promise.resolve(null),
-                createDirectAgentHandler: () => async () => {},
+                createAgentHandler: () => async () => {},
                 resetTuiState: () => {},
                 setActiveAgent: () => {},
             }),
@@ -1002,7 +1968,7 @@ Deno.test("runLoadPlanCommand refuses forced manual merge before validation-back
                 events.push(event.event);
                 return Promise.resolve(/** @type {any} */ ({}));
             },
-            createDirectAgentHandler: () => async () => {},
+            createAgentHandler: () => async () => {},
             resetTuiState: () => {},
             setActiveAgent: () => {},
         }),
@@ -1019,6 +1985,8 @@ Deno.test("runLoadPlanCommand can manually merge merge-conflict worktree recover
         const { uiAPI, selections } = makeUi();
         selections.push("merge");
         let mergedBranch = "";
+        let removedPath = "";
+        let removedRegistryId = "";
         let registryStatus = "";
         /** @type {string | null} */
         let lifecycleEvent = null;
@@ -1060,6 +2028,14 @@ Deno.test("runLoadPlanCommand can manually merge merge-conflict worktree recover
                     mergedBranch = args.branch;
                     return Promise.resolve();
                 },
+                removeExecutionWorktree: (/** @type {{ path: string }} */ args) => {
+                    removedPath = args.path;
+                    return Promise.resolve();
+                },
+                removeWorktreeRegistryEntry: (/** @type {string} */ _cwd, /** @type {string} */ id) => {
+                    removedRegistryId = id;
+                    return Promise.resolve();
+                },
                 updateWorktreeRegistryEntry: (
                     /** @type {string} */ _cwd,
                     /** @type {string} */ _id,
@@ -1072,13 +2048,15 @@ Deno.test("runLoadPlanCommand can manually merge merge-conflict worktree recover
                     lifecycleEvent = args.event;
                     return Promise.resolve(/** @type {any} */ ({}));
                 },
-                createDirectAgentHandler: () => async () => {},
+                createAgentHandler: () => async () => {},
                 resetTuiState: () => {},
                 setActiveAgent: () => {},
             }),
         });
 
         assertEquals(mergedBranch, "harns/worktree/plan-merge-conflict");
+        assertEquals(removedPath, worktreePath);
+        assertEquals(removedRegistryId, "wt1");
         assertEquals(registryStatus, "merged");
         assertEquals(lifecycleEvent, "validation_passed");
     } finally {
@@ -1119,7 +2097,7 @@ Deno.test("runLoadPlanCommand verified plan review path records review_reopened"
                 lifecycleCalled = true;
                 return Promise.resolve({ outcome: "saved", planName: "plan-verified-review" });
             },
-            createDirectAgentHandler: () => async () => {},
+            createAgentHandler: () => async () => {},
             resetTuiState: () => {},
             setActiveAgent: () => {},
         }),
@@ -1166,7 +2144,7 @@ Deno.test("runLoadPlanCommand verified plan cancel returns without changes", asy
                 lifecycleCalled = true;
                 return Promise.resolve({ outcome: "saved" });
             },
-            createDirectAgentHandler: () => async () => {},
+            createAgentHandler: () => async () => {},
             resetTuiState: () => {},
             setActiveAgent: () => {},
         }),
@@ -1216,7 +2194,7 @@ Deno.test("runLoadPlanCommand keeps planner active when lifecycle canceled", asy
                     },
                 }),
             runPlanningAgent: () => Promise.resolve({ outcome: "canceled" }),
-            createDirectAgentHandler: () => async () => {},
+            createAgentHandler: () => async () => {},
             setActiveAgent: (/** @type {string} */ name) => {
                 activeAgents.push(name);
             },
@@ -1252,7 +2230,7 @@ Deno.test("runLoadPlanCommand keeps planner active when agent ends without plan_
                     },
                 }),
             runPlanningAgent: () => Promise.resolve({ outcome: "no_call" }),
-            createDirectAgentHandler: () => async () => {},
+            createAgentHandler: () => async () => {},
             setActiveAgent: (/** @type {string} */ name) => activeAgents.push(name),
             resetTuiState: () => {},
         }),
@@ -1262,7 +2240,7 @@ Deno.test("runLoadPlanCommand keeps planner active when agent ends without plan_
     assertEquals(activeAgents.includes(AGENTS.ROUTER), false);
 });
 
-Deno.test("runLoadPlanCommand restores router flow after lifecycle saves a plan", async () => {
+Deno.test("runLoadPlanCommand keeps planner active after lifecycle saves a plan from router flow", async () => {
     const { uiAPI } = makeUi();
     /** @type {string[]} */
     const restoredAgents = [];
@@ -1286,7 +2264,7 @@ Deno.test("runLoadPlanCommand restores router flow after lifecycle saves a plan"
                     },
                 }),
             runPlanningAgent: () => Promise.resolve({ outcome: "saved", planName: "plan-g" }),
-            createDirectAgentHandler: () => async () => {},
+            createAgentHandler: () => async () => {},
             setActiveAgent: (
                 /** @type {string} */ name,
                 /** @type {unknown} */ _handler,
@@ -1299,7 +2277,8 @@ Deno.test("runLoadPlanCommand restores router flow after lifecycle saves a plan"
         }),
     });
 
-    assertEquals(restoredAgents.includes(AGENTS.ROUTER), true);
+    assertEquals(restoredAgents.includes(AGENTS.PLANNER), true);
+    assertEquals(restoredAgents.includes(AGENTS.ROUTER), false);
 });
 
 Deno.test("runLoadPlanCommand restores the initially active agent after lifecycle saves a plan", async () => {
@@ -1327,7 +2306,7 @@ Deno.test("runLoadPlanCommand restores the initially active agent after lifecycl
                     },
                 }),
             runPlanningAgent: () => Promise.resolve({ outcome: "saved", planName: "plan-j" }),
-            createDirectAgentHandler: () => async () => {},
+            createAgentHandler: () => async () => {},
             setActiveAgent: (
                 /** @type {string} */ name,
                 /** @type {unknown} */ _handler,

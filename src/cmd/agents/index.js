@@ -1,6 +1,6 @@
 /**
  * @module cmd/agents
- * Agent command — list available agents or start a direct agent session.
+ * Agent command — list available Agents or start with a chosen active Agent.
  */
 
 import { printCommandHelp as printCommandHelpFn } from "../help/index.js";
@@ -10,14 +10,14 @@ import {
 } from "../../shared/interactive/chat-session.js";
 import { listAvailableAgents as listAvailableAgentsFn } from "../../shared/session/agents.js";
 import { AGENTS, COMMAND_NAMES } from "../../constants.js";
-import { createDirectAgentHandler as createDirectAgentHandlerFn } from "../../shared/session/direct-agent.js";
+import { createAgentHandler as createAgentHandlerFn } from "../../shared/session/agent-handler.js";
 
 export { getAgentCompletions } from "./getArgumentCompletions.js";
 
 /**
  * @typedef {Object} CommandDependencies
  * @property {typeof listAvailableAgentsFn} [listAvailableAgents]
- * @property {typeof createDirectAgentHandlerFn} [createDirectAgentHandler]
+ * @property {typeof createAgentHandlerFn} [createAgentHandler]
  * @property {typeof setActiveAgentFn} [setActiveAgent]
  * @property {typeof startInteractiveSessionFn} [startInteractiveSession]
  * @property {typeof printCommandHelpFn} [printCommandHelp]
@@ -35,14 +35,14 @@ export { getAgentCompletions } from "./getArgumentCompletions.js";
 async function runAgentsCommandCli(agentName, rest, deps = {}) {
     const {
         listAvailableAgents: listAvailableAgentsDep,
-        createDirectAgentHandler: createDirectAgentHandlerDep,
+        createAgentHandler: createAgentHandlerDep,
         setActiveAgent: setActiveAgentDep,
         startInteractiveSession: startInteractiveSessionDep,
         exit: exitDep,
     } = deps;
 
     const listAvailableAgents = listAvailableAgentsDep || listAvailableAgentsFn;
-    const createDirectAgentHandler = createDirectAgentHandlerDep || createDirectAgentHandlerFn;
+    const createAgentHandler = createAgentHandlerDep || createAgentHandlerFn;
     const setActiveAgent = setActiveAgentDep || setActiveAgentFn;
     const startInteractiveSession = startInteractiveSessionDep || startInteractiveSessionFn;
     const exit = exitDep || Deno.exit;
@@ -71,13 +71,12 @@ async function runAgentsCommandCli(agentName, rest, deps = {}) {
         return;
     }
 
-    const handler = createDirectAgentHandler(agentName);
+    const handler = createAgentHandler(agentName);
     const userRequest = rest.join(" ").trim();
 
-    setActiveAgent(match.name, handler, undefined, match.model);
+    setActiveAgent(match.name, handler);
     await startInteractiveSession(userRequest || null, handler, {
         initialAgentName: match.name,
-        initialAgentModel: match.model,
     });
 }
 
@@ -97,12 +96,12 @@ async function runAgentsCommandCli(agentName, rest, deps = {}) {
 async function runAgentsCommandTUI(agentName, _rest, options, deps = {}) {
     const {
         listAvailableAgents: listAvailableAgentsDep,
-        createDirectAgentHandler: createDirectAgentHandlerDep,
+        createAgentHandler: createAgentHandlerDep,
         setActiveAgent: setActiveAgentDep,
     } = deps;
 
     const listAvailableAgents = listAvailableAgentsDep || listAvailableAgentsFn;
-    const createDirectAgentHandler = createDirectAgentHandlerDep || createDirectAgentHandlerFn;
+    const createAgentHandler = createAgentHandlerDep || createAgentHandlerFn;
     const setActiveAgent = setActiveAgentDep || setActiveAgentFn;
 
     const agents = await listAvailableAgents();
@@ -138,9 +137,9 @@ async function runAgentsCommandTUI(agentName, _rest, options, deps = {}) {
         return;
     }
 
-    const handler = createDirectAgentHandler(match.name);
+    const handler = createAgentHandler(match.name);
 
-    setActiveAgent(match.name, handler, uiAPI, match.model);
+    setActiveAgent(match.name, handler, uiAPI);
     tui.setFocus(/** @type {import('@earendil-works/pi-tui').Component} */ (/** @type {unknown} */ (editor)));
 }
 
@@ -152,8 +151,8 @@ async function runAgentsCommandTUI(agentName, _rest, options, deps = {}) {
  * - `hns agent <name> "<prompt>"` → start TUI with agent + initial prompt
  *
  * Inside the TUI (`/agent`):
- * - `/agent router` → reset to default router flow
- * - `/agent <name>` → direct switch agent
+ * - `/agent router` → switch to the default triage Agent
+ * - `/agent <name>` → switch active Agent
  * - `/agent` → show interactive selection
  *
  * @param {string[]} argv

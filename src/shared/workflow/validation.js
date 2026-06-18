@@ -13,18 +13,21 @@ import {
     consumePendingSwitchHandoff,
     getActiveExecutionWorkflow,
 } from "../session/session-state.js";
-import { getCustomSetting, setCustomSetting } from "../settings.js";
-import { createSilentUiApi } from "../ui/api.js";
+import { getCustomSetting, setCustomSetting, shouldCleanupMergedWorktrees } from "../settings.js";
 import { extractAssistantOutput, readLatestTaskCompletedOutcome } from "./workflow.js";
 import { setActiveAgent } from "../interactive/chat-session.js";
 import { getWorkflowDiff } from "./git-snapshot.js";
 import { recordPlanEvent } from "./plan-lifecycle.js";
-import { mergeExecutionWorktree } from "../worktree.js";
-import { updateEntry as updateWorktreeRegistryEntry } from "../worktree-registry.js";
+import { mergeExecutionWorktree, removeExecutionWorktree } from "../worktree.js";
+import {
+    removeEntry as removeWorktreeRegistryEntry,
+    updateEntry as updateWorktreeRegistryEntry,
+} from "../worktree-registry.js";
 
 export const __dirname = dirname(fromFileUrl(import.meta.url));
 const WORKFLOW_PROMPTS_DIR = "workflow-prompts";
 const REVIEWER_PROMPT_FILE = "reviewer-prompt.md";
+const SUCCESS_MESSAGE_STYLE = { bodyColor: "success" };
 
 /**
  * Load reviewer as a bare workflow prompt instead of a normal agent definition.
@@ -156,6 +159,7 @@ async function runCompletionGatedRepair({
         uiAPI,
         sessionManager,
         cwd,
+        useRootSession: true,
     });
     consumePendingSwitchHandoff();
 
@@ -177,6 +181,32 @@ async function getGitDiffText(baselineTree, cwd = CWD) {
  */
 function isApprovedReviewResponse(response) {
     return response.trim() === "APPROVED";
+}
+
+/**
+ * @param {import('./workflow.js').UiAPI} uiAPI
+ * @param {string} reason
+ * @returns {Promise<"retry" | "stop">}
+ */
+async function promptForMergeFailureAction(uiAPI, reason) {
+    const choice = await uiAPI.promptSelect?.(
+        `Worktree merge failed:\n${reason}\n\nResolve and stage the conflicts, or run git merge --abort, then retry.`,
+        [
+            { value: "retry", label: "Retry/continue merge" },
+            { value: "stop", label: "Stop" },
+        ],
+    );
+    return choice === "retry" ? "retry" : "stop";
+}
+
+/**
+ * @param {import('./workflow.js').UiAPI | undefined} uiAPI
+ * @param {string} text
+ * @param {boolean} [isError]
+ * @param {{ headingColor?: string, bodyColor?: string }} [style]
+ */
+function appendHarnsSystemMessage(uiAPI, text, isError = false, style = {}) {
+    uiAPI?.appendSystemMessage?.(text, isError, "Harns", style);
 }
 
 /**
@@ -257,10 +287,13 @@ export function shouldRunWorkflowValidation(triageMeta) {
  *   getDiffText?: typeof getGitDiffText,
  *   recordPlanEvent?: typeof recordPlanEvent,
  *   mergeExecutionWorktree?: typeof mergeExecutionWorktree,
+ *   removeExecutionWorktree?: typeof removeExecutionWorktree,
+ *   removeWorktreeRegistryEntry?: typeof removeWorktreeRegistryEntry,
  *   updateWorktreeRegistryEntry?: typeof updateWorktreeRegistryEntry,
  *   setActiveAgent?: typeof setActiveAgent,
- *   createDirectAgentHandler?: (agentName: string) => import('../session/types.js').AgentMessageHandler,
+ *   createAgentHandler?: (agentName: string) => import('../session/types.js').AgentMessageHandler,
  *   loadReviewerPrompt?: typeof loadReviewerPrompt,
+ *   shouldCleanupMergedWorktrees?: typeof shouldCleanupMergedWorktrees,
  * }} [args.__deps] Test-only injection point.
  */
 export async function runValidationLoop({
@@ -284,8 +317,11 @@ export async function runValidationLoop({
     const getDiffText = __deps?.getDiffText || getGitDiffText;
     const recordPlanEventImpl = __deps?.recordPlanEvent || recordPlanEvent;
     const mergeExecutionWorktreeImpl = __deps?.mergeExecutionWorktree || mergeExecutionWorktree;
+    const removeExecutionWorktreeImpl = __deps?.removeExecutionWorktree || removeExecutionWorktree;
+    const removeWorktreeRegistryEntryImpl = __deps?.removeWorktreeRegistryEntry || removeWorktreeRegistryEntry;
     const updateWorktreeRegistryEntryImpl = __deps?.updateWorktreeRegistryEntry || updateWorktreeRegistryEntry;
     const loadReviewerPromptImpl = __deps?.loadReviewerPrompt || loadReviewerPrompt;
+    const shouldCleanupMergedWorktreesImpl = __deps?.shouldCleanupMergedWorktrees || shouldCleanupMergedWorktrees;
     const activeWorkflow = getActiveExecutionWorkflow();
     const baselineTree = activeWorkflow?.baselineTree;
     const projectRoot = activeWorkflow?.projectRoot || CWD;
@@ -304,22 +340,30 @@ export async function runValidationLoop({
 
     while (!executionComplete && validationCycles < MAX_VALIDATION_CYCLES) {
         validationCycles++;
-        uiAPI?.appendSystemMessage?.(`\nStarting Validation Cycle ${validationCycles}/${MAX_VALIDATION_CYCLES}`);
+        appendHarnsSystemMessage(uiAPI, `Starting Validation Cycle ${validationCycles}/${MAX_VALIDATION_CYCLES}`);
 
         let buildPasses = false;
         let mechanicalAttempts = 0;
 
         while (!buildPasses && mechanicalAttempts < 3) {
             mechanicalAttempts++;
-            uiAPI?.appendSystemMessage?.(`Running CI Validation (Attempt ${mechanicalAttempts}/3)...`);
-            const ciResult = await runLocalCIImpl(uiAPI, executionCwd);
+            appendHarnsSystemMessage(uiAPI, `Running CI Validation (Attempt ${mechanicalAttempts}/3)...`);
+            uiAPI?.setBusy?.(true);
+            let ciResult;
+            try {
+                ciResult = await runLocalCIImpl(uiAPI, executionCwd);
+            } finally {
+                uiAPI?.setBusy?.(false);
+            }
 
             if (ciResult.exitCode === 0) {
                 buildPasses = true;
-                uiAPI?.appendSystemMessage?.("Build and tests passed.");
+                appendHarnsSystemMessage(uiAPI, "Build and tests passed.", false, SUCCESS_MESSAGE_STYLE);
             } else {
-                uiAPI?.appendSystemMessage?.(
+                appendHarnsSystemMessage(
+                    uiAPI,
                     `Build failed. Dispatching ${getAgentDisplayName(AGENTS.OPERATOR)} to fix syntax/types...`,
+                    true,
                 );
                 const completed = await repair({
                     agentName: AGENTS.OPERATOR,
@@ -344,9 +388,38 @@ export async function runValidationLoop({
             break;
         }
 
-        uiAPI?.appendSystemMessage?.("Running Semantic Code Review...");
+        appendHarnsSystemMessage(uiAPI, "Running Semantic Code Review...");
+        uiAPI?.setBusy?.(true);
+        let diffText = "";
+        let reviewResponse = "";
+        try {
+            diffText = await getDiffText(baselineTree, executionCwd);
 
-        const diffText = await getDiffText(baselineTree, executionCwd);
+            if (
+                (!requiresImplementationDiff(triageMeta) || hasImplementationDiff(diffText, planName)) &&
+                diffText.trim()
+            ) {
+                const reviewPrompt =
+                    `Compare the current implementation diff against the original plan. If the code fully satisfies the plan, reply ONLY with the word 'APPROVED'. Otherwise, list the missing semantic requirements.\n\n### Original Plan\n${planContent}\n\n### Git Diff\n${diffText}`;
+                const reviewerAgentDef = await loadReviewerPromptImpl();
+
+                const sessionMessages = await runAgentSessionImpl({
+                    agentName: AGENTS.REVIEWER,
+                    userRequest: reviewPrompt,
+                    uiAPI,
+                    sessionManager,
+                    cwd: executionCwd,
+                    _agentDefOverride: reviewerAgentDef,
+                    includeEditFallback: false,
+                    useRootSession: true,
+                });
+                consumePendingSwitchHandoff();
+
+                reviewResponse = extractAssistantOutput(sessionMessages) || "";
+            }
+        } finally {
+            uiAPI?.setBusy?.(false);
+        }
 
         if (requiresImplementationDiff(triageMeta) && !hasImplementationDiff(diffText, planName)) {
             haltReason = diffText.trim()
@@ -356,35 +429,25 @@ export async function runValidationLoop({
         }
 
         if (!diffText.trim()) {
-            uiAPI?.appendSystemMessage?.("No changes detected in diff. Assuming approved.");
+            appendHarnsSystemMessage(
+                uiAPI,
+                "No changes detected in diff. Assuming approved.",
+                false,
+                SUCCESS_MESSAGE_STYLE,
+            );
             executionComplete = true;
             break;
         }
 
-        const reviewPrompt =
-            `Compare the current implementation diff against the original plan. If the code fully satisfies the plan, reply ONLY with the word 'APPROVED'. Otherwise, list the missing semantic requirements.\n\n### Original Plan\n${planContent}\n\n### Git Diff\n${diffText}`;
-        const reviewerAgentDef = await loadReviewerPromptImpl();
-
-        const sessionMessages = await runAgentSessionImpl({
-            agentName: AGENTS.REVIEWER,
-            userRequest: reviewPrompt,
-            uiAPI: createSilentUiApi(),
-            sessionManager,
-            cwd: executionCwd,
-            _agentDefOverride: reviewerAgentDef,
-            includeEditFallback: false,
-        });
-        consumePendingSwitchHandoff();
-
-        const reviewResponse = extractAssistantOutput(sessionMessages) || "";
-
         if (isApprovedReviewResponse(reviewResponse)) {
-            uiAPI?.appendSystemMessage?.("Semantic Code Review Approved.");
+            appendHarnsSystemMessage(uiAPI, "Semantic Code Review Approved.", false, SUCCESS_MESSAGE_STYLE);
             executionComplete = true;
         } else {
-            uiAPI?.appendSystemMessage?.(
+            appendHarnsSystemMessage(
+                uiAPI,
                 `Review failed. Sending feedback back to ${getAgentDisplayName(AGENTS.ENGINEER)}...\n\n` +
                     `Reviewer Feedback:\n${reviewResponse || "(no reviewer output captured)"}`,
+                true,
             );
             const completed = await repair({
                 agentName: AGENTS.ENGINEER,
@@ -411,58 +474,127 @@ export async function runValidationLoop({
         const triageClassificationDisplay = triageMeta?.classification
             ? triageMeta.classification.toLocaleLowerCase().replace(/^([a-z])/, (c) => c.toUpperCase())
             : "Plan";
+        let cleanupMergedWorktrees = true;
 
         if (worktreeBranch) {
-            try {
-                uiAPI.appendSystemMessage(`Merging validated worktree branch ${worktreeBranch} into primary checkout.`);
-                await mergeExecutionWorktreeImpl({
-                    projectRoot,
-                    branch: worktreeBranch,
-                    worktreePath: executionCwd,
-                    allowedDirtyPaths: [
-                        `plans/${planName}.md`,
-                        ".hns/",
-                        ".hns/worktrees.json",
-                        ".hns/worktrees.lock",
-                    ],
-                });
-                if (worktreeId) {
-                    await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, { status: "merged" });
-                }
-            } catch (/** @type {any} */ error) {
-                const reason = error instanceof Error ? error.message : String(error);
-                uiAPI.appendSystemMessage(`Workflow halted: Worktree merge failed: ${reason}`);
-                if (worktreeId) {
-                    await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, { status: "merge_conflict" });
-                }
-                if (planName && planName !== "quick-fix") {
-                    await recordPlanEventImpl({
-                        cwd: CWD,
-                        planName,
-                        event: "worktree_merge_failed",
-                        currentStatus: "implemented",
-                        details: { triageMeta, failureReason: reason },
+            while (executionComplete) {
+                try {
+                    cleanupMergedWorktrees = shouldCleanupMergedWorktreesImpl();
+                    appendHarnsSystemMessage(
+                        uiAPI,
+                        `Merging validated worktree branch ${worktreeBranch} into primary checkout.`,
+                    );
+                    await mergeExecutionWorktreeImpl({
+                        projectRoot,
+                        branch: worktreeBranch,
+                        worktreePath: executionCwd,
+                        allowedDirtyPaths: [
+                            `plans/${planName}.md`,
+                            ".hns/",
+                            ".hns/worktrees.json",
+                            ".hns/worktrees.lock",
+                        ],
                     });
+                    if (worktreeId) {
+                        await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, { status: "merged" });
+                    }
+                    if (cleanupMergedWorktrees && executionCwd) {
+                        try {
+                            await removeExecutionWorktreeImpl({
+                                projectRoot,
+                                path: executionCwd,
+                                branch: worktreeBranch,
+                                force: true,
+                            });
+                            if (worktreeId) {
+                                await removeWorktreeRegistryEntryImpl(projectRoot, worktreeId);
+                            }
+                        } catch (cleanupError) {
+                            const cleanupReason = cleanupError instanceof Error
+                                ? cleanupError.message
+                                : String(cleanupError);
+                            appendHarnsSystemMessage(
+                                uiAPI,
+                                `Worktree merged, but cleanup failed: ${cleanupReason}`,
+                                true,
+                            );
+                        }
+                    }
+                    break;
+                } catch (/** @type {any} */ error) {
+                    const reason = error instanceof Error ? error.message : String(error);
+                    appendHarnsSystemMessage(uiAPI, `Worktree merge failed: ${reason}`, true);
+                    if (worktreeId) {
+                        try {
+                            await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, {
+                                status: "merge_conflict",
+                            });
+                        } catch (metadataError) {
+                            const metadataReason = metadataError instanceof Error
+                                ? metadataError.message
+                                : String(metadataError);
+                            appendHarnsSystemMessage(
+                                uiAPI,
+                                `Could not update worktree registry while merge conflict is active: ${metadataReason}`,
+                                true,
+                            );
+                        }
+                    }
+                    if (planName && planName !== "quick-fix") {
+                        try {
+                            await recordPlanEventImpl({
+                                cwd: CWD,
+                                planName,
+                                event: "worktree_merge_failed",
+                                currentStatus: "implemented",
+                                details: { triageMeta, failureReason: reason },
+                            });
+                        } catch (metadataError) {
+                            const metadataReason = metadataError instanceof Error
+                                ? metadataError.message
+                                : String(metadataError);
+                            appendHarnsSystemMessage(
+                                uiAPI,
+                                `Could not update plan metadata while merge conflict is active: ${metadataReason}`,
+                                true,
+                            );
+                        }
+                    }
+
+                    const action = await promptForMergeFailureAction(uiAPI, reason);
+                    if (action === "retry") {
+                        continue;
+                    }
+                    appendHarnsSystemMessage(uiAPI, `Workflow halted: Worktree merge failed: ${reason}`, true);
+                    executionComplete = false;
                 }
-                executionComplete = false;
             }
         }
 
         if (executionComplete) {
-            uiAPI.appendSystemMessage(`${triageClassificationDisplay} execution and validation complete.`);
+            appendHarnsSystemMessage(
+                uiAPI,
+                `${triageClassificationDisplay} execution and validation complete.`,
+                false,
+                SUCCESS_MESSAGE_STYLE,
+            );
             if (planName && planName !== "quick-fix") {
                 await recordPlanEventImpl({
                     cwd: CWD,
                     planName,
                     event: "validation_passed",
                     currentStatus: "implemented",
-                    details: { triageMeta, worktreeStatus: worktreeBranch ? "merged" : undefined },
+                    details: {
+                        triageMeta,
+                        worktreeStatus: worktreeBranch ? "merged" : undefined,
+                        cleanupMergedWorktrees: worktreeBranch ? cleanupMergedWorktrees : undefined,
+                    },
                 });
             }
         }
     } else {
         const reason = haltReason || "Validation stopped before completion.";
-        uiAPI.appendSystemMessage(`Workflow halted: ${reason}`);
+        appendHarnsSystemMessage(uiAPI, `Workflow halted: ${reason}`, true);
         if (worktreeId) {
             await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, { status: "validation_failed" });
         }
@@ -478,8 +610,8 @@ export async function runValidationLoop({
     }
 
     if (finalAgentName) {
-        const createDirectAgentHandler = __deps?.createDirectAgentHandler ||
-            (await import("../session/direct-agent.js")).createDirectAgentHandler;
-        setActiveAgentImpl(finalAgentName, createDirectAgentHandler(finalAgentName), uiAPI);
+        const createAgentHandler = __deps?.createAgentHandler ||
+            (await import("../session/agent-handler.js")).createAgentHandler;
+        setActiveAgentImpl(finalAgentName, createAgentHandler(finalAgentName), uiAPI);
     }
 }

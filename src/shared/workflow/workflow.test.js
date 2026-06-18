@@ -1,10 +1,13 @@
 import { assertEquals, assertMatch, assertStringIncludes, assertThrows } from "@std/assert";
 import {
     buildSlicerRequest,
+    createSlicerFinalizeTool,
     ensureSlicerTasks,
+    executePlan,
     executeProjectTasks,
     extractAssistantOutput,
     extractTasks,
+    materializeSlicerDraft,
     parseTaskWriteScope,
     readLatestPlanOutcome,
     runSlicerAgent,
@@ -342,6 +345,196 @@ async function setupTempDebugRoot() {
         },
     };
 }
+
+Deno.test("executePlan refuses to execute PROJECT Epic containers", async () => {
+    /** @type {string[]} */
+    const messages = [];
+    let engineerCalled = false;
+    let projectCalled = false;
+    const result = await executePlan(
+        "epic-plan",
+        { classification: "PROJECT", type: "epic" },
+        /** @type {any} */ ({
+            appendSystemMessage: (/** @type {string} */ message) => messages.push(String(message)),
+        }),
+        undefined,
+        undefined,
+        {
+            loadPlan: () =>
+                Promise.resolve(
+                    /** @type {any} */ ({
+                        attrs: { status: "ready_for_work", classification: "PROJECT", type: "epic" },
+                        body: "## Epic",
+                        markdown: "## Epic",
+                    }),
+                ),
+            executeSingleEngineerPlan: () => {
+                engineerCalled = true;
+                return Promise.resolve({ repairRequired: false, executionComplete: true });
+            },
+            executeStructuredProjectPlan: () => {
+                projectCalled = true;
+                return Promise.resolve({ repairRequired: false, executionComplete: true });
+            },
+        },
+    );
+
+    assertEquals(result.executionComplete, false);
+    assertEquals(engineerCalled, false);
+    assertEquals(projectCalled, false);
+    assertStringIncludes(result.error || "", "PROJECT Epic container");
+    assertEquals(messages.some((message) => message.includes("cannot be executed directly")), true);
+});
+
+Deno.test("executePlan refuses persisted Epic containers even when triage meta overrides classification", async () => {
+    let engineerCalled = false;
+    let projectCalled = false;
+    const result = await executePlan(
+        "epic-plan",
+        { classification: "FEATURE", type: "feature" },
+        noopUiAPI,
+        undefined,
+        undefined,
+        {
+            loadPlan: () =>
+                Promise.resolve(
+                    /** @type {any} */ ({
+                        attrs: { status: "ready_for_work", classification: "PROJECT", type: "epic" },
+                        body: "## Epic",
+                        markdown: "## Epic",
+                    }),
+                ),
+            executeSingleEngineerPlan: () => {
+                engineerCalled = true;
+                return Promise.resolve({ repairRequired: false, executionComplete: true });
+            },
+            executeStructuredProjectPlan: () => {
+                projectCalled = true;
+                return Promise.resolve({ repairRequired: false, executionComplete: true });
+            },
+        },
+    );
+
+    assertEquals(result.executionComplete, false);
+    assertEquals(engineerCalled, false);
+    assertEquals(projectCalled, false);
+    assertStringIncludes(result.error || "", "PROJECT Epic container");
+});
+
+Deno.test("executePlan still executes ready FEATURE plans", async () => {
+    let engineerCalled = false;
+    /** @type {string[]} */
+    const events = [];
+    const result = await executePlan(
+        "feature-plan",
+        { classification: "FEATURE" },
+        /** @type {any} */ ({ appendSystemMessage: () => {} }),
+        undefined,
+        undefined,
+        {
+            loadPlan: () =>
+                Promise.resolve(
+                    /** @type {any} */ ({
+                        attrs: { status: "ready_for_work", classification: "FEATURE" },
+                        body: "## Feature",
+                        markdown: "## Feature",
+                    }),
+                ),
+            executeSingleEngineerPlan: ({ triageMeta }) => {
+                engineerCalled = true;
+                assertEquals(triageMeta.classification, "FEATURE");
+                return Promise.resolve({ repairRequired: false, executionComplete: true });
+            },
+            recordPlanEvent: ({ event }) => {
+                events.push(event);
+                return Promise.resolve(/** @type {any} */ ({}));
+            },
+            markActiveWorktreeStatus: () => Promise.resolve(),
+        },
+    );
+
+    assertEquals(result, { repairRequired: false, executionComplete: true });
+    assertEquals(engineerCalled, true);
+    assertEquals(events, ["implementation_finished"]);
+});
+
+Deno.test("executePlan uses single-plan execution for child FEATURE plans", async () => {
+    let engineerCalled = false;
+    let projectDagCalled = false;
+    const result = await executePlan(
+        "epic-a/01-child-feature",
+        { classification: "FEATURE", parentPlan: "epic-a" },
+        /** @type {any} */ ({ appendSystemMessage: () => {} }),
+        [{ task: 1, assignee: "engineer", dependencies: "none", description: "legacy task" }],
+        undefined,
+        {
+            loadPlan: () =>
+                Promise.resolve(
+                    /** @type {any} */ ({
+                        attrs: {
+                            status: "ready_for_work",
+                            classification: "FEATURE",
+                            parentPlan: "epic-a",
+                        },
+                        body: "## Child FEATURE",
+                        markdown: "## Child FEATURE",
+                    }),
+                ),
+            executeSingleEngineerPlan: ({ triageMeta }) => {
+                engineerCalled = true;
+                assertEquals(triageMeta.parentPlan, "epic-a");
+                return Promise.resolve({ repairRequired: false, executionComplete: true });
+            },
+            executeStructuredProjectPlan: () => {
+                projectDagCalled = true;
+                return Promise.resolve({ repairRequired: false, executionComplete: true });
+            },
+            recordPlanEvent: () => Promise.resolve(/** @type {any} */ ({})),
+            markActiveWorktreeStatus: () => Promise.resolve(),
+        },
+    );
+
+    assertEquals(result, { repairRequired: false, executionComplete: true });
+    assertEquals(engineerCalled, true);
+    assertEquals(projectDagCalled, false);
+});
+
+Deno.test("executePlan does not parse task tables or dispatch DAG execution for PROJECT plans", async () => {
+    let engineerCalled = false;
+    let projectDagCalled = false;
+    const result = await executePlan(
+        "legacy-project-plan",
+        { classification: "PROJECT" },
+        /** @type {any} */ ({ appendSystemMessage: () => {} }),
+        undefined,
+        undefined,
+        {
+            loadPlan: () =>
+                Promise.resolve(
+                    /** @type {any} */ ({
+                        attrs: { status: "ready_for_work", classification: "PROJECT" },
+                        body: "## Design only\nNo Tasks table.",
+                        markdown: "## Design only\nNo Tasks table.",
+                    }),
+                ),
+            executeSingleEngineerPlan: ({ triageMeta }) => {
+                engineerCalled = true;
+                assertEquals(triageMeta.classification, "PROJECT");
+                return Promise.resolve({ repairRequired: false, executionComplete: true });
+            },
+            executeStructuredProjectPlan: () => {
+                projectDagCalled = true;
+                return Promise.resolve({ repairRequired: false, executionComplete: true });
+            },
+            recordPlanEvent: () => Promise.resolve(/** @type {any} */ ({})),
+            markActiveWorktreeStatus: () => Promise.resolve(),
+        },
+    );
+
+    assertEquals(result, { repairRequired: false, executionComplete: true });
+    assertEquals(engineerCalled, true);
+    assertEquals(projectDagCalled, false);
+});
 
 Deno.test("executeProjectTasks passes successful dependency output to dependent task request", async () => {
     const debug = await setupTempDebugRoot();
@@ -749,7 +942,171 @@ Deno.test("runSlicerAgent reports failure via uiAPI when present", async () => {
     assertEquals(messages.some((m) => m.includes("Slicer failed: kaboom")), true);
 });
 
+Deno.test("createSlicerFinalizeTool finalizes approved Epic with child FEATURE plans", async () => {
+    /** @type {any} */
+    let recorded = null;
+    const tool = createSlicerFinalizeTool({
+        planName: "epic-a",
+        cwd: "/repo",
+        __deps: {
+            loadPlan: () =>
+                Promise.resolve(
+                    /** @type {any} */ ({
+                        attrs: { classification: "PROJECT", type: "epic", status: "approved" },
+                    }),
+                ),
+            findPlansByParent: () =>
+                Promise.resolve([
+                    /** @type {any} */ ({
+                        name: "epic-a/01-child",
+                        attrs: { classification: "FEATURE" },
+                    }),
+                ]),
+            recordPlanEvent: (args) => {
+                recorded = args;
+                return Promise.resolve(/** @type {any} */ ({ status: "ready_for_work" }));
+            },
+        },
+    });
+
+    const result = await tool.execute(
+        "call-1",
+        { confirmation: "yes, finalize" },
+        new AbortController().signal,
+        () => {},
+        /** @type {any} */ ({}),
+    );
+
+    assertEquals(recorded.event, "decomposition_finalized");
+    assertEquals(recorded.currentStatus, "approved");
+    assertEquals(result.details, {
+        status: "ready_for_work",
+        children: ["epic-a/01-child"],
+        error: "",
+    });
+});
+
+Deno.test("materializeSlicerDraft delegates child FEATURE draft writes", async () => {
+    /** @type {Array<{ cwd: string, epicPlanName: string, descriptors: unknown[] }>} */
+    const calls = [];
+    const children = [{
+        sequence: 1,
+        title: "Draft child",
+        summary: "Draft summary",
+        affectedPaths: ["src/plan-store.js"],
+        dependencies: [],
+        content: "# Draft child",
+    }];
+    const result = await materializeSlicerDraft({
+        cwd: "/repo",
+        epicPlanName: "epic-a",
+        children,
+        __deps: {
+            saveChildFeaturePlans: (cwd, epicPlanName, descriptors) => {
+                calls.push({ cwd, epicPlanName, descriptors });
+                return Promise.resolve([{
+                    name: "epic-a/01-draft-child",
+                    path: "/repo/plans/epic-a/01-draft-child.md",
+                    title: "Draft child",
+                    action: "created",
+                    dependencies: [],
+                    metadata: {
+                        classification: "FEATURE",
+                        status: "draft",
+                        parentPlan: "epic-a",
+                        affectedPaths: ["src/plan-store.js"],
+                    },
+                }]);
+            },
+        },
+    });
+
+    assertEquals(calls, [{ cwd: "/repo", epicPlanName: "epic-a", descriptors: children }]);
+    assertEquals(result[0].name, "epic-a/01-draft-child");
+});
+
 // ── ensureSlicerTasks ──────────────────────────────────────────────
+
+Deno.test("ensureSlicerTasks opens Epic decomposition without reading a task table", async () => {
+    let slicerCalls = 0;
+    let readCalls = 0;
+    const result = await ensureSlicerTasks({
+        planName: "epic-a",
+        planPath: "/tmp/epic-a.md",
+        triageMeta: /** @type {any} */ ({ classification: "PROJECT", type: "epic", status: "approved" }),
+        uiAPI: noopUiAPI,
+        __deps: {
+            readTextFile: () => {
+                readCalls++;
+                return Promise.resolve("# Epic");
+            },
+            runSlicerAgent: (opts) => {
+                slicerCalls++;
+                assertEquals(opts.planName, "epic-a");
+                return Promise.resolve({ ok: true });
+            },
+        },
+    });
+
+    assertEquals(result, { ok: true, slicerInvoked: true });
+    assertEquals(readCalls, 0);
+    assertEquals(slicerCalls, 1);
+});
+
+Deno.test("ensureSlicerTasks opens decomposition when persisted plan is an Epic", async () => {
+    let slicerCalls = 0;
+    const result = await ensureSlicerTasks({
+        planName: "epic-a",
+        planPath: "/tmp/epic-a.md",
+        uiAPI: noopUiAPI,
+        __deps: {
+            readTextFile: () =>
+                Promise.resolve([
+                    "---",
+                    "classification: PROJECT",
+                    "type: epic",
+                    "status: approved",
+                    "---",
+                    "# Epic",
+                ].join("\n")),
+            runSlicerAgent: (opts) => {
+                slicerCalls++;
+                assertEquals(opts.triageMeta?.type, "epic");
+                return Promise.resolve({ ok: true });
+            },
+        },
+    });
+
+    assertEquals(result, { ok: true, slicerInvoked: true });
+    assertEquals(slicerCalls, 1);
+});
+
+Deno.test("ensureSlicerTasks returns persisted Epic slicer throws as slicer failure", async () => {
+    let slicerCalls = 0;
+    const result = await ensureSlicerTasks({
+        planName: "epic-a",
+        planPath: "/tmp/epic-a.md",
+        uiAPI: noopUiAPI,
+        __deps: {
+            readTextFile: () =>
+                Promise.resolve([
+                    "---",
+                    "classification: PROJECT",
+                    "type: epic",
+                    "status: approved",
+                    "---",
+                    "# Epic",
+                ].join("\n")),
+            runSlicerAgent: () => {
+                slicerCalls++;
+                throw new Error("agent definition unavailable");
+            },
+        },
+    });
+
+    assertEquals(result, { ok: false, error: "agent definition unavailable", stage: "slicer" });
+    assertEquals(slicerCalls, 1);
+});
 
 Deno.test("ensureSlicerTasks skips slicer when Tasks already parseable (resumed plan)", async () => {
     let slicerCalls = 0;

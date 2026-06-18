@@ -10,6 +10,8 @@ It is built on top of [Pi](https://pi.dev), with a Deno CLI, an interactive TUI,
 [Plannotator](https://plannotator.ai), [Cymbal](https://github.com/1broseidon/cymbal) for code intelligence, and
 [Mnemosyne](https://github.com/gandazgul/mnemosyne) for project/global memory.
 
+> For full documentation, see **[docs/index.md](docs/index.md)**.
+
 ## Why Harns
 
 Most coding harnesses optimize for getting an agent typing quickly. Harns optimizes for getting the right kind of work
@@ -19,16 +21,17 @@ done with the right amount of ceremony.
   affected paths recorded before execution.
 - **Planning is a product surface, not a prompt vibe.** Non-trivial work becomes a markdown plan in `plans/`, goes
   through Plannotator review, and can be approved, revised, saved, re-opened, or executed later.
-- **Architecture and task slicing are separate jobs.** Large `PROJECT` work is designed by the Architect, then sliced
-  into dependency-aware vertical tasks by the Slicer after approval.
+- **Architecture and decomposition are separate jobs.** Large `PROJECT` work is designed by the Architect as an Epic,
+  then decomposed into independently executable child `FEATURE` plans by the Slicer after approval.
 - **Execution is role-scoped.** Operators handle small fixes, Engineers implement approved plans, Testers write or run
   test work, Doc Writers stay limited to docs, and Reviewers compare the final diff to the plan.
-- **Parallel work keeps a single trail.** Project tasks can run in dependency order with bounded parallelism, while
-  their final outputs are summarized back into the root session.
+- **Epic work keeps a clear trail.** PROJECT Epics stay as containers, while child FEATURE plans carry their own review,
+  execution, validation, and merge history.
 - **Completion has a handshake.** Execution agents are expected to call `task_completed`; for saved plan execution,
   Harns treats that as the strong signal before running validation.
-- **Validation is built into plan workflows.** After completed `FEATURE` or `PROJECT` plan work, Harns runs the
-  configured local validation command and then a semantic review loop against the original plan.
+- **Validation is built into plan workflows.** After completed executable plan work, Harns runs the configured local
+  validation command and then a semantic review loop against the original plan. PROJECT Epics validate through their
+  child FEATURE plans.
 - **Context is durable.** Sessions live under `~/.hns/sessions/`, settings under `~/.hns/settings.json`, plans in the
   repo, and Mnemosyne keeps recallable project and global memory.
 
@@ -39,14 +42,15 @@ of why each change happened. Use a lighter harness when you only want a one-shot
 
 ```mermaid
 flowchart TD
-    U[User request] --> R[Router calls triage_report]
+    U[User request] --> R[Router Agent]
+    R --> TR[triage_report]
 
-    R -->|QUICK_FIX| O[Operator executes directly]
+    TR -->|QUICK_FIX| O[Operator executes directly]
     O --> TC1{task_completed?}
     TC1 -->|yes| QD[Done]
     TC1 -->|no| W1[Wait for completion signal]
 
-    R -->|FEATURE| P[Planner writes plans/*.md]
+    TR -->|FEATURE| P[Planner writes plans/*.md]
     P --> PR[Plannotator review]
     PR -->|feedback| P
     PR -->|approved| PA{Proceed now?}
@@ -58,12 +62,14 @@ flowchart TD
     R -->|PROJECT| A[Architect writes design plan]
     A --> PR2[Plannotator review]
     PR2 -->|feedback| A
-    PR2 -->|approved| S[Slicer appends vertical task table]
-    S --> PX{Proceed now?}
-    PX -->|yes| T[Engineer/Tester/Doc Writer tasks run by dependency order]
-    PX -->|no| SP
-    T --> IP[Final tester Integration Point]
-    IP --> V3[Workflow Validation: local validation + semantic review]
+    PR2 -->|approved| RD[ready_for_decomposition]
+    RD --> S[Slicer writes child FEATURE plans]
+    S --> RF[ready_for_work: pick a child FEATURE]
+    RF --> CP[Child FEATURE plan]
+    CP --> PR3[Plannotator review]
+    PR3 -->|approved| CE[Engineer executes child FEATURE]
+    CE --> TC3{task_completed?}
+    TC3 -->|yes| V3[Child Workflow Validation: local validation + semantic review]
 
     SP --> LP[hns load-plan]
 ```
@@ -121,6 +127,8 @@ Project-level plans and optional overrides live in the current repository:
 - `.hns/agents/*.md`
 - `.hns/prompts/*.md`
 
+> For full documentation, see **[docs/index.md](docs/index.md)**.
+
 ## First Run
 
 Initialize Harns in a project when you want it to build durable context:
@@ -147,6 +155,8 @@ hns router "fix the failing parser test"
 Interactive sessions are optimized for one topic at a time. A new session starts with Router, but after Router hands off
 to a specialist, that specialist remains active so follow-up messages keep the useful working context. Use `/new` to
 start a fresh session, or `/agent router` when you want the next message in the same session to go through triage again.
+Router is the default triage Agent, not a special runtime path; workflow steps are triggered by tools like
+`triage_report`, `plan_written`, and `task_completed`.
 
 ## Common Commands
 
@@ -154,7 +164,7 @@ start a fresh session, or `/agent router` when you want the next message in the 
 hns "your request"                  # route through triage
 hns router "your request"           # explicit router form
 hns agent                           # list available agents
-hns agent engineer "implement X"    # bypass router and talk to one agent
+hns agent engineer "implement X"    # start with Engineer instead of Router
 hns plans                           # list saved plans
 hns load-plan <name-or-path>        # review, execute, or continue a plan
 hns init                            # bootstrap project context
@@ -191,17 +201,20 @@ Plans are markdown files with YAML front matter in `plans/`. Harns records:
 - classification: `QUICK_FIX`, `FEATURE`, or `PROJECT`
 - complexity: `LOW`, `MEDIUM`, or `HIGH`
 - summary and affected paths
-- status: `draft`, `in_review`, `approved`, `ready_for_work`, `feedback`, or `completed`
+- status: `draft`, `feedback`, `approved`, `ready_for_decomposition`, `ready_for_work`, `in_progress`, `failed`,
+  `implemented`, or `verified`
 - origin: `internal` or `external`
 
 Use `hns plans` to list saved plans.
 
 Use `hns load-plan <name-or-path>` to:
 
-- execute an approved plan
-- re-open an approved or completed plan for review
+- execute a ready FEATURE or legacy non-Epic PROJECT plan
+- open or resume Slicer decomposition for a PROJECT Epic
+- pick a child FEATURE plan from a decomposed Epic
+- re-open an approved, implemented, or verified plan for review
 - view plan details
-- continue a draft, feedback, or in-review plan
+- continue a draft or feedback plan
 - load an external markdown plan and let Harns add front matter
 
 `/resume` is different: it resumes a recent interactive chat session, not a plan file.
@@ -213,12 +226,12 @@ matter for name, model, description, and tools.
 
 | Agent      | Purpose                                                             |
 | ---------- | ------------------------------------------------------------------- |
-| Router     | Classifies incoming requests and calls `triage_report`.             |
+| Router     | Default triage Agent that calls `triage_report`.                    |
 | Operator   | Executes small `QUICK_FIX` tasks and operational work directly.     |
 | Planner    | Writes reviewable plans for `FEATURE` work.                         |
 | Architect  | Designs `PROJECT` plans without implementing code.                  |
-| Slicer     | Converts approved project designs into vertical task tables.        |
-| Engineer   | Implements approved plans or assigned project tasks.                |
+| Slicer     | Decomposes approved PROJECT Epics into child FEATURE plans.         |
+| Engineer   | Implements approved executable plans.                               |
 | Tester     | Writes, updates, and runs tests for assigned work.                  |
 | Doc Writer | Updates markdown documentation only.                                |
 | Reviewer   | Compares the final diff against the original plan.                  |

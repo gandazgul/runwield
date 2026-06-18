@@ -16,6 +16,7 @@ import {
     SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import { createEditWithFallbackToolDefinition } from "../../tools/edit-with-fallback.js";
+import { createHarnsGrepToolDefinition } from "../../tools/grep.js";
 import { extractYaml, test as hasFrontMatter } from "@std/front-matter";
 import { dirname, join } from "@std/path";
 import { AGENT_DEFS_DIR, AGENTS, CWD, HOME_DIR, PROMPT_TEMPLATES_DIR, SKILLS_DIR } from "../../constants.js";
@@ -42,7 +43,7 @@ import rtkExtension from "../../extensions/rtk/index.js";
 import { ensureCymbalBinary, ensureMnemosyneBinary, hasRtkBinary } from "../runtime-preflight.js";
 import { executeReturnToRouter, returnToRouterTool } from "../../tools/return-to-router.js";
 import { createUserInterviewTool } from "../../tools/user-interview.js";
-import { getModelRegistry } from "../models/model-registry.js";
+import { discoverProviderModel, getModelRegistry } from "../models/model-registry.js";
 import { parseProviderModel } from "../models/model-validation.js";
 import {
     addSubAgentSession,
@@ -71,6 +72,27 @@ import { recordActiveAgent } from "./active-agent-session.js";
 
 const HOME_PROMPTS_DIR = HOME_DIR ? join(HOME_DIR, ".hns", "prompts") : null;
 const LOCAL_PROMPTS_DIR = join(CWD, ".hns", "prompts");
+
+/** Regex to detect an HTML body in an error message (e.g. from a 404 page). */
+const HTML_ERROR_RE = /^(.*?\b404\b.*?)(?:<!DOCTYPE|<html|<body)/i;
+
+/**
+ * Replace 404 error messages that contain an HTML body with a clean generic
+ * message so the user does not see a raw HTML dump.
+ *
+ * @param {string} msg
+ * @returns {string}
+ */
+function sanitizeApiErrorMessage(msg) {
+    const match = HTML_ERROR_RE.exec(msg);
+    if (match) {
+        const prefix = match[1].trim();
+        return prefix.endsWith(" -") || prefix.endsWith(".")
+            ? `${prefix.slice(0, -1)} — Model not found or endpoint unavailable`
+            : `${prefix} — Model not found or endpoint unavailable`;
+    }
+    return msg;
+}
 
 /**
  * @param {string | undefined} debugLogPath
@@ -555,18 +577,30 @@ export function abortActiveSession() {
  * @returns {Promise<boolean>} true when the root session was steered
  */
 export async function steerRootSession(text, images) {
+    return Boolean(await steerRootSessionWithTarget(text, images));
+}
+
+/**
+ * Steer the root session and return the exact AgentSession that accepted the
+ * message, so UI callers can track queue consumption on the right session.
+ *
+ * @param {string} text
+ * @param {import('./types.js').ImageAttachment[]} [images]
+ * @returns {Promise<import('@earendil-works/pi-coding-agent').AgentSession | null>}
+ */
+export async function steerRootSessionWithTarget(text, images) {
     const session = getRootAgentSession();
-    if (!session) return false;
+    if (!session) return null;
     // If the session is not actively streaming, queuing a steering message
     // on the agent would be lost — the agent loop has already exited.
-    // Return false so the caller queues it for the next submission instead.
-    if (!session.isStreaming) return false;
+    // Return null so the caller queues it for the next submission instead.
+    if (!session.isStreaming) return null;
     /** @type {Array<{type: "image", data: string, mimeType: string}>} */
     const imageContent = images && images.length > 0
         ? images.map((img) => ({ type: /** @type {"image"} */ ("image"), data: img.base64, mimeType: img.mimeType }))
         : [];
     await session.steer(text, imageContent.length > 0 ? imageContent : undefined);
-    return true;
+    return session;
 }
 
 /**
@@ -584,7 +618,6 @@ export function getConfiguredAgentModel(agentName) {
     const agents = /** @type {Record<string, { model?: string }> | undefined} */ (
         getMergedCustomSetting("agents")
     );
-    if (!agents) return undefined;
 
     // Check active preset first
     const activeModelPreset = /** @type {string | undefined} */ (
@@ -601,7 +634,7 @@ export function getConfiguredAgentModel(agentName) {
     }
 
     // Fall back to base agents config
-    return agents[agentName]?.model;
+    return agents?.[agentName]?.model;
 }
 
 /**
@@ -619,7 +652,6 @@ export function getConfiguredAgentThinkingLevel(agentName) {
     const agents = /** @type {Record<string, { thinkingLevel?: string }> | undefined} */ (
         getMergedCustomSetting("agents")
     );
-    if (!agents) return undefined;
 
     // Check active preset first
     const activeModelPreset = /** @type {string | undefined} */ (
@@ -636,80 +668,111 @@ export function getConfiguredAgentThinkingLevel(agentName) {
     }
 
     // Fall back to base agents config
-    return agents[agentName]?.thinkingLevel;
+    return agents?.[agentName]?.thinkingLevel;
 }
 
 /**
  * Resolve the model to use for an agent invocation, based on the following priority:
- * 1) Explicit model override passed to `runAgentSession`
- * 2) Active model state (e.g. from a previous /model switch)
+ * 1) Active model state from a manual /model switch
+ * 2) Invocation-specific model override (for example, prompt-template frontmatter)
  * 3) Configured per-agent model from settings (agents / modelPresets)
- * 4) Agent definition model from frontmatter
- * 5) Default model from settings
+ * 4) Default model from settings
+ * 5) Agent definition model from layered frontmatter
  *
  * @param {string | undefined} modelOverride
  * @param {import('./types.js').AgentDefinition} agentDef
  * @param {string} [agentName] - Used to look up settings-based model override.
  * @param {ReturnType<typeof getModelRegistry>} [modelRegistry]
  *
- * @returns {any | null}
+ * @returns {Promise<any>}
  */
-function resolveModel(modelOverride, agentDef, agentName, modelRegistry = getModelRegistry()) {
+async function resolveModel(modelOverride, agentDef, agentName, modelRegistry = getModelRegistry()) {
     let resolvedModel = null;
 
-    /** @type {string[]} */
+    /** @type {Array<{ model: string, source: string, strict: boolean }>} */
     const candidateModels = [];
-    if (modelOverride) candidateModels.push(modelOverride);
 
     // Only use the active model if the user explicitly selected it via /model.
     // After agent switches, clearUserModelOverride() clears the flag but the
     // activeModel may still hold the previous agent's model — we must skip it.
     const activeModelState = getActiveModelState();
     if (activeModelState.model && isUserModelOverride()) {
-        candidateModels.push(
-            activeModelState.provider
+        candidateModels.push({
+            model: activeModelState.provider
                 ? `${activeModelState.provider}/${activeModelState.model}`
                 : activeModelState.model,
-        );
+            source: "manual /model override",
+            strict: true,
+        });
+    }
+
+    if (modelOverride) {
+        candidateModels.push({ model: modelOverride, source: "invocation model override", strict: true });
     }
 
     // Config-driven per-agent model override (agents.<name>.model or active preset)
     if (agentName) {
         const configuredModel = getConfiguredAgentModel(agentName);
         if (configuredModel) {
-            candidateModels.push(configuredModel);
+            candidateModels.push({
+                model: configuredModel,
+                source: `settings model for agent "${agentName}"`,
+                strict: true,
+            });
         }
     }
 
-    if (agentDef.model) {
-        candidateModels.push(agentDef.model);
-    }
-
-    // Fallback: User default model from settings
+    // Settings default is still a settings value, so it wins over layered agent definitions.
     const settingsManager = getSettingsManager();
     const defaultModelId = settingsManager.getDefaultModel();
     const defaultProvider = settingsManager.getDefaultProvider();
     if (defaultModelId) {
-        candidateModels.push(defaultProvider ? `${defaultProvider}/${defaultModelId}` : defaultModelId);
+        candidateModels.push({
+            model: defaultProvider ? `${defaultProvider}/${defaultModelId}` : defaultModelId,
+            source: "settings default model",
+            strict: true,
+        });
+    }
+
+    if (agentDef.model) {
+        candidateModels.push({
+            model: agentDef.model,
+            source: `agent definition model for "${agentDef.displayName || agentName || agentDef.name}"`,
+            strict: false,
+        });
     }
 
     for (const candidate of candidateModels) {
-        const parsed = parseProviderModel(candidate);
+        const parsed = parseProviderModel(candidate.model);
         if (!parsed.ok) {
-            throw new Error(`Invalid model format: ${candidate}. Use provider/id.`);
+            if (candidate.strict) {
+                throw new Error(`Invalid ${candidate.source}: ${candidate.model}. Use provider/id.`);
+            }
+            continue;
         }
 
-        const found = modelRegistry.find(parsed.provider, parsed.id);
+        let found = modelRegistry.find(parsed.provider, parsed.id);
         if (!found) {
-            if (candidate === modelOverride) {
-                throw new Error(`Unknown model: ${candidate}`);
+            try {
+                found = await discoverProviderModel(modelRegistry, parsed.provider, parsed.id);
+            } catch (error) {
+                if (candidate.strict) {
+                    const message = error instanceof Error ? error.message : String(error);
+                    throw new Error(`Unknown ${candidate.source}: ${candidate.model}. ${message}`);
+                }
+            }
+        }
+
+        if (!found) {
+            if (candidate.strict) {
+                throw new Error(`Unknown ${candidate.source}: ${candidate.model}`);
             }
             continue;
         }
 
         if (!modelRegistry.hasConfiguredAuth(found)) {
-            if (candidate === modelOverride) {
-                throw new Error(`No API key configured for ${found.provider}/${found.id}`);
+            if (candidate.strict) {
+                throw new Error(`No API key configured for ${candidate.source}: ${found.provider}/${found.id}`);
             }
             continue;
         }
@@ -718,7 +781,13 @@ function resolveModel(modelOverride, agentDef, agentName, modelRegistry = getMod
         break;
     }
 
-    return resolvedModel;
+    if (resolvedModel) return resolvedModel;
+
+    throw new Error(
+        `No configured model found${agentName ? ` for agent "${agentName}"` : ""}. Select one with /model, ` +
+            "or configure activeModelPreset/modelPresets, agents.<agent>.model, defaultProvider/defaultModel, " +
+            "or an agent definition model.",
+    );
 }
 
 /**
@@ -928,6 +997,11 @@ export async function buildAgentSession({
         finalCustomTools.push(createEditWithFallbackToolDefinition(sessionCwd));
     }
 
+    // Override the built-in grep tool to accept shell-shaped multi-path input.
+    if (!finalCustomTools.find((t) => t.name === "grep")) {
+        finalCustomTools.push(createHarnsGrepToolDefinition(sessionCwd));
+    }
+
     if (tools.includes("multi_file_edit") && !finalCustomTools.find((t) => t.name === "multi_file_edit")) {
         const { createMultiFileEditTool } = await import("../../tools/multi_file_edit.js");
         finalCustomTools.push(createMultiFileEditTool(sessionCwd));
@@ -953,7 +1027,7 @@ export async function buildAgentSession({
     await loader.reload();
 
     const modelRegistry = getModelRegistry();
-    const resolvedModel = resolveModel(modelOverride, agentDef, agentName, modelRegistry);
+    const resolvedModel = await resolveModel(modelOverride, agentDef, agentName, modelRegistry);
 
     if (!sessionManager && shouldWriteDebugLog(debugLogPath)) {
         const debugMsg =
@@ -988,8 +1062,11 @@ export async function buildAgentSession({
         }
     }
 
-    // Apply thinking level — settings per-agent override takes priority over frontmatter
+    // Apply thinking level — settings values take priority over layered frontmatter.
     let resolvedThinkingLevel = agentName ? getConfiguredAgentThinkingLevel(agentName) : undefined;
+    if (!resolvedThinkingLevel) {
+        resolvedThinkingLevel = getSettingsManager().getDefaultThinkingLevel();
+    }
     if (!resolvedThinkingLevel) {
         resolvedThinkingLevel = agentDef.thinkingLevel;
     }
@@ -1031,6 +1108,10 @@ export async function buildAgentSession({
 export function attachUiSubscribers(session, agentDef, uiAPI, debugLogPath) {
     /** @type {{ appendText: (delta: string) => void } | null} */
     let currentMarkdownBlock = null;
+    // Whether the agent-name header has already been rendered this turn. Only
+    // the first assistant block of a turn shows the "Agent:" header; blocks
+    // created after a tool call (the tool-call continuation) must not repeat it.
+    let agentHeaderShown = false;
     /** @type {string[]} */
     let invokedToolNames = [];
     /** @type {{ appendDelta: (delta: string) => void, end: () => void } | null} */
@@ -1062,6 +1143,7 @@ export function attachUiSubscribers(session, agentDef, uiAPI, debugLogPath) {
                     // We only create assistant blocks lazily when we receive actual text deltas
                     // (or when rendering an assistant error on message_end).
                     currentMarkdownBlock = null;
+                    agentHeaderShown = false;
                     endThinking();
                 }
                 break;
@@ -1123,8 +1205,9 @@ export function attachUiSubscribers(session, agentDef, uiAPI, debugLogPath) {
                     if (uiAPI) {
                         if (!currentMarkdownBlock) {
                             currentMarkdownBlock = uiAPI.appendAgentMessageStart(
-                                agentDef.displayName,
+                                agentHeaderShown ? "" : agentDef.displayName,
                             );
+                            agentHeaderShown = true;
                         }
                         currentMarkdownBlock.appendText(event.assistantMessageEvent.delta);
                         uiAPI.requestRender();
@@ -1167,16 +1250,19 @@ export function attachUiSubscribers(session, agentDef, uiAPI, debugLogPath) {
                             [
                                 `Event: ASSISTANT MESSAGE ERROR`,
                                 `Timestamp: ${new Date().toISOString()}`,
-                                `Error: ${event.message.errorMessage || "Unknown LLM error"}`,
+                                `Error: ${sanitizeApiErrorMessage(event.message.errorMessage || "Unknown LLM error")}`,
                                 "",
                             ].join("\n"),
                         );
                     }
                     if (!currentMarkdownBlock) {
-                        currentMarkdownBlock = uiAPI.appendAgentMessageStart(agentDef.displayName);
+                        currentMarkdownBlock = uiAPI.appendAgentMessageStart(
+                            agentHeaderShown ? "" : agentDef.displayName,
+                        );
+                        agentHeaderShown = true;
                     }
                     currentMarkdownBlock.appendText(
-                        `\n\n**Error:** ${event.message.errorMessage || "Unknown LLM error"}`,
+                        `\n\n**Error:** ${sanitizeApiErrorMessage(event.message.errorMessage || "Unknown LLM error")}`,
                     );
                     uiAPI.requestRender();
                 }
@@ -1185,7 +1271,9 @@ export function attachUiSubscribers(session, agentDef, uiAPI, debugLogPath) {
             case "auto_retry_start": {
                 if (uiAPI) {
                     uiAPI.appendSystemMessage(
-                        `[Retry ${event.attempt}/${event.maxAttempts}] ${event.errorMessage} — waiting ${event.delayMs}ms...`,
+                        `[Retry ${event.attempt}/${event.maxAttempts}] ${
+                            sanitizeApiErrorMessage(event.errorMessage)
+                        } — waiting ${event.delayMs}ms...`,
                     );
                 }
                 break;
@@ -1227,7 +1315,8 @@ export function attachUiSubscribers(session, agentDef, uiAPI, debugLogPath) {
                 if (filePath) headerArgs = `${filePath}`;
                 else if (event.toolName === "bash") headerArgs = event.args?.command || "";
                 else if (event.toolName === "grep") {
-                    headerArgs = `${event.args?.pattern} in ${event.args?.path || "."}`;
+                    const path = Array.isArray(event.args?.path) ? event.args.path.join(" ") : event.args?.path || ".";
+                    headerArgs = `${event.args?.pattern} in ${path}`;
                 } else if (event.toolName === "find") {
                     headerArgs = `${event.args?.pattern} in ${event.args?.path || "."}`;
                 } else if (event.toolName === "ls") {
@@ -1378,7 +1467,9 @@ export function attachUiSubscribers(session, agentDef, uiAPI, debugLogPath) {
                             `Auto-compacted. Tokens before: ${event.result.tokensBefore.toLocaleString()}`,
                         );
                     } else if (event.errorMessage) {
-                        uiAPI.appendSystemMessage(`Auto-compaction failed: ${event.errorMessage}`);
+                        uiAPI.appendSystemMessage(
+                            `Auto-compaction failed: ${sanitizeApiErrorMessage(event.errorMessage)}`,
+                        );
                     }
                 }
                 break;
@@ -1559,6 +1650,9 @@ const rootSessionMetadata = new WeakMap();
  * @param {import('../workflow/workflow.js').UiAPI} [opts.uiAPI]
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager]
  * @param {boolean} [opts.allowReturnToRouter]
+ * @param {import('./types.js').AgentDefinition} [opts._agentDefOverride]
+ * @param {string} [opts.cwd]
+ * @param {boolean} [opts.includeEditFallback]
  *
  * @returns {Promise<import('@earendil-works/pi-coding-agent').AgentSession>}
  */
@@ -1611,11 +1705,24 @@ export async function ensureRootAgentSession(opts) {
  * @param {string} opts.userRequest
  * @param {Array<{base64: string, mimeType: string}>} [opts.images]
  * @param {import('../workflow/workflow.js').UiAPI} [opts.uiAPI]
+ * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager]
+ * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [opts.customTools]
+ * @param {import('./types.js').AgentDefinition} [opts._agentDefOverride]
+ * @param {boolean} [opts.allowReturnToRouter]
  *
  * @returns {Promise<import('@earendil-works/pi-agent-core').AgentMessage[]>}
  */
-export async function runRootTurn({ agentName, userRequest, images, uiAPI }) {
-    const session = getRootAgentSession();
+export async function runRootTurn({
+    agentName,
+    userRequest,
+    images,
+    uiAPI,
+    sessionManager,
+    customTools,
+    _agentDefOverride,
+    allowReturnToRouter,
+}) {
+    let session = getRootAgentSession();
     if (!session) {
         throw new Error(`runRootTurn: no root AgentSession (expected agent "${agentName}")`);
     }
@@ -1624,11 +1731,31 @@ export async function runRootTurn({ agentName, userRequest, images, uiAPI }) {
             `runRootTurn: root agent is "${getRootAgentName()}", not "${agentName}". setActiveAgent must rebuild first.`,
         );
     }
-    const meta = rootSessionMetadata.get(session);
+    let meta = rootSessionMetadata.get(session);
     if (!meta) {
         throw new Error(
             "runRootTurn: root AgentSession is missing metadata (was it built via ensureRootAgentSession?)",
         );
+    }
+
+    const requiredCustomToolNames = (customTools || []).map((tool) => tool.name);
+    const existingCustomToolNames = meta.finalCustomTools.map((tool) => tool.name);
+    const hasRequiredCustomTools = requiredCustomToolNames.every((name) => existingCustomToolNames.includes(name));
+    if (!hasRequiredCustomTools && customTools?.length) {
+        session = await ensureRootAgentSession({
+            agentName,
+            uiAPI,
+            sessionManager,
+            customTools,
+            _agentDefOverride,
+            allowReturnToRouter,
+        });
+        meta = rootSessionMetadata.get(session);
+        if (!meta) {
+            throw new Error(
+                "runRootTurn: rebuilt root AgentSession is missing metadata (was it built via ensureRootAgentSession?)",
+            );
+        }
     }
 
     meta.rootTurnCount += 1;
@@ -1666,10 +1793,24 @@ export async function runRootTurn({ agentName, userRequest, images, uiAPI }) {
  * @param {string} [opts.cwd] - Execution cwd for file tools and agent operations.
  * @param {string} [opts.debugLogPath] - Optional DEBUG log destination for this invocation.
  * @param {boolean} [opts.includeEditFallback] - Internal: whether to register the edit fallback custom tool.
+ * @param {boolean} [opts.useRootSession] - Run this invocation as the root session so interactive steering reaches it.
  *
  * @returns {Promise<import('@earendil-works/pi-agent-core').AgentMessage[]>}
  */
 export async function runAgentSession(opts) {
+    if (opts.useRootSession) {
+        await ensureRootAgentSession({
+            ...opts,
+            allowReturnToRouter: opts.allowReturnToRouter ?? false,
+        });
+        return await runRootTurn({
+            agentName: opts.agentName,
+            userRequest: opts.userRequest,
+            images: opts.images,
+            uiAPI: opts.uiAPI,
+        });
+    }
+
     const { session, agentDef, promptState, resolvedModel, resolvedThinkingLevel } = await buildAgentSession(opts);
     const subscriberState = attachUiSubscribers(session, agentDef, opts.uiAPI, opts.debugLogPath);
     addSubAgentSession(session);
@@ -1753,7 +1894,8 @@ export async function reloadRootAgentSession(uiAPI) {
         if (configuredModelStr) {
             const parsed = parseProviderModel(configuredModelStr);
             if (parsed.ok) {
-                const found = modelRegistry.find(parsed.provider, parsed.id);
+                const found = modelRegistry.find(parsed.provider, parsed.id) ||
+                    await discoverProviderModel(modelRegistry, parsed.provider, parsed.id);
                 if (found && modelRegistry.hasConfiguredAuth(found)) {
                     await session.setModel(found);
                     if (uiAPI?.setAgentInfo) {
@@ -1777,10 +1919,10 @@ export async function reloadRootAgentSession(uiAPI) {
         }
     }
 
-    // 5. Apply thinking level — settings per-agent > frontmatter > settings default
+    // 5. Apply thinking level — settings per-agent > settings default > frontmatter
     const rootName = getRootAgentName() || "";
-    const newThinkingLevel = getConfiguredAgentThinkingLevel(rootName) || meta.agentDef.thinkingLevel ||
-        settings.getDefaultThinkingLevel();
+    const newThinkingLevel = getConfiguredAgentThinkingLevel(rootName) || settings.getDefaultThinkingLevel() ||
+        meta.agentDef.thinkingLevel;
     if (newThinkingLevel !== undefined) {
         session.setThinkingLevel(
             /** @type {import('@earendil-works/pi-agent-core').ThinkingLevel} */ (newThinkingLevel),

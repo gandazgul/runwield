@@ -1,6 +1,7 @@
 import { assert, assertEquals } from "@std/assert";
 import { join } from "@std/path";
 import { CWD } from "../../../constants.js";
+import { __resetSettingsForTests } from "../../settings.js";
 import { loadAgentDef, resolveSessionToolNames } from "../agents.js";
 import { buildAgentSession, resolveEffectiveSessionToolNames } from "../session.js";
 
@@ -82,6 +83,27 @@ Deno.test("loadAgentDef preserves per-agent protected tools when override narrow
     }
 });
 
+Deno.test("loadAgentDef loads Guide with read-only tools and return_to_router", async () => {
+    const def = await loadAgentDef("guide");
+
+    assert(def.tools.includes("read"));
+    assert(def.tools.includes("grep"));
+    assert(def.tools.includes("find"));
+    assert(def.tools.includes("ls"));
+    assert(def.tools.includes("bash"));
+    assert(def.tools.includes("memory_recall"));
+    assert(def.tools.includes("memory_recall_global"));
+    assert(def.tools.includes("code_search"));
+    assert(def.tools.includes("return_to_router"));
+
+    assert(!def.tools.includes("edit"));
+    assert(!def.tools.includes("write"));
+    assert(!def.tools.includes("multi_file_edit"));
+    assert(!def.tools.includes("task_completed"));
+    assert(!def.tools.includes("plan_written"));
+    assert(!def.tools.includes("triage_report"));
+});
+
 Deno.test("resolveSessionToolNames blocks runtime toolNames from re-enabling removed non-protected tools", () => {
     const agentTools = ["read", "memory_recall", "triage_report"];
     const resolved = resolveSessionToolNames(agentTools, ["read", "bash", "triage_report"], []);
@@ -136,10 +158,30 @@ Deno.test("buildAgentSession wires task_completed with agent displayName", async
 
     /** @type {import('@earendil-works/pi-coding-agent').AgentSession | undefined} */
     let session;
+    const originalHome = Deno.env.get("HOME");
+    const tempHome = await Deno.makeTempDir({ prefix: "harns-session-tools-policy-" });
 
     try {
+        Deno.env.set("HOME", tempHome);
+        __resetSettingsForTests();
+        await Deno.mkdir(join(tempHome, ".hns"), { recursive: true });
+        await Deno.writeTextFile(
+            join(tempHome, ".hns", "models.json"),
+            JSON.stringify({
+                providers: {
+                    test: {
+                        baseUrl: "https://example.invalid/v1",
+                        api: "openai-completions",
+                        apiKey: "test-key",
+                        models: [{ id: "model" }],
+                    },
+                },
+            }),
+        );
+
         const built = await buildAgentSession({
             agentName: "operator",
+            modelOverride: "test/model",
             uiAPI,
             debugLogPath,
             _agentDefOverride: {
@@ -164,6 +206,11 @@ Deno.test("buildAgentSession wires task_completed with agent displayName", async
         assertEquals(rendered, [{ agentName: "Operator", text: "**Task completed.**\n\nDone." }]);
     } finally {
         session?.dispose();
+        __resetSettingsForTests();
+        if (originalHome === undefined) Deno.env.delete("HOME");
+        else Deno.env.set("HOME", originalHome);
+        __resetSettingsForTests();
+        await Deno.remove(tempHome, { recursive: true });
         await Deno.remove(debugLogPath);
     }
 });

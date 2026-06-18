@@ -1,6 +1,6 @@
 import { assertEquals } from "@std/assert";
 import { Spacer } from "@earendil-works/pi-tui";
-import { createSilentUiApi, createUiApi } from "./api.js";
+import { createFooterOnlyUiApi, createSilentUiApi, createUiApi } from "./api.js";
 import { SpinnerBlock } from "./blocks.js";
 import { initHarnsTheme } from "./theme.js";
 
@@ -67,6 +67,18 @@ Deno.test("createSilentUiApi implements the full no-op surface", async () => {
     assertEquals(await ui.promptSelect("Pick", []), null);
     assertEquals(await ui.promptText("Text"), null);
     assertEquals(ui.isOutputSuppressed(), true);
+});
+
+Deno.test("createFooterOnlyUiApi suppresses message bodies but forwards footer renders", () => {
+    let renders = 0;
+    const ui = createFooterOnlyUiApi({ requestRender: () => renders++ });
+
+    ui.appendSystemMessage("hidden");
+    ui.appendAgentMessageStart("Agent").appendText("hidden");
+    ui.requestRender();
+
+    assertEquals(ui.isOutputSuppressed?.(), false);
+    assertEquals(renders, 1);
 });
 
 Deno.test("createUiApi appends visible blocks, merges compatible system messages, and controls tools", () => {

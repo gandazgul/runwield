@@ -11,7 +11,12 @@ import { HNS_VERSION } from "../version.js";
 import { endBlink, renderBootLogo } from "../ui/boot-logo.js";
 import { createUiApi } from "../ui/api.js";
 import { SpinnerBlock, SystemMessageBlock } from "../ui/blocks.js";
-import { ensureRootAgentSession, listPromptTemplates, listSkills, steerRootSession } from "../session/session.js";
+import {
+    ensureRootAgentSession,
+    listPromptTemplates,
+    listSkills,
+    steerRootSessionWithTarget,
+} from "../session/session.js";
 import { ensureMnemosyneBinary } from "../runtime-preflight.js";
 import { commandRegistry, getCommandInvocationNames, getSlashCommandDefinitions } from "../../cmd/registry.js";
 import { AGENTS, COMMAND_NAMES } from "../../constants.js";
@@ -34,6 +39,7 @@ import {
     getRootAgentName,
     getRootAgentSession,
     getRootSessionManager,
+    getSubAgentSessions,
     getThinkingLevel,
     setActiveModelState,
     setActiveOnMessage,
@@ -54,6 +60,18 @@ import { installKeybindings } from "./keybindings.js";
 
 const CHAT_PROMPT_AGENT_NAME = AGENTS.OPERATOR;
 
+/** @type {() => ReturnType<typeof getSettingsManager>} */
+let getSettingsManagerForPersistence = getSettingsManager;
+
+/**
+ * Test-only hook for code paths that persist model/thinking selections.
+ *
+ * @param {(() => ReturnType<typeof getSettingsManager>) | null} provider
+ */
+export function __setSettingsManagerForPersistenceTests(provider) {
+    getSettingsManagerForPersistence = provider || getSettingsManager;
+}
+
 /** @type {Set<string>} */
 export let CHAT_BUILTIN_SLASH_NAMES = new Set();
 
@@ -71,54 +89,246 @@ function formatTokens(count) {
 }
 
 /**
- * @type {Map<string, { text: string, images: import('../session/types.js').ImageAttachment[], systemBlock: SystemMessageBlock, spacer: Spacer }>}
- * Tracks steering messages that have been queued on the agent but not yet consumed by the LLM.
- * Keyed by message text (consistent with AgentSession._steeringMessages matching by text).
+ * @param {any} usage
+ * @returns {{ input: number, output: number, cacheRead: number, cacheWrite: number, cost: number }}
+ */
+function normalizeFooterUsage(usage) {
+    return {
+        input: Number(usage?.input ?? usage?.inputTokens ?? 0) || 0,
+        output: Number(usage?.output ?? usage?.outputTokens ?? 0) || 0,
+        cacheRead: Number(usage?.cacheRead ?? usage?.cacheReadTokens ?? 0) || 0,
+        cacheWrite: Number(usage?.cacheWrite ?? usage?.cacheWriteTokens ?? 0) || 0,
+        cost: Number(usage?.cost?.total ?? usage?.cost ?? 0) || 0,
+    };
+}
+
+/**
+ * @param {any} session
+ * @returns {Array<any>}
+ */
+function getFooterSessionEntries(session) {
+    try {
+        return session?.sessionManager?.getEntries?.() || [];
+    } catch {
+        return [];
+    }
+}
+
+/**
+ * @param {Array<any>} sessions
+ * @returns {{ input: number, output: number, cacheRead: number, cacheWrite: number, cost: number }}
+ */
+export function collectFooterUsage(sessions) {
+    const totals = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
+
+    for (const session of sessions) {
+        for (const entry of getFooterSessionEntries(session)) {
+            if (entry?.type !== "message" || entry?.message?.role !== "assistant") continue;
+            const usage = normalizeFooterUsage(entry.message.usage);
+            totals.input += usage.input;
+            totals.output += usage.output;
+            totals.cacheRead += usage.cacheRead;
+            totals.cacheWrite += usage.cacheWrite;
+            totals.cost += usage.cost;
+        }
+    }
+
+    return totals;
+}
+
+/**
+ * @param {string} modelStr
+ * @param {string} thinkingLevel
+ * @returns {boolean}
+ */
+export function shouldShowFooterThinkingLevel(modelStr, thinkingLevel) {
+    return Boolean(modelStr) && thinkingLevel !== "off";
+}
+
+/**
+ * @param {any} rootSession
+ * @param {Iterable<any>} subAgentSessions
+ * @returns {Array<any>}
+ */
+export function getFooterSessions(rootSession, subAgentSessions) {
+    return [
+        ...(rootSession ? [rootSession] : []),
+        ...Array.from(subAgentSessions || []),
+    ];
+}
+
+/**
+ * @param {any} session
+ * @returns {{ provider: string, model: string } | null}
+ */
+function getSessionModelParts(session) {
+    const model = session?.state?.model;
+    if (!model) return null;
+    if (typeof model === "string") {
+        const slashIndex = model.indexOf("/");
+        if (slashIndex > 0) {
+            return { provider: model.slice(0, slashIndex), model: model.slice(slashIndex + 1) };
+        }
+        return { provider: "", model };
+    }
+    if (typeof model === "object") {
+        const provider = typeof model.provider === "string" ? model.provider : "";
+        const id = typeof model.id === "string" ? model.id : typeof model.model === "string" ? model.model : "";
+        if (id) return { provider, model: id };
+    }
+    return null;
+}
+
+/**
+ * @param {Array<any>} sessions
+ * @returns {{ provider: string, model: string } | null}
+ */
+function getMostRecentSessionModelParts(sessions) {
+    for (let i = sessions.length - 1; i >= 0; i--) {
+        const parts = getSessionModelParts(sessions[i]);
+        if (parts) return parts;
+    }
+    return null;
+}
+
+/**
+ * @type {Map<number, { session: import('@earendil-works/pi-coding-agent').AgentSession, text: string, images: import('../session/types.js').ImageAttachment[], systemBlock: SystemMessageBlock, spacer: Spacer }>}
+ * Tracks steering messages that have been queued on an agent but not yet consumed by the LLM.
  */
 const pendingSteeringMessages = new Map();
 
-/** @type {(() => void) | null} */
-let pendingSteeringUnsub = null;
+/** @type {Map<import('@earendil-works/pi-coding-agent').AgentSession, () => void>} */
+const pendingSteeringUnsubs = new Map();
+
+let nextPendingSteeringId = 1;
 
 // References needed by setupSteeringConsumedListener, stored at module level
-// so applyPendingRootSwap can re-subscribe after session rebuild.
-/** @type {import('@earendil-works/pi-tui').Container} */
+// so accepted steering messages can be rewritten when their owning session
+// emits queue updates.
+/** @type {import('@earendil-works/pi-tui').Container | undefined} */
 let _messageList;
-/** @type {import('@earendil-works/pi-tui').TUI} */
+/** @type {import('@earendil-works/pi-tui').TUI | undefined} */
 let _tui;
-/** @type {import('../ui/types.js').UiAPI} */
+/** @type {import('../ui/types.js').UiAPI | undefined} */
 let _uiAPI;
 
 /**
- * Subscribe to the current root session's queue_update events.
- * When a tracked steering message is consumed by the LLM (no longer in event.steering),
- * transition from "Steering:" system block to proper UserPromptBlock.
+ * @param {readonly string[] | undefined} steering
+ * @returns {Map<string, number>}
  */
-function setupSteeringConsumedListener() {
-    if (pendingSteeringUnsub) {
-        pendingSteeringUnsub();
-        pendingSteeringUnsub = null;
+function countQueuedSteeringByText(steering) {
+    /** @type {Map<string, number>} */
+    const counts = new Map();
+    for (const text of steering || []) {
+        counts.set(text, (counts.get(text) || 0) + 1);
     }
-    const session = getRootAgentSession();
-    if (!session) return;
-    pendingSteeringUnsub = session.subscribe((event) => {
-        if (event.type !== "queue_update") return;
-        if (!_messageList || !_uiAPI || !_tui) return;
-        const activeSteering = new Set(event.steering);
-        for (const [text, entry] of pendingSteeringMessages) {
-            if (activeSteering.has(text)) continue;
-            _messageList.removeChild(entry.systemBlock);
-            _messageList.removeChild(entry.spacer);
-            _uiAPI.appendUserMessage?.(text);
-            if (entry.images.length > 0) {
-                for (const img of entry.images) {
-                    _uiAPI.appendImage?.(img.base64, img.mimeType);
-                }
-            }
-            pendingSteeringMessages.delete(text);
-            _tui.requestRender();
+    return counts;
+}
+
+/**
+ * @param {import('@earendil-works/pi-coding-agent').AgentSession} session
+ */
+function cleanupSteeringSubscriptionIfIdle(session) {
+    for (const entry of pendingSteeringMessages.values()) {
+        if (entry.session === session) return;
+    }
+    const unsubscribe = pendingSteeringUnsubs.get(session);
+    if (unsubscribe) {
+        unsubscribe();
+        pendingSteeringUnsubs.delete(session);
+    }
+}
+
+/**
+ * @param {number} id
+ * @param {{ session: import('@earendil-works/pi-coding-agent').AgentSession, text: string, images: import('../session/types.js').ImageAttachment[], systemBlock: SystemMessageBlock, spacer: Spacer }} entry
+ */
+function transitionSteeringToUserMessage(id, entry) {
+    if (!_messageList || !_uiAPI || !_tui) return;
+    _messageList.removeChild(entry.systemBlock);
+    _messageList.removeChild(entry.spacer);
+    _uiAPI.appendUserMessage?.(entry.text);
+    if (entry.images.length > 0) {
+        for (const img of entry.images) {
+            _uiAPI.appendImage?.(img.base64, img.mimeType);
         }
+    }
+    pendingSteeringMessages.delete(id);
+    cleanupSteeringSubscriptionIfIdle(entry.session);
+    _tui.requestRender();
+}
+
+/**
+ * Subscribe to the exact session that accepted a steering message. When the
+ * message is consumed by the LLM (no longer in that session's queue_update
+ * steering list), transition from "Steering:" to a proper UserPromptBlock.
+ *
+ * @param {import('@earendil-works/pi-coding-agent').AgentSession} session
+ */
+function setupSteeringConsumedListener(session) {
+    if (pendingSteeringUnsubs.has(session)) return;
+    pendingSteeringUnsubs.set(
+        session,
+        session.subscribe((event) => {
+            if (event.type !== "queue_update") return;
+            if (!_messageList || !_uiAPI || !_tui) return;
+            const activeSteeringCounts = countQueuedSteeringByText(event.steering);
+            for (const [id, entry] of pendingSteeringMessages) {
+                if (entry.session !== session) continue;
+                const activeCount = activeSteeringCounts.get(entry.text) || 0;
+                if (activeCount > 0) {
+                    activeSteeringCounts.set(entry.text, activeCount - 1);
+                    continue;
+                }
+                transitionSteeringToUserMessage(id, entry);
+            }
+        }),
+    );
+}
+
+/**
+ * @param {import('@earendil-works/pi-coding-agent').AgentSession} session
+ * @param {string} text
+ * @param {import('../session/types.js').ImageAttachment[]} images
+ * @param {SystemMessageBlock} systemBlock
+ * @param {Spacer} spacer
+ */
+export function trackPendingSteeringMessage(session, text, images, systemBlock, spacer) {
+    setupSteeringConsumedListener(session);
+    const id = nextPendingSteeringId++;
+    pendingSteeringMessages.set(id, {
+        session,
+        text,
+        images: [...images],
+        systemBlock,
+        spacer,
     });
+    return id;
+}
+
+/**
+ * Test-only hook for exercising steering queue consumption without booting the TUI.
+ *
+ * @param {import('@earendil-works/pi-tui').Container} messageList
+ * @param {import('../ui/types.js').UiAPI} uiAPI
+ * @param {import('@earendil-works/pi-tui').TUI} tui
+ */
+export function __setSteeringUiRefsForTests(messageList, uiAPI, tui) {
+    _messageList = messageList;
+    _uiAPI = uiAPI;
+    _tui = tui;
+}
+
+export function __resetPendingSteeringForTests() {
+    pendingSteeringMessages.clear();
+    for (const unsubscribe of pendingSteeringUnsubs.values()) {
+        unsubscribe();
+    }
+    pendingSteeringUnsubs.clear();
+    nextPendingSteeringId = 1;
+    _messageList = undefined;
+    _uiAPI = undefined;
+    _tui = undefined;
 }
 
 /**
@@ -203,8 +413,6 @@ export async function applyPendingRootSwap(uiAPI) {
             sessionManager: getRootSessionManager() || undefined,
             allowReturnToRouter: pending.allowReturnToRouter,
         });
-        // Subscribe to the new session's queue_update events
-        setupSteeringConsumedListener();
         const modelText = pending.model ? ` (model: ${pending.model})` : "";
         uiAPI.appendSystemMessage(`Switched to ${pending.displayName}${modelText}.`);
         uiAPI.requestRender();
@@ -222,7 +430,7 @@ export async function setActiveModel(model, provider) {
     setActiveModelState(model, provider || "", true);
 
     try {
-        const settingsManager = getSettingsManager();
+        const settingsManager = getSettingsManagerForPersistence();
         await settingsManager.setDefaultModel(model);
         await settingsManager.setDefaultProvider(provider || "");
     } catch (e) {
@@ -252,7 +460,7 @@ export async function setActiveModel(model, provider) {
  */
 export async function persistThinkingLevel(level) {
     try {
-        const settingsManager = getSettingsManager();
+        const settingsManager = getSettingsManagerForPersistence();
         await settingsManager.setDefaultThinkingLevel(level);
     } catch (e) {
         console.error(`Failed to persist thinking level: ${e}`);
@@ -418,8 +626,8 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
     const getModelAndProvider = () => {
         const settingsManager = getSettingsManager();
         const defaults = {
-            model: settingsManager.getDefaultModel() ?? "gemini-2.0-flash",
-            provider: settingsManager.getDefaultProvider() ?? "google",
+            model: settingsManager.getDefaultModel() ?? "",
+            provider: settingsManager.getDefaultProvider() ?? "",
         };
         let { model, provider } = defaults;
 
@@ -437,6 +645,14 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
             }
         } else if (activeModel.provider) {
             provider = activeModel.provider;
+        }
+
+        const sessionModel = getMostRecentSessionModelParts(
+            getFooterSessions(getRootAgentSession(), getSubAgentSessions()),
+        );
+        if (!activeModel.model && sessionModel?.model) {
+            model = sessionModel.model;
+            provider = sessionModel.provider || provider;
         }
 
         const thinkingLevel = getThinkingLevel();
@@ -483,8 +699,11 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         /** @param {number} w */
         render: (w) => {
             const { model, provider, thinkingLevel } = getModelAndProvider();
-            const modelStr = model.startsWith(`${provider}/`) ? model : `${provider}/${model}`;
-            const activeAgentName = getActiveAgentName();
+            const modelStr = model
+                ? provider && !model.startsWith(`${provider}/`) ? `${provider}/${model}` : model
+                : "";
+            const activeAgentName = getActiveAgentName() ||
+                (getRootAgentName() ? getAgentDisplayName(/** @type {string} */ (getRootAgentName())) : "");
 
             const line1Left = `${cwd} (${branch})`;
             const line1Pad = Math.max(1, w - line1Left.length - activeAgentName.length);
@@ -493,30 +712,19 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
                 theme.fg("accent", activeAgentName);
 
             // ── Token consumption data (Pi.dev-style footer) ──
-            const session = getRootAgentSession();
-            let totalInput = 0;
-            let totalOutput = 0;
-            let totalCacheRead = 0;
-            let totalCost = 0;
+            const sessions = getFooterSessions(getRootAgentSession(), getSubAgentSessions());
+            const activeUsageSession = sessions[sessions.length - 1];
+            const usage = collectFooterUsage(sessions);
             let contextStr = "";
 
-            if (session) {
-                for (const entry of session.sessionManager.getEntries()) {
-                    if (entry.type === "message" && entry.message.role === "assistant") {
-                        totalInput += entry.message.usage.input;
-                        totalOutput += entry.message.usage.output;
-                        totalCacheRead += entry.message.usage.cacheRead;
-                        totalCost += entry.message.usage.cost.total;
-                    }
-                }
-
-                const contextUsage = session.getContextUsage();
+            if (activeUsageSession) {
+                const contextUsage = activeUsageSession.getContextUsage?.();
                 if (contextUsage) {
                     const cw = contextUsage.contextWindow ?? 0;
                     const pct = contextUsage.percent;
                     const pctDisplay = pct !== null ? `${pct.toFixed(1)}%` : "?";
                     const cwStr = formatTokens(cw);
-                    const compactionSettings = session?.settingsManager?.getCompactionSettings?.();
+                    const compactionSettings = activeUsageSession?.settingsManager?.getCompactionSettings?.();
                     const compactEnabled = compactionSettings ? compactionSettings.enabled : true;
                     const autoIndicator = compactEnabled ? " (Auto-compact)" : "";
                     const rawContext = `${pctDisplay}/${cwStr}${autoIndicator}`;
@@ -530,32 +738,34 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
             }
 
             const statsParts = [];
-            if (totalInput > 0) statsParts.push(`↑${formatTokens(totalInput)}`);
-            if (totalOutput > 0) statsParts.push(`↓${formatTokens(totalOutput)}`);
-            if (totalCacheRead > 0) statsParts.push(`R${formatTokens(totalCacheRead)}`);
+            if (usage.input > 0) statsParts.push(`↑${formatTokens(usage.input)}`);
+            if (usage.output > 0) statsParts.push(`↓${formatTokens(usage.output)}`);
+            if (usage.cacheRead > 0) statsParts.push(`R${formatTokens(usage.cacheRead)}`);
+            if (usage.cacheWrite > 0) statsParts.push(`W${formatTokens(usage.cacheWrite)}`);
 
-            const usingSubscription = session?.state?.model
-                ? session.modelRegistry?.isUsingOAuth?.(session.state.model)
+            const usingSubscription = activeUsageSession?.state?.model
+                ? activeUsageSession.modelRegistry?.isUsingOAuth?.(activeUsageSession.state.model)
                 : false;
-            if (totalCost > 0 || usingSubscription) {
-                statsParts.push(`$${totalCost.toFixed(3)}${usingSubscription ? " (sub)" : ""}`);
+            if (usage.cost > 0 || usingSubscription) {
+                statsParts.push(`$${usage.cost.toFixed(3)}${usingSubscription ? " (sub)" : ""}`);
             }
 
             if (contextStr) statsParts.push(contextStr);
             const statsSegment = statsParts.length > 0 ? statsParts.join(" ") : "";
 
+            const showThinkingLevel = shouldShowFooterThinkingLevel(modelStr, thinkingLevel);
             const thinkingStr = `(${thinkingLevel})`;
             const thinkingStyled = theme.fg(getThinkingThemeToken(thinkingLevel), thinkingStr);
             const line2LeftRaw = ctrlCPendingExit ? "Ctrl+C - Press again to exit" : statsSegment;
             const line2LeftStyled = ctrlCPendingExit
                 ? theme.fg("warning", line2LeftRaw)
                 : theme.fg("dim", statsSegment);
-            const thinkingPad = thinkingLevel !== "off" ? thinkingStr.length + 1 : 0;
+            const thinkingPad = showThinkingLevel ? thinkingStr.length + 1 : 0;
             const line2Pad = Math.max(1, w - line2LeftRaw.length - modelStr.length - thinkingPad);
             const line2 = line2LeftStyled +
                 " ".repeat(line2Pad) +
                 theme.fg("dim", modelStr) +
-                (thinkingPad > 0 ? " " + thinkingStyled : "");
+                (showThinkingLevel ? " " + thinkingStyled : "");
 
             return [line1, line2];
         },
@@ -589,8 +799,8 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
 
     // Expose a UI API for agents to append to the message list
     const uiAPI = createUiApi(tui, messageList, runningTasksComponent);
-    // Store module-level refs so setupSteeringConsumedListener (called from
-    // module-level functions like applyPendingRootSwap) has access.
+    // Store module-level refs so setupSteeringConsumedListener can rewrite
+    // accepted steering blocks when their owning session emits queue updates.
     _messageList = messageList;
     _tui = tui;
     _uiAPI = uiAPI;
@@ -616,12 +826,6 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         const msg = err instanceof Error ? err.message : String(err);
         uiAPI.appendSystemMessage(`Failed to initialize root agent "${initialAgentInternalName}": ${msg}`);
     }
-
-    // ── Steering message consumption tracker ──
-    // Subscribe to queue_update events so we can transition "Steering:" blocks
-    // to proper user messages when the LLM consumes them.
-    // Subscribe for the initial root session
-    setupSteeringConsumedListener();
 
     // ── Init auto-offer: conditionally offer /init on first TUI visit ──
     if (!initDone) {
@@ -979,20 +1183,15 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
                 return;
             }
 
-            steerRootSession(userRequest, images).then((steered) => {
-                if (steered) {
+            steerRootSessionWithTarget(userRequest, images).then((steeredSession) => {
+                if (steeredSession) {
                     // Phase 1: Show "Steering:" system block immediately
                     const block = new SystemMessageBlock(userRequest, false, "Steering:");
                     const spacer = new Spacer(1);
                     messageList.addChild(block);
                     messageList.addChild(spacer);
                     // Track for phase 2 transition when consumed by LLM
-                    pendingSteeringMessages.set(userRequest, {
-                        text: userRequest,
-                        images: [...images],
-                        systemBlock: block,
-                        spacer,
-                    });
+                    trackPendingSteeringMessage(steeredSession, userRequest, images, block, spacer);
                 } else {
                     // Add the visual block manually (bypassing appendSystemMessage's coalescing)
                     // so we can remove this exact block if the user dequeues with up-arrow.
@@ -1084,10 +1283,10 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         cycleThinkingLevel,
         clearPendingSteeringMessages: () => {
             pendingSteeringMessages.clear();
-            if (pendingSteeringUnsub) {
-                pendingSteeringUnsub();
-                pendingSteeringUnsub = null;
+            for (const unsubscribe of pendingSteeringUnsubs.values()) {
+                unsubscribe();
             }
+            pendingSteeringUnsubs.clear();
             // Also flush any stale steering messages from the agent's queue
             const session = getRootAgentSession();
             if (session) {

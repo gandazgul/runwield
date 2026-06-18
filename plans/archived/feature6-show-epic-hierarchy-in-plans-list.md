@@ -7,7 +7,10 @@ affectedPaths:
     - "src/cmd/plans/index.test.js"
     - "src/plan-store.js"
 createdAt: "2026-06-16T16:25:04Z"
-status: "ready_for_work"
+updatedAt: "2026-06-17T16:05:00.000Z"
+status: "verified"
+origin: "internal"
+worktreeStatus: "abandoned"
 ---
 
 # Show Epic Hierarchy in Plans List
@@ -43,16 +46,16 @@ progress, then print standalone plans. Keep output concise and terminal-friendly
 
 ## Implementation Steps
 
-- [ ] Identify Epic plans by `classification: "PROJECT"` and `type: "epic"`.
-- [ ] Group child FEATURE plans by `parentPlan`.
-- [ ] Show Epic rows with status and child progress such as `2/5 features verified`.
-- [ ] Render child rows with status, summary, and worktree state where useful.
-- [ ] Render standalone plans separately.
-- [ ] Add tests for empty lists, one Epic with children, orphan child FEATUREs, and standalone FEATURE plans.
+- [x] Identify Epic plans by `classification: "PROJECT"` and `type: "epic"`.
+- [x] Group child FEATURE plans by `parentPlan`.
+- [x] Show Epic rows with status and child progress such as `2/5 features verified`.
+- [x] Render child rows with status, summary, and worktree state where useful.
+- [x] Render standalone plans separately.
+- [x] Add tests for empty lists, one Epic with children, orphan child FEATUREs, and standalone FEATURE plans.
 
 ## Verification Plan
 
-- Automated: `deno test src/cmd/plans/index.test.js`
+- Automated: `deno test src/cmd/plans/index.test.js` — passed on 2026-06-17.
 - Automated: `deno run ci`
 - Manual: create one Epic with child FEATURE plans plus one standalone plan and run `hns plans`.
 - Expected result: the hierarchy is clear, and standalone plans are not hidden.

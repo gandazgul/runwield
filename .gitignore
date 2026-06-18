@@ -8,3 +8,5 @@ src/shared/version.js
 
 debug.log
 .hns/debug/
+.hns/worktrees.json
+.hns/worktrees.lock

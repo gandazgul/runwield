@@ -27,7 +27,7 @@
 /**
  * @typedef {{
  *   appendThinkingStart?: () => { appendDelta: (delta: string) => void; end: () => void },
- *   appendSystemMessage: (text: string, isError?: boolean, header?: string, style?: { headingColor?: string }) => void,
+ *   appendSystemMessage: (text: string, isError?: boolean, header?: string, style?: { headingColor?: string, bodyColor?: string }) => void,
  *   appendAgentMessageStart: (agentName: string) => AgentMessageAppender,
  *   appendUserMessage?: (text: string) => void,
  *   appendImage?: (base64: string, mimeType: string) => void,
@@ -36,7 +36,7 @@
  *   setBusy?: (busy: boolean) => void,
  *   setRunningTasks?: (tasks: RunningTask[]) => void,
  *   clearMessages?: () => void,
- *   promptSelect: (title: string, options: SelectOption[], hooks?: { onSelectionChange?: (value: string) => void }) => Promise<string | null>,
+ *   promptSelect: (title: string, options: SelectOption[], hooks?: { onSelectionChange?: (value: string) => void, layout?: import('@earendil-works/pi-tui').SelectListLayoutOptions }) => Promise<string | null>,
  *   promptText: (title: string, options?: { defaultValue?: string, placeholder?: string, allowEmpty?: boolean }) => Promise<string | null>,
  *   showModelSelector: () => Promise<void> | void,
  *   setAgentInfo?: (agentName: string, agentModel?: string) => void,

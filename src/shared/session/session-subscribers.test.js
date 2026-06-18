@@ -214,6 +214,7 @@ Deno.test("attachUiSubscribers formats tool headers, streams output deltas, and 
         ["3", "write", { path: "src/c.js" }, "src/c.js", "write"],
         ["4", "bash", { command: "deno task test" }, "deno task test", "$"],
         ["5", "grep", { pattern: "needle", path: "src" }, "needle in src", "grep"],
+        ["5b", "grep", { pattern: "needle", path: ["src", "tests"] }, "needle in src tests", "grep"],
         ["6", "find", { pattern: "*.js", path: "." }, "*.js in .", "find"],
         ["7", "ls", { path: "src" }, "src", "ls"],
         ["8", "code_search", { query: "foo", textSearch: true }, "foo (text)", "code_search"],

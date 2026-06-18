@@ -1,9 +1,5 @@
 # TODO
 
-- [ ] "Running CI Validation (Attempt 1/3)..." when this is happening show [spinner] in front
-  - same for Running Semantic Code Review...
-  - "Build and tests passed." should be in the success color from the theme
-
 - [ ] more tests
 
 Refactor-first (before testing) candidates:
@@ -13,10 +9,9 @@ Refactor-first (before testing) candidates:
   controllers before test growth.
 - root-session.js: session manager persistence/bootstrap is hard-coupled to concrete external session APIs.
 
-- [ ] Start implementing the code indexing (Deferred: cymbal is good for now)
-- [x] When re-executing a completed plan, warn the user if files in `affectedPaths` have changed since the plan ran.
-      Show a list of commits between the plan's `updatedAt` (or `createdAt`) and HEAD as a heads-up before kicking off
-      execution again.
+- [ ] Add hooks/code extension support. Continue to ignore skills and other pi things.
+- [ ] Make a [colgrep](https://github.com/lightonai/next-plaid/blob/main/colgrep/README.md) extension for harns that
+      users can install separately.
 - [ ] Plan archiving: move old plans (e.g., completed > N days) into `plans/archive/` so the active plans list stays
       short. Surface archived plans only on explicit request.
 - [ ] when we want to trully restrict an agent's write/edit access we should invoke bash commands with a user that has
@@ -29,7 +24,7 @@ Refactor-first (before testing) candidates:
       HARNS.md). Needed because the root AgentSession is built once per agent switch and bakes these in at construction;
       without /reload, mid-session changes to mnemosyne memories / installed skills / HARNS.md are not visible to the
       active agent until the next agent switch.
-- [ ] default to this theme instead? https://github.com/ifiokjr/oh-pi/blob/main/packages/themes/themes/oh-p-dark.json
+- [ ] default to this theme instead? <https://github.com/ifiokjr/oh-pi/blob/main/packages/themes/themes/oh-p-dark.json>
 
 ## Bugs
 

@@ -10,11 +10,11 @@
 import { updatePlanFrontMatter } from "../../plan-store.js";
 
 /**
- * @typedef {"draft"|"feedback"|"approved"|"ready_for_work"|"in_progress"|"failed"|"implemented"|"verified"} PlanStatus
+ * @typedef {"draft"|"feedback"|"approved"|"ready_for_decomposition"|"ready_for_work"|"in_progress"|"failed"|"implemented"|"verified"} PlanStatus
  */
 
 /**
- * @typedef {"review_feedback"|"review_approved"|"readiness_passed"|"execution_started"|"execution_failed"|"implementation_finished"|"validation_failed"|"validation_passed"|"worktree_merge_failed"|"recovery_continue"|"recovery_reset"|"review_reopened"} PlanEvent
+ * @typedef {"review_feedback"|"review_approved"|"readiness_passed"|"epic_readiness_passed"|"decomposition_finalized"|"execution_started"|"execution_failed"|"implementation_finished"|"validation_failed"|"validation_passed"|"worktree_merge_failed"|"recovery_continue"|"recovery_reset"|"review_reopened"|"epic_done_enough"} PlanEvent
  */
 
 /**
@@ -26,6 +26,8 @@ import { updatePlanFrontMatter } from "../../plan-store.js";
  * @property {string} [worktreePath]
  * @property {string} [worktreeBranch]
  * @property {import('../../plan-store.js').PlanFrontMatter['worktreeStatus']} [worktreeStatus]
+ * @property {boolean} [cleanupMergedWorktrees]
+ * @property {string} [epicDoneEnoughSummary]
  * @property {() => Date} [now]
  */
 
@@ -34,6 +36,8 @@ const ALLOWED_FROM = {
     review_feedback: ["draft", "feedback", "approved"],
     review_approved: ["draft", "feedback", "approved"],
     readiness_passed: ["approved"],
+    epic_readiness_passed: ["approved"],
+    decomposition_finalized: ["approved", "ready_for_decomposition"],
     execution_started: ["ready_for_work"],
     execution_failed: ["in_progress"],
     implementation_finished: ["in_progress"],
@@ -42,7 +46,8 @@ const ALLOWED_FROM = {
     worktree_merge_failed: ["implemented"],
     recovery_continue: ["in_progress", "failed"],
     recovery_reset: ["in_progress", "failed", "implemented"],
-    review_reopened: ["ready_for_work", "in_progress", "failed", "implemented", "verified"],
+    review_reopened: ["ready_for_decomposition", "ready_for_work", "in_progress", "failed", "implemented", "verified"],
+    epic_done_enough: ["ready_for_work", "verified"],
 };
 
 /** @type {Record<PlanEvent, PlanStatus>} */
@@ -50,6 +55,8 @@ const EVENT_STATUS = {
     review_feedback: "feedback",
     review_approved: "approved",
     readiness_passed: "ready_for_work",
+    epic_readiness_passed: "ready_for_decomposition",
+    decomposition_finalized: "ready_for_work",
     execution_started: "in_progress",
     execution_failed: "failed",
     implementation_finished: "implemented",
@@ -59,6 +66,7 @@ const EVENT_STATUS = {
     recovery_continue: "ready_for_work",
     recovery_reset: "ready_for_work",
     review_reopened: "feedback",
+    epic_done_enough: "verified",
 };
 
 /**
@@ -91,6 +99,9 @@ function assertAllowedTransition(event, currentStatus) {
  */
 export function buildPlanEventUpdates(event, currentStatus, details = {}) {
     assertAllowedTransition(event, currentStatus);
+    if (event === "epic_done_enough" && !isEpicPlan(details.triageMeta)) {
+        throw new Error("Invalid Plan Lifecycle transition: epic_done_enough can only apply to PROJECT Epic plans.");
+    }
 
     const now = iso(details.now ? details.now() : new Date());
     /** @type {Partial<import('../../plan-store.js').PlanFrontMatter>} */
@@ -109,7 +120,7 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         updates.failedAt = null;
     }
 
-    if (event === "readiness_passed") {
+    if (event === "readiness_passed" || event === "epic_readiness_passed" || event === "decomposition_finalized") {
         updates.failureReason = null;
         updates.failedAt = null;
         updates.verifiedAt = null;
@@ -149,8 +160,24 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         updates.failureReason = details.failureReason || "Worktree merge failed.";
     }
 
+    if (event === "epic_done_enough") {
+        updates.verifiedAt = now;
+        updates.epicCompletionMode = "done_enough";
+        updates.epicDoneEnoughAt = now;
+        updates.epicDoneEnoughSummary = details.epicDoneEnoughSummary || "Epic marked done enough for now.";
+        updates.failureReason = null;
+        updates.failedAt = null;
+    }
+
     if (event === "validation_passed") {
         updates.worktreeStatus = details.worktreeStatus || "merged";
+        if (details.cleanupMergedWorktrees !== false) {
+            updates.executionBaselineTree = null;
+            updates.worktreeId = null;
+            updates.worktreePath = null;
+            updates.worktreeBranch = null;
+            updates.worktreeStatus = null;
+        }
         updates.verifiedAt = now;
         updates.failureReason = null;
         updates.failedAt = null;
@@ -204,6 +231,14 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
 export async function recordPlanEvent({ cwd, planName, event, currentStatus, details = {} }) {
     const updates = buildPlanEventUpdates(event, currentStatus, details);
     return await updatePlanFrontMatter(cwd, planName, updates, details.triageMeta);
+}
+
+/**
+ * @param {Partial<import('../../plan-store.js').PlanFrontMatter> | undefined} attrs
+ * @returns {boolean}
+ */
+export function isEpicPlan(attrs) {
+    return attrs?.classification === "PROJECT" && attrs?.type === "epic";
 }
 
 /**

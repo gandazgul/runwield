@@ -67,7 +67,8 @@ root unless a caller explicitly needs worktree-local files.
 
 ### Worktree Registry
 
-A persistent JSON file at `<project>/.hns/worktrees.json` tracks active and historical execution worktrees:
+A persistent local JSON file at `<project>/.hns/worktrees.json` tracks active and historical execution worktrees. It is
+runtime state, not source state, and should stay ignored by Git alongside `.hns/worktrees.lock`:
 
 ```json
 {

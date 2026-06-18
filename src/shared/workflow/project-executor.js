@@ -1,13 +1,16 @@
 /**
  * @module shared/workflow/project-executor
- * Parallel PROJECT task execution against transient sub-sessions.
+ * Legacy parallel PROJECT task execution against transient sub-sessions.
+ *
+ * Retained as import-safe reference code for possible future multi-role FEATURE
+ * orchestration. New Epic/PROJECT flows must not dispatch through this module.
  */
 
 import { dirname, join } from "@std/path";
 import { AGENTS, MAX_PARALLEL_TASKS } from "../../constants.js";
 import { runAgentSession } from "../session/session.js";
 import { getAgentDisplayName } from "../session/agents.js";
-import { createSilentUiApi } from "../ui/api.js";
+import { createFooterOnlyUiApi } from "../ui/api.js";
 import { selectNonConflictingTasks } from "./task-scheduling.js";
 import { extractAssistantOutput, readLatestTaskCompletedOutcome } from "./workflow-results.js";
 import { buildTaskAssignmentRequest, buildTaskResultDisplay } from "./workflow-prompts.js";
@@ -194,7 +197,7 @@ export async function executeProjectTasks(
                 const sessionMessages = await agentSessionRunner({
                     agentName,
                     userRequest: buildTaskAssignmentRequest(planName, planBody, task, results),
-                    uiAPI: createSilentUiApi(),
+                    uiAPI: createFooterOnlyUiApi(uiAPI),
                     cwd: options.executionCwd,
                     debugLogPath: taskDebugLogPath,
                 });

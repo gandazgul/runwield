@@ -87,7 +87,7 @@ function makeContext(overrides = {}) {
                 records.runs.push(opts);
                 return Promise.resolve([]);
             },
-            createDirectAgentHandler: (/** @type {string} */ agentName) => () => Promise.resolve(agentName),
+            createAgentHandler: (/** @type {string} */ agentName) => () => Promise.resolve(agentName),
             getRootSessionManager: () => ({ id: "session" }),
         },
         records,

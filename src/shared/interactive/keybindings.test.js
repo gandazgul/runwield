@@ -31,6 +31,7 @@ function makeContext(overrides = {}) {
     let resets = 0;
     let invalidations = 0;
     let clearSteeringCalls = 0;
+    let dequeues = 0;
     let pendingExit = false;
     let dequeueResult = false;
 
@@ -39,6 +40,7 @@ function makeContext(overrides = {}) {
         setText: (/** @type {string} */ value) => {
             text = value;
         },
+        getText: () => text,
         addNewLine: () => {
             newlineCount++;
         },
@@ -73,7 +75,10 @@ function makeContext(overrides = {}) {
         dismissActivePrompt: () => {
             promptDismissals++;
         },
-        dequeueLastSubmission: () => dequeueResult,
+        dequeueLastSubmission: () => {
+            dequeues++;
+            return dequeueResult;
+        },
         forceResetUI: () => {
             resets++;
         },
@@ -122,6 +127,9 @@ function makeContext(overrides = {}) {
             },
             get clearSteeringCalls() {
                 return clearSteeringCalls;
+            },
+            get dequeues() {
+                return dequeues;
             },
             /** @param {boolean} value */
             set dequeueResult(value) {
@@ -197,4 +205,22 @@ Deno.test("installKeybindings handles newline, image removal, thinking cycle, qu
     assertEquals(ctx.previewImages.children, []);
     assertEquals(ctx.stats.thinkingCycles, 1);
     assertEquals(ctx.stats.originalInputs, ["x"]);
+});
+
+Deno.test("installKeybindings checks editor emptiness through public getText", async () => {
+    const ctx = makeContext();
+    delete ctx.editor.isEditorEmpty;
+    ctx.pastedImages.push({ base64: "a", mimeType: "image/png" });
+    ctx.previewImages.children.push("preview");
+    ctx.submissionQueue.push("queued");
+    ctx.stats.dequeueResult = true;
+    installKeybindings(ctx);
+
+    await ctx.editor.handleInput(RAW_KEY.backspace);
+    await ctx.editor.handleInput(RAW_KEY.up);
+
+    assertEquals(ctx.pastedImages, []);
+    assertEquals(ctx.previewImages.children, []);
+    assertEquals(ctx.stats.dequeues, 1);
+    assertEquals(ctx.stats.originalInputs, []);
 });

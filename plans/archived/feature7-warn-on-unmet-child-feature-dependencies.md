@@ -7,7 +7,10 @@ affectedPaths:
     - "src/cmd/load-plan/index.test.js"
     - "src/plan-store.js"
 createdAt: "2026-06-16T16:25:04Z"
-status: "ready_for_work"
+updatedAt: "2026-06-17T16:20:59.595Z"
+status: "verified"
+origin: "internal"
+verifiedAt: "2026-06-17T16:20:59.595Z"
 ---
 
 # Warn on Unmet Child FEATURE Dependencies

@@ -1,58 +1,133 @@
 import { assertEquals } from "@std/assert";
 import {
+    __resetPendingSteeringForTests,
+    __setSettingsManagerForPersistenceTests,
+    __setSteeringUiRefsForTests,
     applyPendingRootSwap,
+    collectFooterUsage,
     getActiveModel,
+    getFooterSessions,
     persistThinkingLevel,
     resolveTemplateModel,
     setActiveAgent,
     setActiveModel,
+    shouldShowFooterThinkingLevel,
+    trackPendingSteeringMessage,
 } from "./chat-session.js";
 import {
+    addSubAgentSession,
     getActiveOnMessage,
     getPendingRootSwap,
+    getSubAgentSessions,
+    removeSubAgentSession,
     setActiveUiAPI,
     setPendingRootSwap,
     setRootAgentName,
     setRootAgentSession,
 } from "../session/session-state.js";
+import { __resetSettingsForTests } from "../settings.js";
+
+/**
+ * @param {string} prefix
+ * @param {(tempHome: string) => Promise<void>} fn
+ */
+async function withTempHome(prefix, fn) {
+    const originalHome = Deno.env.get("HOME");
+    const tempHome = await Deno.makeTempDir({ prefix });
+
+    try {
+        Deno.env.set("HOME", tempHome);
+        __resetSettingsForTests();
+        await fn(tempHome);
+    } finally {
+        __resetSettingsForTests();
+        if (originalHome === undefined) Deno.env.delete("HOME");
+        else Deno.env.set("HOME", originalHome);
+        __resetSettingsForTests();
+        await Deno.remove(tempHome, { recursive: true });
+    }
+}
+
+Deno.test("footer usage includes active sub-agent sessions and cache writes", () => {
+    const rootSession = {
+        sessionManager: {
+            getEntries: () => [{
+                type: "message",
+                message: {
+                    role: "assistant",
+                    usage: { input: 100, output: 50, cacheRead: 25, cacheWrite: 10, cost: { total: 0.01 } },
+                },
+            }],
+        },
+    };
+    const subSession = {
+        sessionManager: {
+            getEntries: () => [{
+                type: "message",
+                message: {
+                    role: "assistant",
+                    usage: { inputTokens: 3, outputTokens: 2, cacheReadTokens: 1, cacheWriteTokens: 4, cost: 0.02 },
+                },
+            }],
+        },
+    };
+
+    try {
+        addSubAgentSession(/** @type {any} */ (subSession));
+        const sessions = getFooterSessions(rootSession, getSubAgentSessions());
+        assertEquals(sessions, [rootSession, subSession]);
+
+        assertEquals(collectFooterUsage(sessions), {
+            input: 103,
+            output: 52,
+            cacheRead: 26,
+            cacheWrite: 14,
+            cost: 0.03,
+        });
+    } finally {
+        removeSubAgentSession(/** @type {any} */ (subSession));
+    }
+});
+
+Deno.test("footer thinking level is hidden until a model is configured", () => {
+    assertEquals(shouldShowFooterThinkingLevel("", "medium"), false);
+    assertEquals(shouldShowFooterThinkingLevel("test/model", "off"), false);
+    assertEquals(shouldShowFooterThinkingLevel("test/model", "medium"), true);
+});
 
 Deno.test("setActiveModel reports setModel rejection instead of leaving an unhandled crash", async () => {
-    const originalHome = Deno.env.get("HOME");
     const originalOpenAiKey = Deno.env.get("OPENAI_API_KEY");
-    const tempHome = await Deno.makeTempDir({ prefix: "harns-set-active-model-" });
     /** @type {string[]} */
     const messages = [];
     let renderRequested = false;
 
     try {
-        Deno.env.set("HOME", tempHome);
         Deno.env.set("OPENAI_API_KEY", "test-key");
-        setActiveUiAPI(
-            /** @type {any} */ ({
-                appendSystemMessage: (/** @type {string} */ message) => messages.push(message),
-                requestRender: () => {
-                    renderRequested = true;
-                },
-            }),
-        );
-        setRootAgentSession(
-            /** @type {any} */ ({
-                setModel: () => Promise.reject(new Error("No API key for openai/gpt-5")),
-            }),
-        );
+        await withTempHome("harns-set-active-model-", async () => {
+            setActiveUiAPI(
+                /** @type {any} */ ({
+                    appendSystemMessage: (/** @type {string} */ message) => messages.push(message),
+                    requestRender: () => {
+                        renderRequested = true;
+                    },
+                }),
+            );
+            setRootAgentSession(
+                /** @type {any} */ ({
+                    setModel: () => Promise.reject(new Error("No API key for openai/gpt-5")),
+                }),
+            );
 
-        await setActiveModel("gpt-5", "openai");
+            await setActiveModel("gpt-5", "openai");
 
-        assertEquals(messages, ["Failed to switch model: No API key for openai/gpt-5"]);
-        assertEquals(renderRequested, true);
+            assertEquals(messages, ["Failed to switch model: No API key for openai/gpt-5"]);
+            assertEquals(renderRequested, true);
+        });
     } finally {
         setRootAgentSession(null);
         setActiveUiAPI(null);
-        if (originalHome === undefined) Deno.env.delete("HOME");
-        else Deno.env.set("HOME", originalHome);
         if (originalOpenAiKey === undefined) Deno.env.delete("OPENAI_API_KEY");
         else Deno.env.set("OPENAI_API_KEY", originalOpenAiKey);
-        await Deno.remove(tempHome, { recursive: true });
     }
 });
 
@@ -145,22 +220,120 @@ Deno.test("resolveTemplateModel validates provider/id format, model lookup, and 
 
 Deno.test("getActiveModel reflects setActiveModel state when no root session is present", async () => {
     setRootAgentSession(null);
+    /** @type {string[]} */
+    const persisted = [];
 
-    await setActiveModel("model-a", "provider-a");
+    try {
+        __setSettingsManagerForPersistenceTests(() => /** @type {any} */ ({
+            setDefaultModel: (/** @type {string} */ model) => {
+                persisted.push(`model:${model}`);
+                return Promise.resolve();
+            },
+            setDefaultProvider: (/** @type {string} */ provider) => {
+                persisted.push(`provider:${provider}`);
+                return Promise.resolve();
+            },
+        }));
+        await setActiveModel("model-a", "provider-a");
 
-    assertEquals(getActiveModel(), "model-a");
+        assertEquals(getActiveModel(), "model-a");
+        assertEquals(persisted, ["model:model-a", "provider:provider-a"]);
+    } finally {
+        __setSettingsManagerForPersistenceTests(null);
+    }
 });
 
 Deno.test("persistThinkingLevel stores the selected level without throwing", async () => {
-    const originalHome = Deno.env.get("HOME");
-    const tempHome = await Deno.makeTempDir({ prefix: "harns-thinking-level-" });
+    /** @type {string[]} */
+    const persisted = [];
 
     try {
-        Deno.env.set("HOME", tempHome);
+        __setSettingsManagerForPersistenceTests(() => /** @type {any} */ ({
+            setDefaultThinkingLevel: (/** @type {string} */ level) => {
+                persisted.push(level);
+                return Promise.resolve();
+            },
+        }));
         await persistThinkingLevel("high");
+        assertEquals(persisted, ["high"]);
     } finally {
-        if (originalHome === undefined) Deno.env.delete("HOME");
-        else Deno.env.set("HOME", originalHome);
-        await Deno.remove(tempHome, { recursive: true });
+        __setSettingsManagerForPersistenceTests(null);
+    }
+});
+
+function makeSteeringSession() {
+    /** @type {((event: any) => void) | null} */
+    let subscriber = null;
+    return /** @type {any} */ ({
+        /** @param {(event: any) => void} fn */
+        subscribe(fn) {
+            subscriber = fn;
+            return () => {
+                subscriber = null;
+            };
+        },
+        /** @param {any} event */
+        emit(event) {
+            subscriber?.(event);
+        },
+    });
+}
+
+Deno.test("trackPendingSteeringMessage only consumes queue updates from the session that accepted steering", () => {
+    const sessionA = makeSteeringSession();
+    const sessionB = makeSteeringSession();
+    const blockA = {};
+    const spacerA = {};
+    const blockB = {};
+    const spacerB = {};
+    /** @type {unknown[]} */
+    const removed = [];
+    /** @type {string[]} */
+    const userMessages = [];
+    let renders = 0;
+
+    try {
+        __setSteeringUiRefsForTests(
+            /** @type {any} */ ({
+                removeChild: (/** @type {unknown} */ child) => removed.push(child),
+            }),
+            /** @type {any} */ ({
+                appendUserMessage: (/** @type {string} */ text) => userMessages.push(text),
+            }),
+            /** @type {any} */ ({
+                requestRender: () => {
+                    renders++;
+                },
+            }),
+        );
+
+        trackPendingSteeringMessage(
+            sessionA,
+            "same text",
+            [],
+            /** @type {any} */ (blockA),
+            /** @type {any} */ (spacerA),
+        );
+        trackPendingSteeringMessage(
+            sessionB,
+            "same text",
+            [],
+            /** @type {any} */ (blockB),
+            /** @type {any} */ (spacerB),
+        );
+
+        sessionB.emit({ type: "queue_update", steering: [] });
+        assertEquals(userMessages, ["same text"]);
+        assertEquals(removed, [blockB, spacerB]);
+
+        sessionA.emit({ type: "queue_update", steering: ["same text"] });
+        assertEquals(userMessages, ["same text"]);
+
+        sessionA.emit({ type: "queue_update", steering: [] });
+        assertEquals(userMessages, ["same text", "same text"]);
+        assertEquals(removed, [blockB, spacerB, blockA, spacerA]);
+        assertEquals(renders, 2);
+    } finally {
+        __resetPendingSteeringForTests();
     }
 });

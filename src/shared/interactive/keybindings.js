@@ -22,6 +22,21 @@ import { readClipboardImage } from "../clipboard.js";
 import { theme } from "../ui/theme.js";
 
 /**
+ * @param {import('@earendil-works/pi-tui').Editor & { isEditorEmpty?: () => boolean }} editor
+ * @returns {boolean}
+ */
+function isEditorEmpty(editor) {
+    if (typeof editor.getText === "function") {
+        return editor.getText() === "";
+    }
+    if (typeof editor.isEditorEmpty === "function") {
+        // Older pi-tui builds exposed this private helper at runtime.
+        return editor.isEditorEmpty();
+    }
+    return false;
+}
+
+/**
  * @typedef {Object} KeybindingsContext
  * @property {import('@earendil-works/pi-tui').Editor} editor
  * @property {import('@earendil-works/pi-tui').TUI} tui
@@ -154,8 +169,7 @@ export function installKeybindings(ctx) {
         // Backspace on empty editor: drop the last pasted image preview
         if (
             matchesKey(data, Key.backspace) &&
-            // @ts-ignore: private pi-tui internals used intentionally
-            editor.isEditorEmpty() && pastedImages.length > 0
+            isEditorEmpty(editor) && pastedImages.length > 0
         ) {
             pastedImages.pop();
             const lastChild = previewImages.children[previewImages.children.length - 1];
@@ -176,8 +190,7 @@ export function installKeybindings(ctx) {
         // built-in history navigation.
         if (
             matchesKey(data, Key.up) &&
-            // @ts-ignore: private pi-tui internals used intentionally
-            editor.isEditorEmpty() &&
+            isEditorEmpty(editor) &&
             submissionQueue.length > 0
         ) {
             if (dequeueLastSubmission()) return;
