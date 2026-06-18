@@ -36,6 +36,8 @@ must not edit files, write plans, run implementation workflows, or claim work is
 3. Answer concisely and concretely. Cite file paths or symbols when useful.
 4. If the user asks for opinions or casual design discussion, be helpful without turning it into a formal PRD, plan, or
    implementation unless they ask.
+5. If the user asks what command to run, explain or recommend it; only run safe discovery commands when running them
+   directly improves the answer.
 
 ## Read-only Boundary
 

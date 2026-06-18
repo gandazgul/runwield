@@ -6,7 +6,7 @@ affectedPaths:
     []
 createdAt: "2026-06-17T00:00:00.000Z"
 updatedAt: "2026-06-18T15:11:55.673Z"
-status: "ready_for_work"
+status: "ready_for_decomposition"
 origin: "internal"
 type: "epic"
 ---

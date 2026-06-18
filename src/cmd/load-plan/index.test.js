@@ -1,4 +1,4 @@
-import { assertEquals, assertStringIncludes } from "@std/assert";
+import { assertEquals } from "@std/assert";
 import { runLoadPlanCommand } from "./index.js";
 import { resolveSiblingChildPlanDependencies, savePlan } from "../../plan-store.js";
 import { AGENTS } from "../../constants.js";
@@ -276,19 +276,19 @@ Deno.test("runLoadPlanCommand Epic with children shows child FEATURE labels", as
     assertEquals(prompts[1].options[1].label, "epic-b/02-second [draft] — Second child");
 });
 
-Deno.test("runLoadPlanCommand Epic details include child FEATURE statuses", async () => {
+Deno.test("runLoadPlanCommand View Epic details includes child FEATURE labels and statuses", async () => {
     const { uiAPI, selections, messages } = makeUi();
     selections.push("view", "cancel");
 
-    await runLoadPlanCommand(["epic-details"], {
+    await runLoadPlanCommand(["epic-view"], {
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
             parseArgs: (/** @type {string[]} */ argv) => ({ help: false, _: argv }),
             resolvePlan: () =>
                 Promise.resolve({
-                    planName: "epic-details",
-                    path: "plans/epic-details.md",
+                    planName: "epic-view",
+                    path: "plans/epic-view.md",
                     body: "## Context\nEpic context\n\n## Objective\nEpic objective",
                     markdown: "## Context\nEpic context\n\n## Objective\nEpic objective",
                     attrs: {
@@ -303,25 +303,25 @@ Deno.test("runLoadPlanCommand Epic details include child FEATURE statuses", asyn
             findPlansByParent: () =>
                 Promise.resolve([
                     {
-                        name: "epic-details/01-first",
-                        path: "plans/epic-details/01-first.md",
+                        name: "epic-view/01-first",
+                        path: "plans/epic-view/01-first.md",
                         attrs: {
                             classification: "FEATURE",
                             complexity: "LOW",
                             summary: "First child",
                             affectedPaths: [],
-                            status: "ready_for_work",
+                            status: "verified",
                         },
                     },
                     {
-                        name: "epic-details/02-second",
-                        path: "plans/epic-details/02-second.md",
+                        name: "epic-view/02-second",
+                        path: "plans/epic-view/02-second.md",
                         attrs: {
                             classification: "FEATURE",
                             complexity: "LOW",
                             summary: "Second child",
                             affectedPaths: [],
-                            status: "verified",
+                            status: "ready_for_work",
                         },
                     },
                 ]),
@@ -332,41 +332,43 @@ Deno.test("runLoadPlanCommand Epic details include child FEATURE statuses", asyn
     });
 
     const detailMessage = messages.find((message) => message.includes("Child FEATURE plans:")) || "";
-    assertStringIncludes(detailMessage, "Summary:        Epic summary");
-    assertStringIncludes(detailMessage, "Epic child progress:");
-    assertStringIncludes(detailMessage, "epic-details/01-first [ready_for_work] — First child");
-    assertStringIncludes(detailMessage, "epic-details/02-second [verified] — Second child");
+    assertEquals(detailMessage.includes("Progress: 1/2 child FEATUREs verified"), true);
+    assertEquals(detailMessage.includes("epic-view/01-first [verified] — First child"), true);
+    assertEquals(detailMessage.includes("epic-view/02-second [ready_for_work] — Second child"), true);
 });
 
-Deno.test("runLoadPlanCommand Epic child selection can view FEATURE details", async () => {
+Deno.test("runLoadPlanCommand child FEATURE detail inspection resolves and displays details without executing", async () => {
     const { uiAPI, selections, messages } = makeUi();
-    selections.push("pick_child", "epic-detail-child/01-child", "view", "back", null, "cancel");
+    selections.push("pick_child", "epic-inspect/01-child", "view", "back", null, "cancel");
+    /** @type {string[]} */
+    const resolved = [];
     let executed = false;
 
-    await runLoadPlanCommand(["epic-detail-child"], {
+    await runLoadPlanCommand(["epic-inspect"], {
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
             parseArgs: (/** @type {string[]} */ argv) => ({ help: false, _: argv }),
             resolvePlan: (/** @type {string} */ _cwd, /** @type {string} */ planName) => {
-                if (planName === "epic-detail-child/01-child") {
+                resolved.push(planName);
+                if (planName === "epic-inspect/01-child") {
                     return Promise.resolve({
                         planName,
-                        path: "plans/epic-detail-child/01-child.md",
+                        path: "plans/epic-inspect/01-child.md",
                         body: "## Context\nChild context\n\n## Objective\nChild objective",
                         markdown: "## Context\nChild context\n\n## Objective\nChild objective",
                         attrs: {
                             classification: "FEATURE",
                             complexity: "LOW",
                             summary: "Child summary",
-                            affectedPaths: ["src/child.js"],
-                            status: "ready_for_work",
+                            affectedPaths: [],
+                            status: "approved",
                         },
                     });
                 }
                 return Promise.resolve({
-                    planName: "epic-detail-child",
-                    path: "plans/epic-detail-child.md",
+                    planName: "epic-inspect",
+                    path: "plans/epic-inspect.md",
                     body: "epic body",
                     markdown: "epic body",
                     attrs: {
@@ -382,14 +384,14 @@ Deno.test("runLoadPlanCommand Epic child selection can view FEATURE details", as
             findPlansByParent: () =>
                 Promise.resolve([
                     {
-                        name: "epic-detail-child/01-child",
-                        path: "plans/epic-detail-child/01-child.md",
+                        name: "epic-inspect/01-child",
+                        path: "plans/epic-inspect/01-child.md",
                         attrs: {
                             classification: "FEATURE",
                             complexity: "LOW",
                             summary: "Child summary",
                             affectedPaths: [],
-                            status: "ready_for_work",
+                            status: "approved",
                         },
                     },
                 ]),
@@ -403,10 +405,65 @@ Deno.test("runLoadPlanCommand Epic child selection can view FEATURE details", as
         }),
     });
 
+    const detailMessage = messages.find((message) => message.includes("FEATURE: epic-inspect/01-child")) || "";
+    assertEquals(resolved, ["epic-inspect", "epic-inspect/01-child"]);
+    assertEquals(detailMessage.includes("── Context ──\nChild context"), true);
+    assertEquals(detailMessage.includes("── Objective ──\nChild objective"), true);
     assertEquals(executed, false);
-    const detailMessage = messages.find((message) => message.includes("FEATURE: epic-detail-child/01-child")) || "";
-    assertStringIncludes(detailMessage, "Child context");
-    assertStringIncludes(detailMessage, "Child objective");
+});
+
+Deno.test("runLoadPlanCommand child FEATURE submenu back returns without loading", async () => {
+    const { uiAPI, selections, prompts } = makeUi();
+    selections.push("pick_child", "epic-back/01-child", "back", null, "cancel");
+    let executed = false;
+
+    await runLoadPlanCommand(["epic-back"], {
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: (/** @type {string[]} */ argv) => ({ help: false, _: argv }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "epic-back",
+                    path: "plans/epic-back.md",
+                    body: "body",
+                    markdown: "body",
+                    attrs: {
+                        classification: "PROJECT",
+                        type: "epic",
+                        complexity: "HIGH",
+                        summary: "Epic summary",
+                        affectedPaths: [],
+                        status: "ready_for_work",
+                    },
+                }),
+            findPlansByParent: () =>
+                Promise.resolve([
+                    {
+                        name: "epic-back/01-child",
+                        path: "plans/epic-back/01-child.md",
+                        attrs: {
+                            classification: "FEATURE",
+                            complexity: "LOW",
+                            summary: "Child summary",
+                            affectedPaths: [],
+                            status: "approved",
+                        },
+                    },
+                ]),
+            executePlan: () => {
+                executed = true;
+                return Promise.resolve(undefined);
+            },
+            createAgentHandler: () => () => Promise.resolve(),
+            resetTuiState: () => {},
+            setActiveAgent: () => {},
+        }),
+    });
+
+    assertEquals(prompts.some((prompt) => prompt.prompt === "What would you like to do with this FEATURE?"), true);
+    assertEquals(prompts.filter((prompt) => prompt.prompt === "Load child FEATURE plan:").length, 2);
+    assertEquals(executed, false);
 });
 
 Deno.test("runLoadPlanCommand Epic done-enough confirm records lifecycle event", async () => {
