@@ -53,7 +53,7 @@ export async function executeReturnToRouter(params, uiAPI, __deps) {
     setActiveAgent(AGENTS.ROUTER, handler, uiAPI, routerDef.model || undefined);
     setPendingSwitchHandoff({ agentName: AGENTS.ROUTER, reason });
 
-    uiAPI.appendSystemMessage(`Agent hand-off: Returning to ${routerDef.displayName}. Reason: ${reason}`);
+    uiAPI.appendSystemMessage(`Agent hand-off: Returning to Router. Reason: ${reason}`);
 
     return {
         content: [],

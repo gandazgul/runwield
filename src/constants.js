@@ -26,8 +26,8 @@ export const PROMPT_TEMPLATES_DIR = join(SRC_DIR, "prompt-templates");
 /** Directory containing bundled default skill definitions. */
 export const SKILLS_DIR = join(SRC_DIR, "skills");
 
-/** Allowed triage classification values emitted by the router. */
-export const CLASSIFICATIONS = ["QUICK_FIX", "FEATURE", "PROJECT"];
+/** Allowed Routing Intent values emitted by the router. */
+export const ROUTING_INTENTS = ["INQUIRY", "IDEATION", "QUICK_FIX", "FEATURE", "PROJECT"];
 
 /** Allowed complexity values emitted by triage. */
 export const COMPLEXITIES = ["LOW", "MEDIUM", "HIGH"];
@@ -114,9 +114,10 @@ export const COMMAND_NAMES = Object.freeze({
  * `src/agent-definitions/workflow-prompts/reviewer-prompt.md` as a bare
  * prompt, without shared skills or extra tools.
  */
-/** @type {Readonly<{ROUTER: string, OPERATOR: string, PLANNER: string, ARCHITECT: string, ENGINEER: string, REVIEWER: string, SLICER: string, TESTER: string, IDEATOR: string, DOC_WRITER: string, INIT: string}>} */
+/** @type {Readonly<{ROUTER: string, GUIDE: string, OPERATOR: string, PLANNER: string, ARCHITECT: string, ENGINEER: string, REVIEWER: string, SLICER: string, TESTER: string, IDEATOR: string, DOC_WRITER: string, INIT: string}>} */
 export const AGENTS = Object.freeze({
     ROUTER: "router",
+    GUIDE: "guide",
     OPERATOR: "operator",
     PLANNER: "planner",
     ARCHITECT: "architect",

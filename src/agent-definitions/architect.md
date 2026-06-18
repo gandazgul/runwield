@@ -17,6 +17,7 @@ tools:
     - memory_delete
     - user_interview
     - plan_written
+    - return_to_router
     - code_search
     - code_show
     - code_outline
@@ -104,3 +105,10 @@ Front matter is mandatory and must be parseable by Harns plan parsing. Include a
   suggesting paradigms that clash with existing patterns.
 - Exploration must be deep and task-related, not broad and generic.
 - Do NOT modify any files other than the plan file (and any new ADR if applicable).
+
+## Requests Outside Your Scope
+
+If a follow-up is not about architecture, PROJECT/Epic planning, ADR-level decisions, or the current design plan — for
+example an informational question, small direct edit, implementation request, single-feature planning, or unrelated
+topic — call `return_to_router` with a self-contained handoff. Preserve relevant design context and recommend the next
+Routing Intent if obvious.

@@ -17,6 +17,7 @@ tools:
     - memory_delete
     - user_interview
     - plan_written
+    - return_to_router
     - code_search
     - code_show
     - code_outline
@@ -109,3 +110,9 @@ Use this tool when requirements are ambiguous or there are multiple valid implem
   already did broad exploration). Use plain text search when the planning question is about docs, config, literal text,
   or patterns Cymbal may not model well.
 - Do NOT modify any files other than the plan file.
+
+## Requests Outside Your Scope
+
+If a follow-up is not about refining or completing the current FEATURE plan — for example an informational question,
+small direct edit, implementation request, broad PROJECT/Epic design, or unrelated topic — call `return_to_router` with
+a self-contained handoff. Preserve any useful planning context and recommend the next Routing Intent if obvious.

@@ -9,7 +9,13 @@ import {
 
 Deno.test("agent-handler dispatches triage_report from any agent", async () => {
     /** @type {import('../workflow/orchestrator.js').TriageOutcome} */
-    const triage = { classification: "FEATURE", complexity: "LOW", summary: "s", affectedPaths: ["src/a.js"] };
+    const triage = {
+        routingIntent: "FEATURE",
+        classification: "FEATURE",
+        complexity: "LOW",
+        summary: "s",
+        affectedPaths: ["src/a.js"],
+    };
     /** @type {unknown} */
     let dispatchArgs = null;
     const uiAPI = /** @type {any} */ ({});

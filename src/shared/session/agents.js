@@ -17,8 +17,10 @@ export const __dirname = dirname(fromFileUrl(import.meta.url));
 export const ATTENTION_NUDGE_TURN_INTERVAL = 6;
 
 export const _AGENT_ATTENTION_NUDGES = {
+    [AGENTS.GUIDE]:
+        "You are still the Guide. Stay read-only, answer direct questions concisely, and return to Router if the user asks for edits, plans, execution, or deeper ideation.",
     [AGENTS.IDEATOR]:
-        "You are still the Ideator. Continue as a thinking partner: clarify one decision at a time, verify external facts when needed, and do not move into implementation unless the user explicitly asks.",
+        "You are still the Ideator. Continue as a thinking partner: clarify one decision at a time, verify external facts when needed, and use `return_to_router` for actionable implementation or planning requests.",
     [AGENTS.PLANNER]:
         "You are still the Planner. Keep refining the plan file iteratively, ask only blocking questions, and call `plan_written` with the plan name without `.md` when the plan is ready.",
     [AGENTS.ARCHITECT]:

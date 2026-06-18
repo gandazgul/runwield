@@ -27,13 +27,96 @@ Deno.test("dispatchPostTriage restores plan owner when FEATURE/PROJECT execution
     );
 });
 
+Deno.test("dispatchPostTriage routes INQUIRY to Guide without completion or validation checks", async () => {
+    const uiAPI = makeUi();
+    /** @type {string[]} */
+    const activeAgents = [];
+    /** @type {string[]} */
+    const rootTurns = [];
+    let taskCompletedChecked = false;
+    let validationCount = 0;
+
+    await dispatchPostTriage({
+        triage: {
+            routingIntent: "INQUIRY",
+            complexity: "LOW",
+            summary: "answer a question",
+            affectedPaths: ["src/constants.js"],
+        },
+        userRequest: "Where is model routing configured?",
+        images: [],
+        uiAPI,
+        sessionManager: undefined,
+        __deps: /** @type {any} */ ({
+            applyPendingRootSwap: () => Promise.resolve(),
+            createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
+            readLatestTaskCompletedOutcome: () => {
+                taskCompletedChecked = true;
+                return null;
+            },
+            runRootTurn: (/** @type {any} */ args) => {
+                rootTurns.push(args.agentName);
+                assertEquals(args.userRequest.includes("Routing Intent: INQUIRY"), true);
+                return Promise.resolve([]);
+            },
+            runValidationLoop: () => {
+                validationCount++;
+                return Promise.resolve();
+            },
+            setActiveAgent: (/** @type {string} */ name) => activeAgents.push(name),
+        }),
+    });
+
+    assertEquals(activeAgents, ["guide"]);
+    assertEquals(rootTurns, ["guide"]);
+    assertEquals(taskCompletedChecked, false);
+    assertEquals(validationCount, 0);
+});
+
+Deno.test("dispatchPostTriage routes IDEATION to Ideator without completion or validation checks", async () => {
+    const uiAPI = makeUi();
+    /** @type {string[]} */
+    const activeAgents = [];
+    /** @type {string[]} */
+    const rootTurns = [];
+
+    await dispatchPostTriage({
+        triage: {
+            routingIntent: "IDEATION",
+            complexity: "LOW",
+            summary: "grill idea",
+            affectedPaths: [],
+        },
+        userRequest: "grill me on adding a new provider",
+        images: [],
+        uiAPI,
+        sessionManager: undefined,
+        __deps: /** @type {any} */ ({
+            applyPendingRootSwap: () => Promise.resolve(),
+            createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
+            runRootTurn: (/** @type {any} */ args) => {
+                rootTurns.push(args.agentName);
+                assertEquals(args.userRequest.includes("Routing Intent: IDEATION"), true);
+                return Promise.resolve([]);
+            },
+            runValidationLoop: () => {
+                throw new Error("validation should not run");
+            },
+            setActiveAgent: (/** @type {string} */ name) => activeAgents.push(name),
+        }),
+    });
+
+    assertEquals(activeAgents, ["ideator"]);
+    assertEquals(rootTurns, ["ideator"]);
+});
+
 Deno.test("dispatchPostTriage skips workflow validation for completed QUICK_FIX", async () => {
     const uiAPI = makeUi();
     let validationCount = 0;
 
     await dispatchPostTriage({
         triage: {
-            classification: "QUICK_FIX",
+            routingIntent: "QUICK_FIX",
             complexity: "LOW",
             summary: "answer a question",
             affectedPaths: [],
@@ -74,7 +157,7 @@ Deno.test("dispatchPostTriage warns when QUICK_FIX stops without task_completed"
 
     await dispatchPostTriage({
         triage: {
-            classification: "QUICK_FIX",
+            routingIntent: "QUICK_FIX",
             complexity: "LOW",
             summary: "small fix",
             affectedPaths: ["src/a.js"],
@@ -113,6 +196,7 @@ Deno.test("dispatchPostTriage keeps planning agent active on stay/save/halt deci
 
         await dispatchPostTriage({
             triage: {
+                routingIntent: "FEATURE",
                 classification: "FEATURE",
                 complexity: "MEDIUM",
                 summary: "plan it",
@@ -157,6 +241,7 @@ Deno.test("dispatchPostTriage executes approved FEATURE plans and runs validatio
 
     await dispatchPostTriage({
         triage: {
+            routingIntent: "FEATURE",
             classification: "FEATURE",
             complexity: "MEDIUM",
             summary: "feature",
@@ -178,7 +263,7 @@ Deno.test("dispatchPostTriage executes approved FEATURE plans and runs validatio
                 kind: "execute_plan",
                 payload: {
                     planName: "feature-plan",
-                    triageMeta: { classification: "FEATURE", summary: "feature" },
+                    triageMeta: { routingIntent: "FEATURE", classification: "FEATURE", summary: "feature" },
                     tasks: [{ task: 1 }],
                 },
             }),
@@ -210,6 +295,7 @@ Deno.test("dispatchPostTriage restores PROJECT owner after incomplete execution"
 
     await dispatchPostTriage({
         triage: {
+            routingIntent: "PROJECT",
             classification: "PROJECT",
             complexity: "HIGH",
             summary: "project",
@@ -228,7 +314,10 @@ Deno.test("dispatchPostTriage restores PROJECT owner after incomplete execution"
             consumePendingSwitchHandoff: () => null,
             decidePostPlanning: () => ({
                 kind: "execute_plan",
-                payload: { planName: "project-plan", triageMeta: { classification: "PROJECT" } },
+                payload: {
+                    planName: "project-plan",
+                    triageMeta: { routingIntent: "PROJECT", classification: "PROJECT" },
+                },
             }),
             executePlan: () => Promise.resolve({ executionComplete: false }),
             decidePostExecution: () => ({ kind: "stay_with_agent", payload: { reason: "execution_incomplete" } }),
@@ -246,7 +335,7 @@ Deno.test("readLatestTriageOutcome returns the latest triage_report details", ()
             role: "toolResult",
             toolName: "triage_report",
             details: {
-                classification: "QUICK_FIX",
+                routingIntent: "QUICK_FIX",
                 complexity: "LOW",
                 summary: "first",
                 affectedPaths: ["a.js"],
@@ -256,6 +345,7 @@ Deno.test("readLatestTriageOutcome returns the latest triage_report details", ()
             role: "toolResult",
             toolName: "triage_report",
             details: {
+                routingIntent: "FEATURE",
                 classification: "FEATURE",
                 complexity: "MEDIUM",
                 summary: "second",
@@ -264,6 +354,7 @@ Deno.test("readLatestTriageOutcome returns the latest triage_report details", ()
         }),
     ];
     assertEquals(readLatestTriageOutcome(messages), {
+        routingIntent: "FEATURE",
         classification: "FEATURE",
         complexity: "MEDIUM",
         summary: "second",
@@ -277,6 +368,7 @@ Deno.test("readLatestTriageOutcome ignores stale triage_report before fromIndex"
             role: "toolResult",
             toolName: "triage_report",
             details: {
+                routingIntent: "FEATURE",
                 classification: "FEATURE",
                 complexity: "MEDIUM",
                 summary: "old",
@@ -296,7 +388,28 @@ Deno.test("readLatestTriageOutcome returns null when no triage_report tool resul
     assertEquals(readLatestTriageOutcome([]), null);
 });
 
-Deno.test("readLatestTriageOutcome ignores tool results without classification", () => {
+Deno.test("readLatestTriageOutcome normalizes legacy classification details", () => {
+    const messages = [
+        /** @type {any} */ ({
+            role: "toolResult",
+            toolName: "triage_report",
+            details: {
+                classification: "QUICK_FIX",
+                complexity: "LOW",
+                summary: "legacy",
+                affectedPaths: ["a.js"],
+            },
+        }),
+    ];
+    assertEquals(readLatestTriageOutcome(messages), {
+        routingIntent: "QUICK_FIX",
+        complexity: "LOW",
+        summary: "legacy",
+        affectedPaths: ["a.js"],
+    });
+});
+
+Deno.test("readLatestTriageOutcome ignores tool results without routingIntent or classification", () => {
     const messages = [
         /** @type {any} */ ({
             role: "toolResult",

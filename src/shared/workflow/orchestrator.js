@@ -6,6 +6,8 @@
  * turn and returns a Triage Report. The active Agent handler consumes the tool
  * outcome and dispatches the next Agent:
  *
+ * INQUIRY   → Guide
+ * IDEATION  → Ideator
  * QUICK_FIX → Operator
  * FEATURE   → Planner   → on `approved_execute`, runs `executePlan`
  * PROJECT   → Architect → on `approved_execute`, runs `executePlan` (parallel tasks)
@@ -20,7 +22,7 @@
  * iterates without rebuilding LLM context.
  */
 
-import { AGENTS, CWD } from "../../constants.js";
+import { AGENTS, CWD, ROUTING_INTENTS } from "../../constants.js";
 import { ensurePlansDir, loadPlan } from "../../plan-store.js";
 import { applyPendingRootSwap, setActiveAgent } from "../interactive/chat-session.js";
 import { runRootTurn } from "../session/session.js";
@@ -34,11 +36,52 @@ export { runLocalCI, runValidationLoop } from "./validation.js";
 
 /**
  * @typedef {Object} TriageOutcome
- * @property {"QUICK_FIX" | "FEATURE" | "PROJECT"} classification
+ * @property {"INQUIRY" | "IDEATION" | "QUICK_FIX" | "FEATURE" | "PROJECT"} routingIntent
+ * @property {"FEATURE" | "PROJECT" | undefined} [classification]
  * @property {"LOW" | "MEDIUM" | "HIGH"} complexity
  * @property {string} summary
  * @property {string[]} affectedPaths
  */
+
+const PLAN_ROUTING_INTENTS = ["FEATURE", "PROJECT"];
+
+/**
+ * @param {unknown} value
+ * @returns {"INQUIRY" | "IDEATION" | "QUICK_FIX" | "FEATURE" | "PROJECT" | null}
+ */
+function asRoutingIntent(value) {
+    if (typeof value !== "string") return null;
+    if (!ROUTING_INTENTS.includes(value)) return null;
+    return /** @type {"INQUIRY" | "IDEATION" | "QUICK_FIX" | "FEATURE" | "PROJECT"} */ (value);
+}
+
+/**
+ * Normalize canonical `routingIntent` details and legacy `classification`
+ * details into a Routing Intent outcome. Plan Classification is preserved only
+ * for plan-producing intents.
+ *
+ * @param {unknown} details
+ * @returns {TriageOutcome | null}
+ */
+function normalizeTriageOutcome(details) {
+    if (!details || typeof details !== "object") return null;
+    const record = /** @type {Record<string, unknown>} */ (details);
+    const routingIntent = asRoutingIntent(record.routingIntent) || asRoutingIntent(record.classification);
+    if (!routingIntent) return null;
+
+    const outcome = /** @type {TriageOutcome} */ ({
+        ...record,
+        routingIntent,
+    });
+
+    if (PLAN_ROUTING_INTENTS.includes(routingIntent)) {
+        outcome.classification = /** @type {"FEATURE" | "PROJECT"} */ (routingIntent);
+    } else {
+        delete outcome.classification;
+    }
+
+    return outcome;
+}
 
 /**
  * Read the latest triage_report tool result's details from a message stream.
@@ -56,10 +99,8 @@ export function readLatestTriageOutcome(messages, fromIndex) {
             "toolName" in msg && msg.toolName === "triage_report"
         ) {
             // @ts-ignore details set by tool implementation
-            const details = msg.details;
-            if (details && details.classification) {
-                return /** @type {TriageOutcome} */ (details);
-            }
+            const normalized = normalizeTriageOutcome(msg.details);
+            if (normalized) return normalized;
         }
     }
     return null;
@@ -69,18 +110,22 @@ export function readLatestTriageOutcome(messages, fromIndex) {
  * @param {TriageOutcome} triage
  */
 function buildTriageBlock(triage) {
-    return [
+    const lines = [
         "## Triage Report",
-        `- Classification: ${triage.classification}`,
+        `- Routing Intent: ${triage.routingIntent}`,
+    ];
+    if (triage.classification) lines.push(`- Plan Classification: ${triage.classification}`);
+    lines.push(
         `- Complexity: ${triage.complexity}`,
         `- Summary: ${triage.summary}`,
         `- Affected paths: ${(triage.affectedPaths || []).join(", ")}`,
         "",
-    ].join("\n");
+    );
+    return lines.join("\n");
 }
 
 /**
- * Dispatch the next Agent based on a Triage Report's Classification, then
+ * Dispatch the next Agent based on a Triage Report's Routing Intent, then
  * (for FEATURE/PROJECT) execute the approved plan.
  *
  * @param {Object} args
@@ -109,7 +154,10 @@ function buildTriageBlock(triage) {
 export async function dispatchPostTriage({ triage, userRequest, images, uiAPI, sessionManager, __deps }) {
     if (!uiAPI) throw new Error("dispatchPostTriage: uiAPI is required");
 
-    const triageBlock = buildTriageBlock(triage);
+    const normalizedTriage = normalizeTriageOutcome(triage);
+    if (!normalizedTriage) throw new Error("dispatchPostTriage: routingIntent is required");
+
+    const triageBlock = buildTriageBlock(normalizedTriage);
     const decoratedRequest = ["## User Request", userRequest, "", triageBlock].join("\n");
     const applyPendingRootSwapImpl = __deps?.applyPendingRootSwap || applyPendingRootSwap;
     const createAgentHandlerImpl = __deps?.createAgentHandler ||
@@ -119,7 +167,23 @@ export async function dispatchPostTriage({ triage, userRequest, images, uiAPI, s
     const decidePostExecutionImpl = __deps?.decidePostExecution || decidePostExecution;
     const setActiveAgentImpl = __deps?.setActiveAgent || setActiveAgent;
 
-    if (triage.classification === "QUICK_FIX") {
+    if (normalizedTriage.routingIntent === "INQUIRY" || normalizedTriage.routingIntent === "IDEATION") {
+        const agentName = normalizedTriage.routingIntent === "INQUIRY" ? AGENTS.GUIDE : AGENTS.IDEATOR;
+        const runRootTurnImpl = __deps?.runRootTurn || runRootTurn;
+
+        setActiveAgentImpl(agentName, createAgentHandlerImpl(agentName), uiAPI);
+        await applyPendingRootSwapImpl(uiAPI);
+
+        await runRootTurnImpl({
+            agentName,
+            userRequest: decoratedRequest,
+            images,
+            uiAPI,
+        });
+        return;
+    }
+
+    if (normalizedTriage.routingIntent === "QUICK_FIX") {
         const operatorDisplay = getAgentDisplayName(AGENTS.OPERATOR);
         const runRootTurnImpl = __deps?.runRootTurn || runRootTurn;
         const readLatestTaskCompletedOutcomeImpl = __deps?.readLatestTaskCompletedOutcome ||
@@ -145,8 +209,8 @@ export async function dispatchPostTriage({ triage, userRequest, images, uiAPI, s
         return;
     }
 
-    if (triage.classification === "FEATURE" || triage.classification === "PROJECT") {
-        const isFeature = triage.classification === "FEATURE";
+    if (normalizedTriage.routingIntent === "FEATURE" || normalizedTriage.routingIntent === "PROJECT") {
+        const isFeature = normalizedTriage.routingIntent === "FEATURE";
         const agentName = isFeature ? AGENTS.PLANNER : AGENTS.ARCHITECT;
         const ensurePlansDirImpl = __deps?.ensurePlansDir || ensurePlansDir;
         const runPlanningAgentImpl = __deps?.runPlanningAgent || runPlanningAgent;
@@ -160,7 +224,7 @@ export async function dispatchPostTriage({ triage, userRequest, images, uiAPI, s
         const outcome = await runPlanningAgentImpl({
             agentName,
             initialRequest: decoratedRequest,
-            triageMeta: triage,
+            triageMeta: normalizedTriage,
             uiAPI,
             sessionManager,
         });
@@ -168,7 +232,7 @@ export async function dispatchPostTriage({ triage, userRequest, images, uiAPI, s
 
         const decision = decidePostPlanningImpl(outcome, {
             planningAgentName: agentName,
-            fallbackTriageMeta: triage,
+            fallbackTriageMeta: normalizedTriage,
         });
 
         if (decision.kind === "stay_with_agent" || decision.kind === "save_plan") {
@@ -183,7 +247,9 @@ export async function dispatchPostTriage({ triage, userRequest, images, uiAPI, s
         }
 
         const planName = /** @type {string} */ (decision.payload.planName);
-        const decisionTriageMeta = /** @type {TriageOutcome} */ (decision.payload.triageMeta || triage);
+        const decisionTriageMeta = /** @type {TriageOutcome} */ (
+            normalizeTriageOutcome(decision.payload.triageMeta) || normalizedTriage
+        );
         const tasks = /** @type {import('./workflow.js').PlanOutcomeResult["tasks"]} */ (decision.payload.tasks);
 
         const executionResult = await executePlanImpl(

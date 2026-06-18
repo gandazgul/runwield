@@ -3,7 +3,7 @@ classification: "FEATURE"
 complexity: "LOW"
 summary: "Improve the Epic detailed view in `load-plan` by listing child features and their statuses. Additionally, improve the navigation flow to allow users to view details of a specific child feature before loading it, or simply refine the \"Pick a child FEATURE plan\" flow to provide more context."
 affectedPaths:
-  - "src/cmd/load-plan/index.js"
+    - "src/cmd/load-plan/index.js"
 createdAt: "2026-06-18T00:00:00.000Z"
 updatedAt: "2026-06-18T16:10:26.990Z"
 status: "in_progress"
@@ -14,6 +14,7 @@ worktreePath: "/Users/gandazgul/.hns/worktrees/--Users-gandazgul-Documents-web-h
 worktreeBranch: "harns/worktree/epic-detail-child-feature-statuses-3a5f05e2"
 worktreeStatus: "active"
 ---
+
 # Improve Epic Details with Child FEATURE Statuses
 
 ## Context

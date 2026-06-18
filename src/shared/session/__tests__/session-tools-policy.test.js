@@ -83,6 +83,27 @@ Deno.test("loadAgentDef preserves per-agent protected tools when override narrow
     }
 });
 
+Deno.test("loadAgentDef loads Guide with read-only tools and return_to_router", async () => {
+    const def = await loadAgentDef("guide");
+
+    assert(def.tools.includes("read"));
+    assert(def.tools.includes("grep"));
+    assert(def.tools.includes("find"));
+    assert(def.tools.includes("ls"));
+    assert(def.tools.includes("bash"));
+    assert(def.tools.includes("memory_recall"));
+    assert(def.tools.includes("memory_recall_global"));
+    assert(def.tools.includes("code_search"));
+    assert(def.tools.includes("return_to_router"));
+
+    assert(!def.tools.includes("edit"));
+    assert(!def.tools.includes("write"));
+    assert(!def.tools.includes("multi_file_edit"));
+    assert(!def.tools.includes("task_completed"));
+    assert(!def.tools.includes("plan_written"));
+    assert(!def.tools.includes("triage_report"));
+});
+
 Deno.test("resolveSessionToolNames blocks runtime toolNames from re-enabling removed non-protected tools", () => {
     const agentTools = ["read", "memory_recall", "triage_report"];
     const resolved = resolveSessionToolNames(agentTools, ["read", "bash", "triage_report"], []);
