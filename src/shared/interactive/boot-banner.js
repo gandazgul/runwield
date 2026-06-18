@@ -72,28 +72,28 @@ export async function renderBootBanner({
         uiAPI.appendSystemMessage(
             `${names} (slash commands execute via ${chatPromptAgentName})`,
             false,
-            `Loaded Prompt Templates (${invokablePromptTemplates.length}):`,
+            `Prompt Templates (${invokablePromptTemplates.length}):`,
             headerStyle,
         );
     } else {
-        uiAPI.appendSystemMessage("none", false, "Loaded Prompt Templates:", headerStyle);
+        uiAPI.appendSystemMessage("none", false, "Prompt Templates:", headerStyle);
     }
 
     const skills = await listSkillsImpl();
     if (skills && skills.length > 0) {
         const skillNames = skills.map((s) => s.name).join(", ");
-        uiAPI.appendSystemMessage(skillNames, false, `Loaded Skills (${skills.length}):`, headerStyle);
+        uiAPI.appendSystemMessage(skillNames, false, `Skills (${skills.length}):`, headerStyle);
     } else {
-        uiAPI.appendSystemMessage("none", false, "Loaded Skills:", headerStyle);
+        uiAPI.appendSystemMessage("none", false, "Skills:", headerStyle);
     }
 
     // Report the active theme
     const getSettingsManagerImpl = __deps?.getSettingsManager || (await import("../settings.js")).getSettingsManager;
     const activeTheme = getSettingsManagerImpl().getTheme() || "catppuccin-mocha";
-    uiAPI.appendSystemMessage(activeTheme, false, "Loaded Theme:", headerStyle);
+    uiAPI.appendSystemMessage(activeTheme, false, "Theme:", headerStyle);
 
     if (rtkAvailable) {
-        uiAPI.appendSystemMessage("RTK", false, "Loaded Runtime Optimizers:", headerStyle);
+        uiAPI.appendSystemMessage("RTK", false, "Runtime Optimizers:", headerStyle);
     }
 
     const agentMdFiles = await listLoadedAgentMdFilesImpl();
@@ -101,7 +101,7 @@ export async function renderBootBanner({
         const lines = agentMdFiles
             .map((file) => `- ${toUserFacingAgentMdPath(file)}`)
             .join("\n");
-        uiAPI.appendSystemMessage(`\n${lines}`, false, "Loaded Context:", headerStyle);
+        uiAPI.appendSystemMessage(`\n${lines}`, false, "Context:", headerStyle);
     }
 
     for (const blocked of blockedPromptTemplates) {

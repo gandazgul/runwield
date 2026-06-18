@@ -39,13 +39,13 @@ Deno.test("renderBootBanner reports prompt templates, skills, theme, and blocked
         },
     });
 
-    assertEquals(messages[0].header, "Loaded Prompt Templates (2):");
+    assertEquals(messages[0].header, "Prompt Templates (2):");
     assertEquals(messages[0].text.includes("/review, /release"), true);
     assertEquals(messages[0].text.includes("operator"), true);
-    assertEquals(messages.some((message) => message.header.startsWith("Loaded Skills")), true);
-    assertEquals(messages.some((message) => message.header === "Loaded Theme:"), true);
+    assertEquals(messages.some((message) => message.header.startsWith("Skills")), true);
+    assertEquals(messages.some((message) => message.header === "Theme:"), true);
     assertEquals(
-        messages.some((message) => message.header === "Loaded Runtime Optimizers:" && message.text === "RTK"),
+        messages.some((message) => message.header === "Runtime Optimizers:" && message.text === "RTK"),
         true,
     );
     assertEquals(
@@ -82,7 +82,7 @@ Deno.test("renderBootBanner reports no prompt templates when none are invokable"
         },
     });
 
-    assertEquals(messages[0], { text: "none", header: "Loaded Prompt Templates:" });
+    assertEquals(messages[0], { text: "none", header: "Prompt Templates:" });
 });
 
 Deno.test("renderBootBanner warns about missing RTK for the first project boots", async () => {
