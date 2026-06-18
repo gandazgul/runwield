@@ -74,10 +74,9 @@ async function runAgentsCommandCli(agentName, rest, deps = {}) {
     const handler = createDirectAgentHandler(agentName);
     const userRequest = rest.join(" ").trim();
 
-    setActiveAgent(match.name, handler, undefined, match.model);
+    setActiveAgent(match.name, handler);
     await startInteractiveSession(userRequest || null, handler, {
         initialAgentName: match.name,
-        initialAgentModel: match.model,
     });
 }
 
@@ -140,7 +139,7 @@ async function runAgentsCommandTUI(agentName, _rest, options, deps = {}) {
 
     const handler = createDirectAgentHandler(match.name);
 
-    setActiveAgent(match.name, handler, uiAPI, match.model);
+    setActiveAgent(match.name, handler, uiAPI);
     tui.setFocus(/** @type {import('@earendil-works/pi-tui').Component} */ (/** @type {unknown} */ (editor)));
 }
 

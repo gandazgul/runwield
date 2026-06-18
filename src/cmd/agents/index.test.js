@@ -21,6 +21,8 @@ Deno.test("runAgentsCommand help path", async () => {
 
 Deno.test("runAgentsCommand chooses TUI handler when ui deps present", async () => {
     let called = false;
+    /** @type {string | undefined} */
+    let model = "not-set";
 
     await runAgentsCommand(
         ["router"],
@@ -36,8 +38,14 @@ Deno.test("runAgentsCommand chooses TUI handler when ui deps present", async () 
                     Promise.resolve([
                         { name: "router", displayName: "Router", description: "", model: "" },
                     ]),
-                setActiveAgent: () => {
+                setActiveAgent: (
+                    /** @type {string} */ _name,
+                    /** @type {unknown} */ _handler,
+                    /** @type {unknown} */ _uiAPI,
+                    /** @type {string | undefined} */ agentModel,
+                ) => {
                     called = true;
+                    model = agentModel;
                 },
                 createDirectAgentHandler: () => async () => {},
             }),
@@ -45,6 +53,7 @@ Deno.test("runAgentsCommand chooses TUI handler when ui deps present", async () 
     );
 
     assertEquals(called, true);
+    assertEquals(model, undefined);
 });
 
 Deno.test("runAgentsCommand CLI unknown agent exits", async () => {
@@ -96,6 +105,10 @@ Deno.test("runAgentsCommand CLI lists agents when no agent name", async () => {
 Deno.test("runAgentsCommand CLI valid agent starts session", async () => {
     let startedWith = "";
     let active = "";
+    /** @type {string | undefined} */
+    let activeModel = "not-set";
+    /** @type {string | undefined} */
+    let initialModel = "not-set";
 
     await runAgentsCommand(
         ["planner", "build", "thing"],
@@ -106,11 +119,22 @@ Deno.test("runAgentsCommand CLI valid agent starts session", async () => {
                         { name: "planner", displayName: "Planner", description: "plan", model: "m" },
                     ]),
                 createDirectAgentHandler: () => async () => {},
-                setActiveAgent: (/** @type {string} */ name) => {
+                setActiveAgent: (
+                    /** @type {string} */ name,
+                    /** @type {unknown} */ _handler,
+                    /** @type {unknown} */ _uiAPI,
+                    /** @type {string | undefined} */ agentModel,
+                ) => {
                     active = name;
+                    activeModel = agentModel;
                 },
-                startInteractiveSession: (/** @type {string | null} */ request) => {
+                startInteractiveSession: (
+                    /** @type {string | null} */ request,
+                    /** @type {unknown} */ _handler,
+                    /** @type {{ initialAgentModel?: string }} */ options,
+                ) => {
                     startedWith = String(request);
+                    initialModel = options.initialAgentModel;
                     return Promise.resolve(undefined);
                 },
             }),
@@ -118,7 +142,9 @@ Deno.test("runAgentsCommand CLI valid agent starts session", async () => {
     );
 
     assertEquals(active, AGENTS.PLANNER);
+    assertEquals(activeModel, undefined);
     assertEquals(startedWith, "build thing");
+    assertEquals(initialModel, undefined);
 });
 
 Deno.test("runAgentsCommand TUI with missing selected agent shows message", async () => {

@@ -19,15 +19,13 @@ import { assertEquals } from "@std/assert";
  * @returns {string | undefined}
  */
 function simulateConfiguredAgentModel(agentName, agents, activeModelPreset, modelPresets) {
-    if (!agents) return undefined;
-
     if (activeModelPreset) {
         const preset = modelPresets?.[activeModelPreset];
         const presetModel = preset?.agents?.[agentName]?.model;
         if (presetModel) return presetModel;
     }
 
-    return agents[agentName]?.model;
+    return agents?.[agentName]?.model;
 }
 
 Deno.test("getConfiguredAgentModel returns undefined when no agents config", () => {
@@ -82,6 +80,19 @@ Deno.test("getConfiguredAgentModel returns preset model when active preset is se
     // Preset doesn't have operator -> falls back to base config
     const resultOperator = simulateConfiguredAgentModel("operator", agents, "quality", modelPresets);
     assertEquals(resultOperator, "anthropic/claude-3");
+});
+
+Deno.test("getConfiguredAgentModel returns preset model without base agents config", () => {
+    const modelPresets = {
+        codex: {
+            agents: {
+                operator: { model: "crofai/deepseek-v4-pro" },
+            },
+        },
+    };
+
+    const result = simulateConfiguredAgentModel("operator", undefined, "codex", modelPresets);
+    assertEquals(result, "crofai/deepseek-v4-pro");
 });
 
 Deno.test("getConfiguredAgentModel ignores missing preset gracefully", () => {

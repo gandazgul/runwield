@@ -1,5 +1,6 @@
 import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
 import { join } from "@std/path";
+import { parse as parseJsonc } from "@std/jsonc";
 import { getSettingsDir } from "../settings.js";
 
 const MODEL_CONFIG_FILES = ["models.json", "auth.json"];
@@ -21,6 +22,121 @@ function fileExists(path) {
     } catch {
         return false;
     }
+}
+
+/**
+ * @param {string} path
+ * @returns {Record<string, any> | null}
+ */
+function readJsoncObject(path) {
+    try {
+        const parsed = parseJsonc(Deno.readTextFileSync(path));
+        return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+            ? /** @type {Record<string, any>} */ (parsed)
+            : null;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * @param {unknown} value
+ * @returns {string | undefined}
+ */
+function resolveLiteralConfigValue(value) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+    if (value && typeof value === "object") {
+        const envName = /** @type {{ env?: unknown }} */ (value).env;
+        if (typeof envName === "string" && envName.trim()) {
+            return Deno.env.get(envName.trim());
+        }
+    }
+    return undefined;
+}
+
+/**
+ * @param {unknown} payload
+ * @returns {string[]}
+ */
+function readOpenAiModelIds(payload) {
+    const data = payload && typeof payload === "object" ? /** @type {{ data?: unknown }} */ (payload).data : undefined;
+    const models = Array.isArray(data) ? data : Array.isArray(payload) ? payload : [];
+    return models
+        .map((item) => item && typeof item === "object" ? /** @type {{ id?: unknown }} */ (item).id : undefined)
+        .filter((id) => typeof id === "string" && id.trim().length > 0)
+        .map((id) => /** @type {string} */ (id).trim());
+}
+
+/**
+ * Discover a model from a custom OpenAI-compatible provider using `/models`.
+ *
+ * This is intentionally targeted: settings may name a model that is valid for
+ * a provider whose `models.json` entry has only `baseUrl`/`apiKey`. In that
+ * case the upstream registry has no concrete model object yet, so Harns asks
+ * the provider before treating the settings model as unknown.
+ *
+ * @param {ModelRegistry} modelRegistry
+ * @param {string} provider
+ * @param {string} modelId
+ * @param {{
+ *   harnsDir?: string,
+ *   fetchFn?: typeof fetch,
+ * }} [options]
+ * @returns {Promise<any | undefined>}
+ */
+export async function discoverProviderModel(modelRegistry, provider, modelId, options = {}) {
+    const existing = modelRegistry.find(provider, modelId);
+    if (existing) return existing;
+
+    const harnsDir = options.harnsDir ?? getHarnsModelConfigDir();
+    const modelsConfig = readJsoncObject(join(harnsDir, "models.json"));
+    const providerConfig = /** @type {Record<string, any> | undefined} */ (
+        modelsConfig?.providers?.[provider]
+    );
+    if (!providerConfig || typeof providerConfig !== "object") return undefined;
+
+    const baseUrl = typeof providerConfig.baseUrl === "string" ? providerConfig.baseUrl.trim() : "";
+    const api = typeof providerConfig.api === "string" ? providerConfig.api.trim() : "";
+    const apiKey = resolveLiteralConfigValue(providerConfig.apiKey);
+    if (!baseUrl || !api || !apiKey) return undefined;
+
+    const fetchFn = options.fetchFn ?? fetch;
+    const response = await fetchFn(`${baseUrl.replace(/\/+$/, "")}/models`, {
+        headers: {
+            Accept: "application/json",
+            Authorization: `Bearer ${apiKey}`,
+        },
+    });
+    if (!response.ok) {
+        throw new Error(
+            `model discovery failed for provider "${provider}" (${response.status} ${response.statusText})`,
+        );
+    }
+
+    const ids = readOpenAiModelIds(await response.json());
+    if (!ids.includes(modelId)) return undefined;
+
+    modelRegistry.registerProvider(provider, {
+        name: providerConfig.name ?? provider,
+        baseUrl,
+        apiKey,
+        api,
+        authHeader: providerConfig.authHeader,
+        headers: providerConfig.headers,
+        models: [{
+            id: modelId,
+            name: modelId,
+            api,
+            baseUrl,
+            reasoning: false,
+            input: ["text", "image"],
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: 128000,
+            maxTokens: 16384,
+        }],
+    });
+
+    return modelRegistry.find(provider, modelId);
 }
 
 /**

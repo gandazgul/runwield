@@ -7,6 +7,7 @@ import { join } from "@std/path";
 import {
     __resetSettingsForTests,
     migratePiSettingsOnce,
+    preserveHarnsCustomSettingsForWrite,
     setCustomSetting,
     shouldCleanupMergedWorktrees,
 } from "./settings.js";
@@ -125,6 +126,52 @@ Deno.test({
         // Project wins for scalar
         assertEquals(projectVal, "project-value");
     },
+});
+
+Deno.test("preserveHarnsCustomSettingsForWrite keeps Harns custom keys across SettingsManager writes", () => {
+    const previous = JSON.stringify({
+        theme: "old-theme",
+        agents: {},
+        activeModelPreset: "codex",
+        modelPresets: {
+            codex: {
+                agents: {
+                    operator: { model: "crofai/deepseek-v4-pro" },
+                },
+            },
+        },
+    });
+    const next = JSON.stringify({
+        theme: "new-theme",
+    });
+
+    const preserved = JSON.parse(preserveHarnsCustomSettingsForWrite(previous, next));
+
+    assertEquals(preserved, {
+        theme: "new-theme",
+        agents: {},
+        activeModelPreset: "codex",
+        modelPresets: {
+            codex: {
+                agents: {
+                    operator: { model: "crofai/deepseek-v4-pro" },
+                },
+            },
+        },
+    });
+});
+
+Deno.test("preserveHarnsCustomSettingsForWrite lets explicit new custom values win", () => {
+    const previous = JSON.stringify({
+        activeModelPreset: "codex",
+    });
+    const next = JSON.stringify({
+        activeModelPreset: "crof.ai",
+    });
+
+    assertEquals(JSON.parse(preserveHarnsCustomSettingsForWrite(previous, next)), {
+        activeModelPreset: "crof.ai",
+    });
 });
 
 Deno.test("migratePiSettingsOnce copies legacy Pi settings when Harns settings are missing", async () => {

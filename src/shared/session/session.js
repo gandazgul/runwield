@@ -43,7 +43,7 @@ import rtkExtension from "../../extensions/rtk/index.js";
 import { ensureCymbalBinary, ensureMnemosyneBinary, hasRtkBinary } from "../runtime-preflight.js";
 import { executeReturnToRouter, returnToRouterTool } from "../../tools/return-to-router.js";
 import { createUserInterviewTool } from "../../tools/user-interview.js";
-import { getModelRegistry } from "../models/model-registry.js";
+import { discoverProviderModel, getModelRegistry } from "../models/model-registry.js";
 import { parseProviderModel } from "../models/model-validation.js";
 import {
     addSubAgentSession,
@@ -597,7 +597,6 @@ export function getConfiguredAgentModel(agentName) {
     const agents = /** @type {Record<string, { model?: string }> | undefined} */ (
         getMergedCustomSetting("agents")
     );
-    if (!agents) return undefined;
 
     // Check active preset first
     const activeModelPreset = /** @type {string | undefined} */ (
@@ -614,7 +613,7 @@ export function getConfiguredAgentModel(agentName) {
     }
 
     // Fall back to base agents config
-    return agents[agentName]?.model;
+    return agents?.[agentName]?.model;
 }
 
 /**
@@ -632,7 +631,6 @@ export function getConfiguredAgentThinkingLevel(agentName) {
     const agents = /** @type {Record<string, { thinkingLevel?: string }> | undefined} */ (
         getMergedCustomSetting("agents")
     );
-    if (!agents) return undefined;
 
     // Check active preset first
     const activeModelPreset = /** @type {string | undefined} */ (
@@ -649,80 +647,111 @@ export function getConfiguredAgentThinkingLevel(agentName) {
     }
 
     // Fall back to base agents config
-    return agents[agentName]?.thinkingLevel;
+    return agents?.[agentName]?.thinkingLevel;
 }
 
 /**
  * Resolve the model to use for an agent invocation, based on the following priority:
- * 1) Explicit model override passed to `runAgentSession`
- * 2) Active model state (e.g. from a previous /model switch)
+ * 1) Active model state from a manual /model switch
+ * 2) Invocation-specific model override (for example, prompt-template frontmatter)
  * 3) Configured per-agent model from settings (agents / modelPresets)
- * 4) Agent definition model from frontmatter
- * 5) Default model from settings
+ * 4) Default model from settings
+ * 5) Agent definition model from layered frontmatter
  *
  * @param {string | undefined} modelOverride
  * @param {import('./types.js').AgentDefinition} agentDef
  * @param {string} [agentName] - Used to look up settings-based model override.
  * @param {ReturnType<typeof getModelRegistry>} [modelRegistry]
  *
- * @returns {any | null}
+ * @returns {Promise<any>}
  */
-function resolveModel(modelOverride, agentDef, agentName, modelRegistry = getModelRegistry()) {
+async function resolveModel(modelOverride, agentDef, agentName, modelRegistry = getModelRegistry()) {
     let resolvedModel = null;
 
-    /** @type {string[]} */
+    /** @type {Array<{ model: string, source: string, strict: boolean }>} */
     const candidateModels = [];
-    if (modelOverride) candidateModels.push(modelOverride);
 
     // Only use the active model if the user explicitly selected it via /model.
     // After agent switches, clearUserModelOverride() clears the flag but the
     // activeModel may still hold the previous agent's model — we must skip it.
     const activeModelState = getActiveModelState();
     if (activeModelState.model && isUserModelOverride()) {
-        candidateModels.push(
-            activeModelState.provider
+        candidateModels.push({
+            model: activeModelState.provider
                 ? `${activeModelState.provider}/${activeModelState.model}`
                 : activeModelState.model,
-        );
+            source: "manual /model override",
+            strict: true,
+        });
+    }
+
+    if (modelOverride) {
+        candidateModels.push({ model: modelOverride, source: "invocation model override", strict: true });
     }
 
     // Config-driven per-agent model override (agents.<name>.model or active preset)
     if (agentName) {
         const configuredModel = getConfiguredAgentModel(agentName);
         if (configuredModel) {
-            candidateModels.push(configuredModel);
+            candidateModels.push({
+                model: configuredModel,
+                source: `settings model for agent "${agentName}"`,
+                strict: true,
+            });
         }
     }
 
-    if (agentDef.model) {
-        candidateModels.push(agentDef.model);
-    }
-
-    // Fallback: User default model from settings
+    // Settings default is still a settings value, so it wins over layered agent definitions.
     const settingsManager = getSettingsManager();
     const defaultModelId = settingsManager.getDefaultModel();
     const defaultProvider = settingsManager.getDefaultProvider();
     if (defaultModelId) {
-        candidateModels.push(defaultProvider ? `${defaultProvider}/${defaultModelId}` : defaultModelId);
+        candidateModels.push({
+            model: defaultProvider ? `${defaultProvider}/${defaultModelId}` : defaultModelId,
+            source: "settings default model",
+            strict: true,
+        });
+    }
+
+    if (agentDef.model) {
+        candidateModels.push({
+            model: agentDef.model,
+            source: `agent definition model for "${agentDef.displayName || agentName || agentDef.name}"`,
+            strict: false,
+        });
     }
 
     for (const candidate of candidateModels) {
-        const parsed = parseProviderModel(candidate);
+        const parsed = parseProviderModel(candidate.model);
         if (!parsed.ok) {
-            throw new Error(`Invalid model format: ${candidate}. Use provider/id.`);
+            if (candidate.strict) {
+                throw new Error(`Invalid ${candidate.source}: ${candidate.model}. Use provider/id.`);
+            }
+            continue;
         }
 
-        const found = modelRegistry.find(parsed.provider, parsed.id);
+        let found = modelRegistry.find(parsed.provider, parsed.id);
         if (!found) {
-            if (candidate === modelOverride) {
-                throw new Error(`Unknown model: ${candidate}`);
+            try {
+                found = await discoverProviderModel(modelRegistry, parsed.provider, parsed.id);
+            } catch (error) {
+                if (candidate.strict) {
+                    const message = error instanceof Error ? error.message : String(error);
+                    throw new Error(`Unknown ${candidate.source}: ${candidate.model}. ${message}`);
+                }
+            }
+        }
+
+        if (!found) {
+            if (candidate.strict) {
+                throw new Error(`Unknown ${candidate.source}: ${candidate.model}`);
             }
             continue;
         }
 
         if (!modelRegistry.hasConfiguredAuth(found)) {
-            if (candidate === modelOverride) {
-                throw new Error(`No API key configured for ${found.provider}/${found.id}`);
+            if (candidate.strict) {
+                throw new Error(`No API key configured for ${candidate.source}: ${found.provider}/${found.id}`);
             }
             continue;
         }
@@ -731,7 +760,13 @@ function resolveModel(modelOverride, agentDef, agentName, modelRegistry = getMod
         break;
     }
 
-    return resolvedModel;
+    if (resolvedModel) return resolvedModel;
+
+    throw new Error(
+        `No configured model found${agentName ? ` for agent "${agentName}"` : ""}. Select one with /model, ` +
+            "or configure activeModelPreset/modelPresets, agents.<agent>.model, defaultProvider/defaultModel, " +
+            "or an agent definition model.",
+    );
 }
 
 /**
@@ -971,7 +1006,7 @@ export async function buildAgentSession({
     await loader.reload();
 
     const modelRegistry = getModelRegistry();
-    const resolvedModel = resolveModel(modelOverride, agentDef, agentName, modelRegistry);
+    const resolvedModel = await resolveModel(modelOverride, agentDef, agentName, modelRegistry);
 
     if (!sessionManager && shouldWriteDebugLog(debugLogPath)) {
         const debugMsg =
@@ -1006,8 +1041,11 @@ export async function buildAgentSession({
         }
     }
 
-    // Apply thinking level — settings per-agent override takes priority over frontmatter
+    // Apply thinking level — settings values take priority over layered frontmatter.
     let resolvedThinkingLevel = agentName ? getConfiguredAgentThinkingLevel(agentName) : undefined;
+    if (!resolvedThinkingLevel) {
+        resolvedThinkingLevel = getSettingsManager().getDefaultThinkingLevel();
+    }
     if (!resolvedThinkingLevel) {
         resolvedThinkingLevel = agentDef.thinkingLevel;
     }
@@ -1822,7 +1860,8 @@ export async function reloadRootAgentSession(uiAPI) {
         if (configuredModelStr) {
             const parsed = parseProviderModel(configuredModelStr);
             if (parsed.ok) {
-                const found = modelRegistry.find(parsed.provider, parsed.id);
+                const found = modelRegistry.find(parsed.provider, parsed.id) ||
+                    await discoverProviderModel(modelRegistry, parsed.provider, parsed.id);
                 if (found && modelRegistry.hasConfiguredAuth(found)) {
                     await session.setModel(found);
                     if (uiAPI?.setAgentInfo) {
@@ -1846,10 +1885,10 @@ export async function reloadRootAgentSession(uiAPI) {
         }
     }
 
-    // 5. Apply thinking level — settings per-agent > frontmatter > settings default
+    // 5. Apply thinking level — settings per-agent > settings default > frontmatter
     const rootName = getRootAgentName() || "";
-    const newThinkingLevel = getConfiguredAgentThinkingLevel(rootName) || meta.agentDef.thinkingLevel ||
-        settings.getDefaultThinkingLevel();
+    const newThinkingLevel = getConfiguredAgentThinkingLevel(rootName) || settings.getDefaultThinkingLevel() ||
+        meta.agentDef.thinkingLevel;
     if (newThinkingLevel !== undefined) {
         session.setThinkingLevel(
             /** @type {import('@earendil-works/pi-agent-core').ThinkingLevel} */ (newThinkingLevel),

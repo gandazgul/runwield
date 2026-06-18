@@ -137,6 +137,15 @@ export function collectFooterUsage(sessions) {
 }
 
 /**
+ * @param {string} modelStr
+ * @param {string} thinkingLevel
+ * @returns {boolean}
+ */
+export function shouldShowFooterThinkingLevel(modelStr, thinkingLevel) {
+    return Boolean(modelStr) && thinkingLevel !== "off";
+}
+
+/**
  * @param {any} rootSession
  * @param {Iterable<any>} subAgentSessions
  * @returns {Array<any>}
@@ -617,8 +626,8 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
     const getModelAndProvider = () => {
         const settingsManager = getSettingsManager();
         const defaults = {
-            model: settingsManager.getDefaultModel() ?? "gemini-2.0-flash",
-            provider: settingsManager.getDefaultProvider() ?? "google",
+            model: settingsManager.getDefaultModel() ?? "",
+            provider: settingsManager.getDefaultProvider() ?? "",
         };
         let { model, provider } = defaults;
 
@@ -680,10 +689,19 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
      * @param {string} level
      * @returns {import('@earendil-works/pi-coding-agent').ThemeColor}
      */
-    function getThinkingThemeToken(level) {
-        return /** @type {import('@earendil-works/pi-coding-agent').ThemeColor} */ (thinkingLevelTheme.get(level) ||
-            "thinkingOff");
-    }
+function getThinkingThemeToken(level) {
+    return /** @type {import('@earendil-works/pi-coding-agent').ThemeColor} */ (thinkingLevelTheme.get(level) ||
+        "thinkingOff");
+}
+
+/**
+ * @param {string} modelStr
+ * @param {string} thinkingLevel
+ * @returns {boolean}
+ */
+export function shouldShowFooterThinkingLevel(modelStr, thinkingLevel) {
+    return Boolean(modelStr) && thinkingLevel !== "off";
+}
 
     const footer = {
         invalidate: () => {},
@@ -744,18 +762,19 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
             if (contextStr) statsParts.push(contextStr);
             const statsSegment = statsParts.length > 0 ? statsParts.join(" ") : "";
 
+            const showThinkingLevel = shouldShowFooterThinkingLevel(modelStr, thinkingLevel);
             const thinkingStr = `(${thinkingLevel})`;
             const thinkingStyled = theme.fg(getThinkingThemeToken(thinkingLevel), thinkingStr);
             const line2LeftRaw = ctrlCPendingExit ? "Ctrl+C - Press again to exit" : statsSegment;
             const line2LeftStyled = ctrlCPendingExit
                 ? theme.fg("warning", line2LeftRaw)
                 : theme.fg("dim", statsSegment);
-            const thinkingPad = thinkingLevel !== "off" ? thinkingStr.length + 1 : 0;
+            const thinkingPad = showThinkingLevel ? thinkingStr.length + 1 : 0;
             const line2Pad = Math.max(1, w - line2LeftRaw.length - modelStr.length - thinkingPad);
             const line2 = line2LeftStyled +
                 " ".repeat(line2Pad) +
                 theme.fg("dim", modelStr) +
-                (thinkingPad > 0 ? " " + thinkingStyled : "");
+                (showThinkingLevel ? " " + thinkingStyled : "");
 
             return [line1, line2];
         },

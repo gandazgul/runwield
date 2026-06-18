@@ -134,26 +134,26 @@ Each preset has the same `agents.<agentName>.model` and `agents.<agentName>.thin
 key. Presets are partial: if the active preset does not define a value for an agent, Harns falls back to that agent's
 base `agents` entry.
 
-Current implementation note: preset lookup is gated by the presence of the top-level `agents` key. If you want only
-preset-based overrides, include `"agents": {}`.
-
 ### Resolution Order
 
 Model resolution for an agent invocation:
 
-1. Explicit model override passed by the caller.
-2. Manual `/model` user override for the current active agent.
+1. Manual `/model` user override for the current active agent.
+2. Invocation-specific model, such as a prompt-template `model` frontmatter value.
 3. Active preset `modelPresets.<activeModelPreset>.agents.<agent>.model`.
 4. Base `agents.<agent>.model`.
-5. Agent definition frontmatter `model`.
-6. `defaultProvider` plus `defaultModel`.
+5. `defaultProvider` plus `defaultModel`.
+6. Layered agent definition frontmatter `model` (`./.hns` > `~/.hns` > bundled).
+
+If none of these resolve to a registered, authenticated model, Harns reports an error instead of falling through to the
+underlying agent library's built-in fallback.
 
 Thinking level resolution:
 
 1. Active preset `modelPresets.<activeModelPreset>.agents.<agent>.thinkingLevel`.
 2. Base `agents.<agent>.thinkingLevel`.
-3. Agent definition frontmatter `thinkingLevel`.
-4. `defaultThinkingLevel` where the reload path applies a default.
+3. `defaultThinkingLevel`.
+4. Layered agent definition frontmatter `thinkingLevel` (`./.hns` > `~/.hns` > bundled).
 
 ## Harns Custom Keys
 
