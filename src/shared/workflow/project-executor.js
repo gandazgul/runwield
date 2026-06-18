@@ -1,6 +1,9 @@
 /**
  * @module shared/workflow/project-executor
- * Parallel PROJECT task execution against transient sub-sessions.
+ * Legacy parallel PROJECT task execution against transient sub-sessions.
+ *
+ * Retained as import-safe reference code for possible future multi-role FEATURE
+ * orchestration. New Epic/PROJECT flows must not dispatch through this module.
  */
 
 import { dirname, join } from "@std/path";

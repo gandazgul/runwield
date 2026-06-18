@@ -13,9 +13,7 @@ import { createExecutionWorktree, findReusableWorktree } from "../worktree.js";
 import { updateEntry as updateWorktreeRegistryEntry } from "../worktree-registry.js";
 import { captureWorktreeTree } from "./git-snapshot.js";
 import { isEpicPlan, isExecutablePlanStatus, recordPlanEvent } from "./plan-lifecycle.js";
-import { executeProjectTasks } from "./project-executor.js";
-import { extractTasks, validateProjectTasks } from "./task-scheduling.js";
-import { askRetryFailedTasks, buildEngineerRequest, reportExecutionSummary } from "./workflow-prompts.js";
+import { buildEngineerRequest } from "./workflow-prompts.js";
 import { readLatestPlanOutcome, readLatestTaskCompletedOutcome } from "./workflow-results.js";
 
 export { executeProjectTasks } from "./project-executor.js";
@@ -109,7 +107,7 @@ export async function runPlanningAgent({ agentName, initialRequest, triageMeta, 
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [sessionManager]
  * @param {{
  *   loadPlan?: typeof loadPlan,
- *   executeStructuredProjectPlan?: typeof executeStructuredProjectPlan,
+ *   executeStructuredProjectPlan?: () => Promise<PlanExecutionResult>,
  *   executeSingleEngineerPlan?: typeof executeSingleEngineerPlan,
  *   recordPlanEvent?: typeof recordPlanEvent,
  *   markActiveWorktreeStatus?: typeof markActiveWorktreeStatus,
@@ -120,7 +118,7 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
     if (!uiAPI) throw new Error("executePlan: uiAPI is required");
 
     const loadPlanFn = __deps.loadPlan || loadPlan;
-    const executeStructuredProjectPlanFn = __deps.executeStructuredProjectPlan || executeStructuredProjectPlan;
+    void structuredTasks;
     const executeSingleEngineerPlanFn = __deps.executeSingleEngineerPlan || executeSingleEngineerPlan;
     const recordPlanEventFn = __deps.recordPlanEvent || recordPlanEvent;
     const markActiveWorktreeStatusFn = __deps.markActiveWorktreeStatus || markActiveWorktreeStatus;
@@ -146,63 +144,19 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
     }
 
     uiAPI.appendSystemMessage(`=== Executing Plan: ${planName} ===`, false, "Harns");
-    let executionStarted = false;
 
-    if (effectiveMeta.classification === "PROJECT") {
-        try {
-            const tasks = structuredTasks && structuredTasks.length > 0 ? structuredTasks : extractTasks(plan.markdown);
-            validateProjectTasks(tasks);
-
-            if (tasks.length > 0) {
-                executionStarted = true;
-                const result = await executeStructuredProjectPlanFn({
-                    planName,
-                    planBody: plan.body,
-                    tasks,
-                    triageMeta: effectiveMeta,
-                    uiAPI,
-                    sessionManager,
-                    currentStatus: plan.attrs.status,
-                });
-                if (!result.executionComplete) return result;
-            } else {
-                executionStarted = true;
-                const result = await executeSingleEngineerPlanFn({
-                    planName,
-                    planBody: plan.body,
-                    triageMeta: effectiveMeta,
-                    uiAPI,
-                    sessionManager,
-                    currentStatus: plan.attrs.status,
-                });
-                if (!result.executionComplete) return result;
-            }
-        } catch (e) {
-            const error = e instanceof Error ? e : new Error(String(e));
-            uiAPI.appendSystemMessage(`TASK TABLE ERROR: ${error.message}`, true, "Harns");
-            if (executionStarted) {
-                await recordPlanEventFn({
-                    cwd: CWD,
-                    planName,
-                    event: "execution_failed",
-                    currentStatus: "in_progress",
-                    details: { triageMeta: effectiveMeta, failureReason: error.message },
-                });
-                await markActiveWorktreeStatusFn("execution_failed");
-            }
-            return { repairRequired: true, executionComplete: false, error: error.message };
-        }
-    } else {
-        const result = await executeSingleEngineerPlanFn({
-            planName,
-            planBody: plan.body,
-            triageMeta: effectiveMeta,
-            uiAPI,
-            sessionManager,
-            currentStatus: plan.attrs.status,
-        });
-        if (!result.executionComplete) return result;
-    }
+    // New Epic-era execution never dispatches PROJECT task DAGs from this facade.
+    // Epics are containers handled above; child FEATURE plans and any legacy
+    // non-Epic plan that reaches this path use the normal single-plan execution path.
+    const result = await executeSingleEngineerPlanFn({
+        planName,
+        planBody: plan.body,
+        triageMeta: effectiveMeta,
+        uiAPI,
+        sessionManager,
+        currentStatus: plan.attrs.status,
+    });
+    if (!result.executionComplete) return result;
 
     uiAPI.appendSystemMessage(
         `✅ Plan implementation complete: ${planName}`,
@@ -217,108 +171,6 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
         details: { triageMeta: effectiveMeta },
     });
     await markActiveWorktreeStatusFn("completed");
-    return { repairRequired: false, executionComplete: true };
-}
-
-/**
- * @param {{
- *     planName: string,
- *     planBody: string,
- *     tasks: Array<{ task: number, assignee: string, dependencies: string, description: string, writeScope?: string }>,
- *     triageMeta: Partial<import('../../plan-store.js').PlanFrontMatter>,
- *     uiAPI: UiAPI,
- *     sessionManager?: import('@earendil-works/pi-coding-agent').SessionManager,
- *     currentStatus: import('./plan-lifecycle.js').PlanStatus,
- * }} opts
- * @returns {Promise<PlanExecutionResult>}
- */
-async function executeStructuredProjectPlan({
-    planName,
-    planBody,
-    tasks,
-    triageMeta,
-    uiAPI,
-    sessionManager,
-    currentStatus,
-}) {
-    const executionContext = await startActiveExecutionWorkflow(planName, triageMeta, currentStatus);
-    uiAPI.appendSystemMessage(
-        `Found ${tasks.length} tasks in plan. Executing in parallel where possible.`,
-        false,
-        "Harns",
-    );
-
-    let localActiveTasks = 0;
-    let spinnerInterval = startTaskSpinner(uiAPI, () => localActiveTasks);
-
-    const executionResult = await executeProjectTasks(
-        planName,
-        planBody,
-        tasks,
-        uiAPI,
-        [],
-        (runningTasks) => {
-            localActiveTasks = runningTasks.length;
-            if (uiAPI.setRunningTasks) uiAPI.setRunningTasks(runningTasks);
-        },
-        sessionManager,
-        new Map(),
-        runAgentSession,
-        { executionCwd: executionContext.executionCwd },
-    );
-
-    if (spinnerInterval) clearInterval(spinnerInterval);
-
-    if (executionResult.failedTasks.length > 0) {
-        const retry = await askRetryFailedTasks(executionResult, uiAPI);
-        if (retry) {
-            localActiveTasks = 0;
-            spinnerInterval = startTaskSpinner(uiAPI, () => localActiveTasks);
-            const finalResult = await executeProjectTasks(
-                planName,
-                planBody,
-                tasks,
-                uiAPI,
-                executionResult.failedTasks,
-                (runningTasks) => {
-                    localActiveTasks = runningTasks.length;
-                    if (uiAPI.setRunningTasks) uiAPI.setRunningTasks(runningTasks);
-                },
-                sessionManager,
-                executionResult.results,
-                runAgentSession,
-                { executionCwd: executionContext.executionCwd },
-            );
-            if (spinnerInterval) clearInterval(spinnerInterval);
-            if (finalResult.failedTasks.length > 0) {
-                await recordFailedProjectExecution(planName, triageMeta, finalResult.failedTasks, finalResult, uiAPI, {
-                    afterRetry: true,
-                });
-                return {
-                    repairRequired: false,
-                    executionComplete: false,
-                    failedTasks: finalResult.failedTasks,
-                };
-            }
-            uiAPI.appendSystemMessage(`✅ All tasks eventually completed.`, false, "Harns");
-        } else {
-            await recordFailedProjectExecution(
-                planName,
-                triageMeta,
-                executionResult.failedTasks,
-                executionResult,
-                uiAPI,
-            );
-            return {
-                repairRequired: false,
-                executionComplete: false,
-                failedTasks: executionResult.failedTasks,
-            };
-        }
-    } else {
-        uiAPI.appendSystemMessage(`✅ All tasks completed successfully.`, false, "Harns");
-    }
-
     return { repairRequired: false, executionComplete: true };
 }
 
@@ -357,46 +209,6 @@ async function executeSingleEngineerPlan({ planName, planBody, triageMeta, uiAPI
         return { repairRequired: false, executionComplete: false };
     }
     return { repairRequired: false, executionComplete: true };
-}
-
-/**
- * @param {UiAPI} uiAPI
- * @param {() => number} activeTaskCount
- * @returns {ReturnType<typeof setInterval> | undefined}
- */
-function startTaskSpinner(uiAPI, activeTaskCount) {
-    if (uiAPI.advanceSpinner && typeof setInterval !== "undefined") {
-        return setInterval(() => {
-            if (activeTaskCount() > 0 && uiAPI.advanceSpinner) uiAPI.advanceSpinner();
-        }, 100);
-    }
-    return undefined;
-}
-
-/**
- * @param {string} planName
- * @param {Partial<import('../../plan-store.js').PlanFrontMatter>} triageMeta
- * @param {number[]} failedTasks
- * @param {{ results: Map<number, { status: string, error?: string }> }} result
- * @param {UiAPI} uiAPI
- * @param {{ afterRetry?: boolean }} [options]
- * @returns {Promise<void>}
- */
-async function recordFailedProjectExecution(planName, triageMeta, failedTasks, result, uiAPI, options = {}) {
-    reportExecutionSummary(result, uiAPI);
-    await recordPlanEvent({
-        cwd: CWD,
-        planName,
-        event: "execution_failed",
-        currentStatus: "in_progress",
-        details: {
-            triageMeta,
-            failureReason: `${options.afterRetry ? "Failed tasks after retry" : "Failed tasks"}: ${
-                failedTasks.join(", ")
-            }`,
-        },
-    });
-    await markActiveWorktreeStatus("execution_failed");
 }
 
 /**

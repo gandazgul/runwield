@@ -372,7 +372,11 @@ function buildLegacySlicerRequest(planName, triageMeta) {
 }
 
 /**
- * Ensure a PROJECT plan has a parseable Tasks table.
+ * Ensure a PROJECT plan is ready after approval.
+ *
+ * Epic PROJECT plans use interactive decomposition and do not need or validate
+ * legacy task tables. Non-Epic PROJECT plans retain the legacy task-table
+ * slicer for compatibility only.
  *
  * @param {Object} opts
  * @param {string} opts.planName
@@ -381,7 +385,7 @@ function buildLegacySlicerRequest(planName, triageMeta) {
  * @param {import('../ui/types.js').UiAPI} opts.uiAPI
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager]
  * @param {{
- *   runSlicerAgent?: typeof runLegacyTaskSlicer,
+ *   runSlicerAgent?: typeof runSlicerAgent | typeof runLegacyTaskSlicer,
  *   readTextFile?: (path: string) => Promise<string>,
  *   parsePlanFrontMatter?: typeof parsePlanFrontMatter,
  *   extractTasks?: typeof extractTasks,
@@ -391,40 +395,60 @@ function buildLegacySlicerRequest(planName, triageMeta) {
  */
 export async function ensureSlicerTasks({ planName, planPath, triageMeta, uiAPI, sessionManager, __deps }) {
     if (!uiAPI) throw new Error("ensureSlicerTasks: uiAPI is required");
-    if (triageMeta && isEpicPlan(triageMeta)) {
-        return {
-            ok: false,
-            error:
-                "PROJECT Epic plans must use interactive Slicer decomposition; legacy task-table slicing is disabled.",
-            stage: "validation",
-        };
-    }
-    const slicer = __deps?.runSlicerAgent || runLegacyTaskSlicer;
+    const slicer = __deps?.runSlicerAgent || runSlicerAgent;
+    const legacySlicer = __deps?.runSlicerAgent || runLegacyTaskSlicer;
     const readTextFile = __deps?.readTextFile || Deno.readTextFile.bind(Deno);
     const parsePlan = __deps?.parsePlanFrontMatter || parsePlanFrontMatter;
     const parseTasks = __deps?.extractTasks || extractTasks;
     const validateTasks = __deps?.validateProjectTasks || validateProjectTasks;
 
-    try {
-        const currentMd = await readTextFile(planPath);
-        const currentPlan = parsePlan(currentMd);
-        if (isEpicPlan(currentPlan.attrs)) {
-            return {
-                ok: false,
-                error:
-                    "PROJECT Epic plans must use interactive Slicer decomposition; legacy task-table slicing is disabled.",
-                stage: "validation",
-            };
+    /**
+     * @param {typeof runSlicerAgent | typeof runLegacyTaskSlicer} runner
+     * @param {import('../../tools/plan-written.js').TriageMeta | undefined} meta
+     * @returns {Promise<{ ok: true } | { ok: false, error: string }>}
+     */
+    async function invokeSlicer(runner, meta) {
+        try {
+            const result = await runner({ planName, triageMeta: meta, uiAPI, sessionManager });
+            if (!result.ok) return { ok: false, error: result.error || "slicer failed" };
+            return { ok: true };
+        } catch (e) {
+            const error = e instanceof Error ? e.message : String(e);
+            return { ok: false, error };
         }
+    }
+
+    if (triageMeta && isEpicPlan(triageMeta)) {
+        const slicerResult = await invokeSlicer(slicer, triageMeta);
+        if (!slicerResult.ok) return { ok: false, error: slicerResult.error, stage: "slicer" };
+        return { ok: true, slicerInvoked: true };
+    }
+
+    let currentMd = "";
+    let currentPlan;
+    try {
+        currentMd = await readTextFile(planPath);
+        currentPlan = parsePlan(currentMd);
+    } catch {
+        // Cannot inspect persisted plan metadata; continue through the legacy compatibility path below.
+    }
+
+    if (currentPlan && isEpicPlan(currentPlan.attrs)) {
+        const slicerResult = await invokeSlicer(slicer, currentPlan.attrs);
+        if (!slicerResult.ok) return { ok: false, error: slicerResult.error, stage: "slicer" };
+        return { ok: true, slicerInvoked: true };
+    }
+
+    try {
         validateTasks(parseTasks(currentMd));
         return { ok: true, slicerInvoked: false };
     } catch {
         // Tasks missing or unparseable; legacy task-table slicer must run.
     }
 
-    const slicerResult = await slicer({ planName, triageMeta, uiAPI, sessionManager });
+    const slicerResult = await invokeSlicer(legacySlicer, triageMeta);
     if (!slicerResult.ok) {
-        return { ok: false, error: slicerResult.error || "slicer failed", stage: "slicer" };
+        return { ok: false, error: slicerResult.error, stage: "slicer" };
     }
 
     try {
