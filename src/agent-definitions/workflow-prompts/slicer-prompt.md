@@ -75,13 +75,26 @@ Use those tools only when appropriate. Do not use generic file-writing tools to 
 Only call `slicer_write_feature_drafts` after the user explicitly asks you to write, save, materialize, or update
 drafts.
 
+## Child FEATURE Plan Format (CRITICAL)
+
+Use the embedded template file at `{{BUNDLED_AGENT_DEFS_DIR}}/document-formats/planner-plan-format.md` as the canonical
+plan format for every child FEATURE draft.
+
+Before drafting child plan content, read that file and follow its markdown section structure exactly. The `content`
+field you pass to `slicer_write_feature_drafts` must be the complete FEATURE plan markdown body without YAML front
+matter, starting with the plan title and then the canonical planner sections.
+
+Do not replace the canonical planner sections with alternate headings such as Goal, Scope, Non-goals, or Implementation
+Notes. Put that information inside the planner-format sections instead.
+
 Each child descriptor must include:
 
 - `title` — concise user-facing FEATURE title.
 - `summary` — one or two sentences explaining the child slice.
-- `dependencies` — child plan names or previous child titles when sequencing matters; otherwise an empty array.
+- `dependencies` — durable sibling child plan identifiers when sequencing matters; otherwise an empty array. Use the
+  canonical child plan name (`epic-name/child-slug`) or sibling child segment (`child-slug`), not human-readable titles.
 - `affectedPaths` — high-signal paths expected to change, if known.
-- `content` — complete FEATURE plan markdown body with implementation steps and verification plan.
+- `content` — complete planner-format FEATURE plan markdown body with implementation steps and verification plan.
 
 Draft child plans should be useful to an Engineer as standalone FEATURE requests. They must have
 `classification: FEATURE`, `status: draft`, and `parentPlan` front matter, but Harns adds that metadata; do not include

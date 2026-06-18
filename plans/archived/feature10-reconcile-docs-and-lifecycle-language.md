@@ -3,15 +3,17 @@ classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Update Harns docs and domain language so PROJECT, Epic, Slicer, Ready For Work, and child FEATURE behavior match the new workflow."
 affectedPaths:
-    - "CONTEXT.md"
-    - "docs/plan-lifecycle.md"
-    - "docs/prd/project-decomposition-PRD.md"
-    - "PRD.md"
-    - "README.md"
+  - "CONTEXT.md"
+  - "docs/plan-lifecycle.md"
+  - "docs/prd/project-decomposition-PRD.md"
+  - "PRD.md"
+  - "README.md"
 createdAt: "2026-06-16T16:25:04Z"
-status: "ready_for_work"
+updatedAt: "2026-06-18T15:04:39.837Z"
+status: "verified"
+origin: "internal"
+verifiedAt: "2026-06-18T15:04:39.837Z"
 ---
-
 # Reconcile Docs and Lifecycle Language
 
 ## Context
