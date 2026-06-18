@@ -11,6 +11,7 @@ import {
     resolveTemplateModel,
     setActiveAgent,
     setActiveModel,
+    shouldShowFooterThinkingLevel,
     trackPendingSteeringMessage,
 } from "./chat-session.js";
 import {
@@ -86,6 +87,12 @@ Deno.test("footer usage includes active sub-agent sessions and cache writes", ()
     } finally {
         removeSubAgentSession(/** @type {any} */ (subSession));
     }
+});
+
+Deno.test("footer thinking level is hidden until a model is configured", () => {
+    assertEquals(shouldShowFooterThinkingLevel("", "medium"), false);
+    assertEquals(shouldShowFooterThinkingLevel("test/model", "off"), false);
+    assertEquals(shouldShowFooterThinkingLevel("test/model", "medium"), true);
 });
 
 Deno.test("setActiveModel reports setModel rejection instead of leaving an unhandled crash", async () => {

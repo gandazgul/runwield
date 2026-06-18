@@ -689,19 +689,10 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
      * @param {string} level
      * @returns {import('@earendil-works/pi-coding-agent').ThemeColor}
      */
-function getThinkingThemeToken(level) {
-    return /** @type {import('@earendil-works/pi-coding-agent').ThemeColor} */ (thinkingLevelTheme.get(level) ||
-        "thinkingOff");
-}
-
-/**
- * @param {string} modelStr
- * @param {string} thinkingLevel
- * @returns {boolean}
- */
-export function shouldShowFooterThinkingLevel(modelStr, thinkingLevel) {
-    return Boolean(modelStr) && thinkingLevel !== "off";
-}
+    function getThinkingThemeToken(level) {
+        return /** @type {import('@earendil-works/pi-coding-agent').ThemeColor} */ (thinkingLevelTheme.get(level) ||
+            "thinkingOff");
+    }
 
     const footer = {
         invalidate: () => {},
