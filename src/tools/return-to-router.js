@@ -20,7 +20,7 @@ import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { AGENTS } from "../constants.js";
 import { getActiveUiAPI, setActiveAgent } from "../shared/interactive/chat-session.js";
-import { loadAgentDef } from "../shared/session/agents.js";
+import { getAgentDisplayName, loadAgentDef } from "../shared/session/agents.js";
 import { setPendingSwitchHandoff } from "../shared/session/session-state.js";
 
 /**
@@ -39,8 +39,9 @@ export async function executeReturnToRouter(params, uiAPI, __deps) {
         return {
             content: [{
                 type: "text",
-                text:
-                    "Error: This tool requires an active UI session to return to Router. Please ensure you're running in interactive mode.",
+                text: `Error: This tool requires an active UI session to return to ${
+                    getAgentDisplayName(AGENTS.ROUTER)
+                }. Please ensure you're running in interactive mode.`,
             }],
             details: null,
         };
@@ -53,7 +54,7 @@ export async function executeReturnToRouter(params, uiAPI, __deps) {
     setActiveAgent(AGENTS.ROUTER, handler, uiAPI, routerDef.model || undefined);
     setPendingSwitchHandoff({ agentName: AGENTS.ROUTER, reason });
 
-    uiAPI.appendSystemMessage(`Agent hand-off: Returning to Router. Reason: ${reason}`);
+    uiAPI.appendSystemMessage(`Agent hand-off: Returning to ${routerDef.displayName}. Reason: ${reason}`);
 
     return {
         content: [],
@@ -67,16 +68,30 @@ export async function executeReturnToRouter(params, uiAPI, __deps) {
  */
 export const returnToRouterTool = defineTool({
     name: "return_to_router",
-    label: "Return to Router",
-    description: "Return the conversation to Router when the user's request needs fresh triage or is outside your " +
+    label: `Return to ${getAgentDisplayName(AGENTS.ROUTER)}`,
+    description:
+        `Return the conversation to ${
+            getAgentDisplayName(AGENTS.ROUTER)
+        } when the user's request needs fresh triage or is outside your ` +
         "role. Calling this tool ENDS your turn immediately — you will not generate any more text after the call. " +
-        "The 'reason' argument is delivered to Router as its first user message, so write it as a self-contained " +
-        "prompt that lets Router continue the conversation without seeing your prior turn.",
+        `The 'reason' argument is delivered to ${
+            getAgentDisplayName(AGENTS.ROUTER)
+        } as its first user message, so write it as a self-contained ` +
+        `prompt that lets ${
+            getAgentDisplayName(AGENTS.ROUTER)
+        } continue the conversation without seeing your prior turn.`,
     parameters: Type.Object({
         reason: Type.String({
-            description: "The first user message Router will receive. Restate the user's ask in your own words and " +
-                "include any context Router needs to triage it — Router does not see your prior reasoning. Address " +
-                "Router in the second person (e.g. 'The user wants you to ...'). Do NOT write a justification for " +
+            description:
+                `The first user message ${
+                    getAgentDisplayName(AGENTS.ROUTER)
+                } will receive. Restate the user's ask in your own words and ` +
+                `include any context ${getAgentDisplayName(AGENTS.ROUTER)} needs to triage it \u2014 ${
+                    getAgentDisplayName(AGENTS.ROUTER)
+                } does not see your prior reasoning. Address ` +
+                `${
+                    getAgentDisplayName(AGENTS.ROUTER)
+                } in the second person (e.g. 'The user wants you to ...'). Do NOT write a justification for ` +
                 "leaving your role.",
         }),
     }),

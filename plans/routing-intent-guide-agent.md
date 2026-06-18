@@ -3,22 +3,23 @@ classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Add Guide/Ideator routing intents and route non-materializing conversations away from Operator."
 affectedPaths:
-  - "CONTEXT.md"
-  - "src/constants.js"
-  - "src/tools/triage-report.js"
-  - "src/agent-definitions/router.md"
-  - "src/agent-definitions/guide.md"
-  - "src/shared/workflow/orchestrator.js"
-  - "src/shared/session/agents.js"
-  - "src/agent-definitions/*.md"
-  - "src/shared/workflow/orchestrator.test.js"
-  - "src/shared/session/__tests__/session-tools-policy.test.js"
+    - "CONTEXT.md"
+    - "src/constants.js"
+    - "src/tools/triage-report.js"
+    - "src/agent-definitions/router.md"
+    - "src/agent-definitions/guide.md"
+    - "src/shared/workflow/orchestrator.js"
+    - "src/shared/session/agents.js"
+    - "src/agent-definitions/*.md"
+    - "src/shared/workflow/orchestrator.test.js"
+    - "src/shared/session/__tests__/session-tools-policy.test.js"
 createdAt: "2026-06-18T00:00:00.000Z"
 updatedAt: "2026-06-18T16:50:14.705Z"
 status: "verified"
 origin: "internal"
 verifiedAt: "2026-06-18T16:50:14.705Z"
 ---
+
 # Routing Intent and Guide Agent
 
 ## Context

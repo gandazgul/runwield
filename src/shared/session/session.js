@@ -1087,6 +1087,10 @@ export async function buildAgentSession({
 export function attachUiSubscribers(session, agentDef, uiAPI, debugLogPath) {
     /** @type {{ appendText: (delta: string) => void } | null} */
     let currentMarkdownBlock = null;
+    // Whether the agent-name header has already been rendered this turn. Only
+    // the first assistant block of a turn shows the "Agent:" header; blocks
+    // created after a tool call (the tool-call continuation) must not repeat it.
+    let agentHeaderShown = false;
     /** @type {string[]} */
     let invokedToolNames = [];
     /** @type {{ appendDelta: (delta: string) => void, end: () => void } | null} */
@@ -1118,6 +1122,7 @@ export function attachUiSubscribers(session, agentDef, uiAPI, debugLogPath) {
                     // We only create assistant blocks lazily when we receive actual text deltas
                     // (or when rendering an assistant error on message_end).
                     currentMarkdownBlock = null;
+                    agentHeaderShown = false;
                     endThinking();
                 }
                 break;
@@ -1179,8 +1184,9 @@ export function attachUiSubscribers(session, agentDef, uiAPI, debugLogPath) {
                     if (uiAPI) {
                         if (!currentMarkdownBlock) {
                             currentMarkdownBlock = uiAPI.appendAgentMessageStart(
-                                agentDef.displayName,
+                                agentHeaderShown ? "" : agentDef.displayName,
                             );
+                            agentHeaderShown = true;
                         }
                         currentMarkdownBlock.appendText(event.assistantMessageEvent.delta);
                         uiAPI.requestRender();
@@ -1229,7 +1235,10 @@ export function attachUiSubscribers(session, agentDef, uiAPI, debugLogPath) {
                         );
                     }
                     if (!currentMarkdownBlock) {
-                        currentMarkdownBlock = uiAPI.appendAgentMessageStart(agentDef.displayName);
+                        currentMarkdownBlock = uiAPI.appendAgentMessageStart(
+                            agentHeaderShown ? "" : agentDef.displayName,
+                        );
+                        agentHeaderShown = true;
                     }
                     currentMarkdownBlock.appendText(
                         `\n\n**Error:** ${event.message.errorMessage || "Unknown LLM error"}`,

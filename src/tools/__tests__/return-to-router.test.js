@@ -1,7 +1,7 @@
 import { assertEquals, assertMatch } from "@std/assert";
 import { executeReturnToRouter, returnToRouterTool } from "../return-to-router.js";
 import { setActiveAgent } from "../../shared/interactive/chat-session.js";
-import { loadAgentDef } from "../../shared/session/agents.js";
+import { getAgentDisplayName, loadAgentDef } from "../../shared/session/agents.js";
 import {
     consumePendingSwitchHandoff,
     getActiveOnMessage,
@@ -22,8 +22,11 @@ async function executeTool(tool, params) {
 
 Deno.test("returnToRouterTool exposes expected metadata", () => {
     assertEquals(returnToRouterTool.name, "return_to_router");
-    assertEquals(returnToRouterTool.label, "Return to Router");
-    assertMatch(returnToRouterTool.description, /return the conversation to router/i);
+    assertEquals(returnToRouterTool.label, `Return to ${getAgentDisplayName(AGENTS.ROUTER)}`);
+    assertMatch(
+        returnToRouterTool.description,
+        new RegExp(`return the conversation to ${getAgentDisplayName(AGENTS.ROUTER)}`, "i"),
+    );
     assertEquals(typeof returnToRouterTool.execute, "function");
     assertEquals(typeof returnToRouterTool.parameters, "object");
 });

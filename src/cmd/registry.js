@@ -25,6 +25,7 @@ import { runRemoveCommand } from "./remove/index.js";
 import { runCompactCommand } from "./compact/index.js";
 import { runReloadCommand } from "./reload/index.js";
 import { runVersionCommand } from "./version/index.js";
+import { getAgentDisplayName } from "../shared/session/agents.js";
 
 /** @param {...string} parts */
 const bin = (...parts) => [CLI_BIN, ...parts].join(" ");
@@ -68,7 +69,7 @@ const bin = (...parts) => [CLI_BIN, ...parts].join(" ");
 export const commandRegistry = {
     [COMMAND_NAMES.ROUTER]: {
         name: COMMAND_NAMES.ROUTER,
-        displayName: "Router",
+        displayName: getAgentDisplayName(COMMAND_NAMES.ROUTER),
         description: "Triage the current request (default)",
         summary: "Route a request through triage and execution/planning flow (default command).",
         usage: [
