@@ -28,9 +28,11 @@ peer agent (like the Architect, Planner, or Coder) that simply acts as the defau
 paths:
 
 - **Quick Fix:** Troubleshooting and rapid changes with no upfront decisions. Uses Debugger or Execution agents.
-- **Feature:** Requires upfront clarification and a structured plan. Can be decomposed into dependent tasks.
-- **Project:** Large-scale changes. The **Architect Agent** performs deep vertical-slice exploration and produces a
-  formal proposal; the Slicer/readiness flow turns approved project plans into an executable task DAG.
+- **Feature:** Requires upfront clarification and a structured executable plan. Child FEATURE plans can declare sibling
+  dependencies when they belong to an Epic.
+- **Project:** Epic-scale changes that are too large to execute directly. The **Architect Agent** performs deep
+  vertical-slice exploration and produces an Epic proposal; the Slicer decomposes approved Epics into child FEATURE
+  plans that execute independently.
 
 **Dynamic Agent Switching:** Users can switch the active agent they are conversing with using slash commands (e.g.
 `/resume <plan>`). When `/resume` is invoked, the TUI drops the Router and connects the user directly to the Planner or
@@ -57,8 +59,8 @@ The agent declares intent by calling the tool; Harns orchestration code decides 
   runs the downstream flow on the **same root session**:
   - `QUICK_FIX` → set active agent to Operator and run the Operator with the user request plus triage block.
   - `FEATURE` → set active agent to Planner, ensure `plans/`, and call the planning workflow.
-  - `PROJECT` → set active agent to Architect for targeted deep exploration and planning. Project task slicing is
-    handled by the readiness flow after the plan is approved.
+  - `PROJECT` → set active agent to Architect for targeted deep exploration and Epic planning. After approval, the
+    readiness flow opens Slicer decomposition instead of executing the PROJECT directly.
 - After the downstream agent finishes, the active agent **stays** on the assigned Planner, Architect, or Operator. There
   is no automatic restoration to Router; the user can `/agent router` explicitly to triage a new request.
 - **No parallel router/operator process model:** execution happens through the same root session manager. "Switching
@@ -82,11 +84,13 @@ The agent declares intent by calling the tool; Harns orchestration code decides 
        session and calls `plan_written` again.
      - **Canceled:** return a "control returned to the user" tool result; the active agent stays on the planner so the
        user can resume the conversation.
-     - **Readiness repair required:** if project task slicing fails or produces invalid tasks, keep the plan approved
-       and return corrective feedback so the agent can retry the readiness step.
-- **Readiness Gate:** `FEATURE` plans promote from approved to executable without another LLM call. `PROJECT` plans must
-  have a valid task table; if tasks are missing, Harns invokes a Slicer agent on the root session to produce a parseable
-  task DAG before execution can proceed.
+     - **Readiness repair required:** if legacy project task slicing fails or produces invalid tasks, keep the plan
+       approved and return corrective feedback so the agent can retry the readiness step. PROJECT Epics instead route to
+       Slicer decomposition.
+- **Readiness Gate:** `FEATURE` plans promote from approved to executable without another LLM call. PROJECT Epics
+  promote to `ready_for_decomposition` and open the interactive Slicer; finalizing decomposition with child FEATURE
+  plans moves the Epic to `ready_for_work` for child selection. Legacy non-Epic PROJECT plans keep the task-table Slicer
+  compatibility path.
 - **Tool result `details.outcome`:** one of
   `approved_execute | saved | feedback | canceled | repair_required | no_call`. Callers use
   `readLatestPlanOutcome(messages)` to drive UI state — for example, executing an approved plan, saving for later, or
@@ -106,7 +110,9 @@ Plan Events, and the Plan Lifecycle decides the durable status and front matter 
 - `draft`: a plan exists but has not completed review.
 - `feedback`: the review loop returned user feedback, or the planning agent was interrupted while handling feedback.
 - `approved`: the user approved the plan, but readiness work may still be unfinished.
-- `ready_for_work`: the only executable status.
+- `ready_for_decomposition`: an approved PROJECT Epic is ready for Slicer decomposition, but is not executable.
+- `ready_for_work`: the only executable status for FEATURE and legacy non-Epic PROJECT plans; on PROJECT Epics, it means
+  child FEATURE selection is available.
 - `in_progress`: execution has started and may have partially changed the worktree.
 - `failed`: execution began but implementation did not finish.
 - `implemented`: implementation finished, but workflow validation has not passed.
@@ -115,15 +121,17 @@ Plan Events, and the Plan Lifecycle decides the durable status and front matter 
 **Lifecycle gates:**
 
 - **Review Gate:** Plannotator approval records `review_approved`; feedback records `review_feedback`.
-- **Readiness Gate:** approved `FEATURE` plans promote directly to `ready_for_work`; approved `PROJECT` plans promote
-  only after the Slicer produces a valid task DAG.
+- **Readiness Gate:** approved `FEATURE` plans promote directly to `ready_for_work`; approved PROJECT Epics promote to
+  `ready_for_decomposition` and later to `ready_for_work` when the Slicer finalizes child FEATURE plans. Legacy non-Epic
+  PROJECT plans promote only after the Slicer produces a valid task table.
 - **Execution Gate:** execution can start only from `ready_for_work`, records `execution_started`, and captures an
   `executionBaselineTree` for scoped diffs and recovery.
 - **Implementation Gate:** successful implementation records `implementation_finished` and moves the plan to
   `implemented`.
-- **Workflow Validation Gate:** `FEATURE` and `PROJECT` plans run local validation plus semantic review. Passing
-  validation records `validation_passed` and moves the plan to `verified`; failing validation records
-  `validation_failed` while keeping the implementation state visible.
+- **Workflow Validation Gate:** executable FEATURE and legacy non-Epic PROJECT plans run local validation plus semantic
+  review. Passing validation records `validation_passed` and moves the plan to `verified`; failing validation records
+  `validation_failed` while keeping the implementation state visible. PROJECT Epics are containers; their child FEATURE
+  plans validate independently.
 
 **Recovery:**
 

@@ -3,18 +3,19 @@ classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Add an Epic progress summary and a human-confirmed way to mark an Epic done enough without implementing every child FEATURE."
 affectedPaths:
-  - "src/cmd/load-plan/index.js"
-  - "src/cmd/plans/index.js"
-  - "src/shared/workflow/plan-lifecycle.js"
-  - "src/cmd/load-plan/index.test.js"
-  - "src/cmd/plans/index.test.js"
-  - "src/shared/workflow/plan-lifecycle.test.js"
+    - "src/cmd/load-plan/index.js"
+    - "src/cmd/plans/index.js"
+    - "src/shared/workflow/plan-lifecycle.js"
+    - "src/cmd/load-plan/index.test.js"
+    - "src/cmd/plans/index.test.js"
+    - "src/shared/workflow/plan-lifecycle.test.js"
 createdAt: "2026-06-16T16:25:04Z"
 updatedAt: "2026-06-18T04:03:13.829Z"
 status: "verified"
 origin: "internal"
 verifiedAt: "2026-06-18T04:03:13.829Z"
 ---
+
 # Epic Progress and Done Enough
 
 ## Context

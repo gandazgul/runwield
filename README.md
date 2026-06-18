@@ -21,16 +21,17 @@ done with the right amount of ceremony.
   affected paths recorded before execution.
 - **Planning is a product surface, not a prompt vibe.** Non-trivial work becomes a markdown plan in `plans/`, goes
   through Plannotator review, and can be approved, revised, saved, re-opened, or executed later.
-- **Architecture and task slicing are separate jobs.** Large `PROJECT` work is designed by the Architect, then sliced
-  into dependency-aware vertical tasks by the Slicer after approval.
+- **Architecture and decomposition are separate jobs.** Large `PROJECT` work is designed by the Architect as an Epic,
+  then decomposed into independently executable child `FEATURE` plans by the Slicer after approval.
 - **Execution is role-scoped.** Operators handle small fixes, Engineers implement approved plans, Testers write or run
   test work, Doc Writers stay limited to docs, and Reviewers compare the final diff to the plan.
-- **Parallel work keeps a single trail.** Project tasks can run in dependency order with bounded parallelism, while
-  their final outputs are summarized back into the root session.
+- **Epic work keeps a clear trail.** PROJECT Epics stay as containers, while child FEATURE plans carry their own review,
+  execution, validation, and merge history.
 - **Completion has a handshake.** Execution agents are expected to call `task_completed`; for saved plan execution,
   Harns treats that as the strong signal before running validation.
-- **Validation is built into plan workflows.** After completed `FEATURE` or `PROJECT` plan work, Harns runs the
-  configured local validation command and then a semantic review loop against the original plan.
+- **Validation is built into plan workflows.** After completed executable plan work, Harns runs the configured local
+  validation command and then a semantic review loop against the original plan. PROJECT Epics validate through their
+  child FEATURE plans.
 - **Context is durable.** Sessions live under `~/.hns/sessions/`, settings under `~/.hns/settings.json`, plans in the
   repo, and Mnemosyne keeps recallable project and global memory.
 
@@ -61,12 +62,14 @@ flowchart TD
     R -->|PROJECT| A[Architect writes design plan]
     A --> PR2[Plannotator review]
     PR2 -->|feedback| A
-    PR2 -->|approved| S[Slicer appends vertical task table]
-    S --> PX{Proceed now?}
-    PX -->|yes| T[Engineer/Tester/Doc Writer tasks run by dependency order]
-    PX -->|no| SP
-    T --> IP[Final tester Integration Point]
-    IP --> V3[Workflow Validation: local validation + semantic review]
+    PR2 -->|approved| RD[ready_for_decomposition]
+    RD --> S[Slicer writes child FEATURE plans]
+    S --> RF[ready_for_work: pick a child FEATURE]
+    RF --> CP[Child FEATURE plan]
+    CP --> PR3[Plannotator review]
+    PR3 -->|approved| CE[Engineer executes child FEATURE]
+    CE --> TC3{task_completed?}
+    TC3 -->|yes| V3[Child Workflow Validation: local validation + semantic review]
 
     SP --> LP[hns load-plan]
 ```
@@ -198,17 +201,20 @@ Plans are markdown files with YAML front matter in `plans/`. Harns records:
 - classification: `QUICK_FIX`, `FEATURE`, or `PROJECT`
 - complexity: `LOW`, `MEDIUM`, or `HIGH`
 - summary and affected paths
-- status: `draft`, `in_review`, `approved`, `ready_for_work`, `feedback`, or `completed`
+- status: `draft`, `feedback`, `approved`, `ready_for_decomposition`, `ready_for_work`, `in_progress`, `failed`,
+  `implemented`, or `verified`
 - origin: `internal` or `external`
 
 Use `hns plans` to list saved plans.
 
 Use `hns load-plan <name-or-path>` to:
 
-- execute an approved plan
-- re-open an approved or completed plan for review
+- execute a ready FEATURE or legacy non-Epic PROJECT plan
+- open or resume Slicer decomposition for a PROJECT Epic
+- pick a child FEATURE plan from a decomposed Epic
+- re-open an approved, implemented, or verified plan for review
 - view plan details
-- continue a draft, feedback, or in-review plan
+- continue a draft or feedback plan
 - load an external markdown plan and let Harns add front matter
 
 `/resume` is different: it resumes a recent interactive chat session, not a plan file.
@@ -224,8 +230,8 @@ matter for name, model, description, and tools.
 | Operator   | Executes small `QUICK_FIX` tasks and operational work directly.     |
 | Planner    | Writes reviewable plans for `FEATURE` work.                         |
 | Architect  | Designs `PROJECT` plans without implementing code.                  |
-| Slicer     | Converts approved project designs into vertical task tables.        |
-| Engineer   | Implements approved plans or assigned project tasks.                |
+| Slicer     | Decomposes approved PROJECT Epics into child FEATURE plans.         |
+| Engineer   | Implements approved executable plans.                               |
 | Tester     | Writes, updates, and runs tests for assigned work.                  |
 | Doc Writer | Updates markdown documentation only.                                |
 | Reviewer   | Compares the final diff against the original plan.                  |

@@ -3,18 +3,19 @@ classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Stop new PROJECT/Epic workflows from using the old task-DAG execution path while keeping legacy modules import-safe."
 affectedPaths:
-  - "src/shared/workflow/workflow.js"
-  - "src/shared/workflow/workflow-slicer.js"
-  - "src/shared/workflow/project-executor.js"
-  - "src/shared/workflow/task-scheduling.js"
-  - "src/shared/workflow/workflow.test.js"
-  - "src/shared/workflow/task-scheduling.test.js"
+    - "src/shared/workflow/workflow.js"
+    - "src/shared/workflow/workflow-slicer.js"
+    - "src/shared/workflow/project-executor.js"
+    - "src/shared/workflow/task-scheduling.js"
+    - "src/shared/workflow/workflow.test.js"
+    - "src/shared/workflow/task-scheduling.test.js"
 createdAt: "2026-06-16T16:25:04Z"
 updatedAt: "2026-06-18T04:15:20.442Z"
 status: "verified"
 origin: "internal"
 verifiedAt: "2026-06-18T04:15:20.442Z"
 ---
+
 # Retire Old PROJECT DAG from New Flow
 
 ## Context

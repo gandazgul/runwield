@@ -32,8 +32,9 @@ Type, category, kind
 **FEATURE**: A Classification for new functionality that requires a reviewed implementation Plan. _Avoid_: Enhancement,
 change request
 
-**PROJECT**: A Classification for large architectural or multi-role work that requires deep exploration and task
-dispatch. _Avoid_: Epic, initiative, refactor
+**PROJECT**: A Classification for Epic-scale work that is too large to execute directly. A PROJECT Plan is an Epic
+container that the Architect designs and the Slicer decomposes into independently executable child FEATURE Plans.
+_Avoid_: Initiative, refactor, task DAG
 
 **Complexity**: A `LOW`, `MEDIUM`, or `HIGH` rating assigned during Triage. _Avoid_: Difficulty, effort, severity
 
@@ -51,8 +52,8 @@ Request. _Avoid_: Blueprint, spec, design doc
 **Front Matter**: YAML metadata at the top of a Plan containing classification, complexity, status, timestamps, and
 origin. _Avoid_: Metadata, header, YAML block
 
-**Plan Status**: The lifecycle state of a Plan: `draft`, `feedback`, `approved`, `ready_for_work`, `in_progress`,
-`failed`, `implemented`, or `verified`. _Avoid_: Phase, stage
+**Plan Status**: The lifecycle state of a Plan: `draft`, `feedback`, `approved`, `ready_for_decomposition`,
+`ready_for_work`, `in_progress`, `failed`, `implemented`, or `verified`. _Avoid_: Phase, stage
 
 **Plan Lifecycle**: The state machine that decides how Plan Events change Plan Status and recovery metadata; see
 `docs/plan-lifecycle.md`. _Avoid_: Status helper, plan status logic
@@ -63,11 +64,14 @@ update
 **Approved Plan**: A Plan whose Review Loop ended in user approval but whose pre-execution preparation may still be
 unfinished. _Avoid_: Ready plan, executable plan
 
-**Ready For Work**: The only executable Plan Status, meaning a Plan is approved and every pre-execution prerequisite is
-satisfied. _Avoid_: Approved, executable, runnable
+**Ready For Work**: The only executable Plan Status for FEATURE Plans and legacy non-Epic PROJECT Plans, meaning the
+Plan is approved and every pre-execution prerequisite is satisfied. For an Epic, Ready For Work means decomposition is
+finalized and child FEATURE Plans can be selected; the Epic itself is still not executed directly. _Avoid_: Approved,
+runnable
 
-**Readiness Gate**: The classification-aware lifecycle step that promotes an Approved Plan to Ready For Work once
-pre-execution preparation is complete. _Avoid_: Slicer phase, execution check
+**Readiness Gate**: The classification-aware lifecycle step after approval. It promotes FEATURE Plans to Ready For Work,
+promotes Epic PROJECT Plans to Ready For Decomposition, and keeps legacy non-Epic PROJECT task-table preparation
+separate. _Avoid_: Slicer phase, execution check
 
 **Failed Plan**: A Plan that reached Ready For Work but could not complete execution successfully. _Avoid_: Rejected
 plan, invalid plan
@@ -117,15 +121,14 @@ orchestrator, classifier, triager
 
 **Architect**: The planning Agent for `PROJECT` work. _Avoid_: Designer, lead
 
-**Slicer**: The Agent that converts an approved PROJECT design Plan into executable task slices. _Avoid_: Task planner,
-splitter
+**Slicer**: The Agent that helps decompose an approved PROJECT Epic into child FEATURE Plans and can materialize those
+plans under `plans/<epic-name>/`. _Avoid_: Task planner, splitter
 
-**Engineer**: The execution Agent that implements approved Plans or individual Tasks. _Avoid_: Coder, implementer,
-developer
+**Engineer**: The execution Agent that implements approved executable Plans. _Avoid_: Coder, implementer, developer
 
-**Tester**: The Agent that writes or updates tests for assigned Tasks. _Avoid_: QA, test writer
+**Tester**: The Agent that writes or updates tests for assigned work. _Avoid_: QA, test writer
 
-**Doc Writer**: The Agent that creates or updates technical documentation for assigned Tasks. _Avoid_: Documenter, tech
+**Doc Writer**: The Agent that creates or updates technical documentation for assigned work. _Avoid_: Documenter, tech
 writer
 
 **Agent Definition**: A markdown file with YAML Front Matter defining an Agent's display name, model, tools, and system
@@ -154,20 +157,26 @@ what to do next after interpreting tool outcomes, Agent Session results, or Plan
 directly and carries semantic reason codes rather than user-facing text. _Avoid_: Workflow Outcome, status update,
 lifecycle event
 
-**Task**: A numbered, assignable unit of work inside a `PROJECT` Plan with an assignee and dependency list. _Avoid_:
-Step, subtask, work item
+**Epic**: The accepted domain subtype for a PROJECT Plan with `type: epic`. An Epic is a container for design context
+and child FEATURE Plans; it is not an executable implementation Plan. _Avoid_: Initiative, umbrella task
 
-**Assignee**: The Agent role designated to execute a Task. _Avoid_: Owner, handler, responsible
+**Child FEATURE Plan**: A FEATURE Plan with a `parentPlan` pointer to an Epic. It follows the normal FEATURE lifecycle
+and is the executable unit produced by decomposition. _Avoid_: Subtask, ticket, DAG node
 
-**Task Dispatch**: Executing PROJECT Tasks in dependency order by routing each Task to its Assignee. _Avoid_: Task
-execution, orchestration
+**Task**: A legacy numbered unit of work inside an older non-Epic PROJECT task table, with an assignee and dependency
+list. Current PROJECT Epics decompose into child FEATURE Plans instead. _Avoid_: Step, child FEATURE, work item
+
+**Assignee**: The Agent role designated to execute a legacy Task. _Avoid_: Owner, handler, responsible
+
+**Task Dispatch**: Legacy execution of non-Epic PROJECT Tasks in dependency order by routing each Task to its Assignee.
+Current PROJECT Epics do not use Task Dispatch. _Avoid_: Decomposition, child FEATURE execution
 
 **Task Completion**: The `task_completed` signal an execution Agent emits when its assigned work is complete. _Avoid_:
 Done message, final response
 
-**Integration Point**: The final tester-owned Task in a `PROJECT` Task graph that depends on every prior Task and checks
-cross-slice integration before Workflow Validation. _Avoid_: Final verification task, cross-slice verification task,
-acceptance gate
+**Integration Point**: The final tester-owned Task in a legacy non-Epic PROJECT Task graph that depends on every prior
+Task and checks cross-slice integration before Workflow Validation. _Avoid_: Final verification task, cross-slice
+verification task, acceptance gate
 
 **Workflow Validation**: Harns' independent validation pass after a completed workflow loop. _Avoid_: Agent self-check,
 final summary
@@ -226,12 +235,13 @@ command definition, prompt command
 - A **QUICK_FIX** is executed directly by the **Operator** and creates no **Plan**.
 - A **FEATURE** is planned by the **Planner**, reviewed through one **Review Loop**, and executed by the **Engineer**
   after approval.
-- A **PROJECT** is planned by the **Architect**, optionally sliced by the **Slicer**, and executed as one or more
-  **Tasks**.
+- A **PROJECT** is planned by the **Architect** as an **Epic**, decomposed by the **Slicer** into one or more **Child
+  FEATURE Plans**, and executed by loading those child FEATURE Plans independently.
 - A **Plan** has exactly one **Plan Status**, exactly one **Origin**, and one **Front Matter** block.
 - A **Plan Event** is the only way workflow code should ask the **Plan Lifecycle** to change Plan Status.
 - An **Approved Plan** passes through the **Readiness Gate** before becoming **Ready For Work**.
-- A **Plan** can proceed to execution only when its **Plan Status** is **Ready For Work**.
+- A **Plan** can proceed to direct implementation only when its **Plan Status** is **Ready For Work** and it is not an
+  **Epic** container.
 - A **Failed Plan** must have reached **Ready For Work** before work failed.
 - An **In-Progress Plan** requires recovery because execution may have partially changed the worktree.
 - **Plan Recovery** resolves whether Harns continues the current worktree state, reports on it, re-opens the Plan, or
@@ -241,12 +251,16 @@ command definition, prompt command
 - An **Implemented Plan** may include **Failure Detail** when Workflow Validation fails.
 - A **Verified Plan** must have passed **Workflow Validation**.
 - A denied **Plan** produces **Feedback**, and each **Feedback** response triggers one **Revision**.
-- A **Task** has exactly one **Assignee** and may depend on zero or more other **Tasks**.
-- **Task Dispatch** sends each ready **Task** to an **Agent Session** for its **Assignee**.
-- A `PROJECT` Task graph ends with exactly one **Integration Point** before Workflow Validation can begin.
+- An **Epic** has zero or more **Child FEATURE Plans** discovered by their `parentPlan` Front Matter pointer.
+- A **Child FEATURE Plan** follows the normal FEATURE lifecycle and may list sibling FEATURE dependencies.
+- A legacy **Task** has exactly one **Assignee** and may depend on zero or more other legacy **Tasks**.
+- Legacy **Task Dispatch** sends each ready **Task** to an **Agent Session** for its **Assignee**.
+- A legacy non-Epic `PROJECT` Task graph ends with exactly one **Integration Point** before Workflow Validation can
+  begin.
 - An execution **Agent Session** must emit **Task Completion** before the workflow can proceed to **Workflow
   Validation**.
-- **Workflow Validation** runs only after completed `FEATURE` and `PROJECT` Plan execution loops.
+- **Workflow Validation** runs after completed executable Plan loops. For PROJECT Epics, validation occurs on child
+  FEATURE Plans; the Epic itself is a decomposition container.
 - `QUICK_FIX` work ends when the **Operator** emits **Task Completion**; the **Operator** is responsible for any needed
   self-verification before that signal.
 - Every **Agent Session** loads exactly one **Agent Definition** after bundled, home, and local layers are merged.
@@ -279,8 +293,9 @@ command definition, prompt command
 >
 > **Dev:** "What changes for a **PROJECT**?"
 >
-> **Domain expert:** "The **Architect** writes the design Plan, the **Slicer** can turn it into **Tasks**, and **Task
-> Dispatch** routes each Task to its **Assignee** such as **Engineer**, **Tester**, or **Doc Writer**."
+> **Domain expert:** "The **Architect** writes the **Epic** design Plan, the **Slicer** decomposes it into child
+> **FEATURE** Plans, and the user loads those child Plans independently. The old task-DAG path is legacy compatibility,
+> not the default PROJECT workflow."
 
 ## Flagged ambiguities
 
