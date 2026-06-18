@@ -5,14 +5,11 @@ summary: "Improve the Epic detailed view in `load-plan` by listing child feature
 affectedPaths:
   - "src/cmd/load-plan/index.js"
 createdAt: "2026-06-18T00:00:00.000Z"
-updatedAt: "2026-06-18T16:10:26.990Z"
-status: "in_progress"
+updatedAt: "2026-06-18T16:45:49.550Z"
+status: "implemented"
 origin: "internal"
-executionBaselineTree: "7a41f2a82142f137be43eaf6eb1260347679e491"
-worktreeId: "3a5f05e2"
-worktreePath: "/Users/gandazgul/.hns/worktrees/--Users-gandazgul-Documents-web-harns--/harns-harns-epic-detail-child-feature-statuses-3a5f05e2"
-worktreeBranch: "harns/worktree/epic-detail-child-feature-statuses-3a5f05e2"
-worktreeStatus: "active"
+failureReason: "CI validation failed after 3 repair attempts."
+worktreeStatus: "validation_failed"
 ---
 # Improve Epic Details with Child FEATURE Statuses
 

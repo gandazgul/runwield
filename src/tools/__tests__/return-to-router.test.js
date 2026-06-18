@@ -66,7 +66,7 @@ Deno.test("returnToRouterTool terminates the calling turn and records a Router h
     assertEquals(result.content.length, 0);
     assertEquals(/** @type {{ agentName: string, reason: string }} */ (result.details).agentName, AGENTS.ROUTER);
     assertEquals(/** @type {{ agentName: string, reason: string }} */ (result.details).reason, reason);
-    assertMatch(systemMessage, /Agent hand-off: Returning to Router/i);
+    assertMatch(systemMessage, /Agent hand-off: Returning to Harns/i);
 
     const handoff = consumePendingSwitchHandoff();
     assertEquals(handoff?.agentName, AGENTS.ROUTER);

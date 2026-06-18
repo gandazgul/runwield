@@ -1355,6 +1355,30 @@ function formatEpicProgressSummary(children) {
 }
 
 /**
+ * @param {Array<{ name: string, attrs: import('../../plan-store.js').PlanFrontMatter }>} children
+ * @returns {string}
+ */
+function formatEpicChildFeatureList(children) {
+    if (children.length === 0) return "Child FEATURE plans:\n  (none)";
+    return [
+        "Child FEATURE plans:",
+        ...children.map((child) => `  - ${formatChildPlanLabel(child)}`),
+    ].join("\n");
+}
+
+/**
+ * @param {{ attrs: import('../../plan-store.js').PlanFrontMatter, body: string, markdown: string }} plan
+ * @param {Array<{ name: string, attrs: import('../../plan-store.js').PlanFrontMatter }>} children
+ * @returns {string}
+ */
+function buildEpicPlanSummary(plan, children) {
+    const sections = [buildPlanSummary(plan)];
+    if (children.length > 0) sections.push(`Epic child progress:\n${formatEpicProgressSummary(children)}`);
+    sections.push(formatEpicChildFeatureList(children));
+    return sections.join("\n\n");
+}
+
+/**
  * @param {Array<{ attrs: import('../../plan-store.js').PlanFrontMatter }>} children
  * @returns {string}
  */
@@ -1421,10 +1445,19 @@ async function confirmChildFeatureDependencies(plan, uiAPI, resolveSiblingChildP
  * @param {typeof findPlansByParentFn} opts.findPlansByParent
  * @param {typeof runSlicerAgentFn} opts.runSlicerAgent
  * @param {typeof recordPlanEventFn} opts.recordPlanEvent
+ * @param {typeof resolvePlanFn} opts.resolvePlan
  * @param {(childPlanName: string) => Promise<void>} opts.loadChildPlan
  * @returns {Promise<"handled" | "continue">}
  */
-async function handleEpicPlan({ plan, uiAPI, findPlansByParent, runSlicerAgent, recordPlanEvent, loadChildPlan }) {
+async function handleEpicPlan({
+    plan,
+    uiAPI,
+    findPlansByParent,
+    runSlicerAgent,
+    recordPlanEvent,
+    resolvePlan,
+    loadChildPlan,
+}) {
     if (!isEpicPlan(plan.attrs)) return "continue";
 
     const children = (await findPlansByParent(CWD, plan.planName)).filter((child) =>
@@ -1476,7 +1509,7 @@ async function handleEpicPlan({ plan, uiAPI, findPlansByParent, runSlicerAgent, 
         if (!answer || answer === "cancel") return "handled";
 
         if (answer === "view") {
-            uiAPI.appendSystemMessage(buildPlanSummary(plan), false, "Plan");
+            uiAPI.appendSystemMessage(buildEpicPlanSummary(plan, children), false, "Plan");
             continue;
         }
 
@@ -1528,14 +1561,47 @@ async function handleEpicPlan({ plan, uiAPI, findPlansByParent, runSlicerAgent, 
         }
 
         if (answer === "pick_child") {
-            const childOptions = children.map((child) => ({
-                value: child.name,
-                label: formatChildPlanLabel(child),
-            }));
-            const childPlanName = await uiAPI.promptSelect("Load child FEATURE plan:", childOptions);
-            if (!childPlanName) return "handled";
-            await loadChildPlan(String(childPlanName));
-            return "handled";
+            while (true) {
+                const childOptions = children.map((child) => ({
+                    value: child.name,
+                    label: formatChildPlanLabel(child),
+                }));
+                const childPlanName = await uiAPI.promptSelect("Load child FEATURE plan:", childOptions);
+                if (!childPlanName) break;
+
+                while (true) {
+                    const childAction = await uiAPI.promptSelect("What would you like to do with this FEATURE?", [
+                        { value: "load", label: "Load this FEATURE" },
+                        { value: "view", label: "View FEATURE details" },
+                        { value: "back", label: "Back to child list" },
+                    ]);
+                    if (!childAction || childAction === "back") break;
+
+                    if (childAction === "load") {
+                        await loadChildPlan(String(childPlanName));
+                        return "handled";
+                    }
+
+                    if (childAction === "view") {
+                        try {
+                            const childPlan = await resolvePlan(CWD, String(childPlanName));
+                            uiAPI.appendSystemMessage(
+                                `FEATURE: ${childPlan.planName}\n\n${buildPlanSummary(childPlan)}`,
+                                false,
+                                "Plan",
+                            );
+                        } catch (err) {
+                            const message = err instanceof Error ? err.message : String(err);
+                            uiAPI.appendSystemMessage(
+                                `Could not load FEATURE details for ${String(childPlanName)}: ${message}`,
+                                false,
+                                "Harns",
+                            );
+                            break;
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -1740,6 +1806,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
             findPlansByParent,
             runSlicerAgent,
             recordPlanEvent,
+            resolvePlan,
             loadChildPlan: async (childPlanName) => {
                 skipRouterRestore = true;
                 await runLoadPlanCommand([childPlanName], {
