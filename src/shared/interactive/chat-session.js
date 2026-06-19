@@ -574,9 +574,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
     const suppressStartupHeader = options.sessionStartMode === "continue";
 
     // Header
-    const titleLine = `${theme.fg("accent", theme.bold("Harns ─ Plan-by-Default Harness"))} ${
-        theme.fg("dim", `v${HNS_VERSION}`)
-    }`;
+    const titleLine = `${theme.fg("accent", theme.bold("Harns ─ Plan-by-Default Harness"))} ${theme.fg("dim", `${HNS_VERSION}`)}`;
 
     const compactHelp = theme.fg(
         "muted",
@@ -722,7 +720,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
     }
 
     const footer = {
-        invalidate: () => {},
+        invalidate: () => { },
         /** @param {number} w */
         render: (w) => {
             const { model, provider, thinkingLevel } = getModelAndProvider();
@@ -730,7 +728,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
                 ? provider && !model.startsWith(`${provider}/`) ? `${provider}/${model}` : model
                 : "";
             const activeAgentName = getActiveAgentName() ||
-                (getRootAgentName() ? getAgentDisplayName(/** @type {string} */ (getRootAgentName())) : "");
+                (getRootAgentName() ? getAgentDisplayName(/** @type {string} */(getRootAgentName())) : "");
 
             // Right block (agent name) is always pinned flush to the right edge.
             // The left block (cwd/branch) is truncated when it would collide,
@@ -765,8 +763,8 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
                     contextStr = pctValue > 90
                         ? theme.fg("error", rawContext)
                         : pctValue > 70
-                        ? theme.fg("warning", rawContext)
-                        : rawContext;
+                            ? theme.fg("warning", rawContext)
+                            : rawContext;
                 }
             }
 
@@ -1271,7 +1269,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
                     activeBashProc = proc;
                 },
                 concurrent: isProcessingSubmission,
-            }).catch(() => {/* swallow — UI already surfaces errors */});
+            }).catch(() => {/* swallow — UI already surfaces errors */ });
             return;
         }
 
