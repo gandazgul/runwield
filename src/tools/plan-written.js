@@ -214,8 +214,11 @@ export function createPlanWrittenTool(
                     false,
                     "Harns",
                 );
+                const epicFeedbackSuffix = reviewResult.feedback
+                    ? `\n\nFeedback/annotations from review: ${reviewResult.feedback}`
+                    : "";
                 return textResult(
-                    `PROJECT Epic "${planName}" approved and saved for decomposition or child plan selection. It is not directly executable. Your role as ${agentName} is complete. Do not generate any further text.`,
+                    `PROJECT Epic "${planName}" approved and saved for decomposition or child plan selection. It is not directly executable. Your role as ${agentName} is complete. Do not generate any further text.${epicFeedbackSuffix}`,
                     { ...params, outcome: "saved", planName, triageMeta: effectiveMeta },
                     true,
                 );
@@ -273,15 +276,21 @@ export function createPlanWrittenTool(
                     false,
                     "Harns",
                 );
+                const savedFeedbackSuffix = reviewResult.feedback
+                    ? `\n\nFeedback/annotations from review: ${reviewResult.feedback}`
+                    : "";
                 return textResult(
-                    `Plan "${planName}" approved and saved for later execution. Your role as ${agentName} is complete. Do not generate any further text.`,
+                    `Plan "${planName}" approved and saved for later execution. Your role as ${agentName} is complete. Do not generate any further text.${savedFeedbackSuffix}`,
                     { ...params, outcome: "saved", planName },
                     true,
                 );
             }
 
+            const execFeedbackSuffix = reviewResult.feedback
+                ? `\n\nFeedback/annotations from review: ${reviewResult.feedback}`
+                : "";
             return textResult(
-                `Plan "${planName}" approved for execution. Your role as ${agentName} is complete. Do not generate any further text.`,
+                `Plan "${planName}" approved for execution. Your role as ${agentName} is complete. Do not generate any further text.${execFeedbackSuffix}`,
                 { ...params, outcome: "approved_execute", planName, triageMeta: effectiveMeta },
                 true,
             );

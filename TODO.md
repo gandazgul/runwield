@@ -32,19 +32,6 @@ Refactor-first (before testing) candidates:
 
 ## Roadmap / Backlog
 
-### Project level plans breakdown
-
-[PRD](./plans/prd/project-decomposition-PRD.md)
-
-### Concurrent Worktrees & Execution Isolation
-
-- [ ] Use git worktrees to let multiple Harns instances execute plans or sessions concurrently without stepping on each
-      other's worktree state.
-- [ ] Track each execution worktree's base branch/tree, active plan/session, lifecycle status, and merge/report-back
-      path.
-- [ ] Connect worktree isolation to plan recovery so `in_progress`, `failed`, and `implemented` plans can be inspected,
-      resumed, reset, or merged deliberately.
-
 ### Plan Lifecycle UX
 
 - [ ] Improve plan browsing by status (`draft`, `feedback`, `approved`, `ready_for_work`, `in_progress`, `failed`,
@@ -66,6 +53,8 @@ Refactor-first (before testing) candidates:
       and plan age/status distribution.
 - [ ] Use metrics to answer product questions: Router accuracy, where plans stall, whether Slicer improves PROJECT
       reliability, when auto-sleep should trigger, and whether worktrees reduce conflicts/recovery events.
+
+      Use lmdb?
 
 ### Memory Automation
 
@@ -97,16 +86,8 @@ Refactor-first (before testing) candidates:
 - [ ] Make security review mode-aware so rapid prototypes and one-off builds can bypass it without fighting the system.
 - [ ] Let Planner/Architect invoke security review when threat modeling or sensitive surfaces are relevant.
 
-### Skills Ecosystem Stance
-
-- [x] Document that Harns intentionally reads skills from `~/.agents/skills` and local/home/bundled skill directories
-      instead of reinventing skill installation.
-- [x] Document that external skill/package managers can own installation; Harns should focus on discovery, invocation,
-      and clear skill loading behavior.
-
 ### Research Tracks
 
-- [ ] Keep Cymbal as the primary code intelligence backend unless a clear gap appears.
 - [ ] Explore Colgrep or similar tools as a possible complement for code search.
 - [ ] Research what meaningful UI/UX assistance should look like in Harns before adding a thin Playwright-specific
       agent.
