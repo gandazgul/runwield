@@ -68,7 +68,13 @@ import {
     resolveAgentDefsDir as _resolveAgentDefsDir,
     resolveSessionToolNames,
 } from "./agents.js";
-import { getCustomSetting, getMergedCustomSetting, getSettingsDir, getSettingsManager } from "../settings.js";
+import {
+    getCustomSetting,
+    getMergedCustomSetting,
+    getRtkExcludedBinaries,
+    getSettingsDir,
+    getSettingsManager,
+} from "../settings.js";
 import { recordActiveAgent } from "./active-agent-session.js";
 
 const HOME_PROMPTS_DIR = HOME_DIR ? join(HOME_DIR, ".hns", "prompts") : null;
@@ -1013,7 +1019,7 @@ export async function buildAgentSession({
     const promptState = { text: finalSystemPrompt };
     const extensionFactories = [mnemosyneExtension, cymbalExtension];
     if (await hasRtkBinary()) {
-        extensionFactories.push(rtkExtension);
+        extensionFactories.push((pi) => rtkExtension(pi, { excludedBinaries: getRtkExcludedBinaries() }));
     }
 
     const loader = new DefaultResourceLoader({

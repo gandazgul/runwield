@@ -81,3 +81,26 @@ Deno.test("rtk extension ignores non-bash, already rewritten, no-op, and failed 
     await failingHandler(failingEvent, {});
     assertEquals(failingEvent.input.command, "deno test");
 });
+
+Deno.test("rtk extension bypasses RTK for excluded binaries like git", async () => {
+    const spy = setup(() => Promise.resolve({ code: 0, stdout: "rtk whatever\n", stderr: "" }));
+    const handler = spy.getHandler("tool_call");
+    if (!handler) throw new Error("tool_call handler not registered");
+
+    // git commands should not call rtk at all
+    const gitEvent = { toolName: "bash", input: { command: "git status" } };
+    await handler(gitEvent, {});
+    assertEquals(gitEvent.input.command, "git status");
+    assertEquals(spy.calls, [], "should not call rtk for git commands");
+
+    // git with subcommands and flags
+    const diffEvent = { toolName: "bash", input: { command: "git diff --cached" } };
+    await handler(diffEvent, {});
+    assertEquals(diffEvent.input.command, "git diff --cached");
+    assertEquals(spy.calls, [], "should not call rtk for git diff");
+
+    // other commands still go through rtk
+    const denoEvent = { toolName: "bash", input: { command: "deno test" } };
+    await handler(denoEvent, {});
+    assertEquals(spy.calls.length, 1, "should call rtk for non-excluded commands");
+});
