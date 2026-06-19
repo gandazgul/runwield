@@ -58,6 +58,7 @@ import {
     resetAgentInfoStack,
     setRootAgentName,
     setRootAgentSession,
+    setThinkingLevel,
 } from "./session-state.js";
 import { directoryExists, fileExists } from "../helpers.js";
 import {
@@ -1074,6 +1075,10 @@ export async function buildAgentSession({
         session.setThinkingLevel(
             /** @type {import('@earendil-works/pi-agent-core').ThinkingLevel} */ (resolvedThinkingLevel),
         );
+        // Keep the session-state footer in sync with what the AgentSession is using
+        setThinkingLevel(
+            /** @type {"off"|"minimal"|"low"|"medium"|"high"|"xhigh"} */ (resolvedThinkingLevel),
+        );
     }
 
     // Ensure extension lifecycle hooks (e.g. session_start) are activated for this agent invocation.
@@ -1926,6 +1931,10 @@ export async function reloadRootAgentSession(uiAPI) {
     if (newThinkingLevel !== undefined) {
         session.setThinkingLevel(
             /** @type {import('@earendil-works/pi-agent-core').ThinkingLevel} */ (newThinkingLevel),
+        );
+        // Keep the session-state footer in sync with what the AgentSession is using
+        setThinkingLevel(
+            /** @type {"off"|"minimal"|"low"|"medium"|"high"|"xhigh"} */ (newThinkingLevel),
         );
     }
 

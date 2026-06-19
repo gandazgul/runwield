@@ -63,7 +63,7 @@ origin. _Avoid_: Metadata, header, YAML block
 `FEATURE` and `PROJECT`. _Avoid_: Routing intent, request type, route category
 
 **Plan Status**: The lifecycle state of a Plan: `draft`, `feedback`, `approved`, `ready_for_decomposition`,
-`ready_for_work`, `in_progress`, `failed`, `implemented`, or `verified`. _Avoid_: Phase, stage
+`ready_for_work`, `in_progress`, `failed`, `implemented`, `verified`, or `on_hold`. _Avoid_: Phase, stage
 
 **Plan Lifecycle**: The state machine that decides how Plan Events change Plan Status and recovery metadata; see
 `docs/plan-lifecycle.md`. _Avoid_: Status helper, plan status logic
@@ -88,6 +88,13 @@ plan, invalid plan
 
 **In-Progress Plan**: A Plan whose execution has started and whose worktree may contain partial implementation work.
 _Avoid_: Running plan, active plan
+
+**On-Hold Plan**: A non-verified Plan intentionally deferred because priorities changed or the user changed their mind
+for now, suppressed from normal active-work prompts while preserving the prior Plan Status and pre-hold staleness
+baseline needed to resume through a Resume Check. _Avoid_: Archived plan, canceled plan, completed plan
+
+**Resume Check**: The pre-resume inspection for an On-Hold Plan that checks staleness and worktree risk before restoring
+the held Plan Status. _Avoid_: Workflow Validation, plan validation, verify-and-resume
 
 **Plan Recovery**: Choosing how to continue an In-Progress Plan or Failed Plan from the current worktree state. _Avoid_:
 Resume, restart
@@ -215,6 +222,12 @@ agent router
 **User-Interview Tool**: The `user_interview` Custom Tool for structured clarification questions. _Avoid_: Question
 tool, clarification form
 
+**Vision Fallback**: A configured vision-capable model used only when the active Agent model is text-only and needs a
+textual description of an attached image. _Avoid_: Image mode, multimodal router, vision agent
+
+**See-Image Tool**: The `see_image` Custom Tool that sends a retained image attachment to the Vision Fallback and
+returns a textual description to a text-only Agent model. _Avoid_: Screenshot plugin, image reader, OCR tool
+
 ### Memory & Persistence
 
 **Mnemosyne**: The external semantic memory system for project and global memories. _Avoid_: Memory layer, memory store
@@ -271,10 +284,17 @@ command definition, prompt command
 - A denied **Plan** produces **Feedback**, and each **Feedback** response triggers one **Revision**.
 - An **Epic** has zero or more **Child FEATURE Plans** discovered by their `parentPlan` Front Matter pointer.
 - A **Child FEATURE Plan** follows the normal FEATURE lifecycle and may list sibling FEATURE dependencies.
+- An **On-Hold Plan** can be an **Epic**; its **Child FEATURE Plans** inherit on-hold visibility without mutating their
+  own Plan Status, remain displayed under the held Epic in Plan listings, and require resuming the parent Epic before
+  loading.
+- An on-hold **Child FEATURE Plan** whose parent **Epic** is still active remains displayed under that Epic with
+  `on_hold` status instead of moving to a separate held-child list.
 - A legacy **Task** has exactly one **Assignee** and may depend on zero or more other legacy **Tasks**.
 - Legacy **Task Dispatch** sends each ready **Task** to an **Agent Session** for its **Assignee**.
 - A legacy non-Epic `PROJECT` Task graph ends with exactly one **Integration Point** before Workflow Validation can
   begin.
+- A **See-Image Tool** uses **Vision Fallback** only when the active Agent model is text-only; pasted image references
+  are scoped to the current **Agent Session** and may be rehydrated when that session is resumed.
 - An execution **Agent Session** must emit **Task Completion** before the workflow can proceed to **Workflow
   Validation**.
 - **Workflow Validation** runs after completed executable Plan loops. For PROJECT Epics, validation occurs on child
