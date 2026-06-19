@@ -76,7 +76,8 @@ Router is the default Agent for fresh triage. Its `triage_report` classifies the
 
 - `QUICK_FIX` - execute directly with minimal ceremony.
 - `FEATURE` - write a reviewable plan before implementation.
-- `PROJECT` - design the larger effort, then slice it into independently executable feature plans.
+- `PROJECT` - design the larger effort as an Epic, then interactively slice it into independently executable child
+  FEATURE plans.
 
 ## General Usage
 
@@ -107,8 +108,9 @@ hns plans
 hns load-plan <name-or-path>
 ```
 
-Plans move through review, readiness, execution, validation, and recovery states. See
-[Plans and workflows](workflows.md) and [Plan Lifecycle](plan-lifecycle.md).
+PROJECT plans are Epic containers. After review, the interactive Slicer helps split an Epic into child FEATURE plans
+under `plans/<epic-name>/`; each child then moves through the normal review, execution, validation, and recovery states.
+See [Plans and workflows](workflows.md) and [Plan Lifecycle](plan-lifecycle.md).
 
 ### Use slash commands in the TUI
 

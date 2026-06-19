@@ -4,7 +4,15 @@
  * user interaction — distinct from individual agent invocations (see session.js).
  */
 
-import { CombinedAutocompleteProvider, Container, Editor, Spacer, Text } from "@earendil-works/pi-tui";
+import {
+    CombinedAutocompleteProvider,
+    Container,
+    Editor,
+    Spacer,
+    Text,
+    truncateToWidth,
+    visibleWidth,
+} from "@earendil-works/pi-tui";
 import { initTUI } from "../ui/tui.js";
 import { applyPersistedTheme, getEditorTheme, initHarnsTheme, onThemeChange, theme } from "../ui/theme.js";
 import { HNS_VERSION } from "../version.js";
@@ -724,8 +732,14 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
             const activeAgentName = getActiveAgentName() ||
                 (getRootAgentName() ? getAgentDisplayName(/** @type {string} */ (getRootAgentName())) : "");
 
-            const line1Left = `${cwd} (${branch})`;
-            const line1Pad = Math.max(1, w - line1Left.length - activeAgentName.length);
+            // Right block (agent name) is always pinned flush to the right edge.
+            // The left block (cwd/branch) is truncated when it would collide,
+            // so the right segment never gets pushed inward on long content.
+            const line1RightWidth = visibleWidth(activeAgentName);
+            const line1LeftRaw = `${cwd} (${branch})`;
+            const line1LeftMax = Math.max(0, w - line1RightWidth - 1);
+            const line1Left = truncateToWidth(line1LeftRaw, line1LeftMax);
+            const line1Pad = Math.max(1, w - visibleWidth(line1Left) - line1RightWidth);
             const line1 = theme.fg("dim", line1Left) +
                 " ".repeat(line1Pad) +
                 theme.fg("accent", activeAgentName);
@@ -775,12 +789,20 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
             const showThinkingLevel = shouldShowFooterThinkingLevel(modelStr, thinkingLevel);
             const thinkingStr = `(${thinkingLevel})`;
             const thinkingStyled = theme.fg(getThinkingThemeToken(thinkingLevel), thinkingStr);
+            // Right block (model + thinking level) is always pinned flush to the
+            // right edge. The left block (token stats) is truncated when it would
+            // collide, so the model segment never drifts toward the middle on long
+            // sessions. Widths use visibleWidth() so embedded ANSI color codes in
+            // the stats segment don't throw off the padding math.
+            const thinkingWidth = showThinkingLevel ? visibleWidth(thinkingStr) + 1 : 0;
+            const line2RightWidth = visibleWidth(modelStr) + thinkingWidth;
             const line2LeftRaw = ctrlCPendingExit ? "Ctrl+C - Press again to exit" : statsSegment;
+            const line2LeftMax = Math.max(0, w - line2RightWidth - 1);
+            const line2LeftTrunc = truncateToWidth(line2LeftRaw, line2LeftMax);
             const line2LeftStyled = ctrlCPendingExit
-                ? theme.fg("warning", line2LeftRaw)
-                : theme.fg("dim", statsSegment);
-            const thinkingPad = showThinkingLevel ? thinkingStr.length + 1 : 0;
-            const line2Pad = Math.max(1, w - line2LeftRaw.length - modelStr.length - thinkingPad);
+                ? theme.fg("warning", line2LeftTrunc)
+                : theme.fg("dim", line2LeftTrunc);
+            const line2Pad = Math.max(1, w - visibleWidth(line2LeftTrunc) - line2RightWidth);
             const line2 = line2LeftStyled +
                 " ".repeat(line2Pad) +
                 theme.fg("dim", modelStr) +

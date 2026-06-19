@@ -41,37 +41,38 @@ of why each change happened. Use a lighter harness when you only want a one-shot
 ## High-Level Flow
 
 ```mermaid
-flowchart TD
+graph TD
     U[User request] --> R[Router Agent]
-    R --> TR[triage_report]
+    R --> TR[Triage report]
 
-    TR -->|QUICK_FIX| O[Operator executes directly]
-    O --> TC1{task_completed?}
+    TR -->|quick fix| O[Operator executes directly]
+    O --> TC1{Completion signal received}
     TC1 -->|yes| QD[Done]
     TC1 -->|no| W1[Wait for completion signal]
 
-    TR -->|FEATURE| P[Planner writes plans/*.md]
+    TR -->|feature| P[Planner writes plan]
     P --> PR[Plannotator review]
     PR -->|feedback| P
-    PR -->|approved| PA{Proceed now?}
+    PR -->|approved| PA{Proceed now}
     PA -->|yes| E[Engineer executes approved plan]
     PA -->|no| SP[Saved plan]
-    E --> TC2{task_completed?}
-    TC2 -->|yes| V2[Workflow Validation: local validation + semantic review]
+    E --> TC2{Completion signal received}
+    TC2 -->|yes| V2[Workflow validation]
 
-    R -->|PROJECT| A[Architect writes design plan]
+    TR -->|project| A[Architect writes Epic design plan]
     A --> PR2[Plannotator review]
     PR2 -->|feedback| A
-    PR2 -->|approved| RD[ready_for_decomposition]
-    RD --> S[Slicer writes child FEATURE plans]
-    S --> RF[ready_for_work: pick a child FEATURE]
-    RF --> CP[Child FEATURE plan]
+    PR2 -->|approved| RD[Ready for decomposition]
+    RD --> S[Interactive Slicer discusses boundaries]
+    S --> CD[Draft child feature plans]
+    CD --> RF[Ready for work child selection]
+    RF --> CP[Child feature plan]
     CP --> PR3[Plannotator review]
-    PR3 -->|approved| CE[Engineer executes child FEATURE]
-    CE --> TC3{task_completed?}
-    TC3 -->|yes| V3[Child Workflow Validation: local validation + semantic review]
+    PR3 -->|approved| CE[Engineer executes child feature]
+    CE --> TC3{Completion signal received}
+    TC3 -->|yes| V3[Child workflow validation]
 
-    SP --> LP[hns load-plan]
+    SP --> LP[Load plan command]
 ```
 
 ## Installation
@@ -204,16 +205,25 @@ Plans are markdown files with YAML front matter in `plans/`. Harns records:
 - status: `draft`, `feedback`, `approved`, `ready_for_decomposition`, `ready_for_work`, `in_progress`, `failed`,
   `implemented`, or `verified`
 - origin: `internal` or `external`
+- Epic metadata: `type: epic` on PROJECT Epic containers, plus `parentPlan` and optional `dependencies` on child FEATURE
+  plans
 
-Use `hns plans` to list saved plans.
+PROJECT plans are Epics by default: the parent PROJECT plan is a container for design and decomposition state, not an
+implementation unit. The interactive Slicer helps choose vertical child FEATURE boundaries, writes draft children under
+`plans/<epic-name>/`, and finalizes the Epic only after explicit confirmation. Each child FEATURE then follows the
+normal FEATURE lifecycle with its own review, execution, validation, and merge history.
+
+Use `hns plans` to list saved plans. Epic children are grouped under their parent, and orphaned child plans are shown
+separately.
 
 Use `hns load-plan <name-or-path>` to:
 
-- execute a ready FEATURE or legacy non-Epic PROJECT plan
+- execute a ready standalone FEATURE or child FEATURE plan
 - open or resume Slicer decomposition for a PROJECT Epic
 - pick a child FEATURE plan from a decomposed Epic
+- mark a decomposed Epic done enough for now when appropriate
 - re-open an approved, implemented, or verified plan for review
-- view plan details
+- view plan or Epic details
 - continue a draft or feedback plan
 - load an external markdown plan and let Harns add front matter
 

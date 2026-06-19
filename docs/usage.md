@@ -17,11 +17,11 @@ hns router "fix the bug in the parser"
 
 Router is the default Agent for fresh triage. It calls `triage_report`, and that tool outcome starts the workflow:
 
-| Classification | Use when                                            | Typical path                                                                                        |
-| -------------- | --------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `QUICK_FIX`    | Small, low-risk changes or questions.               | Operator executes directly and self-verifies.                                                       |
-| `FEATURE`      | Non-trivial implementation needs a reviewable plan. | Planner writes a plan, user approves it, Engineer executes it, Harns validates it.                  |
-| `PROJECT`      | Large work needs architecture and slicing.          | Architect designs the epic, Slicer decomposes it into feature plans, execution proceeds by feature. |
+| Classification | Use when                                            | Typical path                                                                                                          |
+| -------------- | --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `QUICK_FIX`    | Small, low-risk changes or questions.               | Operator executes directly and self-verifies.                                                                         |
+| `FEATURE`      | Non-trivial implementation needs a reviewable plan. | Planner writes a plan, user approves it, Engineer executes it, Harns validates it.                                    |
+| `PROJECT`      | Large work needs architecture and slicing.          | Architect designs the Epic, interactive Slicer creates child FEATURE plans, execution proceeds one feature at a time. |
 
 ## Interactive sessions
 
@@ -86,6 +86,11 @@ Loading a plan lets you inspect it, continue work, recover failed work, or re-op
 
 Plans live under `plans/` and use Markdown plus YAML front matter. Harns treats the plan file as durable workflow state,
 not just a generated note.
+
+PROJECT plans are Epic containers by default. Loading an approved or decomposing Epic opens the interactive Slicer so
+you can discuss child FEATURE boundaries and materialize drafts under `plans/<epic-name>/`. Once decomposition is
+finalized, loading the Epic offers child FEATURE selection; loading a child FEATURE runs the normal FEATURE review,
+execution, validation, and recovery flow.
 
 See [Plans and workflows](workflows.md) and [Plan Lifecycle](plan-lifecycle.md).
 

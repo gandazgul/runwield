@@ -6,9 +6,10 @@ Lifecycle decides the next status and front matter updates.
 Plan metadata is canonical in the primary project checkout even when implementation runs in a linked execution worktree.
 Worktree paths, branches, and registry records describe where execution work lives; they do not replace Plan Status.
 
-PROJECT Plans with `type: epic` are Epic containers. They are decomposed into child FEATURE Plans and are not executed
-as implementation work themselves. Legacy non-Epic PROJECT task tables still exist for compatibility, but they are not
-the active PROJECT workflow.
+PROJECT Plans with `type: epic` are Epic containers. They are decomposed interactively by the Slicer into child FEATURE
+Plans under `plans/<epic-name>/` and are not executed as implementation work themselves. Child FEATURE Plans point back
+to the Epic with `parentPlan` and may list sibling `dependencies`. Legacy non-Epic PROJECT task tables still exist for
+compatibility, but they are not the active PROJECT workflow.
 
 ## Statuses
 

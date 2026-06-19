@@ -109,7 +109,8 @@ Harns itself is plan-by-default for non-trivial work. Contributions should prese
 
 - `QUICK_FIX` work should stay small and self-verified.
 - `FEATURE` work should be traceable to a reviewable plan when the blast radius is non-trivial.
-- `PROJECT` work should separate architecture/design from vertical slicing and execution.
+- `PROJECT` work should be represented as an Epic: Architect owns the design, interactive Slicer owns child FEATURE
+  boundaries, and execution happens through those child FEATURE plans.
 - Workflow validation should remain an independent acceptance gate for saved plan execution.
 
 ## License note

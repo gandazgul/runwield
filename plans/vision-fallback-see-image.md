@@ -1,29 +1,28 @@
 ---
 classification: "FEATURE"
 complexity: "HIGH"
-summary: "Implement a vision fallback mechanism for text-only models. This involves:
-    1. Adding `visionFallback` configuration to settings.
-    2. Modifying session building to inject a `see_image` tool when the active model is text-only but a fallback is configured.
-    3. Implementing the `see_image` tool, which uses the configured fallback vision model to describe images.
-    4. Implementing image attachment gating (block/warn/allow) based on model capabilities and fallback configuration.
-    5. Implementing session-scoped image storage for pasted attachments.
-    6. Updating settings documentation."
+summary: "Implement a vision fallback mechanism for text-only models. This involves: 
+1. Adding `visionFallback` configuration to settings.
+2. Modifying session building to inject a `see_image` tool when the active model is text-only but a fallback is configured.
+3. Implementing the `see_image` tool, which uses the configured fallback vision model to describe images.
+4. Implementing image attachment gating (block/warn/allow) based on model capabilities and fallback configuration.
+5. Implementing session-scoped image storage for pasted attachments.
+6. Updating settings documentation."
 affectedPaths:
-    - "src/shared/settings.js"
-    - "src/shared/session/session.js"
-    - "src/shared/models/model-registry.js"
-    - "src/tools/see-image.js"
-    - "src/shared/ui/interactive-session.js"
-    - "docs/settings.md"
+  - "src/shared/settings.js"
+  - "src/shared/session/session.js"
+  - "src/shared/models/model-registry.js"
+  - "src/tools/see-image.js"
+  - "src/shared/ui/interactive-session.js"
+  - "docs/settings.md"
 createdAt: "2026-06-19T04:10:33.000Z"
-updatedAt: "2026-06-19T04:25:35.650Z"
-status: "implemented"
+updatedAt: "2026-06-19T04:43:23.927Z"
+status: "verified"
 origin: "internal"
 implementedAt: "2026-06-19T04:25:35.650Z"
-worktreeStatus: "completed"
+verifiedAt: "2026-06-19T04:43:23.927Z"
 routingIntent: "FEATURE"
 ---
-
 # Vision Fallback See-Image Tool
 
 ## Context

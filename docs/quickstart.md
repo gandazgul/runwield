@@ -100,7 +100,8 @@ hns router "summarize this repository and tell me how to run its checks"
 ```
 
 Router is the default Agent for fresh triage. It calls `triage_report` to classify the request as a `QUICK_FIX`,
-`FEATURE`, or `PROJECT`; that tool outcome hands off to the appropriate workflow.
+`FEATURE`, or `PROJECT`; that tool outcome hands off to the appropriate workflow. PROJECT work becomes an Epic design
+plan first, then the interactive Slicer breaks it into child FEATURE plans after approval.
 
 ## Common commands
 
