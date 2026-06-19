@@ -196,7 +196,11 @@ export async function resolveVisionFallbackModel(modelRegistry = getModelRegistr
     let found = modelRegistry.find(parsed.provider, parsed.id);
     if (!found) {
         try {
-            found = await discoverProviderModel(modelRegistry, parsed.provider, parsed.id);
+            // The fallback model is explicitly configured for vision, so register
+            // discovered models with image input even though /models can't report it.
+            found = await discoverProviderModel(modelRegistry, parsed.provider, parsed.id, {
+                input: ["text", "image"],
+            });
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             throw new Error(`Unknown visionFallback.model: ${configured}. ${message}`);

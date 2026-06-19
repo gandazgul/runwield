@@ -6,6 +6,20 @@
 
 The tools listed above are the tools available in this session.
 
+## Image Attachments
+
+When the user pastes an image and your current model cannot receive images directly, the image is stored as a session
+artifact and a text marker is placed in the conversation instead:
+
+```
+[Image attached: attachment:<uuid> <mimeType>]
+```
+
+If `see_image` is listed in your available tools, use it to inspect these markers. Call `see_image` with
+`imageRef: "attachment:<uuid>"` (the full reference from the marker) to get a textual description of the image from the
+configured vision fallback model. You can also pass an optional `question` parameter to ask about a specific aspect of
+the image.
+
 ## Skills
 
 The following skills provide specialized instructions for specific tasks. Use the read tool to load a skill's file when

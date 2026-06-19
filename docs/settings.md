@@ -188,6 +188,33 @@ Cannot attach image: current model does not support vision and no visionFallback
 See docs/settings.md#visionfallback to configure an image fallback model.
 ```
 
+#### Declaring vision support for discovered models
+
+OpenAI-compatible `/models` endpoints (used to auto-discover models for providers configured with only `baseUrl` +
+`apiKey` in `~/.hns/models.json`) do not report per-model input modalities. Harns therefore registers discovered models
+as **text-only** by default — sending raw image bytes to a text-only model can fail silently on some providers.
+
+To mark specific discovered models as vision-capable, add an `imageInputModels` array to the provider entry in
+`models.json`:
+
+```json
+{
+    "providers": {
+        "crofai": {
+            "baseUrl": "https://crof.ai/v1",
+            "api": "openai-completions",
+            "apiKey": "...",
+            "imageInputModels": ["some-vision-model"]
+        }
+    }
+}
+```
+
+Models not listed remain text-only and rely on `visionFallback.model`. A model named in `visionFallback.model` is always
+treated as vision-capable, so it does not need to appear in `imageInputModels`. To fully control a model's metadata
+(context window, cost, etc.), define it explicitly under `providers.<p>.models[]` with `input: ["text", "image"]`
+instead of relying on discovery.
+
 ### Resolution Order
 
 Model resolution for an agent invocation:

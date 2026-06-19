@@ -75,12 +75,21 @@ function readOpenAiModelIds(payload) {
  * case the upstream registry has no concrete model object yet, so Harns asks
  * the provider before treating the settings model as unknown.
  *
+ * The `/models` endpoint does not report per-model input modalities, so
+ * discovered models default to text-only. There are two ways to mark a
+ * discovered model as vision-capable:
+ *   1. List its id in the provider's `imageInputModels` array in models.json.
+ *   2. Pass `input: ["text", "image"]` (callers that already know the model is
+ *      vision-capable, e.g. an explicitly configured `visionFallback.model`).
+ * An explicit `options.input` always wins over the `imageInputModels` allowlist.
+ *
  * @param {ModelRegistry} modelRegistry
  * @param {string} provider
  * @param {string} modelId
  * @param {{
  *   harnsDir?: string,
  *   fetchFn?: typeof fetch,
+ *   input?: ("text" | "image")[],
  * }} [options]
  * @returns {Promise<any | undefined>}
  */
@@ -116,6 +125,13 @@ export async function discoverProviderModel(modelRegistry, provider, modelId, op
     const ids = readOpenAiModelIds(await response.json());
     if (!ids.includes(modelId)) return undefined;
 
+    // /models reports no modalities, so default to text-only. A user can opt a
+    // discovered model into image input via providers.<p>.imageInputModels in
+    // models.json. An explicit options.input (e.g. the vision fallback path) wins.
+    const imageInputModels = Array.isArray(providerConfig.imageInputModels) ? providerConfig.imageInputModels : [];
+    /** @type {("text" | "image")[]} */
+    const resolvedInput = options.input ?? (imageInputModels.includes(modelId) ? ["text", "image"] : ["text"]);
+
     modelRegistry.registerProvider(provider, {
         name: providerConfig.name ?? provider,
         baseUrl,
@@ -129,7 +145,7 @@ export async function discoverProviderModel(modelRegistry, provider, modelId, op
             api,
             baseUrl,
             reasoning: false,
-            input: ["text", "image"],
+            input: resolvedInput,
             cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
             contextWindow: 128000,
             maxTokens: 16384,

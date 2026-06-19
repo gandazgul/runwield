@@ -117,3 +117,106 @@ Deno.test("discoverProviderModel registers a model returned by OpenAI-compatible
         await Deno.remove(tempDir, { recursive: true });
     }
 });
+
+Deno.test("discoverProviderModel defaults discovered models to text-only input", async () => {
+    const tempDir = await Deno.makeTempDir({ prefix: "harns-model-discovery-input-" });
+    try {
+        await Deno.writeTextFile(
+            join(tempDir, "models.json"),
+            JSON.stringify({
+                providers: {
+                    crofai: {
+                        baseUrl: "https://crof.ai/v1",
+                        api: "openai-completions",
+                        apiKey: "test-key",
+                    },
+                },
+            }),
+        );
+
+        /** @type {any} */
+        let registeredConfig;
+        const registry = /** @type {any} */ ({
+            find: () => registeredConfig ? { ...registeredConfig.models[0], provider: "crofai" } : undefined,
+            registerProvider: (/** @type {string} */ _provider, /** @type {any} */ config) => {
+                registeredConfig = config;
+            },
+        });
+
+        // Default discovery (active model path): must NOT claim image support,
+        // otherwise raw image bytes get sent to a text-only model and silently fail.
+        const fetchFn = /** @type {typeof fetch} */ (/** @type {any} */ (() =>
+            Promise.resolve({
+                ok: true,
+                status: 200,
+                statusText: "OK",
+                json: () => Promise.resolve({ data: [{ id: "deepseek-v4-pro" }] }),
+            })));
+
+        // Default discovery (active model path): must NOT claim image support,
+        // otherwise raw image bytes get sent to a text-only model and silently fail.
+        await discoverProviderModel(registry, "crofai", "deepseek-v4-pro", {
+            harnsDir: tempDir,
+            fetchFn,
+        });
+        assertEquals(registeredConfig.models[0].input, ["text"]);
+
+        // Explicit vision-fallback path: caller opts the discovered model into image input.
+        registeredConfig = undefined;
+        await discoverProviderModel(registry, "crofai", "deepseek-v4-pro", {
+            harnsDir: tempDir,
+            input: ["text", "image"],
+            fetchFn,
+        });
+        assertEquals(registeredConfig.models[0].input, ["text", "image"]);
+    } finally {
+        await Deno.remove(tempDir, { recursive: true });
+    }
+});
+
+Deno.test("discoverProviderModel honors provider imageInputModels allowlist", async () => {
+    const tempDir = await Deno.makeTempDir({ prefix: "harns-model-discovery-allowlist-" });
+    try {
+        await Deno.writeTextFile(
+            join(tempDir, "models.json"),
+            JSON.stringify({
+                providers: {
+                    crofai: {
+                        baseUrl: "https://crof.ai/v1",
+                        api: "openai-completions",
+                        apiKey: "test-key",
+                        imageInputModels: ["vision-model"],
+                    },
+                },
+            }),
+        );
+
+        /** @type {any} */
+        let registeredConfig;
+        const registry = /** @type {any} */ ({
+            find: () => undefined,
+            registerProvider: (/** @type {string} */ _provider, /** @type {any} */ config) => {
+                registeredConfig = config;
+            },
+        });
+
+        const fetchFn = /** @type {typeof fetch} */ (/** @type {any} */ (() =>
+            Promise.resolve({
+                ok: true,
+                status: 200,
+                statusText: "OK",
+                json: () => Promise.resolve({ data: [{ id: "vision-model" }, { id: "text-model" }] }),
+            })));
+
+        // Listed in imageInputModels -> vision-capable.
+        await discoverProviderModel(registry, "crofai", "vision-model", { harnsDir: tempDir, fetchFn });
+        assertEquals(registeredConfig.models[0].input, ["text", "image"]);
+
+        // Not listed -> text-only.
+        registeredConfig = undefined;
+        await discoverProviderModel(registry, "crofai", "text-model", { harnsDir: tempDir, fetchFn });
+        assertEquals(registeredConfig.models[0].input, ["text"]);
+    } finally {
+        await Deno.remove(tempDir, { recursive: true });
+    }
+});
