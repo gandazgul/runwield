@@ -12,7 +12,7 @@
         "@std/front-matter": "jsr:@std/front-matter@^1.0.9",
         "@std/path": "jsr:@std/path@^1.0.0",
         "@std/assert": "jsr:@std/assert@^1.0.19",
-        "@std/jsonc": "jsr:@std/jsonc@^1.0.0",
+        "@std/jsonc": "jsr:@std/jsonc@^1.0.2",
         "@std/cli/parse-args": "jsr:@std/cli@^1.0.30/parse-args",
         "@gandazgul/plannotator-pi-extension-compiled": "npm:@gandazgul/plannotator-pi-extension-compiled@^0.21.0",
         "@gandazgul/plannotator-pi-extension-compiled/server": "npm:@gandazgul/plannotator-pi-extension-compiled@^0.21.0/server",
