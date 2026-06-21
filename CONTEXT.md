@@ -156,11 +156,14 @@ plans under `plans/<epic-name>/`. _Avoid_: Task planner, splitter
 
 **Tester**: The Agent that writes or updates tests for assigned work. _Avoid_: QA, test writer
 
-**Doc Writer**: The Agent that creates or updates technical documentation for assigned work. _Avoid_: Documenter, tech
-writer
-
 **Agent Definition**: A markdown file with YAML Front Matter defining an Agent's display name, model, tools, and system
 prompt. _Avoid_: Agent def, agent prompt, agent config
+
+**Skill**: A reusable instruction package an Agent can load for a specialized task without becoming a separate Agent
+Session. _Avoid_: Agent, workflow role, sub-agent
+
+**Documentation Skill**: The Skill that guides an Agent when creating or updating project documentation. _Avoid_: Doc
+Writer, documentation agent, documenter
 
 **Agent Name**: The internal identifier for an Agent, derived from its Agent Definition filename without `.md`. _Avoid_:
 Display name, label
