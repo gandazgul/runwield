@@ -14,7 +14,7 @@ affectedPaths:
     - "src/agent-definitions/document-formats/planner-plan-format.md"
     - "CONTEXT.md"
     - "docs/plan-lifecycle.md"
-    - "docs/prd/project-decomposition-PRD.md"
+    - "docs/prd/done/project-decomposition-PRD.md"
 createdAt: "2026-06-16T16:25:04Z"
 status: "verfied"
 ---
@@ -28,9 +28,9 @@ adds a task table, and the system attempts to execute the resulting task graph a
 work harder to steer: the user cannot easily pick an MVP slice, defer later work, or revise the decomposition before
 execution starts.
 
-The product direction in `docs/prd/project-decomposition-PRD.md` reframes `PROJECT` as an Epic container. The Architect
-still creates the broad design, but the Slicer becomes an interactive PM/lead-engineer agent that helps the user split
-the Epic into independently executable `FEATURE` plans.
+The product direction in `docs/prd/done/project-decomposition-PRD.md` reframes `PROJECT` as an Epic container. The
+Architect still creates the broad design, but the Slicer becomes an interactive PM/lead-engineer agent that helps the
+user split the Epic into independently executable `FEATURE` plans.
 
 This plan set uses two slice labels:
 
@@ -80,7 +80,7 @@ child plans, draft child plans, or explicit notes in the Epic summary.
 - `src/tools/plan-written.js` - ensure approved PROJECT/Epic plans enter the new readiness/decomposition path.
 - `CONTEXT.md` - update the domain glossary to reflect Epic containers and child FEATURE plans.
 - `docs/plan-lifecycle.md` - document Epic lifecycle behavior without confusing it with executable plan status.
-- `docs/prd/project-decomposition-PRD.md` - reconcile v1 scope after implementation decisions are known.
+- `docs/prd/done/project-decomposition-PRD.md` - reconcile v1 scope after implementation decisions are known.
 
 ## Reuse Opportunities
 

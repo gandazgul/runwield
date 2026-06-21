@@ -1,94 +1,88 @@
 # TODO
 
-- [ ] more tests
-
-Refactor-first (before testing) candidates:
-
-- chat-session.js: biggest one. startInteractiveSession owns TUI construction, boot flow, init prompt, autocomplete,
-  queueing, steering, cancellation, bash, slash commands, and submission processing. It wants extraction into smaller
-  controllers before test growth.
-- root-session.js: session manager persistence/bootstrap is hard-coupled to concrete external session APIs.
-
-- [ ] Add hooks/code extension support. Continue to ignore skills and other pi things.
-- [ ] Make a [colgrep](https://github.com/lightonai/next-plaid/blob/main/colgrep/README.md) extension for harns that
-      users can install separately.
-- [ ] Plan archiving: move old plans (e.g., completed > N days) into `plans/archive/` so the active plans list stays
-      short. Surface archived plans only on explicit request.
-- [ ] when we want to trully restrict an agent's write/edit access we should invoke bash commands with a user that has
-      no write permissions on the codebase. This way even if the agent tries to use bash to modify files, it will be
-      blocked by the OS permissions. We can create a separate user (e.g., "harns_operator") with read-only access to the
-      codebase and run all bash commands from that user context. This adds an extra layer of security and ensures that
-      agents cannot bypass their tool restrictions.
-
-- [ ] /reload command to refresh dynamic system-prompt content on the live root AgentSession (memories, skills list,
-      HARNS.md). Needed because the root AgentSession is built once per agent switch and bakes these in at construction;
-      without /reload, mid-session changes to mnemosyne memories / installed skills / HARNS.md are not visible to the
-      active agent until the next agent switch.
-- [ ] default to this theme instead? <https://github.com/ifiokjr/oh-pi/blob/main/packages/themes/themes/oh-p-dark.json>
-
 ## Bugs
 
-- Shift + tab stopped working (thinking level)?
+- [x] Fix Shift+Tab thinking-level cycling regression. It was previously implemented in
+      [plans/archived/implement-thinking-level-cycling.md](plans/archived/implement-thinking-level-cycling.md), so this
+      is likely a focused keybinding/session-state regression.
+- [x] Recover and finish the routing intent work in
+      [plans/routing-intent-guide-agent.md](plans/routing-intent-guide-agent.md).
 
-## Roadmap / Backlog
+## Backlog
 
-### Plan Lifecycle UX
+### P0 - Roadmap and Plan Hygiene
 
-- [ ] Improve plan browsing by status (`draft`, `feedback`, `approved`, `ready_for_work`, `in_progress`, `failed`,
-      `implemented`, `verified`).
-- [ ] Polish recovery UX for `in_progress`, `failed`, and `implemented` plans, including scoped diffs, validation retry,
-      reset-to-baseline, and re-open-for-review paths.
-- [ ] Add validation reports that summarize local CI, semantic review, scoped diff, final status, and failure reasons in
-      one place.
-- [ ] Improve re-open/re-review flows for plans that need another approval pass.
-- [ ] Separate active and archived plans so completed or stale plans do not crowd the main plan list.
-- [ ] Show "what changed since this plan was approved?" summaries before execution or re-execution.
+- [ ] Implement plan archival/search so completed or stale plans stop crowding the active list:
+      [plans/implementing-plan-archival.md](plans/implementing-plan-archival.md).
+- [ ] Implement first-class deferred work with `on_hold` status:
+      [docs/prd/on-hold-plan-status.md](docs/prd/on-hold-plan-status.md).
+- [ ] Keep completed PRDs in [docs/prd/done/](docs/prd/done/) and completed plans in [plans/archived/](plans/archived/).
+      This is the current convention for marking roadmap artifacts done without renaming every file.
 
-### Local Workflow Metrics
+### P1 - Core Workflow UX
 
-- [ ] Record local-only workflow events that help evaluate Harns' routing, planning, execution, validation, recovery,
-      and model-selection decisions.
-- [ ] Track practical fields such as classification, complexity, models used, time to triage, time to first plan, review
-      rounds, plan outcome, slicer success, execution result, validation result, recovery action, rough context size,
-      and plan age/status distribution.
-- [ ] Use metrics to answer product questions: Router accuracy, where plans stall, whether Slicer improves PROJECT
-      reliability, when auto-sleep should trigger, and whether worktrees reduce conflicts/recovery events.
+- [ ] Finish Plan Lifecycle UX polish: status browsing, recovery paths for `in_progress` / `failed` / `implemented`,
+      validation reports, re-review flows, and "what changed since approval?" summaries. Canonical lifecycle context:
+      [docs/plan-lifecycle.md](docs/plan-lifecycle.md).
+- [ ] Expose compaction settings and make the current compaction behavior easier to inspect:
+      [docs/prd/compaction-PRD.md](docs/prd/compaction-PRD.md).
+- [x] Add `/reload` to refresh dynamic system-prompt content on the live root `AgentSession` after memory, skill, or
+      `HARNS.md` changes.
+- [ ] Refactor before broad test expansion: `src/shared/interactive/chat-session.js` and
+      `src/shared/session/root-session.js` are the main candidates.
+- [ ] Add more focused tests after the refactor boundaries are clearer.
 
-      Use lmdb?
+### P2 - Extension and Package Ecosystem
 
-### Memory Automation
+- [ ] Allow explicitly Harns-compatible Pi-shaped code extensions:
+      [plans/allow-harns-compatible-pi-extensions.md](plans/allow-harns-compatible-pi-extensions.md).
+- [ ] Allow installed Pi packages to contribute passive slash prompt templates:
+      [plans/allow-harns-compatible-extension-prompts.md](plans/allow-harns-compatible-extension-prompts.md).
+- [ ] Improve install output for ignored package skills:
+      [plans/message-for-ignored-pi-package-skills.md](plans/message-for-ignored-pi-package-skills.md).
+- [ ] Build the optional Colgrep semantic search extension:
+      [plans/colgrep-semantic-search-extension.md](plans/colgrep-semantic-search-extension.md).
+- [ ] Continue to document that `~/.agents/skills` is the preferred skill-install path instead of implementing native
+      Harns skill installation.
 
+### P3 - Search, Memory, and Metrics
+
+- [ ] Revisit the native semantic indexer only after confirming the external-tool gap is still worth the complexity:
+      [plans/unified-semantic-indexer.md](plans/unified-semantic-indexer.md).
+- [ ] Record local-only workflow metrics for routing, planning, execution, validation, recovery, and model-selection
+      decisions.
+- [ ] Use those metrics to evaluate Router accuracy, plan stall points, Slicer outcomes, auto-sleep triggers, worktree
+      recovery rates, and model behavior.
 - [ ] Define auto-sleep trigger policy around session end, memory churn, session age, context size, and plan completion.
-- [ ] Offer or run `/sleep` automatically at natural boundaries rather than relying only on manual invocation.
 - [ ] Add a refresh path for core project memories beyond `/sleep`, while keeping Mnemosyne core memories as the source
       of the compressed project brief.
 
-### Model Reliability & Evaluation
+### P4 - Model Reliability and Capability Transparency
 
-- [ ] Add model fallback policy for unavailable configured models/auth: fail loudly, ask, role-based fallback, or
-      cheapest known-good fallback.
+- [ ] Add a clear model fallback policy for unavailable configured models/auth.
 - [ ] Build Router classification fixtures to evaluate routing quality across models.
 - [ ] Define Planner/Architect plan-quality evaluation rubrics.
-- [ ] Explore SWE-bench-style or repo-local execution harnesses for Engineer/Operator model evaluation.
-- [ ] Keep provider/model-specific prompt tuning out of scope unless it emerges from clear eval data or community
-      contributions.
+- [ ] Explore repo-local execution harnesses for Engineer/Operator model evaluation.
+- [ ] Add a resolved capability viewer showing each agent's effective tools, prompt source layers, runtime narrowing,
+      protected-tool reinjection, and custom-tool additions.
 
-### Agent Capability Transparency
+### P5 - Collaboration
 
-- [ ] Add a resolved capability viewer that shows each agent's effective tools after bundled/home/local layering,
-      protected-tool reinjection, runtime narrowing, and custom-tool additions.
-- [ ] Surface prompt source layers and whether a layer appended to or replaced the bundled agent prompt.
+- [ ] Revisit collaborative planning when local lifecycle/plan hygiene is stable:
+      [docs/prd/collaborative-planning-PRD.md](docs/prd/collaborative-planning-PRD.md).
 
-### Security Review Gate
+### P6 - Security and Hardening
 
-- [ ] Add Security Reviewer as an optional planning/review gate, especially for production-oriented FEATURE and PROJECT
-      workflows.
-- [ ] Make security review mode-aware so rapid prototypes and one-off builds can bypass it without fighting the system.
-- [ ] Let Planner/Architect invoke security review when threat modeling or sensitive surfaces are relevant.
+- [ ] Add Security Reviewer as an optional planning/review gate for production-oriented FEATURE and PROJECT workflows.
+- [ ] Make security review mode-aware so prototypes and one-off builds can bypass it.
+- [ ] Investigate running restricted agents' bash commands under a read-only OS user for stronger write barriers.
 
-### Research Tracks
+### Lower Priority / Someday
 
-- [ ] Explore Colgrep or similar tools as a possible complement for code search.
-- [ ] Research what meaningful UI/UX assistance should look like in Harns before adding a thin Playwright-specific
-      agent.
-- [ ] Prefer PRD/to-issues/Ideator workflows over a standalone PM agent until there is a clear job for a PM agent to do.
+- [ ] Consider making this theme the default:
+      <https://github.com/ifiokjr/oh-pi/blob/main/packages/themes/themes/oh-p-dark.json>.
+- [x] Theme extension support is done: [docs/prd/done/theme-extensions.md](docs/prd/done/theme-extensions.md).
+- [x] PROJECT decomposition into Epic + child FEATURE plans is done:
+      [docs/prd/done/project-decomposition-PRD.md](docs/prd/done/project-decomposition-PRD.md).
+- [x] Vision fallback / `see_image` support is done:
+      [docs/prd/done/vision-fallback-see-image.md](docs/prd/done/vision-fallback-see-image.md).

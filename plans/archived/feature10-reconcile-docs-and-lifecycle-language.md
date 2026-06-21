@@ -5,7 +5,7 @@ summary: "Update Harns docs and domain language so PROJECT, Epic, Slicer, Ready 
 affectedPaths:
     - "CONTEXT.md"
     - "docs/plan-lifecycle.md"
-    - "docs/prd/project-decomposition-PRD.md"
+    - "docs/prd/done/project-decomposition-PRD.md"
     - "PRD.md"
     - "README.md"
 createdAt: "2026-06-16T16:25:04Z"
@@ -40,13 +40,14 @@ PRD, domain-facing in `CONTEXT.md`, and operational in `docs/plan-lifecycle.md`.
 
 - `CONTEXT.md` - update terminology for PROJECT, Epic, Slicer, child FEATURE plans, and Task/DAG legacy wording.
 - `docs/plan-lifecycle.md` - document Epic lifecycle behavior and how it differs from executable FEATURE lifecycle.
-- `docs/prd/project-decomposition-PRD.md` - reconcile v1 scope with implementation decisions, especially deferred work.
+- `docs/prd/done/project-decomposition-PRD.md` - reconcile v1 scope with implementation decisions, especially deferred
+  work.
 - `PRD.md` - update top-level product description if it still describes PROJECT task slicing as the active path.
 - `README.md` - update user-facing command descriptions only if current README behavior changes.
 
 ## Reuse Opportunities
 
-- `docs/prd/project-decomposition-PRD.md` - use it as the source product vision.
+- `docs/prd/done/project-decomposition-PRD.md` - use it as the source product vision.
 - `CONTEXT.md` - preserve existing glossary style and "avoid" language.
 - `docs/plan-lifecycle.md` - preserve the event/status table style.
 
@@ -62,7 +63,7 @@ PRD, domain-facing in `CONTEXT.md`, and operational in `docs/plan-lifecycle.md`.
 
 ## Verification Plan
 
-- Automated: `deno fmt CONTEXT.md docs/plan-lifecycle.md docs/prd/project-decomposition-PRD.md PRD.md README.md`
+- Automated: `deno fmt CONTEXT.md docs/plan-lifecycle.md docs/prd/done/project-decomposition-PRD.md PRD.md README.md`
 - Automated: `deno run ci`
 - Manual: read the updated glossary and lifecycle docs as a fresh agent and verify the intended flow is unambiguous.
 - Expected result: docs consistently describe PROJECT as a decomposition workflow, not an executable task DAG.

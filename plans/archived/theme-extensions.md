@@ -35,7 +35,7 @@ Upstream `@earendil-works/pi-coding-agent` already provides everything we need:
 - `PackageManager` (`src/core/package-manager.ts`) — installs `npm:`/`git:`/`local:` sources and resolves them to
   `ResolvedPaths { extensions, skills, prompts, themes }`. We filter to `themes` only.
 
-The PRD at `docs/prd/theme-extensions.md` is the source spec. User-confirmed design points:
+The PRD at `docs/prd/done/theme-extensions.md` is the source spec. User-confirmed design points:
 
 1. **Builtin precedence.** The embedded `catppuccin-mocha` always wins a name collision.
 2. **Merge fallback.** External theme `colors` are merged on top of catppuccin-mocha so any missing token degrades

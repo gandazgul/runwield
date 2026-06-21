@@ -366,7 +366,7 @@ Guidelines:
 
 ## 8. References
 
-- Existing PRD format: `docs/prd/collaborative-planning-PRD.md`, `docs/prd/theme-extensions.md`
+- Existing PRD format: `docs/prd/collaborative-planning-PRD.md`, `docs/prd/done/theme-extensions.md`
 - Current Slicer implementation: `src/shared/workflow/workflow-slicer.js` — interactive Epic decomposition plus the
   legacy task-table compatibility path.
 - Legacy/future task execution machinery: `src/shared/workflow/project-executor.js`,

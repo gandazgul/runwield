@@ -28,7 +28,7 @@ routingIntent: "FEATURE"
 
 ## Context
 
-`docs/prd/vision-fallback-see-image.md` specifies a native Harns fallback for users running text-only agent models.
+`docs/prd/done/vision-fallback-see-image.md` specifies a native Harns fallback for users running text-only agent models.
 Harns can already paste and send image attachments to providers, but text-only models cannot consume those raw image
 blocks. The desired behavior is:
 
