@@ -22,16 +22,19 @@ import { readClipboardImage } from "../clipboard.js";
 import { theme } from "../ui/theme.js";
 
 /**
- * @param {import('@earendil-works/pi-tui').Editor & { isEditorEmpty?: () => boolean }} editor
+ * @param {import('@earendil-works/pi-tui').Editor} editor
  * @returns {boolean}
  */
 function isEditorEmpty(editor) {
-    if (typeof editor.getText === "function") {
-        return editor.getText() === "";
+    const readableEditor = /** @type {{ getText?: () => string, isEditorEmpty?: () => boolean }} */ (
+        /** @type {any} */ (editor)
+    );
+    if (typeof readableEditor.getText === "function") {
+        return readableEditor.getText() === "";
     }
-    if (typeof editor.isEditorEmpty === "function") {
+    if (typeof readableEditor.isEditorEmpty === "function") {
         // Older pi-tui builds exposed this private helper at runtime.
-        return editor.isEditorEmpty();
+        return readableEditor.isEditorEmpty();
     }
     return false;
 }
