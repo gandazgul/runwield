@@ -13,7 +13,7 @@
     "jsr:@std/toml@^1.0.3": "1.0.11",
     "jsr:@std/yaml@^1.0.5": "1.1.1",
     "npm:@earendil-works/pi-agent-core@~0.79.5": "0.79.5_zod@4.4.3",
-    "npm:@earendil-works/pi-ai@~0.79.7": "0.79.7_zod@4.4.3",
+    "npm:@earendil-works/pi-ai@~0.79.9": "0.79.9_zod@4.4.3",
     "npm:@earendil-works/pi-coding-agent@~0.79.4": "0.79.4_zod@4.4.3",
     "npm:@earendil-works/pi-tui@~0.79.4": "0.79.4",
     "npm:@gandazgul/plannotator-pi-extension-compiled@0.21": "0.21.0_@mariozechner+pi-agent-core@0.73.1_@mariozechner+pi-ai@0.73.1_@mariozechner+pi-coding-agent@0.73.1_@mariozechner+pi-tui@0.73.1",
@@ -373,13 +373,14 @@
         "yaml"
       ]
     },
-    "@earendil-works/pi-ai@0.79.7_zod@4.4.3": {
-      "integrity": "sha512-KTe2euBoBEmFb0W+KR05Im8Qq4coU+eo46++UgNAfT3L8OIBv3QU+/pif9EqaFQ1QUmirv8kgy4TQltvrCu7iQ==",
+    "@earendil-works/pi-ai@0.79.9_zod@4.4.3": {
+      "integrity": "sha512-fHmgNMONwCCE7bQAKbcz76sgm3iQuA7km1mpIc4H5xXd9+zhPh/faULz6ARkgjQE0EufHnfZPJY39+lNf8Sa9g==",
       "dependencies": [
         "@anthropic-ai/sdk",
         "@aws-sdk/client-bedrock-runtime",
         "@google/genai",
         "@mistralai/mistralai",
+        "@opentelemetry/api",
         "@smithy/node-http-handler@4.7.3",
         "http-proxy-agent",
         "https-proxy-agent",
@@ -582,12 +583,17 @@
       ],
       "deprecated": true
     },
-    "@mistralai/mistralai@2.2.1": {
-      "integrity": "sha512-uKU8CZmL2RzYKmplsU01hii4p3pe4HqJefpWNRWXm1Tcm0Sm4xXfwSLIy4k7ZCPlbETCGcp69E7hZs+WOJ5itQ==",
+    "@mistralai/mistralai@2.2.6_@opentelemetry+api@1.9.0": {
+      "integrity": "sha512-W8pX7zHxjJvMIpw8JMxeJEleapXX0Q9NPszdNzqkM3MIEoIGPObdodujj+WHteXEvGfaP/AMwlNyRfEzSY6dQQ==",
       "dependencies": [
+        "@opentelemetry/api",
+        "@opentelemetry/semantic-conventions",
         "ws",
         "zod",
         "zod-to-json-schema"
+      ],
+      "optionalPeers": [
+        "@opentelemetry/api"
       ]
     },
     "@mixmark-io/domino@2.2.0": {
@@ -595,6 +601,12 @@
     },
     "@nodable/entities@2.1.1": {
       "integrity": "sha512-Pig3HxDIoMgjdEH8OCf/dkcTmLFjJRjWuq8jSnklu284/TKOPibSRERmOykiwmyXTtv61mP+44f3GMx0tLAyjg=="
+    },
+    "@opentelemetry/api@1.9.0": {
+      "integrity": "sha512-3giAOQvZiH5F9bMlMiv8+GSPMeqg0dbaeo58/0SlA9sxSqZhnUtxzX9/2FzyhS9sWQf5S0GJE0AKBrFqjpeYcg=="
+    },
+    "@opentelemetry/semantic-conventions@1.41.1": {
+      "integrity": "sha512-/UhIkaZgPutTFmQ7RnIJGgDXZmtEJ7Dvi86xNTFWcnRxVRNk/aotsqDJYeEvDP+FSMB2SdW+pQzNMcWP0rwuNA=="
     },
     "@protobufjs/aspromise@1.1.2": {
       "integrity": "sha512-j+gKExEuLmKwvz3OgROXtrJ2UG2x8Ch2YZUxahh+s1F2HZ+wAceUNLkvy6zKCPVRkU++ZWQrdxsUeQXmcg4uoQ=="
@@ -1501,7 +1513,7 @@
       "jsr:@std/jsonc@1",
       "jsr:@std/path@1",
       "npm:@earendil-works/pi-agent-core@~0.79.5",
-      "npm:@earendil-works/pi-ai@~0.79.7",
+      "npm:@earendil-works/pi-ai@~0.79.9",
       "npm:@earendil-works/pi-coding-agent@~0.79.4",
       "npm:@earendil-works/pi-tui@~0.79.4",
       "npm:@gandazgul/plannotator-pi-extension-compiled@0.21",
