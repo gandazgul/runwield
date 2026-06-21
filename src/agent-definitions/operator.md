@@ -51,8 +51,10 @@ You will receive either:
    variable definitions).
 3. **Diagnose unknown-cause bugs** — If the task is a bug report without a clear known fix, use the **diagnose** skill
    to reproduce the failure before touching code. Build a feedback loop, confirm the symptom, then proceed.
-4. **Execute** — Make the change, run the command, or perform the operation using your tools.
-5. **Verify** — Confirm the result.
+4. **Handle documentation requests** — If the task asks for Markdown documentation updates, load and follow the
+   **documentation** skill before editing docs.
+5. **Execute** — Make the change, run the command, or perform the operation using your tools.
+6. **Verify** — Confirm the result.
    - If you modified code, try to run a relevant linter or test suite via `bash` to ensure you didn't break the build.
    - If you committed, show the commit hash.
    - If you ran a command, check the output.

@@ -108,7 +108,7 @@ export function extractTasks(planContent) {
     return tasks;
 }
 
-const PROJECT_TASK_ASSIGNEES = new Set([AGENTS.ENGINEER, AGENTS.TESTER, AGENTS.DOC_WRITER]);
+const PROJECT_TASK_ASSIGNEES = new Set([AGENTS.ENGINEER, AGENTS.TESTER]);
 const BROAD_WRITE_SCOPES = new Set(["*", "**", "all", "repo", "repository", "unknown", "tbd", "any"]);
 const NO_WRITE_SCOPES = new Set(["none", "no", "readonly", "read-only", "n/a", "na"]);
 
@@ -229,7 +229,7 @@ export function validateProjectTasks(tasks) {
         if (!PROJECT_TASK_ASSIGNEES.has(task.assignee)) {
             throw new Error(
                 `Task ${task.task} has invalid assignee "${task.assignee}". ` +
-                    "Allowed assignees are engineer, tester, and doc-writer.",
+                    "Allowed assignees are engineer and tester.",
             );
         }
     }

@@ -194,9 +194,8 @@ Deno.test("extractTasks throws error when table is empty", () => {
 
 Deno.test("validateProjectTasks accepts a valid PROJECT task DAG with final Integration Point", () => {
     validateProjectTasks([
-        { task: 1, assignee: "engineer", dependencies: "none", description: "Implement slice" },
-        { task: 2, assignee: "doc-writer", dependencies: "none", description: "Document user-facing behavior" },
-        { task: 3, assignee: "tester", dependencies: "1, 2", description: "Integration Point: run validation" },
+        { task: 1, assignee: "engineer", dependencies: "none", description: "Implement slice and docs" },
+        { task: 2, assignee: "tester", dependencies: "1", description: "Integration Point: run validation" },
     ]);
 });
 
@@ -228,6 +227,16 @@ Deno.test("validateProjectTasks rejects invalid assignees", () => {
         () =>
             validateProjectTasks([
                 { task: 1, assignee: "planner", dependencies: "none", description: "Implement slice" },
+                { task: 2, assignee: "tester", dependencies: "1", description: "Integration Point: run validation" },
+            ]),
+        Error,
+        "invalid assignee",
+    );
+
+    assertThrows(
+        () =>
+            validateProjectTasks([
+                { task: 1, assignee: "doc-writer", dependencies: "none", description: "Document behavior" },
                 { task: 2, assignee: "tester", dependencies: "1", description: "Integration Point: run validation" },
             ]),
         Error,

@@ -11,16 +11,15 @@ detail blocks below it with your new output.
 
 ## Tasks
 
-Tasks must form a Directed Acyclic Graph (DAG). Each row is a vertical slice (or a parallelizable doc/test task), not a
+Tasks must form a Directed Acyclic Graph (DAG). Each row is a vertical slice (or a parallelizable test task), not a
 horizontal layer. Numeric task IDs, `none` or comma-separated IDs in Dependencies, comma-separated repo-relative paths
-in Write Scope, and an assignee from `engineer | tester | doc-writer`.
+in Write Scope, and an assignee from `engineer | tester`.
 
-| Task | Assignee   | Dependencies | Write Scope       | Description                                                                             |
-| ---- | ---------- | ------------ | ----------------- | --------------------------------------------------------------------------------------- |
-| 1    | engineer   | none         | src/auth, src/api | One-line summary of slice 1 (full detail in the per-slice block below).                 |
-| 2    | engineer   | none         | src/ui            | One-line summary of slice 2.                                                            |
-| 3    | doc-writer | none         | README.md         | One-line summary of doc work (only if there's user-facing surface).                     |
-| 4    | tester     | 1, 2, 3      | none              | Integration Point: run the project's validation command and report failures explicitly. |
+| Task | Assignee | Dependencies | Write Scope             | Description                                                                             |
+| ---- | -------- | ------------ | ----------------------- | --------------------------------------------------------------------------------------- |
+| 1    | engineer | none         | src/auth, src/api       | One-line summary of slice 1 (full detail in the per-slice block below).                 |
+| 2    | engineer | none         | src/ui, docs/feature.md | One-line summary of slice 2, including required documentation updates.                  |
+| 3    | tester   | 1, 2         | none                    | Integration Point: run the project's validation command and report failures explicitly. |
 
 The final row is the **mandatory Integration Point**: assignee `tester`, dependencies list every prior task ID, write
 scope `none` unless it edits tests, and description names it as the Integration Point. It should direct the tester to
@@ -40,7 +39,7 @@ If a description must contain a literal `|`, escape it as `\|`.
 
 ### Slice Details
 
-For each engineer/doc-writer task above (skip the final tester task), emit one block:
+For each engineer task above (skip the final tester task), emit one block:
 
 #### Task N — <short title>
 
@@ -49,6 +48,7 @@ For each engineer/doc-writer task above (skip the final tester task), emit one b
 Concise description of the end-to-end behavior of this slice. Describe what the slice delivers, not the layer-by-layer
 implementation. Avoid hardcoded file paths and code snippets — they go stale fast. Exception: if the architect's design
 specifies a precise shape (state machine, schema, type) that prose can't capture, inline only the decision-rich parts.
+If the slice includes documentation updates, state that the engineer should use the **documentation** skill.
 
 **Acceptance criteria**
 
@@ -62,10 +62,10 @@ specifies a precise shape (state machine, schema, type) that prose can't capture
   slices.
 - Default to fewer slices. First question: "Could one engineer ship this in an afternoon?" If yes, one slice.
 - Roles default to **no** unless the slice justifies them:
-  - **doc-writer** only when the change has user-facing surface (new command, flag, error message, README-relevant
-    behavior) — not for internal refactors, bug fixes without behavior change, or test-only work.
+  - Documentation belongs in the relevant engineer slice. When the change has user-facing surface (new command, flag,
+    error message, README-relevant behavior), include documentation acceptance criteria and tell the engineer to use the
+    **documentation** skill.
   - **tester** appears in slice rows only if a slice has net-new test infrastructure to build. Slice-level acceptance is
     the engineer's responsibility. The mandatory final tester row is always present as the Integration Point.
-- Engineer slices are vertical (cut through every layer they touch). Doc-writer tasks usually have no engineer
-  dependency — they read finished or near-finished code in parallel. Mark them with `none` in Dependencies when truly
-  parallel, and declare the exact docs they edit in Write Scope.
+- Engineer slices are vertical (cut through every layer they touch). Documentation updates are part of the slice that
+  introduces the behavior they document, not a separate Agent assignment.

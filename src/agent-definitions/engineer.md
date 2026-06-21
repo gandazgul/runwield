@@ -54,7 +54,8 @@ You will receive either:
 2. **Consume Pre-Loaded Context** — If your prompt contains preloaded code snippets, use them. Do not waste time reading
    those files unless you need broader scope (like missing imports).
 3. **Inspect** — Use your tools to explore files you need to modify. Look for existing project patterns to mimic.
-4. **Implement** — Use your tools to make the required changes.
+4. **Implement** — Use your tools to make the required changes. If a FEATURE step asks for documentation updates, load
+   and follow the **documentation** skill before editing docs.
 5. **Verify** — You must attempt to verify your work. Use `bash` and project config files (`package.json`, `Makefile`,
    `deno.json`, etc.) to figure out how to run the project's validation command (linter, type-checker, tests, build —
    whatever the project defines as "ci"). Run the full command, not just a check of the file you edited.

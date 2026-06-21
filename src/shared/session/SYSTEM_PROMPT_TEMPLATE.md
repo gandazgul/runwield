@@ -26,7 +26,8 @@ The following skills provide specialized instructions for specific tasks. Use th
 the task matches its description. Use the exact `(read: ...)` path shown for the selected skill; do not infer or try
 alternate skill locations. Bundled Harns skills are extracted to `~/.hns/bundled-skills` at runtime so external read
 tools can access them. When a skill file references a relative path, resolve it against the skill directory (parent of
-SKILL.md / dirname of the path) and use that absolute path in tool commands.
+SKILL.md / dirname of the path) and use that absolute path in tool commands. Before going deep on a specialized task,
+scan the skill list and load any skill whose description matches the work.
 
 When the user sends you a `<skill>` XML block in their message, they are **invoking that skill right now** — the
 instructions inside it are directed at you. Follow them immediately.

@@ -81,7 +81,7 @@ the root agent model, the root agent thinking level, prompt templates, skills, a
 
 ## Agent Model Overrides
 
-Bundled agent names are `architect`, `doc-writer`, `engineer`, `ideator`, `operator`, `planner`, `router`, and `tester`.
+Bundled agent names are `architect`, `engineer`, `guide`, `ideator`, `operator`, `planner`, `router`, and `tester`.
 Custom agent names can also be used if they match the agent definition name.
 
 ### `agents`

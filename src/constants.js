@@ -114,7 +114,7 @@ export const COMMAND_NAMES = Object.freeze({
  * `src/agent-definitions/workflow-prompts/reviewer-prompt.md` as a bare
  * prompt, without shared skills or extra tools.
  */
-/** @type {Readonly<{ROUTER: string, GUIDE: string, OPERATOR: string, PLANNER: string, ARCHITECT: string, ENGINEER: string, REVIEWER: string, SLICER: string, TESTER: string, IDEATOR: string, DOC_WRITER: string, INIT: string}>} */
+/** @type {Readonly<{ROUTER: string, GUIDE: string, OPERATOR: string, PLANNER: string, ARCHITECT: string, ENGINEER: string, REVIEWER: string, SLICER: string, TESTER: string, IDEATOR: string, INIT: string}>} */
 export const AGENTS = Object.freeze({
     ROUTER: "router",
     GUIDE: "guide",
@@ -126,7 +126,6 @@ export const AGENTS = Object.freeze({
     SLICER: "slicer",
     TESTER: "tester",
     IDEATOR: "ideator",
-    DOC_WRITER: "doc-writer",
     INIT: "init",
 });
 

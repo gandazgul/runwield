@@ -24,7 +24,8 @@ done with the right amount of ceremony.
 - **Architecture and decomposition are separate jobs.** Large `PROJECT` work is designed by the Architect as an Epic,
   then decomposed into independently executable child `FEATURE` plans by the Slicer after approval.
 - **Execution is role-scoped.** Operators handle small fixes, Engineers implement approved plans, Testers write or run
-  test work, Doc Writers stay limited to docs, and Reviewers compare the final diff to the plan.
+  test work, documentation is handled through the `documentation` skill, and Reviewers compare the final diff to the
+  plan.
 - **Epic work keeps a clear trail.** PROJECT Epics stay as containers, while child FEATURE plans carry their own review,
   execution, validation, and merge history.
 - **Completion has a handshake.** Execution agents are expected to call `task_completed`; for saved plan execution,
@@ -199,7 +200,8 @@ loads skills from these locations, in priority order:
 4. External ecosystem skills: `~/.agents/skills`
 
 Each skill lives in a directory with a `SKILL.md` file. Skills are advertised to agents by name and description, and the
-full instructions are injected only when a user invokes the skill with `/skill:<name>`.
+full instructions are injected only when a user invokes the skill with `/skill:<name>` or an agent loads a matching
+skill. The bundled `documentation` skill guides Markdown docs work that used to require a dedicated docs role.
 
 External tools can own skill installation and updates. Harns should interoperate with that ecosystem by reading
 `~/.agents/skills`, making loaded skills visible, and providing clear invocation behavior.
@@ -244,19 +246,18 @@ Use `hns load-plan <name-or-path>` to:
 Bundled agent definitions live in [`src/agent-definitions/`](src/agent-definitions/). They are markdown files with front
 matter for name, model, description, and tools.
 
-| Agent      | Purpose                                                             |
-| ---------- | ------------------------------------------------------------------- |
-| Router     | Default triage Agent that calls `triage_report`.                    |
-| Guide      | Answers `INQUIRY` requests and provides direct help or explanation. |
-| Ideator    | Researches and sharpens `IDEATION` requests before planning.        |
-| Operator   | Executes small `QUICK_FIX` tasks and operational work directly.     |
-| Planner    | Writes reviewable plans for `FEATURE` work.                         |
-| Architect  | Designs `PROJECT` plans without implementing code.                  |
-| Slicer     | Decomposes approved PROJECT Epics into child FEATURE plans.         |
-| Engineer   | Implements approved executable plans.                               |
-| Tester     | Writes, updates, and runs tests for assigned work.                  |
-| Doc Writer | Updates markdown documentation only.                                |
-| Reviewer   | Compares the final diff against the original plan.                  |
+| Agent     | Purpose                                                                    |
+| --------- | -------------------------------------------------------------------------- |
+| Router    | Default triage Agent that calls `triage_report`.                           |
+| Guide     | Answers `INQUIRY` requests and provides direct help or explanation.        |
+| Ideator   | Researches and sharpens `IDEATION` requests before planning.               |
+| Operator  | Executes small `QUICK_FIX` tasks and operational work directly.            |
+| Planner   | Writes reviewable plans for `FEATURE` work.                                |
+| Architect | Designs `PROJECT` plans without implementing code.                         |
+| Slicer    | Decomposes approved PROJECT Epics into child FEATURE plans.                |
+| Engineer  | Implements approved executable plans and uses skills for specialized work. |
+| Tester    | Writes, updates, and runs tests for assigned work.                         |
+| Reviewer  | Compares the final diff against the original plan.                         |
 
 ### Agent Overrides
 

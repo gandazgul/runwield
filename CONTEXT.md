@@ -162,8 +162,8 @@ prompt. _Avoid_: Agent def, agent prompt, agent config
 **Skill**: A reusable instruction package an Agent can load for a specialized task without becoming a separate Agent
 Session. _Avoid_: Agent, workflow role, sub-agent
 
-**Documentation Skill**: The Skill that guides an Agent when creating or updating project documentation. _Avoid_: Doc
-Writer, documentation agent, documenter
+**Documentation Skill**: The Skill that guides an Agent when creating or updating project documentation. _Avoid_:
+documentation agent, documenter
 
 **Agent Name**: The internal identifier for an Agent, derived from its Agent Definition filename without `.md`. _Avoid_:
 Display name, label
