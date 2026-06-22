@@ -1,0 +1,60 @@
+name: "deno-test"
+version: 1
+description: "Condensed deno test output"
+
+match:
+    command: "deno"
+    subcommand: "test"
+    exclude_flags: ["--doc"]
+
+streams:
+    - stdout
+    - stderr
+
+pipeline:
+    - action: "strip_ansi"
+    - action: "remove_lines"
+      pattern: "^\\s*$"
+    - action: "keep_lines"
+      pattern: "(ok |FAILED|ERRORS|FAILURES|test result|[0-9]+ passed|[0-9]+ failed|=>|AssertionError|assert|Expected|Actual|Diff|^[[:space:]]*at |^[[:space:]]*[-+] |^[[:space:]]*[0-9]+[[:space:]]*\\||^[[:space:]]*\\||\\^|error:)"
+    - action: "compact_path"
+    - action: "truncate_lines"
+      max: 180
+    - action: "head"
+      n: 100
+      overflow_msg: "... more test output"
+    - action: "on_empty"
+      message: "ok (tests passed)"
+
+on_error: "passthrough"
+
+tests:
+    - name: "empty output means tests passed"
+      input: ""
+      expected: |
+          ok (tests passed)
+    - name: "keeps failure summary"
+      input: |
+          running 1 test from ./sample.test.js
+          failure ... FAILED (3ms)
+
+          ERRORS
+
+          failure => ./sample.test.js:1:6
+          AssertionError: Values are not equal.
+              at assertEquals (asserts.ts:1:1)
+
+          FAILURES
+
+          failure => ./sample.test.js:1:6
+
+          FAILED | 0 passed | 1 failed (5ms)
+      expected: |
+          failure ... FAILED (3ms)
+          ERRORS
+          failure => ./sample.test.js:1:6
+          AssertionError: Values are not equal.
+              at assertEquals (asserts.ts:1:1)
+          FAILURES
+          failure => ./sample.test.js:1:6
+          FAILED | 0 passed | 1 failed (5ms)

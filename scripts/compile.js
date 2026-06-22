@@ -38,6 +38,8 @@ const compile = await runCmd("deno", [
     "--include",
     "src/skills",
     "--include",
+    "src/snip-filters",
+    "--include",
     "src/shared/ui/catppuccin-mocha.json",
 
     "--output",

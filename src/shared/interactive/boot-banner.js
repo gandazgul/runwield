@@ -7,8 +7,8 @@
  */
 
 import { CWD, HOME_DIR } from "../../constants.js";
-import { recordRtkMissingWarningShown, shouldShowRtkMissingWarning } from "../../cmd/init/init-state.js";
-import { hasRtkBinary } from "../runtime-preflight.js";
+import { recordSnipMissingWarningShown, shouldShowSnipMissingWarning } from "../../cmd/init/init-state.js";
+import { hasSnipBinary } from "../runtime-preflight.js";
 import { listLoadedAgentMdFiles, listSkills } from "../session/session.js";
 
 /**
@@ -46,9 +46,9 @@ function toUserFacingAgentMdPath(file) {
  *     listSkills?: typeof listSkills,
  *     listLoadedAgentMdFiles?: typeof listLoadedAgentMdFiles,
  *     getSettingsManager?: () => { getTheme: () => string | undefined },
- *     hasRtkBinary?: typeof hasRtkBinary,
- *     shouldShowRtkMissingWarning?: typeof shouldShowRtkMissingWarning,
- *     recordRtkMissingWarningShown?: typeof recordRtkMissingWarningShown,
+ *     hasSnipBinary?: typeof hasSnipBinary,
+ *     shouldShowSnipMissingWarning?: typeof shouldShowSnipMissingWarning,
+ *     recordSnipMissingWarningShown?: typeof recordSnipMissingWarningShown,
  *   },
  * }} deps
  */
@@ -61,11 +61,11 @@ export async function renderBootBanner({
 }) {
     const listSkillsImpl = __deps?.listSkills || listSkills;
     const listLoadedAgentMdFilesImpl = __deps?.listLoadedAgentMdFiles || listLoadedAgentMdFiles;
-    const hasRtkBinaryImpl = __deps?.hasRtkBinary || hasRtkBinary;
-    const shouldShowRtkMissingWarningImpl = __deps?.shouldShowRtkMissingWarning || shouldShowRtkMissingWarning;
-    const recordRtkMissingWarningShownImpl = __deps?.recordRtkMissingWarningShown || recordRtkMissingWarningShown;
+    const hasSnipBinaryImpl = __deps?.hasSnipBinary || hasSnipBinary;
+    const shouldShowSnipMissingWarningImpl = __deps?.shouldShowSnipMissingWarning || shouldShowSnipMissingWarning;
+    const recordSnipMissingWarningShownImpl = __deps?.recordSnipMissingWarningShown || recordSnipMissingWarningShown;
     const headerStyle = { headingColor: "mdHeading" };
-    const rtkAvailable = await hasRtkBinaryImpl();
+    const snipAvailable = await hasSnipBinaryImpl();
 
     if (invokablePromptTemplates.length > 0) {
         const names = invokablePromptTemplates.map((template) => `/${template.name}`).join(", ");
@@ -92,8 +92,8 @@ export async function renderBootBanner({
     const activeTheme = getSettingsManagerImpl().getTheme() || "catppuccin-mocha";
     uiAPI.appendSystemMessage(activeTheme, false, "Theme:", headerStyle);
 
-    if (rtkAvailable) {
-        uiAPI.appendSystemMessage("RTK", false, "Runtime Optimizers:", headerStyle);
+    if (snipAvailable) {
+        uiAPI.appendSystemMessage("Snip", false, "Runtime Optimizers:", headerStyle);
     }
 
     const agentMdFiles = await listLoadedAgentMdFilesImpl();
@@ -113,14 +113,14 @@ export async function renderBootBanner({
         );
     }
 
-    if (!rtkAvailable && await shouldShowRtkMissingWarningImpl()) {
+    if (!snipAvailable && await shouldShowSnipMissingWarningImpl()) {
         uiAPI.appendSystemMessage(
             [
-                "[Harns] RTK is not installed. Harns will still work, but agent shell command output will be noisier.",
-                "Install RTK with `brew install rtk` or see https://github.com/rtk-ai/rtk#installation.",
+                "[Harns] Snip is not installed. Harns will still work, but agent shell command output will be noisier.",
+                "Install Snip with `brew install edouard-claude/tap/snip` or see https://github.com/edouard-claude/snip#installation.",
             ].join("\n"),
             true,
         );
-        await recordRtkMissingWarningShownImpl();
+        await recordSnipMissingWarningShownImpl();
     }
 }

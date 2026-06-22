@@ -34,7 +34,7 @@ Harns works best when these optional-but-expected binaries are available on `PAT
 
 - [`mnemosyne`](https://github.com/gandazgul/mnemosyne) for project and global memory.
 - [`cymbal`](https://github.com/1broseidon/cymbal) for code search, symbol lookup, impact analysis, and tracing.
-- [`rtk`](https://github.com/rtk-ai/rtk) for compact command-output rewriting. rtk is optional and fail-open.
+- [`snip`](https://github.com/edouard-claude/snip) for compact command-output rewriting. Snip is optional and fail-open.
 
 ### 3. Authenticate a model provider
 

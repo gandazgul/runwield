@@ -3,10 +3,10 @@ import {
     __resetRuntimePreflightForTest,
     ensureCymbalBinary,
     ensureMnemosyneBinary,
-    hasRtkBinary,
+    hasSnipBinary,
 } from "./runtime-preflight.js";
 
-Deno.test("runtime preflight caches required binaries and probes optional RTK live", async () => {
+Deno.test("runtime preflight caches required binaries and probes optional Snip live", async () => {
     /** @type {string[]} */
     const probes = [];
     __resetRuntimePreflightForTest((binary) => {
@@ -18,13 +18,13 @@ Deno.test("runtime preflight caches required binaries and probes optional RTK li
         await ensureMnemosyneBinary();
         await ensureCymbalBinary();
         await ensureCymbalBinary();
-        assertEquals(await hasRtkBinary(), true);
-        assertEquals(await hasRtkBinary(), true);
+        assertEquals(await hasSnipBinary(), true);
+        assertEquals(await hasSnipBinary(), true);
     } finally {
         __resetRuntimePreflightForTest();
     }
 
-    assertEquals(probes, ["mnemosyne", "cymbal", "rtk", "rtk"]);
+    assertEquals(probes, ["mnemosyne", "cymbal", "snip", "snip"]);
 });
 
 Deno.test("runtime preflight reports install guidance when binaries are missing", async () => {

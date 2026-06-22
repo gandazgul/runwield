@@ -13,7 +13,6 @@ const HARNS_CUSTOM_SETTING_KEYS = [
     "cleanupMergedWorktrees",
     "enableExternalSkills",
     "enableExternalGlobalAgentsMd",
-    "rtkExcludedBinaries",
 ];
 
 /**
@@ -419,15 +418,4 @@ export function getResolvedVisionFallbackModelSetting() {
  */
 export function shouldCleanupMergedWorktrees() {
     return getMergedCustomSetting("cleanupMergedWorktrees") !== false;
-}
-
-/**
- * List of binary names whose commands bypass RTK rewriting.
- * Read from merged settings with default ["git"].
- * @returns {string[]}
- */
-export function getRtkExcludedBinaries() {
-    const fromSettings = getMergedCustomSetting("rtkExcludedBinaries");
-    if (Array.isArray(fromSettings)) return fromSettings;
-    return ["git"];
 }

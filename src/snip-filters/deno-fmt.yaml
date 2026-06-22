@@ -1,0 +1,39 @@
+name: "deno-fmt"
+version: 1
+description: "Condensed deno fmt output"
+
+match:
+    command: "deno"
+    subcommand: "fmt"
+
+streams:
+    - stdout
+    - stderr
+
+pipeline:
+    - action: "strip_ansi"
+    - action: "remove_lines"
+      pattern: "^\\s*$"
+    - action: "compact_path"
+    - action: "truncate_lines"
+      max: 140
+    - action: "head"
+      n: 40
+      overflow_msg: "... more fmt output"
+    - action: "on_empty"
+      message: "ok (all formatted)"
+
+on_error: "passthrough"
+
+tests:
+    - name: "empty output means formatted"
+      input: ""
+      expected: |
+          ok (all formatted)
+    - name: "check failure keeps paths"
+      input: |
+          /repo/src/file.js
+          Checked 2 files
+      expected: |
+          /repo/src/file.js
+          Checked 2 files

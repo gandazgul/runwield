@@ -112,12 +112,11 @@ Interactive agent workflows require these binaries in `PATH`:
 - [`mnemosyne`](https://github.com/gandazgul/mnemosyne) for project/global memory
 - [`cymbal`](https://github.com/1broseidon/cymbal) for code search, symbol lookup, impact analysis, and tracing
 
-Harns also uses [`rtk`](https://github.com/rtk-ai/rtk) when [`rtk`](https://github.com/rtk-ai/rtk) is available in
-`PATH`. [`rtk`](https://github.com/rtk-ai/rtk) rewrites eligible agent-initiated shell commands before execution so
-agents see compact command output. [`rtk`](https://github.com/rtk-ai/rtk) is optional and fail-open: if it is missing,
-Harns skips the rewrite hook and shows a short warning on the first few boots for each project. Manual `!` and `!!`
-shell commands are never rewritten. Manage command exclusions in [`rtk`](https://github.com/rtk-ai/rtk)'s own
-configuration.
+Harns also uses [`snip`](https://github.com/edouard-claude/snip) when `snip` is available in `PATH`. Snip proxies
+eligible agent-initiated shell commands so agents see compact command output. Snip is optional and fail-open: if it is
+missing, Harns skips the prefix hook and shows a short warning on the first few boots for each project. Manual `!` and
+`!!` shell commands are never rewritten. Harns ships Snip filters for `deno fmt`, `deno lint`, and `deno test` and
+materializes them under `~/.hns/snip/filters/` for Harns-invoked Snip runs.
 
 Harns stores its own data under `~/.hns/`:
 

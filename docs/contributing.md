@@ -46,20 +46,21 @@ Development and interactive workflow testing use these binaries in `PATH`:
 
 - [`mnemosyne`](https://github.com/gandazgul/mnemosyne) for memory-backed agent behavior.
 - [`cymbal`](https://github.com/1broseidon/cymbal) for code intelligence.
-- [`rtk`](https://github.com/rtk-ai/rtk) for compact command-output rewriting. Harns runtime treats rtk as optional, but
-  the repository's Deno tasks use it for compact lint/test/check output.
+- [`snip`](https://github.com/edouard-claude/snip) for compact command-output rewriting. Harns runtime treats Snip as
+  optional and ships bundled filters for compact `deno fmt`, `deno lint`, and `deno test` output.
 
-  **How Harns integrates rtk at runtime:**
+  **How Harns integrates Snip at runtime:**
 
-  During session setup (`src/shared/session/session.js`), Harns checks whether `rtk` is on `PATH`. If found, it
-  registers the `rtkExtension` from `src/extensions/rtk/index.js` as a `tool_call` event handler.
+  During session setup (`src/shared/session/session.js`), Harns checks whether `snip` is on `PATH`. If found, it
+  registers the `snipExtension` from `src/extensions/snip/index.js` as a `tool_call` event handler.
 
-  The extension listens for agent-initiated `bash` tool calls and runs `rtk rewrite "<original command>"` via `pi.exec`.
-  If the rewrite succeeds and returns a different command, Harns mutates the bash tool input in place so the agent sees
-  compact output from the piped command. The extension skips non-`bash` tools, empty commands, and commands already
-  prefixed with `rtk`. If rtk is missing or the rewrite fails for any reason, the original command runs unchanged
-  (fail-open). Manual `!`/`!!` shell shortcuts are never rewritten — the hook only intercepts programmatic agent bash
-  tool calls.
+  The extension listens for agent-initiated `bash` tool calls and prefixes simple eligible commands with
+  `SNIP_CONFIG=~/.hns/snip/config.toml snip run --`. Harns materializes its bundled Deno filters under
+  `~/.hns/snip/filters/` and writes `~/.hns/snip/config.toml` so Harns-invoked Snip runs can use those filters without
+  project-local `.snip` files. The extension skips non-`bash` tools, empty commands, commands already prefixed with
+  `snip`, and shell builtins such as `cd`. If Snip is missing or setup fails for any reason, the original command runs
+  unchanged (fail-open). Manual `!`/`!!` shell shortcuts are never rewritten — the hook only intercepts programmatic
+  agent bash tool calls.
 
 ## Code style
 

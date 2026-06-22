@@ -44,9 +44,9 @@ Interactive Harns workflows expect these tools to be available when you want the
 
 - [`mnemosyne`](https://github.com/gandazgul/mnemosyne) - project/global memory.
 - [`cymbal`](https://github.com/1broseidon/cymbal) - symbol-aware code search and impact analysis.
-- [`rtk`](https://github.com/rtk-ai/rtk) - optional compact shell-output rewriting.
+- [`snip`](https://github.com/edouard-claude/snip) - optional compact shell-output rewriting.
 
-Harns still starts if rtk is missing. Memory and code-intelligence features require their corresponding binaries.
+Harns still starts if Snip is missing. Memory and code-intelligence features require their corresponding binaries.
 
 ## Authenticate
 

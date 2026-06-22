@@ -12,7 +12,7 @@ let mnemosyneAvailable = false;
 let cymbalChecked = false;
 let cymbalAvailable = false;
 
-/** @typedef {"mnemosyne" | "cymbal" | "rtk"} RuntimeBinary */
+/** @typedef {"mnemosyne" | "cymbal" | "snip"} RuntimeBinary */
 
 /** @type {null | ((binary: RuntimeBinary) => Promise<boolean>)} */
 let binaryProbeOverride = null;
@@ -96,15 +96,15 @@ export async function ensureCymbalBinary() {
 }
 
 /**
- * Check whether RTK is available in PATH.
+ * Check whether Snip is available in PATH.
  *
- * RTK is optional: Harns registers its command-rewrite extension only when
+ * Snip is optional: Harns registers its command-prefix extension only when
  * this returns true.
  *
  * @returns {Promise<boolean>}
  */
-export async function hasRtkBinary() {
-    return await hasBinary("rtk");
+export async function hasSnipBinary() {
+    return await hasBinary("snip");
 }
 
 /**

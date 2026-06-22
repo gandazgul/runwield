@@ -40,8 +40,8 @@ import cymbalExtension, {
     codeStructureToolDef,
     codeTraceToolDef,
 } from "../../extensions/cymbal/index.js";
-import rtkExtension from "../../extensions/rtk/index.js";
-import { ensureCymbalBinary, ensureMnemosyneBinary, hasRtkBinary } from "../runtime-preflight.js";
+import snipExtension from "../../extensions/snip/index.js";
+import { ensureCymbalBinary, ensureMnemosyneBinary, hasSnipBinary } from "../runtime-preflight.js";
 import { executeReturnToRouter, returnToRouterTool } from "../../tools/return-to-router.js";
 import { createUserInterviewTool } from "../../tools/user-interview.js";
 import { createSeeImageTool } from "../../tools/see-image.js";
@@ -71,13 +71,7 @@ import {
     resolveAgentDefsDir as _resolveAgentDefsDir,
     resolveSessionToolNames,
 } from "./agents.js";
-import {
-    getCustomSetting,
-    getMergedCustomSetting,
-    getRtkExcludedBinaries,
-    getSettingsDir,
-    getSettingsManager,
-} from "../settings.js";
+import { getCustomSetting, getMergedCustomSetting, getSettingsDir, getSettingsManager } from "../settings.js";
 import { modelSupportsImageInput, prepareImagesForModel, resolveVisionFallbackModel } from "./image-attachments.js";
 import { recordActiveAgent } from "./active-agent-session.js";
 
@@ -1212,8 +1206,8 @@ export async function buildAgentSession({
     const finalSystemPrompt = await assembleFinalSystemPrompt(agentDef, tools, finalCustomTools, sessionCwd);
     const promptState = { text: finalSystemPrompt };
     const extensionFactories = [mnemosyneExtension, cymbalExtension];
-    if (await hasRtkBinary()) {
-        extensionFactories.push((pi) => rtkExtension(pi, { excludedBinaries: getRtkExcludedBinaries() }));
+    if (await hasSnipBinary()) {
+        extensionFactories.push((pi) => snipExtension(pi));
     }
 
     const loader = new DefaultResourceLoader({

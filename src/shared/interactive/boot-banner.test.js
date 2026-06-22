@@ -35,7 +35,7 @@ Deno.test("renderBootBanner reports prompt templates, skills, theme, and blocked
             listLoadedAgentMdFiles: () =>
                 Promise.resolve([{ path: "/repo/HARNS.md", source: /** @type {"local"} */ ("local") }]),
             getSettingsManager: () => ({ getTheme: () => "catppuccin-mocha" }),
-            hasRtkBinary: () => Promise.resolve(true),
+            hasSnipBinary: () => Promise.resolve(true),
         },
     });
 
@@ -45,7 +45,7 @@ Deno.test("renderBootBanner reports prompt templates, skills, theme, and blocked
     assertEquals(messages.some((message) => message.header.startsWith("Skills")), true);
     assertEquals(messages.some((message) => message.header === "Theme:"), true);
     assertEquals(
-        messages.some((message) => message.header === "Runtime Optimizers:" && message.text === "RTK"),
+        messages.some((message) => message.header === "Runtime Optimizers:" && message.text === "Snip"),
         true,
     );
     assertEquals(
@@ -78,14 +78,14 @@ Deno.test("renderBootBanner reports no prompt templates when none are invokable"
             listSkills: () => Promise.resolve([]),
             listLoadedAgentMdFiles: () => Promise.resolve([]),
             getSettingsManager: () => ({ getTheme: () => undefined }),
-            hasRtkBinary: () => Promise.resolve(true),
+            hasSnipBinary: () => Promise.resolve(true),
         },
     });
 
     assertEquals(messages[0], { text: "none", header: "Prompt Templates:" });
 });
 
-Deno.test("renderBootBanner warns about missing RTK for the first project boots", async () => {
+Deno.test("renderBootBanner warns about missing Snip for the first project boots", async () => {
     /** @type {Array<{ text: string, isError: boolean }>} */
     const messages = [];
     let recorded = 0;
@@ -106,20 +106,20 @@ Deno.test("renderBootBanner warns about missing RTK for the first project boots"
             listSkills: () => Promise.resolve([]),
             listLoadedAgentMdFiles: () => Promise.resolve([]),
             getSettingsManager: () => ({ getTheme: () => undefined }),
-            hasRtkBinary: () => Promise.resolve(false),
-            shouldShowRtkMissingWarning: () => Promise.resolve(true),
-            recordRtkMissingWarningShown: () => {
+            hasSnipBinary: () => Promise.resolve(false),
+            shouldShowSnipMissingWarning: () => Promise.resolve(true),
+            recordSnipMissingWarningShown: () => {
                 recorded++;
                 return Promise.resolve();
             },
         },
     });
 
-    assertEquals(messages.some((message) => message.isError && message.text.includes("RTK is not installed")), true);
+    assertEquals(messages.some((message) => message.isError && message.text.includes("Snip is not installed")), true);
     assertEquals(recorded, 1);
 });
 
-Deno.test("renderBootBanner does not warn when RTK is installed or warning limit is reached", async () => {
+Deno.test("renderBootBanner does not warn when Snip is installed or warning limit is reached", async () => {
     /** @type {string[]} */
     const messages = [];
 
@@ -134,13 +134,13 @@ Deno.test("renderBootBanner does not warn when RTK is installed or warning limit
             listSkills: () => Promise.resolve([]),
             listLoadedAgentMdFiles: () => Promise.resolve([]),
             getSettingsManager: () => ({ getTheme: () => undefined }),
-            hasRtkBinary: () => Promise.resolve(false),
-            shouldShowRtkMissingWarning: () => Promise.resolve(false),
-            recordRtkMissingWarningShown: () => {
+            hasSnipBinary: () => Promise.resolve(false),
+            shouldShowSnipMissingWarning: () => Promise.resolve(false),
+            recordSnipMissingWarningShown: () => {
                 throw new Error("should not record");
             },
         },
     });
 
-    assertEquals(messages.some((message) => message.includes("RTK is not installed")), false);
+    assertEquals(messages.some((message) => message.includes("Snip is not installed")), false);
 });

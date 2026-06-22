@@ -54,8 +54,8 @@ async function sha256(input) {
  * @property {boolean} initDone
  * @property {string | null} offeredAt - ISO timestamp when init was offered (or declined), or null.
  * @property {string | null} doneAt - ISO timestamp when init was completed, or null.
- * @property {number} [rtkMissingWarningCount] - Number of missing-RTK boot warnings shown for this project.
- * @property {string | null} [rtkMissingWarningLastShownAt] - ISO timestamp of the last missing-RTK warning, or null.
+ * @property {number} [snipMissingWarningCount] - Number of missing-Snip boot warnings shown for this project.
+ * @property {string | null} [snipMissingWarningLastShownAt] - ISO timestamp of the last missing-Snip warning, or null.
  */
 
 /**
@@ -130,8 +130,8 @@ function newEntry(path) {
         initDone: false,
         offeredAt: null,
         doneAt: null,
-        rtkMissingWarningCount: 0,
-        rtkMissingWarningLastShownAt: null,
+        snipMissingWarningCount: 0,
+        snipMissingWarningLastShownAt: null,
     };
 }
 
@@ -199,25 +199,25 @@ export async function isInitOffered() {
 }
 
 /**
- * Check whether Harns should show the missing-RTK boot warning for this CWD.
+ * Check whether Harns should show the missing-Snip boot warning for this CWD.
  *
  * @param {number} [limit]
  * @returns {Promise<boolean>}
  */
-export async function shouldShowRtkMissingWarning(limit = 3) {
+export async function shouldShowSnipMissingWarning(limit = 3) {
     const entry = await getCwdInitState();
-    return (entry?.rtkMissingWarningCount || 0) < limit;
+    return (entry?.snipMissingWarningCount || 0) < limit;
 }
 
 /**
- * Record that Harns showed the missing-RTK boot warning for this CWD.
+ * Record that Harns showed the missing-Snip boot warning for this CWD.
  *
  * @returns {Promise<void>}
  */
-export async function recordRtkMissingWarningShown() {
+export async function recordSnipMissingWarningShown() {
     const state = await readState();
     const entry = await ensureCwdEntry(state);
-    entry.rtkMissingWarningCount = (entry.rtkMissingWarningCount || 0) + 1;
-    entry.rtkMissingWarningLastShownAt = new Date().toISOString();
+    entry.snipMissingWarningCount = (entry.snipMissingWarningCount || 0) + 1;
+    entry.snipMissingWarningLastShownAt = new Date().toISOString();
     writeStateSync(state);
 }

@@ -16,8 +16,8 @@ import {
     isInitOffered,
     recordInitDone,
     recordInitOffered,
-    recordRtkMissingWarningShown,
-    shouldShowRtkMissingWarning,
+    recordSnipMissingWarningShown,
+    shouldShowSnipMissingWarning,
 } from "./init-state.js";
 
 // Isolate all state operations to a temp directory so we never touch
@@ -71,8 +71,8 @@ Deno.test("recordInitDone creates state file with correct structure", async () =
     assertEquals(raw[cwdHash].path, Deno.cwd());
     assertEquals(typeof raw[cwdHash].offeredAt, "string");
     assertEquals(typeof raw[cwdHash].doneAt, "string");
-    assertEquals(raw[cwdHash].rtkMissingWarningCount, 0);
-    assertEquals(raw[cwdHash].rtkMissingWarningLastShownAt, null);
+    assertEquals(raw[cwdHash].snipMissingWarningCount, 0);
+    assertEquals(raw[cwdHash].snipMissingWarningLastShownAt, null);
 
     await cleanupState();
 });
@@ -190,19 +190,19 @@ Deno.test("recordInitDone preserves other CWD entries (no overwrite)", async () 
     await cleanupState();
 });
 
-Deno.test("RTK missing warning counter is capped by limit", async () => {
+Deno.test("Snip missing warning counter is capped by limit", async () => {
     await cleanupState();
 
-    assertEquals(await shouldShowRtkMissingWarning(2), true);
-    await recordRtkMissingWarningShown();
-    assertEquals(await shouldShowRtkMissingWarning(2), true);
-    await recordRtkMissingWarningShown();
-    assertEquals(await shouldShowRtkMissingWarning(2), false);
+    assertEquals(await shouldShowSnipMissingWarning(2), true);
+    await recordSnipMissingWarningShown();
+    assertEquals(await shouldShowSnipMissingWarning(2), true);
+    await recordSnipMissingWarningShown();
+    assertEquals(await shouldShowSnipMissingWarning(2), false);
 
     const cwdHash = await getCwdHash();
     const state = await getInitState();
-    assertEquals(state[cwdHash].rtkMissingWarningCount, 2);
-    assertEquals(typeof state[cwdHash].rtkMissingWarningLastShownAt, "string");
+    assertEquals(state[cwdHash].snipMissingWarningCount, 2);
+    assertEquals(typeof state[cwdHash].snipMissingWarningLastShownAt, "string");
     assertEquals(state[cwdHash].initOffered, false);
     assertEquals(state[cwdHash].initDone, false);
 
