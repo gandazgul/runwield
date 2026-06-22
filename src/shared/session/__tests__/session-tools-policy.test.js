@@ -218,6 +218,90 @@ Deno.test("buildAgentSession wires task_completed with agent displayName", async
 /**
  * @param {string} tempHome
  */
+Deno.test("buildAgentSession injects read-only bash for configured agents", async () => {
+    const originalHome = Deno.env.get("HOME");
+    const tempHome = await Deno.makeTempDir({ prefix: "harns-read-only-bash-session-" });
+    /** @type {import('@earendil-works/pi-coding-agent').AgentSession[]} */
+    const sessions = [];
+    try {
+        Deno.env.set("HOME", tempHome);
+        __resetSettingsForTests();
+        await writeVisionModelConfig(tempHome);
+        await Deno.writeTextFile(
+            join(tempHome, ".hns", "settings.json"),
+            JSON.stringify({
+                agents: {
+                    router: { bashMode: "readOnly" },
+                    guide: { bashMode: "default" },
+                },
+            }),
+        );
+
+        const routerBuilt = await buildAgentSession({
+            agentName: "router",
+            modelOverride: "test/text",
+            _agentDefOverride: {
+                name: "router",
+                displayName: "Router",
+                model: "",
+                description: "Test router",
+                tools: ["bash"],
+                systemPrompt: "{{AVAILABLE_TOOLS}}",
+            },
+        });
+        sessions.push(routerBuilt.session);
+        const routerBash = routerBuilt.finalCustomTools.find((tool) => tool.name === "bash");
+        assert(routerBash, "expected read-only bash custom tool");
+        assert(routerBash.description.includes("Bubblewrap read-only sandbox"));
+        assert(routerBuilt.promptState.text.includes("Bubblewrap read-only sandbox"));
+
+        const guideBuilt = await buildAgentSession({
+            agentName: "guide",
+            modelOverride: "test/text",
+            _agentDefOverride: {
+                name: "guide",
+                displayName: "Guide",
+                model: "",
+                description: "Test guide",
+                tools: ["bash"],
+                systemPrompt: "{{AVAILABLE_TOOLS}}",
+            },
+        });
+        sessions.push(guideBuilt.session);
+        assertEquals(Boolean(guideBuilt.finalCustomTools.find((tool) => tool.name === "bash")), false);
+
+        const customBash = /** @type {import('@earendil-works/pi-coding-agent').ToolDefinition} */ ({
+            name: "bash",
+            label: "bash",
+            description: "Explicit custom bash",
+            parameters: { type: "object", properties: {} },
+            execute: () => Promise.resolve({ content: [{ type: "text", text: "custom" }], details: undefined }),
+        });
+        const customBuilt = await buildAgentSession({
+            agentName: "router",
+            modelOverride: "test/text",
+            customTools: [/** @type {any} */ (customBash)],
+            _agentDefOverride: {
+                name: "router",
+                displayName: "Router",
+                model: "",
+                description: "Test router",
+                tools: ["bash"],
+                systemPrompt: "{{AVAILABLE_TOOLS}}",
+            },
+        });
+        sessions.push(customBuilt.session);
+        assertEquals(customBuilt.finalCustomTools.find((tool) => tool.name === "bash"), customBash);
+    } finally {
+        for (const session of sessions) session.dispose();
+        __resetSettingsForTests();
+        if (originalHome === undefined) Deno.env.delete("HOME");
+        else Deno.env.set("HOME", originalHome);
+        await Deno.remove(tempHome, { recursive: true });
+    }
+});
+
+/** @param {string} tempHome */
 async function writeVisionModelConfig(tempHome) {
     await Deno.mkdir(join(tempHome, ".hns"), { recursive: true });
     await Deno.writeTextFile(

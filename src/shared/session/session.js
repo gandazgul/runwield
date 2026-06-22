@@ -45,6 +45,7 @@ import { ensureCymbalBinary, ensureMnemosyneBinary, hasRtkBinary } from "../runt
 import { executeReturnToRouter, returnToRouterTool } from "../../tools/return-to-router.js";
 import { createUserInterviewTool } from "../../tools/user-interview.js";
 import { createSeeImageTool } from "../../tools/see-image.js";
+import { createReadOnlyBashToolDefinition } from "../../tools/read-only-bash.js";
 import { discoverProviderModel, getModelRegistry } from "../models/model-registry.js";
 import { parseProviderModel } from "../models/model-validation.js";
 import {
@@ -72,6 +73,7 @@ import {
     resolveSessionToolNames,
 } from "./agents.js";
 import {
+    getConfiguredAgentBashMode,
     getCustomSetting,
     getMergedCustomSetting,
     getRtkExcludedBinaries,
@@ -1182,6 +1184,15 @@ export async function buildAgentSession({
     if (tools.includes("task_completed") && uiAPI && !finalCustomTools.find((t) => t.name === "task_completed")) {
         const { createTaskCompletedTool } = await import("../../tools/task-completed.js");
         finalCustomTools.push(createTaskCompletedTool({ uiAPI, agentName: agentDef.displayName }));
+    }
+
+    if (
+        tools.includes("bash") &&
+        agentName &&
+        getConfiguredAgentBashMode(agentName) === "readOnly" &&
+        !finalCustomTools.find((t) => t.name === "bash")
+    ) {
+        finalCustomTools.push(createReadOnlyBashToolDefinition(sessionCwd));
     }
 
     // Override the built-in edit tool to return file contents on failure.

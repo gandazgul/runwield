@@ -32,7 +32,8 @@ the root agent model, the root agent thinking level, prompt templates, skills, a
         "router": {
             "model": "openai/gpt-5-mini",
             "thinkingLevel": "minimal",
-            "temperature": 0.1
+            "temperature": 0.1,
+            "bashMode": "readOnly"
         },
         "engineer": {
             "model": "anthropic/claude-sonnet-4-5",
@@ -115,6 +116,42 @@ Agent object values:
 - `thinkingLevel`: one of `off`, `minimal`, `low`, `medium`, `high`, or `xhigh`.
 - `temperature`: number from `0` to `2`. Lower values are better for mechanical classification and operational work;
   higher values are useful for exploratory agents such as Ideator, Planner, and Architect.
+- `bashMode`: either `default` or `readOnly`. `default` uses the normal bash tool. `readOnly` replaces the agent bash
+  tool with a Bubblewrap-backed sandbox on Linux.
+
+#### Read-only bash mode
+
+`bashMode: "readOnly"` is opt-in per agent. It is intended for discovery-only agents such as Router, where shell access
+should be enforced as read-only by the runtime rather than only requested in the prompt.
+
+Example Router configuration:
+
+```jsonc
+{
+    "agents": {
+        "router": {
+            "bashMode": "readOnly"
+        }
+    }
+}
+```
+
+Read-only bash mode requires Linux with [`bubblewrap`](https://github.com/containers/bubblewrap) available as `bwrap` in
+`PATH`. In this first implementation it is not available on Windows or macOS. Unsupported platforms and missing
+Bubblewrap do not prevent Harns from starting, but a configured read-only bash tool call fails closed with a clear error
+and never falls back to unrestricted bash.
+
+Sandbox behavior:
+
+- The project working directory is mounted read-only.
+- Host home directories are not mounted.
+- Common system executable and library paths are mounted read-only so basic discovery commands can run.
+- `/tmp` is private to the sandbox; commands may write temporary files there but not to the project or host filesystem.
+- The sandbox uses Bubblewrap namespace isolation and dropped capabilities; command text filtering is not the security
+  boundary.
+
+`!` and `!!` manual shell shortcuts are not affected by `bashMode`; this setting only changes agent-initiated `bash`
+tool calls.
 
 ### `activeModelPreset`
 
@@ -143,9 +180,9 @@ Defines named groups of agent overrides:
 }
 ```
 
-Each preset has the same `agents.<agentName>.model`, `agents.<agentName>.thinkingLevel`, and
-`agents.<agentName>.temperature` shape as the base `agents` key. Presets are partial: if the active preset does not
-define a value for an agent, Harns falls back to that agent's base `agents` entry.
+Each preset has the same `agents.<agentName>.model`, `agents.<agentName>.thinkingLevel`,
+`agents.<agentName>.temperature`, and `agents.<agentName>.bashMode` shape as the base `agents` key. Presets are partial:
+if the active preset does not define a value for an agent, Harns falls back to that agent's base `agents` entry.
 
 ### visionFallback
 

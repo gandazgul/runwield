@@ -6,6 +6,7 @@ import { assertEquals } from "@std/assert";
 import { join } from "@std/path";
 import {
     __resetSettingsForTests,
+    getConfiguredAgentBashMode,
     getResolvedVisionFallbackModelSetting,
     migratePiSettingsOnce,
     preserveHarnsCustomSettingsForWrite,
@@ -183,6 +184,49 @@ Deno.test("preserveHarnsCustomSettingsForWrite keeps visionFallback", () => {
         theme: "new-theme",
         visionFallback: { model: "lmstudio/gemma" },
     });
+});
+
+Deno.test("getConfiguredAgentBashMode prefers active preset then base agent setting", async () => {
+    const originalHome = Deno.env.get("HOME");
+    const originalCwd = Deno.cwd();
+    const tempHome = await Deno.makeTempDir({ prefix: "harns-bash-mode-home-" });
+    const tempProject = await Deno.makeTempDir({ prefix: "harns-bash-mode-project-" });
+    try {
+        Deno.env.set("HOME", tempHome);
+        Deno.chdir(tempProject);
+        await Deno.mkdir(".hns", { recursive: true });
+        await Deno.writeTextFile(
+            ".hns/settings.json",
+            JSON.stringify({
+                activeModelPreset: "locked-down",
+                agents: {
+                    router: { bashMode: "default" },
+                    guide: { bashMode: "readOnly" },
+                    operator: { bashMode: "nonsense" },
+                },
+                modelPresets: {
+                    "locked-down": {
+                        agents: {
+                            router: { bashMode: "readOnly" },
+                        },
+                    },
+                },
+            }),
+        );
+        __resetSettingsForTests();
+
+        assertEquals(getConfiguredAgentBashMode("router"), "readOnly");
+        assertEquals(getConfiguredAgentBashMode("guide"), "readOnly");
+        assertEquals(getConfiguredAgentBashMode("operator"), "default");
+        assertEquals(getConfiguredAgentBashMode("planner"), "default");
+    } finally {
+        __resetSettingsForTests();
+        Deno.chdir(originalCwd);
+        if (originalHome === undefined) Deno.env.delete("HOME");
+        else Deno.env.set("HOME", originalHome);
+        await Deno.remove(tempHome, { recursive: true });
+        await Deno.remove(tempProject, { recursive: true });
+    }
 });
 
 Deno.test("getResolvedVisionFallbackModelSetting prefers active preset over top-level", async () => {

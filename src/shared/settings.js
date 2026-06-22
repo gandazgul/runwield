@@ -411,6 +411,35 @@ export function getResolvedVisionFallbackModelSetting() {
 }
 
 /**
+ * Resolve per-agent bash execution mode.
+ *
+ * Resolution order:
+ * 1. Active preset `modelPresets.<activeModelPreset>.agents.<agentName>.bashMode`.
+ * 2. Base `agents.<agentName>.bashMode`.
+ * 3. `default` when unset or invalid.
+ *
+ * @param {string} agentName
+ * @returns {"default" | "readOnly"}
+ */
+export function getConfiguredAgentBashMode(agentName) {
+    /** @param {unknown} value */
+    const normalize = (value) => value === "readOnly" || value === "default" ? value : undefined;
+
+    const activeModelPreset = /** @type {string | undefined} */ (getMergedCustomSetting("activeModelPreset"));
+    if (activeModelPreset) {
+        const modelPresets =
+            /** @type {Record<string, { agents?: Record<string, { bashMode?: unknown }> }> | undefined} */ (
+                getMergedCustomSetting("modelPresets")
+            );
+        const presetMode = normalize(modelPresets?.[activeModelPreset]?.agents?.[agentName]?.bashMode);
+        if (presetMode) return presetMode;
+    }
+
+    const agents = /** @type {Record<string, { bashMode?: unknown }> | undefined} */ (getMergedCustomSetting("agents"));
+    return normalize(agents?.[agentName]?.bashMode) || "default";
+}
+
+/**
  * Whether merged execution worktrees should be removed after successful merge-back.
  * Defaults to true; set `cleanupMergedWorktrees: false` in global or project
  * settings to keep merged worktree checkouts for inspection.

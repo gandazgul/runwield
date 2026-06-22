@@ -112,6 +112,11 @@ Interactive agent workflows require these binaries in `PATH`:
 - [`mnemosyne`](https://github.com/gandazgul/mnemosyne) for project/global memory
 - [`cymbal`](https://github.com/1broseidon/cymbal) for code search, symbol lookup, impact analysis, and tracing
 
+Optional read-only agent bash mode (`agents.<name>.bashMode: "readOnly"`) requires Linux with
+[`bubblewrap`](https://github.com/containers/bubblewrap) available as `bwrap` in `PATH`. This mode is not available on
+Windows or macOS in the first implementation; configured read-only bash tool calls fail closed instead of falling back
+to unrestricted bash.
+
 Harns also uses [`rtk`](https://github.com/rtk-ai/rtk) when [`rtk`](https://github.com/rtk-ai/rtk) is available in
 `PATH`. [`rtk`](https://github.com/rtk-ai/rtk) rewrites eligible agent-initiated shell commands before execution so
 agents see compact command output. [`rtk`](https://github.com/rtk-ai/rtk) is optional and fail-open: if it is missing,
