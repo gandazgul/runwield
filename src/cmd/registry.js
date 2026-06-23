@@ -25,6 +25,7 @@ import { runRemoveCommand } from "./remove/index.js";
 import { runCompactCommand } from "./compact/index.js";
 import { runReloadCommand } from "./reload/index.js";
 import { runVersionCommand } from "./version/index.js";
+import { runSnipFiltersCommand } from "./snip-filters/index.js";
 import { getAgentDisplayName } from "../shared/session/agents.js";
 
 /** @param {...string} parts */
@@ -397,6 +398,24 @@ export const commandRegistry = {
         ],
         notes: [],
         execute: runRemoveCommand,
+        surfaces: ["cli"],
+    },
+    [COMMAND_NAMES.SNIP_FILTERS]: {
+        name: COMMAND_NAMES.SNIP_FILTERS,
+        aliases: ["snip-filter"],
+        displayName: "Snip Filters",
+        description: "Install or clean up Harns Deno Snip filters",
+        summary: "Install, clean up, or inspect Harns-managed Deno Snip filters in Snip's default filter directory.",
+        usage: [
+            `${bin("snip-filters status")}`,
+            `${bin("snip-filters install")}`,
+            `${bin("snip-filters cleanup")}`,
+        ],
+        notes: [
+            "Install copies Harns-managed Deno filters into ~/.config/snip/filters so plain Snip commands can find them.",
+            "Cleanup removes only files marked as Harns-managed.",
+        ],
+        execute: runSnipFiltersCommand,
         surfaces: ["cli"],
     },
     [COMMAND_NAMES.COMPACT]: {

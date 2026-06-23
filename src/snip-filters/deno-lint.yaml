@@ -1,6 +1,6 @@
 name: "deno-lint"
-version: 1
-description: "Condensed deno lint diagnostics"
+version: 2
+description: "Suppress successful deno lint output while preserving failures"
 
 match:
     command: "deno"
@@ -11,28 +11,26 @@ streams:
     - stderr
 
 pipeline:
-    - action: "strip_ansi"
-    - action: "remove_lines"
-      pattern: "^\\s*$"
-    - action: "keep_lines"
-      pattern: "(error|warning|Checked|Found|^[[:space:]]*at |^[[:space:]]*--> |^[[:space:]]*[0-9]+[[:space:]]*\\||^[[:space:]]*\\||\\^|✖|⚠)"
-    - action: "compact_path"
-    - action: "truncate_lines"
-      max: 160
-    - action: "head"
-      n: 80
-      overflow_msg: "... more lint diagnostics"
+    - action: "match_output"
+      pattern: "(?m)^Checked [0-9]+ files?$"
+      unless: "(?i)(error|warning|Found [1-9][0-9]* problems?|problem|failed)"
+      message: "no lint errors"
     - action: "on_empty"
-      message: "ok (no lint errors)"
+      message: "no lint errors"
 
 on_error: "passthrough"
 
 tests:
-    - name: "empty output means no lint errors"
+    - name: "empty output means success"
       input: ""
       expected: |
-          ok (no lint errors)
-    - name: "lint error keeps diagnostic"
+          no lint errors
+    - name: "lint success is summarized"
+      input: |
+          Checked 2 files
+      expected: |
+          no lint errors
+    - name: "lint error passes through unchanged"
       input: |
           error[no-unused-vars]: `value` is never used
             --> /repo/src/file.js:1:7

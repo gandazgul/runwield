@@ -221,6 +221,38 @@ print_hns_not_on_path_message() {
   echo "[hns installer] Then run: hns --help"
 }
 
+prompt_install_snip_filters() {
+  local hns_bin answer
+  hns_bin="${INSTALL_DIR}/hns"
+
+  [[ -n "${HOME:-}" ]] || return 0
+  [[ -x "$hns_bin" ]] || return 0
+  command -v snip >/dev/null 2>&1 || return 0
+  ( : <>/dev/tty ) 2>/dev/null || return 0
+
+  exec 3<>/dev/tty
+  printf "[hns installer] Install Harns Deno Snip filters into ~/.config/snip/filters for plain snip commands? [Y/n] " >&3
+  if ! IFS= read -r answer <&3; then
+    answer=
+  fi
+  exec 3>&-
+
+  case "$answer" in
+    n|N|no|NO)
+      echo "[hns installer] Skipped Snip filter install. You can run: hns snip-filters install"
+      return 0
+      ;;
+    *) ;;
+  esac
+
+  if "$hns_bin" snip-filters install; then
+    echo "[hns installer] Harns Deno Snip filters installed."
+    echo "[hns installer] To remove them later, run: hns snip-filters cleanup"
+  else
+    echo "[hns installer] Snip filter install failed. You can retry with: hns snip-filters install" >&2
+  fi
+}
+
 INSTALL_DIR="$(resolve_install_dir)"
 VERSION="$(resolve_version)"
 SUFFIX="$(resolve_asset_suffix)"
@@ -254,6 +286,7 @@ fi
 install -m 755 "${TMP_DIR}/hns" "${INSTALL_DIR}/hns"
 
 echo "[hns installer] ✅ Installed hns to ${INSTALL_DIR}/hns"
+prompt_install_snip_filters
 if installed_hns_is_first_on_path; then
   echo "[hns installer] Run: hns --help"
 else

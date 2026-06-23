@@ -1,38 +1,49 @@
-import { assertEquals, assertExists, assertStringIncludes } from "@std/assert";
+import { assertEquals, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
-import { ensureHarnsSnipFilters, getHarnsSnipPaths } from "./snip-filters.js";
+import {
+    cleanupHarnsSnipFiltersForUser,
+    getHarnsSnipFilterInstallStatus,
+    getHarnsSnipPaths,
+    installHarnsSnipFiltersForUser,
+} from "./snip-filters.js";
 
-Deno.test("ensureHarnsSnipFilters materializes bundled filters and config idempotently", async () => {
+Deno.test("user Snip filter install and cleanup only manage Harns-owned files", async () => {
     const homeDir = await Deno.makeTempDir({ prefix: "harns-snip-home-" });
     const bundledDir = await Deno.makeTempDir({ prefix: "harns-snip-bundled-" });
     try {
+        await Deno.writeTextFile(join(bundledDir, "deno-check.yaml"), "name: deno-check\n");
         await Deno.writeTextFile(join(bundledDir, "deno-fmt.yaml"), "name: deno-fmt\n");
         await Deno.writeTextFile(join(bundledDir, "deno-lint.yaml"), "name: deno-lint\n");
         await Deno.writeTextFile(join(bundledDir, "deno-test.yaml"), "name: deno-test\n");
 
-        const first = await ensureHarnsSnipFilters({ homeDir, bundledDir });
         const paths = getHarnsSnipPaths({ homeDir });
+        await Deno.mkdir(paths.userFiltersDir, { recursive: true });
+        await Deno.writeTextFile(join(paths.userFiltersDir, "deno-lint.yaml"), "name: user-deno-lint\n");
 
-        assertEquals(first.configPath, paths.configPath);
-        assertEquals(first.filtersDir, paths.filtersDir);
-        assertEquals(first.written.length, 5);
-        assertEquals(await Deno.readTextFile(join(paths.filtersDir, "deno-fmt.yaml")), "name: deno-fmt\n");
-        assertEquals(await Deno.readTextFile(join(paths.filtersDir, "deno-lint.yaml")), "name: deno-lint\n");
-        assertEquals(await Deno.readTextFile(join(paths.filtersDir, "deno-test.yaml")), "name: deno-test\n");
+        const install = await installHarnsSnipFiltersForUser({ homeDir, bundledDir });
+        assertEquals(install.filtersDir, paths.userFiltersDir);
+        assertEquals(install.installed.length, 3);
+        assertEquals(install.skipped, [{
+            path: join(paths.userFiltersDir, "deno-lint.yaml"),
+            reason: "existing non-Harns filter",
+        }]);
 
-        const config = await Deno.readTextFile(paths.configPath);
-        assertStringIncludes(config, "[filters]");
-        assertStringIncludes(config, join(homeDir, ".config", "snip", "filters"));
-        assertStringIncludes(config, join(homeDir, ".hns", "snip", "filters"));
+        const installedFmt = await Deno.readTextFile(join(paths.userFiltersDir, "deno-fmt.yaml"));
+        assertStringIncludes(installedFmt, "Managed by Harns");
+        assertStringIncludes(installedFmt, "name: deno-fmt");
 
-        const trustStore = JSON.parse(await Deno.readTextFile(paths.trustStorePath));
-        assertEquals(typeof trustStore[join(paths.filtersDir, "deno-fmt.yaml")], "string");
-        assertEquals(typeof trustStore[join(paths.filtersDir, "deno-lint.yaml")], "string");
-        assertEquals(typeof trustStore[join(paths.filtersDir, "deno-test.yaml")], "string");
+        const status = await getHarnsSnipFilterInstallStatus({ homeDir });
+        assertEquals(status.installed.length, 3);
+        assertEquals(status.conflicts, [join(paths.userFiltersDir, "deno-lint.yaml")]);
+        assertEquals(status.missing, []);
 
-        const second = await ensureHarnsSnipFilters({ homeDir, bundledDir });
-        assertEquals(second.written, []);
-        assertExists(await Deno.stat(paths.configPath));
+        const cleanup = await cleanupHarnsSnipFiltersForUser({ homeDir });
+        assertEquals(cleanup.removed.length, 3);
+        assertEquals(cleanup.skipped, [{
+            path: join(paths.userFiltersDir, "deno-lint.yaml"),
+            reason: "existing non-Harns filter",
+        }]);
+        assertEquals(await Deno.readTextFile(join(paths.userFiltersDir, "deno-lint.yaml")), "name: user-deno-lint\n");
     } finally {
         await Deno.remove(homeDir, { recursive: true }).catch(() => {});
         await Deno.remove(bundledDir, { recursive: true }).catch(() => {});

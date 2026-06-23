@@ -47,20 +47,50 @@ Development and interactive workflow testing use these binaries in `PATH`:
 - [`mnemosyne`](https://github.com/gandazgul/mnemosyne) for memory-backed agent behavior.
 - [`cymbal`](https://github.com/1broseidon/cymbal) for code intelligence.
 - [`snip`](https://github.com/edouard-claude/snip) for compact command-output rewriting. Harns runtime treats Snip as
-  optional and ships bundled filters for compact `deno fmt`, `deno lint`, and `deno test` output.
+  optional and ships bundled filters for compact `deno check`, `deno fmt`, `deno lint`, and `deno test` output.
 
   **How Harns integrates Snip at runtime:**
 
   During session setup (`src/shared/session/session.js`), Harns checks whether `snip` is on `PATH`. If found, it
   registers the `snipExtension` from `src/extensions/snip/index.js` as a `tool_call` event handler.
 
-  The extension listens for agent-initiated `bash` tool calls and prefixes simple eligible commands with
-  `SNIP_CONFIG=~/.hns/snip/config.toml snip run --`. Harns materializes its bundled Deno filters under
-  `~/.hns/snip/filters/` and writes `~/.hns/snip/config.toml` so Harns-invoked Snip runs can use those filters without
-  project-local `.snip` files. The extension skips non-`bash` tools, empty commands, commands already prefixed with
-  `snip`, and shell builtins such as `cd`. If Snip is missing or setup fails for any reason, the original command runs
-  unchanged (fail-open). Manual `!`/`!!` shell shortcuts are never rewritten — the hook only intercepts programmatic
-  agent bash tool calls.
+  The extension listens for agent-initiated `bash` tool calls and prefixes simple eligible commands with `snip run --`.
+  The bundled Deno filters are installed into Snip's default user filter directory by the installer or by
+  `hns snip-filters install`, so Harns does not maintain a separate Snip config. The extension skips non-`bash` tools,
+  empty commands, commands already prefixed with `snip`, and shell builtins such as `cd`. If Snip is missing or setup
+  fails for any reason, the original command runs unchanged (fail-open). Manual `!`/`!!` shell shortcuts are never
+  rewritten — the hook only intercepts programmatic agent bash tool calls.
+
+  To make the bundled Deno filters available to plain Snip commands, run `hns snip-filters install`. This copies
+  Harns-managed filters into `~/.config/snip/filters/` without overwriting non-Harns files. Remove those user-level
+  copies with `hns snip-filters cleanup`.
+
+  **Why Harns uses Snip instead of RTK:**
+
+  Harns switched from RTK to Snip because runtime command optimization must preserve agent trust in command output.
+  RTK's caching and aggressive truncation made some workflows worse: cached `git` output can hide fresh repository
+  state, and truncated test or CI output can make the model rerun commands or search for alternate evidence, spending
+  more tokens than the compression saved.
+
+  Harns-owned Snip filters should optimize for decision-quality output, not maximum compression. For stateful commands
+  like `git status`, `git diff`, and `git log`, freshness is more important than savings. For validation commands,
+  success output should collapse to a clear pass summary; failure output should keep the actionable diagnostic detail
+  rather than leaving the agent to guess what failed. Snip is a better fit because it is an extensible filter engine:
+  command behavior lives in declarative YAML filters that can be added, tested, overridden, and reviewed without growing
+  special cases in Harns core.
+
+## Bundled runtime extensions
+
+Runtime integrations live under `src/extensions/`. They are loaded as Pi extension factories during Agent Session setup
+in `src/shared/session/session.js`.
+
+- `src/extensions/mnemosyne/` adds memory recall, storage, and deletion tools backed by Mnemosyne.
+- `src/extensions/cymbal/` adds code search, symbol lookup, impact analysis, and tracing tools backed by Cymbal.
+- `src/extensions/snip/` adds a fail-open `tool_call` hook that prefixes eligible agent `bash` commands with Snip.
+
+Keep extension behavior isolated to the extension package where practical. Session wiring should decide whether an
+extension is available and register it; the extension should own its event handlers, tool definitions, command
+rewriting, and focused tests.
 
 ## Code style
 
@@ -77,7 +107,7 @@ Development and interactive workflow testing use these binaries in `PATH`:
 src/
   agent-definitions/   bundled agent markdown definitions
   cmd/                 command handlers and registry
-  extensions/          Cymbal and Mnemosyne integrations
+  extensions/          bundled runtime integrations for Mnemosyne, Cymbal, and Snip
   prompt-templates/    bundled slash-command prompt templates
   shared/
     interactive/       TUI chat loop, slash dispatch, keybindings

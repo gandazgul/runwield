@@ -1,6 +1,6 @@
 /**
  * @module shared/snip-filters
- * Materializes Harns-bundled Snip filters to a real filesystem path.
+ * Installs Harns-bundled Snip filters into Snip's user filter directory.
  */
 
 import { dirname, fromFileUrl, join } from "@std/path";
@@ -8,15 +8,8 @@ import { HOME_DIR } from "../constants.js";
 
 const __dirname = dirname(fromFileUrl(import.meta.url));
 const BUNDLED_SNIP_FILTERS_DIR = join(__dirname, "..", "snip-filters");
-const FILTER_FILE_NAMES = ["deno-fmt.yaml", "deno-lint.yaml", "deno-test.yaml"];
-
-/**
- * @param {string} value
- * @returns {string}
- */
-function tomlString(value) {
-    return JSON.stringify(value);
-}
+const FILTER_FILE_NAMES = ["deno-check.yaml", "deno-fmt.yaml", "deno-lint.yaml", "deno-test.yaml"];
+const HARNS_MANAGED_SNIP_FILTER_MARKER = "# Managed by Harns. Remove with: hns snip-filters cleanup";
 
 /**
  * @param {string} path
@@ -35,93 +28,115 @@ async function writeIfChanged(path, content) {
 
 /**
  * @param {string} content
- * @returns {Promise<string>}
+ * @returns {string}
  */
-async function sha256Hex(content) {
-    const data = new TextEncoder().encode(content);
-    const hash = await crypto.subtle.digest("SHA-256", data);
-    return [...new Uint8Array(hash)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-/**
- * @param {string} path
- * @returns {Promise<Record<string, string>>}
- */
-async function readTrustStore(path) {
-    try {
-        const parsed = JSON.parse(await Deno.readTextFile(path));
-        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-            return /** @type {Record<string, string>} */ (parsed);
-        }
-    } catch (error) {
-        if (!(error instanceof Deno.errors.NotFound)) throw error;
-    }
-    return {};
+function withManagedMarker(content) {
+    return content.startsWith(`${HARNS_MANAGED_SNIP_FILTER_MARKER}\n`)
+        ? content
+        : `${HARNS_MANAGED_SNIP_FILTER_MARKER}\n${content}`;
 }
 
 /**
  * @param {{ homeDir?: string, bundledDir?: string }} [options]
- * @returns {{ snipRoot: string, filtersDir: string, configPath: string, userFiltersDir: string, trustStorePath: string }}
+ * @returns {{ userFiltersDir: string }}
  */
 export function getHarnsSnipPaths(options = {}) {
     const homeDir = options.homeDir || HOME_DIR || Deno.env.get("HOME") || Deno.cwd();
-    const snipRoot = join(homeDir, ".hns", "snip");
     return {
-        snipRoot,
-        filtersDir: join(snipRoot, "filters"),
-        configPath: join(snipRoot, "config.toml"),
         userFiltersDir: join(homeDir, ".config", "snip", "filters"),
-        trustStorePath: join(homeDir, ".config", "snip", "trusted.json"),
     };
 }
 
 /**
+ * Install Harns' Deno Snip filters into Snip's default user filter directory so
+ * plain `snip run -- deno ...` can find them.
+ *
  * @param {{ homeDir?: string, bundledDir?: string }} [options]
- * @returns {Promise<{ configPath: string, filtersDir: string, written: string[] }>}
+ * @returns {Promise<{ filtersDir: string, installed: string[], skipped: Array<{ path: string, reason: string }> }>}
  */
-export async function ensureHarnsSnipFilters(options = {}) {
+export async function installHarnsSnipFiltersForUser(options = {}) {
     const bundledDir = options.bundledDir || BUNDLED_SNIP_FILTERS_DIR;
     const paths = getHarnsSnipPaths(options);
-    const written = [];
+    const installed = [];
+    const skipped = [];
 
-    await Deno.mkdir(paths.filtersDir, { recursive: true });
+    await Deno.mkdir(paths.userFiltersDir, { recursive: true });
 
-    /** @type {Array<{ path: string, content: string }>} */
-    const materializedFilters = [];
     for (const fileName of FILTER_FILE_NAMES) {
         const sourcePath = join(bundledDir, fileName);
-        const targetPath = join(paths.filtersDir, fileName);
-        const content = await Deno.readTextFile(sourcePath);
-        if (await writeIfChanged(targetPath, content)) written.push(targetPath);
-        materializedFilters.push({ path: targetPath, content });
+        const targetPath = join(paths.userFiltersDir, fileName);
+        const content = withManagedMarker(await Deno.readTextFile(sourcePath));
+        try {
+            const existing = await Deno.readTextFile(targetPath);
+            if (!existing.startsWith(HARNS_MANAGED_SNIP_FILTER_MARKER)) {
+                skipped.push({ path: targetPath, reason: "existing non-Harns filter" });
+                continue;
+            }
+        } catch (error) {
+            if (!(error instanceof Deno.errors.NotFound)) throw error;
+        }
+
+        if (await writeIfChanged(targetPath, content)) installed.push(targetPath);
     }
 
-    await Deno.mkdir(dirname(paths.trustStorePath), { recursive: true });
-    const trustStore = await readTrustStore(paths.trustStorePath);
-    let trustChanged = false;
-    for (const filter of materializedFilters) {
-        const hash = await sha256Hex(filter.content);
-        if (trustStore[filter.path] !== hash) {
-            trustStore[filter.path] = hash;
-            trustChanged = true;
+    return { filtersDir: paths.userFiltersDir, installed, skipped };
+}
+
+/**
+ * Remove Harns-managed Snip filters from Snip's default user filter directory.
+ * Non-Harns files with the same names are left untouched.
+ *
+ * @param {{ homeDir?: string }} [options]
+ * @returns {Promise<{ filtersDir: string, removed: string[], skipped: Array<{ path: string, reason: string }> }>}
+ */
+export async function cleanupHarnsSnipFiltersForUser(options = {}) {
+    const paths = getHarnsSnipPaths(options);
+    const removed = [];
+    const skipped = [];
+
+    for (const fileName of FILTER_FILE_NAMES) {
+        const targetPath = join(paths.userFiltersDir, fileName);
+        try {
+            const existing = await Deno.readTextFile(targetPath);
+            if (!existing.startsWith(HARNS_MANAGED_SNIP_FILTER_MARKER)) {
+                skipped.push({ path: targetPath, reason: "existing non-Harns filter" });
+                continue;
+            }
+            await Deno.remove(targetPath);
+            removed.push(targetPath);
+        } catch (error) {
+            if (error instanceof Deno.errors.NotFound) continue;
+            throw error;
         }
     }
-    if (trustChanged) {
-        const trustJson = JSON.stringify(trustStore, null, 2) + "\n";
-        if (await writeIfChanged(paths.trustStorePath, trustJson)) written.push(paths.trustStorePath);
+
+    return { filtersDir: paths.userFiltersDir, removed, skipped };
+}
+
+/**
+ * @param {{ homeDir?: string }} [options]
+ * @returns {Promise<{ filtersDir: string, installed: string[], conflicts: string[], missing: string[] }>}
+ */
+export async function getHarnsSnipFilterInstallStatus(options = {}) {
+    const paths = getHarnsSnipPaths(options);
+    const installed = [];
+    const conflicts = [];
+    const missing = [];
+
+    for (const fileName of FILTER_FILE_NAMES) {
+        const targetPath = join(paths.userFiltersDir, fileName);
+        try {
+            const existing = await Deno.readTextFile(targetPath);
+            if (existing.startsWith(HARNS_MANAGED_SNIP_FILTER_MARKER)) installed.push(targetPath);
+            else conflicts.push(targetPath);
+        } catch (error) {
+            if (error instanceof Deno.errors.NotFound) {
+                missing.push(targetPath);
+                continue;
+            }
+            throw error;
+        }
     }
 
-    await Deno.mkdir(dirname(paths.configPath), { recursive: true });
-
-    const config = [
-        "# Generated by Harns. Do not edit; Harns may overwrite this file.",
-        "",
-        "[filters]",
-        `dir = [${tomlString(paths.userFiltersDir)}, ${tomlString(paths.filtersDir)}]`,
-        "",
-    ].join("\n");
-
-    if (await writeIfChanged(paths.configPath, config)) written.push(paths.configPath);
-
-    return { configPath: paths.configPath, filtersDir: paths.filtersDir, written };
+    return { filtersDir: paths.userFiltersDir, installed, conflicts, missing };
 }

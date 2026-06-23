@@ -1,13 +1,9 @@
 import { assertEquals } from "@std/assert";
 import snipExtension from "./index.js";
 
-/**
- * @param {() => Promise<{ configPath: string, filtersDir: string, written: string[] }> | { configPath: string, filtersDir: string, written: string[] }} [ensureFilters]
- */
-function setup(ensureFilters = () => ({ configPath: "/home/me/.hns/snip/config.toml", filtersDir: "", written: [] })) {
+function setup() {
     /** @type {Map<string, (event: any, ctx: any) => any>} */
     const handlers = new Map();
-    let ensureCalls = 0;
 
     const pi = /** @type {import('@earendil-works/pi-coding-agent').ExtensionAPI} */ ({
         on(event, handler) {
@@ -15,26 +11,15 @@ function setup(ensureFilters = () => ({ configPath: "/home/me/.hns/snip/config.t
         },
     });
 
-    snipExtension(pi, {
-        async ensureFilters() {
-            ensureCalls++;
-            return await ensureFilters();
-        },
-    });
+    snipExtension(pi);
 
     /** @param {string} event */
     const getHandler = (event) => handlers.get(event);
-    return {
-        getHandler,
-        get ensureCalls() {
-            return ensureCalls;
-        },
-    };
+    return { getHandler };
 }
 
 Deno.test("snip extension rewrites bash tool calls in place", async () => {
     const setupResult = setup();
-    await setupResult.getHandler("session_start")?.({}, { cwd: "/project" });
 
     const handler = setupResult.getHandler("tool_call");
     if (!handler) throw new Error("tool_call handler not registered");
@@ -42,18 +27,16 @@ Deno.test("snip extension rewrites bash tool calls in place", async () => {
     const event = { toolName: "bash", input: { command: "deno test" } };
     await handler(event, {});
 
-    assertEquals(event.input.command, "SNIP_CONFIG=/home/me/.hns/snip/config.toml snip run -- deno test");
-    assertEquals(setupResult.ensureCalls, 1);
+    assertEquals(event.input.command, "snip run -- deno test");
 });
 
-Deno.test("snip extension ignores non-bash, empty, already snip, and setup failures", async () => {
+Deno.test("snip extension ignores non-bash, empty, and already snip commands", async () => {
     const noOp = setup();
     const noOpHandler = noOp.getHandler("tool_call");
     if (!noOpHandler) throw new Error("tool_call handler not registered");
 
     const readEvent = { toolName: "read", input: { command: "deno test" } };
     await noOpHandler(readEvent, {});
-    assertEquals(noOp.ensureCalls, 0);
 
     const emptyEvent = { toolName: "bash", input: { command: "  " } };
     await noOpHandler(emptyEvent, {});
@@ -62,22 +45,10 @@ Deno.test("snip extension ignores non-bash, empty, already snip, and setup failu
     const snipEvent = { toolName: "bash", input: { command: "snip run -- deno test" } };
     await noOpHandler(snipEvent, {});
     assertEquals(snipEvent.input.command, "snip run -- deno test");
-
-    const failing = setup(() => Promise.reject(new Error("nope")));
-    const failingHandler = failing.getHandler("tool_call");
-    if (!failingHandler) throw new Error("tool_call handler not registered");
-
-    const failingEvent = { toolName: "bash", input: { command: "deno test" } };
-    await failingHandler(failingEvent, {});
-    assertEquals(failingEvent.input.command, "deno test");
 });
 
 Deno.test("snip extension handles shell safety and env prefixes", async () => {
-    const { getHandler } = setup(() => ({
-        configPath: "/home/me/Library Application Support/harns/snip/config.toml",
-        filtersDir: "",
-        written: [],
-    }));
+    const { getHandler } = setup();
     const handler = getHandler("tool_call");
     if (!handler) throw new Error("tool_call handler not registered");
 
@@ -87,29 +58,20 @@ Deno.test("snip extension handles shell safety and env prefixes", async () => {
 
     const envEvent = { toolName: "bash", input: { command: "FOO=1 deno test" } };
     await handler(envEvent, {});
-    assertEquals(
-        envEvent.input.command,
-        "FOO=1 SNIP_CONFIG='/home/me/Library Application Support/harns/snip/config.toml' snip run -- deno test",
-    );
+    assertEquals(envEvent.input.command, "FOO=1 snip run -- deno test");
 
     const chainEvent = { toolName: "bash", input: { command: "deno test && echo done" } };
     await handler(chainEvent, {});
-    assertEquals(
-        chainEvent.input.command,
-        "SNIP_CONFIG='/home/me/Library Application Support/harns/snip/config.toml' snip run -- deno test && echo done",
-    );
+    assertEquals(chainEvent.input.command, "snip run -- deno test && echo done");
 
-    const configEvent = {
+    const extraEnvEvent = {
         toolName: "bash",
-        input: { command: "SNIP_CONFIG=/tmp/custom.toml deno lint" },
+        input: { command: "BAR=/tmp/custom deno lint" },
     };
-    await handler(configEvent, {});
-    assertEquals(configEvent.input.command, "SNIP_CONFIG=/tmp/custom.toml snip run -- deno lint");
+    await handler(extraEnvEvent, {});
+    assertEquals(extraEnvEvent.input.command, "BAR=/tmp/custom snip run -- deno lint");
 
     const snippetEvent = { toolName: "bash", input: { command: "snippets list" } };
     await handler(snippetEvent, {});
-    assertEquals(
-        snippetEvent.input.command,
-        "SNIP_CONFIG='/home/me/Library Application Support/harns/snip/config.toml' snip run -- snippets list",
-    );
+    assertEquals(snippetEvent.input.command, "snip run -- snippets list");
 });

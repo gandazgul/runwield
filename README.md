@@ -115,8 +115,9 @@ Interactive agent workflows require these binaries in `PATH`:
 Harns also uses [`snip`](https://github.com/edouard-claude/snip) when `snip` is available in `PATH`. Snip proxies
 eligible agent-initiated shell commands so agents see compact command output. Snip is optional and fail-open: if it is
 missing, Harns skips the prefix hook and shows a short warning on the first few boots for each project. Manual `!` and
-`!!` shell commands are never rewritten. Harns ships Snip filters for `deno fmt`, `deno lint`, and `deno test` and
-materializes them under `~/.hns/snip/filters/` for Harns-invoked Snip runs.
+`!!` shell commands are never rewritten. Harns ships Snip filters for `deno check`, `deno fmt`, `deno lint`, and
+`deno test`. The installer can opt-in install those filters into Snip's default user filter directory so plain
+`snip run -- deno ...` commands can use them; remove those user-level copies with `hns snip-filters cleanup`.
 
 Harns stores its own data under `~/.hns/`:
 
@@ -178,6 +179,8 @@ hns agent engineer "implement X"    # start with Engineer instead of Router
 hns plans                           # list saved plans
 hns load-plan <name-or-path>        # review, execute, or continue a plan
 hns init                            # bootstrap project context
+hns snip-filters install            # optional: install Deno filters for plain snip commands
+hns snip-filters cleanup            # remove Harns-managed user Snip filters
 hns help
 hns help <command>
 ```

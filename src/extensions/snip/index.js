@@ -3,8 +3,6 @@
  * Optional Snip command prefix extension for Harns agent invocations.
  */
 
-import { ensureHarnsSnipFilters } from "../../shared/snip-filters.js";
-
 const SHELL_BUILTINS = new Set([
     ".",
     "alias",
@@ -33,15 +31,6 @@ const SHELL_BUILTINS = new Set([
     "unalias",
     "unset",
 ]);
-
-/**
- * @param {string} value
- * @returns {string}
- */
-function shellQuote(value) {
-    if (/^[A-Za-z0-9_/:=.,@%+-]+$/.test(value)) return value;
-    return `'${value.replaceAll("'", `'"'"'`)}'`;
-}
 
 /**
  * @param {string} command
@@ -130,7 +119,7 @@ function baseCommand(word) {
 
 /**
  * @param {string} segment
- * @returns {{ envPrefix: string, commandText: string, commandName: string, hasSnipConfig: boolean } | null}
+ * @returns {{ envPrefix: string, commandText: string, commandName: string } | null}
  */
 function parseSimpleSegment(segment) {
     const leading = segment.match(/^\s*/)?.[0] || "";
@@ -153,16 +142,14 @@ function parseSimpleSegment(segment) {
         envPrefix: leading + (envWords.length > 0 ? `${envWords.join(" ")} ` : ""),
         commandText: segment.slice(commandOffset),
         commandName,
-        hasSnipConfig: envWords.some((word) => word.startsWith("SNIP_CONFIG=")),
     };
 }
 
 /**
  * @param {string} originalCommand
- * @param {string} configPath
  * @returns {string | null}
  */
-function rewriteCommand(originalCommand, configPath) {
+function rewriteCommand(originalCommand) {
     const segmentEnd = findFirstSegmentEnd(originalCommand);
     const segment = originalCommand.slice(0, segmentEnd);
     const rest = originalCommand.slice(segmentEnd);
@@ -170,30 +157,16 @@ function rewriteCommand(originalCommand, configPath) {
     if (!parsed) return null;
     if (parsed.commandName === "snip" || SHELL_BUILTINS.has(parsed.commandName)) return null;
 
-    const configPrefix = parsed.hasSnipConfig ? "" : `SNIP_CONFIG=${shellQuote(configPath)} `;
-    return `${parsed.envPrefix}${configPrefix}snip run -- ${parsed.commandText}${rest}`;
+    return `${parsed.envPrefix}snip run -- ${parsed.commandText}${rest}`;
 }
 
 /**
  * Register Snip command prefixing for agent bash tool calls.
  *
  * @param {import('@earendil-works/pi-coding-agent').ExtensionAPI} pi
- * @param {{ ensureFilters?: typeof ensureHarnsSnipFilters }} [options]
  */
-export default function snipExtension(pi, options = {}) {
-    const ensureFilters = options.ensureFilters || ensureHarnsSnipFilters;
-    let configPath = "";
-
-    pi.on("session_start", async (_event, _ctx) => {
-        try {
-            const result = await ensureFilters();
-            configPath = result.configPath;
-        } catch {
-            configPath = "";
-        }
-    });
-
-    pi.on("tool_call", async (event, _ctx) => {
+export default function snipExtension(pi) {
+    pi.on("tool_call", (event, _ctx) => {
         if (event.toolName !== "bash") return;
         const input = event.input;
         if (!input || typeof input.command !== "string") return;
@@ -202,17 +175,13 @@ export default function snipExtension(pi, options = {}) {
         if (!originalCommand) return;
 
         try {
-            if (!configPath) {
-                const result = await ensureFilters();
-                configPath = result.configPath;
-            }
-            const rewritten = rewriteCommand(originalCommand, configPath);
+            const rewritten = rewriteCommand(originalCommand);
             if (!rewritten || rewritten === originalCommand) return;
             input.command = rewritten;
         } catch {
-            // Snip is optional and fail-open. If filter setup or rewriting fails, run the original command.
+            // Snip is optional and fail-open. If rewriting fails, run the original command.
         }
     });
 }
 
-export const __testing = { findFirstSegmentEnd, parseSimpleSegment, rewriteCommand, shellQuote };
+export const __testing = { findFirstSegmentEnd, parseSimpleSegment, rewriteCommand };

@@ -1,0 +1,46 @@
+name: "deno-check"
+version: 1
+description: "Suppress successful deno check output while preserving failures"
+
+match:
+    command: "deno"
+    subcommand: "check"
+
+streams:
+    - stdout
+    - stderr
+
+pipeline:
+    - action: "match_output"
+      pattern: "(?s).+"
+      unless: "(?i)(error:|failed)"
+      message: "type check passed"
+    - action: "on_empty"
+      message: "type check passed"
+
+on_error: "passthrough"
+
+tests:
+    - name: "empty output means success"
+      input: ""
+      expected: |
+          type check passed
+    - name: "check success is summarized"
+      input: |
+          Check src/cli.js
+          Check src/shared/session/session.js
+      expected: |
+          type check passed
+    - name: "check failure passes through unchanged"
+      input: |
+          Check src/file.js
+          error: TS2322 [ERROR]: Type 'string' is not assignable to type 'number'.
+          const value = "nope";
+                ~~~~~
+              at file:///repo/src/file.js:1:7
+      expected: |
+          Check src/file.js
+          error: TS2322 [ERROR]: Type 'string' is not assignable to type 'number'.
+          const value = "nope";
+                ~~~~~
+              at file:///repo/src/file.js:1:7

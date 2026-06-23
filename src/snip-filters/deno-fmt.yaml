@@ -1,6 +1,6 @@
 name: "deno-fmt"
-version: 1
-description: "Condensed deno fmt output"
+version: 2
+description: "Suppress successful deno fmt output while preserving failures"
 
 match:
     command: "deno"
@@ -11,29 +11,37 @@ streams:
     - stderr
 
 pipeline:
-    - action: "strip_ansi"
-    - action: "remove_lines"
-      pattern: "^\\s*$"
-    - action: "compact_path"
-    - action: "truncate_lines"
-      max: 140
-    - action: "head"
-      n: 40
-      overflow_msg: "... more fmt output"
+    - action: "match_output"
+      pattern: "(?s).+"
+      unless: "(?i)(error:|Found [1-9][0-9]* not formatted|not formatted|failed)"
+      message: "all files formatted"
     - action: "on_empty"
-      message: "ok (all formatted)"
+      message: "all files formatted"
 
 on_error: "passthrough"
 
 tests:
-    - name: "empty output means formatted"
+    - name: "empty output means success"
       input: ""
       expected: |
-          ok (all formatted)
-    - name: "check failure keeps paths"
+          all files formatted
+    - name: "check success is summarized"
+      input: |
+          Checked 2 files
+      expected: |
+          all files formatted
+    - name: "format success with changed paths is summarized"
       input: |
           /repo/src/file.js
           Checked 2 files
       expected: |
+          all files formatted
+    - name: "check failure passes through unchanged"
+      input: |
           /repo/src/file.js
           Checked 2 files
+          error: Found 1 not formatted file in 2 files
+      expected: |
+          /repo/src/file.js
+          Checked 2 files
+          error: Found 1 not formatted file in 2 files
