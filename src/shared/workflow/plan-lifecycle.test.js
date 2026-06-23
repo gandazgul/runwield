@@ -91,6 +91,27 @@ Deno.test("buildPlanEventUpdates tracks implementation and merge worktree status
     assertEquals(retained.worktreeStatus, "merged");
 });
 
+Deno.test("buildPlanEventUpdates records and clears human review metadata", () => {
+    const passed = buildPlanEventUpdates("validation_passed", "implemented", {
+        humanReviewMode: "always",
+        humanReviewDecision: "approved",
+        humanReviewedAt: "2026-06-23T12:00:00.000Z",
+    });
+    assertEquals(passed.humanReviewMode, "always");
+    assertEquals(passed.humanReviewDecision, "approved");
+    assertEquals(passed.humanReviewedAt, "2026-06-23T12:00:00.000Z");
+
+    const started = buildPlanEventUpdates("execution_started", "ready_for_work");
+    assertEquals(started.humanReviewMode, null);
+    assertEquals(started.humanReviewDecision, null);
+    assertEquals(started.humanReviewedAt, null);
+
+    const reopened = buildPlanEventUpdates("review_reopened", "verified");
+    assertEquals(reopened.humanReviewMode, null);
+    assertEquals(reopened.humanReviewDecision, null);
+    assertEquals(reopened.humanReviewedAt, null);
+});
+
 Deno.test("buildPlanEventUpdates records continue recovery as ready_for_work", () => {
     const updates = buildPlanEventUpdates("recovery_continue", "failed", {
         now: () => new Date("2026-01-02T03:04:05.000Z"),

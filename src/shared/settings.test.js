@@ -6,6 +6,7 @@ import { assertEquals } from "@std/assert";
 import { join } from "@std/path";
 import {
     __resetSettingsForTests,
+    getCodeReviewMode,
     getResolvedVisionFallbackModelSetting,
     migratePiSettingsOnce,
     preserveRunWeildCustomSettingsForWrite,
@@ -185,6 +186,16 @@ Deno.test("preserveRunWeildCustomSettingsForWrite keeps visionFallback", () => {
     });
 });
 
+Deno.test("preserveRunWeildCustomSettingsForWrite keeps codereview", () => {
+    const previous = JSON.stringify({ codereview: "always" });
+    const next = JSON.stringify({ theme: "new-theme" });
+
+    assertEquals(JSON.parse(preserveRunWeildCustomSettingsForWrite(previous, next)), {
+        theme: "new-theme",
+        codereview: "always",
+    });
+});
+
 Deno.test("getResolvedVisionFallbackModelSetting prefers active preset over top-level", async () => {
     const originalHome = Deno.env.get("HOME");
     const originalCwd = Deno.cwd();
@@ -265,6 +276,36 @@ Deno.test("shouldCleanupMergedWorktrees defaults true and honors false setting",
 
         await setCustomSetting("cleanupMergedWorktrees", false, "project");
         assertEquals(shouldCleanupMergedWorktrees(), false);
+    } finally {
+        Deno.chdir(originalCwd);
+        if (originalHome === undefined) Deno.env.delete("HOME");
+        else Deno.env.set("HOME", originalHome);
+        __resetSettingsForTests();
+        await Deno.remove(tempHome, { recursive: true });
+        await Deno.remove(tempProject, { recursive: true });
+    }
+});
+
+Deno.test("getCodeReviewMode defaults none, honors overrides, and rejects invalid values", async () => {
+    const originalHome = Deno.env.get("HOME");
+    const originalCwd = Deno.cwd();
+    const tempHome = await Deno.makeTempDir({ prefix: "runweild-codereview-setting-home-" });
+    const tempProject = await Deno.makeTempDir({ prefix: "runweild-codereview-setting-project-" });
+    try {
+        Deno.env.set("HOME", tempHome);
+        Deno.chdir(tempProject);
+        __resetSettingsForTests();
+
+        assertEquals(getCodeReviewMode(), "none");
+
+        await setCustomSetting("codereview", "always", "global");
+        assertEquals(getCodeReviewMode(), "always");
+
+        await setCustomSetting("codereview", "ask", "project");
+        assertEquals(getCodeReviewMode(), "ask");
+
+        await setCustomSetting("codereview", "sometimes", "project");
+        assertEquals(getCodeReviewMode(), "none");
     } finally {
         Deno.chdir(originalCwd);
         if (originalHome === undefined) Deno.env.delete("HOME");

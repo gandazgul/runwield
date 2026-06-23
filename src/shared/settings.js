@@ -10,6 +10,7 @@ const RUNWEILD_CUSTOM_SETTING_KEYS = [
     "visionFallback",
     "compactOnResumeThresholdPercent",
     "verification_command",
+    "codereview",
     "cleanupMergedWorktrees",
     "enableExternalSkills",
     "enableExternalGlobalAgentsMd",
@@ -411,4 +412,15 @@ export function getResolvedVisionFallbackModelSetting() {
  */
 export function shouldCleanupMergedWorktrees() {
     return getMergedCustomSetting("cleanupMergedWorktrees") !== false;
+}
+
+/**
+ * Resolve the optional human code review gate mode.
+ *
+ * @returns {"none" | "ask" | "always"}
+ */
+export function getCodeReviewMode() {
+    const mode = getMergedCustomSetting("codereview");
+    if (mode === "ask" || mode === "always") return mode;
+    return "none";
 }

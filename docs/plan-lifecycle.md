@@ -105,25 +105,32 @@ Git so execution branches cannot merge stale registry snapshots back into the pr
 ## Workflow Validation and Merge-Back
 
 Workflow Validation applies only to executable Plan work. It promotes `implemented` to `verified` only after local
-validation, semantic review, and merge-back all succeed.
+validation, semantic review, any configured human code review gate, and merge-back all succeed.
 
 For worktree-backed plans:
 
 1. Implementation runs in the execution worktree.
 2. `implementation_finished` records Plan Status `implemented` and worktree status `completed`; it does not merge into
    the primary checkout.
-3. Workflow Validation runs local CI, computes the workflow diff, starts reviewer sessions, and starts repair sessions
-   in the execution worktree.
-4. If validation fails, RunWeild keeps Plan Status `implemented`, records `worktreeStatus: "validation_failed"`, and
+3. Workflow Validation runs local CI, computes the workflow diff, starts semantic reviewer sessions, and starts repair
+   sessions in the execution worktree.
+4. If `codereview` is `ask` or `always`, RunWeild opens or offers Plannotator human code review after semantic review
+   passes and before merge-back. Human feedback is sent back to the Engineer in the execution worktree, then validation
+   reruns.
+5. If validation fails, RunWeild keeps Plan Status `implemented`, records `worktreeStatus: "validation_failed"`, and
    leaves the worktree for recovery.
-5. If validation passes, RunWeild attempts to merge the execution branch into the primary checkout.
-6. Only after that merge succeeds does RunWeild record `validation_passed` and set Plan Status `verified`. By default,
+6. If validation passes, RunWeild attempts to merge the execution branch into the primary checkout.
+7. Only after that merge succeeds does RunWeild record `validation_passed` and set Plan Status `verified`. By default,
    RunWeild removes the execution checkout, deletes its `.wld/worktrees.json` entry, and clears `executionBaselineTree`,
    `worktreeId`, `worktreePath`, `worktreeBranch`, and `worktreeStatus` from the plan file. If `cleanupMergedWorktrees`
    is `false`, RunWeild keeps the merged checkout, registry entry, and plan pointers for inspection.
-7. If merge-back fails or is refused because the primary checkout has blocking uncommitted changes, RunWeild records
+8. If merge-back fails or is refused because the primary checkout has blocking uncommitted changes, RunWeild records
    `worktree_merge_failed`, keeps Plan Status `implemented`, sets `worktreeStatus: "merge_conflict"`, and leaves the
    worktree intact.
+
+Human code review does not add a new primary Plan Status. While human review is pending, returning feedback, or
+canceled, the Plan remains `implemented`. Final `validation_passed` metadata records whether human review was not
+required, skipped, or approved.
 
 For PROJECT Epics, child FEATURE Plans run their own Workflow Validation. The Epic can be marked done enough for now,
 but it does not run a validation loop as if it were an implementation diff. For legacy non-Epic PROJECT Plans, the final
@@ -153,6 +160,12 @@ when dependencies are missing or not verified, but the user may choose to procee
 
 `verifiedAt`: Timestamp set when Workflow Validation passes and merge-back succeeds, or when an Epic is marked done
 enough for now.
+
+`humanReviewMode`: Human code review mode used for final validation: `none`, `ask`, or `always`.
+
+`humanReviewDecision`: Human code review outcome included in final validation: `not_required`, `skipped`, or `approved`.
+
+`humanReviewedAt`: Timestamp set when a human code review approved final validation.
 
 `epicCompletionMode`: Set to `done_enough` when the user marks an Epic complete enough for now.
 
@@ -218,6 +231,7 @@ The parenthesized value is the recorded worktree branch when available, otherwis
 - `implemented` means implementation finished in the execution worktree, even if validation or merge-back later fails.
 - `verified` requires successful Workflow Validation and, for worktree-backed plans, successful merge-back, except for
   PROJECT Epics marked `done_enough`.
+- Human code review is optional Workflow Validation metadata, not a separate Plan Status.
 - Executable FEATURE and legacy non-Epic PROJECT validation cannot pass with an empty or Plan-document-only workflow
   diff.
 - Legacy non-Epic PROJECT Task graphs must finish with an Integration Point before Workflow Validation starts.

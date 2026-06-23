@@ -27,6 +27,9 @@ import { updatePlanFrontMatter } from "../../plan-store.js";
  * @property {string} [worktreeBranch]
  * @property {import('../../plan-store.js').PlanFrontMatter['worktreeStatus']} [worktreeStatus]
  * @property {boolean} [cleanupMergedWorktrees]
+ * @property {import('../../plan-store.js').PlanFrontMatter['humanReviewMode']} [humanReviewMode]
+ * @property {import('../../plan-store.js').PlanFrontMatter['humanReviewDecision']} [humanReviewDecision]
+ * @property {string|null} [humanReviewedAt]
  * @property {string} [epicDoneEnoughSummary]
  * @property {() => Date} [now]
  */
@@ -136,6 +139,9 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         updates.failedAt = null;
         updates.implementedAt = null;
         updates.verifiedAt = null;
+        updates.humanReviewMode = null;
+        updates.humanReviewDecision = null;
+        updates.humanReviewedAt = null;
     }
 
     if (event === "execution_failed") {
@@ -179,6 +185,9 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
             updates.worktreeStatus = null;
         }
         updates.verifiedAt = now;
+        updates.humanReviewMode = details.humanReviewMode;
+        updates.humanReviewDecision = details.humanReviewDecision;
+        updates.humanReviewedAt = details.humanReviewedAt ?? null;
         updates.failureReason = null;
         updates.failedAt = null;
     }
@@ -193,6 +202,9 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         updates.failedAt = null;
         updates.implementedAt = null;
         updates.verifiedAt = null;
+        updates.humanReviewMode = null;
+        updates.humanReviewDecision = null;
+        updates.humanReviewedAt = null;
     }
 
     if (event === "recovery_continue") {
@@ -200,6 +212,9 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         updates.failedAt = null;
         updates.implementedAt = null;
         updates.verifiedAt = null;
+        updates.humanReviewMode = null;
+        updates.humanReviewDecision = null;
+        updates.humanReviewedAt = null;
     }
 
     if (event === "review_reopened") {
@@ -207,6 +222,9 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         updates.failedAt = null;
         updates.implementedAt = null;
         updates.verifiedAt = null;
+        updates.humanReviewMode = null;
+        updates.humanReviewDecision = null;
+        updates.humanReviewedAt = null;
         updates.executionBaselineTree = null;
         updates.worktreeId = null;
         updates.worktreePath = null;

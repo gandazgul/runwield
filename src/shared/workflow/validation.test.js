@@ -508,6 +508,247 @@ Deno.test("runValidationLoop records validation_passed only after worktree merge
     ]);
 });
 
+Deno.test("runValidationLoop runs always human review after semantic approval and before merge", async () => {
+    const uiAPI = makeUi();
+    /** @type {string[]} */
+    const actions = [];
+
+    setActiveExecutionWorkflow({
+        planName: "p",
+        triageMeta: { classification: "FEATURE" },
+        baselineTree: "baseline-tree",
+        projectRoot: "/primary",
+        executionCwd: "/worktree",
+        worktreeId: "wt1",
+        worktreeBranch: "runweild/worktree/p-wt1",
+    });
+
+    await runValidationLoop({
+        planName: "p",
+        planContent: "plan",
+        triageMeta: { classification: "FEATURE" },
+        uiAPI,
+        sessionManager: undefined,
+        __deps: /** @type {any} */ ({
+            runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
+            getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
+            runAgentSession: () =>
+                Promise.resolve(
+                    /** @type {any} */ ([{
+                        role: "assistant",
+                        content: [{ type: "text", text: "APPROVED" }],
+                    }]),
+                ),
+            getCodeReviewMode: () => "always",
+            runPlannotatorCodeReview: (/** @type {any} */ opts) => {
+                actions.push(`human-review:${opts.executionCwd}:${opts.diffText.includes("+change")}`);
+                return Promise.resolve({ approved: true, feedback: "", annotations: [], exit: false });
+            },
+            mergeExecutionWorktree: () => {
+                actions.push("merge");
+                return Promise.resolve();
+            },
+            removeExecutionWorktree: () => Promise.resolve(),
+            removeWorktreeRegistryEntry: () => Promise.resolve(),
+            updateWorktreeRegistryEntry: () => {
+                actions.push("registry");
+                return Promise.resolve({});
+            },
+            recordPlanEvent: (/** @type {any} */ event) => {
+                actions.push(
+                    `event:${event.event}:${event.details.humanReviewMode}:${event.details.humanReviewDecision}`,
+                );
+                return Promise.resolve({});
+            },
+            setActiveAgent: () => {},
+        }),
+    });
+
+    assertEquals(actions, [
+        "human-review:/worktree:true",
+        "merge",
+        "registry",
+        "event:validation_passed:always:approved",
+    ]);
+});
+
+Deno.test("runValidationLoop ask mode can skip human review and merge", async () => {
+    const uiAPI = makeUi();
+    /** @type {string[]} */
+    const actions = [];
+    uiAPI.promptSelect = () => {
+        actions.push("prompt");
+        return Promise.resolve("skip");
+    };
+
+    setActiveExecutionWorkflow({
+        planName: "p",
+        triageMeta: { classification: "FEATURE" },
+        baselineTree: "baseline-tree",
+        projectRoot: "/primary",
+        executionCwd: "/worktree",
+        worktreeId: "wt1",
+        worktreeBranch: "runweild/worktree/p-wt1",
+    });
+
+    await runValidationLoop({
+        planName: "p",
+        planContent: "plan",
+        triageMeta: { classification: "FEATURE" },
+        uiAPI,
+        sessionManager: undefined,
+        __deps: /** @type {any} */ ({
+            runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
+            getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
+            runAgentSession: () =>
+                Promise.resolve(
+                    /** @type {any} */ ([{
+                        role: "assistant",
+                        content: [{ type: "text", text: "APPROVED" }],
+                    }]),
+                ),
+            getCodeReviewMode: () => "ask",
+            runPlannotatorCodeReview: () => {
+                throw new Error("review server should not start");
+            },
+            mergeExecutionWorktree: () => {
+                actions.push("merge");
+                return Promise.resolve();
+            },
+            removeExecutionWorktree: () => Promise.resolve(),
+            removeWorktreeRegistryEntry: () => Promise.resolve(),
+            updateWorktreeRegistryEntry: () => Promise.resolve({}),
+            recordPlanEvent: (/** @type {any} */ event) => {
+                actions.push(
+                    `event:${event.event}:${event.details.humanReviewMode}:${event.details.humanReviewDecision}`,
+                );
+                return Promise.resolve({});
+            },
+            setActiveAgent: () => {},
+        }),
+    });
+
+    assertEquals(actions, ["prompt", "merge", "event:validation_passed:ask:skipped"]);
+});
+
+Deno.test("runValidationLoop sends human feedback to Engineer and continues validation", async () => {
+    const uiAPI = makeUi();
+    /** @type {string[]} */
+    const actions = [];
+    let humanReviewCalls = 0;
+
+    await runValidationLoop({
+        planName: "p",
+        planContent: "plan",
+        triageMeta: { classification: "FEATURE" },
+        uiAPI,
+        sessionManager: undefined,
+        __deps: /** @type {any} */ ({
+            runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
+            getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
+            runAgentSession: () =>
+                Promise.resolve(
+                    /** @type {any} */ ([{
+                        role: "assistant",
+                        content: [{ type: "text", text: "APPROVED" }],
+                    }]),
+                ),
+            getCodeReviewMode: () => "always",
+            runPlannotatorCodeReview: () => {
+                humanReviewCalls++;
+                actions.push(`human-review:${humanReviewCalls}`);
+                if (humanReviewCalls === 1) {
+                    return Promise.resolve({
+                        approved: false,
+                        feedback: "Please tighten this.",
+                        annotations: [{ file: "src/a.js", line: 7, text: "Needs test." }],
+                        exit: false,
+                    });
+                }
+                return Promise.resolve({ approved: true, feedback: "", annotations: [], exit: false });
+            },
+            runCompletionGatedRepair: (/** @type {any} */ opts) => {
+                actions.push(`repair:${opts.agentName}:${opts.userRequest.includes("Needs test.")}`);
+                return Promise.resolve(true);
+            },
+            recordPlanEvent: (/** @type {any} */ event) => {
+                actions.push(
+                    `event:${event.event}:${event.details.humanReviewMode}:${event.details.humanReviewDecision}`,
+                );
+                return Promise.resolve({});
+            },
+            setActiveAgent: () => {},
+        }),
+    });
+
+    assertEquals(actions, [
+        "human-review:1",
+        "repair:engineer:true",
+        "human-review:2",
+        "event:validation_passed:always:approved",
+    ]);
+});
+
+Deno.test("runValidationLoop treats human review exit as validation failure without merge", async () => {
+    const uiAPI = makeUi();
+    /** @type {string[]} */
+    const actions = [];
+
+    setActiveExecutionWorkflow({
+        planName: "p",
+        triageMeta: { classification: "FEATURE" },
+        baselineTree: "baseline-tree",
+        projectRoot: "/primary",
+        executionCwd: "/worktree",
+        worktreeId: "wt1",
+        worktreeBranch: "runweild/worktree/p-wt1",
+    });
+
+    await runValidationLoop({
+        planName: "p",
+        planContent: "plan",
+        triageMeta: { classification: "FEATURE" },
+        uiAPI,
+        sessionManager: undefined,
+        __deps: /** @type {any} */ ({
+            runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
+            getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
+            runAgentSession: () =>
+                Promise.resolve(
+                    /** @type {any} */ ([{
+                        role: "assistant",
+                        content: [{ type: "text", text: "APPROVED" }],
+                    }]),
+                ),
+            getCodeReviewMode: () => "always",
+            runPlannotatorCodeReview: () =>
+                Promise.resolve({ approved: false, feedback: "", annotations: [], exit: true }),
+            mergeExecutionWorktree: () => {
+                actions.push("merge");
+                return Promise.resolve();
+            },
+            updateWorktreeRegistryEntry: (
+                /** @type {string} */ _projectRoot,
+                /** @type {string} */ _id,
+                /** @type {{ status: string }} */ updates,
+            ) => {
+                actions.push(`registry:${updates.status}`);
+                return Promise.resolve({});
+            },
+            recordPlanEvent: (/** @type {any} */ event) => {
+                actions.push(`event:${event.event}:${event.details.failureReason}`);
+                return Promise.resolve({});
+            },
+            setActiveAgent: () => {},
+        }),
+    });
+
+    assertEquals(actions, [
+        "registry:validation_failed",
+        "event:validation_failed:Human code review exited without approval or feedback.",
+    ]);
+});
+
 Deno.test("runValidationLoop keeps merged worktree when cleanup setting is disabled", async () => {
     const uiAPI = makeUi();
     /** @type {string[]} */

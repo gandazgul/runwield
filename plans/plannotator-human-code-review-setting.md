@@ -1,12 +1,20 @@
 ---
 classification: "FEATURE"
 complexity: "MEDIUM"
-summary: "Implement a new 'codereview' setting with three options (none, ask, always) to integrate with Plannotator's new code review UI. This involves updating the settings manager, modifying the workflow orchestrator to trigger reviews based on the setting, and potentially adding new plan statuses for human review/verification in the plan lifecycle."
+summary: "Implement a new 'codereview' setting with three options (none, ask, always) to integrate with Plannotator's new code review UI as an optional validation gate without adding new primary plan statuses."
 affectedPaths:
     - "src/shared/settings.js"
-    - "src/shared/workflow/orchestrator.js"
+    - "src/shared/workflow/code-review.js"
+    - "src/shared/workflow/validation.js"
     - "src/shared/workflow/plan-lifecycle.js"
-    - "src/shared/workflow/workflow-prompts.js"
+    - "src/plan-store.js"
+    - "docs/settings.md"
+    - "docs/plan-lifecycle.md"
+    - "src/shared/settings.test.js"
+    - "src/shared/workflow/code-review.test.js"
+    - "src/shared/workflow/validation.test.js"
+    - "src/shared/workflow/plan-lifecycle.test.js"
+    - "src/plan-store.test.js"
 createdAt: "2026-06-23T00:39:48-04:00"
 updatedAt: "2026-06-23T04:49:41.964Z"
 status: "ready_for_work"
@@ -18,7 +26,7 @@ routingIntent: "FEATURE"
 
 ## Context
 
-Harns already runs mechanical Workflow Validation after plan execution: local validation, semantic reviewer, repair
+RunWeild already runs mechanical Workflow Validation after plan execution: local validation, semantic reviewer, repair
 loops, then worktree merge-back and cleanup. Plannotator now offers a code review UI, and users should be able to opt
 into a human review gate after those mechanical checks.
 
@@ -46,7 +54,7 @@ and deleting the execution worktree. This preserves the ability to send human fe
 execution worktree still exists. `codereview: "none"` should bypass all new UI and preserve current behavior.
 
 Use Plannotator’s `startReviewServer` from `@gandazgul/plannotator-pi-extension-compiled/server` with the workflow diff
-already computed by Harns. The currently locked compiled package (`0.21.0`) already contains `startReviewServer` and
+already computed by RunWeild. The currently locked compiled package (`0.21.0`) already contains `startReviewServer` and
 `review-editor.html`, so no dependency bump is expected. Load `review-editor.html` from the resolved npm package
 location, because the current compiled package exports the review server but not a named review HTML asset.
 
@@ -84,7 +92,7 @@ Existing functions, modules, or patterns to reuse:
 ## Implementation Steps
 
 - [ ] Add a normalized code-review setting helper.
-  - In `src/shared/settings.js`, add `"codereview"` to `HARNS_CUSTOM_SETTING_KEYS`.
+  - In `src/shared/settings.js`, add `"codereview"` to `RUNWEILD_CUSTOM_SETTING_KEYS`.
   - Export `getCodeReviewMode()` returning only `"none"`, `"ask"`, or `"always"`; default invalid/missing values to
     `"none"`.
   - Add settings tests for global/project override, invalid fallback, and preservation across SettingsManager writes.
@@ -96,7 +104,7 @@ Existing functions, modules, or patterns to reuse:
     `import.meta.resolve("@gandazgul/plannotator-pi-extension-compiled/server")` and
     `new URL("../review-editor.html", resolvedServerUrl)`.
   - Start the review server with
-    `{ rawPatch: diffText, gitRef: "Harns workflow diff: <planName>", htmlContent, origin: "harns", agentCwd: executionCwd }`.
+    `{ rawPatch: diffText, gitRef: "RunWeild workflow diff: <planName>", htmlContent, origin: "runweild", agentCwd: executionCwd }`.
   - Open the server URL in the default browser, wait for `server.waitForDecision()`, normalize
     `{ approved, feedback, annotations, exit }`, and always stop the server.
   - Provide dependency injection for tests: server starter, HTML loader, browser opener.
@@ -107,15 +115,21 @@ Existing functions, modules, or patterns to reuse:
   - For `ask`, prompt with `uiAPI.promptSelect` to open or skip human review; skipped review continues to merge-back.
   - For `always`, launch Plannotator without prompting.
   - On human approval, continue to merge-back.
-  - On human feedback, append a Harns message and call the existing Engineer repair helper with the human feedback and
-    annotations; then continue the outer validation cycle.
+  - On human feedback, append a RunWeild message and call the existing Engineer repair helper with the human feedback
+    and annotations; then continue the outer validation cycle.
   - On exit/cancel/no decision, halt validation with a clear failure reason and leave the worktree recoverable.
 
 - [ ] Persist human-review metadata without adding new primary statuses.
-  - Add optional PlanFrontMatter fields such as `humanReviewMode`, `humanReviewDecision`, `humanReviewedAt`, and
-    optionally `humanReviewFeedback` if useful for recovery context.
+  - Add optional PlanFrontMatter fields such as `humanReviewMode`, `humanReviewDecision`, `humanReviewedAt`, and avoid
+    storing full review feedback in front matter because it can be large and stale.
   - On `validation_passed`, record `humanReviewMode: "none" | "ask" | "always"` and
     `humanReviewDecision: "not_required" | "skipped" | "approved"`.
+  - Use these final metadata semantics:
+    - `none` -> `humanReviewMode: "none"`, `humanReviewDecision: "not_required"`.
+    - `ask` + skip -> `humanReviewMode: "ask"`, `humanReviewDecision: "skipped"`.
+    - `ask` + approval -> `humanReviewMode: "ask"`, `humanReviewDecision: "approved"`.
+    - `always` + approval -> `humanReviewMode: "always"`, `humanReviewDecision: "approved"`.
+    - cancel/exit/no decision -> validation failure, no merge, plan remains `implemented`.
   - Clear stale human-review fields on `execution_started`, `recovery_reset`, and `review_reopened`.
   - Keep `verifiedAt` as the final timestamp for the complete configured gate set.
 
@@ -140,7 +154,7 @@ Existing functions, modules, or patterns to reuse:
 - Manual:
   - With no `codereview` setting, execute a small FEATURE plan and confirm current merge/delete behavior remains
     unchanged.
-  - With `codereview: "ask"`, confirm Harns prompts after semantic review; choosing skip proceeds to merge.
+  - With `codereview: "ask"`, confirm RunWeild prompts after semantic review; choosing skip proceeds to merge.
   - With `codereview: "always"`, confirm the Plannotator code review UI opens after semantic review and before worktree
     cleanup.
   - Submit human feedback from Plannotator and confirm Engineer receives the feedback, validation reruns, and the

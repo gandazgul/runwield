@@ -35,6 +35,27 @@ Deno.test("injectFrontMatter escapes YAML double-quoted values", () => {
     assertEquals(attrs.affectedPaths, ['<|"|src/tools/user-interview.js<|"|']);
 });
 
+Deno.test("injectFrontMatter preserves human review metadata", () => {
+    const markdown = "## Plan\n\nBody";
+    const withFm = injectFrontMatter(markdown, {
+        classification: "FEATURE",
+        complexity: "MEDIUM",
+        summary: "Reviewed",
+        affectedPaths: [],
+        createdAt: "2026-06-23T00:00:00.000Z",
+        status: "verified",
+        humanReviewMode: "ask",
+        humanReviewDecision: "approved",
+        humanReviewedAt: "2026-06-23T01:00:00.000Z",
+    });
+
+    const { attrs } = parsePlanFrontMatter(withFm);
+
+    assertEquals(attrs.humanReviewMode, "ask");
+    assertEquals(attrs.humanReviewDecision, "approved");
+    assertEquals(attrs.humanReviewedAt, "2026-06-23T01:00:00.000Z");
+});
+
 testWithFs("updatePlanStatus self-heals malformed front matter using recovery attrs", async () => {
     const cwd = await Deno.makeTempDir();
     try {

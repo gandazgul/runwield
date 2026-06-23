@@ -91,6 +91,9 @@ function getStoredPlanLocation(cwd, planName) {
  * @property {string|null} [failedAt] - ISO timestamp when execution failed
  * @property {string|null} [implementedAt] - ISO timestamp when execution finished
  * @property {string|null} [verifiedAt] - ISO timestamp when validation passed
+ * @property {"none"|"ask"|"always"|null} [humanReviewMode] - Human code review mode used for final validation
+ * @property {"not_required"|"skipped"|"approved"|null} [humanReviewDecision] - Human code review outcome included in final validation
+ * @property {string|null} [humanReviewedAt] - ISO timestamp when human review approved final validation
  * @property {"done_enough"|null} [epicCompletionMode] - Explicit Epic completion mode when an Epic is marked done enough for now
  * @property {string|null} [epicDoneEnoughAt] - ISO timestamp when an Epic was marked done enough for now
  * @property {string|null} [epicDoneEnoughSummary] - Human-readable summary captured when an Epic was marked done enough for now
@@ -159,6 +162,9 @@ const KNOWN_FRONT_MATTER_KEYS = new Set([
     "failedAt",
     "implementedAt",
     "verifiedAt",
+    "humanReviewMode",
+    "humanReviewDecision",
+    "humanReviewedAt",
     "epicCompletionMode",
     "epicDoneEnoughAt",
     "epicDoneEnoughSummary",
@@ -241,6 +247,9 @@ function formatFrontMatter(fm) {
     appendYamlField(lines, "failedAt", fm.failedAt);
     appendYamlField(lines, "implementedAt", fm.implementedAt);
     appendYamlField(lines, "verifiedAt", fm.verifiedAt);
+    appendYamlField(lines, "humanReviewMode", fm.humanReviewMode);
+    appendYamlField(lines, "humanReviewDecision", fm.humanReviewDecision);
+    appendYamlField(lines, "humanReviewedAt", fm.humanReviewedAt);
     appendYamlField(lines, "epicCompletionMode", fm.epicCompletionMode);
     appendYamlField(lines, "epicDoneEnoughAt", fm.epicDoneEnoughAt);
     appendYamlField(lines, "epicDoneEnoughSummary", fm.epicDoneEnoughSummary);

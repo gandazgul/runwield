@@ -81,6 +81,7 @@ the root agent model, the root agent thinking level, prompt templates, skills, a
 
     "compactOnResumeThresholdPercent": 50,
     "verification_command": "deno run ci",
+    "codereview": "ask",
     "cleanupMergedWorktrees": true
 }
 ```
@@ -260,17 +261,38 @@ Temperature resolution:
 
 These keys are read by RunWeild outside the upstream Pi `SettingsManager` schema.
 
-| Key                               | Type    | Values / default        | Scope            | Description                                                                                                                                                                        |
-| --------------------------------- | ------- | ----------------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `agents`                          | object  | agent-name map          | global + project | Base per-agent `model`, `thinkingLevel`, and `temperature` overrides.                                                                                                              |
-| `activeModelPreset`               | string  | unset                   | global + project | Selects a named preset from `modelPresets`.                                                                                                                                        |
-| `modelPresets`                    | object  | preset-name map         | global + project | Named per-agent override sets.                                                                                                                                                     |
-| `visionFallback`                  | object  | unset                   | global + project | Vision-capable fallback model used by `see_image` when the active model is text-only.                                                                                              |
-| `compactOnResumeThresholdPercent` | integer | `1`-`100`, default `50` | global + project | `/resume` offers compaction when estimated context reaches this percentage of the selected model context window.                                                                   |
-| `verification_command`            | string  | no default              | project          | Command used by workflow validation. Saved when RunWeild asks for a validation command.                                                                                            |
-| `cleanupMergedWorktrees`          | boolean | default `true`          | global + project | When true, successful merge-back removes the execution checkout, deletes its registry entry, and clears plan worktree metadata. Set false to keep merged worktrees for inspection. |
-| `enableExternalSkills`            | boolean | default `true`          | global           | When true, RunWeild includes skills from `~/.agents/skills` after local, home, and bundled RunWeild skills.                                                                        |
-| `enableExternalGlobalAgentsMd`    | boolean | default `true`          | global           | When true, global prompt loading includes `~/.agents/AGENTS.md` after `~/.wld/RUNWEILD.md` and `~/.wld/AGENTS.md`.                                                                 |
+| Key                               | Type    | Values / default                        | Scope            | Description                                                                                                                                                                        |
+| --------------------------------- | ------- | --------------------------------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `agents`                          | object  | agent-name map                          | global + project | Base per-agent `model`, `thinkingLevel`, and `temperature` overrides.                                                                                                              |
+| `activeModelPreset`               | string  | unset                                   | global + project | Selects a named preset from `modelPresets`.                                                                                                                                        |
+| `modelPresets`                    | object  | preset-name map                         | global + project | Named per-agent override sets.                                                                                                                                                     |
+| `visionFallback`                  | object  | unset                                   | global + project | Vision-capable fallback model used by `see_image` when the active model is text-only.                                                                                              |
+| `compactOnResumeThresholdPercent` | integer | `1`-`100`, default `50`                 | global + project | `/resume` offers compaction when estimated context reaches this percentage of the selected model context window.                                                                   |
+| `verification_command`            | string  | no default                              | project          | Command used by workflow validation. Saved when RunWeild asks for a validation command.                                                                                            |
+| `codereview`                      | string  | `none`, `ask`, `always`; default `none` | global + project | Optional Plannotator human code review gate after local validation and semantic review pass, before merge-back. Invalid values fall back to `none`.                                |
+| `cleanupMergedWorktrees`          | boolean | default `true`                          | global + project | When true, successful merge-back removes the execution checkout, deletes its registry entry, and clears plan worktree metadata. Set false to keep merged worktrees for inspection. |
+| `enableExternalSkills`            | boolean | default `true`                          | global           | When true, RunWeild includes skills from `~/.agents/skills` after local, home, and bundled RunWeild skills.                                                                        |
+| `enableExternalGlobalAgentsMd`    | boolean | default `true`                          | global           | When true, global prompt loading includes `~/.agents/AGENTS.md` after `~/.wld/RUNWEILD.md` and `~/.wld/AGENTS.md`.                                                                 |
+
+### `codereview`
+
+`codereview` controls whether executable Plan validation includes a human Plannotator code review gate. The gate runs
+only after local validation and semantic review pass, and before merge-back or worktree cleanup.
+
+Values:
+
+- `none`: default. Keep the current fully automated validation behavior.
+- `ask`: prompt after semantic review passes. Choosing skip records the Plan as verified after merge-back without human
+  review.
+- `always`: open the Plannotator code review UI automatically after semantic review passes.
+
+Example:
+
+```jsonc
+{
+    "codereview": "ask"
+}
+```
 
 ## Pi-Backed Keys
 

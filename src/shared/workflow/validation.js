@@ -13,11 +13,12 @@ import {
     consumePendingSwitchHandoff,
     getActiveExecutionWorkflow,
 } from "../session/session-state.js";
-import { getCustomSetting, setCustomSetting, shouldCleanupMergedWorktrees } from "../settings.js";
+import { getCodeReviewMode, getCustomSetting, setCustomSetting, shouldCleanupMergedWorktrees } from "../settings.js";
 import { extractAssistantOutput, readLatestTaskCompletedOutcome } from "./workflow.js";
 import { setActiveAgent } from "../interactive/chat-session.js";
 import { getWorkflowDiff } from "./git-snapshot.js";
 import { recordPlanEvent } from "./plan-lifecycle.js";
+import { formatCodeReviewAnnotations, runPlannotatorCodeReview } from "./code-review.js";
 import { mergeExecutionWorktree, removeExecutionWorktree } from "../worktree.js";
 import {
     removeEntry as removeWorktreeRegistryEntry,
@@ -184,6 +185,17 @@ function isApprovedReviewResponse(response) {
 }
 
 /**
+ * @typedef {"not_required" | "skipped" | "approved"} HumanReviewDecision
+ */
+
+/**
+ * @typedef {Object} HumanReviewMetadata
+ * @property {"none" | "ask" | "always"} humanReviewMode
+ * @property {HumanReviewDecision} humanReviewDecision
+ * @property {string | null} humanReviewedAt
+ */
+
+/**
  * @param {import('./workflow.js').UiAPI} uiAPI
  * @param {string} reason
  * @returns {Promise<"retry" | "stop">}
@@ -294,6 +306,8 @@ export function shouldRunWorkflowValidation(triageMeta) {
  *   createAgentHandler?: (agentName: string) => import('../session/types.js').AgentMessageHandler,
  *   loadReviewerPrompt?: typeof loadReviewerPrompt,
  *   shouldCleanupMergedWorktrees?: typeof shouldCleanupMergedWorktrees,
+ *   getCodeReviewMode?: typeof getCodeReviewMode,
+ *   runPlannotatorCodeReview?: typeof runPlannotatorCodeReview,
  * }} [args.__deps] Test-only injection point.
  */
 export async function runValidationLoop({
@@ -322,6 +336,8 @@ export async function runValidationLoop({
     const updateWorktreeRegistryEntryImpl = __deps?.updateWorktreeRegistryEntry || updateWorktreeRegistryEntry;
     const loadReviewerPromptImpl = __deps?.loadReviewerPrompt || loadReviewerPrompt;
     const shouldCleanupMergedWorktreesImpl = __deps?.shouldCleanupMergedWorktrees || shouldCleanupMergedWorktrees;
+    const getCodeReviewModeImpl = __deps?.getCodeReviewMode || getCodeReviewMode;
+    const runPlannotatorCodeReviewImpl = __deps?.runPlannotatorCodeReview || runPlannotatorCodeReview;
     const activeWorkflow = getActiveExecutionWorkflow();
     const baselineTree = activeWorkflow?.baselineTree;
     const projectRoot = activeWorkflow?.projectRoot || CWD;
@@ -335,6 +351,8 @@ export async function runValidationLoop({
     let executionComplete = false;
     /** @type {string | null} */
     let haltReason = null;
+    /** @type {HumanReviewMetadata | null} */
+    let humanReviewMetadata = null;
     let validationCycles = 0;
     const MAX_VALIDATION_CYCLES = 3;
 
@@ -441,7 +459,89 @@ export async function runValidationLoop({
 
         if (isApprovedReviewResponse(reviewResponse)) {
             appendRunWeildSystemMessage(uiAPI, "Semantic Code Review Approved.", false, SUCCESS_MESSAGE_STYLE);
-            executionComplete = true;
+            const codeReviewMode = getCodeReviewModeImpl();
+            if (codeReviewMode === "none") {
+                humanReviewMetadata = {
+                    humanReviewMode: "none",
+                    humanReviewDecision: "not_required",
+                    humanReviewedAt: null,
+                };
+                executionComplete = true;
+            } else {
+                let shouldOpenReview = codeReviewMode === "always";
+                if (codeReviewMode === "ask") {
+                    const choice = await uiAPI.promptSelect?.(
+                        "Semantic review passed. Open Plannotator human code review before merge-back?",
+                        [
+                            { value: "open", label: "Open code review" },
+                            { value: "skip", label: "Skip human review" },
+                        ],
+                    );
+                    shouldOpenReview = choice === "open";
+                    if (!shouldOpenReview) {
+                        humanReviewMetadata = {
+                            humanReviewMode: "ask",
+                            humanReviewDecision: "skipped",
+                            humanReviewedAt: null,
+                        };
+                        executionComplete = true;
+                    }
+                }
+
+                if (shouldOpenReview) {
+                    appendRunWeildSystemMessage(uiAPI, "Opening Plannotator Human Code Review...");
+                    const humanReview = await runPlannotatorCodeReviewImpl({
+                        planName,
+                        diffText,
+                        executionCwd,
+                        uiAPI,
+                    });
+
+                    if (humanReview.exit) {
+                        haltReason = "Human code review exited without approval or feedback.";
+                        break;
+                    }
+
+                    if (humanReview.approved) {
+                        appendRunWeildSystemMessage(uiAPI, "Human Code Review Approved.", false, SUCCESS_MESSAGE_STYLE);
+                        humanReviewMetadata = {
+                            humanReviewMode: codeReviewMode,
+                            humanReviewDecision: "approved",
+                            humanReviewedAt: new Date().toISOString(),
+                        };
+                        executionComplete = true;
+                    } else {
+                        const annotationText = formatCodeReviewAnnotations(humanReview.annotations || []);
+                        const feedbackText = [
+                            humanReview.feedback || "(no free-text feedback provided)",
+                            annotationText ? `Annotations:\n${annotationText}` : "",
+                        ].filter(Boolean).join("\n\n");
+                        appendRunWeildSystemMessage(
+                            uiAPI,
+                            `Human review returned feedback. Sending feedback back to ${
+                                getAgentDisplayName(AGENTS.ENGINEER)
+                            }...\n\nHuman Review Feedback:\n${feedbackText}`,
+                            true,
+                        );
+                        const completed = await repair({
+                            agentName: AGENTS.ENGINEER,
+                            userRequest:
+                                "The human code reviewer found issues with your implementation. Please fix them, " +
+                                `do not break existing tests, and call task_completed when finished.\n\n` +
+                                `Human Review Feedback:\n${feedbackText}`,
+                            uiAPI,
+                            sessionManager,
+                            cwd: executionCwd,
+                        });
+                        if (!completed) {
+                            haltReason = `${
+                                getAgentDisplayName(AGENTS.ENGINEER)
+                            } stopped without task_completed during human code review repair.`;
+                            break;
+                        }
+                    }
+                }
+            }
         } else {
             appendRunWeildSystemMessage(
                 uiAPI,
@@ -588,6 +688,7 @@ export async function runValidationLoop({
                         triageMeta,
                         worktreeStatus: worktreeBranch ? "merged" : undefined,
                         cleanupMergedWorktrees: worktreeBranch ? cleanupMergedWorktrees : undefined,
+                        ...(humanReviewMetadata || {}),
                     },
                 });
             }

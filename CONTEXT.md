@@ -67,7 +67,8 @@ origin. _Avoid_: Metadata, header, YAML block
 `FEATURE` and `PROJECT`. _Avoid_: Routing intent, request type, route category
 
 **Plan Status**: The lifecycle state of a Plan: `draft`, `feedback`, `approved`, `ready_for_decomposition`,
-`ready_for_work`, `in_progress`, `failed`, `implemented`, `verified`, or `on_hold`. _Avoid_: Phase, stage
+`ready_for_work`, `in_progress`, `failed`, `implemented`, `verified`, `closed_without_verification`, or `on_hold`.
+_Avoid_: Phase, stage
 
 **Plan Lifecycle**: The state machine that decides how Plan Events change Plan Status and recovery metadata; see
 `docs/plan-lifecycle.md`. _Avoid_: Status helper, plan status logic
@@ -111,11 +112,30 @@ Completed plan, done plan
 **Verified Plan**: A Plan whose execution and Workflow Validation both finished successfully. _Avoid_: Completed plan,
 done plan
 
+**Closed Without Verification Plan**: A terminal Plan whose work is no longer active because the user manually accepted,
+verified outside RunWeild, or chose not to require Workflow Validation. _Avoid_: Verified plan, archived plan, on-hold
+plan
+
 **Review Loop**: The cycle where a planning agent writes or revises a Plan and the user approves or returns it through
 Plannotator. _Avoid_: Feedback loop, approval cycle
 
 **Plannotator**: The browser-based review UI where users approve, save, deny, or annotate a Plan. _Avoid_: Review UI,
 approval screen
+
+**Plan Board**: A browser-based local UI over the current checkout's `plans/` directory that displays Plans by Plan
+Status and lets the user inspect or edit Plan files while preserving the local Plan files as the canonical source of
+truth. _Avoid_: Remote plan database, hosted board, task board
+
+**Plan Card**: A Plan Board representation of a top-level Plan. Epic Plan Cards summarize child FEATURE Plan progress
+and open an Epic detail view rather than flattening every child FEATURE Plan onto the main board by default. _Avoid_:
+Task card, ticket
+
+**Plan Editor**: The Plan Board editing surface for a Plan's markdown body. Workflow-critical Front Matter changes are
+made through structured controls or Plan Lifecycle actions, not by default raw YAML editing. _Avoid_: Raw Plan file
+editor, Front Matter editor
+
+**Plan UI Server**: An ephemeral local web server started by RunWeild, for example through `wld plans ui`, that serves
+the Plan Board and reads or writes Plan files in the current checkout. _Avoid_: Hosted collaboration service, daemon
 
 **Feedback**: Structured user annotations returned when a Plan is denied or re-opened in Plannotator. _Avoid_: Comments,
 notes

@@ -16,7 +16,7 @@ affectedPaths:
     - "docs/plan-lifecycle.md"
     - "docs/prd/done/project-decomposition-PRD.md"
 createdAt: "2026-06-16T16:25:04Z"
-status: "verfied"
+status: "verified"
 ---
 
 # PROJECT Decomposition into Executable FEATURE Plans
