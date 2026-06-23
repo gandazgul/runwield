@@ -12,15 +12,10 @@ affectedPaths:
   - "README.md"
   - "install.sh"
 createdAt: "2026-06-22T22:20:48-04:00"
-updatedAt: "2026-06-23T04:43:52.958Z"
-status: "implemented"
+updatedAt: "2026-06-23T04:55:50.556Z"
+status: "verified"
 origin: "internal"
-implementedAt: "2026-06-23T04:43:52.958Z"
-executionBaselineTree: "20700c8bbf2ac24cf72d9fef3eb8db7afa241d86"
-worktreeId: "9826f218"
-worktreePath: "/Users/gandazgul/.hns/worktrees/--Users-gandazgul-Documents-web-harns--/harns-harns-rename-harns-to-weild-9826f218"
-worktreeBranch: "harns/worktree/rename-harns-to-weild-9826f218"
-worktreeStatus: "completed"
+verifiedAt: "2026-06-23T04:55:50.556Z"
 routingIntent: "FEATURE"
 ---
 # Rename Harns to RunWeild

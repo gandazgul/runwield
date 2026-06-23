@@ -1,19 +1,18 @@
 ---
 classification: "FEATURE"
 complexity: "MEDIUM"
-summary: "Add a codereview setting that can skip, ask for, or always launch Plannotator human code review after mechanical workflow validation."
+summary: "Implement a new 'codereview' setting with three options (none, ask, always) to integrate with Plannotator's new code review UI. This involves updating the settings manager, modifying the workflow orchestrator to trigger reviews based on the setting, and potentially adding new plan statuses for human review/verification in the plan lifecycle."
 affectedPaths:
-    - "src/shared/settings.js"
-    - "src/shared/workflow/validation.js"
-    - "src/shared/workflow/code-review.js"
-    - "src/shared/workflow/plan-lifecycle.js"
-    - "src/plan-store.js"
-    - "docs/settings.md"
-    - "docs/plan-lifecycle.md"
+  - "src/shared/settings.js"
+  - "src/shared/workflow/orchestrator.js"
+  - "src/shared/workflow/plan-lifecycle.js"
+  - "src/shared/workflow/workflow-prompts.js"
 createdAt: "2026-06-23T00:39:48-04:00"
-status: "draft"
+updatedAt: "2026-06-23T04:49:41.964Z"
+status: "ready_for_work"
+origin: "internal"
+routingIntent: "FEATURE"
 ---
-
 # Plannotator Human Code Review Setting
 
 ## Context
