@@ -8,18 +8,15 @@ affectedPaths:
   - "docs/plan-lifecycle.md"
   - "docs/prd/on-hold-plan-status.md"
 createdAt: "2026-06-24T20:14:08.682Z"
-updatedAt: "2026-06-24T22:58:37.278Z"
-status: "implemented"
+updatedAt: "2026-06-24T22:59:23.155Z"
+status: "verified"
 origin: "internal"
 parentPlan: "local-first-plan-management-ui"
 dependencies:
   []
-failureReason: "git merge --no-ff runwield/worktree/local-first-plan-management-ui-lifecycle-board-s-bd131f58 failed: Auto-merging plans/local-first-plan-management-ui/lifecycle-board-semantics.md
-CONFLICT (content): Merge conflict in plans/local-first-plan-management-ui/lifecycle-board-semantics.md
-Auto-merging plans/local-first-plan-management-ui/plan-resource-identity-and-hierarchy.md
-CONFLICT (content): Merge conflict in plans/local-first-plan-management-ui/plan-resource-identity-and-hierarchy.md
-Automatic merge failed; fix conflicts and then commit the result."
-worktreeStatus: "merge_conflict"
+verifiedAt: "2026-06-24T22:59:23.155Z"
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
 ---
 # Lifecycle Board Semantics
 
