@@ -5,6 +5,21 @@ RunWeild reads settings from JSONC files, so comments and trailing commas are al
 - Global settings: `~/.wld/settings.json`
 - Project settings: `<project>/.wld/settings.json`
 
+## JSON Schema
+
+Add the release schema URL to either settings file for editor autocomplete and validation:
+
+```jsonc
+{
+    "$schema": "https://github.com/gandazgul/runwield/releases/latest/download/config.schema.json"
+}
+```
+
+Settings files are JSONC, but the published `config.schema.json` asset is strict JSON for broad editor compatibility.
+The schema intentionally allows unknown keys so future RunWeild settings, inherited Pi settings, and extension-owned
+settings do not become false errors. Known RunWeild keys and currently inherited Pi-backed keys are still described for
+completion and basic validation.
+
 Project settings override global settings. For ordinary Pi-backed settings, nested objects are shallow-merged and arrays
 replace the global value. For RunWeild custom object keys such as `agents` and `modelPresets`, RunWeild merges the
 top-level object keys only, so a project `agents.router` object replaces the global `agents.router` object.
@@ -19,6 +34,8 @@ the root agent model, the root agent thinking level, prompt templates, skills, a
 
 ```jsonc
 {
+    "$schema": "https://github.com/gandazgul/runwield/releases/latest/download/config.schema.json",
+
     "defaultProvider": "anthropic",
     "defaultModel": "claude-sonnet-4-5",
     "defaultThinkingLevel": "medium",
@@ -300,36 +317,45 @@ Example:
 
 These keys come from the upstream `@earendil-works/pi-coding-agent` settings schema used by RunWeild.
 
-| Key                      | Type         | Values / default                                                             | Description                                                                                                                   |
-| ------------------------ | ------------ | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `lastChangelogVersion`   | string       | unset                                                                        | Last version whose changelog was shown. Usually managed automatically.                                                        |
-| `defaultProvider`        | string       | unset                                                                        | Default model provider, for example `anthropic`, `openai`, or `google`.                                                       |
-| `defaultModel`           | string       | unset                                                                        | Default model id within `defaultProvider`. Unlike agent overrides, this is only the model id.                                 |
-| `defaultThinkingLevel`   | string       | `off`, `minimal`, `low`, `medium`, `high`, `xhigh`                           | Default reasoning depth for thinking-capable models.                                                                          |
-| `transport`              | string       | `auto`, `sse`, `websocket`, `websocket-cached`; default `auto`               | Preferred provider transport when supported.                                                                                  |
-| `steeringMode`           | string       | `all` or `one-at-a-time`; default `one-at-a-time`                            | How messages submitted while the agent is streaming are delivered.                                                            |
-| `followUpMode`           | string       | `all` or `one-at-a-time`; default `one-at-a-time`                            | How queued follow-up messages are delivered after the agent stops.                                                            |
-| `theme`                  | string       | default `catppuccin-mocha`                                                   | Active TUI theme name.                                                                                                        |
-| `hideThinkingBlock`      | boolean      | default `false`                                                              | Hide assistant thinking blocks in rendered output.                                                                            |
-| `shellPath`              | string       | unset                                                                        | Custom shell path.                                                                                                            |
-| `quietStartup`           | boolean      | default `false`                                                              | Suppress verbose startup output.                                                                                              |
-| `shellCommandPrefix`     | string       | unset                                                                        | Prefix prepended to each bash command.                                                                                        |
-| `npmCommand`             | string array | unset                                                                        | Command argv used for npm package lookup and install operations.                                                              |
-| `collapseChangelog`      | boolean      | default `false`                                                              | Show condensed changelog after updates.                                                                                       |
-| `enableInstallTelemetry` | boolean      | default `true`                                                               | Send anonymous version/update ping after changelog-detected updates.                                                          |
-| `packages`               | array        | default `[]`                                                                 | Installed npm/git/local package sources. RunWeild registers theme resources and package prompt templates from these packages. |
-| `extensions`             | string array | default `[]`                                                                 | Local extension file paths or directories.                                                                                    |
-| `skills`                 | string array | default `[]`                                                                 | Local skill file paths or directories.                                                                                        |
-| `prompts`                | string array | default `[]`                                                                 | Local prompt template file paths or directories.                                                                              |
-| `themes`                 | string array | default `[]`                                                                 | Local theme file paths or directories.                                                                                        |
-| `enableSkillCommands`    | boolean      | default `true`                                                               | Register skills as `/skill:name` commands.                                                                                    |
-| `enabledModels`          | string array | unset                                                                        | Model patterns for model cycling, using the same format as the `--models` CLI flag.                                           |
-| `doubleEscapeAction`     | string       | `fork`, `tree`, `none`; default `tree`                                       | Action for pressing Escape twice with an empty editor.                                                                        |
-| `treeFilterMode`         | string       | `default`, `no-tools`, `user-only`, `labeled-only`, `all`; default `default` | Default filter when opening the session tree.                                                                                 |
-| `editorPaddingX`         | number       | clamped to `0`-`3`, default `0`                                              | Horizontal input editor padding.                                                                                              |
-| `autocompleteMaxVisible` | number       | clamped to `3`-`20`, default `5`                                             | Maximum visible autocomplete items.                                                                                           |
-| `showHardwareCursor`     | boolean      | default `false`, or `PI_HARDWARE_CURSOR=1`                                   | Show the terminal cursor while positioning it for IME support.                                                                |
-| `sessionDir`             | string       | unset                                                                        | Custom session storage directory. `~` and `~/...` are expanded.                                                               |
+| Key                         | Type         | Values / default                                                             | Description                                                                                                                   |
+| --------------------------- | ------------ | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `lastChangelogVersion`      | string       | unset                                                                        | Last version whose changelog was shown. Usually managed automatically.                                                        |
+| `defaultProvider`           | string       | unset                                                                        | Default model provider, for example `anthropic`, `openai`, or `google`.                                                       |
+| `defaultModel`              | string       | unset                                                                        | Default model id within `defaultProvider`. Unlike agent overrides, this is only the model id.                                 |
+| `defaultThinkingLevel`      | string       | `off`, `minimal`, `low`, `medium`, `high`, `xhigh`                           | Default reasoning depth for thinking-capable models.                                                                          |
+| `transport`                 | string       | `auto`, `sse`, `websocket`, `websocket-cached`; default `auto`               | Preferred provider transport when supported.                                                                                  |
+| `steeringMode`              | string       | `all` or `one-at-a-time`; default `one-at-a-time`                            | How messages submitted while the agent is streaming are delivered.                                                            |
+| `followUpMode`              | string       | `all` or `one-at-a-time`; default `one-at-a-time`                            | How queued follow-up messages are delivered after the agent stops.                                                            |
+| `theme`                     | string       | default `catppuccin-mocha`                                                   | Active TUI theme name.                                                                                                        |
+| `hideThinkingBlock`         | boolean      | default `false`                                                              | Hide assistant thinking blocks in rendered output.                                                                            |
+| `shellPath`                 | string       | unset                                                                        | Custom shell path.                                                                                                            |
+| `quietStartup`              | boolean      | default `false`                                                              | Suppress verbose startup output.                                                                                              |
+| `defaultProjectTrust`       | string       | `ask`, `always`, `never`; default `ask`                                      | Global setting for default project trust prompt behavior.                                                                     |
+| `shellCommandPrefix`        | string       | unset                                                                        | Prefix prepended to each bash command.                                                                                        |
+| `npmCommand`                | string array | unset                                                                        | Command argv used for npm package lookup and install operations.                                                              |
+| `collapseChangelog`         | boolean      | default `false`                                                              | Show condensed changelog after updates.                                                                                       |
+| `enableInstallTelemetry`    | boolean      | default `true`                                                               | Send anonymous version/update ping after changelog-detected updates.                                                          |
+| `enableAnalytics`           | boolean      | default `false`                                                              | Opt-in analytics data sharing.                                                                                                |
+| `trackingId`                | string       | generated when analytics is enabled                                          | Analytics tracking identifier.                                                                                                |
+| `packages`                  | array        | default `[]`                                                                 | Installed npm/git/local package sources. RunWeild registers theme resources and package prompt templates from these packages. |
+| `extensions`                | string array | default `[]`                                                                 | Local extension file paths or directories.                                                                                    |
+| `skills`                    | string array | default `[]`                                                                 | Local skill file paths or directories.                                                                                        |
+| `prompts`                   | string array | default `[]`                                                                 | Local prompt template file paths or directories.                                                                              |
+| `themes`                    | string array | default `[]`                                                                 | Local theme file paths or directories.                                                                                        |
+| `enableSkillCommands`       | boolean      | default `true`                                                               | Register skills as `/skill:name` commands.                                                                                    |
+| `enabledModels`             | string array | unset                                                                        | Model patterns for model cycling, using the same format as the `--models` CLI flag.                                           |
+| `doubleEscapeAction`        | string       | `fork`, `tree`, `none`; default `tree`                                       | Action for pressing Escape twice with an empty editor.                                                                        |
+| `treeFilterMode`            | string       | `default`, `no-tools`, `user-only`, `labeled-only`, `all`; default `default` | Default filter when opening the session tree.                                                                                 |
+| `editorPaddingX`            | number       | clamped to `0`-`3`, default `0`                                              | Horizontal input editor padding.                                                                                              |
+| `autocompleteMaxVisible`    | number       | clamped to `3`-`20`, default `5`                                             | Maximum visible autocomplete items.                                                                                           |
+| `showHardwareCursor`        | boolean      | default `false`, or `PI_HARDWARE_CURSOR=1`                                   | Show the terminal cursor while positioning it for IME support.                                                                |
+| `sessionDir`                | string       | unset                                                                        | Custom session storage directory. `~` and `~/...` are expanded.                                                               |
+| `httpProxy`                 | string       | unset                                                                        | Proxy URL applied as `HTTP_PROXY` and `HTTPS_PROXY` for Pi-managed HTTP clients.                                              |
+| `httpIdleTimeoutMs`         | number       | `0` disables                                                                 | HTTP header/body idle timeout in milliseconds.                                                                                |
+| `websocketConnectTimeoutMs` | number       | `0` disables                                                                 | WebSocket connect/open handshake timeout in milliseconds.                                                                     |
+
+Nested Pi-backed objects such as `compaction`, `branchSummary`, `retry`, `terminal`, `images`, `thinkingBudgets`,
+`markdown`, and `warnings` are covered below and in the schema.
 
 ### `compaction`
 

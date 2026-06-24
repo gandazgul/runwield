@@ -1,0 +1,506 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://github.com/gandazgul/runwield/releases/latest/download/config.schema.json",
+    "title": "RunWeild settings",
+    "description": "Schema for RunWeild JSONC settings files at ~/.wld/settings.json and .wld/settings.json. Unknown keys are allowed for forward compatibility with Pi, extensions, and future RunWeild settings.",
+    "type": "object",
+    "additionalProperties": true,
+    "properties": {
+        "$schema": {
+            "type": "string",
+            "description": "Recommended schema URL for editor support.",
+            "default": "https://github.com/gandazgul/runwield/releases/latest/download/config.schema.json"
+        },
+        "agents": {
+            "$ref": "#/$defs/agentOverridesMap",
+            "description": "Base per-agent model, thinking level, and temperature overrides. Project values override matching global agent entries."
+        },
+        "activeModelPreset": {
+            "type": "string",
+            "description": "Name of the active entry in modelPresets. If unset or unknown, RunWeild uses base agents/default model settings."
+        },
+        "modelPresets": {
+            "type": "object",
+            "description": "Named groups of per-agent overrides and optional vision fallback overrides.",
+            "additionalProperties": {
+                "$ref": "#/$defs/modelPreset"
+            }
+        },
+        "visionFallback": {
+            "$ref": "#/$defs/providerModelReferenceObject",
+            "description": "Vision-capable fallback model used to describe images when the active model is text-only."
+        },
+        "compactOnResumeThresholdPercent": {
+            "$ref": "#/$defs/compactOnResumeThresholdPercent"
+        },
+        "verification_command": {
+            "type": "string",
+            "description": "Command used by workflow validation. Usually project-scoped."
+        },
+        "codereview": {
+            "type": "string",
+            "enum": ["none", "ask", "always"],
+            "description": "Optional Plannotator human code review gate after local validation and semantic review."
+        },
+        "cleanupMergedWorktrees": {
+            "type": "boolean",
+            "description": "When true, successful merge-back removes the execution checkout and clears plan worktree metadata."
+        },
+        "enableExternalSkills": {
+            "type": "boolean",
+            "description": "Global setting. When true, RunWeild includes skills from ~/.agents/skills after local, home, and bundled skills."
+        },
+        "enableExternalGlobalAgentsMd": {
+            "type": "boolean",
+            "description": "Global setting. When true, global prompt loading may fall back to ~/.agents/AGENTS.md."
+        },
+        "lastChangelogVersion": {
+            "type": "string",
+            "description": "Last version whose changelog was shown. Usually managed automatically."
+        },
+        "defaultProvider": {
+            "type": "string",
+            "description": "Default model provider id, for example anthropic, openai, or google."
+        },
+        "defaultModel": {
+            "type": "string",
+            "description": "Default model id within defaultProvider. Unlike agent overrides, this is only the model id."
+        },
+        "defaultThinkingLevel": {
+            "$ref": "#/$defs/thinkingLevel",
+            "description": "Default reasoning depth for thinking-capable models."
+        },
+        "transport": {
+            "type": "string",
+            "enum": ["sse", "websocket", "websocket-cached", "auto"],
+            "description": "Preferred provider transport when supported."
+        },
+        "steeringMode": {
+            "type": "string",
+            "enum": ["all", "one-at-a-time"],
+            "description": "How messages submitted while the agent is streaming are delivered."
+        },
+        "followUpMode": {
+            "type": "string",
+            "enum": ["all", "one-at-a-time"],
+            "description": "How queued follow-up messages are delivered after the agent stops."
+        },
+        "theme": {
+            "type": "string",
+            "description": "Active TUI theme name."
+        },
+        "compaction": {
+            "$ref": "#/$defs/compaction"
+        },
+        "branchSummary": {
+            "$ref": "#/$defs/branchSummary"
+        },
+        "retry": {
+            "$ref": "#/$defs/retry"
+        },
+        "hideThinkingBlock": {
+            "type": "boolean",
+            "description": "Hide assistant thinking blocks in rendered output."
+        },
+        "shellPath": {
+            "type": "string",
+            "description": "Custom shell path."
+        },
+        "quietStartup": {
+            "type": "boolean",
+            "description": "Suppress verbose startup output."
+        },
+        "defaultProjectTrust": {
+            "type": "string",
+            "enum": ["ask", "always", "never"],
+            "description": "Global setting. Default project trust prompt behavior."
+        },
+        "shellCommandPrefix": {
+            "type": "string",
+            "description": "Prefix prepended to every bash command."
+        },
+        "npmCommand": {
+            "$ref": "#/$defs/stringArray",
+            "description": "Command argv used for npm package lookup/install operations."
+        },
+        "collapseChangelog": {
+            "type": "boolean",
+            "description": "Show condensed changelog after update."
+        },
+        "enableInstallTelemetry": {
+            "type": "boolean",
+            "description": "Send anonymous version/update ping after changelog-detected updates."
+        },
+        "enableAnalytics": {
+            "type": "boolean",
+            "description": "Opt-in analytics data sharing."
+        },
+        "trackingId": {
+            "type": "string",
+            "description": "Analytics tracking identifier, generated when analytics is enabled."
+        },
+        "packages": {
+            "type": "array",
+            "description": "Array of npm/git/local package sources. Entries may be strings or filtered package source objects.",
+            "items": {
+                "$ref": "#/$defs/packageSource"
+            }
+        },
+        "extensions": {
+            "$ref": "#/$defs/stringArray",
+            "description": "Local extension file paths or directories."
+        },
+        "skills": {
+            "description": "Local skill file paths or directories. Object form is legacy and is migrated to enableSkillCommands and/or a path array.",
+            "oneOf": [
+                {
+                    "$ref": "#/$defs/stringArray"
+                },
+                {
+                    "$ref": "#/$defs/legacySkills"
+                }
+            ]
+        },
+        "prompts": {
+            "$ref": "#/$defs/stringArray",
+            "description": "Local prompt template file paths or directories."
+        },
+        "themes": {
+            "$ref": "#/$defs/stringArray",
+            "description": "Local theme file paths or directories."
+        },
+        "enableSkillCommands": {
+            "type": "boolean",
+            "description": "Register skills as /skill:name commands."
+        },
+        "terminal": {
+            "$ref": "#/$defs/terminal"
+        },
+        "images": {
+            "$ref": "#/$defs/images"
+        },
+        "enabledModels": {
+            "$ref": "#/$defs/stringArray",
+            "description": "Model patterns for cycling, using the same format as the --models CLI flag."
+        },
+        "doubleEscapeAction": {
+            "type": "string",
+            "enum": ["fork", "tree", "none"],
+            "description": "Action for pressing Escape twice with an empty editor."
+        },
+        "treeFilterMode": {
+            "type": "string",
+            "enum": ["default", "no-tools", "user-only", "labeled-only", "all"],
+            "description": "Default filter when opening the session tree."
+        },
+        "thinkingBudgets": {
+            "$ref": "#/$defs/thinkingBudgets"
+        },
+        "editorPaddingX": {
+            "type": "number",
+            "description": "Horizontal input editor padding. Values are clamped by the runtime."
+        },
+        "autocompleteMaxVisible": {
+            "type": "number",
+            "description": "Maximum visible autocomplete dropdown items. Values are clamped by the runtime."
+        },
+        "showHardwareCursor": {
+            "type": "boolean",
+            "description": "Show the terminal cursor while still positioning it for IME support."
+        },
+        "markdown": {
+            "$ref": "#/$defs/markdown"
+        },
+        "warnings": {
+            "$ref": "#/$defs/warnings"
+        },
+        "sessionDir": {
+            "type": "string",
+            "description": "Custom session storage directory. ~ and ~/... are expanded."
+        },
+        "httpProxy": {
+            "type": "string",
+            "description": "Proxy URL applied as HTTP_PROXY and HTTPS_PROXY for Pi-managed HTTP clients."
+        },
+        "httpIdleTimeoutMs": {
+            "type": "number",
+            "minimum": 0,
+            "description": "HTTP header/body idle timeout in milliseconds. 0 disables it."
+        },
+        "websocketConnectTimeoutMs": {
+            "type": "number",
+            "minimum": 0,
+            "description": "WebSocket connect/open handshake timeout in milliseconds. 0 disables it."
+        },
+        "queueMode": {
+            "type": "string",
+            "enum": ["all", "one-at-a-time"],
+            "deprecated": true,
+            "description": "Deprecated legacy key. Use steeringMode instead."
+        },
+        "websockets": {
+            "type": "boolean",
+            "deprecated": true,
+            "description": "Deprecated legacy key. Use transport instead. true maps to websocket; false maps to sse."
+        }
+    },
+    "$defs": {
+        "thinkingLevel": {
+            "type": "string",
+            "enum": ["off", "minimal", "low", "medium", "high", "xhigh"]
+        },
+        "providerModelReference": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^/]+/.+",
+            "description": "Model reference in broad provider/model_id form. Model ids may contain additional slashes."
+        },
+        "providerModelReferenceObject": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+                "model": {
+                    "$ref": "#/$defs/providerModelReference"
+                }
+            }
+        },
+        "agentOverride": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+                "model": {
+                    "$ref": "#/$defs/providerModelReference"
+                },
+                "thinkingLevel": {
+                    "$ref": "#/$defs/thinkingLevel"
+                },
+                "temperature": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 2
+                }
+            }
+        },
+        "agentOverridesMap": {
+            "type": "object",
+            "additionalProperties": {
+                "$ref": "#/$defs/agentOverride"
+            }
+        },
+        "modelPreset": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+                "agents": {
+                    "$ref": "#/$defs/agentOverridesMap"
+                },
+                "visionFallback": {
+                    "$ref": "#/$defs/providerModelReferenceObject"
+                }
+            }
+        },
+        "packageSource": {
+            "oneOf": [
+                {
+                    "type": "string",
+                    "minLength": 1
+                },
+                {
+                    "type": "object",
+                    "additionalProperties": true,
+                    "required": ["source"],
+                    "properties": {
+                        "source": {
+                            "type": "string",
+                            "minLength": 1
+                        },
+                        "extensions": {
+                            "$ref": "#/$defs/stringArray"
+                        },
+                        "skills": {
+                            "$ref": "#/$defs/stringArray"
+                        },
+                        "prompts": {
+                            "$ref": "#/$defs/stringArray"
+                        },
+                        "themes": {
+                            "$ref": "#/$defs/stringArray"
+                        }
+                    }
+                }
+            ]
+        },
+        "stringArray": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            }
+        },
+        "compactOnResumeThresholdPercent": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 50,
+            "description": "/resume offers compaction when estimated context reaches this percentage of the selected model context window."
+        },
+        "compaction": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "reserveTokens": {
+                    "type": "number",
+                    "minimum": 0
+                },
+                "keepRecentTokens": {
+                    "type": "number",
+                    "minimum": 0
+                }
+            }
+        },
+        "branchSummary": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+                "reserveTokens": {
+                    "type": "number",
+                    "minimum": 0
+                },
+                "skipPrompt": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "retry": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "maxRetries": {
+                    "type": "number",
+                    "minimum": 0
+                },
+                "baseDelayMs": {
+                    "type": "number",
+                    "minimum": 0
+                },
+                "provider": {
+                    "$ref": "#/$defs/providerRetry"
+                },
+                "maxDelayMs": {
+                    "type": "number",
+                    "minimum": 0,
+                    "deprecated": true,
+                    "description": "Deprecated legacy key. Use retry.provider.maxRetryDelayMs instead."
+                }
+            }
+        },
+        "providerRetry": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+                "timeoutMs": {
+                    "type": "number",
+                    "minimum": 0
+                },
+                "maxRetries": {
+                    "type": "number",
+                    "minimum": 0
+                },
+                "maxRetryDelayMs": {
+                    "type": "number",
+                    "minimum": 0
+                }
+            }
+        },
+        "terminal": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+                "showImages": {
+                    "type": "boolean"
+                },
+                "imageWidthCells": {
+                    "type": "number",
+                    "minimum": 1
+                },
+                "clearOnShrink": {
+                    "type": "boolean"
+                },
+                "showTerminalProgress": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "images": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+                "autoResize": {
+                    "type": "boolean"
+                },
+                "blockImages": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "thinkingBudgets": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+                "minimal": {
+                    "type": "number",
+                    "minimum": 0
+                },
+                "low": {
+                    "type": "number",
+                    "minimum": 0
+                },
+                "medium": {
+                    "type": "number",
+                    "minimum": 0
+                },
+                "high": {
+                    "type": "number",
+                    "minimum": 0
+                }
+            }
+        },
+        "markdown": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+                "codeBlockIndent": {
+                    "type": "string"
+                }
+            }
+        },
+        "warnings": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+                "anthropicExtraUsage": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "legacySkills": {
+            "type": "object",
+            "deprecated": true,
+            "description": "Deprecated legacy skills shape. Use enableSkillCommands and/or skills as an array of paths instead.",
+            "additionalProperties": true,
+            "properties": {
+                "enableSkillCommands": {
+                    "type": "boolean"
+                },
+                "customDirectories": {
+                    "$ref": "#/$defs/stringArray"
+                }
+            }
+        }
+    }
+}

@@ -131,6 +131,10 @@ By default, RunWeild also reads shared multi-agent instructions from `~/.agents/
 instruction file exists. Disable that shared fallback with `"enableExternalGlobalAgentsMd": false` in
 `~/.wld/settings.json`.
 
+For editor autocomplete and validation, `~/.wld/settings.json` and `.wld/settings.json` can include
+`"$schema": "https://github.com/gandazgul/runwield/releases/latest/download/config.schema.json"`. See
+[docs/settings.md](docs/settings.md) for the complete settings reference.
+
 Project-level plans and optional overrides live in the current repository:
 
 - `plans/*.md`
