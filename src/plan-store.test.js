@@ -35,6 +35,58 @@ Deno.test("injectFrontMatter escapes YAML double-quoted values", () => {
     assertEquals(attrs.affectedPaths, ['<|"|src/tools/user-interview.js<|"|']);
 });
 
+Deno.test("injectFrontMatter preserves new closure and hold lifecycle fields", () => {
+    const markdown = "## Plan\n\nBody";
+    const withClosed = injectFrontMatter(markdown, {
+        status: "closed_without_verification",
+        createdAt: "2026-06-23T00:00:00.000Z",
+    });
+    assertEquals(parsePlanFrontMatter(withClosed).attrs.status, "closed_without_verification");
+
+    const withHold = injectFrontMatter(markdown, {
+        status: "on_hold",
+        heldFromStatus: "in_progress",
+        heldAt: "2026-06-23T01:00:00.000Z",
+        holdReason: "priority shifted",
+        holdStalenessBaseline: "2026-06-22T00:00:00.000Z",
+        worktreeId: "wt-1",
+    });
+    const { attrs } = parsePlanFrontMatter(withHold);
+    assertEquals(attrs.status, "on_hold");
+    assertEquals(attrs.heldFromStatus, "in_progress");
+    assertEquals(attrs.heldAt, "2026-06-23T01:00:00.000Z");
+    assertEquals(attrs.holdReason, "priority shifted");
+    assertEquals(attrs.holdStalenessBaseline, "2026-06-22T00:00:00.000Z");
+    assertEquals(
+        withHold.indexOf("worktreeStatus:") === -1 ||
+            withHold.indexOf("worktreeStatus:") < withHold.indexOf("heldFromStatus:"),
+        true,
+    );
+});
+
+Deno.test("injectFrontMatter clears hold fields with null overrides", () => {
+    const withHold = injectFrontMatter("## Plan", {
+        status: "on_hold",
+        heldFromStatus: "ready_for_work",
+        heldAt: "2026-06-23T01:00:00.000Z",
+        holdReason: "paused",
+        holdStalenessBaseline: "2026-06-22T00:00:00.000Z",
+    });
+    const cleared = injectFrontMatter(withHold, {
+        status: "draft",
+        heldFromStatus: null,
+        heldAt: null,
+        holdReason: null,
+        holdStalenessBaseline: null,
+    });
+    const { attrs } = parsePlanFrontMatter(cleared);
+    assertEquals(attrs.status, "draft");
+    assertEquals(attrs.heldFromStatus, null);
+    assertEquals(attrs.heldAt, undefined);
+    assertEquals(attrs.holdReason, undefined);
+    assertEquals(attrs.holdStalenessBaseline, undefined);
+});
+
 Deno.test("injectFrontMatter preserves human review metadata", () => {
     const markdown = "## Plan\n\nBody";
     const withFm = injectFrontMatter(markdown, {
@@ -98,6 +150,66 @@ testWithFs("updatePlanStatus self-heals malformed front matter using recovery at
         assertEquals(attrs.summary, "Recovered summary");
         assertEquals(attrs.affectedPaths, ["src/tools/user-interview.js"]);
         assertEquals(body.includes("## Objective"), true);
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+testWithFs("plan-store saves and reloads on-hold metadata without normalizing to draft", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "held-plan", "## Objective\nPause", {
+            classification: "FEATURE",
+            complexity: "MEDIUM",
+            summary: "Paused plan",
+            affectedPaths: ["src/plan-store.js"],
+            status: "on_hold",
+            heldFromStatus: "implemented",
+            heldAt: "2026-06-23T01:00:00.000Z",
+            holdReason: "priority shifted",
+            holdStalenessBaseline: "2026-06-22T00:00:00.000Z",
+            createdAt: "2026-06-23T00:00:00.000Z",
+        });
+
+        const loaded = await loadPlan(cwd, "held-plan");
+        assertEquals(loaded?.attrs.status, "on_hold");
+        assertEquals(loaded?.attrs.heldFromStatus, "implemented");
+        assertEquals(loaded?.attrs.heldAt, "2026-06-23T01:00:00.000Z");
+        assertEquals(loaded?.attrs.holdReason, "priority shifted");
+        assertEquals(loaded?.attrs.holdStalenessBaseline, "2026-06-22T00:00:00.000Z");
+
+        const updated = await updatePlanFrontMatter(cwd, "held-plan", {
+            status: "draft",
+            heldFromStatus: null,
+            heldAt: null,
+            holdReason: null,
+            holdStalenessBaseline: null,
+        });
+        assertEquals(updated.status, "draft");
+        assertEquals(updated.heldFromStatus, null);
+        assertEquals(updated.heldAt, undefined);
+        assertEquals(updated.holdReason, undefined);
+        assertEquals(updated.holdStalenessBaseline, undefined);
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+testWithFs("plan-store saves and reloads manual closure status without verified metadata", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "closed-plan", "## Objective\nClose", {
+            classification: "FEATURE",
+            complexity: "MEDIUM",
+            summary: "Closed plan",
+            affectedPaths: [],
+            status: "closed_without_verification",
+            createdAt: "2026-06-23T00:00:00.000Z",
+        });
+
+        const loaded = await loadPlan(cwd, "closed-plan");
+        assertEquals(loaded?.attrs.status, "closed_without_verification");
+        assertEquals(loaded?.attrs.verifiedAt, undefined);
     } finally {
         await Deno.remove(cwd, { recursive: true });
     }

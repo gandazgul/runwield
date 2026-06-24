@@ -36,7 +36,16 @@ back into the primary checkout.
 
 `verified`: Implementation work passed Workflow Validation and, for worktree-backed executions, the validated worktree
 branch was merged back into the primary checkout. For an Epic PROJECT Plan, `verified` may also mean the user marked the
-Epic "done enough for now"; remaining child FEATURE Plans stay visible and loadable.
+Epic "done enough for now"; remaining child FEATURE Plans stay visible and loadable. FEATURE Plans cannot be moved
+directly to `verified` by board movement.
+
+`closed_without_verification`: A terminal manual closure outcome. The user intentionally ended the Plan without Workflow
+Validation passing. It is distinct from `verified` and does not set `verifiedAt`, human review metadata, or Epic
+done-enough metadata.
+
+`on_hold`: A paused-but-resumable Plan. Holding preserves the previous status in `heldFromStatus` plus hold metadata so
+callers can run a Resume Check before restoring the Plan. Holding a Plan mutates only that Plan file; Epic/child
+visibility and blocking are listing/UI behavior.
 
 ## Worktree Statuses
 
@@ -56,23 +65,61 @@ changing the Plan state machine.
 
 ## Events
 
-| Event                     | From                                                                                            | To                        | Notes                                                                                                            |
-| ------------------------- | ----------------------------------------------------------------------------------------------- | ------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `review_feedback`         | `draft`, `feedback`, `approved`                                                                 | `feedback`                | The user returned Feedback from Plannotator.                                                                     |
-| `review_approved`         | `draft`, `feedback`, `approved`                                                                 | `approved`                | User approval is durable before the Readiness Gate runs.                                                         |
-| `epic_readiness_passed`   | `approved`                                                                                      | `ready_for_decomposition` | PROJECT Epics pass approval into decomposition; they are not executable yet.                                     |
-| `decomposition_finalized` | `approved`, `ready_for_decomposition`                                                           | `ready_for_work`          | Slicer finalized at least one child FEATURE Plan, so the Epic can offer child selection.                         |
-| `readiness_passed`        | `approved`                                                                                      | `ready_for_work`          | FEATURE Plans pass without an LLM call; legacy non-Epic PROJECT Plans pass after valid Slicer Tasks exist.       |
-| `execution_started`       | `ready_for_work`                                                                                | `in_progress`             | Captures `executionBaselineTree` and records active worktree metadata before executable Plan work begins.        |
-| `execution_failed`        | `in_progress`                                                                                   | `failed`                  | Sets `failureReason`, `failedAt`, and `worktreeStatus: "execution_failed"` when a reason is available.           |
-| `implementation_finished` | `in_progress`                                                                                   | `implemented`             | Sets `implementedAt` and `worktreeStatus: "completed"`; Workflow Validation still needs to run.                  |
-| `validation_failed`       | `implemented`                                                                                   | `implemented`             | Keeps implemented status and sets `worktreeStatus: "validation_failed"` plus `failureReason`.                    |
-| `worktree_merge_failed`   | `implemented`                                                                                   | `implemented`             | Validation passed but merge-back failed/refused; sets `worktreeStatus: "merge_conflict"`.                        |
-| `validation_passed`       | `implemented`                                                                                   | `verified`                | Recorded only after validation passes and merge-back succeeds; clears worktree metadata when cleanup is enabled. |
-| `recovery_continue`       | `in_progress`, `failed`                                                                         | `ready_for_work`          | Records that recovery will continue from the current worktree.                                                   |
-| `recovery_reset`          | `in_progress`, `failed`, `implemented`                                                          | `ready_for_work`          | Records that recovery abandoned the current attempt before retrying.                                             |
-| `review_reopened`         | `ready_for_decomposition`, `ready_for_work`, `in_progress`, `failed`, `implemented`, `verified` | `feedback`                | The user chose to revise the Plan instead of continuing execution.                                               |
-| `epic_done_enough`        | `ready_for_work`, `verified`                                                                    | `verified`                | The user marked an Epic complete enough for now; child FEATURE Plans remain visible and loadable.                |
+| Event                                | From                                                                                            | To                            | Notes                                                                                                                                                                                                                          |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `review_feedback`                    | `draft`, `feedback`, `approved`                                                                 | `feedback`                    | The user returned Feedback from Plannotator.                                                                                                                                                                                   |
+| `review_approved`                    | `draft`, `feedback`, `approved`                                                                 | `approved`                    | User approval is durable before the Readiness Gate runs.                                                                                                                                                                       |
+| `epic_readiness_passed`              | `approved`                                                                                      | `ready_for_decomposition`     | PROJECT Epics pass approval into decomposition; they are not executable yet.                                                                                                                                                   |
+| `decomposition_finalized`            | `approved`, `ready_for_decomposition`                                                           | `ready_for_work`              | Slicer finalized at least one child FEATURE Plan, so the Epic can offer child selection.                                                                                                                                       |
+| `readiness_passed`                   | `approved`                                                                                      | `ready_for_work`              | FEATURE Plans pass without an LLM call; legacy non-Epic PROJECT Plans pass after valid Slicer Tasks exist.                                                                                                                     |
+| `execution_started`                  | `ready_for_work`                                                                                | `in_progress`                 | Captures `executionBaselineTree` and records active worktree metadata before executable Plan work begins.                                                                                                                      |
+| `execution_failed`                   | `in_progress`                                                                                   | `failed`                      | Sets `failureReason`, `failedAt`, and `worktreeStatus: "execution_failed"` when a reason is available.                                                                                                                         |
+| `implementation_finished`            | `in_progress`                                                                                   | `implemented`                 | Sets `implementedAt` and `worktreeStatus: "completed"`; Workflow Validation still needs to run.                                                                                                                                |
+| `validation_failed`                  | `implemented`                                                                                   | `implemented`                 | Keeps implemented status and sets `worktreeStatus: "validation_failed"` plus `failureReason`.                                                                                                                                  |
+| `worktree_merge_failed`              | `implemented`                                                                                   | `implemented`                 | Validation passed but merge-back failed/refused; sets `worktreeStatus: "merge_conflict"`.                                                                                                                                      |
+| `validation_passed`                  | `implemented`                                                                                   | `verified`                    | Recorded only after validation passes and merge-back succeeds; clears worktree metadata when cleanup is enabled.                                                                                                               |
+| `recovery_continue`                  | `in_progress`, `failed`                                                                         | `ready_for_work`              | Records that recovery will continue from the current worktree.                                                                                                                                                                 |
+| `recovery_reset`                     | `in_progress`, `failed`, `implemented`                                                          | `ready_for_work`              | Records that recovery abandoned the current attempt before retrying.                                                                                                                                                           |
+| `review_reopened`                    | `ready_for_decomposition`, `ready_for_work`, `in_progress`, `failed`, `implemented`, `verified` | `feedback`                    | The user chose to revise the Plan instead of continuing execution.                                                                                                                                                             |
+| `epic_done_enough`                   | `ready_for_work`, `verified`                                                                    | `verified`                    | The user marked an Epic complete enough for now; child FEATURE Plans remain visible and loadable.                                                                                                                              |
+| `manual_status_change`               | Board-safe non-terminal statuses                                                                | Dynamic target                | User-driven board movement among `draft`, `feedback`, `approved`, `ready_for_work`, `in_progress`, `implemented`; `ready_for_decomposition` is included only for Epics. Records an event instead of editing `status` directly. |
+| `manual_closed_without_verification` | Board-safe non-terminal statuses                                                                | `closed_without_verification` | Terminal manual closure without Workflow Validation; does not set `verifiedAt` or review metadata.                                                                                                                             |
+| `plan_held`                          | Any non-terminal, non-closed status                                                             | `on_hold`                     | Records `heldFromStatus`, `heldAt`, optional `holdReason`, and optional `holdStalenessBaseline`; preserves recovery/worktree metadata.                                                                                         |
+| `hold_resumed`                       | `on_hold`                                                                                       | `heldFromStatus`              | Caller must run the Resume Check first and provide/read the held-from status; clears hold metadata.                                                                                                                            |
+| `hold_reset_to_draft`                | `on_hold`                                                                                       | `draft`                       | Clears hold and execution/recovery/validation fields while preserving identity/context fields and Plan body.                                                                                                                   |
+
+## Manual Board Movement and Closure
+
+Board actions are lifecycle events, not direct Front Matter edits. Generic board movement uses `manual_status_change`
+and may move both directions only within the safe board set: `draft`, `feedback`, `approved`, `ready_for_work`,
+`in_progress`, and `implemented`. For PROJECT Epics with `type: epic`, `ready_for_decomposition` is also board-safe.
+
+Generic board movement cannot enter or leave `failed`, cannot produce `verified`, cannot enter
+`closed_without_verification`, and cannot enter or resume from `on_hold`. Those states remain behind recovery, Workflow
+Validation, manual closure, or hold-specific events. `verified` is reserved for Workflow Validation except for the
+existing Epic `epic_done_enough` event.
+
+`manual_closed_without_verification` records that the user intentionally closed a Plan without Workflow Validation. This
+is not an archive, not a validation pass, and not a merge-back signal; evidence/worktree fields are preserved unless a
+separate recovery action changes them.
+
+## On-Hold Plans
+
+`plan_held` can pause any non-terminal, non-closed status, including `failed` and `implemented`. It sets:
+
+- `heldFromStatus`: the status before the hold
+- `heldAt`: when the hold was recorded
+- `holdReason`: optional free text
+- `holdStalenessBaseline`: optional caller-provided baseline for the Resume Check
+
+`hold_resumed` restores `heldFromStatus` and clears all hold fields. The Resume Check itself is caller-owned and must
+run before recording `hold_resumed`.
+
+`hold_reset_to_draft` clears hold fields plus stale execution/recovery/validation fields: `worktreeId`, `worktreePath`,
+`worktreeBranch`, `worktreeStatus`, `executionBaselineTree`, `failureReason`, `failedAt`, `implementedAt`, `verifiedAt`,
+`humanReviewMode`, `humanReviewDecision`, and `humanReviewedAt`. It preserves identity/context fields such as
+`classification`, `complexity`, `summary`, `affectedPaths`, `createdAt`, `origin`, `type`, `parentPlan`, and
+`dependencies`.
 
 ## Readiness Gate
 
@@ -182,6 +229,14 @@ enough for now.
 
 `worktreeStatus`: Worktree lifecycle state. See [Worktree Statuses](#worktree-statuses).
 
+`heldFromStatus`: Status captured before `plan_held` moved the Plan to `on_hold`.
+
+`heldAt`: Timestamp set when `plan_held` moved the Plan to `on_hold`.
+
+`holdReason`: Optional free-text reason recorded by the user when placing a Plan on hold.
+
+`holdStalenessBaseline`: Optional baseline used by caller-owned Resume Check logic before `hold_resumed`.
+
 ## Recovery
 
 Loading an `in_progress`, `failed`, or `implemented` executable Plan starts Plan Recovery. For worktree-backed plans,
@@ -232,6 +287,8 @@ The parenthesized value is the recorded worktree branch when available, otherwis
 - `implemented` means implementation finished in the execution worktree, even if validation or merge-back later fails.
 - `verified` requires successful Workflow Validation and, for worktree-backed plans, successful merge-back, except for
   PROJECT Epics marked `done_enough`.
+- `closed_without_verification` is terminal manual closure and never implies validation passed.
+- `on_hold` is a pause state; resume/reset must clear hold metadata.
 - Human code review is optional Workflow Validation metadata, not a separate Plan Status.
 - Executable FEATURE and legacy non-Epic PROJECT validation cannot pass with an empty or Plan-document-only workflow
   diff.

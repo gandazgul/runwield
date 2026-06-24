@@ -90,7 +90,7 @@ function getStoredPlanLocation(cwd, planName) {
  * @property {string[]} affectedPaths - Files that will be created/modified
  * @property {string} createdAt - ISO timestamp
  * @property {string} [updatedAt] - ISO timestamp (set on revision)
- * @property {"draft"|"feedback"|"approved"|"ready_for_decomposition"|"ready_for_work"|"in_progress"|"failed"|"implemented"|"verified"} status
+ * @property {"draft"|"feedback"|"approved"|"ready_for_decomposition"|"ready_for_work"|"in_progress"|"failed"|"implemented"|"verified"|"closed_without_verification"|"on_hold"} status
  * @property {"internal"|"external"} [origin] - "internal" = created by a RunWield agent; "external" = a pre-existing markdown file loaded from an arbitrary path and resumed with RunWield
  * @property {string} [type] - Optional plan subtype, e.g. "epic" for PROJECT Epic containers
  * @property {string} [parentPlan] - Canonical parent plan name for child FEATURE plans
@@ -110,6 +110,10 @@ function getStoredPlanLocation(cwd, planName) {
  * @property {string|null} [worktreePath] - Filesystem path to the execution worktree
  * @property {string|null} [worktreeBranch] - Git branch checked out in the execution worktree
  * @property {"none"|"active"|"completed"|"execution_failed"|"validation_failed"|"merge_conflict"|"merged"|"abandoned"|null} [worktreeStatus]
+ * @property {PlanFrontMatter["status"]|null} [heldFromStatus] - Status captured before the Plan moved to on_hold
+ * @property {string|null} [heldAt] - ISO timestamp when the Plan was put on hold
+ * @property {string|null} [holdReason] - Optional human reason for the hold
+ * @property {string|null} [holdStalenessBaseline] - ISO timestamp or baseline used by caller-owned Resume Check
  */
 
 /**
@@ -181,6 +185,10 @@ const KNOWN_FRONT_MATTER_KEYS = new Set([
     "worktreePath",
     "worktreeBranch",
     "worktreeStatus",
+    "heldFromStatus",
+    "heldAt",
+    "holdReason",
+    "holdStalenessBaseline",
 ]);
 
 const HIDDEN_PLAN_DIRS = new Set(["archived"]);
@@ -266,6 +274,10 @@ function formatFrontMatter(fm) {
     appendYamlField(lines, "worktreePath", fm.worktreePath);
     appendYamlField(lines, "worktreeBranch", fm.worktreeBranch);
     appendYamlField(lines, "worktreeStatus", fm.worktreeStatus);
+    appendYamlField(lines, "heldFromStatus", fm.heldFromStatus);
+    appendYamlField(lines, "heldAt", fm.heldAt);
+    appendYamlField(lines, "holdReason", fm.holdReason);
+    appendYamlField(lines, "holdStalenessBaseline", fm.holdStalenessBaseline);
 
     for (const key of Object.keys(fm).filter((key) => !KNOWN_FRONT_MATTER_KEYS.has(key)).sort()) {
         appendYamlField(lines, key, /** @type {Record<string, unknown>} */ (fm)[key]);
@@ -294,6 +306,8 @@ function normalizePlanStatus(status) {
         "failed",
         "implemented",
         "verified",
+        "closed_without_verification",
+        "on_hold",
     ]);
     if (status && allowed.has(status)) {
         return /** @type {PlanFrontMatter["status"]} */ (status);
@@ -337,6 +351,19 @@ function optionalStringValue(overrides, existingFm, key) {
  */
 function normalizeStringList(value) {
     return Array.isArray(value) ? value.map(String) : undefined;
+}
+
+/**
+ * @param {unknown} status
+ * @returns {PlanFrontMatter["status"] | null | undefined}
+ */
+function normalizePlanStatusForOptionalHold(status) {
+    if (status === null) return null;
+    if (typeof status !== "string") return undefined;
+    const normalized = normalizePlanStatus(status);
+    return normalized === DEFAULT_FRONT_MATTER.status && status !== DEFAULT_FRONT_MATTER.status
+        ? undefined
+        : normalized;
 }
 
 /**
@@ -450,6 +477,12 @@ export function injectFrontMatter(markdown, overrides = {}) {
         worktreeStatus: normalizeWorktreeStatus(
             Object.hasOwn(overrides, "worktreeStatus") ? overrides.worktreeStatus : existingFm.worktreeStatus,
         ),
+        heldFromStatus: Object.hasOwn(overrides, "heldFromStatus")
+            ? normalizePlanStatusForOptionalHold(overrides.heldFromStatus)
+            : normalizePlanStatusForOptionalHold(existingFm.heldFromStatus),
+        heldAt: optionalFrontMatterValue(overrides, existingFm, "heldAt"),
+        holdReason: optionalFrontMatterValue(overrides, existingFm, "holdReason"),
+        holdStalenessBaseline: optionalFrontMatterValue(overrides, existingFm, "holdStalenessBaseline"),
     };
 
     return formatFrontMatter(fm) + "\n" + body.trimStart();
@@ -505,6 +538,10 @@ export function parsePlanFrontMatter(markdown, opts = {}) {
             worktreePath: attrs.worktreePath,
             worktreeBranch: attrs.worktreeBranch,
             worktreeStatus: normalizeWorktreeStatus(attrs.worktreeStatus),
+            heldFromStatus: normalizePlanStatusForOptionalHold(attrs.heldFromStatus),
+            heldAt: attrs.heldAt,
+            holdReason: attrs.holdReason,
+            holdStalenessBaseline: attrs.holdStalenessBaseline,
         },
         body,
     };

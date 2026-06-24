@@ -10,11 +10,11 @@
 import { updatePlanFrontMatter } from "../../plan-store.js";
 
 /**
- * @typedef {"draft"|"feedback"|"approved"|"ready_for_decomposition"|"ready_for_work"|"in_progress"|"failed"|"implemented"|"verified"} PlanStatus
+ * @typedef {"draft"|"feedback"|"approved"|"ready_for_decomposition"|"ready_for_work"|"in_progress"|"failed"|"implemented"|"verified"|"closed_without_verification"|"on_hold"} PlanStatus
  */
 
 /**
- * @typedef {"review_feedback"|"review_approved"|"readiness_passed"|"epic_readiness_passed"|"decomposition_finalized"|"execution_started"|"execution_failed"|"implementation_finished"|"validation_failed"|"validation_passed"|"worktree_merge_failed"|"recovery_continue"|"recovery_reset"|"review_reopened"|"epic_done_enough"} PlanEvent
+ * @typedef {"review_feedback"|"review_approved"|"readiness_passed"|"epic_readiness_passed"|"decomposition_finalized"|"execution_started"|"execution_failed"|"implementation_finished"|"validation_failed"|"validation_passed"|"worktree_merge_failed"|"recovery_continue"|"recovery_reset"|"review_reopened"|"epic_done_enough"|"manual_status_change"|"manual_closed_without_verification"|"plan_held"|"hold_resumed"|"hold_reset_to_draft"} PlanEvent
  */
 
 /**
@@ -31,8 +31,37 @@ import { updatePlanFrontMatter } from "../../plan-store.js";
  * @property {import('../../plan-store.js').PlanFrontMatter['humanReviewDecision']} [humanReviewDecision]
  * @property {string|null} [humanReviewedAt]
  * @property {string} [epicDoneEnoughSummary]
+ * @property {PlanStatus} [manualTargetStatus]
+ * @property {string} [holdReason]
+ * @property {string} [holdStalenessBaseline]
+ * @property {PlanStatus} [heldFromStatus]
  * @property {() => Date} [now]
  */
+
+/** @type {PlanStatus[]} */
+const MANUAL_BOARD_STATUSES = [
+    "draft",
+    "feedback",
+    "approved",
+    "ready_for_work",
+    "in_progress",
+    "implemented",
+];
+
+/** @type {PlanStatus[]} */
+const ALL_KNOWN_STATUSES = [
+    "draft",
+    "feedback",
+    "approved",
+    "ready_for_decomposition",
+    "ready_for_work",
+    "in_progress",
+    "failed",
+    "implemented",
+    "verified",
+    "closed_without_verification",
+    "on_hold",
+];
 
 /** @type {Record<PlanEvent, PlanStatus[]>} */
 const ALLOWED_FROM = {
@@ -51,6 +80,11 @@ const ALLOWED_FROM = {
     recovery_reset: ["in_progress", "failed", "implemented"],
     review_reopened: ["ready_for_decomposition", "ready_for_work", "in_progress", "failed", "implemented", "verified"],
     epic_done_enough: ["ready_for_work", "verified"],
+    manual_status_change: ALL_KNOWN_STATUSES,
+    manual_closed_without_verification: ALL_KNOWN_STATUSES,
+    plan_held: ALL_KNOWN_STATUSES,
+    hold_resumed: ["on_hold"],
+    hold_reset_to_draft: ["on_hold"],
 };
 
 /** @type {Record<PlanEvent, PlanStatus>} */
@@ -70,6 +104,11 @@ const EVENT_STATUS = {
     recovery_reset: "ready_for_work",
     review_reopened: "feedback",
     epic_done_enough: "verified",
+    manual_status_change: "draft",
+    manual_closed_without_verification: "closed_without_verification",
+    plan_held: "on_hold",
+    hold_resumed: "draft",
+    hold_reset_to_draft: "draft",
 };
 
 /**
@@ -78,6 +117,34 @@ const EVENT_STATUS = {
  */
 function iso(date) {
     return date.toISOString();
+}
+
+/**
+ * @param {string} status
+ * @returns {status is PlanStatus}
+ */
+function isKnownPlanStatus(status) {
+    return ALL_KNOWN_STATUSES.includes(/** @type {PlanStatus} */ (status));
+}
+
+/**
+ * @param {PlanStatus} status
+ * @param {Partial<import('../../plan-store.js').PlanFrontMatter> | undefined} attrs
+ * @returns {boolean}
+ */
+function isManualBoardStatus(status, attrs) {
+    return MANUAL_BOARD_STATUSES.includes(status) || (status === "ready_for_decomposition" && isEpicPlan(attrs));
+}
+
+/**
+ * @param {PlanStatus} event
+ */
+function assertKnownHoldResumeStatus(event) {
+    if (event === "on_hold" || event === "verified" || event === "closed_without_verification") {
+        throw new Error(
+            `Invalid Plan Lifecycle transition: hold_resumed cannot restore terminal/protected status "${event}".`,
+        );
+    }
 }
 
 /**
@@ -95,6 +162,47 @@ function assertAllowedTransition(event, currentStatus) {
 }
 
 /**
+ * @param {PlanStatus} currentStatus
+ * @param {Partial<import('../../plan-store.js').PlanFrontMatter> | undefined} attrs
+ * @returns {PlanStatus[]}
+ */
+export function getAllowedManualPlanStatuses(currentStatus, attrs = {}) {
+    if (!isManualBoardStatus(currentStatus, attrs)) return [];
+    return isEpicPlan(attrs) ? [...MANUAL_BOARD_STATUSES, "ready_for_decomposition"] : [...MANUAL_BOARD_STATUSES];
+}
+
+/**
+ * @param {PlanStatus} currentStatus
+ * @param {PlanStatus} targetStatus
+ * @param {Partial<import('../../plan-store.js').PlanFrontMatter> | undefined} attrs
+ * @returns {boolean}
+ */
+export function isManualBoardStatusChangeAllowed(currentStatus, targetStatus, attrs = {}) {
+    return isManualBoardStatus(currentStatus, attrs) && isManualBoardStatus(targetStatus, attrs);
+}
+
+/**
+ * @param {PlanStatus} currentStatus
+ * @param {PlanEventDetails} details
+ * @returns {PlanStatus}
+ */
+function getManualTargetStatus(currentStatus, details) {
+    const target = details.manualTargetStatus;
+    if (!target) {
+        throw new Error("Invalid Plan Lifecycle transition: manual_status_change requires manualTargetStatus.");
+    }
+    if (!isKnownPlanStatus(target)) {
+        throw new Error(`Invalid Plan Lifecycle transition: unknown manual target status "${target}".`);
+    }
+    if (!isManualBoardStatusChangeAllowed(currentStatus, target, details.triageMeta)) {
+        throw new Error(
+            `Invalid Plan Lifecycle transition: manual_status_change cannot move from "${currentStatus}" to "${target}".`,
+        );
+    }
+    return target;
+}
+
+/**
  * @param {PlanEvent} event
  * @param {PlanStatus} currentStatus
  * @param {PlanEventDetails} details
@@ -107,12 +215,90 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
     }
 
     const now = iso(details.now ? details.now() : new Date());
+    const targetStatus = event === "manual_status_change"
+        ? getManualTargetStatus(currentStatus, details)
+        : EVENT_STATUS[event];
     /** @type {Partial<import('../../plan-store.js').PlanFrontMatter>} */
     const updates = {
         ...(details.triageMeta || {}),
-        status: EVENT_STATUS[event],
+        status: targetStatus,
         updatedAt: now,
     };
+
+    if (event === "manual_closed_without_verification") {
+        if (!isManualBoardStatus(currentStatus, details.triageMeta)) {
+            throw new Error(
+                `Invalid Plan Lifecycle transition: manual_closed_without_verification cannot apply to status "${currentStatus}".`,
+            );
+        }
+        updates.status = "closed_without_verification";
+    }
+
+    if (event === "plan_held") {
+        if (
+            currentStatus === "verified" || currentStatus === "closed_without_verification" ||
+            currentStatus === "on_hold"
+        ) {
+            throw new Error(`Invalid Plan Lifecycle transition: plan_held cannot apply to status "${currentStatus}".`);
+        }
+        updates.heldFromStatus = currentStatus;
+        updates.heldAt = now;
+        updates.holdReason = details.holdReason;
+        updates.holdStalenessBaseline = details.holdStalenessBaseline;
+    }
+
+    if (event === "hold_resumed") {
+        const heldFromStatus = details.heldFromStatus;
+        if (!heldFromStatus) {
+            throw new Error("Invalid Plan Lifecycle transition: hold_resumed requires heldFromStatus.");
+        }
+        if (!isKnownPlanStatus(heldFromStatus)) {
+            throw new Error(`Invalid Plan Lifecycle transition: unknown heldFromStatus "${heldFromStatus}".`);
+        }
+        assertKnownHoldResumeStatus(heldFromStatus);
+        updates.status = heldFromStatus;
+        updates.heldFromStatus = null;
+        updates.heldAt = null;
+        updates.holdReason = null;
+        updates.holdStalenessBaseline = null;
+    }
+
+    if (event === "hold_reset_to_draft") {
+        updates.heldFromStatus = null;
+        updates.heldAt = null;
+        updates.holdReason = null;
+        updates.holdStalenessBaseline = null;
+        updates.executionBaselineTree = null;
+        updates.worktreeId = null;
+        updates.worktreePath = null;
+        updates.worktreeBranch = null;
+        updates.worktreeStatus = null;
+        updates.failureReason = null;
+        updates.failedAt = null;
+        updates.implementedAt = null;
+        updates.verifiedAt = null;
+        updates.humanReviewMode = null;
+        updates.humanReviewDecision = null;
+        updates.humanReviewedAt = null;
+    }
+
+    if (event === "manual_status_change") {
+        if (targetStatus !== "implemented") {
+            updates.implementedAt = null;
+            updates.verifiedAt = null;
+            updates.humanReviewMode = null;
+            updates.humanReviewDecision = null;
+            updates.humanReviewedAt = null;
+        }
+
+        if (
+            targetStatus === "draft" || targetStatus === "feedback" || targetStatus === "approved" ||
+            targetStatus === "ready_for_decomposition"
+        ) {
+            updates.failureReason = null;
+            updates.failedAt = null;
+        }
+    }
 
     if (event === "review_feedback") {
         updates.failureReason = null;
