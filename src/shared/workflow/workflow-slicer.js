@@ -18,7 +18,6 @@ import { isEpicPlan, recordPlanEvent } from "./plan-lifecycle.js";
 export const __dirname = dirname(fromFileUrl(import.meta.url));
 const WORKFLOW_PROMPTS_DIR = "workflow-prompts";
 const SLICER_PROMPT_FILE = "slicer-prompt.md";
-const LEGACY_SLICER_PROMPT_FILE = "legacy-task-slicer-prompt.md";
 
 const CHILD_DESCRIPTOR_SCHEMA = Type.Object({
     title: Type.String({ description: "Child FEATURE title." }),
@@ -294,71 +293,12 @@ export async function runSlicerAgent({ planName, triageMeta, uiAPI, sessionManag
 }
 
 /**
- * Run the legacy one-shot task-table Slicer for non-Epic PROJECT plans.
- *
- * @param {Parameters<typeof runSlicerAgent>[0]} opts
- * @returns {Promise<{ ok: boolean, error?: string }>}
- */
-async function runLegacyTaskSlicer({ planName, triageMeta, uiAPI, sessionManager, __deps }) {
-    if (!uiAPI) throw new Error("runLegacyTaskSlicer: uiAPI is required");
-    const session = __deps?.runAgentSession || runAgentSession;
-    const loadSlicerDef = __deps?.loadAgentDefFromPath || loadAgentDefFromPath;
-    const ensurePromptFile = __deps?.ensureBundledAgentDefFile || ensureBundledAgentDefFile;
-    const slicerPromptPath = await ensurePromptFile(join(WORKFLOW_PROMPTS_DIR, LEGACY_SLICER_PROMPT_FILE));
-    const slicerAgentDef = await loadSlicerDef(slicerPromptPath, { agentName: AGENTS.SLICER });
-
-    try {
-        await session({
-            agentName: AGENTS.SLICER,
-            userRequest: buildLegacySlicerRequest(planName, triageMeta),
-            triageMeta,
-            uiAPI,
-            sessionManager,
-            _agentDefOverride: slicerAgentDef,
-        });
-        return { ok: true };
-    } catch (e) {
-        const error = e instanceof Error ? e.message : String(e);
-        uiAPI.appendSystemMessage(`${slicerAgentDef.displayName} failed: ${error}`, true, "RunWield");
-        return { ok: false, error };
-    }
-}
-
-/**
- * @param {string} planName
- * @param {import('../../tools/plan-written.js').TriageMeta | undefined} triageMeta
- * @returns {string}
- */
-function buildLegacySlicerRequest(planName, triageMeta) {
-    const lines = [
-        `## Slice Plan: ${planName}`,
-        "",
-        `The architect has finished a design-only plan at plans/${planName}.md. The user approved the design.`,
-        "Your job: read the plan, then append a Tasks section and per-slice detail blocks using the edit tool.",
-        "Follow the slicer tasks format file referenced in your system prompt exactly.",
-        "",
-    ];
-    if (triageMeta) {
-        lines.push("## Triage Report");
-        if (triageMeta.classification) lines.push(`- Classification: ${triageMeta.classification}`);
-        if (triageMeta.complexity) lines.push(`- Complexity: ${triageMeta.complexity}`);
-        if (triageMeta.summary) lines.push(`- Summary: ${triageMeta.summary}`);
-        if (triageMeta.affectedPaths?.length) lines.push(`- Affected paths: ${triageMeta.affectedPaths.join(", ")}`);
-        lines.push("");
-    }
-    lines.push(
-        "Apply the self-check rules in your system prompt before editing. End your turn after the edit — do not " +
-            "generate further text.",
-    );
-    return lines.join("\n");
-}
-
-/**
  * Ensure a PROJECT plan is ready after approval.
  *
- * Epic PROJECT plans use interactive decomposition and do not need or validate
- * legacy task tables. Non-Epic PROJECT plans retain the legacy task-table
- * slicer for compatibility only.
+ * PROJECT Epic plans use interactive decomposition. Non-Epic PROJECT plans
+ * with valid inline task tables are accepted without slicing. All other
+ * PROJECT plans are invalid — the architect must add `type: "epic"` to the
+ * front matter or embed valid Tasks sections.
  *
  * @param {Object} opts
  * @param {string} opts.planName
@@ -367,7 +307,7 @@ function buildLegacySlicerRequest(planName, triageMeta) {
  * @param {import('../ui/types.js').UiAPI} opts.uiAPI
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager]
  * @param {{
- *   runSlicerAgent?: typeof runSlicerAgent | typeof runLegacyTaskSlicer,
+ *   runSlicerAgent?: typeof runSlicerAgent,
  *   readTextFile?: (path: string) => Promise<string>,
  *   parsePlanFrontMatter?: typeof parsePlanFrontMatter,
  *   extractTasks?: typeof extractTasks,
@@ -378,20 +318,18 @@ function buildLegacySlicerRequest(planName, triageMeta) {
 export async function ensureSlicerTasks({ planName, planPath, triageMeta, uiAPI, sessionManager, __deps }) {
     if (!uiAPI) throw new Error("ensureSlicerTasks: uiAPI is required");
     const slicer = __deps?.runSlicerAgent || runSlicerAgent;
-    const legacySlicer = __deps?.runSlicerAgent || runLegacyTaskSlicer;
     const readTextFile = __deps?.readTextFile || Deno.readTextFile.bind(Deno);
     const parsePlan = __deps?.parsePlanFrontMatter || parsePlanFrontMatter;
     const parseTasks = __deps?.extractTasks || extractTasks;
     const validateTasks = __deps?.validateProjectTasks || validateProjectTasks;
 
     /**
-     * @param {typeof runSlicerAgent | typeof runLegacyTaskSlicer} runner
      * @param {import('../../tools/plan-written.js').TriageMeta | undefined} meta
      * @returns {Promise<{ ok: true } | { ok: false, error: string }>}
      */
-    async function invokeSlicer(runner, meta) {
+    async function invokeSlicer(meta) {
         try {
-            const result = await runner({ planName, triageMeta: meta, uiAPI, sessionManager });
+            const result = await slicer({ planName, triageMeta: meta, uiAPI, sessionManager });
             if (!result.ok) return { ok: false, error: result.error || "slicer failed" };
             return { ok: true };
         } catch (e) {
@@ -400,46 +338,41 @@ export async function ensureSlicerTasks({ planName, planPath, triageMeta, uiAPI,
         }
     }
 
+    // Epic — invoke interactive slicer
     if (triageMeta && isEpicPlan(triageMeta)) {
-        const slicerResult = await invokeSlicer(slicer, triageMeta);
-        if (!slicerResult.ok) return { ok: false, error: slicerResult.error, stage: "slicer" };
+        const result = await invokeSlicer(triageMeta);
+        if (!result.ok) return { ok: false, error: result.error, stage: "slicer" };
         return { ok: true, slicerInvoked: true };
     }
 
+    // Read and parse plan file
     let currentMd = "";
     let currentPlan;
     try {
         currentMd = await readTextFile(planPath);
         currentPlan = parsePlan(currentMd);
     } catch {
-        // Cannot inspect persisted plan metadata; continue through the legacy compatibility path below.
+        // fall through to validation / error below
     }
 
+    // Epic — invoke interactive slicer
     if (currentPlan && isEpicPlan(currentPlan.attrs)) {
-        const slicerResult = await invokeSlicer(slicer, currentPlan.attrs);
-        if (!slicerResult.ok) return { ok: false, error: slicerResult.error, stage: "slicer" };
+        const result = await invokeSlicer(currentPlan.attrs);
+        if (!result.ok) return { ok: false, error: result.error, stage: "slicer" };
         return { ok: true, slicerInvoked: true };
     }
 
+    // Non-Epic PROJECT plan — valid inline task tables accepted, otherwise error
     try {
         validateTasks(parseTasks(currentMd));
         return { ok: true, slicerInvoked: false };
     } catch {
-        // Tasks missing or unparseable; legacy task-table slicer must run.
+        return {
+            ok: false,
+            error:
+                `Plan "${planName}" has classification PROJECT but is not an Epic (missing type: "epic") and has no valid inline Tasks section. ` +
+                "Add `type: epic` to the front matter to use interactive decomposition, or embed a valid Tasks section.",
+            stage: "validation",
+        };
     }
-
-    const slicerResult = await invokeSlicer(legacySlicer, triageMeta);
-    if (!slicerResult.ok) {
-        return { ok: false, error: slicerResult.error, stage: "slicer" };
-    }
-
-    try {
-        const slicedMd = await readTextFile(planPath);
-        validateTasks(parseTasks(slicedMd));
-    } catch (e) {
-        const error = e instanceof Error ? e.message : String(e);
-        return { ok: false, error, stage: "validation" };
-    }
-
-    return { ok: true, slicerInvoked: true };
 }

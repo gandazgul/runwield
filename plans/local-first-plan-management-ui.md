@@ -1,5 +1,6 @@
 ---
 classification: "PROJECT"
+type: "epic"
 complexity: "HIGH"
 summary: "Build a local-first browser Workspace for managing canonical markdown Plans, with durable Plan IDs, REST APIs, lifecycle-safe board actions, Epic detail views, and a body-only markdown editor."
 affectedPaths:
@@ -18,9 +19,10 @@ affectedPaths:
     - "src/ui/workspace/"
     - "deno.json"
 createdAt: "2026-06-24T13:10:29-04:00"
-updatedAt: "2026-06-24T18:42:57.414Z"
-status: "draft"
+updatedAt: "2026-06-24T19:36:44.322Z"
+status: "approved"
 origin: "internal"
+worktreeStatus: "validation_failed"
 ---
 
 # Local-First Plan Management UI

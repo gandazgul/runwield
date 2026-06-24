@@ -1147,29 +1147,22 @@ Deno.test("ensureSlicerTasks skips slicer when Tasks already parseable (resumed 
     assertEquals(slicerCalls, 0);
 });
 
-Deno.test("ensureSlicerTasks invokes slicer when Tasks missing", async () => {
+Deno.test("ensureSlicerTasks invokes epic slicer when plan has type: epic and no tasks", async () => {
     let slicerCalls = 0;
-    let parseCalls = 0;
     const result = await ensureSlicerTasks({
         planName: "p",
         planPath: "/tmp/p.md",
         uiAPI: noopUiAPI,
         __deps: {
-            readTextFile: () => Promise.resolve("design only, no tasks"),
-            extractTasks: () => {
-                parseCalls++;
-                if (parseCalls === 1) throw new Error("Tasks section not found");
-                return [
-                    { task: 1, assignee: "engineer", dependencies: "none", writeScope: "src/x.js", description: "x" },
-                    {
-                        task: 2,
-                        assignee: "tester",
-                        dependencies: "1",
-                        writeScope: "none",
-                        description: "Integration Point: run validation",
-                    },
-                ];
-            },
+            readTextFile: () =>
+                Promise.resolve([
+                    "---",
+                    "classification: PROJECT",
+                    "type: epic",
+                    "status: approved",
+                    "---",
+                    "# Epic only, no tasks",
+                ].join("\n")),
             runSlicerAgent: () => {
                 slicerCalls++;
                 return Promise.resolve({ ok: true });
@@ -1181,16 +1174,21 @@ Deno.test("ensureSlicerTasks invokes slicer when Tasks missing", async () => {
     assertEquals(slicerCalls, 1);
 });
 
-Deno.test("ensureSlicerTasks returns { ok:false, stage:'slicer' } when slicer fails", async () => {
+Deno.test("ensureSlicerTasks returns { ok:false, stage:'slicer' } when epic slicer fails", async () => {
     const result = await ensureSlicerTasks({
         planName: "p",
         planPath: "/tmp/p.md",
         uiAPI: noopUiAPI,
         __deps: {
-            readTextFile: () => Promise.resolve("design only"),
-            extractTasks: () => {
-                throw new Error("Tasks section not found");
-            },
+            readTextFile: () =>
+                Promise.resolve([
+                    "---",
+                    "classification: PROJECT",
+                    "type: epic",
+                    "status: approved",
+                    "---",
+                    "# Epic",
+                ].join("\n")),
             runSlicerAgent: () => Promise.resolve({ ok: false, error: "model timeout" }),
         },
     });
@@ -1199,36 +1197,42 @@ Deno.test("ensureSlicerTasks returns { ok:false, stage:'slicer' } when slicer fa
     assertEquals(/** @type {any} */ (result).error, "model timeout");
 });
 
-Deno.test("ensureSlicerTasks returns { ok:false, stage:'validation' } when slicer output is unparseable", async () => {
-    let parseCalls = 0;
+Deno.test("ensureSlicerTasks returns { ok:false, stage:'validation' } when PROJECT plan is not an Epic", async () => {
     const result = await ensureSlicerTasks({
         planName: "p",
         planPath: "/tmp/p.md",
         uiAPI: noopUiAPI,
         __deps: {
-            readTextFile: () => Promise.resolve("design only"),
-            extractTasks: () => {
-                parseCalls++;
-                throw new Error(parseCalls === 1 ? "Tasks section not found" : "malformed table");
-            },
-            runSlicerAgent: () => Promise.resolve({ ok: true }),
+            readTextFile: () =>
+                Promise.resolve([
+                    "---",
+                    "classification: PROJECT",
+                    "status: approved",
+                    "---",
+                    "# Not an Epic",
+                ].join("\n")),
         },
     });
     assertEquals(result.ok, false);
     assertEquals(/** @type {any} */ (result).stage, "validation");
-    assertMatch(/** @type {any} */ (result).error, /malformed table/);
+    assertMatch(/** @type {any} */ (result).error, /type.*epic/);
 });
 
-Deno.test("ensureSlicerTasks falls back to slicer error message when error is missing", async () => {
+Deno.test("ensureSlicerTasks reports slicer failure when error is missing from result", async () => {
     const result = await ensureSlicerTasks({
         planName: "p",
         planPath: "/tmp/p.md",
         uiAPI: noopUiAPI,
         __deps: {
-            readTextFile: () => Promise.resolve("design only"),
-            extractTasks: () => {
-                throw new Error("Tasks section not found");
-            },
+            readTextFile: () =>
+                Promise.resolve([
+                    "---",
+                    "classification: PROJECT",
+                    "type: epic",
+                    "status: approved",
+                    "---",
+                    "# Epic",
+                ].join("\n")),
             runSlicerAgent: () => Promise.resolve({ ok: false }),
         },
     });

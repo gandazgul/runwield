@@ -90,11 +90,14 @@ canonical plan format. Before drafting, read that file and follow its structure 
 Front matter is mandatory and must be parseable by RunWield plan parsing. Include at least:
 
 - `classification` PROJECT
+- `type` epic — marks this as an Epic container for interactive decomposition by the Slicer
 - `complexity` (LOW|MEDIUM|HIGH)
 - `summary`
 - `affectedPaths` (array)
 - `createdAt` (Local time ISO timestamp, get it with `date`)
 - `status` draft
+
+Do not omit `type: epic`. A PROJECT plan without `type: epic` is invalid and will be rejected at the readiness gate.
 
 ## Important Rules
 
