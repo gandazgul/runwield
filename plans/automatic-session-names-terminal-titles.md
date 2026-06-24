@@ -10,16 +10,12 @@ affectedPaths:
     - "src/cmd/name/index.js"
     - "src/shared/ui/tui.js"
 createdAt: "2026-06-24T13:51:44-04:00"
-updatedAt: "2026-06-24T18:01:16.128Z"
-status: "in_progress"
+updatedAt: "2026-06-24T18:40:10.693Z"
+status: "implemented"
 origin: "internal"
-humanReviewMode: null
-humanReviewDecision: null
-executionBaselineTree: "cafbae967fb052fa95f8df3e7fc0afe65102e6d0"
-worktreeId: "c8587348"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-harns--/harns-runweild-automatic-session-names-terminal-titles-c8587348"
-worktreeBranch: "runweild/worktree/automatic-session-names-terminal-titles-c8587348"
-worktreeStatus: "active"
+failureReason: "CI validation failed after 3 repair attempts."
+implementedAt: "2026-06-24T18:36:32.463Z"
+worktreeStatus: "validation_failed"
 routingIntent: "FEATURE"
 ---
 
@@ -196,6 +192,7 @@ Existing functions, modules, or patterns to reuse:
   - Run `/new optional name`; the new session should be named `optional name` and the tab should update.
   - Run `/new` without a name; the tab should fall back to `wld - <cwd basename>` until a Router-provided name is
     applied.
+  - its ok if deno fmt formats other not related files formatting only changes are ok
 
 ## Edge Cases & Considerations
 
