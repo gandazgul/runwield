@@ -32,6 +32,9 @@ const SHELL_BUILTINS = new Set([
     "unset",
 ]);
 
+/** Commands (by prefix) that should never be wrapped with `snip run --`. */
+const NO_REWRITE_PREFIXES = ["git diff"];
+
 /**
  * @param {string} command
  * @returns {number}
@@ -156,6 +159,7 @@ function rewriteCommand(originalCommand) {
     const parsed = parseSimpleSegment(segment);
     if (!parsed) return null;
     if (parsed.commandName === "snip" || SHELL_BUILTINS.has(parsed.commandName)) return null;
+    if (NO_REWRITE_PREFIXES.some((prefix) => parsed.commandText.startsWith(prefix))) return null;
 
     return `${parsed.envPrefix}snip run -- ${parsed.commandText}${rest}`;
 }
