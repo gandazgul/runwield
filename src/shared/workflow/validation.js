@@ -506,7 +506,7 @@ export async function runValidationLoop({
                         humanReview.feedback?.trim() || humanReview.annotations?.length,
                     );
                     if (humanReview.exit || (!humanReview.approved && !hasHumanFeedback)) {
-                        haltReason = "User code review exited without approval or feedback.";
+                        haltReason = "Human code review exited without approval or feedback.";
                         break;
                     }
 

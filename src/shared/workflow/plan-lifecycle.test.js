@@ -1,5 +1,12 @@
 import { assertEquals, assertRejects, assertThrows } from "@std/assert";
-import { buildPlanEventUpdates, isEpicPlan, isExecutablePlanStatus, recordPlanEvent } from "./plan-lifecycle.js";
+import {
+    buildPlanEventUpdates,
+    getAllowedManualPlanStatuses,
+    isEpicPlan,
+    isExecutablePlanStatus,
+    isManualBoardStatusChangeAllowed,
+    recordPlanEvent,
+} from "./plan-lifecycle.js";
 
 Deno.test("buildPlanEventUpdates promotes approved plans to ready_for_work", () => {
     const updates = buildPlanEventUpdates("readiness_passed", "approved", {
@@ -141,6 +148,299 @@ Deno.test("buildPlanEventUpdates marks Epics done enough as verified with metada
     assertEquals(updates.epicDoneEnoughSummary, "Done enough: 1/2 verified.");
     assertEquals(updates.failureReason, null);
     assertEquals(updates.failedAt, null);
+});
+
+Deno.test("buildPlanEventUpdates allows manual board movement only within safe statuses", () => {
+    const updates = buildPlanEventUpdates("manual_status_change", "implemented", {
+        manualTargetStatus: "ready_for_work",
+        now: () => new Date("2026-01-02T03:04:05.000Z"),
+    });
+
+    assertEquals(updates.status, "ready_for_work");
+    assertEquals(updates.updatedAt, "2026-01-02T03:04:05.000Z");
+    assertEquals(updates.implementedAt, null);
+    assertEquals(updates.verifiedAt, null);
+    assertEquals(updates.failureReason, undefined);
+    assertEquals(updates.worktreeId, undefined);
+});
+
+Deno.test("manual board movement preserves implemented validation and review context", () => {
+    const updates = buildPlanEventUpdates("manual_status_change", "implemented", {
+        manualTargetStatus: "implemented",
+        triageMeta: {
+            failureReason: "Workflow Validation failed.",
+            worktreeStatus: "validation_failed",
+            humanReviewMode: "ask",
+            humanReviewDecision: "skipped",
+            humanReviewedAt: "2026-01-02T03:04:05.000Z",
+        },
+    });
+
+    assertEquals(updates.status, "implemented");
+    assertEquals(updates.failureReason, "Workflow Validation failed.");
+    assertEquals(updates.worktreeStatus, "validation_failed");
+    assertEquals(updates.humanReviewMode, "ask");
+    assertEquals(updates.humanReviewDecision, "skipped");
+    assertEquals(updates.humanReviewedAt, "2026-01-02T03:04:05.000Z");
+    assertEquals(updates.verifiedAt, undefined);
+});
+
+Deno.test("manual board movement clears stale completion metadata when moving before implemented", () => {
+    const updates = buildPlanEventUpdates("manual_status_change", "implemented", {
+        manualTargetStatus: "approved",
+        triageMeta: {
+            implementedAt: "2026-01-02T03:04:05.000Z",
+            verifiedAt: "2026-01-03T03:04:05.000Z",
+            humanReviewMode: "ask",
+            humanReviewDecision: "approved",
+            humanReviewedAt: "2026-01-03T03:04:05.000Z",
+            failureReason: "Stale failure reason.",
+            failedAt: "2026-01-01T03:04:05.000Z",
+        },
+    });
+
+    assertEquals(updates.status, "approved");
+    assertEquals(updates.implementedAt, null);
+    assertEquals(updates.verifiedAt, null);
+    assertEquals(updates.humanReviewMode, null);
+    assertEquals(updates.humanReviewDecision, null);
+    assertEquals(updates.humanReviewedAt, null);
+    assertEquals(updates.failureReason, null);
+    assertEquals(updates.failedAt, null);
+});
+
+Deno.test("manual board movement preserves recovery context for retry statuses", () => {
+    const updates = buildPlanEventUpdates("manual_status_change", "implemented", {
+        manualTargetStatus: "ready_for_work",
+        triageMeta: {
+            failureReason: "Workflow Validation failed.",
+            worktreeStatus: "validation_failed",
+            worktreeId: "wt-1",
+            worktreePath: "/tmp/wt-1",
+            worktreeBranch: "runwield/wt-1",
+        },
+    });
+
+    assertEquals(updates.status, "ready_for_work");
+    assertEquals(updates.failureReason, "Workflow Validation failed.");
+    assertEquals(updates.worktreeStatus, "validation_failed");
+    assertEquals(updates.worktreeId, "wt-1");
+    assertEquals(updates.worktreePath, "/tmp/wt-1");
+    assertEquals(updates.worktreeBranch, "runwield/wt-1");
+});
+
+Deno.test("manual board movement allows ready_for_decomposition only for Epic plans", () => {
+    assertEquals(
+        buildPlanEventUpdates("manual_status_change", "approved", {
+            manualTargetStatus: "ready_for_decomposition",
+            triageMeta: { classification: "PROJECT", type: "epic" },
+        }).status,
+        "ready_for_decomposition",
+    );
+
+    assertThrows(
+        () =>
+            buildPlanEventUpdates("manual_status_change", "approved", {
+                manualTargetStatus: "ready_for_decomposition",
+                triageMeta: { classification: "FEATURE" },
+            }),
+        Error,
+        'manual_status_change cannot move from "approved" to "ready_for_decomposition"',
+    );
+});
+
+Deno.test("manual board movement blocks protected and terminal shortcuts", () => {
+    assertThrows(
+        () => buildPlanEventUpdates("manual_status_change", "approved", {}),
+        Error,
+        "manual_status_change requires manualTargetStatus",
+    );
+    assertThrows(
+        () => buildPlanEventUpdates("manual_status_change", "implemented", { manualTargetStatus: "verified" }),
+        Error,
+        'manual_status_change cannot move from "implemented" to "verified"',
+    );
+    assertThrows(
+        () => buildPlanEventUpdates("manual_status_change", "ready_for_work", { manualTargetStatus: "failed" }),
+        Error,
+        'manual_status_change cannot move from "ready_for_work" to "failed"',
+    );
+    assertThrows(
+        () => buildPlanEventUpdates("manual_status_change", "failed", { manualTargetStatus: "ready_for_work" }),
+        Error,
+        'manual_status_change cannot move from "failed" to "ready_for_work"',
+    );
+    assertThrows(
+        () => buildPlanEventUpdates("manual_status_change", "on_hold", { manualTargetStatus: "approved" }),
+        Error,
+        'manual_status_change cannot move from "on_hold" to "approved"',
+    );
+    assertThrows(
+        () =>
+            buildPlanEventUpdates("manual_status_change", "ready_for_work", {
+                manualTargetStatus: "closed_without_verification",
+            }),
+        Error,
+        'manual_status_change cannot move from "ready_for_work" to "closed_without_verification"',
+    );
+});
+
+Deno.test("manual closure is terminal and does not pretend validation passed", () => {
+    const updates = buildPlanEventUpdates("manual_closed_without_verification", "implemented", {
+        now: () => new Date("2026-01-02T03:04:05.000Z"),
+    });
+
+    assertEquals(updates.status, "closed_without_verification");
+    assertEquals(updates.updatedAt, "2026-01-02T03:04:05.000Z");
+    assertEquals(updates.verifiedAt, undefined);
+    assertEquals(updates.humanReviewDecision, undefined);
+    assertEquals(updates.epicCompletionMode, undefined);
+
+    assertThrows(
+        () => buildPlanEventUpdates("manual_closed_without_verification", "verified"),
+        Error,
+        'manual_closed_without_verification cannot apply to status "verified"',
+    );
+});
+
+Deno.test("hold events create, resume, and reset hold metadata", () => {
+    const held = buildPlanEventUpdates("plan_held", "failed", {
+        now: () => new Date("2026-01-02T03:04:05.000Z"),
+        holdReason: "priority shifted",
+        holdStalenessBaseline: "2026-01-01T00:00:00.000Z",
+    });
+    assertEquals(held.status, "on_hold");
+    assertEquals(held.heldFromStatus, "failed");
+    assertEquals(held.heldAt, "2026-01-02T03:04:05.000Z");
+    assertEquals(held.holdReason, "priority shifted");
+    assertEquals(held.holdStalenessBaseline, "2026-01-01T00:00:00.000Z");
+
+    const resumed = buildPlanEventUpdates("hold_resumed", "on_hold", { heldFromStatus: "failed" });
+    assertEquals(resumed.status, "failed");
+    assertEquals(resumed.heldFromStatus, null);
+    assertEquals(resumed.heldAt, null);
+    assertEquals(resumed.holdReason, null);
+    assertEquals(resumed.holdStalenessBaseline, null);
+
+    const reset = buildPlanEventUpdates("hold_reset_to_draft", "on_hold");
+    assertEquals(reset.status, "draft");
+    assertEquals(reset.worktreeId, null);
+    assertEquals(reset.worktreePath, null);
+    assertEquals(reset.worktreeBranch, null);
+    assertEquals(reset.worktreeStatus, null);
+    assertEquals(reset.executionBaselineTree, null);
+    assertEquals(reset.failureReason, null);
+    assertEquals(reset.failedAt, null);
+    assertEquals(reset.implementedAt, null);
+    assertEquals(reset.verifiedAt, null);
+    assertEquals(reset.humanReviewMode, null);
+    assertEquals(reset.humanReviewDecision, null);
+    assertEquals(reset.humanReviewedAt, null);
+});
+
+Deno.test("hold blocks terminal statuses and resume requires held-from status", () => {
+    assertThrows(
+        () => buildPlanEventUpdates("plan_held", "verified"),
+        Error,
+        'plan_held cannot apply to status "verified"',
+    );
+    assertThrows(
+        () => buildPlanEventUpdates("plan_held", "closed_without_verification"),
+        Error,
+        'plan_held cannot apply to status "closed_without_verification"',
+    );
+    assertThrows(
+        () => buildPlanEventUpdates("hold_resumed", "on_hold"),
+        Error,
+        "hold_resumed requires heldFromStatus",
+    );
+    assertThrows(
+        () => buildPlanEventUpdates("hold_resumed", "on_hold", { heldFromStatus: "verified" }),
+        Error,
+        'hold_resumed cannot restore terminal/protected status "verified"',
+    );
+});
+
+Deno.test("manual board helper exports expose lifecycle-owned rules", () => {
+    assertEquals(getAllowedManualPlanStatuses("approved"), [
+        "draft",
+        "feedback",
+        "approved",
+        "ready_for_work",
+        "in_progress",
+        "implemented",
+    ]);
+    assertEquals(getAllowedManualPlanStatuses("approved", { classification: "PROJECT", type: "epic" }), [
+        "draft",
+        "feedback",
+        "approved",
+        "ready_for_work",
+        "in_progress",
+        "implemented",
+        "ready_for_decomposition",
+    ]);
+    assertEquals(getAllowedManualPlanStatuses("failed"), []);
+    assertEquals(isManualBoardStatusChangeAllowed("approved", "implemented"), true);
+    assertEquals(isManualBoardStatusChangeAllowed("approved", "verified"), false);
+    assertEquals(
+        isManualBoardStatusChangeAllowed("approved", "ready_for_decomposition", {
+            classification: "PROJECT",
+            type: "epic",
+        }),
+        true,
+    );
+});
+
+Deno.test("recordPlanEvent mutates only the selected held plan file", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await Deno.mkdir(`${cwd}/plans/epic`, { recursive: true });
+        await Deno.writeTextFile(
+            `${cwd}/plans/epic.md`,
+            [
+                "---",
+                'classification: "PROJECT"',
+                'complexity: "HIGH"',
+                'summary: "Epic"',
+                "affectedPaths:",
+                "  []",
+                'createdAt: "2026-01-01T00:00:00.000Z"',
+                'status: "ready_for_work"',
+                'type: "epic"',
+                "---",
+                "# Epic",
+            ].join("\n"),
+        );
+        await Deno.writeTextFile(
+            `${cwd}/plans/epic/child.md`,
+            [
+                "---",
+                'classification: "FEATURE"',
+                'complexity: "MEDIUM"',
+                'summary: "Child"',
+                "affectedPaths:",
+                "  []",
+                'createdAt: "2026-01-01T00:00:00.000Z"',
+                'status: "ready_for_work"',
+                'parentPlan: "epic"',
+                "---",
+                "# Child",
+            ].join("\n"),
+        );
+
+        await recordPlanEvent({ cwd, planName: "epic", event: "plan_held", currentStatus: "ready_for_work" });
+        assertEquals((await Deno.readTextFile(`${cwd}/plans/epic.md`)).includes('status: "on_hold"'), true);
+        assertEquals(
+            (await Deno.readTextFile(`${cwd}/plans/epic/child.md`)).includes('status: "ready_for_work"'),
+            true,
+        );
+
+        await recordPlanEvent({ cwd, planName: "epic/child", event: "plan_held", currentStatus: "ready_for_work" });
+        assertEquals((await Deno.readTextFile(`${cwd}/plans/epic.md`)).includes('status: "on_hold"'), true);
+        assertEquals((await Deno.readTextFile(`${cwd}/plans/epic/child.md`)).includes('status: "on_hold"'), true);
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
 });
 
 Deno.test("buildPlanEventUpdates only allows documented transitions", () => {
