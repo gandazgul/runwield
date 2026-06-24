@@ -96,7 +96,8 @@ Front matter is mandatory and must be parseable by RunWield plan parsing. Includ
 Use this tool when requirements are ambiguous or there are multiple valid implementation paths.
 
 - Ask **one question** when a single blocking decision unlocks the next planning step.
-- Ask a **small grouped batch (1–3 questions)** when answers are tightly related and reduce round trips.
+- Ask a **small grouped batch (1–3 questions)** when answers are tightly related and reduce round trips. Conduct
+  multiple rounds if ambiguity spans several independent decisions — don't constrain yourself to one batch.
 - Prefer multiple-choice when practical; include recommended defaults where useful.
 - After answers return, summarize the implication and immediately update the plan file with targeted edits.
 - Stop asking once ambiguity is resolved enough for executable steps. Otherwise ask more questions.
