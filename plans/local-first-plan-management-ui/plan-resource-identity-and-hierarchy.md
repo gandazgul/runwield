@@ -3,31 +3,21 @@ classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Add durable planId identity, planId lookup/backfill, body-safe Plan metadata seams, and shared Epic/child/orphan grouping helpers so CLI and Workspace views use the same Plan model."
 affectedPaths:
-    - "src/plan-store.js"
-    - "src/plan-store.test.js"
-    - "src/cmd/plans/index.js"
-    - "src/cmd/plans/index.test.js"
+  - "src/plan-store.js"
+  - "src/plan-store.test.js"
+  - "src/cmd/plans/index.js"
+  - "src/cmd/plans/index.test.js"
 createdAt: "2026-06-24T20:14:08.681Z"
-updatedAt: "2026-06-25T01:32:05.246Z"
-status: "implemented"
+updatedAt: "2026-06-25T01:37:31.570Z"
+status: "verified"
 origin: "internal"
 parentPlan: "local-first-plan-management-ui"
 dependencies:
-    []
-failureReason: "git merge --no-ff runwield/worktree/local-first-plan-management-ui-plan-resource-ide-4f0966ab failed: Auto-merging plans/local-first-plan-management-ui/lifecycle-board-semantics.md
-    CONFLICT (content): Merge conflict in plans/local-first-plan-management-ui/lifecycle-board-semantics.md
-    Auto-merging plans/local-first-plan-management-ui/plan-resource-identity-and-hierarchy.md
-    CONFLICT (content): Merge conflict in plans/local-first-plan-management-ui/plan-resource-identity-and-hierarchy.md
-    Auto-merging src/cmd/plans/index.js
-    CONFLICT (content): Merge conflict in src/cmd/plans/index.js
-    Auto-merging src/plan-store.js
-    CONFLICT (content): Merge conflict in src/plan-store.js
-    Auto-merging src/plan-store.test.js
-    CONFLICT (content): Merge conflict in src/plan-store.test.js
-    Automatic merge failed; fix conflicts and then commit the result."
-worktreeStatus: "merge_conflict"
+  []
+verifiedAt: "2026-06-25T01:37:31.570Z"
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
 ---
-
 # Plan Resource Identity and Hierarchy
 
 ## Context
