@@ -193,8 +193,11 @@ prompt. _Avoid_: Agent def, agent prompt, agent config
 **Skill**: A reusable instruction package an Agent can load for a specialized technique without changing work owner or
 Agent Session. _Avoid_: Agent, workflow role, sub-agent
 
-**Testing Skill**: A Skill that guides an implementation Agent in writing or maintaining tests in a specific testing
-style or framework. _Avoid_: Tester agent, QA role
+**Testing Skill**: A bundled, language- and framework-agnostic Skill that guides an Agent in writing or maintaining
+tests for a specific testing style or installed project stack. _Avoid_: Tester agent, QA role, bundled stack policy
+
+**QA Intervention Policy**: A user or project preference that controls whether the Tester reports findings only, adds
+regression tests, or fixes defects during verification. _Avoid_: Tester mode, QA setting
 
 **Documentation Skill**: The Skill that guides an Agent when creating or updating project documentation. _Avoid_:
 documentation agent, documenter
