@@ -49,7 +49,7 @@ const MANUAL_BOARD_STATUSES = [
 ];
 
 /** @type {PlanStatus[]} */
-const ALL_KNOWN_STATUSES = [
+export const PLAN_STATUSES = [
     "draft",
     "feedback",
     "approved",
@@ -62,6 +62,26 @@ const ALL_KNOWN_STATUSES = [
     "closed_without_verification",
     "on_hold",
 ];
+
+/** @type {PlanStatus[]} */
+export const ACTIVE_PLAN_STATUSES = [
+    "draft",
+    "feedback",
+    "approved",
+    "ready_for_decomposition",
+    "ready_for_work",
+    "in_progress",
+    "failed",
+    "implemented",
+];
+
+/** @type {PlanStatus[]} */
+export const CLOSED_PLAN_STATUSES = ["verified", "closed_without_verification"];
+
+/** @type {PlanStatus[]} */
+export const ON_HOLD_PLAN_STATUSES = ["on_hold"];
+
+const ALL_KNOWN_STATUSES = PLAN_STATUSES;
 
 /** @type {Record<PlanEvent, PlanStatus[]>} */
 const ALLOWED_FROM = {

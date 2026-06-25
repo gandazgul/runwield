@@ -16,6 +16,7 @@ origin: "internal"
 parentPlan: "local-first-plan-management-ui"
 dependencies:
     - "secure-workspace-read-only-board"
+    - "correct-workspace-design-foundation"
 ---
 
 # Body-Only Plan Detail Editor

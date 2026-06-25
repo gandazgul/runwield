@@ -21,6 +21,7 @@
         "@gandazgul/plannotator-pi-extension-compiled/server": "npm:@gandazgul/plannotator-pi-extension-compiled@^0.21.1/server",
         "@gandazgul/plannotator-pi-extension-compiled/assets": "npm:@gandazgul/plannotator-pi-extension-compiled@^0.21.1/assets",
         "strip-ansi": "npm:strip-ansi@^7.2.0",
+        "quikdown": "npm:quikdown@^1.2.12",
         "quikdown/ast": "npm:quikdown@^1.2.12/ast",
         "proper-lockfile": "npm:proper-lockfile@^4.1.2",
         "fresh": "jsr:@fresh/core@^2.3.3",

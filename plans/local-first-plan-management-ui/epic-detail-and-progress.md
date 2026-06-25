@@ -17,6 +17,7 @@ dependencies:
     - "plan-resource-identity-and-hierarchy"
     - "secure-workspace-read-only-board"
     - "lifecycle-board-semantics"
+    - "correct-workspace-design-foundation"
 ---
 
 # Epic Detail and Progress

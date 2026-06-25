@@ -16,6 +16,7 @@ parentPlan: "local-first-plan-management-ui"
 dependencies:
     - "lifecycle-board-semantics"
     - "secure-workspace-read-only-board"
+    - "correct-workspace-design-foundation"
 ---
 
 # Board Actions and Status Screens

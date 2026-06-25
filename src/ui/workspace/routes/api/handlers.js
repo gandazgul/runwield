@@ -1,7 +1,7 @@
 import {
     loadBoard,
-    loadPlanDetail,
     loadPlanSummaries,
+    loadWorkspaceDetail,
     serializePlanError,
     workspaceMetadata,
 } from "../../server/plan-adapter.js";
@@ -40,7 +40,7 @@ export async function boardApi(ctx) {
 /** @param {any} ctx */
 export async function planDetailApi(ctx) {
     try {
-        return json({ plan: await loadPlanDetail(ctx.state.cwd, ctx.params.planId) });
+        return json({ plan: await loadWorkspaceDetail(ctx.state.cwd, ctx.params.planId) });
     } catch (error) {
         const body = serializePlanError(error);
         const status = body.error.includes("not found") || body.error.includes("Plan not found") ? 404 : 409;
