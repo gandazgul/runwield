@@ -160,8 +160,8 @@ _Avoid_: Source, provenance
 
 ### Agents
 
-**Agent**: A specialized LLM-powered role with a dedicated Agent Definition, model binding, and tool set. _Avoid_: Bot,
-assistant, model
+**Agent**: A specialized LLM work owner and thinking mode with its own context boundary, Agent Definition, model binding, and behavioral policy. _Avoid_: Bot,
+assistant, model, skill
 
 **Router**: The default Agent Definition prompted to perform Triage and emit a Triage Report. _Avoid_: Dispatcher,
 orchestrator, classifier, triager
@@ -184,13 +184,15 @@ plans under `plans/<epic-name>/`. _Avoid_: Task planner, splitter
 
 **Engineer**: The execution Agent that implements approved executable Plans. _Avoid_: Coder, implementer, developer
 
-**Tester**: The Agent that writes or updates tests for assigned work. _Avoid_: QA, test writer
+**Tester**: The fresh-context verification Agent for behavioral QA, UI QA, PRD conformance testing, and adversarial bug-finding. _Avoid_: Unit test writer, test framework specialist
 
 **Agent Definition**: A markdown file with YAML Front Matter defining an Agent's display name, model, tools, and system
 prompt. _Avoid_: Agent def, agent prompt, agent config
 
-**Skill**: A reusable instruction package an Agent can load for a specialized task without becoming a separate Agent
-Session. _Avoid_: Agent, workflow role, sub-agent
+**Skill**: A reusable instruction package an Agent can load for a specialized technique without changing work owner or
+Agent Session. _Avoid_: Agent, workflow role, sub-agent
+
+**Testing Skill**: A Skill that guides an implementation Agent in writing or maintaining tests in a specific testing style or framework. _Avoid_: Tester agent, QA role
 
 **Documentation Skill**: The Skill that guides an Agent when creating or updating project documentation. _Avoid_:
 documentation agent, documenter
