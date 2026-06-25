@@ -4,19 +4,21 @@ classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Add lifecycle-mediated board actions, closed/on-hold screens, token-protected mutation APIs, and a DnD-ready board architecture where buttons and future drag gestures use the same action path."
 affectedPaths:
-  - "src/ui/workspace/"
-  - "src/shared/workflow/plan-lifecycle.js"
-  - "src/shared/workflow/plan-lifecycle.test.js"
-  - "docs/plan-lifecycle.md"
+    - "src/ui/workspace/"
+    - "src/shared/workflow/plan-lifecycle.js"
+    - "src/shared/workflow/plan-lifecycle.test.js"
+    - "docs/plan-lifecycle.md"
 createdAt: "2026-06-24T20:14:08.683Z"
 updatedAt: "2026-06-24T20:14:08.683Z"
 status: "draft"
 origin: "internal"
 parentPlan: "local-first-plan-management-ui"
 dependencies:
-  - "lifecycle-board-semantics"
-  - "secure-workspace-read-only-board"
+    - "lifecycle-board-semantics"
+    - "secure-workspace-read-only-board"
+    - "correct-workspace-design-foundation"
 ---
+
 # Board Actions and Status Screens
 
 ## Context

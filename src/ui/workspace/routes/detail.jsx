@@ -1,11 +1,14 @@
+import { EpicDetail } from "../components/EpicDetail.jsx";
 import { PlanDetail } from "../components/PlanDetail.jsx";
-import { loadPlanDetail, serializePlanError } from "../server/plan-adapter.js";
+import { loadWorkspaceDetail, serializePlanError } from "../server/plan-adapter.js";
 
 /** @param {any} ctx */
 export async function detailRoute(ctx) {
     try {
-        const plan = await loadPlanDetail(ctx.state.cwd, ctx.params.planId);
-        return ctx.render(<PlanDetail plan={plan} />);
+        const plan = await loadWorkspaceDetail(ctx.state.cwd, ctx.params.planId);
+        return ctx.render(
+            plan.detailKind === "epic" ? <EpicDetail epic={plan} url={ctx.url} /> : <PlanDetail plan={plan} />,
+        );
     } catch (error) {
         const body = serializePlanError(error);
         const status = body.error.includes("not found") || body.error.includes("Plan not found") ? 404 : 409;

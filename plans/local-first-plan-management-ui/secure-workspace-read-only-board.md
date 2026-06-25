@@ -4,27 +4,28 @@ classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Introduce `wld plans ui`, the local Fresh/Vite/Preact Workspace app, secure localhost launch, read-only REST APIs, and a first read-only Plan Board backed by canonical markdown Plans."
 affectedPaths:
-  - "src/cmd/plans/index.js"
-  - "src/cmd/plans/ui.js"
-  - "src/cmd/plans/index.test.js"
-  - "src/cmd/registry.js"
-  - "src/constants.js"
-  - "src/ui/workspace/"
-  - "deno.json"
-  - "deno.lock"
-  - "README.md"
+    - "src/cmd/plans/index.js"
+    - "src/cmd/plans/ui.js"
+    - "src/cmd/plans/index.test.js"
+    - "src/cmd/registry.js"
+    - "src/constants.js"
+    - "src/ui/workspace/"
+    - "deno.json"
+    - "deno.lock"
+    - "README.md"
 createdAt: "2026-06-24T20:14:08.682Z"
 updatedAt: "2026-06-25T13:19:53.170Z"
 status: "verified"
 origin: "internal"
 parentPlan: "local-first-plan-management-ui"
 dependencies:
-  - "plan-resource-identity-and-hierarchy"
+    - "plan-resource-identity-and-hierarchy"
 verifiedAt: "2026-06-25T13:19:53.170Z"
 humanReviewMode: "ask"
 humanReviewDecision: "approved"
 humanReviewedAt: "2026-06-25T13:18:31.962Z"
 ---
+
 # Secure Workspace Read-Only Board
 
 ## Context

@@ -4,8 +4,8 @@ classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Modify the engineer execution flow to prevent bouncing back to the planner or ending the session when the engineer fails or stops without calling `task_completed`. Instead, output a notification and keep the engineer as the active agent so the user can continue the session."
 affectedPaths:
-  - "src/shared/workflow/workflow.js"
-  - "src/shared/workflow/orchestrator.js"
+    - "src/shared/workflow/workflow.js"
+    - "src/shared/workflow/orchestrator.js"
 createdAt: "2026-06-24T21:02:48-04:00"
 updatedAt: "2026-06-25T02:21:29.234Z"
 status: "verified"
@@ -18,6 +18,7 @@ humanReviewDecision: "skipped"
 routingIntent: "FEATURE"
 sessionName: "engineer session persistence"
 ---
+
 # Keep Engineer Active After Execution Interruption
 
 ## Context

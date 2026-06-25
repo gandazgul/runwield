@@ -4,19 +4,20 @@ classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Implement first-class Plan archival using the existing plans/archived convention, with safe move/restore commands and lightweight filter/search over archived Plans."
 affectedPaths:
-  - "docs/adr/008-plan-archival-and-retrieval.md"
-  - "docs/plan-lifecycle.md"
-  - "src/plan-store.js"
-  - "src/plan-store.test.js"
-  - "src/cmd/plans/index.js"
-  - "src/cmd/plans/index.test.js"
-  - "src/cmd/plans/archive.js"
-  - "README.md"
+    - "docs/adr/008-plan-archival-and-retrieval.md"
+    - "docs/plan-lifecycle.md"
+    - "src/plan-store.js"
+    - "src/plan-store.test.js"
+    - "src/cmd/plans/index.js"
+    - "src/cmd/plans/index.test.js"
+    - "src/cmd/plans/archive.js"
+    - "README.md"
 createdAt: "2026-06-24T14:15:10-04:00"
 updatedAt: "2026-06-24T18:18:57.646Z"
 status: "draft"
 origin: "internal"
 ---
+
 # Plan Archival and Retrieval
 
 ## Context

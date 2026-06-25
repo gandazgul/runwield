@@ -4,13 +4,14 @@ classification: "PROJECT"
 complexity: "HIGH"
 summary: ""
 affectedPaths:
-  []
+    []
 createdAt: "2026-06-25T14:12:40.436Z"
 status: "draft"
 origin: "internal"
 id: "unified-semantic-indexer"
 title: "Unified Local Semantic Indexer (Code + Memory)"
 ---
+
 # Context
 
 Harns currently has a working memory system (Mnemosyne extension) that shells out to a Go binary (`mnemosyne`) for

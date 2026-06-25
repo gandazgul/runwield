@@ -17,13 +17,14 @@ export function WorkspaceLayout({ Component, url }) {
         <div class="workspace-shell">
             <header class="topbar">
                 <div>
-                    <div class="eyebrow">RunWield</div>
-                    <h1>Plans Workspace</h1>
+                    <div class="eyebrow">RunWield Workspace</div>
+                    <h1>Project Workspace</h1>
+                    <p>Local, token-protected planning surface for this checkout.</p>
                 </div>
-                <p class="readonly-pill">Read-only milestone</p>
+                <p class="readonly-pill">Read-only Plan foundation</p>
             </header>
             <nav class="tabs" aria-label="Workspace views">
-                <a href={linkWithToken("/", url)}>Board</a>
+                <a href={linkWithToken("/", url)}>Plan Board</a>
                 <a href={linkWithToken("/closed", url)}>Closed</a>
                 <a href={linkWithToken("/on-hold", url)}>On Hold</a>
             </nav>

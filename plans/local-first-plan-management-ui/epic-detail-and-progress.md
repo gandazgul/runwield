@@ -4,20 +4,22 @@ classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Add Epic cards and detail views that summarize child FEATURE progress, dependencies, held/failed children, and orphan-child behavior without flattening children onto the main board by default."
 affectedPaths:
-  - "src/ui/workspace/"
-  - "src/plan-store.js"
-  - "src/plan-store.test.js"
-  - "src/cmd/plans/index.js"
+    - "src/ui/workspace/"
+    - "src/plan-store.js"
+    - "src/plan-store.test.js"
+    - "src/cmd/plans/index.js"
 createdAt: "2026-06-24T20:14:08.683Z"
 updatedAt: "2026-06-24T20:14:08.683Z"
 status: "draft"
 origin: "internal"
 parentPlan: "local-first-plan-management-ui"
 dependencies:
-  - "plan-resource-identity-and-hierarchy"
-  - "secure-workspace-read-only-board"
-  - "lifecycle-board-semantics"
+    - "plan-resource-identity-and-hierarchy"
+    - "secure-workspace-read-only-board"
+    - "lifecycle-board-semantics"
+    - "correct-workspace-design-foundation"
 ---
+
 # Epic Detail and Progress
 
 ## Context

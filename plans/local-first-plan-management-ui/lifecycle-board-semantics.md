@@ -4,21 +4,22 @@ classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Extend the central Plan Lifecycle state machine with manual board movement, closed-without-verification, and on-hold semantics so the UI never mutates workflow-critical status directly."
 affectedPaths:
-  - "src/shared/workflow/plan-lifecycle.js"
-  - "src/shared/workflow/plan-lifecycle.test.js"
-  - "docs/plan-lifecycle.md"
-  - "docs/prd/on-hold-plan-status.md"
+    - "src/shared/workflow/plan-lifecycle.js"
+    - "src/shared/workflow/plan-lifecycle.test.js"
+    - "docs/plan-lifecycle.md"
+    - "docs/prd/on-hold-plan-status.md"
 createdAt: "2026-06-24T20:14:08.682Z"
 updatedAt: "2026-06-24T22:59:23.155Z"
 status: "verified"
 origin: "internal"
 parentPlan: "local-first-plan-management-ui"
 dependencies:
-  []
+    []
 verifiedAt: "2026-06-24T22:59:23.155Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
 ---
+
 # Lifecycle Board Semantics
 
 ## Context

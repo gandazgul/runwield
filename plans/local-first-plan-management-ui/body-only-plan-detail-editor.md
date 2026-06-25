@@ -4,19 +4,21 @@ classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Add read-first Plan detail pages with rendered markdown and a CodeMirror-style body-only editor that preserves front matter, detects stale saves, and supports browser-local draft recovery."
 affectedPaths:
-  - "src/plan-store.js"
-  - "src/plan-store.test.js"
-  - "src/ui/workspace/"
-  - "deno.json"
-  - "deno.lock"
+    - "src/plan-store.js"
+    - "src/plan-store.test.js"
+    - "src/ui/workspace/"
+    - "deno.json"
+    - "deno.lock"
 createdAt: "2026-06-24T20:14:08.683Z"
 updatedAt: "2026-06-24T20:14:08.683Z"
 status: "draft"
 origin: "internal"
 parentPlan: "local-first-plan-management-ui"
 dependencies:
-  - "secure-workspace-read-only-board"
+    - "secure-workspace-read-only-board"
+    - "correct-workspace-design-foundation"
 ---
+
 # Body-Only Plan Detail Editor
 
 ## Context

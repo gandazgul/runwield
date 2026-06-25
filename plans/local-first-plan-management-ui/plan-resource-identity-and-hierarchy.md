@@ -4,21 +4,22 @@ classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Add durable planId identity, planId lookup/backfill, body-safe Plan metadata seams, and shared Epic/child/orphan grouping helpers so CLI and Workspace views use the same Plan model."
 affectedPaths:
-  - "src/plan-store.js"
-  - "src/plan-store.test.js"
-  - "src/cmd/plans/index.js"
-  - "src/cmd/plans/index.test.js"
+    - "src/plan-store.js"
+    - "src/plan-store.test.js"
+    - "src/cmd/plans/index.js"
+    - "src/cmd/plans/index.test.js"
 createdAt: "2026-06-24T20:14:08.681Z"
 updatedAt: "2026-06-25T01:37:31.570Z"
 status: "verified"
 origin: "internal"
 parentPlan: "local-first-plan-management-ui"
 dependencies:
-  []
+    []
 verifiedAt: "2026-06-25T01:37:31.570Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
 ---
+
 # Plan Resource Identity and Hierarchy
 
 ## Context

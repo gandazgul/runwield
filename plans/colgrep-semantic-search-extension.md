@@ -4,15 +4,16 @@ classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Create an optional Harns-compatible Colgrep extension that adds semantic code discovery without making Colgrep a core Harns dependency."
 affectedPaths:
-  - "extensions/colgrep/package.json"
-  - "extensions/colgrep/index.js"
-  - "extensions/colgrep/index.test.js"
-  - "extensions/colgrep/README.md"
-  - "docs/settings.md"
+    - "extensions/colgrep/package.json"
+    - "extensions/colgrep/index.js"
+    - "extensions/colgrep/index.test.js"
+    - "extensions/colgrep/README.md"
+    - "docs/settings.md"
 createdAt: "2026-06-16T16:46:54-04:00"
 status: "draft"
 origin: "internal"
 ---
+
 # Colgrep Semantic Search Extension
 
 ## Context
