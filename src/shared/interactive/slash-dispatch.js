@@ -6,8 +6,8 @@
  * - a user-defined prompt template, dispatched through the operator agent.
  *
  * Built-in commands receive the full TUI context (editor, ui, tui, sessionManager).
- * Templates set the active Agent and run a fresh Agent Session, optionally with
- * a template-declared model.
+ * Templates set the active Agent and run on the root Agent Session, optionally
+ * with a template-declared model.
  */
 
 import { abortActiveSession, expandPromptTemplate, expandSkillCommand, runAgentSession } from "../session/session.js";
@@ -185,11 +185,14 @@ async function dispatchSkill(ctx, skill, additionalInstructions, thisGen) {
         uiAPI,
         savedImages,
         chatPromptAgentName,
+        setActiveAgent,
+        applyPendingRootSwap,
         generationGuard,
     } = ctx;
     const deps = ctx.__deps || {};
     const expandSkillCommandImpl = deps.expandSkillCommand || expandSkillCommand;
     const runAgentSessionImpl = deps.runAgentSession || runAgentSession;
+    const createAgentHandlerImpl = deps.createAgentHandler || createAgentHandler;
     const getRootSessionManagerImpl = deps.getRootSessionManager || getRootSessionManager;
 
     try {
@@ -200,12 +203,20 @@ async function dispatchSkill(ctx, skill, additionalInstructions, thisGen) {
             if (uiAPI.appendImage) uiAPI.appendImage(img.base64, img.mimeType);
         });
 
+        setActiveAgent(
+            chatPromptAgentName,
+            createAgentHandlerImpl(chatPromptAgentName),
+            uiAPI,
+        );
+        await applyPendingRootSwap(uiAPI);
+
         await runAgentSessionImpl({
             agentName: chatPromptAgentName,
             userRequest: expandedText,
             images: savedImages,
             uiAPI,
             sessionManager: getRootSessionManagerImpl() || undefined,
+            useRootSession: true,
         });
     } catch (err) {
         if (generationGuard.isCurrent(thisGen)) {
@@ -281,6 +292,7 @@ async function dispatchTemplate(ctx, template, additionalInstructions, thisGen) 
     );
 
     try {
+        await ctx.applyPendingRootSwap(uiAPI);
         await runAgentSessionImpl({
             agentName: chatPromptAgentName,
             modelOverride: templateModelValue,
@@ -288,6 +300,7 @@ async function dispatchTemplate(ctx, template, additionalInstructions, thisGen) 
             images,
             uiAPI,
             sessionManager: getRootSessionManagerImpl() || undefined,
+            useRootSession: true,
         });
     } catch (err) {
         if (generationGuard.isCurrent(thisGen)) {

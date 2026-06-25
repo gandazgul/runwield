@@ -177,9 +177,11 @@ Deno.test("handleSlashCommand dispatches prompt templates with images and option
     assertEquals(ctx.records.images, [{ base64: "img", mimeType: "image/png" }]);
     assertEquals(ctx.records.activeAgents[0].agentName, "operator");
     assertEquals(ctx.records.activeAgents[0].model, "test/model");
+    assertEquals(ctx.records.swaps, 1);
     assertEquals(ctx.records.runs[0].agentName, "operator");
     assertEquals(ctx.records.runs[0].modelOverride, "test/model");
     assertEquals(ctx.records.runs[0].userRequest, "expanded:/tmp/review.md:make it sharp");
+    assertEquals(ctx.records.runs[0].useRootSession, true);
 });
 
 Deno.test("handleSlashCommand rejects invalid template model before expanding", async () => {
@@ -231,7 +233,10 @@ Deno.test("handleSlashCommand dispatches skills and reports skill errors", async
     }]);
     assertEquals(ctx.records.userMessages, ["/skill:diagnose flaky test"]);
     assertEquals(ctx.records.images, [{ base64: "img", mimeType: "image/png" }]);
+    assertEquals(ctx.records.activeAgents[0].agentName, "operator");
+    assertEquals(ctx.records.swaps, 1);
     assertEquals(ctx.records.runs[0].userRequest, "skill:diagnose:flaky test");
+    assertEquals(ctx.records.runs[0].useRootSession, true);
 
     const errorCtx = makeContext({ userRequest: "/skill:diagnose" });
     errorCtx.skills = ctx.skills;
