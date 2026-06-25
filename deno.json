@@ -36,6 +36,8 @@
         "test": "snip run -- deno test -A",
         "lint": "snip run -- deno lint",
         "fmt:check": "snip run -- deno fmt --check",
+        "githooks:install": "git config core.hooksPath .githooks",
+        "githooks:uninstall": "git config --unset core.hooksPath",
         "check": "snip run -- deno check --doc src/**/*.js && deno task -q workspace:check",
         "workspace:check": "deno check src/ui/workspace/**/*.js src/ui/workspace/**/*.jsx",
         "workspace:test": "deno test -A src/ui/workspace src/cmd/plans/ui.test.js",
