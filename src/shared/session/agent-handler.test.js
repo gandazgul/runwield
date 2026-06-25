@@ -22,8 +22,13 @@ Deno.test("agent-handler dispatches triage_report from any agent", async () => {
     const uiAPI = /** @type {any} */ ({});
     const sessionManager = /** @type {any} */ ({});
     const images = [{ base64: "abc", mimeType: "image/png" }];
+    /** @type {any} */
+    let runArgs = null;
     const handler = createAgentHandler("operator", {
-        runAgentSession: () => Promise.resolve(/** @type {any} */ ([])),
+        runAgentSession: (opts) => {
+            runArgs = opts;
+            return Promise.resolve(/** @type {any} */ ([]));
+        },
         readLatestTriageOutcome: () => triage,
         dispatchPostTriage: (args) => {
             dispatchArgs = args;
@@ -36,6 +41,7 @@ Deno.test("agent-handler dispatches triage_report from any agent", async () => {
 
     await handler("classify this", images, uiAPI, sessionManager);
 
+    assertEquals(runArgs.useRootSession, false);
     assertEquals(dispatchArgs, {
         triage,
         userRequest: "classify this",

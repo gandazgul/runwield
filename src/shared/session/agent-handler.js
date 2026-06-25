@@ -100,6 +100,7 @@ export function createAgentHandler(agentName, __deps) {
                 images,
                 uiAPI,
                 sessionManager,
+                useRootSession: false,
                 ...sessionOptions,
             });
 

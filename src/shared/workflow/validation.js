@@ -429,7 +429,7 @@ export async function runValidationLoop({
                     cwd: executionCwd,
                     _agentDefOverride: reviewerAgentDef,
                     includeEditFallback: false,
-                    useRootSession: true,
+                    useRootSession: false,
                 });
                 consumePendingSwitchHandoff();
 

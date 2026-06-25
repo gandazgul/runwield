@@ -112,6 +112,7 @@ export async function runInitCommand(argv, options = {}) {
             uiAPI: options.uiAPI,
             sessionManager: options.sessionManager,
             _agentDefOverride: agentDef,
+            useRootSession: false,
         });
 
         await recordInitDone();

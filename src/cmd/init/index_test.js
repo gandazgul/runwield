@@ -130,6 +130,7 @@ Deno.test("runInitCommand runs init agent and records completion in CLI mode", a
     ]);
     assertEquals(/** @type {any} */ (sessionArgs)._agentDefOverride, agentDef);
     assertEquals(/** @type {any} */ (sessionArgs).agentName, "init");
+    assertEquals(/** @type {any} */ (sessionArgs).useRootSession, false);
 });
 
 Deno.test("runInitCommand reports failure and does not record completion", async () => {

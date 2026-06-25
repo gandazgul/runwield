@@ -445,7 +445,7 @@ Deno.test("runValidationLoop runs validation and reviewer in active execution cw
     assertEquals(sessionOpts[0]._agentDefOverride.tools, []);
     assertEquals(sessionOpts[0]._agentDefOverride.systemPrompt.includes("{{SKILLS}}"), false);
     assertEquals(sessionOpts[0].includeEditFallback, false);
-    assertEquals(sessionOpts[0].useRootSession, true);
+    assertEquals(sessionOpts[0].useRootSession, false);
 });
 
 Deno.test("runValidationLoop records validation_passed only after worktree merge succeeds", async () => {

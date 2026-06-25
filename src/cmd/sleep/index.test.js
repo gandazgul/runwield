@@ -18,17 +18,23 @@ Deno.test("runSleepCommand help path", async () => {
 
 Deno.test("runSleepCommand runs operator /sleep", async () => {
     let invoked = "";
+    /** @type {boolean | undefined} */
+    let useRootSession;
 
     await runSleepCommand([], {
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false }),
             ensureMnemosyneBinary: () => Promise.resolve(),
-            runAgentSession: (/** @type {{agentName: string, userRequest: string}} */ opts) => {
+            runAgentSession: (
+                /** @type {{agentName: string, userRequest: string, useRootSession?: boolean}} */ opts,
+            ) => {
                 invoked = `${opts.agentName}:${opts.userRequest}`;
+                useRootSession = opts.useRootSession;
                 return Promise.resolve([]);
             },
         }),
     });
 
     assertEquals(invoked, "operator:/sleep");
+    assertEquals(useRootSession, false);
 });

@@ -2056,9 +2056,9 @@ export async function runRootTurn({
 }
 
 /**
- * Run a single transient agent invocation: build a fresh AgentSession, run one prompt, dispose.
- * Used for workflow sub-phases
- * (orchestrator's planner/architect/engineer/reviewer calls).
+ * Run a single Agent invocation. By default this uses the root AgentSession so
+ * the turn remains in follow-up context; callers that intentionally need a
+ * disposable one-off session must pass `useRootSession: false`.
  *
  * @param {Object} opts
  * @param {string} opts.agentName
@@ -2075,12 +2075,12 @@ export async function runRootTurn({
  * @param {string} [opts.cwd] - Execution cwd for file tools and agent operations.
  * @param {string} [opts.debugLogPath] - Optional DEBUG log destination for this invocation.
  * @param {boolean} [opts.includeEditFallback] - Internal: whether to register the edit fallback custom tool.
- * @param {boolean} [opts.useRootSession] - Run this invocation as the root session so interactive steering reaches it.
+ * @param {boolean} [opts.useRootSession=true] - Set false only for intentional disposable one-off sessions.
  *
  * @returns {Promise<import('@earendil-works/pi-agent-core').AgentMessage[]>}
  */
 export async function runAgentSession(opts) {
-    if (opts.useRootSession) {
+    if (opts.useRootSession !== false) {
         await ensureRootAgentSession({
             ...opts,
             allowReturnToRouter: opts.allowReturnToRouter ?? false,

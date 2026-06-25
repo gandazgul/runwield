@@ -66,6 +66,7 @@ export async function runSleepCommand(argv, options = {}) {
     await runAgentSession({
         agentName: "operator",
         userRequest: "/sleep",
+        useRootSession: false,
     });
 
     notify("[RunWield] ✅ Sleep complete.");
