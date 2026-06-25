@@ -23,12 +23,12 @@ import { countChildPlanProgress, groupPlanHierarchy, listPlans as listPlansFn } 
  * @returns {string}
  */
 function formatChildProgress(children) {
-    const progress = countChildPlanProgress(children);
-    const label = progress.total === 1 ? "feature" : "features";
-    const parts = [`${progress.verified}/${progress.total} ${label} verified`];
-    if (progress.active > 0) parts.push(`${progress.active} active/implemented`);
-    if (progress.remaining > 0) parts.push(`${progress.remaining} remaining`);
-    if (progress.failed > 0) parts.push(`${progress.failed} failed`);
+    const { verified, active, failed, remaining, total } = countChildPlanProgress(children);
+    const label = total === 1 ? "feature" : "features";
+    const parts = [`${verified}/${total} ${label} verified`];
+    if (active > 0) parts.push(`${active} active/implemented`);
+    if (remaining > 0) parts.push(`${remaining} remaining`);
+    if (failed > 0) parts.push(`${failed} failed`);
     return parts.join(" — ");
 }
 

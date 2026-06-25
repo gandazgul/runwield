@@ -814,7 +814,7 @@ Deno.test("runValidationLoop treats human review exit as validation failure with
 
     assertEquals(actions, [
         "registry:validation_failed",
-        "event:validation_failed:Human code review exited without approval or feedback.",
+        "event:validation_failed:User code review exited without approval or feedback.",
     ]);
 });
 
