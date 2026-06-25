@@ -13,19 +13,18 @@ affectedPaths:
   - "deno.lock"
   - "README.md"
 createdAt: "2026-06-24T20:14:08.682Z"
-updatedAt: "2026-06-25T02:27:44.158Z"
-status: "in_progress"
+updatedAt: "2026-06-25T13:18:32.182Z"
+status: "implemented"
 origin: "internal"
 parentPlan: "local-first-plan-management-ui"
 dependencies:
   - "plan-resource-identity-and-hierarchy"
-humanReviewMode: null
-humanReviewDecision: null
-executionBaselineTree: "580678ddd51d174e1de51123d692ea3220a54468"
-worktreeId: "a7e221d5"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-harns--/harns-runwield-local-first-plan-management-ui-secure-workspace--a7e221d5"
-worktreeBranch: "runwield/worktree/local-first-plan-management-ui-secure-workspace--a7e221d5"
-worktreeStatus: "active"
+failureReason: "git merge --no-ff runwield/worktree/local-first-plan-management-ui-secure-workspace--a7e221d5 failed: error: Your local changes to the following files would be overwritten by merge:
+	plans/local-first-plan-management-ui/secure-workspace-read-only-board.md
+Please commit your changes or stash them before you merge.
+Aborting
+Merge with strategy ort failed."
+worktreeStatus: "merge_conflict"
 ---
 # Secure Workspace Read-Only Board
 
