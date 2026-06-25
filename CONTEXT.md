@@ -353,6 +353,10 @@ command definition, prompt command
 - A **Scope Escalation** should present the larger-scope finding to the user and ask whether to continue via Router
   rather than abruptly calling the **Return-to-Router Tool**.
 - Every **Agent Session** loads exactly one **Agent Definition** after bundled, home, and local layers are merged.
+- An **Agent** owns work and may load one or more **Skills** to apply specialized techniques without changing the owning
+  Agent Session.
+- The **Tester** may load a **Testing Skill** to add focused regression tests when verification uncovers a real defect;
+  whether it fixes now or reports only may be governed by project or user preference.
 - Every active Agent turn uses the same **Agent Handler**; boot, `/agent`, `return_to_router`, and workflow restores
   must not install Agent-specific handlers.
 - **Core Memories** are injected into every **Agent Session** by the **Mnemosyne** extension.
