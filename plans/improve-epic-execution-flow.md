@@ -12,9 +12,18 @@ affectedPaths:
     - "src/shared/workflow/workflow-slicer.js"
     - "src/plan-store.js"
 createdAt: "2026-06-25T11:11:20-04:00"
-updatedAt: "2026-06-25T15:16:55.101Z"
-status: "draft"
+updatedAt: "2026-06-25T17:09:34.973Z"
+status: "in_progress"
 origin: "internal"
+humanReviewMode: null
+humanReviewDecision: null
+executionBaselineTree: "fbf21a9b14b94fed7a2339089ad2baa6d267b6da"
+worktreeId: "296d28a9"
+worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-harns--/harns-runwield-improve-epic-execution-flow-296d28a9"
+worktreeBranch: "runwield/worktree/improve-epic-execution-flow-296d28a9"
+worktreeStatus: "active"
+routingIntent: "FEATURE"
+sessionName: "improve epic execution flow"
 ---
 
 # Improve Epic Execution Flow
