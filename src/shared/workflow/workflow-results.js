@@ -119,11 +119,16 @@ export function readLatestPlanOutcome(messages, fromIndex) {
 /**
  * Read the latest task_completed tool result's outcome from a message stream.
  *
+ * When `fromIndex` is provided, only messages at or after that index are searched,
+ * preventing stale completions from earlier root turns from advancing workflow state.
+ *
  * @param {import('@earendil-works/pi-agent-core').AgentMessage[]} messages
+ * @param {number} [fromIndex] - Only search messages from this index onwards.
  * @returns {boolean}
  */
-export function readLatestTaskCompletedOutcome(messages) {
-    for (let i = messages.length - 1; i >= 0; i--) {
+export function readLatestTaskCompletedOutcome(messages, fromIndex) {
+    const start = fromIndex != null ? fromIndex : 0;
+    for (let i = messages.length - 1; i >= start; i--) {
         const msg = messages[i];
         if (
             msg && "role" in msg && msg.role === "toolResult" &&

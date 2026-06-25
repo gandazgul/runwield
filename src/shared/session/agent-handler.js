@@ -196,7 +196,7 @@ export function createAgentHandler(agentName, __deps) {
         }
 
         // If the agent declared they finished an assigned workflow task
-        const taskCompleted = readLatestTaskCompletedOutcome(messages);
+        const taskCompleted = readLatestTaskCompletedOutcome(messages, preTurnCount);
         if (taskCompleted) {
             const workflow = getActiveExecutionWorkflow();
             if (workflow && !shouldRunWorkflowValidation(workflow.triageMeta)) {

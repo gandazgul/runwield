@@ -7,14 +7,23 @@ affectedPaths:
     - "plans/local-first-plan-management-ui/"
     - "src/ui/workspace/"
 createdAt: "2026-06-25T10:33:18-04:00"
-updatedAt: "2026-06-25T15:03:13.876Z"
+updatedAt: "2026-06-25T15:54:28.855Z"
 status: "implemented"
 origin: "internal"
 parentPlan: "local-first-plan-management-ui"
 dependencies:
     - "secure-workspace-read-only-board"
+failureReason: "git merge --no-ff runwield/worktree/local-first-plan-management-ui-correct-workspace-813d5604 failed: Auto-merging deno.json
+    Auto-merging plans/implement-on-hold-plan-status.md
+    Auto-merging plans/local-first-plan-management-ui/board-actions-and-status-screens.md
+    CONFLICT (content): Merge conflict in plans/local-first-plan-management-ui/board-actions-and-status-screens.md
+    Auto-merging plans/local-first-plan-management-ui/body-only-plan-detail-editor.md
+    CONFLICT (content): Merge conflict in plans/local-first-plan-management-ui/body-only-plan-detail-editor.md
+    Auto-merging plans/local-first-plan-management-ui/epic-detail-and-progress.md
+    CONFLICT (content): Merge conflict in plans/local-first-plan-management-ui/epic-detail-and-progress.md
+    Automatic merge failed; fix conflicts and then commit the result."
 implementedAt: "2026-06-25T15:03:13.876Z"
-worktreeStatus: "completed"
+worktreeStatus: "merge_conflict"
 routingIntent: "FEATURE"
 sessionName: "correct workspace ui design"
 ---

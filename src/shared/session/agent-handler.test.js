@@ -5,6 +5,7 @@ import {
     getActiveExecutionWorkflow,
     setActiveExecutionWorkflow,
     setRootAgentName,
+    setRootAgentSession,
 } from "./session-state.js";
 
 Deno.test("agent-handler dispatches triage_report from any agent", async () => {
@@ -326,6 +327,63 @@ Deno.test("agent-handler records delayed implementation finish before continuati
         baselineTree: "baseline-tree",
     });
     assertEquals(events, ["implementation_finished", "validation_started"]);
+});
+
+Deno.test("agent-handler ignores stale task_completed outcomes from earlier root turns", async () => {
+    let validationCount = 0;
+    let recordCount = 0;
+    const staleCompletion = {
+        role: "toolResult",
+        toolName: "task_completed",
+        details: { outcome: "task_completed" },
+    };
+    setActiveExecutionWorkflow({
+        planName: "p",
+        triageMeta: { classification: "FEATURE" },
+        baselineTree: "baseline-tree",
+    });
+    setRootAgentName("engineer");
+    setRootAgentSession(
+        /** @type {any} */ ({
+            agent: { state: { messages: [staleCompletion] } },
+        }),
+    );
+
+    const handler = createAgentHandler("engineer", {
+        runRootTurn: () =>
+            Promise.resolve(
+                /** @type {any} */ ([
+                    staleCompletion,
+                    { role: "assistant", content: [{ type: "text", text: "Still working." }] },
+                ]),
+            ),
+        readLatestTriageOutcome: () => null,
+        readLatestPlanOutcome: () => null,
+        recordPlanEvent: () => {
+            recordCount++;
+            return Promise.resolve(/** @type {any} */ ({}));
+        },
+        runValidationLoop: () => {
+            validationCount++;
+            return Promise.resolve();
+        },
+    });
+
+    try {
+        await handler("continue", [], /** @type {any} */ ({}), /** @type {any} */ (undefined));
+
+        assertEquals(recordCount, 0);
+        assertEquals(validationCount, 0);
+        assertEquals(getActiveExecutionWorkflow(), {
+            planName: "p",
+            triageMeta: { classification: "FEATURE" },
+            baselineTree: "baseline-tree",
+        });
+    } finally {
+        setRootAgentName(null);
+        setRootAgentSession(null);
+        clearActiveExecutionWorkflow();
+    }
 });
 
 Deno.test("agent-handler skips validation and clears workflow marker for QUICK_FIX completion", async () => {
