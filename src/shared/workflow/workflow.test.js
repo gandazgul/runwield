@@ -467,6 +467,48 @@ Deno.test("executePlan still executes ready FEATURE plans", async () => {
     assertEquals(events, ["implementation_finished"]);
 });
 
+Deno.test("executePlan treats incomplete Engineer execution as resumable", async () => {
+    /** @type {string[]} */
+    const events = [];
+    /** @type {Array<string | null | undefined>} */
+    const worktreeStatuses = [];
+    const result = await executePlan(
+        "feature-plan",
+        { classification: "FEATURE" },
+        /** @type {any} */ ({ appendSystemMessage: () => {} }),
+        undefined,
+        undefined,
+        {
+            loadPlan: () =>
+                Promise.resolve(
+                    /** @type {any} */ ({
+                        attrs: { status: "ready_for_work", classification: "FEATURE" },
+                        body: "## Feature",
+                        markdown: "## Feature",
+                    }),
+                ),
+            executeSingleEngineerPlan: () =>
+                Promise.resolve({
+                    repairRequired: false,
+                    executionComplete: false,
+                    error: "API failed",
+                }),
+            recordPlanEvent: ({ event }) => {
+                events.push(event);
+                return Promise.resolve(/** @type {any} */ ({}));
+            },
+            markActiveWorktreeStatus: (status) => {
+                worktreeStatuses.push(status);
+                return Promise.resolve();
+            },
+        },
+    );
+
+    assertEquals(result, { repairRequired: false, executionComplete: false, error: "API failed" });
+    assertEquals(events, []);
+    assertEquals(worktreeStatuses, []);
+});
+
 Deno.test("executePlan uses single-plan execution for child FEATURE plans", async () => {
     let engineerCalled = false;
     let projectDagCalled = false;

@@ -8,7 +8,11 @@ import { AGENTS, CWD } from "../../constants.js";
 import { loadPlan } from "../../plan-store.js";
 import { getAgentDisplayName } from "../session/agents.js";
 import { runAgentSession } from "../session/session.js";
-import { getActiveExecutionWorkflow, setActiveExecutionWorkflow } from "../session/session-state.js";
+import {
+    getActiveExecutionWorkflow,
+    getRootAgentSession,
+    setActiveExecutionWorkflow,
+} from "../session/session-state.js";
 import { createExecutionWorktree, findReusableWorktree } from "../worktree.js";
 import { updateEntry as updateWorktreeRegistryEntry } from "../worktree-registry.js";
 import { captureWorktreeTree } from "./git-snapshot.js";
@@ -194,18 +198,7 @@ async function executeSingleEngineerPlan({ planName, planBody, triageMeta, uiAPI
         executionContext.executionCwd,
     );
     if (!engineerResult.completed) {
-        await recordPlanEvent({
-            cwd: CWD,
-            planName,
-            event: "execution_failed",
-            currentStatus: "in_progress",
-            details: {
-                triageMeta,
-                failureReason: `${getAgentDisplayName(AGENTS.ENGINEER)} stopped without task_completed.`,
-            },
-        });
-        await markActiveWorktreeStatus("execution_failed");
-        return { repairRequired: false, executionComplete: false };
+        return { repairRequired: false, executionComplete: false, error: engineerResult.error };
     }
     return { repairRequired: false, executionComplete: true };
 }
@@ -218,30 +211,50 @@ async function executeSingleEngineerPlan({ planName, planBody, triageMeta, uiAPI
  * @param {UiAPI} uiAPI
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [sessionManager]
  * @param {string} [executionCwd]
- * @returns {Promise<{ completed: boolean, messages: import('@earendil-works/pi-agent-core').AgentMessage[] }>}
+ * @returns {Promise<{ completed: boolean, messages: import('@earendil-works/pi-agent-core').AgentMessage[], error?: string }>}
  */
 async function runEngineerWithPlan(planName, planBody, uiAPI, sessionManager, executionCwd) {
-    const messages = await runAgentSession({
-        agentName: AGENTS.ENGINEER,
-        userRequest: buildEngineerRequest(planName, planBody),
-        uiAPI,
-        sessionManager,
-        cwd: executionCwd,
-        useRootSession: true,
-    });
+    let messages;
+    try {
+        messages = await runAgentSession({
+            agentName: AGENTS.ENGINEER,
+            userRequest: buildEngineerRequest(planName, planBody),
+            uiAPI,
+            sessionManager,
+            cwd: executionCwd,
+            useRootSession: true,
+        });
+    } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const rootMessages = getRootAgentSession()?.agent?.state?.messages || [];
+        uiAPI.appendSystemMessage(
+            buildEngineerPausedMessage(errorMessage),
+            true,
+            "RunWield",
+        );
+        return { completed: false, messages: rootMessages, error: errorMessage };
+    }
 
     const completed = readLatestTaskCompletedOutcome(messages);
     if (!completed) {
         uiAPI.appendSystemMessage(
-            `${
-                getAgentDisplayName(AGENTS.ENGINEER)
-            } stopped without task_completed; validation is waiting for a completion signal.`,
+            buildEngineerPausedMessage(),
             false,
             "RunWield",
         );
     }
 
     return { completed, messages };
+}
+
+/**
+ * @param {string} [reason]
+ */
+function buildEngineerPausedMessage(reason) {
+    const base = `${
+        getAgentDisplayName(AGENTS.ENGINEER)
+    } stopped without task_completed; execution is paused. Say "continue" to resume with the Engineer.`;
+    return reason ? `${base}\nReason: ${reason}` : base;
 }
 
 /**

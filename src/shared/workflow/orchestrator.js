@@ -299,7 +299,7 @@ export async function dispatchPostTriage({ triage, userRequest, images, uiAPI, s
         const executionDecision = decidePostExecutionImpl(executionResult, {
             planName,
             triageMeta: decisionTriageMeta,
-            executionAgentName: agentName,
+            executionAgentName: AGENTS.ENGINEER,
         });
         if (executionDecision.kind === "run_validation") {
             const plan = await loadPlanImpl(CWD, planName);
@@ -314,7 +314,8 @@ export async function dispatchPostTriage({ triage, userRequest, images, uiAPI, s
                 });
             }
         } else if (executionDecision.kind === "stay_with_agent") {
-            setActiveAgentImpl(agentName, createAgentHandlerImpl(agentName), uiAPI);
+            const nextAgentName = /** @type {string} */ (executionDecision.payload.agentName || AGENTS.ENGINEER);
+            setActiveAgentImpl(nextAgentName, createAgentHandlerImpl(nextAgentName), uiAPI);
         }
     }
 }

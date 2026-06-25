@@ -26,9 +26,10 @@ import {
     getRootAgentSession,
 } from "./session-state.js";
 import { runValidationLoop, shouldRunWorkflowValidation } from "../workflow/validation.js";
+import { recordPlanEvent as recordPlanEventFn } from "../workflow/plan-lifecycle.js";
 import { setActiveAgent as setActiveAgentFn } from "../interactive/chat-session.js";
 import { join } from "@std/path";
-import { CWD } from "../../constants.js";
+import { AGENTS, CWD } from "../../constants.js";
 
 /**
  * Create an onMessage handler for the active Agent.
@@ -52,6 +53,7 @@ import { CWD } from "../../constants.js";
  *   decidePostExecution?: typeof decidePostExecutionFn,
  *   executePlan?: typeof executePlanFn,
  *   runValidationLoop?: typeof runValidationLoop,
+ *   recordPlanEvent?: typeof recordPlanEventFn,
  *   setActiveAgent?: typeof setActiveAgentFn,
  *   _agentDefOverride?: import('./types.js').AgentDefinition,
  *   customTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[],
@@ -70,6 +72,7 @@ export function createAgentHandler(agentName, __deps) {
     const decidePostExecution = __deps?.decidePostExecution || decidePostExecutionFn;
     const executePlan = __deps?.executePlan || executePlanFn;
     const runValidationLoopImpl = __deps?.runValidationLoop || runValidationLoop;
+    const recordPlanEventImpl = __deps?.recordPlanEvent || recordPlanEventFn;
     const setActiveAgent = __deps?.setActiveAgent || setActiveAgentFn;
     const sessionOptions = {
         _agentDefOverride: __deps?._agentDefOverride,
@@ -151,7 +154,7 @@ export function createAgentHandler(agentName, __deps) {
             const executionDecision = decidePostExecution(executionResult, {
                 planName,
                 triageMeta,
-                executionAgentName: agentName,
+                executionAgentName: AGENTS.ENGINEER,
             });
 
             if (executionDecision.kind === "run_validation") {
@@ -164,7 +167,8 @@ export function createAgentHandler(agentName, __deps) {
                     finalAgentName: agentName,
                 });
             } else if (executionDecision.kind === "stay_with_agent") {
-                setActiveAgent(agentName, createAgentHandler(agentName), uiAPI);
+                const nextAgentName = /** @type {string} */ (executionDecision.payload.agentName || AGENTS.ENGINEER);
+                setActiveAgent(nextAgentName, createAgentHandler(nextAgentName), uiAPI);
             }
             return;
         }
@@ -185,6 +189,24 @@ export function createAgentHandler(agentName, __deps) {
                         planContent = await Deno.readTextFile(join(CWD, "plans", `${workflow.planName}.md`));
                     } catch {
                         // Ignore
+                    }
+
+                    try {
+                        await recordPlanEventImpl({
+                            cwd: CWD,
+                            planName: workflow.planName,
+                            event: "implementation_finished",
+                            currentStatus: "in_progress",
+                            details: { triageMeta: workflow.triageMeta },
+                        });
+                    } catch (error) {
+                        const reason = error instanceof Error ? error.message : String(error);
+                        uiAPI?.appendSystemMessage?.(
+                            `Workflow halted: Could not record implementation_finished before validation: ${reason}`,
+                            true,
+                            "RunWield",
+                        );
+                        return;
                     }
                 }
 

@@ -147,7 +147,7 @@ Deno.test("agent-handler skips validation when approved_execute did not complete
     assertEquals(validationCount, 0);
 });
 
-Deno.test("agent-handler restores invoking agent when approved_execute execution is incomplete", async () => {
+Deno.test("agent-handler keeps Engineer active when approved_execute execution is incomplete", async () => {
     /** @type {string[]} */
     const restoredAgents = [];
     const uiAPI = /** @type {any} */ ({});
@@ -169,7 +169,7 @@ Deno.test("agent-handler restores invoking agent when approved_execute execution
     });
 
     await handler("req", [], uiAPI, /** @type {any} */ (undefined));
-    assertEquals(restoredAgents, ["architect"]);
+    assertEquals(restoredAgents, ["engineer"]);
 });
 
 Deno.test("agent-handler does NOT call executePlan when outcome is saved", async () => {
@@ -282,9 +282,11 @@ Deno.test("agent-handler falls back to empty triageMeta when outcome lacks one",
     assertEquals(executeCalls[0][1], {});
 });
 
-Deno.test("agent-handler preserves active workflow baseline until continuation validation starts", async () => {
+Deno.test("agent-handler records delayed implementation finish before continuation validation", async () => {
     /** @type {unknown} */
     let workflowDuringValidation = null;
+    /** @type {string[]} */
+    const events = [];
     setActiveExecutionWorkflow({
         planName: "p",
         triageMeta: { classification: "FEATURE" },
@@ -302,7 +304,14 @@ Deno.test("agent-handler preserves active workflow baseline until continuation v
             ),
         readLatestPlanOutcome: () => null,
         readLatestTaskCompletedOutcome: () => true,
+        recordPlanEvent: (/** @type {any} */ args) => {
+            events.push(args.event);
+            assertEquals(args.currentStatus, "in_progress");
+            assertEquals(args.details.triageMeta, { classification: "FEATURE" });
+            return Promise.resolve(/** @type {any} */ ({}));
+        },
         runValidationLoop: () => {
+            events.push("validation_started");
             workflowDuringValidation = getActiveExecutionWorkflow();
             clearActiveExecutionWorkflow();
             return Promise.resolve();
@@ -316,6 +325,7 @@ Deno.test("agent-handler preserves active workflow baseline until continuation v
         triageMeta: { classification: "FEATURE" },
         baselineTree: "baseline-tree",
     });
+    assertEquals(events, ["implementation_finished", "validation_started"]);
 });
 
 Deno.test("agent-handler skips validation and clears workflow marker for QUICK_FIX completion", async () => {

@@ -18,13 +18,10 @@ Deno.test("dispatchPostTriage does not force Engineer after FEATURE/PROJECT vali
     assertEquals(source.includes("setActiveAgent(AGENTS.ENGINEER"), false);
 });
 
-Deno.test("dispatchPostTriage restores plan owner when FEATURE/PROJECT execution is incomplete", async () => {
+Deno.test("dispatchPostTriage keeps Engineer active when FEATURE/PROJECT execution is incomplete", async () => {
     const source = await Deno.readTextFile(new URL("./orchestrator.js", import.meta.url));
     assertEquals(source.includes('executionDecision.kind === "stay_with_agent"'), true);
-    assertEquals(
-        source.includes("setActiveAgentImpl(agentName, createAgentHandlerImpl(agentName), uiAPI);"),
-        true,
-    );
+    assertEquals(source.includes("executionAgentName: AGENTS.ENGINEER"), true);
 });
 
 Deno.test("dispatchPostTriage routes INQUIRY to Guide without completion or validation checks", async () => {
@@ -288,7 +285,7 @@ Deno.test("dispatchPostTriage executes approved FEATURE plans and runs validatio
     assertEquals(/** @type {any} */ (validations[0]).finalAgentName, "planner");
 });
 
-Deno.test("dispatchPostTriage restores PROJECT owner after incomplete execution", async () => {
+Deno.test("dispatchPostTriage keeps Engineer active after incomplete PROJECT execution", async () => {
     const uiAPI = makeUi();
     /** @type {string[]} */
     const activeAgents = [];
@@ -320,13 +317,57 @@ Deno.test("dispatchPostTriage restores PROJECT owner after incomplete execution"
                 },
             }),
             executePlan: () => Promise.resolve({ executionComplete: false }),
-            decidePostExecution: () => ({ kind: "stay_with_agent", payload: { reason: "execution_incomplete" } }),
+            decidePostExecution: (/** @type {any} */ _result, /** @type {any} */ context) => ({
+                kind: "stay_with_agent",
+                payload: { agentName: context.executionAgentName, reason: "execution_incomplete" },
+            }),
             createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
             setActiveAgent: (/** @type {string} */ name) => activeAgents.push(name),
         }),
     });
 
-    assertEquals(activeAgents, ["architect"]);
+    assertEquals(activeAgents, ["engineer"]);
+});
+
+Deno.test("dispatchPostTriage keeps Engineer active after incomplete FEATURE execution", async () => {
+    const uiAPI = makeUi();
+    /** @type {string[]} */
+    const activeAgents = [];
+
+    await dispatchPostTriage({
+        triage: {
+            routingIntent: "FEATURE",
+            classification: "FEATURE",
+            complexity: "MEDIUM",
+            summary: "feature",
+            affectedPaths: ["src/feature.js"],
+        },
+        userRequest: "Feature",
+        images: [],
+        uiAPI,
+        sessionManager: undefined,
+        __deps: /** @type {any} */ ({
+            ensurePlansDir: () => Promise.resolve("/plans"),
+            runPlanningAgent: () => Promise.resolve({ outcome: "approved_execute", planName: "feature-plan" }),
+            consumePendingSwitchHandoff: () => null,
+            decidePostPlanning: () => ({
+                kind: "execute_plan",
+                payload: {
+                    planName: "feature-plan",
+                    triageMeta: { routingIntent: "FEATURE", classification: "FEATURE" },
+                },
+            }),
+            executePlan: () => Promise.resolve({ executionComplete: false }),
+            decidePostExecution: (/** @type {any} */ _result, /** @type {any} */ context) => ({
+                kind: "stay_with_agent",
+                payload: { agentName: context.executionAgentName, reason: "execution_incomplete" },
+            }),
+            createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
+            setActiveAgent: (/** @type {string} */ name) => activeAgents.push(name),
+        }),
+    });
+
+    assertEquals(activeAgents, ["engineer"]);
 });
 
 Deno.test("dispatchPostTriage auto-names unnamed sessions and mirrors title", async () => {
