@@ -12,7 +12,6 @@ export function EpicCard({ epic, url }) {
                     <p class="card-kicker">Epic</p>
                     <a class="card-title" href={detailHref(epic, url)}>{epic.planName}</a>
                 </div>
-                <span class="status">{epic.status}</span>
             </div>
             <p>{epic.summary || "No Epic summary provided."}</p>
             <div class="progress-meter" aria-label="Epic child progress">

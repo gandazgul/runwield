@@ -32,7 +32,6 @@ export function PlanCard({ plan, url, compact = false, roleLabel = "Plan" }) {
                     <p class="card-kicker">{roleLabel}</p>
                     <a class="card-title" href={detailHref(plan, url)}>{plan.planName}</a>
                 </div>
-                <span class="status">{plan.status}</span>
             </div>
             <p>{plan.summary || "No summary provided."}</p>
             <dl class="meta-list">

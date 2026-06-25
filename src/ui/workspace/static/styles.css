@@ -122,6 +122,7 @@ body {
 .epic-card {
     border-color: #4f46e5;
     background: linear-gradient(180deg, #172554, #111827 42%);
+    overflow: hidden;
 }
 .plan-card.compact {
     background: #0f172a;

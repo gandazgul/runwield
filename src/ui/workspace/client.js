@@ -1,1 +1,2 @@
-// Reserved for future Workspace islands. This read-only milestone is SSR-first.
+// Client entry for Vite HMR. Import CSS so Vite watches it for hot reload.
+import "./static/styles.css";

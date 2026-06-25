@@ -41,6 +41,7 @@
         "githooks:uninstall": "git config --unset core.hooksPath",
         "check": "snip run -- deno check --doc src/**/*.js && deno task -q workspace:check",
         "workspace:check": "deno check src/ui/workspace/**/*.js src/ui/workspace/**/*.jsx",
+        "workspace:dev": "deno run -A npm:vite -c src/ui/workspace/vite.config.js",
         "workspace:test": "deno test -A src/ui/workspace src/cmd/plans/ui.test.js",
         "compile": "deno run -A ./scripts/compile.js",
         "prototype:plan-ui": "deno task -c prototypes/fresh-plan-ui/deno.json dev"
