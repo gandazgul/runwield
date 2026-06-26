@@ -18,6 +18,7 @@ Operate on the entire codebase, start on the entry point, and walk your way thro
 3. **Types** In JS projects add JSDoc where it's missing, expand types that are currently any, or Object if more
    specific types are possible.
    - In Python projects add type hints to all functions.
+   - For Typescrypt expand types that are currently any, or Object if more specific types are possible.
 4. **Documentation:** -
    - Insert inline comments for complex math: e.g., $A = \pi r^2$ or specific heuristic weights.
    - Explain _why_ a specific assumption was made (e.g., // Assuming the API returns UTC).

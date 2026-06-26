@@ -8,6 +8,14 @@
 - [x] Recover and finish the routing intent work in
       [plans/routing-intent-guide-agent.md](plans/routing-intent-guide-agent.md).
 
+## Current Focus / Next Up
+
+1. Finish and verify [Improve Epic Execution Flow](plans/improve-epic-execution-flow.md).
+2. Implement [Plan Archival and Retrieval](plans/implementing-plan-archival.md) before fresh Plan UI work, unless the UI
+   branch is already being merged.
+3. Use Plan archival to clean up verified Plans that still live in active `plans/`.
+4. Resume the [Local-First Plan Management UI](plans/local-first-plan-management-ui.md) Epic children.
+
 ## Backlog
 
 ### P0 - Roadmap and Plan Hygiene
