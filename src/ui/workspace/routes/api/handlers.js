@@ -2,7 +2,9 @@ import {
     loadBoard,
     loadPlanSummaries,
     loadWorkspaceDetail,
+    saveWorkspacePlanBody,
     serializePlanError,
+    StalePlanBodyError,
     workspaceMetadata,
 } from "../../server/plan-adapter.js";
 
@@ -42,6 +44,37 @@ export async function planDetailApi(ctx) {
     try {
         return json({ plan: await loadWorkspaceDetail(ctx.state.cwd, ctx.params.planId) });
     } catch (error) {
+        const body = serializePlanError(error);
+        const status = body.error.includes("not found") || body.error.includes("Plan not found") ? 404 : 409;
+        return json(body, status);
+    }
+}
+
+/** @param {any} ctx */
+export async function planBodyApi(ctx) {
+    let payload;
+    try {
+        payload = await ctx.req.json();
+    } catch {
+        return json({ error: "Request body must be valid JSON." }, 400);
+    }
+
+    if (!payload || typeof payload.body !== "string" || typeof payload.expectedBodyHash !== "string") {
+        return json({ error: "Expected JSON payload { body: string, expectedBodyHash: string }." }, 400);
+    }
+
+    try {
+        const plan = await saveWorkspacePlanBody(
+            ctx.state.cwd,
+            ctx.params.planId,
+            payload.body,
+            payload.expectedBodyHash,
+        );
+        return json({ plan, bodyHash: plan.bodyHash });
+    } catch (error) {
+        if (error instanceof StalePlanBodyError) {
+            return json({ error: error.message, bodyHash: error.currentBodyHash }, 409);
+        }
         const body = serializePlanError(error);
         const status = body.error.includes("not found") || body.error.includes("Plan not found") ? 404 : 409;
         return json(body, status);

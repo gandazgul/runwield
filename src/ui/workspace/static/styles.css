@@ -311,3 +311,79 @@ body {
         overflow-x: visible;
     }
 }
+
+.primary-action,
+button.primary-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    border: 1px solid #2563eb;
+    border-radius: 999px;
+    background: #2563eb;
+    color: #fff;
+    padding: 0.45rem 0.8rem;
+    font-weight: 700;
+    text-decoration: none;
+}
+
+button.primary-action:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+}
+
+.plan-body-editor {
+    display: grid;
+    gap: 1rem;
+}
+
+.editor-toolbar,
+.inline-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.65rem;
+}
+
+.editor-toolbar button,
+.inline-actions button {
+    border: 1px solid #cbd5e1;
+    border-radius: 999px;
+    background: #fff;
+    color: #0f172a;
+    padding: 0.45rem 0.8rem;
+    font-weight: 700;
+}
+
+.codemirror-shell {
+    overflow: hidden;
+    border: 1px solid #cbd5e1;
+    border-radius: 16px;
+    background: #fff;
+}
+
+.codemirror-shell .cm-editor {
+    min-height: 28rem;
+    font-size: 0.95rem;
+}
+
+.codemirror-shell .cm-scroller {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+.dirty-indicator,
+.saved-indicator {
+    font-size: 0.9rem;
+    font-weight: 700;
+}
+
+.dirty-indicator {
+    color: #b45309;
+}
+
+.saved-indicator {
+    color: #047857;
+}
+
+.editor-notice {
+    margin: 0;
+}

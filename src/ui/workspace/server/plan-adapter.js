@@ -9,7 +9,10 @@ import {
     isChildFeaturePlan,
     isEpicPlan,
     listPlanResources,
+    loadPlanBodyById,
     resolveSiblingChildPlanDependencyStates,
+    savePlanBodyById,
+    StalePlanBodyError,
 } from "../../../plan-store.js";
 import {
     ACTIVE_PLAN_STATUSES,
@@ -78,6 +81,15 @@ export const STATUS_META = {
         description: "Paused work that should stay out of active planning.",
     },
 };
+
+/**
+ * @param {string} value
+ * @returns {Promise<string>}
+ */
+async function sha256Hex(value) {
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+    return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
 
 export const BOARD_SCREENS = {
     active: {
@@ -339,6 +351,9 @@ export function serializePlanDetail(resource, plans) {
         ...summary,
         frontMatter: safeObject(resource.attrs),
         body: resource.body || "",
+        bodyHash: resource.bodyHash || "",
+        workspaceKey: resource.workspaceKey || "",
+        capabilities: resource.capabilities || { bodyEditing: false },
         markdown: resource.markdown || "",
         readOnly: true,
     };
@@ -417,11 +432,35 @@ export async function loadPlanDetail(cwd, planId) {
  * @param {string} planId
  */
 export async function loadWorkspaceDetail(cwd, planId) {
-    const resource = await findPlanById(cwd, planId);
+    const baseResource = await findPlanById(cwd, planId);
+    const resource = isEpicPlan(baseResource.attrs) ? baseResource : await loadPlanBodyById(cwd, planId);
     const summaries = await loadPlanSummaries(cwd);
-    const detail = serializePlanDetail(resource, summaries);
+    const detail = serializePlanDetail({
+        ...resource,
+        workspaceKey: await sha256Hex(cwd),
+        capabilities: { bodyEditing: !isEpicPlan(resource.attrs) },
+    }, summaries);
     return detail.isEpic ? serializeEpicDetail(detail, summaries) : serializeNonEpicDetail(detail, summaries);
 }
+
+/**
+ * @param {string} cwd
+ * @param {string} planId
+ * @param {string} body
+ * @param {string} expectedBodyHash
+ */
+export async function saveWorkspacePlanBody(cwd, planId, body, expectedBodyHash) {
+    const saved = await savePlanBodyById(cwd, planId, body, expectedBodyHash);
+    const summaries = await loadPlanSummaries(cwd);
+    const detail = serializePlanDetail({
+        ...saved,
+        workspaceKey: await sha256Hex(cwd),
+        capabilities: { bodyEditing: true },
+    }, summaries);
+    return serializeNonEpicDetail(detail, summaries);
+}
+
+export { StalePlanBodyError };
 
 /**
  * @param {any[]} plans
@@ -491,7 +530,7 @@ export function workspaceMetadata(cwd) {
             markdownView: true,
             mutations: false,
             dragDrop: false,
-            bodyEditing: false,
+            bodyEditing: true,
         },
     };
 }

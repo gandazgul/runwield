@@ -7,7 +7,9 @@ export async function detailRoute(ctx) {
     try {
         const plan = await loadWorkspaceDetail(ctx.state.cwd, ctx.params.planId);
         return ctx.render(
-            plan.detailKind === "epic" ? <EpicDetail epic={plan} url={ctx.url} /> : <PlanDetail plan={plan} />,
+            plan.detailKind === "epic"
+                ? <EpicDetail epic={plan} url={ctx.url} />
+                : <PlanDetail plan={plan} url={ctx.url} editIntent={ctx.url.searchParams.get("edit") === "body"} />,
         );
     } catch (error) {
         const body = serializePlanError(error);

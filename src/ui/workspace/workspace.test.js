@@ -1,5 +1,5 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
-import { savePlan } from "../../plan-store.js";
+import { loadPlanBodyById, savePlan } from "../../plan-store.js";
 import { PLAN_UI_TOKEN_HEADER } from "../../constants.js";
 import {
     buildBoardGroups,
@@ -8,8 +8,10 @@ import {
     loadPlanSummaries,
     loadWorkspaceDetail,
     serializePlanSummary,
+    workspaceMetadata as _workspaceMetadata,
 } from "./server/plan-adapter.js";
 import { renderMarkdown } from "./components/MarkdownView.jsx";
+import { draftRecoveryState, planBodyDraftKey, restoredDraftExpectedBodyHash } from "./islands/PlanBodyEditor.jsx";
 import { createWorkspaceApp, hasWorkspaceToken } from "./server.js";
 
 Deno.test("workspace token accepts query or header and rejects missing tokens", () => {
@@ -289,6 +291,14 @@ Deno.test("workspace adapter exposes Epic dependency health done-enough held and
     }
 });
 
+Deno.test("draft helpers scope recovery to workspace plan and hash", () => {
+    assertEquals(planBodyDraftKey("workspace", "plan"), "runwield:workspace:workspace:plan:plan:bodyDraft");
+    assertEquals(draftRecoveryState(null, "hash"), "none");
+    assertEquals(draftRecoveryState({ baseBodyHash: "hash" }, "hash"), "same-base");
+    assertEquals(draftRecoveryState({ baseBodyHash: "old" }, "hash"), "changed-on-disk");
+    assertEquals(restoredDraftExpectedBodyHash({ baseBodyHash: "old" }), "old");
+});
+
 Deno.test("renderMarkdown renders links and escapes unsafe markdown input", () => {
     const html = renderMarkdown(
         "# Title\n\nParagraph <script>alert(1)</script> with [RunWield](https://runwield.dev) and [bad](javascript:alert(1))\n\n- one\n- two\n\n```\ncode\n```",
@@ -325,7 +335,7 @@ Deno.test("Fresh Workspace rejects missing token and SSR-renders status column b
     }
 });
 
-Deno.test("Workspace API and detail route return read-only readable Plan content", async () => {
+Deno.test("Workspace API and detail route return readable editable Plan body metadata", async () => {
     const cwd = await Deno.makeTempDir();
     try {
         await savePlan(cwd, "detail", "# Detail\n\nReadable body with [RunWield](https://runwield.dev)", {
@@ -344,7 +354,11 @@ Deno.test("Workspace API and detail route return read-only readable Plan content
             }),
         );
         assertEquals(api.status, 200);
-        assertEquals((await api.json()).plan.readOnly, true);
+        const apiBody = await api.json();
+        assertEquals(apiBody.plan.readOnly, true);
+        assertEquals(typeof apiBody.plan.bodyHash, "string");
+        assertEquals(apiBody.plan.capabilities.bodyEditing, true);
+        assertEquals(Object.hasOwn(apiBody.plan, "path"), false);
 
         const detail = await app(new Request("http://localhost/plans/detail-id?token=secret"));
         const html = await detail.text();
@@ -352,7 +366,56 @@ Deno.test("Workspace API and detail route return read-only readable Plan content
         assertStringIncludes(html, "Readable body");
         assertStringIncludes(html, 'href="https://runwield.dev"');
         assertStringIncludes(html, "RunWield");
-        assertStringIncludes(html, "Edit body after editor slice");
+        assertStringIncludes(html, "Edit body");
+        assertStringIncludes(html, "edit=body");
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+Deno.test("Workspace body-save API preserves front matter rejects stale writes and requires token", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await Deno.mkdir(`${cwd}/plans`, { recursive: true });
+        const frontMatter =
+            "---\nplanId: api-id\n# comment remains\nclassification: FEATURE\nstatus: draft\nunknown: kept\n---\n";
+        await Deno.writeTextFile(`${cwd}/plans/api.md`, `${frontMatter}# Original\n`);
+        const loaded = await loadPlanBodyById(cwd, "api-id");
+        const app = createWorkspaceApp({ cwd, token: "secret" }).handler();
+
+        const rejected = await app(new Request("http://localhost/api/plans/api-id/body", { method: "POST" }));
+        assertEquals(rejected.status, 401);
+
+        const invalid = await app(
+            new Request("http://localhost/api/plans/api-id/body", {
+                method: "POST",
+                headers: { [PLAN_UI_TOKEN_HEADER]: "secret", "content-type": "application/json" },
+                body: JSON.stringify({ body: 1, expectedBodyHash: loaded.bodyHash }),
+            }),
+        );
+        assertEquals(invalid.status, 400);
+
+        const saved = await app(
+            new Request("http://localhost/api/plans/api-id/body", {
+                method: "POST",
+                headers: { [PLAN_UI_TOKEN_HEADER]: "secret", "content-type": "application/json" },
+                body: JSON.stringify({ body: "# Saved\n", expectedBodyHash: loaded.bodyHash }),
+            }),
+        );
+        assertEquals(saved.status, 200);
+        const savedBody = await saved.json();
+        assertEquals(typeof savedBody.bodyHash, "string");
+        assertEquals(await Deno.readTextFile(`${cwd}/plans/api.md`), `${frontMatter}# Saved\n`);
+
+        const stale = await app(
+            new Request("http://localhost/api/plans/api-id/body", {
+                method: "POST",
+                headers: { [PLAN_UI_TOKEN_HEADER]: "secret", "content-type": "application/json" },
+                body: JSON.stringify({ body: "# Stale\n", expectedBodyHash: loaded.bodyHash }),
+            }),
+        );
+        assertEquals(stale.status, 409);
+        assertStringIncludes((await stale.json()).error, "changed on disk");
     } finally {
         await Deno.remove(cwd, { recursive: true });
     }

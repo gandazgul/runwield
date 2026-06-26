@@ -19,6 +19,14 @@ export function detailHref(plan, url) {
     return workspaceHref(`/plans/${encodeURIComponent(plan.planId)}`, url);
 }
 
+/**
+ * @param {any} plan
+ * @param {URL} url
+ */
+export function editBodyHref(plan, url) {
+    return workspaceHref(`/plans/${encodeURIComponent(plan.planId)}?edit=body`, url);
+}
+
 /** @param {{ plan: any, url: URL, compact?: boolean, roleLabel?: string }} props */
 export function PlanCard({ plan, url, compact = false, roleLabel = "Plan" }) {
     const isChildCard = plan.hierarchyRole === "child" || plan.hierarchyRole === "orphan-child";
@@ -69,8 +77,9 @@ export function PlanCard({ plan, url, compact = false, roleLabel = "Plan" }) {
                     )
                     : null}
             </dl>
-            <div class="card-actions" aria-label="Read-only card actions">
+            <div class="card-actions" aria-label="Plan card actions">
                 <a href={detailHref(plan, url)}>Open detail</a>
+                {!plan.isEpic ? <a href={editBodyHref(plan, url)}>Edit body</a> : null}
                 <span aria-disabled="true">Actions after lifecycle slice</span>
             </div>
         </article>

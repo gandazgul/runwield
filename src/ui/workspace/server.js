@@ -9,7 +9,7 @@ import { AppWrapper } from "./components/AppWrapper.jsx";
 import { WorkspaceLayout } from "./components/Layout.jsx";
 import { boardRoute } from "./routes/board.jsx";
 import { detailRoute } from "./routes/detail.jsx";
-import { boardApi, planDetailApi, plansApi, workspaceApi } from "./routes/api/handlers.js";
+import { boardApi, planBodyApi, planDetailApi, plansApi, workspaceApi } from "./routes/api/handlers.js";
 
 const WORKSPACE_DIR = dirname(fromFileUrl(import.meta.url));
 const STYLES_PATH = join(WORKSPACE_DIR, "static", "styles.css");
@@ -52,6 +52,7 @@ export function createWorkspaceApp({ cwd, token, skipTokenCheck = false }) {
     app.get("/api/plans", plansApi);
     app.get("/api/board", boardApi);
     app.get("/api/plans/:planId", planDetailApi);
+    app.post("/api/plans/:planId/body", planBodyApi);
     app.notFound(() => new Response("Not found", { status: 404 }));
     return app;
 }
