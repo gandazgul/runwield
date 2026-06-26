@@ -305,6 +305,7 @@ export async function listPromptTemplates(options = {}) {
  * @property {string} description
  * @property {string} path
  * @property {"local" | "home" | "bundled" | "external"} source
+ * @property {boolean} [disableModelInvocation]
  */
 
 const BUNDLED_SKILLS_CACHE_DIR = HOME_DIR ? join(HOME_DIR, ".wld", "bundled-skills") : null;
@@ -496,12 +497,15 @@ export async function listSkills() {
                 const description = typeof attrs.description === "string"
                     ? attrs.description.trim()
                     : "No description provided";
+                const rawDisabled = attrs["disable-model-invocation"];
+                const disableModelInvocation = rawDisabled === true || rawDisabled === "true";
 
                 skills.push({
                     name,
                     description,
                     path: skillMdPath,
                     source: layer.source,
+                    disableModelInvocation,
                 });
                 seen.add(skillName);
             } catch {
@@ -1090,7 +1094,7 @@ export async function assembleFinalSystemPrompt(agentDef, tools, finalCustomTool
     try {
         const skills = await listSkills();
         skillsBlock = skills
-            .filter((skill) => skill.name && skill.description)
+            .filter((skill) => skill.name && skill.description && !skill.disableModelInvocation)
             .map((skill) => `- ${skill.name} - ${skill.description} (read: ${skill.path})`)
             .join("\n");
     } catch {

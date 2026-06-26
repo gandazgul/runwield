@@ -34,6 +34,7 @@ function maybeUpdateTitleForSlashCommand(command) {
  * @property {string} description
  * @property {string} path
  * @property {"local" | "home" | "bundled" | "external"} source
+ * @property {boolean} [disableModelInvocation]
  */
 
 /**
