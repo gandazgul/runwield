@@ -1,4 +1,5 @@
-import { MarkdownView } from "./MarkdownView.jsx";
+import { PlanBodyEditor } from "../islands/PlanBodyEditor.jsx";
+import { workspaceHref } from "./PlanCard.jsx";
 
 /** @param {{ plan: any }} props */
 function DetailMetadata({ plan }) {
@@ -93,8 +94,9 @@ function FrontMatterSummary({ frontMatter }) {
     );
 }
 
-/** @param {{ plan: any }} props */
-export function PlanDetail({ plan }) {
+/** @param {{ plan: any, url: URL, editIntent?: boolean }} props */
+export function PlanDetail({ plan, url, editIntent = false }) {
+    const editHref = workspaceHref(`/plans/${encodeURIComponent(plan.planId)}?edit=body`, url);
     return (
         <article class="detail" data-plan-id={plan.planId}>
             <header class="page-header detail-header">
@@ -107,7 +109,7 @@ export function PlanDetail({ plan }) {
                         ? <span class="badge warning">Missing parent Epic</span>
                         : null}
                     {plan.blockedByDependencies ? <span class="badge warning">Dependency blocked</span> : null}
-                    <span class="disabled-action" aria-disabled="true">Edit body after editor slice</span>
+                    <a class="primary-action" href={editHref}>Edit body</a>
                     <span class="disabled-action" aria-disabled="true">
                         Lifecycle actions after board-actions slice
                     </span>
@@ -116,7 +118,7 @@ export function PlanDetail({ plan }) {
             <section class="detail-grid">
                 <div>
                     <h3>Plan body</h3>
-                    <MarkdownView markdown={plan.body || ""} />
+                    <PlanBodyEditor plan={plan} initialEdit={editIntent} />
                 </div>
                 <aside>
                     <h3>Metadata</h3>

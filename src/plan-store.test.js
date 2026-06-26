@@ -6,6 +6,7 @@ import {
     findPlansByParent,
     getPlansDir,
     groupPlanHierarchy,
+    hashPlanBody,
     injectFrontMatter,
     isChildFeaturePlan,
     isEpicPlan,
@@ -13,11 +14,14 @@ import {
     listPlans,
     loadExternalPlan,
     loadPlan,
+    loadPlanBodyById,
     parsePlanFrontMatter,
     resolvePlan,
     resolveSiblingChildPlanDependencyStates,
     saveChildFeaturePlans,
     savePlan,
+    savePlanBodyById,
+    splitPlanMarkdownBody,
     updatePlanFrontMatter,
     updatePlanStatus,
 } from "./plan-store.js";
@@ -196,6 +200,81 @@ testWithFs("findPlanById resolves non-archived plan resources", async () => {
         assertEquals(resource.relativePath, "plans/lookup.md");
 
         await assertRejects(() => findPlanById(cwd, "missing-id"), Error, "Plan not found for planId");
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+Deno.test("splitPlanMarkdownBody preserves front matter delimiter bytes and body", () => {
+    const markdown = "---\r\n# comment\r\nplanId: quoted\r\n---\r\n# Body\n\nText\n";
+    const split = splitPlanMarkdownBody(markdown);
+    assertEquals(split.frontMatterBlock, "---\r\n# comment\r\nplanId: quoted\r\n---\r\n");
+    assertEquals(split.body, "# Body\n\nText\n");
+});
+
+Deno.test("splitPlanMarkdownBody ignores indented front matter delimiter-like content", () => {
+    const markdown = "---\nsummary: |\n  ---\n  body marker remains metadata\n---\n# Body\n";
+    const split = splitPlanMarkdownBody(markdown);
+    assertEquals(split.frontMatterBlock, "---\nsummary: |\n  ---\n  body marker remains metadata\n---\n");
+    assertEquals(split.body, "# Body\n");
+});
+
+testWithFs("body-only save preserves front matter bytes and markdown body fidelity", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await Deno.mkdir(`${cwd}/plans`, { recursive: true });
+        const frontMatter = [
+            "---",
+            "# preserve this comment",
+            "planId: body-id",
+            'unknownKey: "kept"',
+            "classification: FEATURE",
+            "status: in_progress",
+            "worktreeStatus: active",
+            "dependencies:",
+            "  - sibling",
+            "---\n",
+        ].join("\n");
+        const body =
+            "# Old\n\n- item\n- [ ] task\n\n| A | B |\n| - | - |\n| 1 | 2 |\n\n[RunWield](https://runwield.dev)\n\n```js\nconsole.log(1);\n```\n";
+        await Deno.writeTextFile(`${cwd}/plans/body.md`, frontMatter + body);
+        const loaded = await loadPlanBodyById(cwd, "body-id");
+        const nextBody =
+            "# New\n\n- item\n- [x] task\n\n| A | B |\n| - | - |\n| 3 | 4 |\n\n[RunWield](https://runwield.dev)\n\n```js\nconsole.log(2);\n```\n\n";
+
+        const saved = await savePlanBodyById(cwd, "body-id", nextBody, loaded.bodyHash);
+        const after = await Deno.readTextFile(`${cwd}/plans/body.md`);
+
+        assertEquals(after, frontMatter + nextBody);
+        assertEquals(saved.body, nextBody);
+        assertEquals(saved.bodyHash, await hashPlanBody(nextBody));
+        assertEquals(parsePlanFrontMatter(after).attrs.status, "in_progress");
+        assertEquals(parsePlanFrontMatter(after).attrs.worktreeStatus, "active");
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+testWithFs("body-only save rejects stale hashes duplicate IDs and archived plans", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "editable", "# Original", { planId: "editable-id" });
+        const loaded = await loadPlanBodyById(cwd, "editable-id");
+        await savePlanBodyById(cwd, "editable-id", "# External", loaded.bodyHash);
+        await assertRejects(
+            () => savePlanBodyById(cwd, "editable-id", "# Browser", loaded.bodyHash),
+            Error,
+            "changed on disk",
+        );
+
+        await savePlan(cwd, "dup-a", "# A", { planId: "dup" });
+        await savePlan(cwd, "dup-b", "# B", { planId: "dup" });
+        await assertRejects(() => loadPlanBodyById(cwd, "dup"), Error, "Duplicate planId values found");
+        await Deno.remove(`${cwd}/plans/dup-a.md`);
+        await Deno.remove(`${cwd}/plans/dup-b.md`);
+
+        await savePlan(cwd, "archived/hidden", "# Hidden", { planId: "hidden-id" });
+        await assertRejects(() => loadPlanBodyById(cwd, "hidden-id"), Error, "Plan not found for planId");
     } finally {
         await Deno.remove(cwd, { recursive: true });
     }

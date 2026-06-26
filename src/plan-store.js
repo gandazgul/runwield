@@ -565,6 +565,64 @@ export function parsePlanFrontMatter(markdown, opts = {}) {
     };
 }
 
+/**
+ * @typedef {Object} SplitPlanBody
+ * @property {string} frontMatterBlock
+ * @property {string} body
+ */
+
+/**
+ * Split raw markdown into the exact leading front matter block and body.
+ * @param {string} markdown
+ * @returns {SplitPlanBody}
+ */
+export function splitPlanMarkdownBody(markdown) {
+    if (!markdown.startsWith("---\n") && !markdown.startsWith("---\r\n")) {
+        throw new Error("Plan body editing requires a valid leading front matter block.");
+    }
+
+    let lineStart = markdown.startsWith("---\r\n") ? 5 : 4;
+    while (lineStart <= markdown.length) {
+        const nextLf = markdown.indexOf("\n", lineStart);
+        const lineEnd = nextLf === -1 ? markdown.length : nextLf;
+        const rawLine = markdown.slice(lineStart, lineEnd);
+        const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
+        if (line === "---") {
+            const bodyStart = nextLf === -1 ? markdown.length : nextLf + 1;
+            return {
+                frontMatterBlock: markdown.slice(0, bodyStart),
+                body: markdown.slice(bodyStart),
+            };
+        }
+        if (nextLf === -1) break;
+        lineStart = nextLf + 1;
+    }
+
+    throw new Error("Plan body editing requires a closed leading front matter block.");
+}
+
+/**
+ * @param {string} body
+ * @returns {Promise<string>}
+ */
+export async function hashPlanBody(body) {
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(body));
+    return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+export class StalePlanBodyError extends Error {
+    /**
+     * @param {string} expectedBodyHash
+     * @param {string} currentBodyHash
+     */
+    constructor(expectedBodyHash, currentBodyHash) {
+        super("Plan body changed on disk after this editor loaded.");
+        this.name = "StalePlanBodyError";
+        this.expectedBodyHash = expectedBodyHash;
+        this.currentBodyHash = currentBodyHash;
+    }
+}
+
 // ─── Save / Load / List ──────────────────────────────────────────────
 
 /**
@@ -1062,6 +1120,60 @@ export async function findPlanById(cwd, planId) {
     }
     if (matches.length === 0) throw new Error(`Plan not found for planId: ${normalized}`);
     return matches[0];
+}
+
+/**
+ * @typedef {PlanResource & { bodyHash: string }} PlanBodyResource
+ */
+
+/**
+ * Load editable body metadata for a non-archived Plan by durable planId.
+ * @param {string} cwd
+ * @param {string} planId
+ * @returns {Promise<PlanBodyResource>}
+ */
+export async function loadPlanBodyById(cwd, planId) {
+    const resource = await findPlanById(cwd, planId);
+    if (isEpicPlan(resource.attrs)) throw new Error("Epic Plan bodies are not editable in the workspace body editor.");
+    const markdown = await Deno.readTextFile(resource.path);
+    parsePlanFrontMatter(markdown);
+    const { body } = splitPlanMarkdownBody(markdown);
+    return {
+        ...resource,
+        body,
+        markdown,
+        bodyHash: await hashPlanBody(body),
+    };
+}
+
+/**
+ * Save only the markdown body while preserving the exact raw front matter block.
+ * @param {string} cwd
+ * @param {string} planId
+ * @param {string} newBody
+ * @param {string} expectedBodyHash
+ * @returns {Promise<PlanBodyResource>}
+ */
+export async function savePlanBodyById(cwd, planId, newBody, expectedBodyHash) {
+    const resource = await findPlanById(cwd, planId);
+    if (isEpicPlan(resource.attrs)) throw new Error("Epic Plan bodies are not editable in the workspace body editor.");
+    const markdown = await Deno.readTextFile(resource.path);
+    const { attrs } = parsePlanFrontMatter(markdown);
+    const { frontMatterBlock, body } = splitPlanMarkdownBody(markdown);
+    const currentBodyHash = await hashPlanBody(body);
+    if (currentBodyHash !== expectedBodyHash) {
+        throw new StalePlanBodyError(expectedBodyHash, currentBodyHash);
+    }
+
+    const nextMarkdown = `${frontMatterBlock}${newBody}`;
+    await Deno.writeTextFile(resource.path, nextMarkdown);
+    return {
+        ...resource,
+        attrs,
+        body: newBody,
+        markdown: nextMarkdown,
+        bodyHash: await hashPlanBody(newBody),
+    };
 }
 
 /**
