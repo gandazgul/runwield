@@ -21,6 +21,7 @@ export function detailHref(plan, url) {
 
 /** @param {{ plan: any, url: URL, compact?: boolean, roleLabel?: string }} props */
 export function PlanCard({ plan, url, compact = false, roleLabel = "Plan" }) {
+    const isChildCard = plan.hierarchyRole === "child" || plan.hierarchyRole === "orphan-child";
     return (
         <article
             class={compact ? "plan-card compact" : "plan-card"}
@@ -34,6 +35,18 @@ export function PlanCard({ plan, url, compact = false, roleLabel = "Plan" }) {
                 </div>
             </div>
             <p>{plan.summary || "No summary provided."}</p>
+            <div class="badge-row">
+                {plan.blockedByDependencies ? <span class="badge warning">Blocked by dependency</span> : null}
+                {plan.unverifiedDependencyCount
+                    ? <span class="badge warning">{plan.unverifiedDependencyCount} unverified dependency</span>
+                    : null}
+                {plan.missingDependencyCount
+                    ? <span class="badge danger">{plan.missingDependencyCount} missing dependency</span>
+                    : null}
+                {plan.hierarchyRole === "orphan-child" ? <span class="badge warning">Missing parent Epic</span> : null}
+                {isChildCard && plan.status === "on_hold" ? <span class="badge muted">Child on hold</span> : null}
+                {isChildCard && plan.status === "failed" ? <span class="badge danger">Failed child</span> : null}
+            </div>
             <dl class="meta-list">
                 <div>
                     <dt>Class</dt>

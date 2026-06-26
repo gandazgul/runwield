@@ -13,8 +13,11 @@ function OrphanRepairSection({ screen, url }) {
         <section class="repair-lane">
             <header>
                 <p class="eyebrow">Repair</p>
-                <h3>Orphaned child Plans</h3>
-                <p>These child FEATURE Plans reference a missing Epic and remain visible for repair.</p>
+                <h3>Orphaned child Plans ({screen.orphanChildren.length})</h3>
+                <p>
+                    These child FEATURE Plans reference a parentPlan value that does not resolve to a loaded Epic and
+                    remain visible for repair.
+                </p>
             </header>
             <div class="repair-grid">
                 {screen.orphanChildren.map(/** @param {any} plan */ (plan) => (

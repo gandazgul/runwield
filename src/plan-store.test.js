@@ -15,6 +15,7 @@ import {
     loadPlan,
     parsePlanFrontMatter,
     resolvePlan,
+    resolveSiblingChildPlanDependencyStates,
     saveChildFeaturePlans,
     savePlan,
     updatePlanFrontMatter,
@@ -228,6 +229,7 @@ Deno.test("groupPlanHierarchy groups Epics, nested children, standalone, and orp
         onHold: 0,
         remaining: 1,
         total: 3,
+        byStatus: { verified: 1, failed: 1, draft: 1 },
     });
 });
 
@@ -993,5 +995,48 @@ Deno.test("shared hierarchy helpers match Epic, child, orphan, standalone, and p
         onHold: 0,
         remaining: 1,
         total: 4,
+        byStatus: { verified: 1, implemented: 1, failed: 1, draft: 1 },
     });
+});
+
+Deno.test("resolveSiblingChildPlanDependencyStates exposes verified unverified and missing sibling states", () => {
+    const siblings = /** @type {any[]} */ ([
+        {
+            name: "epic/01-done",
+            planName: "epic/01-done",
+            planId: "done-id",
+            status: "verified",
+            attrs: { status: "verified" },
+        },
+        {
+            name: "epic/02-active",
+            planName: "epic/02-active",
+            planId: "active-id",
+            status: "implemented",
+            attrs: { status: "implemented" },
+        },
+    ]);
+
+    assertEquals(
+        resolveSiblingChildPlanDependencyStates("epic", ["01-done", "epic/02-active", "03-missing"], siblings),
+        [
+            {
+                dependency: "01-done",
+                planId: "done-id",
+                planName: "epic/01-done",
+                path: undefined,
+                status: "verified",
+                state: "verified",
+            },
+            {
+                dependency: "epic/02-active",
+                planId: "active-id",
+                planName: "epic/02-active",
+                path: undefined,
+                status: "implemented",
+                state: "unverified",
+            },
+            { dependency: "03-missing", state: "missing" },
+        ],
+    );
 });

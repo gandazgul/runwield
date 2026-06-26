@@ -159,6 +159,42 @@ body {
     border-color: #818cf8;
     color: #c7d2fe;
 }
+.badge.warning {
+    background: #422006;
+    border-color: #f59e0b;
+    color: #fde68a;
+}
+.badge.success {
+    background: #052e16;
+    border-color: #22c55e;
+    color: #bbf7d0;
+}
+.notice {
+    border: 1px solid #334155;
+    border-radius: 12px;
+    margin-top: 12px;
+    padding: 10px 12px;
+}
+.notice.success {
+    background: #052e16;
+    border-color: #22c55e;
+    color: #bbf7d0;
+}
+.notice.muted {
+    background: #1e1b4b;
+    border-color: #818cf8;
+    color: #c7d2fe;
+}
+.health-list {
+    background: #0f172a;
+    border: 1px solid #263449;
+    border-radius: 12px;
+    color: #cbd5e1;
+    display: grid;
+    gap: 8px;
+    margin: 12px 0 0;
+    padding: 14px 14px 14px 32px;
+}
 .badge-row, .card-actions, .detail-actions, .progress-meter {
     display: flex;
     flex-wrap: wrap;

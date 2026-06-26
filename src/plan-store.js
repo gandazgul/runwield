@@ -1078,24 +1078,23 @@ export async function findPlansByParent(cwd, parentPlan) {
 }
 
 /**
- * Resolve child FEATURE dependencies relative to a shared parent Epic.
+ * Resolve child FEATURE dependencies against already-loaded sibling summaries.
  *
  * Supported dependency identifiers are either the canonical child plan name
  * (`epic/01-first`) or the sibling child segment (`01-first`). Title-only
  * aliases are intentionally not inferred because child plan slugs are the
  * durable identifiers stored on disk.
  *
- * @param {string} cwd
  * @param {string} parentPlan
  * @param {unknown} dependencies
- * @returns {Promise<Array<{ dependency: string, planName?: string, path?: string, status?: string, state: "verified" | "unverified" | "missing" }>>}
+ * @param {Array<{ name: string, planName?: string, planId?: string, path?: string, attrs?: any, status?: string }>} siblings
+ * @returns {Array<{ dependency: string, planId?: string, planName?: string, path?: string, status?: string, state: "verified" | "unverified" | "missing" }>}
  */
-export async function resolveSiblingChildPlanDependencies(cwd, parentPlan, dependencies) {
+export function resolveSiblingChildPlanDependencyStates(parentPlan, dependencies, siblings) {
     const { name: parentPlanName } = canonicalizeStoredPlanName(parentPlan);
     const dependencyNames = normalizeStringList(dependencies) || [];
     if (dependencyNames.length === 0) return [];
 
-    const siblings = await findPlansByParent(cwd, parentPlanName);
     const byName = new Map(siblings.map((plan) => [plan.name, plan]));
 
     return dependencyNames.map((rawDependency) => {
@@ -1112,23 +1111,33 @@ export async function resolveSiblingChildPlanDependencies(cwd, parentPlan, depen
 
         const sibling = byName.get(candidateName);
         if (!sibling) return { dependency, state: /** @type {const} */ ("missing") };
-        if (sibling.attrs.status === "verified") {
-            return {
-                dependency,
-                planName: sibling.name,
-                path: sibling.path,
-                status: sibling.attrs.status,
-                state: /** @type {const} */ ("verified"),
-            };
-        }
-        return {
+        const status = sibling.status || sibling.attrs?.status;
+        const resolved = {
             dependency,
-            planName: sibling.name,
+            planId: sibling.planId,
+            planName: sibling.planName || sibling.name,
             path: sibling.path,
-            status: sibling.attrs.status,
-            state: /** @type {const} */ ("unverified"),
+            status,
+        };
+        return {
+            ...resolved,
+            state: status === "verified" ? /** @type {const} */ ("verified") : /** @type {const} */ ("unverified"),
         };
     });
+}
+
+/**
+ * Resolve child FEATURE dependencies relative to a shared parent Epic.
+ *
+ * @param {string} cwd
+ * @param {string} parentPlan
+ * @param {unknown} dependencies
+ * @returns {Promise<Array<{ dependency: string, planId?: string, planName?: string, path?: string, status?: string, state: "verified" | "unverified" | "missing" }>>}
+ */
+export async function resolveSiblingChildPlanDependencies(cwd, parentPlan, dependencies) {
+    const { name: parentPlanName } = canonicalizeStoredPlanName(parentPlan);
+    const siblings = await findPlansByParent(cwd, parentPlanName);
+    return resolveSiblingChildPlanDependencyStates(parentPlanName, dependencies, siblings);
 }
 
 /**
@@ -1187,19 +1196,23 @@ export function groupPlanHierarchy(plans) {
 }
 
 /**
- * @param {Array<{ attrs: PlanFrontMatter }>} children
- * @returns {{ verified: number, active: number, failed: number, onHold: number, remaining: number, total: number }}
+ * @param {Array<{ attrs?: any, status?: string }>} children
+ * @returns {{ verified: number, active: number, failed: number, onHold: number, remaining: number, total: number, byStatus: Record<string, number> }}
  */
 export function countChildPlanProgress(children) {
-    const verified = children.filter((child) => child.attrs.status === "verified").length;
-    const active =
-        children.filter((child) => child.attrs.status === "in_progress" || child.attrs.status === "implemented")
-            .length;
-    const failed = children.filter((child) => child.attrs.status === "failed").length;
-    const onHold = children.filter((child) => child.attrs.status === "on_hold").length;
+    /** @type {Record<string, number>} */
+    const byStatus = {};
+    for (const child of children) {
+        const status = child.status || child.attrs?.status || "draft";
+        byStatus[status] = (byStatus[status] || 0) + 1;
+    }
+    const verified = byStatus.verified || 0;
+    const active = (byStatus.in_progress || 0) + (byStatus.implemented || 0);
+    const failed = byStatus.failed || 0;
+    const onHold = byStatus.on_hold || 0;
     const total = children.length;
     const remaining = total - verified - active - failed - onHold;
-    return { verified, active, failed, onHold, remaining, total };
+    return { verified, active, failed, onHold, remaining, total, byStatus };
 }
 
 /**

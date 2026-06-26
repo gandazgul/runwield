@@ -213,9 +213,77 @@ Deno.test("loadWorkspaceDetail returns Epic detail with children grouped by stat
         const detail = /** @type {any} */ (await loadWorkspaceDetail(cwd, "epic-id"));
         assertEquals(detail.detailKind, "epic");
         assertEquals(detail.childProgress.total, 1);
+        assertEquals(detail.childProgress.byStatus.failed, 1);
         assertEquals(detail.childHealth.failed.map((/** @type {any} */ plan) => plan.planId), ["child-id"]);
         const failedColumn = detail.childColumns.find((/** @type {any} */ column) => column.status === "failed");
         assertEquals(failedColumn.cards.map((/** @type {any} */ plan) => plan.planId), ["child-id"]);
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+Deno.test("workspace adapter exposes Epic dependency health done-enough held and orphan repair metadata", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "epic", "# Epic", {
+            planId: "epic-id",
+            classification: "PROJECT",
+            type: "epic",
+            status: "on_hold",
+            heldFromStatus: "in_progress",
+            heldAt: "2026-01-01T00:00:00.000Z",
+            holdReason: "paused",
+            epicCompletionMode: "done_enough",
+            epicDoneEnoughSummary: "Enough value shipped",
+            epicDoneEnoughAt: "2026-01-02T00:00:00.000Z",
+        });
+        await savePlan(cwd, "epic/01-done", "# Done", {
+            planId: "done-id",
+            classification: "FEATURE",
+            parentPlan: "epic",
+            status: "verified",
+        });
+        await savePlan(cwd, "epic/02-blocked", "# Blocked", {
+            planId: "blocked-id",
+            classification: "FEATURE",
+            parentPlan: "epic",
+            status: "draft",
+            dependencies: ["01-done", "03-held", "04-missing"],
+        });
+        await savePlan(cwd, "epic/03-held", "# Held", {
+            planId: "held-id",
+            classification: "FEATURE",
+            parentPlan: "epic",
+            status: "on_hold",
+            holdReason: "child paused",
+        });
+        await savePlan(cwd, "missing/child", "# Orphan", {
+            planId: "orphan-id",
+            classification: "FEATURE",
+            parentPlan: "missing",
+            status: "draft",
+            dependencies: ["other"],
+        });
+
+        const detail = /** @type {any} */ (await loadWorkspaceDetail(cwd, "epic-id"));
+        const blocked = detail.children.find((/** @type {any} */ child) => child.planId === "blocked-id");
+        assertEquals(detail.doneEnough, true);
+        assertEquals(detail.childHealth.held.map((/** @type {any} */ child) => child.planId), ["held-id"]);
+        assertEquals(detail.childHealth.blocked.map((/** @type {any} */ child) => child.planId), ["blocked-id"]);
+        assertEquals(detail.childHealth.missingDependencies.map((/** @type {any} */ child) => child.planId), [
+            "blocked-id",
+        ]);
+        assertEquals(blocked.dependencyStates.map((/** @type {any} */ entry) => entry.state), [
+            "verified",
+            "unverified",
+            "missing",
+        ]);
+
+        const orphan = /** @type {any} */ (await loadWorkspaceDetail(cwd, "orphan-id"));
+        assertEquals(orphan.hierarchyRole, "orphan-child");
+        assertEquals(orphan.parentResolved, false);
+        assertStringIncludes(orphan.orphanReason, "missing");
+        assertEquals(orphan.dependencyStates, [{ dependency: "other", state: "missing" }]);
     } finally {
         await Deno.remove(cwd, { recursive: true });
     }
@@ -299,6 +367,15 @@ Deno.test("Workspace Epic detail SSR-renders child FEATURE Plans by status", asy
             classification: "PROJECT",
             type: "epic",
             summary: "Epic summary",
+            epicCompletionMode: "done_enough",
+            epicDoneEnoughSummary: "Shipped enough",
+        });
+        await savePlan(cwd, "epic/done", "# Done", {
+            planId: "done-id",
+            status: "verified",
+            classification: "FEATURE",
+            parentPlan: "epic",
+            summary: "Done summary",
         });
         await savePlan(cwd, "epic/child", "# Child\n\nChild body", {
             planId: "child-id",
@@ -306,18 +383,70 @@ Deno.test("Workspace Epic detail SSR-renders child FEATURE Plans by status", asy
             classification: "FEATURE",
             parentPlan: "epic",
             summary: "Child summary",
+            dependencies: ["done", "missing-child"],
+        });
+        await savePlan(cwd, "epic/held", "# Held", {
+            planId: "held-id",
+            status: "on_hold",
+            classification: "FEATURE",
+            parentPlan: "epic",
+            summary: "Held summary",
+            heldFromStatus: "ready_for_work",
+            heldAt: "2026-01-04T00:00:00.000Z",
+            holdReason: "child capacity pause",
+        });
+        await savePlan(cwd, "epic/failed", "# Failed", {
+            planId: "failed-id",
+            status: "failed",
+            classification: "FEATURE",
+            parentPlan: "epic",
+            summary: "Failed summary",
+        });
+        await savePlan(cwd, "missing/orphan", "# Orphan", {
+            planId: "orphan-id",
+            status: "draft",
+            classification: "FEATURE",
+            parentPlan: "missing",
+            summary: "Orphan summary",
+        });
+        await savePlan(cwd, "held-epic", "# Held Epic", {
+            planId: "held-epic-id",
+            status: "on_hold",
+            classification: "PROJECT",
+            type: "epic",
+            summary: "Held Epic summary",
+            heldFromStatus: "in_progress",
+            heldAt: "2026-01-03T00:00:00.000Z",
+            holdReason: "waiting for budget",
         });
         const app = createWorkspaceApp({ cwd, token: "secret" }).handler();
         const board = await app(new Request("http://localhost/?token=secret"));
         const boardHtml = await board.text();
         assertStringIncludes(boardHtml, "Epic summary");
+        assertStringIncludes(boardHtml, "Orphan summary");
+        assertStringIncludes(boardHtml, "Missing parent Epic");
         assertEquals(boardHtml.includes("Child summary"), false);
 
         const detail = await app(new Request("http://localhost/plans/epic-id?token=secret"));
         const detailHtml = await detail.text();
         assertStringIncludes(detailHtml, "Epic detail");
+        assertStringIncludes(detailHtml, "Done enough");
         assertStringIncludes(detailHtml, "In Progress");
         assertStringIncludes(detailHtml, "Child summary");
+        assertStringIncludes(detailHtml, "Failed summary");
+        assertStringIncludes(detailHtml, "Held summary");
+        assertStringIncludes(
+            detailHtml,
+            "held from ready_for_work; held at 2026-01-04T00:00:00.000Z; reason: child capacity pause",
+        );
+        assertStringIncludes(detailHtml, "done: verified");
+        assertStringIncludes(detailHtml, "missing-child: missing");
+        assertStringIncludes(detailHtml, "missing dependencies");
+
+        const heldDetail = await app(new Request("http://localhost/plans/held-epic-id?token=secret"));
+        const heldDetailHtml = await heldDetail.text();
+        assertStringIncludes(heldDetailHtml, "Epic on hold from in_progress at 2026-01-03T00:00:00.000Z");
+        assertStringIncludes(heldDetailHtml, "reason: waiting for budget");
     } finally {
         await Deno.remove(cwd, { recursive: true });
     }

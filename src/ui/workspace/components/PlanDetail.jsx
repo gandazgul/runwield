@@ -44,6 +44,28 @@ function DetailMetadata({ plan }) {
                     </div>
                 )
                 : null}
+            {plan.dependencyStates?.length
+                ? (
+                    <div>
+                        <dt>Dependency state</dt>
+                        <dd>
+                            {plan.dependencyStates.map(/** @param {any} entry */ (entry) =>
+                                `${entry.dependency}: ${entry.state}${entry.status ? ` (${entry.status})` : ""}`
+                            ).join(", ")}
+                        </dd>
+                    </div>
+                )
+                : null}
+            {plan.hierarchyRole === "orphan-child"
+                ? (
+                    <div>
+                        <dt>Repair parent</dt>
+                        <dd>
+                            {plan.orphanReason || `parentPlan ${plan.parentPlan} does not resolve to a loaded Epic.`}
+                        </dd>
+                    </div>
+                )
+                : null}
             {plan.worktreeStatus
                 ? (
                     <div>
@@ -81,6 +103,10 @@ export function PlanDetail({ plan }) {
                 <p>{plan.summary || "No summary provided."}</p>
                 <div class="detail-actions" aria-label="Plan detail actions">
                     <span class="status">{plan.status}</span>
+                    {plan.hierarchyRole === "orphan-child"
+                        ? <span class="badge warning">Missing parent Epic</span>
+                        : null}
+                    {plan.blockedByDependencies ? <span class="badge warning">Dependency blocked</span> : null}
                     <span class="disabled-action" aria-disabled="true">Edit body after editor slice</span>
                     <span class="disabled-action" aria-disabled="true">
                         Lifecycle actions after board-actions slice

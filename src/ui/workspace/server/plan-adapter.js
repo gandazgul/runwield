@@ -9,6 +9,7 @@ import {
     isChildFeaturePlan,
     isEpicPlan,
     listPlanResources,
+    resolveSiblingChildPlanDependencyStates,
 } from "../../../plan-store.js";
 import {
     ACTIVE_PLAN_STATUSES,
@@ -125,6 +126,7 @@ function stringArray(value) {
 
 /**
  * @param {any} resource
+ * @returns {any}
  */
 export function serializePlanSummary(resource) {
     const attrs = safeObject(resource.attrs);
@@ -149,33 +151,97 @@ export function serializePlanSummary(resource) {
         worktreeStatus: attrs.worktreeStatus || "",
         worktreeBranch: attrs.worktreeBranch || "",
         humanReviewMode: attrs.humanReviewMode || "",
+        heldFromStatus: attrs.heldFromStatus || "",
+        heldAt: attrs.heldAt || "",
+        holdReason: attrs.holdReason || "",
+        failureReason: attrs.failureReason || "",
+        failedAt: attrs.failedAt || "",
         epicCompletionMode: attrs.epicCompletionMode || "",
         epicDoneEnoughSummary: attrs.epicDoneEnoughSummary || "",
+        epicDoneEnoughAt: attrs.epicDoneEnoughAt || "",
+        doneEnough: attrs.epicCompletionMode === "done_enough",
         isEpic: isEpicPlan(attrs),
         isChild: isChildFeaturePlan(resource),
         hierarchyRole: isEpicPlan(attrs) ? "epic" : isChildFeaturePlan(resource) ? "child" : "top-level",
+        parentResolved: !isChildFeaturePlan(resource),
+        parentPlanId: "",
+        orphanReason: "",
+        dependencyStates: [],
+        blockedByDependencies: false,
+        missingDependencyCount: 0,
+        unverifiedDependencyCount: 0,
     };
 }
 
 /**
- * @param {ReturnType<typeof serializePlanSummary>[]} plans
+ * @param {any[]} plans
  */
 function annotatePlanHierarchy(plans) {
-    const epicNames = new Set(plans.filter((plan) => plan.isEpic).map((plan) => plan.name));
+    const epicsByName = new Map(plans.filter((plan) => plan.isEpic).map((plan) => [plan.name, plan]));
     return plans.map((plan) => {
+        const parentEpic = plan.isChild ? epicsByName.get(plan.parentPlan) : undefined;
         const hierarchyRole = plan.isEpic
             ? "epic"
-            : plan.isChild && !epicNames.has(plan.parentPlan)
+            : plan.isChild && !parentEpic
             ? "orphan-child"
             : plan.isChild
             ? "child"
             : "top-level";
-        return { ...plan, hierarchyRole };
+        return {
+            ...plan,
+            hierarchyRole,
+            parentResolved: plan.isChild ? Boolean(parentEpic) : true,
+            parentPlanId: parentEpic?.planId || "",
+            orphanReason: plan.isChild && !parentEpic
+                ? `parentPlan \"${plan.parentPlan}\" does not match a loaded PROJECT Epic.`
+                : "",
+        };
     });
 }
 
 /**
- * @param {ReturnType<typeof serializePlanSummary>[]} plans
+ * @param {any[]} plans
+ */
+function enrichPlanSetDependencies(plans) {
+    const byParent = new Map();
+    for (const plan of plans.filter((item) => item.isChild)) {
+        const siblings = byParent.get(plan.parentPlan) || [];
+        siblings.push(plan);
+        byParent.set(plan.parentPlan, siblings);
+    }
+    return plans.map((plan) => {
+        if (!plan.isChild) return plan;
+        const dependencySource = plan.parentResolved ? byParent.get(plan.parentPlan) || [] : [];
+        return enrichChildrenWithDependencies([plan], plan.parentPlan, dependencySource)[0];
+    });
+}
+
+/**
+ * @param {any[]} children
+ * @param {string} parentPlanName
+ * @param {any[]} [dependencySource]
+ */
+function enrichChildrenWithDependencies(children, parentPlanName, dependencySource = children) {
+    return children.map((child) => {
+        const dependencyStates = resolveSiblingChildPlanDependencyStates(
+            parentPlanName,
+            child.dependsOn,
+            dependencySource,
+        );
+        const missingDependencyCount = dependencyStates.filter((entry) => entry.state === "missing").length;
+        const unverifiedDependencyCount = dependencyStates.filter((entry) => entry.state === "unverified").length;
+        return {
+            ...child,
+            dependencyStates,
+            blockedByDependencies: missingDependencyCount + unverifiedDependencyCount > 0,
+            missingDependencyCount,
+            unverifiedDependencyCount,
+        };
+    });
+}
+
+/**
+ * @param {any[]} plans
  * @param {string} status
  */
 function topLevelCardsForStatus(plans, status) {
@@ -185,7 +251,7 @@ function topLevelCardsForStatus(plans, status) {
 }
 
 /**
- * @param {ReturnType<typeof serializePlanSummary>[]} plans
+ * @param {any[]} plans
  * @param {string} status
  */
 function orphanCardsForStatus(plans, status) {
@@ -193,18 +259,20 @@ function orphanCardsForStatus(plans, status) {
 }
 
 /**
- * @param {ReturnType<typeof serializePlanSummary>[]} children
+ * @param {any[]} children
  */
 function childHealth(children) {
     return {
         failed: children.filter((child) => child.status === "failed"),
         held: children.filter((child) => child.status === "on_hold"),
+        blocked: children.filter((child) => child.blockedByDependencies),
+        missingDependencies: children.filter((child) => child.missingDependencyCount > 0),
         implemented: children.filter((child) => child.status === "implemented"),
     };
 }
 
 /**
- * @param {ReturnType<typeof serializePlanSummary>[]} plans
+ * @param {any[]} plans
  * @param {string[]} statuses
  * @param {{ topLevelOnly?: boolean }} [options]
  */
@@ -226,7 +294,7 @@ function columnsForStatuses(plans, statuses, options = {}) {
 }
 
 /**
- * @param {ReturnType<typeof serializePlanSummary>[]} plans
+ * @param {any[]} plans
  * @param {keyof typeof BOARD_SCREENS} screenId
  */
 export function buildBoardScreen(plans, screenId) {
@@ -235,7 +303,7 @@ export function buildBoardScreen(plans, screenId) {
     const childrenByParent = hierarchy.childrenByParent;
     const enrichedPlans = plans.map((plan) => {
         if (!plan.isEpic) return plan;
-        const children = childrenByParent.get(plan.name) || [];
+        const children = enrichChildrenWithDependencies(childrenByParent.get(plan.name) || [], plan.name);
         return {
             ...plan,
             childProgress: countChildPlanProgress(children),
@@ -251,7 +319,7 @@ export function buildBoardScreen(plans, screenId) {
 }
 
 /**
- * @param {ReturnType<typeof serializePlanSummary>[]} plans
+ * @param {any[]} plans
  */
 export function buildWorkspaceBoard(plans) {
     return {
@@ -263,7 +331,7 @@ export function buildWorkspaceBoard(plans) {
 
 /**
  * @param {any} resource
- * @param {ReturnType<typeof serializePlanSummary>[]} [plans]
+ * @param {any[]} [plans]
  */
 export function serializePlanDetail(resource, plans) {
     const summary = plans?.find((plan) => plan.planId === resource.planId) || serializePlanSummary(resource);
@@ -277,12 +345,12 @@ export function serializePlanDetail(resource, plans) {
 }
 
 /**
- * @param {ReturnType<typeof serializePlanDetail>} epic
- * @param {ReturnType<typeof serializePlanSummary>[]} plans
+ * @param {any} epic
+ * @param {any[]} plans
  */
 function serializeEpicDetail(epic, plans) {
     const hierarchy = /** @type {any} */ (groupPlanHierarchy(/** @type {any} */ (plans)));
-    const children = hierarchy.childrenByParent.get(epic.name) || [];
+    const children = enrichChildrenWithDependencies(hierarchy.childrenByParent.get(epic.name) || [], epic.name);
     return {
         ...epic,
         detailKind: "epic",
@@ -294,10 +362,24 @@ function serializeEpicDetail(epic, plans) {
 }
 
 /**
- * @param {ReturnType<typeof serializePlanDetail>} plan
+ * @param {any} plan
+ * @param {any[]} plans
  */
-function serializeNonEpicDetail(plan) {
-    return { ...plan, detailKind: "plan" };
+function serializeNonEpicDetail(plan, plans) {
+    if (!plan.isChild) return { ...plan, detailKind: "plan" };
+    const siblings = plans.filter((candidate) => candidate.parentPlan === plan.parentPlan && candidate.isChild);
+    const dependencySource = plan.parentResolved ? siblings : [];
+    const dependencyStates = resolveSiblingChildPlanDependencyStates(plan.parentPlan, plan.dependsOn, dependencySource);
+    const missingDependencyCount = dependencyStates.filter((entry) => entry.state === "missing").length;
+    const unverifiedDependencyCount = dependencyStates.filter((entry) => entry.state === "unverified").length;
+    return {
+        ...plan,
+        dependencyStates,
+        blockedByDependencies: missingDependencyCount + unverifiedDependencyCount > 0,
+        missingDependencyCount,
+        unverifiedDependencyCount,
+        detailKind: "plan",
+    };
 }
 
 /**
@@ -317,7 +399,7 @@ export function serializePlanError(error) {
  */
 export async function loadPlanSummaries(cwd) {
     const resources = await listPlanResources(cwd);
-    return annotatePlanHierarchy(resources.map(serializePlanSummary));
+    return enrichPlanSetDependencies(annotatePlanHierarchy(resources.map(serializePlanSummary)));
 }
 
 /**
@@ -338,25 +420,29 @@ export async function loadWorkspaceDetail(cwd, planId) {
     const resource = await findPlanById(cwd, planId);
     const summaries = await loadPlanSummaries(cwd);
     const detail = serializePlanDetail(resource, summaries);
-    return detail.isEpic ? serializeEpicDetail(detail, summaries) : serializeNonEpicDetail(detail);
+    return detail.isEpic ? serializeEpicDetail(detail, summaries) : serializeNonEpicDetail(detail, summaries);
 }
 
 /**
- * @param {ReturnType<typeof serializePlanSummary>[]} plans
+ * @param {any[]} plans
  * @param {string[]} statuses
  */
 function hierarchyForPlans(plans, statuses) {
     const hierarchy = /** @type {any} */ (groupPlanHierarchy(/** @type {any} */ (plans)));
     const allowed = new Set(statuses);
-    const hasAllowedStatus = (/** @type {ReturnType<typeof serializePlanSummary>} */ plan) =>
-        allowed.has(String(plan.status));
+    const hasAllowedStatus = (/** @type {any} */ plan) => allowed.has(String(plan.status));
     return {
         epics: hierarchy.epics
             .map((/** @type {any} */ epic) => {
-                const children = (hierarchy.childrenByParent.get(epic.name) || []).filter(hasAllowedStatus);
+                const allChildren = enrichChildrenWithDependencies(
+                    hierarchy.childrenByParent.get(epic.name) || [],
+                    epic.name,
+                );
+                const children = allChildren.filter(hasAllowedStatus);
                 return {
                     ...epic,
-                    childProgress: countChildPlanProgress(hierarchy.childrenByParent.get(epic.name) || []),
+                    childProgress: countChildPlanProgress(allChildren),
+                    childHealth: childHealth(allChildren),
                     children,
                 };
             })
@@ -367,7 +453,7 @@ function hierarchyForPlans(plans, statuses) {
 }
 
 /**
- * @param {ReturnType<typeof serializePlanSummary>[]} plans
+ * @param {any[]} plans
  */
 export function buildBoardGroups(plans) {
     return {
