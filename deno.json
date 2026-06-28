@@ -35,7 +35,7 @@
         "esbuild": "npm:esbuild@^0.25.12",
         "unocss": "npm:unocss@^66.5.9",
         "codemirror": "npm:codemirror@^6.0.2",
-        "@codemirror/lang-markdown": "npm:@codemirror/lang-markdown@^6.3.4"
+        "@codemirror/lang-markdown": "npm:@codemirror/lang-markdown@^6.5.0"
     },
     "tasks": {
         "ci": "deno task -q check && deno task -q lint && deno task -q fmt:check && deno task -q test",
