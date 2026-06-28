@@ -62,7 +62,7 @@
     "npm:preact@^10.28.2": "10.29.2",
     "npm:preact@^10.29.1": "10.29.2",
     "npm:proper-lockfile@^4.1.2": "4.1.2",
-    "npm:quikdown@^1.2.12": "1.2.17",
+    "npm:quikdown@^1.2.21": "1.2.21",
     "npm:rollup@^4.55.1": "4.62.2",
     "npm:strip-ansi@^7.2.0": "7.2.0",
     "npm:unocss@^66.5.9": "66.7.2_vite@7.3.5",
@@ -3111,8 +3111,8 @@
     "quansync@1.0.0": {
       "integrity": "sha512-5xZacEEufv3HSTPQuchrvV6soaiACMFnq1H8wkVioctoH3TRha9Sz66lOxRwPK/qZj7HPiSveih9yAyh98gvqA=="
     },
-    "quikdown@1.2.17": {
-      "integrity": "sha512-ALdaFVP+fEBey7bP4clKm2Ad94K2Q/LzUGMBV/MCUNXb5tNYVv+drK3WuYn00ldgweUcF/8Cl2SOk198NfIt2A==",
+    "quikdown@1.2.21": {
+      "integrity": "sha512-5fhHFBstuGvKHDJX/FhRXqB3Pi2frLmYunlgb3MWcvHT3bymtmgOxWJBp1me9T3A+gX9xisUic3m3PP9pGXI3A==",
       "bin": true
     },
     "readdirp@5.0.0": {
@@ -3508,7 +3508,7 @@
       "npm:esbuild@~0.25.12",
       "npm:preact@^10.26.6",
       "npm:proper-lockfile@^4.1.2",
-      "npm:quikdown@^1.2.12",
+      "npm:quikdown@^1.2.21",
       "npm:strip-ansi@^7.2.0",
       "npm:unocss@^66.5.9",
       "npm:vite@^7.2.7"
