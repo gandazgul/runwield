@@ -28,7 +28,8 @@ import {
 } from "../session/session.js";
 import { ensureMnemosyneBinary } from "../runtime-preflight.js";
 import { commandRegistry, getCommandInvocationNames, getSlashCommandDefinitions } from "../../cmd/registry.js";
-import { AGENTS, COMMAND_NAMES } from "../../constants.js";
+import { AGENTS } from "../../constants.js";
+import { COMMAND_NAMES } from "../../cmd/registry.js";
 import { getAgentDisplayName, listAvailableAgents } from "../session/agents.js";
 import { getModelRegistry } from "../models/model-registry.js";
 import { getSettingsManager, initSettings } from "../settings.js";

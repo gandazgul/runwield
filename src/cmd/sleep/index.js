@@ -5,7 +5,7 @@
 
 import { parseArgs as parseArgsFn } from "@std/cli/parse-args";
 import { dirname, fromFileUrl, join } from "@std/path";
-import { COMMAND_NAMES } from "../../constants.js";
+import { COMMAND_NAMES } from "../registry.js";
 import { runAgentSession as runAgentSessionFn } from "../../shared/session/session.js";
 import { printCommandHelp as printCommandHelpFn } from "../help/index.js";
 import { ensureMnemosyneBinary as ensureMnemosyneBinaryFn } from "../../shared/runtime-preflight.js";

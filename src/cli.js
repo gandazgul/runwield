@@ -15,7 +15,7 @@
  */
 
 import { parseArgs } from "@std/cli/parse-args";
-import { COMMAND_NAMES } from "./constants.js";
+import { COMMAND_NAMES } from "./cmd/registry.js";
 import { commandRegistry, getCommandDefinition, hasCommandSurface } from "./cmd/registry.js";
 import { printCommandHelp, printGlobalHelp } from "./cmd/help/index.js";
 import { runVersionCommand } from "./cmd/version/index.js";

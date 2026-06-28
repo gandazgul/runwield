@@ -10,7 +10,8 @@
 
 import { parseArgs as parseArgsFn } from "@std/cli/parse-args";
 import { dirname, fromFileUrl, join } from "@std/path";
-import { AGENTS, COMMAND_NAMES } from "../../constants.js";
+import { AGENTS } from "../../constants.js";
+import { COMMAND_NAMES } from "../registry.js";
 import { loadAgentDefFromPath as loadAgentDefFromPathFn } from "../../shared/session/agents.js";
 import {
     ensureBundledAgentDefFile as ensureBundledAgentDefFileFn,

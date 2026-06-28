@@ -81,37 +81,6 @@ function readOptionalEnv(name) {
 
 export const HOME_DIR = readOptionalEnv("HOME");
 
-/** Known CLI command names. */
-/** @type {Readonly<{ROUTER: string, AGENT: string, MODEL: string, LOGIN: string, LOGOUT: string, STATUS: string, EXPORT: string, SHARE: string, LOAD_PLAN: string, RESUME: string, NEW: string, NAME: string, SESSION: string, PLANS: string, SLEEP: string, HELP: string, VERSION: string, QUIT: string, EXIT: string, INIT: string, THEME: string, INSTALL: string, REMOVE: string, COMPACT: string, RELOAD: string, SNIP_FILTERS: string}>} */
-export const COMMAND_NAMES = Object.freeze({
-    ROUTER: "router",
-    AGENT: "agent",
-    MODEL: "model",
-    LOGIN: "login",
-    LOGOUT: "logout",
-    STATUS: "status",
-    EXPORT: "export",
-    SHARE: "share",
-    LOAD_PLAN: "load-plan",
-    RESUME: "resume",
-    NEW: "new",
-    NAME: "name",
-    SESSION: "session",
-    PLANS: "plans",
-    SLEEP: "sleep",
-    HELP: "help",
-    VERSION: "version",
-    QUIT: "quit",
-    EXIT: "exit",
-    INIT: "init",
-    THEME: "theme",
-    INSTALL: "install",
-    REMOVE: "remove",
-    COMPACT: "compact",
-    RELOAD: "reload",
-    SNIP_FILTERS: "snip-filters",
-});
-
 /**
  * Canonical agent identifiers. Most values match an agent definition filename
  * (without the `.md` extension) in `src/agent-definitions/`. The display name

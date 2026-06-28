@@ -6,7 +6,7 @@
 import { setActiveModel as setActiveModelFn } from "../../shared/interactive/chat-session.js";
 import { getModelRegistry as getModelRegistryFn } from "../../shared/models/model-registry.js";
 import { parseProviderModel as parseProviderModelFn } from "../../shared/models/model-validation.js";
-import { COMMAND_NAMES } from "../../constants.js";
+import { COMMAND_NAMES } from "../registry.js";
 import { printCommandHelp as printCommandHelpFn } from "../help/index.js";
 export { getModelCompletions } from "./getArgumentCompletions.js";
 

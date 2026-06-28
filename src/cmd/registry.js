@@ -3,7 +3,7 @@
  * Central command handler registry.
  */
 
-import { CLI_BIN, COMMAND_NAMES, DEV_CLI_RUN } from "../constants.js";
+import { CLI_BIN, DEV_CLI_RUN } from "../constants.js";
 import { runPlansCommand } from "./plans/index.js";
 import { runRouterCommand } from "./router/index.js";
 import { runSleepCommand } from "./sleep/index.js";
@@ -24,10 +24,43 @@ import { runThemeCommand } from "./theme/index.js";
 import { runInstallCommand } from "./install/index.js";
 import { runRemoveCommand } from "./remove/index.js";
 import { runCompactCommand } from "./compact/index.js";
+import { runCopyCommand } from "./copy/index.js";
 import { runReloadCommand } from "./reload/index.js";
 import { runVersionCommand } from "./version/index.js";
 import { runSnipFiltersCommand } from "./snip-filters/index.js";
 import { getAgentDisplayName } from "../shared/session/agents.js";
+
+/** Known CLI / slash command names. Defined alongside the registry so adding a new command only touches one file. */
+/** @type {Readonly<{ROUTER: string, AGENT: string, MODEL: string, LOGIN: string, LOGOUT: string, STATUS: string, EXPORT: string, SHARE: string, LOAD_PLAN: string, RESUME: string, NEW: string, NAME: string, SESSION: string, PLANS: string, SLEEP: string, HELP: string, VERSION: string, QUIT: string, EXIT: string, INIT: string, THEME: string, INSTALL: string, REMOVE: string, COMPACT: string, RELOAD: string, SNIP_FILTERS: string, COPY: string}>} */
+export const COMMAND_NAMES = Object.freeze({
+    ROUTER: "router",
+    AGENT: "agent",
+    MODEL: "model",
+    LOGIN: "login",
+    LOGOUT: "logout",
+    STATUS: "status",
+    EXPORT: "export",
+    SHARE: "share",
+    LOAD_PLAN: "load-plan",
+    RESUME: "resume",
+    NEW: "new",
+    NAME: "name",
+    SESSION: "session",
+    PLANS: "plans",
+    SLEEP: "sleep",
+    HELP: "help",
+    VERSION: "version",
+    QUIT: "quit",
+    EXIT: "exit",
+    INIT: "init",
+    THEME: "theme",
+    INSTALL: "install",
+    REMOVE: "remove",
+    COMPACT: "compact",
+    RELOAD: "reload",
+    SNIP_FILTERS: "snip-filters",
+    COPY: "copy",
+});
 
 /** @param {...string} parts */
 const bin = (...parts) => [CLI_BIN, ...parts].join(" ");
@@ -455,6 +488,21 @@ export const commandRegistry = {
             "Optionally pass custom instructions to guide the summarization.",
         ],
         execute: runCompactCommand,
+        surfaces: ["slash"],
+    },
+    [COMMAND_NAMES.COPY]: {
+        name: COMMAND_NAMES.COPY,
+        displayName: "Copy",
+        description: "Copy the last assistant message to clipboard",
+        summary: "Copy the last assistant response text to the system clipboard.",
+        usage: [
+            "/copy",
+        ],
+        notes: [
+            "Slash command only (interactive session).",
+            "Uses pbcopy (macOS), xclip/xsel (Linux), or clip (Windows).",
+        ],
+        execute: runCopyCommand,
         surfaces: ["slash"],
     },
     [COMMAND_NAMES.RELOAD]: {

@@ -9,7 +9,8 @@ import {
     startInteractiveSession as startInteractiveSessionFn,
 } from "../../shared/interactive/chat-session.js";
 import { listAvailableAgents as listAvailableAgentsFn } from "../../shared/session/agents.js";
-import { AGENTS, COMMAND_NAMES } from "../../constants.js";
+import { AGENTS } from "../../constants.js";
+import { COMMAND_NAMES } from "../registry.js";
 import { createAgentHandler as createAgentHandlerFn } from "../../shared/session/agent-handler.js";
 
 export { getAgentCompletions } from "./getArgumentCompletions.js";

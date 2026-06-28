@@ -5,7 +5,7 @@
 
 import { discoverAndRegisterThemes, getAvailableThemes, setTheme } from "../../shared/ui/theme.js";
 import { getSettingsManager } from "../../shared/settings.js";
-import { COMMAND_NAMES } from "../../constants.js";
+import { COMMAND_NAMES } from "../registry.js";
 import { printCommandHelp as printCommandHelpFn } from "../help/index.js";
 
 const DEFAULT_THEME = "catppuccin-mocha";
