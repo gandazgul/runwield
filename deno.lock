@@ -40,8 +40,8 @@
     "npm:@codemirror/lang-markdown@^6.3.4": "6.5.0",
     "npm:@earendil-works/pi-agent-core@~0.79.5": "0.79.5_zod@4.4.3",
     "npm:@earendil-works/pi-ai@~0.79.9": "0.79.9_zod@4.4.3",
-    "npm:@earendil-works/pi-coding-agent@~0.79.4": "0.79.4_zod@4.4.3",
-    "npm:@earendil-works/pi-tui@*": "0.79.9",
+    "npm:@earendil-works/pi-coding-agent@~0.80.2": "0.80.2",
+    "npm:@earendil-works/pi-tui@*": "0.80.2",
     "npm:@earendil-works/pi-tui@~0.79.9": "0.79.9",
     "npm:@gandazgul/plannotator-pi-extension-compiled@~0.21.2": "0.21.2_@mariozechner+pi-agent-core@0.73.1_@mariozechner+pi-ai@0.73.1_@mariozechner+pi-coding-agent@0.73.1_@mariozechner+pi-tui@0.73.1",
     "npm:@mariozechner/pi-coding-agent@0.73.1": "0.73.1",
@@ -814,7 +814,16 @@
     "@earendil-works/pi-agent-core@0.79.5_zod@4.4.3": {
       "integrity": "sha512-yOxzx8SRJkGsZTJWfe9VACkAF4amwHUgvFShn8uoYR7/fnhF69Sz0n7TIh8qRH21fBDvo1RLex4NK/iXFQ3u2Q==",
       "dependencies": [
-        "@earendil-works/pi-ai",
+        "@earendil-works/pi-ai@0.79.9_zod@4.4.3",
+        "ignore",
+        "typebox",
+        "yaml"
+      ]
+    },
+    "@earendil-works/pi-agent-core@0.80.2": {
+      "integrity": "sha512-BF9WPhixIFjT6Kp3Iz3H6ugkU+4AWotM8py96XE5pIK0arJbQKMWbR+dXSWWDEmR5yc/aFQODnuyowOEzMGO7Q==",
+      "dependencies": [
+        "@earendil-works/pi-ai@0.80.2",
         "ignore",
         "typebox",
         "yaml"
@@ -837,12 +846,29 @@
       ],
       "bin": true
     },
-    "@earendil-works/pi-coding-agent@0.79.4_zod@4.4.3": {
-      "integrity": "sha512-PthzVzM5m4XH/hrU+2fVjuwuH5M4eMFWbd0NCRScH14XKpwlPc8/Fh6JDz0jQb5kTBT9oQT183YLTHVVulFL9A==",
+    "@earendil-works/pi-ai@0.80.2": {
+      "integrity": "sha512-5GNKfdrRJ4uZ5Zd9iudoXggi/BbUcKnD/xfRHtdR+7q4vWqPvfx8auFuaT+ewGBVI8K4wj87eigFQ/iCSuy9RQ==",
       "dependencies": [
-        "@earendil-works/pi-agent-core",
-        "@earendil-works/pi-ai",
-        "@earendil-works/pi-tui",
+        "@anthropic-ai/sdk",
+        "@aws-sdk/client-bedrock-runtime",
+        "@google/genai",
+        "@mistralai/mistralai",
+        "@opentelemetry/api",
+        "@smithy/node-http-handler@4.7.3",
+        "http-proxy-agent",
+        "https-proxy-agent",
+        "openai",
+        "partial-json",
+        "typebox"
+      ],
+      "bin": true
+    },
+    "@earendil-works/pi-coding-agent@0.80.2": {
+      "integrity": "sha512-m9v7OUit0s9LklWfh61ca/XY5INjUzjtYtNZwy3cNvyjOLk3IpBgghP8aAp0iH35rLaiRwuuWiJ8t88ODMWY+A==",
+      "dependencies": [
+        "@earendil-works/pi-agent-core@0.80.2",
+        "@earendil-works/pi-ai@0.80.2",
+        "@earendil-works/pi-tui@0.80.2",
         "@silvia-odwyer/photon-node",
         "chalk@5.6.2",
         "cross-spawn",
@@ -856,7 +882,7 @@
         "proper-lockfile",
         "semver@7.8.0",
         "typebox",
-        "undici@8.3.0",
+        "undici@8.5.0",
         "yaml"
       ],
       "optionalDependencies": [
@@ -866,6 +892,13 @@
     },
     "@earendil-works/pi-tui@0.79.9": {
       "integrity": "sha512-XcqfoGyoX64OSMQklMR1vG2MRi1TCPSUERRCmPDvYKCK6LtZoBqJ6idNCLRklNYveCj4gHDOzOsLhGqn04jmYw==",
+      "dependencies": [
+        "get-east-asian-width",
+        "marked@18.0.5"
+      ]
+    },
+    "@earendil-works/pi-tui@0.80.2": {
+      "integrity": "sha512-OvOAMIbXiC9OSse17YMiXIsI9AS5XM/ZV8N/k+UzdlRpPILDQYmLElevgGW92kkXR8qHBClIdzhCjuzlBGvphA==",
       "dependencies": [
         "get-east-asian-width",
         "marked@18.0.5"
@@ -3341,8 +3374,8 @@
     "undici@7.27.2": {
       "integrity": "sha512-uZsKNuzQxDMUY6M3pIMvy5tvlGmtq8XJ2oLAkfRKGNu+1VQAIvLy2xIVG5ATZl5wDXl/tddByAWCizRbOme+TA=="
     },
-    "undici@8.3.0": {
-      "integrity": "sha512-TkUDgb6tl7KOGZ+7e8E3d2FYgUQgF6z5YypqjWmixVQSQERFcVrVg0ySADm2LVLRh5ljAaHTCR5Fmz3Q34rB7Q=="
+    "undici@8.5.0": {
+      "integrity": "sha512-xamtWoB1EshgjpmlXd7GGm2VfdDtw1+rD8uhry8pSNW3If6S8E0m2T2+orSKeZXEn/aPJMviCpDBA65WJt8zhg=="
     },
     "unocss@66.7.2_vite@7.3.5": {
       "integrity": "sha512-yB0yOpJTtlyGH/HAe4QdnjgjSP6z9ItTdrObvagc8ZEwRY1D2GbfUABwDKyZzXs19gXebqThMG9f+W0hPhDIPA==",
@@ -3497,7 +3530,7 @@
       "npm:@codemirror/lang-markdown@^6.3.4",
       "npm:@earendil-works/pi-agent-core@~0.79.5",
       "npm:@earendil-works/pi-ai@~0.79.9",
-      "npm:@earendil-works/pi-coding-agent@~0.79.4",
+      "npm:@earendil-works/pi-coding-agent@~0.80.2",
       "npm:@earendil-works/pi-tui@~0.79.9",
       "npm:@gandazgul/plannotator-pi-extension-compiled@~0.21.2",
       "npm:@preact/signals@^2.5.1",
