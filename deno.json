@@ -29,7 +29,7 @@
         "proper-lockfile": "npm:proper-lockfile@^4.1.2",
         "fresh": "jsr:@fresh/core@^2.3.3",
         "@fresh/plugin-vite": "jsr:@fresh/plugin-vite@^1.1.2",
-        "preact": "npm:preact@^10.26.6",
+        "preact": "npm:preact@^10.29.3",
         "@preact/signals": "npm:@preact/signals@^2.9.2",
         "vite": "npm:vite@^7.2.7",
         "esbuild": "npm:esbuild@^0.25.12",

@@ -46,9 +46,9 @@
     "npm:@gandazgul/plannotator-pi-extension-compiled@~0.21.2": "0.21.2_@mariozechner+pi-agent-core@0.73.1_@mariozechner+pi-ai@0.73.1_@mariozechner+pi-coding-agent@0.73.1_@mariozechner+pi-tui@0.73.1",
     "npm:@mariozechner/pi-coding-agent@0.73.1": "0.73.1",
     "npm:@opentelemetry/api@^1.9.0": "1.9.0",
-    "npm:@preact/signals@^2.5.1": "2.9.2_preact@10.29.2",
-    "npm:@preact/signals@^2.9.2": "2.9.2_preact@10.29.2",
-    "npm:@prefresh/vite@^2.4.8": "2.4.12_preact@10.29.2_vite@7.3.5",
+    "npm:@preact/signals@^2.5.1": "2.9.2_preact@10.29.3",
+    "npm:@preact/signals@^2.9.2": "2.9.2_preact@10.29.3",
+    "npm:@prefresh/vite@^2.4.8": "2.4.12_preact@10.29.3_vite@7.3.5",
     "npm:@remix-run/node-fetch-server@0.12": "0.12.0",
     "npm:@sinclair/typebox@~0.34.49": "0.34.49",
     "npm:@types/babel__core@^7.20.5": "7.20.5",
@@ -58,10 +58,10 @@
     "npm:esbuild@0.25.7": "0.25.7",
     "npm:esbuild@~0.25.12": "0.25.12",
     "npm:esbuild@~0.25.5": "0.25.12",
-    "npm:preact-render-to-string@^6.6.3": "6.7.0_preact@10.29.2",
-    "npm:preact@^10.26.6": "10.29.2",
-    "npm:preact@^10.28.2": "10.29.2",
-    "npm:preact@^10.29.1": "10.29.2",
+    "npm:preact-render-to-string@^6.6.3": "6.7.0_preact@10.29.3",
+    "npm:preact@^10.28.2": "10.29.3",
+    "npm:preact@^10.29.1": "10.29.3",
+    "npm:preact@^10.29.3": "10.29.3",
     "npm:proper-lockfile@^4.1.2": "4.1.2",
     "npm:quikdown@^1.2.21": "1.2.21",
     "npm:rollup@^4.55.1": "4.62.2",
@@ -1707,7 +1707,7 @@
     "@preact/signals-core@1.14.3": {
       "integrity": "sha512-m0K3vnbSLC5rHs2ZVfeAMvBtT1zIyq4mxx5OlNncSgMj5Iz6W5Rn3kPrDxAC+iIKmiVe0lSl6U37t5ZkEWoVAw=="
     },
-    "@preact/signals@2.9.2_preact@10.29.2": {
+    "@preact/signals@2.9.2_preact@10.29.3": {
       "integrity": "sha512-DvFPISNMSh3vPqRwPa1tAVAHl85aDq4pTyNu1bTGfrKr64F3EOCHjdUl9aUdohKBf1v9PRGLYuGFcJpfztkdoQ==",
       "dependencies": [
         "@preact/signals-core",
@@ -1717,7 +1717,7 @@
     "@prefresh/babel-plugin@0.5.3": {
       "integrity": "sha512-57LX2SHs4BX2s1IwCjNzTE2OJeEepRCNf1VTEpbNcUyHfMO68eeOWGDIt4ob9aYlW6PEWZ1SuwNikuoIXANDtQ=="
     },
-    "@prefresh/core@1.5.10_preact@10.29.2": {
+    "@prefresh/core@1.5.10_preact@10.29.3": {
       "integrity": "sha512-7yPTFbG56sutaFu8krp3B4a200KOFUvrtlllKWRuLjsYXo9UUucHOZRcer+gtgMkFTpv6ob8TGcTwA32bSwa1w==",
       "dependencies": [
         "preact"
@@ -1726,7 +1726,7 @@
     "@prefresh/utils@1.2.1": {
       "integrity": "sha512-vq/sIuN5nYfYzvyayXI4C2QkprfNaHUQ9ZX+3xLD8nL3rWyzpxOm1+K7RtMbhd+66QcaISViK7amjnheQ/4WZw=="
     },
-    "@prefresh/vite@2.4.12_preact@10.29.2_vite@7.3.5": {
+    "@prefresh/vite@2.4.12_preact@10.29.3_vite@7.3.5": {
       "integrity": "sha512-FY1fzXpUjiuosznMV0YM7XAOPZjB5FIdWS0W24+XnlxYkt9hNAwwsiKYn+cuTEoMtD/ZVazS5QVssBr9YhpCQA==",
       "dependencies": [
         "@babel/core",
@@ -3084,14 +3084,14 @@
         "source-map-js"
       ]
     },
-    "preact-render-to-string@6.7.0_preact@10.29.2": {
+    "preact-render-to-string@6.7.0_preact@10.29.3": {
       "integrity": "sha512-Z4WR8fmLMRpdYqJ9i7vrlXSsSrxVJydwrkEXHapexfARbWfGb7vGcnvNQnIzN0cXciMVOlz/XLoiMCi9gUsy9Q==",
       "dependencies": [
         "preact"
       ]
     },
-    "preact@10.29.2": {
-      "integrity": "sha512-7tNmwg/7mzzAoB/8kSg6Hl37JraAZw3Z3A0JSY7VXlZwo82Xn0G7wKbNNs2qoF4ZEEsQGTwDAroNdqKs1ofJxQ=="
+    "preact@10.29.3": {
+      "integrity": "sha512-D9NL1GAnJZhc3RndVs4gDdxEeU9TcHgywMrhhOsnpdlvFjdbx0gAsLUnH6JEhlJH5giL7Tx5biWPUSEXE/HPzw=="
     },
     "proper-lockfile@4.1.2": {
       "integrity": "sha512-TjNPblN4BwAWMXU8s9AEz4JmQxnD1NNL7bNOY/AKUzyamc379FWASUhc/K1pL2noVb+XmZKLL68cjzLsiOAMaA==",
@@ -3540,7 +3540,7 @@
       "npm:chalk@^5.6.2",
       "npm:codemirror@^6.0.2",
       "npm:esbuild@~0.25.12",
-      "npm:preact@^10.26.6",
+      "npm:preact@^10.29.3",
       "npm:proper-lockfile@^4.1.2",
       "npm:quikdown@^1.2.21",
       "npm:strip-ansi@^7.2.0",
