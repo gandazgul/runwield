@@ -1,4 +1,4 @@
-import { assertEquals, assertNotEquals } from "@std/assert";
+import { assert, assertEquals, assertNotEquals } from "@std/assert";
 import chalk from "chalk";
 
 // Force chalk to produce ANSI codes in non-TTY test environment
@@ -15,6 +15,7 @@ import {
     SpinnerBlock,
     StyledBlock,
     SystemMessageBlock,
+    ThinkingBlock,
     ToolExecutionBlock,
     UserPromptBlock,
 } from "./blocks.js";
@@ -117,6 +118,42 @@ Deno.test("AgentMessageBlock renders without background (like Pi)", () => {
     // Verify agent name is in the output
     const plain = lines.map((l) => stripAnsi(l)).join("\n");
     assertEquals(plain.includes("TestAgent:"), true, "Should contain agent name");
+});
+
+// ─── ThinkingBlock ───────────────────────────────────────────────────────────
+
+Deno.test("ThinkingBlock renders reasoning with a visible thinking label and muted styling", () => {
+    const block = new ThinkingBlock();
+    block.appendText("\nThe user is greeting me.\nI should respond naturally.");
+
+    const lines = block.render(80);
+    const plain = lines.map((line) => stripAnsi(line)).join("\n");
+
+    assertEquals(plain.includes("Thinking"), true);
+    assertEquals(plain.includes("The user is greeting me."), true);
+    assertNotEquals(lines.join("\n"), plain, "ThinkingBlock should include ANSI styling");
+});
+
+Deno.test("ThinkingBlock wraps long reasoning lines to the viewport width", () => {
+    const block = new ThinkingBlock();
+    block.appendText("This is a long reasoning line that should wrap instead of truncating at the viewport edge.");
+
+    const lines = block.render(32).map((line) => stripAnsi(line));
+
+    assertEquals(lines.some((line) => line.includes("truncating")), true);
+    assertEquals(lines.some((line) => line.includes("viewport edge")), true);
+    assert(lines.every((line) => visibleLength(line) <= 32));
+});
+
+Deno.test("ThinkingBlock can hide reasoning text while preserving a thinking marker", () => {
+    const block = new ThinkingBlock({ hidden: true });
+    block.appendText("private reasoning");
+
+    const plain = block.render(80).map((line) => stripAnsi(line)).join("\n");
+
+    assertEquals(plain.includes("Thinking"), true);
+    assertEquals(plain.includes("hidden"), true);
+    assertEquals(plain.includes("private reasoning"), false);
 });
 
 // ─── SystemMessageBlock ──────────────────────────────────────────────────────

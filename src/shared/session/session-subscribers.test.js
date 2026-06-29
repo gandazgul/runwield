@@ -1,4 +1,5 @@
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
+import { setActiveUiAPI } from "./session-state.js";
 import { attachUiSubscribers } from "./session.js";
 
 /**
@@ -201,6 +202,28 @@ Deno.test("attachUiSubscribers reports assistant error when the stream ends befo
 
     assertEquals(ui.agentMessages.length, 1);
     assertEquals(ui.agentMessages[0].text.includes("**Error:** model exploded"), true);
+});
+
+Deno.test("attachUiSubscribers uses active UI when subscriber was attached before UI was available", () => {
+    const { session, emit } = makeSubscribableSession();
+    const ui = makeUi();
+
+    try {
+        setActiveUiAPI(null);
+        attachUiSubscribers(session, agentDef, undefined);
+        setActiveUiAPI(ui);
+
+        emit({ type: "message_start", message: { role: "assistant" } });
+        emit({ type: "message_update", assistantMessageEvent: { type: "thinking_delta", delta: "reasoning" } });
+        emit({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "answer" } });
+
+        assertEquals(ui.thinking, "reasoning");
+        assertEquals(ui.thinkingEnded, 1);
+        assertEquals(ui.agentMessages.length, 1);
+        assertEquals(ui.agentMessages[0].text, "answer");
+    } finally {
+        setActiveUiAPI(null);
+    }
 });
 
 Deno.test("attachUiSubscribers formats tool headers, streams output deltas, and drains invoked tools", () => {

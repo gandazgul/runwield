@@ -1,4 +1,5 @@
 import { Spacer } from "@earendil-works/pi-tui";
+import { getSettingsManager } from "../settings.js";
 import {
     AgentMessageBlock,
     PromptSelectBlock,
@@ -107,7 +108,8 @@ export function createUiApi(tui, messageList, spinner) {
             if (outputSuppressed) {
                 return { appendDelta: () => {}, end: () => {} };
             }
-            const block = new ThinkingBlock();
+            const hidden = getSettingsManager().getHideThinkingBlock?.() ?? false;
+            const block = new ThinkingBlock({ hidden });
             messageList.addChild(block);
             messageList.addChild(new Spacer(1));
             tui.requestRender();
@@ -117,7 +119,10 @@ export function createUiApi(tui, messageList, spinner) {
                     block.appendText(delta);
                     tui.requestRender();
                 },
-                end: () => {},
+                end: () => {
+                    block.end();
+                    tui.requestRender();
+                },
             };
         },
 

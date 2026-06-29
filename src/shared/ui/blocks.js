@@ -100,6 +100,52 @@ function normalizeToolHeaderText(text) {
 }
 
 /**
+ * Wrap plain text to terminal-width lines. Existing newlines are handled by the
+ * caller; this preserves words where possible and hard-wraps words longer than
+ * the viewport.
+ *
+ * @param {string} text
+ * @param {number} width
+ * @returns {string[]}
+ */
+function wrapPlainLine(text, width) {
+    if (width <= 0) return [""];
+    if (!text) return [""];
+
+    /** @type {string[]} */
+    const lines = [];
+    let line = "";
+
+    for (const word of text.split(/\s+/)) {
+        if (!word) continue;
+
+        if (!line) {
+            line = word;
+        } else if (visibleWidth(`${line} ${word}`) <= width) {
+            line = `${line} ${word}`;
+        } else {
+            lines.push(line);
+            line = word;
+        }
+
+        while (visibleWidth(line) > width) {
+            lines.push(truncateToWidth(line, width));
+            line = line.slice(stripAnsi(truncateToWidth(line, width)).length);
+        }
+    }
+
+    if (line || lines.length === 0) lines.push(line);
+    return lines;
+}
+
+const THINKING_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
+/** @param {number} frameIndex */
+function getThinkingFrame(frameIndex) {
+    return THINKING_FRAMES[frameIndex % THINKING_FRAMES.length];
+}
+
+/**
  * A block that applies a background color, horizontal/vertical padding,
  * and stretches each line to the full available width.
  *
@@ -183,30 +229,40 @@ export class UserPromptBlock {
  * execution without colliding with their backgrounds.
  */
 export class ThinkingBlock {
-    constructor() {
-        this.container = new Container();
-        this.container.addChild(new Text(theme.fg("dim", "✻ Thinking..."), 0, 0));
-
+    /** @param {{ hidden?: boolean }} [options] */
+    constructor(options = {}) {
+        this.hidden = options.hidden ?? false;
         this.currentText = "";
-        this.body = new Text("", 0, 0);
-        this.container.addChild(this.body);
-        this.container.addChild(new Spacer(1));
+        this.frameIndex = 0;
+        this.ended = false;
     }
 
     /** @param {string} delta */
     appendText(delta) {
         this.currentText += delta;
-        this.body.setText(theme.fg("thinkingText", this.currentText));
+        this.frameIndex++;
         this.invalidate();
     }
 
-    invalidate() {
-        this.container.invalidate();
+    end() {
+        this.ended = true;
+        this.invalidate();
     }
+
+    invalidate() {}
 
     /** @param {number} w */
     render(w) {
-        return this.container.render(w);
+        const marker = this.ended ? "✓" : getThinkingFrame(this.frameIndex);
+        const label = this.ended ? "Thinking complete" : "Thinking...";
+        const header = theme.fg("dim", `${marker} ${label}`);
+        const rawBody = this.hidden ? "hidden" : this.currentText.trimStart();
+        const bodyLines = rawBody ? rawBody.split(/\r?\n/).flatMap((line) => wrapPlainLine(line, w)) : [];
+        return [header, ...bodyLines.map((line) => theme.fg("thinkingText", line))]
+            .map((line) => {
+                const clamped = visibleWidth(line) > w ? truncateToWidth(line, w) : line;
+                return clamped + " ".repeat(Math.max(0, w - visibleWidth(clamped)));
+            });
     }
 }
 
@@ -676,7 +732,6 @@ export class SpinnerBlock {
         this.isBusy = false;
         /** @type {Array<{task: number, assignee: string, description: string}>} */
         this.tasks = [];
-        this.frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
     }
 
     /**
@@ -702,7 +757,7 @@ export class SpinnerBlock {
     render(w) {
         if (!this.isBusy && this.tasks.length === 0) return [];
 
-        const f = this.frames[this.frame % this.frames.length];
+        const f = getThinkingFrame(this.frame);
         if (this.tasks.length > 0) {
             return this.tasks.map((t) => {
                 const line = theme.fg("accent", f) + " " + theme.fg("success", t.assignee) + " " +

@@ -50,6 +50,7 @@ import { parseProviderModel } from "../models/model-validation.js";
 import {
     addSubAgentSession,
     getActiveModelState,
+    getActiveUiAPIState,
     getRootAgentName,
     getRootAgentSession,
     getRootSessionManager,
@@ -1406,6 +1407,8 @@ export function attachUiSubscribers(session, agentDef, uiAPI, debugLogPath) {
     };
 
     const unsubscribe = session.subscribe((event) => {
+        const liveUiAPI = uiAPI || getActiveUiAPIState() || undefined;
+
         switch (event.type) {
             case "message_start": {
                 if (shouldWriteDebugLog(debugLogPath) && debugLogPath) {
@@ -1443,8 +1446,8 @@ export function attachUiSubscribers(session, agentDef, uiAPI, debugLogPath) {
                             ].join("\n"),
                         );
                     }
-                    if (!currentThinkingStream && uiAPI) {
-                        currentThinkingStream = uiAPI.appendThinkingStart?.() ?? null;
+                    if (!currentThinkingStream && liveUiAPI) {
+                        currentThinkingStream = liveUiAPI.appendThinkingStart?.() ?? null;
                     }
                     if (currentThinkingStream) {
                         currentThinkingStream.appendDelta(event.assistantMessageEvent.delta);
@@ -1483,15 +1486,14 @@ export function attachUiSubscribers(session, agentDef, uiAPI, debugLogPath) {
                         );
                     }
                     endThinking();
-                    if (uiAPI) {
-                        if (!currentMarkdownBlock) {
-                            currentMarkdownBlock = uiAPI.appendAgentMessageStart(
-                                agentHeaderShown ? "" : agentDef.displayName,
-                            );
-                            agentHeaderShown = true;
-                        }
-                        currentMarkdownBlock.appendText(event.assistantMessageEvent.delta);
-                        uiAPI.requestRender();
+                    if (liveUiAPI) {
+                        const block = currentMarkdownBlock ?? liveUiAPI.appendAgentMessageStart(
+                            agentHeaderShown ? "" : agentDef.displayName,
+                        );
+                        currentMarkdownBlock = block;
+                        agentHeaderShown = true;
+                        block.appendText(event.assistantMessageEvent.delta);
+                        liveUiAPI.requestRender();
                     } else {
                         Deno.stdout.writeSync(
                             new TextEncoder().encode(event.assistantMessageEvent.delta),
@@ -1523,7 +1525,7 @@ export function attachUiSubscribers(session, agentDef, uiAPI, debugLogPath) {
 
                 if (
                     event.message.role === "assistant" && event.message.stopReason === "error" &&
-                    uiAPI
+                    liveUiAPI
                 ) {
                     if (shouldWriteDebugLog(debugLogPath) && debugLogPath) {
                         appendDebugLog(
@@ -1536,22 +1538,21 @@ export function attachUiSubscribers(session, agentDef, uiAPI, debugLogPath) {
                             ].join("\n"),
                         );
                     }
-                    if (!currentMarkdownBlock) {
-                        currentMarkdownBlock = uiAPI.appendAgentMessageStart(
-                            agentHeaderShown ? "" : agentDef.displayName,
-                        );
-                        agentHeaderShown = true;
-                    }
-                    currentMarkdownBlock.appendText(
+                    const block = currentMarkdownBlock ?? liveUiAPI.appendAgentMessageStart(
+                        agentHeaderShown ? "" : agentDef.displayName,
+                    );
+                    currentMarkdownBlock = block;
+                    agentHeaderShown = true;
+                    block.appendText(
                         `\n\n**Error:** ${sanitizeApiErrorMessage(event.message.errorMessage || "Unknown LLM error")}`,
                     );
-                    uiAPI.requestRender();
+                    liveUiAPI.requestRender();
                 }
                 break;
             }
             case "auto_retry_start": {
-                if (uiAPI) {
-                    uiAPI.appendSystemMessage(
+                if (liveUiAPI) {
+                    liveUiAPI.appendSystemMessage(
                         `[Retry ${event.attempt}/${event.maxAttempts}] ${
                             sanitizeApiErrorMessage(event.errorMessage)
                         } — waiting ${event.delayMs}ms...`,
@@ -1560,8 +1561,8 @@ export function attachUiSubscribers(session, agentDef, uiAPI, debugLogPath) {
                 break;
             }
             case "auto_retry_end": {
-                if (uiAPI && !event.success) {
-                    uiAPI.appendSystemMessage(
+                if (liveUiAPI && !event.success) {
+                    liveUiAPI.appendSystemMessage(
                         `Auto-retry failed after ${event.attempt} attempts: ${event.finalError || "Unknown error"}`,
                         true,
                     );
@@ -1639,9 +1640,9 @@ export function attachUiSubscribers(session, agentDef, uiAPI, debugLogPath) {
                     headerArgs = "to router";
                 }
 
-                if (uiAPI && uiAPI.startToolExecution) {
+                if (liveUiAPI && liveUiAPI.startToolExecution) {
                     const headerName = event.toolName === "bash" ? "$" : event.toolName;
-                    uiAPI.startToolExecution(event.toolCallId, headerName, headerArgs);
+                    liveUiAPI.startToolExecution(event.toolCallId, headerName, headerArgs);
                 } else {
                     console.log(`\n  [Tool] ${event.toolName} ${headerArgs}`);
                 }
@@ -1662,8 +1663,8 @@ export function attachUiSubscribers(session, agentDef, uiAPI, debugLogPath) {
                         ].join("\n"),
                     );
                 }
-                if (uiAPI && uiAPI.getActiveToolBlock) {
-                    const block = uiAPI.getActiveToolBlock(event.toolCallId);
+                if (liveUiAPI && liveUiAPI.getActiveToolBlock) {
+                    const block = liveUiAPI.getActiveToolBlock(event.toolCallId);
                     if (block && event.partialResult && event.partialResult.content) {
                         const newContentText = event.partialResult.content
                             .map((/** @type {{ text?: string } | null | undefined } */ contentBlock) =>
@@ -1694,8 +1695,8 @@ export function attachUiSubscribers(session, agentDef, uiAPI, debugLogPath) {
                         ].join("\n"),
                     );
                 }
-                if (uiAPI && uiAPI.getActiveToolBlock) {
-                    const block = uiAPI.getActiveToolBlock(event.toolCallId);
+                if (liveUiAPI && liveUiAPI.getActiveToolBlock) {
+                    const block = liveUiAPI.getActiveToolBlock(event.toolCallId);
                     if (block) {
                         // Make sure we append any final result text that wasn't streamed
                         if (event.result && event.result.content) {
@@ -1720,35 +1721,35 @@ export function attachUiSubscribers(session, agentDef, uiAPI, debugLogPath) {
                 break;
             }
             case "turn_start": {
-                if (uiAPI && uiAPI.setBusy) uiAPI.setBusy(true);
+                if (liveUiAPI && liveUiAPI.setBusy) liveUiAPI.setBusy(true);
                 break;
             }
             case "turn_end": {
-                if (uiAPI && uiAPI.setBusy) uiAPI.setBusy(false);
+                if (liveUiAPI && liveUiAPI.setBusy) liveUiAPI.setBusy(false);
                 break;
             }
             case "compaction_start": {
                 // Manual /compact has its own UI in cmd/compact/index.js — avoid duplicate status.
-                if (uiAPI && event.reason !== "manual") {
+                if (liveUiAPI && event.reason !== "manual") {
                     const label = event.reason === "overflow"
                         ? "Context overflow detected, auto-compacting..."
                         : "Auto-compacting context...";
-                    uiAPI.appendSystemMessage(label);
+                    liveUiAPI.appendSystemMessage(label);
                 }
                 break;
             }
             case "compaction_end": {
                 // Manual /compact's success/failure is reported by the slash command itself
                 // (which awaits session.compact()). Only emit a UI message for auto runs.
-                if (uiAPI && event.reason !== "manual") {
+                if (liveUiAPI && event.reason !== "manual") {
                     if (event.aborted) {
-                        uiAPI.appendSystemMessage("Auto-compaction cancelled.");
+                        liveUiAPI.appendSystemMessage("Auto-compaction cancelled.");
                     } else if (event.result) {
-                        uiAPI.appendSystemMessage(
+                        liveUiAPI.appendSystemMessage(
                             `Auto-compacted. Tokens before: ${event.result.tokensBefore.toLocaleString()}`,
                         );
                     } else if (event.errorMessage) {
-                        uiAPI.appendSystemMessage(
+                        liveUiAPI.appendSystemMessage(
                             `Auto-compaction failed: ${sanitizeApiErrorMessage(event.errorMessage)}`,
                         );
                     }
