@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { basicSetup, EditorView } from "codemirror";
 import { markdown } from "@codemirror/lang-markdown";
-import { PLAN_UI_TOKEN_HEADER, PLAN_UI_TOKEN_QUERY } from "../../../constants.js";
+import { PLAN_UI_TOKEN_HEADER, PLAN_UI_TOKEN_QUERY } from "../constants.js";
 import { renderMarkdown } from "../components/MarkdownView.jsx";
 
 /**
@@ -125,16 +125,6 @@ export function PlanBodyEditor({ plan, initialEdit = false }) {
         localStorage.setItem(draftKey, serializeDraft({ body, baseBodyHash: expectedBodyHash }));
     }, [body, dirty, draftKey, expectedBodyHash]);
 
-    function openEditor() {
-        if (draft) {
-            setMessage("A local draft exists. Restore or discard it before editing this Plan body.");
-            setMode("read");
-            return;
-        }
-        setMessage("");
-        setMode("edit");
-    }
-
     function restoreDraft() {
         if (!draft) return;
         setBody(draft.body);
@@ -202,24 +192,19 @@ export function PlanBodyEditor({ plan, initialEdit = false }) {
 
     return (
         <section class="plan-body-editor" data-editor-mode={mode}>
-            <div class="editor-toolbar">
-                {mode === "read"
-                    ? <button type="button" class="primary-action" onClick={openEditor}>Edit body</button>
-                    : null}
-                {mode === "edit"
-                    ? (
-                        <>
-                            <button type="button" class="primary-action" disabled={saving || !dirty} onClick={saveBody}>
-                                {saving ? "Saving…" : "Save"}
-                            </button>
-                            <button type="button" onClick={cancelEdit}>Cancel</button>
-                            <span class={dirty ? "dirty-indicator" : "saved-indicator"}>
-                                {dirty ? "Unsaved changes" : "No changes"}
-                            </span>
-                        </>
-                    )
-                    : null}
-            </div>
+            {mode === "edit"
+                ? (
+                    <div class="editor-toolbar">
+                        <button type="button" class="primary-action" disabled={saving || !dirty} onClick={saveBody}>
+                            {saving ? "Saving…" : "Save"}
+                        </button>
+                        <button type="button" onClick={cancelEdit}>Cancel</button>
+                        <span class={dirty ? "dirty-indicator" : "saved-indicator"}>
+                            {dirty ? "Unsaved changes" : "No changes"}
+                        </span>
+                    </div>
+                )
+                : null}
             {message ? <p class="notice editor-notice">{message}</p> : null}
             {draft && mode === "read"
                 ? (

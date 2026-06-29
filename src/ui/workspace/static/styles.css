@@ -13,15 +13,28 @@ body {
     padding: 28px;
 }
 .topbar {
-    display: flex;
-    justify-content: space-between;
-    gap: 16px;
     align-items: center;
+    display: flex;
 }
-.topbar h1, .page-header h2 {
+.brand {
+    align-items: center;
+    color: #e2e8f0;
+    display: inline-flex;
+    font-size: 1.15rem;
+    font-weight: 800;
+    gap: 0.75rem;
+    letter-spacing: 0.01em;
+    text-decoration: none;
+}
+.brand-logo {
+    display: block;
+    height: 2.4rem;
+    width: 3.1rem;
+}
+.page-header h2 {
     margin: 0.1rem 0;
 }
-.topbar p, .page-header p {
+.page-header p {
     color: #cbd5e1;
     margin: 0.35rem 0 0;
 }
@@ -32,9 +45,13 @@ body {
     font-size: 0.75rem;
 }
 .card-kicker {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
     margin: 0 0 0.2rem;
 }
-.readonly-pill, .readonly-note, .disabled-action {
+.disabled-action {
     border: 1px solid #38bdf8;
     border-radius: 999px;
     color: #bae6fd;
@@ -47,18 +64,51 @@ body {
     background: #111827;
 }
 .tabs {
+    align-items: flex-end;
+    border-bottom: 1px solid #334155;
     display: flex;
-    gap: 10px;
+    gap: 0;
     margin: 24px 0;
 }
-.tabs a, .card-actions a {
+.tabs a {
+    background: #0f172a;
+    border: 1px solid #334155;
+    border-bottom: 0;
+    border-radius: 12px 12px 0 0;
+    color: #cbd5e1;
+    display: inline-flex;
+    justify-content: center;
+    min-width: 8.5rem;
+    padding: 0.7rem 1rem;
+    position: relative;
+    text-decoration: none;
+}
+.tabs a + a {
+    margin-left: 0.35rem;
+}
+.tabs a.active,
+.workspace-shell:has([data-selected-tab="active"]) .tabs a[data-tab="active"],
+.workspace-shell:has([data-selected-tab="closed"]) .tabs a[data-tab="closed"],
+.workspace-shell:has([data-selected-tab="on-hold"]) .tabs a[data-tab="on-hold"] {
+    background: #2563eb;
+    border-color: #60a5fa;
+    color: #fff;
+    font-weight: 800;
+    margin-bottom: -1px;
+    padding-bottom: calc(0.7rem + 1px);
+}
+.tabs a:hover {
+    border-color: #60a5fa;
+    color: #fff;
+}
+.card-actions a {
     color: #dbeafe;
     text-decoration: none;
     border: 1px solid #334155;
     border-radius: 999px;
     padding: 0.55rem 0.9rem;
 }
-.tabs a:hover, .card-actions a:hover {
+.card-actions a:hover {
     border-color: #60a5fa;
 }
 .page-header {
@@ -137,17 +187,78 @@ body {
     gap: 12px;
 }
 .card-title {
-    font-weight: 700;
     color: #bfdbfe;
+    display: inline-block;
+    font-weight: 700;
     text-decoration: none;
 }
+.clickable-card {
+    cursor: pointer;
+    position: relative;
+    transition: border-color 0.15s ease, transform 0.15s ease;
+}
+.clickable-card:hover {
+    border-color: #60a5fa;
+    transform: translateY(-1px);
+}
+.card-hit-area {
+    border-radius: inherit;
+    inset: 0;
+    position: absolute;
+    z-index: 3;
+}
+.clickable-card > :not(.card-hit-area) {
+    pointer-events: none;
+    position: relative;
+    z-index: 2;
+}
 .status, .badge {
-    font-size: 0.8rem;
+    align-items: center;
     background: #1e293b;
     border: 1px solid #334155;
     border-radius: 999px;
-    padding: 0.2rem 0.5rem;
+    color: #dbeafe;
+    display: inline-flex;
+    font-size: 0.8rem;
+    font-weight: 700;
+    line-height: 1.2;
+    padding: 0.25rem 0.6rem;
     white-space: nowrap;
+}
+.status-draft,
+.status-feedback {
+    background: #1e293b;
+    border-color: #64748b;
+    color: #e2e8f0;
+}
+.status-approved,
+.status-ready_for_decomposition,
+.status-ready_for_work {
+    background: #172554;
+    border-color: #3b82f6;
+    color: #bfdbfe;
+}
+.status-in_progress,
+.status-implemented {
+    background: #422006;
+    border-color: #f59e0b;
+    color: #fde68a;
+}
+.status-verified {
+    background: #052e16;
+    border-color: #22c55e;
+    color: #bbf7d0;
+}
+.status-failed {
+    background: #3f1d1d;
+    border-color: #ef4444;
+    color: #fecaca;
+}
+.status-closed_without_verification,
+.status-on_hold {
+    background: #25233a;
+    border-color: #818cf8;
+    color: #c7d2fe;
 }
 .badge.danger {
     background: #3f1d1d;
@@ -267,6 +378,33 @@ body {
     border-bottom: 1px solid #334155;
     padding-bottom: 18px;
 }
+.split-header {
+    align-items: flex-start;
+    display: flex;
+    gap: 1rem;
+    justify-content: space-between;
+}
+.header-actions {
+    align-items: center;
+    display: flex;
+    flex-shrink: 0;
+    gap: 0.65rem;
+}
+.secondary-action {
+    align-items: center;
+    background: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 999px;
+    color: #dbeafe;
+    display: inline-flex;
+    font-weight: 700;
+    padding: 0.45rem 0.8rem;
+    text-decoration: none;
+}
+.secondary-action:hover {
+    border-color: #60a5fa;
+    color: #fff;
+}
 .markdown-view {
     background: #020617;
     border: 1px solid #1e293b;
@@ -302,7 +440,8 @@ body {
     .detail-grid {
         grid-template-columns: 1fr;
     }
-    .topbar {
+    .topbar,
+    .split-header {
         align-items: flex-start;
         flex-direction: column;
     }
@@ -354,20 +493,65 @@ button.primary-action:disabled {
     font-weight: 700;
 }
 
+.detail-grid:has(.plan-body-editor[data-editor-mode="edit"]) {
+    grid-template-columns: minmax(0, 1fr);
+}
+
 .codemirror-shell {
     overflow: hidden;
-    border: 1px solid #cbd5e1;
+    border: 1px solid #334155;
     border-radius: 16px;
-    background: #fff;
+    background: #020617;
+    box-shadow: inset 0 1px 0 #ffffff0d;
 }
 
 .codemirror-shell .cm-editor {
-    min-height: 28rem;
+    min-height: 65vh;
+    height: min(72vh, 56rem);
+    width: 100%;
+    background: #020617 !important;
+    color: #e2e8f0 !important;
     font-size: 0.95rem;
 }
 
 .codemirror-shell .cm-scroller {
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    overflow: auto;
+}
+
+.codemirror-shell .cm-content {
+    caret-color: #bfdbfe;
+    padding: 14px 0;
+}
+
+.codemirror-shell .cm-line {
+    color: #e2e8f0;
+}
+
+.codemirror-shell .cm-gutters {
+    background: #0f172a !important;
+    border-right: 1px solid #334155 !important;
+    color: #94a3b8 !important;
+}
+
+.codemirror-shell .cm-activeLine,
+.codemirror-shell .cm-activeLineGutter {
+    background: #1e293b !important;
+}
+
+.codemirror-shell .cm-cursor {
+    border-left-color: #bfdbfe !important;
+}
+
+.codemirror-shell .cm-selectionBackground,
+.codemirror-shell .cm-focused .cm-selectionBackground,
+.codemirror-shell .cm-content ::selection {
+    background: #2563eb66 !important;
+}
+
+.codemirror-shell .cm-focused {
+    outline: 2px solid #2563eb;
+    outline-offset: -2px;
 }
 
 .dirty-indicator,

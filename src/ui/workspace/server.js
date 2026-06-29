@@ -13,6 +13,7 @@ import { boardApi, planBodyApi, planDetailApi, plansApi, workspaceApi } from "./
 
 const WORKSPACE_DIR = dirname(fromFileUrl(import.meta.url));
 const STYLES_PATH = join(WORKSPACE_DIR, "static", "styles.css");
+const LOGO_PATH = join(WORKSPACE_DIR, "..", "..", "..", "logo.svg");
 
 /**
  * @param {Request} request
@@ -32,7 +33,7 @@ export function createWorkspaceApp({ cwd, token, skipTokenCheck = false }) {
     app.use(async (ctx) => {
         ctx.state.cwd = cwd;
         if (skipTokenCheck) return await ctx.next();
-        if (ctx.url.pathname === "/styles.css") return await ctx.next();
+        if (ctx.url.pathname === "/styles.css" || ctx.url.pathname === "/logo.svg") return await ctx.next();
         if (!hasWorkspaceToken(ctx.req, token)) {
             return new Response("Workspace token required.", { status: 401 });
         }
@@ -41,6 +42,10 @@ export function createWorkspaceApp({ cwd, token, skipTokenCheck = false }) {
     app.get("/styles.css", async () => {
         const css = await Deno.readTextFile(STYLES_PATH);
         return new Response(css, { headers: { "content-type": "text/css; charset=utf-8" } });
+    });
+    app.get("/logo.svg", async () => {
+        const logo = await Deno.readTextFile(LOGO_PATH);
+        return new Response(logo, { headers: { "content-type": "image/svg+xml; charset=utf-8" } });
     });
     app.appWrapper(AppWrapper);
     app.layout("*", WorkspaceLayout);

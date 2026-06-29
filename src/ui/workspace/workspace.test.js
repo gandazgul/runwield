@@ -362,11 +362,11 @@ Deno.test("Workspace API and detail route return readable editable Plan body met
 
         const detail = await app(new Request("http://localhost/plans/detail-id?token=secret"));
         const html = await detail.text();
-        assertStringIncludes(html, "Read-first Plan detail");
         assertStringIncludes(html, "Readable body");
         assertStringIncludes(html, 'href="https://runwield.dev"');
         assertStringIncludes(html, "RunWield");
-        assertStringIncludes(html, "Edit body");
+        assertStringIncludes(html, ">Edit</a>");
+        assertStringIncludes(html, ">Close</a>");
         assertStringIncludes(html, "edit=body");
     } finally {
         await Deno.remove(cwd, { recursive: true });

@@ -1,6 +1,26 @@
 import { PlanBodyEditor } from "../islands/PlanBodyEditor.jsx";
 import { workspaceHref } from "./PlanCard.jsx";
 
+const CLOSED_STATUSES = new Set(["verified", "closed_without_verification"]);
+
+/** @param {string} status */
+export function tabForPlanStatus(status) {
+    if (status === "on_hold") return "on-hold";
+    if (CLOSED_STATUSES.has(status)) return "closed";
+    return "active";
+}
+
+/**
+ * @param {string} status
+ * @param {URL} url
+ */
+export function boardHrefForPlanStatus(status, url) {
+    const tab = tabForPlanStatus(status);
+    if (tab === "closed") return workspaceHref("/closed", url);
+    if (tab === "on-hold") return workspaceHref("/on-hold", url);
+    return workspaceHref("/", url);
+}
+
 /** @param {{ plan: any }} props */
 function DetailMetadata({ plan }) {
     return (
@@ -97,27 +117,28 @@ function FrontMatterSummary({ frontMatter }) {
 /** @param {{ plan: any, url: URL, editIntent?: boolean }} props */
 export function PlanDetail({ plan, url, editIntent = false }) {
     const editHref = workspaceHref(`/plans/${encodeURIComponent(plan.planId)}?edit=body`, url);
+    const closeHref = boardHrefForPlanStatus(plan.status, url);
     return (
-        <article class="detail" data-plan-id={plan.planId}>
-            <header class="page-header detail-header">
-                <p class="eyebrow">Read-first Plan detail</p>
-                <h2>{plan.planName}</h2>
-                <p>{plan.summary || "No summary provided."}</p>
-                <div class="detail-actions" aria-label="Plan detail actions">
-                    <span class="status">{plan.status}</span>
-                    {plan.hierarchyRole === "orphan-child"
-                        ? <span class="badge warning">Missing parent Epic</span>
-                        : null}
-                    {plan.blockedByDependencies ? <span class="badge warning">Dependency blocked</span> : null}
-                    <a class="primary-action" href={editHref}>Edit body</a>
-                    <span class="disabled-action" aria-disabled="true">
-                        Lifecycle actions after board-actions slice
-                    </span>
+        <article class="detail" data-plan-id={plan.planId} data-selected-tab={tabForPlanStatus(plan.status)}>
+            <header class="page-header detail-header split-header">
+                <div>
+                    <h2>{plan.planName}</h2>
+                    <p>{plan.summary || "No summary provided."}</p>
+                    <div class="detail-actions" aria-label="Plan status">
+                        <span class={`status status-${plan.status}`}>{plan.status}</span>
+                        {plan.hierarchyRole === "orphan-child"
+                            ? <span class="badge warning">Missing parent Epic</span>
+                            : null}
+                        {plan.blockedByDependencies ? <span class="badge warning">Dependency blocked</span> : null}
+                    </div>
+                </div>
+                <div class="header-actions" aria-label="Plan detail actions">
+                    {editIntent ? null : <a class="primary-action" href={editHref}>Edit</a>}
+                    <a class="secondary-action" href={closeHref}>Close</a>
                 </div>
             </header>
             <section class="detail-grid">
                 <div>
-                    <h3>Plan body</h3>
                     <PlanBodyEditor plan={plan} initialEdit={editIntent} />
                 </div>
                 <aside>

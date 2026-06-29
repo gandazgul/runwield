@@ -1,4 +1,4 @@
-import { PLAN_UI_TOKEN_QUERY } from "../../../constants.js";
+import { PLAN_UI_TOKEN_QUERY } from "../constants.js";
 
 /**
  * @param {string} path
@@ -16,17 +16,29 @@ export function WorkspaceLayout({ Component, url }) {
     return (
         <div class="workspace-shell">
             <header class="topbar">
-                <div>
-                    <div class="eyebrow">RunWield Workspace</div>
-                    <h1>Project Workspace</h1>
-                    <p>Local, token-protected planning surface for this checkout.</p>
-                </div>
-                <p class="readonly-pill">Read-only Plan foundation</p>
+                <a class="brand" href={linkWithToken("/", url)} aria-label="RunWield Planning Workspace home">
+                    <img class="brand-logo" src="/logo.svg" alt="" aria-hidden="true" />
+                    <span>RunWield Planning Workspace</span>
+                </a>
             </header>
             <nav class="tabs" aria-label="Workspace views">
-                <a href={linkWithToken("/", url)}>Plan Board</a>
-                <a href={linkWithToken("/closed", url)}>Closed</a>
-                <a href={linkWithToken("/on-hold", url)}>On Hold</a>
+                <a class={url.pathname === "/" ? "active" : ""} data-tab="active" href={linkWithToken("/", url)}>
+                    Plan Board
+                </a>
+                <a
+                    class={url.pathname === "/closed" ? "active" : ""}
+                    data-tab="closed"
+                    href={linkWithToken("/closed", url)}
+                >
+                    Closed
+                </a>
+                <a
+                    class={url.pathname === "/on-hold" ? "active" : ""}
+                    data-tab="on-hold"
+                    href={linkWithToken("/on-hold", url)}
+                >
+                    On Hold
+                </a>
             </nav>
             <main>
                 <Component />

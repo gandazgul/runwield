@@ -1,5 +1,5 @@
 import { BoardColumn } from "./BoardColumn.jsx";
-import { DetailMetadata, FrontMatterSummary } from "./PlanDetail.jsx";
+import { boardHrefForPlanStatus, DetailMetadata, FrontMatterSummary, tabForPlanStatus } from "./PlanDetail.jsx";
 import { MarkdownView } from "./MarkdownView.jsx";
 
 /** @param {any} entry */
@@ -30,52 +30,61 @@ export function EpicDetail({ epic, url }) {
     const childrenWithDependencies = (epic.children || []).filter(
         (/** @type {any} */ child) => child.dependencyStates?.length,
     );
+    const closeHref = boardHrefForPlanStatus(epic.status, url);
     return (
-        <article class="detail epic-detail" data-plan-id={epic.planId}>
-            <header class="page-header detail-header">
-                <p class="eyebrow">Epic detail</p>
-                <h2>{epic.planName}</h2>
-                <p>{epic.summary || "No Epic summary provided."}</p>
-                <div class="progress-meter large" aria-label="Epic child progress">
-                    <span>{progress.verified}/{progress.total} child Plans verified</span>
-                    <span>{progress.active} active or implemented</span>
-                    <span>{progress.remaining} remaining</span>
-                    {failed ? <span>{failed} failed</span> : null}
-                    {held ? <span>{held} on hold</span> : null}
-                    {blocked ? <span>{blocked} blocked by dependencies</span> : null}
-                    {missing ? <span>{missing} with missing dependencies</span> : null}
-                </div>
-                <div class="badge-row health-summary">
-                    {epic.doneEnough
-                        ? (
-                            <span class="badge success">
-                                Epic marked done enough{epic.epicDoneEnoughAt ? ` at ${epic.epicDoneEnoughAt}` : ""}
-                            </span>
-                        )
+        <article
+            class="detail epic-detail"
+            data-plan-id={epic.planId}
+            data-selected-tab={tabForPlanStatus(epic.status)}
+        >
+            <header class="page-header detail-header split-header">
+                <div>
+                    <h2>{epic.planName}</h2>
+                    <p>{epic.summary || "No Epic summary provided."}</p>
+                    <div class="progress-meter large" aria-label="Epic child progress">
+                        <span>{progress.verified}/{progress.total} child Plans verified</span>
+                        <span>{progress.active} active or implemented</span>
+                        <span>{progress.remaining} remaining</span>
+                        {failed ? <span>{failed} failed</span> : null}
+                        {held ? <span>{held} on hold</span> : null}
+                        {blocked ? <span>{blocked} blocked by dependencies</span> : null}
+                        {missing ? <span>{missing} with missing dependencies</span> : null}
+                    </div>
+                    <div class="badge-row health-summary">
+                        {epic.doneEnough
+                            ? (
+                                <span class="badge success">
+                                    Epic marked done enough{epic.epicDoneEnoughAt ? ` at ${epic.epicDoneEnoughAt}` : ""}
+                                </span>
+                            )
+                            : null}
+                        {epic.status === "on_hold"
+                            ? (
+                                <span class="badge muted">
+                                    Epic on hold{epic.heldFromStatus ? ` from ${epic.heldFromStatus}` : ""}
+                                    {epic.heldAt ? ` at ${epic.heldAt}` : ""}
+                                </span>
+                            )
+                            : null}
+                        {failed ? <span class="badge danger">{failed} failed child Plans</span> : null}
+                        {held ? <span class="badge muted">{held} child Plans on hold</span> : null}
+                        {blocked ? <span class="badge warning">{blocked} child Plans blocked</span> : null}
+                    </div>
+                    {epic.doneEnough && epic.epicDoneEnoughSummary
+                        ? <p class="notice success">Done enough: {epic.epicDoneEnoughSummary}</p>
                         : null}
                     {epic.status === "on_hold"
                         ? (
-                            <span class="badge muted">
-                                Epic on hold{epic.heldFromStatus ? ` from ${epic.heldFromStatus}` : ""}
-                                {epic.heldAt ? ` at ${epic.heldAt}` : ""}
-                            </span>
+                            <p class="notice muted">
+                                Held Epic only blocks child work in UI context; child statuses are shown unchanged.{" "}
+                                {holdMetadata(epic)}
+                            </p>
                         )
                         : null}
-                    {failed ? <span class="badge danger">{failed} failed child Plans</span> : null}
-                    {held ? <span class="badge muted">{held} child Plans on hold</span> : null}
-                    {blocked ? <span class="badge warning">{blocked} child Plans blocked</span> : null}
                 </div>
-                {epic.doneEnough && epic.epicDoneEnoughSummary
-                    ? <p class="notice success">Done enough: {epic.epicDoneEnoughSummary}</p>
-                    : null}
-                {epic.status === "on_hold"
-                    ? (
-                        <p class="notice muted">
-                            Held Epic only blocks child work in UI context; child statuses are shown unchanged.{" "}
-                            {holdMetadata(epic)}
-                        </p>
-                    )
-                    : null}
+                <div class="header-actions" aria-label="Epic detail actions">
+                    <a class="secondary-action" href={closeHref}>Close</a>
+                </div>
             </header>
             <section class="detail-grid">
                 <div>

@@ -38,11 +38,6 @@ export function PlanBoard({ board, view, url }) {
     );
     return (
         <section class="board-view" data-view={view}>
-            <header class="page-header">
-                <p class="eyebrow">{screen.eyebrow}</p>
-                <h2>{screen.title}</h2>
-                <p>{screen.description}</p>
-            </header>
             {totalCards === 0 ? <EmptyState label={screen.title.toLowerCase()} /> : null}
             <div class="status-board" aria-label={`${screen.title} status columns`}>
                 {screen.columns.map(/** @param {any} column */ (column) => (

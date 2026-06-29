@@ -8,12 +8,14 @@ export function EpicCard({ epic, url }) {
     const blocked = epic.childHealth?.blocked?.length || 0;
     const missing = epic.childHealth?.missingDependencies?.length || 0;
     const implemented = progress.byStatus?.implemented || 0;
+    const href = detailHref(epic, url);
     return (
-        <article class="plan-card epic-card" data-plan-id={epic.planId} data-status={epic.status}>
+        <article class="plan-card epic-card clickable-card" data-plan-id={epic.planId} data-status={epic.status}>
+            <a class="card-hit-area" href={href} aria-label={`Open ${epic.planName} details`}></a>
             <div class="card-header">
                 <div>
                     <p class="card-kicker">Epic</p>
-                    <a class="card-title" href={detailHref(epic, url)}>{epic.planName}</a>
+                    <span class="card-title">{epic.planName}</span>
                 </div>
             </div>
             <p>{epic.summary || "No Epic summary provided."}</p>
@@ -30,10 +32,6 @@ export function EpicCard({ epic, url }) {
                 {held ? <span class="badge muted">{held} on hold</span> : null}
                 {blocked ? <span class="badge warning">{blocked} blocked</span> : null}
                 {missing ? <span class="badge danger">{missing} missing deps</span> : null}
-            </div>
-            <div class="card-actions" aria-label="Epic card actions">
-                <a href={detailHref(epic, url)}>Open Epic detail</a>
-                <span aria-disabled="true">Child actions live in Epic detail</span>
             </div>
         </article>
     );

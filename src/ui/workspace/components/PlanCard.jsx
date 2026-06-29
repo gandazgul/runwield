@@ -1,4 +1,4 @@
-import { PLAN_UI_TOKEN_QUERY } from "../../../constants.js";
+import { PLAN_UI_TOKEN_QUERY } from "../constants.js";
 
 /**
  * @param {string} path
@@ -30,16 +30,21 @@ export function editBodyHref(plan, url) {
 /** @param {{ plan: any, url: URL, compact?: boolean, roleLabel?: string }} props */
 export function PlanCard({ plan, url, compact = false, roleLabel = "Plan" }) {
     const isChildCard = plan.hierarchyRole === "child" || plan.hierarchyRole === "orphan-child";
+    const href = detailHref(plan, url);
     return (
         <article
-            class={compact ? "plan-card compact" : "plan-card"}
+            class={compact ? "plan-card compact clickable-card" : "plan-card clickable-card"}
             data-plan-id={plan.planId}
             data-status={plan.status}
         >
+            <a class="card-hit-area" href={href} aria-label={`Open ${plan.planName} details`}></a>
             <div class="card-header">
                 <div>
-                    <p class="card-kicker">{roleLabel}</p>
-                    <a class="card-title" href={detailHref(plan, url)}>{plan.planName}</a>
+                    <p class="card-kicker">
+                        <span>{roleLabel}</span>
+                        {plan.complexity ? <span>{plan.complexity}</span> : null}
+                    </p>
+                    <span class="card-title">{plan.planName}</span>
                 </div>
             </div>
             <p>{plan.summary || "No summary provided."}</p>
@@ -54,33 +59,6 @@ export function PlanCard({ plan, url, compact = false, roleLabel = "Plan" }) {
                 {plan.hierarchyRole === "orphan-child" ? <span class="badge warning">Missing parent Epic</span> : null}
                 {isChildCard && plan.status === "on_hold" ? <span class="badge muted">Child on hold</span> : null}
                 {isChildCard && plan.status === "failed" ? <span class="badge danger">Failed child</span> : null}
-            </div>
-            <dl class="meta-list">
-                <div>
-                    <dt>Class</dt>
-                    <dd>{plan.classification}</dd>
-                </div>
-                {plan.complexity
-                    ? (
-                        <div>
-                            <dt>Complexity</dt>
-                            <dd>{plan.complexity}</dd>
-                        </div>
-                    )
-                    : null}
-                {plan.parentPlan
-                    ? (
-                        <div>
-                            <dt>Epic</dt>
-                            <dd>{plan.parentPlan}</dd>
-                        </div>
-                    )
-                    : null}
-            </dl>
-            <div class="card-actions" aria-label="Plan card actions">
-                <a href={detailHref(plan, url)}>Open detail</a>
-                {!plan.isEpic ? <a href={editBodyHref(plan, url)}>Edit body</a> : null}
-                <span aria-disabled="true">Actions after lifecycle slice</span>
             </div>
         </article>
     );

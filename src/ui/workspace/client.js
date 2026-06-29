@@ -1,2 +1,2 @@
-// Client entry for Vite HMR. Import CSS so Vite watches it for hot reload.
-import "./static/styles.css";
+// Client entry for Fresh/Vite workspace hydration.
+// Static CSS is linked from AppWrapper at /styles.css.
