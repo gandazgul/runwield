@@ -4,7 +4,7 @@
  */
 
 import { Type } from "@earendil-works/pi-ai";
-import { completeSimple } from "@earendil-works/pi-ai";
+import { completeSimple } from "@earendil-works/pi-ai/compat";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { getModelRegistry } from "../shared/models/model-registry.js";
 import { resolveImageRef } from "../shared/session/image-attachments.js";

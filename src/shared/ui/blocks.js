@@ -253,12 +253,11 @@ export class ThinkingBlock {
 
     /** @param {number} w */
     render(w) {
-        const marker = this.ended ? "✓" : getThinkingFrame(this.frameIndex);
-        const label = this.ended ? "Thinking complete" : "Thinking...";
-        const header = theme.fg("dim", `${marker} ${label}`);
+        const header = this.ended ? null : theme.fg("dim", `${getThinkingFrame(this.frameIndex)} Thinking...`);
         const rawBody = this.hidden ? "hidden" : this.currentText.trimStart();
         const bodyLines = rawBody ? rawBody.split(/\r?\n/).flatMap((line) => wrapPlainLine(line, w)) : [];
-        return [header, ...bodyLines.map((line) => theme.fg("thinkingText", line))]
+        const renderedLines = bodyLines.map((line) => theme.fg("thinkingText", line));
+        return (header ? [header, ...renderedLines] : renderedLines)
             .map((line) => {
                 const clamped = visibleWidth(line) > w ? truncateToWidth(line, w) : line;
                 return clamped + " ".repeat(Math.max(0, w - visibleWidth(clamped)));

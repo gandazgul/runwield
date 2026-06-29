@@ -134,6 +134,18 @@ Deno.test("ThinkingBlock renders reasoning with a visible thinking label and mut
     assertNotEquals(lines.join("\n"), plain, "ThinkingBlock should include ANSI styling");
 });
 
+Deno.test("ThinkingBlock removes the thinking label after completion", () => {
+    const block = new ThinkingBlock();
+    block.appendText("Finished reasoning.");
+    block.end();
+
+    const plain = block.render(80).map((line) => stripAnsi(line)).join("\n");
+
+    assertEquals(plain.includes("Thinking"), false);
+    assertEquals(plain.includes("✓"), false);
+    assertEquals(plain.includes("Finished reasoning."), true);
+});
+
 Deno.test("ThinkingBlock wraps long reasoning lines to the viewport width", () => {
     const block = new ThinkingBlock();
     block.appendText("This is a long reasoning line that should wrap instead of truncating at the viewport edge.");

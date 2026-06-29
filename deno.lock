@@ -38,12 +38,12 @@
     "npm:@babel/core@^7.28.0": "7.29.7",
     "npm:@babel/preset-react@^7.27.1": "7.29.7_@babel+core@7.29.7",
     "npm:@codemirror/lang-markdown@^6.5.0": "6.5.0",
-    "npm:@earendil-works/pi-agent-core@~0.79.5": "0.79.5_zod@4.4.3",
-    "npm:@earendil-works/pi-ai@~0.79.9": "0.79.9_zod@4.4.3",
+    "npm:@earendil-works/pi-agent-core@~0.80.2": "0.80.2",
+    "npm:@earendil-works/pi-ai@~0.80.2": "0.80.2",
     "npm:@earendil-works/pi-coding-agent@~0.80.2": "0.80.2",
     "npm:@earendil-works/pi-tui@*": "0.80.2",
-    "npm:@earendil-works/pi-tui@~0.79.9": "0.79.9",
-    "npm:@gandazgul/plannotator-pi-extension-compiled@~0.21.3": "0.21.3_@earendil-works+pi-agent-core@0.79.5__zod@4.4.3_@earendil-works+pi-ai@0.79.9__zod@4.4.3_@earendil-works+pi-coding-agent@0.80.2_@earendil-works+pi-tui@0.80.2",
+    "npm:@earendil-works/pi-tui@~0.80.2": "0.80.2",
+    "npm:@gandazgul/plannotator-pi-extension-compiled@~0.21.3": "0.21.3_@earendil-works+pi-agent-core@0.80.2_@earendil-works+pi-ai@0.80.2_@earendil-works+pi-coding-agent@0.80.2_@earendil-works+pi-tui@0.80.2",
     "npm:@mariozechner/pi-coding-agent@0.73.1": "0.73.1",
     "npm:@opentelemetry/api@^1.9.0": "1.9.0",
     "npm:@preact/signals@^2.5.1": "2.9.2_preact@10.29.3",
@@ -813,40 +813,14 @@
         "w3c-keyname"
       ]
     },
-    "@earendil-works/pi-agent-core@0.79.5_zod@4.4.3": {
-      "integrity": "sha512-yOxzx8SRJkGsZTJWfe9VACkAF4amwHUgvFShn8uoYR7/fnhF69Sz0n7TIh8qRH21fBDvo1RLex4NK/iXFQ3u2Q==",
-      "dependencies": [
-        "@earendil-works/pi-ai@0.79.9_zod@4.4.3",
-        "ignore",
-        "typebox",
-        "yaml"
-      ]
-    },
     "@earendil-works/pi-agent-core@0.80.2": {
       "integrity": "sha512-BF9WPhixIFjT6Kp3Iz3H6ugkU+4AWotM8py96XE5pIK0arJbQKMWbR+dXSWWDEmR5yc/aFQODnuyowOEzMGO7Q==",
       "dependencies": [
-        "@earendil-works/pi-ai@0.80.2",
+        "@earendil-works/pi-ai",
         "ignore",
         "typebox",
         "yaml"
       ]
-    },
-    "@earendil-works/pi-ai@0.79.9_zod@4.4.3": {
-      "integrity": "sha512-fHmgNMONwCCE7bQAKbcz76sgm3iQuA7km1mpIc4H5xXd9+zhPh/faULz6ARkgjQE0EufHnfZPJY39+lNf8Sa9g==",
-      "dependencies": [
-        "@anthropic-ai/sdk",
-        "@aws-sdk/client-bedrock-runtime",
-        "@google/genai",
-        "@mistralai/mistralai",
-        "@opentelemetry/api",
-        "@smithy/node-http-handler@4.7.3",
-        "http-proxy-agent",
-        "https-proxy-agent",
-        "openai",
-        "partial-json",
-        "typebox"
-      ],
-      "bin": true
     },
     "@earendil-works/pi-ai@0.80.2": {
       "integrity": "sha512-5GNKfdrRJ4uZ5Zd9iudoXggi/BbUcKnD/xfRHtdR+7q4vWqPvfx8auFuaT+ewGBVI8K4wj87eigFQ/iCSuy9RQ==",
@@ -868,9 +842,9 @@
     "@earendil-works/pi-coding-agent@0.80.2": {
       "integrity": "sha512-m9v7OUit0s9LklWfh61ca/XY5INjUzjtYtNZwy3cNvyjOLk3IpBgghP8aAp0iH35rLaiRwuuWiJ8t88ODMWY+A==",
       "dependencies": [
-        "@earendil-works/pi-agent-core@0.80.2",
-        "@earendil-works/pi-ai@0.80.2",
-        "@earendil-works/pi-tui@0.80.2",
+        "@earendil-works/pi-agent-core",
+        "@earendil-works/pi-ai",
+        "@earendil-works/pi-tui",
         "@silvia-odwyer/photon-node",
         "chalk@5.6.2",
         "cross-spawn",
@@ -891,13 +865,6 @@
         "@mariozechner/clipboard"
       ],
       "bin": true
-    },
-    "@earendil-works/pi-tui@0.79.9": {
-      "integrity": "sha512-XcqfoGyoX64OSMQklMR1vG2MRi1TCPSUERRCmPDvYKCK6LtZoBqJ6idNCLRklNYveCj4gHDOzOsLhGqn04jmYw==",
-      "dependencies": [
-        "get-east-asian-width",
-        "marked@18.0.5"
-      ]
     },
     "@earendil-works/pi-tui@0.80.2": {
       "integrity": "sha512-OvOAMIbXiC9OSse17YMiXIsI9AS5XM/ZV8N/k+UzdlRpPILDQYmLElevgGW92kkXR8qHBClIdzhCjuzlBGvphA==",
@@ -1315,13 +1282,13 @@
       "os": ["win32"],
       "cpu": ["x64"]
     },
-    "@gandazgul/plannotator-pi-extension-compiled@0.21.3_@earendil-works+pi-agent-core@0.79.5__zod@4.4.3_@earendil-works+pi-ai@0.79.9__zod@4.4.3_@earendil-works+pi-coding-agent@0.80.2_@earendil-works+pi-tui@0.80.2": {
+    "@gandazgul/plannotator-pi-extension-compiled@0.21.3_@earendil-works+pi-agent-core@0.80.2_@earendil-works+pi-ai@0.80.2_@earendil-works+pi-coding-agent@0.80.2_@earendil-works+pi-tui@0.80.2": {
       "integrity": "sha512-wlbBmkS/+3sZ6mm2hGCL9k/RvXXhr2eOJUBzPoq2sPBUukikulGhtM4dyRR4txNt6K5eWEXzZcEfM5UPUatmcQ==",
       "dependencies": [
-        "@earendil-works/pi-agent-core@0.79.5_zod@4.4.3",
-        "@earendil-works/pi-ai@0.79.9_zod@4.4.3",
+        "@earendil-works/pi-agent-core",
+        "@earendil-works/pi-ai",
         "@earendil-works/pi-coding-agent",
-        "@earendil-works/pi-tui@0.80.2",
+        "@earendil-works/pi-tui",
         "@joplin/turndown-plugin-gfm",
         "turndown"
       ]
@@ -3530,10 +3497,10 @@
       "jsr:@std/jsonc@^1.0.2",
       "jsr:@std/path@^1.1.5",
       "npm:@codemirror/lang-markdown@^6.5.0",
-      "npm:@earendil-works/pi-agent-core@~0.79.5",
-      "npm:@earendil-works/pi-ai@~0.79.9",
+      "npm:@earendil-works/pi-agent-core@~0.80.2",
+      "npm:@earendil-works/pi-ai@~0.80.2",
       "npm:@earendil-works/pi-coding-agent@~0.80.2",
-      "npm:@earendil-works/pi-tui@~0.79.9",
+      "npm:@earendil-works/pi-tui@~0.80.2",
       "npm:@gandazgul/plannotator-pi-extension-compiled@~0.21.3",
       "npm:@preact/signals@^2.9.2",
       "npm:@sinclair/typebox@~0.34.49",
