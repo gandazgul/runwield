@@ -601,9 +601,15 @@ button.danger-action:hover {
     overflow-wrap: anywhere;
     white-space: break-spaces;
 }
-.front-matter-summary {
-    max-height: 360px;
-    overflow: auto;
+.metadata-section {
+    display: grid;
+    gap: 18px;
+    margin-top: 12px;
+}
+.metadata-group-title {
+    color: var(--rw-accent-text);
+    font-size: 0.95rem;
+    margin: 0;
 }
 .child-plan-section {
     margin-top: 28px;

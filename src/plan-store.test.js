@@ -16,6 +16,8 @@ import {
     loadPlan,
     loadPlanBodyById,
     parsePlanFrontMatter,
+    PLAN_FRONT_MATTER_KEY_ORDER,
+    PLAN_FRONT_MATTER_KEYS,
     resolvePlan,
     resolveSiblingChildPlanDependencyStates,
     saveChildFeaturePlans,
@@ -33,6 +35,13 @@ import {
 function testWithFs(name, fn) {
     Deno.test({ name, permissions: { read: true, write: true }, fn });
 }
+
+Deno.test("front matter key constants expose canonical planning metadata order", () => {
+    assertEquals(PLAN_FRONT_MATTER_KEYS.planId, "planId");
+    assertEquals(PLAN_FRONT_MATTER_KEY_ORDER[0], PLAN_FRONT_MATTER_KEYS.planId);
+    assertEquals(PLAN_FRONT_MATTER_KEY_ORDER.includes(PLAN_FRONT_MATTER_KEYS.worktreePath), true);
+    assertEquals(new Set(PLAN_FRONT_MATTER_KEY_ORDER).size, PLAN_FRONT_MATTER_KEY_ORDER.length);
+});
 
 Deno.test("injectFrontMatter escapes YAML double-quoted values", () => {
     const markdown = "## Plan\n\nBody";

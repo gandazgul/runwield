@@ -1,6 +1,6 @@
 import { PlanLifecycleActions } from "../islands/PlanLifecycleActions.jsx";
 import { BoardColumn } from "./BoardColumn.jsx";
-import { boardHrefForPlanStatus, DetailMetadata, FrontMatterSummary, tabForPlanStatus } from "./PlanDetail.jsx";
+import { boardHrefForPlanStatus, DetailMetadata, tabForPlanStatus } from "./PlanDetail.jsx";
 import { MarkdownView } from "./MarkdownView.jsx";
 
 /** @param {any} entry */
@@ -163,8 +163,6 @@ export function EpicDetail({ epic, url }) {
                 <aside>
                     <h3>Epic metadata</h3>
                     <DetailMetadata plan={epic} />
-                    <h3>Front matter summary</h3>
-                    <FrontMatterSummary frontMatter={epic.frontMatter || {}} />
                 </aside>
             </section>
         </article>

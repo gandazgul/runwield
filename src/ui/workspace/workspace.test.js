@@ -450,13 +450,30 @@ Deno.test("Fresh Workspace rejects missing token and SSR-renders status column b
 Deno.test("Workspace API and detail route return readable editable Plan body metadata", async () => {
     const cwd = await Deno.makeTempDir();
     try {
-        await savePlan(cwd, "detail", "# Detail\n\nReadable body with [RunWield](https://runwield.dev)", {
-            planId: "detail-id",
-            status: "implemented",
-            classification: "FEATURE",
-            complexity: "HIGH",
-            summary: "Detail summary",
-        });
+        await savePlan(
+            cwd,
+            "detail",
+            "# Detail\n\nReadable body with [RunWield](https://runwield.dev)",
+            /** @type {any} */ ({
+                planId: "detail-id",
+                status: "implemented",
+                classification: "FEATURE",
+                complexity: "HIGH",
+                summary: "Detail summary",
+                affectedPaths: ["src/ui/workspace/components/PlanDetail.jsx"],
+                dependencies: ["sibling-plan"],
+                implementedAt: "2026-06-30T10:00:00.000Z",
+                executionBaselineTree: "tree-detail",
+                worktreeId: "wt-detail",
+                worktreePath: "/tmp/secret-worktree-path",
+                worktreeBranch: "runwield/worktree/detail",
+                worktreeStatus: "active",
+                humanReviewMode: "ask",
+                humanReviewDecision: "approved",
+                humanReviewedAt: "2026-06-30T11:00:00.000Z",
+                customPriority: "urgent",
+            }),
+        );
         const board = await loadBoard(cwd);
         assertEquals(board.plans.length, 1);
 
@@ -472,6 +489,8 @@ Deno.test("Workspace API and detail route return readable editable Plan body met
         assertEquals(typeof apiBody.plan.bodyHash, "string");
         assertEquals(apiBody.plan.capabilities.bodyEditing, true);
         assertEquals(Object.hasOwn(apiBody.plan, "path"), false);
+        assertEquals(Object.hasOwn(apiBody.plan.frontMatter, "worktreePath"), false);
+        assertEquals(Object.hasOwn(apiBody.plan.attrs, "worktreePath"), false);
 
         const detail = await app(new Request("http://localhost/plans/detail-id?token=secret"));
         const html = await detail.text();
@@ -490,6 +509,31 @@ Deno.test("Workspace API and detail route return readable editable Plan body met
         assertStringIncludes(html, ">Edit</a>");
         assertEquals(html.includes(">Close</a>"), false);
         assertStringIncludes(html, "edit=body");
+        assertEquals(html.includes("Front matter summary"), false);
+        assertStringIncludes(html, "Identity");
+        assertStringIncludes(html, "Planning");
+        assertStringIncludes(html, "Hierarchy &amp; dependencies");
+        assertStringIncludes(html, "Lifecycle");
+        assertStringIncludes(html, "Execution worktree");
+        assertStringIncludes(html, "Review");
+        assertStringIncludes(html, "Additional metadata");
+        assertStringIncludes(html, "Plan ID");
+        assertStringIncludes(html, "detail-id");
+        assertStringIncludes(html, "Affected paths");
+        assertStringIncludes(html, "src/ui/workspace/components/PlanDetail.jsx");
+        assertStringIncludes(html, "Depends on");
+        assertStringIncludes(html, "sibling-plan");
+        assertStringIncludes(html, "Implemented at");
+        assertStringIncludes(html, "2026-06-30T10:00:00.000Z");
+        assertStringIncludes(html, "Execution baseline tree");
+        assertStringIncludes(html, "tree-detail");
+        assertStringIncludes(html, "Worktree branch");
+        assertStringIncludes(html, "runwield/worktree/detail");
+        assertStringIncludes(html, "Human review decision");
+        assertStringIncludes(html, "approved");
+        assertStringIncludes(html, "Custom Priority");
+        assertStringIncludes(html, "urgent");
+        assertEquals(html.includes("/tmp/secret-worktree-path"), false);
     } finally {
         await Deno.remove(cwd, { recursive: true });
     }
@@ -546,15 +590,22 @@ Deno.test("Workspace body-save API preserves front matter rejects stale writes a
 Deno.test("Workspace Epic detail SSR-renders child FEATURE Plans by status", async () => {
     const cwd = await Deno.makeTempDir();
     try {
-        await savePlan(cwd, "epic", "# Epic\n\nEpic body", {
-            planId: "epic-id",
-            status: "draft",
-            classification: "PROJECT",
-            type: "epic",
-            summary: "Epic summary",
-            epicCompletionMode: "done_enough",
-            epicDoneEnoughSummary: "Shipped enough",
-        });
+        await savePlan(
+            cwd,
+            "epic",
+            "# Epic\n\nEpic body",
+            /** @type {any} */ ({
+                planId: "epic-id",
+                status: "draft",
+                classification: "PROJECT",
+                type: "epic",
+                summary: "Epic summary",
+                epicCompletionMode: "done_enough",
+                epicDoneEnoughAt: "2026-06-30T12:00:00.000Z",
+                epicDoneEnoughSummary: "Shipped enough",
+                customRisk: false,
+            }),
+        );
         await savePlan(cwd, "epic/done", "# Done", {
             planId: "done-id",
             status: "verified",
@@ -632,6 +683,18 @@ Deno.test("Workspace Epic detail SSR-renders child FEATURE Plans by status", asy
         assertStringIncludes(detailHtml, "done: verified");
         assertStringIncludes(detailHtml, "missing-child: missing");
         assertStringIncludes(detailHtml, "missing dependencies");
+        assertEquals(detailHtml.includes("Front matter summary"), false);
+        assertStringIncludes(detailHtml, "Epic metadata");
+        assertStringIncludes(detailHtml, "Identity");
+        assertStringIncludes(detailHtml, "Planning");
+        assertStringIncludes(detailHtml, "Epic completion");
+        assertStringIncludes(detailHtml, "Epic completion mode");
+        assertStringIncludes(detailHtml, "done_enough");
+        assertStringIncludes(detailHtml, "Epic done enough at");
+        assertStringIncludes(detailHtml, "2026-06-30T12:00:00.000Z");
+        assertStringIncludes(detailHtml, "Additional metadata");
+        assertStringIncludes(detailHtml, "Custom Risk");
+        assertStringIncludes(detailHtml, "false");
 
         const heldDetail = await app(new Request("http://localhost/plans/held-epic-id?token=secret"));
         const heldDetailHtml = await heldDetail.text();
