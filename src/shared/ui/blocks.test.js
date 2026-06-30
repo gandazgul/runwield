@@ -122,14 +122,14 @@ Deno.test("AgentMessageBlock renders without background (like Pi)", () => {
 
 // ─── ThinkingBlock ───────────────────────────────────────────────────────────
 
-Deno.test("ThinkingBlock renders reasoning with a visible thinking label and muted styling", () => {
+Deno.test("ThinkingBlock renders reasoning with muted styling", () => {
     const block = new ThinkingBlock();
     block.appendText("\nThe user is greeting me.\nI should respond naturally.");
 
     const lines = block.render(80);
     const plain = lines.map((line) => stripAnsi(line)).join("\n");
 
-    assertEquals(plain.includes("Thinking"), true);
+    assertEquals(plain.includes("Thinking"), false);
     assertEquals(plain.includes("The user is greeting me."), true);
     assertNotEquals(lines.join("\n"), plain, "ThinkingBlock should include ANSI styling");
 });
@@ -157,13 +157,13 @@ Deno.test("ThinkingBlock wraps long reasoning lines to the viewport width", () =
     assert(lines.every((line) => visibleLength(line) <= 32));
 });
 
-Deno.test("ThinkingBlock can hide reasoning text while preserving a thinking marker", () => {
+Deno.test("ThinkingBlock can hide reasoning text", () => {
     const block = new ThinkingBlock({ hidden: true });
     block.appendText("private reasoning");
 
     const plain = block.render(80).map((line) => stripAnsi(line)).join("\n");
 
-    assertEquals(plain.includes("Thinking"), true);
+    assertEquals(plain.includes("Thinking"), false);
     assertEquals(plain.includes("hidden"), true);
     assertEquals(plain.includes("private reasoning"), false);
 });

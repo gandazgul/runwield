@@ -339,7 +339,7 @@ The slash command is registered in `BUILTIN_SLASH_COMMANDS`:
 ### File: `src/cmd/compact/index.js`
 
 ```js
-import { getRootAgentSession } from "../../shared/session/session-state.js";
+import { getRootAgentSession } from "../../../shared/session/session-state.js";
 
 export async function runCompactCommand(argv, options = {}) {
     // 1. Guard: TUI-only command
