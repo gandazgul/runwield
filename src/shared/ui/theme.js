@@ -12,16 +12,17 @@ import {
     getSelectListTheme as upstreamGetSelectListTheme,
 } from "@earendil-works/pi-coding-agent";
 import { getSettingsDir, getSettingsManager } from "../settings.js";
-import { loadExternalThemes } from "./theme-discovery.js";
+import { loadExternalThemeJsons } from "./theme-discovery.js";
 import { createThemeFromJson } from "./theme-json.js";
 import { createThemeRegistry } from "./theme-registry.js";
 
 /** @typedef {import('@earendil-works/pi-coding-agent').Theme} ThemeInstance */
+/** @typedef {import('./theme-json.js').ThemeJson} ThemeJson */
 
 // ─── Global theme singleton key (matches the upstream) ───────────────────────
 const THEME_KEY = Symbol.for("@earendil-works/pi-coding-agent:theme");
 
-const DEFAULT_THEME_NAME = "catppuccin-mocha";
+export const DEFAULT_THEME_NAME = "catppuccin-mocha";
 
 /**
  * The theme proxy — reads from globalThis just like the upstream.
@@ -76,13 +77,13 @@ export const imageTheme = {
 
 // ─── Theme JSON → Theme instance ─────────────────────────────────────────────
 
-const CATPPUCCIN_MOCHA_JSON = JSON.parse(
+export const DEFAULT_THEME_JSON = /** @type {ThemeJson} */ (JSON.parse(
     Deno.readTextFileSync(new URL("./catppuccin-mocha.json", import.meta.url)),
-);
+));
 
 // Construct the embedded theme once at module load. It's both the boot default
 // and the merge floor for partial external themes.
-const EMBEDDED_THEME = createThemeFromJson(CATPPUCCIN_MOCHA_JSON);
+const EMBEDDED_THEME = createThemeFromJson(DEFAULT_THEME_JSON);
 
 // ─── Local theme registry + setters (re-implemented; not in Pi's exports) ────
 
@@ -185,21 +186,75 @@ export async function applyPersistedTheme() {
  * External themes named "catppuccin-mocha" are dropped (builtin precedence).
  */
 export async function discoverAndRegisterThemes() {
-    const settings = getSettingsManager();
-    const packageManager = new DefaultPackageManager({
-        cwd: Deno.cwd(),
+    const themeJsons = await resolveAvailableThemeJsons();
+    const externalThemes = themeJsons
+        .filter((themeJson) => themeJson.name !== DEFAULT_THEME_NAME)
+        .map((themeJson) => createThemeFromJson(themeJson));
+
+    setRegisteredThemes(externalThemes);
+}
+
+/**
+ * Resolve available theme JSON objects using the same package discovery and
+ * partial-theme merge policy as the TUI theme registry.
+ *
+ * @param {{
+ *   cwd?: string,
+ *   settingsManager?: any,
+ *   packageManager?: { resolve: () => Promise<{ themes: Array<{ path: string }> }> },
+ *   readTextFile?: (path: string) => string | Promise<string>,
+ *   warn?: (message: string) => void,
+ * }} [options]
+ * @returns {Promise<ThemeJson[]>}
+ */
+export async function resolveAvailableThemeJsons(options = {}) {
+    const settings = options.settingsManager || getSettingsManager();
+    const packageManager = options.packageManager || new DefaultPackageManager({
+        cwd: options.cwd || Deno.cwd(),
         agentDir: getSettingsDir("global"),
         settingsManager: settings,
     });
 
-    const externalThemes = await loadExternalThemes({
+    const externalThemeJsons = await loadExternalThemeJsons({
         packageManager,
-        readTextFile: Deno.readTextFileSync,
-        warn: console.warn,
+        readTextFile: options.readTextFile || Deno.readTextFileSync,
+        warn: options.warn || console.warn,
         defaultThemeName: DEFAULT_THEME_NAME,
-        baseThemeJson: CATPPUCCIN_MOCHA_JSON,
-        createTheme: createThemeFromJson,
+        baseThemeJson: DEFAULT_THEME_JSON,
     });
 
-    setRegisteredThemes(externalThemes);
+    return [DEFAULT_THEME_JSON, ...externalThemeJsons];
+}
+
+/**
+ * Resolve the currently selected theme JSON using the same default and external
+ * package merge semantics as the TUI theme registry.
+ *
+ * @param {{
+ *   cwd?: string,
+ *   settingsManager?: any,
+ *   packageManager?: { resolve: () => Promise<{ themes: Array<{ path: string }> }> },
+ *   readTextFile?: (path: string) => string | Promise<string>,
+ *   warn?: (message: string) => void,
+ * }} [options]
+ * @returns {Promise<ThemeJson>}
+ */
+export async function resolveSelectedThemeJson(options = {}) {
+    const settings = options.settingsManager || getSettingsManager();
+    await settings.reload?.();
+    const selectedThemeName = settings.getTheme() || DEFAULT_THEME_NAME;
+
+    if (selectedThemeName === DEFAULT_THEME_NAME) {
+        return DEFAULT_THEME_JSON;
+    }
+
+    const availableThemeJsons = await resolveAvailableThemeJsons({
+        cwd: options.cwd,
+        settingsManager: settings,
+        packageManager: options.packageManager,
+        readTextFile: options.readTextFile,
+        warn: options.warn,
+    });
+
+    return availableThemeJsons.find((themeJson) => themeJson.name === selectedThemeName) || DEFAULT_THEME_JSON;
 }

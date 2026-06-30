@@ -343,34 +343,67 @@ Deno.test("renderMarkdown renders links and escapes unsafe markdown input", () =
 Deno.test("renderWorkspaceThemeCss maps agent theme tokens to workspace CSS variables", () => {
     const css = renderWorkspaceThemeCss({
         name: 'agent "theme"',
-        fgColors: {
+        vars: {
+            base: "#010203",
+            overlay1: "#505152",
+            text: "#202122",
+            muted: "#303132",
+            warning: "#404142",
+        },
+        colors: {
             accent: "#abcdef",
             borderAccent: "#123456",
-            text: "",
-            muted: 244,
+            muted: "muted",
+            success: "#0bad55",
             error: "#fedcba",
+            warning: "warning",
         },
-        bgColors: {
-            toolPendingBg: "#010203",
-            selectedBg: "#111213",
+        export: {
+            pageBg: "base",
+            cardBg: "#111213",
+            infoBg: "#141516",
         },
     });
 
     assertStringIncludes(css, '--rw-theme-name: "agent \\"theme\\""');
     assertStringIncludes(css, "--rw-page-bg: #010203;");
-    assertStringIncludes(css, "--rw-surface-raised: #111213;");
+    assertStringIncludes(css, "--rw-surface: #111213;");
+    assertStringIncludes(css, "--rw-surface-raised: #141516;");
     assertStringIncludes(css, "--rw-accent: #abcdef;");
     assertStringIncludes(css, "--rw-accent-strong: #123456;");
     assertStringIncludes(css, "--rw-error: #fedcba;");
-    assertStringIncludes(css, "--rw-text: #e2e8f0;");
-    assertStringIncludes(css, "--rw-text-muted: #cbd5e1;");
+    assertStringIncludes(css, "--rw-warning: #404142;");
+    assertStringIncludes(css, "--rw-complexity-low: #0bad55;");
+    assertStringIncludes(css, "--rw-complexity-medium: #404142;");
+    assertStringIncludes(css, "--rw-complexity-high: #fedcba;");
+    assertStringIncludes(css, "--rw-text: #202122;");
+    assertStringIncludes(css, "--rw-text-dim: #505152;");
+});
+
+Deno.test("renderWorkspaceThemeCss renders bundled Catppuccin Mocha export colors", async () => {
+    const themeJson = JSON.parse(
+        await Deno.readTextFile(new URL("../../shared/ui/catppuccin-mocha.json", import.meta.url)),
+    );
+    const css = renderWorkspaceThemeCss(themeJson);
+
+    assertStringIncludes(css, '--rw-theme-name: "catppuccin-mocha"');
+    assertStringIncludes(css, "--rw-page-bg: #11111b;");
+    assertStringIncludes(css, "--rw-surface: #181825;");
+    assertStringIncludes(css, "--rw-surface-raised: #313244;");
+    assertStringIncludes(css, "--rw-text: #cdd6f4;");
+    assertStringIncludes(css, "--rw-accent: #cba6f7;");
 });
 
 Deno.test("workspace detail header CSS lets lifecycle actions wrap without squeezing summary", async () => {
     const css = await Deno.readTextFile(new URL("./static/styles.css", import.meta.url));
+    assertStringIncludes(css, ".detail-title-row {\n    align-items: center;\n    display: grid;");
+    assertStringIncludes(css, "grid-template-columns: auto minmax(0, 1fr) auto;");
     assertStringIncludes(css, ".split-header {\n    align-items: flex-start;\n    display: grid;");
     assertStringIncludes(css, "grid-template-columns: minmax(0, 1fr);");
     assertStringIncludes(css, ".header-actions .lifecycle-actions {\n    flex: 1 1 100%;");
+    assertStringIncludes(css, ".detail-grid > * {\n    min-width: 0;");
+    assertStringIncludes(css, ".markdown-view {\n    background:");
+    assertStringIncludes(css, "overflow-wrap: anywhere;");
 });
 
 Deno.test("Fresh Workspace rejects missing token and SSR-renders status column board cards", async () => {
@@ -387,6 +420,7 @@ Deno.test("Fresh Workspace rejects missing token and SSR-renders status column b
         assertEquals(rejected.status, 401);
         const themeCss = await app(new Request("http://localhost/theme.css"));
         assertEquals(themeCss.status, 200);
+        assertEquals(themeCss.headers.get("cache-control"), "no-store");
         assertStringIncludes(await themeCss.text(), "--rw-theme-name:");
 
         const accepted = await app(new Request("http://localhost/?token=secret"));
@@ -397,6 +431,7 @@ Deno.test("Fresh Workspace rejects missing token and SSR-renders status column b
         assertStringIncludes(html, "Ready for Work");
         assertStringIncludes(html, "workspace-card");
         assertStringIncludes(html, "SSR card");
+        assertStringIncludes(html, 'class="complexity-label complexity-medium"');
         assertStringIncludes(html, 'data-plan-board="true"');
         assertStringIncludes(html, 'data-draggable-plan-card="true"');
         assertStringIncludes(html, 'draggable="true"');
@@ -419,6 +454,7 @@ Deno.test("Workspace API and detail route return readable editable Plan body met
             planId: "detail-id",
             status: "implemented",
             classification: "FEATURE",
+            complexity: "HIGH",
             summary: "Detail summary",
         });
         const board = await loadBoard(cwd);
@@ -440,13 +476,19 @@ Deno.test("Workspace API and detail route return readable editable Plan body met
         const detail = await app(new Request("http://localhost/plans/detail-id?token=secret"));
         const html = await detail.text();
         assertStringIncludes(html, "Readable body");
+        assertStringIncludes(html, 'class="complexity-label complexity-high"');
         assertStringIncludes(html, 'href="https://runwield.dev"');
         assertStringIncludes(html, "RunWield");
         assertStringIncludes(html, ">Put on hold</button>");
         assertStringIncludes(html, 'class="danger-action lifecycle-action"');
         assertStringIncludes(html, ">Close without verification</button>");
+        assertStringIncludes(html, 'class="detail-title-row"');
+        assertStringIncludes(html, "&lt; Back</a>");
+        assertStringIncludes(html, 'class="detail-close-link"');
+        assertStringIncludes(html, 'aria-label="Close plan detail"');
+        assertStringIncludes(html, ">X</a>");
         assertStringIncludes(html, ">Edit</a>");
-        assertStringIncludes(html, ">Close</a>");
+        assertEquals(html.includes(">Close</a>"), false);
         assertStringIncludes(html, "edit=body");
     } finally {
         await Deno.remove(cwd, { recursive: true });

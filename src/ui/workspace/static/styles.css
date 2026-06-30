@@ -71,6 +71,18 @@ body {
     gap: 0.45rem;
     margin: 0 0 0.2rem;
 }
+.complexity-label {
+    color: var(--rw-complexity-color, var(--rw-accent-strong));
+}
+.complexity-low {
+    --rw-complexity-color: var(--rw-complexity-low);
+}
+.complexity-medium {
+    --rw-complexity-color: var(--rw-complexity-medium);
+}
+.complexity-high {
+    --rw-complexity-color: var(--rw-complexity-high);
+}
 .disabled-action {
     border: 1px solid var(--rw-accent);
     border-radius: 999px;
@@ -395,9 +407,49 @@ body {
     grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
     gap: 20px;
 }
+.detail-grid > * {
+    min-width: 0;
+}
 .detail-header {
     border-bottom: 1px solid var(--rw-border);
     padding-bottom: 18px;
+}
+.detail-title-row {
+    align-items: center;
+    display: grid;
+    gap: 0.75rem;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+}
+.detail-title-row h2 {
+    overflow-wrap: anywhere;
+}
+.detail-back-link,
+.detail-close-link {
+    align-items: center;
+    color: var(--rw-accent-text);
+    display: inline-flex;
+    font-weight: 800;
+    justify-content: center;
+    line-height: 1;
+    text-decoration: none;
+}
+.detail-back-link {
+    border: 0;
+    padding: 0;
+}
+.detail-close-link {
+    border: 1px solid var(--rw-border);
+    border-radius: 50%;
+    height: 2.25rem;
+    width: 2.25rem;
+}
+.detail-close-link:hover {
+    background: var(--rw-surface-strong);
+    border-color: var(--rw-accent);
+    color: var(--rw-text-strong);
+}
+.detail-back-link:hover {
+    color: var(--rw-text-strong);
 }
 .split-header {
     align-items: flex-start;
@@ -495,11 +547,15 @@ button.danger-action:hover {
     border: 1px solid var(--rw-border);
     border-radius: 12px;
     line-height: 1.65;
+    min-width: 0;
+    overflow-wrap: anywhere;
     padding: 18px;
 }
 .markdown-view h1, .markdown-view h2, .markdown-view h3, .markdown-view h4 {
     color: var(--rw-accent-text);
+    line-height: 1.15;
     margin: 1.2rem 0 0.5rem;
+    overflow-wrap: anywhere;
 }
 .markdown-view h1:first-child, .markdown-view h2:first-child, .markdown-view h3:first-child {
     margin-top: 0;
@@ -513,6 +569,10 @@ button.danger-action:hover {
     border-radius: 10px;
     overflow: auto;
     padding: 12px;
+}
+.markdown-view code {
+    overflow-wrap: anywhere;
+    white-space: break-spaces;
 }
 .front-matter-summary {
     max-height: 360px;

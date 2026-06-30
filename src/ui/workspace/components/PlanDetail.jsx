@@ -1,6 +1,6 @@
 import { PlanBodyEditor } from "../islands/PlanBodyEditor.jsx";
 import { PlanLifecycleActions } from "../islands/PlanLifecycleActions.jsx";
-import { workspaceHref } from "./PlanCard.jsx";
+import { ComplexityLabel, workspaceHref } from "./PlanCard.jsx";
 
 const CLOSED_STATUSES = new Set(["verified", "closed_without_verification"]);
 
@@ -55,7 +55,9 @@ function DetailMetadata({ plan }) {
                 ? (
                     <div>
                         <dt>Complexity</dt>
-                        <dd>{plan.complexity}</dd>
+                        <dd>
+                            <ComplexityLabel complexity={plan.complexity} />
+                        </dd>
                     </div>
                 )
                 : null}
@@ -140,7 +142,11 @@ export function PlanDetail({ plan, url, editIntent = false }) {
         <article class="detail" data-plan-id={plan.planId} data-selected-tab={tabForPlanStatus(plan.status)}>
             <header class="page-header detail-header split-header">
                 <div>
-                    <h2>{plan.planName}</h2>
+                    <div class="detail-title-row">
+                        <a class="detail-back-link" href={closeHref}>{"< Back"}</a>
+                        <h2>{plan.planName}</h2>
+                        <a class="detail-close-link" href={closeHref} aria-label="Close plan detail">X</a>
+                    </div>
                     <p>{plan.summary || "No summary provided."}</p>
                     {plan.status === "on_hold" ? <p class="notice muted">{holdMetadata(plan)}</p> : null}
                     <div class="detail-actions" aria-label="Plan status">
@@ -154,7 +160,6 @@ export function PlanDetail({ plan, url, editIntent = false }) {
                 <div class="header-actions" aria-label="Plan detail actions">
                     <PlanLifecycleActions plan={plan} />
                     {editIntent ? null : <a class="primary-action" href={editHref}>Edit</a>}
-                    <a class="secondary-action" href={closeHref}>Close</a>
                 </div>
             </header>
             <section class="detail-grid">

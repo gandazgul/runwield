@@ -15,21 +15,19 @@ import { mergeThemeJson } from "./theme-json.js";
  *     warn?: (message: string) => void,
  *     defaultThemeName: string,
  *     baseThemeJson: ThemeJson,
- *     createTheme: (themeJson: ThemeJson) => ThemeInstance,
  * }} deps
- * @returns {Promise<ThemeInstance[]>}
+ * @returns {Promise<ThemeJson[]>}
  */
-export async function loadExternalThemes({
+export async function loadExternalThemeJsons({
     packageManager,
     readTextFile,
     warn = console.warn,
     defaultThemeName,
     baseThemeJson,
-    createTheme,
 }) {
     const resolved = await packageManager.resolve();
-    /** @type {ThemeInstance[]} */
-    const externalThemes = [];
+    /** @type {ThemeJson[]} */
+    const externalThemeJsons = [];
 
     for (const themeResource of resolved.themes) {
         try {
@@ -39,11 +37,34 @@ export async function loadExternalThemes({
                 continue;
             }
 
-            externalThemes.push(createTheme(mergeThemeJson(baseThemeJson, themeJson)));
+            externalThemeJsons.push(mergeThemeJson(baseThemeJson, themeJson));
         } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
             warn(`Failed to load theme from ${themeResource.path}: ${msg}`);
         }
+    }
+
+    return externalThemeJsons;
+}
+
+/**
+ * @param {{
+ *     packageManager: { resolve: () => Promise<{ themes: Array<{ path: string }> }> },
+ *     readTextFile: (path: string) => string | Promise<string>,
+ *     warn?: (message: string) => void,
+ *     defaultThemeName: string,
+ *     baseThemeJson: ThemeJson,
+ *     createTheme: (themeJson: ThemeJson) => ThemeInstance,
+ * }} deps
+ * @returns {Promise<ThemeInstance[]>}
+ */
+export async function loadExternalThemes(deps) {
+    const externalThemeJsons = await loadExternalThemeJsons(deps);
+    /** @type {ThemeInstance[]} */
+    const externalThemes = [];
+
+    for (const themeJson of externalThemeJsons) {
+        externalThemes.push(deps.createTheme(themeJson));
     }
 
     return externalThemes;

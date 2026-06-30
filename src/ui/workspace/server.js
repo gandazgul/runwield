@@ -59,7 +59,12 @@ export function createWorkspaceApp({ cwd, token, skipTokenCheck = false }) {
     });
     app.get("/theme.css", async () => {
         const css = await loadWorkspaceThemeCss();
-        return new Response(css, { headers: { "content-type": "text/css; charset=utf-8" } });
+        return new Response(css, {
+            headers: {
+                "content-type": "text/css; charset=utf-8",
+                "cache-control": "no-store",
+            },
+        });
     });
     app.get("/logo.svg", async () => {
         const logo = await Deno.readTextFile(LOGO_PATH);

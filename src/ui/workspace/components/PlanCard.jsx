@@ -36,6 +36,24 @@ function holdMetadata(plan) {
     return metadata.length ? metadata.join("; ") : "No hold metadata provided.";
 }
 
+/** @type {Record<string, string>} */
+const COMPLEXITY_CLASS_BY_VALUE = {
+    LOW: "complexity-low",
+    MEDIUM: "complexity-medium",
+    HIGH: "complexity-high",
+};
+
+/** @param {string} complexity */
+export function complexityClassName(complexity) {
+    const key = String(complexity || "").toUpperCase();
+    return `complexity-label ${COMPLEXITY_CLASS_BY_VALUE[key] || "complexity-unknown"}`;
+}
+
+/** @param {{ complexity: string }} props */
+export function ComplexityLabel({ complexity }) {
+    return <span class={complexityClassName(complexity)}>{complexity}</span>;
+}
+
 /** @param {{ plan: any, url: URL, compact?: boolean, roleLabel?: string, draggableCard?: boolean }} props */
 export function PlanCard({ plan, url, compact = false, roleLabel = "Plan", draggableCard = false }) {
     const isChildCard = plan.hierarchyRole === "child" || plan.hierarchyRole === "orphan-child";
@@ -60,7 +78,7 @@ export function PlanCard({ plan, url, compact = false, roleLabel = "Plan", dragg
                 <div>
                     <p class="card-kicker">
                         <span>{roleLabel}</span>
-                        {plan.complexity ? <span>{plan.complexity}</span> : null}
+                        {plan.complexity ? <ComplexityLabel complexity={plan.complexity} /> : null}
                     </p>
                     <span class="card-title">{plan.planName}</span>
                 </div>

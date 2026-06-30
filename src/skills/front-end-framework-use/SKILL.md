@@ -48,8 +48,8 @@ change against the reference sections below. Step 5 becomes _verify_ convention-
 5. Implement convention-first.
    - Match the project's component structure, styling system, state management, data-loading pattern, accessibility
      conventions, and test style. Consult the reference sections below for domain-specific convention checks.
-   - Do not restart dev servers for hot-reloading frameworks. If a restart is genuinely necessary, ask the user to do
-     it.
+   - Use the project's normal dev or preview command when browser verification needs a running app. Prefer hot reload;
+     restart only when config, environment, dependency, or stale-server state requires it.
    - Completion: the change is localized and consistent with neighboring code; no new pattern introduced where an
      existing convention covers the case.
 
@@ -62,6 +62,14 @@ change against the reference sections below. Step 5 becomes _verify_ convention-
      relevant success/failure state.
    - Completion: command output and browser evidence cover the user-visible change; no relevant console or network
      failure remains unexplained.
+
+7. Confirm the original request is actually solved.
+   - Re-read the user's request before reporting. Check that the implemented behavior, visual result, and edge cases
+     match what the user asked for, not just that the code is clean or tests pass.
+   - Use source inspection, commands, and `agent-browser-use` evidence as appropriate; for visual requests, the final
+     screen state should visibly prove the requested change.
+   - Completion: you can point to the code, command output, or browser evidence that shows the initial request is
+     satisfied.
 
 ## Convention-First Reference
 

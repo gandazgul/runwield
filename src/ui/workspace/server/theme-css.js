@@ -3,56 +3,89 @@
  * Converts the active agent theme into workspace CSS variables.
  */
 
-import { getSettingsManager } from "../../../shared/settings.js";
-import { applyPersistedTheme, initRunWieldTheme, theme } from "../../../shared/ui/theme.js";
+import { resolveSelectedThemeJson } from "../../../shared/ui/theme.js";
 
 /**
- * @typedef {Object} ThemeSnapshot
+ * @typedef {Object} WorkspaceThemeJson
  * @property {string} [name]
- * @property {Record<string, string | number>} [fgColors]
- * @property {Record<string, string | number>} [bgColors]
+ * @property {Record<string, string | number>} [vars]
+ * @property {Record<string, string | number>} [colors]
+ * @property {Record<string, string | number>} [export]
  */
 
 /**
  * @typedef {Object} ThemeTokenMapping
  * @property {string} css
- * @property {"fgColors" | "bgColors"} source
+ * @property {"vars" | "colors" | "export"} source
  * @property {string} token
- * @property {string} fallback
  */
 
 /** @type {ThemeTokenMapping[]} */
 const WORKSPACE_THEME_TOKEN_MAP = [
-    { css: "--rw-page-bg", source: "bgColors", token: "toolPendingBg", fallback: "#0b1020" },
-    { css: "--rw-surface", source: "bgColors", token: "toolPendingBg", fallback: "#0f172a" },
-    { css: "--rw-surface-raised", source: "bgColors", token: "selectedBg", fallback: "#111827" },
-    { css: "--rw-surface-muted", source: "bgColors", token: "customMessageBg", fallback: "#1e293b" },
-    { css: "--rw-surface-strong", source: "bgColors", token: "userMessageBg", fallback: "#172033" },
-    { css: "--rw-text", source: "fgColors", token: "text", fallback: "#e2e8f0" },
-    { css: "--rw-text-strong", source: "fgColors", token: "toolTitle", fallback: "#ffffff" },
-    { css: "--rw-text-muted", source: "fgColors", token: "muted", fallback: "#cbd5e1" },
-    { css: "--rw-text-dim", source: "fgColors", token: "dim", fallback: "#94a3b8" },
-    { css: "--rw-accent", source: "fgColors", token: "accent", fallback: "#60a5fa" },
-    { css: "--rw-accent-strong", source: "fgColors", token: "borderAccent", fallback: "#93c5fd" },
-    { css: "--rw-accent-text", source: "fgColors", token: "mdHeading", fallback: "#bfdbfe" },
-    { css: "--rw-border", source: "fgColors", token: "borderMuted", fallback: "#334155" },
-    { css: "--rw-border-strong", source: "fgColors", token: "border", fallback: "#475569" },
-    { css: "--rw-success", source: "fgColors", token: "success", fallback: "#22c55e" },
-    { css: "--rw-error", source: "fgColors", token: "error", fallback: "#ef4444" },
-    { css: "--rw-warning", source: "fgColors", token: "warning", fallback: "#f59e0b" },
-    { css: "--rw-code", source: "fgColors", token: "mdCode", fallback: "#85cbbf" },
+    { css: "--rw-page-bg", source: "export", token: "pageBg" },
+    { css: "--rw-surface", source: "export", token: "cardBg" },
+    { css: "--rw-surface-raised", source: "export", token: "infoBg" },
+    { css: "--rw-surface-muted", source: "colors", token: "selectedBg" },
+    { css: "--rw-surface-strong", source: "colors", token: "customMessageBg" },
+    { css: "--rw-text", source: "vars", token: "text" },
+    { css: "--rw-text-strong", source: "vars", token: "text" },
+    { css: "--rw-text-muted", source: "vars", token: "subtext1" },
+    { css: "--rw-text-dim", source: "vars", token: "overlay1" },
+    { css: "--rw-accent", source: "colors", token: "accent" },
+    { css: "--rw-accent-strong", source: "colors", token: "borderAccent" },
+    { css: "--rw-accent-text", source: "colors", token: "mdHeading" },
+    { css: "--rw-border", source: "colors", token: "borderMuted" },
+    { css: "--rw-border-strong", source: "colors", token: "border" },
+    { css: "--rw-success", source: "colors", token: "success" },
+    { css: "--rw-error", source: "colors", token: "error" },
+    { css: "--rw-warning", source: "colors", token: "warning" },
+    { css: "--rw-complexity-low", source: "colors", token: "success" },
+    { css: "--rw-complexity-medium", source: "colors", token: "warning" },
+    { css: "--rw-complexity-high", source: "colors", token: "error" },
+    { css: "--rw-code", source: "colors", token: "mdCode" },
 ];
 
 /**
- * @param {string | number | undefined} value
- * @param {string} fallback
- * @returns {string}
+ * @param {string | undefined} value
+ * @returns {string | undefined}
  */
-function cssColor(value, fallback) {
-    if (typeof value !== "string") return fallback;
+function cssColor(value) {
+    if (typeof value !== "string") return undefined;
     const trimmed = value.trim();
     if (/^#[0-9a-fA-F]{3,8}$/.test(trimmed)) return trimmed;
-    return fallback;
+    return undefined;
+}
+
+/**
+ * @param {string | number | undefined} value
+ * @param {WorkspaceThemeJson} themeJson
+ * @param {Set<string>} [visited]
+ * @returns {string | undefined}
+ */
+function resolveThemeColor(value, themeJson, visited = new Set()) {
+    if (typeof value !== "string") return undefined;
+    const trimmed = value.trim();
+    if (trimmed === "") return undefined;
+    if (/^#[0-9a-fA-F]{3,8}$/.test(trimmed)) return trimmed;
+    if (visited.has(trimmed)) return undefined;
+    visited.add(trimmed);
+
+    const vars = themeJson.vars || {};
+    if (Object.hasOwn(vars, trimmed)) {
+        return resolveThemeColor(vars[trimmed], themeJson, visited);
+    }
+
+    const colors = themeJson.colors || {};
+    if (Object.hasOwn(colors, trimmed)) {
+        return resolveThemeColor(colors[trimmed], themeJson, visited);
+    }
+
+    const exports = themeJson.export || {};
+    if (Object.hasOwn(exports, trimmed)) {
+        return resolveThemeColor(exports[trimmed], themeJson, visited);
+    }
+
+    return undefined;
 }
 
 /**
@@ -64,18 +97,20 @@ function cssString(name) {
 }
 
 /**
- * @param {ThemeSnapshot} themeSnapshot
+ * @param {WorkspaceThemeJson} themeJson
  * @returns {string}
  */
-export function renderWorkspaceThemeCss(themeSnapshot) {
+export function renderWorkspaceThemeCss(themeJson) {
     const lines = [
         ":root {",
-        `    --rw-theme-name: "${cssString(themeSnapshot.name)}";`,
+        `    --rw-theme-name: "${cssString(themeJson.name)}";`,
     ];
 
     for (const mapping of WORKSPACE_THEME_TOKEN_MAP) {
-        const source = themeSnapshot[mapping.source] || {};
-        lines.push(`    ${mapping.css}: ${cssColor(source[mapping.token], mapping.fallback)};`);
+        const source = themeJson[mapping.source] || {};
+        const color = resolveThemeColor(source[mapping.token], themeJson);
+        const cssValue = cssColor(color);
+        if (cssValue) lines.push(`    ${mapping.css}: ${cssValue};`);
     }
 
     lines.push("}");
@@ -87,9 +122,5 @@ export function renderWorkspaceThemeCss(themeSnapshot) {
  * @returns {Promise<string>}
  */
 export async function loadWorkspaceThemeCss() {
-    initRunWieldTheme();
-    const settings = getSettingsManager();
-    await settings.reload?.();
-    await applyPersistedTheme();
-    return renderWorkspaceThemeCss(/** @type {ThemeSnapshot} */ (/** @type {unknown} */ (theme)));
+    return renderWorkspaceThemeCss(await resolveSelectedThemeJson());
 }
