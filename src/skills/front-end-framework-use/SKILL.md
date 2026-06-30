@@ -18,9 +18,13 @@ to the page as they happen. Do not use any other skills or tools to access or wo
 ## Feedback Loop
 
 1. Discover the stack before editing.
-   - Identify the framework, framework version, package manager, JS runtime, dev-server command, test command, and
-     relevant routes/components.
-   - Completion: you can name the files and commands that govern the UI behavior you are changing.
+   - Project context or core memories often name the framework stack already. If not, identify the framework, version,
+     package manager, JS runtime, dev-server command, and relevant routes/components from config files.
+   - Discover framework-specific conventions the project follows — for example, Next.js `app/` vs `pages/` routing, Nuxt
+     `composables/` auto-imports, SvelteKit `+page.svelte` naming, or Astro island directives. When a convention is
+     uncertain, search current docs with the `ketch` skill.
+   - Completion: you can name the files, commands, and framework conventions that govern the UI behavior you are
+     changing.
 
 2. Read the source before using the browser.
    - Prefer `code_*` tools for components, hooks, utilities, route definitions, and call sites.
@@ -55,6 +59,47 @@ to the page as they happen. Do not use any other skills or tools to access or wo
 
 Consult these sections during step 5 (implement) and step 6 (verify). Each covers a domain where convention-first
 editing requires domain-specific checks.
+
+### Component Architecture
+
+Convention-first composition: discover how the project structures and combines components before adding new ones.
+
+- Identify the project's composition model — presentational vs container, compound components, render props, slots,
+  hooks, or higher-order components. Follow whichever pattern neighboring components use.
+- Place new components where the project's file and folder conventions expect them — check for barrel files, index
+  re-exports, co-located styles and tests, and naming conventions.
+- Respect server vs client component boundaries when the framework supports them (React Server Components, Astro
+  islands, Nuxt server components). Do not move code across that boundary without understanding the serialization and
+  hydration implications.
+- When data or state needs to flow between components, use the project's existing mechanism (props, context, store,
+  signals) before introducing a new one.
+- Completion: new components follow the same structural patterns, file placement, and composition style as their
+  neighbors.
+
+### Routing and Navigation
+
+Convention-first navigation: discover how the project handles routes before changing them.
+
+- Identify the routing model — file-based vs config-based, nested vs flat, app directory vs pages directory.
+- Preserve route guards, middleware, auth protection, and permission checks on affected routes.
+- Follow the project's pattern for client-side navigation vs full page loads; do not mix unless the project already
+  does.
+- Maintain prefetching, preloading, and scroll restoration behavior on changed routes.
+- Completion: affected routes still load, guard, and navigate as they did before the change; no route left unprotected
+  that was protected before.
+
+### State Management
+
+Convention-first state: discover the state layer before introducing state.
+
+- Identify the state manager the project uses — Redux, Zustand, Pinia, Svelte stores, signals, React context, or
+  framework built-ins.
+- Respect boundaries between local component state, shared application state, and server/cache state (TanStack Query,
+  SWR, Apollo). Use each at the same scope as existing code.
+- Follow the project's patterns for optimistic updates, cache invalidation, and derived state.
+- Do not introduce a competing state mechanism when the project already has one that covers the use case.
+- Completion: new state lives in the same layer, uses the same patterns, and follows the same update conventions as
+  equivalent existing state.
 
 ### Styling and CSS Systems
 
@@ -141,6 +186,17 @@ Treat forms as interaction design, not just inputs.
 - Keep validation errors actionable and preserve user input across failed submits.
 - Completion: a user can understand what each field needs, recover from errors, and submit without losing work.
 
+### Internationalization
+
+Convention-first i18n: if the project translates user-facing strings, continue that practice.
+
+- Identify the i18n library and message file format (JSON, YAML, ICU, gettext, etc.).
+- Never hardcode user-facing strings in projects that use i18n — add new keys following the project's naming and file
+  placement conventions.
+- Respect RTL/LTR layout implications when the project supports bidirectional text.
+- Completion: no new user-facing string bypasses the project's i18n pipeline; new keys follow existing naming
+  conventions.
+
 ### Performance
 
 Avoid frontend changes that make the UI feel slower or heavier.
@@ -149,6 +205,17 @@ Avoid frontend changes that make the UI feel slower or heavier.
 - Lazy-load heavy UI only when it improves the user experience.
 - Use the app's existing data layer instead of fetching the same data repeatedly from multiple components.
 - Completion: the change does not introduce avoidable rendering, loading, or bundle-cost regressions.
+
+### Testing
+
+Convention-first testing: run what exists, match what exists. Defer test design and coverage strategy to the testing
+skill.
+
+- Run the project's existing test suite after changes; watch for broken selectors, snapshot mismatches, and flaky tests
+  your change may have exposed.
+- When adding components, check whether the project has component test patterns (Testing Library, Storybook, snapshot
+  tests) and follow them.
+- Completion: existing tests pass; any new test code matches the project's established test style.
 
 ### Frontend Safety
 
