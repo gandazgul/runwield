@@ -103,6 +103,17 @@ existing Epic `epic_done_enough` event.
 is not an archive, not a validation pass, and not a merge-back signal; evidence/worktree fields are preserved unless a
 separate recovery action changes them.
 
+### Workspace manual actions
+
+The browser Workspace board and detail controls call the token-protected lifecycle action API for every status mutation.
+They never directly write `status` front matter. Button/menu actions use the same lifecycle intent shape that future
+keyboard shortcuts or drag-and-drop drop handlers must use, so drag gestures are only an input layer over the existing
+lifecycle path.
+
+Workspace Resume from hold runs a conservative Resume Check before recording `hold_resumed`. If recorded worktree or
+staleness metadata cannot be proven safe, the API returns a warning that requires explicit user confirmation; hard
+failures block the resume. Full pointer/touch drag-and-drop gestures are not required for the current Workspace slice.
+
 ## On-Hold Plans
 
 `plan_held` can pause any non-terminal, non-closed status, including `failed` and `implemented`. It sets:

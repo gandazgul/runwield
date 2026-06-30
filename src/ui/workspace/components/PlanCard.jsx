@@ -1,4 +1,5 @@
 import { PLAN_UI_TOKEN_QUERY } from "../constants.js";
+import { PlanLifecycleActions } from "../islands/PlanLifecycleActions.jsx";
 
 /**
  * @param {string} path
@@ -27,6 +28,15 @@ export function editBodyHref(plan, url) {
     return workspaceHref(`/plans/${encodeURIComponent(plan.planId)}?edit=body`, url);
 }
 
+/** @param {any} plan */
+function holdMetadata(plan) {
+    const metadata = [];
+    if (plan.heldFromStatus) metadata.push(`held from ${plan.heldFromStatus}`);
+    if (plan.heldAt) metadata.push(`held at ${plan.heldAt}`);
+    if (plan.holdReason) metadata.push(`reason: ${plan.holdReason}`);
+    return metadata.length ? metadata.join("; ") : "No hold metadata provided.";
+}
+
 /** @param {{ plan: any, url: URL, compact?: boolean, roleLabel?: string }} props */
 export function PlanCard({ plan, url, compact = false, roleLabel = "Plan" }) {
     const isChildCard = plan.hierarchyRole === "child" || plan.hierarchyRole === "orphan-child";
@@ -48,6 +58,8 @@ export function PlanCard({ plan, url, compact = false, roleLabel = "Plan" }) {
                 </div>
             </div>
             <p>{plan.summary || "No summary provided."}</p>
+            {plan.status === "on_hold" ? <p class="hold-summary">{holdMetadata(plan)}</p> : null}
+            <PlanLifecycleActions plan={plan} compact />
             <div class="badge-row">
                 {plan.blockedByDependencies ? <span class="badge warning">Blocked by dependency</span> : null}
                 {plan.unverifiedDependencyCount

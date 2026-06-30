@@ -203,6 +203,52 @@ export function isManualBoardStatusChangeAllowed(currentStatus, targetStatus, at
 
 /**
  * @param {PlanStatus} currentStatus
+ * @param {Partial<import('../../plan-store.js').PlanFrontMatter> | undefined} attrs
+ * @returns {{ canCloseWithoutVerification: boolean, canPutOnHold: boolean, canResumeFromHold: boolean, canResetToDraft: boolean, allowedManualTargetStatuses: PlanStatus[], blockedReasons: Record<string, string> }}
+ */
+export function getPlanLifecycleActionMetadata(currentStatus, attrs = {}) {
+    /** @type {Record<string, string>} */
+    const blockedReasons = {};
+    const allowedManualTargetStatuses = getAllowedManualPlanStatuses(currentStatus, attrs).filter((status) =>
+        status !== currentStatus
+    );
+    const canCloseWithoutVerification = isManualBoardStatus(currentStatus, attrs);
+    const canPutOnHold = currentStatus !== "verified" && currentStatus !== "closed_without_verification" &&
+        currentStatus !== "on_hold";
+    const canResumeFromHold = currentStatus === "on_hold" && Boolean(attrs?.heldFromStatus);
+    const canResetToDraft = currentStatus === "on_hold";
+
+    if (!allowedManualTargetStatuses.length) {
+        blockedReasons.move_status = currentStatus === "failed"
+            ? "Failed Plans leave recovery through dedicated recovery workflow actions, not manual board movement."
+            : "This status cannot be moved through generic board controls.";
+    }
+    if (!canCloseWithoutVerification) {
+        blockedReasons.close_without_verification =
+            "Only active manual board statuses can be closed without Workflow Validation.";
+    }
+    if (!canPutOnHold) {
+        blockedReasons.put_on_hold = "Verified, closed, and already held Plans cannot be put on hold.";
+    }
+    if (currentStatus === "on_hold" && !attrs?.heldFromStatus) {
+        blockedReasons.resume_from_hold = "This held Plan is missing heldFromStatus metadata.";
+    } else if (!canResumeFromHold) {
+        blockedReasons.resume_from_hold = "Only held Plans can be resumed.";
+    }
+    if (!canResetToDraft) blockedReasons.reset_to_draft = "Only held Plans can be reset to draft.";
+
+    return {
+        allowedManualTargetStatuses,
+        canCloseWithoutVerification,
+        canPutOnHold,
+        canResumeFromHold,
+        canResetToDraft,
+        blockedReasons,
+    };
+}
+
+/**
+ * @param {PlanStatus} currentStatus
  * @param {PlanEventDetails} details
  * @returns {PlanStatus}
  */

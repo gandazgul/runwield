@@ -1,3 +1,4 @@
+import { PlanLifecycleActions } from "../islands/PlanLifecycleActions.jsx";
 import { BoardColumn } from "./BoardColumn.jsx";
 import { boardHrefForPlanStatus, DetailMetadata, FrontMatterSummary, tabForPlanStatus } from "./PlanDetail.jsx";
 import { MarkdownView } from "./MarkdownView.jsx";
@@ -81,6 +82,7 @@ export function EpicDetail({ epic, url }) {
                             </p>
                         )
                         : null}
+                    <PlanLifecycleActions plan={epic} epic />
                 </div>
                 <div class="header-actions" aria-label="Epic detail actions">
                     <a class="secondary-action" href={closeHref}>Close</a>

@@ -1,4 +1,5 @@
 import {
+    applyWorkspaceLifecycleAction,
     loadBoard,
     loadPlanSummaries,
     loadWorkspaceDetail,
@@ -47,6 +48,32 @@ export async function planDetailApi(ctx) {
         const body = serializePlanError(error);
         const status = body.error.includes("not found") || body.error.includes("Plan not found") ? 404 : 409;
         return json(body, status);
+    }
+}
+
+/** @param {any} ctx */
+/** @param {any} ctx */
+export async function lifecycleActionApi(ctx) {
+    let payload;
+    try {
+        payload = await ctx.req.json();
+    } catch {
+        return json({ error: "Request body must be valid JSON." }, 400);
+    }
+
+    try {
+        const result = await applyWorkspaceLifecycleAction(ctx.state.cwd, ctx.params.planId, payload);
+        if (result.blocked) return json(result.body, result.status || 409);
+        return json(result.body);
+    } catch (error) {
+        const body = serializePlanError(error);
+        const message = body.error;
+        const status = message.includes("not found") || message.includes("Plan not found")
+            ? 404
+            : message.includes("Unknown") || message.includes("missing targetStatus")
+            ? 400
+            : 409;
+        return json({ ...body, blockedReason: status === 409 ? message : undefined }, status);
     }
 }
 

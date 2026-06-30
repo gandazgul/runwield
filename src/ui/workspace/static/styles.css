@@ -571,3 +571,82 @@ button.primary-action:disabled {
 .editor-notice {
     margin: 0;
 }
+
+.lifecycle-actions {
+    pointer-events: auto;
+    position: relative;
+    z-index: 4;
+    margin: 0.75rem 0;
+}
+
+.lifecycle-actions.compact {
+    margin: 0.5rem 0;
+}
+
+.lifecycle-action-list,
+.inline-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+}
+
+.lifecycle-action-list button,
+.lifecycle-action-list .secondary-action {
+    font-size: 0.82rem;
+    padding: 0.35rem 0.55rem;
+}
+
+.lifecycle-actions.compact .lifecycle-action-list {
+    gap: 0.3rem;
+}
+
+.lifecycle-actions.compact .lifecycle-action-list button {
+    font-size: 0.75rem;
+    padding: 0.25rem 0.45rem;
+}
+
+.lifecycle-action-list button:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+}
+
+.terminal-message,
+.hold-message,
+.lifecycle-message {
+    margin: 0.35rem 0;
+    font-size: 0.86rem;
+}
+
+.terminal-message {
+    color: var(--muted-text, #667085);
+}
+
+.resume-warning {
+    margin-top: 0.5rem;
+}
+
+.board-column[data-action-target-status] {
+    scroll-margin-top: 1rem;
+}
+
+.board-column[data-action-target-status] .column-header {
+    border-bottom: 1px solid var(--border-color, #d0d5dd);
+}
+
+.plan-card[data-plan-id] {
+    touch-action: manipulation;
+}
+
+.plan-card .lifecycle-actions button,
+.plan-card .lifecycle-actions a {
+    pointer-events: auto;
+    position: relative;
+    z-index: 5;
+}
+
+@media (max-width: 720px) {
+    .lifecycle-action-list {
+        flex-direction: column;
+        align-items: stretch;
+    }
+}

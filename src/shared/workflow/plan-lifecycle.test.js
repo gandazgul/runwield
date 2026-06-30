@@ -2,6 +2,7 @@ import { assertEquals, assertRejects, assertThrows } from "@std/assert";
 import {
     buildPlanEventUpdates,
     getAllowedManualPlanStatuses,
+    getPlanLifecycleActionMetadata,
     isEpicPlan,
     isExecutablePlanStatus,
     isManualBoardStatusChangeAllowed,
@@ -493,4 +494,28 @@ Deno.test("recordPlanEvent rejects invalid transitions before writing", async ()
         Error,
         'validation_passed cannot apply to status "approved"',
     );
+});
+
+Deno.test("getPlanLifecycleActionMetadata keeps protected states behind dedicated actions", () => {
+    const draft = getPlanLifecycleActionMetadata("draft", { classification: "FEATURE" });
+    assertEquals(draft.allowedManualTargetStatuses.includes("verified"), false);
+    assertEquals(draft.allowedManualTargetStatuses.includes("failed"), false);
+    assertEquals(draft.allowedManualTargetStatuses.includes("on_hold"), false);
+    assertEquals(draft.canPutOnHold, true);
+    assertEquals(draft.canCloseWithoutVerification, true);
+
+    const failed = getPlanLifecycleActionMetadata("failed", { classification: "FEATURE" });
+    assertEquals(failed.allowedManualTargetStatuses, []);
+    assertEquals(failed.canPutOnHold, true);
+
+    const verified = getPlanLifecycleActionMetadata("verified", { classification: "FEATURE" });
+    assertEquals(verified.canPutOnHold, false);
+    assertEquals(verified.canCloseWithoutVerification, false);
+
+    const held = getPlanLifecycleActionMetadata("on_hold", {
+        classification: "FEATURE",
+        heldFromStatus: "ready_for_work",
+    });
+    assertEquals(held.canResumeFromHold, true);
+    assertEquals(held.canResetToDraft, true);
 });

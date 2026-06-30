@@ -1,4 +1,14 @@
+import { PlanLifecycleActions } from "../islands/PlanLifecycleActions.jsx";
 import { detailHref } from "./PlanCard.jsx";
+
+/** @param {any} plan */
+function holdMetadata(plan) {
+    const metadata = [];
+    if (plan.heldFromStatus) metadata.push(`held from ${plan.heldFromStatus}`);
+    if (plan.heldAt) metadata.push(`held at ${plan.heldAt}`);
+    if (plan.holdReason) metadata.push(`reason: ${plan.holdReason}`);
+    return metadata.length ? metadata.join("; ") : "No hold metadata provided.";
+}
 
 /** @param {{ epic: any, url: URL }} props */
 export function EpicCard({ epic, url }) {
@@ -19,6 +29,8 @@ export function EpicCard({ epic, url }) {
                 </div>
             </div>
             <p>{epic.summary || "No Epic summary provided."}</p>
+            {epic.status === "on_hold" ? <p class="hold-summary">{holdMetadata(epic)}</p> : null}
+            <PlanLifecycleActions plan={epic} compact epic />
             <div class="progress-meter" aria-label="Epic child progress">
                 <span>{progress.verified}/{progress.total} verified</span>
                 {progress.active ? <span>{progress.active} active</span> : null}

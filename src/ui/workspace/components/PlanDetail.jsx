@@ -1,4 +1,5 @@
 import { PlanBodyEditor } from "../islands/PlanBodyEditor.jsx";
+import { PlanLifecycleActions } from "../islands/PlanLifecycleActions.jsx";
 import { workspaceHref } from "./PlanCard.jsx";
 
 const CLOSED_STATUSES = new Set(["verified", "closed_without_verification"]);
@@ -19,6 +20,15 @@ export function boardHrefForPlanStatus(status, url) {
     if (tab === "closed") return workspaceHref("/closed", url);
     if (tab === "on-hold") return workspaceHref("/on-hold", url);
     return workspaceHref("/", url);
+}
+
+/** @param {any} plan */
+function holdMetadata(plan) {
+    const metadata = [];
+    if (plan.heldFromStatus) metadata.push(`held from ${plan.heldFromStatus}`);
+    if (plan.heldAt) metadata.push(`held at ${plan.heldAt}`);
+    if (plan.holdReason) metadata.push(`reason: ${plan.holdReason}`);
+    return metadata.length ? metadata.join("; ") : "No hold metadata provided.";
 }
 
 /** @param {{ plan: any }} props */
@@ -95,6 +105,14 @@ function DetailMetadata({ plan }) {
                     </div>
                 )
                 : null}
+            {plan.status === "on_hold"
+                ? (
+                    <div>
+                        <dt>Hold</dt>
+                        <dd>{holdMetadata(plan)}</dd>
+                    </div>
+                )
+                : null}
         </dl>
     );
 }
@@ -124,6 +142,7 @@ export function PlanDetail({ plan, url, editIntent = false }) {
                 <div>
                     <h2>{plan.planName}</h2>
                     <p>{plan.summary || "No summary provided."}</p>
+                    {plan.status === "on_hold" ? <p class="notice muted">{holdMetadata(plan)}</p> : null}
                     <div class="detail-actions" aria-label="Plan status">
                         <span class={`status status-${plan.status}`}>{plan.status}</span>
                         {plan.hierarchyRole === "orphan-child"
@@ -139,6 +158,7 @@ export function PlanDetail({ plan, url, editIntent = false }) {
             </header>
             <section class="detail-grid">
                 <div>
+                    <PlanLifecycleActions plan={plan} />
                     <PlanBodyEditor plan={plan} initialEdit={editIntent} />
                 </div>
                 <aside>

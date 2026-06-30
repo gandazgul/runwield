@@ -4,7 +4,7 @@ import { PlanCard } from "./PlanCard.jsx";
 /** @param {{ column: any, url: URL }} props */
 export function BoardColumn({ column, url }) {
     return (
-        <section class="board-column" data-status={column.status}>
+        <section class="board-column" data-status={column.status} data-action-target-status={column.status}>
             <header class="column-header">
                 <div>
                     <h3>{column.label}</h3>

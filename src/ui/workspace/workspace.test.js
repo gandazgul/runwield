@@ -7,12 +7,32 @@ import {
     loadBoard,
     loadPlanSummaries,
     loadWorkspaceDetail,
+    runWorkspaceResumeCheck,
     serializePlanSummary,
     workspaceMetadata as _workspaceMetadata,
 } from "./server/plan-adapter.js";
 import { renderMarkdown } from "./components/MarkdownView.jsx";
 import { draftRecoveryState, planBodyDraftKey, restoredDraftExpectedBodyHash } from "./islands/PlanBodyEditor.jsx";
+import {
+    createMoveStatusIntent,
+    createPutOnHoldIntent,
+    lifecycleActionLabel,
+} from "./islands/PlanLifecycleActions.jsx";
 import { createWorkspaceApp, hasWorkspaceToken } from "./server.js";
+
+/**
+ * @param {string} cwd
+ * @param {string[]} args
+ */
+async function git(cwd, args) {
+    const command = new Deno.Command("git", { args, cwd, stdout: "piped", stderr: "piped" });
+    const output = await command.output();
+    if (!output.success) {
+        const decoder = new TextDecoder();
+        throw new Error(decoder.decode(output.stderr) || decoder.decode(output.stdout));
+    }
+    return new TextDecoder().decode(output.stdout);
+}
 
 Deno.test("workspace token accepts query or header and rejects missing tokens", () => {
     assertEquals(hasWorkspaceToken(new Request("http://localhost/?token=abc"), "abc"), true);
@@ -35,10 +55,12 @@ Deno.test("serializePlanSummary omits absolute paths and surfaces hierarchy/depe
             parentPlan: "epic",
             summary: "Child",
             dependencies: ["sibling-id"],
+            worktreePath: "/tmp/project-runwield-worktree",
         },
     });
     assertEquals(summary.relativePath, "plans/epic/child.md");
     assertEquals(Object.hasOwn(summary, "path"), false);
+    assertEquals(Object.hasOwn(summary.attrs, "worktreePath"), false);
     assertEquals(summary.isChild, true);
     assertEquals(summary.hierarchyRole, "child");
     assertEquals(summary.dependsOn, ["sibling-id"]);
@@ -490,6 +512,11 @@ Deno.test("Workspace Epic detail SSR-renders child FEATURE Plans by status", asy
         assertStringIncludes(boardHtml, "Missing parent Epic");
         assertEquals(boardHtml.includes("Child summary"), false);
 
+        const onHoldBoard = await app(new Request("http://localhost/on-hold?token=secret"));
+        const onHoldBoardHtml = await onHoldBoard.text();
+        assertStringIncludes(onHoldBoardHtml, "held from in_progress; held at 2026-01-03T00:00:00.000Z");
+        assertStringIncludes(onHoldBoardHtml, "reason: waiting for budget");
+
         const detail = await app(new Request("http://localhost/plans/epic-id?token=secret"));
         const detailHtml = await detail.text();
         assertStringIncludes(detailHtml, "Epic detail");
@@ -510,6 +537,219 @@ Deno.test("Workspace Epic detail SSR-renders child FEATURE Plans by status", asy
         const heldDetailHtml = await heldDetail.text();
         assertStringIncludes(heldDetailHtml, "Epic on hold from in_progress at 2026-01-03T00:00:00.000Z");
         assertStringIncludes(heldDetailHtml, "reason: waiting for budget");
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+Deno.test("workspace lifecycle action metadata blocks protected status movement and exposes DnD seams", () => {
+    const summary = serializePlanSummary({
+        planId: "p1",
+        planName: "plan",
+        relativePath: "plans/plan.md",
+        attrs: { planId: "p1", status: "draft", classification: "FEATURE" },
+    });
+    assertEquals(summary.actions.allowedManualTargetStatuses.includes("verified"), false);
+    assertEquals(summary.actions.allowedManualTargetStatuses.includes("failed"), false);
+    assertEquals(summary.actions.canPutOnHold, true);
+    assertEquals(createMoveStatusIntent({ planId: "p1", fromStatus: "draft", toStatus: "approved" }), {
+        planId: "p1",
+        fromStatus: "draft",
+        action: "move_status",
+        targetStatus: "approved",
+    });
+    assertEquals(lifecycleActionLabel(summary.actions, "put_on_hold"), summary.actions.metadata.put_on_hold.label);
+    assertEquals(createPutOnHoldIntent({ planId: "p1", fromStatus: "draft", holdReason: "" }), {
+        planId: "p1",
+        fromStatus: "draft",
+        action: "put_on_hold",
+        holdReason: "",
+    });
+    assertEquals(createPutOnHoldIntent({ planId: "p1", fromStatus: "draft", holdReason: null }), null);
+});
+
+Deno.test("Workspace lifecycle API mutates through lifecycle events and blocks invalid actions", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "feature", "# Feature", {
+            planId: "feature-id",
+            status: "draft",
+            classification: "FEATURE",
+        });
+        await savePlan(cwd, "held", "# Held", {
+            planId: "held-id",
+            status: "on_hold",
+            heldFromStatus: "in_progress",
+            classification: "FEATURE",
+        });
+        const app = createWorkspaceApp({ cwd, token: "secret" }).handler();
+        const missingToken = await app(
+            new Request("http://localhost/api/plans/feature-id/lifecycle-action", {
+                method: "POST",
+                body: JSON.stringify({ action: "move_status", targetStatus: "approved" }),
+            }),
+        );
+        assertEquals(missingToken.status, 401);
+
+        const invalid = await app(
+            new Request("http://localhost/api/plans/feature-id/lifecycle-action", {
+                method: "POST",
+                headers: { [PLAN_UI_TOKEN_HEADER]: "secret", "content-type": "application/json" },
+                body: JSON.stringify({ action: "move_status", targetStatus: "verified" }),
+            }),
+        );
+        assertEquals(invalid.status, 409);
+
+        const moved = await app(
+            new Request("http://localhost/api/plans/feature-id/lifecycle-action", {
+                method: "POST",
+                headers: { [PLAN_UI_TOKEN_HEADER]: "secret", "content-type": "application/json" },
+                body: JSON.stringify({ action: "move_status", targetStatus: "approved" }),
+            }),
+        );
+        assertEquals(moved.status, 200);
+        assertEquals((await loadWorkspaceDetail(cwd, "feature-id")).status, "approved");
+
+        const held = await app(
+            new Request("http://localhost/api/plans/feature-id/lifecycle-action", {
+                method: "POST",
+                headers: { [PLAN_UI_TOKEN_HEADER]: "secret", "content-type": "application/json" },
+                body: JSON.stringify({ action: "put_on_hold", holdReason: "pause" }),
+            }),
+        );
+        assertEquals(held.status, 200);
+        let loaded = await loadWorkspaceDetail(cwd, "feature-id");
+        assertEquals(loaded.status, "on_hold");
+        assertEquals(loaded.heldFromStatus, "approved");
+        assertEquals(loaded.holdReason, "pause");
+
+        const reset = await app(
+            new Request("http://localhost/api/plans/feature-id/lifecycle-action", {
+                method: "POST",
+                headers: { [PLAN_UI_TOKEN_HEADER]: "secret", "content-type": "application/json" },
+                body: JSON.stringify({ action: "reset_to_draft" }),
+            }),
+        );
+        assertEquals(reset.status, 200);
+        loaded = await loadWorkspaceDetail(cwd, "feature-id");
+        assertEquals(loaded.status, "draft");
+        assertEquals(loaded.heldFromStatus, "");
+
+        const resumed = await app(
+            new Request("http://localhost/api/plans/held-id/lifecycle-action", {
+                method: "POST",
+                headers: { [PLAN_UI_TOKEN_HEADER]: "secret", "content-type": "application/json" },
+                body: JSON.stringify({ action: "resume_from_hold" }),
+            }),
+        );
+        assertEquals(resumed.status, 200);
+        assertEquals((await loadWorkspaceDetail(cwd, "held-id")).status, "in_progress");
+
+        const closed = await app(
+            new Request("http://localhost/api/plans/feature-id/lifecycle-action", {
+                method: "POST",
+                headers: { [PLAN_UI_TOKEN_HEADER]: "secret", "content-type": "application/json" },
+                body: JSON.stringify({ action: "close_without_verification" }),
+            }),
+        );
+        assertEquals(closed.status, 200);
+        loaded = await loadWorkspaceDetail(cwd, "feature-id");
+        assertEquals(loaded.status, "closed_without_verification");
+        assertEquals(loaded.frontMatter.verifiedAt, undefined);
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+Deno.test("Workspace lifecycle API requires Resume Check confirmation for staleness warnings", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "held-warning", "# Held Warning", {
+            planId: "held-warning-id",
+            status: "on_hold",
+            heldFromStatus: "ready_for_work",
+            holdStalenessBaseline: "baseline",
+            classification: "FEATURE",
+        });
+        const app = createWorkspaceApp({ cwd, token: "secret" }).handler();
+        const warned = await app(
+            new Request("http://localhost/api/plans/held-warning-id/lifecycle-action", {
+                method: "POST",
+                headers: { [PLAN_UI_TOKEN_HEADER]: "secret", "content-type": "application/json" },
+                body: JSON.stringify({ action: "resume_from_hold" }),
+            }),
+        );
+        assertEquals(warned.status, 409);
+        const warningBody = await warned.json();
+        assertEquals(warningBody.requiresConfirmation, true);
+
+        const accepted = await app(
+            new Request("http://localhost/api/plans/held-warning-id/lifecycle-action", {
+                method: "POST",
+                headers: { [PLAN_UI_TOKEN_HEADER]: "secret", "content-type": "application/json" },
+                body: JSON.stringify({ action: "resume_from_hold", acceptResumeWarnings: true }),
+            }),
+        );
+        assertEquals(accepted.status, 200);
+        assertEquals((await loadWorkspaceDetail(cwd, "held-warning-id")).status, "ready_for_work");
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+Deno.test("Workspace Resume Check does not expose absolute worktree paths in blocked API responses", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        const missingWorktreePath = `${cwd}/missing-worktree`;
+        await savePlan(cwd, "held-leak", "# Held Leak", {
+            planId: "held-leak-id",
+            status: "on_hold",
+            heldFromStatus: "ready_for_work",
+            worktreePath: missingWorktreePath,
+            worktreeBranch: "missing-branch",
+            classification: "FEATURE",
+        });
+        const app = createWorkspaceApp({ cwd, token: "secret" }).handler();
+        const response = await app(
+            new Request("http://localhost/api/plans/held-leak-id/lifecycle-action", {
+                method: "POST",
+                headers: { [PLAN_UI_TOKEN_HEADER]: "secret", "content-type": "application/json" },
+                body: JSON.stringify({ action: "resume_from_hold" }),
+            }),
+        );
+        assertEquals(response.status, 409);
+        const bodyText = await response.text();
+        assertEquals(bodyText.includes(cwd), false);
+        assertEquals(bodyText.includes(missingWorktreePath), false);
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+Deno.test("Workspace Resume Check blocks resume when recorded branch cannot be determined", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await git(cwd, ["init", "-b", "main"]);
+        await git(cwd, ["config", "user.email", "test@example.com"]);
+        await git(cwd, ["config", "user.name", "Test User"]);
+        await Deno.writeTextFile(`${cwd}/README.md`, "hello\n");
+        await git(cwd, ["add", "README.md"]);
+        await git(cwd, ["commit", "-m", "initial"]);
+        const head = (await git(cwd, ["rev-parse", "HEAD"])).trim();
+        await git(cwd, ["checkout", "--detach", head]);
+
+        const resumeCheck = await runWorkspaceResumeCheck(cwd, {
+            status: "on_hold",
+            heldFromStatus: "ready_for_work",
+            worktreePath: cwd,
+            worktreeBranch: "main",
+        });
+
+        assertEquals(resumeCheck.ok, false);
+        assertEquals(
+            resumeCheck.failures.includes("Recorded worktree branch could not be determined for verification."),
+            true,
+        );
     } finally {
         await Deno.remove(cwd, { recursive: true });
     }

@@ -17,8 +17,13 @@ import {
 import {
     ACTIVE_PLAN_STATUSES,
     CLOSED_PLAN_STATUSES,
+    getPlanLifecycleActionMetadata,
     ON_HOLD_PLAN_STATUSES,
+    PLAN_STATUSES,
+    recordPlanEvent,
 } from "../../../shared/workflow/plan-lifecycle.js";
+import { getWorktreeStatus, inspectExecutionWorktreeMergeRisk } from "../../../shared/worktree.js";
+import { PLAN_LIFECYCLE_ACTIONS } from "../constants.js";
 
 export const ACTIVE_STATUSES = ACTIVE_PLAN_STATUSES;
 export const CLOSED_STATUSES = CLOSED_PLAN_STATUSES;
@@ -82,6 +87,34 @@ export const STATUS_META = {
     },
 };
 
+export const ACTION_META = {
+    [PLAN_LIFECYCLE_ACTIONS.MOVE_STATUS]: {
+        action: PLAN_LIFECYCLE_ACTIONS.MOVE_STATUS,
+        label: "Move status",
+        description: "Move among manual board statuses through Plan Lifecycle.",
+    },
+    [PLAN_LIFECYCLE_ACTIONS.CLOSE_WITHOUT_VERIFICATION]: {
+        action: PLAN_LIFECYCLE_ACTIONS.CLOSE_WITHOUT_VERIFICATION,
+        label: "Close without verification",
+        description: "Terminally close without setting verifiedAt.",
+    },
+    [PLAN_LIFECYCLE_ACTIONS.PUT_ON_HOLD]: {
+        action: PLAN_LIFECYCLE_ACTIONS.PUT_ON_HOLD,
+        label: "Put on hold",
+        description: "Pause this Plan without mutating child Plans.",
+    },
+    [PLAN_LIFECYCLE_ACTIONS.RESUME_FROM_HOLD]: {
+        action: PLAN_LIFECYCLE_ACTIONS.RESUME_FROM_HOLD,
+        label: "Resume from hold",
+        description: "Resume to the recorded heldFromStatus after Resume Check.",
+    },
+    [PLAN_LIFECYCLE_ACTIONS.RESET_TO_DRAFT]: {
+        action: PLAN_LIFECYCLE_ACTIONS.RESET_TO_DRAFT,
+        label: "Reset status to draft",
+        description: "Clear hold/worktree/recovery metadata without deleting worktrees.",
+    },
+};
+
 /**
  * @param {string} value
  * @returns {Promise<string>}
@@ -130,6 +163,16 @@ function safeObject(value) {
 
 /**
  * @param {unknown} value
+ * @returns {Record<string, unknown>}
+ */
+function workspaceSafeFrontMatter(value) {
+    const frontMatter = { ...safeObject(value) };
+    delete frontMatter.worktreePath;
+    return frontMatter;
+}
+
+/**
+ * @param {unknown} value
  * @returns {string[]}
  */
 function stringArray(value) {
@@ -137,18 +180,84 @@ function stringArray(value) {
 }
 
 /**
+ * @param {string} status
+ * @returns {boolean}
+ */
+function isKnownStatus(status) {
+    return PLAN_STATUSES.includes(/** @type {any} */ (status));
+}
+
+/**
+ * @param {string} status
+ */
+function statusOption(status) {
+    const meta = /** @type {any} */ (STATUS_META)[status] || { status, label: status, description: "" };
+    return { status, label: meta.label, description: meta.description };
+}
+
+/**
+ * @param {string} message
+ * @param {string[]} [sensitivePaths]
+ */
+function sanitizeWorkspaceMessage(message, sensitivePaths = []) {
+    let sanitized = message;
+    for (const sensitivePath of sensitivePaths.filter(Boolean)) {
+        sanitized = sanitized.split(sensitivePath).join("[workspace path]");
+    }
+    return sanitized.replace(/(?:[A-Za-z]:)?[\\/][^\s"'`<>)]*/g, "[workspace path]");
+}
+
+/**
+ * @param {string[]} messages
+ * @param {string[]} sensitivePaths
+ */
+function sanitizeWorkspaceMessages(messages, sensitivePaths) {
+    return messages.map((message) => sanitizeWorkspaceMessage(message, sensitivePaths));
+}
+
+/**
+ * @param {Record<string, unknown>} attrs
+ */
+function lifecycleActionsForAttrs(attrs) {
+    const status = String(attrs.status || "draft");
+    const metadata = getPlanLifecycleActionMetadata(/** @type {any} */ (status), attrs);
+    return {
+        metadata: ACTION_META,
+        allowedManualTargetStatuses: metadata.allowedManualTargetStatuses,
+        manualTargetOptions: metadata.allowedManualTargetStatuses.map(statusOption),
+        canCloseWithoutVerification: metadata.canCloseWithoutVerification,
+        canPutOnHold: metadata.canPutOnHold,
+        canResumeFromHold: metadata.canResumeFromHold,
+        canResetToDraft: metadata.canResetToDraft,
+        blockedReasons: metadata.blockedReasons,
+        terminalMessage: CLOSED_STATUSES.includes(/** @type {any} */ (status))
+            ? "Closed Plans are terminal/read-only in this Workspace slice."
+            : "",
+        holdMessage: status === "on_hold" ? "On-hold Plans can be resumed or reset to draft." : "",
+        dnd: {
+            cardId: `plan-${String(attrs.planId || "")}`,
+            allowedTargetStatuses: metadata.allowedManualTargetStatuses,
+        },
+    };
+}
+
+/**
  * @param {any} resource
  * @returns {any}
  */
 export function serializePlanSummary(resource) {
-    const attrs = safeObject(resource.attrs);
+    const attrs = workspaceSafeFrontMatter(resource.attrs);
+    const status = String(attrs.status || "draft");
+    attrs.planId = resource.planId;
     return {
         planId: resource.planId,
         planName: resource.planName || resource.name,
         name: resource.planName || resource.name,
         attrs,
         relativePath: resource.relativePath,
-        status: attrs.status || "draft",
+        status,
+        statusLabel: statusOption(status).label,
+        actions: lifecycleActionsForAttrs(attrs),
         classification: attrs.classification || "FEATURE",
         type: attrs.type || "",
         title: attrs.title || resource.planName || resource.name,
@@ -349,7 +458,7 @@ export function serializePlanDetail(resource, plans) {
     const summary = plans?.find((plan) => plan.planId === resource.planId) || serializePlanSummary(resource);
     return {
         ...summary,
-        frontMatter: safeObject(resource.attrs),
+        frontMatter: workspaceSafeFrontMatter(resource.attrs),
         body: resource.body || "",
         bodyHash: resource.bodyHash || "",
         workspaceKey: resource.workspaceKey || "",
@@ -460,6 +569,189 @@ export async function saveWorkspacePlanBody(cwd, planId, body, expectedBodyHash)
     return serializeNonEpicDetail(detail, summaries);
 }
 
+/**
+ * @typedef {Object} ResumeCheck
+ * @property {boolean} ok
+ * @property {string[]} warnings
+ * @property {string[]} failures
+ * @property {string} message
+ */
+
+/**
+ * @param {string} cwd
+ * @param {Record<string, unknown>} attrs
+ * @returns {Promise<ResumeCheck>}
+ */
+export async function runWorkspaceResumeCheck(cwd, attrs) {
+    if (attrs.status !== "on_hold" || !attrs.heldFromStatus) {
+        return {
+            ok: false,
+            warnings: [],
+            failures: ["Resume from hold requires status on_hold and heldFromStatus metadata."],
+            message: "Resume Check failed.",
+        };
+    }
+    /** @type {string[]} */
+    const warnings = [];
+    /** @type {string[]} */
+    const failures = [];
+    const worktreePath = typeof attrs.worktreePath === "string" ? attrs.worktreePath : "";
+    const worktreeBranch = typeof attrs.worktreeBranch === "string" ? attrs.worktreeBranch : "";
+    const baseline = typeof attrs.holdStalenessBaseline === "string" ? attrs.holdStalenessBaseline : "";
+
+    if (!worktreePath && !worktreeBranch && !baseline) {
+        return {
+            ok: true,
+            warnings,
+            failures,
+            message: "Resume Check passed; there was no recorded worktree or staleness state to inspect.",
+        };
+    }
+
+    if (worktreePath) {
+        try {
+            const status = await getWorktreeStatus({
+                projectRoot: cwd,
+                path: worktreePath,
+                branch: worktreeBranch,
+                baseTree: baseline,
+            });
+            if (!status.exists) failures.push("Recorded worktree path is missing.");
+            if (status.exists && worktreeBranch && !status.branch) {
+                failures.push("Recorded worktree branch could not be determined for verification.");
+            }
+            if (worktreeBranch && status.branch && status.branch !== worktreeBranch) {
+                failures.push(
+                    `Recorded worktree branch ${worktreeBranch} does not match current branch ${status.branch}.`,
+                );
+            }
+            if (status.exists && !status.clean) warnings.push("Recorded worktree has uncommitted changes.");
+        } catch {
+            failures.push("Could not inspect recorded worktree status.");
+        }
+    }
+
+    if (worktreeBranch) {
+        const risk = await inspectExecutionWorktreeMergeRisk({ projectRoot: cwd, branch: worktreeBranch });
+        const sensitivePaths = [cwd, worktreePath];
+        warnings.push(...sanitizeWorkspaceMessages(risk.warnings, sensitivePaths));
+        failures.push(...sanitizeWorkspaceMessages(risk.failures, sensitivePaths));
+    }
+
+    if (baseline) {
+        warnings.push(
+            "Recorded hold staleness baseline exists, but Workspace cannot fully prove affected-path freshness yet.",
+        );
+    }
+
+    return {
+        ok: failures.length === 0,
+        warnings,
+        failures,
+        message: failures.length
+            ? "Resume Check failed."
+            : warnings.length
+            ? "Resume Check needs confirmation."
+            : "Resume Check passed.",
+    };
+}
+
+/**
+ * @param {unknown} payload
+ */
+function validateLifecycleActionPayload(payload) {
+    const body = safeObject(payload);
+    const action = typeof body.action === "string" ? body.action : "";
+    if (!Object.values(PLAN_LIFECYCLE_ACTIONS).includes(/** @type {any} */ (action))) {
+        throw new Error("Unknown lifecycle action.");
+    }
+    if (action === PLAN_LIFECYCLE_ACTIONS.MOVE_STATUS) {
+        const targetStatus = typeof body.targetStatus === "string" ? body.targetStatus : "";
+        if (!targetStatus || !isKnownStatus(targetStatus)) throw new Error("Unknown or missing targetStatus.");
+    }
+    return body;
+}
+
+/**
+ * @param {string} cwd
+ * @param {string} planId
+ * @param {unknown} payload
+ */
+export async function applyWorkspaceLifecycleAction(cwd, planId, payload) {
+    const request = validateLifecycleActionPayload(payload);
+    const resource = await findPlanById(cwd, planId);
+    const attrs = safeObject(resource.attrs);
+    const currentStatus = /** @type {any} */ (String(attrs.status || "draft"));
+    const action = String(request.action);
+    const metadata = getPlanLifecycleActionMetadata(currentStatus, attrs);
+    /** @type {any} */
+    const details = { triageMeta: attrs };
+    /** @type {any} */
+    let event = "manual_status_change";
+    let message = "Plan lifecycle action applied.";
+    let resumeCheck = null;
+
+    if (action === PLAN_LIFECYCLE_ACTIONS.MOVE_STATUS) {
+        const targetStatus = String(request.targetStatus);
+        if (!metadata.allowedManualTargetStatuses.includes(/** @type {any} */ (targetStatus))) {
+            throw new Error(metadata.blockedReasons.move_status || `Manual move to ${targetStatus} is blocked.`);
+        }
+        details.manualTargetStatus = targetStatus;
+        message = `Plan moved to ${statusOption(targetStatus).label}.`;
+    } else if (action === PLAN_LIFECYCLE_ACTIONS.CLOSE_WITHOUT_VERIFICATION) {
+        if (!metadata.canCloseWithoutVerification) throw new Error(metadata.blockedReasons.close_without_verification);
+        event = "manual_closed_without_verification";
+        message = "Plan closed without Workflow Validation.";
+    } else if (action === PLAN_LIFECYCLE_ACTIONS.PUT_ON_HOLD) {
+        if (!metadata.canPutOnHold) throw new Error(metadata.blockedReasons.put_on_hold);
+        event = "plan_held";
+        if (typeof request.holdReason === "string") details.holdReason = request.holdReason;
+        details.heldFromStatus = currentStatus;
+        details.holdStalenessBaseline = typeof attrs.executionBaselineTree === "string"
+            ? attrs.executionBaselineTree
+            : undefined;
+        message = attrs.classification === "PROJECT" && attrs.type === "epic"
+            ? "Epic put on hold. Child Plan statuses were not changed."
+            : "Plan put on hold.";
+    } else if (action === PLAN_LIFECYCLE_ACTIONS.RESUME_FROM_HOLD) {
+        if (!metadata.canResumeFromHold) throw new Error(metadata.blockedReasons.resume_from_hold);
+        resumeCheck = await runWorkspaceResumeCheck(cwd, attrs);
+        if (resumeCheck.failures.length) {
+            return {
+                blocked: true,
+                status: 409,
+                body: { error: resumeCheck.message, resumeCheck, blockedReason: resumeCheck.failures.join(" ") },
+            };
+        }
+        if (resumeCheck.warnings.length && request.acceptResumeWarnings !== true) {
+            return {
+                blocked: true,
+                status: 409,
+                body: { error: resumeCheck.message, resumeCheck, requiresConfirmation: true },
+            };
+        }
+        event = "hold_resumed";
+        details.heldFromStatus = attrs.heldFromStatus;
+        message = `Plan resumed to ${statusOption(String(attrs.heldFromStatus)).label}.`;
+    } else if (action === PLAN_LIFECYCLE_ACTIONS.RESET_TO_DRAFT) {
+        if (!metadata.canResetToDraft) throw new Error(metadata.blockedReasons.reset_to_draft);
+        event = "hold_reset_to_draft";
+        message = "Held Plan reset to draft; worktrees were not deleted.";
+    }
+
+    await recordPlanEvent({ cwd, planName: resource.planName || resource.name, event, currentStatus, details });
+    return {
+        blocked: false,
+        body: {
+            plan: await loadWorkspaceDetail(cwd, planId),
+            board: await loadBoard(cwd),
+            actions: ACTION_META,
+            message,
+            ...(resumeCheck ? { resumeCheck } : {}),
+        },
+    };
+}
+
 export { StalePlanBodyError };
 
 /**
@@ -528,7 +820,8 @@ export function workspaceMetadata(cwd) {
             detail: true,
             epicDetail: true,
             markdownView: true,
-            mutations: false,
+            mutations: true,
+            lifecycleActions: true,
             dragDrop: false,
             bodyEditing: true,
         },
