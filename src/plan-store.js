@@ -89,6 +89,10 @@ function getStoredPlanLocation(cwd, planName) {
  * @property {"LOW"|"MEDIUM"|"HIGH"} complexity
  * @property {string} summary - Brief description of what the plan addresses
  * @property {string[]} affectedPaths - Files that will be created/modified
+ * @property {boolean} [frontend] - Whether this plan includes frontend UI/UX work
+ * @property {string|null} [devServerCommand] - Project dev/preview command for browser verification, if known
+ * @property {string|null} [devServerUrl] - Local URL expected for browser verification, if known
+ * @property {boolean|null} [devServerHmr] - Whether the dev server is expected to support hot module reload
  * @property {string} createdAt - ISO timestamp
  * @property {string} [updatedAt] - ISO timestamp (set on revision)
  * @property {string} [planId] - Durable project-scoped resource identity for Workspace URLs
@@ -130,6 +134,10 @@ function getStoredPlanLocation(cwd, planName) {
  * @property {string} title - Human-readable child plan title.
  * @property {string} summary - Brief child FEATURE summary.
  * @property {string[]} affectedPaths - Files that the child FEATURE expects to touch.
+ * @property {boolean} [frontend] - Whether this child includes frontend UI/UX work.
+ * @property {string|null} [devServerCommand] - Project dev/preview command for browser verification, if known.
+ * @property {string|null} [devServerUrl] - Local URL expected for browser verification, if known.
+ * @property {boolean|null} [devServerHmr] - Whether the dev server is expected to support hot module reload.
  * @property {string[]} dependencies - Sibling child plan names or identifiers required first.
  * @property {string} content - Planner-format markdown body for the child FEATURE.
  * @property {number} [order] - Optional stable execution order used in front matter and the file name.
@@ -143,7 +151,7 @@ function getStoredPlanLocation(cwd, planName) {
  * @property {string} title - Human-readable child plan title.
  * @property {"created" | "updated"} action - Whether the derived file existed before this write.
  * @property {string[]} dependencies - Serialized child FEATURE dependencies.
- * @property {{ classification: "FEATURE", status: "draft", parentPlan: string, order?: number, affectedPaths: string[] }} metadata - Front matter values owned by child materialization.
+ * @property {Partial<PlanFrontMatter> & { classification: "FEATURE", status: "draft", parentPlan: string, order?: number, affectedPaths: string[] }} metadata - Front matter values owned by child materialization.
  */
 
 /**
@@ -168,6 +176,10 @@ export const PLAN_FRONT_MATTER_KEYS = Object.freeze({
     complexity: "complexity",
     summary: "summary",
     affectedPaths: "affectedPaths",
+    frontend: "frontend",
+    devServerCommand: "devServerCommand",
+    devServerUrl: "devServerUrl",
+    devServerHmr: "devServerHmr",
     createdAt: "createdAt",
     updatedAt: "updatedAt",
     status: "status",
@@ -264,6 +276,10 @@ function formatFrontMatter(fm) {
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.complexity, fm.complexity);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.summary, fm.summary);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.affectedPaths, fm.affectedPaths);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.frontend, fm.frontend);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.devServerCommand, fm.devServerCommand);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.devServerUrl, fm.devServerUrl);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.devServerHmr, fm.devServerHmr);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.createdAt, fm.createdAt);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.updatedAt, fm.updatedAt);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.status, fm.status);
@@ -326,6 +342,19 @@ function normalizePlanStatus(status) {
         return /** @type {PlanFrontMatter["status"]} */ (status);
     }
     return DEFAULT_FRONT_MATTER.status;
+}
+
+/**
+ * @param {unknown} value
+ * @returns {boolean | undefined}
+ */
+function normalizeOptionalBoolean(value) {
+    if (typeof value === "boolean") return value;
+    if (typeof value === "string") {
+        if (value === "true") return true;
+        if (value === "false") return false;
+    }
+    return undefined;
 }
 
 /**
@@ -480,6 +509,14 @@ export function injectFrontMatter(markdown, overrides = {}) {
         affectedPaths: overrides.affectedPaths ??
             existingFm.affectedPaths ??
             DEFAULT_FRONT_MATTER.affectedPaths,
+        frontend: Object.hasOwn(overrides, "frontend")
+            ? normalizeOptionalBoolean(overrides.frontend)
+            : normalizeOptionalBoolean(existingFm.frontend),
+        devServerCommand: optionalFrontMatterValue(overrides, existingFm, "devServerCommand"),
+        devServerUrl: optionalFrontMatterValue(overrides, existingFm, "devServerUrl"),
+        devServerHmr: Object.hasOwn(overrides, "devServerHmr")
+            ? normalizeOptionalBoolean(overrides.devServerHmr)
+            : normalizeOptionalBoolean(existingFm.devServerHmr),
         createdAt: overrides.createdAt ??
             existingFm.createdAt ??
             DEFAULT_FRONT_MATTER.createdAt,
@@ -561,6 +598,18 @@ export function parsePlanFrontMatter(markdown, opts = {}) {
             complexity: attrs.complexity || DEFAULT_FRONT_MATTER.complexity,
             summary: attrs.summary || DEFAULT_FRONT_MATTER.summary,
             affectedPaths: normalizeStringList(attrs.affectedPaths) || DEFAULT_FRONT_MATTER.affectedPaths,
+            frontend: normalizeOptionalBoolean(attrs.frontend),
+            devServerCommand: typeof attrs.devServerCommand === "string"
+                ? attrs.devServerCommand
+                : attrs.devServerCommand === null
+                ? null
+                : undefined,
+            devServerUrl: typeof attrs.devServerUrl === "string"
+                ? attrs.devServerUrl
+                : attrs.devServerUrl === null
+                ? null
+                : undefined,
+            devServerHmr: attrs.devServerHmr === null ? null : normalizeOptionalBoolean(attrs.devServerHmr),
             createdAt: attrs.createdAt || DEFAULT_FRONT_MATTER.createdAt,
             updatedAt: attrs.updatedAt,
             status: normalizePlanStatus(attrs.status),
@@ -758,6 +807,7 @@ export async function saveChildFeaturePlans(cwd, epicPlanName, children) {
 
         const dependencies = normalizeStringList(child.dependencies) || [];
         const affectedPaths = normalizeStringList(child.affectedPaths) || [];
+        /** @type {Partial<PlanFrontMatter> & { classification: "FEATURE", status: "draft", parentPlan: string, order?: number, affectedPaths: string[] }} */
         const metadata = {
             classification: /** @type {const} */ ("FEATURE"),
             status: /** @type {const} */ ("draft"),
@@ -765,6 +815,22 @@ export async function saveChildFeaturePlans(cwd, epicPlanName, children) {
             order: child.order,
             affectedPaths,
         };
+        const frontend = normalizeOptionalBoolean(child.frontend);
+        const devServerCommand = typeof child.devServerCommand === "string"
+            ? child.devServerCommand
+            : child.devServerCommand === null
+            ? null
+            : undefined;
+        const devServerUrl = typeof child.devServerUrl === "string"
+            ? child.devServerUrl
+            : child.devServerUrl === null
+            ? null
+            : undefined;
+        const devServerHmr = child.devServerHmr === null ? null : normalizeOptionalBoolean(child.devServerHmr);
+        if (frontend !== undefined) metadata.frontend = frontend;
+        if (devServerCommand !== undefined) metadata.devServerCommand = devServerCommand;
+        if (devServerUrl !== undefined) metadata.devServerUrl = devServerUrl;
+        if (devServerHmr !== undefined) metadata.devServerHmr = devServerHmr;
         const path = await savePlan(cwd, name, child.content, {
             ...metadata,
             summary: child.summary,

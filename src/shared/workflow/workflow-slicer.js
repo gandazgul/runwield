@@ -25,6 +25,18 @@ const CHILD_DESCRIPTOR_SCHEMA = Type.Object({
     summary: Type.String({ description: "Brief child FEATURE summary." }),
     dependencies: Type.Array(Type.String(), { description: "Child plan dependencies, if any." }),
     affectedPaths: Type.Array(Type.String(), { description: "Expected affected paths." }),
+    frontend: Type.Optional(
+        Type.Boolean({ description: "True when this child FEATURE includes frontend UI/UX work." }),
+    ),
+    devServerCommand: Type.Optional(Type.String({
+        description: "Dev or preview command to run for browser verification, if known.",
+    })),
+    devServerUrl: Type.Optional(Type.String({
+        description: "Local URL to open for browser verification, if known.",
+    })),
+    devServerHmr: Type.Optional(Type.Boolean({
+        description: "Whether the dev server is expected to support hot module reload.",
+    })),
     content: Type.String({ description: "Complete child FEATURE plan markdown body without YAML front matter." }),
 });
 

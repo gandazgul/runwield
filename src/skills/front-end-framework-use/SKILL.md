@@ -20,7 +20,8 @@ browser tooling for app inspection unless the user explicitly asks for it.
 ## Feedback Loop
 
 When reviewing rather than implementing, the same loop applies: discover the stack, read the source, then audit the
-change against the reference sections below. Step 5 becomes _verify_ convention-first rather than _implement_.
+change against the reference sections below. Step 5 becomes _verify_ convention-first rather than _implement_. If plan
+metadata marks `frontend: true`, the browser portions of this loop are mandatory unless blocked.
 
 1. Discover the stack before editing.
    - Project context or core memories often name the framework stack already. If not, identify the framework, version,

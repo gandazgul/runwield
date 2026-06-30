@@ -33,6 +33,8 @@ export function createTaskCompletedTool({ uiAPI, agentName = "agent" } = /** @ty
             "or is blocked. " +
             "For FEATURE and PROJECT workflows, this signals the orchestrator to begin validation. " +
             "For QUICK_FIX work, verify your own work before calling this tool. " +
+            "For frontend UI/UX work, include the dev server URL, headed browser checks performed, and visible " +
+            "evidence; if browser verification was blocked, state the exact blocker and what remains unverified. " +
             "Call this exactly once when you are completely finished with your assigned work and include a concise " +
             "summary in the message. " +
             "If you need to ask the user a clarifying question before finishing, DO NOT call this tool — " +

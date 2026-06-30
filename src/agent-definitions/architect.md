@@ -112,10 +112,17 @@ Front matter is mandatory and must be parseable by RunWield plan parsing. Includ
 - `complexity` (LOW|MEDIUM|HIGH)
 - `summary`
 - `affectedPaths` (array)
+- `frontend` (boolean)
+- `devServerCommand` (string or null)
+- `devServerUrl` (string or null)
+- `devServerHmr` (boolean or null)
 - `createdAt` (Local time ISO timestamp, get it with `date`)
 - `status` draft
 
-Do not omit `type: epic`. A PROJECT plan without `type: epic` is invalid and will be rejected at the readiness gate.
+Do not omit `type: epic`. A PROJECT plan without `type: epic` is invalid and will be rejected at the readiness gate. For
+Epics that include frontend UI/UX scope, set `frontend: true` on the Epic and identify which likely child FEATURE slices
+will need headed browser verification. PROJECT Epics are not executed directly; the Slicer must mark executable child
+FEATURE plans with `frontend: true`.
 
 ## Important Rules
 

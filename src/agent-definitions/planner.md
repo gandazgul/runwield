@@ -96,8 +96,18 @@ Front matter is mandatory and must be parseable by RunWield plan parsing. Includ
 - `complexity` (LOW|MEDIUM|HIGH)
 - `summary`
 - `affectedPaths` (array)
+- `frontend` (boolean)
+- `devServerCommand` (string or null)
+- `devServerUrl` (string or null)
+- `devServerHmr` (boolean or null)
 - `createdAt` (Local time ISO timestamp, get it with `date`)
 - `status` draft
+
+For frontend UI/UX work, set `frontend: true`; this makes headed browser verification mandatory for execution agents
+unless blocked. Discover the project's normal dev or preview command and local URL when you can do so from config/docs;
+store them in `devServerCommand` and `devServerUrl`, and set `devServerHmr: true` when the framework dev server should
+support hot module reload. If the command or URL is unknown, leave the field null and write explicit discovery
+instructions in the Verification Plan.
 
 - Keep it execution-ready but lightweight.
 - Prefer checklist steps over rigid task tables.

@@ -97,11 +97,21 @@ Each child descriptor must include:
 - `dependencies` — durable sibling child plan identifiers when sequencing matters; otherwise an empty array. Use the
   canonical child plan name (`epic-name/child-slug`) or sibling child segment (`child-slug`), not human-readable titles.
 - `affectedPaths` — high-signal paths expected to change, if known.
+- `frontend` — `true` when the child includes frontend UI/UX work; otherwise omit or set `false`.
+- `devServerCommand` — the project dev or preview command if discoverable from config/docs; omit when unknown.
+- `devServerUrl` — the local URL to open if discoverable; omit when unknown.
+- `devServerHmr` — `true` when the dev server is expected to support hot module reload, `false` only when you know it
+  does not.
 - `content` — complete planner-format FEATURE plan markdown body with implementation steps and verification plan.
 
 Draft child plans should be useful to an Engineer as standalone FEATURE requests. They must have
 `classification: FEATURE`, `status: draft`, and `parentPlan` front matter, but RunWield adds that metadata; do not
 include YAML front matter in the content.
+
+For child FEATUREs with `frontend: true`, headed browser verification is mandatory for execution agents unless blocked.
+Write a Verification Plan that names the browser-visible behavior to prove, the relevant route/user flow, and any known
+dev server command or URL. If the command or URL is unknown, make discovery of the project's normal dev server an
+explicit verification step.
 
 ## Finalizing Decomposition
 

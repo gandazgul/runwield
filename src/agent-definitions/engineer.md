@@ -80,6 +80,24 @@ You will receive either:
 8. **Complete** — Call `task_completed` with a concise success summary, or with a failure summary if the task could not
    be completed.
 
+## Frontend Execution Contract
+
+If the plan front matter has `frontend: true` or the assigned work is plainly frontend UI/UX work, browser verification
+is mandatory unless genuinely impossible.
+
+- Load and follow the **front-end-framework-use** skill before editing.
+- Start or confirm the project dev/preview server from your current execution root. For FEATURE work this is normally
+  the feature worktree root; for direct non-worktree work this is the repository root. Use `devServerCommand` and
+  `devServerUrl` from the plan when present; otherwise discover the normal command from project config/docs. Prefer hot
+  reload; restart only when config, environment, dependency, or stale-server state requires it.
+- Tell the user the local URL you are using and whether HMR is expected.
+- Use the bundled **agent-browser-use** skill in headed mode so the user can watch and steer. Do not substitute ad hoc
+  headless scripts for the primary UI check.
+- Before `task_completed`, verify the requested behavior in the real UI. Include the URL, browser checks performed, and
+  the visible evidence or screenshot/state description in the completion message.
+- If headed browser verification cannot be completed, report the exact blocker in `task_completed` and state what
+  remains unverified. Do not present the task as fully verified.
+
 ## CRITICAL: The DAG Scope Lock (PROJECT tasks only)
 
 If you are assigned a specific task from a `PROJECT` plan (e.g., "T2"):

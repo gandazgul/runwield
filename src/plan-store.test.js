@@ -39,6 +39,8 @@ function testWithFs(name, fn) {
 Deno.test("front matter key constants expose canonical planning metadata order", () => {
     assertEquals(PLAN_FRONT_MATTER_KEYS.planId, "planId");
     assertEquals(PLAN_FRONT_MATTER_KEY_ORDER[0], PLAN_FRONT_MATTER_KEYS.planId);
+    assertEquals(PLAN_FRONT_MATTER_KEYS.frontend, "frontend");
+    assertEquals(PLAN_FRONT_MATTER_KEY_ORDER.includes(PLAN_FRONT_MATTER_KEYS.devServerUrl), true);
     assertEquals(PLAN_FRONT_MATTER_KEY_ORDER.includes(PLAN_FRONT_MATTER_KEYS.worktreePath), true);
     assertEquals(new Set(PLAN_FRONT_MATTER_KEY_ORDER).size, PLAN_FRONT_MATTER_KEY_ORDER.length);
 });
@@ -54,6 +56,25 @@ Deno.test("injectFrontMatter escapes YAML double-quoted values", () => {
 
     assertEquals(attrs.summary, 'Handle "Other" and \\slashes');
     assertEquals(attrs.affectedPaths, ['<|"|src/tools/user-interview.js<|"|']);
+});
+
+Deno.test("frontend verification front matter round trips", () => {
+    const markdown = "## Plan\n\nBody";
+    const withFm = injectFrontMatter(markdown, {
+        frontend: true,
+        devServerCommand: "npm run dev",
+        devServerUrl: "http://localhost:5173",
+        devServerHmr: true,
+    });
+
+    const { attrs } = parsePlanFrontMatter(withFm);
+
+    assertEquals(attrs.frontend, true);
+    assertEquals(attrs.devServerCommand, "npm run dev");
+    assertEquals(attrs.devServerUrl, "http://localhost:5173");
+    assertEquals(attrs.devServerHmr, true);
+    assertEquals(withFm.indexOf("affectedPaths:") < withFm.indexOf("frontend:"), true);
+    assertEquals(withFm.indexOf("devServerHmr:") < withFm.indexOf("createdAt:"), true);
 });
 
 Deno.test("injectFrontMatter preserves new closure and hold lifecycle fields", () => {
@@ -558,6 +579,10 @@ testWithFs("saveChildFeaturePlans creates draft child FEATURE plans with order a
                 title: "Preserve Epic and child metadata",
                 summary: "Keep parent-child links loadable",
                 affectedPaths: ["src/plan-store.js"],
+                frontend: true,
+                devServerCommand: "deno task workspace:dev",
+                devServerUrl: "http://localhost:5173",
+                devServerHmr: true,
                 dependencies: [],
                 content: "# Preserve Epic and child metadata\n\n## Context\nDraft slice",
             },
@@ -581,6 +606,10 @@ testWithFs("saveChildFeaturePlans creates draft child FEATURE plans with order a
             parentPlan: "project-breakdown-epic",
             order: 1,
             affectedPaths: ["src/plan-store.js"],
+            frontend: true,
+            devServerCommand: "deno task workspace:dev",
+            devServerUrl: "http://localhost:5173",
+            devServerHmr: true,
         });
 
         const first = await loadPlan(cwd, "project-breakdown-epic/01-preserve-epic-and-child-metadata");
@@ -589,6 +618,10 @@ testWithFs("saveChildFeaturePlans creates draft child FEATURE plans with order a
         assertEquals(first?.attrs.parentPlan, "project-breakdown-epic");
         assertEquals(first?.attrs.summary, "Keep parent-child links loadable");
         assertEquals(first?.attrs.order, 1);
+        assertEquals(first?.attrs.frontend, true);
+        assertEquals(first?.attrs.devServerCommand, "deno task workspace:dev");
+        assertEquals(first?.attrs.devServerUrl, "http://localhost:5173");
+        assertEquals(first?.attrs.devServerHmr, true);
 
         const second = await loadPlan(cwd, "project-breakdown-epic/02-load-child-features");
         assertEquals(second?.attrs.dependencies, ["project-breakdown-epic/01-preserve-epic-and-child-metadata"]);
