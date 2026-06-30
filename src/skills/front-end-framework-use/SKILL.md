@@ -1,6 +1,6 @@
 ---
 name: front-end-framework-use
-description: Convention-first frontend editing. Use this skill when implementing, fixing, or reviewing frontend UI work in JavaScript, HTML, or CSS with frameworks such as React, Vue, Svelte, Next.js, Vite, or TanStack.
+description: Convention-first frontend engineering for RunWield agents. Use this skill when implementing, fixing, debugging, or reviewing frontend UI/UX work in JavaScript, HTML, or CSS across frameworks such as React, Vue, Svelte, Next.js, Vite, Astro, or TanStack; especially when source-first code exploration, current framework docs, and real-browser verification should guide the change.
 ---
 
 # Front-End Framework Use
@@ -9,13 +9,18 @@ Convention-first frontend editing: discover what the project already does, conti
 default instinct is to invent; this skill redirects to _match_ — match the styling system, the component structure, the
 data layer, the test style — and invent only when no convention exists to follow.
 
-## General guidance
+## Shared browser context
 
-When you start a session with agent-browser make sure you use the --headed flag so that you and the user can both see
-the browser. The user can see the same page and elements as you and they can see any changes or navigation that you make
-to the page as they happen. Do not use any other skills or tools to access or work with the browser, only agent-browser.
+When browser verification is needed, use the bundled `agent-browser-use` skill. It drives `agent-browser` with the
+`--headed` flag so the browser window is a shared workspace — you and the user see the same page, the same state, and
+the same navigation in real time. This lets the user talk about what they see and lets you respond to the same visual
+context. Use `agent-browser-use` as the browser workflow; do not switch to ad hoc Playwright, Puppeteer, or other
+browser tooling for app inspection unless the user explicitly asks for it.
 
 ## Feedback Loop
+
+When reviewing rather than implementing, the same loop applies: discover the stack, read the source, then audit the
+change against the reference sections below. Step 5 becomes _verify_ convention-first rather than _implement_.
 
 1. Discover the stack before editing.
    - Project context or core memories often name the framework stack already. If not, identify the framework, version,
@@ -50,7 +55,7 @@ to the page as they happen. Do not use any other skills or tools to access or wo
 
 6. Verify before finishing.
    - Run the project's CI, lint, tests, type checks, or formatter as appropriate.
-   - Exercise the changed UI through `agent-browser` when behavior is visual, interactive, responsive, or
+   - Exercise the changed UI through `agent-browser-use` when behavior is visual, interactive, responsive, or
      browser-specific.
    - Check browser console errors, failed network requests, final URL/title, and screenshots when relevant.
    - Completion: command output and browser evidence support the same conclusion.
@@ -71,8 +76,17 @@ Convention-first composition: discover how the project structures and combines c
 - Respect server vs client component boundaries when the framework supports them (React Server Components, Astro
   islands, Nuxt server components). Do not move code across that boundary without understanding the serialization and
   hydration implications.
+- Identify the rendering model for affected pages — static generation (SSG), server-side rendering (SSR), incremental
+  regeneration (ISR), or client-only SPA. Data fetching, caching, and component boundaries differ by model; match the
+  existing pattern for pages of the same type.
 - When data or state needs to flow between components, use the project's existing mechanism (props, context, store,
   signals) before introducing a new one.
+- Identify the project's error handling pattern — error boundaries, error pages, toast notifications, or fallback UI.
+  New components that can fail (async data, user input, third-party integrations) should use the same recovery
+  mechanism.
+- When the project is mid-migration between two patterns (e.g., class → hooks, Options → Composition API, Pages → App
+  Router), follow the newer pattern unless the file you're editing is entirely in the older one. Do not partially
+  migrate a file as a side effect of an unrelated change — migration scope is a user decision.
 - Completion: new components follow the same structural patterns, file placement, and composition style as their
   neighbors.
 
@@ -204,7 +218,15 @@ Avoid frontend changes that make the UI feel slower or heavier.
 - Avoid unnecessary rerenders, oversized client bundles, layout thrashing, and expensive effects.
 - Lazy-load heavy UI only when it improves the user experience.
 - Use the app's existing data layer instead of fetching the same data repeatedly from multiple components.
-- Completion: the change does not introduce avoidable rendering, loading, or bundle-cost regressions.
+- Check whether the change affects the page's LCP element, introduces layout shift (CLS), or adds long tasks that could
+  degrade interaction responsiveness (INP).
+- Use the project's image component or optimization pipeline when one exists (next/image, nuxt-img, Astro Image).
+  Provide responsive formats (srcset, WebP/AVIF) and lazy loading for below-fold images. Include meaningful alt text
+  following the project's convention for decorative vs informative images.
+- Use the project's font loading strategy; do not add new font faces without matching the existing loading pattern
+  (font-display, preload, subsetting).
+- Completion: the change does not introduce avoidable rendering, loading, or bundle-cost regressions; no new image or
+  font bypasses the project's optimization pipeline.
 
 ### Testing
 
