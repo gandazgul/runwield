@@ -55,10 +55,13 @@ change against the reference sections below. Step 5 becomes _verify_ convention-
 
 6. Verify before finishing.
    - Run the project's CI, lint, tests, type checks, or formatter as appropriate.
-   - Exercise the changed UI through `agent-browser-use` when behavior is visual, interactive, responsive, or
+   - Use `agent-browser-use` when behavior is visual, interactive, responsive, accessibility-sensitive, or
      browser-specific.
-   - Check browser console errors, failed network requests, final URL/title, and screenshots when relevant.
-   - Completion: command output and browser evidence support the same conclusion.
+   - Capture evidence at the viewport and state that matter: desktop/mobile screenshots for layout changes,
+     accessibility snapshot for changed controls, console errors, failed network requests, final URL/title, and the
+     relevant success/failure state.
+   - Completion: command output and browser evidence cover the user-visible change; no relevant console or network
+     failure remains unexplained.
 
 ## Convention-First Reference
 
@@ -76,6 +79,11 @@ Convention-first composition: discover how the project structures and combines c
 - Respect server vs client component boundaries when the framework supports them (React Server Components, Astro
   islands, Nuxt server components). Do not move code across that boundary without understanding the serialization and
   hydration implications.
+- Identify the runtime boundary for changed code — server, browser, edge, build-time, route loader/action, or hydrated
+  island/component. Keep browser-only APIs, secrets, request context, and side effects on the correct side of that
+  boundary.
+- Preserve hydration assumptions: server-rendered markup, initial client state, generated IDs, dates, random values, and
+  feature flags must not diverge between server render and client startup.
 - Identify the rendering model for affected pages — static generation (SSG), server-side rendering (SSR), incremental
   regeneration (ISR), or client-only SPA. Data fetching, caching, and component boundaries differ by model; match the
   existing pattern for pages of the same type.
@@ -114,6 +122,17 @@ Convention-first state: discover the state layer before introducing state.
 - Do not introduce a competing state mechanism when the project already has one that covers the use case.
 - Completion: new state lives in the same layer, uses the same patterns, and follows the same update conventions as
   equivalent existing state.
+
+### Design System Discovery
+
+Treat every frontend project as having a design system, even when it is informal.
+
+- Identify the component library, reusable primitives, design tokens, icon set, spacing/radius/shadow scales,
+  typography, breakpoints, motion patterns, and color modes before designing new UI.
+- Compare the nearest existing screen or component before introducing new visual language.
+- Prefer composing existing primitives over styling raw elements.
+- Completion: you can name the reusable primitives and visual rules you are following, or state that none exist and
+  introduce the smallest local pattern.
 
 ### Styling and CSS Systems
 
@@ -184,10 +203,15 @@ Convention-first applies to aesthetics, not just code.
 
 Make network and state transitions visible and stable.
 
-- Use intentional loading states instead of accidental blank space.
-- Avoid layout shift when data loads.
-- Surface failures near the action or content that caused them.
+- Use intentional loading, empty, stale/revalidating, and success states instead of accidental blank space or silent
+  transitions.
+- Avoid layout shift when data loads; preserve the user's scroll position, selection, filters, and input context across
+  refreshes and mutations.
+- Surface failures near the action or content that caused them, with retry or recovery when the existing product pattern
+  supports it.
 - Guard duplicate submits or repeated actions while async work is pending.
+- Prevent async races: ignore stale responses, cancel obsolete requests when the stack supports it, and keep optimistic
+  UI consistent with rollback/error paths.
 - Completion: the UI remains understandable while data is loading, updating, or failing.
 
 ### Forms

@@ -16,5 +16,5 @@ commits instead of one.
    bullet points in the commit body.
 4. Stage the modified files (e.g., `git add -A`) and execute the commit.
 5. Run `git push` to sync the changes upstream.
-6. Report to the user in an unordered list all the commits made, one commit per line, highlighting with backticks the
-   short hash followed by the 50-character title.
+6. Report to the user in an unordered list all the commits made, one commit per line with this format:
+   - `commit hash` - commit title.

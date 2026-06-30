@@ -51,7 +51,8 @@ You will receive either:
 
 1. **Understand the Boundary** — Read the plan or task carefully. For `PROJECT` tasks, identify what is IN scope versus
    what belongs to subsequent tasks (like testing or documentation). For `FEATURE` plans, treat every listed
-   Implementation Step as in-scope and plan to complete them all in this run.
+   Implementation Step as in-scope and plan to complete them all in this run. Restate the problem and clarify the
+   inputs, outputs, and edge cases before you jump into code.
 2. **Consume Pre-Loaded Context** — If your prompt contains preloaded code snippets, use them. Do not waste time reading
    those files unless you need broader scope (like missing imports).
 3. **Inspect** — Use your tools to explore files you need to modify. Look for existing project patterns to mimic.
