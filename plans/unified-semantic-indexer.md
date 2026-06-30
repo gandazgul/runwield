@@ -6,8 +6,12 @@ summary: ""
 affectedPaths:
     []
 createdAt: "2026-06-25T14:12:40.436Z"
-status: "draft"
+updatedAt: "2026-06-30T16:48:53.771Z"
+status: "on_hold"
 origin: "internal"
+heldFromStatus: "draft"
+heldAt: "2026-06-30T16:48:53.771Z"
+holdReason: "I think having separate CLIs for these concerns as separate projects from RunWield is a better maintenance and architecture design."
 id: "unified-semantic-indexer"
 title: "Unified Local Semantic Indexer (Code + Memory)"
 ---

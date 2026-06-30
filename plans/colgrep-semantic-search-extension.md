@@ -10,11 +10,14 @@ affectedPaths:
     - "extensions/colgrep/README.md"
     - "docs/settings.md"
 createdAt: "2026-06-16T16:46:54-04:00"
-updatedAt: "2026-06-30T03:09:03.322Z"
-status: "draft"
+updatedAt: "2026-06-30T16:48:01.338Z"
+status: "on_hold"
 origin: "internal"
 humanReviewMode: null
 humanReviewDecision: null
+heldFromStatus: "draft"
+heldAt: "2026-06-30T16:48:01.338Z"
+holdReason: "I think cymbal + grep is good enough for now."
 ---
 
 # Colgrep Semantic Search Extension
