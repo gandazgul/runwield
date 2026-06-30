@@ -190,6 +190,18 @@ Design for content and containers, not one viewport.
 - Completion: the layout does not clip, overlap, or hide content at the project's supported viewport widths, tested with
   realistic-length strings.
 
+### Content Resilience
+
+Design for real content, not fixture-shaped content.
+
+- Test long labels, translated text, user-generated names, empty values, dense lists/tables, and unbroken strings such
+  as URLs or IDs.
+- Make overflow intentional: choose wrapping, truncation, scrolling, or expansion deliberately, and preserve access to
+  the full value when truncating.
+- Check sticky headers/footers, nested scroll regions, modals, popovers, and sidebars with both short and long content.
+- Completion: realistic content cannot overlap controls, escape containers, hide required actions, or become unreadable
+  at supported widths.
+
 ### Visual Quality
 
 Convention-first applies to aesthetics, not just code.
@@ -218,10 +230,15 @@ Make network and state transitions visible and stable.
 
 Treat forms as interaction design, not just inputs.
 
-- Use explicit labels, helper text, validation messages, and autocomplete where appropriate.
+- Use native form semantics where possible: real `form`, `label`, `input`, `button`, `fieldset`, and `legend` elements
+  before custom controls.
+- Use explicit labels, helper text, validation messages, input modes, and autocomplete where appropriate.
 - Validate at useful times: not so early that typing feels broken, and not only after submit when earlier feedback is
   cheap.
-- Keep validation errors actionable and preserve user input across failed submits.
+- Keep validation errors actionable, associated with their fields, announced accessibly, and preserve user input across
+  failed submits.
+- Make submission state explicit: disable or guard duplicate submits, keep the user's context visible, and show success
+  or failure at the place the user acted.
 - Completion: a user can understand what each field needs, recover from errors, and submit without losing work.
 
 ### Internationalization
@@ -239,8 +256,12 @@ Convention-first i18n: if the project translates user-facing strings, continue t
 
 Avoid frontend changes that make the UI feel slower or heavier.
 
-- Avoid unnecessary rerenders, oversized client bundles, layout thrashing, and expensive effects.
-- Lazy-load heavy UI only when it improves the user experience.
+- Keep work out of the client bundle unless the interaction needs browser state, browser APIs, or immediate client-side
+  feedback.
+- Avoid unnecessary rerenders, oversized client bundles, layout thrashing, expensive effects, and repeated serialization
+  of large props/state.
+- Lazy-load heavy UI only when it improves the user experience; do not hide above-the-fold or interaction-critical UI
+  behind avoidable loading waterfalls.
 - Use the app's existing data layer instead of fetching the same data repeatedly from multiple components.
 - Check whether the change affects the page's LCP element, introduces layout shift (CLS), or adds long tasks that could
   degrade interaction responsiveness (INP).
@@ -267,10 +288,14 @@ skill.
 
 Preserve browser-side security boundaries.
 
-- Render user content safely and avoid unsafe HTML injection unless the project already has a reviewed sanitizer path.
-- Do not put secrets, private tokens, or privileged assumptions in client code.
-- Preserve auth and permission checks expected by the existing app.
-- Completion: the browser receives only data and capabilities it is allowed to expose.
+- Render user content safely. Avoid unsafe HTML injection unless the project already has a reviewed sanitizer path;
+  trace markdown, rich text, preview, and CMS content through that path before changing it.
+- Do not put secrets, private tokens, privileged feature flags, or server-only assumptions in client code or serialized
+  props.
+- Preserve server-side auth and permission checks; UI gating is not an authorization boundary.
+- Treat user-controlled URLs, redirects, links, downloads, uploads, and object URLs as security-sensitive.
+- Completion: the browser receives only data and capabilities it is allowed to expose, and user-controlled content
+  cannot create script execution, privilege escalation, or unsafe navigation.
 
 ## Escalation
 
