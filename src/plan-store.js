@@ -162,40 +162,45 @@ const DEFAULT_FRONT_MATTER = {
     origin: "internal",
 };
 
-const KNOWN_FRONT_MATTER_KEYS = new Set([
-    "planId",
-    "classification",
-    "complexity",
-    "summary",
-    "affectedPaths",
-    "createdAt",
-    "updatedAt",
-    "status",
-    "origin",
-    "type",
-    "parentPlan",
-    "order",
-    "dependencies",
-    "failureReason",
-    "failedAt",
-    "implementedAt",
-    "verifiedAt",
-    "humanReviewMode",
-    "humanReviewDecision",
-    "humanReviewedAt",
-    "epicCompletionMode",
-    "epicDoneEnoughAt",
-    "epicDoneEnoughSummary",
-    "executionBaselineTree",
-    "worktreeId",
-    "worktreePath",
-    "worktreeBranch",
-    "worktreeStatus",
-    "heldFromStatus",
-    "heldAt",
-    "holdReason",
-    "holdStalenessBaseline",
-]);
+export const PLAN_FRONT_MATTER_KEYS = Object.freeze({
+    planId: "planId",
+    classification: "classification",
+    complexity: "complexity",
+    summary: "summary",
+    affectedPaths: "affectedPaths",
+    createdAt: "createdAt",
+    updatedAt: "updatedAt",
+    status: "status",
+    origin: "origin",
+    type: "type",
+    parentPlan: "parentPlan",
+    order: "order",
+    dependencies: "dependencies",
+    failureReason: "failureReason",
+    failedAt: "failedAt",
+    implementedAt: "implementedAt",
+    verifiedAt: "verifiedAt",
+    humanReviewMode: "humanReviewMode",
+    humanReviewDecision: "humanReviewDecision",
+    humanReviewedAt: "humanReviewedAt",
+    epicCompletionMode: "epicCompletionMode",
+    epicDoneEnoughAt: "epicDoneEnoughAt",
+    epicDoneEnoughSummary: "epicDoneEnoughSummary",
+    executionBaselineTree: "executionBaselineTree",
+    worktreeId: "worktreeId",
+    worktreePath: "worktreePath",
+    worktreeBranch: "worktreeBranch",
+    worktreeStatus: "worktreeStatus",
+    heldFromStatus: "heldFromStatus",
+    heldAt: "heldAt",
+    holdReason: "holdReason",
+    holdStalenessBaseline: "holdStalenessBaseline",
+});
+
+export const PLAN_FRONT_MATTER_KEY_ORDER = Object.freeze(Object.values(PLAN_FRONT_MATTER_KEYS));
+
+/** @type {Set<string>} */
+const KNOWN_FRONT_MATTER_KEYS = new Set(PLAN_FRONT_MATTER_KEY_ORDER);
 
 const HIDDEN_PLAN_DIRS = new Set(["archived"]);
 
@@ -254,38 +259,38 @@ function appendYamlField(lines, key, value) {
  */
 function formatFrontMatter(fm) {
     const lines = ["---"];
-    appendYamlField(lines, "planId", fm.planId);
-    appendYamlField(lines, "classification", fm.classification);
-    appendYamlField(lines, "complexity", fm.complexity);
-    appendYamlField(lines, "summary", fm.summary);
-    appendYamlField(lines, "affectedPaths", fm.affectedPaths);
-    appendYamlField(lines, "createdAt", fm.createdAt);
-    appendYamlField(lines, "updatedAt", fm.updatedAt);
-    appendYamlField(lines, "status", fm.status);
-    appendYamlField(lines, "origin", fm.origin);
-    appendYamlField(lines, "type", fm.type);
-    appendYamlField(lines, "parentPlan", fm.parentPlan);
-    appendYamlField(lines, "order", fm.order);
-    appendYamlField(lines, "dependencies", fm.dependencies);
-    appendYamlField(lines, "failureReason", fm.failureReason);
-    appendYamlField(lines, "failedAt", fm.failedAt);
-    appendYamlField(lines, "implementedAt", fm.implementedAt);
-    appendYamlField(lines, "verifiedAt", fm.verifiedAt);
-    appendYamlField(lines, "humanReviewMode", fm.humanReviewMode);
-    appendYamlField(lines, "humanReviewDecision", fm.humanReviewDecision);
-    appendYamlField(lines, "humanReviewedAt", fm.humanReviewedAt);
-    appendYamlField(lines, "epicCompletionMode", fm.epicCompletionMode);
-    appendYamlField(lines, "epicDoneEnoughAt", fm.epicDoneEnoughAt);
-    appendYamlField(lines, "epicDoneEnoughSummary", fm.epicDoneEnoughSummary);
-    appendYamlField(lines, "executionBaselineTree", fm.executionBaselineTree);
-    appendYamlField(lines, "worktreeId", fm.worktreeId);
-    appendYamlField(lines, "worktreePath", fm.worktreePath);
-    appendYamlField(lines, "worktreeBranch", fm.worktreeBranch);
-    appendYamlField(lines, "worktreeStatus", fm.worktreeStatus);
-    appendYamlField(lines, "heldFromStatus", fm.heldFromStatus);
-    appendYamlField(lines, "heldAt", fm.heldAt);
-    appendYamlField(lines, "holdReason", fm.holdReason);
-    appendYamlField(lines, "holdStalenessBaseline", fm.holdStalenessBaseline);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.planId, fm.planId);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.classification, fm.classification);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.complexity, fm.complexity);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.summary, fm.summary);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.affectedPaths, fm.affectedPaths);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.createdAt, fm.createdAt);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.updatedAt, fm.updatedAt);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.status, fm.status);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.origin, fm.origin);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.type, fm.type);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.parentPlan, fm.parentPlan);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.order, fm.order);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.dependencies, fm.dependencies);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.failureReason, fm.failureReason);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.failedAt, fm.failedAt);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.implementedAt, fm.implementedAt);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.verifiedAt, fm.verifiedAt);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.humanReviewMode, fm.humanReviewMode);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.humanReviewDecision, fm.humanReviewDecision);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.humanReviewedAt, fm.humanReviewedAt);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.epicCompletionMode, fm.epicCompletionMode);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.epicDoneEnoughAt, fm.epicDoneEnoughAt);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.epicDoneEnoughSummary, fm.epicDoneEnoughSummary);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.executionBaselineTree, fm.executionBaselineTree);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.worktreeId, fm.worktreeId);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.worktreePath, fm.worktreePath);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.worktreeBranch, fm.worktreeBranch);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.worktreeStatus, fm.worktreeStatus);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.heldFromStatus, fm.heldFromStatus);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.heldAt, fm.heldAt);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.holdReason, fm.holdReason);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.holdStalenessBaseline, fm.holdStalenessBaseline);
 
     for (const key of Object.keys(fm).filter((key) => !KNOWN_FRONT_MATTER_KEYS.has(key)).sort()) {
         appendYamlField(lines, key, /** @type {Record<string, unknown>} */ (fm)[key]);

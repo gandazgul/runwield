@@ -1,3 +1,4 @@
+import { PLAN_FRONT_MATTER_KEY_ORDER, PLAN_FRONT_MATTER_KEYS } from "../../../plan-store.js";
 import { PlanBodyEditor } from "../islands/PlanBodyEditor.jsx";
 import { PlanLifecycleActions } from "../islands/PlanLifecycleActions.jsx";
 import { ComplexityLabel, workspaceHref } from "./PlanCard.jsx";
@@ -31,106 +32,237 @@ function holdMetadata(plan) {
     return metadata.length ? metadata.join("; ") : "No hold metadata provided.";
 }
 
-/** @param {{ plan: any }} props */
-function DetailMetadata({ plan }) {
+const FM = PLAN_FRONT_MATTER_KEYS;
+/** @type {string[]} */
+const FRONT_MATTER_KEY_ORDER = [...PLAN_FRONT_MATTER_KEY_ORDER];
+/** @type {Set<string>} */
+const FRONT_MATTER_KEY_SET = new Set(FRONT_MATTER_KEY_ORDER);
+/** @type {Set<string>} */
+const HIDDEN_METADATA_KEYS = new Set([FM.worktreePath]);
+const RESOURCE_METADATA_KEYS = Object.freeze({
+    relativePath: "relativePath",
+    dependencyState: "dependencyState",
+    repairParent: "repairParent",
+});
+
+/** @type {Record<string, string>} */
+const METADATA_LABELS = Object.freeze({
+    [FM.planId]: "Plan ID",
+    [RESOURCE_METADATA_KEYS.relativePath]: "Path",
+    [FM.origin]: "Origin",
+    [FM.type]: "Type",
+    [FM.classification]: "Classification",
+    [FM.complexity]: "Complexity",
+    [FM.summary]: "Summary",
+    [FM.affectedPaths]: "Affected paths",
+    [FM.createdAt]: "Created at",
+    [FM.updatedAt]: "Updated at",
+    [FM.parentPlan]: "Epic",
+    [FM.dependencies]: "Depends on",
+    [RESOURCE_METADATA_KEYS.dependencyState]: "Dependency state",
+    [RESOURCE_METADATA_KEYS.repairParent]: "Repair parent",
+    [FM.status]: "Status",
+    [FM.failureReason]: "Failure reason",
+    [FM.failedAt]: "Failed at",
+    [FM.implementedAt]: "Implemented at",
+    [FM.verifiedAt]: "Verified at",
+    [FM.executionBaselineTree]: "Execution baseline tree",
+    [FM.worktreeId]: "Worktree ID",
+    [FM.worktreeBranch]: "Worktree branch",
+    [FM.worktreeStatus]: "Worktree status",
+    [FM.humanReviewMode]: "Human review mode",
+    [FM.humanReviewDecision]: "Human review decision",
+    [FM.humanReviewedAt]: "Human reviewed at",
+    [FM.epicCompletionMode]: "Epic completion mode",
+    [FM.epicDoneEnoughAt]: "Epic done enough at",
+    [FM.epicDoneEnoughSummary]: "Epic done enough summary",
+    [FM.heldFromStatus]: "Held from status",
+    [FM.heldAt]: "Held at",
+    [FM.holdReason]: "Hold reason",
+    [FM.holdStalenessBaseline]: "Hold staleness baseline",
+});
+
+const METADATA_GROUPS = Object.freeze([
+    {
+        title: "Identity",
+        keys: [FM.planId, RESOURCE_METADATA_KEYS.relativePath, FM.origin, FM.type],
+    },
+    {
+        title: "Planning",
+        keys: [FM.classification, FM.complexity, FM.summary, FM.affectedPaths, FM.createdAt, FM.updatedAt],
+    },
+    {
+        title: "Hierarchy & dependencies",
+        keys: [
+            FM.parentPlan,
+            FM.dependencies,
+            RESOURCE_METADATA_KEYS.dependencyState,
+            RESOURCE_METADATA_KEYS.repairParent,
+        ],
+    },
+    {
+        title: "Lifecycle",
+        keys: [FM.status, FM.failureReason, FM.failedAt, FM.implementedAt, FM.verifiedAt],
+    },
+    {
+        title: "Execution worktree",
+        keys: [FM.executionBaselineTree, FM.worktreeId, FM.worktreeBranch, FM.worktreeStatus],
+    },
+    {
+        title: "Review",
+        keys: [FM.humanReviewMode, FM.humanReviewDecision, FM.humanReviewedAt],
+    },
+    {
+        title: "Epic completion",
+        keys: [FM.epicCompletionMode, FM.epicDoneEnoughAt, FM.epicDoneEnoughSummary],
+    },
+    {
+        title: "Hold",
+        keys: [FM.heldFromStatus, FM.heldAt, FM.holdReason, FM.holdStalenessBaseline],
+    },
+]);
+
+/** @param {unknown} value */
+function hasMetadataValue(value) {
+    return value !== undefined && value !== "";
+}
+
+/**
+ * @param {string} key
+ * @returns {string}
+ */
+function metadataLabel(key) {
+    if (METADATA_LABELS[key]) return METADATA_LABELS[key];
+    return key.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/^./, (char) => char.toUpperCase());
+}
+
+/**
+ * @param {any} plan
+ * @returns {Record<string, unknown>}
+ */
+function planMetadata(plan) {
+    const source = plan.frontMatter || plan.attrs || {};
+    return {
+        ...source,
+        [FM.planId]: source[FM.planId] ?? plan.planId,
+        [RESOURCE_METADATA_KEYS.relativePath]: plan.relativePath,
+        [FM.status]: source[FM.status] ?? plan.status,
+        [FM.classification]: source[FM.classification] ?? plan.classification,
+        [FM.complexity]: source[FM.complexity] ?? plan.complexity,
+        [FM.summary]: source[FM.summary] ?? plan.summary,
+        [FM.parentPlan]: source[FM.parentPlan] ?? plan.parentPlan,
+        [FM.dependencies]: source[FM.dependencies] ?? plan.dependsOn,
+        [FM.worktreeBranch]: source[FM.worktreeBranch] ?? plan.worktreeBranch,
+        [FM.worktreeStatus]: source[FM.worktreeStatus] ?? plan.worktreeStatus,
+        [FM.humanReviewMode]: source[FM.humanReviewMode] ?? plan.humanReviewMode,
+        [FM.heldFromStatus]: source[FM.heldFromStatus] ?? plan.heldFromStatus,
+        [FM.heldAt]: source[FM.heldAt] ?? plan.heldAt,
+        [FM.holdReason]: source[FM.holdReason] ?? plan.holdReason,
+        [FM.failureReason]: source[FM.failureReason] ?? plan.failureReason,
+        [FM.failedAt]: source[FM.failedAt] ?? plan.failedAt,
+        [FM.epicCompletionMode]: source[FM.epicCompletionMode] ?? plan.epicCompletionMode,
+        [FM.epicDoneEnoughSummary]: source[FM.epicDoneEnoughSummary] ?? plan.epicDoneEnoughSummary,
+        [FM.epicDoneEnoughAt]: source[FM.epicDoneEnoughAt] ?? plan.epicDoneEnoughAt,
+        [RESOURCE_METADATA_KEYS.dependencyState]: plan.dependencyStates?.length
+            ? plan.dependencyStates.map(/** @param {any} entry */ (entry) =>
+                `${entry.dependency}: ${entry.state}${entry.status ? ` (${entry.status})` : ""}`
+            )
+            : undefined,
+        [RESOURCE_METADATA_KEYS.repairParent]: plan.hierarchyRole === "orphan-child"
+            ? plan.orphanReason || `parentPlan ${plan.parentPlan} does not resolve to a loaded Epic.`
+            : undefined,
+    };
+}
+
+/**
+ * @param {unknown} value
+ * @returns {string}
+ */
+function stringifyMetadataValue(value) {
+    if (Array.isArray(value)) return value.length ? value.map(stringifyMetadataValue).join(", ") : "[]";
+    if (value && typeof value === "object") return JSON.stringify(value);
+    return String(value);
+}
+
+/**
+ * @param {string} key
+ * @param {unknown} value
+ */
+function metadataValue(key, value) {
+    if (key === FM.complexity && hasMetadataValue(value)) {
+        return <ComplexityLabel complexity={String(value)} />;
+    }
+    return stringifyMetadataValue(value);
+}
+
+/**
+ * @param {Record<string, unknown>} metadata
+ * @param {string[]} keys
+ * @param {Set<string>} renderedKeys
+ */
+function metadataEntries(metadata, keys, renderedKeys) {
+    const entries = [];
+    for (const key of keys) {
+        renderedKeys.add(key);
+        if (HIDDEN_METADATA_KEYS.has(key)) continue;
+        const value = metadata[key];
+        if (!hasMetadataValue(value)) continue;
+        entries.push({ key, label: metadataLabel(key), value });
+    }
+    return entries;
+}
+
+/**
+ * @param {Record<string, unknown>} metadata
+ * @param {Set<string>} renderedKeys
+ */
+function additionalMetadataEntries(metadata, renderedKeys) {
+    return Object.entries(metadata)
+        .filter(([key, value]) => !renderedKeys.has(key) && !HIDDEN_METADATA_KEYS.has(key) && hasMetadataValue(value))
+        .sort(([a], [b]) => {
+            const aKnown = FRONT_MATTER_KEY_SET.has(a);
+            const bKnown = FRONT_MATTER_KEY_SET.has(b);
+            if (aKnown && bKnown) return FRONT_MATTER_KEY_ORDER.indexOf(a) - FRONT_MATTER_KEY_ORDER.indexOf(b);
+            if (aKnown) return -1;
+            if (bKnown) return 1;
+            return a.localeCompare(b);
+        })
+        .map(([key, value]) => ({ key, label: metadataLabel(key), value }));
+}
+
+/** @param {{ title: string, entries: Array<{ key: string, label: string, value: unknown }> }} props */
+function MetadataGroup({ title, entries }) {
+    if (!entries.length) return null;
     return (
-        <dl class="meta-list stacked">
-            <div>
-                <dt>Plan ID</dt>
-                <dd>{plan.planId}</dd>
-            </div>
-            <div>
-                <dt>Path</dt>
-                <dd>{plan.relativePath}</dd>
-            </div>
-            <div>
-                <dt>Status</dt>
-                <dd>{plan.status}</dd>
-            </div>
-            <div>
-                <dt>Classification</dt>
-                <dd>{plan.classification}</dd>
-            </div>
-            {plan.complexity
-                ? (
-                    <div>
-                        <dt>Complexity</dt>
-                        <dd>
-                            <ComplexityLabel complexity={plan.complexity} />
-                        </dd>
+        <section class="metadata-group" aria-label={`${title} metadata`}>
+            <h4 class="metadata-group-title">{title}</h4>
+            <dl class="meta-list stacked">
+                {entries.map((entry) => (
+                    <div key={entry.key}>
+                        <dt>{entry.label}</dt>
+                        <dd>{metadataValue(entry.key, entry.value)}</dd>
                     </div>
-                )
-                : null}
-            {plan.parentPlan
-                ? (
-                    <div>
-                        <dt>Epic</dt>
-                        <dd>{plan.parentPlan}</dd>
-                    </div>
-                )
-                : null}
-            {plan.dependsOn?.length
-                ? (
-                    <div>
-                        <dt>Depends on</dt>
-                        <dd>{plan.dependsOn.join(", ")}</dd>
-                    </div>
-                )
-                : null}
-            {plan.dependencyStates?.length
-                ? (
-                    <div>
-                        <dt>Dependency state</dt>
-                        <dd>
-                            {plan.dependencyStates.map(/** @param {any} entry */ (entry) =>
-                                `${entry.dependency}: ${entry.state}${entry.status ? ` (${entry.status})` : ""}`
-                            ).join(", ")}
-                        </dd>
-                    </div>
-                )
-                : null}
-            {plan.hierarchyRole === "orphan-child"
-                ? (
-                    <div>
-                        <dt>Repair parent</dt>
-                        <dd>
-                            {plan.orphanReason || `parentPlan ${plan.parentPlan} does not resolve to a loaded Epic.`}
-                        </dd>
-                    </div>
-                )
-                : null}
-            {plan.worktreeStatus
-                ? (
-                    <div>
-                        <dt>Worktree</dt>
-                        <dd>{plan.worktreeStatus} {plan.worktreeBranch ? `(${plan.worktreeBranch})` : ""}</dd>
-                    </div>
-                )
-                : null}
-            {plan.status === "on_hold"
-                ? (
-                    <div>
-                        <dt>Hold</dt>
-                        <dd>{holdMetadata(plan)}</dd>
-                    </div>
-                )
-                : null}
-        </dl>
+                ))}
+            </dl>
+        </section>
     );
 }
 
-/** @param {{ frontMatter: Record<string, unknown> }} props */
-function FrontMatterSummary({ frontMatter }) {
-    const entries = Object.entries(frontMatter || {}).filter(([, value]) => value !== undefined && value !== "");
+/** @param {{ plan: any }} props */
+function DetailMetadata({ plan }) {
+    const metadata = planMetadata(plan);
+    const renderedKeys = new Set();
+    const groups = METADATA_GROUPS.map((group) => ({
+        title: group.title,
+        entries: metadataEntries(metadata, group.keys, renderedKeys),
+    })).filter((group) => group.entries.length);
+    const additionalEntries = additionalMetadataEntries(metadata, renderedKeys);
+
     return (
-        <dl class="meta-list stacked front-matter-summary">
-            {entries.map(([key, value]) => (
-                <div key={key}>
-                    <dt>{key}</dt>
-                    <dd>{Array.isArray(value) ? value.join(", ") : String(value)}</dd>
-                </div>
-            ))}
-        </dl>
+        <div class="metadata-section">
+            {groups.map((group) => <MetadataGroup key={group.title} title={group.title} entries={group.entries} />)}
+            <MetadataGroup title="Additional metadata" entries={additionalEntries} />
+        </div>
     );
 }
 
@@ -177,12 +309,10 @@ export function PlanDetail({ plan, url, editIntent = false }) {
                     </div>
                     <h3>Metadata</h3>
                     <DetailMetadata plan={plan} />
-                    <h3>Front matter summary</h3>
-                    <FrontMatterSummary frontMatter={plan.frontMatter || {}} />
                 </aside>
             </section>
         </article>
     );
 }
 
-export { DetailMetadata, FrontMatterSummary };
+export { DetailMetadata };
