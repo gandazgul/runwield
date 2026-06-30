@@ -16,3 +16,4 @@ commits instead of one.
    bullet points in the commit body.
 4. Stage the modified files (e.g., `git add -A`) and execute the commit.
 5. Run `git push` to sync the changes upstream.
+6. Report to the user in a list al the commits made, highlight the short hash followed by the 50 chracter title.
