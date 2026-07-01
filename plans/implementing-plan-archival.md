@@ -13,96 +13,110 @@ affectedPaths:
     - "src/cmd/plans/archive.js"
     - "README.md"
 createdAt: "2026-06-24T14:15:10-04:00"
-updatedAt: "2026-06-30T03:13:42.988Z"
-status: "draft"
+updatedAt: "2026-07-01T04:04:49.744Z"
+status: "verified"
 origin: "internal"
-humanReviewMode: null
-humanReviewDecision: null
+verifiedAt: "2026-07-01T04:04:49.744Z"
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
 ---
 
 # Plan Archival and Retrieval
 
 ## Context
 
-The old archival plan still addresses a real problem: completed, abandoned, or stale Plans should stop crowding active
-Plan workflows while remaining available as project history. However, several original assumptions are no longer
-correct:
+Completed, closed, abandoned, or stale Plans should stop crowding active Plan workflows while remaining available as
+plain-text project history. The current repo already has the right convention: top-level `plans/archived/` is hidden by
+`src/plan-store.js:listPlans()`, while explicit loads by archived path still work. This feature turns that convention
+into first-class, safe APIs and CLI commands.
 
-- The archive location should be `plans/archived/`, not `.hns/plans/archive/`. This convention already exists in the
-  repo and `src/plan-store.js` already hides top-level `plans/archived` from `listPlans()`.
-- Do not add LanceDB/FTS just for archived Plans. There is no current LanceDB integration in this checkout, and archived
-  Plan search can start as a bounded filesystem scan over markdown/front matter. Future semantic search can index
-  archived Plans through the broader search/indexing direction instead of creating a second one-off database.
-- Do not patch a non-existent `src/tools/find.js`. The repo has a custom `grep` wrapper but no custom `find` wrapper.
-  Blanket hiding archives from all code-search/file tools is also not desirable because agents sometimes need historical
-  context explicitly.
-- Do not run an automatic boot sweep from `src/cli.js`. Auto-moving Plans based on age is risky now that Plans can have
-  worktree/recovery state, Epic/child relationships, and future `on_hold` semantics. Archival should start explicit and
-  reversible.
-- ADR number `007` is already used by the local-first Workspace Plan Board. This feature should create ADR `008` if an
-  ADR is still warranted.
+Current constraints and decisions that this plan must preserve:
 
-Ordering against `plans/local-first-plan-management-ui.md`: implement this archival feature **before** fresh Plan UI
-work in the current checkout if that UI is not actively being merged, because it is smaller, establishes the canonical
-archive APIs, and keeps the future board from inventing its own archive model. If the Plan UI implementation is already
-active in another worktree/branch, merge or coordinate that work first because both efforts touch `src/plan-store.js`
-and `src/cmd/plans/index.js`. Archival should not block the UI lifecycle work for `closed_without_verification` or
-`on_hold`; this slice should default to archiving `verified` Plans and allow deliberate forced archival of other
-non-recovery Plans.
+- Archive location is `plans/archived/`, not `.hns/plans/archive/`.
+- Archival is a physical storage/visibility concern, not a Plan Status. Do not add an `archived` lifecycle status.
+- Do not add LanceDB/FTS or a CLI archive search in this slice. Archived Plan discovery starts with a plain archive
+  list; richer search can be added later to the UI/search surface.
+- Do not patch a non-existent `src/tools/find.js`, and do not blanket-hide `plans/archived/` from grep/find-style tools.
+  Historical context should remain available when explicitly requested.
+- Do not run an automatic boot sweep from `src/cli.js`. Age-based auto-moving is risky with worktree/recovery state,
+  Epic/child relationships, `on_hold`, and manual closure semantics.
+- ADR number `007` is already used by the local-first Workspace Plan Board; this feature should create ADR `008`.
+- Product decision from clarification: `verified` and `closed_without_verification` can be archived without `--force`.
+  Other statuses require `--force`, and recoverable worktree states remain guarded.
+
+Ordering against `plans/local-first-plan-management-ui.md`: implement this archival feature before new Plan UI archive
+controls if that UI is not actively being merged, because it establishes the canonical plan-store APIs. If another
+worktree/branch already touches `src/plan-store.js` or `src/cmd/plans/index.js` for Plan UI work, coordinate/merge
+first.
 
 ## Objective
 
 Build first-class, local-file Plan archival around `plans/archived/`:
 
-- Move active Plans into `plans/archived/` while preserving relative names and markdown readability.
+- Archive active Plans into `plans/archived/` while preserving relative names and markdown readability.
 - Keep `wld plans` focused on active Plans using the existing hidden-archive behavior.
-- Let users list, filter, search, read, and restore archived Plans without introducing a database.
-- Record archive metadata in Front Matter without adding an `archived` Plan Status.
+- Let users list archived Plans, archive a Plan with a short command, restore archived Plans, and read either active or
+  archived Plans without introducing a database.
+- Record archive/restore metadata in Front Matter without changing the Plan's durable lifecycle status.
 - Preserve compatibility with future local-first Plan UI APIs by centralizing archive operations in `src/plan-store.js`.
 
 ## Approach
 
 Add archive primitives to `src/plan-store.js` and expose them through a `wld plans archive ...` subcommand module. Treat
-the archive directory as a physical storage/visibility concern, not a lifecycle status. The Plan's last real status
-remains meaningful (`verified`, `implemented`, `draft`, etc.), while new archive metadata explains why and when it was
-moved.
+the archive directory as a physical location. The Plan's last real status remains meaningful (`verified`,
+`closed_without_verification`, `implemented`, `draft`, etc.), while archive metadata explains why and when it was moved.
 
 Recommended command surface:
 
-- `wld plans archive move <plan-name> [--reason <text>] [--force]` — move an active Plan to
+- `wld plans archive` — list archived Plans.
+- `wld plans archive <plan-name-or-id> [--reason <text>] [--force]` — archive an active Plan at
   `plans/archived/<plan-name>.md`.
-- `wld plans archive list [--status <status>] [--query <text>]` — list archived Plans with optional metadata filters.
-- `wld plans archive search <query> [--limit <n>]` — bounded case-insensitive search over archived Plan summaries,
-  affected paths, Front Matter, headings, and bodies.
-- `wld plans archive read <archived-plan-name>` — print a specific archived Plan path/metadata/body for inspection.
-- `wld plans archive restore <archived-plan-name> [--to <plan-name>]` — move an archived Plan back into active `plans/`.
+- `wld plans archive restore <archived-plan-name-or-id> [--to <plan-name>]` — restore an archived Plan back into active
+  `plans/`.
+- `wld plans read <plan-name-or-id>` — print one active or archived Plan's path, metadata, and body for inspection.
+
+Do not add `wld plans archive move`, `wld plans archive list`, `wld plans archive search`, or `wld plans archive read`
+aliases in this slice. The short `archive` form archives the target when an argument is provided and lists the archive
+when no argument is provided.
 
 Safety rules:
 
 - Preserve nested names: `plans/my-epic/01-child.md` archives to `plans/archived/my-epic/01-child.md`.
-- Refuse to overwrite an existing archive or active restored file unless an explicit overwrite option is later added.
-- Archive `verified` Plans without `--force`.
-- Require `--force` for non-terminal or ambiguous statuses, and block or strongly guard Plans with active/recoverable
-  worktree state (`worktreeStatus: active`, `execution_failed`, `validation_failed`, or `merge_conflict`).
-- Do not archive `on_hold` by default when that status exists; on-hold means paused/resumable, not done or archived.
+- Refuse to overwrite an existing archive or active restored file. Do not add overwrite behavior in this slice.
+- Archive `verified` and `closed_without_verification` Plans without `--force`.
+- Require `--force` for other statuses, including `draft`, `feedback`, `approved`, `ready_for_decomposition`,
+  `ready_for_work`, `in_progress`, `failed`, `implemented`, and `on_hold`.
+- Even with `--force`, block Plans with recoverable worktree states (`active`, `execution_failed`, `validation_failed`,
+  or `merge_conflict`) unless a future explicit abandon/cleanup flow changes that policy.
+- Do not archive `on_hold` by default; on-hold means paused/resumable, not done or archived.
 - Do not automatically modify child FEATURE Plans when archiving an Epic, or vice versa. Bulk Epic archival can be a
-  later feature once the UI/lifecycle semantics are settled.
+  later feature once UI/lifecycle semantics are settled.
 
 ## Files to Modify
 
-- `docs/adr/008-plan-archival-and-retrieval.md` — create an ADR that records `plans/archived/` as the archive location,
-  filesystem-backed search for v1, explicit/reversible commands, no boot sweep, and no one-off LanceDB archive index.
+- `docs/adr/008-plan-archival-and-retrieval.md` — create an ADR recording `plans/archived/` as the archive location,
+  explicit/reversible commands, no boot sweep, no CLI archive search in this slice, and no one-off LanceDB archive
+  index.
 - `docs/plan-lifecycle.md` — add a short section distinguishing physical archival from Plan Status, `on_hold`,
-  `verified`, and future `closed_without_verification`.
-- `src/plan-store.js` — add archive metadata fields, archive path helpers, `archivePlan`, `listArchivedPlans`,
-  `loadArchivedPlan`, `searchArchivedPlans`, and `restoreArchivedPlan` while reusing existing parsing/canonicalization.
-- `src/plan-store.test.js` — cover archive move/restore, nested paths, metadata preservation, active list hiding,
-  archived listing/search, overwrite refusal, forced non-terminal archival, and worktree-state guards.
-- `src/cmd/plans/index.js` — evolve `wld plans` into a small subcommand dispatcher while preserving current list
-  behavior as the default.
-- `src/cmd/plans/index.test.js` — cover default listing compatibility, archive subcommand delegation, help text, and
-  argument parsing.
-- `src/cmd/plans/archive.js` — implement the `wld plans archive ...` command surface and human-readable output.
+  `verified`, and `closed_without_verification`.
+- `src/plan-store.js` — add archive metadata fields, archive path helpers, active/archived plan-name-or-id resolvers,
+  `archivePlan`, `listArchivedPlans`, `loadArchivedPlan`, and `restoreArchivedPlan` while reusing existing
+  parsing/canonicalization.
+- `src/plan-store.test.js` — cover archive/restore, nested paths, metadata preservation, active list hiding, archived
+  listing, read/load behavior, overwrite refusal, forced non-terminal archival, terminal-status defaults, and
+  worktree-state guards.
+- `src/cmd/plans/index.js` — dispatch `archive` and `read` subcommands while preserving current bare `wld plans`
+  behavior and existing `ui` delegation.
+- `src/cmd/plans/index.test.js` — cover default listing compatibility, `archive`/`read` subcommand delegation, `ui`
+  delegation, help text, and argument parsing.
+- `src/cmd/plans/archive.js` — implement `wld plans archive`, `wld plans archive <plan-name-or-id>`, and
+  `wld plans archive restore ...` with human-readable output/errors.
+- `src/cmd/plans/archive.test.js` — add focused tests for archive command parsing, output, dependency injection, and
+  plan-store helper calls.
+- `src/cmd/plans/read.js` — implement `wld plans read <plan-name-or-id>` for active Plans and archived Plans.
+- `src/cmd/plans/read.test.js` — cover read command resolution/output for active Plans, archived Plans, and ambiguous
+  duplicate names.
+- `src/cmd/registry.js` — update `plans` command usage/notes so `wld help plans` exposes archive and read commands.
 - `README.md` — document the new archive commands briefly, especially that archives remain plaintext markdown under
   `plans/archived/` and can be restored.
 
@@ -110,59 +124,81 @@ Safety rules:
 
 Existing functions, modules, or patterns to reuse:
 
-- `src/plan-store.js` — reuse `getPlansDir`, `ensurePlansDir`, canonical stored Plan names, `loadPlan`,
-  `parsePlanFrontMatter`, `injectFrontMatter`, and the existing top-level `HIDDEN_PLAN_DIRS` behavior.
-- `src/plan-store.test.js` — extend the existing `listPlans hides archived plans` coverage instead of creating a
-  separate archive fixture harness.
-- `src/cmd/plans/index.js` — preserve the current Epic/child/standalone/orphan listing as the default command behavior.
-- `src/shared/workflow/plan-lifecycle.js` — use lifecycle terminology for safety checks, but do not add new lifecycle
-  statuses/events in this slice.
-- `plans/archived/` — use the repo's existing archive convention and historical Plan examples as manual test fixtures.
+- `src/plan-store.js` — reuse `getPlansDir`, `ensurePlansDir`, canonical stored Plan names, `loadPlan`, `findPlanById`,
+  `parsePlanFrontMatter`, `injectFrontMatter`, `PLAN_FRONT_MATTER_KEYS`, `PLAN_FRONT_MATTER_KEY_ORDER`, and the existing
+  top-level `HIDDEN_PLAN_DIRS` behavior.
+- `src/plan-store.test.js` — extend the existing `listPlans hides archived plans` and Plan resource tests instead of
+  creating a separate filesystem harness.
+- `src/cmd/plans/index.js` — preserve the current Epic/child/standalone/orphan listing as the default command behavior
+  and follow the existing `ui` delegation pattern for the new `archive` and `read` dispatchers.
+- `src/cmd/registry.js` and `src/cmd/help/index.js` — command help is registry-driven, so update registry metadata
+  rather than adding special help logic.
+- `src/shared/workflow/plan-lifecycle.js` — use lifecycle terminology for safety checks, but do not add lifecycle
+  statuses or events in this slice.
+- `plans/archived/` — use the repo's existing archive convention and historical Plan examples as manual fixtures.
 
 ## Implementation Steps
 
-- [ ] Step 1: Add archive metadata support in `src/plan-store.js` (`archivedAt`, `archiveReason`, `archivedFromStatus`,
-      and optionally `restoredAt`) while preserving unknown Front Matter keys.
-- [ ] Step 2: Add archive path helpers that resolve active Plan names and archived Plan names safely under `plans/` and
-      `plans/archived/`, preserving nested relative paths and preventing path traversal.
-- [ ] Step 3: Implement `archivePlan()` with safety validation, metadata injection, destination directory creation,
-      no-overwrite behavior, and atomic-enough move semantics for local files.
-- [ ] Step 4: Implement `listArchivedPlans()`, `loadArchivedPlan()`, and `searchArchivedPlans()` as bounded filesystem
-      scans over `plans/archived/` that return concise metadata/snippets rather than dumping entire files by default.
-- [ ] Step 5: Implement `restoreArchivedPlan()` to move a Plan back to active `plans/`, preserve body/front matter, add
-      restore metadata, and refuse active-file overwrites.
-- [ ] Step 6: Add `src/cmd/plans/archive.js` with `move`, `list`, `search`, `read`, and `restore` handlers plus clear
-      error messages for blocked archival and missing Plans.
-- [ ] Step 7: Update `src/cmd/plans/index.js` to dispatch `archive` while keeping bare `wld plans` output unchanged.
-- [ ] Step 8: Write/extend tests for plan-store archive helpers and command parsing/output.
-- [ ] Step 9: Add ADR/docs/README updates explaining the archive model and why v1 does not use a database or automatic
-      age-based sweep.
-- [ ] Step 10: Run full validation and fix issues.
+- [ ] Step 1: Add archive metadata keys to `PLAN_FRONT_MATTER_KEYS`, `PLAN_FRONT_MATTER_KEY_ORDER`, `PlanFrontMatter`,
+      `injectFrontMatter()`, and `parsePlanFrontMatter()` in `src/plan-store.js`: `archivedAt`, `archiveReason`,
+      `archivedFromStatus`, `archivedFromPath`, `restoredAt`, and `restoredFromPath`.
+- [ ] Step 2: Add path helpers and resolvers that accept a canonical Plan name or durable `planId`, resolve active Plan
+      names and archived Plan names safely under `plans/` and `plans/archived/`, preserve nested relative paths, reject
+      path traversal, and prevent using `archived/...` as an active source name for `archivePlan()`.
+- [ ] Step 3: Implement `archivePlan(cwd, planNameOrId, options)` with safety validation, metadata injection,
+      destination directory creation, no-overwrite behavior, and local rename/move semantics.
+- [ ] Step 4: Implement `listArchivedPlans(cwd)` and `loadArchivedPlan(cwd, archivedPlanNameOrId)` as bounded filesystem
+      scans/lookups over `plans/archived/` that return concise metadata and full content only when explicitly reading.
+      `listArchivedPlans()` should include plan name/path/status/summary and `planId` when present so users can target
+      restore/read commands.
+- [ ] Step 5: Implement `restoreArchivedPlan(cwd, archivedPlanNameOrId, options)` to move a Plan back to active
+      `plans/`, preserve body/front matter, add restore metadata, and refuse active-file overwrites.
+- [ ] Step 6: Add `src/cmd/plans/archive.js` with list-on-no-args, archive-target-arg, and `restore` handlers, clear
+      help text, parse-args dependency injection for tests, and clear error messages for blocked archival/missing Plans.
+- [ ] Step 7: Add `src/cmd/plans/read.js` so `wld plans read <plan-name-or-id>` prints active or archived Plan content.
+- [ ] Step 8: Update `src/cmd/plans/index.js` to dispatch `archive` and `read` before default list parsing while keeping
+      bare `wld plans` output and existing `ui` behavior unchanged.
+- [ ] Step 9: Update `src/cmd/registry.js` so `wld help plans` includes archive/read usage examples and notes.
+- [ ] Step 10: Write/extend automated tests for plan-store archive helpers, read behavior, command parsing/output,
+      default listing compatibility, archive hiding, and help metadata.
+- [ ] Step 11: Add ADR/docs/README updates explaining the archive model and why v1 does not use a database, CLI archive
+      search, or automatic age-based sweep.
+- [ ] Step 12: Run full validation and fix issues.
 
 ## Verification Plan
 
 - Automated: `deno task ci`
 - Manual: Run `wld plans` and verify archived Plans do not appear in the active list.
-- Manual: Archive a verified Plan with `wld plans archive move <plan-name> --reason "done"`; verify the file moved to
+- Manual: Archive a verified Plan with `wld plans archive <plan-name> --reason "done"`; verify the file moved to
   `plans/archived/<plan-name>.md` and Front Matter records archive metadata.
+- Manual: Archive a `closed_without_verification` Plan without `--force`; verify it succeeds with archive metadata.
 - Manual: Attempt to archive a draft/in-progress/failed Plan without `--force`; verify the command refuses with a clear
   reason.
-- Manual: Use `wld plans archive list`, `search`, and `read` to find and inspect archived Plans without dumping the
-  whole archive by default.
-- Manual: Restore an archived Plan and verify it appears in `wld plans` again and no markdown body content changed.
+- Manual: Attempt to archive a Plan with `worktreeStatus: active`, `execution_failed`, `validation_failed`, or
+  `merge_conflict`; verify the command blocks and explains the recoverable worktree state.
+- Manual: Use `wld plans archive` to list archived Plans.
+- Manual: Use `wld plans read <plan-name>` for an active Plan and an archived Plan; verify it prints the correct path,
+  metadata, and body.
+- Manual: Restore an archived Plan with `wld plans archive restore <plan-name-or-id>` and verify it appears in
+  `wld plans` again and no markdown body content changed.
 
 ## Edge Cases & Considerations
 
 - Existing dirty files: implementation should not assume the archive directory is clean; refuse overwrites rather than
   silently replacing history.
 - Nested child Plans: preserve path shape, but do not cascade archive/restore parent-child relationships automatically.
-- Malformed Front Matter: search/list should skip or degrade gracefully; move/restore should avoid destroying body text
-  and report parse issues clearly.
-- Worktree recovery: active or failed worktree states should not be hidden by archival without an explicit user
-  decision.
+- Malformed Front Matter: archived listing and read should skip or degrade gracefully; archive/restore should avoid
+  destroying body text and report parse issues clearly.
+- Worktree recovery: active or failed worktree states should not be hidden by archival without an explicit user decision
+  and a future abandon/cleanup policy.
+- `closed_without_verification`: treat as a terminal user outcome for archive default eligibility, but do not imply
+  Workflow Validation passed.
 - Future Plan UI: expose archive operations through plan-store helpers so `wld plans ui` can reuse them later instead of
   inventing direct filesystem mutations.
-- Future semantic search: archived Plan content can be indexed later by a unified search system; do not add a dedicated
-  LanceDB archive store now.
+- Future semantic search: archived Plan content can be indexed later by a unified search/UI system; do not add a
+  dedicated LanceDB archive store or CLI archive search now.
+- Read ambiguity: if active and archived Plans share the same name, `wld plans read <name>` should prefer the active
+  Plan and print its path; users can still read the archived copy via an explicit archived name/path if supported by the
+  implementation.
 - Tool visibility: do not blanket-ignore `plans/archived/` in all grep/find-style tools. Prefer active Plan APIs for
-  normal workflows and explicit archive commands/search when historical context is needed.
+  normal workflows and explicit archive listing/read commands when historical context is needed.
