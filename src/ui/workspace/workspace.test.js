@@ -11,9 +11,12 @@ import {
     serializePlanSummary,
     workspaceMetadata as _workspaceMetadata,
 } from "./server/plan-adapter.js";
+import { buildPlanBoardSearchIndex } from "./components/Board.jsx";
 import { renderMarkdown } from "./components/MarkdownView.jsx";
+import { detailHref, workspaceHref } from "./components/PlanCard.jsx";
 import { draftRecoveryState, planBodyDraftKey, restoredDraftExpectedBodyHash } from "./islands/PlanBodyEditor.jsx";
 import { blockedDropMessage, isAllowedDropTarget, parseAllowedTargetStatuses } from "./islands/PlanBoardDragDrop.jsx";
+import { matchingPlanIds, normalizePlanSearchQuery, PLAN_SEARCH_QUERY_PARAM } from "./islands/PlanBoardSearch.jsx";
 import {
     createMoveStatusIntent,
     createPutOnHoldIntent,
@@ -190,6 +193,54 @@ Deno.test("buildWorkspaceBoard keeps orphan children visible for repair outside 
     assertEquals(draftColumn.cards.length, 0);
     assertEquals(draftColumn.orphanChildren.map((/** @type {any} */ plan) => plan.planId), ["orphan-id"]);
     assertEquals(board.active.orphanChildren.map((/** @type {any} */ plan) => plan.planId), ["orphan-id"]);
+});
+
+Deno.test("Plan Board search helpers normalize query and match title name and summary", () => {
+    const searchIndex = [
+        {
+            planId: "fuzzy-id",
+            title: "Add Fuzzy Search",
+            planName: "plans-ui-fuzzy-search",
+            summary: "Filter the board by title, name, or summary",
+        },
+        {
+            planId: "archive-id",
+            title: "Archive Plans",
+            planName: "implementing-plan-archival",
+            summary: "Move closed Plans into an archive folder",
+        },
+    ];
+
+    assertEquals(normalizePlanSearchQuery("  fuzzy\n search  "), "fuzzy search");
+    assertEquals([...matchingPlanIds(searchIndex, "")].sort(), ["archive-id", "fuzzy-id"]);
+    assertEquals(matchingPlanIds(searchIndex, "archival").has("archive-id"), true);
+    assertEquals(matchingPlanIds(searchIndex, "fuzzy").has("fuzzy-id"), true);
+});
+
+Deno.test("buildPlanBoardSearchIndex includes top-level cards and orphan repair cards once", () => {
+    const searchIndex = buildPlanBoardSearchIndex({
+        columns: [
+            {
+                cards: [{ planId: "epic-id", planName: "epic", title: "Epic", summary: "Parent project" }],
+                orphanChildren: [{ planId: "orphan-id", planName: "missing/child", summary: "Repair me" }],
+            },
+            {
+                cards: [{ planId: "epic-id", planName: "epic", title: "Duplicate", summary: "Duplicate" }],
+                orphanChildren: [],
+            },
+        ],
+        orphanChildren: [{ planId: "orphan-id", planName: "missing/child", summary: "Repair me" }],
+    });
+
+    assertEquals(searchIndex.map((/** @type {any} */ entry) => entry.planId), ["epic-id", "orphan-id"]);
+    assertEquals(searchIndex[1].title, "missing/child");
+});
+
+Deno.test("workspaceHref preserves token and board search query", () => {
+    const url = new URL("http://localhost/plans/plan-id?token=secret&q=fuzzy%20plan&edit=body");
+    assertEquals(workspaceHref("/closed", url), "/closed?token=secret&q=fuzzy+plan");
+    assertEquals(detailHref({ planId: "plan id" }, url), "/plans/plan%20id?token=secret&q=fuzzy+plan");
+    assertEquals(PLAN_SEARCH_QUERY_PARAM, "q");
 });
 
 Deno.test("loadPlanSummaries marks top-level, Epic, child, and orphan-child hierarchy roles", async () => {
@@ -423,10 +474,17 @@ Deno.test("Fresh Workspace rejects missing token and SSR-renders status column b
         assertEquals(themeCss.headers.get("cache-control"), "no-store");
         assertStringIncludes(await themeCss.text(), "--rw-theme-name:");
 
-        const accepted = await app(new Request("http://localhost/?token=secret"));
+        const accepted = await app(new Request("http://localhost/?token=secret&q=workspace"));
         assertEquals(accepted.status, 200);
         const html = await accepted.text();
         assertStringIncludes(html, '<link rel="stylesheet" href="/theme.css"');
+        assertStringIncludes(html, 'aria-label="Search Plans"');
+        assertStringIncludes(html, 'value="workspace"');
+        assertEquals(html.includes("matching Plan"), false);
+        assertEquals(html.includes("searchable Plan"), false);
+        assertStringIncludes(html, 'data-plan-search-card="workspace-card-id"');
+        assertStringIncludes(html, 'href="/plans/workspace-card-id?token=secret&amp;q=workspace"');
+        assertStringIncludes(html, 'href="/closed?token=secret&amp;q=workspace"');
         assertStringIncludes(html, "Draft");
         assertStringIncludes(html, "Ready for Work");
         assertStringIncludes(html, "workspace-card");

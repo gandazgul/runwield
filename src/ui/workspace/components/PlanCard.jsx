@@ -1,4 +1,5 @@
 import { PLAN_UI_TOKEN_QUERY } from "../constants.js";
+import { PLAN_SEARCH_QUERY_PARAM } from "../islands/PlanBoardSearch.jsx";
 
 /**
  * @param {string} path
@@ -7,7 +8,9 @@ import { PLAN_UI_TOKEN_QUERY } from "../constants.js";
 export function workspaceHref(path, url) {
     const next = new URL(path, url);
     const token = url.searchParams.get(PLAN_UI_TOKEN_QUERY) || "";
+    const query = url.searchParams.get(PLAN_SEARCH_QUERY_PARAM) || "";
     if (token) next.searchParams.set(PLAN_UI_TOKEN_QUERY, token);
+    if (query) next.searchParams.set(PLAN_SEARCH_QUERY_PARAM, query);
     return `${next.pathname}${next.search}`;
 }
 
@@ -68,6 +71,7 @@ export function PlanCard({ plan, url, compact = false, roleLabel = "Plan", dragg
             data-draggable-plan-card={canDrag ? "true" : undefined}
             draggable={canDrag}
             data-plan-id={plan.planId}
+            data-plan-search-card={plan.planId}
             data-plan-name={plan.planName}
             data-status={plan.status}
             data-allowed-target-statuses={canDrag ? allowedTargetStatuses : undefined}

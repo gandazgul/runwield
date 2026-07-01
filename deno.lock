@@ -58,6 +58,7 @@
     "npm:esbuild@0.25.7": "0.25.7",
     "npm:esbuild@~0.25.12": "0.25.12",
     "npm:esbuild@~0.25.5": "0.25.12",
+    "npm:fuse.js@7": "7.4.2",
     "npm:preact-render-to-string@^6.6.3": "6.7.0_preact@10.29.3",
     "npm:preact@^10.28.2": "10.29.3",
     "npm:preact@^10.29.1": "10.29.3",
@@ -2873,6 +2874,9 @@
     "function-bind@1.1.2": {
       "integrity": "sha512-7XHNxH7qX9xG5mIwxkhumTox/MIRNcOgDrxWsMt2pAr23WHp6MrRlN7FBSFpCpr+oVO0F744iUgR82nJMfG2SA=="
     },
+    "fuse.js@7.4.2": {
+      "integrity": "sha512-LVbzjD4WA6UP5B1UnP8wuaXJiLnqMdM/E4fiJXTJ5haJ5b/MBNsK29h2fm6swEoQaVQjvYFWKLE2RanyZIoRVQ=="
+    },
     "gaxios@7.1.5": {
       "integrity": "sha512-5FZy72Rh8LhtjmvDrKkI+lVhrsQrVKVsItxMoDm5mNQE+xR0WVIIs+jzPSJgBvKVsLi24fZhXJIsNI0bihDzFg==",
       "dependencies": [
@@ -4011,6 +4015,7 @@
       "npm:chalk@^5.6.2",
       "npm:codemirror@^6.0.2",
       "npm:esbuild@~0.25.12",
+      "npm:fuse.js@7",
       "npm:preact@^10.29.3",
       "npm:proper-lockfile@^4.1.2",
       "npm:quikdown@^1.2.21",

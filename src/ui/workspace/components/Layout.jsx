@@ -1,4 +1,5 @@
 import { PLAN_UI_TOKEN_QUERY } from "../constants.js";
+import { PLAN_SEARCH_QUERY_PARAM } from "../islands/PlanBoardSearch.jsx";
 
 /**
  * @param {string} path
@@ -6,8 +7,10 @@ import { PLAN_UI_TOKEN_QUERY } from "../constants.js";
  */
 function linkWithToken(path, url) {
     const token = url.searchParams.get(PLAN_UI_TOKEN_QUERY) || "";
+    const query = url.searchParams.get(PLAN_SEARCH_QUERY_PARAM) || "";
     const next = new URL(path, url);
     if (token) next.searchParams.set(PLAN_UI_TOKEN_QUERY, token);
+    if (query) next.searchParams.set(PLAN_SEARCH_QUERY_PARAM, query);
     return `${next.pathname}${next.search}`;
 }
 
@@ -39,6 +42,7 @@ export function WorkspaceLayout({ Component, url }) {
                 >
                     On Hold
                 </a>
+                <div class="tab-search-slot" data-plan-search-slot></div>
             </nav>
             <main>
                 <Component />

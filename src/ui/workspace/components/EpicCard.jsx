@@ -28,6 +28,7 @@ export function EpicCard({ epic, url, draggableCard = false }) {
             data-draggable-plan-card={canDrag ? "true" : undefined}
             draggable={canDrag}
             data-plan-id={epic.planId}
+            data-plan-search-card={epic.planId}
             data-plan-name={epic.planName}
             data-status={epic.status}
             data-allowed-target-statuses={canDrag ? allowedTargetStatuses : undefined}
