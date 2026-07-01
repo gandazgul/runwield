@@ -6,6 +6,8 @@
 import { parseArgs as parseArgsFn } from "@std/cli/parse-args";
 import { CWD } from "../../constants.js";
 import { countChildPlanProgress, groupPlanHierarchy, listPlans as listPlansFn } from "../../plan-store.js";
+import { runPlansArchiveCommand as runPlansArchiveCommandFn } from "./archive.js";
+import { runPlansReadCommand as runPlansReadCommandFn } from "./read.js";
 import { runPlansUiCommand as runPlansUiCommandFn } from "./ui.js";
 
 /**
@@ -18,6 +20,8 @@ import { runPlansUiCommand as runPlansUiCommandFn } from "./ui.js";
  * @property {typeof listPlansFn} [listPlans]
  * @property {(commandName: string) => boolean} [printCommandHelp]
  * @property {typeof runPlansUiCommandFn} [runPlansUiCommand]
+ * @property {typeof runPlansArchiveCommandFn} [runPlansArchiveCommand]
+ * @property {typeof runPlansReadCommandFn} [runPlansReadCommand]
  */
 
 /**
@@ -94,11 +98,23 @@ export async function runPlansCommand(argv, options = {}) {
         listPlans: listPlansDep,
         printCommandHelp: printCommandHelpDep,
         runPlansUiCommand: runPlansUiCommandDep,
+        runPlansArchiveCommand: runPlansArchiveCommandDep,
+        runPlansReadCommand: runPlansReadCommandDep,
     } = deps;
 
     if (argv[0] === "ui") {
         const runPlansUiCommand = runPlansUiCommandDep || runPlansUiCommandFn;
         await runPlansUiCommand(argv.slice(1), options);
+        return;
+    }
+    if (argv[0] === "archive") {
+        const runPlansArchiveCommand = runPlansArchiveCommandDep || runPlansArchiveCommandFn;
+        await runPlansArchiveCommand(argv.slice(1), /** @type {any} */ (options));
+        return;
+    }
+    if (argv[0] === "read") {
+        const runPlansReadCommand = runPlansReadCommandDep || runPlansReadCommandFn;
+        await runPlansReadCommand(argv.slice(1), /** @type {any} */ (options));
         return;
     }
 

@@ -1,5 +1,6 @@
-import { assertEquals, assertRejects } from "@std/assert";
+import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import {
+    archivePlan,
     countChildPlanProgress,
     ensurePlanIdentity,
     findPlanById,
@@ -10,8 +11,10 @@ import {
     injectFrontMatter,
     isChildFeaturePlan,
     isEpicPlan,
+    listArchivedPlans,
     listPlanResources,
     listPlans,
+    loadArchivedPlan,
     loadExternalPlan,
     loadPlan,
     loadPlanBodyById,
@@ -20,6 +23,7 @@ import {
     PLAN_FRONT_MATTER_KEYS,
     resolvePlan,
     resolveSiblingChildPlanDependencyStates,
+    restoreArchivedPlan,
     saveChildFeaturePlans,
     savePlan,
     savePlanBodyById,
@@ -565,6 +569,164 @@ testWithFs("listPlans hides archived plans", async () => {
 
         const explicitArchived = await loadPlan(cwd, "archived/old-plan");
         assertEquals(explicitArchived?.attrs.summary, "Hidden plan");
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+testWithFs("archivePlan moves verified nested plans with metadata and hides them from active lists", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "epic/01-child", "# Child\n\nBody stays", {
+            planId: "child-id",
+            summary: "Child plan",
+            status: "verified",
+            createdAt: "2026-06-18T00:00:00.000Z",
+        });
+
+        const archived = await archivePlan(cwd, "child-id", {
+            reason: "done",
+            now: "2026-06-19T00:00:00.000Z",
+        });
+
+        assertEquals(archived.name, "epic/01-child");
+        assertEquals(archived.relativePath, "plans/archived/epic/01-child.md");
+        assertEquals((await listPlans(cwd)).map((plan) => plan.name), []);
+        assertEquals((await listArchivedPlans(cwd)).map((plan) => plan.name), ["epic/01-child"]);
+
+        const loaded = await loadArchivedPlan(cwd, "epic/01-child");
+        assertEquals(loaded?.attrs.status, "verified");
+        assertEquals(loaded?.attrs.archivedAt, "2026-06-19T00:00:00.000Z");
+        assertEquals(loaded?.attrs.archiveReason, "done");
+        assertEquals(loaded?.attrs.archivedFromStatus, "verified");
+        assertEquals(loaded?.attrs.archivedFromPath, "plans/epic/01-child.md");
+        assertEquals(loaded?.body, "# Child\n\nBody stays");
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+testWithFs("archivePlan allows terminal closure and requires force for non-terminal statuses", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "closed", "# Closed", { status: "closed_without_verification" });
+        await archivePlan(cwd, "closed", { now: "2026-06-19T00:00:00.000Z" });
+        assertEquals((await loadArchivedPlan(cwd, "closed"))?.attrs.archivedFromStatus, "closed_without_verification");
+
+        await savePlan(cwd, "draft", "# Draft", { status: "draft" });
+        await assertRejects(() => archivePlan(cwd, "draft"), Error, "without --force");
+        await archivePlan(cwd, "draft", { force: true, now: "2026-06-20T00:00:00.000Z" });
+        assertEquals((await loadArchivedPlan(cwd, "draft"))?.attrs.archivedFromStatus, "draft");
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+testWithFs("archivePlan blocks recoverable worktree states and refuses overwrites", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "busy", "# Busy", { status: "verified", worktreeStatus: "active" });
+        await assertRejects(() => archivePlan(cwd, "busy", { force: true }), Error, "worktreeStatus active");
+
+        await savePlan(cwd, "dup", "# Dup", { status: "verified" });
+        await savePlan(cwd, "archived/dup", "# Archived Dup", { status: "verified" });
+        await assertRejects(() => archivePlan(cwd, "dup"), Error, "already exists");
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+testWithFs(
+    "restoreArchivedPlan moves archived plans back without changing body and refuses active overwrites",
+    async () => {
+        const cwd = await Deno.makeTempDir();
+        try {
+            await savePlan(cwd, "done", "# Done\n\nBody", { status: "verified", planId: "done-id" });
+            await archivePlan(cwd, "done", { now: "2026-06-19T00:00:00.000Z" });
+            const restored = await restoreArchivedPlan(cwd, "done-id", { now: "2026-06-20T00:00:00.000Z" });
+
+            assertEquals(restored.relativePath, "plans/done.md");
+            const loaded = await loadPlan(cwd, "done");
+            assertEquals(loaded?.body, "# Done\n\nBody");
+            assertEquals(loaded?.attrs.restoredAt, "2026-06-20T00:00:00.000Z");
+            assertEquals(loaded?.attrs.restoredFromPath, "plans/archived/done.md");
+
+            await savePlan(cwd, "archived/old", "# Old", { status: "verified" });
+            await savePlan(cwd, "old", "# Active", { status: "draft" });
+            await assertRejects(() => restoreArchivedPlan(cwd, "old"), Error, "already exists");
+        } finally {
+            await Deno.remove(cwd, { recursive: true });
+        }
+    },
+);
+
+testWithFs("archived plan store resolves planId and preserves custom front matter text", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        const planPath = `${getPlansDir(cwd)}/custom.md`;
+        await Deno.mkdir(getPlansDir(cwd), { recursive: true });
+        await Deno.writeTextFile(
+            planPath,
+            [
+                "---",
+                "planId: durable-custom-id",
+                "classification: FEATURE",
+                "complexity: MEDIUM",
+                "summary: Custom metadata",
+                "affectedPaths:",
+                "  []",
+                "status: verified",
+                "customObject:",
+                "  nested: true",
+                "# keep this comment with the custom field",
+                "---",
+                "# Custom Body",
+                "",
+            ].join("\n"),
+        );
+
+        await archivePlan(cwd, "custom", { now: "2026-06-21T00:00:00.000Z" });
+        const archived = await loadArchivedPlan(cwd, "durable-custom-id");
+        assertEquals(archived?.name, "custom");
+        assertEquals(archived?.attrs.archivedAt, "2026-06-21T00:00:00.000Z");
+        assertStringIncludes(archived?.markdown || "", "customObject:\n  nested: true");
+        assertStringIncludes(archived?.markdown || "", "# keep this comment with the custom field");
+        assertEquals(archived?.body, "# Custom Body\n");
+
+        await restoreArchivedPlan(cwd, "durable-custom-id", { now: "2026-06-22T00:00:00.000Z" });
+        const restoredMarkdown = await Deno.readTextFile(planPath);
+        assertStringIncludes(restoredMarkdown, "customObject:\n  nested: true");
+        assertStringIncludes(restoredMarkdown, "# keep this comment with the custom field");
+        assertStringIncludes(restoredMarkdown, 'restoredAt: "2026-06-22T00:00:00.000Z"');
+        assertStringIncludes(restoredMarkdown, "# Custom Body\n");
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+testWithFs("archived listing skips malformed files while direct reads report parse errors", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "archived/good", "# Good", { status: "verified", planId: "good-id" });
+        await Deno.writeTextFile(
+            `${getPlansDir(cwd)}/archived/bad.md`,
+            "---\nsummary: [unterminated\n---\n# Bad\n",
+        );
+
+        const listed = await listArchivedPlans(cwd);
+        assertEquals(listed.map((plan) => plan.name), ["good"]);
+        await assertRejects(() => loadArchivedPlan(cwd, "bad"), Error, "Malformed archived Plan plans/archived/bad.md");
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+testWithFs("archive helpers reject traversal and active archive source names", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "archived/old", "# Old", { status: "verified" });
+        await assertRejects(() => archivePlan(cwd, "archived/old"), Error, "active Plan name");
+        await assertRejects(() => loadArchivedPlan(cwd, "../escape"), Error, "cannot escape");
     } finally {
         await Deno.remove(cwd, { recursive: true });
     }

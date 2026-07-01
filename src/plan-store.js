@@ -9,7 +9,7 @@
  */
 
 import { extractYaml, test as hasFrontMatter } from "@std/front-matter";
-import { basename, join, resolve } from "@std/path";
+import { basename, join, relative, resolve } from "@std/path";
 import { CLI_BIN, PLANS_DIR_NAME } from "./constants.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────
@@ -121,6 +121,12 @@ function getStoredPlanLocation(cwd, planName) {
  * @property {string|null} [heldAt] - ISO timestamp when the Plan was put on hold
  * @property {string|null} [holdReason] - Optional human reason for the hold
  * @property {string|null} [holdStalenessBaseline] - ISO timestamp or baseline used by caller-owned Resume Check
+ * @property {string|null} [archivedAt] - ISO timestamp when the Plan was physically moved to plans/archived/
+ * @property {string|null} [archiveReason] - Optional human reason captured when the Plan was archived
+ * @property {PlanFrontMatter["status"]|null} [archivedFromStatus] - Durable lifecycle status captured before archival
+ * @property {string|null} [archivedFromPath] - Project-relative path the Plan occupied before archival
+ * @property {string|null} [restoredAt] - ISO timestamp when the Plan was physically restored to active plans/
+ * @property {string|null} [restoredFromPath] - Project-relative archived path restored from
  */
 
 /**
@@ -207,6 +213,12 @@ export const PLAN_FRONT_MATTER_KEYS = Object.freeze({
     heldAt: "heldAt",
     holdReason: "holdReason",
     holdStalenessBaseline: "holdStalenessBaseline",
+    archivedAt: "archivedAt",
+    archiveReason: "archiveReason",
+    archivedFromStatus: "archivedFromStatus",
+    archivedFromPath: "archivedFromPath",
+    restoredAt: "restoredAt",
+    restoredFromPath: "restoredFromPath",
 });
 
 export const PLAN_FRONT_MATTER_KEY_ORDER = Object.freeze(Object.values(PLAN_FRONT_MATTER_KEYS));
@@ -307,6 +319,12 @@ function formatFrontMatter(fm) {
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.heldAt, fm.heldAt);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.holdReason, fm.holdReason);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.holdStalenessBaseline, fm.holdStalenessBaseline);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.archivedAt, fm.archivedAt);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.archiveReason, fm.archiveReason);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.archivedFromStatus, fm.archivedFromStatus);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.archivedFromPath, fm.archivedFromPath);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.restoredAt, fm.restoredAt);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.restoredFromPath, fm.restoredFromPath);
 
     for (const key of Object.keys(fm).filter((key) => !KNOWN_FRONT_MATTER_KEYS.has(key)).sort()) {
         appendYamlField(lines, key, /** @type {Record<string, unknown>} */ (fm)[key]);
@@ -564,6 +582,14 @@ export function injectFrontMatter(markdown, overrides = {}) {
         heldAt: optionalFrontMatterValue(overrides, existingFm, "heldAt"),
         holdReason: optionalFrontMatterValue(overrides, existingFm, "holdReason"),
         holdStalenessBaseline: optionalFrontMatterValue(overrides, existingFm, "holdStalenessBaseline"),
+        archivedAt: optionalFrontMatterValue(overrides, existingFm, "archivedAt"),
+        archiveReason: optionalFrontMatterValue(overrides, existingFm, "archiveReason"),
+        archivedFromStatus: Object.hasOwn(overrides, "archivedFromStatus")
+            ? normalizePlanStatusForOptionalHold(overrides.archivedFromStatus)
+            : normalizePlanStatusForOptionalHold(existingFm.archivedFromStatus),
+        archivedFromPath: optionalFrontMatterValue(overrides, existingFm, "archivedFromPath"),
+        restoredAt: optionalFrontMatterValue(overrides, existingFm, "restoredAt"),
+        restoredFromPath: optionalFrontMatterValue(overrides, existingFm, "restoredFromPath"),
     };
 
     return formatFrontMatter(fm) + "\n" + body.trimStart();
@@ -637,6 +663,12 @@ export function parsePlanFrontMatter(markdown, opts = {}) {
             heldAt: attrs.heldAt,
             holdReason: attrs.holdReason,
             holdStalenessBaseline: attrs.holdStalenessBaseline,
+            archivedAt: attrs.archivedAt,
+            archiveReason: attrs.archiveReason,
+            archivedFromStatus: normalizePlanStatusForOptionalHold(attrs.archivedFromStatus),
+            archivedFromPath: attrs.archivedFromPath,
+            restoredAt: attrs.restoredAt,
+            restoredFromPath: attrs.restoredFromPath,
         },
         body,
     };
@@ -676,6 +708,93 @@ export function splitPlanMarkdownBody(markdown) {
     }
 
     throw new Error("Plan body editing requires a closed leading front matter block.");
+}
+
+/**
+ * @param {unknown} error
+ * @returns {string}
+ */
+function formatErrorMessage(error) {
+    return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * @param {string} line
+ * @param {string} key
+ * @returns {boolean}
+ */
+function isTopLevelYamlKeyLine(line, key) {
+    return line.startsWith(`${key}:`) || line.startsWith(`${key} :`);
+}
+
+/**
+ * @param {string} line
+ * @returns {boolean}
+ */
+function isAnyTopLevelYamlKeyLine(line) {
+    return /^[^\s#][^:]*\s*:/.test(line);
+}
+
+/**
+ * Remove a top-level YAML key and any indented/list continuation lines from a front matter body.
+ * @param {string[]} lines
+ * @param {string} key
+ * @returns {string[]}
+ */
+function removeTopLevelYamlKey(lines, key) {
+    /** @type {string[]} */
+    const kept = [];
+    for (let index = 0; index < lines.length; index++) {
+        const line = lines[index];
+        if (!isTopLevelYamlKeyLine(line, key)) {
+            kept.push(line);
+            continue;
+        }
+
+        index++;
+        while (index < lines.length && !isAnyTopLevelYamlKeyLine(lines[index])) index++;
+        index--;
+    }
+    return kept;
+}
+
+/**
+ * Build YAML lines for only the provided override fields.
+ * @param {Partial<PlanFrontMatter>} overrides
+ * @returns {string[]}
+ */
+function formatFrontMatterOverrideLines(overrides) {
+    /** @type {string[]} */
+    const lines = [];
+    for (const key of PLAN_FRONT_MATTER_KEY_ORDER) {
+        if (Object.hasOwn(overrides, key)) {
+            appendYamlField(lines, key, /** @type {Record<string, unknown>} */ (overrides)[key]);
+        }
+    }
+    return lines;
+}
+
+/**
+ * Update only selected front matter fields while preserving untouched YAML text and body bytes.
+ * @param {string} markdown
+ * @param {Partial<PlanFrontMatter>} overrides
+ * @returns {string}
+ */
+function mergeFrontMatterText(markdown, overrides) {
+    if (!hasFrontMatter(markdown)) return injectFrontMatter(markdown, overrides);
+
+    const { frontMatterBlock, body } = splitPlanMarkdownBody(markdown);
+    const eol = frontMatterBlock.includes("\r\n") ? "\r\n" : "\n";
+    const lines = frontMatterBlock.replace(/\r?\n$/, "").split(/\r?\n/);
+    const closingIndex = lines.length - 1;
+    let innerLines = lines.slice(1, closingIndex);
+    for (const key of PLAN_FRONT_MATTER_KEY_ORDER) {
+        if (Object.hasOwn(overrides, key)) innerLines = removeTopLevelYamlKey(innerLines, key);
+    }
+
+    const overrideLines = formatFrontMatterOverrideLines(overrides);
+    const mergedLines = ["---", ...innerLines, ...overrideLines, "---"];
+    return `${mergedLines.join(eol)}${eol}${body}`;
 }
 
 /**
@@ -1010,17 +1129,25 @@ export async function updatePlanFrontMatter(
  */
 
 /**
+ * @typedef {Object} PlanParseIssue
+ * @property {string} name
+ * @property {string} path
+ * @property {string} message
+ */
+
+/**
  * @param {string} dir
  * @param {string[]} prefix
  * @param {Array<{ name: string, path: string, attrs: PlanFrontMatter }>} results
+ * @param {PlanParseIssue[]} [parseIssues]
  * @returns {Promise<void>}
  */
-async function collectPlans(dir, prefix, results) {
+async function collectPlans(dir, prefix, results, parseIssues) {
     for await (const entry of Deno.readDir(dir)) {
         const entryPath = join(dir, entry.name);
         if (entry.isDirectory) {
             if (prefix.length === 0 && HIDDEN_PLAN_DIRS.has(entry.name)) continue;
-            await collectPlans(entryPath, [...prefix, entry.name], results);
+            await collectPlans(entryPath, [...prefix, entry.name], results, parseIssues);
             continue;
         }
         if (!entry.isFile || !entry.name.endsWith(".md")) continue;
@@ -1029,8 +1156,8 @@ async function collectPlans(dir, prefix, results) {
             const markdown = await Deno.readTextFile(entryPath);
             const { attrs } = parsePlanFrontMatter(markdown);
             results.push({ name, path: entryPath, attrs });
-        } catch {
-            // skip unreadable or malformed files
+        } catch (error) {
+            parseIssues?.push({ name, path: entryPath, message: formatErrorMessage(error) });
         }
     }
 }
@@ -1051,6 +1178,285 @@ export async function listPlans(cwd) {
         // plans dir doesn't exist yet
     }
     return results.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+const ARCHIVED_DIR_NAME = "archived";
+const TERMINAL_ARCHIVABLE_STATUSES = new Set(["verified", "closed_without_verification"]);
+const RECOVERABLE_WORKTREE_STATUSES = new Set(["active", "execution_failed", "validation_failed", "merge_conflict"]);
+
+/**
+ * @typedef {Object} ArchivePlanOptions
+ * @property {string} [reason]
+ * @property {boolean} [force]
+ * @property {string} [now]
+ */
+
+/**
+ * @typedef {Object} ArchivedPlanEntry
+ * @property {string} name
+ * @property {string} planName
+ * @property {string} relativePath
+ * @property {string} path
+ * @property {PlanFrontMatter} attrs
+ * @property {string} status
+ * @property {string} summary
+ * @property {string} [planId]
+ */
+
+/**
+ * @param {string} cwd
+ * @returns {string}
+ */
+function getArchivedPlansDir(cwd) {
+    return join(getPlansDir(cwd), ARCHIVED_DIR_NAME);
+}
+
+/**
+ * @param {string} cwd
+ * @param {string} absolutePath
+ * @returns {string}
+ */
+function projectRelativePath(cwd, absolutePath) {
+    return relative(cwd, absolutePath).replaceAll("\\", "/");
+}
+
+/**
+ * @param {string} cwd
+ * @param {string} planName
+ * @returns {{ name: string, segments: string[], filePath: string }}
+ */
+function getArchivedPlanLocation(cwd, planName) {
+    const { segments } = canonicalizeStoredPlanName(planName);
+    const archiveSegments = segments[0] === ARCHIVED_DIR_NAME ? segments.slice(1) : segments;
+    if (archiveSegments.length === 0) throw new Error("Archived plan name cannot be empty");
+    return {
+        name: archiveSegments.join("/"),
+        segments: archiveSegments,
+        filePath: join(getArchivedPlansDir(cwd), ...archiveSegments) + ".md",
+    };
+}
+
+/**
+ * @param {string} path
+ * @returns {Promise<boolean>}
+ */
+async function fileExists(path) {
+    try {
+        const stat = await Deno.stat(path);
+        return stat.isFile;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * @param {string} cwd
+ * @param {string} planNameOrId
+ * @returns {Promise<{ name: string, path: string, attrs: PlanFrontMatter, body: string, markdown: string }>}
+ */
+async function resolveActivePlanNameOrId(cwd, planNameOrId) {
+    const byName = await loadPlan(cwd, planNameOrId).catch(() => null);
+    if (byName) {
+        const { name } = canonicalizeStoredPlanName(planNameOrId);
+        if (isHiddenPlanName(name)) {
+            throw new Error(`Use an active Plan name, not ${ARCHIVED_DIR_NAME}/...: ${planNameOrId}`);
+        }
+        return { name, ...byName };
+    }
+
+    const planId = normalizePlanId(planNameOrId);
+    if (planId) {
+        const matches = (await listPlans(cwd)).filter((plan) => plan.attrs.planId === planId);
+        if (matches.length > 1) {
+            throw new Error(`Duplicate planId values found for ${planId}; repair plan front matter before continuing.`);
+        }
+        if (matches.length === 1) {
+            const loaded = await loadPlan(cwd, matches[0].name);
+            if (loaded) return { name: matches[0].name, ...loaded };
+        }
+    }
+
+    throw new Error(`Active Plan not found: ${planNameOrId}`);
+}
+
+/**
+ * @param {string} cwd
+ * @param {string} archivedPlanNameOrId
+ * @returns {Promise<{ name: string, path: string, attrs: PlanFrontMatter, body: string, markdown: string }>}
+ */
+async function resolveArchivedPlanNameOrId(cwd, archivedPlanNameOrId) {
+    const archived = await loadArchivedPlan(cwd, archivedPlanNameOrId);
+    if (archived) return archived;
+    throw new Error(`Archived Plan not found: ${archivedPlanNameOrId}`);
+}
+
+/**
+ * Archive an active Plan by name or planId into plans/archived/.
+ * @param {string} cwd
+ * @param {string} planNameOrId
+ * @param {ArchivePlanOptions} [options]
+ * @returns {Promise<{ name: string, fromPath: string, toPath: string, relativePath: string, attrs: PlanFrontMatter }>}
+ */
+export async function archivePlan(cwd, planNameOrId, options = {}) {
+    const source = await resolveActivePlanNameOrId(cwd, planNameOrId);
+    if (source.name.split("/")[0] === ARCHIVED_DIR_NAME) {
+        throw new Error(`Cannot archive from ${ARCHIVED_DIR_NAME}/...; choose an active Plan name.`);
+    }
+
+    const worktreeStatus = source.attrs.worktreeStatus;
+    if (worktreeStatus && RECOVERABLE_WORKTREE_STATUSES.has(worktreeStatus)) {
+        throw new Error(
+            `Cannot archive ${source.name}: worktreeStatus ${worktreeStatus} is recoverable. Resolve or abandon the worktree first.`,
+        );
+    }
+
+    const status = source.attrs.status;
+    if (!TERMINAL_ARCHIVABLE_STATUSES.has(status) && !options.force) {
+        throw new Error(
+            `Cannot archive ${source.name} with status ${status} without --force. Only verified and closed_without_verification archive by default.`,
+        );
+    }
+
+    const destination = getArchivedPlanLocation(cwd, source.name);
+    if (await fileExists(destination.filePath)) {
+        throw new Error(`Archived Plan already exists: ${projectRelativePath(cwd, destination.filePath)}`);
+    }
+
+    const now = options.now || new Date().toISOString();
+    /** @type {Partial<PlanFrontMatter>} */
+    const archiveMetadata = {
+        archivedAt: now,
+        archivedFromStatus: status,
+        archivedFromPath: projectRelativePath(cwd, source.path),
+        updatedAt: now,
+    };
+    if (options.reason !== undefined) archiveMetadata.archiveReason = options.reason;
+    const markdown = mergeFrontMatterText(source.markdown, archiveMetadata);
+    await Deno.mkdir(join(getArchivedPlansDir(cwd), ...destination.segments.slice(0, -1)), { recursive: true });
+    await Deno.writeTextFile(source.path, markdown);
+    await Deno.rename(source.path, destination.filePath);
+
+    return {
+        name: source.name,
+        fromPath: source.path,
+        toPath: destination.filePath,
+        relativePath: projectRelativePath(cwd, destination.filePath),
+        attrs: parsePlanFrontMatter(markdown).attrs,
+    };
+}
+
+/**
+ * List archived Plans under plans/archived/.
+ * @param {string} cwd
+ * @returns {Promise<ArchivedPlanEntry[]>}
+ */
+export async function listArchivedPlans(cwd) {
+    const dir = getArchivedPlansDir(cwd);
+    /** @type {Array<{ name: string, path: string, attrs: PlanFrontMatter }>} */
+    const results = [];
+    /** @type {PlanParseIssue[]} */
+    const parseIssues = [];
+    try {
+        await collectPlans(dir, [], results, parseIssues);
+    } catch (error) {
+        if (error instanceof Deno.errors.NotFound) return [];
+        throw error;
+    }
+    for (const issue of parseIssues) {
+        console.warn(`Skipping malformed archived Plan ${projectRelativePath(cwd, issue.path)}: ${issue.message}`);
+    }
+    return results.sort((a, b) => a.name.localeCompare(b.name)).map((plan) => ({
+        name: plan.name,
+        planName: plan.name,
+        relativePath: projectRelativePath(cwd, plan.path),
+        path: plan.path,
+        attrs: plan.attrs,
+        status: plan.attrs.status,
+        summary: plan.attrs.summary || "",
+        planId: plan.attrs.planId,
+    }));
+}
+
+/**
+ * @param {string} cwd
+ * @param {string} archivedPlanName
+ * @returns {Promise<{ name: string, path: string, markdown: string, attrs: PlanFrontMatter, body: string } | null>}
+ */
+async function loadArchivedPlanByName(cwd, archivedPlanName) {
+    const { name, filePath } = getArchivedPlanLocation(cwd, archivedPlanName);
+    let markdown;
+    try {
+        markdown = await Deno.readTextFile(filePath);
+    } catch (error) {
+        if (error instanceof Deno.errors.NotFound) return null;
+        throw error;
+    }
+
+    try {
+        const { attrs, body } = parsePlanFrontMatter(markdown);
+        return { name, path: filePath, markdown, attrs, body };
+    } catch (error) {
+        throw new Error(
+            `Malformed archived Plan ${projectRelativePath(cwd, filePath)}: ${formatErrorMessage(error)}`,
+        );
+    }
+}
+
+/**
+ * Load an archived Plan by archived name/path or durable planId.
+ * @param {string} cwd
+ * @param {string} archivedPlanNameOrId
+ * @returns {Promise<{ name: string, path: string, markdown: string, attrs: PlanFrontMatter, body: string } | null>}
+ */
+export async function loadArchivedPlan(cwd, archivedPlanNameOrId) {
+    const byName = await loadArchivedPlanByName(cwd, archivedPlanNameOrId);
+    if (byName) return byName;
+
+    const planId = normalizePlanId(archivedPlanNameOrId);
+    if (!planId) return null;
+
+    const matches = (await listArchivedPlans(cwd)).filter((plan) => plan.planId === planId);
+    if (matches.length > 1) {
+        throw new Error(`Duplicate archived planId values found for ${planId}; use an archived Plan name instead.`);
+    }
+    if (matches.length === 0) return null;
+    return await loadArchivedPlanByName(cwd, matches[0].name);
+}
+
+/**
+ * Restore an archived Plan back under plans/.
+ * @param {string} cwd
+ * @param {string} archivedPlanNameOrId
+ * @param {{ to?: string, now?: string }} [options]
+ * @returns {Promise<{ name: string, fromPath: string, toPath: string, relativePath: string, attrs: PlanFrontMatter }>}
+ */
+export async function restoreArchivedPlan(cwd, archivedPlanNameOrId, options = {}) {
+    const archived = await resolveArchivedPlanNameOrId(cwd, archivedPlanNameOrId);
+    const destination = getStoredPlanLocation(cwd, options.to || archived.name);
+    if (destination.segments[0] === ARCHIVED_DIR_NAME) {
+        throw new Error("Restore destination must be an active Plan name, not archived/...");
+    }
+    if (await fileExists(destination.filePath)) {
+        throw new Error(`Active Plan already exists: ${projectRelativePath(cwd, destination.filePath)}`);
+    }
+
+    const now = options.now || new Date().toISOString();
+    const markdown = mergeFrontMatterText(archived.markdown, {
+        restoredAt: now,
+        restoredFromPath: projectRelativePath(cwd, archived.path),
+        updatedAt: now,
+    });
+    await Deno.mkdir(join(getPlansDir(cwd), ...destination.segments.slice(0, -1)), { recursive: true });
+    await Deno.writeTextFile(archived.path, markdown);
+    await Deno.rename(archived.path, destination.filePath);
+
+    return {
+        name: destination.name,
+        fromPath: archived.path,
+        toPath: destination.filePath,
+        relativePath: projectRelativePath(cwd, destination.filePath),
+        attrs: parsePlanFrontMatter(markdown).attrs,
+    };
 }
 
 /**

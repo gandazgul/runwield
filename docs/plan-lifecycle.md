@@ -47,6 +47,20 @@ done-enough metadata.
 callers can run a Resume Check before restoring the Plan. Holding a Plan mutates only that Plan file; Epic/child
 visibility and blocking are listing/UI behavior.
 
+## Physical Archival
+
+Archival is not a Plan Status. Archived Plans keep their last durable lifecycle status and move on disk from `plans/` to
+`plans/archived/`, preserving nested relative paths. Normal active listings hide `plans/archived/`, while explicit
+archive commands can list, read, and restore those plaintext markdown files.
+
+`verified` and `closed_without_verification` are terminal outcomes that can be archived without `--force`. Other
+statuses, including `on_hold`, require `--force` because they may represent unfinished or resumable work. Even with
+`--force`, Plans with recoverable worktree states (`active`, `execution_failed`, `validation_failed`, or
+`merge_conflict`) remain blocked until the user resolves or abandons that worktree state through a dedicated flow.
+
+Archive metadata (`archivedAt`, `archiveReason`, `archivedFromStatus`, `archivedFromPath`) and restore metadata
+(`restoredAt`, `restoredFromPath`) explain the physical move without changing the status state machine.
+
 ## Worktree Statuses
 
 Worktree status is stored separately from Plan Status so RunWield can describe recoverable execution state without

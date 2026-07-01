@@ -25,6 +25,46 @@ async function capturePlansOutput(plans) {
     return logs;
 }
 
+Deno.test("runPlansCommand delegates archive subcommand before list parsing", async () => {
+    let delegated = false;
+
+    await runPlansCommand(
+        ["archive", "done", "--reason", "complete"],
+        /** @type {any} */ ({
+            __testDeps: {
+                runPlansArchiveCommand: (/** @type {string[]} */ argv) => {
+                    delegated = argv.join(" ") === "done --reason complete";
+                },
+                listPlans: () => {
+                    throw new Error("listPlans should not be called");
+                },
+            },
+        }),
+    );
+
+    assertEquals(delegated, true);
+});
+
+Deno.test("runPlansCommand delegates read subcommand before list parsing", async () => {
+    let delegated = false;
+
+    await runPlansCommand(
+        ["read", "done"],
+        /** @type {any} */ ({
+            __testDeps: {
+                runPlansReadCommand: (/** @type {string[]} */ argv) => {
+                    delegated = argv[0] === "done";
+                },
+                listPlans: () => {
+                    throw new Error("listPlans should not be called");
+                },
+            },
+        }),
+    );
+
+    assertEquals(delegated, true);
+});
+
 Deno.test("runPlansCommand delegates ui subcommand before list parsing", async () => {
     let delegated = false;
 
