@@ -19,6 +19,7 @@ import {
 import {
     askApprovalWithTasks as askApprovalWithTasksFn,
     askPostApproval as askPostApprovalFn,
+    askProjectDecompositionApproval as askProjectDecompositionApprovalFn,
     ensureSlicerTasks as ensureSlicerTasksFn,
     executePlan as executePlanFn,
     runPlanningAgent as runPlanningAgentFn,
@@ -81,6 +82,7 @@ export { getLoadPlanCompletions } from "./getArgumentCompletions.js";
  * @property {typeof submitPlanForReviewFn} [submitPlanForReview]
  * @property {typeof askPostApprovalFn} [askPostApproval]
  * @property {typeof askApprovalWithTasksFn} [askApprovalWithTasks]
+ * @property {typeof askProjectDecompositionApprovalFn} [askProjectDecompositionApproval]
  * @property {typeof ensureSlicerTasksFn} [ensureSlicerTasks]
  * @property {typeof runValidationLoopFn} [runValidationLoop]
  * @property {typeof runSlicerAgentFn} [runSlicerAgent]
@@ -2097,6 +2099,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
         submitPlanForReview: submitPlanForReviewDep,
         askPostApproval: askPostApprovalDep,
         askApprovalWithTasks: askApprovalWithTasksDep,
+        askProjectDecompositionApproval: askProjectDecompositionApprovalDep,
         ensureSlicerTasks: ensureSlicerTasksDep,
         runValidationLoop: runValidationLoopDep,
         runSlicerAgent: runSlicerAgentDep,
@@ -2135,6 +2138,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
     const submitPlanForReview = submitPlanForReviewDep || submitPlanForReviewFn;
     const askPostApproval = askPostApprovalDep || askPostApprovalFn;
     const askApprovalWithTasks = askApprovalWithTasksDep || askApprovalWithTasksFn;
+    const askProjectDecompositionApproval = askProjectDecompositionApprovalDep || askProjectDecompositionApprovalFn;
     const ensureSlicerTasks = ensureSlicerTasksDep || ensureSlicerTasksFn;
     const runValidationLoop = runValidationLoopDep || runValidationLoopFn;
     const runSlicerAgent = runSlicerAgentDep || runSlicerAgentFn;
@@ -2490,6 +2494,38 @@ export async function runLoadPlanCommand(argv, options = {}) {
                     }
 
                     if (reviewResult.approved) {
+                        if (isEpicPlan(plan.attrs)) {
+                            await recordPlanEvent({
+                                cwd: CWD,
+                                planName: plan.planName,
+                                event: "epic_readiness_passed",
+                                currentStatus: "approved",
+                                details: { triageMeta: plan.attrs },
+                            });
+                            plan.attrs.status = "ready_for_decomposition";
+                            uiAPI.appendSystemMessage(
+                                `PROJECT Epic ready for decomposition or child plan selection: ${plan.planName}`,
+                                false,
+                                "RunWield",
+                            );
+                            const action = await askProjectDecompositionApproval(plan.planName, uiAPI);
+                            if (action === "proceed") {
+                                await runSlicerAgent({
+                                    planName: plan.planName,
+                                    triageMeta: plan.attrs,
+                                    uiAPI,
+                                });
+                            } else {
+                                uiAPI.appendSystemMessage(
+                                    `Plan saved. Resume later with: ${CLI_BIN} load-plan ${plan.planName}`,
+                                    false,
+                                    "RunWield",
+                                );
+                            }
+                            skipRouterRestore = true;
+                            return;
+                        }
+
                         const ready = await prepareApprovedPlanForWork(
                             plan,
                             uiAPI,

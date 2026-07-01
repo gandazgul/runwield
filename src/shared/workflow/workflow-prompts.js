@@ -113,6 +113,23 @@ export async function askPostApproval(planName, uiAPI) {
 }
 
 /**
+ * Ask user whether to start PROJECT decomposition now or save the ready Epic for later.
+ *
+ * @param {string} planName
+ * @param {import('../ui/types.js').UiAPI} uiAPI
+ * @returns {Promise<"proceed" | "save">}
+ */
+export async function askProjectDecompositionApproval(planName, uiAPI) {
+    const title = `Project plan "${planName}" approved! What next?`;
+    const options = [
+        { value: "proceed", label: "Start Slicer decomposition now" },
+        { value: "save", label: "Save for later" },
+    ];
+    const choice = await uiAPI.promptSelect(title, options);
+    return choice === "proceed" ? "proceed" : "save";
+}
+
+/**
  * Project-specific post-approval selection that also prints task list.
  *
  * @param {string} planName

@@ -100,7 +100,9 @@ async function resolveTriageMeta(triageMeta, planName) {
  * @property {(opts: { cwd: string, planName: string, planPath: string, triageMeta: TriageMeta, uiAPI: any }) => Promise<{ canceled?: boolean, approved?: boolean, feedback?: string }>} [submitPlanForReview]
  * @property {(planName: string, uiAPI: any) => Promise<"proceed" | "save">} [askApprovalWithTasks]
  * @property {(planName: string, uiAPI: any) => Promise<"proceed" | "save">} [askPostApproval]
+ * @property {(planName: string, uiAPI: any) => Promise<"proceed" | "save">} [askProjectDecompositionApproval]
  * @property {(opts: { planName: string, planPath: string, triageMeta?: TriageMeta, uiAPI: any }) => Promise<{ ok: true, slicerInvoked: boolean } | { ok: false, error: string, stage: "slicer" | "validation" }>} [ensureSlicerTasks]
+ * @property {(opts: { planName: string, triageMeta?: TriageMeta, uiAPI: any, sessionManager?: import('@earendil-works/pi-coding-agent').SessionManager }) => Promise<{ ok: true } | { ok: false, error: string }>} [runSlicerAgent]
  * @property {typeof recordPlanEvent} [recordPlanEvent]
  * @property {(path: string) => Promise<{ isFile: boolean }>} [stat]
  * @property {string} [cwd]
@@ -165,9 +167,11 @@ export function createPlanWrittenTool(
             const submitPlanForReview = deps.submitPlanForReview ||
                 (await import("../shared/workflow/submit-plan.js")).submitPlanForReview;
             const workflow = await import("../shared/workflow/workflow.js");
-            const askApprovalWithTasks = deps.askApprovalWithTasks || workflow.askApprovalWithTasks;
             const askPostApproval = deps.askPostApproval || workflow.askPostApproval;
+            const askProjectDecompositionApproval = deps.askProjectDecompositionApproval ||
+                workflow.askProjectDecompositionApproval;
             const ensureSlicerTasks = deps.ensureSlicerTasks || workflow.ensureSlicerTasks;
+            const runSlicerAgent = deps.runSlicerAgent || workflow.runSlicerAgent;
             const recordPlanEventFn = deps.recordPlanEvent || recordPlanEvent;
 
             const reviewResult = await submitPlanForReview({
@@ -198,44 +202,72 @@ export function createPlanWrittenTool(
                 );
             }
 
-            // PROJECT Epics are containers. They become ready for decomposition or
-            // child selection, but they are not executable work and do not require a
-            // legacy task table.
-            if (isEpicPlan(effectiveMeta)) {
+            if (effectiveMeta.classification === "PROJECT") {
+                const projectMeta = { ...effectiveMeta, type: effectiveMeta.type || "epic" };
                 await recordPlanEventFn({
                     cwd,
                     planName,
                     event: "epic_readiness_passed",
                     currentStatus: "approved",
-                    details: { triageMeta: effectiveMeta },
+                    details: { triageMeta: projectMeta },
                 });
                 uiAPI.appendSystemMessage(
-                    `PROJECT Epic ready for decomposition or child plan selection: ${planName}`,
+                    `PROJECT plan ready for decomposition or child plan selection: ${planName}`,
                     false,
                     "RunWield",
                 );
-                const epicFeedbackSuffix = reviewResult.feedback
-                    ? `\n\nFeedback/annotations from review: ${reviewResult.feedback}`
-                    : "";
-                return textResult(
-                    `PROJECT Epic "${planName}" approved and saved for decomposition or child plan selection. It is not directly executable. Your role as ${agentName} is complete. Do not generate any further text.${epicFeedbackSuffix}`,
-                    { ...params, outcome: "saved", planName, triageMeta: effectiveMeta },
-                    true,
-                );
-            }
 
-            // Legacy PROJECT plans: ensure a Tasks section exists, invoking the slicer when missing.
-            // Resumed plans that already have a parseable Tasks section skip the slicer.
-            if (effectiveMeta.classification === "PROJECT") {
+                const action = await askProjectDecompositionApproval(planName, uiAPI);
+                if (action !== "proceed") {
+                    uiAPI.appendSystemMessage(
+                        `Plan saved. Resume later with: ${CLI_BIN} load-plan ${planName}`,
+                        false,
+                        "RunWield",
+                    );
+                    const savedFeedbackSuffix = reviewResult.feedback
+                        ? `\n\nFeedback/annotations from review: ${reviewResult.feedback}`
+                        : "";
+                    return textResult(
+                        `Plan "${planName}" approved and saved for later decomposition. Your role as ${agentName} is complete. Do not generate any further text.${savedFeedbackSuffix}`,
+                        { ...params, outcome: "saved", planName, triageMeta: projectMeta },
+                        true,
+                    );
+                }
+
                 // Run the slicer on the root session so its output is part of the single
                 // continuous session file (not a forked / in-memory session).
                 const { getRootSessionManager } = await import("../shared/session/session-state.js");
+                const sessionManager = getRootSessionManager() || undefined;
+
+                if (isEpicPlan(projectMeta)) {
+                    const slicerResult = await runSlicerAgent({
+                        planName,
+                        triageMeta: projectMeta,
+                        uiAPI,
+                        sessionManager,
+                    });
+                    if (!slicerResult.ok) {
+                        return textResult(
+                            `plan_written: the slicer agent failed for plans/${planName}.md: ${slicerResult.error}`,
+                            { ...params, outcome: "feedback", feedback: slicerResult.error },
+                        );
+                    }
+                    const slicerFeedbackSuffix = reviewResult.feedback
+                        ? `\n\nFeedback/annotations from review: ${reviewResult.feedback}`
+                        : "";
+                    return textResult(
+                        `PROJECT Epic "${planName}" approved and Slicer decomposition started. Your role as ${agentName} is complete. Do not generate any further text.${slicerFeedbackSuffix}`,
+                        { ...params, outcome: "saved", planName, triageMeta: projectMeta },
+                        true,
+                    );
+                }
+
                 const sliceResult = await ensureSlicerTasks({
                     planName,
                     planPath,
                     triageMeta: effectiveMeta,
                     uiAPI,
-                    sessionManager: getRootSessionManager() || undefined,
+                    sessionManager,
                 });
 
                 if (!sliceResult.ok) {
@@ -244,7 +276,7 @@ export function createPlanWrittenTool(
                         : `plan_written: slicer ran but the resulting Tasks table is not parseable`;
                     return textResult(
                         `${intro}: ${sliceResult.error}\n` +
-                            "The plan remains approved. Re-invoke plan_written to retry the slicer.",
+                            "The plan remains ready for decomposition. Re-invoke plan_written or load the plan to retry the slicer.",
                         { ...params, outcome: "feedback", feedback: sliceResult.error },
                     );
                 }
@@ -252,8 +284,8 @@ export function createPlanWrittenTool(
                 await recordPlanEventFn({
                     cwd,
                     planName,
-                    event: "readiness_passed",
-                    currentStatus: "approved",
+                    event: "decomposition_finalized",
+                    currentStatus: "ready_for_decomposition",
                     details: { triageMeta: effectiveMeta },
                 });
             } else {
@@ -266,9 +298,7 @@ export function createPlanWrittenTool(
                 });
             }
 
-            const action = effectiveMeta.classification === "PROJECT"
-                ? await askApprovalWithTasks(planName, uiAPI)
-                : await askPostApproval(planName, uiAPI);
+            const action = await askPostApproval(planName, uiAPI);
 
             if (action !== "proceed") {
                 uiAPI.appendSystemMessage(

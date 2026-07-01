@@ -31,7 +31,9 @@ function makeDeps(overrides = {}) {
         submitPlanForReview: () => Promise.resolve({ approved: true }),
         askApprovalWithTasks: () => Promise.resolve("proceed"),
         askPostApproval: () => Promise.resolve("proceed"),
+        askProjectDecompositionApproval: () => Promise.resolve("proceed"),
         ensureSlicerTasks: () => Promise.resolve({ ok: true, slicerInvoked: false }),
+        runSlicerAgent: () => Promise.resolve({ ok: true }),
         recordPlanEvent: () => Promise.resolve(/** @type {any} */ ({})),
         ...overrides,
     };
@@ -103,9 +105,10 @@ Deno.test("returns feedback outcome and revision request when user submits feedb
 
 // ── PROJECT readiness ───────────────────────────────────────────
 
-Deno.test("PROJECT Epic records decomposition readiness without invoking slicer or execution prompt", async () => {
+Deno.test("PROJECT Epic asks before opening Slicer and can save ready_for_decomposition for later", async () => {
     let slicerCalled = false;
     let approvalWithTasksCalled = false;
+    let decompositionApprovalCalled = false;
     /** @type {Array<{ planName: string, event: string, currentStatus: string }>} */
     const events = [];
     const result = await runTool(
@@ -113,9 +116,13 @@ Deno.test("PROJECT Epic records decomposition readiness without invoking slicer 
         {
             triageMeta: { classification: "PROJECT", type: "epic", complexity: "LOW", summary: "x", affectedPaths: [] },
             __deps: makeDeps({
-                ensureSlicerTasks: () => {
+                runSlicerAgent: () => {
                     slicerCalled = true;
-                    return Promise.resolve({ ok: true, slicerInvoked: false });
+                    return Promise.resolve({ ok: true });
+                },
+                askProjectDecompositionApproval: () => {
+                    decompositionApprovalCalled = true;
+                    return Promise.resolve("save");
                 },
                 askApprovalWithTasks: () => {
                     approvalWithTasksCalled = true;
@@ -130,48 +137,102 @@ Deno.test("PROJECT Epic records decomposition readiness without invoking slicer 
     );
 
     assertEquals(slicerCalled, false);
+    assertEquals(decompositionApprovalCalled, true);
     assertEquals(approvalWithTasksCalled, false);
     assertEquals(events, [{ planName: "p", event: "epic_readiness_passed", currentStatus: "approved" }]);
     assertEquals(result.details.outcome, "saved");
     assertEquals(result.terminate, true);
-    assertStringIncludes(result.content[0]?.text ?? "", "not directly executable");
+    assertStringIncludes(result.content[0]?.text ?? "", "saved for later decomposition");
 });
 
-// ── Legacy PROJECT slicer integration ────────────────────────────
+Deno.test("PROJECT Epic starts Slicer only after decomposition approval", async () => {
+    /** @type {string[]} */
+    const calls = [];
+    const result = await runTool(
+        { planName: "p" },
+        {
+            triageMeta: { classification: "PROJECT", type: "epic", complexity: "LOW", summary: "x", affectedPaths: [] },
+            __deps: makeDeps({
+                askProjectDecompositionApproval: () => {
+                    calls.push("prompt");
+                    return Promise.resolve("proceed");
+                },
+                runSlicerAgent: () => {
+                    calls.push("slicer");
+                    return Promise.resolve({ ok: true });
+                },
+            }),
+        },
+    );
 
-Deno.test("PROJECT plan invokes ensureSlicerTasks and records readiness on success", async () => {
-    let slicerCalled = false;
-    /** @type {Array<{ planName: string, event: string, currentStatus: string }>} */
+    assertEquals(calls, ["prompt", "slicer"]);
+    assertEquals(result.details.outcome, "saved");
+    assertStringIncludes(result.content[0]?.text ?? "", "Slicer decomposition started");
+});
+
+// ── PROJECT decomposition prompt integration ─────────────────────
+
+Deno.test("PROJECT plan without type is saved as an Epic and asks before opening Slicer", async () => {
+    /** @type {string[]} */
+    const calls = [];
+    /** @type {Array<{ planName: string, event: string, currentStatus: string, type?: string }>} */
     const events = [];
     const result = await runTool(
         { planName: "p" },
         {
             triageMeta: { classification: "PROJECT", complexity: "LOW", summary: "x", affectedPaths: [] },
             __deps: makeDeps({
-                ensureSlicerTasks: () => {
-                    slicerCalled = true;
-                    return Promise.resolve({ ok: true, slicerInvoked: true });
+                askProjectDecompositionApproval: () => {
+                    calls.push("prompt");
+                    return Promise.resolve("proceed");
                 },
-                recordPlanEvent: ({ planName, event, currentStatus }) => {
-                    events.push({ planName, event, currentStatus });
+                runSlicerAgent: () => {
+                    calls.push("slicer");
+                    return Promise.resolve({ ok: true });
+                },
+                recordPlanEvent: ({ planName, event, currentStatus, details }) => {
+                    events.push({ planName, event, currentStatus, type: details?.triageMeta?.type });
                     return Promise.resolve(/** @type {any} */ ({}));
                 },
             }),
         },
     );
-    assertEquals(slicerCalled, true);
-    assertEquals(events, [{ planName: "p", event: "readiness_passed", currentStatus: "approved" }]);
-    assertEquals(result.details.outcome, "approved_execute");
+    assertEquals(calls, ["prompt", "slicer"]);
+    assertEquals(events, [{ planName: "p", event: "epic_readiness_passed", currentStatus: "approved", type: "epic" }]);
+    assertEquals(result.details.outcome, "saved");
+    assertEquals(result.details.triageMeta.type, "epic");
 });
 
-Deno.test("PROJECT plan returns feedback outcome when slicer fails", async () => {
+Deno.test("PROJECT plan saves before invoking Slicer when decomposition is deferred", async () => {
+    let slicerCalled = false;
+    const result = await runTool(
+        { planName: "p" },
+        {
+            triageMeta: { classification: "PROJECT", complexity: "LOW", summary: "x", affectedPaths: [] },
+            __deps: makeDeps({
+                askProjectDecompositionApproval: () => Promise.resolve("save"),
+                runSlicerAgent: () => {
+                    slicerCalled = true;
+                    return Promise.resolve({ ok: true });
+                },
+            }),
+        },
+    );
+
+    assertEquals(slicerCalled, false);
+    assertEquals(result.details.outcome, "saved");
+    assertEquals(result.details.triageMeta.type, "epic");
+    assertStringIncludes(result.content[0]?.text ?? "", "saved for later decomposition");
+});
+
+Deno.test("PROJECT plan returns feedback outcome when Slicer fails to start", async () => {
     let events = 0;
     const result = await runTool(
         { planName: "p" },
         {
             triageMeta: { classification: "PROJECT", complexity: "LOW", summary: "x", affectedPaths: [] },
             __deps: makeDeps({
-                ensureSlicerTasks: () => Promise.resolve({ ok: false, error: "model timeout", stage: "slicer" }),
+                runSlicerAgent: () => Promise.resolve({ ok: false, error: "model timeout" }),
                 recordPlanEvent: () => {
                     events++;
                     return Promise.resolve(/** @type {any} */ ({}));
@@ -182,41 +243,8 @@ Deno.test("PROJECT plan returns feedback outcome when slicer fails", async () =>
     assertEquals(result.details.outcome, "feedback");
     assertEquals(result.details.feedback, "model timeout");
     assertStringIncludes(result.content[0]?.text ?? "", "the slicer agent failed");
-    // Readiness must NOT be recorded on slicer failure.
-    assertEquals(events, 0);
-});
-
-Deno.test("PROJECT plan returns feedback outcome when slicer output is unparseable", async () => {
-    const result = await runTool(
-        { planName: "p" },
-        {
-            triageMeta: { classification: "PROJECT", complexity: "LOW", summary: "x", affectedPaths: [] },
-            __deps: makeDeps({
-                ensureSlicerTasks: () => Promise.resolve({ ok: false, error: "malformed table", stage: "validation" }),
-            }),
-        },
-    );
-    assertEquals(result.details.outcome, "feedback");
-    assertStringIncludes(result.content[0]?.text ?? "", "Tasks table is not parseable");
-});
-
-Deno.test("PROJECT plan with already-present tasks skips slicer (slicerInvoked=false)", async () => {
-    let slicerCalled = false;
-    const result = await runTool(
-        { planName: "p" },
-        {
-            triageMeta: { classification: "PROJECT", complexity: "LOW", summary: "x", affectedPaths: [] },
-            __deps: makeDeps({
-                ensureSlicerTasks: () => {
-                    slicerCalled = true;
-                    // ensureSlicerTasks returns ok:true with slicerInvoked:false when tasks exist.
-                    return Promise.resolve({ ok: true, slicerInvoked: false });
-                },
-            }),
-        },
-    );
-    assertEquals(slicerCalled, true);
-    assertEquals(result.details.outcome, "approved_execute");
+    // It is ready for decomposition, but Slicer did not start successfully.
+    assertEquals(events, 1);
 });
 
 Deno.test("PROJECT plan propagates readiness recording failure", async () => {

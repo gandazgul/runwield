@@ -39,6 +39,7 @@ export {
 export {
     askApprovalWithTasks,
     askPostApproval,
+    askProjectDecompositionApproval,
     askRetryFailedTasks,
     buildDependencyOutputsContext,
     buildEngineerRequest,
