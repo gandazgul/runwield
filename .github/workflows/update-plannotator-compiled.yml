@@ -35,7 +35,12 @@ jobs:
               run: |
                   set -euo pipefail
 
-                  latest="$(npm view "$PACKAGE_NAME" version)"
+                  if ! latest="$(npm view "$PACKAGE_NAME" version)"; then
+                    echo "has_update=false" >> "$GITHUB_OUTPUT"
+                    echo "Could not read latest $PACKAGE_NAME version from npm; skipping this run."
+                    exit 0
+                  fi
+
                   current="$(
                     node --input-type=module <<'NODE'
                   import fs from "node:fs";
@@ -61,10 +66,24 @@ jobs:
                   if [ "$current" = "$latest" ]; then
                     echo "has_update=false" >> "$GITHUB_OUTPUT"
                     echo "Already on latest $latest"
-                  else
-                    echo "has_update=true" >> "$GITHUB_OUTPUT"
-                    echo "Update available: $current -> $latest"
+                    exit 0
                   fi
+
+                  if ! npm view "$PACKAGE_NAME@$latest" version >/dev/null; then
+                    echo "has_update=false" >> "$GITHUB_OUTPUT"
+                    echo "Latest $PACKAGE_NAME version $latest is not available yet; skipping this run."
+                    exit 0
+                  fi
+
+                  availability_lock="${RUNNER_TEMP:-/tmp}/plannotator-availability.lock"
+                  if ! deno info --lock "$availability_lock" "npm:$PACKAGE_NAME@$latest" >/dev/null; then
+                    echo "has_update=false" >> "$GITHUB_OUTPUT"
+                    echo "Latest $PACKAGE_NAME version $latest is not resolvable by Deno yet; skipping this run."
+                    exit 0
+                  fi
+
+                  echo "has_update=true" >> "$GITHUB_OUTPUT"
+                  echo "Update available: $current -> $latest"
 
             - name: Update deno.json
               if: steps.versions.outputs.has_update == 'true'
