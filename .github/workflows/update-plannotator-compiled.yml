@@ -76,7 +76,7 @@ jobs:
                   fi
 
                   availability_lock="${RUNNER_TEMP:-/tmp}/plannotator-availability.lock"
-                  if ! deno info --lock "$availability_lock" "npm:$PACKAGE_NAME@$latest" >/dev/null; then
+                  if ! deno info --minimum-dependency-age=0 --lock "$availability_lock" "npm:$PACKAGE_NAME@$latest" >/dev/null; then
                     echo "has_update=false" >> "$GITHUB_OUTPUT"
                     echo "Latest $PACKAGE_NAME version $latest is not resolvable by Deno yet; skipping this run."
                     exit 0
@@ -124,7 +124,7 @@ jobs:
 
             - name: Update deno.lock
               if: steps.versions.outputs.has_update == 'true'
-              run: deno cache --reload=npm:@gandazgul/plannotator-pi-extension-compiled src/cli.js
+              run: deno cache --minimum-dependency-age=0 --reload=npm:@gandazgul/plannotator-pi-extension-compiled src/cli.js
 
             - name: Commit updated dependency
               if: steps.versions.outputs.has_update == 'true'
