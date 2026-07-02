@@ -13,16 +13,12 @@ devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://localhost:5173"
 devServerHmr: true
 createdAt: "2026-06-30T22:42:43-04:00"
-updatedAt: "2026-07-01T04:58:28.696Z"
-status: "in_progress"
+updatedAt: "2026-07-01T13:37:36.731Z"
+status: "verified"
 origin: "internal"
-humanReviewMode: null
-humanReviewDecision: null
-executionBaselineTree: "120a42a1a344674429f184f2b82410a662693016"
-worktreeId: "6a8e3a44"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-harns--/harns-runwield-plans-ui-fuzzy-search-6a8e3a44"
-worktreeBranch: "runwield/worktree/plans-ui-fuzzy-search-6a8e3a44"
-worktreeStatus: "active"
+verifiedAt: "2026-07-01T13:37:36.731Z"
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
 routingIntent: "FEATURE"
 sessionName: "plans UI fuzzy search filter"
 ---
