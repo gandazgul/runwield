@@ -20,12 +20,12 @@
 
 ### P0 - Roadmap and Plan Hygiene
 
-- [ ] Implement plan archival/search so completed or stale plans stop crowding the active list:
+- [x] Implement plan archival/search so completed or stale plans stop crowding the active list:
       [plans/implementing-plan-archival.md](plans/implementing-plan-archival.md).
 - [x] Implement first-class deferred work with `on_hold` status:
       [docs/prd/on-hold-plan-status.md](docs/prd/on-hold-plan-status.md),
       [plans/implement-on-hold-plan-status.md](plans/implement-on-hold-plan-status.md).
-- [ ] Keep completed PRDs in [docs/prd/done/](docs/prd/done/) and completed plans in [plans/archived/](plans/archived/).
+- [x] Keep completed PRDs in [docs/prd/done/](docs/prd/done/) and completed plans in [plans/archived/](plans/archived/).
       This is the current convention for marking roadmap artifacts done without renaming every file.
 
 ### P1 - Core Workflow UX
