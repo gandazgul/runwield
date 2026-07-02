@@ -64,6 +64,7 @@ import { createGenerationGuard } from "./generation-guard.js";
 import { restorePersistedMessagesToUi } from "./message-hydration.js";
 import { installUiApiOverrides } from "./ui-api-overrides.js";
 import { renderBootBanner } from "./boot-banner.js";
+import { getSelectedDefaultModelAvailability, maybeShowModelWelcome } from "./model-welcome.js";
 import { handleBashCommand } from "./bash-interceptor.js";
 import { handleSlashCommand } from "./slash-dispatch.js";
 import { installKeybindings } from "./keybindings.js";
@@ -855,20 +856,62 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
     // and model, and that setter only exists once the overrides are installed.
     installUiApiOverrides({ uiAPI, tui, editor, container, messageList, setActiveModel });
 
+    const modelWelcomeResult = await maybeShowModelWelcome({
+        uiAPI,
+        editor,
+        tui,
+        sessionManager: rootSessionManager,
+        ensureRootAgentSession,
+        initialAgentInternalName,
+        initialAgentModel: options.initialAgentModel,
+        commandRegistry,
+        getModelRegistry,
+    });
+
     // ── Eagerly build the root AgentSession for the initial agent ──
     // The root persists across turns of the same agent so /compact and other long-lived
     // session operations have something to act on. setActiveAgent rebuilds the root on
     // an agent switch (applied at turn boundaries via applyPendingRootSwap).
-    try {
-        await ensureRootAgentSession({
-            agentName: initialAgentInternalName,
-            modelOverride: options.initialAgentModel,
-            uiAPI,
-            sessionManager: rootSessionManager,
-        });
-    } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        uiAPI.appendSystemMessage(`Failed to initialize root agent "${initialAgentInternalName}": ${msg}`);
+    if (!modelWelcomeResult.shown) {
+        try {
+            await ensureRootAgentSession({
+                agentName: initialAgentInternalName,
+                modelOverride: options.initialAgentModel,
+                uiAPI,
+                sessionManager: rootSessionManager,
+            });
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            uiAPI.appendSystemMessage(`Failed to initialize root agent "${initialAgentInternalName}": ${msg}`);
+        }
+    }
+
+    /**
+     * @param {string} userRequest
+     * @returns {boolean}
+     */
+    function isModelSetupRecoveryCommand(userRequest) {
+        const commandName = userRequest.trim().slice(1).split(/\s+/, 1)[0];
+        return [
+            COMMAND_NAMES.LOGIN,
+            COMMAND_NAMES.MODEL,
+            COMMAND_NAMES.QUIT,
+            COMMAND_NAMES.EXIT,
+        ].includes(commandName);
+    }
+
+    let modelSetupRequired = modelWelcomeResult.noModel;
+
+    /** @returns {boolean} */
+    function shouldBlockForModelSetup() {
+        if (!modelSetupRequired) return false;
+        const availability = getSelectedDefaultModelAvailability(getModelRegistry, getSettingsManager);
+        if (availability.available) {
+            modelSetupRequired = false;
+            editor.disableSubmit = false;
+            return false;
+        }
+        return true;
     }
 
     /** @type {Set<string>} */
@@ -919,7 +962,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
     }
 
     // ── Init auto-offer: conditionally offer /init on first TUI visit ──
-    if (!initDone) {
+    if (!initDone && !modelWelcomeResult.noModel) {
         const alreadyOffered = await isInitOfferedFn();
         if (!alreadyOffered) {
             const choice = await uiAPI.promptSelect(
@@ -1247,6 +1290,18 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         const userRequest = text.trim();
         if (!userRequest) return;
 
+        if (shouldBlockForModelSetup() && !(userRequest.startsWith("/") && isModelSetupRecoveryCommand(userRequest))) {
+            uiAPI.appendSystemMessage(
+                "Choose a default model before sending chat messages. Run /model to select a model, run /login to configure credentials, or quit with /quit.",
+                true,
+                "RunWield",
+            );
+            editor.disableSubmit = false;
+            tui.setFocus(editor);
+            tui.requestRender();
+            return;
+        }
+
         const images = [...pastedImages];
         if (images.length > 0) {
             const preflight = await preflightCurrentImages(images);
@@ -1412,7 +1467,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         },
     });
 
-    if (!suppressStartupHeader) {
+    if (!suppressStartupHeader && !modelWelcomeResult.suppressBootBanner) {
         await renderBootBanner({
             uiAPI,
             invokablePromptTemplates,

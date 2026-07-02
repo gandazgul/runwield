@@ -81,8 +81,8 @@ export function installUiApiOverrides({ uiAPI, tui, editor, container, messageLi
                 settingsManager,
                 modelRegistry,
                 [], // No scoped models for now
-                (model) => {
-                    setActiveModel(model.id, model.provider);
+                async (model) => {
+                    await setActiveModel(model.id, model.provider);
                     restoreSelector();
                 },
                 () => {

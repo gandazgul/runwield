@@ -265,11 +265,11 @@ export function createUiApi(tui, messageList, spinner) {
         /**
          * @param {string} title
          * @param {Array<{value: string, label: string}>} options
-         * @param {{ onSelectionChange?: (value: string) => void, layout?: import('@earendil-works/pi-tui').SelectListLayoutOptions }} [hooks]
+         * @param {{ onSelectionChange?: (value: string) => void, layout?: import('@earendil-works/pi-tui').SelectListLayoutOptions, hint?: string }} [hooks]
          */
         promptSelect: (title, options, hooks) => {
             return new Promise((resolve) => {
-                const block = new PromptSelectBlock(title, options, undefined, hooks?.layout);
+                const block = new PromptSelectBlock(title, options, hooks?.hint, hooks?.layout);
                 messageList.addChild(block);
                 messageList.addChild(new Spacer(1));
 
