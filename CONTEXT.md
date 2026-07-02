@@ -35,7 +35,8 @@ likely blast radius without reproducing, instrumenting, or fixing the issue. _Av
 mini-debugger
 
 **Routing Intent**: The top-level intent emitted by Triage that decides which Agent receives the User Request:
-`INQUIRY`, `IDEATION`, `QUICK_FIX`, `FEATURE`, or `PROJECT`. _Avoid_: Classification, route type, request kind, category
+`INQUIRY`, `IDEATION`, `OPERATION`, `QUICK_FIX`, `FEATURE`, or `PROJECT`. _Avoid_: Classification, route type, request
+kind, category
 
 **INQUIRY**: The fallback Routing Intent for non-materializing understanding work such as questions about repository
 state, architecture, Plans, history, trade-offs, or casual discussion. _Avoid_: Question, investigation, research task
@@ -43,8 +44,11 @@ state, architecture, Plans, history, trade-offs, or casual discussion. _Avoid_: 
 **IDEATION**: A Routing Intent for non-materializing product exploration where the user wants Socratic interviewing,
 assumption stress-testing, current research, or PRD synthesis. _Avoid_: Inquiry, general help, planning workflow
 
-**QUICK_FIX**: A Routing Intent for a small direct change with no planning phase and no Plan file. _Avoid_: Operational,
-hotfix, patch, bug fix
+**OPERATION**: A Routing Intent for direct repository or environment operations that do not require code implementation.
+_Avoid_: QUICK_FIX, feature, coding task
+
+**QUICK_FIX**: A Routing Intent for a bounded code implementation with no planning phase and no Plan file. _Avoid_:
+Operational, hotfix, patch, feature
 
 **FEATURE**: A Routing Intent and Plan file type for new functionality that requires a reviewed implementation Plan.
 _Avoid_: Enhancement, change request
@@ -182,7 +186,8 @@ planning or implementation. _Avoid_: General helper, explainer, guide
 **Slicer**: The Agent that helps decompose an approved PROJECT Epic into child FEATURE Plans and can materialize those
 plans under `plans/<epic-name>/`. _Avoid_: Task planner, splitter
 
-**Engineer**: The execution Agent that implements approved executable Plans. _Avoid_: Coder, implementer, developer
+**Engineer**: The execution Agent that implements approved executable Plans and bounded no-plan QUICK_FIX code changes.
+_Avoid_: Coder, implementer, developer
 
 **Tester**: The fresh-context verification Agent for behavioral QA, UI QA, PRD conformance testing, and adversarial
 bug-finding. _Avoid_: Unit test writer, test framework specialist
@@ -249,8 +254,11 @@ continuing. _Avoid_: Surprise return, silent reroute
 Task and checks cross-slice integration before Workflow Validation. _Avoid_: Final verification task, cross-slice
 verification task, acceptance gate
 
-**Workflow Validation**: RunWield' independent validation pass after a completed workflow loop. _Avoid_: Agent
+**Workflow Validation**: RunWield's independent validation pass after a completed executable Plan loop. _Avoid_: Agent
 self-check, final summary
+
+**Mechanical Validation**: RunWield's automated local validation command loop without semantic review or Plan status
+transitions. _Avoid_: Workflow Validation, Reviewer review, agent self-check
 
 **Toolset**: A named bundle of tool names granted to an Agent Session. _Avoid_: Tool list, capabilities
 
@@ -351,8 +359,10 @@ command definition, prompt command
   Validation**.
 - **Workflow Validation** runs after completed executable Plan loops. For PROJECT Epics, validation occurs on child
   FEATURE Plans; the Epic itself is a decomposition container.
-- `QUICK_FIX` work ends when the **Operator** emits **Task Completion**; the **Operator** is responsible for any needed
-  self-verification before that signal.
+- `OPERATION` work is owned by the **Operator** and ends when the **Operator** emits **Task Completion** after any
+  needed self-verification.
+- `QUICK_FIX` work is owned by the **Engineer** and runs **Mechanical Validation** after **Task Completion**; failures
+  are sent back to the **Engineer**, but no **Reviewer** runs because there is no **Plan**.
 - A **Scope Escalation** should present the larger-scope finding to the user and ask whether to continue via Router
   rather than abruptly calling the **Return-to-Router Tool**.
 - Every **Agent Session** loads exactly one **Agent Definition** after bundled, home, and local layers are merged.
