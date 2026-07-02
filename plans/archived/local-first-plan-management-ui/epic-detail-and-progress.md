@@ -9,7 +9,6 @@ affectedPaths:
     - "src/plan-store.test.js"
     - "src/cmd/plans/index.js"
 createdAt: "2026-06-24T20:14:08.683Z"
-updatedAt: "2026-06-26T16:14:26.644Z"
 status: "verified"
 origin: "internal"
 parentPlan: "local-first-plan-management-ui"
@@ -21,6 +20,11 @@ dependencies:
 verifiedAt: "2026-06-26T16:14:26.644Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
+updatedAt: "2026-07-02T15:19:15.711Z"
+archivedAt: "2026-07-02T15:19:15.711Z"
+archiveReason: "Parent epic verified"
+archivedFromStatus: "verified"
+archivedFromPath: "plans/local-first-plan-management-ui/epic-detail-and-progress.md"
 ---
 
 # Epic Detail and Progress

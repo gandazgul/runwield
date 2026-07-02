@@ -9,7 +9,6 @@ affectedPaths:
     - "src/shared/workflow/plan-lifecycle.test.js"
     - "docs/plan-lifecycle.md"
 createdAt: "2026-06-24T20:14:08.683Z"
-updatedAt: "2026-06-30T01:17:42.908Z"
 status: "verified"
 origin: "internal"
 parentPlan: "local-first-plan-management-ui"
@@ -20,6 +19,11 @@ dependencies:
 verifiedAt: "2026-06-30T01:17:42.908Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
+updatedAt: "2026-07-02T15:19:13.344Z"
+archivedAt: "2026-07-02T15:19:13.344Z"
+archiveReason: "Parent epic verified"
+archivedFromStatus: "verified"
+archivedFromPath: "plans/local-first-plan-management-ui/board-actions-and-status-screens.md"
 ---
 
 # Board Actions and Status Screens

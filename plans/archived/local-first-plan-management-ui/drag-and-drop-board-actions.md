@@ -9,7 +9,6 @@ affectedPaths:
     - "src/ui/workspace/components/PlanCard.jsx"
     - "src/ui/workspace/islands/PlanLifecycleActions.jsx"
 createdAt: "2026-06-29T21:39:56-04:00"
-updatedAt: "2026-06-30T02:23:28.326Z"
 status: "verified"
 origin: "internal"
 parentPlan: "local-first-plan-management-ui"
@@ -21,6 +20,11 @@ humanReviewMode: "ask"
 humanReviewDecision: "skipped"
 routingIntent: "FEATURE"
 sessionName: "drag and drop plan board"
+updatedAt: "2026-07-02T15:19:15.153Z"
+archivedAt: "2026-07-02T15:19:15.153Z"
+archiveReason: "Parent epic verified"
+archivedFromStatus: "verified"
+archivedFromPath: "plans/local-first-plan-management-ui/drag-and-drop-board-actions.md"
 ---
 
 # Drag-and-Drop Board Actions

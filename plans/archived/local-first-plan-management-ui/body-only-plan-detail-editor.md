@@ -10,7 +10,6 @@ affectedPaths:
     - "deno.json"
     - "deno.lock"
 createdAt: "2026-06-24T20:14:08.683Z"
-updatedAt: "2026-06-26T22:59:54.402Z"
 status: "verified"
 origin: "internal"
 parentPlan: "local-first-plan-management-ui"
@@ -20,6 +19,11 @@ dependencies:
 verifiedAt: "2026-06-26T22:59:54.402Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
+updatedAt: "2026-07-02T15:19:13.951Z"
+archivedAt: "2026-07-02T15:19:13.951Z"
+archiveReason: "Parent epic verified"
+archivedFromStatus: "verified"
+archivedFromPath: "plans/local-first-plan-management-ui/body-only-plan-detail-editor.md"
 ---
 
 # Body-Only Plan Detail Editor

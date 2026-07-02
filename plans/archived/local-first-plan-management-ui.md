@@ -19,11 +19,14 @@ affectedPaths:
     - "src/ui/workspace/"
     - "deno.json"
 createdAt: "2026-06-24T13:10:29-04:00"
-updatedAt: "2026-06-30T16:49:29.020Z"
-status: "implemented"
+status: "verified"
 origin: "internal"
 type: "epic"
-worktreeStatus: "validation_failed"
+updatedAt: "2026-07-02T15:19:02.313Z"
+archivedAt: "2026-07-02T15:19:02.313Z"
+archiveReason: "All child plans verified"
+archivedFromStatus: "verified"
+archivedFromPath: "plans/local-first-plan-management-ui.md"
 ---
 
 # Local-First Plan Management UI

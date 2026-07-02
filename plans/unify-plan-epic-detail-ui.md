@@ -11,9 +11,16 @@ devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://localhost:5173"
 devServerHmr: true
 createdAt: "2026-07-01T00:02:37-04:00"
-updatedAt: "2026-07-01T04:06:31.237Z"
-status: "ready_for_work"
+updatedAt: "2026-07-02T15:29:25.044Z"
+status: "in_progress"
 origin: "internal"
+humanReviewMode: null
+humanReviewDecision: null
+executionBaselineTree: "53706ab99f601716f732a854ce6feff8f41a6218"
+worktreeId: "e98a7cdf"
+worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-harns--/harns-runwield-unify-plan-epic-detail-ui-e98a7cdf"
+worktreeBranch: "runwield/worktree/unify-plan-epic-detail-ui-e98a7cdf"
+worktreeStatus: "active"
 routingIntent: "FEATURE"
 sessionName: "unify plan and epic details"
 ---

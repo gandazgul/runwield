@@ -9,7 +9,6 @@ affectedPaths:
     - "docs/plan-lifecycle.md"
     - "docs/prd/on-hold-plan-status.md"
 createdAt: "2026-06-24T20:14:08.682Z"
-updatedAt: "2026-06-24T22:59:23.155Z"
 status: "verified"
 origin: "internal"
 parentPlan: "local-first-plan-management-ui"
@@ -18,6 +17,11 @@ dependencies:
 verifiedAt: "2026-06-24T22:59:23.155Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
+updatedAt: "2026-07-02T15:19:16.281Z"
+archivedAt: "2026-07-02T15:19:16.281Z"
+archiveReason: "Parent epic verified"
+archivedFromStatus: "verified"
+archivedFromPath: "plans/local-first-plan-management-ui/lifecycle-board-semantics.md"
 ---
 
 # Lifecycle Board Semantics

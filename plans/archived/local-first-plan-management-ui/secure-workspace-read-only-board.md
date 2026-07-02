@@ -14,7 +14,6 @@ affectedPaths:
     - "deno.lock"
     - "README.md"
 createdAt: "2026-06-24T20:14:08.682Z"
-updatedAt: "2026-06-25T13:19:53.170Z"
 status: "verified"
 origin: "internal"
 parentPlan: "local-first-plan-management-ui"
@@ -24,6 +23,11 @@ verifiedAt: "2026-06-25T13:19:53.170Z"
 humanReviewMode: "ask"
 humanReviewDecision: "approved"
 humanReviewedAt: "2026-06-25T13:18:31.962Z"
+updatedAt: "2026-07-02T15:19:17.429Z"
+archivedAt: "2026-07-02T15:19:17.429Z"
+archiveReason: "Parent epic verified"
+archivedFromStatus: "verified"
+archivedFromPath: "plans/local-first-plan-management-ui/secure-workspace-read-only-board.md"
 ---
 
 # Secure Workspace Read-Only Board

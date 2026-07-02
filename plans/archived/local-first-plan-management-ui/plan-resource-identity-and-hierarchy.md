@@ -9,7 +9,6 @@ affectedPaths:
     - "src/cmd/plans/index.js"
     - "src/cmd/plans/index.test.js"
 createdAt: "2026-06-24T20:14:08.681Z"
-updatedAt: "2026-06-25T01:37:31.570Z"
 status: "verified"
 origin: "internal"
 parentPlan: "local-first-plan-management-ui"
@@ -18,6 +17,11 @@ dependencies:
 verifiedAt: "2026-06-25T01:37:31.570Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
+updatedAt: "2026-07-02T15:19:16.861Z"
+archivedAt: "2026-07-02T15:19:16.861Z"
+archiveReason: "Parent epic verified"
+archivedFromStatus: "verified"
+archivedFromPath: "plans/local-first-plan-management-ui/plan-resource-identity-and-hierarchy.md"
 ---
 
 # Plan Resource Identity and Hierarchy

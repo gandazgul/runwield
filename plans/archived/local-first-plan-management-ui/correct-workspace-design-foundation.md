@@ -7,7 +7,6 @@ affectedPaths:
     - "plans/local-first-plan-management-ui/"
     - "src/ui/workspace/"
 createdAt: "2026-06-25T10:33:18-04:00"
-updatedAt: "2026-06-25T15:56:28.461Z"
 status: "verified"
 origin: "internal"
 parentPlan: "local-first-plan-management-ui"
@@ -20,6 +19,11 @@ humanReviewDecision: "approved"
 humanReviewedAt: "2026-06-25T15:54:28.639Z"
 routingIntent: "FEATURE"
 sessionName: "correct workspace ui design"
+updatedAt: "2026-07-02T15:19:14.587Z"
+archivedAt: "2026-07-02T15:19:14.587Z"
+archiveReason: "Parent epic verified"
+archivedFromStatus: "verified"
+archivedFromPath: "plans/local-first-plan-management-ui/correct-workspace-design-foundation.md"
 ---
 
 # Correct Workspace Design Foundation
