@@ -105,13 +105,15 @@ function makeHarness() {
     };
 }
 
-Deno.test("installUiApiOverrides wires input enable/disable render hooks", () => {
+Deno.test("installUiApiOverrides disables and enables editor submission", () => {
     const harness = makeHarness();
+    harness.editor.disableSubmit = false;
     installUiApiOverrides({ ...harness, __deps: harness.deps });
 
     harness.uiAPI.disableInput();
-    harness.uiAPI.enableInput();
+    assertEquals(harness.editor.disableSubmit, true);
 
+    harness.uiAPI.enableInput();
     assertEquals(harness.editor.disableSubmit, false);
     assertEquals(harness.stats.renders, 2);
 });

@@ -39,7 +39,7 @@ export function installUiApiOverrides({ uiAPI, tui, editor, container, messageLi
 
     uiAPI.disableInput = () => {
         if (editor) {
-            // editor.disableSubmit = true;
+            editor.disableSubmit = true;
             tui.requestRender();
         }
     };
