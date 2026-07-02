@@ -8,16 +8,11 @@ affectedPaths:
     - "src/shared/ui/theme.js"
 frontend: false
 createdAt: "2026-07-02T12:12:21-04:00"
-updatedAt: "2026-07-02T18:13:34.015Z"
-status: "in_progress"
+updatedAt: "2026-07-02T19:36:12.998Z"
+status: "implemented"
 origin: "internal"
-humanReviewMode: null
-humanReviewDecision: null
-executionBaselineTree: "ce38ad495567296a0482f45ccdcb59f6b46630e4"
-worktreeId: "f2fd24c1"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-harns--/harns-runwield-first-time-model-welcome-screen-f2fd24c1"
-worktreeBranch: "runwield/worktree/first-time-model-welcome-screen-f2fd24c1"
-worktreeStatus: "active"
+failureReason: "Worktree branch runwield/worktree/first-time-model-welcome-screen-f2fd24c1 is 6 commits behind HEAD and rebase failed: git checkout runwield/worktree/first-time-model-welcome-screen-f2fd24c1 failed: fatal: 'runwield/worktree/first-time-model-welcome-screen-f2fd24c1' is already used by worktree at '/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-harns--/harns-runwield-first-time-model-welcome-screen-f2fd24c1'. Resolve conflicts on the worktree branch manually, or increase the staleness threshold."
+worktreeStatus: "merge_conflict"
 routingIntent: "FEATURE"
 sessionName: "first-time welcome screen"
 ---

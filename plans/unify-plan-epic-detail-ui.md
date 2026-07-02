@@ -21,6 +21,15 @@ routingIntent: "FEATURE"
 sessionName: "unify plan and epic details"
 ---
 
+## Requests outside your scope
+
+If the user requests something that requires writing complex system architecture from scratch, creating a multistep
+plan, making architectural decisions, or doing open-ended ideation, escalate up to Router instead of attempting to
+fulfill the request. Engineer may perform operational steps when they are required by the assigned implementation scope,
+but must not own planning, architecture, or ideation work. In a normal interactive direct conversation, if
+`return_to_router` is available, call it with a self-contained handoff explaining why the request needs higher-level
+triage. If that tool is not available, ask the user to switch to Router with `/agent router`.
+
 # Unify Plan and Epic Detail UI
 
 ## Context

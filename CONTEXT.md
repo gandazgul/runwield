@@ -19,6 +19,9 @@ name, shell title
 **Session Name**: The persisted short human label for an Agent Session, initially derived from Router Triage for fresh
 User Requests. _Avoid_: Tab title, conversation name
 
+**Empty Project Directory**: A current working directory with no meaningful project files for RunWield to inspect.
+_Avoid_: Empty Workspace, new project, initialized project
+
 **User Request**: A natural-language request submitted by the user for triage and execution. _Avoid_: Prompt, input,
 query
 
@@ -315,6 +318,11 @@ command definition, prompt command
 - A **TUI** session may set a **Terminal Title** before and after **Triage** to keep terminal tabs distinguishable.
 - A **Terminal Title** should mirror the current **Session Name** when one exists.
 - Router-provided auto-naming only sets the **Session Name** for unnamed sessions; manual naming overrides it.
+- An **Empty Project Directory** has no meaningful existing codebase for normal repository initialization to inspect.
+- A directory with only dot-prefixed top-level entries is an **Empty Project Directory**; any non-hidden top-level file
+  or folder makes the directory non-empty for RunWield startup behavior.
+- A non-empty `README.md` is meaningful project context, so a directory containing one is not an **Empty Project
+  Directory**.
 - A **User Request** is classified by an Agent emitting exactly one **Triage Report** through the **Triage-Report
   Tool**.
 - The **Router** is the default Agent used for fresh Triage, but the **Workflow Orchestrator** reacts to the
