@@ -66,7 +66,14 @@ Deno.test("triage_report execute preserves plan classification only for FEATURE 
         sessionName: "plan feature",
         affectedPaths: ["src/foo.js"],
     });
-    const quickFix = await /** @type {any} */ (tool.execute)("call-2", {
+    const operation = await /** @type {any} */ (tool.execute)("call-2", {
+        routingIntent: "OPERATION",
+        complexity: "LOW",
+        summary: "show status",
+        sessionName: "show status",
+        affectedPaths: [],
+    });
+    const quickFix = await /** @type {any} */ (tool.execute)("call-3", {
         routingIntent: "QUICK_FIX",
         complexity: "LOW",
         summary: "fix typo",
@@ -76,6 +83,8 @@ Deno.test("triage_report execute preserves plan classification only for FEATURE 
 
     assertEquals(feature.details.routingIntent, "FEATURE");
     assertEquals(feature.details.classification, "FEATURE");
+    assertEquals(operation.details.routingIntent, "OPERATION");
+    assert(!("classification" in operation.details));
     assertEquals(quickFix.details.routingIntent, "QUICK_FIX");
     assert(!("classification" in quickFix.details));
 });

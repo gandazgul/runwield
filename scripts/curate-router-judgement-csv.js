@@ -37,7 +37,7 @@ export function isPureGreetingRow(row) {
 }
 
 /**
- * Seed only cases that are clear under the current five-intent contract.
+ * Seed only cases that are clear under the current six-intent contract.
  *
  * @param {Record<string, string>} row
  * @returns {{ intent: string, note: string } | null}
@@ -65,11 +65,11 @@ export function getUnambiguousHumanSeed(row) {
     }
 
     if (request === "commit the changes") {
-        return { intent: "QUICK_FIX", note: "Seeded: commit request is a command-style operation." };
+        return { intent: "OPERATION", note: "Seeded: commit request is a direct repository operation." };
     }
 
     if (request === "take me to the operator") {
-        return { intent: "QUICK_FIX", note: "Seeded: direct handoff/operation request." };
+        return { intent: "OPERATION", note: "Seeded: direct handoff/operation request." };
     }
 
     return null;

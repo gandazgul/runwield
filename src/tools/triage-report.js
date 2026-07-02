@@ -17,7 +17,7 @@ const PLAN_CLASSIFICATIONS = ["FEATURE", "PROJECT"];
 const TOOL_PARAMS = Type.Object({
     routingIntent: StringEnum(ROUTING_INTENTS, {
         description:
-            "Canonical Routing Intent. INQUIRY: direct informational answer. IDEATION: explicit brainstorming/research/interview/PRD work. QUICK_FIX: small edit/operation. FEATURE: needs a feature plan. PROJECT: architecture/Epic plan. Router calls must provide this field; legacy direct calls may be normalized internally.",
+            "Canonical Routing Intent. INQUIRY: direct informational answer. IDEATION: explicit brainstorming/research/interview/PRD work. OPERATION: direct non-code repository/environment operation. QUICK_FIX: bounded no-plan code implementation. FEATURE: needs a feature plan. PROJECT: architecture/Epic plan. Router calls must provide this field; legacy direct calls may be normalized internally.",
     }),
     complexity: StringEnum(["LOW", "MEDIUM", "HIGH"], {
         description: "How complex is this request?",
@@ -31,7 +31,7 @@ const TOOL_PARAMS = Type.Object({
     }),
     affectedPaths: Type.Array(Type.String(), {
         description:
-            "Ordered vertical-slice file list (high signal, not broad dump). Prefer files over directories; no globs. Order: entrypoint -> service/orchestrator -> core logic -> boundary integration -> nearest tests. INQUIRY/IDEATION may use an empty list or directly relevant docs/code paths. QUICK_FIX: 1-3 paths, FEATURE/PROJECT: 3-8 paths.",
+            "Ordered vertical-slice file list (high signal, not broad dump). Prefer files over directories; no globs. Order: entrypoint -> service/orchestrator -> core logic -> boundary integration -> nearest tests. INQUIRY/IDEATION/OPERATION may use an empty list or directly relevant docs/code paths. QUICK_FIX: 1-3 implementation/test paths, FEATURE/PROJECT: 3-8 paths.",
     }),
 });
 

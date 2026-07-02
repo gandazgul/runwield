@@ -93,7 +93,7 @@ export async function main(argv) {
             "Usage: deno run -A scripts/evaluate-router-judgements.js [options]",
             "",
             "Fill humanJudgement in router-judgements.csv with one of:",
-            "  INQUIRY, IDEATION, QUICK_FIX, FEATURE, PROJECT",
+            "  INQUIRY, IDEATION, OPERATION, QUICK_FIX, FEATURE, PROJECT",
             "",
             "Options:",
             `  --csv <path>                       Judgement CSV (default: ${DEFAULT_CSV})`,

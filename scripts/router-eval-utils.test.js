@@ -21,14 +21,16 @@ Deno.test("CSV utilities round-trip quoted cells", () => {
 });
 
 Deno.test("routingIntentDistance follows routing-intent workflow order", () => {
+    assertEquals(routingIntentDistance("OPERATION", "QUICK_FIX"), 1);
     assertEquals(routingIntentDistance("QUICK_FIX", "FEATURE"), 1);
-    assertEquals(routingIntentDistance("QUICK_FIX", "INQUIRY"), 2);
-    assertEquals(routingIntentDistance("INQUIRY", "PROJECT"), 4);
+    assertEquals(routingIntentDistance("QUICK_FIX", "INQUIRY"), 3);
+    assertEquals(routingIntentDistance("INQUIRY", "PROJECT"), 5);
     assertEquals(routingIntentDistance("bad", "PROJECT"), null);
 });
 
 Deno.test("classifyRoutingIntentDisagreement names common router-eval cases", () => {
     assertEquals(classifyRoutingIntentDisagreement("QUICK_FIX", "INQUIRY"), "legacy_quick_fix_to_inquiry");
+    assertEquals(classifyRoutingIntentDisagreement("OPERATION", "QUICK_FIX"), "operation_quick_fix_boundary");
     assertEquals(classifyRoutingIntentDisagreement("QUICK_FIX", "FEATURE"), "scope_underestimated");
     assertEquals(classifyRoutingIntentDisagreement("FEATURE", "QUICK_FIX"), "scope_overestimated");
     assertEquals(classifyRoutingIntentDisagreement("FEATURE", "PROJECT"), "feature_project_boundary");

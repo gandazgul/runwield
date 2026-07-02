@@ -21,7 +21,8 @@ Router is the default Agent for fresh triage. It calls `triage_report`, and that
 | -------------- | --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
 | `INQUIRY`      | The user needs an answer, explanation, or guidance. | Guide answers directly and can return to Router if the request becomes executable work.                               |
 | `IDEATION`     | The user wants to explore or sharpen an idea.       | Ideator interviews, researches, and produces a PRD or synthesis before routing implementation back through Router.    |
-| `QUICK_FIX`    | Small, low-risk executable work.                    | Operator executes directly and self-verifies.                                                                         |
+| `OPERATION`    | Direct non-code repository/environment work.        | Operator executes directly and self-verifies; no RunWield validation loop runs afterward.                             |
+| `QUICK_FIX`    | Bounded no-plan code implementation.                | Engineer implements directly, then RunWield runs Mechanical Validation only.                                          |
 | `FEATURE`      | Non-trivial implementation needs a reviewable plan. | Planner writes a plan, user approves it, Engineer executes it, RunWield validates it.                                 |
 | `PROJECT`      | Large work needs architecture and slicing.          | Architect designs the Epic, interactive Slicer creates child FEATURE plans, execution proceeds one feature at a time. |
 

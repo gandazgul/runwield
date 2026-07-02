@@ -8,7 +8,7 @@ Deno.test("isPureGreetingRow identifies greeting rows", () => {
 
 Deno.test("getUnambiguousHumanSeed seeds clear current-intent mappings", () => {
     assertEquals(getUnambiguousHumanSeed({ requestText: "is @ci.js used anywhere?" })?.intent, "INQUIRY");
-    assertEquals(getUnambiguousHumanSeed({ requestText: "commit the changes" })?.intent, "QUICK_FIX");
+    assertEquals(getUnambiguousHumanSeed({ requestText: "commit the changes" })?.intent, "OPERATION");
     assertEquals(getUnambiguousHumanSeed({ requestText: "help me flush this out more" }), null);
 });
 

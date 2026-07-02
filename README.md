@@ -17,22 +17,22 @@ It is built on top of [Pi](https://pi.dev), with a Deno CLI, an interactive TUI,
 Most coding harnesses optimize for getting an agent typing quickly. RunWield optimizes for getting the right kind of
 work done with the right amount of ceremony.
 
-- **Triage is explicit.** Every routed request gets a routing intent: `INQUIRY`, `IDEATION`, `QUICK_FIX`, `FEATURE`, or
-  `PROJECT`. Implementation work records complexity and affected paths before execution.
+- **Triage is explicit.** Every routed request gets a routing intent: `INQUIRY`, `IDEATION`, `OPERATION`, `QUICK_FIX`,
+  `FEATURE`, or `PROJECT`. Implementation work records complexity and affected paths before execution.
 - **Planning is a product surface, not a prompt vibe.** Non-trivial work becomes a markdown plan in `plans/`, goes
   through Plannotator review, and can be approved, revised, saved, re-opened, or executed later.
 - **Architecture and decomposition are separate jobs.** Large `PROJECT` work is designed by the Architect as an Epic,
   then decomposed into independently executable child `FEATURE` plans by the Slicer after approval.
-- **Execution is role-scoped.** Operators handle small fixes, Engineers implement approved plans, Testers write or run
-  test work, documentation is handled through the `documentation` skill, and Reviewers compare the final diff to the
-  plan.
+- **Execution is role-scoped.** Operators handle direct non-code operations, Engineers implement approved plans and
+  bounded no-plan quick fixes, Testers write or run test work, documentation is handled through the `documentation`
+  skill, and Reviewers compare saved-plan diffs to the plan.
 - **Epic work keeps a clear trail.** PROJECT Epics stay as containers, while child FEATURE plans carry their own review,
   execution, validation, and merge history.
 - **Completion has a handshake.** Execution agents are expected to call `task_completed`; for saved plan execution,
   RunWield treats that as the strong signal before running validation.
-- **Validation is built into plan workflows.** After completed executable plan work, RunWield runs the configured local
-  validation command and then a semantic review loop against the original plan. PROJECT Epics validate through their
-  child FEATURE plans.
+- **Validation is built into implementation workflows.** After completed executable plan work, RunWield runs the
+  configured local validation command and then a semantic review loop against the original plan. Direct `QUICK_FIX` work
+  runs Mechanical Validation only. PROJECT Epics validate through their child FEATURE plans.
 - **Context is durable.** Sessions live under `~/.wld/sessions/`, settings under `~/.wld/settings.json`, plans in the
   repo, and [Mnemosyne](https://github.com/gandazgul/mnemosyne) keeps recallable project and global memory.
 
@@ -53,10 +53,15 @@ graph TD
     I --> IR[PRD or synthesis]
     IR --> R2[Return to Router when ready for implementation]
 
-    TR -->|quick fix| O[Operator executes directly]
+    TR -->|operation| O[Operator executes directly]
     O --> TC1{Completion signal received}
     TC1 -->|yes| QD[Done]
     TC1 -->|no| W1[Wait for completion signal]
+
+    TR -->|quick fix| QE[Engineer implements directly]
+    QE --> QTC{Completion signal received}
+    QTC -->|yes| QV[Mechanical Validation]
+    QTC -->|no| QW[Wait for completion signal]
 
     TR -->|feature| P[Planner writes plan]
     P --> PR[Plannotator review]
@@ -221,7 +226,7 @@ External tools can own skill installation and updates. RunWield should interoper
 
 Plans are markdown files with YAML front matter in `plans/`. RunWield records:
 
-- routing intent: `INQUIRY`, `IDEATION`, `QUICK_FIX`, `FEATURE`, or `PROJECT` for routed requests
+- routing intent: `INQUIRY`, `IDEATION`, `OPERATION`, `QUICK_FIX`, `FEATURE`, or `PROJECT` for routed requests
 - plan classification: `FEATURE` or `PROJECT` for saved implementation plans
 - complexity: `LOW`, `MEDIUM`, or `HIGH`
 - summary and affected paths
@@ -292,7 +297,8 @@ matter for name, model, description, and tools.
 | Router    | Default triage Agent that calls `triage_report`.                           |
 | Guide     | Answers `INQUIRY` requests and provides direct help or explanation.        |
 | Ideator   | Researches and sharpens `IDEATION` requests before planning.               |
-| Operator  | Executes small `QUICK_FIX` tasks and operational work directly.            |
+| Operator  | Executes direct `OPERATION` work without code implementation.              |
+| Engineer  | Implements approved plans and bounded no-plan `QUICK_FIX` code changes.    |
 | Planner   | Writes reviewable plans for `FEATURE` work.                                |
 | Architect | Designs `PROJECT` plans without implementing code.                         |
 | Slicer    | Decomposes approved PROJECT Epics into child FEATURE plans.                |
@@ -399,8 +405,8 @@ Confirm the compiled Plannotator package can resolve:
 1. Create a branch.
 2. Make focused changes.
 3. Run `deno task ci`.
-4. Open a PR with a summary, affected routing intent or flow (`INQUIRY`, `IDEATION`, `QUICK_FIX`, `FEATURE`, or
-   `PROJECT`), and validation notes.
+4. Open a PR with a summary, affected routing intent or flow (`INQUIRY`, `IDEATION`, `OPERATION`, `QUICK_FIX`,
+   `FEATURE`, or `PROJECT`), and validation notes.
 
 ## License
 

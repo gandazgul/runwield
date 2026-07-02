@@ -31,8 +31,9 @@ export function createTaskCompletedTool({ uiAPI, agentName = "agent" } = /** @ty
         label: "Task Completed",
         description: "Declare that you have finished your assigned execution task, whether it succeeded, failed, " +
             "or is blocked. " +
-            "For FEATURE and PROJECT workflows, this signals the orchestrator to begin validation. " +
-            "For QUICK_FIX work, verify your own work before calling this tool. " +
+            "For FEATURE and PROJECT workflows, this signals the orchestrator to begin saved-plan validation. " +
+            "For OPERATION work, the Operator must self-verify before calling this tool and no RunWield validation loop runs afterward. " +
+            "For QUICK_FIX work, the Engineer must verify before calling this tool; RunWield then runs no-plan Mechanical Validation. " +
             "For frontend UI/UX work, include the dev server URL, headed browser checks performed, and visible " +
             "evidence; if browser verification was blocked, state the exact blocker and what remains unverified. " +
             "Call this exactly once when you are completely finished with your assigned work and include a concise " +

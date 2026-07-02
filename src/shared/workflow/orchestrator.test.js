@@ -107,18 +107,22 @@ Deno.test("dispatchPostTriage routes IDEATION to Ideator without completion or v
     assertEquals(rootTurns, ["ideator"]);
 });
 
-Deno.test("dispatchPostTriage skips workflow validation for completed QUICK_FIX", async () => {
+Deno.test("dispatchPostTriage routes OPERATION to Operator without validation", async () => {
     const uiAPI = makeUi();
-    let validationCount = 0;
+    /** @type {string[]} */
+    const activeAgents = [];
+    /** @type {string[]} */
+    const rootTurns = [];
+    let mechanicalValidationCount = 0;
 
     await dispatchPostTriage({
         triage: {
-            routingIntent: "QUICK_FIX",
+            routingIntent: "OPERATION",
             complexity: "LOW",
-            summary: "answer a question",
+            summary: "show status",
             affectedPaths: [],
         },
-        userRequest: "Where is the router?",
+        userRequest: "git status",
         images: [],
         uiAPI,
         sessionManager: undefined,
@@ -126,31 +130,83 @@ Deno.test("dispatchPostTriage skips workflow validation for completed QUICK_FIX"
             applyPendingRootSwap: () => Promise.resolve(),
             createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
             readLatestTaskCompletedOutcome: () => true,
-            runRootTurn: () =>
-                Promise.resolve(
+            runRootTurn: (/** @type {any} */ args) => {
+                rootTurns.push(args.agentName);
+                assertEquals(args.userRequest.includes("Routing Intent: OPERATION"), true);
+                return Promise.resolve(
                     /** @type {any} */ ([{
                         role: "toolResult",
                         toolName: "task_completed",
                         details: { outcome: "task_completed" },
                     }]),
-                ),
-            runValidationLoop: () => {
-                validationCount++;
-                return Promise.resolve();
+                );
             },
-            setActiveAgent: () => {},
+            runMechanicalValidation: () => {
+                mechanicalValidationCount++;
+                return Promise.resolve({ passed: true, attempts: 0 });
+            },
+            setActiveAgent: (/** @type {string} */ name) => activeAgents.push(name),
         }),
     });
 
-    assertEquals(validationCount, 0);
-    assertEquals(
-        uiAPI.messages.some((/** @type {string} */ message) => message.includes("validation is waiting")),
-        false,
-    );
+    assertEquals(activeAgents, ["operator"]);
+    assertEquals(rootTurns, ["operator"]);
+    assertEquals(mechanicalValidationCount, 0);
 });
 
-Deno.test("dispatchPostTriage warns when QUICK_FIX stops without task_completed", async () => {
+Deno.test("dispatchPostTriage routes QUICK_FIX to Engineer and runs Mechanical Validation after completion", async () => {
     const uiAPI = makeUi();
+    /** @type {string[]} */
+    const activeAgents = [];
+    /** @type {string[]} */
+    const rootTurns = [];
+    let mechanicalValidationCount = 0;
+
+    await dispatchPostTriage({
+        triage: {
+            routingIntent: "QUICK_FIX",
+            complexity: "LOW",
+            summary: "small fix",
+            affectedPaths: ["src/a.js"],
+        },
+        userRequest: "Fix it",
+        images: [],
+        uiAPI,
+        sessionManager: undefined,
+        __deps: /** @type {any} */ ({
+            applyPendingRootSwap: () => Promise.resolve(),
+            createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
+            readLatestTaskCompletedOutcome: () => true,
+            runRootTurn: (/** @type {any} */ args) => {
+                rootTurns.push(args.agentName);
+                assertEquals(args.userRequest.includes("Routing Intent: QUICK_FIX"), true);
+                return Promise.resolve(
+                    /** @type {any} */ ([{
+                        role: "toolResult",
+                        toolName: "task_completed",
+                        details: { outcome: "task_completed" },
+                    }]),
+                );
+            },
+            runMechanicalValidation: () => {
+                mechanicalValidationCount++;
+                return Promise.resolve({ passed: true, attempts: 0 });
+            },
+            runValidationLoop: () => {
+                throw new Error("saved-plan validation should not run");
+            },
+            setActiveAgent: (/** @type {string} */ name) => activeAgents.push(name),
+        }),
+    });
+
+    assertEquals(activeAgents, ["engineer"]);
+    assertEquals(rootTurns, ["engineer"]);
+    assertEquals(mechanicalValidationCount, 1);
+});
+
+Deno.test("dispatchPostTriage warns and skips Mechanical Validation when QUICK_FIX stops without task_completed", async () => {
+    const uiAPI = makeUi();
+    let mechanicalValidationCount = 0;
 
     await dispatchPostTriage({
         triage: {
@@ -168,12 +224,17 @@ Deno.test("dispatchPostTriage warns when QUICK_FIX stops without task_completed"
             createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
             readLatestTaskCompletedOutcome: () => null,
             runRootTurn: () => Promise.resolve([]),
+            runMechanicalValidation: () => {
+                mechanicalValidationCount++;
+                return Promise.resolve({ passed: true, attempts: 0 });
+            },
             setActiveAgent: () => {},
         }),
     });
 
+    assertEquals(mechanicalValidationCount, 0);
     assertEquals(
-        uiAPI.messages.some((/** @type {string} */ message) => message.includes("stopped without task_completed")),
+        uiAPI.messages.some((/** @type {string} */ message) => message.includes("Mechanical Validation will not run")),
         true,
     );
 });
@@ -478,6 +539,28 @@ Deno.test("readLatestTriageOutcome returns the latest triage_report details", ()
         summary: "second",
         sessionName: "second feature",
         affectedPaths: ["b.js"],
+    });
+});
+
+Deno.test("readLatestTriageOutcome accepts OPERATION without plan classification", () => {
+    const messages = [
+        /** @type {any} */ ({
+            role: "toolResult",
+            toolName: "triage_report",
+            details: {
+                routingIntent: "OPERATION",
+                classification: "OPERATION",
+                complexity: "LOW",
+                summary: "show status",
+                affectedPaths: [],
+            },
+        }),
+    ];
+    assertEquals(readLatestTriageOutcome(messages), {
+        routingIntent: "OPERATION",
+        complexity: "LOW",
+        summary: "show status",
+        affectedPaths: [],
     });
 });
 

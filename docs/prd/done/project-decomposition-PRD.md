@@ -71,7 +71,8 @@ The routing-intent-to-execution pipeline becomes:
 | -------------- | ----------------------------------------------------------------------------------------------------------- |
 | `INQUIRY`      | Guide answers directly; no implementation workflow                                                          |
 | `IDEATION`     | Ideator researches, interviews, or drafts a PRD/synthesis before routing implementation back through Router |
-| `QUICK_FIX`    | Operator executes directly (unchanged)                                                                      |
+| `OPERATION`    | Operator executes direct non-code operations                                                                |
+| `QUICK_FIX`    | Engineer implements bounded no-plan code work with Mechanical Validation                                    |
 | `FEATURE`      | Planner writes plan, review, execute, validate, merge (unchanged)                                           |
 | `PROJECT`      | Architect writes Epic → approved → Slicer decomposes into FEATUREs → each FEATURE follows FEATURE lifecycle |
 

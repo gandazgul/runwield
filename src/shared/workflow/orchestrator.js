@@ -8,8 +8,9 @@
  *
  * INQUIRY   → Guide
  * IDEATION  → Ideator
- * QUICK_FIX → Operator
- * FEATURE   → Planner   → on `approved_execute`, runs `executePlan`
+ * OPERATION → Operator
+ * QUICK_FIX → Engineer → on `task_completed`, runs no-plan Mechanical Validation
+ * FEATURE   → Planner  → on `approved_execute`, runs `executePlan`
  * PROJECT   → Architect → on `approved_execute`, runs `executePlan` (parallel tasks)
  *
  * After dispatch, the specialist remains the active root agent so follow-up
@@ -31,13 +32,13 @@ import { consumePendingSwitchHandoff } from "../session/session-state.js";
 import { sanitizeSessionName, setTerminalTitleForName } from "../ui/terminal-title.js";
 import { decidePostExecution, decidePostPlanning } from "./decisions.js";
 import { executePlan, readLatestTaskCompletedOutcome, runPlanningAgent } from "./workflow.js";
-import { runValidationLoop, shouldRunWorkflowValidation } from "./validation.js";
+import { runMechanicalValidation, runValidationLoop, shouldRunWorkflowValidation } from "./validation.js";
 
-export { runLocalCI, runValidationLoop } from "./validation.js";
+export { runLocalCI, runMechanicalValidation, runValidationLoop } from "./validation.js";
 
 /**
  * @typedef {Object} TriageOutcome
- * @property {"INQUIRY" | "IDEATION" | "QUICK_FIX" | "FEATURE" | "PROJECT"} routingIntent
+ * @property {"INQUIRY" | "IDEATION" | "OPERATION" | "QUICK_FIX" | "FEATURE" | "PROJECT"} routingIntent
  * @property {"FEATURE" | "PROJECT" | undefined} [classification]
  * @property {"LOW" | "MEDIUM" | "HIGH"} complexity
  * @property {string} summary
@@ -49,12 +50,12 @@ const PLAN_ROUTING_INTENTS = ["FEATURE", "PROJECT"];
 
 /**
  * @param {unknown} value
- * @returns {"INQUIRY" | "IDEATION" | "QUICK_FIX" | "FEATURE" | "PROJECT" | null}
+ * @returns {"INQUIRY" | "IDEATION" | "OPERATION" | "QUICK_FIX" | "FEATURE" | "PROJECT" | null}
  */
 function asRoutingIntent(value) {
     if (typeof value !== "string") return null;
     if (!ROUTING_INTENTS.includes(value)) return null;
-    return /** @type {"INQUIRY" | "IDEATION" | "QUICK_FIX" | "FEATURE" | "PROJECT"} */ (value);
+    return /** @type {"INQUIRY" | "IDEATION" | "OPERATION" | "QUICK_FIX" | "FEATURE" | "PROJECT"} */ (value);
 }
 
 /**
@@ -179,6 +180,7 @@ function applyAutoSessionName(sessionManager, triage, setTitle) {
  *   consumePendingSwitchHandoff?: typeof consumePendingSwitchHandoff,
  *   runPlanningAgent?: typeof runPlanningAgent,
  *   runRootTurn?: typeof runRootTurn,
+ *   runMechanicalValidation?: typeof runMechanicalValidation,
  *   runValidationLoop?: typeof runValidationLoop,
  *   setActiveAgent?: typeof setActiveAgent,
  *   setTerminalTitleForName?: typeof setTerminalTitleForName,
@@ -196,6 +198,7 @@ export async function dispatchPostTriage({ triage, userRequest, images, uiAPI, s
     const applyPendingRootSwapImpl = __deps?.applyPendingRootSwap || applyPendingRootSwap;
     const createAgentHandlerImpl = __deps?.createAgentHandler ||
         (await import("../session/agent-handler.js")).createAgentHandler;
+    const runMechanicalValidationImpl = __deps?.runMechanicalValidation || runMechanicalValidation;
     const runValidationLoopImpl = __deps?.runValidationLoop || runValidationLoop;
     const decidePostPlanningImpl = __deps?.decidePostPlanning || decidePostPlanning;
     const decidePostExecutionImpl = __deps?.decidePostExecution || decidePostExecution;
@@ -220,7 +223,7 @@ export async function dispatchPostTriage({ triage, userRequest, images, uiAPI, s
         return;
     }
 
-    if (normalizedTriage.routingIntent === "QUICK_FIX") {
+    if (normalizedTriage.routingIntent === "OPERATION") {
         const operatorDisplay = getAgentDisplayName(AGENTS.OPERATOR);
         const runRootTurnImpl = __deps?.runRootTurn || runRootTurn;
         const readLatestTaskCompletedOutcomeImpl = __deps?.readLatestTaskCompletedOutcome ||
@@ -238,11 +241,43 @@ export async function dispatchPostTriage({ triage, userRequest, images, uiAPI, s
         const completed = readLatestTaskCompletedOutcomeImpl(messages);
         if (!completed) {
             uiAPI.appendSystemMessage(
-                `${operatorDisplay} stopped without task_completed; QUICK_FIX may be incomplete.`,
+                `${operatorDisplay} stopped without task_completed; OPERATION may be incomplete.`,
                 false,
                 "RunWield",
             );
         }
+        return;
+    }
+
+    if (normalizedTriage.routingIntent === "QUICK_FIX") {
+        const engineerDisplay = getAgentDisplayName(AGENTS.ENGINEER);
+        const runRootTurnImpl = __deps?.runRootTurn || runRootTurn;
+        const readLatestTaskCompletedOutcomeImpl = __deps?.readLatestTaskCompletedOutcome ||
+            readLatestTaskCompletedOutcome;
+
+        setActiveAgentImpl(AGENTS.ENGINEER, createAgentHandlerImpl(AGENTS.ENGINEER), uiAPI);
+        await applyPendingRootSwapImpl(uiAPI);
+
+        const messages = await runRootTurnImpl({
+            agentName: AGENTS.ENGINEER,
+            userRequest: decoratedRequest,
+            images,
+            uiAPI,
+        });
+        const completed = readLatestTaskCompletedOutcomeImpl(messages);
+        if (!completed) {
+            uiAPI.appendSystemMessage(
+                `${engineerDisplay} stopped without task_completed; QUICK_FIX may be incomplete and Mechanical Validation will not run.`,
+                false,
+                "RunWield",
+            );
+            return;
+        }
+
+        await runMechanicalValidationImpl({
+            uiAPI,
+            sessionManager,
+        });
         return;
     }
 

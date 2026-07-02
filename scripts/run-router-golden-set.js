@@ -23,7 +23,7 @@ import {
 const DEFAULT_CSV = "router-judgements.csv";
 const DEFAULT_ROW_TIMEOUT_MS = 60_000;
 const BENCHMARK_BASH_NUDGE =
-    "Benchmark Router note: bash is disabled in this golden-set run, and the command below was not executed. Read-only shell commands such as git status, git diff, find, grep, ls, or deno task checks are valid discovery in the real Router, but this benchmark cannot provide bash output. Do not call bash again for this row. Use the available read/grep/find/ls/code tools for more discovery if needed, then call triage_report. If the request is operational, such as committing, running commands, fixing CI, or checking git state, QUICK_FIX is often the right routing intent. Do not try to complete the user's task in this benchmark.";
+    "Benchmark Router note: bash is disabled in this golden-set run, and the command below was not executed. Read-only shell commands such as git status, git diff, find, grep, ls, or deno task checks are valid discovery in the real Router, but this benchmark cannot provide bash output. Do not call bash again for this row. Use the available read/grep/find/ls/code tools for more discovery if needed, then call triage_report. If the request is operational, such as committing, running commands, dependency upgrades by explicit request, or checking git state, OPERATION is often the right routing intent; bounded no-plan code edits are QUICK_FIX. Do not try to complete the user's task in this benchmark.";
 const BENCHMARK_ROUTER_TOOLS = [
     "read",
     "grep",

@@ -130,7 +130,7 @@ docs/                  ADRs, PRDs, and feature docs
 5. For docs-only or config-only changes, run `deno fmt`.
 6. Open a PR with:
    - a summary,
-   - the affected routing intent or flow (`INQUIRY`, `IDEATION`, `QUICK_FIX`, `FEATURE`, or `PROJECT`),
+   - the affected routing intent or flow (`INQUIRY`, `IDEATION`, `OPERATION`, `QUICK_FIX`, `FEATURE`, or `PROJECT`),
    - validation notes,
    - any follow-up work or known gaps.
 
@@ -140,7 +140,8 @@ RunWield itself is plan-by-default for non-trivial work. Contributions should pr
 
 - `INQUIRY` handling should stay answer-focused through Guide.
 - `IDEATION` handling should clarify ideas through Ideator before routing implementation work.
-- `QUICK_FIX` work should stay small and self-verified.
+- `OPERATION` work should stay non-code and self-verified by Operator.
+- `QUICK_FIX` work should stay small, code-bounded, and pass Mechanical Validation after Engineer completion.
 - `FEATURE` work should be traceable to a reviewable plan when the blast radius is non-trivial.
 - `PROJECT` work should be represented as an Epic: Architect owns the design, interactive Slicer owns child FEATURE
   boundaries, and execution happens through those child FEATURE plans.

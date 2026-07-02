@@ -76,7 +76,8 @@ Router is the default Agent for fresh triage. Its `triage_report` assigns one ro
 
 - `INQUIRY` - answer directly through Guide for general help, explanations, and repository questions.
 - `IDEATION` - hand off to Ideator for interviews, research, PRDs, or idea sharpening before implementation planning.
-- `QUICK_FIX` - execute directly with minimal ceremony through Operator.
+- `OPERATION` - execute direct non-code repository/environment work through Operator.
+- `QUICK_FIX` - implement bounded no-plan code work through Engineer, followed by Mechanical Validation.
 - `FEATURE` - write a reviewable plan before implementation.
 - `PROJECT` - design the larger effort as an Epic, then interactively slice it into independently executable child
   FEATURE plans.
@@ -87,7 +88,7 @@ Router is the default Agent for fresh triage. Its `triage_report` assigns one ro
 
 Use `wld "request"` when you want RunWield to choose the right workflow. Router records the routing intent through
 `triage_report`; implementation intents also record complexity and affected paths. That tool outcome hands off to Guide,
-Ideator, Operator, Planner, or Architect as appropriate.
+Ideator, Operator, Engineer, Planner, or Architect as appropriate.
 
 ### Talk to a specific agent when you know what you need
 

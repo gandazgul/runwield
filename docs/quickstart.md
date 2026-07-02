@@ -100,9 +100,10 @@ wld router "summarize this repository and tell me how to run its checks"
 ```
 
 Router is the default Agent for fresh triage. It calls `triage_report` to assign a routing intent: `INQUIRY`,
-`IDEATION`, `QUICK_FIX`, `FEATURE`, or `PROJECT`. That tool outcome hands off to Guide for answers, Ideator for idea
-sharpening, Operator for small fixes, Planner for FEATURE plans, or Architect for PROJECT Epics. PROJECT work becomes an
-Epic design plan first, then the interactive Slicer breaks it into child FEATURE plans after approval.
+`IDEATION`, `OPERATION`, `QUICK_FIX`, `FEATURE`, or `PROJECT`. That tool outcome hands off to Guide for answers, Ideator
+for idea sharpening, Operator for direct non-code operations, Engineer for bounded no-plan quick fixes, Planner for
+FEATURE plans, or Architect for PROJECT Epics. PROJECT work becomes an Epic design plan first, then the interactive
+Slicer breaks it into child FEATURE plans after approval.
 
 ## Common commands
 

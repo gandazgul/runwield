@@ -282,6 +282,105 @@ export function shouldRunWorkflowValidation(triageMeta) {
 }
 
 /**
+ * No-plan Mechanical Validation for direct QUICK_FIX work. Runs configured local
+ * CI and sends failures back to Engineer, without Plan lifecycle, semantic
+ * review, code review, implementation diff checks, worktree merge-back, or
+ * worktree registry updates.
+ *
+ * @param {Object} args
+ * @param {import('./workflow.js').UiAPI} args.uiAPI
+ * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined} args.sessionManager
+ * @param {string} [args.cwd]
+ * @param {{
+ *   runLocalCI?: typeof runLocalCI,
+ *   runAgentSession?: typeof runAgentSession,
+ *   runCompletionGatedRepair?: typeof runCompletionGatedRepair,
+ *   readLatestTaskCompletedOutcome?: typeof readLatestTaskCompletedOutcome,
+ *   setActiveAgent?: typeof setActiveAgent,
+ *   createAgentHandler?: (agentName: string) => import('../session/types.js').AgentMessageHandler,
+ * }} [args.__deps] Test-only injection point.
+ * @returns {Promise<{ passed: boolean, attempts: number, reason?: string }>}
+ */
+export async function runMechanicalValidation({ uiAPI, sessionManager, cwd = CWD, __deps }) {
+    const runLocalCIImpl = __deps?.runLocalCI || runLocalCI;
+    const runAgentSessionImpl = __deps?.runAgentSession || runAgentSession;
+    const repair = __deps?.runCompletionGatedRepair ||
+        ((repairArgs) =>
+            runCompletionGatedRepair({
+                ...repairArgs,
+                runAgentSession: runAgentSessionImpl,
+                readLatestTaskCompletedOutcome: __deps?.readLatestTaskCompletedOutcome,
+            }));
+    const setActiveAgentImpl = __deps?.setActiveAgent || setActiveAgent;
+    const createAgentHandlerImpl = __deps?.createAgentHandler ||
+        (await import("../session/agent-handler.js")).createAgentHandler;
+    const maxRepairAttempts = 3;
+    let repairAttempts = 0;
+
+    appendRunWieldSystemMessage(uiAPI, "Starting QUICK_FIX Mechanical Validation.");
+
+    while (true) {
+        appendRunWieldSystemMessage(
+            uiAPI,
+            `Running QUICK_FIX CI Validation (Repair Attempts ${repairAttempts}/${maxRepairAttempts})...`,
+        );
+        uiAPI?.setBusy?.(true);
+        let ciResult;
+        try {
+            ciResult = await runLocalCIImpl(uiAPI, cwd);
+        } finally {
+            uiAPI?.setBusy?.(false);
+        }
+
+        if (ciResult.exitCode === 0) {
+            appendRunWieldSystemMessage(
+                uiAPI,
+                "QUICK_FIX Mechanical Validation passed.",
+                false,
+                SUCCESS_MESSAGE_STYLE,
+            );
+            setActiveAgentImpl(AGENTS.ENGINEER, createAgentHandlerImpl(AGENTS.ENGINEER), uiAPI);
+            return { passed: true, attempts: repairAttempts };
+        }
+
+        if (repairAttempts >= maxRepairAttempts) {
+            const reason =
+                `QUICK_FIX Mechanical Validation failed after ${maxRepairAttempts} Engineer repair attempts.`;
+            appendRunWieldSystemMessage(uiAPI, reason, true);
+            setActiveAgentImpl(AGENTS.ENGINEER, createAgentHandlerImpl(AGENTS.ENGINEER), uiAPI);
+            return { passed: false, attempts: repairAttempts, reason };
+        }
+
+        repairAttempts++;
+        appendRunWieldSystemMessage(
+            uiAPI,
+            `QUICK_FIX CI failed. Dispatching ${
+                getAgentDisplayName(AGENTS.ENGINEER)
+            } for repair attempt ${repairAttempts}/${maxRepairAttempts}...`,
+            true,
+        );
+        const completed = await repair({
+            agentName: AGENTS.ENGINEER,
+            userRequest:
+                "The no-plan QUICK_FIX failed Mechanical Validation. Fix the following CI errors, do not expand scope, " +
+                "run appropriate verification, then call task_completed when the repair is complete:\n\n" +
+                ciResult.output,
+            uiAPI,
+            sessionManager,
+            cwd,
+        });
+        if (!completed) {
+            const reason = `${
+                getAgentDisplayName(AGENTS.ENGINEER)
+            } stopped without task_completed during QUICK_FIX repair.`;
+            appendRunWieldSystemMessage(uiAPI, reason, true);
+            setActiveAgentImpl(AGENTS.ENGINEER, createAgentHandlerImpl(AGENTS.ENGINEER), uiAPI);
+            return { passed: false, attempts: repairAttempts, reason };
+        }
+    }
+}
+
+/**
  * Unified validation loop. Runs local validation and semantic code review.
  *
  * @param {Object} args

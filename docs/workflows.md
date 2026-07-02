@@ -1,7 +1,7 @@
 # Plans and Workflows
 
-RunWield routes requests by intent so answers stay lightweight, ideas get sharpened before planning, small fixes stay
-fast, and larger changes get reviewable plans.
+RunWield routes requests by intent so answers stay lightweight, ideas get sharpened before planning, operations stay
+simple, bounded quick fixes get mechanical validation, and larger changes get reviewable plans.
 
 ## Routing intents
 
@@ -9,7 +9,8 @@ fast, and larger changes get reviewable plans.
 | ----------- | ------------------------------------------------------------------- | ------------ |
 | `INQUIRY`   | Direct answer, explanation, repository guidance, or general help.   | Guide        |
 | `IDEATION`  | Research, interview, PRD, or idea-sharpening before implementation. | Ideator      |
-| `QUICK_FIX` | Small, low-risk executable work that can be handled directly.       | Operator     |
+| `OPERATION` | Direct non-code repository or environment operation.                | Operator     |
+| `QUICK_FIX` | Bounded no-plan code implementation.                                | Engineer     |
 | `FEATURE`   | Non-trivial implementation that needs a plan first.                 | Planner      |
 | `PROJECT`   | Large work that needs architecture, approval, and feature slicing.  | Architect    |
 
@@ -24,11 +25,19 @@ An `IDEATION` request is handled by Ideator. It is for exploring an unclear idea
 options, or drafting a PRD/synthesis before implementation planning. When the user is ready to build, the next
 implementation request should go back through Router so it can be classified as `FEATURE` or `PROJECT`.
 
+## OPERATION
+
+An `OPERATION` is handled directly by the Operator. It covers non-code repository or environment work such as status,
+commit, one-off commands, memory maintenance, and explicitly requested dependency upgrades while they do not require
+code edits. It creates no saved plan and no RunWield validation loop runs after `task_completed`; the Operator
+self-verifies.
+
 ## QUICK_FIX
 
-A `QUICK_FIX` is handled directly by the Operator. It does not create a saved executable plan and does not get the full
-RunWield workflow-validation loop. The executing agent is responsible for self-verification before calling
-`task_completed`.
+A `QUICK_FIX` is handled directly by the Engineer for bounded no-plan code changes. It creates no saved executable plan.
+After Engineer calls `task_completed`, RunWield runs no-plan Mechanical Validation using the configured local CI
+command, sends CI failures back to Engineer, and stops after three total repair attempts. It does not run Reviewer,
+Plannotator code review, Plan Events, Plan Status changes, or worktree merge-back.
 
 ## FEATURE
 

@@ -27,7 +27,7 @@ export const PROMPT_TEMPLATES_DIR = join(SRC_DIR, "prompt-templates");
 export const SKILLS_DIR = join(SRC_DIR, "skills");
 
 /** Allowed Routing Intent values emitted by the router. */
-export const ROUTING_INTENTS = ["INQUIRY", "IDEATION", "QUICK_FIX", "FEATURE", "PROJECT"];
+export const ROUTING_INTENTS = ["INQUIRY", "IDEATION", "OPERATION", "QUICK_FIX", "FEATURE", "PROJECT"];
 
 /** Allowed complexity values emitted by triage. */
 export const COMPLEXITIES = ["LOW", "MEDIUM", "HIGH"];

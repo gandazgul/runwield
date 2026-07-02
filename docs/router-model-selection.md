@@ -10,7 +10,7 @@ That makes Router model quality different from general coding quality. A good Ro
 
 - strong system-prompt adherence;
 - reliable structured tool calling;
-- enough judgement to distinguish `INQUIRY`, `IDEATION`, `QUICK_FIX`, `FEATURE`, and `PROJECT`;
+- enough judgement to distinguish `INQUIRY`, `IDEATION`, `OPERATION`, `QUICK_FIX`, `FEATURE`, and `PROJECT`;
 - restraint after discovery;
 - consistent termination with `triage_report`.
 

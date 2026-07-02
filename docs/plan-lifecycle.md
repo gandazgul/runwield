@@ -210,9 +210,9 @@ but it does not run a validation loop as if it were an implementation diff. For 
 tester-owned Task remains the Integration Point before Workflow Validation.
 
 For executable FEATURE and legacy non-Epic PROJECT Plans, the workflow diff must contain implementation changes. An
-empty scoped diff, or a diff that only changes Plan documents under `plans/`, is a validation failure. QUICK_FIX
-workflows are operational and are not saved as executable Plans, so the Operator is responsible for any needed
-self-verification before calling `task_completed`.
+empty scoped diff, or a diff that only changes Plan documents under `plans/`, is a validation failure. OPERATION and
+QUICK_FIX are not saved as executable Plans. OPERATION ends after Operator self-verification and `task_completed`.
+QUICK_FIX runs no-plan Mechanical Validation after Engineer `task_completed`, without Plan lifecycle state.
 
 ## Front Matter Fields
 

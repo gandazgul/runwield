@@ -24,7 +24,7 @@ export const ROUTER_JUDGEMENT_COLUMNS = [
 
 const ROUTING_INTENT_ORDER = new Map(ROUTING_INTENTS.map((intent, index) => [intent, index]));
 const NON_MATERIALIZING = new Set(["INQUIRY", "IDEATION"]);
-const MATERIALIZING = new Set(["QUICK_FIX", "FEATURE", "PROJECT"]);
+const MATERIALIZING = new Set(["OPERATION", "QUICK_FIX", "FEATURE", "PROJECT"]);
 
 /**
  * @param {unknown} value
@@ -152,6 +152,9 @@ export function classifyRoutingIntentDisagreement(from, to) {
     if (a === "INQUIRY" && b === "QUICK_FIX") return "inquiry_to_quick_fix";
     if ((a === "INQUIRY" && b === "IDEATION") || (a === "IDEATION" && b === "INQUIRY")) {
         return "inquiry_ideation_boundary";
+    }
+    if ((a === "OPERATION" && b === "QUICK_FIX") || (a === "QUICK_FIX" && b === "OPERATION")) {
+        return "operation_quick_fix_boundary";
     }
     if (
         (NON_MATERIALIZING.has(a) && MATERIALIZING.has(b)) ||

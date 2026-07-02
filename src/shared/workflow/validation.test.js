@@ -1,5 +1,5 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
-import { loadReviewerPrompt, runValidationLoop } from "./validation.js";
+import { loadReviewerPrompt, runMechanicalValidation, runValidationLoop } from "./validation.js";
 import { getActiveExecutionWorkflow, setActiveExecutionWorkflow } from "../session/session-state.js";
 
 /**
@@ -77,6 +77,100 @@ Deno.test("bundled reviewer prompt permits unrelated formatter-only changes", as
 
     assertStringIncludes(prompt, "Ignore unrelated formatter-only changes");
     assertStringIncludes(prompt, "Do not fail a review merely because the diff touches files the plan did not mention");
+});
+
+Deno.test("runMechanicalValidation passes local CI without plan-specific work", async () => {
+    const uiAPI = makeUi();
+    /** @type {string[]} */
+    const actions = [];
+
+    const result = await runMechanicalValidation({
+        uiAPI,
+        sessionManager: undefined,
+        cwd: "/repo",
+        __deps: /** @type {any} */ ({
+            runLocalCI: (/** @type {any} */ _uiAPI, /** @type {string | undefined} */ cwd) => {
+                actions.push(`ci:${cwd}`);
+                return Promise.resolve({ exitCode: 0, output: "ok" });
+            },
+            runAgentSession: () => {
+                throw new Error("repair should not run");
+            },
+            setActiveAgent: (/** @type {string} */ name) => actions.push(`active:${name}`),
+            createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
+        }),
+    });
+
+    assertEquals(result, { passed: true, attempts: 0 });
+    assertEquals(actions, ["ci:/repo", "active:engineer"]);
+    assertEquals(
+        uiAPI.messages.some((/** @type {string} */ m) => m.includes("QUICK_FIX Mechanical Validation passed")),
+        true,
+    );
+});
+
+Deno.test("runMechanicalValidation repairs CI failures through Engineer and then passes", async () => {
+    const uiAPI = makeUi();
+    /** @type {string[]} */
+    const actions = [];
+    let ciRuns = 0;
+
+    const result = await runMechanicalValidation({
+        uiAPI,
+        sessionManager: /** @type {any} */ ({ id: "session" }),
+        cwd: "/repo",
+        __deps: /** @type {any} */ ({
+            runLocalCI: () => {
+                ciRuns++;
+                actions.push(`ci:${ciRuns}`);
+                return Promise.resolve(ciRuns === 1 ? { exitCode: 1, output: "boom" } : { exitCode: 0, output: "" });
+            },
+            runAgentSession: (/** @type {any} */ opts) => {
+                actions.push(`repair:${opts.agentName}:${opts.cwd}:${opts.userRequest.includes("boom")}`);
+                return Promise.resolve([]);
+            },
+            readLatestTaskCompletedOutcome: () => true,
+            setActiveAgent: (/** @type {string} */ name) => actions.push(`active:${name}`),
+            createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
+        }),
+    });
+
+    assertEquals(result, { passed: true, attempts: 1 });
+    assertEquals(actions, ["ci:1", "repair:engineer:/repo:true", "ci:2", "active:engineer"]);
+});
+
+Deno.test("runMechanicalValidation stops after three Engineer repair attempts without Plan side effects", async () => {
+    const uiAPI = makeUi();
+    let repairCalls = 0;
+
+    const result = await runMechanicalValidation({
+        uiAPI,
+        sessionManager: undefined,
+        __deps: /** @type {any} */ ({
+            runLocalCI: () => Promise.resolve({ exitCode: 1, output: "still broken" }),
+            runAgentSession: () => {
+                repairCalls++;
+                return Promise.resolve([]);
+            },
+            readLatestTaskCompletedOutcome: () => true,
+            setActiveAgent: () => {},
+            createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
+            recordPlanEvent: () => {
+                throw new Error("plan events should not run");
+            },
+            runPlannotatorCodeReview: () => {
+                throw new Error("code review should not run");
+            },
+        }),
+    });
+
+    assertEquals(result.passed, false);
+    assertEquals(result.attempts, 3);
+    assertEquals(repairCalls, 3);
+    assertEquals(
+        uiAPI.messages.some((/** @type {string} */ m) => m.includes("failed after 3 Engineer repair attempts")),
+        true,
+    );
 });
 
 Deno.test("runValidationLoop does not switch active agent unless finalAgentName is provided", async () => {
