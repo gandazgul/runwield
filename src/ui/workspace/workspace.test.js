@@ -640,6 +640,22 @@ Deno.test("Workspace body-save API preserves front matter rejects stale writes a
         );
         assertEquals(stale.status, 409);
         assertStringIncludes((await stale.json()).error, "changed on disk");
+
+        await savePlan(cwd, "epic", "# Epic\n", {
+            planId: "epic-id",
+            classification: "PROJECT",
+            type: "epic",
+            status: "draft",
+        });
+        const epicRejected = await app(
+            new Request("http://localhost/api/plans/epic-id/body", {
+                method: "POST",
+                headers: { [PLAN_UI_TOKEN_HEADER]: "secret", "content-type": "application/json" },
+                body: JSON.stringify({ body: "# Edited Epic\n", expectedBodyHash: "hash" }),
+            }),
+        );
+        assertEquals(epicRejected.status, 409);
+        assertStringIncludes((await epicRejected.json()).error, "Epic Plan bodies are not editable");
     } finally {
         await Deno.remove(cwd, { recursive: true });
     }
@@ -728,7 +744,13 @@ Deno.test("Workspace Epic detail SSR-renders child FEATURE Plans by status", asy
 
         const detail = await app(new Request("http://localhost/plans/epic-id?token=secret"));
         const detailHtml = await detail.text();
-        assertStringIncludes(detailHtml, "Epic detail");
+        assertStringIncludes(detailHtml, 'class="detail-title-row"');
+        assertStringIncludes(detailHtml, "&lt; Back</a>");
+        assertStringIncludes(detailHtml, 'class="detail-close-link"');
+        assertStringIncludes(detailHtml, 'aria-label="Close plan detail"');
+        assertStringIncludes(detailHtml, ">X</a>");
+        assertEquals(detailHtml.includes('class="detail-sidebar-edit"'), false);
+        assertEquals(detailHtml.includes("edit=body"), false);
         assertStringIncludes(detailHtml, "Done enough");
         assertStringIncludes(detailHtml, "In Progress");
         assertStringIncludes(detailHtml, "Child summary");
@@ -742,7 +764,7 @@ Deno.test("Workspace Epic detail SSR-renders child FEATURE Plans by status", asy
         assertStringIncludes(detailHtml, "missing-child: missing");
         assertStringIncludes(detailHtml, "missing dependencies");
         assertEquals(detailHtml.includes("Front matter summary"), false);
-        assertStringIncludes(detailHtml, "Epic metadata");
+        assertStringIncludes(detailHtml, "Metadata");
         assertStringIncludes(detailHtml, "Identity");
         assertStringIncludes(detailHtml, "Planning");
         assertStringIncludes(detailHtml, "Epic completion");

@@ -57,6 +57,7 @@ function readDraft(key) {
 
 /** @param {{ plan: any, initialEdit?: boolean }} props */
 export function PlanBodyEditor({ plan, initialEdit = false }) {
+    const canEdit = plan.capabilities?.bodyEditing !== false;
     const [mode, setMode] = useState("read");
     const [body, setBody] = useState(plan.body || "");
     const [savedBody, setSavedBody] = useState(plan.body || "");
@@ -71,6 +72,7 @@ export function PlanBodyEditor({ plan, initialEdit = false }) {
     const draftKey = planBodyDraftKey(plan.workspaceKey || "unknown", plan.planId);
 
     useEffect(() => {
+        if (!canEdit) return;
         const stored = readDraft(draftKey);
         if (stored) {
             setDraft(stored);
@@ -81,20 +83,20 @@ export function PlanBodyEditor({ plan, initialEdit = false }) {
             return;
         }
         if (initialEdit) setMode("edit");
-    }, [draftKey, initialEdit]);
+    }, [canEdit, draftKey, initialEdit]);
 
     useEffect(() => {
-        if (!dirty) return undefined;
+        if (!canEdit || !dirty) return undefined;
         const handler = (/** @type {BeforeUnloadEvent} */ event) => {
             event.preventDefault();
             event.returnValue = "";
         };
         addEventListener("beforeunload", handler);
         return () => removeEventListener("beforeunload", handler);
-    }, [dirty]);
+    }, [canEdit, dirty]);
 
     useEffect(() => {
-        if (mode !== "edit" || !editorHost.current) return undefined;
+        if (!canEdit || mode !== "edit" || !editorHost.current) return undefined;
         const view = new EditorView({
             doc: body,
             extensions: [
@@ -111,19 +113,19 @@ export function PlanBodyEditor({ plan, initialEdit = false }) {
             view.destroy();
             editorView.current = null;
         };
-    }, [mode]);
+    }, [canEdit, mode]);
 
     useEffect(() => {
-        if (mode !== "edit" || !editorView.current) return;
+        if (!canEdit || mode !== "edit" || !editorView.current) return;
         const current = editorView.current.state.doc.toString();
         if (current === body) return;
         editorView.current.dispatch({ changes: { from: 0, to: current.length, insert: body } });
-    }, [body, mode]);
+    }, [body, canEdit, mode]);
 
     useEffect(() => {
-        if (!dirty) return;
+        if (!canEdit || !dirty) return;
         localStorage.setItem(draftKey, serializeDraft({ body, baseBodyHash: expectedBodyHash }));
-    }, [body, dirty, draftKey, expectedBodyHash]);
+    }, [body, canEdit, dirty, draftKey, expectedBodyHash]);
 
     function restoreDraft() {
         if (!draft) return;
@@ -206,7 +208,7 @@ export function PlanBodyEditor({ plan, initialEdit = false }) {
                 )
                 : null}
             {message ? <p class="notice editor-notice">{message}</p> : null}
-            {draft && mode === "read"
+            {canEdit && draft && mode === "read"
                 ? (
                     <div class={recovery === "changed-on-disk" ? "notice warning" : "notice"}>
                         {recovery === "changed-on-disk"

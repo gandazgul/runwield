@@ -1,6 +1,7 @@
 import { PLAN_FRONT_MATTER_KEY_ORDER, PLAN_FRONT_MATTER_KEYS } from "../../../plan-store.js";
 import { PlanBodyEditor } from "../islands/PlanBodyEditor.jsx";
 import { PlanLifecycleActions } from "../islands/PlanLifecycleActions.jsx";
+import { BoardColumn } from "./BoardColumn.jsx";
 import { ComplexityLabel, workspaceHref } from "./PlanCard.jsx";
 
 const CLOSED_STATUSES = new Set(["verified", "closed_without_verification"]);
@@ -30,6 +31,16 @@ function holdMetadata(plan) {
     if (plan.heldAt) metadata.push(`held at ${plan.heldAt}`);
     if (plan.holdReason) metadata.push(`reason: ${plan.holdReason}`);
     return metadata.length ? metadata.join("; ") : "No hold metadata provided.";
+}
+
+/** @param {any} plan */
+function isEpicDetail(plan) {
+    return Boolean(plan.isEpic || plan.detailKind === "epic" || plan.type === "epic");
+}
+
+/** @param {any} entry */
+function dependencyLabel(entry) {
+    return `${entry.dependency}: ${entry.state}${entry.status ? ` (${entry.status})` : ""}`;
 }
 
 const FM = PLAN_FRONT_MATTER_KEYS;
@@ -266,8 +277,153 @@ function DetailMetadata({ plan }) {
     );
 }
 
+/** @param {{ epic: any }} props */
+function EpicSummary({ epic }) {
+    const progress = epic.childProgress || { verified: 0, total: 0, active: 0, remaining: 0 };
+    const health = epic.childHealth || {};
+    const failed = health.failed?.length || 0;
+    const held = health.held?.length || 0;
+    const blocked = health.blocked?.length || 0;
+    const missing = health.missingDependencies?.length || 0;
+
+    return (
+        <>
+            <div class="progress-meter large" aria-label="Epic child progress">
+                <span>{progress.verified}/{progress.total} child Plans verified</span>
+                <span>{progress.active} active or implemented</span>
+                <span>{progress.remaining} remaining</span>
+                {failed ? <span>{failed} failed</span> : null}
+                {held ? <span>{held} on hold</span> : null}
+                {blocked ? <span>{blocked} blocked by dependencies</span> : null}
+                {missing ? <span>{missing} with missing dependencies</span> : null}
+            </div>
+            <div class="badge-row health-summary">
+                {epic.doneEnough
+                    ? (
+                        <span class="badge success">
+                            Epic marked done enough{epic.epicDoneEnoughAt ? ` at ${epic.epicDoneEnoughAt}` : ""}
+                        </span>
+                    )
+                    : null}
+                {epic.status === "on_hold"
+                    ? (
+                        <span class="badge muted">
+                            Epic on hold{epic.heldFromStatus ? ` from ${epic.heldFromStatus}` : ""}
+                            {epic.heldAt ? ` at ${epic.heldAt}` : ""}
+                        </span>
+                    )
+                    : null}
+                {failed ? <span class="badge danger">{failed} failed child Plans</span> : null}
+                {held ? <span class="badge muted">{held} child Plans on hold</span> : null}
+                {blocked ? <span class="badge warning">{blocked} child Plans blocked</span> : null}
+                {missing ? <span class="badge warning">{missing} child Plans with missing dependencies</span> : null}
+            </div>
+            {epic.doneEnough && epic.epicDoneEnoughSummary
+                ? <p class="notice success">Done enough: {epic.epicDoneEnoughSummary}</p>
+                : null}
+            {epic.status === "on_hold"
+                ? (
+                    <p class="notice muted">
+                        Held Epic only blocks child work in UI context; child statuses are shown unchanged.{" "}
+                        {holdMetadata(epic)}
+                    </p>
+                )
+                : null}
+        </>
+    );
+}
+
+/** @param {{ epic: any, url: URL }} props */
+function EpicDetailSections({ epic, url }) {
+    const health = epic.childHealth || {};
+    const failed = health.failed?.length || 0;
+    const held = health.held?.length || 0;
+    const blocked = health.blocked?.length || 0;
+    const missing = health.missingDependencies?.length || 0;
+    const visibleColumns = (epic.childColumns || []).filter(
+        (/** @type {any} */ column) => column.cards.length || column.orphanChildren.length,
+    );
+    const childrenWithDependencies = (epic.children || []).filter(
+        (/** @type {any} */ child) => child.dependencyStates?.length,
+    );
+
+    return (
+        <>
+            <section class="child-plan-section">
+                <h3>Child health</h3>
+                {failed || held || blocked || missing
+                    ? (
+                        <ul class="health-list">
+                            {(health.failed || []).map(/** @param {any} child */ (child) => (
+                                <li key={`failed-${child.planId}`}>
+                                    <strong>Failed:</strong> {child.planName} {child.failureReason ||
+                                        "needs recovery attention"}
+                                </li>
+                            ))}
+                            {(health.held || []).map(/** @param {any} child */ (child) => (
+                                <li key={`held-${child.planId}`}>
+                                    <strong>Held:</strong> {child.planName} {holdMetadata(child)}
+                                </li>
+                            ))}
+                            {(health.blocked || []).map(/** @param {any} child */ (child) => (
+                                <li key={`blocked-${child.planId}`}>
+                                    <strong>Blocked:</strong> {child.planName} has{" "}
+                                    {child.unverifiedDependencyCount || 0} unverified and{" "}
+                                    {child.missingDependencyCount || 0} missing dependencies.
+                                    {child.dependencyStates?.length
+                                        ? (
+                                            <ul>
+                                                {child.dependencyStates.map(/** @param {any} entry */ (entry) => (
+                                                    <li key={`${child.planId}-${entry.dependency}`}>
+                                                        {dependencyLabel(entry)}
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        )
+                                        : null}
+                                </li>
+                            ))}
+                        </ul>
+                    )
+                    : <p class="empty">No failed, held, or dependency-blocked children.</p>}
+            </section>
+            <section class="child-plan-section">
+                <h3>Child dependencies</h3>
+                {childrenWithDependencies.length
+                    ? (
+                        <ul class="health-list dependency-health-list">
+                            {childrenWithDependencies.map(/** @param {any} child */ (child) => (
+                                <li key={`dependencies-${child.planId}`}>
+                                    <strong>{child.planName}:</strong>{" "}
+                                    {child.dependencyStates.map(dependencyLabel).join(
+                                        ", ",
+                                    )}
+                                </li>
+                            ))}
+                        </ul>
+                    )
+                    : <p class="empty">No child FEATURE Plan dependencies declared.</p>}
+            </section>
+            <section class="child-plan-section">
+                <h3>Child FEATURE Plans</h3>
+                {visibleColumns.length
+                    ? (
+                        <div class="status-board child-status-board">
+                            {visibleColumns.map(/** @param {any} column */ (column) => (
+                                <BoardColumn key={column.status} column={column} url={url} />
+                            ))}
+                        </div>
+                    )
+                    : <p class="empty">No child FEATURE Plans are attached to this Epic.</p>}
+            </section>
+        </>
+    );
+}
+
 /** @param {{ plan: any, url: URL, editIntent?: boolean }} props */
 export function PlanDetail({ plan, url, editIntent = false }) {
+    const isEpic = isEpicDetail(plan);
+    const canEditBody = plan.capabilities?.bodyEditing !== false && !isEpic;
     const editHref = workspaceHref(`/plans/${encodeURIComponent(plan.planId)}?edit=body`, url);
     const closeHref = boardHrefForPlanStatus(plan.status, url);
     return (
@@ -283,7 +439,8 @@ export function PlanDetail({ plan, url, editIntent = false }) {
                         <a class="detail-close-link" href={closeHref} aria-label="Close plan detail">X</a>
                     </div>
                     <p>{plan.summary || "No summary provided."}</p>
-                    {plan.status === "on_hold" ? <p class="notice muted">{holdMetadata(plan)}</p> : null}
+                    {isEpic ? <EpicSummary epic={plan} /> : null}
+                    {!isEpic && plan.status === "on_hold" ? <p class="notice muted">{holdMetadata(plan)}</p> : null}
                     {plan.hierarchyRole === "orphan-child" || plan.blockedByDependencies
                         ? (
                             <div class="detail-actions" aria-label="Plan warnings">
@@ -300,12 +457,15 @@ export function PlanDetail({ plan, url, editIntent = false }) {
             </header>
             <section class="detail-grid">
                 <div>
-                    <PlanBodyEditor plan={plan} initialEdit={editIntent} />
+                    <PlanBodyEditor plan={plan} initialEdit={canEditBody && editIntent} />
+                    {isEpic ? <EpicDetailSections epic={plan} url={url} /> : null}
                 </div>
                 <aside class="detail-sidebar">
                     <div class="detail-sidebar-actions" aria-label="Plan detail actions">
-                        {editIntent ? null : <a class="primary-action detail-sidebar-edit" href={editHref}>Edit</a>}
-                        <PlanLifecycleActions plan={plan} compact />
+                        {canEditBody && !editIntent
+                            ? <a class="primary-action detail-sidebar-edit" href={editHref}>Edit</a>
+                            : null}
+                        <PlanLifecycleActions plan={plan} compact epic={isEpic} />
                     </div>
                     <h3>Metadata</h3>
                     <DetailMetadata plan={plan} />
