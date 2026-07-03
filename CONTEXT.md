@@ -13,6 +13,15 @@ _Avoid_: Harness, tool, framework
 **TUI**: The terminal-based interactive user interface that hosts agent conversations and renders workflow output.
 _Avoid_: Shell, console
 
+**Headless Mode**: The non-interactive RunWield execution surface that emits machine-readable Agent Session events for
+external hosts. _Avoid_: TUI mode, batch wrapper, remote UI
+
+**Agent Client Protocol (ACP)**: The editor-oriented JSON-RPC protocol RunWield may implement to expose a long-lived
+coding Agent surface to IDEs and external hosts. _Avoid_: Agent Control Protocol, Agent Communication Protocol
+
+**Session Host**: The non-TUI runtime boundary that owns one or more live RunWield Agent Sessions and exposes them to
+external clients. _Avoid_: TUI backend, daemon, adapter
+
 **Terminal Title**: The terminal emulator window or tab label RunWield sets for an interactive TUI session. _Avoid_: Tab
 name, shell title
 
