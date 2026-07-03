@@ -41,6 +41,7 @@ import { CWD } from "../../constants.js";
  * subAgentSessions: Set<import('@earendil-works/pi-coding-agent').AgentSession>,
  * pendingRootSwap: PendingRootSwap | null,
  * pendingSwitchHandoff: PendingSwitchHandoff | null,
+ * projectStateContext: string,
  * activeExecutionWorkflow: { planName: string, triageMeta: any, baselineTree?: string, projectRoot?: string, executionCwd?: string, worktreeId?: string, worktreeBranch?: string } | null,
  * }} */
 const state = {
@@ -58,6 +59,7 @@ const state = {
     subAgentSessions: new Set(), // transient AgentSessions (workflow sub-agents, return_to_router triggers)
     pendingRootSwap: null, // recorded when setActiveAgent is called during an in-flight turn
     pendingSwitchHandoff: null, // recorded by return_to_router to seed Router's first turn
+    projectStateContext: "", // session-scoped note inserted into root agent prompts
     activeUiAPI: null,
     activeExecutionWorkflow: null, // tracks FEATURE/PROJECT execution context until validation starts
 };
@@ -219,6 +221,15 @@ export function consumePendingSwitchHandoff() {
  */
 export function getThinkingLevel() {
     return state.activeThinkingLevel;
+}
+
+/** @param {string} context */
+export function setProjectStateContext(context) {
+    state.projectStateContext = context;
+}
+
+export function getProjectStateContext() {
+    return state.projectStateContext;
 }
 
 /**

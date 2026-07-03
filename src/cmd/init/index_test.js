@@ -54,6 +54,46 @@ Deno.test("runInitCommand prints help without checking init state", async () => 
     assertEquals(checked, false);
 });
 
+Deno.test("runInitCommand no-ops in empty project directory without recording init state", async () => {
+    /** @type {string[]} */
+    const messages = [];
+    /** @type {string[]} */
+    const events = [];
+
+    await runInitCommand(
+        [],
+        /** @type {any} */ ({
+            uiAPI: {
+                appendSystemMessage: (/** @type {string} */ msg) => messages.push(msg),
+            },
+            __testDeps: /** @type {any} */ ({
+                parseArgs: () => ({}),
+                cwd: () => "/tmp/empty-project",
+                isEmptyProjectDirectory: () => Promise.resolve(true),
+                isInitDone: () => {
+                    events.push("checked-done");
+                    return false;
+                },
+                recordInitOffered: () => events.push("offered"),
+                recordInitDone: () => events.push("done"),
+                loadAgentDefFromPath: () => {
+                    events.push("loaded");
+                    return Promise.resolve({});
+                },
+                runAgentSession: () => {
+                    events.push("ran");
+                    return Promise.resolve();
+                },
+            }),
+        }),
+    );
+
+    assertEquals(events, []);
+    assertEquals(messages, [
+        "Nothing to initialize yet. This directory has no project files for RunWield to inspect. Add files or describe what you want to build; once the project has meaningful files, RunWield can initialize project context.",
+    ]);
+});
+
 Deno.test("runInitCommand reports duplicate init through ui when available", async () => {
     /** @type {string[]} */
     const messages = [];

@@ -59,7 +59,7 @@ code, or when a `code_*` result looks incomplete, stale, or misleading. Follow t
 
 ## Project Context
 
-{{PROJECT_AGENTSMD}}
+{{PROJECT_STATE_CONTEXT}} {{PROJECT_AGENTSMD}}
 
 ### Core Memories
 

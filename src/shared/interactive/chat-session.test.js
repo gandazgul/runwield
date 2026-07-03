@@ -25,11 +25,13 @@ import {
     removeSubAgentSession,
     setActiveUiAPI,
     setPendingRootSwap,
+    setProjectStateContext,
     setRootAgentName,
     setRootAgentSession,
 } from "../session/session-state.js";
 import { __resetSettingsForTests } from "../settings.js";
 import { __getRootSessionMetadataForTests, ensureRootAgentSession } from "../session/session.js";
+import { EMPTY_PROJECT_DIRECTORY_PROMPT_NOTE } from "../project-state.js";
 
 /**
  * @param {string} prefix
@@ -375,6 +377,7 @@ Deno.test("setActiveModel rebuilds root session tool set when switching between 
             );
             __resetSettingsForTests();
             clearUserModelOverride();
+            setProjectStateContext(EMPTY_PROJECT_DIRECTORY_PROMPT_NOTE);
             setActiveUiAPI(/** @type {any} */ ({ appendSystemMessage: () => {}, requestRender: () => {} }));
 
             await ensureRootAgentSession({
@@ -394,12 +397,20 @@ Deno.test("setActiveModel rebuilds root session tool set when switching between 
                 __getRootSessionMetadataForTests(/** @type {any} */ (session)).tools.includes("see_image"),
                 true,
             );
+            assertEquals(
+                __getRootSessionMetadataForTests(/** @type {any} */ (session)).projectStateContext,
+                EMPTY_PROJECT_DIRECTORY_PROMPT_NOTE,
+            );
 
             await setActiveModel("vision", "test");
             session = getRootAgentSession();
             assertEquals(
                 __getRootSessionMetadataForTests(/** @type {any} */ (session)).tools.includes("see_image"),
                 false,
+            );
+            assertEquals(
+                __getRootSessionMetadataForTests(/** @type {any} */ (session)).projectStateContext,
+                EMPTY_PROJECT_DIRECTORY_PROMPT_NOTE,
             );
 
             await setActiveModel("text", "test");
@@ -408,12 +419,17 @@ Deno.test("setActiveModel rebuilds root session tool set when switching between 
                 __getRootSessionMetadataForTests(/** @type {any} */ (session)).tools.includes("see_image"),
                 true,
             );
+            assertEquals(
+                __getRootSessionMetadataForTests(/** @type {any} */ (session)).projectStateContext,
+                EMPTY_PROJECT_DIRECTORY_PROMPT_NOTE,
+            );
         });
     } finally {
         getRootAgentSession()?.dispose();
         setRootAgentSession(null);
         setRootAgentName(null);
         setActiveUiAPI(null);
+        setProjectStateContext("");
         Deno.chdir(originalCwd);
         if (originalOpenAiKey === undefined) Deno.env.delete("OPENAI_API_KEY");
         else Deno.env.set("OPENAI_API_KEY", originalOpenAiKey);
