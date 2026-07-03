@@ -12,6 +12,10 @@ import { parseArgs as parseArgsFn } from "@std/cli/parse-args";
 import { dirname, fromFileUrl, join } from "@std/path";
 import { AGENTS } from "../../constants.js";
 import { COMMAND_NAMES } from "../registry.js";
+import {
+    EMPTY_PROJECT_DIRECTORY_INIT_NOOP_BODY,
+    isEmptyProjectDirectory as isEmptyProjectDirectoryFn,
+} from "../../shared/project-state.js";
 import { loadAgentDefFromPath as loadAgentDefFromPathFn } from "../../shared/session/agents.js";
 import {
     ensureBundledAgentDefFile as ensureBundledAgentDefFileFn,
@@ -36,6 +40,7 @@ export const __dirname = dirname(fromFileUrl(import.meta.url));
  * @property {typeof runAgentSessionFn} [runAgentSession]
  * @property {typeof loadAgentDefFromPathFn} [loadAgentDefFromPath]
  * @property {typeof ensureBundledAgentDefFileFn} [ensureBundledAgentDefFile]
+ * @property {typeof isEmptyProjectDirectoryFn} [isEmptyProjectDirectory]
  * @property {typeof Deno.cwd} [cwd]
  */
 
@@ -56,6 +61,7 @@ export async function runInitCommand(argv, options = {}) {
         runAgentSession: runAgentSessionDep,
         loadAgentDefFromPath: loadAgentDefFromPathDep,
         ensureBundledAgentDefFile: ensureBundledAgentDefFileDep,
+        isEmptyProjectDirectory: isEmptyProjectDirectoryDep,
         cwd: cwdDep,
     } = deps;
 
@@ -70,6 +76,7 @@ export async function runInitCommand(argv, options = {}) {
     const cwd = cwdDep || (() => Deno.cwd());
     const loadAgentDefFromPath = loadAgentDefFromPathDep || loadAgentDefFromPathFn;
     const ensureBundledAgentDefFile = ensureBundledAgentDefFileDep || ensureBundledAgentDefFileFn;
+    const isEmptyProjectDirectory = isEmptyProjectDirectoryDep || isEmptyProjectDirectoryFn;
 
     const parsed = parseArgs(argv, {
         boolean: ["help"],
@@ -79,6 +86,15 @@ export async function runInitCommand(argv, options = {}) {
 
     if (parsed.help) {
         printCommandHelp(COMMAND_NAMES.INIT);
+        return;
+    }
+
+    if (await isEmptyProjectDirectory(cwd())) {
+        if (options.uiAPI) {
+            options.uiAPI.appendSystemMessage(EMPTY_PROJECT_DIRECTORY_INIT_NOOP_BODY);
+        } else {
+            console.warn(EMPTY_PROJECT_DIRECTORY_INIT_NOOP_BODY);
+        }
         return;
     }
 

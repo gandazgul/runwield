@@ -29,6 +29,12 @@ import {
 import { ensureMnemosyneBinary } from "../runtime-preflight.js";
 import { commandRegistry, getCommandInvocationNames, getSlashCommandDefinitions } from "../../cmd/registry.js";
 import { AGENTS } from "../../constants.js";
+import {
+    EMPTY_PROJECT_DIRECTORY_HEADER,
+    EMPTY_PROJECT_DIRECTORY_PROMPT_NOTE,
+    EMPTY_PROJECT_DIRECTORY_WELCOME_BODY,
+    isEmptyProjectDirectory,
+} from "../project-state.js";
 import { COMMAND_NAMES } from "../../cmd/registry.js";
 import { getAgentDisplayName, listAvailableAgents } from "../session/agents.js";
 import { getModelRegistry } from "../models/model-registry.js";
@@ -55,6 +61,7 @@ import {
     setActiveOnMessage,
     setActiveUiAPI,
     setPendingRootSwap,
+    setProjectStateContext,
     setRootSessionManager,
     setThinkingLevel,
 } from "../session/session-state.js";
@@ -557,6 +564,14 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
     const sessionStartedAt = rootSessionManager.getHeader()?.timestamp || new Date().toISOString();
     setActiveOnMessage(onMessage);
 
+    let sessionStartedEmptyProjectDirectory = false;
+    try {
+        sessionStartedEmptyProjectDirectory = await isEmptyProjectDirectory(Deno.cwd());
+    } catch {
+        sessionStartedEmptyProjectDirectory = false;
+    }
+    setProjectStateContext(sessionStartedEmptyProjectDirectory ? EMPTY_PROJECT_DIRECTORY_PROMPT_NOTE : "");
+
     // Pre-warm the display-name cache so any sync getAgentDisplayName call
     // before the root session is built can resolve from cache instead of
     // re-reading the frontmatter file. (The footer itself is not set here —
@@ -962,7 +977,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
     }
 
     // ── Init auto-offer: conditionally offer /init on first TUI visit ──
-    if (!initDone && !modelWelcomeResult.noModel) {
+    if (!sessionStartedEmptyProjectDirectory && !initDone && !modelWelcomeResult.noModel) {
         const alreadyOffered = await isInitOfferedFn();
         if (!alreadyOffered) {
             const choice = await uiAPI.promptSelect(
@@ -1467,7 +1482,14 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         },
     });
 
-    if (!suppressStartupHeader && !modelWelcomeResult.suppressBootBanner) {
+    if (!suppressStartupHeader && sessionStartedEmptyProjectDirectory && !initialUserRequest) {
+        uiAPI.appendSystemMessage(
+            EMPTY_PROJECT_DIRECTORY_WELCOME_BODY,
+            false,
+            EMPTY_PROJECT_DIRECTORY_HEADER,
+            { headingColor: "success", bodyColor: "accent" },
+        );
+    } else if (!suppressStartupHeader && !modelWelcomeResult.suppressBootBanner) {
         await renderBootBanner({
             uiAPI,
             invokablePromptTemplates,

@@ -51,6 +51,7 @@ import {
     addSubAgentSession,
     getActiveModelState,
     getActiveUiAPIState,
+    getProjectStateContext,
     getRootAgentName,
     getRootAgentSession,
     getRootSessionManager,
@@ -1002,9 +1003,16 @@ async function resolveModel(modelOverride, agentDef, agentName, modelRegistry = 
  * @param {string[]} tools
  * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} finalCustomTools
  * @param {string} [cwd]
+ * @param {string} [projectStateContext]
  * @returns {Promise<string>}
  */
-export async function assembleFinalSystemPrompt(agentDef, tools, finalCustomTools, cwd = CWD) {
+export async function assembleFinalSystemPrompt(
+    agentDef,
+    tools,
+    finalCustomTools,
+    cwd = CWD,
+    projectStateContext = "",
+) {
     const piTools = [
         createBashToolDefinition(cwd),
         createGrepToolDefinition(cwd),
@@ -1072,6 +1080,11 @@ export async function assembleFinalSystemPrompt(agentDef, tools, finalCustomTool
         }
     }
     finalSystemPrompt = finalSystemPrompt.replace("{{PROJECT_AGENTSMD}}", projectAgentsMd);
+
+    const projectStateContextSection = projectStateContext
+        ? ["### Project State", "", projectStateContext, ""].join("\n")
+        : "";
+    finalSystemPrompt = finalSystemPrompt.replace("{{PROJECT_STATE_CONTEXT}}", projectStateContextSection);
 
     let memories = "";
     try {
@@ -1158,6 +1171,7 @@ export async function assembleFinalSystemPrompt(agentDef, tools, finalCustomTool
  * @param {boolean} [opts.allowReturnToRouter]
  * @param {string} [opts.cwd] - Execution cwd for file tools and agent operations. Defaults to primary project root.
  * @param {string} [opts.debugLogPath] - Optional DEBUG log destination for this invocation.
+ * @param {string} [opts.projectStateContext] - Optional session-scoped project state note for the system prompt.
  * @param {boolean} [opts.includeEditFallback] - Internal: whether to register the edit fallback custom tool.
  *
  * @returns {Promise<{
@@ -1185,6 +1199,7 @@ export async function buildAgentSession({
     allowReturnToRouter,
     cwd,
     debugLogPath,
+    projectStateContext,
     includeEditFallback,
 }) {
     const sessionCwd = cwd || CWD;
@@ -1266,7 +1281,13 @@ export async function buildAgentSession({
     }
 
     // Resolve system prompt placeholders
-    const finalSystemPrompt = await assembleFinalSystemPrompt(agentDef, tools, finalCustomTools, sessionCwd);
+    const finalSystemPrompt = await assembleFinalSystemPrompt(
+        agentDef,
+        tools,
+        finalCustomTools,
+        sessionCwd,
+        projectStateContext,
+    );
     const promptState = { text: finalSystemPrompt };
     const packagePromptResources = await resolveInstalledPackagePromptResources({ cwd: sessionCwd }).catch(() => []);
     const packageExtensionResources = await resolveInstalledWldExtensionResources({ cwd: sessionCwd }).catch(() => []);
@@ -1924,7 +1945,7 @@ export function applyAttentionNudge(agentName, userRequest, rootTurnCount) {
     ].join("\n");
 }
 
-/** @type {WeakMap<import('@earendil-works/pi-coding-agent').AgentSession, { agentDef: import('./types.js').AgentDefinition, promptState: { text: string }, subscriberState: SubscriberState, agentName: string, tools: string[], finalCustomTools: import('@earendil-works/pi-coding-agent').ToolDefinition[], rootTurnCount: number, imageMode?: string, visionFallbackModelRef?: string }>} */
+/** @type {WeakMap<import('@earendil-works/pi-coding-agent').AgentSession, { agentDef: import('./types.js').AgentDefinition, promptState: { text: string }, subscriberState: SubscriberState, agentName: string, tools: string[], finalCustomTools: import('@earendil-works/pi-coding-agent').ToolDefinition[], rootTurnCount: number, projectStateContext: string, imageMode?: string, visionFallbackModelRef?: string }>} */
 const rootSessionMetadata = new WeakMap();
 
 /**
@@ -1950,6 +1971,7 @@ export function __getRootSessionMetadataForTests(session) {
  * @param {boolean} [opts.allowReturnToRouter]
  * @param {import('./types.js').AgentDefinition} [opts._agentDefOverride]
  * @param {string} [opts.cwd]
+ * @param {string} [opts.projectStateContext]
  * @param {boolean} [opts.includeEditFallback]
  *
  * @returns {Promise<import('@earendil-works/pi-coding-agent').AgentSession>}
@@ -1969,6 +1991,7 @@ export async function ensureRootAgentSession(opts) {
         setRootAgentName(null);
     }
 
+    const rootProjectStateContext = opts.projectStateContext ?? getProjectStateContext();
     const {
         session,
         agentDef,
@@ -1980,6 +2003,7 @@ export async function ensureRootAgentSession(opts) {
         visionFallbackModelRef,
     } = await buildAgentSession({
         ...opts,
+        projectStateContext: rootProjectStateContext,
         allowReturnToRouter: opts.allowReturnToRouter ?? true,
     });
     const subscriberState = attachUiSubscribers(session, agentDef, opts.uiAPI);
@@ -1998,6 +2022,7 @@ export async function ensureRootAgentSession(opts) {
         tools,
         finalCustomTools,
         rootTurnCount: 0,
+        projectStateContext: rootProjectStateContext,
         imageMode,
         visionFallbackModelRef,
     });
@@ -2058,6 +2083,7 @@ export async function runRootTurn({
             customTools,
             _agentDefOverride,
             allowReturnToRouter,
+            projectStateContext: meta.projectStateContext,
         });
         meta = rootSessionMetadata.get(session);
         if (!meta) {
@@ -2100,6 +2126,7 @@ export function shouldReuseExistingRootSession(opts, rootAgentName) {
         "allowReturnToRouter",
         "cwd",
         "debugLogPath",
+        "projectStateContext",
         "includeEditFallback",
     ];
     return !rootChangingKeys.some((key) => Object.hasOwn(opts, key) && opts[key] !== undefined);
@@ -2124,12 +2151,15 @@ export function shouldReuseExistingRootSession(opts, rootAgentName) {
  * @param {boolean} [opts.allowReturnToRouter] - Internal: expose return_to_router only for interactive direct/root flows.
  * @param {string} [opts.cwd] - Execution cwd for file tools and agent operations.
  * @param {string} [opts.debugLogPath] - Optional DEBUG log destination for this invocation.
+ * @param {string} [opts.projectStateContext] - Optional session-scoped project state note for the system prompt.
  * @param {boolean} [opts.includeEditFallback] - Internal: whether to register the edit fallback custom tool.
  * @param {boolean} [opts.useRootSession=true] - Set false only for intentional disposable one-off sessions.
  *
  * @returns {Promise<import('@earendil-works/pi-agent-core').AgentMessage[]>}
  */
 export async function runAgentSession(opts) {
+    const projectStateContext = opts.projectStateContext ?? getProjectStateContext();
+
     if (opts.useRootSession !== false) {
         if (shouldReuseExistingRootSession(opts, getRootAgentName())) {
             return await runRootTurn({
@@ -2143,6 +2173,7 @@ export async function runAgentSession(opts) {
 
         await ensureRootAgentSession({
             ...opts,
+            projectStateContext,
             allowReturnToRouter: opts.allowReturnToRouter ?? false,
         });
         return await runRootTurn({
@@ -2153,7 +2184,10 @@ export async function runAgentSession(opts) {
         });
     }
 
-    const { session, agentDef, promptState, resolvedModel, resolvedThinkingLevel } = await buildAgentSession(opts);
+    const { session, agentDef, promptState, resolvedModel, resolvedThinkingLevel } = await buildAgentSession({
+        ...opts,
+        projectStateContext,
+    });
     const subscriberState = attachUiSubscribers(session, agentDef, opts.uiAPI, opts.debugLogPath);
     addSubAgentSession(session);
 
@@ -2220,6 +2254,7 @@ export async function reloadRootAgentSession(uiAPI) {
         agentName: meta.agentName,
         uiAPI,
         sessionManager: getRootSessionManager() || undefined,
+        projectStateContext: meta.projectStateContext,
     });
 
     return true;

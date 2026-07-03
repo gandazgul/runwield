@@ -1,13 +1,32 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
 import { AGENTS } from "../../constants.js";
 import {
     applyAttentionNudge,
+    assembleFinalSystemPrompt,
     getGlobalAgentMdPaths,
     readGlobalAgentMd,
     runPrompt,
     shouldReuseExistingRootSession,
 } from "./session.js";
+
+Deno.test("assembleFinalSystemPrompt includes project-state context only when provided", async () => {
+    const agentDef = {
+        name: "test",
+        displayName: "Test",
+        description: "Test agent",
+        model: "",
+        tools: [],
+        systemPrompt:
+            "## Project Context\n\n{{PROJECT_STATE_CONTEXT}}\n{{PROJECT_AGENTSMD}}\n\n{{AVAILABLE_TOOLS}}\n{{GLOBAL_AGENTSMD}}\n{{MEMORIES}}\n{{SKILLS}}\n{{IMAGE_ATTACHMENTS_SECTION}}\n{{BUNDLED_AGENT_DEFS_DIR}}",
+    };
+
+    const withoutContext = await assembleFinalSystemPrompt(agentDef, [], [], Deno.cwd());
+    const withContext = await assembleFinalSystemPrompt(agentDef, [], [], Deno.cwd(), "Greenfield note.");
+
+    assertEquals(withoutContext.includes("### Project State"), false);
+    assertStringIncludes(withContext, "### Project State\n\nGreenfield note.");
+});
 
 Deno.test("readGlobalAgentMd falls back from ~/.wld/RUNWEILD.md to ~/.wld/AGENTS.md", async () => {
     const tempHome = await Deno.makeTempDir({ prefix: "runwield-agents-md-" });
