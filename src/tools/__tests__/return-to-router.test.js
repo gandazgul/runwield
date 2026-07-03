@@ -46,11 +46,11 @@ Deno.test("returnToRouterTool returns error when no UI API is active", async () 
 });
 
 Deno.test("returnToRouterTool terminates the calling turn and records a Router handoff", async () => {
-    let systemMessage = "";
+    let systemMessageCount = 0;
     /** @type {import('../../shared/ui/types.js').UiAPI} */
     const mockUiAPI = {
-        appendSystemMessage: (/** @type {string} */ msg) => {
-            systemMessage = msg;
+        appendSystemMessage: () => {
+            systemMessageCount += 1;
         },
         requestRender: () => {},
         appendAgentMessageStart: () => ({ appendText: () => {} }),
@@ -69,10 +69,7 @@ Deno.test("returnToRouterTool terminates the calling turn and records a Router h
     assertEquals(result.content.length, 0);
     assertEquals(/** @type {{ agentName: string, reason: string }} */ (result.details).agentName, AGENTS.ROUTER);
     assertEquals(/** @type {{ agentName: string, reason: string }} */ (result.details).reason, reason);
-    assertMatch(
-        systemMessage,
-        new RegExp(`Agent hand-off: Returning to ${getAgentDisplayName(AGENTS.ROUTER)}`, "i"),
-    );
+    assertEquals(systemMessageCount, 0);
 
     const handoff = consumePendingSwitchHandoff();
     assertEquals(handoff?.agentName, AGENTS.ROUTER);
