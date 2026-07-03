@@ -319,16 +319,27 @@ command definition, prompt command
 - A **Terminal Title** should mirror the current **Session Name** when one exists.
 - Router-provided auto-naming only sets the **Session Name** for unnamed sessions; manual naming overrides it.
 - An **Empty Project Directory** has no meaningful existing codebase for normal repository initialization to inspect.
-- A directory with only dot-prefixed top-level entries is an **Empty Project Directory**; any non-hidden top-level file
-  or folder makes the directory non-empty for RunWield startup behavior.
+- A directory is an **Empty Project Directory** when it contains no non-dot-prefixed, non-zero-size files; empty folders
+  and dot-prefixed files or folders are ignored for startup detection.
 - A non-empty `README.md` is meaningful project context, so a directory containing one is not an **Empty Project
   Directory**.
+- RunWield shows **Empty Project Directory** guidance only when starting an interactive TUI session without an initial
+  **User Request**.
+- Running `/init` or `wld init` in an **Empty Project Directory** should report that there is nothing to initialize yet
+  and should not record init as offered or done, so normal init can still be offered after meaningful files exist.
+- The startup guidance for an **Empty Project Directory** should avoid mentioning init and should focus on asking the
+  user what they want to build or whether they want help choosing a stack or sharpening the idea.
+- Every normal interactive **Agent Session** in an **Empty Project Directory** should receive a simple shared-context
+  note that there is no existing project architecture or real Router-provided **Affected Paths** yet, and should defer
+  to the user when greenfield tech stack, product shape, or goals require a clear choice.
 - A **User Request** is classified by an Agent emitting exactly one **Triage Report** through the **Triage-Report
   Tool**.
 - The **Router** is the default Agent used for fresh Triage, but the **Workflow Orchestrator** reacts to the
   **Triage-Report Tool** outcome rather than to the **Router** Agent Name.
 - A **Triage Report** contains exactly one **Routing Intent**, one **Complexity**, one summary, and zero or more
   **Affected Paths**.
+- Router-provided **Affected Paths** in a **Triage Report** must refer to real existing paths, so Router Triage from an
+  **Empty Project Directory** emits an empty **Affected Paths** list until files exist.
 - **Diagnostic Triage** is a read-only specialization of **Triage** used for unknown-cause broken behavior; it still
   emits a normal **Routing Intent** rather than a bug-specific intent.
 - An **OPERATION** is executed directly by the **Operator** and creates no **Plan**.
