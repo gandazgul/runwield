@@ -1,29 +1,25 @@
 /**
- * Regression tests for the persistent "Esc prints 'Agent run canceled.' when
- * nothing is running" bug. The root AgentSession is built once at chat start
- * and lives across turns, so `abortActiveSession()` must distinguish "session
- * exists" from "session is currently streaming". The keybindings layer relies
- * on the boolean to decide which (if any) message to print on Esc.
+ * Regression tests for HostedSession-scoped abort behavior. The root
+ * AgentSession is long-lived, so abortActiveSession(hostedSession) must abort
+ * only streaming roots and transient sub-agents owned by the target HostedSession.
  */
 
 import { assert, assertEquals } from "@std/assert";
 import { abortActiveSession } from "./session.js";
-import {
-    addSubAgentSession,
-    getSubAgentSessions,
-    removeSubAgentSession,
-    setRootAgentName,
-    setRootAgentSession,
-} from "./session-state.js";
+import { HostedSession } from "./hosted-session.js";
 
 /**
- * Build a minimal AgentSession stub that satisfies the `isStreaming` /
- * `abort()` surface `abortActiveSession()` touches.
- *
+ * @param {string} id
+ */
+function makeHostedSession(id) {
+    return new HostedSession({ id, cwd: Deno.cwd() });
+}
+
+/**
  * @param {{ isStreaming?: boolean, onAbort?: () => void }} [opts]
  */
 function makeFakeSession(opts = {}) {
-    const state = { isStreaming: !!opts.isStreaming, abortCalls: 0 };
+    const state = { isStreaming: !!opts.isStreaming, abortCalls: 0, clearQueueCalls: 0 };
     return /** @type {any} */ ({
         get isStreaming() {
             return state.isStreaming;
@@ -36,100 +32,83 @@ function makeFakeSession(opts = {}) {
             state.isStreaming = false;
             if (opts.onAbort) opts.onAbort();
         },
+        clearQueue() {
+            state.clearQueueCalls++;
+        },
         get _abortCalls() {
             return state.abortCalls;
+        },
+        get _clearQueueCalls() {
+            return state.clearQueueCalls;
         },
     });
 }
 
-/** Reset session-state singletons after each test so order can't leak state. */
-function resetSessionState() {
-    setRootAgentSession(null);
-    setRootAgentName(null);
-    for (const sub of Array.from(getSubAgentSessions())) {
-        removeSubAgentSession(sub);
-    }
-}
+Deno.test("abortActiveSession returns false when target root exists but is idle", () => {
+    const hostedSession = makeHostedSession("abort-idle");
+    const otherHostedSession = makeHostedSession("abort-idle-other");
+    const idleRoot = makeFakeSession({ isStreaming: false });
+    const otherRoot = makeFakeSession({ isStreaming: true });
+    hostedSession.setRootAgentSession(idleRoot);
+    hostedSession.setRootAgentName("router");
+    otherHostedSession.setRootAgentSession(otherRoot);
+    otherHostedSession.setRootAgentName("router");
 
-Deno.test("abortActiveSession returns false when root exists but is idle (regression: Esc on idle)", () => {
-    resetSessionState();
-    try {
-        const idleRoot = makeFakeSession({ isStreaming: false });
-        setRootAgentSession(idleRoot);
-        setRootAgentName("router");
-
-        // The whole point: idle root must not be treated as an active run.
-        // If this flips to true, Esc will once again print the spurious
-        // "Agent run canceled." message in the TUI.
-        assertEquals(abortActiveSession(), false);
-        assertEquals(idleRoot._abortCalls, 0, "must not call abort() on an idle root session");
-    } finally {
-        resetSessionState();
-    }
+    assertEquals(abortActiveSession(hostedSession), false);
+    assertEquals(idleRoot._abortCalls, 0, "must not call abort() on an idle root session");
+    assertEquals(idleRoot._clearQueueCalls, 1, "target root queue is cleared even when idle");
+    assertEquals(otherRoot._abortCalls, 0, "other HostedSession root must not be aborted");
+    assertEquals(otherRoot._clearQueueCalls, 0, "other HostedSession queue must not be cleared");
 });
 
-Deno.test("abortActiveSession returns true and aborts when the root is streaming", () => {
-    resetSessionState();
-    try {
-        const streamingRoot = makeFakeSession({ isStreaming: true });
-        setRootAgentSession(streamingRoot);
-        setRootAgentName("router");
+Deno.test("abortActiveSession aborts only the streaming root in the target HostedSession", () => {
+    const hostedSession = makeHostedSession("abort-streaming");
+    const otherHostedSession = makeHostedSession("abort-streaming-other");
+    const streamingRoot = makeFakeSession({ isStreaming: true });
+    const otherStreamingRoot = makeFakeSession({ isStreaming: true });
+    hostedSession.setRootAgentSession(streamingRoot);
+    otherHostedSession.setRootAgentSession(otherStreamingRoot);
 
-        assertEquals(abortActiveSession(), true);
-        assertEquals(streamingRoot._abortCalls, 1);
-    } finally {
-        resetSessionState();
-    }
+    assertEquals(abortActiveSession(hostedSession), true);
+    assertEquals(streamingRoot._abortCalls, 1);
+    assertEquals(streamingRoot._clearQueueCalls, 1);
+    assertEquals(otherStreamingRoot._abortCalls, 0);
+    assertEquals(otherStreamingRoot._clearQueueCalls, 0);
 });
 
-Deno.test("abortActiveSession returns true when a sub-agent is present, regardless of root state", () => {
-    resetSessionState();
-    try {
-        const idleRoot = makeFakeSession({ isStreaming: false });
-        const sub = makeFakeSession({ isStreaming: true });
-        setRootAgentSession(idleRoot);
-        setRootAgentName("router");
-        addSubAgentSession(sub);
+Deno.test("abortActiveSession scopes transient sub-agents to the target HostedSession", () => {
+    const hostedSession = makeHostedSession("abort-sub");
+    const otherHostedSession = makeHostedSession("abort-sub-other");
+    const idleRoot = makeFakeSession({ isStreaming: false });
+    const sub = makeFakeSession({ isStreaming: true });
+    const otherSub = makeFakeSession({ isStreaming: true });
+    hostedSession.setRootAgentSession(idleRoot);
+    hostedSession.addSubAgentSession(sub);
+    otherHostedSession.addSubAgentSession(otherSub);
 
-        assertEquals(abortActiveSession(), true);
-        assertEquals(idleRoot._abortCalls, 0, "idle root must remain untouched even when sub-agents exist");
-        assertEquals(sub._abortCalls, 1);
-    } finally {
-        resetSessionState();
-    }
+    assertEquals(abortActiveSession(hostedSession), true);
+    assertEquals(idleRoot._abortCalls, 0, "idle root must remain untouched even when target sub-agents exist");
+    assertEquals(idleRoot._clearQueueCalls, 1);
+    assertEquals(sub._abortCalls, 1);
+    assertEquals(otherSub._abortCalls, 0, "other HostedSession sub-agent must not be aborted");
 });
 
-Deno.test("abortActiveSession returns false when no sessions exist at all", () => {
-    resetSessionState();
-    assertEquals(abortActiveSession(), false);
+Deno.test("abortActiveSession returns false when target HostedSession has no sessions", () => {
+    assertEquals(abortActiveSession(makeHostedSession("abort-empty")), false);
 });
 
 Deno.test("abortActiveSession swallows errors thrown by abort() and still reports true", () => {
-    resetSessionState();
-    try {
-        const root = makeFakeSession({
-            isStreaming: true,
-            onAbort: () => {
-                throw new Error("boom");
-            },
-        });
-        setRootAgentSession(root);
-        setRootAgentName("router");
+    const hostedSession = makeHostedSession("abort-error");
+    const root = makeFakeSession({
+        isStreaming: true,
+        onAbort: () => {
+            throw new Error("boom");
+        },
+    });
+    hostedSession.setRootAgentSession(root);
 
-        // Must not propagate; UI cancel paths assume this is safe to call.
-        assertEquals(abortActiveSession(), true);
-    } finally {
-        resetSessionState();
-    }
+    assertEquals(abortActiveSession(hostedSession), true);
 });
-
-// ─── Message-priority guard ────────────────────────────────────────────
-// Mirrors the keybindings.js Esc branch:
-//   if (opCanceled)        → "Operation canceled."
-//   else if (sessionAborted) → "Agent run canceled."
-//   else if (planCanceled)   → "Plan review canceled."
-// The regression we're guarding against: sessionAborted being true on idle
-// would cause "Agent run canceled." to print with nothing actually running.
 
 /**
  * @param {{ opCanceled: boolean, sessionAborted: boolean, planCanceled: boolean }} flags
@@ -142,53 +121,41 @@ function pickCancelMessage(flags) {
     return null;
 }
 
-Deno.test("Esc on a fully idle chat prints no cancellation message", () => {
-    resetSessionState();
+Deno.test("Esc on a fully idle HostedSession prints no cancellation message", () => {
     const message = pickCancelMessage({
         opCanceled: false,
-        sessionAborted: abortActiveSession(),
+        sessionAborted: abortActiveSession(makeHostedSession("abort-idle-message")),
         planCanceled: false,
     });
     assertEquals(message, null);
 });
 
-Deno.test("Esc during a streaming root prints 'Agent run canceled.'", () => {
-    resetSessionState();
-    try {
-        setRootAgentSession(makeFakeSession({ isStreaming: true }));
-        setRootAgentName("router");
-        const message = pickCancelMessage({
-            opCanceled: false,
-            sessionAborted: abortActiveSession(),
-            planCanceled: false,
-        });
-        assertEquals(message, "Agent run canceled.");
-    } finally {
-        resetSessionState();
-    }
+Deno.test("Esc during a streaming target root prints 'Agent run canceled.'", () => {
+    const hostedSession = makeHostedSession("abort-streaming-message");
+    hostedSession.setRootAgentSession(makeFakeSession({ isStreaming: true }));
+    const message = pickCancelMessage({
+        opCanceled: false,
+        sessionAborted: abortActiveSession(hostedSession),
+        planCanceled: false,
+    });
+    assertEquals(message, "Agent run canceled.");
 });
 
 Deno.test("Esc while an operation is active prefers 'Operation canceled.' over session/plan", () => {
-    resetSessionState();
-    try {
-        setRootAgentSession(makeFakeSession({ isStreaming: true }));
-        setRootAgentName("router");
-        const message = pickCancelMessage({
-            opCanceled: true,
-            sessionAborted: abortActiveSession(),
-            planCanceled: true,
-        });
-        assertEquals(message, "Operation canceled.");
-    } finally {
-        resetSessionState();
-    }
+    const hostedSession = makeHostedSession("abort-operation-message");
+    hostedSession.setRootAgentSession(makeFakeSession({ isStreaming: true }));
+    const message = pickCancelMessage({
+        opCanceled: true,
+        sessionAborted: abortActiveSession(hostedSession),
+        planCanceled: true,
+    });
+    assertEquals(message, "Operation canceled.");
 });
 
 Deno.test("Esc with only a plan review pending prints 'Plan review canceled.'", () => {
-    resetSessionState();
     const message = pickCancelMessage({
         opCanceled: false,
-        sessionAborted: abortActiveSession(),
+        sessionAborted: abortActiveSession(makeHostedSession("abort-plan-message")),
         planCanceled: true,
     });
     assert(message === "Plan review canceled.");
