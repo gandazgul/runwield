@@ -1,4 +1,5 @@
 ---
+planId: "79c82bc3-2f16-491c-9a1e-9f708158ae45"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Remove remaining mutable global session-state dependencies, restore full existing TUI behavior, unskip all temporary tests, and run the complete regression checklist for the Session Host refactor."

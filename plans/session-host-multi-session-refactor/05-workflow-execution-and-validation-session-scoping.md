@@ -1,4 +1,5 @@
 ---
+planId: "a584ccdc-1a39-43ce-bf14-b245b8c5a80b"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Move plan execution, validation, load-plan continuation, and plan-written follow-up state onto the current HostedSession so concurrent sessions cannot share active execution workflow state."

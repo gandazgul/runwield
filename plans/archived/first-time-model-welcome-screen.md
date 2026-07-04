@@ -1,4 +1,5 @@
 ---
+planId: "3728aa70-5e7c-4af5-974c-5bc98127b9db"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Implement a welcome screen for first-time users when no models are configured. This involves detecting the empty model state during TUI startup in `chat-session.js`, creating a new UI component (similar to the provided screenshot) to guide users to configure their connection, and conditionally replacing the standard boot banner."

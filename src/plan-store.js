@@ -116,6 +116,7 @@ function getStoredPlanLocation(cwd, planName) {
  * @property {string|null} [worktreeId] - Durable execution worktree registry id
  * @property {string|null} [worktreePath] - Filesystem path to the execution worktree
  * @property {string|null} [worktreeBranch] - Git branch checked out in the execution worktree
+ * @property {string|null} [worktreeBaseBranch] - Git branch that the execution worktree should merge back into
  * @property {"none"|"active"|"completed"|"execution_failed"|"validation_failed"|"merge_conflict"|"merged"|"abandoned"|null} [worktreeStatus]
  * @property {PlanFrontMatter["status"]|null} [heldFromStatus] - Status captured before the Plan moved to on_hold
  * @property {string|null} [heldAt] - ISO timestamp when the Plan was put on hold
@@ -208,6 +209,7 @@ export const PLAN_FRONT_MATTER_KEYS = Object.freeze({
     worktreeId: "worktreeId",
     worktreePath: "worktreePath",
     worktreeBranch: "worktreeBranch",
+    worktreeBaseBranch: "worktreeBaseBranch",
     worktreeStatus: "worktreeStatus",
     heldFromStatus: "heldFromStatus",
     heldAt: "heldAt",
@@ -314,6 +316,7 @@ function formatFrontMatter(fm) {
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.worktreeId, fm.worktreeId);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.worktreePath, fm.worktreePath);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.worktreeBranch, fm.worktreeBranch);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.worktreeBaseBranch, fm.worktreeBaseBranch);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.worktreeStatus, fm.worktreeStatus);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.heldFromStatus, fm.heldFromStatus);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.heldAt, fm.heldAt);
@@ -573,6 +576,7 @@ export function injectFrontMatter(markdown, overrides = {}) {
         worktreeId: optionalFrontMatterValue(overrides, existingFm, "worktreeId"),
         worktreePath: optionalFrontMatterValue(overrides, existingFm, "worktreePath"),
         worktreeBranch: optionalFrontMatterValue(overrides, existingFm, "worktreeBranch"),
+        worktreeBaseBranch: optionalFrontMatterValue(overrides, existingFm, "worktreeBaseBranch"),
         worktreeStatus: normalizeWorktreeStatus(
             Object.hasOwn(overrides, "worktreeStatus") ? overrides.worktreeStatus : existingFm.worktreeStatus,
         ),
@@ -658,6 +662,7 @@ export function parsePlanFrontMatter(markdown, opts = {}) {
             worktreeId: attrs.worktreeId,
             worktreePath: attrs.worktreePath,
             worktreeBranch: attrs.worktreeBranch,
+            worktreeBaseBranch: attrs.worktreeBaseBranch,
             worktreeStatus: normalizeWorktreeStatus(attrs.worktreeStatus),
             heldFromStatus: normalizePlanStatusForOptionalHold(attrs.heldFromStatus),
             heldAt: attrs.heldAt,

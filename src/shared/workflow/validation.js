@@ -107,6 +107,15 @@ export async function runLocalCI(uiAPI, cwd = CWD) {
         };
     }
 
+    const toolCallId = `validation-ci-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    uiAPI.addToolInvoked?.({
+        id: toolCallId,
+        name: "bash",
+        input: { command: cmdArgs },
+    });
+    const toolBlock = uiAPI.startToolExecution?.(toolCallId, "$", cmdArgs);
+    const startTime = Date.now();
+
     try {
         const isWindows = Deno.build.os === "windows";
         const cmdExe = isWindows ? "cmd" : "sh";
@@ -121,15 +130,38 @@ export async function runLocalCI(uiAPI, cwd = CWD) {
 
         const { code, stdout, stderr } = await command.output();
         const decoder = new TextDecoder();
+        const output = decoder.decode(stdout) + "\n" + decoder.decode(stderr);
+        const durationMs = Date.now() - startTime;
+
+        toolBlock?.appendOutput(output.trim() ? output : "(no output)\n");
+        toolBlock?.endExecution(code !== 0, durationMs);
+        uiAPI.addToolResult?.({
+            id: toolCallId,
+            name: "bash",
+            result: output,
+            isError: code !== 0,
+            durationMs,
+        });
 
         return {
             exitCode: code,
-            output: decoder.decode(stdout) + "\n" + decoder.decode(stderr),
+            output,
         };
     } catch (/** @type {any} */ error) {
+        const output = `Failed to spawn validation process: ${error.message}`;
+        const durationMs = Date.now() - startTime;
+        toolBlock?.appendOutput(`${output}\n`);
+        toolBlock?.endExecution(true, durationMs);
+        uiAPI.addToolResult?.({
+            id: toolCallId,
+            name: "bash",
+            result: output,
+            isError: true,
+            durationMs,
+        });
         return {
             exitCode: 1,
-            output: `Failed to spawn validation process: ${error.message}`,
+            output,
         };
     }
 }
@@ -209,6 +241,116 @@ async function promptForMergeFailureAction(uiAPI, reason) {
         ],
     );
     return choice === "retry" ? "retry" : "stop";
+}
+
+/**
+ * @param {unknown} error
+ * @returns {string | undefined}
+ */
+function getMergeRepairCwd(error) {
+    if (error && typeof error === "object" && "repairCwd" in error) {
+        const repairCwd = /** @type {{ repairCwd?: unknown }} */ (error).repairCwd;
+        return typeof repairCwd === "string" ? repairCwd : undefined;
+    }
+    return undefined;
+}
+
+/**
+ * @param {unknown} error
+ * @returns {string | undefined}
+ */
+function getMergeWorktreePath(error) {
+    if (error && typeof error === "object" && "mergeWorktreePath" in error) {
+        const mergeWorktreePath = /** @type {{ mergeWorktreePath?: unknown }} */ (error).mergeWorktreePath;
+        return typeof mergeWorktreePath === "string" ? mergeWorktreePath : undefined;
+    }
+    return undefined;
+}
+
+/**
+ * @param {unknown} error
+ * @returns {string | undefined}
+ */
+function getMergeFailureKind(error) {
+    if (error && typeof error === "object" && "mergeFailureKind" in error) {
+        const kind = /** @type {{ mergeFailureKind?: unknown }} */ (error).mergeFailureKind;
+        return typeof kind === "string" ? kind : undefined;
+    }
+    return undefined;
+}
+
+/**
+ * @param {string} cwd
+ * @returns {Promise<string | undefined>}
+ */
+async function getGitStatusContext(cwd) {
+    try {
+        const command = new Deno.Command("git", { args: ["status", "--short"], cwd, stdout: "piped", stderr: "piped" });
+        const output = await command.output();
+        if (output.code !== 0) return undefined;
+        const status = new TextDecoder().decode(output.stdout).trim();
+        return status || "(clean)";
+    } catch {
+        return undefined;
+    }
+}
+
+/**
+ * @param {Object} opts
+ * @param {string} opts.planName
+ * @param {string} opts.reason
+ * @param {string | undefined} opts.executionCwd
+ * @param {string | undefined} opts.worktreeBranch
+ * @param {string | undefined} opts.worktreeBaseBranch
+ * @param {string} opts.currentPlanStatus
+ * @param {string | undefined} opts.diffContext
+ * @param {string | undefined} opts.gitStatusContext
+ * @param {string | undefined} opts.repairCwd
+ * @param {string | undefined} opts.mergeFailureKind
+ * @returns {string}
+ */
+function buildMergeRepairRequest({
+    planName,
+    reason,
+    executionCwd,
+    worktreeBranch,
+    worktreeBaseBranch,
+    currentPlanStatus,
+    diffContext,
+    gitStatusContext,
+    repairCwd,
+    mergeFailureKind,
+}) {
+    return [
+        `Worktree merge-back failed for plan ${planName}.`,
+        "Fix the merge/conflict state or make the merge retryable, then call task_completed.",
+        "Do not expand scope beyond resolving this merge-back failure.",
+        "",
+        `Failure reason:\n${reason}`,
+        "",
+        `Execution worktree path: ${executionCwd || "(unknown)"}`,
+        `Execution worktree branch: ${worktreeBranch || "(unknown)"}`,
+        `Current plan status: ${currentPlanStatus}`,
+        `Recorded target branch: ${worktreeBaseBranch || "(unknown; legacy current-checkout fallback)"}`,
+        `Repair cwd: ${repairCwd || executionCwd || "(project root)"}`,
+        `Merge path: ${
+            mergeFailureKind === "detached_merge_conflict"
+                ? "detached merge worktree"
+                : "checked-out/current checkout fallback or unknown"
+        }`,
+        `Merge failure kind: ${mergeFailureKind || "unknown"}`,
+        gitStatusContext ? `Git status context:\n${gitStatusContext}` : "Git status context: (unavailable)",
+        diffContext
+            ? `Diff/context:
+${diffContext}`
+            : "Diff/context: (unavailable)",
+        "",
+        "Expected repair:",
+        "- Inspect git status/conflicts in the repair cwd.",
+        "- Resolve and stage conflicts, or abort/reset the failed merge state and adjust the execution branch so merge-back can retry cleanly.",
+        "- Run appropriate verification for the repair.",
+        "- Call task_completed when the merge repair is ready for RunWield to retry merge-back.",
+    ].join("\n");
 }
 
 /**
@@ -442,12 +584,14 @@ export async function runValidationLoop({
     const projectRoot = activeWorkflow?.projectRoot || CWD;
     const executionCwd = activeWorkflow?.executionCwd || CWD;
     const worktreeBranch = activeWorkflow?.worktreeBranch;
+    const worktreeBaseBranch = activeWorkflow?.worktreeBaseBranch;
     const worktreeId = activeWorkflow?.worktreeId;
     if (activeWorkflow) {
         clearActiveExecutionWorkflow();
     }
     const setActiveAgentImpl = __deps?.setActiveAgent || setActiveAgent;
     let executionComplete = false;
+    let latestDiffText = "";
     /** @type {string | null} */
     let haltReason = null;
     /** @type {HumanReviewMetadata | null} */
@@ -511,6 +655,7 @@ export async function runValidationLoop({
         let reviewResponse = "";
         try {
             diffText = await getDiffText(baselineTree, executionCwd);
+            latestDiffText = diffText;
 
             if (
                 (!requiresImplementationDiff(triageMeta) || hasImplementationDiff(diffText, planName)) &&
@@ -682,6 +827,19 @@ export async function runValidationLoop({
             ? triageMeta.classification.toLocaleLowerCase().replace(/^([a-z])/, (c) => c.toUpperCase())
             : "Plan";
         let cleanupMergedWorktrees = true;
+        const maxMergeRepairAttempts = 2;
+        let mergeRepairAttempts = 0;
+        /** @type {string | undefined} */
+        let pendingRepairMergeWorktreePath;
+
+        if (worktreeBranch && !worktreeBaseBranch) {
+            appendRunWieldSystemMessage(
+                uiAPI,
+                "Recorded worktree target branch is unknown; using legacy current-checkout merge fallback. " +
+                    "Recover the target from the worktree registry when possible before retrying.",
+                true,
+            );
+        }
 
         if (worktreeBranch) {
             while (executionComplete) {
@@ -689,12 +847,16 @@ export async function runValidationLoop({
                     cleanupMergedWorktrees = shouldCleanupMergedWorktreesImpl();
                     appendRunWieldSystemMessage(
                         uiAPI,
-                        `Merging validated worktree branch ${worktreeBranch} into primary checkout.`,
+                        worktreeBaseBranch
+                            ? `Merging validated worktree branch ${worktreeBranch} into target branch ${worktreeBaseBranch}.`
+                            : `Merging validated worktree branch ${worktreeBranch} into primary checkout.`,
                     );
                     await mergeExecutionWorktreeImpl({
                         projectRoot,
                         branch: worktreeBranch,
+                        targetBranch: worktreeBaseBranch,
                         worktreePath: executionCwd,
+                        repairMergeWorktreePath: pendingRepairMergeWorktreePath,
                         allowedDirtyPaths: [
                             `plans/${planName}.md`,
                             ".wld/",
@@ -702,6 +864,7 @@ export async function runValidationLoop({
                             ".wld/worktrees.lock",
                         ],
                     });
+                    pendingRepairMergeWorktreePath = undefined;
                     if (worktreeId) {
                         await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, { status: "merged" });
                     }
@@ -754,7 +917,13 @@ export async function runValidationLoop({
                                 planName,
                                 event: "worktree_merge_failed",
                                 currentStatus: "implemented",
-                                details: { triageMeta, failureReason: reason },
+                                details: {
+                                    triageMeta,
+                                    failureReason: reason,
+                                    worktreePath: executionCwd,
+                                    worktreeBranch,
+                                    worktreeBaseBranch,
+                                },
                             });
                         } catch (metadataError) {
                             const metadataReason = metadataError instanceof Error
@@ -766,6 +935,48 @@ export async function runValidationLoop({
                                 true,
                             );
                         }
+                    }
+
+                    pendingRepairMergeWorktreePath = getMergeWorktreePath(error) || pendingRepairMergeWorktreePath;
+
+                    if (mergeRepairAttempts < maxMergeRepairAttempts) {
+                        mergeRepairAttempts++;
+                        const repairCwd = getMergeRepairCwd(error) || pendingRepairMergeWorktreePath || executionCwd ||
+                            projectRoot;
+                        const gitStatusContext = await getGitStatusContext(repairCwd);
+                        appendRunWieldSystemMessage(
+                            uiAPI,
+                            `Dispatching ${
+                                getAgentDisplayName(AGENTS.ENGINEER)
+                            } for merge repair attempt ${mergeRepairAttempts}/${maxMergeRepairAttempts}...`,
+                            true,
+                        );
+                        const completed = await repair({
+                            agentName: AGENTS.ENGINEER,
+                            userRequest: buildMergeRepairRequest({
+                                planName,
+                                reason,
+                                executionCwd,
+                                worktreeBranch,
+                                worktreeBaseBranch,
+                                currentPlanStatus: "implemented",
+                                diffContext: latestDiffText.trim() ? latestDiffText.slice(0, 6000) : undefined,
+                                gitStatusContext,
+                                repairCwd,
+                                mergeFailureKind: getMergeFailureKind(error),
+                            }),
+                            uiAPI,
+                            sessionManager,
+                            cwd: repairCwd,
+                        });
+                        if (completed) continue;
+                        appendRunWieldSystemMessage(
+                            uiAPI,
+                            `${
+                                getAgentDisplayName(AGENTS.ENGINEER)
+                            } stopped without task_completed during merge repair.`,
+                            true,
+                        );
                     }
 
                     const action = await promptForMergeFailureAction(uiAPI, reason);

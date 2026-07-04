@@ -1,4 +1,5 @@
 ---
+planId: "cc28596a-966c-480b-ab73-2bf3a9d6ea15"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Make triage dispatch, active agent switching, pending handoff consumption, and the return_to_router tool operate on the current HostedSession without affecting other sessions."

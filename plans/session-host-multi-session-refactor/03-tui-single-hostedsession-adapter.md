@@ -1,4 +1,5 @@
 ---
+planId: "07270c85-74a8-4213-b68e-cb06fc8f2a22"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Rebuild the existing interactive TUI as a client of one HostedSession, including boot, active agent switching, slash dispatch, /new, model/thinking state, and footer state."

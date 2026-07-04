@@ -1,4 +1,5 @@
 ---
+planId: "27d6c7c0-37d6-4b32-bc60-0426c5214d17"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Introduce the SessionHost/HostedSession state boundary and move the current session-state data shape into per-session ownership with a two-session isolation test harness. This slice intentionally prioritizes architectural proof over preserving all current TUI flows on the isolation branch."

@@ -1062,6 +1062,7 @@ async function executeReadyPlanWithRepair({
  * @property {string} [id]
  * @property {string} [path]
  * @property {string} [branch]
+ * @property {string} [baseBranch]
  * @property {string} [status]
  * @property {string} [baseRef]
  * @property {string} [baseCommit]
@@ -1082,16 +1083,37 @@ async function resolveRecoveryWorktree(plan, { findWorktreeById, findWorktreeByP
     const path = plan.attrs.worktreePath || entry?.path;
     const branch = plan.attrs.worktreeBranch || entry?.branch;
     const id = plan.attrs.worktreeId || entry?.id;
+    const recordedBaseBranch = plan.attrs.worktreeBaseBranch || entry?.baseBranch;
+    const baseBranch = recordedBaseBranch === "HEAD" ? undefined : recordedBaseBranch;
     if (!path && !branch && !id) return null;
     return {
         id,
         path,
         branch,
+        baseBranch,
         status: plan.attrs.worktreeStatus || entry?.status,
         baseRef: entry?.baseRef,
         baseCommit: entry?.baseCommit,
         baseTree: entry?.baseTree,
     };
+}
+
+/**
+ * @param {{ planName: string, attrs: import('../../plan-store.js').PlanFrontMatter }} plan
+ * @param {RecoveryWorktreeContext | null} context
+ * @param {typeof updatePlanFrontMatterFn} updatePlanFrontMatter
+ * @returns {Promise<import('../../plan-store.js').PlanFrontMatter>}
+ */
+async function persistRecoveredWorktreeMetadata(plan, context, updatePlanFrontMatter) {
+    if (!context) return plan.attrs;
+    /** @type {Partial<import('../../plan-store.js').PlanFrontMatter>} */
+    const updates = {};
+    if (context.id && !plan.attrs.worktreeId) updates.worktreeId = context.id;
+    if (context.path && !plan.attrs.worktreePath) updates.worktreePath = context.path;
+    if (context.branch && !plan.attrs.worktreeBranch) updates.worktreeBranch = context.branch;
+    if (context.baseBranch && !plan.attrs.worktreeBaseBranch) updates.worktreeBaseBranch = context.baseBranch;
+    if (!Object.keys(updates).length) return plan.attrs;
+    return await updatePlanFrontMatter(CWD, plan.planName, updates, plan.attrs);
 }
 
 /**
@@ -1139,7 +1161,7 @@ async function pathExists(path) {
 function rehydrateActiveRecoveryWorkflow(plan, context) {
     const baselineTree = plan.attrs.executionBaselineTree || context?.baseTree;
     if (!baselineTree && !hasWorktreeContext(context)) return;
-    /** @type {{ planName: string, triageMeta: import('../../plan-store.js').PlanFrontMatter, baselineTree?: string, projectRoot: string, executionCwd?: string, worktreeId?: string, worktreeBranch?: string }} */
+    /** @type {{ planName: string, triageMeta: import('../../plan-store.js').PlanFrontMatter, baselineTree?: string, projectRoot: string, executionCwd?: string, worktreeId?: string, worktreeBranch?: string, worktreeBaseBranch?: string }} */
     const workflow = {
         planName: plan.planName,
         triageMeta: plan.attrs,
@@ -1149,6 +1171,7 @@ function rehydrateActiveRecoveryWorkflow(plan, context) {
     if (context?.path) workflow.executionCwd = context.path;
     if (context?.id) workflow.worktreeId = context.id;
     if (context?.branch) workflow.worktreeBranch = context.branch;
+    if (context?.baseBranch) workflow.worktreeBaseBranch = context.baseBranch;
     setActiveExecutionWorkflow(workflow);
 }
 
@@ -1173,6 +1196,7 @@ async function appendRecoveryReport(plan, uiAPI, getWorkflowDiff, worktreeContex
                 `Worktree status: ${worktreeContext?.status || "unknown"}`,
                 `Worktree path:   ${worktreeContext?.path || "(unknown)"}`,
                 `Worktree branch: ${worktreeContext?.branch || "(unknown)"}`,
+                `Worktree target: ${worktreeContext?.baseBranch || "(unknown)"}`,
                 `Worktree base:   ${worktreeContext?.baseCommit || worktreeContext?.baseRef || "(unknown)"}`,
             ].join("\n"),
         );
@@ -1374,7 +1398,12 @@ async function handlePlanRecovery({
     createAgentHandler,
     findPlansByParent,
 }) {
-    let worktreeContext = await resolveRecoveryWorktree(plan, { findWorktreeById, findWorktreeByPlanName });
+    const refreshRecoveryWorktree = async () => {
+        const resolved = await resolveRecoveryWorktree(plan, { findWorktreeById, findWorktreeByPlanName });
+        plan.attrs = await persistRecoveredWorktreeMetadata(plan, resolved, updatePlanFrontMatter);
+        return resolved;
+    };
+    let worktreeContext = await refreshRecoveryWorktree();
     while (true) {
         const hasWorktree = hasWorktreeContext(worktreeContext);
         const canMergeWorktree = canManuallyMergeRecoveredWorktree(worktreeContext);
@@ -1414,13 +1443,13 @@ async function handlePlanRecovery({
         }
 
         if (answer === "inspect") {
-            worktreeContext = await resolveRecoveryWorktree(plan, { findWorktreeById, findWorktreeByPlanName });
+            worktreeContext = await refreshRecoveryWorktree();
             await appendRecoveryReport(plan, uiAPI, getWorkflowDiff, worktreeContext, getWorktreeStatus);
             continue;
         }
 
         if (answer === "validate") {
-            worktreeContext = await resolveRecoveryWorktree(plan, { findWorktreeById, findWorktreeByPlanName });
+            worktreeContext = await refreshRecoveryWorktree();
             if (!(await confirmRecoveryWorktreeAvailable(plan.planName, worktreeContext, uiAPI, getWorktreeStatus))) {
                 continue;
             }
@@ -1439,7 +1468,7 @@ async function handlePlanRecovery({
         }
 
         if (answer === "continue") {
-            worktreeContext = await resolveRecoveryWorktree(plan, { findWorktreeById, findWorktreeByPlanName });
+            worktreeContext = await refreshRecoveryWorktree();
             if (!(await confirmRecoveryWorktreeAvailable(plan.planName, worktreeContext, uiAPI, getWorktreeStatus))) {
                 continue;
             }
@@ -1501,15 +1530,18 @@ async function handlePlanRecovery({
                 if (worktreeContext?.id) {
                     await updateWorktreeRegistryEntry(CWD, worktreeContext.id, { status: "abandoned" });
                 }
+                const recreateBaseBranch = worktreeContext?.baseBranch;
                 const recreated = await createExecutionWorktree({
                     projectRoot: CWD,
                     planName: plan.planName,
                     baseRef: recreateBaseRef,
+                    baseBranch: recreateBaseBranch,
                 });
                 plan.attrs = await updatePlanFrontMatter(CWD, plan.planName, {
                     worktreeId: recreated.id,
                     worktreePath: recreated.path,
                     worktreeBranch: recreated.branch,
+                    worktreeBaseBranch: recreated.baseBranch,
                     worktreeStatus: "active",
                     executionBaselineTree: recreated.baseTree,
                 }, plan.attrs);
@@ -1517,6 +1549,7 @@ async function handlePlanRecovery({
                     id: recreated.id,
                     path: recreated.path,
                     branch: recreated.branch,
+                    baseBranch: recreated.baseBranch,
                     status: recreated.status,
                     baseRef: recreated.baseRef,
                     baseCommit: recreated.baseCommit,
@@ -1552,7 +1585,7 @@ async function handlePlanRecovery({
         }
 
         if (answer === "merge") {
-            worktreeContext = await resolveRecoveryWorktree(plan, { findWorktreeById, findWorktreeByPlanName });
+            worktreeContext = await refreshRecoveryWorktree();
             if (!canManuallyMergeRecoveredWorktree(worktreeContext)) {
                 uiAPI.appendSystemMessage(
                     "Manual worktree merge is only available after Workflow Validation passed but merge-back failed. Retry Workflow Validation first.",
@@ -1570,10 +1603,22 @@ async function handlePlanRecovery({
             }
             try {
                 const cleanupMergedWorktrees = shouldCleanupMergedWorktrees();
-                uiAPI.appendSystemMessage(`Merging worktree branch ${worktreeContext.branch} into primary checkout.`);
+                if (!worktreeContext.baseBranch) {
+                    uiAPI.appendSystemMessage(
+                        "Recorded worktree target branch is unknown; using legacy current-checkout merge fallback.",
+                        true,
+                        "RunWield",
+                    );
+                }
+                uiAPI.appendSystemMessage(
+                    worktreeContext.baseBranch
+                        ? `Merging worktree branch ${worktreeContext.branch} into target branch ${worktreeContext.baseBranch}.`
+                        : `Merging worktree branch ${worktreeContext.branch} into primary checkout.`,
+                );
                 await mergeExecutionWorktree({
                     projectRoot: CWD,
                     branch: worktreeContext.branch,
+                    targetBranch: worktreeContext.baseBranch,
                     worktreePath: worktreeContext.path,
                     allowedDirtyPaths: [
                         `plans/${plan.planName}.md`,
@@ -1638,7 +1683,13 @@ async function handlePlanRecovery({
                         planName: plan.planName,
                         event: "worktree_merge_failed",
                         currentStatus: "implemented",
-                        details: { triageMeta: plan.attrs, failureReason: reason },
+                        details: {
+                            triageMeta: plan.attrs,
+                            failureReason: reason,
+                            worktreePath: worktreeContext.path,
+                            worktreeBranch: worktreeContext.branch,
+                            worktreeBaseBranch: worktreeContext.baseBranch,
+                        },
                     });
                 } catch (metadataError) {
                     const metadataReason = metadataError instanceof Error

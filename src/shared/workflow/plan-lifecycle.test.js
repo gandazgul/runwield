@@ -47,11 +47,13 @@ Deno.test("buildPlanEventUpdates records worktree metadata when execution starts
         worktreeId: "wt-1",
         worktreePath: "/tmp/repo-runwield-plan-wt-1",
         worktreeBranch: "runwield/worktree/plan-wt-1",
+        worktreeBaseBranch: "feature-base",
     });
 
     assertEquals(updates.worktreeId, "wt-1");
     assertEquals(updates.worktreePath, "/tmp/repo-runwield-plan-wt-1");
     assertEquals(updates.worktreeBranch, "runwield/worktree/plan-wt-1");
+    assertEquals(updates.worktreeBaseBranch, "feature-base");
     assertEquals(updates.worktreeStatus, "active");
 });
 
@@ -63,6 +65,22 @@ Deno.test("buildPlanEventUpdates keeps implemented status when validation fails"
     assertEquals(updates.status, "implemented");
     assertEquals(updates.worktreeStatus, "validation_failed");
     assertEquals(updates.failureReason, "CI failed");
+});
+
+Deno.test("buildPlanEventUpdates retains recovered worktree branches when merge-back fails", () => {
+    const updates = buildPlanEventUpdates("worktree_merge_failed", "implemented", {
+        triageMeta: { worktreeId: "wt-1" },
+        failureReason: "conflict",
+        worktreePath: "/tmp/repo-runwield-plan-wt-1",
+        worktreeBranch: "runwield/worktree/plan-wt-1",
+        worktreeBaseBranch: "feature-base",
+    });
+
+    assertEquals(updates.worktreePath, "/tmp/repo-runwield-plan-wt-1");
+    assertEquals(updates.worktreeBranch, "runwield/worktree/plan-wt-1");
+    assertEquals(updates.worktreeBaseBranch, "feature-base");
+    assertEquals(updates.worktreeStatus, "merge_conflict");
+    assertEquals(updates.failureReason, "conflict");
 });
 
 Deno.test("buildPlanEventUpdates tracks implementation and merge worktree statuses", () => {
@@ -87,6 +105,7 @@ Deno.test("buildPlanEventUpdates tracks implementation and merge worktree status
     assertEquals(passed.worktreeId, null);
     assertEquals(passed.worktreePath, null);
     assertEquals(passed.worktreeBranch, null);
+    assertEquals(passed.worktreeBaseBranch, null);
     assertEquals(passed.worktreeStatus, null);
 
     const retained = buildPlanEventUpdates("validation_passed", "implemented", {
@@ -96,6 +115,7 @@ Deno.test("buildPlanEventUpdates tracks implementation and merge worktree status
     assertEquals(retained.worktreeId, undefined);
     assertEquals(retained.worktreePath, undefined);
     assertEquals(retained.worktreeBranch, undefined);
+    assertEquals(retained.worktreeBaseBranch, undefined);
     assertEquals(retained.worktreeStatus, "merged");
 });
 

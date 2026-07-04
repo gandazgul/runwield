@@ -25,6 +25,7 @@ import { updatePlanFrontMatter } from "../../plan-store.js";
  * @property {string} [worktreeId]
  * @property {string} [worktreePath]
  * @property {string} [worktreeBranch]
+ * @property {string} [worktreeBaseBranch]
  * @property {import('../../plan-store.js').PlanFrontMatter['worktreeStatus']} [worktreeStatus]
  * @property {boolean} [cleanupMergedWorktrees]
  * @property {import('../../plan-store.js').PlanFrontMatter['humanReviewMode']} [humanReviewMode]
@@ -338,6 +339,7 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         updates.worktreeId = null;
         updates.worktreePath = null;
         updates.worktreeBranch = null;
+        updates.worktreeBaseBranch = null;
         updates.worktreeStatus = null;
         updates.failureReason = null;
         updates.failedAt = null;
@@ -386,6 +388,7 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         updates.worktreeId = details.worktreeId;
         updates.worktreePath = details.worktreePath;
         updates.worktreeBranch = details.worktreeBranch;
+        updates.worktreeBaseBranch = details.worktreeBaseBranch;
         updates.worktreeStatus = details.worktreeStatus || "active";
         updates.failureReason = null;
         updates.failedAt = null;
@@ -414,6 +417,9 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
     }
 
     if (event === "worktree_merge_failed") {
+        updates.worktreePath = details.worktreePath || updates.worktreePath;
+        updates.worktreeBranch = details.worktreeBranch || updates.worktreeBranch;
+        updates.worktreeBaseBranch = details.worktreeBaseBranch || updates.worktreeBaseBranch;
         updates.worktreeStatus = "merge_conflict";
         updates.failureReason = details.failureReason || "Worktree merge failed.";
     }
@@ -434,6 +440,7 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
             updates.worktreeId = null;
             updates.worktreePath = null;
             updates.worktreeBranch = null;
+            updates.worktreeBaseBranch = null;
             updates.worktreeStatus = null;
         }
         updates.verifiedAt = now;
@@ -448,6 +455,7 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         updates.worktreeId = details.worktreeId || updates.worktreeId;
         updates.worktreePath = details.worktreePath || updates.worktreePath;
         updates.worktreeBranch = details.worktreeBranch || updates.worktreeBranch;
+        updates.worktreeBaseBranch = details.worktreeBaseBranch || updates.worktreeBaseBranch;
         updates.executionBaselineTree = details.executionBaselineTree || updates.executionBaselineTree;
         updates.worktreeStatus = details.worktreeStatus || updates.worktreeStatus || "abandoned";
         updates.failureReason = null;
@@ -481,6 +489,7 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         updates.worktreeId = null;
         updates.worktreePath = null;
         updates.worktreeBranch = null;
+        updates.worktreeBaseBranch = null;
         updates.worktreeStatus = "abandoned";
     }
 

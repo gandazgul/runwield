@@ -1,4 +1,5 @@
 ---
+planId: "8bc1fc1c-5747-426d-92fa-c45b8876efae"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Split OPERATION from QUICK_FIX routing and add no-plan Engineer mechanical validation."

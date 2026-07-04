@@ -262,7 +262,7 @@ function buildEngineerPausedMessage(reason) {
  * @param {string} planName
  * @param {Partial<import('../../plan-store.js').PlanFrontMatter>} triageMeta
  * @param {import('./plan-lifecycle.js').PlanStatus} currentStatus
- * @returns {Promise<{ projectRoot: string, executionCwd: string, baselineTree: string, worktreeId: string, worktreeBranch: string }>}
+ * @returns {Promise<{ projectRoot: string, executionCwd: string, baselineTree: string, worktreeId: string, worktreeBranch: string, worktreeBaseBranch?: string }>}
  */
 async function startActiveExecutionWorkflow(planName, triageMeta, currentStatus) {
     const existing = getActiveExecutionWorkflow();
@@ -272,9 +272,12 @@ async function startActiveExecutionWorkflow(planName, triageMeta, currentStatus)
                 id: existing.worktreeId,
                 path: existing.executionCwd,
                 branch: existing.worktreeBranch,
+                baseBranch: existing.worktreeBaseBranch ||
+                    (typeof triageMeta.worktreeBaseBranch === "string" ? triageMeta.worktreeBaseBranch : undefined),
             }
             : await findReusableWorktree({ projectRoot: CWD, planName });
     const worktree = reusable || await createExecutionWorktree({ projectRoot: CWD, planName, baseRef: "HEAD" });
+    const worktreeBaseBranch = worktree.baseBranch === "HEAD" ? undefined : worktree.baseBranch;
     const baselineTree =
         existing?.planName === planName && existing.executionCwd === worktree.path && existing.baselineTree
             ? existing.baselineTree
@@ -287,6 +290,7 @@ async function startActiveExecutionWorkflow(planName, triageMeta, currentStatus)
         executionCwd: worktree.path,
         worktreeId: worktree.id,
         worktreeBranch: worktree.branch,
+        worktreeBaseBranch,
     };
     setActiveExecutionWorkflow(workflow);
     if (worktree.id) {
@@ -303,6 +307,7 @@ async function startActiveExecutionWorkflow(planName, triageMeta, currentStatus)
             worktreeId: worktree.id,
             worktreePath: worktree.path,
             worktreeBranch: worktree.branch,
+            worktreeBaseBranch,
             worktreeStatus: "active",
         },
     });

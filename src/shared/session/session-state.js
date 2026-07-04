@@ -42,7 +42,7 @@ import { CWD } from "../../constants.js";
  * pendingRootSwap: PendingRootSwap | null,
  * pendingSwitchHandoff: PendingSwitchHandoff | null,
  * projectStateContext: string,
- * activeExecutionWorkflow: { planName: string, triageMeta: any, baselineTree?: string, projectRoot?: string, executionCwd?: string, worktreeId?: string, worktreeBranch?: string } | null,
+ * activeExecutionWorkflow: { planName: string, triageMeta: any, baselineTree?: string, projectRoot?: string, executionCwd?: string, worktreeId?: string, worktreeBranch?: string, worktreeBaseBranch?: string } | null,
  * }} */
 const state = {
     // Initial placeholder; overwritten by startInteractiveSession() once the
@@ -243,7 +243,7 @@ export function getActiveExecutionWorkflow() {
     return state.activeExecutionWorkflow;
 }
 
-/** @param {{ planName: string, triageMeta: any, baselineTree?: string, projectRoot?: string, executionCwd?: string, worktreeId?: string, worktreeBranch?: string } | null} workflow */
+/** @param {{ planName: string, triageMeta: any, baselineTree?: string, projectRoot?: string, executionCwd?: string, worktreeId?: string, worktreeBranch?: string, worktreeBaseBranch?: string } | null} workflow */
 export function setActiveExecutionWorkflow(workflow) {
     state.activeExecutionWorkflow = workflow;
 }

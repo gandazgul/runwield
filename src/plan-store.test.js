@@ -1007,6 +1007,7 @@ Deno.test("worktree front matter fields round-trip and can be cleared", () => {
         worktreeId: "wt-123",
         worktreePath: "/tmp/repo-runwield-plan-wt-123",
         worktreeBranch: "runwield/worktree/plan-wt-123",
+        worktreeBaseBranch: "feature-base",
         worktreeStatus: "active",
     });
 
@@ -1015,18 +1016,21 @@ Deno.test("worktree front matter fields round-trip and can be cleared", () => {
     assertEquals(parsed.attrs.worktreeId, "wt-123");
     assertEquals(parsed.attrs.worktreePath, "/tmp/repo-runwield-plan-wt-123");
     assertEquals(parsed.attrs.worktreeBranch, "runwield/worktree/plan-wt-123");
+    assertEquals(parsed.attrs.worktreeBaseBranch, "feature-base");
     assertEquals(parsed.attrs.worktreeStatus, "active");
 
     const cleared = injectFrontMatter(markdown, {
         worktreeId: null,
         worktreePath: null,
         worktreeBranch: null,
+        worktreeBaseBranch: null,
         worktreeStatus: null,
     });
     const reparsed = parsePlanFrontMatter(cleared);
     assertEquals(reparsed.attrs.worktreeId, undefined);
     assertEquals(reparsed.attrs.worktreePath, undefined);
     assertEquals(reparsed.attrs.worktreeBranch, undefined);
+    assertEquals(reparsed.attrs.worktreeBaseBranch, undefined);
     assertEquals(reparsed.attrs.worktreeStatus, undefined);
 });
 

@@ -2216,9 +2216,12 @@ Deno.test("runLoadPlanCommand can manually merge merge-conflict worktree recover
         const { uiAPI, selections } = makeUi();
         selections.push("merge");
         let mergedBranch = "";
+        let mergedTargetBranch = "";
         let removedPath = "";
         let removedRegistryId = "";
         let registryStatus = "";
+        /** @type {Partial<import('../../plan-store.js').PlanFrontMatter>} */
+        let persistedUpdates = {};
         /** @type {string | null} */
         let lifecycleEvent = null;
 
@@ -2245,7 +2248,20 @@ Deno.test("runLoadPlanCommand can manually merge merge-conflict worktree recover
                             worktreeStatus: "merge_conflict",
                         },
                     }),
-                findWorktreeById: () => Promise.resolve(null),
+                findWorktreeById: () =>
+                    Promise.resolve({
+                        id: "wt1",
+                        planName: "plan-merge-conflict",
+                        path: worktreePath,
+                        branch: "runwield/worktree/plan-merge-conflict",
+                        baseBranch: "feature-base",
+                        baseRef: "feature-base",
+                        baseCommit: "abc123",
+                        baseTree: "baseline-tree",
+                        status: "merge_conflict",
+                        createdAt: "2026-01-01T00:00:00.000Z",
+                        updatedAt: "2026-01-01T00:00:00.000Z",
+                    }),
                 findWorktreeByPlanName: () => Promise.resolve(null),
                 getWorktreeStatus: () =>
                     Promise.resolve({
@@ -2255,8 +2271,9 @@ Deno.test("runLoadPlanCommand can manually merge merge-conflict worktree recover
                         statusText: "",
                         diff: "",
                     }),
-                mergeExecutionWorktree: (/** @type {{ branch: string }} */ args) => {
+                mergeExecutionWorktree: (/** @type {{ branch: string, targetBranch?: string }} */ args) => {
                     mergedBranch = args.branch;
+                    mergedTargetBranch = args.targetBranch || "";
                     return Promise.resolve();
                 },
                 removeExecutionWorktree: (/** @type {{ path: string }} */ args) => {
@@ -2275,6 +2292,15 @@ Deno.test("runLoadPlanCommand can manually merge merge-conflict worktree recover
                     registryStatus = updates.status;
                     return Promise.resolve(/** @type {any} */ ({}));
                 },
+                updatePlanFrontMatter: (
+                    /** @type {string} */ _cwd,
+                    /** @type {string} */ _planName,
+                    /** @type {Partial<import('../../plan-store.js').PlanFrontMatter>} */ updates,
+                    /** @type {import('../../plan-store.js').PlanFrontMatter} */ attrs,
+                ) => {
+                    persistedUpdates = updates;
+                    return Promise.resolve({ ...attrs, ...updates });
+                },
                 recordPlanEvent: (/** @type {{ event: string }} */ args) => {
                     lifecycleEvent = args.event;
                     return Promise.resolve(/** @type {any} */ ({}));
@@ -2285,7 +2311,9 @@ Deno.test("runLoadPlanCommand can manually merge merge-conflict worktree recover
             }),
         });
 
+        assertEquals(persistedUpdates.worktreeBaseBranch, "feature-base");
         assertEquals(mergedBranch, "runwield/worktree/plan-merge-conflict");
+        assertEquals(mergedTargetBranch, "feature-base");
         assertEquals(removedPath, worktreePath);
         assertEquals(removedRegistryId, "wt1");
         assertEquals(registryStatus, "merged");

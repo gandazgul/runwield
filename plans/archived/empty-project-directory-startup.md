@@ -1,4 +1,5 @@
 ---
+planId: "4c9c9710-739b-402d-8495-e53be5d1dd5f"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Recognize empty project directories at startup and provide greenfield guidance instead of normal init/banner behavior."

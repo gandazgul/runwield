@@ -1,9 +1,10 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
-import { loadReviewerPrompt, runMechanicalValidation, runValidationLoop } from "./validation.js";
+import { loadReviewerPrompt, runLocalCI, runMechanicalValidation, runValidationLoop } from "./validation.js";
 import { getActiveExecutionWorkflow, setActiveExecutionWorkflow } from "../session/session-state.js";
+import { __resetSettingsForTests } from "../settings.js";
 
 /**
- * @returns {any & { messages: string[], systemCalls: Array<{ message: string, isError: boolean, header: string, style: any }>, promptSelections: string[], busyStates: boolean[] }}
+ * @returns {any & { messages: string[], systemCalls: Array<{ message: string, isError: boolean, header: string, style: any }>, promptSelections: string[], busyStates: boolean[], toolCalls: Array<{ id: string, name: string, args: string }>, toolOutputs: string[], toolResults: Array<{ id: string, name: string, result: string, isError: boolean, durationMs: number }> }}
  */
 function makeUi() {
     /** @type {string[]} */
@@ -14,11 +15,20 @@ function makeUi() {
     const promptSelections = [];
     /** @type {boolean[]} */
     const busyStates = [];
+    /** @type {Array<{ id: string, name: string, args: string }>} */
+    const toolCalls = [];
+    /** @type {string[]} */
+    const toolOutputs = [];
+    /** @type {Array<{ id: string, name: string, result: string, isError: boolean, durationMs: number }>} */
+    const toolResults = [];
     return /** @type {any} */ ({
         messages,
         systemCalls,
         promptSelections,
         busyStates,
+        toolCalls,
+        toolOutputs,
+        toolResults,
         appendSystemMessage: (
             /** @type {string} */ msg,
             /** @type {boolean} */ isError = false,
@@ -34,6 +44,25 @@ function makeUi() {
         },
         promptText: () => Promise.resolve("deno task test"),
         setBusy: (/** @type {boolean} */ busy) => busyStates.push(busy),
+        startToolExecution: (/** @type {string} */ id, /** @type {string} */ name, /** @type {string} */ args) => {
+            toolCalls.push({ id, name, args });
+            return {
+                appendOutput: (/** @type {string} */ text) => toolOutputs.push(text),
+                endExecution: (/** @type {boolean} */ isError, /** @type {number} */ durationMs) => {
+                    toolResults.push({ id, name, result: "", isError, durationMs });
+                },
+                bodyText: "",
+                startTime: Date.now(),
+            };
+        },
+        addToolInvoked: (/** @type {{ id: string, name: string, input: { command?: string } }} */ event) => {
+            toolCalls.push({ id: event.id, name: event.name, args: event.input.command || "" });
+        },
+        addToolResult: (
+            /** @type {{ id: string, name: string, result: string, isError: boolean, durationMs: number }} */ event,
+        ) => {
+            toolResults.push(event);
+        },
     });
 }
 
@@ -77,6 +106,37 @@ Deno.test("bundled reviewer prompt permits unrelated formatter-only changes", as
 
     assertStringIncludes(prompt, "Ignore unrelated formatter-only changes");
     assertStringIncludes(prompt, "Do not fail a review merely because the diff touches files the plan did not mention");
+});
+
+Deno.test("runLocalCI displays validation command as a TUI tool call", async () => {
+    const originalCwd = Deno.cwd();
+    const tempDir = await Deno.makeTempDir({ prefix: "runwield-validation-test-" });
+    const uiAPI = makeUi();
+
+    try {
+        Deno.chdir(tempDir);
+        __resetSettingsForTests();
+        uiAPI.promptText = () => Promise.resolve("printf validation-output");
+
+        const result = await runLocalCI(uiAPI, tempDir);
+
+        assertEquals(result.exitCode, 0);
+        assertEquals(
+            uiAPI.toolCalls.some((/** @type {{ name: string, args: string }} */ call) =>
+                call.name === "$" && call.args === "printf validation-output"
+            ),
+            true,
+        );
+        assertEquals(
+            uiAPI.toolOutputs.some((/** @type {string} */ output) => output.includes("validation-output")),
+            true,
+        );
+        assertEquals(uiAPI.toolResults.some((/** @type {{ isError: boolean }} */ result) => !result.isError), true);
+    } finally {
+        Deno.chdir(originalCwd);
+        __resetSettingsForTests();
+        await Deno.remove(tempDir, { recursive: true });
+    }
 });
 
 Deno.test("runMechanicalValidation passes local CI without plan-specific work", async () => {
@@ -498,6 +558,7 @@ Deno.test("runValidationLoop runs validation and reviewer in active execution cw
         executionCwd: "/worktree",
         worktreeId: "wt1",
         worktreeBranch: "runwield/worktree/p-wt1",
+        worktreeBaseBranch: "feature-base",
     });
 
     await runValidationLoop({
@@ -555,6 +616,7 @@ Deno.test("runValidationLoop records validation_passed only after worktree merge
         executionCwd: "/worktree",
         worktreeId: "wt1",
         worktreeBranch: "runwield/worktree/p-wt1",
+        worktreeBaseBranch: "feature-base",
     });
 
     await runValidationLoop({
@@ -573,8 +635,10 @@ Deno.test("runValidationLoop records validation_passed only after worktree merge
                         content: [{ type: "text", text: "APPROVED" }],
                     }]),
                 ),
-            mergeExecutionWorktree: (/** @type {{ projectRoot: string, branch: string }} */ args) => {
-                actions.push(`merge:${args.projectRoot}:${args.branch}`);
+            mergeExecutionWorktree: (
+                /** @type {{ projectRoot: string, branch: string, targetBranch?: string }} */ args,
+            ) => {
+                actions.push(`merge:${args.projectRoot}:${args.branch}:${args.targetBranch || ""}`);
                 return Promise.resolve();
             },
             removeExecutionWorktree: (/** @type {{ projectRoot: string, path: string, branch?: string }} */ args) => {
@@ -603,7 +667,7 @@ Deno.test("runValidationLoop records validation_passed only after worktree merge
     });
 
     assertEquals(actions, [
-        "merge:/primary:runwield/worktree/p-wt1",
+        "merge:/primary:runwield/worktree/p-wt1:feature-base",
         "registry:merged",
         "remove:/primary:/worktree:runwield/worktree/p-wt1",
         "registry-remove:/primary:wt1",
@@ -624,6 +688,7 @@ Deno.test("runValidationLoop runs always human review after semantic approval an
         executionCwd: "/worktree",
         worktreeId: "wt1",
         worktreeBranch: "runwield/worktree/p-wt1",
+        worktreeBaseBranch: "feature-base",
     });
 
     await runValidationLoop({
@@ -692,6 +757,7 @@ Deno.test("runValidationLoop ask mode can skip human review and merge", async ()
         executionCwd: "/worktree",
         worktreeId: "wt1",
         worktreeBranch: "runwield/worktree/p-wt1",
+        worktreeBaseBranch: "feature-base",
     });
 
     await runValidationLoop({
@@ -751,6 +817,7 @@ Deno.test("runValidationLoop ask mode opens human review before merge when appro
         executionCwd: "/worktree",
         worktreeId: "wt1",
         worktreeBranch: "runwield/worktree/p-wt1",
+        worktreeBaseBranch: "feature-base",
     });
 
     await runValidationLoop({
@@ -865,6 +932,7 @@ Deno.test("runValidationLoop treats human review exit as validation failure with
         executionCwd: "/worktree",
         worktreeId: "wt1",
         worktreeBranch: "runwield/worktree/p-wt1",
+        worktreeBaseBranch: "feature-base",
     });
 
     await runValidationLoop({
@@ -925,6 +993,7 @@ Deno.test("runValidationLoop keeps merged worktree when cleanup setting is disab
         executionCwd: "/worktree",
         worktreeId: "wt1",
         worktreeBranch: "runwield/worktree/p-wt1",
+        worktreeBaseBranch: "feature-base",
     });
 
     await runValidationLoop({
@@ -975,6 +1044,8 @@ Deno.test("runValidationLoop records worktree_merge_failed when merge-back fails
     const uiAPI = makeUi();
     /** @type {string[]} */
     const actions = [];
+    /** @type {any} */
+    let mergeFailedDetails = null;
 
     setActiveExecutionWorkflow({
         planName: "p",
@@ -984,6 +1055,7 @@ Deno.test("runValidationLoop records worktree_merge_failed when merge-back fails
         executionCwd: "/worktree",
         worktreeId: "wt1",
         worktreeBranch: "runwield/worktree/p-wt1",
+        worktreeBaseBranch: "feature-base",
     });
 
     await runValidationLoop({
@@ -1012,6 +1084,7 @@ Deno.test("runValidationLoop records worktree_merge_failed when merge-back fails
                 return Promise.resolve({});
             },
             recordPlanEvent: (/** @type {any} */ event) => {
+                mergeFailedDetails = event.details;
                 actions.push(`event:${event.event}:${event.details.failureReason}`);
                 return Promise.resolve({});
             },
@@ -1021,6 +1094,9 @@ Deno.test("runValidationLoop records worktree_merge_failed when merge-back fails
     });
 
     assertEquals(actions, ["registry:merge_conflict", "event:worktree_merge_failed:conflict"]);
+    assertEquals(mergeFailedDetails.worktreePath, "/worktree");
+    assertEquals(mergeFailedDetails.worktreeBranch, "runwield/worktree/p-wt1");
+    assertEquals(mergeFailedDetails.worktreeBaseBranch, "feature-base");
     assertEquals(uiAPI.promptSelections, ["prompted"]);
     assertEquals(
         uiAPI.messages.some((/** @type {string} */ message) => message.includes("Worktree merge failed: conflict")),
@@ -1047,6 +1123,7 @@ Deno.test("runValidationLoop still prompts when merge-conflict metadata updates 
         executionCwd: "/worktree",
         worktreeId: "wt1",
         worktreeBranch: "runwield/worktree/p-wt1",
+        worktreeBaseBranch: "feature-base",
     });
 
     await runValidationLoop({
@@ -1095,6 +1172,152 @@ Deno.test("runValidationLoop still prompts when merge-conflict metadata updates 
     );
 });
 
+Deno.test("runValidationLoop warns when using legacy current-checkout merge fallback", async () => {
+    const uiAPI = makeUi();
+    /** @type {Array<string | undefined>} */
+    const targets = [];
+
+    setActiveExecutionWorkflow({
+        planName: "p",
+        triageMeta: { classification: "FEATURE" },
+        baselineTree: "baseline-tree",
+        projectRoot: "/primary",
+        executionCwd: "/worktree",
+        worktreeId: "wt1",
+        worktreeBranch: "runwield/worktree/p-wt1",
+    });
+
+    await runValidationLoop({
+        planName: "p",
+        planContent: "plan",
+        triageMeta: { classification: "FEATURE" },
+        uiAPI,
+        sessionManager: undefined,
+        __deps: /** @type {any} */ ({
+            runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
+            getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
+            runAgentSession: () =>
+                Promise.resolve(
+                    /** @type {any} */ ([{
+                        role: "assistant",
+                        content: [{ type: "text", text: "APPROVED" }],
+                    }]),
+                ),
+            mergeExecutionWorktree: (/** @type {{ targetBranch?: string }} */ args) => {
+                targets.push(args.targetBranch);
+                return Promise.resolve();
+            },
+            updateWorktreeRegistryEntry: () => Promise.resolve({}),
+            recordPlanEvent: noOpRecordPlanEvent,
+            removeExecutionWorktree: () => Promise.resolve(),
+            getCodeReviewMode: () => "none",
+            setActiveAgent: () => {},
+        }),
+    });
+
+    assertEquals(targets, [undefined]);
+    assertEquals(
+        uiAPI.messages.some((/** @type {string} */ message) =>
+            message.includes("Recorded worktree target branch is unknown")
+        ),
+        true,
+    );
+});
+
+Deno.test("runValidationLoop dispatches Engineer merge repair and retries merge-back", async () => {
+    const uiAPI = makeUi();
+    /** @type {string[]} */
+    const actions = [];
+    let mergeAttempts = 0;
+
+    setActiveExecutionWorkflow({
+        planName: "p",
+        triageMeta: { classification: "FEATURE" },
+        baselineTree: "baseline-tree",
+        projectRoot: "/primary",
+        executionCwd: "/worktree",
+        worktreeId: "wt1",
+        worktreeBranch: "runwield/worktree/p-wt1",
+        worktreeBaseBranch: "feature-base",
+    });
+
+    await runValidationLoop({
+        planName: "p",
+        planContent: "plan",
+        triageMeta: { classification: "FEATURE" },
+        uiAPI,
+        sessionManager: undefined,
+        __deps: /** @type {any} */ ({
+            runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
+            getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
+            runAgentSession: () =>
+                Promise.resolve(
+                    /** @type {any} */ ([{
+                        role: "assistant",
+                        content: [{ type: "text", text: "APPROVED" }],
+                    }]),
+                ),
+            mergeExecutionWorktree: (/** @type {any} */ args) => {
+                mergeAttempts++;
+                actions.push(`merge:${mergeAttempts}:${args.repairMergeWorktreePath || ""}`);
+                if (mergeAttempts === 1) {
+                    const error =
+                        /** @type {Error & { repairCwd?: string, mergeWorktreePath?: string, mergeFailureKind?: string }} */ (
+                            new Error("conflict")
+                        );
+                    error.repairCwd = "/merge-wt";
+                    error.mergeWorktreePath = "/merge-wt";
+                    error.mergeFailureKind = "detached_merge_conflict";
+                    return Promise.reject(error);
+                }
+                return Promise.resolve();
+            },
+            runCompletionGatedRepair: (/** @type {any} */ opts) => {
+                actions.push(
+                    `repair:${opts.cwd}:${opts.userRequest.includes("feature-base")}:${
+                        opts.userRequest.includes("Current plan status: implemented")
+                    }:${opts.userRequest.includes("Diff/context:")}:${
+                        opts.userRequest.includes("detached merge worktree")
+                    }`,
+                );
+                return Promise.resolve(true);
+            },
+            updateWorktreeRegistryEntry: (
+                /** @type {string} */ _projectRoot,
+                /** @type {string} */ _id,
+                /** @type {{ status: string }} */ updates,
+            ) => {
+                actions.push(`registry:${updates.status}`);
+                return Promise.resolve({});
+            },
+            recordPlanEvent: (/** @type {any} */ event) => {
+                actions.push(
+                    `event:${event.event}:${event.details.failureReason || event.details.worktreeStatus || ""}`,
+                );
+                return Promise.resolve({});
+            },
+            removeExecutionWorktree: () => {
+                actions.push("remove");
+                return Promise.resolve();
+            },
+            getCodeReviewMode: () => "none",
+            setActiveAgent: () => {},
+        }),
+    });
+
+    assertEquals(actions, [
+        "merge:1:",
+        "registry:merge_conflict",
+        "event:worktree_merge_failed:conflict",
+        "repair:/merge-wt:true:true:true:true",
+        "merge:2:/merge-wt",
+        "registry:merged",
+        "remove",
+        "event:validation_passed:merged",
+    ]);
+    assertEquals(uiAPI.promptSelections, []);
+});
+
 Deno.test("runValidationLoop retries worktree merge after user fixes primary checkout", async () => {
     const uiAPI = makeUi();
     /** @type {string[]} */
@@ -1113,6 +1336,7 @@ Deno.test("runValidationLoop retries worktree merge after user fixes primary che
         executionCwd: "/worktree",
         worktreeId: "wt1",
         worktreeBranch: "runwield/worktree/p-wt1",
+        worktreeBaseBranch: "feature-base",
     });
 
     await runValidationLoop({
@@ -1185,6 +1409,7 @@ Deno.test("runValidationLoop marks active worktree validation_failed when valida
         executionCwd: "/worktree",
         worktreeId: "wt1",
         worktreeBranch: "runwield/worktree/p-wt1",
+        worktreeBaseBranch: "feature-base",
     });
 
     await runValidationLoop({

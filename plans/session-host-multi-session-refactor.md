@@ -1,4 +1,5 @@
 ---
+planId: "08b0feb2-348b-4a47-a754-53c9d29bace9"
 classification: "PROJECT"
 complexity: "HIGH"
 summary: "Implement Slice 1 of the ACP roadmap: refactor RunWield from a single-session global state model to a multi-session Hosted Session architecture. This is a high-complexity architectural shift requiring a TDD approach to ensure the existing TUI remains functional while enabling concurrent sessions. lauching as a PROJECT Epic."

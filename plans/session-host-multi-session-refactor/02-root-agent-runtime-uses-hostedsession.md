@@ -1,4 +1,5 @@
 ---
+planId: "329b2476-911e-440e-97dc-2bc1334da37e"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Refactor the core agent-session runtime so root turns, transient sub-agent turns, abort, steer, reload, and metadata access operate against an explicit HostedSession instead of implicit process globals."
