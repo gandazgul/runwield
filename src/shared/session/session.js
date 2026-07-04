@@ -29,6 +29,7 @@ import mnemosyneExtension, {
     memoryStoreToolDef,
 } from "../../extensions/mnemosyne/index.js";
 import cymbalExtension, {
+    codeBatchToolDef,
     codeImpactToolDef,
     codeImplsToolDef,
     codeImportersToolDef,
@@ -1032,6 +1033,7 @@ export async function assembleFinalSystemPrompt(
         codeSearchToolDef,
         codeShowToolDef,
         codeOutlineToolDef,
+        codeBatchToolDef,
         codeRefsToolDef,
         codeImpactToolDef,
         codeTraceToolDef,
@@ -1631,6 +1633,9 @@ export function attachUiSubscribers(session, agentDef, uiAPI, debugLogPath) {
                     headerArgs = event.args?.target || "";
                 } else if (event.toolName === "code_outline") {
                     headerArgs = event.args?.file || "";
+                } else if (event.toolName === "code_batch") {
+                    const count = Array.isArray(event.args?.operations) ? event.args.operations.length : 0;
+                    headerArgs = `${count} ${count === 1 ? "operation" : "operations"}`;
                 } else if (
                     event.toolName === "code_refs" || event.toolName === "code_impact" ||
                     event.toolName === "code_trace" || event.toolName === "code_investigate" ||

@@ -21,6 +21,7 @@ tools:
     - code_search
     - code_show
     - code_outline
+    - code_batch
     - code_refs
     - code_impact
     - code_trace
@@ -91,9 +92,11 @@ You will receive either:
 You are working in a custom codebase. You MUST NOT hallucinate APIs or import paths.
 
 1. **Verify Exports:** Before you import any function or class from a module, you MUST use `code_outline` on that file
-   to verify the symbol is actually exported. Do not import private/internal symbols.
-2. **Verify Signatures:** Before calling a method on an existing class, do NOT guess its name. You MUST use `code_show`
-   or `code_outline` on the class definition to read the exact method names and expected arguments.
+   (or an equivalent `code_batch` outline operation) to verify the symbol is actually exported. Do not import
+   private/internal symbols.
+2. **Verify Signatures:** Before calling a method on an existing class, do NOT guess its name. You MUST use `code_show`,
+   `code_outline`, or equivalent `code_batch` show/outline operations on the class definition to read the exact method
+   names and expected arguments.
 3. **No Blind Referencing:** Never reference a symbol, import, file path, or API you haven't explicitly seen in your
    tool output during this session.
 

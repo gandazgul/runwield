@@ -243,6 +243,13 @@ Deno.test("attachUiSubscribers formats tool headers, streams output deltas, and 
         ["8", "code_search", { query: "foo", textSearch: true }, "foo (text)", "code_search"],
         ["9", "code_show", { target: "mod.fn" }, "mod.fn", "code_show"],
         ["10", "code_outline", { file: "src/a.js" }, "src/a.js", "code_outline"],
+        [
+            "10b",
+            "code_batch",
+            { operations: [{ op: "show", target: "mod.fn" }, { op: "outline", file: "src/a.js" }] },
+            "2 operations",
+            "code_batch",
+        ],
         ["11", "code_refs", { symbol: "Thing" }, "Thing", "code_refs"],
         ["12", "code_importers", { target: "src/a.js" }, "src/a.js", "code_importers"],
         ["13", "memory_recall", { query: "plans" }, "plans", "memory_recall"],
