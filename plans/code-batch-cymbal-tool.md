@@ -13,9 +13,14 @@ affectedPaths:
     - "src/agent-definitions/router.md"
 frontend: false
 createdAt: "2026-07-04T13:04:10-04:00"
-updatedAt: "2026-07-04T17:14:18.318Z"
-status: "ready_for_work"
+updatedAt: "2026-07-04T17:54:23.389Z"
+status: "verified"
 origin: "internal"
+implementedAt: "2026-07-04T17:48:58.177Z"
+verifiedAt: "2026-07-04T17:54:23.389Z"
+humanReviewMode: "ask"
+humanReviewDecision: "approved"
+humanReviewedAt: "2026-07-04T17:54:20.676Z"
 routingIntent: "FEATURE"
 sessionName: "implement code_batch tool"
 ---

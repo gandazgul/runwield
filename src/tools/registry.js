@@ -19,6 +19,7 @@ export const PROTECTED_TOOL_NAMES = Object.freeze([
     "code_search",
     "code_show",
     "code_outline",
+    "code_batch",
     "code_refs",
     "code_impact",
     "code_trace",

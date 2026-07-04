@@ -2,18 +2,22 @@
  * @module shared/settings.test
  */
 
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertRejects, assertThrows } from "@std/assert";
 import { join } from "@std/path";
 import {
     __resetSettingsForTests,
     getCodeReviewMode,
+    getDefaultPlanServerUrl,
     getResolvedVisionFallbackModelSetting,
     getSettingsManager,
     migratePiSettingsOnce,
+    normalizePlanServerUrl,
+    PLAN_SERVER_URL_SETTING_KEY,
     preserveRunWieldCustomSettingsForWrite,
     setCompactionKeepRecentTokens,
     setCompactionReserveTokens,
     setCustomSetting,
+    setDefaultPlanServerUrl,
     shouldCleanupMergedWorktrees,
 } from "./settings.js";
 
@@ -408,4 +412,79 @@ Deno.test({
             // ignore cleanup failures
         }
     },
+});
+
+Deno.test("Plan Server URL setting uses global value and project override precedence", async () => {
+    const originalHome = Deno.env.get("HOME");
+    const originalCwd = Deno.cwd();
+    const tempHome = await Deno.makeTempDir({ prefix: "runwield-plan-server-home-" });
+    const tempProject = await Deno.makeTempDir({ prefix: "runwield-plan-server-project-" });
+    try {
+        Deno.env.set("HOME", tempHome);
+        Deno.chdir(tempProject);
+        __resetSettingsForTests();
+
+        await setDefaultPlanServerUrl("https://global.example.test/", "global");
+        assertEquals(getDefaultPlanServerUrl(), "https://global.example.test");
+        await setDefaultPlanServerUrl("https://project.example.test/base/", "project");
+        assertEquals(getDefaultPlanServerUrl(), "https://project.example.test/base");
+    } finally {
+        __resetSettingsForTests();
+        Deno.chdir(originalCwd);
+        if (originalHome === undefined) Deno.env.delete("HOME");
+        else Deno.env.set("HOME", originalHome);
+        await Deno.remove(tempHome, { recursive: true });
+        await Deno.remove(tempProject, { recursive: true });
+    }
+});
+
+Deno.test("Plan Server URL setting validates clean non-secret URLs", () => {
+    assertEquals(normalizePlanServerUrl(" https://plans.example.test/base/ "), "https://plans.example.test/base");
+    assertThrows(() => normalizePlanServerUrl("not a url"));
+    assertThrows(() => normalizePlanServerUrl("https://plans.example.test/?key=secret&cap=secret&role=reviewer"));
+    assertThrows(() => normalizePlanServerUrl("https://plans.example.test/#key=secret&cap=secret&role=reviewer"));
+    assertThrows(() => normalizePlanServerUrl("https://plans.example.test/base/p/space-1"));
+    assertThrows(() =>
+        normalizePlanServerUrl("https://plans.example.test/base/p/space-1#key=secret&cap=secret&role=reviewer")
+    );
+    assertThrows(() =>
+        normalizePlanServerUrl("https://plans.example.test/p/space-1#key=secret&cap=secret&role=reviewer")
+    );
+});
+
+Deno.test("Plan Server URL setting rejects full share URLs and secret fragments", async () => {
+    await assertRejects(() =>
+        setDefaultPlanServerUrl("https://plans.example.test/p/space-1#key=secret&cap=secret", "project")
+    );
+});
+
+Deno.test("Plan Server URL setting is preserved across SettingsManager-shaped writes", () => {
+    const previous = JSON.stringify({ [PLAN_SERVER_URL_SETTING_KEY]: "https://plans.example.test" });
+    const next = JSON.stringify({ theme: "light" });
+    assertEquals(JSON.parse(preserveRunWieldCustomSettingsForWrite(previous, next)), {
+        theme: "light",
+        [PLAN_SERVER_URL_SETTING_KEY]: "https://plans.example.test",
+    });
+});
+
+Deno.test("Plan Server URL setting stores only the normalized server URL", async () => {
+    const originalHome = Deno.env.get("HOME");
+    const originalCwd = Deno.cwd();
+    const tempHome = await Deno.makeTempDir({ prefix: "runwield-plan-server-clean-home-" });
+    const tempProject = await Deno.makeTempDir({ prefix: "runwield-plan-server-clean-project-" });
+    try {
+        Deno.env.set("HOME", tempHome);
+        Deno.chdir(tempProject);
+        __resetSettingsForTests();
+        await setDefaultPlanServerUrl("https://plans.example.test/root/", "project");
+        const settings = await Deno.readTextFile(join(tempProject, ".wld", "settings.json"));
+        assertEquals(JSON.parse(settings)[PLAN_SERVER_URL_SETTING_KEY], "https://plans.example.test/root");
+    } finally {
+        __resetSettingsForTests();
+        Deno.chdir(originalCwd);
+        if (originalHome === undefined) Deno.env.delete("HOME");
+        else Deno.env.set("HOME", originalHome);
+        await Deno.remove(tempHome, { recursive: true });
+        await Deno.remove(tempProject, { recursive: true });
+    }
 });

@@ -247,9 +247,12 @@ testWithFs("findPlanById resolves non-archived plan resources", async () => {
     const cwd = await Deno.makeTempDir();
     try {
         await savePlan(cwd, "lookup", "# Lookup", { planId: "lookup-id" });
+        await savePlan(cwd, "prefixed", "# Prefixed", { planId: "01-prefixed-id" });
         const resource = await findPlanById(cwd, "lookup-id");
         assertEquals(resource.planName, "lookup");
         assertEquals(resource.relativePath, "plans/lookup.md");
+        const prefixed = await findPlanById(cwd, "prefixed-id");
+        assertEquals(prefixed.planName, "prefixed");
 
         await assertRejects(() => findPlanById(cwd, "missing-id"), Error, "Plan not found for planId");
     } finally {
@@ -1350,10 +1353,10 @@ Deno.test("resolveSiblingChildPlanDependencyStates exposes verified unverified a
     ]);
 
     assertEquals(
-        resolveSiblingChildPlanDependencyStates("epic", ["01-done", "epic/02-active", "03-missing"], siblings),
+        resolveSiblingChildPlanDependencyStates("epic", ["done", "epic/active", "03-missing"], siblings),
         [
             {
-                dependency: "01-done",
+                dependency: "done",
                 planId: "done-id",
                 planName: "epic/01-done",
                 path: undefined,
@@ -1361,7 +1364,7 @@ Deno.test("resolveSiblingChildPlanDependencyStates exposes verified unverified a
                 state: "verified",
             },
             {
-                dependency: "epic/02-active",
+                dependency: "epic/active",
                 planId: "active-id",
                 planName: "epic/02-active",
                 path: undefined,

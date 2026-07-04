@@ -2,6 +2,9 @@ import { SettingsManager } from "@earendil-works/pi-coding-agent";
 import { dirname, join } from "@std/path";
 import { parse as parseJsonc } from "@std/jsonc";
 import lockfile from "proper-lockfile";
+import { normalizeServerUrl } from "./collaboration/urls.js";
+
+export const PLAN_SERVER_URL_SETTING_KEY = "planServerUrl";
 
 const RUNWEILD_CUSTOM_SETTING_KEYS = [
     "agents",
@@ -14,6 +17,7 @@ const RUNWEILD_CUSTOM_SETTING_KEYS = [
     "cleanupMergedWorktrees",
     "enableExternalSkills",
     "enableExternalGlobalAgentsMd",
+    PLAN_SERVER_URL_SETTING_KEY,
 ];
 
 /**
@@ -428,6 +432,39 @@ export function getMergedCustomSetting(key) {
     }
 
     return projectVal;
+}
+
+/**
+ * @param {unknown} value
+ * @returns {string}
+ */
+export function normalizePlanServerUrl(value) {
+    if (typeof value !== "string" || value.trim() === "") {
+        throw new Error("Plan Server URL must be a non-empty string.");
+    }
+    const normalized = normalizeServerUrl(value.trim());
+    const url = new URL(normalized);
+    if (/(?:^|\/)p\/[^/]+\/?$/.test(url.pathname)) {
+        throw new Error("Plan Server URL must not be a full collaboration share URL.");
+    }
+    return normalized;
+}
+
+/**
+ * @returns {string | undefined}
+ */
+export function getDefaultPlanServerUrl() {
+    const value = getMergedCustomSetting(PLAN_SERVER_URL_SETTING_KEY);
+    if (value === undefined) return undefined;
+    return normalizePlanServerUrl(value);
+}
+
+/**
+ * @param {unknown} value
+ * @param {"global" | "project"} [scope]
+ */
+export async function setDefaultPlanServerUrl(value, scope = "project") {
+    await setCustomSetting(PLAN_SERVER_URL_SETTING_KEY, normalizePlanServerUrl(value), scope);
 }
 
 /**

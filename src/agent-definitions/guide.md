@@ -18,6 +18,7 @@ tools:
     - code_search
     - code_show
     - code_outline
+    - code_batch
     - code_refs
     - code_impact
     - code_trace

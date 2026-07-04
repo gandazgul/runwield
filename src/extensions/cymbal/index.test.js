@@ -1,4 +1,4 @@
-import { assertArrayIncludes, assertEquals, assertStringIncludes } from "@std/assert";
+import { assert, assertArrayIncludes, assertEquals, assertStringIncludes } from "@std/assert";
 import cymbalExtension from "./index.js";
 
 /**
@@ -52,7 +52,7 @@ function setup(execImpl) {
  */
 async function executeTool(tool, params) {
     const execute =
-        /** @type {(id: string, params: object, signal: AbortSignal, onUpdate: () => void, context: object) => Promise<{ content: Array<{ type: string, text?: string }>, details: unknown }>} */ (tool
+        /** @type {(id: string, params: object, signal: AbortSignal, onUpdate: () => void, context: object) => Promise<{ content: Array<{ type: string, text?: string }>, details: unknown, isError?: boolean }>} */ (tool
             .execute);
     return await execute("tool-call-1", params, new AbortController().signal, () => {}, {});
 }
@@ -75,6 +75,7 @@ Deno.test("cymbal extension registers all tools", () => {
         "code_search",
         "code_show",
         "code_outline",
+        "code_batch",
         "code_refs",
         "code_impact",
         "code_trace",
@@ -141,6 +142,88 @@ Deno.test("cymbal tools map public params to cymbal commands", async () => {
         calls.map((call) => ({ args: call.args, cwd: call.opts.cwd })),
         cases.map((item) => ({ args: item.args, cwd: "/project" })),
     );
+});
+
+Deno.test("code_batch runs show and outline operations in order", async () => {
+    const { getTool, calls, getHandler } = setup((_command, args) => {
+        return Promise.resolve({ code: 0, stdout: `${args.join(" ")} output`, stderr: "" });
+    });
+
+    getHandler("session_start")?.({}, { cwd: "/project" });
+    const result = await executeTool(getTool("code_batch"), {
+        operations: [
+            { op: "show", target: "buildAgentSession" },
+            { op: "outline", file: "src/extensions/cymbal/index.js" },
+        ],
+    });
+
+    assertEquals(result.details, { operationCount: 2, truncated: false });
+    assertStringIncludes(firstText(result), "## 1. show buildAgentSession");
+    assertStringIncludes(firstText(result), "show buildAgentSession output");
+    assertStringIncludes(firstText(result), "## 2. outline src/extensions/cymbal/index.js");
+    assertStringIncludes(firstText(result), "outline src/extensions/cymbal/index.js output");
+    assertEquals(
+        calls.map((call) => ({ args: call.args, cwd: call.opts.cwd })),
+        [
+            { args: ["show", "buildAgentSession"], cwd: "/project" },
+            { args: ["outline", "src/extensions/cymbal/index.js"], cwd: "/project" },
+        ],
+    );
+});
+
+Deno.test("code_batch isolates per-operation errors and normalizes empty output", async () => {
+    const { getTool } = setup((_command, args) => {
+        if (args[0] === "show") {
+            return Promise.resolve({ code: 2, stdout: "", stderr: "bad target\nUsage: cymbal show" });
+        }
+        return Promise.resolve({ code: 0, stdout: "", stderr: "" });
+    });
+
+    const result = await executeTool(getTool("code_batch"), {
+        operations: [
+            { op: "show", target: "Missing" },
+            { op: "outline", file: "src/empty.js" },
+        ],
+    });
+
+    assertEquals(result.details, { operationCount: 2, truncated: false });
+    const text = firstText(result);
+    assertStringIncludes(text, "## 1. show Missing");
+    assertStringIncludes(text, "Error (exit 2): bad target");
+    assertStringIncludes(text, "## 2. outline src/empty.js");
+    assertStringIncludes(text, "No results found.");
+});
+
+Deno.test("code_batch validates operation count", async () => {
+    const { getTool, calls } = setup(() => Promise.resolve({ code: 0, stdout: "unused", stderr: "" }));
+
+    const result = await executeTool(getTool("code_batch"), {
+        operations: [
+            { op: "show", target: "a" },
+            { op: "show", target: "b" },
+            { op: "show", target: "c" },
+            { op: "show", target: "d" },
+            { op: "show", target: "e" },
+            { op: "show", target: "f" },
+        ],
+    });
+
+    assert(result.isError);
+    assertStringIncludes(firstText(result), "at most 5 operations");
+    assertEquals(calls.length, 0);
+});
+
+Deno.test("code_batch truncates large combined output", async () => {
+    const { getTool } = setup(() => Promise.resolve({ code: 0, stdout: "x".repeat(60_000), stderr: "" }));
+
+    const result = await executeTool(getTool("code_batch"), {
+        operations: [{ op: "show", target: "Huge" }],
+    });
+
+    assertEquals(result.details, { operationCount: 1, truncated: true });
+    const text = firstText(result);
+    assert(text.length > 50_000);
+    assertStringIncludes(text, "[code_batch output truncated at 50000 characters.");
 });
 
 Deno.test("cymbal tools normalize empty, non-zero, and thrown command results", async () => {

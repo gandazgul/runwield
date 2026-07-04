@@ -152,6 +152,9 @@ truth. _Avoid_: Remote plan database, hosted board, task board
 wiki-style pages, and other project knowledge while preserving Plans as markdown files that workflow agents can read.
 _Avoid_: Database-only knowledge base, replacement for Plans
 
+**RunWield Design System**: The shared browser UI language of tokens, components, layout patterns, and interaction rules
+that governs Workspace, Plannotator, and future RunWield web surfaces. _Avoid_: Workspace styles, style guide, UI kit
+
 **Plan Card**: A Plan Board representation of a top-level Plan. Epic Plan Cards summarize child FEATURE Plan progress
 and open an Epic detail view rather than flattening every child FEATURE Plan onto the main board by default. _Avoid_:
 Task card, ticket
@@ -373,6 +376,8 @@ command definition, prompt command
 - An **Implemented Plan** may include **Failure Detail** when Workflow Validation fails.
 - A **Verified Plan** must have passed **Workflow Validation**.
 - A denied **Plan** produces **Feedback**, and each **Feedback** response triggers one **Revision**.
+- The **RunWield Design System** governs browser UI surfaces including **Workspace**, **Plan Board**, and
+  **Plannotator**.
 - An **Epic** has zero or more **Child FEATURE Plans** discovered by their `parentPlan` Front Matter pointer.
 - A **Child FEATURE Plan** follows the normal FEATURE lifecycle and may list sibling FEATURE dependencies.
 - An **On-Hold Plan** can be an **Epic**; its **Child FEATURE Plans** inherit on-hold visibility without mutating their

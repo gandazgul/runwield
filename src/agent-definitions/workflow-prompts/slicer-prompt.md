@@ -12,6 +12,7 @@ tools:
     - code_search
     - code_show
     - code_outline
+    - code_batch
     - code_refs
     - code_impact
     - code_trace
@@ -95,7 +96,11 @@ Each child descriptor must include:
   updating drafts; only renumber when the user explicitly changes the sequence.
 - `summary` — one or two sentences explaining the child slice.
 - `dependencies` — durable sibling child plan identifiers when sequencing matters; otherwise an empty array. Use the
-  canonical child plan name (`epic-name/child-slug`) or sibling child segment (`child-slug`), not human-readable titles.
+  exact generated child plan name (`epic-name/01-child-slug`) or exact sibling child segment (`01-child-slug`),
+  including the two-digit `order` prefix that RunWield writes into child filenames. Derive the segment from the child
+  descriptor's `order` plus slugified `title` (for example, order `2` and title `Add Search` becomes `02-add-search`).
+  Never use unprefixed slugs (`add-search`) or human-readable titles (`Add Search`) for dependencies unless you are
+  explicitly referencing an existing child draft whose stored name is unprefixed.
 - `affectedPaths` — high-signal paths expected to change, if known.
 - `frontend` — `true` when the child includes frontend UI/UX work; otherwise omit or set `false`.
 - `devServerCommand` — the project dev or preview command if discoverable from config/docs; omit when unknown.

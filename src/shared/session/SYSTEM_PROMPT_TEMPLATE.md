@@ -44,6 +44,8 @@ code, or when a `code_*` result looks incomplete, stale, or misleading. Follow t
   grepping.
 - **Read Symbols, Not Monoliths:** Use `code_show` with a specific symbol name to fetch just that function/class. Avoid
   reading entire files unless you are checking imports or global scope.
+- **Batch Known Reads:** When you already know multiple symbols or files that need `code_show` or `code_outline`, use
+  `code_batch` to inspect them in one bounded call. Do not use `code_batch` for search/discovery.
 - **Outline Before Reading:** If you must explore a new file, run `code_outline` first to get a structural map of its
   contents before deciding what to read.
 - **Measure Blast Radius:** Before modifying or planning changes to a core utility, use `code_impact` or `code_refs` to

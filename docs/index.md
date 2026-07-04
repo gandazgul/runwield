@@ -158,6 +158,7 @@ For editor behavior, message queue behavior, file references, shell commands, an
 
 - [Settings Reference](settings.md) - global/project settings and RunWield custom keys.
 - [Themes](themes.md) - RunWield theme package behavior and theme files.
+- [Design System](design-system.md) - browser UI tokens, patterns, and Plannotator port guidance.
 - [Plan Lifecycle](plan-lifecycle.md) - durable plan and worktree state machine.
 - [Router Model Selection](router-model-selection.md) - evaluation findings for the Router model choice.
 - [Compaction Research](compaction-research.md) - research notes for context compaction behavior.
