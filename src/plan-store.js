@@ -1634,6 +1634,26 @@ export async function listPlanResources(cwd, options = {}) {
 }
 
 /**
+ * @param {string} value
+ * @returns {string | undefined}
+ */
+function stripSequencePrefix(value) {
+    const stripped = value.replace(/^\d{2}-/, "");
+    return stripped === value ? undefined : stripped;
+}
+
+/**
+ * @param {Array<PlanResource>} resources
+ * @param {string} normalized
+ * @returns {Array<PlanResource>}
+ */
+function findPlanResourceMatchesById(resources, normalized) {
+    const directMatches = resources.filter((resource) => resource.planId === normalized);
+    if (directMatches.length > 0) return directMatches;
+    return resources.filter((resource) => stripSequencePrefix(resource.planId) === normalized);
+}
+
+/**
  * Find a non-archived Plan resource by durable planId.
  *
  * @param {string} cwd
@@ -1644,7 +1664,7 @@ export async function findPlanById(cwd, planId) {
     const normalized = normalizePlanId(planId);
     if (!normalized) throw new Error("Plan ID cannot be empty");
     const resources = await listPlanResources(cwd);
-    const matches = resources.filter((resource) => resource.planId === normalized);
+    const matches = findPlanResourceMatchesById(resources, normalized);
     if (matches.length > 1) {
         throw new Error(`Duplicate planId values found for ${normalized}; repair plan front matter before continuing.`);
     }
@@ -1723,9 +1743,10 @@ export async function findPlansByParent(cwd, parentPlan) {
  * Resolve child FEATURE dependencies against already-loaded sibling summaries.
  *
  * Supported dependency identifiers are either the canonical child plan name
- * (`epic/01-first`) or the sibling child segment (`01-first`). Title-only
- * aliases are intentionally not inferred because child plan slugs are the
- * durable identifiers stored on disk.
+ * (`epic/01-first`) or the sibling child segment (`01-first`). If an exact
+ * dependency is not found, the resolver also accepts the unprefixed sibling
+ * form (`first`) when exactly one matching two-digit sequence-prefixed sibling
+ * (`01-first`) exists.
  *
  * @param {string} parentPlan
  * @param {unknown} dependencies
@@ -1738,6 +1759,18 @@ export function resolveSiblingChildPlanDependencyStates(parentPlan, dependencies
     if (dependencyNames.length === 0) return [];
 
     const byName = new Map(siblings.map((plan) => [plan.name, plan]));
+    /** @type {Map<string, Array<{ name: string, planName?: string, planId?: string, path?: string, attrs?: any, status?: string }>>} */
+    const byUnprefixedName = new Map();
+    for (const sibling of siblings) {
+        const segments = sibling.name.split("/");
+        const segment = segments.at(-1) || sibling.name;
+        const unprefixed = stripSequencePrefix(segment);
+        if (!unprefixed) continue;
+        const alias = `${segments.slice(0, -1).join("/")}/${unprefixed}`.replace(/^\//, "");
+        const entries = byUnprefixedName.get(alias) || [];
+        entries.push(sibling);
+        byUnprefixedName.set(alias, entries);
+    }
 
     return dependencyNames.map((rawDependency) => {
         const dependency = String(rawDependency).trim();
@@ -1751,7 +1784,11 @@ export function resolveSiblingChildPlanDependencyStates(parentPlan, dependencies
             return { dependency, state: /** @type {const} */ ("missing") };
         }
 
-        const sibling = byName.get(candidateName);
+        let sibling = byName.get(candidateName);
+        if (!sibling) {
+            const fallbackMatches = byUnprefixedName.get(candidateName) || [];
+            sibling = fallbackMatches.length === 1 ? fallbackMatches[0] : undefined;
+        }
         if (!sibling) return { dependency, state: /** @type {const} */ ("missing") };
         const status = sibling.status || sibling.attrs?.status;
         const resolved = {
