@@ -2,13 +2,18 @@ import { assertEquals, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
 import { AGENTS } from "../../constants.js";
 import {
+    __getRootSessionMetadataForTests,
     applyAttentionNudge,
     assembleFinalSystemPrompt,
+    ensureRootAgentSession,
     getGlobalAgentMdPaths,
     readGlobalAgentMd,
+    runAgentSession,
     runPrompt,
+    runRootTurn,
     shouldReuseExistingRootSession,
 } from "./session.js";
+import { HostedSession } from "./hosted-session.js";
 
 Deno.test("assembleFinalSystemPrompt includes project-state context only when provided", async () => {
     const agentDef = {
@@ -208,4 +213,186 @@ Deno.test("runPrompt sends fallback image markers without raw image content to t
         await Deno.remove(tempHome, { recursive: true });
         await Deno.remove(tempProject, { recursive: true });
     }
+});
+
+/**
+ * @param {string} id
+ */
+function makeHostedRuntimeSession(id) {
+    const manager = {
+        getSessionId: () => `${id}-manager`,
+        getCwd: () => Deno.cwd(),
+    };
+    return new HostedSession({ id, cwd: Deno.cwd(), sessionManager: manager });
+}
+
+/**
+ * @param {string} id
+ */
+function makeRuntimeAgentSession(id) {
+    return /** @type {any} */ ({
+        id,
+        model: { provider: "test", id: id, input: ["text"] },
+        modelRegistry: { find: () => null, hasConfiguredAuth: () => true },
+        agent: { state: { messages: [] }, waitForIdle: () => Promise.resolve() },
+        prompt: () => Promise.resolve(),
+        subscribe: () => () => {},
+        disposeCalls: 0,
+        dispose() {
+            this.disposeCalls++;
+        },
+    });
+}
+
+/**
+ * @param {string} label
+ * @param {Array<any>} builds
+ */
+function makeBuildAgentSessionStub(label, builds) {
+    return (/** @type {any} */ opts) => {
+        builds.push({ label, opts });
+        return Promise.resolve({
+            session: makeRuntimeAgentSession(`${label}-${builds.length}`),
+            agentDef: {
+                name: opts.agentName,
+                displayName: `${label}-${opts.agentName}`,
+                model: "",
+                description: "Test agent",
+                tools: [],
+                systemPrompt: "system",
+            },
+            promptState: { text: `system-${label}` },
+            tools: opts.toolNames || [],
+            finalCustomTools: opts.customTools || [],
+            resolvedModel: { provider: "test", id: label, input: ["text"] },
+            resolvedThinkingLevel: "medium",
+        });
+    };
+}
+
+function makeAttachStub() {
+    return () => ({
+        resetTurn: () => {},
+        drainInvokedToolNames: () => [],
+        endThinking: () => {},
+        unsubscribe: () => {},
+    });
+}
+
+Deno.test("ensureRootAgentSession scopes root session, metadata, agent name, and manager to each HostedSession", async () => {
+    const hostedA = makeHostedRuntimeSession("root-a");
+    const hostedB = makeHostedRuntimeSession("root-b");
+    hostedA.setProjectStateContext("context-a");
+    hostedB.setProjectStateContext("context-b");
+    const builds = /** @type {Array<any>} */ ([]);
+
+    const rootA = await ensureRootAgentSession({
+        hostedSession: hostedA,
+        agentName: "router",
+        _buildAgentSession: makeBuildAgentSessionStub("a", builds),
+        _attachUiSubscribers: makeAttachStub(),
+    });
+    const rootB = await ensureRootAgentSession({
+        hostedSession: hostedB,
+        agentName: "operator",
+        _buildAgentSession: makeBuildAgentSessionStub("b", builds),
+        _attachUiSubscribers: makeAttachStub(),
+    });
+
+    assertEquals(hostedA.getRootAgentSession(), rootA);
+    assertEquals(hostedB.getRootAgentSession(), rootB);
+    assertEquals(hostedA.getRootAgentName(), "router");
+    assertEquals(hostedB.getRootAgentName(), "operator");
+    assertEquals(__getRootSessionMetadataForTests(rootA).projectStateContext, "context-a");
+    assertEquals(__getRootSessionMetadataForTests(rootB).projectStateContext, "context-b");
+    assertEquals(builds[0].opts.sessionManager, hostedA.getRootSessionManager());
+    assertEquals(builds[1].opts.sessionManager, hostedB.getRootSessionManager());
+    assertEquals(hostedA.getAgentInfoStack()[0].displayName, "a-router");
+    assertEquals(hostedB.getAgentInfoStack()[0].displayName, "b-operator");
+});
+
+Deno.test("runRootTurn increments only the target HostedSession root turn metadata", async () => {
+    const hostedA = makeHostedRuntimeSession("turn-a");
+    const hostedB = makeHostedRuntimeSession("turn-b");
+    const builds = /** @type {Array<any>} */ ([]);
+    const runPrompts = /** @type {Array<any>} */ ([]);
+    const runPromptStub = (/** @type {any} */ opts) => {
+        runPrompts.push(opts);
+        return Promise.resolve([{ role: "assistant", content: "ok" }]);
+    };
+
+    const rootA = await ensureRootAgentSession({
+        hostedSession: hostedA,
+        agentName: AGENTS.GUIDE,
+        _buildAgentSession: makeBuildAgentSessionStub("turn-a", builds),
+        _attachUiSubscribers: makeAttachStub(),
+    });
+    const rootB = await ensureRootAgentSession({
+        hostedSession: hostedB,
+        agentName: AGENTS.GUIDE,
+        _buildAgentSession: makeBuildAgentSessionStub("turn-b", builds),
+        _attachUiSubscribers: makeAttachStub(),
+    });
+
+    await runRootTurn({
+        hostedSession: hostedA,
+        agentName: AGENTS.GUIDE,
+        userRequest: "one",
+        _runPrompt: runPromptStub,
+    });
+    await runRootTurn({
+        hostedSession: hostedA,
+        agentName: AGENTS.GUIDE,
+        userRequest: "two",
+        _runPrompt: runPromptStub,
+    });
+
+    assertEquals(__getRootSessionMetadataForTests(rootA).rootTurnCount, 2);
+    assertEquals(__getRootSessionMetadataForTests(rootB).rootTurnCount, 0);
+    assertEquals(runPrompts.map((entry) => entry.session), [rootA, rootA]);
+});
+
+Deno.test("runAgentSession root and transient paths use only the supplied HostedSession state", async () => {
+    const hostedA = makeHostedRuntimeSession("run-a");
+    const hostedB = makeHostedRuntimeSession("run-b");
+    hostedA.setActiveModelState("manual-a", "test", true);
+    hostedB.setActiveModelState("manual-b", "test", true);
+    hostedA.setThinkingLevel("low");
+    hostedB.setThinkingLevel("high");
+    const builds = /** @type {Array<any>} */ ([]);
+    const prompts = /** @type {Array<any>} */ ([]);
+    const runPromptStub = (/** @type {any} */ opts) => {
+        prompts.push(opts);
+        return Promise.resolve([]);
+    };
+
+    await runAgentSession({
+        hostedSession: hostedA,
+        agentName: "router",
+        userRequest: "root a",
+        _buildAgentSession: makeBuildAgentSessionStub("run-a", builds),
+        _attachUiSubscribers: makeAttachStub(),
+        _runPrompt: runPromptStub,
+    });
+    await runAgentSession({
+        hostedSession: hostedB,
+        agentName: "operator",
+        userRequest: "transient b",
+        useRootSession: false,
+        _buildAgentSession: makeBuildAgentSessionStub("run-b", builds),
+        _attachUiSubscribers: makeAttachStub(),
+        _runPrompt: runPromptStub,
+    });
+
+    assertEquals(hostedA.getRootAgentName(), "router");
+    assertEquals(hostedB.getRootAgentName(), null);
+    assertEquals(hostedB.getSubAgentSessions().size, 0, "transient sub-agent is removed from its own HostedSession");
+    assertEquals(hostedA.getSubAgentSessions().size, 0, "transient sub-agent never appears in another HostedSession");
+    assertEquals(builds[0].opts.hostedSession, hostedA);
+    assertEquals(builds[1].opts.hostedSession, hostedB);
+    assertEquals(hostedA.getActiveModelState(), { model: "manual-a", provider: "test" });
+    assertEquals(hostedB.getActiveModelState(), { model: "manual-b", provider: "test" });
+    assertEquals(hostedA.getThinkingLevel(), "low");
+    assertEquals(hostedB.getThinkingLevel(), "high");
+    assertEquals(prompts.length, 2);
 });

@@ -47,24 +47,6 @@ import { createUserInterviewTool } from "../../tools/user-interview.js";
 import { createSeeImageTool } from "../../tools/see-image.js";
 import { discoverProviderModel, getModelRegistry } from "../models/model-registry.js";
 import { parseProviderModel } from "../models/model-validation.js";
-import {
-    addSubAgentSession,
-    getActiveModelState,
-    getActiveUiAPIState,
-    getProjectStateContext,
-    getRootAgentName,
-    getRootAgentSession,
-    getRootSessionManager,
-    getSubAgentSessions,
-    isUserModelOverride,
-    popAgentInfo,
-    pushAgentInfo,
-    removeSubAgentSession,
-    resetAgentInfoStack,
-    setRootAgentName,
-    setRootAgentSession,
-    setThinkingLevel,
-} from "./session-state.js";
 import { directoryExists, fileExists } from "../helpers.js";
 import {
     _AGENT_ATTENTION_NUDGES,
@@ -86,6 +68,27 @@ const LOCAL_PROMPTS_DIR = join(CWD, ".wld", "prompts");
 const HTML_ERROR_RE = /^(.*?\b404\b.*?)(?:<!DOCTYPE|<html|<body)/i;
 const UNSUPPORTED_TEMPERATURE_RE =
     /\bunsupported (?:parameter|field|argument)\b[^.:\n]*(?::|\b)\s*["']?temperature["']?|\btemperature\b[^.:\n]*\bunsupported\b/i;
+
+/**
+ * @param {unknown} hostedSession
+ * @param {string} caller
+ * @returns {import('./hosted-session.js').HostedSession}
+ */
+function requireHostedSession(hostedSession, caller) {
+    if (!hostedSession || typeof hostedSession !== "object") {
+        throw new Error(`${caller}: hostedSession is required`);
+    }
+    const candidate = /** @type {import('./hosted-session.js').HostedSession} */ (hostedSession);
+    if (
+        typeof candidate.getRootAgentSession !== "function" ||
+        typeof candidate.setRootAgentSession !== "function" ||
+        typeof candidate.getRootAgentName !== "function" ||
+        typeof candidate.setRootAgentName !== "function"
+    ) {
+        throw new Error(`${caller}: hostedSession must be a HostedSession`);
+    }
+    return candidate;
+}
 
 /**
  * Replace 404 error messages that contain an HTML body with a clean generic
@@ -588,11 +591,13 @@ export async function listLoadedAgentMdFiles() {
  * so its mere existence does NOT mean a run is in flight; gate on isStreaming
  * to avoid reporting "Agent run canceled" when the user presses Esc at idle.
  *
+ * @param {import('./hosted-session.js').HostedSession} [hostedSession]
  * @returns {boolean} true when at least one active session was aborted
  */
-export function abortActiveSession() {
+export function abortActiveSession(hostedSession) {
+    const targetHostedSession = requireHostedSession(hostedSession, "abortActiveSession");
     let aborted = false;
-    const root = getRootAgentSession();
+    const root = /** @type {any} */ (targetHostedSession.getRootAgentSession());
     if (root && root.isStreaming) {
         try {
             root.abort();
@@ -605,7 +610,8 @@ export function abortActiveSession() {
             root.clearQueue();
         } catch (_e) { /* ignore */ }
     }
-    for (const sub of getSubAgentSessions()) {
+    for (const subSession of targetHostedSession.getSubAgentSessions()) {
+        const sub = /** @type {any} */ (subSession);
         try {
             sub.abort();
         } catch (_e) { /* ignore */ }
@@ -618,24 +624,27 @@ export function abortActiveSession() {
  * Steer the root (user-facing) session with a message injected between tool calls.
  * Sub-agent sessions spawned by tools are intentionally excluded.
  *
- * @param {string} text
+ * @param {import('./hosted-session.js').HostedSession | string} hostedSession
+ * @param {string | import('./types.js').ImageAttachment[]} [text]
  * @param {import('./types.js').ImageAttachment[]} [images]
  * @returns {Promise<boolean>} true when the root session was steered
  */
-export async function steerRootSession(text, images) {
-    return Boolean(await steerRootSessionWithTarget(text, images));
+export async function steerRootSession(hostedSession, text, images) {
+    return Boolean(await steerRootSessionWithTarget(hostedSession, text, images));
 }
 
 /**
  * Steer the root session and return the exact AgentSession that accepted the
  * message, so UI callers can track queue consumption on the right session.
  *
- * @param {string} text
+ * @param {import('./hosted-session.js').HostedSession | string} hostedSession
+ * @param {string | import('./types.js').ImageAttachment[]} [text]
  * @param {import('./types.js').ImageAttachment[]} [images]
  * @returns {Promise<import('@earendil-works/pi-coding-agent').AgentSession | null>}
  */
-export async function steerRootSessionWithTarget(text, images) {
-    const session = getRootAgentSession();
+export async function steerRootSessionWithTarget(hostedSession, text, images) {
+    const targetHostedSession = requireHostedSession(hostedSession, "steerRootSessionWithTarget");
+    const session = /** @type {any} */ (targetHostedSession.getRootAgentSession());
     if (!session) return null;
     // If the session is not actively streaming, queuing a steering message
     // on the agent would be lost — the agent loop has already exited.
@@ -646,7 +655,7 @@ export async function steerRootSessionWithTarget(text, images) {
         ? await resolveVisionFallbackModel(session.modelRegistry)
         : undefined;
     const preparedImages = prepareImagesForModel({
-        text,
+        text: /** @type {string} */ (text),
         images,
         activeModel,
         fallbackModelRef: fallback?.modelRef,
@@ -889,10 +898,17 @@ export function applySessionTemperature(session, temperature) {
  * @param {import('./types.js').AgentDefinition} agentDef
  * @param {string} [agentName] - Used to look up settings-based model override.
  * @param {ReturnType<typeof getModelRegistry>} [modelRegistry]
+ * @param {import('./hosted-session.js').HostedSession} [hostedSession]
  *
  * @returns {Promise<any>}
  */
-async function resolveModel(modelOverride, agentDef, agentName, modelRegistry = getModelRegistry()) {
+async function resolveModel(
+    modelOverride,
+    agentDef,
+    agentName,
+    modelRegistry = getModelRegistry(),
+    hostedSession = undefined,
+) {
     let resolvedModel = null;
 
     /** @type {Array<{ model: string, source: string, strict: boolean }>} */
@@ -901,8 +917,8 @@ async function resolveModel(modelOverride, agentDef, agentName, modelRegistry = 
     // Only use the active model if the user explicitly selected it via /model.
     // After agent switches, clearUserModelOverride() clears the flag but the
     // activeModel may still hold the previous agent's model — we must skip it.
-    const activeModelState = getActiveModelState();
-    if (activeModelState.model && isUserModelOverride()) {
+    const activeModelState = hostedSession?.getActiveModelState?.() || { model: "", provider: "" };
+    if (activeModelState.model && hostedSession?.isUserModelOverride?.()) {
         candidateModels.push({
             model: activeModelState.provider
                 ? `${activeModelState.provider}/${activeModelState.model}`
@@ -1160,6 +1176,7 @@ export async function assembleFinalSystemPrompt(
  *  - runAgentSession's transient sub-agent path
  *
  * @param {Object} opts
+ * @param {import('./hosted-session.js').HostedSession} [opts.hostedSession]
  * @param {string} opts.agentName
  * @param {string[]} [opts.toolNames]
  * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [opts.customTools]
@@ -1188,6 +1205,7 @@ export async function assembleFinalSystemPrompt(
  * }>}
  */
 export async function buildAgentSession({
+    hostedSession,
     agentName,
     toolNames,
     customTools,
@@ -1202,13 +1220,20 @@ export async function buildAgentSession({
     projectStateContext,
     includeEditFallback,
 }) {
-    const sessionCwd = cwd || CWD;
+    const targetHostedSession = hostedSession ? requireHostedSession(hostedSession, "buildAgentSession") : null;
+    const sessionCwd = cwd || targetHostedSession?.cwd || CWD;
     await ensureMnemosyneBinary();
     await ensureCymbalBinary();
     const agentDef = _agentDefOverride || await loadAgentDef(agentName);
 
     const modelRegistry = getModelRegistry();
-    const resolvedModel = await resolveModel(modelOverride, agentDef, agentName, modelRegistry);
+    const resolvedModel = await resolveModel(
+        modelOverride,
+        agentDef,
+        agentName,
+        modelRegistry,
+        targetHostedSession || undefined,
+    );
     const activeModelSupportsImages = modelSupportsImageInput(resolvedModel);
     const visionFallback = activeModelSupportsImages ? undefined : await resolveVisionFallbackModel(modelRegistry);
     const effectiveSessionManager = sessionManager || SessionManager.inMemory(sessionCwd);
@@ -1361,8 +1386,8 @@ export async function buildAgentSession({
         session.setThinkingLevel(
             /** @type {import('@earendil-works/pi-agent-core').ThinkingLevel} */ (resolvedThinkingLevel),
         );
-        // Keep the session-state footer in sync with what the AgentSession is using
-        setThinkingLevel(
+        // Keep the HostedSession footer in sync with what the AgentSession is using.
+        targetHostedSession?.setThinkingLevel(
             /** @type {"off"|"minimal"|"low"|"medium"|"high"|"xhigh"} */ (resolvedThinkingLevel),
         );
     }
@@ -1405,10 +1430,11 @@ export async function buildAgentSession({
  * @param {import('./types.js').AgentDefinition} agentDef
  * @param {import('../workflow/workflow.js').UiAPI | undefined} uiAPI
  * @param {string} [debugLogPath]
+ * @param {import('./hosted-session.js').HostedSession} [hostedSession]
  *
  * @returns {SubscriberState}
  */
-export function attachUiSubscribers(session, agentDef, uiAPI, debugLogPath) {
+export function attachUiSubscribers(session, agentDef, uiAPI, debugLogPath = undefined, hostedSession = undefined) {
     /** @type {{ appendText: (delta: string) => void } | null} */
     let currentMarkdownBlock = null;
     // Whether the agent-name header has already been rendered this turn. Only
@@ -1428,7 +1454,7 @@ export function attachUiSubscribers(session, agentDef, uiAPI, debugLogPath) {
     };
 
     const unsubscribe = session.subscribe((event) => {
-        const liveUiAPI = uiAPI || getActiveUiAPIState() || undefined;
+        const liveUiAPI = /** @type {any} */ (uiAPI || hostedSession?.getActiveUiAPIState?.() || undefined);
 
         switch (event.type) {
             case "message_start": {
@@ -1962,6 +1988,7 @@ export function __getRootSessionMetadataForTests(session) {
  * If a root already exists, it is disposed first.
  *
  * @param {Object} opts
+ * @param {import('./hosted-session.js').HostedSession} [opts.hostedSession]
  * @param {string} opts.agentName  Internal name (matches agent definition filename).
  * @param {string[]} [opts.toolNames]
  * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [opts.customTools]
@@ -1973,11 +2000,15 @@ export function __getRootSessionMetadataForTests(session) {
  * @param {string} [opts.cwd]
  * @param {string} [opts.projectStateContext]
  * @param {boolean} [opts.includeEditFallback]
+ * @param {Function} [opts._buildAgentSession]
+ * @param {Function} [opts._attachUiSubscribers]
+ * @param {string} [opts.debugLogPath]
  *
  * @returns {Promise<import('@earendil-works/pi-coding-agent').AgentSession>}
  */
 export async function ensureRootAgentSession(opts) {
-    const existing = getRootAgentSession();
+    const hostedSession = requireHostedSession(opts.hostedSession, "ensureRootAgentSession");
+    const existing = /** @type {any} */ (hostedSession.getRootAgentSession());
     if (existing) {
         const meta = rootSessionMetadata.get(existing);
         try {
@@ -1987,11 +2018,13 @@ export async function ensureRootAgentSession(opts) {
             existing.dispose();
         } catch (_e) { /* ignore */ }
         rootSessionMetadata.delete(existing);
-        setRootAgentSession(null);
-        setRootAgentName(null);
+        hostedSession.setRootAgentSession(null);
+        hostedSession.setRootAgentName(null);
     }
 
-    const rootProjectStateContext = opts.projectStateContext ?? getProjectStateContext();
+    const rootProjectStateContext = opts.projectStateContext ?? hostedSession.getProjectStateContext();
+    const buildAgentSessionFn = opts._buildAgentSession || buildAgentSession;
+    const attachUiSubscribersFn = opts._attachUiSubscribers || attachUiSubscribers;
     const {
         session,
         agentDef,
@@ -2001,19 +2034,25 @@ export async function ensureRootAgentSession(opts) {
         resolvedModel,
         imageMode,
         visionFallbackModelRef,
-    } = await buildAgentSession({
+    } = await buildAgentSessionFn({
         ...opts,
+        hostedSession,
+        cwd: opts.cwd || hostedSession.cwd,
+        sessionManager: /** @type {any} */ (opts.sessionManager || hostedSession.getRootSessionManager() || undefined),
         projectStateContext: rootProjectStateContext,
         allowReturnToRouter: opts.allowReturnToRouter ?? true,
     });
-    const subscriberState = attachUiSubscribers(session, agentDef, opts.uiAPI);
+    const subscriberState = attachUiSubscribersFn(session, agentDef, opts.uiAPI, opts.debugLogPath, hostedSession);
 
     const finalModelForUi = resolvedModel ? `${resolvedModel.provider}/${resolvedModel.id}` : undefined;
-    resetAgentInfoStack(agentDef.displayName, finalModelForUi);
+    hostedSession.resetAgentInfoStack(agentDef.displayName, finalModelForUi, resolvedModel?.provider || "");
 
-    setRootAgentSession(session);
-    setRootAgentName(opts.agentName);
-    recordActiveAgent(opts.sessionManager, opts.agentName);
+    hostedSession.setRootAgentSession(session);
+    hostedSession.setRootAgentName(opts.agentName);
+    recordActiveAgent(
+        /** @type {any} */ (opts.sessionManager || hostedSession.getRootSessionManager() || undefined),
+        opts.agentName,
+    );
     rootSessionMetadata.set(session, {
         agentDef,
         promptState,
@@ -2035,6 +2074,7 @@ export async function ensureRootAgentSession(opts) {
  * (via ensureRootAgentSession) and must match the requested agentName.
  *
  * @param {Object} opts
+ * @param {import('./hosted-session.js').HostedSession} [opts.hostedSession]
  * @param {string} opts.agentName  Internal name used to verify the root matches.
  * @param {string} opts.userRequest
  * @param {Array<{base64: string, mimeType: string}>} [opts.images]
@@ -2043,10 +2083,14 @@ export async function ensureRootAgentSession(opts) {
  * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [opts.customTools]
  * @param {import('./types.js').AgentDefinition} [opts._agentDefOverride]
  * @param {boolean} [opts.allowReturnToRouter]
+ * @param {Function} [opts._buildAgentSession]
+ * @param {Function} [opts._attachUiSubscribers]
+ * @param {Function} [opts._runPrompt]
  *
  * @returns {Promise<import('@earendil-works/pi-agent-core').AgentMessage[]>}
  */
 export async function runRootTurn({
+    hostedSession,
     agentName,
     userRequest,
     images,
@@ -2055,14 +2099,18 @@ export async function runRootTurn({
     customTools,
     _agentDefOverride,
     allowReturnToRouter,
+    _buildAgentSession,
+    _attachUiSubscribers,
+    _runPrompt,
 }) {
-    let session = getRootAgentSession();
+    const targetHostedSession = requireHostedSession(hostedSession, "runRootTurn");
+    let session = /** @type {any} */ (targetHostedSession.getRootAgentSession());
     if (!session) {
         throw new Error(`runRootTurn: no root AgentSession (expected agent "${agentName}")`);
     }
-    if (getRootAgentName() !== agentName) {
+    if (targetHostedSession.getRootAgentName() !== agentName) {
         throw new Error(
-            `runRootTurn: root agent is "${getRootAgentName()}", not "${agentName}". setActiveAgent must rebuild first.`,
+            `runRootTurn: root agent is "${targetHostedSession.getRootAgentName()}", not "${agentName}". setActiveAgent must rebuild first.`,
         );
     }
     let meta = rootSessionMetadata.get(session);
@@ -2077,12 +2125,15 @@ export async function runRootTurn({
     const hasRequiredCustomTools = requiredCustomToolNames.every((name) => existingCustomToolNames.includes(name));
     if (!hasRequiredCustomTools && customTools?.length) {
         session = await ensureRootAgentSession({
+            hostedSession: targetHostedSession,
             agentName,
             uiAPI,
             sessionManager,
             customTools,
             _agentDefOverride,
             allowReturnToRouter,
+            _buildAgentSession,
+            _attachUiSubscribers,
             projectStateContext: meta.projectStateContext,
         });
         meta = rootSessionMetadata.get(session);
@@ -2095,8 +2146,9 @@ export async function runRootTurn({
 
     meta.rootTurnCount += 1;
     const finalRequest = applyAttentionNudge(agentName, userRequest, meta.rootTurnCount);
+    const runPromptFn = _runPrompt || runPrompt;
 
-    return await runPrompt({
+    return await runPromptFn({
         session,
         agentDef: meta.agentDef,
         agentName,
@@ -2138,6 +2190,7 @@ export function shouldReuseExistingRootSession(opts, rootAgentName) {
  * disposable one-off session must pass `useRootSession: false`.
  *
  * @param {Object} opts
+ * @param {import('./hosted-session.js').HostedSession} [opts.hostedSession]
  * @param {string} opts.agentName
  * @param {string[]} [opts.toolNames] - Optional explicit tool override; defaults to agent frontmatter tools.
  * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [opts.customTools]
@@ -2154,15 +2207,21 @@ export function shouldReuseExistingRootSession(opts, rootAgentName) {
  * @param {string} [opts.projectStateContext] - Optional session-scoped project state note for the system prompt.
  * @param {boolean} [opts.includeEditFallback] - Internal: whether to register the edit fallback custom tool.
  * @param {boolean} [opts.useRootSession=true] - Set false only for intentional disposable one-off sessions.
+ * @param {Function} [opts._buildAgentSession]
+ * @param {Function} [opts._attachUiSubscribers]
+ * @param {Function} [opts._runPrompt]
  *
  * @returns {Promise<import('@earendil-works/pi-agent-core').AgentMessage[]>}
  */
 export async function runAgentSession(opts) {
-    const projectStateContext = opts.projectStateContext ?? getProjectStateContext();
+    const hostedSession = requireHostedSession(opts.hostedSession, "runAgentSession");
+    const projectStateContext = opts.projectStateContext ?? hostedSession.getProjectStateContext();
 
     if (opts.useRootSession !== false) {
-        if (shouldReuseExistingRootSession(opts, getRootAgentName())) {
+        if (shouldReuseExistingRootSession(opts, hostedSession.getRootAgentName())) {
             return await runRootTurn({
+                ...opts,
+                hostedSession,
                 agentName: opts.agentName,
                 userRequest: opts.userRequest,
                 images: opts.images,
@@ -2173,10 +2232,13 @@ export async function runAgentSession(opts) {
 
         await ensureRootAgentSession({
             ...opts,
+            hostedSession,
             projectStateContext,
             allowReturnToRouter: opts.allowReturnToRouter ?? false,
         });
         return await runRootTurn({
+            ...opts,
+            hostedSession,
             agentName: opts.agentName,
             userRequest: opts.userRequest,
             images: opts.images,
@@ -2184,22 +2246,27 @@ export async function runAgentSession(opts) {
         });
     }
 
-    const { session, agentDef, promptState, resolvedModel, resolvedThinkingLevel } = await buildAgentSession({
+    const buildAgentSessionFn = opts._buildAgentSession || buildAgentSession;
+    const attachUiSubscribersFn = opts._attachUiSubscribers || attachUiSubscribers;
+    const runPromptFn = opts._runPrompt || runPrompt;
+    const { session, agentDef, promptState, resolvedModel, resolvedThinkingLevel } = await buildAgentSessionFn({
         ...opts,
+        hostedSession,
+        cwd: opts.cwd || hostedSession.cwd,
         projectStateContext,
     });
-    const subscriberState = attachUiSubscribers(session, agentDef, opts.uiAPI, opts.debugLogPath);
-    addSubAgentSession(session);
+    const subscriberState = attachUiSubscribersFn(session, agentDef, opts.uiAPI, opts.debugLogPath, hostedSession);
+    hostedSession.addSubAgentSession(session);
 
     const suppressUI = opts.uiAPI?.isOutputSuppressed?.();
     if (!suppressUI) {
         const finalModelForUi = resolvedModel ? `${resolvedModel.provider}/${resolvedModel.id}` : undefined;
-        pushAgentInfo(agentDef.displayName, finalModelForUi);
+        hostedSession.pushAgentInfo(agentDef.displayName, finalModelForUi, resolvedModel?.provider || "");
         opts.uiAPI?.requestRender?.();
     }
 
     try {
-        return await runPrompt({
+        return await runPromptFn({
             session,
             agentDef,
             agentName: opts.agentName,
@@ -2210,15 +2277,15 @@ export async function runAgentSession(opts) {
             subscriberState,
             resolvedModel,
             resolvedThinkingLevel,
-            cwd: opts.cwd,
+            cwd: opts.cwd || hostedSession.cwd,
             debugLogPath: opts.debugLogPath,
         });
     } finally {
         if (!suppressUI) {
-            popAgentInfo();
+            hostedSession.popAgentInfo();
             opts.uiAPI?.requestRender?.();
         }
-        removeSubAgentSession(session);
+        hostedSession.removeSubAgentSession(session);
         try {
             subscriberState.unsubscribe();
         } catch (_e) { /* ignore */ }
@@ -2233,11 +2300,13 @@ export async function runAgentSession(opts) {
  * Re-reads settings.json from disk, refreshes the dynamic system prompt,
  * resource loader, theme, model, and thinking level.
  *
+ * @param {import('./hosted-session.js').HostedSession | import('../workflow/workflow.js').UiAPI} [hostedSession]
  * @param {import('../workflow/workflow.js').UiAPI} [uiAPI]
  * @returns {Promise<boolean>} True if reloaded successfully, false if no active session
  */
-export async function reloadRootAgentSession(uiAPI) {
-    const session = getRootAgentSession();
+export async function reloadRootAgentSession(hostedSession, uiAPI) {
+    const targetHostedSession = requireHostedSession(hostedSession, "reloadRootAgentSession");
+    const session = /** @type {any} */ (targetHostedSession.getRootAgentSession());
     if (!session) return false;
     const meta = rootSessionMetadata.get(session);
     if (!meta) return false;
@@ -2251,9 +2320,10 @@ export async function reloadRootAgentSession(uiAPI) {
     if (persistedTheme) setTheme(persistedTheme);
 
     await ensureRootAgentSession({
+        hostedSession: targetHostedSession,
         agentName: meta.agentName,
-        uiAPI,
-        sessionManager: getRootSessionManager() || undefined,
+        uiAPI: /** @type {any} */ (uiAPI || targetHostedSession.getActiveUiAPIState() || undefined),
+        sessionManager: /** @type {any} */ (targetHostedSession.getRootSessionManager() || undefined),
         projectStateContext: meta.projectStateContext,
     });
 
