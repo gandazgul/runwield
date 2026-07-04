@@ -12,8 +12,8 @@ affectedPaths:
     - "docs/prd/runwield-acp-session-host-PRD.md"
 frontend: false
 createdAt: "2026-07-03T18:03:46.140Z"
-updatedAt: "2026-07-03T18:03:46.140Z"
-status: "draft"
+updatedAt: "2026-07-04T17:31:16.938Z"
+status: "ready_for_work"
 origin: "internal"
 parentPlan: "session-host-multi-session-refactor"
 order: 1
@@ -26,78 +26,119 @@ dependencies:
 ## Context
 
 RunWield currently stores root interactive runtime state in `src/shared/session/session-state.js` as process-global
-mutable state. That blocks ACP, Takopi, Workspace UI, and any in-process multi-session runtime because active agent,
+mutable state. That blocks ACP, Takopi, Workspace UI, and any in-process multi-session runtime because active Agent,
 root session, pending swaps, model state, UI API, and workflow state can only represent one conversation at a time.
 
-This Epic is expected to run on an isolation branch. Intermediate branch states may break current UX or flows as long as
-CI passes and the targeted tests for the current slice prove the intended behavior. Do not add compatibility shims or a
-production singleton facade to preserve the old global model.
+This child FEATURE is the first implementation slice of the `session-host-multi-session-refactor` Epic. The behavior is
+sourced from `docs/prd/runwield-acp-session-host-PRD.md`,
+`docs/adr/009-session-host-as-external-integration-boundary.md`, and the parent Epic: introduce Session Host as the
+runtime seam and move session-scoped state into Hosted Sessions rather than adding a production singleton compatibility
+facade.
+
+This work is expected to run on an isolation branch. Intermediate branch states may break current TUI internals or flows
+as long as CI passes and the targeted tests for this slice prove the intended state model. Full TUI restoration belongs
+to later child FEATUREs.
 
 ## Objective
 
-Create the new Session Host state boundary and prove that two Hosted Sessions can coexist in one process without sharing
-session-scoped state. This slice establishes the public state model that later slices will thread through session
+Create the new Session Host state seam and prove that two Hosted Sessions can coexist in one process without sharing
+session-scoped state. This slice establishes the public state model that later slices will thread through the root agent
 runtime, TUI, routing, and workflow code.
+
+The enabled test harness for this slice must prove isolation for active Agent state, active handler, root session
+manager/reference, root Agent name/session reference, transient sub-Agent set, pending root swap, pending switch
+handoff, model/thinking state, project-state context, UI/event sink, cwd, and active execution workflow metadata.
 
 ## Approach
 
-Add `HostedSession` as the owner of all mutable state that currently lives in `session-state.js`, and add a
-`SessionHost` that can create, look up, and dispose multiple Hosted Sessions. Start with state and lifecycle behavior
-only; do not try to refactor the full runtime in this slice.
+Add `HostedSession` as the owner of the mutable state shape currently represented by `session-state.js`, and add
+`SessionHost` as the host-level registry/lifecycle module that creates, adopts, looks up, lists, and disposes Hosted
+Sessions. Keep this slice focused on state and lifecycle behavior only; do not thread HostedSession through the full
+runtime yet.
 
-Tests should be written first. It is acceptable to commit skipped tests for behavior intentionally owned by later
-slices, but each skipped test must name the follow-up slice that owns unskipping it. The tests in this slice that define
-the state model and two-session isolation must be enabled and passing.
+Use TDD for the new seam: write failing tests for `HostedSession` and `SessionHost`, implement the minimal API, then run
+the focused tests and full CI. The existing `session-state.js` globals may remain temporarily for existing production
+callers so CI can pass, but no new production global "current HostedSession" facade should be introduced. If
+`session-state.js` is touched in this slice, prefer extracting/reusing JSDoc typedefs or documenting its legacy status;
+leave broad caller migration to later slices.
+
+Recommended API shape for this slice:
+
+- `new HostedSession({ id, cwd, sessionManager, uiAPI, eventSink })` or an equivalent factory with pure JavaScript/JSDoc
+  typedefs.
+- Explicit getters/setters or small methods mirroring the current state shape: agent info stack/model override, active
+  handler, root session manager, root AgentSession/name, sub-Agent Sessions, pending root swap, pending switch handoff
+  with consume semantics, thinking level, project-state context, active execution workflow, active UI/event sink, and
+  disposal state.
+- `HostedSession#dispose()` marks the session disposed, clears owned runtime references, disposes root/sub AgentSessions
+  when they expose `dispose()`, and makes future mutation fail clearly with an error instead of silently mutating dead
+  state.
+- `SessionHost#createSession({ cwd, sessionManager, id, uiAPI, eventSink })` creates or adopts a HostedSession,
+  `getSession(id)`/`requireSession(id)` look up sessions, `listSessions()` returns stable metadata, and
+  `disposeSession(id)` removes and disposes one HostedSession.
 
 ## Files to Modify
 
-- `src/shared/session/hosted-session.js` — new per-session state container for active agent/handler, root/sub sessions,
+- `src/shared/session/hosted-session.js` — new per-session state container for active Agent/handler, root/sub sessions,
   pending swaps/handoffs, model/thinking state, project-state context, UI/event sink, session manager, cwd, and active
   execution workflow.
-- `src/shared/session/session-host.js` — new host-level registry and lifecycle API for creating, loading, looking up,
-  and disposing Hosted Sessions.
-- `src/shared/session/session-state.js` — begin reducing this module away from mutable singleton ownership. Keep only
-  typedefs/helpers if immediately useful; do not introduce a production current-session facade.
-- `src/shared/session/session-host.test.js` — new tests for SessionHost creation, lookup, ids, cwd ownership, and
-  disposal.
-- `src/shared/session/hosted-session.test.js` — new tests for per-HostedSession state mutation and isolation.
+- `src/shared/session/session-host.js` — new host-level registry and lifecycle API for creating/adopting, looking up,
+  listing, and disposing Hosted Sessions.
+- `src/shared/session/session-state.js` — keep legacy singleton state for existing callers unless a small typedef/helper
+  extraction is useful. Do not add a global current-HostedSession facade for production code.
+- `src/shared/session/session-host.test.js` — new tests for SessionHost creation/adoption, lookup/require behavior,
+  stable ids, cwd/session-manager ownership, list metadata, duplicate id rejection, and disposal/removal.
+- `src/shared/session/hosted-session.test.js` — new tests for per-HostedSession state mutation, consume semantics,
+  disposal behavior, and two-session isolation.
 - `docs/prd/runwield-acp-session-host-PRD.md` — update only if the implemented state boundary reveals a small
-  terminology clarification; avoid broad PRD edits.
+  terminology clarification; avoid broad PRD edits in this executable slice.
 
 ## Reuse Opportunities
 
 Existing functions, modules, or patterns to reuse:
 
-- `src/shared/session/session-state.js` — reuse the existing JSDoc typedefs for `PendingRootSwap`,
-  `PendingSwitchHandoff`, and workflow-state shape while moving storage into `HostedSession`.
-- `src/shared/session/root-session.js` — reuse `createRootSessionManager()` and cwd/session directory helpers as
-  persistence primitives behind HostedSession creation.
+- `src/shared/session/session-state.js` — reuse the existing JSDoc typedef names for `PendingRootSwap`,
+  `PendingSwitchHandoff`, `AgentInfo`, model/thinking state, and active workflow metadata while moving new ownership
+  into `HostedSession`.
+- `src/shared/session/root-session.js` — reuse `createRootSessionManager()` and cwd/session directory helpers when a
+  HostedSession needs a real persisted SessionManager; tests may inject lightweight SessionManager stubs.
 - `src/shared/session/active-agent-session.js` — preserve active-agent persistence semantics for later runtime slices;
   do not rewrite this logic yet.
-- Existing Deno tests under `src/shared/session/` — follow the current test style and pure JavaScript/JSDoc conventions.
+- Existing Deno tests under `src/shared/session/` — follow the current test style: `Deno.test`, `@std/assert`, small
+  local stubs, pure JavaScript, and JSDoc typedefs rather than TypeScript syntax.
+- `@earendil-works/pi-coding-agent` `SessionManager` primitives — use `getSessionId()`, `getCwd()`, `dispose()` where
+  available instead of inventing a competing transcript format.
 
 ## Implementation Steps
 
-- [ ] Step 1: Write failing tests that create two Hosted Sessions and mutate active agent, active handler, root agent
-      name/session, model override, thinking level, pending root swap, pending switch handoff, project-state context,
-      UI/event sink, sub-agent set, and active execution workflow independently.
-- [ ] Step 2: Implement `HostedSession` with explicit methods/properties for the state currently owned by
-      `session-state.js`, using pure JavaScript and JSDoc typedefs.
-- [ ] Step 3: Implement `SessionHost` with create/load-or-create/lookup/list/dispose behavior sufficient for in-process
-      multi-session management.
-- [ ] Step 4: Decide and document in code comments the minimal supported HostedSession lifecycle states, including
-      disposed behavior.
-- [ ] Step 5: Reduce `session-state.js` only as far as this slice safely allows. Avoid adding a global current
-      HostedSession or compatibility facade for production callers.
-- [ ] Step 6: Add any skipped tests needed to describe later runtime/TUI migration, and label them with the owning child
-      slice.
+- [ ] Step 1: Add `src/shared/session/hosted-session.test.js` with failing tests that create two Hosted Sessions and
+      independently mutate/read active agent info stack, active handler, root Agent name/session, model override,
+      thinking level, pending root swap, pending switch handoff, project-state context, UI/event sink, sub-Agent set,
+      cwd/session manager, and active execution workflow.
+- [ ] Step 2: Add `src/shared/session/session-host.test.js` with failing tests for create/adopt, lookup, require-missing
+      error, list metadata, duplicate id protection, and disposal removing only the target HostedSession.
+- [ ] Step 3: Implement `HostedSession` in `src/shared/session/hosted-session.js` with explicit methods/properties for
+      the state currently owned by `session-state.js`, using pure JavaScript and JSDoc typedefs.
+- [ ] Step 4: Implement `SessionHost` in `src/shared/session/session-host.js` with create/adopt/lookup/list/dispose
+      behavior sufficient for in-process multi-session management. Prefer deterministic injected ids in tests and
+      generated ids in production helpers.
+- [ ] Step 5: Define and test minimal lifecycle behavior: active sessions accept mutation; disposed sessions clear owned
+      references, leave inert metadata readable where useful, and throw a clear error on later mutation.
+- [ ] Step 6: Touch `session-state.js` only if needed to share typedefs or add legacy comments. Do not migrate broad
+      production imports or create a production global current-session bridge in this slice.
+- [ ] Step 7: If future-slice expectations are useful, add skipped tests only when they name the owning child FEATURE
+      explicitly, such as `02-root-agent-runtime-uses-hostedsession` or `03-tui-single-hostedsession-adapter`.
 
 ## Verification Plan
 
-- Automated: run the new HostedSession and SessionHost tests directly with Deno.
-- Automated: run `deno run ci` and keep CI passing, even if some future-slice tests are intentionally skipped.
-- Automated: verify enabled tests prove two Hosted Sessions do not share active agent, handler, model/thinking state,
-  pending swap/handoff, project-state context, root/sub sessions, UI/event sink, or active execution workflow.
+- Automated: run the focused new tests directly, for example
+  `deno test -A src/shared/session/hosted-session.test.js src/shared/session/session-host.test.js`.
+- Automated: run `deno task ci` and keep CI passing, even if later-slice tests are intentionally skipped.
+- Automated: verify enabled tests prove two Hosted Sessions do not share active Agent info, active handler,
+  model/thinking state, pending swap/handoff, project-state context, root/sub sessions, UI/event sink, cwd/session
+  manager, or active execution workflow.
+- Automated: search for any newly added skipped tests and confirm each skipped test name or reason identifies the later
+  child FEATURE that owns unskipping it.
 - Manual: no full TUI behavior restoration is required in this slice; if the TUI is temporarily broken on the isolation
   branch, record that as expected branch state.
 - Expected result: the new state model exists, is independently testable, and becomes the target API for later slices.
@@ -105,9 +146,14 @@ Existing functions, modules, or patterns to reuse:
 ## Edge Cases & Considerations
 
 - Avoid reintroducing a singleton by another name. A module-level registry of many Hosted Sessions is acceptable inside
-  `SessionHost`; a module-level current HostedSession for production code is not.
-- Avoid broad runtime refactors in this first slice. The goal is to prove state ownership, not to make every old caller
-  compile against it immediately.
+  a `SessionHost` instance; a module-level current HostedSession for production code is not.
+- Keep this first slice narrow. Broad migration of `session.js`, `chat-session.js`, routing, commands, and workflow
+  imports is owned by child FEATUREs 02–06.
+- Disposal must not leak mutable references. Clear root/sub AgentSessions and call `dispose()` defensively when stubs or
+  Pi AgentSessions expose it; swallowed dispose errors are acceptable only if tests document the choice.
+- Duplicate ids should fail fast so two host entries cannot point at the same logical session id.
+- Keep cwd/session-manager ownership explicit. If a SessionManager reports a cwd/session id, prefer that metadata; if a
+  test stub does not, use the provided `cwd`/`id` options.
 - Be explicit about skipped tests. Skipped tests are allowed only as temporary escrow for later slices and must identify
   their owner.
 - Keep project language strictness: executable code is `.js` only, with JSDoc typedefs instead of TypeScript syntax.
