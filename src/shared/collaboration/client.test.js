@@ -1,0 +1,92 @@
+import { assert, assertEquals, assertRejects } from "@std/assert";
+import { createCollaborationClient } from "./client.js";
+
+/**
+ * @param {(url: string, init: RequestInit) => Response | Promise<Response>} handler
+ * @returns {typeof fetch}
+ */
+function fakeFetch(handler) {
+    return /** @type {typeof fetch} */ ((input, init) => Promise.resolve(handler(String(input), init ?? {})));
+}
+
+Deno.test("client sends JSON requests to fragment-free endpoint URLs", async () => {
+    let seenUrl = "";
+    let seenInit = /** @type {RequestInit | undefined} */ (undefined);
+    const client = createCollaborationClient({
+        serverUrl: "https://plans.example.test/root/",
+        bearerCapability: "raw-capability",
+        fetch: fakeFetch((url, init) => {
+            seenUrl = url;
+            seenInit = init;
+            return Response.json({ ok: true });
+        }),
+    });
+    assertEquals(await client.requestJson("/api/spaces", { method: "POST", body: { planId: "plan" } }), { ok: true });
+    assertEquals(seenUrl, "https://plans.example.test/root/api/spaces");
+    assert(!seenUrl.includes("#"));
+    assertEquals(
+        /** @type {HeadersInit & Record<string, string>} */ (seenInit?.headers).Authorization,
+        "Bearer raw-capability",
+    );
+    assertEquals(seenInit?.body, JSON.stringify({ planId: "plan" }));
+});
+
+Deno.test("client rejects absolute endpoint URLs before attaching capabilities", async () => {
+    let fetchCalled = false;
+    const client = createCollaborationClient({
+        serverUrl: "https://plans.example.test",
+        bearerCapability: "secret-cap",
+        fetch: fakeFetch(() => {
+            fetchCalled = true;
+            return Response.json({ ok: true });
+        }),
+    });
+    await assertRejects(
+        async () => await client.requestJson("https://other-host.example/api"),
+        Error,
+        "API path must be relative",
+    );
+    assertEquals(fetchCalled, false);
+});
+
+Deno.test("client surfaces JSON API errors with redacted messages and payloads", async () => {
+    const client = createCollaborationClient({
+        serverUrl: "https://plans.example.test",
+        bearerCapability: "secret-cap",
+        fetch: fakeFetch(() =>
+            Response.json({
+                error: "forbidden",
+                message: "raw secret-cap denied",
+                nested: { capability: "secret-cap" },
+            }, {
+                status: 403,
+            })
+        ),
+    });
+    const error = await assertRejects(async () => await client.requestJson("/api"), Error, "[redacted-capability]");
+    assert(error instanceof Error);
+    assert(!error.message.includes("secret-cap"));
+    assert(!JSON.stringify(/** @type {any} */ (error).payload).includes("secret-cap"));
+});
+
+Deno.test("client handles non-JSON errors", async () => {
+    const client = createCollaborationClient({
+        serverUrl: "https://plans.example.test",
+        bearerCapability: "secret-cap",
+        fetch: fakeFetch(() => new Response("plain failure", { status: 500 })),
+    });
+    await assertRejects(async () => await client.requestJson("/api"), Error, "plain failure");
+});
+
+Deno.test("client redacts network failure messages", async () => {
+    const client = createCollaborationClient({
+        serverUrl: "https://plans.example.test",
+        bearerCapability: "secret-cap",
+        fetch: fakeFetch(() => {
+            throw new Error("Authorization: Bearer secret-cap failed");
+        }),
+    });
+    const error = await assertRejects(async () => await client.requestJson("/api"));
+    assert(error instanceof Error);
+    assert(!error.message.includes("secret-cap"));
+});

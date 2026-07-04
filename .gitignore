@@ -11,5 +11,6 @@ debug.log
 .wld/debug/
 .wld/worktrees.json
 .wld/worktrees.lock
+.wld/collaboration-secrets.json
 
 prototypes/
