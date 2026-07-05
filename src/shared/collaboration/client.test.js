@@ -92,13 +92,18 @@ Deno.test("client redacts network failure messages", async () => {
 });
 
 Deno.test("client typed methods use Shared Space API paths", async () => {
-    /** @type {{ url: string, method: string, body: BodyInit | null | undefined }[]} */
+    /** @type {{ url: string, method: string, body: BodyInit | null | undefined, authorization?: string }[]} */
     const calls = [];
     const client = createCollaborationClient({
         serverUrl: "https://plans.example.test",
         bearerCapability: "raw-capability",
         fetch: fakeFetch((url, init) => {
-            calls.push({ url, method: init.method ?? "GET", body: init.body });
+            calls.push({
+                url,
+                method: init.method ?? "GET",
+                body: init.body,
+                authorization: /** @type {Record<string, string>} */ (init.headers).Authorization,
+            });
             return Response.json({ ok: true });
         }),
     });
@@ -118,6 +123,8 @@ Deno.test("client typed methods use Shared Space API paths", async () => {
     await client.setCommentState("space 1", "comment 1", { action: "resolve" });
     await client.updateSharedSpaceLifecycle("space 1", { action: "close" });
 
+    assertEquals(calls[0].authorization, undefined);
+    assertEquals(calls[1].authorization, "Bearer raw-capability");
     assertEquals(calls.map((call) => `${call.method} ${new URL(call.url).pathname}`), [
         "POST /api/spaces",
         "GET /api/spaces/space%201",
