@@ -34,7 +34,7 @@
         "@zag-js/dialog": "npm:@zag-js/dialog@^1.31.1",
         "@zag-js/preact": "npm:@zag-js/preact@^1.31.1",
         "tidewave": "npm:tidewave@^0.7.0",
-        "vite": "npm:vite@^7.2.7",
+        "vite": "npm:vite@^8.1.3",
         "esbuild": "npm:esbuild@^0.28.1",
         "unocss": "npm:unocss@^66.5.9",
         "codemirror": "npm:codemirror@^6.0.2",
