@@ -1,4 +1,4 @@
-import { assertEquals, assertMatch, assertRejects } from "@std/assert";
+import { assertEquals, assertMatch, assertRejects, assertStringIncludes } from "@std/assert";
 import { basename, dirname } from "@std/path";
 import { HOME_DIR } from "../constants.js";
 import { findByPlanName } from "./worktree-registry.js";
@@ -702,10 +702,20 @@ Deno.test("mergeExecutionWorktree includes uncommitted worktree changes", async 
             branch: worktree.branch,
             worktreePath: worktree.path,
             allowedDirtyPaths: [".wld/"],
+            planName: "Useful Commit Messages",
+            planDescription: "Reference the plan description in dirty worktree commits.",
         });
 
         assertEquals(await Deno.readTextFile(`${projectRoot}/README.md`), "base\nchanged\n");
         assertEquals(await Deno.readTextFile(`${projectRoot}/feature.txt`), "feature\n");
+        const commitMessage = await git(worktree.path, ["log", "-1", "--format=%B"]);
+        assertStringIncludes(commitMessage, "Complete Useful Commit Messages");
+        assertStringIncludes(commitMessage, "- Plan: Useful Commit Messages");
+        assertStringIncludes(
+            commitMessage,
+            "- Description: Reference the plan description in dirty worktree commits.",
+        );
+        assertEquals(commitMessage.includes("Apply execution worktree changes"), false);
     } finally {
         if (worktree) {
             await removeExecutionWorktree({
