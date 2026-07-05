@@ -189,6 +189,7 @@ wld plans                           # list active saved plans
 wld plans read <name-or-id>         # inspect an active or archived plan
 wld plans archive                   # list archived plans
 wld plans archive <name-or-id>      # move a verified/closed plan to plans/archived/
+wld plans archive --all --status verified # bulk archive active verified plans
 wld plans archive restore <name>    # restore an archived plan to active plans/
 wld plans ui --no-open              # start the local read-only Plans Workspace
 wld load-plan <name-or-path>        # review, execute, or continue a plan
@@ -251,12 +252,15 @@ Archive commands are explicit and reversible:
 wld plans archive                                      # list archived plans
 wld plans archive <plan-name-or-id> --reason "done"    # archive a verified or closed plan
 wld plans archive <plan-name-or-id> --force            # archive another status when safe
+wld plans archive --all --status verified --reason "done" # best-effort bulk archive exact status matches
 wld plans archive restore <archived-plan-name-or-id>   # restore to plans/
 wld plans read <plan-name-or-id>                       # print active or archived plan details and body
 ```
 
 `verified` and `closed_without_verification` Plans can be archived without `--force`; other statuses require `--force`,
-and recoverable worktree states remain blocked. Restore refuses to overwrite an active file.
+and recoverable worktree states remain blocked. `wld plans archive --all --status <status>` bulk archives active Plans
+by exact status match on a best-effort basis: safe matches move, blocked matches are reported, and any failure makes the
+command exit non-zero after printing the summary. Restore refuses to overwrite an active file.
 
 Use `wld plans ui` to launch the local browser Workspace for the current checkout:
 
