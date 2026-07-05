@@ -647,11 +647,21 @@ testWithFs("archivePlan blocks recoverable worktree states and refuses overwrite
     }
 });
 
-testWithFs("archivePlansByStatus archives matching active plans and reports no-op matches", async () => {
+testWithFs("archivePlansByStatus archives matching parents with all children and reports no-op matches", async () => {
     const cwd = await Deno.makeTempDir();
     try {
+        await savePlan(cwd, "epic", "# Epic", {
+            classification: "PROJECT",
+            type: "epic",
+            status: "verified",
+            summary: "Done",
+        });
+        await savePlan(cwd, "epic/01-child", "# Child", {
+            parentPlan: "epic",
+            status: "draft",
+            summary: "Child",
+        });
         await savePlan(cwd, "standalone", "# Standalone", { status: "verified", summary: "Done" });
-        await savePlan(cwd, "epic/01-child", "# Child", { status: "verified", summary: "Child" });
         await savePlan(cwd, "draft", "# Draft", { status: "draft" });
         await savePlan(cwd, "closed", "# Closed", { status: "closed_without_verification" });
 
@@ -660,8 +670,9 @@ testWithFs("archivePlansByStatus archives matching active plans and reports no-o
             now: "2026-07-04T00:00:00.000Z",
         });
 
-        assertEquals(result.matched.map((plan) => plan.name), ["epic/01-child", "standalone"]);
+        assertEquals(result.matched.map((plan) => plan.name), ["epic", "epic/01-child", "standalone"]);
         assertEquals(result.archived.map((plan) => plan.relativePath), [
+            "plans/archived/epic.md",
             "plans/archived/epic/01-child.md",
             "plans/archived/standalone.md",
         ]);
@@ -670,9 +681,30 @@ testWithFs("archivePlansByStatus archives matching active plans and reports no-o
         const archivedChild = await loadArchivedPlan(cwd, "epic/01-child");
         assertEquals(archivedChild?.attrs.archivedAt, "2026-07-04T00:00:00.000Z");
         assertEquals(archivedChild?.attrs.archiveReason, "done");
+        assertEquals(archivedChild?.attrs.archivedFromStatus, "draft");
 
         const noOp = await archivePlansByStatus(cwd, "verified", { now: "2026-07-05T00:00:00.000Z" });
         assertEquals(noOp, { matched: [], archived: [], failed: [] });
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+testWithFs("archivePlansByStatus ignores children when parent status does not match", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "epic", "# Epic", {
+            classification: "PROJECT",
+            type: "epic",
+            status: "draft",
+        });
+        await savePlan(cwd, "epic/01-child", "# Child", { parentPlan: "epic", status: "verified" });
+
+        const result = await archivePlansByStatus(cwd, "verified", { now: "2026-07-04T00:00:00.000Z" });
+
+        assertEquals(result, { matched: [], archived: [], failed: [] });
+        assertEquals((await listPlans(cwd)).map((plan) => plan.name), ["epic", "epic/01-child"]);
+        assertEquals(await listArchivedPlans(cwd), []);
     } finally {
         await Deno.remove(cwd, { recursive: true });
     }
@@ -725,6 +757,10 @@ testWithFs(
             assertEquals(restored.relativePath, "plans/done.md");
             const loaded = await loadPlan(cwd, "done");
             assertEquals(loaded?.body, "# Done\n\nBody");
+            assertEquals(loaded?.attrs.archivedAt, undefined);
+            assertEquals(loaded?.attrs.archiveReason, undefined);
+            assertEquals(loaded?.attrs.archivedFromStatus, undefined);
+            assertEquals(loaded?.attrs.archivedFromPath, undefined);
             assertEquals(loaded?.attrs.restoredAt, "2026-06-20T00:00:00.000Z");
             assertEquals(loaded?.attrs.restoredFromPath, "plans/archived/done.md");
 

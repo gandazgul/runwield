@@ -1508,10 +1508,12 @@ export async function archivePlan(cwd, planNameOrId, options = {}) {
  */
 
 /**
- * Archive active Plans whose status exactly matches the requested lifecycle status.
+ * Archive active parent or standalone Plans whose status exactly matches the requested lifecycle status.
  *
- * Best-effort semantics: each matching Plan is attempted independently. Successful
- * archives are moved even when another matching Plan fails.
+ * Child FEATURE statuses are ignored for matching. When a parent Plan matches,
+ * its child FEATURE Plans are archived with it regardless of child lifecycle status.
+ * Best-effort semantics: successful archives are moved even when another matching
+ * parent or child Plan fails.
  *
  * @param {string} cwd
  * @param {PlanFrontMatter["status"]} status
@@ -1523,9 +1525,22 @@ export async function archivePlansByStatus(cwd, status, options = {}) {
         throw new Error(`Unknown Plan status for bulk archive: ${status}`);
     }
 
-    const matchingPlans = (await listPlans(cwd))
-        .filter((plan) => plan.attrs.status === status)
+    const plans = await listPlans(cwd);
+    /** @type {Map<string, Array<{ name: string, path: string, attrs: PlanFrontMatter }>>} */
+    const childrenByParent = new Map();
+    for (const plan of plans) {
+        if (!isChildFeaturePlan(plan)) continue;
+        const parentPlan = plan.attrs.parentPlan || "";
+        const children = childrenByParent.get(parentPlan) || [];
+        children.push(plan);
+        childrenByParent.set(parentPlan, children);
+    }
+    for (const children of childrenByParent.values()) children.sort(compareChildPlansByOrder);
+
+    const matchingParentPlans = plans
+        .filter((plan) => !isChildFeaturePlan(plan) && plan.attrs.status === status)
         .sort((a, b) => a.name.localeCompare(b.name));
+    const matchingPlans = matchingParentPlans.flatMap((plan) => [plan, ...(childrenByParent.get(plan.name) || [])]);
     const matched = matchingPlans.map((plan) => ({
         name: plan.name,
         relativePath: projectRelativePath(cwd, plan.path),
@@ -1536,16 +1551,30 @@ export async function archivePlansByStatus(cwd, status, options = {}) {
     /** @type {Array<{ name: string, relativePath: string, message: string }>} */
     const failed = [];
 
-    for (const plan of matchingPlans) {
+    for (const parentPlan of matchingParentPlans) {
         try {
-            const result = await archivePlan(cwd, plan.name, { ...options, now });
+            const result = await archivePlan(cwd, parentPlan.name, { ...options, now });
             archived.push({ name: result.name, relativePath: result.relativePath });
         } catch (error) {
             failed.push({
-                name: plan.name,
-                relativePath: projectRelativePath(cwd, plan.path),
+                name: parentPlan.name,
+                relativePath: projectRelativePath(cwd, parentPlan.path),
                 message: formatErrorMessage(error),
             });
+            continue;
+        }
+
+        for (const childPlan of childrenByParent.get(parentPlan.name) || []) {
+            try {
+                const result = await archivePlan(cwd, childPlan.name, { ...options, force: true, now });
+                archived.push({ name: result.name, relativePath: result.relativePath });
+            } catch (error) {
+                failed.push({
+                    name: childPlan.name,
+                    relativePath: projectRelativePath(cwd, childPlan.path),
+                    message: formatErrorMessage(error),
+                });
+            }
         }
     }
 
@@ -1649,6 +1678,10 @@ export async function restoreArchivedPlan(cwd, archivedPlanNameOrId, options = {
 
     const now = options.now || new Date().toISOString();
     const markdown = mergeFrontMatterText(archived.markdown, {
+        archivedAt: undefined,
+        archiveReason: undefined,
+        archivedFromStatus: undefined,
+        archivedFromPath: undefined,
         restoredAt: now,
         restoredFromPath: projectRelativePath(cwd, archived.path),
         updatedAt: now,
