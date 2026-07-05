@@ -43,6 +43,7 @@ import { assertCapabilityScope } from "./capabilities.js";
  * @typedef {Object} EncryptedPlanPayload
  * @property {string} planId
  * @property {string} title
+ * @property {Record<string, unknown>} metadata
  * @property {string} body
  */
 
@@ -214,6 +215,7 @@ export function normalizeEncryptedPlanPayload(value) {
     return {
         planId: assertNonEmptyString(record.planId, "planId"),
         title: assertNonEmptyString(record.title, "title"),
+        metadata: { ...assertRecord(record.metadata, "metadata") },
         body: assertNonEmptyString(record.body, "body"),
     };
 }

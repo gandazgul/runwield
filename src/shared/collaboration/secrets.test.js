@@ -1,6 +1,7 @@
 import { assert, assertEquals, assertRejects } from "@std/assert";
 import { join } from "@std/path";
 import {
+    deleteSecretRecord,
     ensureProjectSecretStoreIgnored,
     getGlobalSecretStorePath,
     getProjectSecretStorePath,
@@ -36,6 +37,19 @@ Deno.test("secret stores read missing files as empty documents and write atomica
         assertEquals(await readSecretStore(path), { schemaVersion: SECRET_STORE_SCHEMA_VERSION, records: {} });
         await putSecretRecord(path, "plan-1", secretRecord());
         assertEquals(await getSecretRecord(path, "plan-1"), secretRecord());
+    } finally {
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
+Deno.test("secret stores delete records idempotently", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "runwield-secrets-delete-" });
+    try {
+        const path = join(dir, ".wld", "collaboration-secrets.json");
+        await putSecretRecord(path, "plan-1:space-1", secretRecord());
+        await deleteSecretRecord(path, "plan-1:space-1");
+        await deleteSecretRecord(path, "plan-1:space-1");
+        assertEquals(await getSecretRecord(path, "plan-1:space-1"), undefined);
     } finally {
         await Deno.remove(dir, { recursive: true });
     }

@@ -90,6 +90,17 @@ export async function getSecretRecord(path, key) {
 }
 
 /**
+ * @param {string} path
+ * @param {string} key
+ */
+export async function deleteSecretRecord(path, key) {
+    const document = await readSecretStore(path);
+    if (!Object.hasOwn(document.records, key)) return;
+    delete document.records[key];
+    await writeSecretStore(path, document);
+}
+
+/**
  * @param {unknown} value
  * @returns {SecretStoreDocument}
  */
