@@ -124,3 +124,30 @@ Deno.test("returnToRouterTool uses HostedSession and UI from tool context", asyn
     assertEquals(hostedSession.consumePendingSwitchHandoff()?.reason, reason);
     assertEquals(hostedSession.getPendingRootSwap()?.agentName, AGENTS.ROUTER);
 });
+
+Deno.test("executeReturnToRouter mutates only the target HostedSession", async () => {
+    const { uiAPI } = makeMockUiAPI();
+    const target = makeHostedSession("target-return-router-session");
+    const other = makeHostedSession("other-return-router-session");
+    const otherHandler = async () => {};
+    target.setRootAgentName(AGENTS.ENGINEER);
+    other.setRootAgentName(AGENTS.PLANNER);
+    other.setActiveOnMessage(otherHandler);
+    other.setPendingRootSwap({ agentName: AGENTS.PLANNER, displayName: "Planner" });
+    other.setPendingSwitchHandoff({ agentName: AGENTS.PLANNER, reason: "keep this handoff" });
+
+    const targetHandler = async () => {};
+    await executeReturnToRouter(
+        { reason: "The user wants you to triage this in isolation." },
+        uiAPI,
+        target,
+        { createAgentHandler: () => targetHandler },
+    );
+
+    assertEquals(target.getActiveOnMessage(), targetHandler);
+    assertEquals(target.getPendingRootSwap()?.agentName, AGENTS.ROUTER);
+    assertEquals(target.consumePendingSwitchHandoff()?.agentName, AGENTS.ROUTER);
+    assertEquals(other.getActiveOnMessage(), otherHandler);
+    assertEquals(other.getPendingRootSwap()?.agentName, AGENTS.PLANNER);
+    assertEquals(other.consumePendingSwitchHandoff()?.reason, "keep this handoff");
+});

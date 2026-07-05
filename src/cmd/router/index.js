@@ -7,7 +7,6 @@
  * handler; Router is not a special runtime mode.
  */
 
-import { AGENTS } from "../../constants.js";
 import { COMMAND_NAMES } from "../registry.js";
 import { startInteractiveSession as startInteractiveSessionFn } from "../../shared/interactive/chat-session.js";
 import { createAgentHandler as createAgentHandlerFn } from "../../shared/session/agent-handler.js";
@@ -32,7 +31,8 @@ export async function runRouterCommand(argv, options = {}) {
     const printCommandHelp = deps.printCommandHelp || printCommandHelpFn;
     const startInteractiveSession = deps.startInteractiveSession || startInteractiveSessionFn;
     const createAgentHandler = deps.createAgentHandler || createAgentHandlerFn;
-    const createHandler = deps.createHandler || (() => createAgentHandler(AGENTS.ROUTER));
+    const createHandler = deps.createHandler || (() => null);
+    void createAgentHandler;
 
     const userRequest = argv.join(" ").trim();
 

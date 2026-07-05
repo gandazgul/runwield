@@ -29,7 +29,7 @@ import { getAgentDisplayName, loadAgentDef } from "../shared/session/agents.js";
  * @param {string} params.reason
  * @param {import('../shared/workflow/workflow.js').UiAPI | null | undefined} uiAPI
  * @param {import('../shared/session/hosted-session.js').HostedSession | null | undefined} hostedSession
- * @param {{ createAgentHandler?: (agentName: string) => import('../shared/session/types.js').AgentMessageHandler }} [__deps]
+ * @param {{ createAgentHandler?: (agentName: string, deps?: { hostedSession?: import('../shared/session/hosted-session.js').HostedSession }) => import('../shared/session/types.js').AgentMessageHandler }} [__deps]
  * @returns {Promise<import('@earendil-works/pi-coding-agent').AgentToolResult<{ agentName: string, reason: string } | null>>}
  */
 export async function executeReturnToRouter(params, uiAPI, hostedSession, __deps) {
@@ -50,7 +50,7 @@ export async function executeReturnToRouter(params, uiAPI, hostedSession, __deps
     const routerDef = await loadAgentDef(AGENTS.ROUTER);
     const createAgentHandler = __deps?.createAgentHandler ||
         (await import("../shared/session/agent-handler.js")).createAgentHandler;
-    const handler = createAgentHandler(AGENTS.ROUTER);
+    const handler = createAgentHandler(AGENTS.ROUTER, { hostedSession });
     setActiveAgent(hostedSession, AGENTS.ROUTER, handler, uiAPI, routerDef.model || undefined);
     hostedSession.setPendingSwitchHandoff({ agentName: AGENTS.ROUTER, reason });
 

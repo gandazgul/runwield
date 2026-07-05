@@ -10,6 +10,7 @@ import {
     getFooterSessions,
     persistThinkingLevel,
     resolveTemplateModel,
+    runScopedSubmitHandoffLoop,
     setActiveAgent,
     setActiveModel,
     shouldShowFooterThinkingLevel,
@@ -409,4 +410,61 @@ Deno.test("setActiveModel rebuilds root session tool set when switching between 
         else Deno.env.set("OPENAI_API_KEY", originalOpenAiKey);
         await Deno.remove(tempProject, { recursive: true });
     }
+});
+
+Deno.test("submit handoff loop consumes only the current HostedSession handoff", async () => {
+    const current = makeHostedSession("current-handoff-session");
+    const other = makeHostedSession("other-handoff-session");
+    /** @type {string[]} */
+    const seenRequests = [];
+    current.setRootSessionManager(/** @type {any} */ ({ id: "current-root" }));
+    current.setActiveOnMessage((/** @type {string} */ request) => {
+        seenRequests.push(String(request));
+        if (seenRequests.length === 1) {
+            current.setPendingSwitchHandoff({ agentName: "router", reason: "current handoff" });
+        }
+        return Promise.resolve();
+    });
+    other.setPendingSwitchHandoff({ agentName: "router", reason: "other handoff" });
+
+    await runScopedSubmitHandoffLoop({
+        hostedSession: current,
+        uiAPI: /** @type {any} */ ({ appendSystemMessage: () => {} }),
+        initialRequest: "first request",
+        initialImages: [],
+        applyPendingRootSwapImpl: () => Promise.resolve(),
+    });
+
+    assertEquals(seenRequests, ["first request", "current handoff"]);
+    assertEquals(current.consumePendingSwitchHandoff(), null);
+    assertEquals(other.consumePendingSwitchHandoff()?.reason, "other handoff");
+});
+
+Deno.test("submit handoff loop preserves the chained handoff limit", async () => {
+    const current = makeHostedSession("limited-handoff-session");
+    /** @type {string[]} */
+    const messages = [];
+    let turnCount = 0;
+    current.setRootSessionManager(/** @type {any} */ ({ id: "current-root" }));
+    current.setActiveOnMessage(() => {
+        turnCount++;
+        current.setPendingSwitchHandoff({ agentName: "router", reason: `handoff ${turnCount}` });
+        return Promise.resolve();
+    });
+
+    await runScopedSubmitHandoffLoop({
+        hostedSession: current,
+        uiAPI: /** @type {any} */ ({
+            appendSystemMessage: (/** @type {unknown} */ message) => messages.push(String(message)),
+        }),
+        initialRequest: "start",
+        initialImages: [],
+        applyPendingRootSwapImpl: () => Promise.resolve(),
+    });
+
+    assertEquals(turnCount, 5);
+    assertEquals(
+        messages.includes("return_to_router handoff limit reached — refusing further chained handoffs in this turn."),
+        true,
+    );
 });

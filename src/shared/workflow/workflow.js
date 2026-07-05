@@ -84,11 +84,15 @@ export { extractAssistantOutput, readLatestPlanOutcome, readLatestTaskCompletedO
  * @param {import('../../tools/plan-written.js').TriageMeta} [opts.triageMeta]
  * @param {UiAPI} opts.uiAPI
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager]
+ * @param {import('../session/hosted-session.js').HostedSession} [opts.hostedSession]
  * @returns {Promise<PlanOutcomeResult>}
  */
-export async function runPlanningAgent({ agentName, initialRequest, triageMeta, uiAPI, sessionManager }) {
+export async function runPlanningAgent(
+    { agentName, initialRequest, triageMeta, uiAPI, sessionManager, hostedSession },
+) {
     if (!uiAPI) throw new Error("runPlanningAgent: uiAPI is required");
     const messages = await runAgentSession({
+        hostedSession,
         agentName,
         userRequest: initialRequest,
         triageMeta,
@@ -115,6 +119,7 @@ export async function runPlanningAgent({ agentName, initialRequest, triageMeta, 
  *   executeSingleEngineerPlan?: typeof executeSingleEngineerPlan,
  *   recordPlanEvent?: typeof recordPlanEvent,
  *   markActiveWorktreeStatus?: typeof markActiveWorktreeStatus,
+ *   hostedSession?: import('../session/hosted-session.js').HostedSession,
  * }} [__deps]
  * @returns {Promise<PlanExecutionResult>}
  */
@@ -122,6 +127,7 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
     if (!uiAPI) throw new Error("executePlan: uiAPI is required");
 
     const loadPlanFn = __deps.loadPlan || loadPlan;
+    const hostedSession = __deps.hostedSession;
     void structuredTasks;
     const executeSingleEngineerPlanFn = __deps.executeSingleEngineerPlan || executeSingleEngineerPlan;
     const recordPlanEventFn = __deps.recordPlanEvent || recordPlanEvent;
@@ -159,6 +165,7 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
         uiAPI,
         sessionManager,
         currentStatus: plan.attrs.status,
+        hostedSession,
     });
     if (!result.executionComplete) return result;
 
@@ -186,10 +193,13 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
  *     uiAPI: UiAPI,
  *     sessionManager?: import('@earendil-works/pi-coding-agent').SessionManager,
  *     currentStatus: import('./plan-lifecycle.js').PlanStatus,
+ *     hostedSession?: import('../session/hosted-session.js').HostedSession,
  * }} opts
  * @returns {Promise<PlanExecutionResult>}
  */
-async function executeSingleEngineerPlan({ planName, planBody, triageMeta, uiAPI, sessionManager, currentStatus }) {
+async function executeSingleEngineerPlan(
+    { planName, planBody, triageMeta, uiAPI, sessionManager, currentStatus, hostedSession },
+) {
     const executionContext = await startActiveExecutionWorkflow(planName, triageMeta, currentStatus);
     const engineerResult = await runEngineerWithPlan(
         planName,
@@ -197,6 +207,7 @@ async function executeSingleEngineerPlan({ planName, planBody, triageMeta, uiAPI
         uiAPI,
         sessionManager,
         executionContext.executionCwd,
+        hostedSession,
     );
     if (!engineerResult.completed) {
         return { repairRequired: false, executionComplete: false, error: engineerResult.error };
@@ -212,12 +223,14 @@ async function executeSingleEngineerPlan({ planName, planBody, triageMeta, uiAPI
  * @param {UiAPI} uiAPI
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [sessionManager]
  * @param {string} [executionCwd]
+ * @param {import('../session/hosted-session.js').HostedSession} [hostedSession]
  * @returns {Promise<{ completed: boolean, messages: import('@earendil-works/pi-agent-core').AgentMessage[], error?: string }>}
  */
-async function runEngineerWithPlan(planName, planBody, uiAPI, sessionManager, executionCwd) {
+async function runEngineerWithPlan(planName, planBody, uiAPI, sessionManager, executionCwd, hostedSession) {
     let messages;
     try {
         messages = await runAgentSession({
+            hostedSession,
             agentName: AGENTS.ENGINEER,
             userRequest: buildEngineerRequest(planName, planBody),
             uiAPI,
@@ -227,7 +240,9 @@ async function runEngineerWithPlan(planName, planBody, uiAPI, sessionManager, ex
         });
     } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
-        const rootMessages = getRootAgentSession()?.agent?.state?.messages || [];
+        const hostedRootSession = /** @type {any} */ (hostedSession?.getRootAgentSession?.());
+        const rootMessages = hostedRootSession?.agent?.state?.messages ||
+            getRootAgentSession()?.agent?.state?.messages || [];
         uiAPI.appendSystemMessage(
             buildEngineerPausedMessage(errorMessage),
             true,

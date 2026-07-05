@@ -4,7 +4,9 @@
  */
 
 import { createRootSessionManager } from "../../shared/session/root-session.js";
+import { createAgentHandler as createAgentHandlerFn } from "../../shared/session/agent-handler.js";
 import { setTerminalTitleForSession } from "../../shared/ui/terminal-title.js";
+import { AGENTS } from "../../constants.js";
 
 /**
  * Handle new session command.
@@ -20,10 +22,12 @@ export async function runNewCommand(argv, options = {}) {
 
     const deps = /** @type {{
         createRootSessionManager?: typeof createRootSessionManager,
+        createAgentHandler?: typeof createAgentHandlerFn,
         setTerminalTitleForSession?: typeof setTerminalTitleForSession,
     }} */
         (options.__testDeps || {});
     const createRoot = deps.createRootSessionManager || createRootSessionManager;
+    const createAgentHandler = deps.createAgentHandler || createAgentHandlerFn;
     const setTitle = deps.setTerminalTitleForSession || setTerminalTitleForSession;
     const { uiAPI } = options;
     const sessionName = argv.join(" ").trim();
@@ -58,10 +62,13 @@ export async function runNewCommand(argv, options = {}) {
     }
 
     if (options.setActiveAgent) {
-        const { createAgentHandler } = await import("../../shared/session/agent-handler.js");
-        const { AGENTS } = await import("../../constants.js");
-        options.setActiveAgent(AGENTS.ROUTER, createAgentHandler(AGENTS.ROUTER), uiAPI);
-        await options.applyPendingRootSwap?.(uiAPI);
+        options.setActiveAgent(
+            nextHostedSession,
+            AGENTS.ROUTER,
+            createAgentHandler(AGENTS.ROUTER, nextHostedSession ? { hostedSession: nextHostedSession } : undefined),
+            uiAPI,
+        );
+        await options.applyPendingRootSwap?.(nextHostedSession, uiAPI);
     }
 
     setTitle(rootSessionManager, Deno.cwd());

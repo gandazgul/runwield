@@ -58,8 +58,8 @@ function maybeUpdateTitleForSlashCommand(command, hostedSession) {
  * @property {SkillMeta[]} skills
  * @property {string} chatPromptAgentName
  * @property {(templateModel: string) => ({ ok: true, provider: string, id: string } | { ok: false })} resolveTemplateModel
- * @property {(agentName: string, handler: import('../session/types.js').AgentMessageHandler, uiAPI: import('../ui/types.js').UiAPI, agentModel?: string) => void} setActiveAgent
- * @property {(uiAPI: import('../ui/types.js').UiAPI) => Promise<void>} applyPendingRootSwap
+ * @property {(hostedSession: import('../session/hosted-session.js').HostedSession | undefined, agentName: string, handler: import('../session/types.js').AgentMessageHandler, uiAPI: import('../ui/types.js').UiAPI, agentModel?: string) => void} setActiveAgent
+ * @property {(hostedSession: import('../session/hosted-session.js').HostedSession | undefined, uiAPI: import('../ui/types.js').UiAPI) => Promise<void>} applyPendingRootSwap
  * @property {(model: string, provider?: string) => Promise<void> | void} [setActiveModel]
  * @property {(nextSession: import('../session/hosted-session.js').HostedSession) => void} [replaceHostedSession]
  * @property {(text: string, images: import('../session/types.js').ImageAttachment[]) => Promise<void>} [dispatchExpandedUserRequest]
@@ -71,7 +71,7 @@ function maybeUpdateTitleForSlashCommand(command, hostedSession) {
  *   expandSkillCommand?: typeof expandSkillCommand,
  *   getRootSessionManager?: () => import('../session/types.js').SessionManagerLike | null,
  *   getActiveOnMessage?: () => import('../session/types.js').AgentMessageHandler | null,
- *   createAgentHandler?: (agentName: string) => import('../session/types.js').AgentMessageHandler,
+ *   createAgentHandler?: (agentName: string, deps?: { hostedSession?: import('../session/hosted-session.js').HostedSession }) => import('../session/types.js').AgentMessageHandler,
  *   commandRegistry?: Record<string, { execute: (args: string[], deps: object) => Promise<void> | void }>,
  *   getSlashCommandDefinition?: (name: string) => { name: string } | undefined,
  * }} [__deps]
@@ -182,7 +182,7 @@ async function dispatchBuiltin(ctx, command, args, commandRegistry, thisGen) {
         }
     } finally {
         registerOperationCancel(null);
-        await applyPendingRootSwap(uiAPI);
+        await applyPendingRootSwap(ctx.hostedSession, uiAPI);
     }
 }
 
@@ -257,7 +257,12 @@ async function switchToOperatorForTemplate(ctx) {
         createAgentHandlerImpl = agentHandlerModule.createAgentHandler;
     }
 
-    ctx.setActiveAgent(OPERATOR_AGENT, createAgentHandlerImpl(OPERATOR_AGENT), ctx.uiAPI);
+    ctx.setActiveAgent(
+        ctx.hostedSession,
+        OPERATOR_AGENT,
+        createAgentHandlerImpl(OPERATOR_AGENT, { hostedSession: ctx.hostedSession }),
+        ctx.uiAPI,
+    );
 }
 
 /**

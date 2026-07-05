@@ -38,6 +38,7 @@ import {
 } from "../project-state.js";
 import { COMMAND_NAMES } from "../../cmd/registry.js";
 import { getAgentDisplayName, listAvailableAgents } from "../session/agents.js";
+import { createAgentHandler } from "../session/agent-handler.js";
 import { getModelRegistry } from "../models/model-registry.js";
 import { getSettingsManager, initSettings } from "../settings.js";
 import {
@@ -527,6 +528,53 @@ export function getActiveModel(hostedSession) {
 }
 
 /**
+ * Testable core of the interactive submit loop. It applies root swaps and
+ * follows return_to_router handoffs recorded on the supplied HostedSession only.
+ *
+ * @param {Object} args
+ * @param {import('../session/hosted-session.js').HostedSession} args.hostedSession
+ * @param {import('../ui/types.js').UiAPI} args.uiAPI
+ * @param {string} args.initialRequest
+ * @param {import('../session/types.js').ImageAttachment[]} args.initialImages
+ * @param {(uiAPI: import('../ui/types.js').UiAPI) => Promise<void>} args.applyPendingRootSwapImpl
+ */
+export async function runScopedSubmitHandoffLoop(
+    { hostedSession, uiAPI, initialRequest, initialImages, applyPendingRootSwapImpl },
+) {
+    let currentRequest = initialRequest;
+    let currentImages = initialImages;
+    let isHandoff = false;
+    let handoffsLeft = 4;
+
+    while (true) {
+        await applyPendingRootSwapImpl(uiAPI);
+        const activeOnMessage = hostedSession.getActiveOnMessage();
+        const rootSessionManager = hostedSession.getRootSessionManager();
+        if (!activeOnMessage || !rootSessionManager) {
+            uiAPI.appendSystemMessage?.("Error: No active agent handler or session manager.");
+            break;
+        }
+        hostedSession.setActiveUiAPI(uiAPI);
+        if (isHandoff) {
+            uiAPI.appendSystemMessage?.(currentRequest, false, "Handoff:");
+        }
+        await activeOnMessage(currentRequest, currentImages, uiAPI, rootSessionManager);
+
+        const handoff = hostedSession.consumePendingSwitchHandoff();
+        if (!handoff) break;
+        if (handoffsLeft-- <= 0) {
+            uiAPI.appendSystemMessage?.(
+                "return_to_router handoff limit reached — refusing further chained handoffs in this turn.",
+            );
+            break;
+        }
+        currentRequest = handoff.reason;
+        currentImages = [];
+        isHandoff = true;
+    }
+}
+
+/**
  * Resolve and validate a template-declared model.
  * Requires strict provider/id format and configured auth.
  *
@@ -569,7 +617,6 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
     let hostedSession = sessionHost.createSession({ sessionManager: rootSessionManager, cwd: Deno.cwd() });
     initSettings();
     const sessionStartedAt = rootSessionManager.getHeader()?.timestamp || new Date().toISOString();
-    hostedSession.setActiveOnMessage(onMessage);
 
     let sessionStartedEmptyProjectDirectory = false;
     try {
@@ -592,6 +639,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
     // Track which agent the initial root will be built for. Callers (e.g. `wld agent <name>`)
     // can override via options.initialAgentName.
     const initialAgentInternalName = options.initialAgentName || AGENTS.ROUTER;
+    hostedSession.setActiveOnMessage(onMessage || createAgentHandler(initialAgentInternalName, { hostedSession }));
     await ensureMnemosyneBinary();
     initRunWieldTheme();
     await applyPersistedTheme();
@@ -883,16 +931,53 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
     hostedSession.setEventSink(uiAPI);
 
     /**
-     * @param {string} agentName
-     * @param {import('../session/types.js').AgentMessageHandler} handler
-     * @param {import('../ui/types.js').UiAPI} [uiAPIArg]
-     * @param {string} [agentModel]
+     * @param {import('../session/hosted-session.js').HostedSession | string | undefined} hostedSessionOrAgentName
+     * @param {string | import('../session/types.js').AgentMessageHandler} agentNameOrHandler
+     * @param {import('../session/types.js').AgentMessageHandler | import('../ui/types.js').UiAPI} [handlerOrUiAPI]
+     * @param {import('../ui/types.js').UiAPI | string} [uiAPIOrAgentModel]
+     * @param {string | { allowReturnToRouter?: boolean }} [agentModelOrOptions]
      * @param {{ allowReturnToRouter?: boolean }} [agentOptions]
      */
-    const setCurrentActiveAgent = (agentName, handler, uiAPIArg, agentModel, agentOptions) =>
-        setActiveAgent(hostedSession, agentName, handler, uiAPIArg, agentModel, agentOptions);
-    /** @param {import('../ui/types.js').UiAPI} uiAPIArg */
-    const applyCurrentPendingRootSwap = (uiAPIArg) => applyPendingRootSwap(hostedSession, uiAPIArg);
+    const setCurrentActiveAgent = (
+        hostedSessionOrAgentName,
+        agentNameOrHandler,
+        handlerOrUiAPI,
+        uiAPIOrAgentModel,
+        agentModelOrOptions,
+        agentOptions,
+    ) => {
+        const hasExplicitSession = hostedSessionOrAgentName && typeof hostedSessionOrAgentName === "object";
+        const targetHostedSession = hasExplicitSession
+            ? /** @type {import('../session/hosted-session.js').HostedSession} */ (hostedSessionOrAgentName)
+            : hostedSession;
+        const agentName = hasExplicitSession ? agentNameOrHandler : hostedSessionOrAgentName;
+        const handler = hasExplicitSession ? handlerOrUiAPI : agentNameOrHandler;
+        const uiAPIArg = hasExplicitSession ? uiAPIOrAgentModel : handlerOrUiAPI;
+        const agentModel = hasExplicitSession ? agentModelOrOptions : uiAPIOrAgentModel;
+        const nextAgentOptions = hasExplicitSession ? agentOptions : agentModelOrOptions;
+        setActiveAgent(
+            targetHostedSession,
+            agentName,
+            handler,
+            uiAPIArg,
+            typeof agentModel === "string" ? agentModel : undefined,
+            typeof nextAgentOptions === "object" ? nextAgentOptions : undefined,
+        );
+    };
+    /**
+     * @param {import('../session/hosted-session.js').HostedSession | import('../ui/types.js').UiAPI | undefined} hostedSessionOrUiAPI
+     * @param {import('../ui/types.js').UiAPI} [uiAPIArg]
+     */
+    const applyCurrentPendingRootSwap = (hostedSessionOrUiAPI, uiAPIArg) => {
+        const hasExplicitSession = hostedSessionOrUiAPI && typeof hostedSessionOrUiAPI === "object" &&
+            typeof /** @type {any} */ (hostedSessionOrUiAPI).getPendingRootSwap === "function";
+        return applyPendingRootSwap(
+            hasExplicitSession
+                ? /** @type {import('../session/hosted-session.js').HostedSession} */ (hostedSessionOrUiAPI)
+                : hostedSession,
+            hasExplicitSession ? uiAPIArg : /** @type {import('../ui/types.js').UiAPI} */ (hostedSessionOrUiAPI),
+        );
+    };
     /** @param {string} model @param {string} [provider] */
     const setCurrentActiveModel = (model, provider) => setActiveModel(hostedSession, model, provider);
 
@@ -909,7 +994,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         hostedSession = nextSession;
         hostedSession.setActiveUiAPI(uiAPI);
         hostedSession.setEventSink(uiAPI);
-        hostedSession.setActiveOnMessage(onMessage);
+        hostedSession.setActiveOnMessage(createAgentHandler(AGENTS.ROUTER, { hostedSession }));
         hostedSession.setPendingRootSwap(null);
         hostedSession.setPendingSwitchHandoff(null);
         pastedImages.length = 0;
@@ -1275,53 +1360,19 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         // Generation gating
         const thisGen = generationGuard.bump();
 
-        let currentRequest = userRequest;
-        let currentImages = savedImages;
-        let isHandoff = false;
-        // Safety cap on chained return_to_router handoffs in a single user submission.
-        let handoffsLeft = 4;
-
-        uiAPI.appendUserMessage?.(currentRequest);
-        currentImages.forEach((/** @type {import('../session/types.js').ImageAttachment} */ img) => {
+        uiAPI.appendUserMessage?.(userRequest);
+        savedImages.forEach((/** @type {import('../session/types.js').ImageAttachment} */ img) => {
             if (uiAPI.appendImage) uiAPI.appendImage(img.base64, img.mimeType);
         });
 
         try {
-            while (true) {
-                // Apply any root swap queued before this turn (e.g. by a slash
-                // `/agent engineer` between turns, or by a return_to_router tool call
-                // in the previous iteration). Without this, the first turn after a
-                // switch would hit a transient fallback that still uses the previous
-                // agent's session history.
-                await applyCurrentPendingRootSwap(uiAPI);
-                const activeOnMessage = hostedSession.getActiveOnMessage();
-                const rootSessionManager = hostedSession.getRootSessionManager();
-                if (!activeOnMessage || !rootSessionManager) {
-                    uiAPI.appendSystemMessage("Error: No active agent handler or session manager.");
-                    break;
-                }
-                hostedSession.setActiveUiAPI(uiAPI);
-                if (isHandoff) {
-                    uiAPI.appendSystemMessage(currentRequest, false, "Handoff:");
-                }
-                await activeOnMessage(currentRequest, currentImages, uiAPI, rootSessionManager);
-
-                // If the agent called return_to_router, its turn was terminated and the
-                // tool recorded a handoff. Continue the loop: the next iteration
-                // applies the queued root swap and feeds `reason` as the new agent's
-                // first user message — making the chain visible and uninterrupted.
-                const handoff = hostedSession.consumePendingSwitchHandoff();
-                if (!handoff) break;
-                if (handoffsLeft-- <= 0) {
-                    uiAPI.appendSystemMessage(
-                        "return_to_router handoff limit reached — refusing further chained handoffs in this turn.",
-                    );
-                    break;
-                }
-                currentRequest = handoff.reason;
-                currentImages = [];
-                isHandoff = true;
-            }
+            await runScopedSubmitHandoffLoop({
+                hostedSession,
+                uiAPI,
+                initialRequest: userRequest,
+                initialImages: savedImages,
+                applyPendingRootSwapImpl: applyCurrentPendingRootSwap,
+            });
         } catch (err) {
             if (generationStillCurrent(thisGen)) {
                 uiAPI.appendSystemMessage(

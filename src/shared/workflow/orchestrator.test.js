@@ -1,9 +1,18 @@
 import { assertEquals } from "@std/assert";
 import { dispatchPostTriage, readLatestTriageOutcome } from "./orchestrator.js";
+import { HostedSession } from "../session/hosted-session.js";
 
 /**
  * @returns {any & { messages: string[] }}
  */
+
+/**
+ * @param {string} [id]
+ */
+function makeHostedSession(id = `orchestrator-test-${crypto.randomUUID()}`) {
+    return new HostedSession({ id, cwd: Deno.cwd() });
+}
+
 function makeUi() {
     /** @type {string[]} */
     const messages = [];
@@ -34,6 +43,7 @@ Deno.test("dispatchPostTriage routes INQUIRY to Guide without completion or vali
     let validationCount = 0;
 
     await dispatchPostTriage({
+        hostedSession: makeHostedSession(),
         triage: {
             routingIntent: "INQUIRY",
             complexity: "LOW",
@@ -60,7 +70,8 @@ Deno.test("dispatchPostTriage routes INQUIRY to Guide without completion or vali
                 validationCount++;
                 return Promise.resolve();
             },
-            setActiveAgent: (/** @type {string} */ name) => activeAgents.push(name),
+            setActiveAgent: (/** @type {unknown} */ _hostedSession, /** @type {string} */ name) =>
+                activeAgents.push(name),
         }),
     });
 
@@ -78,6 +89,7 @@ Deno.test("dispatchPostTriage routes IDEATION to Ideator without completion or v
     const rootTurns = [];
 
     await dispatchPostTriage({
+        hostedSession: makeHostedSession(),
         triage: {
             routingIntent: "IDEATION",
             complexity: "LOW",
@@ -99,7 +111,8 @@ Deno.test("dispatchPostTriage routes IDEATION to Ideator without completion or v
             runValidationLoop: () => {
                 throw new Error("validation should not run");
             },
-            setActiveAgent: (/** @type {string} */ name) => activeAgents.push(name),
+            setActiveAgent: (/** @type {unknown} */ _hostedSession, /** @type {string} */ name) =>
+                activeAgents.push(name),
         }),
     });
 
@@ -116,6 +129,7 @@ Deno.test("dispatchPostTriage routes OPERATION to Operator without validation", 
     let mechanicalValidationCount = 0;
 
     await dispatchPostTriage({
+        hostedSession: makeHostedSession(),
         triage: {
             routingIntent: "OPERATION",
             complexity: "LOW",
@@ -145,7 +159,8 @@ Deno.test("dispatchPostTriage routes OPERATION to Operator without validation", 
                 mechanicalValidationCount++;
                 return Promise.resolve({ passed: true, attempts: 0 });
             },
-            setActiveAgent: (/** @type {string} */ name) => activeAgents.push(name),
+            setActiveAgent: (/** @type {unknown} */ _hostedSession, /** @type {string} */ name) =>
+                activeAgents.push(name),
         }),
     });
 
@@ -163,6 +178,7 @@ Deno.test("dispatchPostTriage routes QUICK_FIX to Engineer and runs Mechanical V
     let mechanicalValidationCount = 0;
 
     await dispatchPostTriage({
+        hostedSession: makeHostedSession(),
         triage: {
             routingIntent: "QUICK_FIX",
             complexity: "LOW",
@@ -195,7 +211,8 @@ Deno.test("dispatchPostTriage routes QUICK_FIX to Engineer and runs Mechanical V
             runValidationLoop: () => {
                 throw new Error("saved-plan validation should not run");
             },
-            setActiveAgent: (/** @type {string} */ name) => activeAgents.push(name),
+            setActiveAgent: (/** @type {unknown} */ _hostedSession, /** @type {string} */ name) =>
+                activeAgents.push(name),
         }),
     });
 
@@ -209,6 +226,7 @@ Deno.test("dispatchPostTriage warns and skips Mechanical Validation when QUICK_F
     let mechanicalValidationCount = 0;
 
     await dispatchPostTriage({
+        hostedSession: makeHostedSession(),
         triage: {
             routingIntent: "QUICK_FIX",
             complexity: "LOW",
@@ -253,6 +271,7 @@ Deno.test("dispatchPostTriage keeps planning agent active on stay/save/halt deci
         let popped = false;
 
         await dispatchPostTriage({
+            hostedSession: makeHostedSession(),
             triage: {
                 routingIntent: "FEATURE",
                 classification: "FEATURE",
@@ -270,7 +289,8 @@ Deno.test("dispatchPostTriage keeps planning agent active on stay/save/halt deci
                 consumePendingSwitchHandoff: () => null,
                 decidePostPlanning: () => item.decision,
                 createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
-                setActiveAgent: (/** @type {string} */ name) => activeAgents.push(name),
+                setActiveAgent: (/** @type {unknown} */ _hostedSession, /** @type {string} */ name) =>
+                    activeAgents.push(name),
                 getConfiguredAgentModel: () => "test/model",
                 pushAgentInfo: () => {},
                 popAgentInfo: () => {
@@ -298,6 +318,7 @@ Deno.test("dispatchPostTriage executes approved FEATURE plans and runs validatio
     const validations = [];
 
     await dispatchPostTriage({
+        hostedSession: makeHostedSession(),
         triage: {
             routingIntent: "FEATURE",
             classification: "FEATURE",
@@ -352,6 +373,7 @@ Deno.test("dispatchPostTriage keeps Engineer active after incomplete PROJECT exe
     const activeAgents = [];
 
     await dispatchPostTriage({
+        hostedSession: makeHostedSession(),
         triage: {
             routingIntent: "PROJECT",
             classification: "PROJECT",
@@ -383,7 +405,8 @@ Deno.test("dispatchPostTriage keeps Engineer active after incomplete PROJECT exe
                 payload: { agentName: context.executionAgentName, reason: "execution_incomplete" },
             }),
             createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
-            setActiveAgent: (/** @type {string} */ name) => activeAgents.push(name),
+            setActiveAgent: (/** @type {unknown} */ _hostedSession, /** @type {string} */ name) =>
+                activeAgents.push(name),
         }),
     });
 
@@ -396,6 +419,7 @@ Deno.test("dispatchPostTriage keeps Engineer active after incomplete FEATURE exe
     const activeAgents = [];
 
     await dispatchPostTriage({
+        hostedSession: makeHostedSession(),
         triage: {
             routingIntent: "FEATURE",
             classification: "FEATURE",
@@ -424,11 +448,58 @@ Deno.test("dispatchPostTriage keeps Engineer active after incomplete FEATURE exe
                 payload: { agentName: context.executionAgentName, reason: "execution_incomplete" },
             }),
             createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
-            setActiveAgent: (/** @type {string} */ name) => activeAgents.push(name),
+            setActiveAgent: (/** @type {unknown} */ _hostedSession, /** @type {string} */ name) =>
+                activeAgents.push(name),
         }),
     });
 
     assertEquals(activeAgents, ["engineer"]);
+});
+
+Deno.test("dispatchPostTriage drains execution handoffs from the supplied HostedSession", async () => {
+    const uiAPI = makeUi();
+    const target = makeHostedSession("target-execution-drain");
+    const other = makeHostedSession("other-execution-drain");
+    other.setPendingSwitchHandoff({ agentName: "router", reason: "other queued handoff" });
+
+    await dispatchPostTriage({
+        hostedSession: target,
+        triage: {
+            routingIntent: "FEATURE",
+            classification: "FEATURE",
+            complexity: "MEDIUM",
+            summary: "feature",
+            affectedPaths: ["src/feature.js"],
+        },
+        userRequest: "Feature",
+        images: [],
+        uiAPI,
+        sessionManager: undefined,
+        __deps: /** @type {any} */ ({
+            ensurePlansDir: () => Promise.resolve("/plans"),
+            runPlanningAgent: () => Promise.resolve({ outcome: "approved_execute", planName: "feature-plan" }),
+            decidePostPlanning: () => ({
+                kind: "execute_plan",
+                payload: {
+                    planName: "feature-plan",
+                    triageMeta: { routingIntent: "FEATURE", classification: "FEATURE" },
+                },
+            }),
+            executePlan: () => {
+                target.setPendingSwitchHandoff({ agentName: "router", reason: "execution queued handoff" });
+                return Promise.resolve({ executionComplete: false });
+            },
+            decidePostExecution: (/** @type {any} */ _result, /** @type {any} */ context) => ({
+                kind: "stay_with_agent",
+                payload: { agentName: context.executionAgentName, reason: "execution_incomplete" },
+            }),
+            createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
+            setActiveAgent: () => {},
+        }),
+    });
+
+    assertEquals(target.consumePendingSwitchHandoff(), null);
+    assertEquals(other.consumePendingSwitchHandoff()?.reason, "other queued handoff");
 });
 
 Deno.test("dispatchPostTriage auto-names unnamed sessions and mirrors title", async () => {
@@ -439,6 +510,7 @@ Deno.test("dispatchPostTriage auto-names unnamed sessions and mirrors title", as
     const titles = [];
 
     await dispatchPostTriage({
+        hostedSession: makeHostedSession(),
         triage: {
             routingIntent: "INQUIRY",
             complexity: "LOW",
@@ -477,6 +549,7 @@ Deno.test("dispatchPostTriage does not overwrite existing session names", async 
     const titles = [];
 
     await dispatchPostTriage({
+        hostedSession: makeHostedSession(),
         triage: {
             routingIntent: "INQUIRY",
             complexity: "LOW",
@@ -620,4 +693,49 @@ Deno.test("readLatestTriageOutcome ignores tool results without routingIntent or
         }),
     ];
     assertEquals(readLatestTriageOutcome(messages), null);
+});
+
+Deno.test("dispatchPostTriage switches and runs only the supplied HostedSession", async () => {
+    const target = makeHostedSession("target-orchestrator-session");
+    const other = makeHostedSession("other-orchestrator-session");
+    other.setPendingRootSwap({ agentName: "engineer", displayName: "Engineer" });
+    other.setPendingSwitchHandoff({ agentName: "router", reason: "other queued handoff" });
+    /** @type {unknown[]} */
+    const switchedSessions = [];
+    /** @type {unknown[]} */
+    const swapSessions = [];
+    /** @type {unknown[]} */
+    const rootTurnSessions = [];
+
+    await dispatchPostTriage({
+        hostedSession: target,
+        triage: {
+            routingIntent: "INQUIRY",
+            complexity: "LOW",
+            summary: "answer a scoped question",
+            affectedPaths: [],
+        },
+        userRequest: "question",
+        images: [],
+        uiAPI: makeUi(),
+        sessionManager: undefined,
+        __deps: /** @type {any} */ ({
+            createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
+            setActiveAgent: (/** @type {unknown} */ hostedSession) => switchedSessions.push(hostedSession),
+            applyPendingRootSwap: (/** @type {unknown} */ hostedSession) => {
+                swapSessions.push(hostedSession);
+                return Promise.resolve();
+            },
+            runRootTurn: (/** @type {any} */ args) => {
+                rootTurnSessions.push(args.hostedSession);
+                return Promise.resolve([]);
+            },
+        }),
+    });
+
+    assertEquals(switchedSessions, [target]);
+    assertEquals(swapSessions, [target]);
+    assertEquals(rootTurnSessions, [target]);
+    assertEquals(other.getPendingRootSwap()?.agentName, "engineer");
+    assertEquals(other.consumePendingSwitchHandoff()?.reason, "other queued handoff");
 });

@@ -1253,13 +1253,18 @@ export async function buildAgentSession({
     // while RunWield runtime injects the concrete tool implementations.
 
     if (tools.includes("return_to_router") && !finalCustomTools.find((t) => t.name === "return_to_router")) {
+        // Root sessions are hosted explicitly; close over the session/UI used to
+        // build this AgentSession instead of relying on dynamic tool context or
+        // any module-level active session state.
+        const returnToRouterHostedSession = targetHostedSession;
+        const returnToRouterUiAPI = uiAPI;
         finalCustomTools.push({
             ...returnToRouterTool,
             execute(_toolCallId, params, _signal, _onUpdate, _context) {
                 return executeReturnToRouter(
                     /** @type {{ reason: string }} */ (params),
-                    uiAPI,
-                    targetHostedSession,
+                    returnToRouterUiAPI,
+                    returnToRouterHostedSession,
                 );
             },
         });

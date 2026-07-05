@@ -432,6 +432,7 @@ export function shouldRunWorkflowValidation(triageMeta) {
  * @param {Object} args
  * @param {import('./workflow.js').UiAPI} args.uiAPI
  * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined} args.sessionManager
+ * @param {import('../session/hosted-session.js').HostedSession} [args.hostedSession]
  * @param {string} [args.cwd]
  * @param {{
  *   runLocalCI?: typeof runLocalCI,
@@ -443,7 +444,8 @@ export function shouldRunWorkflowValidation(triageMeta) {
  * }} [args.__deps] Test-only injection point.
  * @returns {Promise<{ passed: boolean, attempts: number, reason?: string }>}
  */
-export async function runMechanicalValidation({ uiAPI, sessionManager, cwd = CWD, __deps }) {
+export async function runMechanicalValidation({ uiAPI, sessionManager, hostedSession, cwd = CWD, __deps }) {
+    void hostedSession;
     const runLocalCIImpl = __deps?.runLocalCI || runLocalCI;
     const runAgentSessionImpl = __deps?.runAgentSession || runAgentSession;
     const repair = __deps?.runCompletionGatedRepair ||
@@ -531,6 +533,7 @@ export async function runMechanicalValidation({ uiAPI, sessionManager, cwd = CWD
  * @param {import('../../tools/plan-written.js').TriageMeta} args.triageMeta
  * @param {import('./workflow.js').UiAPI} args.uiAPI
  * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined} args.sessionManager
+ * @param {import('../session/hosted-session.js').HostedSession} [args.hostedSession]
  * @param {string | undefined} [args.finalAgentName] Agent to restore after router-started or direct workflows.
  * @param {{
  *   runLocalCI?: typeof runLocalCI,
@@ -557,9 +560,11 @@ export async function runValidationLoop({
     triageMeta,
     uiAPI,
     sessionManager,
+    hostedSession,
     finalAgentName,
     __deps,
 }) {
+    void hostedSession;
     const runLocalCIImpl = __deps?.runLocalCI || runLocalCI;
     const runAgentSessionImpl = __deps?.runAgentSession || runAgentSession;
     const repair = __deps?.runCompletionGatedRepair ||

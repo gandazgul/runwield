@@ -14,12 +14,14 @@ function makeContext(overrides = {}) {
         currentChecks: /** @type {number[]} */ ([]),
         cancels: /** @type {Array<(() => void) | null>} */ ([]),
         swaps: 0,
+        swapHostedSessions: /** @type {unknown[]} */ ([]),
         activeAgents: /** @type {any[]} */ ([]),
         runs: /** @type {any[]} */ ([]),
         expandedDispatches: /** @type {any[]} */ ([]),
         expandedTemplates: /** @type {any[]} */ ([]),
         expandedSkills: /** @type {any[]} */ ([]),
         aborted: /** @type {unknown[]} */ ([]),
+        createdHandlers: /** @type {Array<{ agentName: string, deps: unknown }>} */ ([]),
     };
     const hostedSession = {
         id: "hosted-1",
@@ -47,15 +49,17 @@ function makeContext(overrides = {}) {
         chatPromptAgentName: "operator",
         resolveTemplateModel: () => ({ ok: true, provider: "test", id: "model" }),
         setActiveAgent: (
+            /** @type {unknown} */ targetHostedSession,
             /** @type {string} */ agentName,
             /** @type {unknown} */ handler,
             /** @type {unknown} */ uiAPI,
             /** @type {string | undefined} */ model,
         ) => {
-            records.activeAgents.push({ agentName, handler, uiAPI, model });
+            records.activeAgents.push({ hostedSession: targetHostedSession, agentName, handler, uiAPI, model });
         },
-        applyPendingRootSwap: () => {
+        applyPendingRootSwap: (/** @type {unknown} */ targetHostedSession) => {
             records.swaps++;
+            records.swapHostedSessions.push(targetHostedSession);
             return Promise.resolve();
         },
         dispatchExpandedUserRequest: (
@@ -97,7 +101,10 @@ function makeContext(overrides = {}) {
                 records.expandedSkills.push({ name, additionalInstructions });
                 return Promise.resolve(`skill:${name}:${additionalInstructions || ""}`);
             },
-            createAgentHandler: (/** @type {string} */ agentName) => `handler:${agentName}`,
+            createAgentHandler: (/** @type {string} */ agentName, /** @type {unknown} */ deps) => {
+                records.createdHandlers.push({ agentName, deps });
+                return `handler:${agentName}`;
+            },
             getRootSessionManager: () => ({ id: "session" }),
         },
         records,
@@ -192,10 +199,15 @@ Deno.test("handleSlashCommand switches prompt templates to Operator before expan
     assertEquals(ctx.records.userMessages, []);
     assertEquals(ctx.records.images, []);
     assertEquals(ctx.records.activeAgents, [{
+        hostedSession: ctx.hostedSession,
         agentName: "operator",
         handler: "handler:operator",
         uiAPI: ctx.uiAPI,
         model: undefined,
+    }]);
+    assertEquals(ctx.records.createdHandlers, [{
+        agentName: "operator",
+        deps: { hostedSession: ctx.hostedSession },
     }]);
     assertEquals(ctx.records.swaps, 0);
     assertEquals(ctx.records.runs, []);

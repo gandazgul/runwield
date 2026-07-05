@@ -76,6 +76,57 @@ Deno.test("runNewCommand creates and installs a fresh root session", async () =>
     assertEquals(messages, ["Started new session: session-123"]);
 });
 
+Deno.test("runNewCommand starts fresh interactive sessions at Router", async () => {
+    const manager = {
+        getSessionId: () => "session-router",
+    };
+    const hostedSession = { id: "fresh-hosted-session" };
+    /** @type {Array<{ agentName: string, deps?: unknown }>} */
+    const handlerArgs = [];
+    /** @type {Array<{ hostedSession: unknown, agentName: string, uiAPI: unknown }>} */
+    const activeAgents = [];
+    /** @type {Array<{ hostedSession: unknown, uiAPI: unknown }>} */
+    const swaps = [];
+    const uiAPI = {
+        appendSystemMessage: () => {},
+    };
+
+    await runNewCommand(
+        [],
+        /** @type {any} */ ({
+            uiAPI,
+            sessionHost: {
+                createSession: () => hostedSession,
+            },
+            replaceHostedSession: () => {},
+            setActiveAgent: (
+                /** @type {unknown} */ nextHostedSession,
+                /** @type {string} */ agentName,
+                /** @type {unknown} */ _handler,
+                /** @type {unknown} */ nextUiAPI,
+            ) => {
+                activeAgents.push({ hostedSession: nextHostedSession, agentName, uiAPI: nextUiAPI });
+            },
+            applyPendingRootSwap: (/** @type {unknown} */ nextHostedSession, /** @type {unknown} */ nextUiAPI) => {
+                swaps.push({ hostedSession: nextHostedSession, uiAPI: nextUiAPI });
+                return Promise.resolve();
+            },
+            __testDeps: {
+                createRootSessionManager: () => Promise.resolve(manager),
+                createAgentHandler: (/** @type {string} */ agentName, /** @type {unknown} */ deps) => {
+                    handlerArgs.push({ agentName, deps });
+                    return () => Promise.resolve();
+                },
+                setTerminalTitleForSession: () => "wld - new session",
+            },
+        }),
+    );
+
+    assertEquals(activeAgents, [{ hostedSession, agentName: "router", uiAPI }]);
+    assertEquals(swaps, [{ hostedSession, uiAPI }]);
+    assertEquals(handlerArgs, [{ agentName: "router", deps: { hostedSession } }]);
+});
+
 Deno.test("runNewCommand updates terminal title for unnamed sessions", async () => {
     /** @type {string[]} */
     const titles = [];
