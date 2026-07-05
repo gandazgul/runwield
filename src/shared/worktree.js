@@ -3,7 +3,7 @@
  * Git worktree helpers for isolated plan execution.
  */
 
-import { basename, join } from "@std/path";
+import { basename, dirname, join } from "@std/path";
 import { HOME_DIR, RUNWEILD_DIR_NAME, WORKTREE_BRANCH_PREFIX, WORKTREE_PATH_PREFIX } from "../constants.js";
 import { encodeCwdForSessionDir } from "./session/root-session.js";
 import { getWorkflowDiff } from "./workflow/git-snapshot.js";
@@ -551,7 +551,7 @@ async function mergeExecutionWorktreeIntoTargetBranch({
         if (published) return;
     }
 
-    const parent = resolveWorktreeParent(projectRoot, undefined);
+    const parent = worktreePath ? dirname(worktreePath) : resolveWorktreeParent(projectRoot, undefined);
     const repoName = basename(projectRoot);
     let attempt = 0;
     while (attempt < maxAttempts) {

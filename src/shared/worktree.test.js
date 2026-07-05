@@ -279,6 +279,7 @@ Deno.test("mergeExecutionWorktree publishes and cleans up a repaired detached me
             mergeWorktreePath = /** @type {{ mergeWorktreePath?: string }} */ (error).mergeWorktreePath;
         }
         if (!mergeWorktreePath) throw new Error("Expected detached merge repair worktree path");
+        assertEquals(dirname(mergeWorktreePath), worktreeRoot);
 
         await Deno.writeTextFile(`${mergeWorktreePath}/README.md`, "base\ntarget\nexecution\n");
         await git(mergeWorktreePath, ["add", "README.md"]);
