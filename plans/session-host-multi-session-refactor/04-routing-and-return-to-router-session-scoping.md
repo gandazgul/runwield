@@ -12,22 +12,16 @@ affectedPaths:
     - "src/tools/__tests__/return-to-router.test.js"
 frontend: false
 createdAt: "2026-07-03T18:03:46.155Z"
-updatedAt: "2026-07-05T04:18:15.053Z"
-status: "implemented"
+updatedAt: "2026-07-05T04:39:04.657Z"
+status: "verified"
 origin: "internal"
 parentPlan: "session-host-multi-session-refactor"
 order: 4
 dependencies:
     - "tui-single-hosted-session-adapter"
-failureReason: "Semantic validation did not approve after 3 cycles."
-humanReviewMode: null
-humanReviewDecision: null
-executionBaselineTree: "4bc47727900cc12e205635d53d5ba1f0feb25f95"
-worktreeId: "2e786976"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-harns--/harns-runwield-session-host-multi-session-refactor-04-routing-a-2e786976"
-worktreeBranch: "runwield/worktree/session-host-multi-session-refactor-04-routing-a-2e786976"
-worktreeBaseBranch: "multi-session-refactor"
-worktreeStatus: "validation_failed"
+verifiedAt: "2026-07-05T04:39:04.657Z"
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
 ---
 
 # Routing and Return-to-Router Session Scoping
