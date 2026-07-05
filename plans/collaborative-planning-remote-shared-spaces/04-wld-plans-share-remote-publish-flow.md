@@ -12,8 +12,8 @@ affectedPaths:
     - "src/shared/collaboration/"
 frontend: false
 createdAt: "2026-07-04T14:52:22.902Z"
-updatedAt: "2026-07-04T14:52:22.902Z"
-status: "draft"
+updatedAt: "2026-07-05T15:44:44.035Z"
+status: "verified"
 origin: "internal"
 parentPlan: "collaborative-planning-remote-shared-spaces"
 order: 4
@@ -21,6 +21,9 @@ dependencies:
     - "01-collaboration-protocol-crypto-and-secret-storage"
     - "02-shared-plan-lock-enforcement"
     - "03-remote-workspace-sqlite-shared-space-api"
+verifiedAt: "2026-07-05T15:44:44.035Z"
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
 ---
 
 # `wld plans share` Remote Publish Flow
