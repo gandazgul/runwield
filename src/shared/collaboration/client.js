@@ -11,7 +11,7 @@ import { buildApiUrl, normalizeServerUrl } from "./urls.js";
 /**
  * @typedef {Object} CollaborationClientOptions
  * @property {string} serverUrl
- * @property {string} bearerCapability
+ * @property {string} [bearerCapability]
  * @property {typeof fetch} [fetch]
  */
 
@@ -38,7 +38,7 @@ export class CollaborationClient {
 
     /**
      * @param {string} path
-     * @param {{ method?: string, body?: unknown, headers?: Record<string, string> }} [options]
+     * @param {{ method?: string, body?: unknown, headers?: Record<string, string>, auth?: boolean }} [options]
      * @returns {Promise<unknown>}
      */
     async requestJson(path, options = {}) {
@@ -46,9 +46,14 @@ export class CollaborationClient {
         /** @type {Record<string, string>} */
         const headers = {
             Accept: "application/json",
-            Authorization: `Bearer ${this.bearerCapability}`,
             ...(options.headers ?? {}),
         };
+        if (options.auth !== false) {
+            if (!this.bearerCapability) {
+                throw new CollaborationApiError("Bearer capability is required for this Plan Server request.");
+            }
+            headers.Authorization = `Bearer ${this.bearerCapability}`;
+        }
         /** @type {RequestInit} */
         const init = { method: options.method ?? "GET", headers };
         if (options.body !== undefined) {
@@ -56,16 +61,14 @@ export class CollaborationClient {
             init.body = JSON.stringify(options.body);
         }
 
+        const secrets = this.bearerCapability ? [this.bearerCapability] : [];
         let response;
         try {
             response = await this.fetch(url, init);
         } catch (error) {
-            throw new CollaborationApiError(
-                `Network failure calling ${url}: ${redactSecrets(error, [this.bearerCapability])}`,
-                {
-                    secrets: [this.bearerCapability],
-                },
-            );
+            throw new CollaborationApiError(`Network failure calling ${url}: ${redactSecrets(error, secrets)}`, {
+                secrets,
+            });
         }
 
         const text = await response.text();
@@ -75,7 +78,7 @@ export class CollaborationClient {
             throw new CollaborationApiError(`Plan Server error ${response.status}: ${message}`, {
                 status: response.status,
                 payload,
-                secrets: [this.bearerCapability],
+                secrets,
             });
         }
         return payload;
@@ -85,6 +88,7 @@ export class CollaborationClient {
     async createSharedSpace(payload) {
         return await this.requestJson("/api/spaces", {
             method: "POST",
+            auth: false,
             body: normalizeCreateSharedSpacePayload(payload),
         });
     }
