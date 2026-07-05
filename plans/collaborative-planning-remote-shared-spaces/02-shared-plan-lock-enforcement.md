@@ -24,10 +24,9 @@ dependencies:
 verifiedAt: "2026-07-05T02:25:48.990Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
-updatedAt: "2026-07-05T04:13:26.531Z"
-archivedAt: "2026-07-05T04:13:26.531Z"
-archivedFromStatus: "verified"
-archivedFromPath: "plans/collaborative-planning-remote-shared-spaces/02-shared-plan-lock-enforcement.md"
+updatedAt: "2026-07-05T14:29:28.401Z"
+restoredAt: "2026-07-05T14:29:28.401Z"
+restoredFromPath: "plans/archived/collaborative-planning-remote-shared-spaces/02-shared-plan-lock-enforcement.md"
 ---
 
 # Shared Plan Lock Enforcement

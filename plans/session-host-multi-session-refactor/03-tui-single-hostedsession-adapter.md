@@ -23,10 +23,9 @@ dependencies:
 verifiedAt: "2026-07-05T00:56:25.425Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
-updatedAt: "2026-07-05T04:13:26.531Z"
-archivedAt: "2026-07-05T04:13:26.531Z"
-archivedFromStatus: "verified"
-archivedFromPath: "plans/session-host-multi-session-refactor/03-tui-single-hostedsession-adapter.md"
+updatedAt: "2026-07-05T14:29:31.009Z"
+restoredAt: "2026-07-05T14:29:31.009Z"
+restoredFromPath: "plans/archived/session-host-multi-session-refactor/03-tui-single-hostedsession-adapter.md"
 ---
 
 # TUI Single HostedSession Adapter
