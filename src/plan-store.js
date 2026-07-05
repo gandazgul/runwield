@@ -11,6 +11,12 @@
 import { extractYaml, test as hasFrontMatter } from "@std/front-matter";
 import { basename, join, relative, resolve } from "@std/path";
 import { CLI_BIN, PLANS_DIR_NAME } from "./constants.js";
+import {
+    assertSharedPlanWriteAllowed,
+    COLLABORATION_FRONT_MATTER_KEYS,
+    COLLABORATION_STATE_REMOTE_CANONICAL,
+    normalizeCollaborationFrontMatter,
+} from "./shared/collaboration/lock.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────
 
@@ -128,6 +134,12 @@ function getStoredPlanLocation(cwd, planName) {
  * @property {string|null} [archivedFromPath] - Project-relative path the Plan occupied before archival
  * @property {string|null} [restoredAt] - ISO timestamp when the Plan was physically restored to active plans/
  * @property {string|null} [restoredFromPath] - Project-relative archived path restored from
+ * @property {string} [collaborationState] - Remote-canonical lock marker for shared Plans
+ * @property {string} [collaborationServerUrl] - Normalized fragment-free Plan Server base URL
+ * @property {string} [collaborationSpaceId] - Remote Shared Space id
+ * @property {number} [collaborationRevision] - Latest known positive integer remote revision
+ * @property {string} [collaborationBodyHash] - SHA-256 hash of the last controlled synced Plan body
+ * @property {string} [collaborationSyncedAt] - ISO timestamp of the last controlled collaboration metadata write
  */
 
 /**
@@ -221,12 +233,29 @@ export const PLAN_FRONT_MATTER_KEYS = Object.freeze({
     archivedFromPath: "archivedFromPath",
     restoredAt: "restoredAt",
     restoredFromPath: "restoredFromPath",
+    ...COLLABORATION_FRONT_MATTER_KEYS,
 });
 
 export const PLAN_FRONT_MATTER_KEY_ORDER = Object.freeze(Object.values(PLAN_FRONT_MATTER_KEYS));
 
 /** @type {Set<string>} */
 const KNOWN_FRONT_MATTER_KEYS = new Set(PLAN_FRONT_MATTER_KEY_ORDER);
+
+/**
+ * @param {Record<string, unknown>} attrs
+ * @returns {Partial<PlanFrontMatter>}
+ */
+function pickKnownPlanFrontMatter(attrs) {
+    /** @type {Partial<PlanFrontMatter>} */
+    const picked = {};
+    const pickedRecord = /** @type {Record<string, unknown>} */ (picked);
+    for (const key of KNOWN_FRONT_MATTER_KEYS) {
+        if (Object.hasOwn(attrs, key)) {
+            pickedRecord[key] = attrs[key];
+        }
+    }
+    return picked;
+}
 
 const HIDDEN_PLAN_DIRS = new Set(["archived"]);
 
@@ -328,6 +357,12 @@ function formatFrontMatter(fm) {
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.archivedFromPath, fm.archivedFromPath);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.restoredAt, fm.restoredAt);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.restoredFromPath, fm.restoredFromPath);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.collaborationState, fm.collaborationState);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.collaborationServerUrl, fm.collaborationServerUrl);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.collaborationSpaceId, fm.collaborationSpaceId);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.collaborationRevision, fm.collaborationRevision);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.collaborationBodyHash, fm.collaborationBodyHash);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.collaborationSyncedAt, fm.collaborationSyncedAt);
 
     for (const key of Object.keys(fm).filter((key) => !KNOWN_FRONT_MATTER_KEYS.has(key)).sort()) {
         appendYamlField(lines, key, /** @type {Record<string, unknown>} */ (fm)[key]);
@@ -595,6 +630,7 @@ export function injectFrontMatter(markdown, overrides = {}) {
         restoredAt: optionalFrontMatterValue(overrides, existingFm, "restoredAt"),
         restoredFromPath: optionalFrontMatterValue(overrides, existingFm, "restoredFromPath"),
     };
+    Object.assign(fm, normalizeCollaborationFrontMatter({ ...existingFm, ...overrides }));
 
     return formatFrontMatter(fm) + "\n" + body.trimStart();
 }
@@ -620,9 +656,14 @@ export function parsePlanFrontMatter(markdown, opts = {}) {
         };
     }
     const { attrs, body } = extractYaml(markdown);
+    const collaborationAttrs = normalizeCollaborationFrontMatter(attrs);
+    const sourceAttrs = { ...attrs };
+    for (const key of Object.values(COLLABORATION_FRONT_MATTER_KEYS)) {
+        delete sourceAttrs[key];
+    }
     return {
         attrs: {
-            ...attrs,
+            ...sourceAttrs,
             planId: normalizePlanId(attrs.planId),
             classification: attrs.classification || DEFAULT_FRONT_MATTER.classification,
             complexity: attrs.complexity || DEFAULT_FRONT_MATTER.complexity,
@@ -674,6 +715,7 @@ export function parsePlanFrontMatter(markdown, opts = {}) {
             archivedFromPath: attrs.archivedFromPath,
             restoredAt: attrs.restoredAt,
             restoredFromPath: attrs.restoredFromPath,
+            ...collaborationAttrs,
         },
         body,
     };
@@ -824,6 +866,50 @@ export class StalePlanBodyError extends Error {
     }
 }
 
+/**
+ * @typedef {Object} PlanWriteOptions
+ * @property {symbol} [collaborationLockBypass]
+ */
+
+/**
+ * @param {string} markdown
+ * @returns {string | undefined}
+ */
+function leadingFrontMatterCandidate(markdown) {
+    const lines = markdown.split(/\r?\n/);
+    if (lines[0] !== "---") return undefined;
+    const bodyStart = lines.findIndex((line, index) => index > 0 && /^(---|\.\.\.)\s*$/.test(line));
+    return lines.slice(1, bodyStart === -1 ? lines.length : bodyStart).join("\n");
+}
+
+/**
+ * @param {string} markdown
+ * @returns {boolean}
+ */
+function hasRemoteCanonicalCollaborationMarker(markdown) {
+    const frontMatter = leadingFrontMatterCandidate(markdown);
+    if (frontMatter === undefined) return false;
+    return frontMatter.split("\n").some((line) =>
+        /^\s*["']?collaborationState["']?\s*:\s*["']?remote_canonical["']?(?:\s+#.*)?\s*$/.test(line)
+    );
+}
+
+/**
+ * @param {string} markdown
+ * @param {PlanWriteOptions} [options]
+ */
+function assertPlanMarkdownWriteAllowed(markdown, options = {}) {
+    try {
+        const { attrs } = parsePlanFrontMatter(markdown);
+        assertSharedPlanWriteAllowed(attrs, options);
+    } catch (error) {
+        if (error instanceof Error && error.name === "SharedPlanLockError") throw error;
+        if (hasRemoteCanonicalCollaborationMarker(markdown)) {
+            assertSharedPlanWriteAllowed({ collaborationState: COLLABORATION_STATE_REMOTE_CANONICAL }, options);
+        }
+    }
+}
+
 // ─── Save / Load / List ──────────────────────────────────────────────
 
 /**
@@ -897,9 +983,10 @@ function buildChildPlanNameSegment(child) {
  * @param {string} cwd - Project root.
  * @param {string} epicPlanName - Parent Epic plan name.
  * @param {ChildFeaturePlanDescriptor[]} children - Child FEATURE descriptors.
+ * @param {PlanWriteOptions} [options]
  * @returns {Promise<SavedChildFeaturePlan[]>}
  */
-export async function saveChildFeaturePlans(cwd, epicPlanName, children) {
+export async function saveChildFeaturePlans(cwd, epicPlanName, children, options = {}) {
     const { name: parentPlanName, segments: parentSegments } = canonicalizeStoredPlanName(epicPlanName);
     if (parentSegments.length !== 1) {
         throw new Error(`Parent Epic plan name must be a top-level plan: ${epicPlanName}`);
@@ -960,7 +1047,7 @@ export async function saveChildFeaturePlans(cwd, epicPlanName, children) {
             summary: child.summary,
             dependencies,
             origin: "internal",
-        });
+        }, options);
         results.push({ name, path, title: child.title, action, dependencies, metadata });
     }
 
@@ -974,11 +1061,19 @@ export async function saveChildFeaturePlans(cwd, epicPlanName, children) {
  * @param {string} planName - Filename without .md (e.g., "add-dark-mode-toggle")
  * @param {string} content - Plan markdown content
  * @param {Partial<PlanFrontMatter>} [fmOverrides] - Front matter fields
+ * @param {PlanWriteOptions} [options]
  * @returns {Promise<string>} The full path where the plan was saved
  */
-export async function savePlan(cwd, planName, content, fmOverrides = {}) {
+export async function savePlan(cwd, planName, content, fmOverrides = {}, options = {}) {
     const dir = await ensurePlansDir(cwd);
     const { filePath, segments } = getStoredPlanLocation(cwd, planName);
+    let existingMarkdown;
+    try {
+        existingMarkdown = await Deno.readTextFile(filePath);
+    } catch (error) {
+        if (!(error instanceof Deno.errors.NotFound)) throw error;
+    }
+    if (existingMarkdown !== undefined) assertPlanMarkdownWriteAllowed(existingMarkdown, options);
     if (segments.length > 1) {
         await Deno.mkdir(join(dir, ...segments.slice(0, -1)), { recursive: true });
     }
@@ -1049,6 +1144,7 @@ function stripLeadingFrontMatterBlock(markdown) {
  * @param {string} planName
  * @param {PlanFrontMatter["status"]} status
  * @param {Partial<PlanFrontMatter>} [recoveryAttrs]
+ * @param {PlanWriteOptions} [options]
  * @returns {Promise<void>}
  */
 export async function updatePlanStatus(
@@ -1056,9 +1152,11 @@ export async function updatePlanStatus(
     planName,
     status,
     recoveryAttrs = {},
+    options = {},
 ) {
     const plan = await loadPlan(cwd, planName);
     if (plan) {
+        assertSharedPlanWriteAllowed(plan.attrs, options);
         const withFm = injectFrontMatter(plan.body, { ...plan.attrs, status });
         await Deno.writeTextFile(plan.path, withFm);
 
@@ -1073,6 +1171,7 @@ export async function updatePlanStatus(
         throw new Error(`Plan not found: ${planName}`);
     }
 
+    assertPlanMarkdownWriteAllowed(markdown, options);
     const body = stripLeadingFrontMatterBlock(markdown);
     const healed = injectFrontMatter(body, {
         ...recoveryAttrs,
@@ -1090,6 +1189,7 @@ export async function updatePlanStatus(
  * @param {string} planName
  * @param {Partial<PlanFrontMatter>} updates
  * @param {Partial<PlanFrontMatter>} [recoveryAttrs]
+ * @param {PlanWriteOptions} [options]
  * @returns {Promise<PlanFrontMatter>}
  */
 export async function updatePlanFrontMatter(
@@ -1097,9 +1197,11 @@ export async function updatePlanFrontMatter(
     planName,
     updates,
     recoveryAttrs = {},
+    options = {},
 ) {
     const plan = await loadPlan(cwd, planName);
     if (plan) {
+        assertSharedPlanWriteAllowed(plan.attrs, options);
         const attrs = { ...plan.attrs, ...updates, updatedAt: updates.updatedAt ?? new Date().toISOString() };
         const withFm = injectFrontMatter(plan.body, attrs);
         await Deno.writeTextFile(plan.path, withFm);
@@ -1114,11 +1216,48 @@ export async function updatePlanFrontMatter(
         throw new Error(`Plan not found: ${planName}`);
     }
 
+    assertPlanMarkdownWriteAllowed(markdown, options);
     const body = stripLeadingFrontMatterBlock(markdown);
     const attrs = { ...recoveryAttrs, ...updates, updatedAt: updates.updatedAt ?? new Date().toISOString() };
     const healed = injectFrontMatter(body, attrs);
     await Deno.writeTextFile(filePath, healed);
     return parsePlanFrontMatter(healed).attrs;
+}
+
+/**
+ * Future collaboration commands can use this narrow helper to update collaboration metadata
+ * with an explicit lock bypass. When body is provided, the body and collaborationBodyHash
+ * are updated together.
+ *
+ * @param {string} cwd
+ * @param {string} planName
+ * @param {Partial<PlanFrontMatter>} updates
+ * @param {symbol} collaborationLockBypass
+ * @param {{ body?: string }} [options]
+ * @returns {Promise<PlanFrontMatter>}
+ */
+export async function updatePlanCollaborationMetadata(cwd, planName, updates, collaborationLockBypass, options = {}) {
+    const plan = await loadPlan(cwd, planName);
+    if (!plan) throw new Error(`Plan not found: ${planName}`);
+    const hasControlledBodyWrite = typeof options.body === "string";
+    const nextBody = hasControlledBodyWrite ? /** @type {string} */ (options.body) : plan.body;
+    const collaborationUpdates = normalizeCollaborationFrontMatter(updates);
+    if (!hasControlledBodyWrite) {
+        delete collaborationUpdates.collaborationBodyHash;
+    }
+    const attrs = {
+        ...pickKnownPlanFrontMatter(plan.attrs),
+        ...collaborationUpdates,
+        collaborationSyncedAt: collaborationUpdates.collaborationSyncedAt ?? new Date().toISOString(),
+        updatedAt: updates.updatedAt ?? new Date().toISOString(),
+    };
+    if (hasControlledBodyWrite) {
+        attrs.collaborationBodyHash = await hashPlanBody(nextBody);
+    }
+    assertSharedPlanWriteAllowed(plan.attrs, { collaborationLockBypass });
+    const markdown = injectFrontMatter(nextBody, attrs);
+    await Deno.writeTextFile(plan.path, markdown);
+    return parsePlanFrontMatter(markdown).attrs;
 }
 
 /**
@@ -1545,7 +1684,7 @@ function assertNoDuplicatePlanIds(byId) {
  *
  * @param {string} cwd
  * @param {string} planName
- * @param {{ idGenerator?: () => string, __testGenerateId?: () => string, reservedPlanIds?: Set<string> }} [options]
+ * @param {{ idGenerator?: () => string, __testGenerateId?: () => string, reservedPlanIds?: Set<string>, collaborationLockBypass?: symbol }} [options]
  * @returns {Promise<PlanResource>}
  */
 export async function ensurePlanIdentity(cwd, planName, options = {}) {
@@ -1572,6 +1711,7 @@ export async function ensurePlanIdentity(cwd, planName, options = {}) {
         do {
             planId = normalizePlanId(idGenerator());
         } while (!planId || reservedPlanIds.has(planId));
+        assertSharedPlanWriteAllowed(plan.attrs, options);
         attrs = { ...plan.attrs, planId };
         markdown = rewritePlanMetadata(attrs, plan.body);
         await Deno.writeTextFile(plan.path, markdown);
@@ -1702,13 +1842,15 @@ export async function loadPlanBodyById(cwd, planId) {
  * @param {string} planId
  * @param {string} newBody
  * @param {string} expectedBodyHash
+ * @param {PlanWriteOptions} [options]
  * @returns {Promise<PlanBodyResource>}
  */
-export async function savePlanBodyById(cwd, planId, newBody, expectedBodyHash) {
+export async function savePlanBodyById(cwd, planId, newBody, expectedBodyHash, options = {}) {
     const resource = await findPlanById(cwd, planId);
     if (isEpicPlan(resource.attrs)) throw new Error("Epic Plan bodies are not editable in the workspace body editor.");
     const markdown = await Deno.readTextFile(resource.path);
     const { attrs } = parsePlanFrontMatter(markdown);
+    assertSharedPlanWriteAllowed(attrs, options);
     const { frontMatterBlock, body } = splitPlanMarkdownBody(markdown);
     const currentBodyHash = await hashPlanBody(body);
     if (currentBodyHash !== expectedBodyHash) {
