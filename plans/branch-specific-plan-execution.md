@@ -10,70 +10,96 @@ affectedPaths:
     - "src/plan-store.js"
 frontend: false
 createdAt: "2026-07-05T01:12:56-04:00"
-updatedAt: "2026-07-05T05:20:15.605Z"
-status: "draft"
+updatedAt: "2026-07-05T15:37:39.588Z"
+status: "in_progress"
 origin: "internal"
+humanReviewMode: null
+humanReviewDecision: null
+executionBaselineTree: "7c050fc386678885edda06304709d91ba2c34b09"
+worktreeId: "c9b37558"
+worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-harns--/harns-runwield-branch-specific-plan-execution-c9b37558"
+worktreeBranch: "runwield/worktree/branch-specific-plan-execution-c9b37558"
+worktreeBaseBranch: "main"
+worktreeStatus: "active"
 ---
 
 # Branch-Specific Plan Execution
 
 ## Context
 
-RunWield already creates an execution worktree for approved plans and records runtime worktree metadata in plan front
-matter (`worktreeId`, `worktreePath`, `worktreeBranch`, `worktreeBaseBranch`, `worktreeStatus`). Merge-back and recovery
-already understand `worktreeBaseBranch` as the branch that validated work should merge into.
+RunWield already creates an execution worktree for approved FEATURE plans and records runtime worktree metadata in plan
+front matter (`worktreeId`, `worktreePath`, `worktreeBranch`, `worktreeBaseBranch`, `worktreeStatus`). Merge-back and
+recovery already understand `worktreeBaseBranch` as the branch that validated work should merge into.
 
-The current execution start path still creates new worktrees from `HEAD`, so the base branch is effectively whatever
-branch the primary checkout has at execution time. That means a user who wants hands-off execution against another
-branch must manually switch the checkout first. The requested behavior is to optionally record the intended target
-branch during planning, then have execution create the worktree from that branch and merge back to that same branch.
+The missing behavior is at execution start: new worktrees are still created from `HEAD`, so the base branch is whatever
+the primary checkout happens to have checked out when execution begins. A user who wants hands-off execution against
+another branch must manually switch the checkout first.
 
-Product decision from the request: target branch selection is optional. If no branch is recorded, preserve existing
-current-checkout behavior.
+Product decisions from the request, review feedback, and existing ADR behavior:
+
+- Target branch selection is optional.
+- If no target branch is recorded, preserve the legacy current-checkout/`HEAD` behavior.
+- Target branch selection can name an existing local branch, a remote branch, or a new branch name.
+- If the target only exists on the remote, RunWield should create a local tracking branch for it before execution.
+- If the target exists neither locally nor remotely, RunWield should create the local target branch from `main`'s
+  current HEAD before execution.
+
+Field-name assumption checkpoint: this plan reuses the existing `worktreeBaseBranch` front matter field as the
+plan-authored target branch instead of adding a new alias such as `targetBranch`. That keeps the storage model aligned
+with existing merge/recovery metadata, but the field name is internal-sounding. If plan review prefers a friendlier
+public key, the implementation should add an alias layer instead of silently changing this contract.
 
 ## Objective
 
-Add first-class support for plan-authored target branches by reusing the existing `worktreeBaseBranch` front matter
-field:
+Add first-class support for plan-authored target branches by reusing `worktreeBaseBranch` before execution starts:
 
-- Planning agents can write `worktreeBaseBranch: "<local-branch>"` when the user specifies an execution target branch.
-- Execution creates a new worktree from that branch, even if the primary checkout is currently on another branch.
-- Validation and recovery continue to merge back into the recorded target branch.
-- Existing plans without `worktreeBaseBranch` keep the legacy `HEAD`/current-checkout fallback.
+- Planning agents can write `worktreeBaseBranch: "<branch>"` when the user specifies a target execution branch.
+- Execution creates or resolves that target branch before creating the worktree, even if the primary checkout is
+  currently on another branch.
+- Validation and recovery merge back into the same recorded target branch.
+- Existing plans without `worktreeBaseBranch` keep the current `HEAD`/current-checkout fallback.
+- PROJECT Epics can carry the target branch and have Slicer inherit it into executable child FEATURE plans.
 
 ## Approach
 
-Use the existing `worktreeBaseBranch` field rather than inventing a new public key. Treat it as both the user-authored
-target branch before execution and the durable runtime merge target after execution starts.
+Treat `worktreeBaseBranch` as both the user-authored target branch before execution and the durable runtime merge target
+after execution starts.
 
-Execution should normalize the desired branch early in `startActiveExecutionWorkflow()`:
+Normalize the desired branch early in `startActiveExecutionWorkflow()`:
 
-- If the plan has a non-empty `worktreeBaseBranch`, create the execution worktree from `refs/heads/<worktreeBaseBranch>`
-  (or equivalent local-branch ref) and pass `baseBranch: worktreeBaseBranch` into `createExecutionWorktree()`.
-- If the plan has no target branch, keep `baseRef: "HEAD"` and let `createExecutionWorktree()` record the currently
-  checked out branch as today.
-- If a reusable worktree already exists for the plan, do not recreate it; report/record the reusable worktree’s existing
-  target branch. Avoid silently moving an in-progress plan to a different target branch.
-- Fail before Engineer starts if the recorded target branch is not a local branch.
+- Trim `triageMeta.worktreeBaseBranch`; treat empty values and literal `"HEAD"` as the legacy fallback.
+- For a non-empty target branch, resolve or prepare a local branch ref before worktree creation:
+  - If `refs/heads/<branch>` exists, use it.
+  - Else if `origin/<branch>` exists or can be fetched, create a local tracking branch from it and use that local ref.
+  - Else create the local branch from `refs/heads/main` and use that new branch ref.
+- For no target branch, keep `baseRef: "HEAD"` and let `createExecutionWorktree()` record the currently checked out
+  branch as it does today.
+- If a reusable/active worktree already exists for the plan, do not recreate it. If the reusable worktree's recorded
+  target differs from the plan-authored target, fail before Engineer starts with a clear message rather than silently
+  moving an in-progress plan to a different branch.
 
-Planning/docs should make the field discoverable but optional. Agents should not invent a branch; they should only write
-it when the user request, follow-up clarification, or explicit plan-review feedback supplies it.
+Make the field discoverable in plan formats, agent prompts, README, and ADR docs. Agents should not invent a branch;
+they should write it only when the user request, follow-up clarification, or explicit plan-review feedback supplies it.
 
 ## Files to Modify
 
-- `src/shared/workflow/workflow.js` — use plan `worktreeBaseBranch` when starting execution worktrees; add test
-  injection if needed for focused unit coverage.
-- `src/shared/workflow/workflow.test.js` — cover `executePlan()`/workflow start with a recorded target branch and the
-  no-branch fallback.
-- `src/shared/worktree.js` — add/reuse a local-branch validation/ref helper so planned branch targets resolve as branch
-  refs instead of ambiguous tags or commits.
-- `src/shared/worktree.test.js` — cover explicit target branch creation from a non-current branch and invalid target
-  branch rejection.
-- `src/plan-store.js` — ensure `ChildFeaturePlanDescriptor` can carry `worktreeBaseBranch` for child FEATURE plans when
-  needed.
+- `src/shared/workflow/workflow.js` — normalize `triageMeta.worktreeBaseBranch`, pass branch-specific `baseRef`/
+  `baseBranch` into `createExecutionWorktree()`, and add focused test seams or exported pure helpers if needed.
+- `src/shared/workflow/workflow.test.js` — cover execution start metadata, target normalization, reusable-worktree
+  target mismatch handling, child FEATURE inheritance helper behavior, and no-target fallback.
+- `src/shared/worktree.js` — add/reuse an exported target-branch preparation helper so planned branch targets resolve as
+  `refs/heads/<branch>` instead of ambiguous tags or commits; support existing local branches, remote tracking branch
+  creation, and new branch creation from `main`.
+- `src/shared/worktree.test.js` — cover explicit target-branch worktree creation from a non-current branch, remote-only
+  branch tracking setup, new branch creation from `main`, and invalid branch-name rejection.
+- `src/cmd/load-plan/index.js` — surface a recorded target branch in plan summaries/recovery displays where worktree
+  context is shown, and ensure recreate/merge recovery continues to pass the recorded target branch.
+- `src/cmd/load-plan/index.test.js` — cover target branch display/recovery behavior for plans with `worktreeBaseBranch`.
+- `src/plan-store.js` — add optional `worktreeBaseBranch` to child FEATURE descriptors and materialized child front
+  matter metadata.
 - `src/plan-store.test.js` — cover saving child FEATURE plans with `worktreeBaseBranch` front matter.
-- `src/shared/workflow/workflow-slicer.js` — when an Epic has `worktreeBaseBranch`, propagate it to materialized child
-  FEATURE plans unless a child explicitly overrides it.
+- `src/shared/workflow/workflow-slicer.js` — add `worktreeBaseBranch` to the Slicer child descriptor schema and inherit
+  the parent Epic's target branch into child FEATURE descriptors unless a child explicitly overrides it.
 - `src/agent-definitions/planner.md` — tell Planner to include `worktreeBaseBranch` when the user specifies a target
   execution branch.
 - `src/agent-definitions/architect.md` — tell Architect to include `worktreeBaseBranch` on Epics when the user specifies
@@ -82,9 +108,9 @@ it when the user request, follow-up clarification, or explicit plan-review feedb
   branch for child plans.
 - `src/agent-definitions/document-formats/planner-plan-format.md` — document optional `worktreeBaseBranch` front matter.
 - `src/agent-definitions/document-formats/architect-plan-format.md` — document optional `worktreeBaseBranch` front
-  matter.
+  matter for PROJECT Epics.
 - `docs/adr/005-concurrent-worktree-isolation.md` — update the ADR to describe planned target-branch front matter and
-  merge-back behavior.
+  target-branch merge-back behavior.
 - `README.md` — add a concise user-facing note showing how to request or record a target branch for hands-off plan
   execution.
 
@@ -95,34 +121,44 @@ Existing functions, modules, or patterns to reuse:
 - `src/plan-store.js` — `PlanFrontMatter` already defines `worktreeBaseBranch`, and front matter parse/format paths
   already preserve it.
 - `src/shared/worktree.js` — `createExecutionWorktree()` already accepts `baseRef` and `baseBranch`;
-  `mergeExecutionWorktree()` already supports `targetBranch`.
+  `mergeExecutionWorktree()` already supports `targetBranch`; private `assertLocalBranchExists()` already shows the
+  local-branch validation behavior to extend for prepared target branches.
 - `src/shared/workflow/validation.js` — validation already reads `activeExecutionWorkflow.worktreeBaseBranch` and merges
   validated work into that target.
 - `src/cmd/load-plan/index.js` — recovery already resolves/persists `worktreeBaseBranch`, recreates worktrees from
   recorded base refs, and manual merge passes `targetBranch`.
+- `src/shared/workflow/workflow.test.js` and `src/shared/worktree.test.js` — existing workflow/worktree tests provide
+  the right unit and temporary-git-repo patterns.
 - `docs/adr/005-concurrent-worktree-isolation.md` — existing worktree lifecycle language is the right home for the
   behavior update.
 
 ## Implementation Steps
 
-- [ ] Step 1: Add a small normalization helper in `src/shared/workflow/workflow.js` for `triageMeta.worktreeBaseBranch`
-      / loaded plan attrs: trim strings, treat `"HEAD"`/empty as legacy fallback, and produce `{ baseRef, baseBranch }`
-      for new worktree creation.
-- [ ] Step 2: Update `startActiveExecutionWorkflow()` to create new worktrees with the normalized plan target branch
-      (`baseRef: refs/heads/<branch>`, `baseBranch: <branch>`) instead of always using `baseRef: "HEAD"`.
-- [ ] Step 3: Ensure reusable or active worktree handling does not silently change targets. If an existing worktree
-      target differs from a now-recorded plan target, surface a clear error or warning before execution rather than
-      creating a second worktree.
-- [ ] Step 4: Add or export a local-branch validation/ref helper in `src/shared/worktree.js` and use it for planned
-      target branches so branch names with slashes resolve through `refs/heads/<branch>` and tags/commits are rejected.
-- [ ] Step 5: Extend child FEATURE plan support: add optional `worktreeBaseBranch` to the child descriptor
-      typedef/schema and have Slicer/materialization inherit the parent Epic’s target branch into child front matter.
-- [ ] Step 6: Update Planner/Architect/Slicer prompts and plan-format markdown so planning agents know to write
+- [ ] Step 1: Add an exported target-branch helper in `src/shared/worktree.js`, e.g.
+      `prepareTargetBranchRef(projectRoot, branch)`, that trims input, rejects empty/`HEAD`/invalid branch names,
+      returns an existing local `refs/heads/<branch>` when present, creates a local tracking branch from
+      `origin/<branch>` when the remote branch exists, or creates a new local branch from `refs/heads/main` when neither
+      exists.
+- [ ] Step 2: Update `startActiveExecutionWorkflow()` in `src/shared/workflow/workflow.js` to derive worktree creation
+      args from `triageMeta.worktreeBaseBranch`: targeted plans use the prepared local branch ref and `baseBranch`;
+      untargeted plans keep `{ baseRef: "HEAD" }`.
+- [ ] Step 3: Keep reusable/active worktree behavior stable. If an existing reusable worktree has a target branch that
+      differs from the normalized plan target, return/throw a clear pre-Engineer error; otherwise continue using the
+      existing worktree and record its target.
+- [ ] Step 4: Add focused test seams if needed. Prefer pure helper tests plus one workflow-level test that stubs
+      worktree creation/registry/event recording without requiring the real project `CWD` to change.
+- [ ] Step 5: Extend child FEATURE plan support: add optional `worktreeBaseBranch` to `ChildFeaturePlanDescriptor`,
+      `SavedChildFeaturePlan.metadata`, and the Slicer tool schema; have Slicer/materialization inherit the parent
+      Epic's target branch into children unless a child explicitly supplies its own branch or `null`.
+- [ ] Step 6: Update `load-plan` summary/recovery text so a recorded target branch is visible before execution and while
+      inspecting/recreating/merging a failed or implemented worktree.
+- [ ] Step 7: Update Planner/Architect/Slicer prompts and plan-format markdown so planning agents know to write
       `worktreeBaseBranch` only when the user explicitly supplies a target branch.
-- [ ] Step 7: Update ADR/README docs to describe the user workflow: “ask for the plan to target branch X” or manually
+- [ ] Step 8: Update ADR/README docs to describe the user workflow: “ask for the plan to target branch X” or manually
       include `worktreeBaseBranch: "X"`; execution starts from X and merges back to X.
-- [ ] Step 8: Add/adjust tests for branch-targeted worktree creation, workflow execution metadata, child plan
-      inheritance, and invalid local-branch handling.
+- [ ] Step 9: Add/adjust tests for branch-targeted worktree creation from existing local branches, remote tracking
+      setup, new branch creation from `main`, invalid branch-name handling, workflow execution metadata, reusable target
+      mismatch, child plan inheritance, and load-plan target display/recovery.
 
 ## Verification Plan
 
@@ -130,28 +166,39 @@ Existing functions, modules, or patterns to reuse:
 - Targeted automated during development:
   - `deno test -A src/shared/worktree.test.js`
   - `deno test -A src/shared/workflow/workflow.test.js`
+  - `deno test -A src/cmd/load-plan/index.test.js`
   - `deno test -A src/plan-store.test.js`
 - Manual:
-  - Create or edit a draft plan with `worktreeBaseBranch: "feature-base"` while the primary checkout is on another
-    branch.
+  - Create or edit a draft/approved FEATURE plan with `worktreeBaseBranch: "feature-base"` while the primary checkout is
+    on another branch.
   - Approve/execute the plan.
   - Confirm the execution worktree starts from `feature-base` content, `execution_started` records
     `worktreeBaseBranch: "feature-base"`, and validation merge-back updates `feature-base` without requiring the primary
     checkout to be switched first.
+  - Repeat with a remote-only branch and a brand-new branch name to confirm tracking setup and creation from `main`.
 - Expected results:
   - Existing plans without `worktreeBaseBranch` behave as they do today.
-  - Plans with a valid local `worktreeBaseBranch` execute from and merge back to that branch.
-  - Plans with a missing/non-local target branch fail before Engineer implementation begins with a clear message.
+  - Plans with an existing local `worktreeBaseBranch` execute from and merge back to that branch.
+  - Plans targeting a remote-only branch create a local tracking branch first, then execute from and merge back to that
+    local branch.
+  - Plans targeting a brand-new branch create it from `main`'s current HEAD before execution.
+  - Child FEATURE plans produced from a targeted Epic inherit the same target branch unless explicitly overridden.
 
 ## Edge Cases & Considerations
 
-- Branch names with slashes are valid (`feature/foo`). Use `refs/heads/<branch>` or equivalent to avoid ambiguity with
-  tags/commits.
+- Branch names with slashes are valid (`feature/foo`). Always resolve through `refs/heads/<branch>` to avoid ambiguity
+  with tags or commits.
 - Do not let user-authored `worktreeBaseBranch` overwrite the target of an already-active worktree. Recovery should
   continue using recorded runtime metadata.
-- Remote-only branches are out of scope for this feature; require a local branch to avoid implicit fetch/checkout
-  behavior.
-- `worktreeBaseBranch` is an internal-sounding name, but it is already the durable field used by merge/recovery. Reusing
-  it avoids a migration or alias layer.
+- Remote branch discovery/tracking introduces git-network behavior. Keep it bounded to the named target branch. If the
+  remote lookup itself errors, fail clearly; if lookup succeeds and the branch is absent, create the new local branch
+  from `main`.
+- Creating a brand-new target branch depends on `main`; if `refs/heads/main` is missing, fail clearly instead of
+  guessing another default branch.
+- Reusing `worktreeBaseBranch` avoids a migration/alias layer, but it is an internal-sounding name. This is an explicit
+  field-name assumption for plan review.
 - PROJECT Epics are not executed directly; branch targeting matters for their child FEATURE plans, so inheritance
-  through Slicer is important.
+  through Slicer is required.
+- Lifecycle cleanup currently clears runtime worktree fields after verified merge when merged worktree cleanup is
+  enabled. That is acceptable for this plan because the target is needed for execution/recovery, not as long-term
+  historical metadata after verification.
