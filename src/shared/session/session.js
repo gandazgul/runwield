@@ -1963,8 +1963,33 @@ export function __getRootSessionMetadataForTests(session) {
 }
 
 /**
+ * Dispose and clear the active root AgentSession for an explicit fresh-session
+ * boundary. This is intentionally separate from ensureRootAgentSession() so
+ * agent switches, model switches, and reloads cannot accidentally kill root
+ * context. /new is the only production caller.
+ */
+export function disposeRootAgentSessionForNewSession() {
+    const existing = getRootAgentSession();
+    if (existing) {
+        const meta = rootSessionMetadata.get(existing);
+        try {
+            meta?.subscriberState.unsubscribe();
+        } catch (_e) { /* ignore */ }
+        try {
+            existing.dispose();
+        } catch (_e) { /* ignore */ }
+        rootSessionMetadata.delete(existing);
+    }
+    setRootAgentSession(null);
+    setRootAgentName(null);
+}
+
+/**
  * Eagerly build and install the root AgentSession for the given agent.
- * If a root already exists, it is disposed first.
+ * If a root already exists, it is detached from RunWield UI state only after
+ * the replacement is ready. Do not dispose the old root here: agent switches,
+ * model switches, and reloads must not kill root sessions. Explicit fresh
+ * sessions (for example /new) own any intentional disposal/reset behavior.
  *
  * @param {Object} opts
  * @param {string} opts.agentName  Internal name (matches agent definition filename).
@@ -1983,19 +2008,7 @@ export function __getRootSessionMetadataForTests(session) {
  */
 export async function ensureRootAgentSession(opts) {
     const existing = getRootAgentSession();
-    if (existing) {
-        const meta = rootSessionMetadata.get(existing);
-        try {
-            meta?.subscriberState.unsubscribe();
-        } catch (_e) { /* ignore */ }
-        try {
-            existing.dispose();
-        } catch (_e) { /* ignore */ }
-        rootSessionMetadata.delete(existing);
-        setRootAgentSession(null);
-        setRootAgentName(null);
-    }
-
+    const existingMeta = existing ? rootSessionMetadata.get(existing) : undefined;
     const rootProjectStateContext = opts.projectStateContext ?? getProjectStateContext();
     const {
         session,
@@ -2012,6 +2025,13 @@ export async function ensureRootAgentSession(opts) {
         allowReturnToRouter: opts.allowReturnToRouter ?? true,
     });
     const subscriberState = attachUiSubscribers(session, agentDef, opts.uiAPI);
+
+    if (existing) {
+        try {
+            existingMeta?.subscriberState.unsubscribe();
+        } catch (_e) { /* ignore */ }
+        rootSessionMetadata.delete(existing);
+    }
 
     const finalModelForUi = resolvedModel ? `${resolvedModel.provider}/${resolvedModel.id}` : undefined;
     resetAgentInfoStack(agentDef.displayName, finalModelForUi);
