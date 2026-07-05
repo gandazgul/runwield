@@ -13,7 +13,7 @@ import {
     getRootAgentSession,
     setActiveExecutionWorkflow,
 } from "../session/session-state.js";
-import { createExecutionWorktree, findReusableWorktree } from "../worktree.js";
+import { createExecutionWorktree, findReusableWorktree, prepareTargetBranchRef } from "../worktree.js";
 import { updateEntry as updateWorktreeRegistryEntry } from "../worktree-registry.js";
 import { captureWorktreeTree } from "./git-snapshot.js";
 import { isEpicPlan, isExecutablePlanStatus, recordPlanEvent } from "./plan-lifecycle.js";
@@ -259,12 +259,39 @@ function buildEngineerPausedMessage(reason) {
 }
 
 /**
+ * @param {unknown} value
+ * @returns {string | undefined}
+ */
+export function normalizeExecutionTargetBranch(value) {
+    if (typeof value !== "string") return undefined;
+    const target = value.trim();
+    return target && target !== "HEAD" ? target : undefined;
+}
+
+/**
+ * @param {string | undefined} reusableBaseBranch
+ * @param {string | undefined} targetBranch
+ */
+export function assertReusableWorktreeTargetMatches(reusableBaseBranch, targetBranch) {
+    const reusableTarget = normalizeExecutionTargetBranch(reusableBaseBranch);
+    const planTarget = normalizeExecutionTargetBranch(targetBranch);
+    if (reusableTarget !== planTarget) {
+        throw new Error(
+            `Existing execution worktree targets ${reusableTarget || "HEAD/current checkout"}, but plan targets ${
+                planTarget || "HEAD/current checkout"
+            }. Aborting before Engineer starts.`,
+        );
+    }
+}
+
+/**
  * @param {string} planName
  * @param {Partial<import('../../plan-store.js').PlanFrontMatter>} triageMeta
  * @param {import('./plan-lifecycle.js').PlanStatus} currentStatus
  * @returns {Promise<{ projectRoot: string, executionCwd: string, baselineTree: string, worktreeId: string, worktreeBranch: string, worktreeBaseBranch?: string }>}
  */
-async function startActiveExecutionWorkflow(planName, triageMeta, currentStatus) {
+export async function startActiveExecutionWorkflow(planName, triageMeta, currentStatus) {
+    const targetBranch = normalizeExecutionTargetBranch(triageMeta.worktreeBaseBranch);
     const existing = getActiveExecutionWorkflow();
     const reusable =
         existing?.planName === planName && existing.executionCwd && existing.worktreeId && existing.worktreeBranch
@@ -272,11 +299,20 @@ async function startActiveExecutionWorkflow(planName, triageMeta, currentStatus)
                 id: existing.worktreeId,
                 path: existing.executionCwd,
                 branch: existing.worktreeBranch,
-                baseBranch: existing.worktreeBaseBranch ||
-                    (typeof triageMeta.worktreeBaseBranch === "string" ? triageMeta.worktreeBaseBranch : undefined),
+                baseBranch: existing.worktreeBaseBranch,
             }
             : await findReusableWorktree({ projectRoot: CWD, planName });
-    const worktree = reusable || await createExecutionWorktree({ projectRoot: CWD, planName, baseRef: "HEAD" });
+    if (reusable) assertReusableWorktreeTargetMatches(reusable.baseBranch, targetBranch);
+    const worktree = reusable || await createExecutionWorktree(
+        targetBranch
+            ? {
+                projectRoot: CWD,
+                planName,
+                baseRef: await prepareTargetBranchRef(CWD, targetBranch),
+                baseBranch: targetBranch,
+            }
+            : { projectRoot: CWD, planName, baseRef: "HEAD" },
+    );
     const worktreeBaseBranch = worktree.baseBranch === "HEAD" ? undefined : worktree.baseBranch;
     const baselineTree =
         existing?.planName === planName && existing.executionCwd === worktree.path && existing.baselineTree
