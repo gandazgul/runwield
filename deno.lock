@@ -55,7 +55,7 @@
     "npm:@sinclair/typebox@~0.34.49": "0.34.49",
     "npm:@types/babel__core@^7.20.5": "7.20.5",
     "npm:@zag-js/dialog@^1.31.1": "1.42.0",
-    "npm:@zag-js/preact@^1.31.1": "1.42.0_preact@10.29.3",
+    "npm:@zag-js/preact@^1.31.1": "1.42.0_preact@10.29.4",
     "npm:chalk@^5.6.2": "5.6.2",
     "npm:codemirror@^6.0.2": "6.0.2",
     "npm:esbuild-wasm@~0.25.11": "0.25.12",
@@ -66,7 +66,7 @@
     "npm:preact-render-to-string@^6.6.3": "6.7.0_preact@10.29.4",
     "npm:preact@^10.28.2": "10.29.4",
     "npm:preact@^10.29.1": "10.29.4",
-    "npm:preact@^10.29.3": "10.29.4",
+    "npm:preact@^10.29.4": "10.29.4",
     "npm:proper-lockfile@^4.1.2": "4.1.2",
     "npm:quikdown@^1.2.21": "1.2.21",
     "npm:rollup@^4.55.1": "4.62.2",
@@ -2289,7 +2289,7 @@
         "@zag-js/utils"
       ]
     },
-    "@zag-js/preact@1.42.0_preact@10.29.3": {
+    "@zag-js/preact@1.42.0_preact@10.29.4": {
       "integrity": "sha512-WXtzk4JXZDYQBsjVdzoS6GL3Ctu0nLqmELFq4HFY61zXBNtxX2SWkES4ytnTr0e0mlc6XKkiNq/oh6VF0ytjeQ==",
       "dependencies": [
         "@zag-js/core",
@@ -4115,7 +4115,7 @@
       "npm:codemirror@^6.0.2",
       "npm:esbuild@~0.28.1",
       "npm:fuse.js@7",
-      "npm:preact@^10.29.3",
+      "npm:preact@^10.29.4",
       "npm:proper-lockfile@^4.1.2",
       "npm:quikdown@^1.2.21",
       "npm:strip-ansi@^7.2.0",

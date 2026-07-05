@@ -29,7 +29,7 @@
         "proper-lockfile": "npm:proper-lockfile@^4.1.2",
         "fresh": "jsr:@fresh/core@^2.3.3",
         "@fresh/plugin-vite": "jsr:@fresh/plugin-vite@^1.1.2",
-        "preact": "npm:preact@^10.29.3",
+        "preact": "npm:preact@^10.29.4",
         "@preact/signals": "npm:@preact/signals@^2.9.2",
         "@zag-js/dialog": "npm:@zag-js/dialog@^1.31.1",
         "@zag-js/preact": "npm:@zag-js/preact@^1.31.1",
