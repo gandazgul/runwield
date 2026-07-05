@@ -12,7 +12,7 @@
         "chalk": "npm:chalk@^5.6.2",
         "@earendil-works/pi-tui": "npm:@earendil-works/pi-tui@^0.80.2",
         "@earendil-works/pi-ai": "npm:@earendil-works/pi-ai@^0.80.2",
-        "@earendil-works/pi-coding-agent": "npm:@earendil-works/pi-coding-agent@^0.80.2",
+        "@earendil-works/pi-coding-agent": "npm:@earendil-works/pi-coding-agent@^0.80.3",
         "@earendil-works/pi-agent-core": "npm:@earendil-works/pi-agent-core@^0.80.2",
         "@sinclair/typebox": "npm:@sinclair/typebox@^0.34.49",
         "@std/front-matter": "jsr:@std/front-matter@^1.0.9",
