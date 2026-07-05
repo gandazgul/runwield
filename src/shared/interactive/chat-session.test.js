@@ -348,6 +348,8 @@ Deno.test("setActiveModel rebuilds root session tool set when switching between 
     const originalOpenAiKey = Deno.env.get("OPENAI_API_KEY");
     const originalCwd = Deno.cwd();
     const tempProject = await Deno.makeTempDir({ prefix: "runwield-model-switch-project-" });
+    /** @type {Set<any>} */
+    const rootsBuiltDuringTest = new Set();
     try {
         await withTempHome("runwield-model-switch-home-", async (tempHome) => {
             Deno.chdir(tempProject);
@@ -393,6 +395,14 @@ Deno.test("setActiveModel rebuilds root session tool set when switching between 
                 },
             });
             let session = getRootAgentSession();
+            rootsBuiltDuringTest.add(session);
+            const firstRoot = /** @type {any} */ (session);
+            let firstRootDisposeCalls = 0;
+            const firstRootDispose = firstRoot.dispose.bind(firstRoot);
+            firstRoot.dispose = () => {
+                firstRootDisposeCalls += 1;
+                firstRootDispose();
+            };
             assertEquals(
                 __getRootSessionMetadataForTests(/** @type {any} */ (session)).tools.includes("see_image"),
                 true,
@@ -404,6 +414,8 @@ Deno.test("setActiveModel rebuilds root session tool set when switching between 
 
             await setActiveModel("vision", "test");
             session = getRootAgentSession();
+            rootsBuiltDuringTest.add(session);
+            assertEquals(firstRootDisposeCalls, 0);
             assertEquals(
                 __getRootSessionMetadataForTests(/** @type {any} */ (session)).tools.includes("see_image"),
                 false,
@@ -415,6 +427,8 @@ Deno.test("setActiveModel rebuilds root session tool set when switching between 
 
             await setActiveModel("text", "test");
             session = getRootAgentSession();
+            rootsBuiltDuringTest.add(session);
+            assertEquals(firstRootDisposeCalls, 0);
             assertEquals(
                 __getRootSessionMetadataForTests(/** @type {any} */ (session)).tools.includes("see_image"),
                 true,
@@ -425,7 +439,12 @@ Deno.test("setActiveModel rebuilds root session tool set when switching between 
             );
         });
     } finally {
-        getRootAgentSession()?.dispose();
+        rootsBuiltDuringTest.add(getRootAgentSession());
+        for (const root of rootsBuiltDuringTest) {
+            try {
+                root?.dispose?.();
+            } catch (_e) { /* ignore */ }
+        }
         setRootAgentSession(null);
         setRootAgentName(null);
         setActiveUiAPI(null);
