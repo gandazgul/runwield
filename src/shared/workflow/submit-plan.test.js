@@ -1,7 +1,8 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertRejects } from "@std/assert";
 import { join } from "@std/path";
 import { cancelActivePlanReview, submitPlanForReview } from "./submit-plan.js";
-import { parsePlanFrontMatter } from "../../plan-store.js";
+import { injectFrontMatter, parsePlanFrontMatter } from "../../plan-store.js";
+import { COLLABORATION_STATE_REMOTE_CANONICAL, SharedPlanLockError } from "../collaboration/lock.js";
 
 /**
  * @returns {any}
@@ -171,4 +172,46 @@ Deno.test("submitPlanForReview can be cancelled through cancelActivePlanReview",
     } finally {
         await Deno.remove(dir, { recursive: true });
     }
+});
+
+Deno.test({
+    name: "submitPlanForReview blocks locked shared Plans before server start and file write",
+    permissions: { read: true, write: true },
+    fn: async () => {
+        const cwd = await Deno.makeTempDir();
+        try {
+            const planPath = join(cwd, "locked.md");
+            const before = injectFrontMatter("# Locked", {
+                status: "draft",
+                collaborationState: COLLABORATION_STATE_REMOTE_CANONICAL,
+                collaborationServerUrl: "https://plans.example.test",
+                collaborationSpaceId: "space-1",
+            });
+            await Deno.writeTextFile(planPath, before);
+            let serverStarted = false;
+
+            await assertRejects(
+                () =>
+                    submitPlanForReview({
+                        cwd,
+                        planName: "locked",
+                        planPath,
+                        uiAPI: makeUi(),
+                        __deps: {
+                            startPlanReviewServer: /** @type {any} */ (() => {
+                                serverStarted = true;
+                            }),
+                            openInDefaultBrowser: () => Promise.resolve(true),
+                            recordPlanEvent: /** @type {any} */ (() => Promise.resolve()),
+                            htmlContent: "<html></html>",
+                        },
+                    }),
+                SharedPlanLockError,
+            );
+            assertEquals(serverStarted, false);
+            assertEquals(await Deno.readTextFile(planPath), before);
+        } finally {
+            await Deno.remove(cwd, { recursive: true });
+        }
+    },
 });

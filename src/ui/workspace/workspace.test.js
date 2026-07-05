@@ -24,6 +24,7 @@ import {
 } from "./islands/PlanLifecycleActions.jsx";
 import { renderRunWieldThemeCss } from "../design-system/theme-bridge.js";
 import { createWorkspaceApp, hasWorkspaceToken } from "./server.js";
+import { COLLABORATION_STATE_REMOTE_CANONICAL } from "../../shared/collaboration/lock.js";
 
 /**
  * @param {string} cwd
@@ -1031,6 +1032,51 @@ Deno.test("Workspace Resume Check blocks resume when recorded branch cannot be d
             resumeCheck.failures.includes("Recorded worktree branch could not be determined for verification."),
             true,
         );
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+Deno.test("Workspace APIs return lock-aware 409 responses without mutating locked Plans", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "locked", "# Locked\n", {
+            planId: "locked-api-id",
+            status: "draft",
+            classification: "FEATURE",
+            collaborationState: COLLABORATION_STATE_REMOTE_CANONICAL,
+            collaborationServerUrl: "https://plans.example.test",
+            collaborationSpaceId: "space-1",
+        });
+        const loaded = await loadPlanBodyById(cwd, "locked-api-id");
+        const before = await Deno.readTextFile(`${cwd}/plans/locked.md`);
+        const app = createWorkspaceApp({ cwd, token: "secret" }).handler();
+
+        const bodyEdit = await app(
+            new Request("http://localhost/api/plans/locked-api-id/body", {
+                method: "POST",
+                headers: { [PLAN_UI_TOKEN_HEADER]: "secret", "content-type": "application/json" },
+                body: JSON.stringify({ body: "# Changed\n", expectedBodyHash: loaded.bodyHash }),
+            }),
+        );
+        assertEquals(bodyEdit.status, 409);
+        const bodyPayload = await bodyEdit.json();
+        assertStringIncludes(bodyPayload.error, "remote-canonical");
+        assertStringIncludes(bodyPayload.repair, "wld plans pull");
+        assertEquals(await Deno.readTextFile(`${cwd}/plans/locked.md`), before);
+
+        const lifecycle = await app(
+            new Request("http://localhost/api/plans/locked-api-id/lifecycle-action", {
+                method: "POST",
+                headers: { [PLAN_UI_TOKEN_HEADER]: "secret", "content-type": "application/json" },
+                body: JSON.stringify({ action: "move_status", targetStatus: "approved" }),
+            }),
+        );
+        assertEquals(lifecycle.status, 409);
+        const lifecyclePayload = await lifecycle.json();
+        assertStringIncludes(lifecyclePayload.blockedReason, "remote-canonical");
+        assertStringIncludes(lifecyclePayload.repair, "wld plans pull");
+        assertEquals(await Deno.readTextFile(`${cwd}/plans/locked.md`), before);
     } finally {
         await Deno.remove(cwd, { recursive: true });
     }

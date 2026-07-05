@@ -7,6 +7,7 @@
  */
 
 import { injectFrontMatter, parsePlanFrontMatter } from "../../plan-store.js";
+import { assertSharedPlanWriteAllowed } from "../collaboration/lock.js";
 import { recordPlanEvent } from "./plan-lifecycle.js";
 import { startPlanReviewServer } from "@gandazgul/plannotator-pi-extension-compiled/server";
 import { plannotatorHtml } from "@gandazgul/plannotator-pi-extension-compiled/assets";
@@ -115,6 +116,7 @@ export async function submitPlanForReview({
 
     // 2. Ensure front matter is present and up to date
     const { attrs, body } = parsePlanFrontMatter(planContent);
+    assertSharedPlanWriteAllowed(attrs);
     /** @type {Partial<import('../../plan-store.js').PlanFrontMatter>} */
     const fmOverrides = {
         ...attrs,

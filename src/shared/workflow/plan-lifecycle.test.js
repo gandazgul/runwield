@@ -1,4 +1,4 @@
-import { assertEquals, assertRejects, assertThrows } from "@std/assert";
+import { assertEquals, assertRejects, assertStringIncludes, assertThrows } from "@std/assert";
 import {
     buildPlanEventUpdates,
     getAllowedManualPlanStatuses,
@@ -8,6 +8,8 @@ import {
     isManualBoardStatusChangeAllowed,
     recordPlanEvent,
 } from "./plan-lifecycle.js";
+import { loadPlan, savePlan } from "../../plan-store.js";
+import { COLLABORATION_STATE_REMOTE_CANONICAL, SharedPlanLockError } from "../collaboration/lock.js";
 
 Deno.test("buildPlanEventUpdates promotes approved plans to ready_for_work", () => {
     const updates = buildPlanEventUpdates("readiness_passed", "approved", {
@@ -538,4 +540,40 @@ Deno.test("getPlanLifecycleActionMetadata keeps protected states behind dedicate
     });
     assertEquals(held.canResumeFromHold, true);
     assertEquals(held.canResetToDraft, true);
+});
+
+Deno.test({
+    name: "recordPlanEvent blocks shared Plan lifecycle writes without mutating siblings",
+    permissions: { read: true, write: true },
+    fn: async () => {
+        const cwd = await Deno.makeTempDir();
+        try {
+            const lockedPath = await savePlan(cwd, "locked", "# Locked", {
+                status: "approved",
+                collaborationState: COLLABORATION_STATE_REMOTE_CANONICAL,
+                collaborationServerUrl: "https://plans.example.test",
+                collaborationSpaceId: "space-1",
+            });
+            const siblingPath = await savePlan(cwd, "sibling", "# Sibling", { status: "approved" });
+            const lockedBefore = await Deno.readTextFile(lockedPath);
+            const siblingBefore = await Deno.readTextFile(siblingPath);
+
+            const error = await assertRejects(
+                () =>
+                    recordPlanEvent({
+                        cwd,
+                        planName: "locked",
+                        event: "readiness_passed",
+                        currentStatus: "approved",
+                    }),
+                SharedPlanLockError,
+            );
+            assertStringIncludes(error.repair, "wld plans pull");
+            assertEquals(await Deno.readTextFile(lockedPath), lockedBefore);
+            assertEquals(await Deno.readTextFile(siblingPath), siblingBefore);
+            assertEquals((await loadPlan(cwd, "sibling"))?.attrs.status, "approved");
+        } finally {
+            await Deno.remove(cwd, { recursive: true });
+        }
+    },
 });
