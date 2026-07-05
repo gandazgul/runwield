@@ -6,7 +6,6 @@ affectedPaths:
     - "src/shared/worktree.js"
 frontend: false
 createdAt: "2026-07-04T21:15:55-04:00"
-updatedAt: "2026-07-05T02:00:25.416Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-07-05T01:48:57.813Z"
@@ -15,6 +14,10 @@ humanReviewMode: "ask"
 humanReviewDecision: "skipped"
 routingIntent: "FEATURE"
 sessionName: "useful worktree commit messages"
+updatedAt: "2026-07-05T04:13:26.531Z"
+archivedAt: "2026-07-05T04:13:26.531Z"
+archivedFromStatus: "verified"
+archivedFromPath: "plans/useful-worktree-commit-messages.md"
 ---
 
 # Useful Worktree Commit Messages

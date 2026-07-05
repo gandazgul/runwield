@@ -13,7 +13,6 @@ affectedPaths:
     - "src/agent-definitions/router.md"
 frontend: false
 createdAt: "2026-07-04T13:04:10-04:00"
-updatedAt: "2026-07-04T17:54:23.389Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-07-04T17:48:58.177Z"
@@ -23,6 +22,10 @@ humanReviewDecision: "approved"
 humanReviewedAt: "2026-07-04T17:54:20.676Z"
 routingIntent: "FEATURE"
 sessionName: "implement code_batch tool"
+updatedAt: "2026-07-05T04:13:26.531Z"
+archivedAt: "2026-07-05T04:13:26.531Z"
+archivedFromStatus: "verified"
+archivedFromPath: "plans/code-batch-cymbal-tool.md"
 ---
 
 # Add Code-Batch Cymbal Tool

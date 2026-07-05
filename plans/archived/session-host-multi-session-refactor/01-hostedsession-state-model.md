@@ -12,7 +12,6 @@ affectedPaths:
     - "docs/prd/runwield-acp-session-host-PRD.md"
 frontend: false
 createdAt: "2026-07-03T18:03:46.140Z"
-updatedAt: "2026-07-04T17:59:22.590Z"
 status: "verified"
 origin: "internal"
 parentPlan: "session-host-multi-session-refactor"
@@ -22,6 +21,10 @@ dependencies:
 verifiedAt: "2026-07-04T17:59:22.590Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
+updatedAt: "2026-07-05T04:13:26.531Z"
+archivedAt: "2026-07-05T04:13:26.531Z"
+archivedFromStatus: "verified"
+archivedFromPath: "plans/session-host-multi-session-refactor/01-hostedsession-state-model.md"
 ---
 
 # HostedSession State Model
