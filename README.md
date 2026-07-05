@@ -236,11 +236,18 @@ Plans are markdown files with YAML front matter in `plans/`. RunWield records:
 - origin: `internal` or `external`
 - Epic metadata: `type: epic` on PROJECT Epic containers, plus `parentPlan` and optional `dependencies` on child FEATURE
   plans
+- optional target branch metadata: `worktreeBaseBranch: "branch-name"` when a plan should execute against a branch other
+  than the current checkout
 
 PROJECT plans are Epics by default: the parent PROJECT plan is a container for design and decomposition state, not an
 implementation unit. The interactive Slicer helps choose vertical child FEATURE boundaries, writes draft children under
 `plans/<epic-name>/`, and finalizes the Epic only after explicit confirmation. Each child FEATURE then follows the
 normal FEATURE lifecycle with its own review, execution, validation, and merge history.
+
+To run hands-off execution against a specific branch, ask for the plan to target that branch or manually add
+`worktreeBaseBranch: "branch-name"` to the plan front matter before execution. RunWield starts the execution worktree
+from that branch and merges validated work back into it. PROJECT Epics can carry the same field; child FEATURE plans
+inherit it unless the Slicer explicitly writes a different target.
 
 Use `wld plans` to list active saved plans. Epic children are grouped under their parent, and orphaned child plans are
 shown separately. Physical archives are not a Plan status: archived Plans stay as plaintext markdown under

@@ -157,6 +157,7 @@ function getStoredPlanLocation(cwd, planName) {
  * @property {string|null} [devServerCommand] - Project dev/preview command for browser verification, if known.
  * @property {string|null} [devServerUrl] - Local URL expected for browser verification, if known.
  * @property {boolean|null} [devServerHmr] - Whether the dev server is expected to support hot module reload.
+ * @property {string|null} [worktreeBaseBranch] - Optional target execution branch inherited from or overriding the parent Epic.
  * @property {string[]} dependencies - Sibling child plan names or identifiers required first.
  * @property {string} content - Planner-format markdown body for the child FEATURE.
  * @property {number} [order] - Optional stable execution order used in front matter and the file name.
@@ -170,7 +171,7 @@ function getStoredPlanLocation(cwd, planName) {
  * @property {string} title - Human-readable child plan title.
  * @property {"created" | "updated"} action - Whether the derived file existed before this write.
  * @property {string[]} dependencies - Serialized child FEATURE dependencies.
- * @property {Partial<PlanFrontMatter> & { classification: "FEATURE", status: "draft", parentPlan: string, order?: number, affectedPaths: string[] }} metadata - Front matter values owned by child materialization.
+ * @property {Partial<PlanFrontMatter> & { classification: "FEATURE", status: "draft", parentPlan: string, order?: number, affectedPaths: string[], worktreeBaseBranch?: string|null }} metadata - Front matter values owned by child materialization.
  */
 
 /**
@@ -1019,7 +1020,7 @@ export async function saveChildFeaturePlans(cwd, epicPlanName, children, options
 
         const dependencies = normalizeStringList(child.dependencies) || [];
         const affectedPaths = normalizeStringList(child.affectedPaths) || [];
-        /** @type {Partial<PlanFrontMatter> & { classification: "FEATURE", status: "draft", parentPlan: string, order?: number, affectedPaths: string[] }} */
+        /** @type {Partial<PlanFrontMatter> & { classification: "FEATURE", status: "draft", parentPlan: string, order?: number, affectedPaths: string[], worktreeBaseBranch?: string|null }} */
         const metadata = {
             classification: /** @type {const} */ ("FEATURE"),
             status: /** @type {const} */ ("draft"),
@@ -1039,10 +1040,16 @@ export async function saveChildFeaturePlans(cwd, epicPlanName, children, options
             ? null
             : undefined;
         const devServerHmr = child.devServerHmr === null ? null : normalizeOptionalBoolean(child.devServerHmr);
+        const worktreeBaseBranch = typeof child.worktreeBaseBranch === "string"
+            ? child.worktreeBaseBranch.trim()
+            : child.worktreeBaseBranch === null
+            ? null
+            : undefined;
         if (frontend !== undefined) metadata.frontend = frontend;
         if (devServerCommand !== undefined) metadata.devServerCommand = devServerCommand;
         if (devServerUrl !== undefined) metadata.devServerUrl = devServerUrl;
         if (devServerHmr !== undefined) metadata.devServerHmr = devServerHmr;
+        if (worktreeBaseBranch !== undefined) metadata.worktreeBaseBranch = worktreeBaseBranch || null;
         const path = await savePlan(cwd, name, child.content, {
             ...metadata,
             summary: child.summary,
