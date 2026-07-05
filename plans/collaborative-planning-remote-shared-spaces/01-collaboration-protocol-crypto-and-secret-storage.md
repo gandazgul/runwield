@@ -20,10 +20,9 @@ dependencies:
 verifiedAt: "2026-07-04T22:19:50.407Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
-updatedAt: "2026-07-05T04:13:26.531Z"
-archivedAt: "2026-07-05T04:13:26.531Z"
-archivedFromStatus: "verified"
-archivedFromPath: "plans/collaborative-planning-remote-shared-spaces/01-collaboration-protocol-crypto-and-secret-storage.md"
+updatedAt: "2026-07-05T14:29:27.776Z"
+restoredAt: "2026-07-05T14:29:27.776Z"
+restoredFromPath: "plans/archived/collaborative-planning-remote-shared-spaces/01-collaboration-protocol-crypto-and-secret-storage.md"
 ---
 
 # Collaboration Protocol, Crypto, and Secret Storage

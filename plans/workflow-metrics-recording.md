@@ -1,28 +1,15 @@
 ---
+planId: "bd94f056-1974-4066-8b36-8f1bb380fa3a"
 classification: "FEATURE"
 complexity: "MEDIUM"
-summary: "Record privacy-preserving local workflow decision metrics and tool-usage counters across routing, planning, execution, validation, recovery, and model selection."
+summary: "The user wants to implement local-only workflow metrics recording for routing, planning, execution, validation, recovery, and model-selection decisions. This will likely involve adding a metrics collection service and integrating it into the session and agent execution loops."
 affectedPaths:
-    - "src/shared/workflow/metrics.js"
-    - "src/tools/triage-report.js"
-    - "src/tools/plan-written.js"
-    - "src/tools/task-completed.js"
-    - "src/tools/return-to-router.js"
-    - "src/shared/workflow/orchestrator.js"
-    - "src/shared/workflow/decisions.js"
-    - "src/shared/workflow/workflow.js"
-    - "src/shared/workflow/validation.js"
-    - "src/cmd/load-plan/index.js"
-    - "src/shared/session/session.js"
-    - "src/shared/session/root-session.js"
-    - "docs/settings.md"
-    - "config.schema.json"
+    []
 frontend: false
-devServerCommand: null
-devServerUrl: null
-devServerHmr: null
 createdAt: "2026-07-05T00:25:41-04:00"
+updatedAt: "2026-07-05T04:45:53.068Z"
 status: "draft"
+origin: "internal"
 ---
 
 # Workflow Metrics Recording
@@ -266,7 +253,7 @@ Privacy and robustness rules:
 - Manual:
   - Set `workflowMetrics: true` in `.wld/settings.json` or `~/.wld/settings.json`, run a small interactive request that
     routes to INQUIRY or OPERATION, and confirm `~/.wld/workflow-metrics/<encoded-cwd>/metrics.jsonl` is created with
-    routing/model-selection events only.
+    routing, model-selection, and tool-usage events only.
   - Run or simulate a FEATURE plan through approval/execution/validation with metrics enabled and confirm records cover
     planning, execution, validation, model-selection, and tool-usage categories.
   - Remove or set `workflowMetrics: false`, run a request, and confirm no new metrics are appended.

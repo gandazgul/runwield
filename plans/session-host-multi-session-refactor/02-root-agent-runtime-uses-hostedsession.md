@@ -25,10 +25,9 @@ verifiedAt: "2026-07-04T22:19:29.403Z"
 humanReviewMode: "ask"
 humanReviewDecision: "approved"
 humanReviewedAt: "2026-07-04T22:19:26.599Z"
-updatedAt: "2026-07-05T04:13:26.531Z"
-archivedAt: "2026-07-05T04:13:26.531Z"
-archivedFromStatus: "verified"
-archivedFromPath: "plans/session-host-multi-session-refactor/02-root-agent-runtime-uses-hostedsession.md"
+updatedAt: "2026-07-05T14:29:30.333Z"
+restoredAt: "2026-07-05T14:29:30.333Z"
+restoredFromPath: "plans/archived/session-host-multi-session-refactor/02-root-agent-runtime-uses-hostedsession.md"
 ---
 
 # Root Agent Runtime Uses HostedSession
