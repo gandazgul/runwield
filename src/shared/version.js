@@ -5,4 +5,4 @@
  * this file with the current build version before `deno compile`.
  */
 
-export const VERSION = "b5a843261";
+export const VERSION = "0227cb851";
