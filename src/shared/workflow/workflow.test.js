@@ -1,5 +1,6 @@
 import { assertEquals, assertMatch, assertStringIncludes, assertThrows } from "@std/assert";
 import {
+    assertReusableWorktreeTargetMatches,
     buildSlicerRequest,
     createSlicerFinalizeTool,
     ensureSlicerTasks,
@@ -8,6 +9,7 @@ import {
     extractAssistantOutput,
     extractTasks,
     materializeSlicerDraft,
+    normalizeExecutionTargetBranch,
     parseTaskWriteScope,
     readLatestPlanOutcome,
     runSlicerAgent,
@@ -1168,6 +1170,7 @@ Deno.test("materializeSlicerDraft delegates child FEATURE draft writes", async (
         epicPlanName: "epic-a",
         children,
         __deps: {
+            loadPlan: () => Promise.resolve(null),
             saveChildFeaturePlans: (cwd, epicPlanName, descriptors) => {
                 calls.push({ cwd, epicPlanName, descriptors });
                 return Promise.resolve([{
@@ -1189,6 +1192,85 @@ Deno.test("materializeSlicerDraft delegates child FEATURE draft writes", async (
 
     assertEquals(calls, [{ cwd: "/repo", epicPlanName: "epic-a", descriptors: children }]);
     assertEquals(result[0].name, "epic-a/01-draft-child");
+});
+
+Deno.test("materializeSlicerDraft inherits parent Epic target branch into child descriptors", async () => {
+    /** @type {unknown[]} */
+    let written = [];
+    const children = [
+        {
+            order: 1,
+            title: "Inherited child",
+            summary: "Inherits target",
+            affectedPaths: ["src/a.js"],
+            dependencies: [],
+            content: "# Inherited child",
+        },
+        {
+            order: 2,
+            title: "Override child",
+            summary: "Overrides target",
+            affectedPaths: ["src/b.js"],
+            dependencies: [],
+            worktreeBaseBranch: "override-target",
+            content: "# Override child",
+        },
+        {
+            order: 3,
+            title: "Cleared child",
+            summary: "Clears target",
+            affectedPaths: ["src/c.js"],
+            dependencies: [],
+            worktreeBaseBranch: null,
+            content: "# Cleared child",
+        },
+    ];
+
+    await materializeSlicerDraft({
+        cwd: "/repo",
+        epicPlanName: "epic-a",
+        children: /** @type {any} */ (children),
+        __deps: {
+            loadPlan: () => Promise.resolve(/** @type {any} */ ({ attrs: { worktreeBaseBranch: "feature-base" } })),
+            saveChildFeaturePlans: (_cwd, _epicPlanName, descriptors) => {
+                written = descriptors;
+                return Promise.resolve([]);
+            },
+        },
+    });
+
+    assertEquals(/** @type {any[]} */ (written).map((child) => child.worktreeBaseBranch), [
+        "feature-base",
+        "override-target",
+        null,
+    ]);
+});
+
+Deno.test("normalizeExecutionTargetBranch trims empty and HEAD fallbacks", () => {
+    assertEquals(normalizeExecutionTargetBranch(" feature/foo "), "feature/foo");
+    assertEquals(normalizeExecutionTargetBranch("HEAD"), undefined);
+    assertEquals(normalizeExecutionTargetBranch("   "), undefined);
+    assertEquals(normalizeExecutionTargetBranch(null), undefined);
+});
+
+Deno.test("assertReusableWorktreeTargetMatches fails before Engineer when targets differ", () => {
+    assertReusableWorktreeTargetMatches("feature-base", "feature-base");
+    assertReusableWorktreeTargetMatches(undefined, undefined);
+    assertThrows(
+        () => assertReusableWorktreeTargetMatches("feature-base", undefined),
+        Error,
+        "Existing execution worktree targets feature-base, but plan targets HEAD/current checkout",
+    );
+    assertThrows(
+        () => assertReusableWorktreeTargetMatches(undefined, "new-base"),
+        Error,
+        "Existing execution worktree targets HEAD/current checkout, but plan targets new-base",
+    );
+    assertThrows(
+        () => assertReusableWorktreeTargetMatches("old-base", "new-base"),
+        Error,
+        "Existing execution worktree targets old-base, but plan targets new-base",
+    );
 });
 
 // ── ensureSlicerTasks ──────────────────────────────────────────────

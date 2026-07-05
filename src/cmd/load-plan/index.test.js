@@ -1413,6 +1413,7 @@ Deno.test("runLoadPlanCommand approved plan view then cancel", async () => {
                         summary: "s",
                         affectedPaths: [],
                         status: "approved",
+                        worktreeBaseBranch: "feature-base",
                     },
                 }),
             resetTuiState: () => {},
@@ -1422,6 +1423,7 @@ Deno.test("runLoadPlanCommand approved plan view then cancel", async () => {
 
     assertEquals(messages.some((m) => m.includes("The quick brown fox")), true);
     assertEquals(messages.some((m) => m.includes("Jump over")), true);
+    assertEquals(messages.some((m) => m.includes("Target branch: feature-base")), true);
     assertEquals(messages.some((m) => m.includes("Load canceled")), false);
 });
 
