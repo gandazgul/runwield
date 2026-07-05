@@ -1259,6 +1259,7 @@ export async function buildAgentSession({
                 return executeReturnToRouter(
                     /** @type {{ reason: string }} */ (params),
                     uiAPI,
+                    targetHostedSession,
                 );
             },
         });

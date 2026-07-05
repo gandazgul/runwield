@@ -10,7 +10,6 @@ import { Image, Spacer } from "@earendil-works/pi-tui";
 import { ModelSelectorComponent } from "@earendil-works/pi-coding-agent";
 import { getModelRegistry } from "../models/model-registry.js";
 import { getSettingsManager } from "../settings.js";
-import { getActiveModelState } from "../session/session-state.js";
 import { imageTheme } from "../ui/theme.js";
 
 /**
@@ -21,21 +20,32 @@ import { imageTheme } from "../ui/theme.js";
  *   container: import('@earendil-works/pi-tui').Container,
  *   messageList: import('@earendil-works/pi-tui').Container,
  *   setActiveModel: (model: string, provider?: string) => Promise<void> | void,
+ *   getActiveModelState?: () => { model: string, provider?: string },
  *   __deps?: {
  *     Image?: typeof Image,
  *     ModelSelectorComponent?: typeof ModelSelectorComponent,
  *     getModelRegistry?: typeof getModelRegistry,
  *     getSettingsManager?: typeof getSettingsManager,
- *     getActiveModelState?: typeof getActiveModelState,
+ *     getActiveModelState?: () => { model: string, provider?: string },
  *   },
  * }} deps
  */
-export function installUiApiOverrides({ uiAPI, tui, editor, container, messageList, setActiveModel, __deps }) {
+export function installUiApiOverrides({
+    uiAPI,
+    tui,
+    editor,
+    container,
+    messageList,
+    setActiveModel,
+    getActiveModelState,
+    __deps,
+}) {
     const ImageImpl = __deps?.Image || Image;
     const ModelSelectorComponentImpl = __deps?.ModelSelectorComponent || ModelSelectorComponent;
     const getModelRegistryImpl = __deps?.getModelRegistry || getModelRegistry;
     const getSettingsManagerImpl = __deps?.getSettingsManager || getSettingsManager;
-    const getActiveModelStateImpl = __deps?.getActiveModelState || getActiveModelState;
+    const getActiveModelStateImpl = getActiveModelState || __deps?.getActiveModelState ||
+        (() => ({ model: "", provider: "" }));
 
     uiAPI.disableInput = () => {
         if (editor) {
@@ -56,7 +66,7 @@ export function installUiApiOverrides({ uiAPI, tui, editor, container, messageLi
             const settingsManager = getSettingsManagerImpl();
             const modelRegistry = getModelRegistryImpl();
             const activeModelState = getActiveModelStateImpl();
-            const currentModel = modelRegistry.find(activeModelState.provider, activeModelState.model);
+            const currentModel = modelRegistry.find(activeModelState.provider || "", activeModelState.model || "");
 
             const editorIndex = container.children.indexOf(editor);
 

@@ -4,7 +4,6 @@
  */
 
 import { createRootSessionManager } from "../../shared/session/root-session.js";
-import { setRootSessionManager } from "../../shared/session/session-state.js";
 import { setTerminalTitleForSession } from "../../shared/ui/terminal-title.js";
 
 /**
@@ -21,12 +20,10 @@ export async function runNewCommand(argv, options = {}) {
 
     const deps = /** @type {{
         createRootSessionManager?: typeof createRootSessionManager,
-        setRootSessionManager?: typeof setRootSessionManager,
         setTerminalTitleForSession?: typeof setTerminalTitleForSession,
     }} */
         (options.__testDeps || {});
     const createRoot = deps.createRootSessionManager || createRootSessionManager;
-    const setRoot = deps.setRootSessionManager || setRootSessionManager;
     const setTitle = deps.setTerminalTitleForSession || setTerminalTitleForSession;
     const { uiAPI } = options;
     const sessionName = argv.join(" ").trim();
@@ -35,7 +32,38 @@ export async function runNewCommand(argv, options = {}) {
     if (sessionName) {
         rootSessionManager.appendSessionInfo(sessionName);
     }
-    setRoot(rootSessionManager);
+
+    let nextHostedSession = options.hostedSession;
+    if (options.sessionHost) {
+        nextHostedSession = options.sessionHost.createSession({
+            sessionManager: rootSessionManager,
+            cwd: Deno.cwd(),
+            uiAPI,
+            eventSink: uiAPI,
+        });
+    } else if (nextHostedSession) {
+        nextHostedSession.setRootSessionManager(rootSessionManager);
+        nextHostedSession.setRootAgentSession(null);
+        nextHostedSession.setRootAgentName(null);
+        nextHostedSession.resetAgentInfoStack("Router");
+        nextHostedSession.clearUserModelOverride();
+        nextHostedSession.setPendingRootSwap(null);
+        nextHostedSession.setPendingSwitchHandoff(null);
+        nextHostedSession.setActiveUiAPI(uiAPI);
+        nextHostedSession.setEventSink(uiAPI);
+    }
+
+    if (nextHostedSession && options.replaceHostedSession) {
+        options.replaceHostedSession(nextHostedSession);
+    }
+
+    if (options.setActiveAgent) {
+        const { createAgentHandler } = await import("../../shared/session/agent-handler.js");
+        const { AGENTS } = await import("../../constants.js");
+        options.setActiveAgent(AGENTS.ROUTER, createAgentHandler(AGENTS.ROUTER), uiAPI);
+        await options.applyPendingRootSwap?.(uiAPI);
+    }
+
     setTitle(rootSessionManager, Deno.cwd());
 
     if (uiAPI.clearMessages) {

@@ -25,10 +25,15 @@ function makeUi() {
     const agentMessages = [];
     /** @type {string[]} */
     const userMessages = [];
+    /** @type {string[]} */
+    const agentLabels = [];
 
     const uiAPI = /** @type {import('../ui/types.js').UiAPI} */ ({
         appendSystemMessage: (text) => systemMessages.push(text),
-        appendAgentMessageStart: () => ({ appendText: (text) => agentMessages.push(text) }),
+        appendAgentMessageStart: (label) => {
+            agentLabels.push(label);
+            return { appendText: (text) => agentMessages.push(text) };
+        },
         appendUserMessage: (text) => userMessages.push(text),
         requestRender: () => {},
         promptSelect: () => Promise.resolve(null),
@@ -42,7 +47,7 @@ function makeUi() {
         getActiveToolBlock: (id) => toolBlocks.get(id),
     });
 
-    return { uiAPI, toolBlocks, systemMessages, agentMessages, userMessages };
+    return { uiAPI, toolBlocks, systemMessages, agentMessages, userMessages, agentLabels };
 }
 
 Deno.test("restorePersistedMessagesToUi replays the persisted branch instead of the shortened model context", () => {
@@ -257,6 +262,58 @@ Deno.test("restorePersistedMessagesToUi renders task_completed as markdown inste
     assertEquals(agentMessages, [
         "**Task completed.**\n\nCI fixed: pre-existing type errors resolved with **JSDoc** annotation and formatting.",
     ]);
+});
+
+Deno.test("restorePersistedMessagesToUi uses activeAgentLabel option for restored assistant messages", () => {
+    const { uiAPI, agentLabels } = makeUi();
+
+    restorePersistedMessagesToUi(
+        makeSessionManager([{
+            role: "assistant",
+            content: [{ type: "text", text: "visible answer" }],
+        }]),
+        uiAPI,
+        { activeAgentLabel: "Engineer" },
+    );
+
+    assertEquals(agentLabels, ["Engineer"]);
+});
+
+Deno.test("restorePersistedMessagesToUi uses HostedSession label instead of global state", () => {
+    const { uiAPI, agentLabels } = makeUi();
+    const hostedSession = /** @type {import('../session/hosted-session.js').HostedSession} */ ({
+        getActiveAgentName: () => "Operator",
+    });
+
+    restorePersistedMessagesToUi(
+        makeSessionManager([{
+            role: "assistant",
+            content: [{ type: "text", text: "visible answer" }],
+        }]),
+        uiAPI,
+        { hostedSession },
+    );
+
+    assertEquals(agentLabels, ["Operator"]);
+});
+
+Deno.test("restorePersistedMessagesToUi keeps RunWield as fallback task_completed label", () => {
+    const { uiAPI, agentLabels } = makeUi();
+
+    restorePersistedMessagesToUi(
+        makeSessionManager([{
+            role: "assistant",
+            content: [{
+                type: "toolCall",
+                id: "call_task",
+                name: "task_completed",
+                arguments: { message: "Done." },
+            }],
+        }]),
+        uiAPI,
+    );
+
+    assertEquals(agentLabels, ["RunWield"]);
 });
 
 Deno.test("restorePersistedMessagesToUi restores tool results into collapsed expandable tool blocks", () => {

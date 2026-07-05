@@ -19,11 +19,17 @@ function makeContext(overrides = {}) {
         expandedDispatches: /** @type {any[]} */ ([]),
         expandedTemplates: /** @type {any[]} */ ([]),
         expandedSkills: /** @type {any[]} */ ([]),
-        aborted: 0,
+        aborted: /** @type {unknown[]} */ ([]),
+    };
+    const hostedSession = {
+        id: "hosted-1",
+        getRootSessionManager: () => ({ id: "hosted-session-manager" }),
     };
     const ctx = {
         userRequest: "",
         savedImages: [{ base64: "img", mimeType: "image/png" }],
+        hostedSession,
+        sessionHost: { id: "session-host" },
         uiAPI: {
             appendSystemMessage: (/** @type {string} */ message) => records.systemMessages.push(message),
             appendUserMessage: (/** @type {string} */ message) => records.userMessages.push(message),
@@ -71,8 +77,8 @@ function makeContext(overrides = {}) {
         },
         registerOperationCancel: (/** @type {(() => void) | null} */ cancel) => records.cancels.push(cancel),
         __deps: {
-            abortActiveSession: () => {
-                records.aborted++;
+            abortActiveSession: (/** @type {unknown} */ targetHostedSession) => {
+                records.aborted.push(targetHostedSession);
                 return true;
             },
             commandRegistry: {},
@@ -134,10 +140,12 @@ Deno.test("handleSlashCommand dispatches built-in commands and restores cancella
     assertEquals(ctx.records.commandDeps.uiAPI, ctx.uiAPI);
     assertEquals(ctx.records.commandDeps.editor, ctx.editor);
     assertEquals(ctx.records.commandDeps.tui, ctx.tui);
+    assertEquals(ctx.records.commandDeps.hostedSession, ctx.hostedSession);
+    assertEquals(ctx.records.commandDeps.sessionHost, ctx.sessionHost);
     assertEquals(ctx.records.commandDeps.sessionManager, { id: "session" });
     assertEquals(ctx.records.cancels.length, 2);
     assertEquals(ctx.records.cancels[1], null);
-    assertEquals(ctx.records.aborted, 1);
+    assertEquals(ctx.records.aborted, [ctx.hostedSession]);
     assertEquals(ctx.records.swaps, 1);
 });
 

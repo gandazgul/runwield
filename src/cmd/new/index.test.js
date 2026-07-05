@@ -42,6 +42,15 @@ Deno.test("runNewCommand creates and installs a fresh root session", async () =>
                 },
                 appendSystemMessage: (/** @type {string} */ msg) => messages.push(msg),
             },
+            sessionHost: {
+                createSession: (
+                    /** @type {{ sessionManager?: unknown, uiAPI?: unknown, eventSink?: unknown }} */ options,
+                ) => {
+                    installed = options.sessionManager === manager && options.uiAPI === options.eventSink;
+                    return { id: "hosted-session-123" };
+                },
+            },
+            replaceHostedSession: () => {},
             __testDeps: {
                 createRootSessionManager: (
                     /** @type {string} */ mode,
@@ -50,9 +59,7 @@ Deno.test("runNewCommand creates and installs a fresh root session", async () =>
                     createArgs.push(mode, cwd);
                     return Promise.resolve(manager);
                 },
-                setRootSessionManager: (/** @type {unknown} */ value) => {
-                    installed = value === manager;
-                },
+                /* setRootSessionManager intentionally unused by HostedSession path */
                 setTerminalTitleForSession: (/** @type {any} */ sessionManager, /** @type {string} */ cwd) => {
                     titles.push(`${sessionManager.getSessionName?.() || cwd}`);
                     return "wld - build coverage";
@@ -85,7 +92,6 @@ Deno.test("runNewCommand updates terminal title for unnamed sessions", async () 
             },
             __testDeps: {
                 createRootSessionManager: () => Promise.resolve(manager),
-                setRootSessionManager: () => {},
                 setTerminalTitleForSession: (/** @type {any} */ _sessionManager, /** @type {string} */ cwd) => {
                     titles.push(cwd);
                     return "wld - project";
