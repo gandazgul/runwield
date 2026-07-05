@@ -48,10 +48,16 @@ Deno.test("protocol helpers normalize capability, encrypted plan, encrypted comm
         capabilityHash: "sha256:abc",
     });
     assertEquals(
-        normalizeEncryptedPlanPayload({ planId: " plan-1 ", title: " Draft ", body: " encrypted-body " }),
+        normalizeEncryptedPlanPayload({
+            planId: " plan-1 ",
+            title: " Draft ",
+            metadata: { status: "approved", order: 4 },
+            body: " encrypted-body ",
+        }),
         {
             planId: "plan-1",
             title: "Draft",
+            metadata: { status: "approved", order: 4 },
             body: "encrypted-body",
         },
     );
