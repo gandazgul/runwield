@@ -1,0 +1,30 @@
+:root {
+    --rw-page-bg: #0b1020;
+    --rw-surface: #0f172a;
+    --rw-surface-raised: #111827;
+    --rw-surface-muted: #1e293b;
+    --rw-surface-strong: #172033;
+    --rw-text: #e2e8f0;
+    --rw-text-strong: #fff;
+    --rw-text-muted: #cbd5e1;
+    --rw-text-dim: #94a3b8;
+    --rw-accent: #60a5fa;
+    --rw-accent-strong: #93c5fd;
+    --rw-accent-text: #bfdbfe;
+    --rw-border: #334155;
+    --rw-border-strong: #475569;
+    --rw-success: #22c55e;
+    --rw-error: #ef4444;
+    --rw-warning: #f59e0b;
+    --rw-code: #85cbbf;
+    color-scheme: light dark;
+    font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+    background: var(--rw-page-bg);
+    color: var(--rw-text);
+}
+
+body {
+    background: var(--rw-page-bg);
+    color: var(--rw-text);
+    margin: 0;
+}

@@ -22,6 +22,7 @@ import {
     PLAN_STATUSES,
     recordPlanEvent,
 } from "../../../shared/workflow/plan-lifecycle.js";
+import { SharedPlanLockError } from "../../../shared/collaboration/lock.js";
 import { getWorktreeStatus, inspectExecutionWorktreeMergeRisk } from "../../../shared/worktree.js";
 import { PLAN_LIFECYCLE_ACTIONS } from "../constants.js";
 
@@ -508,10 +509,13 @@ function serializeNonEpicDetail(plan, plans) {
 
 /**
  * @param {unknown} error
- * @returns {{ error: string, repair: string }}
+ * @returns {{ error: string, repair: string, blockedReason?: string }}
  */
 export function serializePlanError(error) {
     const message = error instanceof Error ? error.message : String(error);
+    if (error instanceof SharedPlanLockError) {
+        return { error: message, blockedReason: error.blockedReason, repair: error.repair };
+    }
     const repair = message.includes("Duplicate planId") || message.includes("duplicate")
         ? "Repair duplicate planId values in Plan front matter so each non-archived Plan has a unique planId."
         : "Check Plan front matter and ensure the requested planId belongs to a non-archived Plan in this checkout.";

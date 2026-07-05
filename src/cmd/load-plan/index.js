@@ -1620,6 +1620,8 @@ async function handlePlanRecovery({
                     branch: worktreeContext.branch,
                     targetBranch: worktreeContext.baseBranch,
                     worktreePath: worktreeContext.path,
+                    planName: plan.planName,
+                    planDescription: plan.attrs.summary,
                     allowedDirtyPaths: [
                         `plans/${plan.planName}.md`,
                         ".wld/",

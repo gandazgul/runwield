@@ -3,6 +3,7 @@ import {
     archivePlan,
     countChildPlanProgress,
     ensurePlanIdentity,
+    ensurePlansDir,
     findPlanById,
     findPlansByParent,
     getPlansDir,
@@ -28,9 +29,15 @@ import {
     savePlan,
     savePlanBodyById,
     splitPlanMarkdownBody,
+    updatePlanCollaborationMetadata,
     updatePlanFrontMatter,
     updatePlanStatus,
 } from "./plan-store.js";
+import {
+    COLLABORATION_LOCK_BYPASS,
+    COLLABORATION_STATE_REMOTE_CANONICAL,
+    SharedPlanLockError,
+} from "./shared/collaboration/lock.js";
 
 /**
  * @param {string} name
@@ -1374,4 +1381,180 @@ Deno.test("resolveSiblingChildPlanDependencyStates exposes verified unverified a
             { dependency: "03-missing", state: "missing" },
         ],
     );
+});
+
+function lockedPlanFrontMatter(overrides = {}) {
+    return {
+        collaborationState: COLLABORATION_STATE_REMOTE_CANONICAL,
+        collaborationServerUrl: "https://plans.example.test/base",
+        collaborationSpaceId: "space-1",
+        collaborationRevision: 7,
+        collaborationBodyHash: "previous-body-hash",
+        collaborationSyncedAt: "2026-07-04T00:00:00.000Z",
+        ...overrides,
+    };
+}
+
+testWithFs("collaboration front matter formats and parses non-secret metadata", async () => {
+    await Promise.resolve();
+    const markdown = injectFrontMatter(
+        "## Plan\n\nBody",
+        lockedPlanFrontMatter({
+            collaborationServerUrl: "https://plans.example.test/base/",
+            collaborationRevision: "8",
+        }),
+    );
+    const { attrs } = parsePlanFrontMatter(markdown);
+
+    assertEquals(attrs.collaborationState, COLLABORATION_STATE_REMOTE_CANONICAL);
+    assertEquals(attrs.collaborationServerUrl, "https://plans.example.test/base");
+    assertEquals(attrs.collaborationSpaceId, "space-1");
+    assertEquals(attrs.collaborationRevision, 8);
+    assertEquals(markdown.includes("contentKey"), false);
+    assertEquals(markdown.includes("bearerCapability"), false);
+    assertEquals(markdown.includes("reviewerUrl"), false);
+});
+
+testWithFs("locked shared plans reject normal save/status/front matter/body writes without mutation", async () => {
+    const cwd = await Deno.makeTempDir();
+    const path = await savePlan(cwd, "locked", "## Plan\n\nOriginal", lockedPlanFrontMatter());
+    const before = await Deno.readTextFile(path);
+
+    await assertRejects(() => savePlan(cwd, "locked", "## Plan\n\nChanged"), SharedPlanLockError);
+    await assertRejects(() => updatePlanStatus(cwd, "locked", "approved"), SharedPlanLockError);
+    await assertRejects(() => updatePlanFrontMatter(cwd, "locked", { summary: "Changed" }), SharedPlanLockError);
+
+    await Deno.writeTextFile(
+        path,
+        injectFrontMatter("## Plan\n\nOriginal", { ...lockedPlanFrontMatter(), planId: "plan-1" }),
+    );
+    const bodyResource = await loadPlanBodyById(cwd, "plan-1");
+    await assertRejects(
+        () => savePlanBodyById(cwd, "plan-1", "## Plan\n\nChanged", bodyResource.bodyHash),
+        SharedPlanLockError,
+    );
+    assertEquals((await Deno.readTextFile(path)).includes("Changed"), false);
+    assertEquals(before.includes('collaborationBodyHash: "previous-body-hash"'), true);
+});
+
+testWithFs("locked shared plan writes require exact collaboration bypass", async () => {
+    const cwd = await Deno.makeTempDir();
+    await savePlan(cwd, "locked", "## Plan\n\nOriginal", lockedPlanFrontMatter());
+    await assertRejects(
+        () => savePlan(cwd, "locked", "## Plan\n\nChanged", {}, { collaborationLockBypass: /** @type {any} */ (true) }),
+        SharedPlanLockError,
+    );
+    await savePlan(cwd, "locked", "## Plan\n\nChanged", {}, {
+        collaborationLockBypass: COLLABORATION_LOCK_BYPASS.pull,
+    });
+    const loaded = await loadPlan(cwd, "locked");
+    if (!loaded) throw new Error("Expected locked Plan to exist");
+    assertStringIncludes(loaded.body, "Changed");
+});
+
+testWithFs("malformed remote-canonical front matter variants reject recovery writes without mutation", async () => {
+    const cwd = await Deno.makeTempDir();
+    const dir = await ensurePlansDir(cwd);
+    const path = `${dir}/malformed.md`;
+    const malformed = [
+        "---",
+        "collaborationState : remote_canonical # locked on the Plan Server",
+        "classification: [",
+        "---",
+        "## Plan",
+        "",
+        "Original",
+    ].join("\n");
+    await Deno.writeTextFile(path, malformed);
+
+    await assertRejects(() => updatePlanStatus(cwd, "malformed", "approved"), SharedPlanLockError);
+    await assertRejects(() => updatePlanFrontMatter(cwd, "malformed", { summary: "Changed" }), SharedPlanLockError);
+    assertEquals(await Deno.readTextFile(path), malformed);
+});
+
+testWithFs("saveChildFeaturePlans rejects overwriting locked child plans", async () => {
+    const cwd = await Deno.makeTempDir();
+    await savePlan(cwd, "epic/01-child", "## Child\n\nOriginal", lockedPlanFrontMatter());
+    await assertRejects(
+        () =>
+            saveChildFeaturePlans(cwd, "epic", [{
+                title: "Child",
+                summary: "Changed",
+                affectedPaths: [],
+                dependencies: [],
+                content: "## Child\n\nChanged",
+                order: 1,
+            }]),
+        SharedPlanLockError,
+    );
+    const loaded = await loadPlan(cwd, "epic/01-child");
+    if (!loaded) throw new Error("Expected child Plan to exist");
+    assertStringIncludes(loaded.body, "Original");
+});
+
+testWithFs("updatePlanCollaborationMetadata intentionally refreshes controlled body hash", async () => {
+    const cwd = await Deno.makeTempDir();
+    await savePlan(cwd, "locked", "## Plan\n\nOriginal", lockedPlanFrontMatter());
+    const attrs = await updatePlanCollaborationMetadata(
+        cwd,
+        "locked",
+        { collaborationRevision: 8 },
+        COLLABORATION_LOCK_BYPASS.pull,
+        { body: "## Plan\n\nChanged" },
+    );
+    assertEquals(attrs.collaborationRevision, 8);
+    assertEquals(attrs.collaborationBodyHash, await hashPlanBody("## Plan\n\nChanged"));
+    const loaded = await loadPlan(cwd, "locked");
+    if (!loaded) throw new Error("Expected locked Plan to exist");
+    assertStringIncludes(loaded.body, "Changed");
+});
+
+testWithFs("updatePlanCollaborationMetadata preserves body hash without controlled body write", async () => {
+    const cwd = await Deno.makeTempDir();
+    await savePlan(cwd, "locked", "## Plan\n\nOriginal", lockedPlanFrontMatter());
+    const attrs = await updatePlanCollaborationMetadata(
+        cwd,
+        "locked",
+        { collaborationRevision: 8, collaborationBodyHash: "untrusted-new-hash" },
+        COLLABORATION_LOCK_BYPASS.pull,
+    );
+    assertEquals(attrs.collaborationRevision, 8);
+    assertEquals(attrs.collaborationBodyHash, "previous-body-hash");
+});
+
+testWithFs("updatePlanCollaborationMetadata filters non-front-matter collaboration secrets", async () => {
+    const cwd = await Deno.makeTempDir();
+    await savePlan(
+        cwd,
+        "locked",
+        "## Plan\n\nOriginal",
+        /** @type {any} */ ({
+            ...lockedPlanFrontMatter(),
+            bearerCapability: "bearer-secret",
+            contentKey: "content-key-secret",
+            reviewerUrl: "https://plans.example.test/p/space-1#contentKey=secret",
+        }),
+    );
+    const attrs = await updatePlanCollaborationMetadata(
+        cwd,
+        "locked",
+        /** @type {any} */ ({
+            bearerCapability: "new-bearer-secret",
+            collaborationRevision: 8,
+            collaborationServerUrl: "https://plans.example.test/base#contentKey=secret",
+            contentKey: "new-content-key-secret",
+            reviewerUrl: "https://plans.example.test/p/space-1#contentKey=new-secret",
+        }),
+        COLLABORATION_LOCK_BYPASS.pull,
+    );
+    const loaded = await loadPlan(cwd, "locked");
+    if (!loaded) throw new Error("Expected locked Plan to exist");
+    const markdown = await Deno.readTextFile(loaded.path);
+
+    assertEquals(attrs.collaborationRevision, 8);
+    assertEquals(attrs.collaborationServerUrl, "https://plans.example.test/base");
+    assertEquals(markdown.includes("bearerCapability"), false);
+    assertEquals(markdown.includes("contentKey"), false);
+    assertEquals(markdown.includes("reviewerUrl"), false);
+    assertEquals(markdown.includes("secret"), false);
 });

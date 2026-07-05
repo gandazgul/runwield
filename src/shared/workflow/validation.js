@@ -857,6 +857,8 @@ export async function runValidationLoop({
                         targetBranch: worktreeBaseBranch,
                         worktreePath: executionCwd,
                         repairMergeWorktreePath: pendingRepairMergeWorktreePath,
+                        planName,
+                        planDescription: triageMeta?.summary,
                         allowedDirtyPaths: [
                             `plans/${planName}.md`,
                             ".wld/",

@@ -6,7 +6,10 @@ export function AppWrapper({ Component }) {
                 <meta charSet="utf-8" />
                 <meta name="viewport" content="width=device-width, initial-scale=1" />
                 <title>RunWield Workspace</title>
-                <link rel="stylesheet" href="/styles.css" />
+                <link rel="icon" href="/logo.svg" type="image/svg+xml" />
+                <link rel="stylesheet" href="/tokens.css" />
+                <link rel="stylesheet" href="/components.css" />
+                <link rel="stylesheet" href="/workspace.css" />
                 <link rel="stylesheet" href="/theme.css" />
             </head>
             <body>

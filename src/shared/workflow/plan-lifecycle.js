@@ -8,6 +8,7 @@
  */
 
 import { updatePlanFrontMatter } from "../../plan-store.js";
+import { SHARED_PLAN_LOCK_REPAIR, SharedPlanLockError } from "../collaboration/lock.js";
 
 /**
  * @typedef {"draft"|"feedback"|"approved"|"ready_for_decomposition"|"ready_for_work"|"in_progress"|"failed"|"implemented"|"verified"|"closed_without_verification"|"on_hold"} PlanStatus
@@ -509,7 +510,17 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
  */
 export async function recordPlanEvent({ cwd, planName, event, currentStatus, details = {} }) {
     const updates = buildPlanEventUpdates(event, currentStatus, details);
-    return await updatePlanFrontMatter(cwd, planName, updates, details.triageMeta);
+    try {
+        return await updatePlanFrontMatter(cwd, planName, updates, details.triageMeta);
+    } catch (error) {
+        if (error instanceof SharedPlanLockError) {
+            throw new SharedPlanLockError(error.collaboration, {
+                reason: "Lifecycle status changes must use the collaboration workflow.",
+                repair: SHARED_PLAN_LOCK_REPAIR,
+            });
+        }
+        throw error;
+    }
 }
 
 /**

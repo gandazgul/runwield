@@ -17,10 +17,14 @@ import {
     plansApi,
     workspaceApi,
 } from "./routes/api/handlers.js";
-import { loadWorkspaceThemeCss } from "./server/theme-css.js";
+import { loadRunWieldThemeCss } from "../design-system/theme-bridge.js";
 
 const WORKSPACE_DIR = dirname(fromFileUrl(import.meta.url));
+const DESIGN_SYSTEM_DIR = join(WORKSPACE_DIR, "..", "design-system");
 const STYLES_PATH = join(WORKSPACE_DIR, "static", "styles.css");
+const TOKENS_CSS_PATH = join(DESIGN_SYSTEM_DIR, "tokens.css");
+const COMPONENTS_CSS_PATH = join(DESIGN_SYSTEM_DIR, "components.css");
+const WORKSPACE_CSS_PATH = join(WORKSPACE_DIR, "static", "workspace.css");
 const LOGO_PATH = join(WORKSPACE_DIR, "..", "..", "..", "logo.svg");
 
 /**
@@ -43,6 +47,9 @@ export function createWorkspaceApp({ cwd, token, skipTokenCheck = false }) {
         if (skipTokenCheck) return await ctx.next();
         if (
             ctx.url.pathname === "/styles.css" ||
+            ctx.url.pathname === "/tokens.css" ||
+            ctx.url.pathname === "/components.css" ||
+            ctx.url.pathname === "/workspace.css" ||
             ctx.url.pathname === "/theme.css" ||
             ctx.url.pathname === "/logo.svg"
         ) {
@@ -57,8 +64,20 @@ export function createWorkspaceApp({ cwd, token, skipTokenCheck = false }) {
         const css = await Deno.readTextFile(STYLES_PATH);
         return new Response(css, { headers: { "content-type": "text/css; charset=utf-8" } });
     });
+    app.get("/tokens.css", async () => {
+        const css = await Deno.readTextFile(TOKENS_CSS_PATH);
+        return new Response(css, { headers: { "content-type": "text/css; charset=utf-8" } });
+    });
+    app.get("/components.css", async () => {
+        const css = await Deno.readTextFile(COMPONENTS_CSS_PATH);
+        return new Response(css, { headers: { "content-type": "text/css; charset=utf-8" } });
+    });
+    app.get("/workspace.css", async () => {
+        const css = await Deno.readTextFile(WORKSPACE_CSS_PATH);
+        return new Response(css, { headers: { "content-type": "text/css; charset=utf-8" } });
+    });
     app.get("/theme.css", async () => {
-        const css = await loadWorkspaceThemeCss();
+        const css = await loadRunWieldThemeCss();
         return new Response(css, {
             headers: {
                 "content-type": "text/css; charset=utf-8",

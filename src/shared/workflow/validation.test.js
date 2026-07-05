@@ -610,7 +610,7 @@ Deno.test("runValidationLoop records validation_passed only after worktree merge
 
     setActiveExecutionWorkflow({
         planName: "p",
-        triageMeta: { classification: "FEATURE" },
+        triageMeta: { classification: "FEATURE", summary: "Preserve metadata in merge commits." },
         baselineTree: "baseline-tree",
         projectRoot: "/primary",
         executionCwd: "/worktree",
@@ -622,7 +622,7 @@ Deno.test("runValidationLoop records validation_passed only after worktree merge
     await runValidationLoop({
         planName: "p",
         planContent: "plan",
-        triageMeta: { classification: "FEATURE" },
+        triageMeta: { classification: "FEATURE", summary: "Preserve metadata in merge commits." },
         uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
@@ -636,9 +636,13 @@ Deno.test("runValidationLoop records validation_passed only after worktree merge
                     }]),
                 ),
             mergeExecutionWorktree: (
-                /** @type {{ projectRoot: string, branch: string, targetBranch?: string }} */ args,
+                /** @type {{ projectRoot: string, branch: string, targetBranch?: string, planName?: string, planDescription?: string }} */ args,
             ) => {
-                actions.push(`merge:${args.projectRoot}:${args.branch}:${args.targetBranch || ""}`);
+                actions.push(
+                    `merge:${args.projectRoot}:${args.branch}:${args.targetBranch || ""}:${args.planName || ""}:${
+                        args.planDescription || ""
+                    }`,
+                );
                 return Promise.resolve();
             },
             removeExecutionWorktree: (/** @type {{ projectRoot: string, path: string, branch?: string }} */ args) => {
@@ -667,7 +671,7 @@ Deno.test("runValidationLoop records validation_passed only after worktree merge
     });
 
     assertEquals(actions, [
-        "merge:/primary:runwield/worktree/p-wt1:feature-base",
+        "merge:/primary:runwield/worktree/p-wt1:feature-base:p:Preserve metadata in merge commits.",
         "registry:merged",
         "remove:/primary:/worktree:runwield/worktree/p-wt1",
         "registry-remove:/primary:wt1",

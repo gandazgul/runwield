@@ -31,6 +31,8 @@
         "@fresh/plugin-vite": "jsr:@fresh/plugin-vite@^1.1.2",
         "preact": "npm:preact@^10.29.3",
         "@preact/signals": "npm:@preact/signals@^2.9.2",
+        "@zag-js/dialog": "npm:@zag-js/dialog@^1.31.1",
+        "@zag-js/preact": "npm:@zag-js/preact@^1.31.1",
         "tidewave": "npm:tidewave@^0.7.0",
         "vite": "npm:vite@^7.2.7",
         "esbuild": "npm:esbuild@^0.25.12",

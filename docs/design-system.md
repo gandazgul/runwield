@@ -44,8 +44,9 @@ correct choice obvious:
 
 The current reference implementation is the Workspace UI:
 
-- CSS baseline: `src/ui/workspace/static/styles.css`
-- theme bridge: `src/ui/workspace/server/theme-css.js`
+- CSS baseline: `src/ui/design-system/tokens.css`, `src/ui/design-system/components.css`, and
+  `src/ui/workspace/static/workspace.css`
+- theme bridge: `src/ui/design-system/theme-bridge.js`
 - shell and navigation: `src/ui/workspace/components/AppWrapper.jsx` and `src/ui/workspace/components/Layout.jsx`
 - board patterns: `src/ui/workspace/components/BoardColumn.jsx`, `PlanCard.jsx`, and `EpicCard.jsx`
 - detail patterns: `src/ui/workspace/components/PlanDetail.jsx`
@@ -110,10 +111,9 @@ Use existing tokens before adding new ones.
 | `--rw-complexity-medium` | MEDIUM Complexity label.                                     |
 | `--rw-complexity-high`   | HIGH Complexity label.                                       |
 
-The browser design system must share the active theme with the TUI. The shared design-system module should own the
-browser theme bridge that maps the active RunWield TUI theme into these variables. Workspace's current
-`src/ui/workspace/server/theme-css.js` is the source implementation to move or adapt into `src/ui/design-system/`. New
-browser surfaces should consume the generated variables; they should not read theme JSON directly.
+The browser design system must share the active theme with the TUI. The shared design-system module owns the browser
+theme bridge at `src/ui/design-system/theme-bridge.js`, which maps the active RunWield TUI theme into these variables.
+New browser surfaces should consume the generated variables; they should not read theme JSON directly.
 
 Shared CSS should be split by responsibility rather than kept as one broad `styles.css` file:
 
@@ -130,7 +130,7 @@ Only add a token when an existing semantic token cannot describe the intended us
 - prefixed with `--rw-`;
 - semantic rather than literal;
 - documented in this file;
-- mapped in `theme-css.js` when they should respond to user themes;
+- mapped in `src/ui/design-system/theme-bridge.js` when they should respond to user themes;
 - used by at least one real pattern.
 
 Avoid component-specific tokens until a component genuinely needs stable customization across surfaces.

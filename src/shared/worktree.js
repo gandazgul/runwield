@@ -144,18 +144,70 @@ async function isSameFilesystemPath(a, b) {
 }
 
 /**
+ * @typedef {Object} WorktreeCommitMessageOptions
+ * @property {string} [planName]
+ * @property {string} [planDescription]
+ */
+
+/**
+ * @typedef {Object} WorktreeCommitMessage
+ * @property {string} subject
+ * @property {string} body
+ */
+
+/** @param {unknown} value */
+function normalizeCommitMessageLine(value) {
+    return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+/** @param {string} subject */
+function clampCommitSubject(subject) {
+    const normalized = normalizeCommitMessageLine(subject);
+    if (normalized.length <= 50) return normalized;
+    return normalized.slice(0, 50).trimEnd();
+}
+
+/** @param {string[]} stagedPaths */
+function formatStagedPaths(stagedPaths) {
+    const visiblePaths = stagedPaths.slice(0, 5);
+    const remaining = stagedPaths.length - visiblePaths.length;
+    return remaining > 0 ? `${visiblePaths.join(", ")} and ${remaining} more` : visiblePaths.join(", ");
+}
+
+/**
+ * @param {WorktreeCommitMessageOptions & { branch: string, stagedPaths: string[] }} options
+ * @returns {WorktreeCommitMessage}
+ */
+function buildWorktreeCommitMessage({ planName, planDescription, branch, stagedPaths }) {
+    const normalizedPlanName = normalizeCommitMessageLine(planName);
+    const normalizedDescription = normalizeCommitMessageLine(planDescription);
+    const subject = normalizedPlanName
+        ? clampCommitSubject(`Complete ${normalizedPlanName}`)
+        : "Commit execution worktree updates";
+    const bodyLines = [];
+    if (normalizedPlanName) bodyLines.push(`- Plan: ${normalizedPlanName}`);
+    if (normalizedDescription) bodyLines.push(`- Description: ${normalizedDescription}`);
+    bodyLines.push(`- Branch: ${branch}`);
+    bodyLines.push(`- Files: ${formatStagedPaths(stagedPaths)}`);
+    return { subject, body: bodyLines.join("\n") };
+}
+
+/**
  * @param {string} worktreePath
  * @param {string} branch
+ * @param {WorktreeCommitMessageOptions} [messageOptions]
  */
-async function commitDirtyWorktreeState(worktreePath, branch) {
+async function commitDirtyWorktreeState(worktreePath, branch, messageOptions = {}) {
     const currentBranch = (await runGit(worktreePath, ["branch", "--show-current"])).trim();
     if (currentBranch !== branch) {
         throw new Error(`Worktree path ${worktreePath} is on ${currentBranch || "detached HEAD"}, not ${branch}`);
     }
     await runGit(worktreePath, ["add", "-A", "--", "."]);
     const stagedDiff = await runGit(worktreePath, ["diff", "--cached", "--name-only"]);
-    if (!stagedDiff.trim()) return;
-    await runGit(worktreePath, ["commit", "-m", "Apply execution worktree changes"]);
+    const stagedPaths = parseNameOnlyPaths(stagedDiff);
+    if (stagedPaths.length === 0) return;
+    const message = buildWorktreeCommitMessage({ ...messageOptions, branch, stagedPaths });
+    await runGit(worktreePath, ["commit", "-m", message.subject, "-m", message.body]);
 }
 
 /**
@@ -619,10 +671,19 @@ export async function inspectExecutionWorktreeMergeRisk({ projectRoot, branch, t
 }
 
 /**
- * @param {{ projectRoot: string, branch: string, targetBranch?: string, worktreePath?: string, allowedDirtyPaths?: string[], repairMergeWorktreePath?: string }} opts
+ * @param {{ projectRoot: string, branch: string, targetBranch?: string, worktreePath?: string, allowedDirtyPaths?: string[], repairMergeWorktreePath?: string, planName?: string, planDescription?: string }} opts
  */
 export async function mergeExecutionWorktree(
-    { projectRoot, branch, targetBranch, worktreePath, allowedDirtyPaths = [], repairMergeWorktreePath },
+    {
+        projectRoot,
+        branch,
+        targetBranch,
+        worktreePath,
+        allowedDirtyPaths = [],
+        repairMergeWorktreePath,
+        planName,
+        planDescription,
+    },
 ) {
     const normalizedTargetBranch = targetBranch === "HEAD" ? undefined : targetBranch;
     let resolvedWorktreePath = worktreePath;
@@ -631,7 +692,7 @@ export async function mergeExecutionWorktree(
         resolvedWorktreePath = findWorktreePathForBranch(worktreeList, branch) || undefined;
     }
     if (resolvedWorktreePath) {
-        await commitDirtyWorktreeState(resolvedWorktreePath, branch);
+        await commitDirtyWorktreeState(resolvedWorktreePath, branch, { planName, planDescription });
     }
 
     if (!normalizedTargetBranch) {
