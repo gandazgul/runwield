@@ -189,6 +189,7 @@ wld plans                           # list active saved plans
 wld plans read <name-or-id>         # inspect an active or archived plan
 wld plans archive                   # list archived plans
 wld plans archive <name-or-id>      # move a verified/closed plan to plans/archived/
+wld plans archive --all --status verified # bulk archive active verified plans
 wld plans archive restore <name>    # restore an archived plan to active plans/
 wld plans ui --no-open              # start the local read-only Plans Workspace
 wld load-plan <name-or-path>        # review, execute, or continue a plan
@@ -235,11 +236,18 @@ Plans are markdown files with YAML front matter in `plans/`. RunWield records:
 - origin: `internal` or `external`
 - Epic metadata: `type: epic` on PROJECT Epic containers, plus `parentPlan` and optional `dependencies` on child FEATURE
   plans
+- optional target branch metadata: `worktreeBaseBranch: "branch-name"` when a plan should execute against a branch other
+  than the current checkout
 
 PROJECT plans are Epics by default: the parent PROJECT plan is a container for design and decomposition state, not an
 implementation unit. The interactive Slicer helps choose vertical child FEATURE boundaries, writes draft children under
 `plans/<epic-name>/`, and finalizes the Epic only after explicit confirmation. Each child FEATURE then follows the
 normal FEATURE lifecycle with its own review, execution, validation, and merge history.
+
+To run hands-off execution against a specific branch, ask for the plan to target that branch or manually add
+`worktreeBaseBranch: "branch-name"` to the plan front matter before execution. RunWield starts the execution worktree
+from that branch and merges validated work back into it. PROJECT Epics can carry the same field; child FEATURE plans
+inherit it unless the Slicer explicitly writes a different target.
 
 Use `wld plans` to list active saved plans. Epic children are grouped under their parent, and orphaned child plans are
 shown separately. Physical archives are not a Plan status: archived Plans stay as plaintext markdown under
@@ -251,12 +259,15 @@ Archive commands are explicit and reversible:
 wld plans archive                                      # list archived plans
 wld plans archive <plan-name-or-id> --reason "done"    # archive a verified or closed plan
 wld plans archive <plan-name-or-id> --force            # archive another status when safe
+wld plans archive --all --status verified --reason "done" # best-effort bulk archive exact status matches
 wld plans archive restore <archived-plan-name-or-id>   # restore to plans/
 wld plans read <plan-name-or-id>                       # print active or archived plan details and body
 ```
 
 `verified` and `closed_without_verification` Plans can be archived without `--force`; other statuses require `--force`,
-and recoverable worktree states remain blocked. Restore refuses to overwrite an active file.
+and recoverable worktree states remain blocked. `wld plans archive --all --status <status>` bulk archives active Plans
+by exact status match on a best-effort basis: safe matches move, blocked matches are reported, and any failure makes the
+command exit non-zero after printing the summary. Restore refuses to overwrite an active file.
 
 Use `wld plans ui` to launch the local browser Workspace for the current checkout:
 

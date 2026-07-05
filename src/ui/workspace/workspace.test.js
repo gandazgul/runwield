@@ -25,6 +25,9 @@ import {
 import { renderRunWieldThemeCss } from "../design-system/theme-bridge.js";
 import { createWorkspaceApp, hasWorkspaceToken } from "./server.js";
 import { COLLABORATION_STATE_REMOTE_CANONICAL } from "../../shared/collaboration/lock.js";
+import { hashCapability } from "../../shared/collaboration/capabilities.js";
+import { openRemoteDatabase } from "./server/remote-db.js";
+import { createRemoteWorkspaceAdapter } from "./server/remote-adapter.js";
 
 /**
  * @param {string} cwd
@@ -1079,5 +1082,188 @@ Deno.test("Workspace APIs return lock-aware 409 responses without mutating locke
         assertEquals(await Deno.readTextFile(`${cwd}/plans/locked.md`), before);
     } finally {
         await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+/** @param {Response} response */
+async function readJsonResponse(response) {
+    return await response.json();
+}
+
+/** @param {string} url @param {unknown} body @param {string} [bearer] */
+function jsonRequest(url, body, bearer) {
+    /** @type {Record<string, string>} */
+    const headers = { "content-type": "application/json" };
+    if (bearer) headers.authorization = `Bearer ${bearer}`;
+    return new Request(url, { method: "POST", headers, body: JSON.stringify(body) });
+}
+
+Deno.test("remote Workspace mode isolates local Plan Board and local APIs", async () => {
+    const app = createWorkspaceApp({ mode: "remote" }).handler();
+    for (
+        const path of ["/", "/api/plans", "/api/board", "/api/plans/plan-1/body", "/api/plans/plan-1/lifecycle-action"]
+    ) {
+        const method = path.includes("body") || path.includes("lifecycle") ? "POST" : "GET";
+        const response = await app(new Request(`http://localhost${path}`, { method }));
+        assertEquals(response.status, 404);
+    }
+});
+
+Deno.test("remote Shared Space API enforces capabilities, ciphertext storage, lifecycle, and delete", async () => {
+    const reviewerCapability = "reviewer-secret-capability";
+    const maintainerCapability = "maintainer-secret-capability";
+    const database = openRemoteDatabase();
+    const adapter = createRemoteWorkspaceAdapter({ database });
+    const app = createWorkspaceApp({ mode: "remote", adapter }).handler();
+    try {
+        const reviewerHash = await hashCapability(reviewerCapability);
+        const maintainerHash = await hashCapability(maintainerCapability);
+        const createResponse = await app(jsonRequest("http://localhost/api/spaces", {
+            planId: "plan-1",
+            initialRevision: { payloadCiphertext: "cipher:initial-plan-body" },
+            capabilities: [
+                { scope: "reviewer", capabilityHash: reviewerHash },
+                { scope: "maintainer", capabilityHash: maintainerHash },
+            ],
+        }));
+        assertEquals(createResponse.status, 201);
+        const created = await readJsonResponse(createResponse);
+        const spaceId = created.spaceId;
+
+        const missingBearer = await app(new Request(`http://localhost/api/spaces/${spaceId}`));
+        assertEquals(missingBearer.status, 401);
+
+        const reviewerRead = await app(
+            new Request(`http://localhost/api/spaces/${spaceId}`, {
+                headers: { authorization: `Bearer ${reviewerCapability}` },
+            }),
+        );
+        assertEquals(reviewerRead.status, 200);
+        assertEquals((await readJsonResponse(reviewerRead)).latestRevision, 1);
+
+        const reviewerAppendRevision = await app(jsonRequest(
+            `http://localhost/api/spaces/${spaceId}/revisions`,
+            { payloadCiphertext: "cipher:revision-2", expectedRevision: 2 },
+            reviewerCapability,
+        ));
+        assertEquals(reviewerAppendRevision.status, 403);
+
+        const conflict = await app(jsonRequest(
+            `http://localhost/api/spaces/${spaceId}/revisions`,
+            { payloadCiphertext: "cipher:revision-2", expectedRevision: 3 },
+            maintainerCapability,
+        ));
+        assertEquals(conflict.status, 409);
+
+        const appendRevision = await app(jsonRequest(
+            `http://localhost/api/spaces/${spaceId}/revisions`,
+            { payloadCiphertext: "cipher:revision-2", expectedRevision: 2 },
+            maintainerCapability,
+        ));
+        assertEquals(appendRevision.status, 201);
+
+        const revision = await app(
+            new Request(`http://localhost/api/spaces/${spaceId}/revisions/2`, {
+                headers: { authorization: `Bearer ${reviewerCapability}` },
+            }),
+        );
+        assertEquals(revision.status, 200);
+        assertEquals((await readJsonResponse(revision)).revision.payloadCiphertext, "cipher:revision-2");
+
+        const appendComment = await app(jsonRequest(
+            `http://localhost/api/spaces/${spaceId}/revisions/2/comments`,
+            { ciphertext: "cipher:comment-body" },
+            reviewerCapability,
+        ));
+        assertEquals(appendComment.status, 201);
+        const commentId = (await readJsonResponse(appendComment)).comment.id;
+
+        const revisionOneComments = await app(
+            new Request(`http://localhost/api/spaces/${spaceId}/revisions/1/comments`, {
+                headers: { authorization: `Bearer ${reviewerCapability}` },
+            }),
+        );
+        assertEquals((await readJsonResponse(revisionOneComments)).comments.length, 0);
+
+        const resolveComment = await app(jsonRequest(
+            `http://localhost/api/spaces/${spaceId}/comments/${commentId}/state`,
+            { action: "resolve" },
+            reviewerCapability,
+        ));
+        assertEquals(resolveComment.status, 200);
+        assertEquals((await readJsonResponse(resolveComment)).comment.resolved, true);
+
+        const reopenComment = await app(jsonRequest(
+            `http://localhost/api/spaces/${spaceId}/comments/${commentId}/state`,
+            { action: "reopen" },
+            reviewerCapability,
+        ));
+        assertEquals(reopenComment.status, 200);
+        assertEquals((await readJsonResponse(reopenComment)).comment.resolved, false);
+
+        const closeResponse = await app(jsonRequest(
+            `http://localhost/api/spaces/${spaceId}/lifecycle`,
+            { action: "close" },
+            maintainerCapability,
+        ));
+        assertEquals(closeResponse.status, 200);
+        assertEquals((await readJsonResponse(closeResponse)).status, "closed");
+
+        const closedComment = await app(jsonRequest(
+            `http://localhost/api/spaces/${spaceId}/revisions/2/comments`,
+            { ciphertext: "cipher:late-comment" },
+            reviewerCapability,
+        ));
+        assertEquals(closedComment.status, 409);
+        const closedState = await app(jsonRequest(
+            `http://localhost/api/spaces/${spaceId}/comments/${commentId}/state`,
+            { action: "resolve" },
+            reviewerCapability,
+        ));
+        assertEquals(closedState.status, 409);
+
+        const rows = database.handle.prepare(
+            "SELECT payload_ciphertext AS value FROM space_revisions UNION ALL SELECT ciphertext AS value FROM space_comments UNION ALL SELECT capability_hash AS value FROM space_capabilities",
+        ).all();
+        const storedText = JSON.stringify(rows);
+        assertEquals(storedText.includes("reviewer-secret-capability"), false);
+        assertEquals(storedText.includes("maintainer-secret-capability"), false);
+        assertEquals(storedText.includes("plaintext plan body"), false);
+        assertEquals(storedText.includes("Alice"), false);
+        assertEquals(storedText.includes("original text"), false);
+
+        const invalidPlaintext = await app(jsonRequest("http://localhost/api/spaces", {
+            planId: "plan-2",
+            body: "plaintext plan body",
+            initialRevision: { payloadCiphertext: "cipher:plan" },
+            capabilities: [
+                { scope: "reviewer", capabilityHash: reviewerHash },
+                { scope: "maintainer", capabilityHash: maintainerHash },
+            ],
+        }));
+        assertEquals(invalidPlaintext.status, 400);
+
+        const reviewerDelete = await app(jsonRequest(
+            `http://localhost/api/spaces/${spaceId}/lifecycle`,
+            { action: "delete" },
+            reviewerCapability,
+        ));
+        assertEquals(reviewerDelete.status, 403);
+
+        const deleteResponse = await app(jsonRequest(
+            `http://localhost/api/spaces/${spaceId}/lifecycle`,
+            { action: "delete" },
+            maintainerCapability,
+        ));
+        assertEquals(deleteResponse.status, 200);
+
+        const deletedRead = await app(
+            new Request(`http://localhost/api/spaces/${spaceId}`, {
+                headers: { authorization: `Bearer ${maintainerCapability}` },
+            }),
+        );
+        assertEquals(deletedRead.status, 404);
+    } finally {
+        adapter.close();
     }
 });

@@ -1,8 +1,11 @@
 import { assertEquals, assertThrows } from "@std/assert";
 import {
     normalizeApiErrorPayload,
+    normalizeAppendCommentPayload,
+    normalizeAppendRevisionPayload,
     normalizeCapabilityRecord,
     normalizeCommentStateChangePayload,
+    normalizeCreateSharedSpacePayload,
     normalizeEncryptedCommentRecord,
     normalizeEncryptedPlanPayload,
     normalizeLocalSecretRecord,
@@ -45,10 +48,16 @@ Deno.test("protocol helpers normalize capability, encrypted plan, encrypted comm
         capabilityHash: "sha256:abc",
     });
     assertEquals(
-        normalizeEncryptedPlanPayload({ planId: " plan-1 ", title: " Draft ", body: " encrypted-body " }),
+        normalizeEncryptedPlanPayload({
+            planId: " plan-1 ",
+            title: " Draft ",
+            metadata: { status: "approved", order: 4 },
+            body: " encrypted-body ",
+        }),
         {
             planId: "plan-1",
             title: "Draft",
+            metadata: { status: "approved", order: 4 },
             body: "encrypted-body",
         },
     );
@@ -99,4 +108,32 @@ Deno.test("protocol helpers reject invalid records", () => {
         normalizeEncryptedCommentRecord({ id: "comment", spaceId: "space", ciphertext: "x", createdAt: "now" })
     );
     assertThrows(() => normalizeLocalSecretRecord({ planId: "plan" }));
+});
+
+Deno.test("protocol helpers normalize remote API payloads and reject plaintext fields", () => {
+    assertEquals(
+        normalizeCreateSharedSpacePayload({
+            planId: "plan-1",
+            initialRevision: { payloadCiphertext: "cipher-plan" },
+            capabilities: [
+                { scope: "reviewer", capabilityHash: "sha256:reviewer" },
+                { scope: "maintainer", capabilityHash: "sha256:maintainer" },
+            ],
+        }).initialRevision.payloadCiphertext,
+        "cipher-plan",
+    );
+    assertEquals(normalizeAppendRevisionPayload({ payloadCiphertext: "cipher-rev", expectedRevision: 2 }), {
+        payloadCiphertext: "cipher-rev",
+        expectedRevision: 2,
+    });
+    assertEquals(normalizeAppendCommentPayload({ ciphertext: "cipher-comment" }), { ciphertext: "cipher-comment" });
+    assertThrows(() =>
+        normalizeCreateSharedSpacePayload({
+            planId: "plan-1",
+            body: "plaintext",
+            initialRevision: { payloadCiphertext: "cipher-plan" },
+            capabilities: [{ scope: "reviewer", capabilityHash: "sha256:reviewer" }],
+        })
+    );
+    assertThrows(() => normalizeAppendCommentPayload({ ciphertext: "cipher-comment", authorName: "Alice" }));
 });

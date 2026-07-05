@@ -3,7 +3,7 @@
  * Git worktree helpers for isolated plan execution.
  */
 
-import { basename, join } from "@std/path";
+import { basename, dirname, join } from "@std/path";
 import { HOME_DIR, RUNWEILD_DIR_NAME, WORKTREE_BRANCH_PREFIX, WORKTREE_PATH_PREFIX } from "../constants.js";
 import { encodeCwdForSessionDir } from "./session/root-session.js";
 import { getWorkflowDiff } from "./workflow/git-snapshot.js";
@@ -22,6 +22,18 @@ async function runGit(cwd, args) {
     const err = decoder.decode(stderr);
     if (code !== 0) throw new Error(`git ${args.join(" ")} failed: ${err || out}`.trim());
     return out;
+}
+
+/**
+ * @param {string} cwd
+ * @param {string[]} args
+ * @returns {Promise<{ code: number, stdout: string, stderr: string }>}
+ */
+async function tryGit(cwd, args) {
+    const command = new Deno.Command("git", { args, cwd, stdout: "piped", stderr: "piped" });
+    const { code, stdout, stderr } = await command.output();
+    const decoder = new TextDecoder();
+    return { code, stdout: decoder.decode(stdout), stderr: decoder.decode(stderr) };
 }
 
 /** @param {string} value */
@@ -118,6 +130,60 @@ function findWorktreePathForBranch(porcelainText, branch) {
  */
 async function assertLocalBranchExists(projectRoot, branch) {
     await runGit(projectRoot, ["rev-parse", "--verify", `refs/heads/${branch}`]);
+}
+
+/**
+ * @param {string} projectRoot
+ * @param {string} ref
+ * @returns {Promise<boolean>}
+ */
+async function refExists(projectRoot, ref) {
+    return (await tryGit(projectRoot, ["rev-parse", "--verify", "--quiet", ref])).code === 0;
+}
+
+/**
+ * Prepare a user-authored execution target branch as an unambiguous local ref.
+ *
+ * @param {string} projectRoot
+ * @param {string} branch
+ * @returns {Promise<string>}
+ */
+export async function prepareTargetBranchRef(projectRoot, branch) {
+    const target = String(branch || "").trim();
+    if (!target || target === "HEAD") throw new Error("Target branch must not be empty or HEAD");
+
+    const check = await tryGit(projectRoot, ["check-ref-format", "--branch", target]);
+    if (check.code !== 0) {
+        throw new Error(`Invalid target branch name ${target}: ${check.stderr || check.stdout}`.trim());
+    }
+
+    const localRef = `refs/heads/${target}`;
+    if (await refExists(projectRoot, localRef)) return localRef;
+
+    const hasOrigin = (await tryGit(projectRoot, ["remote", "get-url", "origin"])).code === 0;
+    if (hasOrigin) {
+        const remoteRef = `refs/remotes/origin/${target}`;
+        if (await refExists(projectRoot, remoteRef)) {
+            await runGit(projectRoot, ["branch", "--track", target, `origin/${target}`]);
+            return localRef;
+        }
+
+        const remoteLookup = await tryGit(projectRoot, ["ls-remote", "--exit-code", "--heads", "origin", target]);
+        if (remoteLookup.code === 0) {
+            await runGit(projectRoot, ["fetch", "origin", `refs/heads/${target}:refs/remotes/origin/${target}`]);
+            await runGit(projectRoot, ["branch", "--track", target, `origin/${target}`]);
+            return localRef;
+        }
+        if (remoteLookup.code !== 2) {
+            throw new Error(`Could not inspect origin/${target}: ${remoteLookup.stderr || remoteLookup.stdout}`.trim());
+        }
+    }
+
+    if (!(await refExists(projectRoot, "refs/heads/main"))) {
+        throw new Error(`Cannot create target branch ${target}: refs/heads/main does not exist`);
+    }
+    await runGit(projectRoot, ["branch", target, "refs/heads/main"]);
+    return localRef;
 }
 
 /**
@@ -551,7 +617,7 @@ async function mergeExecutionWorktreeIntoTargetBranch({
         if (published) return;
     }
 
-    const parent = resolveWorktreeParent(projectRoot, undefined);
+    const parent = worktreePath ? dirname(worktreePath) : resolveWorktreeParent(projectRoot, undefined);
     const repoName = basename(projectRoot);
     let attempt = 0;
     while (attempt < maxAttempts) {

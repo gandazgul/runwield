@@ -22,6 +22,7 @@ Deno.test("runNewCommand creates and installs a fresh root session", async () =>
     const infos = [];
     let cleared = false;
     let installed = false;
+    let disposedRoot = false;
     /** @type {unknown[]} */
     const createArgs = [];
     /** @type {string[]} */
@@ -59,7 +60,9 @@ Deno.test("runNewCommand creates and installs a fresh root session", async () =>
                     createArgs.push(mode, cwd);
                     return Promise.resolve(manager);
                 },
-                /* setRootSessionManager intentionally unused by HostedSession path */
+                disposeRootAgentSessionForNewSession: () => {
+                    disposedRoot = true;
+                },
                 setTerminalTitleForSession: (/** @type {any} */ sessionManager, /** @type {string} */ cwd) => {
                     titles.push(`${sessionManager.getSessionName?.() || cwd}`);
                     return "wld - build coverage";
@@ -68,6 +71,7 @@ Deno.test("runNewCommand creates and installs a fresh root session", async () =>
         }),
     );
 
+    assertEquals(disposedRoot, true);
     assertEquals(createArgs, ["new", Deno.cwd()]);
     assertEquals(infos, ["build coverage"]);
     assertEquals(installed, true);

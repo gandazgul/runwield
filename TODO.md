@@ -8,10 +8,17 @@
 
 ### P1 - Core Workflow UX
 
-- [ ] Finish Plan Lifecycle UX polish: status browsing, recovery paths for `in_progress` / `failed` / `implemented`,
-      validation reports, re-review flows, and "what changed since approval?" summaries. Canonical lifecycle context:
-      [docs/plan-lifecycle.md](docs/plan-lifecycle.md).
-- [ ] Expose compaction settings and make the current compaction behavior easier to inspect:
+- Workspace recovery UX for in_progress / failed / implemented is not really there. Workspace has lifecycle mutations,
+  but not the richer recovery menu/actions from CLI.
+- Validation reports appear not to be first-class persisted/displayed reports. Current UI mostly exposes failureReason,
+  worktreeStatus, timestamps, and metadata.
+- “What changed since approval?” summaries are not implemented as stated. There is:
+  - affected-path commit warning before execution using updatedAt/createdAt
+  - recovery diff since executionBaselineTree
+  - but not a dedicated “since approval” summary.
+- Re-review flows in Workspace are limited; CLI has the meaningful flow.
+  [docs/plan-lifecycle.md](docs/plan-lifecycle.md).
+- [x] Expose compaction settings and make the current compaction behavior easier to inspect:
       [docs/prd/compaction-PRD.md](docs/prd/compaction-PRD.md).
 - [x] Add `/reload` to refresh dynamic system-prompt content on the live root `AgentSession` after memory, skill, or
       `RUNWEILD.md` changes.

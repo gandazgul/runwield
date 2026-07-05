@@ -14,7 +14,6 @@ affectedPaths:
     - "src/shared/interactive/message-hydration.test.js"
 frontend: false
 createdAt: "2026-07-03T18:03:46.154Z"
-updatedAt: "2026-07-05T00:56:25.425Z"
 status: "verified"
 origin: "internal"
 parentPlan: "session-host-multi-session-refactor"
@@ -24,6 +23,9 @@ dependencies:
 verifiedAt: "2026-07-05T00:56:25.425Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
+updatedAt: "2026-07-05T14:29:31.009Z"
+restoredAt: "2026-07-05T14:29:31.009Z"
+restoredFromPath: "plans/archived/session-host-multi-session-refactor/03-tui-single-hostedsession-adapter.md"
 ---
 
 # TUI Single HostedSession Adapter

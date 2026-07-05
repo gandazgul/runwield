@@ -59,6 +59,7 @@ import {
 import { getCustomSetting, getMergedCustomSetting, getSettingsDir, getSettingsManager } from "../settings.js";
 import { modelSupportsImageInput, prepareImagesForModel, resolveVisionFallbackModel } from "./image-attachments.js";
 import { recordActiveAgent } from "./active-agent-session.js";
+import { getRootAgentSession, setRootAgentName, setRootAgentSession } from "./session-state.js";
 import { getPackagePromptTemplatePaths, resolveInstalledPackagePromptResources } from "../package-resources.js";
 import { getWldExtensionPaths, resolveInstalledWldExtensionResources } from "../extensions/wld-extension-manifest.js";
 
@@ -1995,8 +1996,40 @@ export function __getRootSessionMetadataForTests(session) {
 }
 
 /**
+ * Dispose and clear the active root AgentSession for an explicit fresh-session
+ * boundary. This is intentionally separate from ensureRootAgentSession() so
+ * agent switches, model switches, and reloads cannot accidentally kill root
+ * context. /new is the only production caller.
+ *
+ * @param {import('./hosted-session.js').HostedSession} [hostedSession]
+ */
+export function disposeRootAgentSessionForNewSession(hostedSession) {
+    const existing = /** @type {any} */ (hostedSession?.getRootAgentSession?.() || getRootAgentSession());
+    if (existing) {
+        const meta = rootSessionMetadata.get(existing);
+        try {
+            meta?.subscriberState.unsubscribe();
+        } catch (_e) { /* ignore */ }
+        try {
+            existing.dispose();
+        } catch (_e) { /* ignore */ }
+        rootSessionMetadata.delete(existing);
+    }
+    if (hostedSession) {
+        hostedSession.setRootAgentSession(null);
+        hostedSession.setRootAgentName(null);
+        return;
+    }
+    setRootAgentSession(null);
+    setRootAgentName(null);
+}
+
+/**
  * Eagerly build and install the root AgentSession for the given agent.
- * If a root already exists, it is disposed first.
+ * If a root already exists, it is detached from RunWield UI state only after
+ * the replacement is ready. Do not dispose the old root here: agent switches,
+ * model switches, and reloads must not kill root sessions. Explicit fresh
+ * sessions (for example /new) own any intentional disposal/reset behavior.
  *
  * @param {Object} opts
  * @param {import('./hosted-session.js').HostedSession} [opts.hostedSession]
@@ -2020,19 +2053,7 @@ export function __getRootSessionMetadataForTests(session) {
 export async function ensureRootAgentSession(opts) {
     const hostedSession = requireHostedSession(opts.hostedSession, "ensureRootAgentSession");
     const existing = /** @type {any} */ (hostedSession.getRootAgentSession());
-    if (existing) {
-        const meta = rootSessionMetadata.get(existing);
-        try {
-            meta?.subscriberState.unsubscribe();
-        } catch (_e) { /* ignore */ }
-        try {
-            existing.dispose();
-        } catch (_e) { /* ignore */ }
-        rootSessionMetadata.delete(existing);
-        hostedSession.setRootAgentSession(null);
-        hostedSession.setRootAgentName(null);
-    }
-
+    const existingMeta = existing ? rootSessionMetadata.get(existing) : undefined;
     const rootProjectStateContext = opts.projectStateContext ?? hostedSession.getProjectStateContext();
     const buildAgentSessionFn = opts._buildAgentSession || buildAgentSession;
     const attachUiSubscribersFn = opts._attachUiSubscribers || attachUiSubscribers;
@@ -2054,6 +2075,13 @@ export async function ensureRootAgentSession(opts) {
         allowReturnToRouter: opts.allowReturnToRouter ?? true,
     });
     const subscriberState = attachUiSubscribersFn(session, agentDef, opts.uiAPI, opts.debugLogPath, hostedSession);
+
+    if (existing) {
+        try {
+            existingMeta?.subscriberState.unsubscribe();
+        } catch (_e) { /* ignore */ }
+        rootSessionMetadata.delete(existing);
+    }
 
     const finalModelForUi = resolvedModel ? `${resolvedModel.provider}/${resolvedModel.id}` : undefined;
     hostedSession.resetAgentInfoStack(agentDef.displayName, finalModelForUi, resolvedModel?.provider || "");

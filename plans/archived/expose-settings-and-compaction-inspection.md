@@ -8,7 +8,6 @@ affectedPaths:
     - "src/shared/settings.js"
 frontend: false
 createdAt: "2026-07-04T11:03:32-04:00"
-updatedAt: "2026-07-04T16:58:36.998Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-07-04T16:04:55.975Z"
@@ -17,6 +16,10 @@ humanReviewMode: "ask"
 humanReviewDecision: "skipped"
 routingIntent: "FEATURE"
 sessionName: "expose compaction settings"
+updatedAt: "2026-07-05T04:13:26.531Z"
+archivedAt: "2026-07-05T04:13:26.531Z"
+archivedFromStatus: "verified"
+archivedFromPath: "plans/expose-settings-and-compaction-inspection.md"
 ---
 
 # Add Settings Command and Compaction Inspection

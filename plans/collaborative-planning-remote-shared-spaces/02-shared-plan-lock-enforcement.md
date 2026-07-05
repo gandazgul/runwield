@@ -15,7 +15,6 @@ affectedPaths:
     - "src/shared/collaboration/"
 frontend: false
 createdAt: "2026-07-04T14:52:22.901Z"
-updatedAt: "2026-07-05T02:25:48.990Z"
 status: "verified"
 origin: "internal"
 parentPlan: "collaborative-planning-remote-shared-spaces"
@@ -25,6 +24,9 @@ dependencies:
 verifiedAt: "2026-07-05T02:25:48.990Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
+updatedAt: "2026-07-05T14:29:28.401Z"
+restoredAt: "2026-07-05T14:29:28.401Z"
+restoredFromPath: "plans/archived/collaborative-planning-remote-shared-spaces/02-shared-plan-lock-enforcement.md"
 ---
 
 # Shared Plan Lock Enforcement

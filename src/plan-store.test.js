@@ -1,6 +1,7 @@
 import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import {
     archivePlan,
+    archivePlansByStatus,
     countChildPlanProgress,
     ensurePlanIdentity,
     ensurePlansDir,
@@ -646,6 +647,104 @@ testWithFs("archivePlan blocks recoverable worktree states and refuses overwrite
     }
 });
 
+testWithFs("archivePlansByStatus archives matching parents with all children and reports no-op matches", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "epic", "# Epic", {
+            classification: "PROJECT",
+            type: "epic",
+            status: "verified",
+            summary: "Done",
+        });
+        await savePlan(cwd, "epic/01-child", "# Child", {
+            parentPlan: "epic",
+            status: "draft",
+            summary: "Child",
+        });
+        await savePlan(cwd, "standalone", "# Standalone", { status: "verified", summary: "Done" });
+        await savePlan(cwd, "draft", "# Draft", { status: "draft" });
+        await savePlan(cwd, "closed", "# Closed", { status: "closed_without_verification" });
+
+        const result = await archivePlansByStatus(cwd, "verified", {
+            reason: "done",
+            now: "2026-07-04T00:00:00.000Z",
+        });
+
+        assertEquals(result.matched.map((plan) => plan.name), ["epic", "epic/01-child", "standalone"]);
+        assertEquals(result.archived.map((plan) => plan.relativePath), [
+            "plans/archived/epic.md",
+            "plans/archived/epic/01-child.md",
+            "plans/archived/standalone.md",
+        ]);
+        assertEquals(result.failed, []);
+        assertEquals((await listPlans(cwd)).map((plan) => plan.name), ["closed", "draft"]);
+        const archivedChild = await loadArchivedPlan(cwd, "epic/01-child");
+        assertEquals(archivedChild?.attrs.archivedAt, "2026-07-04T00:00:00.000Z");
+        assertEquals(archivedChild?.attrs.archiveReason, "done");
+        assertEquals(archivedChild?.attrs.archivedFromStatus, "draft");
+
+        const noOp = await archivePlansByStatus(cwd, "verified", { now: "2026-07-05T00:00:00.000Z" });
+        assertEquals(noOp, { matched: [], archived: [], failed: [] });
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+testWithFs("archivePlansByStatus ignores children when parent status does not match", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "epic", "# Epic", {
+            classification: "PROJECT",
+            type: "epic",
+            status: "draft",
+        });
+        await savePlan(cwd, "epic/01-child", "# Child", { parentPlan: "epic", status: "verified" });
+
+        const result = await archivePlansByStatus(cwd, "verified", { now: "2026-07-04T00:00:00.000Z" });
+
+        assertEquals(result, { matched: [], archived: [], failed: [] });
+        assertEquals((await listPlans(cwd)).map((plan) => plan.name), ["epic", "epic/01-child"]);
+        assertEquals(await listArchivedPlans(cwd), []);
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+testWithFs("archivePlansByStatus keeps archiving safe matches when other matches fail", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "ok", "# OK", { status: "verified" });
+        await savePlan(cwd, "blocked", "# Blocked", { status: "verified", worktreeStatus: "active" });
+        await savePlan(cwd, "dup", "# Dup", { status: "verified" });
+        await savePlan(cwd, "archived/dup", "# Existing", { status: "verified" });
+
+        const result = await archivePlansByStatus(cwd, "verified", { now: "2026-07-04T00:00:00.000Z" });
+
+        assertEquals(result.matched.map((plan) => plan.name), ["blocked", "dup", "ok"]);
+        assertEquals(result.archived, [{ name: "ok", relativePath: "plans/archived/ok.md" }]);
+        assertEquals(result.failed.map((plan) => plan.name), ["blocked", "dup"]);
+        assertStringIncludes(result.failed[0].message, "worktreeStatus active");
+        assertStringIncludes(result.failed[1].message, "already exists");
+        assertEquals((await listPlans(cwd)).map((plan) => plan.name), ["blocked", "dup"]);
+        assertEquals((await listArchivedPlans(cwd)).map((plan) => plan.name), ["dup", "ok"]);
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+testWithFs("archivePlansByStatus validates requested lifecycle status", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await assertRejects(
+            () => archivePlansByStatus(cwd, /** @type {any} */ ("verfied")),
+            Error,
+            "Unknown Plan status",
+        );
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
 testWithFs(
     "restoreArchivedPlan moves archived plans back without changing body and refuses active overwrites",
     async () => {
@@ -658,6 +757,10 @@ testWithFs(
             assertEquals(restored.relativePath, "plans/done.md");
             const loaded = await loadPlan(cwd, "done");
             assertEquals(loaded?.body, "# Done\n\nBody");
+            assertEquals(loaded?.attrs.archivedAt, undefined);
+            assertEquals(loaded?.attrs.archiveReason, undefined);
+            assertEquals(loaded?.attrs.archivedFromStatus, undefined);
+            assertEquals(loaded?.attrs.archivedFromPath, undefined);
             assertEquals(loaded?.attrs.restoredAt, "2026-06-20T00:00:00.000Z");
             assertEquals(loaded?.attrs.restoredFromPath, "plans/archived/done.md");
 
@@ -755,6 +858,7 @@ testWithFs("saveChildFeaturePlans creates draft child FEATURE plans with order a
                 devServerCommand: "deno task workspace:dev",
                 devServerUrl: "http://localhost:5173",
                 devServerHmr: true,
+                worktreeBaseBranch: "feature-base",
                 dependencies: [],
                 content: "# Preserve Epic and child metadata\n\n## Context\nDraft slice",
             },
@@ -763,6 +867,7 @@ testWithFs("saveChildFeaturePlans creates draft child FEATURE plans with order a
                 title: "Load child FEATURES",
                 summary: "Let load-plan execute child features",
                 affectedPaths: ["src/cmd/load-plan/index.js"],
+                worktreeBaseBranch: null,
                 dependencies: ["project-breakdown-epic/01-preserve-epic-and-child-metadata"],
                 content: "# Load child FEATURES\n\n## Context\nDraft slice",
             },
@@ -782,6 +887,7 @@ testWithFs("saveChildFeaturePlans creates draft child FEATURE plans with order a
             devServerCommand: "deno task workspace:dev",
             devServerUrl: "http://localhost:5173",
             devServerHmr: true,
+            worktreeBaseBranch: "feature-base",
         });
 
         const first = await loadPlan(cwd, "project-breakdown-epic/01-preserve-epic-and-child-metadata");
@@ -794,8 +900,12 @@ testWithFs("saveChildFeaturePlans creates draft child FEATURE plans with order a
         assertEquals(first?.attrs.devServerCommand, "deno task workspace:dev");
         assertEquals(first?.attrs.devServerUrl, "http://localhost:5173");
         assertEquals(first?.attrs.devServerHmr, true);
+        assertEquals(first?.attrs.worktreeBaseBranch, "feature-base");
+
+        assertEquals(results[1].metadata.worktreeBaseBranch, null);
 
         const second = await loadPlan(cwd, "project-breakdown-epic/02-load-child-features");
+        assertEquals(second?.attrs.worktreeBaseBranch, undefined);
         assertEquals(second?.attrs.dependencies, ["project-breakdown-epic/01-preserve-epic-and-child-metadata"]);
     } finally {
         await Deno.remove(cwd, { recursive: true });

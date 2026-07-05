@@ -396,9 +396,9 @@ export function setActiveAgent(hostedSession, agentName, handler, uiAPI, agentMo
 }
 
 /**
- * If a pending root swap is queued, dispose the current root and build a new
- * one for the target agent. Safe to call when the root is idle (between user
- * turns).
+ * If a pending root swap is queued, build a new root for the target agent
+ * without disposing the current root. Safe to call when the root is idle
+ * (between user turns).
  *
  * The footer (active agent name + model) is updated as a side-effect of
  * `buildAgentSession` calling `uiAPI.setAgentInfo`, so it changes exactly when

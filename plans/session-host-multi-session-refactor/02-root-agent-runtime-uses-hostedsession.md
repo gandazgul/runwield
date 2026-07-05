@@ -15,7 +15,6 @@ affectedPaths:
     - "src/shared/session/image-attachments.test.js"
 frontend: false
 createdAt: "2026-07-03T18:03:46.154Z"
-updatedAt: "2026-07-04T22:19:29.403Z"
 status: "verified"
 origin: "internal"
 parentPlan: "session-host-multi-session-refactor"
@@ -26,6 +25,9 @@ verifiedAt: "2026-07-04T22:19:29.403Z"
 humanReviewMode: "ask"
 humanReviewDecision: "approved"
 humanReviewedAt: "2026-07-04T22:19:26.599Z"
+updatedAt: "2026-07-05T14:29:30.333Z"
+restoredAt: "2026-07-05T14:29:30.333Z"
+restoredFromPath: "plans/archived/session-host-multi-session-refactor/02-root-agent-runtime-uses-hostedsession.md"
 ---
 
 # Root Agent Runtime Uses HostedSession

@@ -320,13 +320,15 @@ export const commandRegistry = {
     [COMMAND_NAMES.PLANS]: {
         name: COMMAND_NAMES.PLANS,
         displayName: "Plans",
-        description: "List, read, archive, restore, or launch the local Plans Workspace",
-        summary: "Manage saved plans and start the read-only local browser Workspace.",
+        description: "List, read, archive, restore, share, or launch the local Plans Workspace",
+        summary: "Manage saved plans, publish Shared Spaces, and start the read-only local browser Workspace.",
         usage: [
             `${bin("plans")}`,
             `${bin("plans read <plan-name-or-id>")}`,
+            `${bin("plans share <plan-name-or-id> [--plan-server <url>] [--project-secrets]")}`,
             `${bin("plans archive")}`,
             `${bin("plans archive <plan-name-or-id> [--reason <text>] [--force]")}`,
+            `${bin("plans archive --all --status <status> [--reason <text>] [--force]")}`,
             `${bin("plans archive restore <archived-plan-name-or-id> [--to <plan-name>]")}`,
             `${bin("plans ui [--bind <host>|--host <host>] [--port <port>] [--no-open]")}`,
             `${bin("plans --help")}`,
@@ -335,7 +337,10 @@ export const commandRegistry = {
         notes: [
             "Default behavior lists active Plans only; plaintext archives under plans/archived/ are hidden from this list.",
             "Use plans archive with no target to list archived Plans, and plans read to inspect active or archived markdown.",
+            "Use plans share to publish an active saved Plan to a Plan Server; --plan-server overrides planServerUrl for one invocation.",
+            "Share output prints secret reviewer and maintainer URLs once; anyone with the maintainer URL can pull, push, close, or unshare.",
             "Archive moves verified and closed_without_verification Plans by default; other statuses require --force and recoverable worktree states stay blocked.",
+            "Use plans archive --all --status verified for best-effort bulk cleanup of active Plans with an exact status match.",
             "The Workspace binds to 127.0.0.1 and a random available port by default.",
             "Use --bind/--host only for explicit non-loopback exposure; RunWield prints a plaintext Plan-content warning.",
             "Workspace HTML and APIs require the per-server token in the launch URL or x-runwield-workspace-token header.",

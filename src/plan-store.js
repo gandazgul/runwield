@@ -157,6 +157,7 @@ function getStoredPlanLocation(cwd, planName) {
  * @property {string|null} [devServerCommand] - Project dev/preview command for browser verification, if known.
  * @property {string|null} [devServerUrl] - Local URL expected for browser verification, if known.
  * @property {boolean|null} [devServerHmr] - Whether the dev server is expected to support hot module reload.
+ * @property {string|null} [worktreeBaseBranch] - Optional target execution branch inherited from or overriding the parent Epic.
  * @property {string[]} dependencies - Sibling child plan names or identifiers required first.
  * @property {string} content - Planner-format markdown body for the child FEATURE.
  * @property {number} [order] - Optional stable execution order used in front matter and the file name.
@@ -170,7 +171,7 @@ function getStoredPlanLocation(cwd, planName) {
  * @property {string} title - Human-readable child plan title.
  * @property {"created" | "updated"} action - Whether the derived file existed before this write.
  * @property {string[]} dependencies - Serialized child FEATURE dependencies.
- * @property {Partial<PlanFrontMatter> & { classification: "FEATURE", status: "draft", parentPlan: string, order?: number, affectedPaths: string[] }} metadata - Front matter values owned by child materialization.
+ * @property {Partial<PlanFrontMatter> & { classification: "FEATURE", status: "draft", parentPlan: string, order?: number, affectedPaths: string[], worktreeBaseBranch?: string|null }} metadata - Front matter values owned by child materialization.
  */
 
 /**
@@ -372,6 +373,20 @@ function formatFrontMatter(fm) {
     return lines.join("\n");
 }
 
+const PLAN_STATUSES = new Set([
+    "draft",
+    "feedback",
+    "approved",
+    "ready_for_decomposition",
+    "ready_for_work",
+    "in_progress",
+    "failed",
+    "implemented",
+    "verified",
+    "closed_without_verification",
+    "on_hold",
+]);
+
 /**
  * Normalize legacy statuses from older saved plans into the current lifecycle.
  *
@@ -381,20 +396,7 @@ function formatFrontMatter(fm) {
 function normalizePlanStatus(status) {
     if (status === "completed") return "verified";
     if (status === "in_review") return "feedback";
-    const allowed = new Set([
-        "draft",
-        "feedback",
-        "approved",
-        "ready_for_decomposition",
-        "ready_for_work",
-        "in_progress",
-        "failed",
-        "implemented",
-        "verified",
-        "closed_without_verification",
-        "on_hold",
-    ]);
-    if (status && allowed.has(status)) {
+    if (status && PLAN_STATUSES.has(status)) {
         return /** @type {PlanFrontMatter["status"]} */ (status);
     }
     return DEFAULT_FRONT_MATTER.status;
@@ -1018,7 +1020,7 @@ export async function saveChildFeaturePlans(cwd, epicPlanName, children, options
 
         const dependencies = normalizeStringList(child.dependencies) || [];
         const affectedPaths = normalizeStringList(child.affectedPaths) || [];
-        /** @type {Partial<PlanFrontMatter> & { classification: "FEATURE", status: "draft", parentPlan: string, order?: number, affectedPaths: string[] }} */
+        /** @type {Partial<PlanFrontMatter> & { classification: "FEATURE", status: "draft", parentPlan: string, order?: number, affectedPaths: string[], worktreeBaseBranch?: string|null }} */
         const metadata = {
             classification: /** @type {const} */ ("FEATURE"),
             status: /** @type {const} */ ("draft"),
@@ -1038,10 +1040,16 @@ export async function saveChildFeaturePlans(cwd, epicPlanName, children, options
             ? null
             : undefined;
         const devServerHmr = child.devServerHmr === null ? null : normalizeOptionalBoolean(child.devServerHmr);
+        const worktreeBaseBranch = typeof child.worktreeBaseBranch === "string"
+            ? child.worktreeBaseBranch.trim()
+            : child.worktreeBaseBranch === null
+            ? null
+            : undefined;
         if (frontend !== undefined) metadata.frontend = frontend;
         if (devServerCommand !== undefined) metadata.devServerCommand = devServerCommand;
         if (devServerUrl !== undefined) metadata.devServerUrl = devServerUrl;
         if (devServerHmr !== undefined) metadata.devServerHmr = devServerHmr;
+        if (worktreeBaseBranch !== undefined) metadata.worktreeBaseBranch = worktreeBaseBranch || null;
         const path = await savePlan(cwd, name, child.content, {
             ...metadata,
             summary: child.summary,
@@ -1490,6 +1498,97 @@ export async function archivePlan(cwd, planNameOrId, options = {}) {
 }
 
 /**
+ * @typedef {Object} BulkArchivePlanEntry
+ * @property {string} name
+ * @property {string} relativePath
+ */
+
+/**
+ * @typedef {BulkArchivePlanEntry & { message: string }} BulkArchivePlanFailure
+ */
+
+/**
+ * @typedef {Object} BulkArchivePlansResult
+ * @property {BulkArchivePlanEntry[]} matched
+ * @property {BulkArchivePlanEntry[]} archived
+ * @property {BulkArchivePlanFailure[]} failed
+ */
+
+/**
+ * Archive active parent or standalone Plans whose status exactly matches the requested lifecycle status.
+ *
+ * Child FEATURE statuses are ignored for matching. When a parent Plan matches,
+ * its child FEATURE Plans are archived with it regardless of child lifecycle status.
+ * Best-effort semantics: successful archives are moved even when another matching
+ * parent or child Plan fails.
+ *
+ * @param {string} cwd
+ * @param {PlanFrontMatter["status"]} status
+ * @param {ArchivePlanOptions} [options]
+ * @returns {Promise<BulkArchivePlansResult>}
+ */
+export async function archivePlansByStatus(cwd, status, options = {}) {
+    if (!PLAN_STATUSES.has(status)) {
+        throw new Error(`Unknown Plan status for bulk archive: ${status}`);
+    }
+
+    const plans = await listPlans(cwd);
+    /** @type {Map<string, Array<{ name: string, path: string, attrs: PlanFrontMatter }>>} */
+    const childrenByParent = new Map();
+    for (const plan of plans) {
+        if (!isChildFeaturePlan(plan)) continue;
+        const parentPlan = plan.attrs.parentPlan || "";
+        const children = childrenByParent.get(parentPlan) || [];
+        children.push(plan);
+        childrenByParent.set(parentPlan, children);
+    }
+    for (const children of childrenByParent.values()) children.sort(compareChildPlansByOrder);
+
+    const matchingParentPlans = plans
+        .filter((plan) => !isChildFeaturePlan(plan) && plan.attrs.status === status)
+        .sort((a, b) => a.name.localeCompare(b.name));
+    const matchingPlans = matchingParentPlans.flatMap((plan) => [plan, ...(childrenByParent.get(plan.name) || [])]);
+    const matched = matchingPlans.map((plan) => ({
+        name: plan.name,
+        relativePath: projectRelativePath(cwd, plan.path),
+    }));
+    const now = options.now || new Date().toISOString();
+    /** @type {Array<{ name: string, relativePath: string }>} */
+    const archived = [];
+    /** @type {Array<{ name: string, relativePath: string, message: string }>} */
+    const failed = [];
+
+    for (const parentPlan of matchingParentPlans) {
+        try {
+            const result = await archivePlan(cwd, parentPlan.name, { ...options, now });
+            archived.push({ name: result.name, relativePath: result.relativePath });
+        } catch (error) {
+            failed.push({
+                name: parentPlan.name,
+                relativePath: projectRelativePath(cwd, parentPlan.path),
+                message: formatErrorMessage(error),
+            });
+            continue;
+        }
+
+        for (const childPlan of childrenByParent.get(parentPlan.name) || []) {
+            try {
+                const result = await archivePlan(cwd, childPlan.name, { ...options, force: true, now });
+                archived.push({ name: result.name, relativePath: result.relativePath });
+            } catch (error) {
+                failed.push({
+                    name: childPlan.name,
+                    relativePath: projectRelativePath(cwd, childPlan.path),
+                    message: formatErrorMessage(error),
+                });
+            }
+        }
+    }
+
+    return { matched, archived, failed };
+}
+
+/**
  * List archived Plans under plans/archived/.
  * @param {string} cwd
  * @returns {Promise<ArchivedPlanEntry[]>}
@@ -1586,6 +1685,10 @@ export async function restoreArchivedPlan(cwd, archivedPlanNameOrId, options = {
 
     const now = options.now || new Date().toISOString();
     const markdown = mergeFrontMatterText(archived.markdown, {
+        archivedAt: undefined,
+        archiveReason: undefined,
+        archivedFromStatus: undefined,
+        archivedFromPath: undefined,
         restoredAt: now,
         restoredFromPath: projectRelativePath(cwd, archived.path),
         updatedAt: now,

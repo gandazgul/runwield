@@ -26,12 +26,20 @@ The first command surface is explicit and reversible:
   `plans/`.
 - `wld plans read <plan-name-or-id>` inspects active or archived Plans.
 
+A later follow-up adds exact-status bulk archival:
+
+- `wld plans archive --all --status <status> [--reason <text>] [--force]` archives active Plans whose lifecycle status
+  exactly matches `<status>`.
+
 Archive and restore metadata is recorded in front matter (`archivedAt`, `archiveReason`, `archivedFromStatus`,
 `archivedFromPath`, `restoredAt`, `restoredFromPath`) without adding an `archived` status.
 
 `verified` and `closed_without_verification` Plans can be archived without `--force`. Other statuses require `--force`.
 Plans with recoverable worktree states (`active`, `execution_failed`, `validation_failed`, or `merge_conflict`) are
 blocked until a separate abandon/cleanup flow handles that recovery state.
+
+Bulk archival is best effort. Each exact-status match is attempted independently; safe Plans move even when another
+match is blocked. If any match fails, the CLI prints both successes and failures, then exits non-zero after the summary.
 
 ## Non-decisions
 
@@ -41,8 +49,8 @@ blocked until a separate abandon/cleanup flow handles that recovery state.
   unified UI/search surface later.
 - No one-off LanceDB or full-text archive index is added. Archived markdown remains plain text and can be indexed later
   by a broader search system.
-- No bulk Epic/child archival is added. Archiving an Epic does not automatically archive child FEATURE Plans, and
-  archiving a child does not modify its Epic.
+- No cascading Epic/child archival is added. Archiving an Epic does not automatically archive child FEATURE Plans, and
+  archiving a child does not modify its Epic. Bulk status archival still evaluates each matching Plan independently.
 
 ## Consequences
 

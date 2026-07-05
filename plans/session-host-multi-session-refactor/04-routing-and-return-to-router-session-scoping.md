@@ -12,21 +12,16 @@ affectedPaths:
     - "src/tools/__tests__/return-to-router.test.js"
 frontend: false
 createdAt: "2026-07-03T18:03:46.155Z"
-updatedAt: "2026-07-05T14:47:17.960Z"
-status: "in_progress"
+updatedAt: "2026-07-05T16:21:22.366Z"
+status: "verified"
 origin: "internal"
 parentPlan: "session-host-multi-session-refactor"
 order: 4
 dependencies:
     - "tui-single-hosted-session-adapter"
-humanReviewMode: null
-humanReviewDecision: null
-executionBaselineTree: "5e41321c3edfe9fad2c4fd37bc3ab67e8e7e4405"
-worktreeId: "174cd38b"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-harns--/harns-runwield-session-host-multi-session-refactor-04-routing-a-174cd38b"
-worktreeBranch: "runwield/worktree/session-host-multi-session-refactor-04-routing-a-174cd38b"
-worktreeBaseBranch: "multi-session-refactor"
-worktreeStatus: "active"
+verifiedAt: "2026-07-05T16:21:22.366Z"
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
 ---
 
 # Routing and Return-to-Router Session Scoping
