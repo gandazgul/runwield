@@ -10,17 +10,14 @@ affectedPaths:
     - "src/plan-store.js"
 frontend: false
 createdAt: "2026-07-05T01:12:56-04:00"
-updatedAt: "2026-07-05T15:37:39.588Z"
-status: "in_progress"
+updatedAt: "2026-07-05T16:40:02.103Z"
+status: "implemented"
 origin: "internal"
-humanReviewMode: null
-humanReviewDecision: null
-executionBaselineTree: "7c050fc386678885edda06304709d91ba2c34b09"
-worktreeId: "c9b37558"
+failureReason: "Primary checkout has uncommitted changes that overlap execution worktree changes; refusing to merge: src/shared/worktree.js, src/shared/worktree.test.js"
 worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-harns--/harns-runwield-branch-specific-plan-execution-c9b37558"
 worktreeBranch: "runwield/worktree/branch-specific-plan-execution-c9b37558"
 worktreeBaseBranch: "main"
-worktreeStatus: "active"
+worktreeStatus: "merge_conflict"
 ---
 
 # Branch-Specific Plan Execution
