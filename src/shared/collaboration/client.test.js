@@ -90,3 +90,42 @@ Deno.test("client redacts network failure messages", async () => {
     assert(error instanceof Error);
     assert(!error.message.includes("secret-cap"));
 });
+
+Deno.test("client typed methods use Shared Space API paths", async () => {
+    /** @type {{ url: string, method: string, body: BodyInit | null | undefined }[]} */
+    const calls = [];
+    const client = createCollaborationClient({
+        serverUrl: "https://plans.example.test",
+        bearerCapability: "raw-capability",
+        fetch: fakeFetch((url, init) => {
+            calls.push({ url, method: init.method ?? "GET", body: init.body });
+            return Response.json({ ok: true });
+        }),
+    });
+    await client.createSharedSpace({
+        planId: "plan-1",
+        initialRevision: { payloadCiphertext: "cipher-plan" },
+        capabilities: [
+            { scope: "reviewer", capabilityHash: "sha256:reviewer" },
+            { scope: "maintainer", capabilityHash: "sha256:maintainer" },
+        ],
+    });
+    await client.getSharedSpace("space 1");
+    await client.getRevision("space 1", 2);
+    await client.appendRevision("space 1", { payloadCiphertext: "cipher-rev", expectedRevision: 2 });
+    await client.listComments("space 1", 2);
+    await client.appendComment("space 1", 2, { ciphertext: "cipher-comment" });
+    await client.setCommentState("space 1", "comment 1", { action: "resolve" });
+    await client.updateSharedSpaceLifecycle("space 1", { action: "close" });
+
+    assertEquals(calls.map((call) => `${call.method} ${new URL(call.url).pathname}`), [
+        "POST /api/spaces",
+        "GET /api/spaces/space%201",
+        "GET /api/spaces/space%201/revisions/2",
+        "POST /api/spaces/space%201/revisions",
+        "GET /api/spaces/space%201/revisions/2/comments",
+        "POST /api/spaces/space%201/revisions/2/comments",
+        "POST /api/spaces/space%201/comments/comment%201/state",
+        "POST /api/spaces/space%201/lifecycle",
+    ]);
+});
