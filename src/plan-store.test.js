@@ -858,6 +858,7 @@ testWithFs("saveChildFeaturePlans creates draft child FEATURE plans with order a
                 devServerCommand: "deno task workspace:dev",
                 devServerUrl: "http://localhost:5173",
                 devServerHmr: true,
+                worktreeBaseBranch: "feature-base",
                 dependencies: [],
                 content: "# Preserve Epic and child metadata\n\n## Context\nDraft slice",
             },
@@ -866,6 +867,7 @@ testWithFs("saveChildFeaturePlans creates draft child FEATURE plans with order a
                 title: "Load child FEATURES",
                 summary: "Let load-plan execute child features",
                 affectedPaths: ["src/cmd/load-plan/index.js"],
+                worktreeBaseBranch: null,
                 dependencies: ["project-breakdown-epic/01-preserve-epic-and-child-metadata"],
                 content: "# Load child FEATURES\n\n## Context\nDraft slice",
             },
@@ -885,6 +887,7 @@ testWithFs("saveChildFeaturePlans creates draft child FEATURE plans with order a
             devServerCommand: "deno task workspace:dev",
             devServerUrl: "http://localhost:5173",
             devServerHmr: true,
+            worktreeBaseBranch: "feature-base",
         });
 
         const first = await loadPlan(cwd, "project-breakdown-epic/01-preserve-epic-and-child-metadata");
@@ -897,8 +900,12 @@ testWithFs("saveChildFeaturePlans creates draft child FEATURE plans with order a
         assertEquals(first?.attrs.devServerCommand, "deno task workspace:dev");
         assertEquals(first?.attrs.devServerUrl, "http://localhost:5173");
         assertEquals(first?.attrs.devServerHmr, true);
+        assertEquals(first?.attrs.worktreeBaseBranch, "feature-base");
+
+        assertEquals(results[1].metadata.worktreeBaseBranch, null);
 
         const second = await loadPlan(cwd, "project-breakdown-epic/02-load-child-features");
+        assertEquals(second?.attrs.worktreeBaseBranch, undefined);
         assertEquals(second?.attrs.dependencies, ["project-breakdown-epic/01-preserve-epic-and-child-metadata"]);
     } finally {
         await Deno.remove(cwd, { recursive: true });
