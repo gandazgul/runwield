@@ -9,6 +9,26 @@ import { assertCapabilityScope } from "./capabilities.js";
  * @property {string} createdAt
  * @property {string} updatedAt
  * @property {number} latestRevision
+ * @property {"open" | "closed"} [status]
+ * @property {string} [closedAt]
+ */
+
+/**
+ * @typedef {Object} CreateSharedSpacePayload
+ * @property {string} planId
+ * @property {{ payloadCiphertext: string }} initialRevision
+ * @property {CapabilityRecord[]} capabilities
+ */
+
+/**
+ * @typedef {Object} AppendRevisionPayload
+ * @property {string} payloadCiphertext
+ * @property {number} [expectedRevision]
+ */
+
+/**
+ * @typedef {Object} AppendCommentPayload
+ * @property {string} ciphertext
  */
 
 /**
@@ -98,13 +118,20 @@ export function assertPositiveInteger(value, name) {
  */
 export function normalizeSharedSpaceMetadata(value) {
     const record = assertRecord(value, "Shared space metadata");
-    return {
+    /** @type {SharedSpaceMetadata} */
+    const normalized = {
         spaceId: assertNonEmptyString(record.spaceId, "spaceId"),
         planId: assertNonEmptyString(record.planId, "planId"),
         createdAt: assertNonEmptyString(record.createdAt, "createdAt"),
         updatedAt: assertNonEmptyString(record.updatedAt, "updatedAt"),
         latestRevision: assertPositiveInteger(record.latestRevision, "latestRevision"),
     };
+    if (record.status !== undefined) {
+        if (record.status !== "open" && record.status !== "closed") throw new Error("status must be open or closed");
+        normalized.status = record.status;
+    }
+    if (record.closedAt !== undefined) normalized.closedAt = assertNonEmptyString(record.closedAt, "closedAt");
+    return normalized;
 }
 
 /**
@@ -131,6 +158,51 @@ export function normalizeCapabilityRecord(value) {
         scope: assertCapabilityScope(record.scope),
         capabilityHash: assertNonEmptyString(record.capabilityHash, "capabilityHash"),
     };
+}
+
+/**
+ * @param {unknown} value
+ * @returns {CreateSharedSpacePayload}
+ */
+export function normalizeCreateSharedSpacePayload(value) {
+    const record = assertRecord(value, "Create Shared Space payload");
+    rejectPlaintextFields(record);
+    const initialRevision = assertRecord(record.initialRevision, "initialRevision");
+    rejectPlaintextFields(initialRevision);
+    const capabilities = Array.isArray(record.capabilities) ? record.capabilities.map(normalizeCapabilityRecord) : [];
+    if (capabilities.length === 0) throw new Error("capabilities must include reviewer and maintainer hashes");
+    return {
+        planId: assertNonEmptyString(record.planId, "planId"),
+        initialRevision: {
+            payloadCiphertext: assertNonEmptyString(initialRevision.payloadCiphertext, "payloadCiphertext"),
+        },
+        capabilities,
+    };
+}
+
+/**
+ * @param {unknown} value
+ * @returns {AppendRevisionPayload}
+ */
+export function normalizeAppendRevisionPayload(value) {
+    const record = assertRecord(value, "Append revision payload");
+    rejectPlaintextFields(record);
+    /** @type {AppendRevisionPayload} */
+    const normalized = { payloadCiphertext: assertNonEmptyString(record.payloadCiphertext, "payloadCiphertext") };
+    if (record.expectedRevision !== undefined) {
+        normalized.expectedRevision = assertPositiveInteger(record.expectedRevision, "expectedRevision");
+    }
+    return normalized;
+}
+
+/**
+ * @param {unknown} value
+ * @returns {AppendCommentPayload}
+ */
+export function normalizeAppendCommentPayload(value) {
+    const record = assertRecord(value, "Append comment payload");
+    rejectPlaintextFields(record);
+    return { ciphertext: assertNonEmptyString(record.ciphertext, "ciphertext") };
 }
 
 /**
@@ -237,4 +309,22 @@ export function normalizeLocalSecretRecord(value) {
 export function assertRecord(value, name) {
     if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${name} must be an object`);
     return /** @type {Record<string, any>} */ (value);
+}
+
+const PLAINTEXT_FIELD_NAMES = new Set([
+    "body",
+    "author",
+    "authorName",
+    "displayName",
+    "originalText",
+    "context",
+    "anchor",
+    "anchors",
+]);
+
+/** @param {Record<string, any>} record */
+function rejectPlaintextFields(record) {
+    for (const key of Object.keys(record)) {
+        if (PLAINTEXT_FIELD_NAMES.has(key)) throw new Error(`${key} must be encrypted inside ciphertext payloads`);
+    }
 }

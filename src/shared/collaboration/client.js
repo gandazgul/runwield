@@ -1,6 +1,11 @@
 /** @module shared/collaboration/client */
 
 import { redactSecrets } from "./capabilities.js";
+import {
+    normalizeAppendCommentPayload,
+    normalizeAppendRevisionPayload,
+    normalizeCreateSharedSpacePayload,
+} from "./protocol.js";
 import { buildApiUrl, normalizeServerUrl } from "./urls.js";
 
 /**
@@ -74,6 +79,64 @@ export class CollaborationClient {
             });
         }
         return payload;
+    }
+
+    /** @param {import("./protocol.js").CreateSharedSpacePayload} payload */
+    async createSharedSpace(payload) {
+        return await this.requestJson("/api/spaces", {
+            method: "POST",
+            body: normalizeCreateSharedSpacePayload(payload),
+        });
+    }
+
+    /** @param {string} spaceId */
+    async getSharedSpace(spaceId) {
+        return await this.requestJson(`/api/spaces/${encodeURIComponent(spaceId)}`);
+    }
+
+    /** @param {string} spaceId @param {number} revision */
+    async getRevision(spaceId, revision) {
+        return await this.requestJson(`/api/spaces/${encodeURIComponent(spaceId)}/revisions/${revision}`);
+    }
+
+    /** @param {string} spaceId @param {import("./protocol.js").AppendRevisionPayload} payload */
+    async appendRevision(spaceId, payload) {
+        return await this.requestJson(`/api/spaces/${encodeURIComponent(spaceId)}/revisions`, {
+            method: "POST",
+            body: normalizeAppendRevisionPayload(payload),
+        });
+    }
+
+    /** @param {string} spaceId @param {number} revision */
+    async listComments(spaceId, revision) {
+        return await this.requestJson(`/api/spaces/${encodeURIComponent(spaceId)}/revisions/${revision}/comments`);
+    }
+
+    /** @param {string} spaceId @param {number} revision @param {import("./protocol.js").AppendCommentPayload} payload */
+    async appendComment(spaceId, revision, payload) {
+        return await this.requestJson(`/api/spaces/${encodeURIComponent(spaceId)}/revisions/${revision}/comments`, {
+            method: "POST",
+            body: normalizeAppendCommentPayload(payload),
+        });
+    }
+
+    /** @param {string} spaceId @param {string} commentId @param {{ action: "resolve" | "reopen" }} payload */
+    async setCommentState(spaceId, commentId, payload) {
+        return await this.requestJson(
+            `/api/spaces/${encodeURIComponent(spaceId)}/comments/${encodeURIComponent(commentId)}/state`,
+            {
+                method: "POST",
+                body: payload,
+            },
+        );
+    }
+
+    /** @param {string} spaceId @param {{ action: "close" | "delete" }} payload */
+    async updateSharedSpaceLifecycle(spaceId, payload) {
+        return await this.requestJson(`/api/spaces/${encodeURIComponent(spaceId)}/lifecycle`, {
+            method: "POST",
+            body: payload,
+        });
     }
 }
 
