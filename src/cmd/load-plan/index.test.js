@@ -2220,6 +2220,8 @@ Deno.test("runLoadPlanCommand can manually merge merge-conflict worktree recover
         let removedPath = "";
         let removedRegistryId = "";
         let registryStatus = "";
+        let mergedPlanName = "";
+        let mergedPlanDescription = "";
         /** @type {Partial<import('../../plan-store.js').PlanFrontMatter>} */
         let persistedUpdates = {};
         /** @type {string | null} */
@@ -2239,7 +2241,7 @@ Deno.test("runLoadPlanCommand can manually merge merge-conflict worktree recover
                         attrs: {
                             classification: "FEATURE",
                             complexity: "LOW",
-                            summary: "s",
+                            summary: "Resolve a manual merge conflict.",
                             affectedPaths: [],
                             status: "implemented",
                             worktreeId: "wt1",
@@ -2271,9 +2273,13 @@ Deno.test("runLoadPlanCommand can manually merge merge-conflict worktree recover
                         statusText: "",
                         diff: "",
                     }),
-                mergeExecutionWorktree: (/** @type {{ branch: string, targetBranch?: string }} */ args) => {
+                mergeExecutionWorktree: (
+                    /** @type {{ branch: string, targetBranch?: string, planName?: string, planDescription?: string }} */ args,
+                ) => {
                     mergedBranch = args.branch;
                     mergedTargetBranch = args.targetBranch || "";
+                    mergedPlanName = args.planName || "";
+                    mergedPlanDescription = args.planDescription || "";
                     return Promise.resolve();
                 },
                 removeExecutionWorktree: (/** @type {{ path: string }} */ args) => {
@@ -2314,6 +2320,8 @@ Deno.test("runLoadPlanCommand can manually merge merge-conflict worktree recover
         assertEquals(persistedUpdates.worktreeBaseBranch, "feature-base");
         assertEquals(mergedBranch, "runwield/worktree/plan-merge-conflict");
         assertEquals(mergedTargetBranch, "feature-base");
+        assertEquals(mergedPlanName, "plan-merge-conflict");
+        assertEquals(mergedPlanDescription, "Resolve a manual merge conflict.");
         assertEquals(removedPath, worktreePath);
         assertEquals(removedRegistryId, "wt1");
         assertEquals(registryStatus, "merged");
