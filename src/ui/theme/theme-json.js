@@ -1,5 +1,5 @@
 /**
- * @module shared/ui/theme-json
+ * @module ui/theme/theme-json
  * Pure helpers for Pi-compatible JSON theme files.
  */
 

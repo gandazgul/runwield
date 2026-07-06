@@ -1,11 +1,11 @@
 /**
- * @module shared/ui/prompts
+ * @module ui/tui/prompts
  * Interactive user-facing prompt helpers for TUI overlays and stdin fallback.
  */
 
 import { Container, Input, SelectList, Text } from "@earendil-works/pi-tui";
 import { getTUI } from "./tui.js";
-import { getSelectListTheme, theme } from "./theme.js";
+import { getSelectListTheme, theme } from "../theme/theme.js";
 
 const defaultPromptDeps = {
     Container,

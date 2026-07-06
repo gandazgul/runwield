@@ -15,7 +15,7 @@ import { restorePersistedMessagesToUi } from "../../shared/interactive/message-h
 import { getMergedCustomSetting, getSettingsManager } from "../../shared/settings.js";
 import { getModelRegistry } from "../../shared/models/model-registry.js";
 import { resolveResumeAgentName } from "../../shared/session/active-agent-session.js";
-import { setTerminalTitleForSession } from "../../shared/ui/terminal-title.js";
+import { setTerminalTitleForSession } from "../../ui/tui/terminal-title.js";
 
 /** Default threshold percentage for compaction-offer prompt. */
 const DEFAULT_COMPACT_ON_RESUME_PCT = 50;
@@ -139,7 +139,7 @@ function getCompactThresholdPercent() {
  * the UI from persisted messages.
  *
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} rootSessionManager
- * @param {import('../../shared/ui/types.js').UiAPI} uiAPI
+ * @param {import('../../ui/tui/types.js').UiAPI} uiAPI
  * @param {import('../registry.js').CommandContext} options
  * @param {ResumeCommandDeps} deps
  * @param {{ agentName: string, message?: string, modelOverride?: string }} resumeOptions
@@ -166,7 +166,7 @@ async function resumeWithManager(rootSessionManager, uiAPI, options, deps, resum
 
 /**
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} rootSessionManager
- * @param {import('../../shared/ui/types.js').UiAPI} uiAPI
+ * @param {import('../../ui/tui/types.js').UiAPI} uiAPI
  * @param {import('../registry.js').CommandContext} options
  * @returns {import('../../shared/session/hosted-session.js').HostedSession}
  */
@@ -210,7 +210,7 @@ function prepareHostedSessionForResume(rootSessionManager, uiAPI, options) {
  * resume the already-open session as-is.
  *
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} rootSessionManager
- * @param {import('../../shared/ui/types.js').UiAPI} uiAPI
+ * @param {import('../../ui/tui/types.js').UiAPI} uiAPI
  * @param {import('../registry.js').CommandContext} options
  * @param {ResumeCommandDeps} deps
  * @param {string} agentName

@@ -2350,7 +2350,7 @@ export async function reloadRootAgentSession(hostedSession, uiAPI) {
     const settings = getSettingsManager();
     await settings.reload();
 
-    const { discoverAndRegisterThemes, setTheme } = await import("../ui/theme.js");
+    const { discoverAndRegisterThemes, setTheme } = await import("../../ui/theme/theme.js");
     await discoverAndRegisterThemes();
     const persistedTheme = settings.getTheme();
     if (persistedTheme) setTheme(persistedTheme);

@@ -1,5 +1,5 @@
 /**
- * @module shared/theme
+ * @module ui/theme/theme
  * Theme integration — wraps Pi's Theme class with RunWield-local registration,
  * lookup, and a live-swap setter. We re-implement the registration/swap
  * machinery locally because @earendil-works/pi-coding-agent only exports
@@ -11,7 +11,7 @@ import {
     getMarkdownTheme as upstreamGetMarkdownTheme,
     getSelectListTheme as upstreamGetSelectListTheme,
 } from "@earendil-works/pi-coding-agent";
-import { getSettingsDir, getSettingsManager } from "../settings.js";
+import { getSettingsDir, getSettingsManager } from "../../shared/settings.js";
 import { loadExternalThemeJsons } from "./theme-discovery.js";
 import { createThemeFromJson } from "./theme-json.js";
 import { createThemeRegistry } from "./theme-registry.js";

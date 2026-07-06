@@ -10,7 +10,7 @@
 import { StringEnum, Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { ROUTING_INTENTS } from "../constants.js";
-import { sanitizeSessionName } from "../shared/ui/terminal-title.js";
+import { sanitizeSessionName } from "../ui/tui/terminal-title.js";
 
 const PLAN_CLASSIFICATIONS = ["FEATURE", "PROJECT"];
 

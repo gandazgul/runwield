@@ -10,7 +10,7 @@ import {
     truncateToWidth,
     visibleWidth,
 } from "@earendil-works/pi-tui";
-import { getMarkdownTheme, getSelectListTheme, theme } from "../ui/theme.js";
+import { getMarkdownTheme, getSelectListTheme, theme } from "../theme/theme.js";
 import stripAnsi from "strip-ansi";
 
 // ─── Utilities ───────────────────────────────────────────────────────────────

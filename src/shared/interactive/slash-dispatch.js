@@ -11,7 +11,7 @@
  */
 
 import { abortActiveSession, expandPromptTemplate, expandSkillCommand } from "../session/session.js";
-import { setTerminalTitleForName } from "../ui/terminal-title.js";
+import { setTerminalTitleForName } from "../../ui/tui/terminal-title.js";
 
 const OPERATOR_AGENT = "operator";
 
@@ -48,7 +48,7 @@ function maybeUpdateTitleForSlashCommand(command, hostedSession) {
  * @property {import('../session/types.js').ImageAttachment[]} savedImages
  * @property {import('../session/hosted-session.js').HostedSession} hostedSession
  * @property {import('../session/session-host.js').SessionHost} [sessionHost]
- * @property {import('../ui/types.js').UiAPI} uiAPI
+ * @property {import('../../ui/tui/types.js').UiAPI} uiAPI
  * @property {import('@earendil-works/pi-tui').Editor} editor
  * @property {import('@earendil-works/pi-tui').TUI} tui
  * @property {string} sessionStartedAt
@@ -58,8 +58,8 @@ function maybeUpdateTitleForSlashCommand(command, hostedSession) {
  * @property {SkillMeta[]} skills
  * @property {string} chatPromptAgentName
  * @property {(templateModel: string) => ({ ok: true, provider: string, id: string } | { ok: false })} resolveTemplateModel
- * @property {(hostedSession: import('../session/hosted-session.js').HostedSession | undefined, agentName: string, handler: import('../session/types.js').AgentMessageHandler, uiAPI: import('../ui/types.js').UiAPI, agentModel?: string) => void} setActiveAgent
- * @property {(hostedSession: import('../session/hosted-session.js').HostedSession | undefined, uiAPI: import('../ui/types.js').UiAPI) => Promise<void>} applyPendingRootSwap
+ * @property {(hostedSession: import('../session/hosted-session.js').HostedSession | undefined, agentName: string, handler: import('../session/types.js').AgentMessageHandler, uiAPI: import('../../ui/tui/types.js').UiAPI, agentModel?: string) => void} setActiveAgent
+ * @property {(hostedSession: import('../session/hosted-session.js').HostedSession | undefined, uiAPI: import('../../ui/tui/types.js').UiAPI) => Promise<void>} applyPendingRootSwap
  * @property {(model: string, provider?: string) => Promise<void> | void} [setActiveModel]
  * @property {(nextSession: import('../session/hosted-session.js').HostedSession) => void} [replaceHostedSession]
  * @property {(text: string, images: import('../session/types.js').ImageAttachment[]) => Promise<void>} [dispatchExpandedUserRequest]

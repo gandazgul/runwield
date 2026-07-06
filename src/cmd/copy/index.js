@@ -3,7 +3,7 @@
  * Command to copy the last assistant message to the clipboard.
  */
 
-import { theme } from "../../shared/ui/theme.js";
+import { theme } from "../../ui/theme/theme.js";
 
 /**
  * Copy text to the system clipboard using the platform-appropriate command.

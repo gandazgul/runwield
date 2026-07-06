@@ -17,9 +17,9 @@
 import { Key, matchesKey, Text } from "@earendil-works/pi-tui";
 import { abortActiveSession as abortActiveSessionFn } from "../session/session.js";
 import { cancelActivePlanReview } from "../workflow/submit-plan.js";
-import { stopTUI } from "../ui/tui.js";
+import { stopTUI } from "../../ui/tui/tui.js";
 import { readClipboardImage } from "../clipboard.js";
-import { theme } from "../ui/theme.js";
+import { theme } from "../../ui/theme/theme.js";
 
 /**
  * @param {import('@earendil-works/pi-tui').Editor} editor
@@ -43,7 +43,7 @@ function isEditorEmpty(editor) {
  * @typedef {Object} KeybindingsContext
  * @property {import('@earendil-works/pi-tui').Editor} editor
  * @property {import('@earendil-works/pi-tui').TUI} tui
- * @property {import('../ui/types.js').UiAPI} uiAPI
+ * @property {import('../../ui/tui/types.js').UiAPI} uiAPI
  * @property {import('../session/types.js').ImageAttachment[]} pastedImages
  * @property {import('@earendil-works/pi-tui').Container} previewImages
  * @property {Array<unknown>} submissionQueue

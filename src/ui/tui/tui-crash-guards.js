@@ -1,5 +1,5 @@
 /**
- * @module shared/ui/tui-crash-guards
+ * @module ui/tui/tui-crash-guards
  * Injectable crash guards for restoring terminal state on abrupt exits.
  */
 

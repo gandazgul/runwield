@@ -5,7 +5,7 @@
 
 import { DefaultPackageManager } from "@earendil-works/pi-coding-agent";
 import { getSettingsDir, getSettingsManager } from "../../shared/settings.js";
-import { discoverAndRegisterThemes, getAvailableThemes, setTheme } from "../../shared/ui/theme.js";
+import { discoverAndRegisterThemes, getAvailableThemes, setTheme } from "../../ui/theme/theme.js";
 
 const DEFAULT_THEME = "catppuccin-mocha";
 
