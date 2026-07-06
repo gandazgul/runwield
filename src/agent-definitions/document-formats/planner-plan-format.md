@@ -9,7 +9,6 @@ frontend: false
 devServerCommand: null
 devServerUrl: null
 devServerHmr: null
-worktreeBaseBranch: null
 createdAt: "<ISO-8601 timestamp>"
 status: "draft"
 ---
