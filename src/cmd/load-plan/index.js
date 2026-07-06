@@ -899,9 +899,10 @@ function shouldKeepPlanningAgentActive(decision) {
  * @param {import('../../shared/workflow/workflow.js').UiAPI} uiAPI
  * @param {typeof ensureSlicerTasksFn} ensureSlicerTasks
  * @param {typeof recordPlanEventFn} recordPlanEvent
+ * @param {import('../../shared/session/hosted-session.js').HostedSession} hostedSession
  * @returns {Promise<boolean>}
  */
-async function prepareApprovedPlanForWork(plan, uiAPI, ensureSlicerTasks, recordPlanEvent) {
+async function prepareApprovedPlanForWork(plan, uiAPI, ensureSlicerTasks, recordPlanEvent, hostedSession) {
     if (isEpicPlan(plan.attrs)) {
         await recordPlanEvent({
             cwd: CWD,
@@ -925,6 +926,7 @@ async function prepareApprovedPlanForWork(plan, uiAPI, ensureSlicerTasks, record
             planPath: plan.path,
             triageMeta: plan.attrs,
             uiAPI,
+            hostedSession,
         });
         if (!sliceResult.ok) {
             uiAPI.appendSystemMessage(
@@ -2001,6 +2003,7 @@ async function confirmChildFeatureDependencies(plan, uiAPI, resolveSiblingChildP
  * @param {typeof recordPlanEventFn} opts.recordPlanEvent
  * @param {typeof resolvePlanFn} opts.resolvePlan
  * @param {(childPlanName: string) => Promise<void>} opts.loadChildPlan
+ * @param {import('../../shared/session/hosted-session.js').HostedSession} opts.hostedSession
  * @returns {Promise<"handled" | "continue">}
  */
 async function handleEpicPlan({
@@ -2011,6 +2014,7 @@ async function handleEpicPlan({
     recordPlanEvent,
     resolvePlan,
     loadChildPlan,
+    hostedSession,
 }) {
     if (!isEpicPlan(plan.attrs)) return "continue";
 
@@ -2080,6 +2084,7 @@ async function handleEpicPlan({
                 planName: plan.planName,
                 triageMeta: plan.attrs,
                 uiAPI,
+                hostedSession,
             });
             return "handled";
         }
@@ -2488,6 +2493,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
             recordPlanEvent,
             resolvePlan,
             loadChildPlan: loadAnotherPlan,
+            hostedSession,
         });
         if (epicResult === "handled") {
             skipRouterRestore = true;
@@ -2556,6 +2562,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                             uiAPI,
                             ensureSlicerTasks,
                             recordPlanEvent,
+                            hostedSession,
                         );
                         if (!ready) {
                             skipRouterRestore = true;
@@ -2605,6 +2612,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                         planPath: plan.path,
                         triageMeta: plan.attrs,
                         uiAPI,
+                        hostedSession,
                     });
 
                     if (reviewResult.canceled) {
@@ -2634,6 +2642,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                                     planName: plan.planName,
                                     triageMeta: plan.attrs,
                                     uiAPI,
+                                    hostedSession,
                                 });
                             } else {
                                 uiAPI.appendSystemMessage(
@@ -2651,6 +2660,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                             uiAPI,
                             ensureSlicerTasks,
                             recordPlanEvent,
+                            hostedSession,
                         );
                         if (!ready) {
                             skipRouterRestore = true;

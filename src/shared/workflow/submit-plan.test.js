@@ -3,10 +3,14 @@ import { join } from "@std/path";
 import { cancelActivePlanReview, submitPlanForReview } from "./submit-plan.js";
 import { injectFrontMatter, parsePlanFrontMatter } from "../../plan-store.js";
 import { COLLABORATION_STATE_REMOTE_CANONICAL, SharedPlanLockError } from "../collaboration/lock.js";
+import { HostedSession } from "../session/hosted-session.js";
 
-/**
- * @returns {any}
- */
+/** @param {string} [id] */
+function makeHostedSession(id = "plan-review-test") {
+    return new HostedSession({ id, cwd: Deno.cwd(), sessionManager: null });
+}
+
+/** @returns {any} */
 function makeUi() {
     return {
         messages: /** @type {string[]} */ ([]),
@@ -88,6 +92,7 @@ Deno.test("submitPlanForReview approves a plan, records event, and updates front
                 affectedPaths: ["src/a.js"],
             },
             uiAPI,
+            hostedSession: makeHostedSession("review-approve"),
             __deps: harness.deps,
         });
 
@@ -120,6 +125,7 @@ Deno.test("submitPlanForReview records feedback and reports manual browser fallb
             planName: "plan",
             planPath,
             uiAPI,
+            hostedSession: makeHostedSession("review-feedback"),
             __deps: harness.deps,
         });
 
@@ -146,18 +152,20 @@ Deno.test("submitPlanForReview can be cancelled through cancelActivePlanReview",
     const harness = makeDeps({ pending: true });
 
     try {
+        const hostedSession = makeHostedSession("review-cancel");
         const pending = submitPlanForReview({
             cwd: dir,
             planName: "plan",
             planPath,
             uiAPI,
+            hostedSession,
             __deps: harness.deps,
         });
         for (let i = 0; i < 20 && uiAPI.disabled === 0; i++) {
             await new Promise((resolve) => setTimeout(resolve, 0));
         }
 
-        assertEquals(cancelActivePlanReview(), true);
+        assertEquals(cancelActivePlanReview(hostedSession), true);
         const result = await pending;
 
         assertEquals(result, {
@@ -165,7 +173,7 @@ Deno.test("submitPlanForReview can be cancelled through cancelActivePlanReview",
             canceled: true,
             feedback: "Cancelled by user (Esc)",
         });
-        assertEquals(cancelActivePlanReview(), false);
+        assertEquals(cancelActivePlanReview(hostedSession), false);
         assertEquals(harness.events, []);
         assertEquals(harness.stops(), 1);
         assertEquals(uiAPI.enabled, 1);
@@ -197,6 +205,7 @@ Deno.test({
                         planName: "locked",
                         planPath,
                         uiAPI: makeUi(),
+                        hostedSession: makeHostedSession("review-locked"),
                         __deps: {
                             startPlanReviewServer: /** @type {any} */ (() => {
                                 serverStarted = true;

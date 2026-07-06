@@ -181,6 +181,7 @@ export function createPlanWrittenTool(
                 planPath,
                 triageMeta: effectiveMeta,
                 uiAPI,
+                hostedSession,
             });
 
             if (reviewResult.canceled) {
@@ -244,6 +245,7 @@ export function createPlanWrittenTool(
                         planName,
                         triageMeta: projectMeta,
                         uiAPI,
+                        hostedSession,
                         sessionManager,
                     });
                     if (!slicerResult.ok) {
@@ -267,6 +269,7 @@ export function createPlanWrittenTool(
                     planPath,
                     triageMeta: effectiveMeta,
                     uiAPI,
+                    hostedSession,
                     sessionManager,
                 });
 

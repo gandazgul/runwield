@@ -54,19 +54,20 @@ async function openInDefaultBrowser(url) {
 
 // ─── Cancellation State ───────────────────────────────────────────────
 
-/** @type {(() => void) | null} */
-let activePlanReviewCancel = null;
+/** @type {WeakMap<import('../session/hosted-session.js').HostedSession, () => void>} */
+const planReviewCancelBySession = new WeakMap();
 
 /**
- * Cancel an in-flight plan review wait, if any.
+ * Cancel an in-flight plan review wait for a HostedSession, if any.
+ * @param {import('../session/hosted-session.js').HostedSession | undefined} hostedSession
  * @returns {boolean} true if a review was active and cancelled
  */
-export function cancelActivePlanReview() {
-    if (activePlanReviewCancel) {
-        activePlanReviewCancel();
-        return true;
-    }
-    return false;
+export function cancelActivePlanReview(hostedSession) {
+    if (!hostedSession) return false;
+    const cancel = planReviewCancelBySession.get(hostedSession);
+    if (!cancel) return false;
+    cancel();
+    return true;
 }
 
 // ─── Types ────────────────────────────────────────────────────────────
@@ -90,6 +91,7 @@ export function cancelActivePlanReview() {
  * @param {string} opts.planPath - Absolute path to the plan .md file
  * @param {Partial<import('../../plan-store.js').PlanFrontMatter>} [opts.triageMeta] - Triage metadata to ensure in front matter
  * @param {import('../ui/types.js').UiAPI} opts.uiAPI - UI API for output
+ * @param {import('../session/hosted-session.js').HostedSession} opts.hostedSession
  * @param {{
  *   startPlanReviewServer?: typeof startPlanReviewServer,
  *   openInDefaultBrowser?: typeof openInDefaultBrowser,
@@ -104,9 +106,11 @@ export async function submitPlanForReview({
     planPath,
     triageMeta,
     uiAPI,
+    hostedSession,
     __deps,
 }) {
     if (!uiAPI) throw new Error("submitPlanForReview: uiAPI is required");
+    if (!hostedSession) throw new Error("submitPlanForReview: hostedSession is required");
     const startPlanReviewServerImpl = __deps?.startPlanReviewServer || startPlanReviewServer;
     const openInDefaultBrowserImpl = __deps?.openInDefaultBrowser || openInDefaultBrowser;
     const recordPlanEventImpl = __deps?.recordPlanEvent || recordPlanEvent;
@@ -161,12 +165,12 @@ export async function submitPlanForReview({
 
     uiAPI.appendSystemMessage(`[RunWield] Waiting for user decision...`);
 
-    /** @type {(() => void) | null} */
-    let localCancel = null;
+    /** @type {() => void} */
+    let localCancel = () => {};
     const cancelPromise = new Promise((resolve) => {
         localCancel = () => resolve({ _cancelled: true });
     });
-    activePlanReviewCancel = localCancel;
+    planReviewCancelBySession.set(hostedSession, localCancel);
 
     try {
         // 5. Disable input while waiting for review via server
@@ -238,7 +242,7 @@ export async function submitPlanForReview({
             feedback: decision.feedback,
         };
     } finally {
-        activePlanReviewCancel = null;
+        planReviewCancelBySession.delete(hostedSession);
         if (uiAPI.enableInput) uiAPI.enableInput();
         // Ensure server is stopped regardless of outcome
         server.stop();

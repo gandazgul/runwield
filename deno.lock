@@ -37,6 +37,7 @@
     "jsr:@std/toml@^1.0.3": "1.0.11",
     "jsr:@std/uuid@^1.0.9": "1.1.1",
     "jsr:@std/yaml@^1.0.5": "1.1.1",
+    "npm:@agentclientprotocol/sdk@*": "1.1.0_zod@3.25.76",
     "npm:@babel/core@^7.28.0": "7.29.7",
     "npm:@babel/preset-react@^7.27.1": "7.29.7_@babel+core@7.29.7",
     "npm:@codemirror/lang-markdown@^6.5.0": "6.5.0",
@@ -231,6 +232,12 @@
     }
   },
   "npm": {
+    "@agentclientprotocol/sdk@1.1.0_zod@3.25.76": {
+      "integrity": "sha512-NT2KqphUJ3w6EksUL51ZhJgIYgq/ZLGcBPkyMKgRSO5PMVwe9DnKKX+Htnvk6KHh6dUuh34UHK4gKp+4te1Mdg==",
+      "dependencies": [
+        "zod"
+      ]
+    },
     "@antfu/install-pkg@1.1.0": {
       "integrity": "sha512-MGQsmw10ZyI+EJo45CdSER4zEb+p31LpDAFp2Z3gkSd1yqVZGi0Ebx++YTEMonJy4oChEMLsxZ64j8FH6sSqtQ==",
       "dependencies": [

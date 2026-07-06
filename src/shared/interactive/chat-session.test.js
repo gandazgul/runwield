@@ -6,6 +6,7 @@ import {
     __setSteeringUiRefsForTests,
     applyPendingRootSwap,
     collectFooterUsage,
+    createSteeringState,
     getActiveModel,
     getFooterSessions,
     persistThinkingLevel,
@@ -274,9 +275,11 @@ Deno.test("trackPendingSteeringMessage only consumes queue updates from the sess
     /** @type {string[]} */
     const userMessages = [];
     let renders = 0;
+    const steeringState = createSteeringState();
 
     try {
         __setSteeringUiRefsForTests(
+            steeringState,
             /** @type {any} */ ({
                 removeChild: (/** @type {unknown} */ child) => removed.push(child),
             }),
@@ -291,6 +294,7 @@ Deno.test("trackPendingSteeringMessage only consumes queue updates from the sess
         );
 
         trackPendingSteeringMessage(
+            steeringState,
             sessionA,
             "same text",
             [],
@@ -298,6 +302,7 @@ Deno.test("trackPendingSteeringMessage only consumes queue updates from the sess
             /** @type {any} */ (spacerA),
         );
         trackPendingSteeringMessage(
+            steeringState,
             sessionB,
             "same text",
             [],
@@ -317,7 +322,7 @@ Deno.test("trackPendingSteeringMessage only consumes queue updates from the sess
         assertEquals(removed, [blockB, spacerB, blockA, spacerA]);
         assertEquals(renders, 2);
     } finally {
-        __resetPendingSteeringForTests();
+        __resetPendingSteeringForTests(steeringState);
     }
 });
 

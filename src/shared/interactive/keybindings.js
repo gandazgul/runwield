@@ -98,7 +98,7 @@ export function installKeybindings(ctx) {
         dismissActivePrompt();
         const opCanceled = cancelActiveOperation();
         const sessionAborted = abortActiveSession(ctx.hostedSession);
-        const planCanceled = cancelActivePlanReview();
+        const planCanceled = cancelActivePlanReview(ctx.hostedSession);
         forceResetUI();
         return { opCanceled, sessionAborted, planCanceled };
     }

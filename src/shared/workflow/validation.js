@@ -459,10 +459,6 @@ export async function runMechanicalValidation({ uiAPI, sessionManager, hostedSes
     /** @param {string} agentName */
     const activateAgent = (agentName) => {
         const handler = createAgentHandlerImpl(agentName, { hostedSession });
-        if (__deps?.setActiveAgent) {
-            __deps.setActiveAgent(agentName, handler, uiAPI);
-            return;
-        }
         setActiveAgentImpl(hostedSession, agentName, handler, uiAPI);
     };
     const maxRepairAttempts = 3;
@@ -1049,10 +1045,6 @@ export async function runValidationLoop({
         const createAgentHandler = __deps?.createAgentHandler ||
             (await import("../session/agent-handler.js")).createAgentHandler;
         const handler = createAgentHandler(finalAgentName, { hostedSession });
-        if (__deps?.setActiveAgent) {
-            __deps.setActiveAgent(finalAgentName, handler, uiAPI);
-        } else {
-            setActiveAgentImpl(hostedSession, finalAgentName, handler, uiAPI);
-        }
+        setActiveAgentImpl(hostedSession, finalAgentName, handler, uiAPI);
     }
 }

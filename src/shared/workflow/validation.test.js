@@ -159,7 +159,8 @@ Deno.test("runMechanicalValidation passes local CI without plan-specific work", 
             runAgentSession: () => {
                 throw new Error("repair should not run");
             },
-            setActiveAgent: (/** @type {string} */ name) => actions.push(`active:${name}`),
+            setActiveAgent: (/** @type {unknown} */ _hostedSession, /** @type {string} */ name) =>
+                actions.push(`active:${name}`),
             createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
         }),
     });
@@ -194,7 +195,8 @@ Deno.test("runMechanicalValidation repairs CI failures through Engineer and then
                 return Promise.resolve([]);
             },
             readLatestTaskCompletedOutcome: () => true,
-            setActiveAgent: (/** @type {string} */ name) => actions.push(`active:${name}`),
+            setActiveAgent: (/** @type {unknown} */ _hostedSession, /** @type {string} */ name) =>
+                actions.push(`active:${name}`),
             createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
         }),
     });
@@ -330,7 +332,7 @@ Deno.test("runValidationLoop restores requested final agent after validation", a
             getDiffText: () => Promise.resolve(""),
             recordPlanEvent: noOpRecordPlanEvent,
             createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
-            setActiveAgent: (/** @type {string} */ name) => switched.push(name),
+            setActiveAgent: (/** @type {unknown} */ _hostedSession, /** @type {string} */ name) => switched.push(name),
         }),
     });
 
