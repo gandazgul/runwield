@@ -1273,7 +1273,9 @@ export async function buildAgentSession({
 
     if (tools.includes("plan_written") && uiAPI && !finalCustomTools.find((t) => t.name === "plan_written")) {
         const { createPlanWrittenTool } = await import("../../tools/plan-written.js");
-        finalCustomTools.push(createPlanWrittenTool({ uiAPI, triageMeta, agentName }));
+        finalCustomTools.push(
+            createPlanWrittenTool({ uiAPI, triageMeta, agentName, hostedSession: targetHostedSession }),
+        );
     }
 
     if (tools.includes("triage_report") && !finalCustomTools.find((t) => t.name === "triage_report")) {

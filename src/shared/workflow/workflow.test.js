@@ -17,8 +17,25 @@ import {
     taskWriteScopesOverlap,
     validateProjectTasks,
 } from "./workflow.js";
+import { HostedSession } from "../session/hosted-session.js";
 
 const noopUiAPI = /** @type {any} */ ({ appendSystemMessage: () => {} });
+
+Deno.test("HostedSession scopes active execution workflow independently", () => {
+    const sessionA = new HostedSession({ id: "workflow-a", cwd: "/project-a" });
+    const sessionB = new HostedSession({ id: "workflow-b", cwd: "/project-b" });
+    const workflowA = { planName: "a", triageMeta: {}, executionCwd: "/work/a" };
+    const workflowB = { planName: "b", triageMeta: {}, executionCwd: "/work/b" };
+
+    sessionA.setActiveExecutionWorkflow(workflowA);
+    sessionB.setActiveExecutionWorkflow(workflowB);
+    sessionA.clearActiveExecutionWorkflow();
+
+    assertEquals(sessionA.getActiveExecutionWorkflow(), null);
+    assertEquals(sessionA.getActiveExecutionCwd(), "/project-a");
+    assertEquals(sessionB.getActiveExecutionWorkflow(), workflowB);
+    assertEquals(sessionB.getActiveExecutionCwd(), "/work/b");
+});
 
 Deno.test("readLatestPlanOutcome returns the latest plan_written outcome", () => {
     const messages = [

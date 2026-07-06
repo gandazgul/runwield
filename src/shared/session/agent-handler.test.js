@@ -1,6 +1,7 @@
 import { assertEquals } from "@std/assert";
 import { createAgentHandler as createAgentHandlerFn } from "./agent-handler.js";
 import { HostedSession } from "./hosted-session.js";
+import { clearActiveExecutionWorkflow, setActiveExecutionWorkflow } from "./session-state.js";
 
 /**
  * @param {string} [id]
@@ -399,6 +400,55 @@ Deno.test("agent-handler ignores stale task_completed outcomes from earlier root
     } finally {
         hostedSession.setRootAgentName(null);
         hostedSession.setRootAgentSession(null);
+        hostedSession.clearActiveExecutionWorkflow();
+    }
+});
+
+Deno.test("agent-handler validates task_completed against hosted workflow instead of singleton workflow", async () => {
+    /** @type {unknown} */
+    let validationWorkflow = null;
+    const hostedSession = makeHostedSession();
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "hosted-plan",
+        triageMeta: { classification: "FEATURE" },
+        baselineTree: "hosted-tree",
+    });
+    setActiveExecutionWorkflow({
+        planName: "singleton-plan",
+        triageMeta: { classification: "FEATURE" },
+        baselineTree: "singleton-tree",
+    });
+
+    const handler = createAgentHandler("engineer", {
+        hostedSession,
+        runAgentSession: () =>
+            Promise.resolve(
+                /** @type {any} */ ([{
+                    role: "toolResult",
+                    toolName: "task_completed",
+                    details: { outcome: "task_completed" },
+                }]),
+            ),
+        readLatestPlanOutcome: () => null,
+        readLatestTaskCompletedOutcome: () => true,
+        recordPlanEvent: () => Promise.resolve(/** @type {any} */ ({})),
+        runValidationLoop: (/** @type {{ hostedSession: HostedSession }} */ args) => {
+            validationWorkflow = args.hostedSession.getActiveExecutionWorkflow();
+            args.hostedSession.clearActiveExecutionWorkflow();
+            return Promise.resolve();
+        },
+    });
+
+    try {
+        await handler("continue", [], /** @type {any} */ ({}), /** @type {any} */ (undefined));
+
+        assertEquals(validationWorkflow, {
+            planName: "hosted-plan",
+            triageMeta: { classification: "FEATURE" },
+            baselineTree: "hosted-tree",
+        });
+    } finally {
+        clearActiveExecutionWorkflow();
         hostedSession.clearActiveExecutionWorkflow();
     }
 });
