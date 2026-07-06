@@ -1,25 +1,14 @@
 ---
 classification: "FEATURE"
 complexity: "MEDIUM"
-summary: "Use Deno 2.9 compile asset/bundling improvements to reduce the wld binary size while preserving bundled resource path resolution."
+summary: "Implement improvements to deno compile for smaller binaries and optimized path resolution for bundled agent definitions and skills, as described in the Deno v2.9 blog post."
 affectedPaths:
-    - "scripts/compile.js"
-    - "scripts/compile.test.js"
-    - "src/constants.js"
-    - "src/shared/session/session.js"
-    - "src/shared/session/agents.js"
-    - "src/shared/snip-filters.js"
-    - "src/shared/workflow/code-review.js"
-    - "src/shared/session/session-catalog.test.js"
-    - "src/shared/snip-filters.test.js"
-    - "docs/quickstart.md"
-    - "README.md"
+    []
 frontend: false
-devServerCommand: null
-devServerUrl: null
-devServerHmr: null
 createdAt: "2026-07-06T16:52:46-04:00"
+updatedAt: "2026-07-06T21:05:02.401Z"
 status: "draft"
+origin: "internal"
 ---
 
 # Deno Compile Binary Optimization
@@ -77,12 +66,13 @@ compile include for that HTML file unless the dependency is upgraded.
 
 ## Files to Modify
 
-- `scripts/compile.js` — add Deno 2.9 compile flags (`--bundle`, `--minify`, `--app-name wld`), convert static asset
-  includes to `--include-as-is`, remove redundant workflow prompt includes already covered by `src/agent-definitions`,
+- `scripts/compile.js` — add Deno 2.9 compile flags (`--bundle`, `--minify`, `--app-name wld`), refactor compile-arg
+  construction into testable pure helpers, prefer `--include-as-is` for static asset includes when supported, fall back
+  to `--include` when unsupported, remove redundant workflow prompt includes already covered by `src/agent-definitions`,
   and explicitly include any package HTML asset still read by path.
-- `scripts/compile.test.js` — replace string-only assertions for old `--include` behavior with assertions for
-  `--bundle`, `--minify`, `--include-as-is`, the bundled resource directories, and the Plannotator review asset if still
-  filesystem-read.
+- `scripts/compile.test.js` — replace string-only assertions for old `--include` behavior with assertions for the pure
+  compile-arg builder: `--bundle`, `--minify`, include-flag selection/fallback, the bundled resource directories, and
+  the Plannotator review asset if still filesystem-read.
 - `src/constants.js` — clarify/centralize bundled resource path constants so they are documented as source-run and
   compiled-VFS compatible; add package/resource constants only if needed to avoid hard-coded path drift.
 - `src/shared/session/session.js` — keep extraction for bundled skills and bundled agent definitions, and update
@@ -92,8 +82,11 @@ compile include for that HTML file unless the dependency is upgraded.
   centralization requires it; preserve local > home > bundled layering.
 - `src/shared/snip-filters.js` — reuse central bundled Snip filter path if introduced; preserve current install/cleanup
   behavior.
-- `src/shared/workflow/code-review.js` — remove or guard the filesystem read of `review-editor.html` if a package export
-  is available; otherwise document and rely on the explicit `--include-as-is` compile asset.
+- `src/shared/workflow/code-review.js` — keep the current dependency-injected `loadReviewEditorHtml` seam; if the
+  dependency later exposes review HTML as JS, switch to that pattern, but for this plan document/test the explicit
+  compile include because the current `./assets` export only exposes plan-review HTML.
+- `src/shared/workflow/code-review.test.js` — add focused coverage for the default review HTML loader if practical, or
+  leave existing dependency-injected tests and rely on compiled smoke verification for the package HTML asset.
 - `src/shared/session/session-catalog.test.js` — keep/adjust coverage for bundled skill extraction, workflow prompt
   resolution, and bundled path reporting.
 - `src/shared/snip-filters.test.js` — add or update coverage that Snip filters still read from the bundled directory in
@@ -116,29 +109,36 @@ Existing functions, modules, or patterns to reuse:
 
 ## Implementation Steps
 
-- [ ] Step 1: Update `scripts/compile.js` to build with
-      `deno compile -A --bundle --minify --app-name wld --output ./bin/wld src/cli.js` plus resource includes.
-- [ ] Step 2: Convert RunWield static resource flags to `--include-as-is`: `src/ui/workspace/static/`,
-      `src/agent-definitions`, `src/prompt-templates`, `src/shared/session/SYSTEM_PROMPT_TEMPLATE.md`, `src/skills`,
-      `src/snip-filters`, and `src/shared/ui/catppuccin-mocha.json`.
-- [ ] Step 3: Remove redundant or commented workflow-prompt file includes once `src/agent-definitions` covers
+- [ ] Step 1: Refactor `scripts/compile.js` behind `import.meta.main` so tests can import pure helpers such as
+      `buildCompileArgs()` and `selectStaticIncludeFlag()` without running the build.
+- [ ] Step 2: Update the compile args to build with
+      `deno compile -A --bundle --minify --app-name wld --output ./bin/wld src/cli.js` plus resource includes. Consider
+      `--exclude-unused-npm` only as a fallback experiment if `--bundle` proves incompatible during verification.
+- [ ] Step 3: Prefer `--include-as-is` for RunWield static resources when `deno compile --help` reports support;
+      otherwise use `--include` and print a clear warning that this Deno version lacks `--include-as-is`. Apply the
+      selected flag to `src/ui/workspace/static/`, `src/agent-definitions`, `src/prompt-templates`,
+      `src/shared/session/SYSTEM_PROMPT_TEMPLATE.md`, `src/skills`, `src/snip-filters`, and
+      `src/shared/ui/catppuccin-mocha.json`.
+- [ ] Step 4: Remove redundant or commented workflow-prompt file includes once `src/agent-definitions` covers
       `workflow-prompts/`; keep explicit tests that the real files are covered by the directory include.
-- [ ] Step 4: Audit filesystem reads of package assets that `--bundle` may not embed. For the known `review-editor.html`
-      path, either switch to a package-exported string asset if available or add
-      `--include-as-is node_modules/@gandazgul/plannotator-pi-extension-compiled/review-editor.html`.
-- [ ] Step 5: If path constants need centralization, keep the implementation pure JavaScript/JSDoc and route bundled
+- [ ] Step 5: Audit filesystem reads of package assets that `--bundle` may not embed. For the known `review-editor.html`
+      path, add it to the same selected static include mechanism as
+      `node_modules/@gandazgul/plannotator-pi-extension-compiled/review-editor.html` unless a dependency upgrade exposes
+      a review HTML JS export.
+- [ ] Step 6: If path constants need centralization, keep the implementation pure JavaScript/JSDoc and route bundled
       path consumers through one module or clearly documented constants. Preserve source-run behavior and Deno compile
       virtual filesystem behavior.
-- [ ] Step 6: Preserve extraction only where needed for external absolute-path reads: bundled skills and bundled agent
+- [ ] Step 7: Preserve extraction only where needed for external absolute-path reads: bundled skills and bundled agent
       definitions. Do not make the binary self-extracting unless verification proves a dependency needs real files.
-- [ ] Step 7: Update compile/resource tests to assert the new flags and runtime resource coverage without depending on
+- [ ] Step 8: Update compile/resource tests to assert the new flags and runtime resource coverage without depending on
       stale commented strings.
-- [ ] Step 8: Update contributor docs only if a Deno 2.9+ note is needed for `deno task compile`.
+- [ ] Step 9: Update contributor docs only if a Deno 2.9+ note is needed for `deno task compile`.
 
 ## Verification Plan
 
 - Automated: `deno task ci`
-- Automated: `deno task compile`
+- Automated: `deno task compile` (output should show whether `--include-as-is` or the compatibility `--include` fallback
+  was used)
 - Automated/manual smoke: `./bin/wld help`
 - Manual smoke: run a compiled command or minimal session path that lists agents/skills if feasible without requiring
   model credentials; confirm bundled agent definitions and skills are found.
@@ -160,8 +160,9 @@ Existing functions, modules, or patterns to reuse:
   `scripts/compile.js`.
 - `--bundle` no longer embeds the whole `node_modules` tree, so any runtime `Deno.readTextFile` into a package must be
   converted to an exported JS asset or explicitly included.
-- `--include-as-is` should be used only for passive resources. Source modules/workers that must participate in module
-  resolution should remain normal imports or use `--include` only when necessary.
+- `--include-as-is` should be used only for passive resources and only when the active Deno CLI supports it. Source
+  modules/workers that must participate in module resolution should remain normal imports or use `--include` only when
+  necessary.
 - Avoid `--self-extracting` unless needed: it increases first-run startup cost, disk usage, memory usage, and tamper
   surface. Existing targeted extraction for skills/agent definitions is safer.
 - The repository has unrelated dirty files at planning time; execution should avoid touching them and only modify the
