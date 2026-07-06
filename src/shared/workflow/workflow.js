@@ -8,11 +8,6 @@ import { AGENTS, CWD } from "../../constants.js";
 import { loadPlan } from "../../plan-store.js";
 import { getAgentDisplayName } from "../session/agents.js";
 import { runAgentSession } from "../session/session.js";
-import {
-    getActiveExecutionWorkflow,
-    getRootAgentSession,
-    setActiveExecutionWorkflow,
-} from "../session/session-state.js";
 import { createExecutionWorktree, findReusableWorktree, prepareTargetBranchRef } from "../worktree.js";
 import { updateEntry as updateWorktreeRegistryEntry } from "../worktree-registry.js";
 import { captureWorktreeTree } from "./git-snapshot.js";
@@ -181,7 +176,7 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
         currentStatus: "in_progress",
         details: { triageMeta: effectiveMeta },
     });
-    await markActiveWorktreeStatusFn("completed");
+    await markActiveWorktreeStatusFn("completed", { hostedSession });
     return { repairRequired: false, executionComplete: true };
 }
 
@@ -200,7 +195,7 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
 async function executeSingleEngineerPlan(
     { planName, planBody, triageMeta, uiAPI, sessionManager, currentStatus, hostedSession },
 ) {
-    const executionContext = await startActiveExecutionWorkflow(planName, triageMeta, currentStatus);
+    const executionContext = await startActiveExecutionWorkflow({ planName, triageMeta, currentStatus, hostedSession });
     const engineerResult = await runEngineerWithPlan(
         planName,
         planBody,
@@ -241,8 +236,7 @@ async function runEngineerWithPlan(planName, planBody, uiAPI, sessionManager, ex
     } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
         const hostedRootSession = /** @type {any} */ (hostedSession?.getRootAgentSession?.());
-        const rootMessages = hostedRootSession?.agent?.state?.messages ||
-            getRootAgentSession()?.agent?.state?.messages || [];
+        const rootMessages = hostedRootSession?.agent?.state?.messages || [];
         uiAPI.appendSystemMessage(
             buildEngineerPausedMessage(errorMessage),
             true,
@@ -300,14 +294,18 @@ export function assertReusableWorktreeTargetMatches(reusableBaseBranch, targetBr
 }
 
 /**
- * @param {string} planName
- * @param {Partial<import('../../plan-store.js').PlanFrontMatter>} triageMeta
- * @param {import('./plan-lifecycle.js').PlanStatus} currentStatus
+ * @param {{
+ *   planName: string,
+ *   triageMeta: Partial<import('../../plan-store.js').PlanFrontMatter>,
+ *   currentStatus: import('./plan-lifecycle.js').PlanStatus,
+ *   hostedSession?: import('../session/hosted-session.js').HostedSession,
+ * }} opts
  * @returns {Promise<{ projectRoot: string, executionCwd: string, baselineTree: string, worktreeId: string, worktreeBranch: string, worktreeBaseBranch?: string }>}
  */
-export async function startActiveExecutionWorkflow(planName, triageMeta, currentStatus) {
+export async function startActiveExecutionWorkflow({ planName, triageMeta, currentStatus, hostedSession }) {
+    if (!hostedSession) throw new Error("startActiveExecutionWorkflow: hostedSession is required");
     const targetBranch = normalizeExecutionTargetBranch(triageMeta.worktreeBaseBranch);
-    const existing = getActiveExecutionWorkflow();
+    const existing = hostedSession.getActiveExecutionWorkflow();
     const reusable =
         existing?.planName === planName && existing.executionCwd && existing.worktreeId && existing.worktreeBranch
             ? {
@@ -343,7 +341,7 @@ export async function startActiveExecutionWorkflow(planName, triageMeta, current
         worktreeBranch: worktree.branch,
         worktreeBaseBranch,
     };
-    setActiveExecutionWorkflow(workflow);
+    hostedSession.setActiveExecutionWorkflow(workflow);
     if (worktree.id) {
         await updateWorktreeRegistryEntry(CWD, worktree.id, { status: "active" });
     }
@@ -365,9 +363,12 @@ export async function startActiveExecutionWorkflow(planName, triageMeta, current
     return workflow;
 }
 
-/** @param {import('../../plan-store.js').PlanFrontMatter['worktreeStatus']} status */
-async function markActiveWorktreeStatus(status) {
-    const workflow = getActiveExecutionWorkflow();
+/**
+ * @param {import('../../plan-store.js').PlanFrontMatter['worktreeStatus']} status
+ * @param {{ hostedSession?: import('../session/hosted-session.js').HostedSession }} [opts]
+ */
+async function markActiveWorktreeStatus(status, opts = {}) {
+    const workflow = opts.hostedSession?.getActiveExecutionWorkflow();
     if (!workflow?.worktreeId || !status || status === "none") return;
     await updateWorktreeRegistryEntry(workflow.projectRoot || CWD, workflow.worktreeId, { status });
 }

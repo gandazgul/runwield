@@ -1,7 +1,9 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import { loadReviewerPrompt, runLocalCI, runMechanicalValidation, runValidationLoop } from "./validation.js";
-import { getActiveExecutionWorkflow, setActiveExecutionWorkflow } from "../session/session-state.js";
+import { HostedSession } from "../session/hosted-session.js";
 import { __resetSettingsForTests } from "../settings.js";
+
+const hostedSession = new HostedSession({ id: "validation-test" });
 
 /**
  * @returns {any & { messages: string[], systemCalls: Array<{ message: string, isError: boolean, header: string, style: any }>, promptSelections: string[], busyStates: boolean[], toolCalls: Array<{ id: string, name: string, args: string }>, toolOutputs: string[], toolResults: Array<{ id: string, name: string, result: string, isError: boolean, durationMs: number }> }}
@@ -145,6 +147,7 @@ Deno.test("runMechanicalValidation passes local CI without plan-specific work", 
     const actions = [];
 
     const result = await runMechanicalValidation({
+        hostedSession,
         uiAPI,
         sessionManager: undefined,
         cwd: "/repo",
@@ -176,6 +179,7 @@ Deno.test("runMechanicalValidation repairs CI failures through Engineer and then
     let ciRuns = 0;
 
     const result = await runMechanicalValidation({
+        hostedSession,
         uiAPI,
         sessionManager: /** @type {any} */ ({ id: "session" }),
         cwd: "/repo",
@@ -204,6 +208,7 @@ Deno.test("runMechanicalValidation stops after three Engineer repair attempts wi
     let repairCalls = 0;
 
     const result = await runMechanicalValidation({
+        hostedSession,
         uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
@@ -236,6 +241,7 @@ Deno.test("runMechanicalValidation stops after three Engineer repair attempts wi
 Deno.test("runValidationLoop does not switch active agent unless finalAgentName is provided", async () => {
     const uiAPI = makeUi();
     await runValidationLoop({
+        hostedSession,
         planName: "p",
         planContent: "",
         triageMeta: { classification: "QUICK_FIX" },
@@ -260,6 +266,7 @@ Deno.test("runValidationLoop does not switch active agent unless finalAgentName 
 Deno.test("runValidationLoop marks validation progress and success messages with status styling", async () => {
     const uiAPI = makeUi();
     await runValidationLoop({
+        hostedSession,
         planName: "p",
         planContent: "",
         triageMeta: { classification: "QUICK_FIX" },
@@ -311,6 +318,7 @@ Deno.test("runValidationLoop restores requested final agent after validation", a
     /** @type {string[]} */
     const switched = [];
     await runValidationLoop({
+        hostedSession,
         planName: "p",
         planContent: "",
         triageMeta: { classification: "QUICK_FIX" },
@@ -335,6 +343,7 @@ Deno.test("runValidationLoop fails FEATURE validation when workflow diff is empt
     const events = [];
 
     await runValidationLoop({
+        hostedSession,
         planName: "p",
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
@@ -370,6 +379,7 @@ Deno.test("runValidationLoop fails PROJECT validation when workflow diff only ch
     const events = [];
 
     await runValidationLoop({
+        hostedSession,
         planName: "p",
         planContent: "plan",
         triageMeta: { classification: "PROJECT" },
@@ -416,6 +426,7 @@ Deno.test("runValidationLoop halts when CI repair does not call task_completed",
     const uiAPI = makeUi();
     let repairCalls = 0;
     await runValidationLoop({
+        hostedSession,
         planName: "p",
         planContent: "",
         triageMeta: { classification: "FEATURE" },
@@ -453,6 +464,7 @@ Deno.test("runValidationLoop halts when CI repair does not call task_completed",
 Deno.test("runValidationLoop reports exact semantic repair halt reason", async () => {
     const uiAPI = makeUi();
     await runValidationLoop({
+        hostedSession,
         planName: "p",
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
@@ -500,13 +512,14 @@ Deno.test("runValidationLoop reviews the diff scoped to the active workflow base
     /** @type {Array<string | undefined>} */
     const baselineArgs = [];
 
-    setActiveExecutionWorkflow({
+    hostedSession.setActiveExecutionWorkflow({
         planName: "p",
         triageMeta: { classification: "FEATURE" },
         baselineTree: "baseline-tree",
     });
 
     await runValidationLoop({
+        hostedSession,
         planName: "p",
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
@@ -536,7 +549,7 @@ Deno.test("runValidationLoop reviews the diff scoped to the active workflow base
     assertEquals(reviewPrompts.length, 1);
     assertEquals(reviewPrompts[0].includes("scoped workflow change"), true);
     assertEquals(reviewPrompts[0].includes("pre-existing dirty change"), false);
-    assertEquals(getActiveExecutionWorkflow(), null);
+    assertEquals(hostedSession.getActiveExecutionWorkflow(), null);
 });
 
 Deno.test("runValidationLoop runs validation and reviewer in active execution cwd", async () => {
@@ -550,7 +563,7 @@ Deno.test("runValidationLoop runs validation and reviewer in active execution cw
     /** @type {Array<any>} */
     const sessionOpts = [];
 
-    setActiveExecutionWorkflow({
+    hostedSession.setActiveExecutionWorkflow({
         planName: "p",
         triageMeta: { classification: "FEATURE" },
         baselineTree: "baseline-tree",
@@ -562,6 +575,7 @@ Deno.test("runValidationLoop runs validation and reviewer in active execution cw
     });
 
     await runValidationLoop({
+        hostedSession,
         planName: "p",
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
@@ -608,7 +622,7 @@ Deno.test("runValidationLoop records validation_passed only after worktree merge
     /** @type {string[]} */
     const actions = [];
 
-    setActiveExecutionWorkflow({
+    hostedSession.setActiveExecutionWorkflow({
         planName: "p",
         triageMeta: { classification: "FEATURE", summary: "Preserve metadata in merge commits." },
         baselineTree: "baseline-tree",
@@ -620,6 +634,7 @@ Deno.test("runValidationLoop records validation_passed only after worktree merge
     });
 
     await runValidationLoop({
+        hostedSession,
         planName: "p",
         planContent: "plan",
         triageMeta: { classification: "FEATURE", summary: "Preserve metadata in merge commits." },
@@ -684,7 +699,7 @@ Deno.test("runValidationLoop runs always human review after semantic approval an
     /** @type {string[]} */
     const actions = [];
 
-    setActiveExecutionWorkflow({
+    hostedSession.setActiveExecutionWorkflow({
         planName: "p",
         triageMeta: { classification: "FEATURE" },
         baselineTree: "baseline-tree",
@@ -696,6 +711,7 @@ Deno.test("runValidationLoop runs always human review after semantic approval an
     });
 
     await runValidationLoop({
+        hostedSession,
         planName: "p",
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
@@ -753,7 +769,7 @@ Deno.test("runValidationLoop ask mode can skip human review and merge", async ()
         return Promise.resolve("skip");
     };
 
-    setActiveExecutionWorkflow({
+    hostedSession.setActiveExecutionWorkflow({
         planName: "p",
         triageMeta: { classification: "FEATURE" },
         baselineTree: "baseline-tree",
@@ -765,6 +781,7 @@ Deno.test("runValidationLoop ask mode can skip human review and merge", async ()
     });
 
     await runValidationLoop({
+        hostedSession,
         planName: "p",
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
@@ -813,7 +830,7 @@ Deno.test("runValidationLoop ask mode opens human review before merge when appro
         return Promise.resolve("open");
     };
 
-    setActiveExecutionWorkflow({
+    hostedSession.setActiveExecutionWorkflow({
         planName: "p",
         triageMeta: { classification: "FEATURE" },
         baselineTree: "baseline-tree",
@@ -825,6 +842,7 @@ Deno.test("runValidationLoop ask mode opens human review before merge when appro
     });
 
     await runValidationLoop({
+        hostedSession,
         planName: "p",
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
@@ -872,6 +890,7 @@ Deno.test("runValidationLoop sends human feedback to Engineer and continues vali
     let humanReviewCalls = 0;
 
     await runValidationLoop({
+        hostedSession,
         planName: "p",
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
@@ -928,7 +947,7 @@ Deno.test("runValidationLoop treats human review exit as validation failure with
     /** @type {string[]} */
     const actions = [];
 
-    setActiveExecutionWorkflow({
+    hostedSession.setActiveExecutionWorkflow({
         planName: "p",
         triageMeta: { classification: "FEATURE" },
         baselineTree: "baseline-tree",
@@ -940,6 +959,7 @@ Deno.test("runValidationLoop treats human review exit as validation failure with
     });
 
     await runValidationLoop({
+        hostedSession,
         planName: "p",
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
@@ -989,7 +1009,7 @@ Deno.test("runValidationLoop keeps merged worktree when cleanup setting is disab
     /** @type {string[]} */
     const actions = [];
 
-    setActiveExecutionWorkflow({
+    hostedSession.setActiveExecutionWorkflow({
         planName: "p",
         triageMeta: { classification: "FEATURE" },
         baselineTree: "baseline-tree",
@@ -1001,6 +1021,7 @@ Deno.test("runValidationLoop keeps merged worktree when cleanup setting is disab
     });
 
     await runValidationLoop({
+        hostedSession,
         planName: "p",
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
@@ -1051,7 +1072,7 @@ Deno.test("runValidationLoop records worktree_merge_failed when merge-back fails
     /** @type {any} */
     let mergeFailedDetails = null;
 
-    setActiveExecutionWorkflow({
+    hostedSession.setActiveExecutionWorkflow({
         planName: "p",
         triageMeta: { classification: "FEATURE" },
         baselineTree: "baseline-tree",
@@ -1063,6 +1084,7 @@ Deno.test("runValidationLoop records worktree_merge_failed when merge-back fails
     });
 
     await runValidationLoop({
+        hostedSession,
         planName: "p",
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
@@ -1119,7 +1141,7 @@ Deno.test("runValidationLoop still prompts when merge-conflict metadata updates 
     /** @type {string[]} */
     const actions = [];
 
-    setActiveExecutionWorkflow({
+    hostedSession.setActiveExecutionWorkflow({
         planName: "p",
         triageMeta: { classification: "FEATURE" },
         baselineTree: "baseline-tree",
@@ -1131,6 +1153,7 @@ Deno.test("runValidationLoop still prompts when merge-conflict metadata updates 
     });
 
     await runValidationLoop({
+        hostedSession,
         planName: "p",
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
@@ -1181,7 +1204,7 @@ Deno.test("runValidationLoop warns when using legacy current-checkout merge fall
     /** @type {Array<string | undefined>} */
     const targets = [];
 
-    setActiveExecutionWorkflow({
+    hostedSession.setActiveExecutionWorkflow({
         planName: "p",
         triageMeta: { classification: "FEATURE" },
         baselineTree: "baseline-tree",
@@ -1192,6 +1215,7 @@ Deno.test("runValidationLoop warns when using legacy current-checkout merge fall
     });
 
     await runValidationLoop({
+        hostedSession,
         planName: "p",
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
@@ -1234,7 +1258,7 @@ Deno.test("runValidationLoop dispatches Engineer merge repair and retries merge-
     const actions = [];
     let mergeAttempts = 0;
 
-    setActiveExecutionWorkflow({
+    hostedSession.setActiveExecutionWorkflow({
         planName: "p",
         triageMeta: { classification: "FEATURE" },
         baselineTree: "baseline-tree",
@@ -1246,6 +1270,7 @@ Deno.test("runValidationLoop dispatches Engineer merge repair and retries merge-
     });
 
     await runValidationLoop({
+        hostedSession,
         planName: "p",
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
@@ -1332,7 +1357,7 @@ Deno.test("runValidationLoop retries worktree merge after user fixes primary che
         return Promise.resolve("retry");
     };
 
-    setActiveExecutionWorkflow({
+    hostedSession.setActiveExecutionWorkflow({
         planName: "p",
         triageMeta: { classification: "FEATURE" },
         baselineTree: "baseline-tree",
@@ -1344,6 +1369,7 @@ Deno.test("runValidationLoop retries worktree merge after user fixes primary che
     });
 
     await runValidationLoop({
+        hostedSession,
         planName: "p",
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
@@ -1405,7 +1431,7 @@ Deno.test("runValidationLoop marks active worktree validation_failed when valida
     /** @type {string[]} */
     const actions = [];
 
-    setActiveExecutionWorkflow({
+    hostedSession.setActiveExecutionWorkflow({
         planName: "p",
         triageMeta: { classification: "FEATURE" },
         baselineTree: "baseline-tree",
@@ -1417,6 +1443,7 @@ Deno.test("runValidationLoop marks active worktree validation_failed when valida
     });
 
     await runValidationLoop({
+        hostedSession,
         planName: "p",
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },

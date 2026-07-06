@@ -179,6 +179,7 @@ export function createAgentHandler(agentName, __deps) {
 
             if (executionDecision.kind === "run_validation") {
                 await runValidationLoopImpl({
+                    hostedSession,
                     planName,
                     planContent,
                     triageMeta,
@@ -250,6 +251,7 @@ export function createAgentHandler(agentName, __deps) {
                 }
 
                 await runValidationLoopImpl({
+                    hostedSession,
                     planName: workflow.planName,
                     planContent,
                     triageMeta: workflow.triageMeta,
