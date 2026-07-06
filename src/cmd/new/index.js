@@ -35,7 +35,9 @@ export async function runNewCommand(argv, options = {}) {
     const { uiAPI } = options;
     const sessionName = argv.join(" ").trim();
 
-    disposeRoot(options.hostedSession);
+    if (options.hostedSession) {
+        disposeRoot(options.hostedSession);
+    }
     const rootSessionManager = await createRoot("new", Deno.cwd());
     if (sessionName) {
         rootSessionManager.appendSessionInfo(sessionName);

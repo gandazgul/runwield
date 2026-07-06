@@ -261,8 +261,9 @@ async function runEngineerWithPlan(planName, planBody, uiAPI, sessionManager, ex
  * @param {string} [reason]
  */
 function buildEngineerPausedMessage(reason) {
-    const base = `${getAgentDisplayName(AGENTS.ENGINEER)
-        } stopped without task_completed; execution is paused. Say "continue" to resume with the Engineer.`;
+    const base = `${
+        getAgentDisplayName(AGENTS.ENGINEER)
+    } stopped without task_completed; execution is paused. Say "continue" to resume with the Engineer.`;
     return reason ? `${base}\nReason: ${reason}` : base;
 }
 
@@ -285,7 +286,8 @@ export function assertReusableWorktreeTargetMatches(reusableBaseBranch, targetBr
     const planTarget = normalizeExecutionTargetBranch(targetBranch);
     if (reusableTarget !== planTarget) {
         throw new Error(
-            `Existing execution worktree targets ${reusableTarget || "HEAD/current checkout"}, but plan targets ${planTarget || "HEAD/current checkout"
+            `Existing execution worktree targets ${reusableTarget || "HEAD/current checkout"}, but plan targets ${
+                planTarget || "HEAD/current checkout"
             }. Aborting before Engineer starts.`,
         );
     }
@@ -314,7 +316,9 @@ export async function startActiveExecutionWorkflow({ planName, triageMeta, curre
                     (typeof triageMeta.worktreeBaseBranch === "string" ? triageMeta.worktreeBaseBranch : undefined),
             }
             : await findReusableWorktree({ projectRoot: CWD, planName });
-    const worktree = reusable || await createExecutionWorktree({ projectRoot: CWD, planName, baseRef: "HEAD" });
+    if (reusable) assertReusableWorktreeTargetMatches(reusable.baseBranch, targetBranch);
+    const worktree = reusable ||
+        await createExecutionWorktree({ projectRoot: CWD, planName, baseRef: targetBranch || "HEAD" });
     const worktreeBaseBranch = worktree.baseBranch === "HEAD" ? undefined : worktree.baseBranch;
     const baselineTree =
         existing?.planName === planName && existing.executionCwd === worktree.path && existing.baselineTree

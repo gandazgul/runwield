@@ -59,7 +59,6 @@ import {
     setActiveAgent as setActiveAgentFn,
     startInteractiveSession as startInteractiveSessionFn,
 } from "../../shared/interactive/chat-session.js";
-import { getRootAgentName as getRootAgentNameFn } from "../../shared/session/session-state.js";
 import { shouldCleanupMergedWorktrees as shouldCleanupMergedWorktreesFn } from "../../shared/settings.js";
 import { setTerminalTitleForName as setTerminalTitleForNameFn } from "../../shared/ui/terminal-title.js";
 import { resetTuiState as resetTuiStateFn } from "../command-helpers.js";
@@ -90,7 +89,7 @@ export { getLoadPlanCompletions } from "./getArgumentCompletions.js";
  * @property {typeof setActiveAgentFn} [setActiveAgent]
  * @property {typeof createAgentHandlerFn} [createAgentHandler]
  * @property {typeof resetTuiStateFn} [resetTuiState]
- * @property {typeof getRootAgentNameFn} [getRootAgentName]
+ * @property {() => string | null} [getRootAgentName]
  * @property {(cwd: string) => Promise<Array<{name: string, attrs: Partial<import('../../plan-store.js').PlanFrontMatter>}>>} [listPlans]
  * @property {typeof findPlansByParentFn} [findPlansByParent]
  * @property {typeof resolveSiblingChildPlanDependenciesFn} [resolveSiblingChildPlanDependencies]
@@ -2254,8 +2253,8 @@ export async function runLoadPlanCommand(argv, options = {}) {
     const restoreWorktreeTree = restoreWorktreeTreeDep || restoreWorktreeTreeFn;
     const rawSetActiveAgent = setActiveAgentDep || setActiveAgentFn;
     const rawCreateAgentHandler = createAgentHandlerDep || createAgentHandlerFn;
-    const getRootAgentName = getRootAgentNameDep || getRootAgentNameFn;
     const hostedSession = options.hostedSession;
+    const getRootAgentName = getRootAgentNameDep || (() => hostedSession?.getRootAgentName?.() || null);
     /**
      * @param {string} nextAgentName
      * @param {Record<string, unknown>} [handlerDeps]

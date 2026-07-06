@@ -43,6 +43,7 @@ Deno.test("runNewCommand creates and installs a fresh root session", async () =>
                 },
                 appendSystemMessage: (/** @type {string} */ msg) => messages.push(msg),
             },
+            hostedSession: /** @type {any} */ ({ id: "old-hosted-session" }),
             sessionHost: {
                 createSession: (
                     /** @type {{ sessionManager?: unknown, uiAPI?: unknown, eventSink?: unknown }} */ options,
