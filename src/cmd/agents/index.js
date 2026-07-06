@@ -87,9 +87,9 @@ async function runAgentsCommandCli(agentName, rest, deps = {}) {
  * @param {string} agentName
  * @param {string[]} _rest
  * @param {{
- *   tui: import('../../shared/ui/types.js').TuiAPI,
- *   uiAPI: import('../../shared/ui/types.js').UiAPI,
- *   editor: import('../../shared/ui/types.js').EditorAPI,
+ *   tui: import('../../ui/tui/types.js').TuiAPI,
+ *   uiAPI: import('../../ui/tui/types.js').UiAPI,
+ *   editor: import('../../ui/tui/types.js').EditorAPI,
  *   hostedSession?: import('../../shared/session/hosted-session.js').HostedSession,
  * }} options
  * @param {CommandDependencies} [deps]

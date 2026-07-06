@@ -7,7 +7,7 @@ import { AGENTS } from "../../constants.js";
 import { createRootSessionManager } from "../../shared/session/root-session.js";
 import { createAgentHandler as createAgentHandlerFn } from "../../shared/session/agent-handler.js";
 import { disposeRootAgentSessionForNewSession } from "../../shared/session/session.js";
-import { setTerminalTitleForSession } from "../../shared/ui/terminal-title.js";
+import { setTerminalTitleForSession } from "../../ui/tui/terminal-title.js";
 
 /**
  * Handle new session command.

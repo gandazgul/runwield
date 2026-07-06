@@ -3,7 +3,7 @@
  * Converts the active RunWield TUI theme into browser CSS variables.
  */
 
-import { resolveSelectedThemeJson } from "../../shared/ui/theme.js";
+import { resolveSelectedThemeJson } from "../theme/theme.js";
 
 /**
  * @typedef {Object} RunWieldBrowserThemeJson

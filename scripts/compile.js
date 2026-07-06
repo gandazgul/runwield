@@ -49,7 +49,7 @@ const compile = await runCmd("deno", [
     "src/snip-filters",
 
     "--include",
-    "src/shared/ui/catppuccin-mocha.json",
+    "src/ui/theme/catppuccin-mocha.json",
 
     "--output",
     "./bin/wld",

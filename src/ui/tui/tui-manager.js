@@ -1,5 +1,5 @@
 /**
- * @module shared/ui/tui-manager
+ * @module ui/tui/tui-manager
  * Injectable TUI singleton lifecycle.
  */
 

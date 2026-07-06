@@ -1,5 +1,5 @@
 /**
- * @module shared/ui/tui
+ * @module ui/tui/tui
  * TUI Singleton Manager
  */
 

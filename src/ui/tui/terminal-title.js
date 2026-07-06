@@ -1,5 +1,5 @@
 /**
- * @module shared/ui/terminal-title
+ * @module ui/tui/terminal-title
  * Helpers for RunWield terminal tab/window titles.
  */
 

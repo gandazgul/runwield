@@ -19,7 +19,7 @@
 /**
  * @typedef {Object} BashContext
  * @property {string} userRequest - Raw input (still includes leading `!` or `!!`).
- * @property {import('../ui/types.js').UiAPI} uiAPI
+ * @property {import('../../ui/tui/types.js').UiAPI} uiAPI
  * @property {import('@earendil-works/pi-tui').TUI} tui
  * @property {import('@earendil-works/pi-tui').Editor} editor
  * @property {() => (import('../session/types.js').SessionManagerLike | null)} getSessionManager

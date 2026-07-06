@@ -7,7 +7,7 @@
 
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import { appendTaskCompletedMessage } from "../shared/ui/task-completed-message.js";
+import { appendTaskCompletedMessage } from "../ui/tui/task-completed-message.js";
 
 const TOOL_PARAMS = Type.Object({
     message: Type.Optional(Type.String({

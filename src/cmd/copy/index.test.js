@@ -1,7 +1,7 @@
 import { assertEquals } from "@std/assert";
 import { runCopyCommand } from "./index.js";
 import { HostedSession } from "../../shared/session/hosted-session.js";
-import { initRunWieldTheme } from "../../shared/ui/theme.js";
+import { initRunWieldTheme } from "../../ui/theme/theme.js";
 
 initRunWieldTheme();
 

@@ -1,6 +1,6 @@
 import { assertEquals } from "@std/assert";
 import { runNameCommand } from "./index.js";
-import { initRunWieldTheme } from "../../shared/ui/theme.js";
+import { initRunWieldTheme } from "../../ui/theme/theme.js";
 
 initRunWieldTheme();
 

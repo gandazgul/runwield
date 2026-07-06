@@ -1,6 +1,6 @@
 import { assertEquals } from "@std/assert";
 import { COMMAND_NAMES } from "../../cmd/registry.js";
-import { initRunWieldTheme } from "../ui/theme.js";
+import { initRunWieldTheme } from "../../ui/theme/theme.js";
 import {
     detectModelAvailability,
     getConfiguredModelAvailability,

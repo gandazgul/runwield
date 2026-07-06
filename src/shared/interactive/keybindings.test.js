@@ -1,6 +1,6 @@
 import { assertEquals } from "@std/assert";
 import { __setClipboardDepsForTest } from "../clipboard.js";
-import { initRunWieldTheme } from "../ui/theme.js";
+import { initRunWieldTheme } from "../../ui/theme/theme.js";
 import { installKeybindings } from "./keybindings.js";
 
 const RAW_KEY = {

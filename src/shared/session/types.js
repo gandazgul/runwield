@@ -44,5 +44,5 @@
  */
 
 /**
- * @typedef {(userRequest: string, images: ImageAttachment[], uiAPI: import('../ui/types.js').UiAPI, sessionManager: SessionManagerLike) => Promise<void>} AgentMessageHandler
+ * @typedef {(userRequest: string, images: ImageAttachment[], uiAPI: import('../../ui/tui/types.js').UiAPI, sessionManager: SessionManagerLike) => Promise<void>} AgentMessageHandler
  */

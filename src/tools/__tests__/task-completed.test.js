@@ -15,7 +15,7 @@ async function executeTool(tool, params) {
 Deno.test("task_completed renders completion message as markdown", async () => {
     /** @type {Array<{ agentName: string, text: string }>} */
     const rendered = [];
-    const uiAPI = /** @type {import('../../shared/ui/types.js').UiAPI} */ ({
+    const uiAPI = /** @type {import('../../ui/tui/types.js').UiAPI} */ ({
         appendSystemMessage: () => {},
         appendAgentMessageStart: (agentName) => ({
             appendText: (text) => rendered.push({ agentName, text }),

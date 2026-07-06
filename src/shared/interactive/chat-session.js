@@ -13,13 +13,13 @@ import {
     truncateToWidth,
     visibleWidth,
 } from "@earendil-works/pi-tui";
-import { initTUI } from "../ui/tui.js";
-import { setTerminalTitleForSession } from "../ui/terminal-title.js";
-import { applyPersistedTheme, getEditorTheme, initRunWieldTheme, onThemeChange, theme } from "../ui/theme.js";
+import { initTUI } from "../../ui/tui/tui.js";
+import { setTerminalTitleForSession } from "../../ui/tui/terminal-title.js";
+import { applyPersistedTheme, getEditorTheme, initRunWieldTheme, onThemeChange, theme } from "../../ui/theme/theme.js";
 import { VERSION } from "../version.js";
-import { endBlink, renderBootLogo } from "../ui/boot-logo.js";
-import { createUiApi } from "../ui/api.js";
-import { SpinnerBlock, SystemMessageBlock } from "../ui/blocks.js";
+import { endBlink, renderBootLogo } from "../../ui/tui/boot-logo.js";
+import { createUiApi } from "../../ui/tui/api.js";
+import { SpinnerBlock, SystemMessageBlock } from "../../ui/tui/blocks.js";
 import {
     abortActiveSession,
     ensureRootAgentSession,
@@ -213,7 +213,7 @@ function getMostRecentSessionModelParts(sessions) {
  * @property {number} nextId
  * @property {import('@earendil-works/pi-tui').Container | undefined} messageList
  * @property {import('@earendil-works/pi-tui').TUI | undefined} tui
- * @property {import('../ui/types.js').UiAPI | undefined} uiAPI
+ * @property {import('../../ui/tui/types.js').UiAPI | undefined} uiAPI
  */
 
 /** @returns {SteeringState} */
@@ -331,7 +331,7 @@ export function trackPendingSteeringMessage(steeringState, session, text, images
  *
  * @param {SteeringState} steeringState
  * @param {import('@earendil-works/pi-tui').Container} messageList
- * @param {import('../ui/types.js').UiAPI} uiAPI
+ * @param {import('../../ui/tui/types.js').UiAPI} uiAPI
  * @param {import('@earendil-works/pi-tui').TUI} tui
  */
 export function __setSteeringUiRefsForTests(steeringState, messageList, uiAPI, tui) {
@@ -554,10 +554,10 @@ export function getActiveModel(hostedSession) {
  *
  * @param {Object} args
  * @param {import('../session/hosted-session.js').HostedSession} args.hostedSession
- * @param {import('../ui/types.js').UiAPI} args.uiAPI
+ * @param {import('../../ui/tui/types.js').UiAPI} args.uiAPI
  * @param {string} args.initialRequest
  * @param {import('../session/types.js').ImageAttachment[]} args.initialImages
- * @param {(uiAPI: import('../ui/types.js').UiAPI) => Promise<void>} args.applyPendingRootSwapImpl
+ * @param {(uiAPI: import('../../ui/tui/types.js').UiAPI) => Promise<void>} args.applyPendingRootSwapImpl
  */
 export async function runScopedSubmitHandoffLoop(
     { hostedSession, uiAPI, initialRequest, initialImages, applyPendingRootSwapImpl },
@@ -953,8 +953,8 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
     /**
      * @param {import('../session/hosted-session.js').HostedSession | string | undefined} hostedSessionOrAgentName
      * @param {string | import('../session/types.js').AgentMessageHandler} agentNameOrHandler
-     * @param {import('../session/types.js').AgentMessageHandler | import('../ui/types.js').UiAPI} [handlerOrUiAPI]
-     * @param {import('../ui/types.js').UiAPI | string} [uiAPIOrAgentModel]
+     * @param {import('../session/types.js').AgentMessageHandler | import('../../ui/tui/types.js').UiAPI} [handlerOrUiAPI]
+     * @param {import('../../ui/tui/types.js').UiAPI | string} [uiAPIOrAgentModel]
      * @param {string | { allowReturnToRouter?: boolean }} [agentModelOrOptions]
      * @param {{ allowReturnToRouter?: boolean }} [agentOptions]
      */
@@ -985,8 +985,8 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         );
     };
     /**
-     * @param {import('../session/hosted-session.js').HostedSession | import('../ui/types.js').UiAPI | undefined} hostedSessionOrUiAPI
-     * @param {import('../ui/types.js').UiAPI} [uiAPIArg]
+     * @param {import('../session/hosted-session.js').HostedSession | import('../../ui/tui/types.js').UiAPI | undefined} hostedSessionOrUiAPI
+     * @param {import('../../ui/tui/types.js').UiAPI} [uiAPIArg]
      */
     const applyCurrentPendingRootSwap = (hostedSessionOrUiAPI, uiAPIArg) => {
         const hasExplicitSession = hostedSessionOrUiAPI && typeof hostedSessionOrUiAPI === "object" &&
@@ -995,7 +995,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
             hasExplicitSession
                 ? /** @type {import('../session/hosted-session.js').HostedSession} */ (hostedSessionOrUiAPI)
                 : hostedSession,
-            hasExplicitSession ? uiAPIArg : /** @type {import('../ui/types.js').UiAPI} */ (hostedSessionOrUiAPI),
+            hasExplicitSession ? uiAPIArg : /** @type {import('../../ui/tui/types.js').UiAPI} */ (hostedSessionOrUiAPI),
         );
     };
     /** @param {string} model @param {string} [provider] */

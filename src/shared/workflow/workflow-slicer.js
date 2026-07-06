@@ -207,7 +207,7 @@ function createSlicerCustomTools(planName, deps) {
  * @param {Object} opts
  * @param {string} opts.planName
  * @param {import('../../tools/plan-written.js').TriageMeta} [opts.triageMeta]
- * @param {import('../ui/types.js').UiAPI} opts.uiAPI
+ * @param {import('../../ui/tui/types.js').UiAPI} opts.uiAPI
  * @param {import('../session/hosted-session.js').HostedSession} opts.hostedSession
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager]
  * @param {{
@@ -302,7 +302,7 @@ export async function runSlicerAgent({ planName, triageMeta, uiAPI, hostedSessio
  * @param {string} opts.planName
  * @param {string} opts.planPath - Absolute path to the plan markdown file.
  * @param {import('../../tools/plan-written.js').TriageMeta} [opts.triageMeta]
- * @param {import('../ui/types.js').UiAPI} opts.uiAPI
+ * @param {import('../../ui/tui/types.js').UiAPI} opts.uiAPI
  * @param {import('../session/hosted-session.js').HostedSession} opts.hostedSession
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager]
  * @param {{

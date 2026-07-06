@@ -10,11 +10,11 @@ import { Image, Spacer } from "@earendil-works/pi-tui";
 import { ModelSelectorComponent } from "@earendil-works/pi-coding-agent";
 import { getModelRegistry } from "../models/model-registry.js";
 import { getSettingsManager } from "../settings.js";
-import { imageTheme } from "../ui/theme.js";
+import { imageTheme } from "../../ui/theme/theme.js";
 
 /**
  * @param {{
- *   uiAPI: import('../ui/types.js').UiAPI,
+ *   uiAPI: import('../../ui/tui/types.js').UiAPI,
  *   tui: import('@earendil-works/pi-tui').TUI,
  *   editor: import('@earendil-works/pi-tui').Editor,
  *   container: import('@earendil-works/pi-tui').Container,

@@ -18,10 +18,10 @@ function makeHostedSession(id = `resume-command-${crypto.randomUUID()}`) {
  * @param {PromptRecord[]} opts.prompts
  * @param {string[]} opts.messages
  * @param {number[]} opts.clearCalls
- * @returns {{ uiAPI: import('../../shared/ui/types.js').UiAPI, editor: import('../../shared/ui/types.js').EditorAPI }}
+ * @returns {{ uiAPI: import('../../ui/tui/types.js').UiAPI, editor: import('../../ui/tui/types.js').EditorAPI }}
  */
 function makeUi({ selections, prompts, messages, clearCalls }) {
-    const uiAPI = /** @type {import('../../shared/ui/types.js').UiAPI} */ ({
+    const uiAPI = /** @type {import('../../ui/tui/types.js').UiAPI} */ ({
         appendSystemMessage: (msg) => messages.push(String(msg)),
         appendAgentMessageStart: () => ({ appendText: () => {} }),
         requestRender: () => {},
@@ -36,7 +36,7 @@ function makeUi({ selections, prompts, messages, clearCalls }) {
         },
     });
 
-    const editor = /** @type {import('../../shared/ui/types.js').EditorAPI} */ ({
+    const editor = /** @type {import('../../ui/tui/types.js').EditorAPI} */ ({
         disableSubmit: true,
         setText: () => {},
         setAutocompleteProvider: () => {},

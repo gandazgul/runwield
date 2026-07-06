@@ -1,5 +1,5 @@
 /**
- * @module shared/ui/task-completed-message
+ * @module ui/tui/task-completed-message
  *
  * Shared rendering for the task_completed workflow signal. The tool itself is
  * internal plumbing, so the TUI should show the human completion note instead
