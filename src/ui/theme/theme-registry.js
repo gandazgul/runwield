@@ -1,5 +1,5 @@
 /**
- * @module shared/ui/theme-registry
+ * @module ui/theme/theme-registry
  * Small injectable theme registry/controller.
  */
 

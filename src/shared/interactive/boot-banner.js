@@ -49,7 +49,7 @@ function toUserFacingAgentMdPath(file) {
 
 /**
  * @param {{
- *   uiAPI: import('../ui/types.js').UiAPI,
+ *   uiAPI: import('../../ui/tui/types.js').UiAPI,
  *   invokablePromptTemplates: PromptTemplate[],
  *   blockedPromptTemplates: PromptTemplate[],
  *   chatPromptAgentName: string,

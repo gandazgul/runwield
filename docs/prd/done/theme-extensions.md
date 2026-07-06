@@ -34,7 +34,7 @@ registration), RunWield does not currently utilize these features.
 - **Boot:** On startup, RunWield reads the active theme from settings. If missing or invalid, it falls back to the
   embedded `catppuccin-mocha.json`.
 - **Discovery:** Theme discovery is deferred until the `/theme` command is invoked to optimize startup time.
-- **Loading:** `src/shared/ui/theme.js` will be refactored into a thin proxy that delegates to Pi's `initTheme` and
+- **Loading:** `src/ui/theme/theme.js` will be refactored into a thin proxy that delegates to Pi's `initTheme` and
   `setTheme` functions.
 
 ### 2. The `/theme` Slash Command
@@ -71,7 +71,7 @@ registration), RunWield does not currently utilize these features.
 | `src/constants.js`            | Add `THEME` command name                                         |
 | `src/cmd/registry.js`         | Register `/theme` slash command                                  |
 | `src/cmd/theme/index.js`      | New: Handle theme selection, switching, and installation/removal |
-| `src/shared/ui/theme.js`      | Refactor to use Pi's theme system + global singleton proxy       |
+| `src/ui/theme/theme.js`       | Refactor to use Pi's theme system + global singleton proxy       |
 | `src/shared/settings.js`      | Update `SettingsManager` to support `theme` and `packages` keys  |
 | `theme/catppuccin-mocha.json` | New: Extracted theme data for binary embedding                   |
 

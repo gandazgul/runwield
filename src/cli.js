@@ -19,7 +19,7 @@ import { COMMAND_NAMES } from "./cmd/registry.js";
 import { commandRegistry, getCommandDefinition, hasCommandSurface } from "./cmd/registry.js";
 import { printCommandHelp, printGlobalHelp } from "./cmd/help/index.js";
 import { runVersionCommand } from "./cmd/version/index.js";
-import { stopTUI } from "./shared/ui/tui.js";
+import { stopTUI } from "./ui/tui/tui.js";
 
 /**
  * Remove leading global flags from argv so command/default handlers receive clean positional args.

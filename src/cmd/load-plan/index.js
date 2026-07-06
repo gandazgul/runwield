@@ -60,7 +60,7 @@ import {
     startInteractiveSession as startInteractiveSessionFn,
 } from "../../shared/interactive/chat-session.js";
 import { shouldCleanupMergedWorktrees as shouldCleanupMergedWorktreesFn } from "../../shared/settings.js";
-import { setTerminalTitleForName as setTerminalTitleForNameFn } from "../../shared/ui/terminal-title.js";
+import { setTerminalTitleForName as setTerminalTitleForNameFn } from "../../ui/tui/terminal-title.js";
 import { resetTuiState as resetTuiStateFn } from "../command-helpers.js";
 import { createAgentHandler as createAgentHandlerFn } from "../../shared/session/agent-handler.js";
 export { getLoadPlanCompletions } from "./getArgumentCompletions.js";

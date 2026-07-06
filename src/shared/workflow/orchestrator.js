@@ -28,7 +28,7 @@ import { ensurePlansDir, loadPlan } from "../../plan-store.js";
 import { applyPendingRootSwap, setActiveAgent } from "../interactive/chat-session.js";
 import { runRootTurn } from "../session/session.js";
 import { getAgentDisplayName } from "../session/agents.js";
-import { sanitizeSessionName, setTerminalTitleForName } from "../ui/terminal-title.js";
+import { sanitizeSessionName, setTerminalTitleForName } from "../../ui/tui/terminal-title.js";
 import { decidePostExecution, decidePostPlanning } from "./decisions.js";
 import { executePlan, readLatestTaskCompletedOutcome, runPlanningAgent } from "./workflow.js";
 import { runMechanicalValidation, runValidationLoop, shouldRunWorkflowValidation } from "./validation.js";

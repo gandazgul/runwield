@@ -2,10 +2,10 @@ import { assert, assertEquals, assertMatch } from "@std/assert";
 import { createUserInterviewTool } from "../user-interview.js";
 
 /**
- * @param {Partial<import('../../shared/ui/types.js').UiAPI>} overrides
+ * @param {Partial<import('../../ui/tui/types.js').UiAPI>} overrides
  */
 function makeUi(overrides) {
-    return /** @type {import('../../shared/ui/types.js').UiAPI} */ ({
+    return /** @type {import('../../ui/tui/types.js').UiAPI} */ ({
         appendSystemMessage: () => {},
         appendAgentMessageStart: () => ({ appendText: () => {} }),
         requestRender: () => {},

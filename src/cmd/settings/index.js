@@ -8,7 +8,7 @@ import {
     setCompactionKeepRecentTokens as setCompactionKeepRecentTokensFn,
     setCompactionReserveTokens as setCompactionReserveTokensFn,
 } from "../../shared/settings.js";
-import { theme } from "../../shared/ui/theme.js";
+import { theme } from "../../ui/theme/theme.js";
 
 /**
  * @typedef {Object} CompactionSettings

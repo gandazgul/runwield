@@ -7,7 +7,7 @@
  * provided `uiAPI`.
  */
 
-import { appendTaskCompletedMessage, extractTaskCompletedMessage } from "../ui/task-completed-message.js";
+import { appendTaskCompletedMessage, extractTaskCompletedMessage } from "../../ui/tui/task-completed-message.js";
 
 const MAX_HYDRATED_TEXT_LINES = 24;
 const MAX_HYDRATED_TEXT_CHARS = 4000;
@@ -220,7 +220,7 @@ function entryToHydrationMessage(entry) {
 
 /**
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} sessionManager
- * @param {import('../ui/types.js').UiAPI} uiAPI
+ * @param {import('../../ui/tui/types.js').UiAPI} uiAPI
  * @param {{ hostedSession?: import('../session/hosted-session.js').HostedSession, activeAgentLabel?: string }} [options]
  */
 export function restorePersistedMessagesToUi(sessionManager, uiAPI, options = {}) {
@@ -228,7 +228,7 @@ export function restorePersistedMessagesToUi(sessionManager, uiAPI, options = {}
     if (messages.length === 0) return;
 
     const activeAgentLabel = options.activeAgentLabel || options.hostedSession?.getActiveAgentName?.() || "RunWield";
-    /** @type {Map<string, { block: import('../ui/types.js').ToolExecutionBlockApi, startedAt: number }>} */
+    /** @type {Map<string, { block: import('../../ui/tui/types.js').ToolExecutionBlockApi, startedAt: number }>} */
     const restoredToolBlocks = new Map();
     let skipNextAssistantMessage = false;
 

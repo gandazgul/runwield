@@ -3,8 +3,8 @@
  * Command to set or show the current session name.
  */
 
-import { sanitizeSessionName, setTerminalTitleForName } from "../../shared/ui/terminal-title.js";
-import { theme } from "../../shared/ui/theme.js";
+import { sanitizeSessionName, setTerminalTitleForName } from "../../ui/tui/terminal-title.js";
+import { theme } from "../../ui/theme/theme.js";
 
 /**
  * Handle name command. Mirrors upstream Pi behavior:

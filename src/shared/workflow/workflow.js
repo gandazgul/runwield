@@ -46,7 +46,7 @@ export {
 export { extractAssistantOutput, readLatestPlanOutcome, readLatestTaskCompletedOutcome } from "./workflow-results.js";
 
 /**
- * @typedef {import('../ui/types.js').UiAPI} UiAPI
+ * @typedef {import('../../ui/tui/types.js').UiAPI} UiAPI
  */
 
 /**

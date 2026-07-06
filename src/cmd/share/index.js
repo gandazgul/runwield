@@ -5,7 +5,7 @@
 
 import { join } from "@std/path";
 import { exportRootSessionToHtml } from "../../shared/session/root-session.js";
-import { theme } from "../../shared/ui/theme.js";
+import { theme } from "../../ui/theme/theme.js";
 
 /**
  * @typedef {import('../registry.js').CommandContext} CommandContext

@@ -1,5 +1,5 @@
 /**
- * @module shared/ui/theme-discovery
+ * @module ui/theme/theme-discovery
  * Load external JSON themes from resolved package resources.
  */
 

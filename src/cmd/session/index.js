@@ -3,7 +3,7 @@
  * Command to show current session information.
  */
 
-import { theme } from "../../shared/ui/theme.js";
+import { theme } from "../../ui/theme/theme.js";
 
 /**
  * Handle session info command.

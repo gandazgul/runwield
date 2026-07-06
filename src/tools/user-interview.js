@@ -5,7 +5,7 @@
 
 import { StringEnum, Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import { promptText, select } from "../shared/ui/prompts.js";
+import { promptText, select } from "../ui/tui/prompts.js";
 
 const OTHER_VALUE = "other";
 
@@ -384,7 +384,7 @@ function validateBatch(questions) {
 
 /**
  * @param {InterviewQuestion} question
- * @param {import('../shared/ui/types.js').UiAPI | undefined} uiAPI
+ * @param {import('../ui/tui/types.js').UiAPI | undefined} uiAPI
  * @returns {Promise<{ canceled?: true, value?: string | boolean, valueLabel?: string, otherText?: string, error?: InterviewError }>}
  */
 async function askQuestion(question, uiAPI) {

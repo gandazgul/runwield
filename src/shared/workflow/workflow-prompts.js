@@ -99,7 +99,7 @@ export function buildSlicerRequest(input, legacyTriageMeta) {
  * Ask user what to do after plan approval.
  *
  * @param {string} planName
- * @param {import('../ui/types.js').UiAPI} uiAPI
+ * @param {import('../../ui/tui/types.js').UiAPI} uiAPI
  * @returns {Promise<"proceed" | "save">}
  */
 export async function askPostApproval(planName, uiAPI) {
@@ -116,7 +116,7 @@ export async function askPostApproval(planName, uiAPI) {
  * Ask user whether to start PROJECT decomposition now or save the ready Epic for later.
  *
  * @param {string} planName
- * @param {import('../ui/types.js').UiAPI} uiAPI
+ * @param {import('../../ui/tui/types.js').UiAPI} uiAPI
  * @returns {Promise<"proceed" | "save">}
  */
 export async function askProjectDecompositionApproval(planName, uiAPI) {
@@ -133,7 +133,7 @@ export async function askProjectDecompositionApproval(planName, uiAPI) {
  * Project-specific post-approval selection that also prints task list.
  *
  * @param {string} planName
- * @param {import('../ui/types.js').UiAPI} uiAPI
+ * @param {import('../../ui/tui/types.js').UiAPI} uiAPI
  * @param {Array<{ task: number, assignee: string, dependencies: string, description: string, writeScope?: string }>} [structuredTasks]
  * @returns {Promise<"proceed" | "save">}
  */
@@ -172,7 +172,7 @@ export async function askApprovalWithTasks(planName, uiAPI, structuredTasks) {
 
 /**
  * @param {{ failedTasks: number[], results: Map<number, { status: string, error?: string }> }} executionResult
- * @param {import('../ui/types.js').UiAPI} uiAPI
+ * @param {import('../../ui/tui/types.js').UiAPI} uiAPI
  * @returns {Promise<boolean>}
  */
 export async function askRetryFailedTasks(executionResult, uiAPI) {
@@ -186,7 +186,7 @@ export async function askRetryFailedTasks(executionResult, uiAPI) {
 
 /**
  * @param {{ results: Map<number, { status: string, error?: string }> }} result
- * @param {import('../ui/types.js').UiAPI} uiAPI
+ * @param {import('../../ui/tui/types.js').UiAPI} uiAPI
  */
 export function reportExecutionSummary(result, uiAPI) {
     const { results } = result;

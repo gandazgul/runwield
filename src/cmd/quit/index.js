@@ -1,4 +1,4 @@
-import { stopTUI as stopTUIFn } from "../../shared/ui/tui.js";
+import { stopTUI as stopTUIFn } from "../../ui/tui/tui.js";
 
 /**
  * @typedef {Object} CommandDependencies
