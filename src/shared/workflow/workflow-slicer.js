@@ -208,6 +208,7 @@ function createSlicerCustomTools(planName, deps) {
  * @param {string} opts.planName
  * @param {import('../../tools/plan-written.js').TriageMeta} [opts.triageMeta]
  * @param {import('../ui/types.js').UiAPI} opts.uiAPI
+ * @param {import('../session/hosted-session.js').HostedSession} opts.hostedSession
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager]
  * @param {{
  *   runAgentSession?: typeof runAgentSession,
@@ -215,13 +216,14 @@ function createSlicerCustomTools(planName, deps) {
  *   ensureBundledAgentDefFile?: typeof ensureBundledAgentDefFile,
  *   loadPlan?: typeof loadPlan,
  *   findPlansByParent?: typeof findPlansByParent,
- *   setActiveAgent?: (agentName: string, handler: import('../session/types.js').AgentMessageHandler, uiAPI: import('../ui/types.js').UiAPI, agentModel?: string, options?: { allowReturnToRouter?: boolean }) => void,
+ *   setActiveAgent?: typeof import('../interactive/chat-session.js').setActiveAgent,
  *   createSlicerFinalizeTool?: typeof createSlicerFinalizeTool,
  * }} [opts.__deps] - Test-only injection point.
  * @returns {Promise<{ ok: boolean, error?: string }>}
  */
-export async function runSlicerAgent({ planName, triageMeta, uiAPI, sessionManager, __deps }) {
+export async function runSlicerAgent({ planName, triageMeta, uiAPI, hostedSession, sessionManager, __deps }) {
     if (!uiAPI) throw new Error("runSlicerAgent: uiAPI is required");
+    if (!hostedSession) throw new Error("runSlicerAgent: hostedSession is required");
     const session = __deps?.runAgentSession || runAgentSession;
     const loadEpic = __deps?.loadPlan || (__deps
         ? (() =>
@@ -249,6 +251,7 @@ export async function runSlicerAgent({ planName, triageMeta, uiAPI, sessionManag
             .map(summarizeChild);
 
         await session({
+            hostedSession,
             agentName: AGENTS.SLICER,
             userRequest: buildSlicerRequest({
                 planName,
@@ -267,8 +270,10 @@ export async function runSlicerAgent({ planName, triageMeta, uiAPI, sessionManag
             allowReturnToRouter: false,
         });
         setActive(
+            hostedSession,
             AGENTS.SLICER,
             createAgentHandler(AGENTS.SLICER, {
+                hostedSession,
                 _agentDefOverride: slicerAgentDef,
                 customTools: createSlicerCustomTools(planName, __deps),
                 allowReturnToRouter: false,
@@ -298,6 +303,7 @@ export async function runSlicerAgent({ planName, triageMeta, uiAPI, sessionManag
  * @param {string} opts.planPath - Absolute path to the plan markdown file.
  * @param {import('../../tools/plan-written.js').TriageMeta} [opts.triageMeta]
  * @param {import('../ui/types.js').UiAPI} opts.uiAPI
+ * @param {import('../session/hosted-session.js').HostedSession} opts.hostedSession
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager]
  * @param {{
  *   runSlicerAgent?: typeof runSlicerAgent,
@@ -308,8 +314,11 @@ export async function runSlicerAgent({ planName, triageMeta, uiAPI, sessionManag
  * }} [opts.__deps] - Test-only injection point.
  * @returns {Promise<{ ok: true, slicerInvoked: boolean } | { ok: false, error: string, stage: "slicer" | "validation" }>}
  */
-export async function ensureSlicerTasks({ planName, planPath, triageMeta, uiAPI, sessionManager, __deps }) {
+export async function ensureSlicerTasks(
+    { planName, planPath, triageMeta, uiAPI, hostedSession, sessionManager, __deps },
+) {
     if (!uiAPI) throw new Error("ensureSlicerTasks: uiAPI is required");
+    if (!hostedSession) throw new Error("ensureSlicerTasks: hostedSession is required");
     const slicer = __deps?.runSlicerAgent || runSlicerAgent;
     const readTextFile = __deps?.readTextFile || Deno.readTextFile.bind(Deno);
     const parsePlan = __deps?.parsePlanFrontMatter || parsePlanFrontMatter;
@@ -322,7 +331,7 @@ export async function ensureSlicerTasks({ planName, planPath, triageMeta, uiAPI,
      */
     async function invokeSlicer(meta) {
         try {
-            const result = await slicer({ planName, triageMeta: meta, uiAPI, sessionManager });
+            const result = await slicer({ planName, triageMeta: meta, uiAPI, hostedSession, sessionManager });
             if (!result.ok) return { ok: false, error: result.error || "slicer failed" };
             return { ok: true };
         } catch (e) {

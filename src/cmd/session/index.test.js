@@ -1,6 +1,6 @@
 import { assertEquals } from "@std/assert";
 import { runSessionCommand } from "./index.js";
-import { setRootAgentSession, setRootSessionManager } from "../../shared/session/session-state.js";
+import { HostedSession } from "../../shared/session/hosted-session.js";
 import { initRunWieldTheme } from "../../shared/ui/theme.js";
 
 initRunWieldTheme();
@@ -20,17 +20,18 @@ function makeUi() {
 }
 
 Deno.test("runSessionCommand reports no active session inside interactive mode", async () => {
-    setRootSessionManager(null);
     const { uiAPI, messages } = makeUi();
+    const hostedSession = new HostedSession({ id: "session-command-empty", cwd: Deno.cwd() });
 
-    await runSessionCommand([], { uiAPI });
+    await runSessionCommand([], { uiAPI, hostedSession });
 
     assertEquals(messages, ["Error: No active session."]);
 });
 
 Deno.test("runSessionCommand summarizes messages, tool use, compactions, token usage, and compaction settings", async () => {
     const { uiAPI, messages } = makeUi();
-    setRootSessionManager(
+    const hostedSession = new HostedSession({ id: "session-command-populated", cwd: Deno.cwd() });
+    hostedSession.setRootSessionManager(
         /** @type {any} */ ({
             getSessionName: () => "Deep Work",
             getSessionFile: () => "/tmp/session.jsonl",
@@ -61,7 +62,7 @@ Deno.test("runSessionCommand summarizes messages, tool use, compactions, token u
             ],
         }),
     );
-    setRootAgentSession(
+    hostedSession.setRootAgentSession(
         /** @type {any} */ ({
             settingsManager: {
                 getCompactionSettings: () => ({ enabled: true, reserveTokens: 16000, keepRecentTokens: 22000 }),
@@ -70,12 +71,7 @@ Deno.test("runSessionCommand summarizes messages, tool use, compactions, token u
         }),
     );
 
-    try {
-        await runSessionCommand([], { uiAPI });
-    } finally {
-        setRootSessionManager(null);
-        setRootAgentSession(null);
-    }
+    await runSessionCommand([], { uiAPI, hostedSession });
 
     const plain = messages.join("\n");
     assertEquals(plain.includes("Session compacted 1 time"), true);

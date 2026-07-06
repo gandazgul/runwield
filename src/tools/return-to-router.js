@@ -19,9 +19,8 @@
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { AGENTS } from "../constants.js";
-import { getActiveUiAPI, setActiveAgent } from "../shared/interactive/chat-session.js";
+import { setActiveAgent } from "../shared/interactive/chat-session.js";
 import { getAgentDisplayName, loadAgentDef } from "../shared/session/agents.js";
-import { setPendingSwitchHandoff } from "../shared/session/session-state.js";
 
 /**
  * Core logic for returning the active conversation to Router.
@@ -29,13 +28,14 @@ import { setPendingSwitchHandoff } from "../shared/session/session-state.js";
  * @param {Object} params
  * @param {string} params.reason
  * @param {import('../shared/workflow/workflow.js').UiAPI | null | undefined} uiAPI
- * @param {{ createAgentHandler?: (agentName: string) => import('../shared/session/types.js').AgentMessageHandler }} [__deps]
+ * @param {import('../shared/session/hosted-session.js').HostedSession | null | undefined} hostedSession
+ * @param {{ createAgentHandler?: (agentName: string, deps?: { hostedSession?: import('../shared/session/hosted-session.js').HostedSession }) => import('../shared/session/types.js').AgentMessageHandler }} [__deps]
  * @returns {Promise<import('@earendil-works/pi-coding-agent').AgentToolResult<{ agentName: string, reason: string } | null>>}
  */
-export async function executeReturnToRouter(params, uiAPI, __deps) {
+export async function executeReturnToRouter(params, uiAPI, hostedSession, __deps) {
     const { reason } = params;
 
-    if (!uiAPI) {
+    if (!uiAPI || !hostedSession) {
         return {
             content: [{
                 type: "text",
@@ -50,9 +50,9 @@ export async function executeReturnToRouter(params, uiAPI, __deps) {
     const routerDef = await loadAgentDef(AGENTS.ROUTER);
     const createAgentHandler = __deps?.createAgentHandler ||
         (await import("../shared/session/agent-handler.js")).createAgentHandler;
-    const handler = createAgentHandler(AGENTS.ROUTER);
-    setActiveAgent(AGENTS.ROUTER, handler, uiAPI, routerDef.model || undefined);
-    setPendingSwitchHandoff({ agentName: AGENTS.ROUTER, reason });
+    const handler = createAgentHandler(AGENTS.ROUTER, { hostedSession });
+    setActiveAgent(hostedSession, AGENTS.ROUTER, handler, uiAPI, routerDef.model || undefined);
+    hostedSession.setPendingSwitchHandoff({ agentName: AGENTS.ROUTER, reason });
 
     return {
         content: [],
@@ -93,10 +93,14 @@ export const returnToRouterTool = defineTool({
                 "leaving your role.",
         }),
     }),
-    execute(_toolCallId, params, _signal, _onUpdate, _context) {
+    execute(_toolCallId, params, _signal, _onUpdate, context) {
+        const toolContext =
+            /** @type {{ uiAPI?: import('../shared/workflow/workflow.js').UiAPI, hostedSession?: import('../shared/session/hosted-session.js').HostedSession }} */ (context ||
+                {});
         return executeReturnToRouter(
             /** @type {{ reason: string }} */ (params),
-            getActiveUiAPI(),
+            toolContext.uiAPI,
+            toolContext.hostedSession,
         );
     },
 });

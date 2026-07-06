@@ -1,6 +1,6 @@
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
-import { setActiveUiAPI } from "./session-state.js";
 import { attachUiSubscribers } from "./session.js";
+import { HostedSession } from "./hosted-session.js";
 
 /**
  * @returns {{ session: any, emit: (event: any) => void, unsubscribed: () => boolean }}
@@ -204,26 +204,26 @@ Deno.test("attachUiSubscribers reports assistant error when the stream ends befo
     assertEquals(ui.agentMessages[0].text.includes("**Error:** model exploded"), true);
 });
 
-Deno.test("attachUiSubscribers uses active UI when subscriber was attached before UI was available", () => {
+Deno.test("attachUiSubscribers uses the target HostedSession active UI fallback", () => {
     const { session, emit } = makeSubscribableSession();
     const ui = makeUi();
+    const otherUi = makeUi();
+    const hostedSession = new HostedSession({ id: "subscriber-target", cwd: Deno.cwd() });
+    const otherHostedSession = new HostedSession({ id: "subscriber-other", cwd: Deno.cwd(), uiAPI: otherUi });
 
-    try {
-        setActiveUiAPI(null);
-        attachUiSubscribers(session, agentDef, undefined);
-        setActiveUiAPI(ui);
+    attachUiSubscribers(session, agentDef, undefined, undefined, hostedSession);
+    hostedSession.setActiveUiAPI(ui);
 
-        emit({ type: "message_start", message: { role: "assistant" } });
-        emit({ type: "message_update", assistantMessageEvent: { type: "thinking_delta", delta: "reasoning" } });
-        emit({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "answer" } });
+    emit({ type: "message_start", message: { role: "assistant" } });
+    emit({ type: "message_update", assistantMessageEvent: { type: "thinking_delta", delta: "reasoning" } });
+    emit({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "answer" } });
 
-        assertEquals(ui.thinking, "reasoning");
-        assertEquals(ui.thinkingEnded, 1);
-        assertEquals(ui.agentMessages.length, 1);
-        assertEquals(ui.agentMessages[0].text, "answer");
-    } finally {
-        setActiveUiAPI(null);
-    }
+    assertEquals(ui.thinking, "reasoning");
+    assertEquals(ui.thinkingEnded, 1);
+    assertEquals(ui.agentMessages.length, 1);
+    assertEquals(ui.agentMessages[0].text, "answer");
+    assertEquals(otherHostedSession.getActiveUiAPIState(), otherUi);
+    assertEquals(otherUi.agentMessages.length, 0, "other HostedSession UI must not receive target output");
 });
 
 Deno.test("attachUiSubscribers formats tool headers, streams output deltas, and drains invoked tools", () => {

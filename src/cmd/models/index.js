@@ -3,7 +3,6 @@
  * Handler for the model listing and switching command.
  */
 
-import { setActiveModel as setActiveModelFn } from "../../shared/interactive/chat-session.js";
 import { getModelRegistry as getModelRegistryFn } from "../../shared/models/model-registry.js";
 import { parseProviderModel as parseProviderModelFn } from "../../shared/models/model-validation.js";
 import { COMMAND_NAMES } from "../registry.js";
@@ -14,7 +13,7 @@ export { getModelCompletions } from "./getArgumentCompletions.js";
  * @typedef {Object} CommandDependencies
  * @property {typeof getModelRegistryFn} [getModelRegistry]
  * @property {typeof parseProviderModelFn} [parseProviderModel]
- * @property {typeof setActiveModelFn} [setActiveModel]
+ * @property {(model: string, provider?: string) => Promise<void> | void} [setActiveModel]
  * @property {typeof printCommandHelpFn} [printCommandHelp]
  */
 
@@ -35,7 +34,7 @@ export async function runModelsCommand(argv, options = {}) {
 
     const getModelRegistry = getModelRegistryDep || getModelRegistryFn;
     const parseProviderModel = parseProviderModelDep || parseProviderModelFn;
-    const setActiveModel = setActiveModelDep || setActiveModelFn;
+    const setActiveModel = options.setActiveModel || setActiveModelDep || (async () => {});
     const printCommandHelp = printCommandHelpDep || printCommandHelpFn;
 
     const { uiAPI, editor } = options;

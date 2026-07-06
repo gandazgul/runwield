@@ -59,10 +59,6 @@ import {
     setActiveAgent as setActiveAgentFn,
     startInteractiveSession as startInteractiveSessionFn,
 } from "../../shared/interactive/chat-session.js";
-import {
-    getRootAgentName as getRootAgentNameFn,
-    setActiveExecutionWorkflow,
-} from "../../shared/session/session-state.js";
 import { shouldCleanupMergedWorktrees as shouldCleanupMergedWorktreesFn } from "../../shared/settings.js";
 import { setTerminalTitleForName as setTerminalTitleForNameFn } from "../../shared/ui/terminal-title.js";
 import { resetTuiState as resetTuiStateFn } from "../command-helpers.js";
@@ -93,7 +89,7 @@ export { getLoadPlanCompletions } from "./getArgumentCompletions.js";
  * @property {typeof setActiveAgentFn} [setActiveAgent]
  * @property {typeof createAgentHandlerFn} [createAgentHandler]
  * @property {typeof resetTuiStateFn} [resetTuiState]
- * @property {typeof getRootAgentNameFn} [getRootAgentName]
+ * @property {() => string | null} [getRootAgentName]
  * @property {(cwd: string) => Promise<Array<{name: string, attrs: Partial<import('../../plan-store.js').PlanFrontMatter>}>>} [listPlans]
  * @property {typeof findPlansByParentFn} [findPlansByParent]
  * @property {typeof resolveSiblingChildPlanDependenciesFn} [resolveSiblingChildPlanDependencies]
@@ -117,9 +113,10 @@ export { getLoadPlanCompletions } from "./getArgumentCompletions.js";
  *
  * @param {import('../../shared/workflow/workflow.js').UiAPI} uiAPI
  * @param {string} agentName
+ * @param {import('../../shared/session/hosted-session.js').HostedSession} hostedSession
  * @param {LoadPlanTestDeps} [deps]
  */
-function restorePreviousAgentFlow(uiAPI, agentName, deps = {}) {
+function restorePreviousAgentFlow(uiAPI, agentName, hostedSession, deps = {}) {
     const {
         resetTuiState: resetTuiStateDep,
         setActiveAgent: setActiveAgentDep,
@@ -127,12 +124,16 @@ function restorePreviousAgentFlow(uiAPI, agentName, deps = {}) {
     } = deps;
 
     const resetTuiState = resetTuiStateDep || resetTuiStateFn;
-    const setActiveAgent = setActiveAgentDep || setActiveAgentFn;
+    const rawSetActiveAgent = setActiveAgentDep || setActiveAgentFn;
     const createAgentHandler = createAgentHandlerDep || createAgentHandlerFn;
-    const handler = createAgentHandler(agentName);
+    const handler = createAgentHandler(agentName, { hostedSession });
 
     resetTuiState(undefined, uiAPI, undefined);
-    setActiveAgent(agentName, handler, uiAPI);
+    if (setActiveAgentDep) {
+        setActiveAgentDep(agentName, handler, uiAPI);
+    } else {
+        rawSetActiveAgent(hostedSession, agentName, handler, uiAPI);
+    }
 }
 
 /**
@@ -733,7 +734,8 @@ async function handleOnHoldPlan({
  * @param {import('../../shared/workflow/workflow.js').UiAPI} uiAPI
  * @param {typeof runValidationLoopFn} runValidationLoop
  * @param {typeof loadPlanFn} loadPlan
- * @param {RecoveryWorktreeContext | null} [worktreeContext]
+ * @param {RecoveryWorktreeContext | null} worktreeContext
+ * @param {import('../../shared/session/hosted-session.js').HostedSession} hostedSession
  */
 async function validateCompletedExecution(
     executionResult,
@@ -744,7 +746,9 @@ async function validateCompletedExecution(
     runValidationLoop,
     loadPlan,
     worktreeContext,
+    hostedSession,
 ) {
+    if (!hostedSession) throw new Error("validateCompletedExecution: hostedSession is required");
     if (!(executionResult && typeof executionResult === "object" && "executionComplete" in executionResult)) return;
     if (!/** @type {{ executionComplete?: boolean }} */ (executionResult).executionComplete) return;
     let planContent = fallbackPlanContent;
@@ -768,9 +772,10 @@ async function validateCompletedExecution(
         if (executionCwd) workflow.executionCwd = executionCwd;
         if (worktreeId) workflow.worktreeId = worktreeId;
         if (worktreeBranch) workflow.worktreeBranch = worktreeBranch;
-        setActiveExecutionWorkflow(workflow);
+        hostedSession.setActiveExecutionWorkflow(workflow);
     }
     await runValidationLoop({
+        hostedSession,
         planName,
         planContent,
         triageMeta,
@@ -786,6 +791,7 @@ async function validateCompletedExecution(
  * @param {import('../../shared/workflow/workflow.js').UiAPI} opts.uiAPI
  * @param {typeof runValidationLoopFn} opts.runValidationLoop
  * @param {typeof loadPlanFn} opts.loadPlan
+ * @param {import('../../shared/session/hosted-session.js').HostedSession} opts.hostedSession
  * @returns {Promise<void>}
  */
 async function validatePostExecutionDecision({
@@ -794,7 +800,9 @@ async function validatePostExecutionDecision({
     uiAPI,
     runValidationLoop,
     loadPlan,
+    hostedSession,
 }) {
+    if (!hostedSession) throw new Error("validatePostExecutionDecision: hostedSession is required");
     if (executionDecision.kind !== "run_validation") return;
 
     const planName = /** @type {string} */ (executionDecision.payload.planName);
@@ -810,6 +818,8 @@ async function validatePostExecutionDecision({
         uiAPI,
         runValidationLoop,
         loadPlan,
+        null,
+        hostedSession,
     );
 }
 
@@ -826,6 +836,7 @@ async function validatePostExecutionDecision({
  * @param {typeof runValidationLoopFn} opts.runValidationLoop
  * @param {typeof loadPlanFn} opts.loadPlan
  * @param {typeof listCommitsTouchingPathsSinceFn} opts.listCommitsTouchingPathsSince
+ * @param {import('../../shared/session/hosted-session.js').HostedSession} opts.hostedSession
  * @returns {Promise<boolean>}
  */
 async function executePostPlanningDecision({
@@ -837,7 +848,9 @@ async function executePostPlanningDecision({
     runValidationLoop,
     loadPlan,
     listCommitsTouchingPathsSince,
+    hostedSession,
 }) {
+    if (!hostedSession) throw new Error("executePostPlanningDecision: hostedSession is required");
     if (decision.kind !== "execute_plan") return false;
 
     const planName = /** @type {string} */ (decision.payload.planName);
@@ -854,7 +867,7 @@ async function executePostPlanningDecision({
     });
     if (!confirmed) return true;
 
-    const execRes = await executePlan(planName, triageMeta, uiAPI, tasks);
+    const execRes = await executePlan(planName, triageMeta, uiAPI, tasks, undefined, { hostedSession });
     const executionDecision = decidePostExecution(execRes, {
         planName,
         triageMeta,
@@ -866,6 +879,7 @@ async function executePostPlanningDecision({
         uiAPI,
         runValidationLoop,
         loadPlan,
+        hostedSession,
     });
     return true;
 }
@@ -885,9 +899,10 @@ function shouldKeepPlanningAgentActive(decision) {
  * @param {import('../../shared/workflow/workflow.js').UiAPI} uiAPI
  * @param {typeof ensureSlicerTasksFn} ensureSlicerTasks
  * @param {typeof recordPlanEventFn} recordPlanEvent
+ * @param {import('../../shared/session/hosted-session.js').HostedSession} hostedSession
  * @returns {Promise<boolean>}
  */
-async function prepareApprovedPlanForWork(plan, uiAPI, ensureSlicerTasks, recordPlanEvent) {
+async function prepareApprovedPlanForWork(plan, uiAPI, ensureSlicerTasks, recordPlanEvent, hostedSession) {
     if (isEpicPlan(plan.attrs)) {
         await recordPlanEvent({
             cwd: CWD,
@@ -911,6 +926,7 @@ async function prepareApprovedPlanForWork(plan, uiAPI, ensureSlicerTasks, record
             planPath: plan.path,
             triageMeta: plan.attrs,
             uiAPI,
+            hostedSession,
         });
         if (!sliceResult.ok) {
             uiAPI.appendSystemMessage(
@@ -949,6 +965,7 @@ async function prepareApprovedPlanForWork(plan, uiAPI, ensureSlicerTasks, record
  * @param {typeof listCommitsTouchingPathsSinceFn} opts.listCommitsTouchingPathsSince
  * @param {typeof setActiveAgentFn} opts.setActiveAgent
  * @param {typeof createAgentHandlerFn} opts.createAgentHandler
+ * @param {import('../../shared/session/hosted-session.js').HostedSession} opts.hostedSession
  * @returns {Promise<void>}
  */
 async function executeReadyPlanWithRepair({
@@ -964,7 +981,9 @@ async function executeReadyPlanWithRepair({
     listCommitsTouchingPathsSince,
     setActiveAgent,
     createAgentHandler,
+    hostedSession,
 }) {
+    if (!hostedSession) throw new Error("executeReadyPlanWithRepair: hostedSession is required");
     const MAX_REPAIR_ATTEMPTS = 2;
     let currentPlanName = plan.planName;
     /** @type {Partial<import('../../plan-store.js').PlanFrontMatter>} */
@@ -981,7 +1000,9 @@ async function executeReadyPlanWithRepair({
     if (!confirmed) return;
 
     for (let attempt = 0; attempt <= MAX_REPAIR_ATTEMPTS; attempt++) {
-        const execRes = await executePlan(currentPlanName, currentMeta, uiAPI, currentTasks);
+        const execRes = await executePlan(currentPlanName, currentMeta, uiAPI, currentTasks, undefined, {
+            hostedSession,
+        });
         const executionDecision = decidePostExecution(execRes, {
             planName: currentPlanName,
             triageMeta: /** @type {import('../../tools/plan-written.js').TriageMeta} */ (currentMeta),
@@ -994,6 +1015,7 @@ async function executeReadyPlanWithRepair({
                 uiAPI,
                 runValidationLoop,
                 loadPlan,
+                hostedSession,
             });
             break;
         }
@@ -1014,8 +1036,9 @@ async function executeReadyPlanWithRepair({
             false,
             "RunWield",
         );
-        setActiveAgent(agentName, createAgentHandler(agentName), uiAPI);
+        setActiveAgent(agentName, createAgentHandler(agentName, { hostedSession }), uiAPI);
         const repairOutcome = await runPlanningAgent({
+            hostedSession,
             agentName,
             initialRequest: [
                 `## Plan Execution Halted — Task Table Repair Required`,
@@ -1157,8 +1180,10 @@ async function pathExists(path) {
 /**
  * @param {{ planName: string, attrs: import('../../plan-store.js').PlanFrontMatter }} plan
  * @param {RecoveryWorktreeContext | null} context
+ * @param {import('../../shared/session/hosted-session.js').HostedSession} hostedSession
  */
-function rehydrateActiveRecoveryWorkflow(plan, context) {
+function rehydrateActiveRecoveryWorkflow(plan, context, hostedSession) {
+    if (!hostedSession) throw new Error("rehydrateActiveRecoveryWorkflow: hostedSession is required");
     const baselineTree = plan.attrs.executionBaselineTree || context?.baseTree;
     if (!baselineTree && !hasWorktreeContext(context)) return;
     /** @type {{ planName: string, triageMeta: import('../../plan-store.js').PlanFrontMatter, baselineTree?: string, projectRoot: string, executionCwd?: string, worktreeId?: string, worktreeBranch?: string, worktreeBaseBranch?: string }} */
@@ -1172,7 +1197,7 @@ function rehydrateActiveRecoveryWorkflow(plan, context) {
     if (context?.id) workflow.worktreeId = context.id;
     if (context?.branch) workflow.worktreeBranch = context.branch;
     if (context?.baseBranch) workflow.worktreeBaseBranch = context.baseBranch;
-    setActiveExecutionWorkflow(workflow);
+    hostedSession.setActiveExecutionWorkflow(workflow);
 }
 
 /**
@@ -1368,6 +1393,7 @@ async function confirmRecoveryWorktreeAvailable(planName, worktreeContext, uiAPI
  * @param {typeof setActiveAgentFn} opts.setActiveAgent
  * @param {typeof createAgentHandlerFn} opts.createAgentHandler
  * @param {typeof findPlansByParentFn} opts.findPlansByParent
+ * @param {import('../../shared/session/hosted-session.js').HostedSession} opts.hostedSession
  * @returns {Promise<"handled" | "review">}
  */
 async function handlePlanRecovery({
@@ -1397,7 +1423,9 @@ async function handlePlanRecovery({
     setActiveAgent,
     createAgentHandler,
     findPlansByParent,
+    hostedSession,
 }) {
+    if (!hostedSession) throw new Error("handlePlanRecovery: hostedSession is required");
     const refreshRecoveryWorktree = async () => {
         const resolved = await resolveRecoveryWorktree(plan, { findWorktreeById, findWorktreeByPlanName });
         plan.attrs = await persistRecoveredWorktreeMetadata(plan, resolved, updatePlanFrontMatter);
@@ -1453,7 +1481,7 @@ async function handlePlanRecovery({
             if (!(await confirmRecoveryWorktreeAvailable(plan.planName, worktreeContext, uiAPI, getWorktreeStatus))) {
                 continue;
             }
-            rehydrateActiveRecoveryWorkflow(plan, worktreeContext);
+            rehydrateActiveRecoveryWorkflow(plan, worktreeContext, hostedSession);
             await validateCompletedExecution(
                 { executionComplete: true },
                 plan.planName,
@@ -1463,6 +1491,7 @@ async function handlePlanRecovery({
                 runValidationLoop,
                 loadPlan,
                 worktreeContext,
+                hostedSession,
             );
             return "handled";
         }
@@ -1472,7 +1501,7 @@ async function handlePlanRecovery({
             if (!(await confirmRecoveryWorktreeAvailable(plan.planName, worktreeContext, uiAPI, getWorktreeStatus))) {
                 continue;
             }
-            rehydrateActiveRecoveryWorkflow(plan, worktreeContext);
+            rehydrateActiveRecoveryWorkflow(plan, worktreeContext, hostedSession);
             await recordPlanEvent({
                 cwd: CWD,
                 planName: plan.planName,
@@ -1494,6 +1523,7 @@ async function handlePlanRecovery({
                 listCommitsTouchingPathsSince,
                 setActiveAgent,
                 createAgentHandler,
+                hostedSession,
             });
             return "handled";
         }
@@ -1580,6 +1610,7 @@ async function handlePlanRecovery({
                 listCommitsTouchingPathsSince,
                 setActiveAgent,
                 createAgentHandler,
+                hostedSession,
             });
             return "handled";
         }
@@ -1735,7 +1766,7 @@ async function handlePlanRecovery({
             if (worktreeContext?.id) {
                 await updateWorktreeRegistryEntry(CWD, worktreeContext.id, { status: "abandoned" });
             }
-            setActiveExecutionWorkflow(null);
+            hostedSession.clearActiveExecutionWorkflow();
             await stripTasksFromPlanFile(plan);
             await recordPlanEvent({
                 cwd: CWD,
@@ -1972,6 +2003,7 @@ async function confirmChildFeatureDependencies(plan, uiAPI, resolveSiblingChildP
  * @param {typeof recordPlanEventFn} opts.recordPlanEvent
  * @param {typeof resolvePlanFn} opts.resolvePlan
  * @param {(childPlanName: string) => Promise<void>} opts.loadChildPlan
+ * @param {import('../../shared/session/hosted-session.js').HostedSession} opts.hostedSession
  * @returns {Promise<"handled" | "continue">}
  */
 async function handleEpicPlan({
@@ -1982,6 +2014,7 @@ async function handleEpicPlan({
     recordPlanEvent,
     resolvePlan,
     loadChildPlan,
+    hostedSession,
 }) {
     if (!isEpicPlan(plan.attrs)) return "continue";
 
@@ -2051,6 +2084,7 @@ async function handleEpicPlan({
                 planName: plan.planName,
                 triageMeta: plan.attrs,
                 uiAPI,
+                hostedSession,
             });
             return "handled";
         }
@@ -2222,9 +2256,30 @@ export async function runLoadPlanCommand(argv, options = {}) {
     const getWorkflowDiff = getWorkflowDiffDep || getWorkflowDiffFn;
     const listCommitsTouchingPathsSince = listCommitsTouchingPathsSinceDep || listCommitsTouchingPathsSinceFn;
     const restoreWorktreeTree = restoreWorktreeTreeDep || restoreWorktreeTreeFn;
-    const setActiveAgent = setActiveAgentDep || setActiveAgentFn;
-    const createAgentHandler = createAgentHandlerDep || createAgentHandlerFn;
-    const getRootAgentName = getRootAgentNameDep || getRootAgentNameFn;
+    const rawSetActiveAgent = setActiveAgentDep || setActiveAgentFn;
+    const rawCreateAgentHandler = createAgentHandlerDep || createAgentHandlerFn;
+    const hostedSession = options.hostedSession;
+    const getRootAgentName = getRootAgentNameDep || (() => hostedSession?.getRootAgentName?.() || null);
+    /**
+     * @param {string} nextAgentName
+     * @param {Record<string, unknown>} [handlerDeps]
+     */
+    const createAgentHandler = (nextAgentName, handlerDeps = {}) =>
+        rawCreateAgentHandler(nextAgentName, { ...handlerDeps, hostedSession });
+    /**
+     * @param {string} agentName
+     * @param {import('../../shared/session/types.js').AgentMessageHandler} handler
+     * @param {import('../../shared/workflow/workflow.js').UiAPI} [uiAPI]
+     * @param {string} [agentModel]
+     * @param {{ allowReturnToRouter?: boolean }} [activeOptions]
+     */
+    const setActiveAgent = (agentName, handler, uiAPI, agentModel, activeOptions) => {
+        if (setActiveAgentDep) {
+            setActiveAgentDep(agentName, handler, uiAPI, agentModel, activeOptions);
+            return;
+        }
+        rawSetActiveAgent(hostedSession, agentName, handler, uiAPI, agentModel, activeOptions);
+    };
     const findPlansByParent = findPlansByParentDep || findPlansByParentFn;
     const resolveSiblingChildPlanDependencies = resolveSiblingChildPlanDependenciesDep ||
         resolveSiblingChildPlanDependenciesFn;
@@ -2252,6 +2307,8 @@ export async function runLoadPlanCommand(argv, options = {}) {
         printCommandHelp("load-plan");
         return;
     }
+
+    if (!hostedSession) throw new Error("runLoadPlanCommand: hostedSession is required");
 
     let [planArg] = parsedArgs._.map(String);
     if (!planArg) {
@@ -2423,6 +2480,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                 setActiveAgent,
                 createAgentHandler,
                 findPlansByParent,
+                hostedSession,
             });
             if (result === "handled") return;
         }
@@ -2435,6 +2493,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
             recordPlanEvent,
             resolvePlan,
             loadChildPlan: loadAnotherPlan,
+            hostedSession,
         });
         if (epicResult === "handled") {
             skipRouterRestore = true;
@@ -2503,6 +2562,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                             uiAPI,
                             ensureSlicerTasks,
                             recordPlanEvent,
+                            hostedSession,
                         );
                         if (!ready) {
                             skipRouterRestore = true;
@@ -2523,6 +2583,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                         listCommitsTouchingPathsSince,
                         setActiveAgent,
                         createAgentHandler,
+                        hostedSession,
                     });
                     return;
                 }
@@ -2543,7 +2604,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                         plan.attrs.status = "feedback";
                     }
 
-                    setActiveAgent(agentName, createAgentHandler(agentName), uiAPI);
+                    setActiveAgent(agentName, createAgentHandler(agentName, { hostedSession }), uiAPI);
 
                     const reviewResult = await submitPlanForReview({
                         cwd: CWD,
@@ -2551,6 +2612,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                         planPath: plan.path,
                         triageMeta: plan.attrs,
                         uiAPI,
+                        hostedSession,
                     });
 
                     if (reviewResult.canceled) {
@@ -2580,6 +2642,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                                     planName: plan.planName,
                                     triageMeta: plan.attrs,
                                     uiAPI,
+                                    hostedSession,
                                 });
                             } else {
                                 uiAPI.appendSystemMessage(
@@ -2597,6 +2660,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                             uiAPI,
                             ensureSlicerTasks,
                             recordPlanEvent,
+                            hostedSession,
                         );
                         if (!ready) {
                             skipRouterRestore = true;
@@ -2614,7 +2678,9 @@ export async function runLoadPlanCommand(argv, options = {}) {
                             });
                             if (!confirmed) return;
 
-                            const execRes = await executePlan(plan.planName, plan.attrs, uiAPI);
+                            const execRes = await executePlan(plan.planName, plan.attrs, uiAPI, undefined, undefined, {
+                                hostedSession,
+                            });
                             const executionDecision = decidePostExecution(execRes, {
                                 planName: plan.planName,
                                 triageMeta: plan.attrs,
@@ -2626,6 +2692,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                                 uiAPI,
                                 runValidationLoop,
                                 loadPlan,
+                                hostedSession,
                             });
                         } else {
                             uiAPI.appendSystemMessage(
@@ -2640,6 +2707,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
 
                     // User submitted feedback — kick off the planning agent to revise.
                     const outcome = await runPlanningAgent({
+                        hostedSession,
                         agentName,
                         initialRequest: buildReReviewRevisionRequest(plan.planName, reviewResult.feedback),
                         triageMeta: plan.attrs,
@@ -2659,6 +2727,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                         runValidationLoop,
                         loadPlan,
                         listCommitsTouchingPathsSince,
+                        hostedSession,
                     });
                     if (shouldKeepPlanningAgentActive(planningDecision)) {
                         skipRouterRestore = true;
@@ -2694,9 +2763,10 @@ export async function runLoadPlanCommand(argv, options = {}) {
 
         uiAPI.appendSystemMessage(buildPlanSummary(plan), false, "Plan");
         restoreAgentName = planFlowRestoreAgent;
-        setActiveAgent(agentName, createAgentHandler(agentName), uiAPI);
+        setActiveAgent(agentName, createAgentHandler(agentName, { hostedSession }), uiAPI);
 
         const outcome = await runPlanningAgent({
+            hostedSession,
             agentName,
             initialRequest: buildResumeRequest(plan.planName, plan.attrs),
             triageMeta: plan.attrs,
@@ -2716,13 +2786,14 @@ export async function runLoadPlanCommand(argv, options = {}) {
             runValidationLoop,
             loadPlan,
             listCommitsTouchingPathsSince,
+            hostedSession,
         });
         if (shouldKeepPlanningAgentActive(planningDecision)) {
             skipRouterRestore = true;
         }
     } finally {
         if (!skipRouterRestore) {
-            restorePreviousAgentFlow(uiAPI, restoreAgentName, deps);
+            restorePreviousAgentFlow(uiAPI, restoreAgentName, hostedSession, deps);
         }
     }
 }

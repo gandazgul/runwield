@@ -28,7 +28,6 @@ import { ensurePlansDir, loadPlan } from "../../plan-store.js";
 import { applyPendingRootSwap, setActiveAgent } from "../interactive/chat-session.js";
 import { runRootTurn } from "../session/session.js";
 import { getAgentDisplayName } from "../session/agents.js";
-import { consumePendingSwitchHandoff } from "../session/session-state.js";
 import { sanitizeSessionName, setTerminalTitleForName } from "../ui/terminal-title.js";
 import { decidePostExecution, decidePostPlanning } from "./decisions.js";
 import { executePlan, readLatestTaskCompletedOutcome, runPlanningAgent } from "./workflow.js";
@@ -163,6 +162,7 @@ function applyAutoSessionName(sessionManager, triage, setTitle) {
  * (for FEATURE/PROJECT) execute the approved plan.
  *
  * @param {Object} args
+ * @param {import('../session/hosted-session.js').HostedSession} args.hostedSession
  * @param {TriageOutcome} args.triage
  * @param {string} args.userRequest
  * @param {import('../session/types.js').ImageAttachment[] | undefined} args.images
@@ -170,14 +170,13 @@ function applyAutoSessionName(sessionManager, triage, setTitle) {
  * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined} args.sessionManager
  * @param {{
  *   applyPendingRootSwap?: typeof applyPendingRootSwap,
- *   createAgentHandler?: (agentName: string) => import('../session/types.js').AgentMessageHandler,
+ *   createAgentHandler?: (agentName: string, deps?: { hostedSession?: import('../session/hosted-session.js').HostedSession }) => import('../session/types.js').AgentMessageHandler,
  *   readLatestTaskCompletedOutcome?: typeof readLatestTaskCompletedOutcome,
  *   decidePostPlanning?: typeof decidePostPlanning,
  *   decidePostExecution?: typeof decidePostExecution,
  *   ensurePlansDir?: typeof ensurePlansDir,
  *   executePlan?: typeof executePlan,
  *   loadPlan?: typeof loadPlan,
- *   consumePendingSwitchHandoff?: typeof consumePendingSwitchHandoff,
  *   runPlanningAgent?: typeof runPlanningAgent,
  *   runRootTurn?: typeof runRootTurn,
  *   runMechanicalValidation?: typeof runMechanicalValidation,
@@ -187,8 +186,13 @@ function applyAutoSessionName(sessionManager, triage, setTitle) {
  *   shouldRunWorkflowValidation?: typeof shouldRunWorkflowValidation,
  * }} [args.__deps]
  */
-export async function dispatchPostTriage({ triage, userRequest, images, uiAPI, sessionManager, __deps }) {
+export async function dispatchPostTriage(
+    { hostedSession, triage, userRequest, images, uiAPI, sessionManager, __deps },
+) {
     if (!uiAPI) throw new Error("dispatchPostTriage: uiAPI is required");
+    if (!hostedSession || typeof hostedSession.getRootAgentName !== "function") {
+        throw new Error("dispatchPostTriage: hostedSession is required");
+    }
 
     const normalizedTriage = normalizeTriageOutcome(triage);
     if (!normalizedTriage) throw new Error("dispatchPostTriage: routingIntent is required");
@@ -196,8 +200,10 @@ export async function dispatchPostTriage({ triage, userRequest, images, uiAPI, s
     const triageBlock = buildTriageBlock(normalizedTriage);
     const decoratedRequest = ["## User Request", userRequest, "", triageBlock].join("\n");
     const applyPendingRootSwapImpl = __deps?.applyPendingRootSwap || applyPendingRootSwap;
-    const createAgentHandlerImpl = __deps?.createAgentHandler ||
+    const createAgentHandlerSource = __deps?.createAgentHandler ||
         (await import("../session/agent-handler.js")).createAgentHandler;
+    /** @param {string} nextAgentName */
+    const createAgentHandlerImpl = (nextAgentName) => createAgentHandlerSource(nextAgentName, { hostedSession });
     const runMechanicalValidationImpl = __deps?.runMechanicalValidation || runMechanicalValidation;
     const runValidationLoopImpl = __deps?.runValidationLoop || runValidationLoop;
     const decidePostPlanningImpl = __deps?.decidePostPlanning || decidePostPlanning;
@@ -211,10 +217,11 @@ export async function dispatchPostTriage({ triage, userRequest, images, uiAPI, s
         const agentName = normalizedTriage.routingIntent === "INQUIRY" ? AGENTS.GUIDE : AGENTS.IDEATOR;
         const runRootTurnImpl = __deps?.runRootTurn || runRootTurn;
 
-        setActiveAgentImpl(agentName, createAgentHandlerImpl(agentName), uiAPI);
-        await applyPendingRootSwapImpl(uiAPI);
+        setActiveAgentImpl(hostedSession, agentName, createAgentHandlerImpl(agentName), uiAPI);
+        await applyPendingRootSwapImpl(hostedSession, uiAPI);
 
         await runRootTurnImpl({
+            hostedSession,
             agentName,
             userRequest: decoratedRequest,
             images,
@@ -229,10 +236,11 @@ export async function dispatchPostTriage({ triage, userRequest, images, uiAPI, s
         const readLatestTaskCompletedOutcomeImpl = __deps?.readLatestTaskCompletedOutcome ||
             readLatestTaskCompletedOutcome;
 
-        setActiveAgentImpl(AGENTS.OPERATOR, createAgentHandlerImpl(AGENTS.OPERATOR), uiAPI);
-        await applyPendingRootSwapImpl(uiAPI);
+        setActiveAgentImpl(hostedSession, AGENTS.OPERATOR, createAgentHandlerImpl(AGENTS.OPERATOR), uiAPI);
+        await applyPendingRootSwapImpl(hostedSession, uiAPI);
 
         const messages = await runRootTurnImpl({
+            hostedSession,
             agentName: AGENTS.OPERATOR,
             userRequest: decoratedRequest,
             images,
@@ -255,10 +263,11 @@ export async function dispatchPostTriage({ triage, userRequest, images, uiAPI, s
         const readLatestTaskCompletedOutcomeImpl = __deps?.readLatestTaskCompletedOutcome ||
             readLatestTaskCompletedOutcome;
 
-        setActiveAgentImpl(AGENTS.ENGINEER, createAgentHandlerImpl(AGENTS.ENGINEER), uiAPI);
-        await applyPendingRootSwapImpl(uiAPI);
+        setActiveAgentImpl(hostedSession, AGENTS.ENGINEER, createAgentHandlerImpl(AGENTS.ENGINEER), uiAPI);
+        await applyPendingRootSwapImpl(hostedSession, uiAPI);
 
         const messages = await runRootTurnImpl({
+            hostedSession,
             agentName: AGENTS.ENGINEER,
             userRequest: decoratedRequest,
             images,
@@ -275,6 +284,7 @@ export async function dispatchPostTriage({ triage, userRequest, images, uiAPI, s
         }
 
         await runMechanicalValidationImpl({
+            hostedSession,
             uiAPI,
             sessionManager,
         });
@@ -286,7 +296,6 @@ export async function dispatchPostTriage({ triage, userRequest, images, uiAPI, s
         const agentName = isFeature ? AGENTS.PLANNER : AGENTS.ARCHITECT;
         const ensurePlansDirImpl = __deps?.ensurePlansDir || ensurePlansDir;
         const runPlanningAgentImpl = __deps?.runPlanningAgent || runPlanningAgent;
-        const consumePendingSwitchHandoffImpl = __deps?.consumePendingSwitchHandoff || consumePendingSwitchHandoff;
         const executePlanImpl = __deps?.executePlan || executePlan;
         const loadPlanImpl = __deps?.loadPlan || loadPlan;
         const shouldRunWorkflowValidationImpl = __deps?.shouldRunWorkflowValidation || shouldRunWorkflowValidation;
@@ -299,8 +308,9 @@ export async function dispatchPostTriage({ triage, userRequest, images, uiAPI, s
             triageMeta: normalizedTriage,
             uiAPI,
             sessionManager,
+            hostedSession,
         });
-        consumePendingSwitchHandoffImpl(); // Drain any switch requests from planner
+        hostedSession.consumePendingSwitchHandoff(); // Drain any switch requests from planner
 
         const decision = decidePostPlanningImpl(outcome, {
             planningAgentName: agentName,
@@ -308,13 +318,13 @@ export async function dispatchPostTriage({ triage, userRequest, images, uiAPI, s
         });
 
         if (decision.kind === "stay_with_agent" || decision.kind === "save_plan") {
-            setActiveAgentImpl(agentName, createAgentHandlerImpl(agentName), uiAPI);
+            setActiveAgentImpl(hostedSession, agentName, createAgentHandlerImpl(agentName), uiAPI);
             return;
         }
 
         if (decision.kind !== "execute_plan") {
             uiAPI.appendSystemMessage(`Workflow halted: ${String(decision.payload.reason || "unknown reason")}`);
-            setActiveAgentImpl(agentName, createAgentHandlerImpl(agentName), uiAPI);
+            setActiveAgentImpl(hostedSession, agentName, createAgentHandlerImpl(agentName), uiAPI);
             return;
         }
 
@@ -333,17 +343,20 @@ export async function dispatchPostTriage({ triage, userRequest, images, uiAPI, s
                 uiAPI,
                 tasks,
                 sessionManager,
+                { hostedSession },
             );
         } catch (error) {
+            hostedSession.consumePendingSwitchHandoff(); // Drain any switch requests from execution sub-agents
             const reason = error instanceof Error ? error.message : String(error);
             uiAPI.appendSystemMessage(
                 `Plan execution failed: ${reason}. The Engineer may need manual intervention.`,
                 true,
                 "RunWield",
             );
-            setActiveAgentImpl(AGENTS.ENGINEER, createAgentHandlerImpl(AGENTS.ENGINEER), uiAPI);
+            setActiveAgentImpl(hostedSession, AGENTS.ENGINEER, createAgentHandlerImpl(AGENTS.ENGINEER), uiAPI);
             return;
         }
+        hostedSession.consumePendingSwitchHandoff(); // Drain any switch requests from execution sub-agents
 
         const executionDecision = decidePostExecutionImpl(executionResult, {
             planName,
@@ -354,6 +367,7 @@ export async function dispatchPostTriage({ triage, userRequest, images, uiAPI, s
             const plan = await loadPlanImpl(CWD, planName);
             if (shouldRunWorkflowValidationImpl(decisionTriageMeta)) {
                 await runValidationLoopImpl({
+                    hostedSession,
                     planName,
                     planContent: plan?.markdown || "",
                     triageMeta: decisionTriageMeta,
@@ -364,7 +378,7 @@ export async function dispatchPostTriage({ triage, userRequest, images, uiAPI, s
             }
         } else if (executionDecision.kind === "stay_with_agent") {
             const nextAgentName = /** @type {string} */ (executionDecision.payload.agentName || AGENTS.ENGINEER);
-            setActiveAgentImpl(nextAgentName, createAgentHandlerImpl(nextAgentName), uiAPI);
+            setActiveAgentImpl(hostedSession, nextAgentName, createAgentHandlerImpl(nextAgentName), uiAPI);
         } else {
             // halt or repair_plan — stay with Engineer for manual recovery
             const reason = executionDecision.payload?.reason || "unknown";
@@ -373,7 +387,7 @@ export async function dispatchPostTriage({ triage, userRequest, images, uiAPI, s
                 true,
                 "RunWield",
             );
-            setActiveAgentImpl(AGENTS.ENGINEER, createAgentHandlerImpl(AGENTS.ENGINEER), uiAPI);
+            setActiveAgentImpl(hostedSession, AGENTS.ENGINEER, createAgentHandlerImpl(AGENTS.ENGINEER), uiAPI);
         }
     }
 }

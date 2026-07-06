@@ -15,8 +15,30 @@ import {
     taskWriteScopesOverlap,
     validateProjectTasks,
 } from "./workflow.js";
+import { HostedSession } from "../session/hosted-session.js";
 
 const noopUiAPI = /** @type {any} */ ({ appendSystemMessage: () => {} });
+
+/** @param {string} [id] */
+function makeHostedSession(id = "workflow-test") {
+    return new HostedSession({ id, cwd: Deno.cwd(), sessionManager: null });
+}
+
+Deno.test("HostedSession scopes active execution workflow independently", () => {
+    const sessionA = new HostedSession({ id: "workflow-a", cwd: "/project-a" });
+    const sessionB = new HostedSession({ id: "workflow-b", cwd: "/project-b" });
+    const workflowA = { planName: "a", triageMeta: {}, executionCwd: "/work/a" };
+    const workflowB = { planName: "b", triageMeta: {}, executionCwd: "/work/b" };
+
+    sessionA.setActiveExecutionWorkflow(workflowA);
+    sessionB.setActiveExecutionWorkflow(workflowB);
+    sessionA.clearActiveExecutionWorkflow();
+
+    assertEquals(sessionA.getActiveExecutionWorkflow(), null);
+    assertEquals(sessionA.getActiveExecutionCwd(), "/project-a");
+    assertEquals(sessionB.getActiveExecutionWorkflow(), workflowB);
+    assertEquals(sessionB.getActiveExecutionCwd(), "/work/b");
+});
 
 Deno.test("readLatestPlanOutcome returns the latest plan_written outcome", () => {
     const messages = [
@@ -918,6 +940,7 @@ Deno.test("runSlicerAgent returns ok=true when session resolves", async () => {
         planName: "my-plan",
         triageMeta: { classification: "PROJECT", complexity: "LOW", summary: "x", affectedPaths: [] },
         uiAPI: noopUiAPI,
+        hostedSession: makeHostedSession(),
         __deps: {
             ensureBundledAgentDefFile: (relativePath) =>
                 Promise.resolve(`/tmp/bundled-agent-definitions/${relativePath}`),
@@ -941,6 +964,7 @@ Deno.test("runSlicerAgent surfaces session errors as { ok:false, error }", async
     const result = await runSlicerAgent({
         planName: "p",
         uiAPI: noopUiAPI,
+        hostedSession: makeHostedSession(),
         __deps: {
             runAgentSession: () => {
                 throw new Error("boom");
@@ -955,6 +979,7 @@ Deno.test("runSlicerAgent surfaces non-Error throws as string", async () => {
     const result = await runSlicerAgent({
         planName: "p",
         uiAPI: noopUiAPI,
+        hostedSession: makeHostedSession(),
         __deps: {
             runAgentSession: () => {
                 throw "string failure";
@@ -974,6 +999,7 @@ Deno.test("runSlicerAgent handles success via uiAPI when present", async () => {
     const result = await runSlicerAgent({
         planName: "p",
         uiAPI,
+        hostedSession: makeHostedSession(),
         __deps: { runAgentSession: () => Promise.resolve([]) },
     });
     assertEquals(result.ok, true);
@@ -988,6 +1014,7 @@ Deno.test("runSlicerAgent reports failure via uiAPI when present", async () => {
     await runSlicerAgent({
         planName: "p",
         uiAPI,
+        hostedSession: makeHostedSession(),
         __deps: {
             runAgentSession: () => {
                 throw new Error("kaboom");
@@ -1201,6 +1228,7 @@ Deno.test("ensureSlicerTasks opens Epic decomposition without reading a task tab
         planPath: "/tmp/epic-a.md",
         triageMeta: /** @type {any} */ ({ classification: "PROJECT", type: "epic", status: "approved" }),
         uiAPI: noopUiAPI,
+        hostedSession: makeHostedSession(),
         __deps: {
             readTextFile: () => {
                 readCalls++;
@@ -1225,6 +1253,7 @@ Deno.test("ensureSlicerTasks opens decomposition when persisted plan is an Epic"
         planName: "epic-a",
         planPath: "/tmp/epic-a.md",
         uiAPI: noopUiAPI,
+        hostedSession: makeHostedSession(),
         __deps: {
             readTextFile: () =>
                 Promise.resolve([
@@ -1253,6 +1282,7 @@ Deno.test("ensureSlicerTasks returns persisted Epic slicer throws as slicer fail
         planName: "epic-a",
         planPath: "/tmp/epic-a.md",
         uiAPI: noopUiAPI,
+        hostedSession: makeHostedSession(),
         __deps: {
             readTextFile: () =>
                 Promise.resolve([
@@ -1280,6 +1310,7 @@ Deno.test("ensureSlicerTasks skips slicer when Tasks already parseable (resumed 
         planName: "p",
         planPath: "/tmp/p.md",
         uiAPI: noopUiAPI,
+        hostedSession: makeHostedSession(),
         __deps: {
             readTextFile: () =>
                 Promise.resolve("## Tasks\n| Task | A | B | C |\n|-|-|-|-|\n| 1 | engineer | none | x |"),
@@ -1310,6 +1341,7 @@ Deno.test("ensureSlicerTasks invokes epic slicer when plan has type: epic and no
         planName: "p",
         planPath: "/tmp/p.md",
         uiAPI: noopUiAPI,
+        hostedSession: makeHostedSession(),
         __deps: {
             readTextFile: () =>
                 Promise.resolve([
@@ -1336,6 +1368,7 @@ Deno.test("ensureSlicerTasks returns { ok:false, stage:'slicer' } when epic slic
         planName: "p",
         planPath: "/tmp/p.md",
         uiAPI: noopUiAPI,
+        hostedSession: makeHostedSession(),
         __deps: {
             readTextFile: () =>
                 Promise.resolve([
@@ -1359,6 +1392,7 @@ Deno.test("ensureSlicerTasks returns { ok:false, stage:'validation' } when PROJE
         planName: "p",
         planPath: "/tmp/p.md",
         uiAPI: noopUiAPI,
+        hostedSession: makeHostedSession(),
         __deps: {
             readTextFile: () =>
                 Promise.resolve([
@@ -1380,6 +1414,7 @@ Deno.test("ensureSlicerTasks reports slicer failure when error is missing from r
         planName: "p",
         planPath: "/tmp/p.md",
         uiAPI: noopUiAPI,
+        hostedSession: makeHostedSession(),
         __deps: {
             readTextFile: () =>
                 Promise.resolve([

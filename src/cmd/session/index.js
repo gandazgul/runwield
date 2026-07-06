@@ -3,7 +3,6 @@
  * Command to show current session information.
  */
 
-import { getRootAgentSession, getRootSessionManager } from "../../shared/session/session-state.js";
 import { theme } from "../../shared/ui/theme.js";
 
 /**
@@ -19,8 +18,8 @@ export async function runSessionCommand(_argv, options = {}) {
         return;
     }
 
-    const { uiAPI } = options;
-    const sessionManager = getRootSessionManager();
+    const { uiAPI, hostedSession } = options;
+    const sessionManager = /** @type {any} */ (hostedSession?.getRootSessionManager?.());
     if (!sessionManager) {
         uiAPI.appendSystemMessage("Error: No active session.");
         return;
@@ -81,7 +80,7 @@ export async function runSessionCommand(_argv, options = {}) {
     const sessionName = sessionManager.getSessionName?.() || "";
     const sessionFile = sessionManager.getSessionFile?.() || "In-memory";
     const sessionId = sessionManager.getSessionId?.() || "";
-    const rootAgentSession = getRootAgentSession();
+    const rootAgentSession = /** @type {any} */ (hostedSession?.getRootAgentSession?.());
     const compactionSettings = rootAgentSession?.settingsManager?.getCompactionSettings?.();
     const contextUsage = rootAgentSession?.getContextUsage?.();
     const contextWindow = contextUsage?.contextWindow ?? rootAgentSession?.model?.contextWindow;

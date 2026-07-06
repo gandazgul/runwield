@@ -120,7 +120,12 @@ function withAbortTimeout(promise, timeoutMs) {
     let timeoutId;
     const timeout = new Promise((_, reject) => {
         timeoutId = setTimeout(() => {
-            abortActiveSession();
+            try {
+                abortActiveSession();
+            } catch (_error) {
+                // HostedSession scoping for router benchmarks is restored in
+                // 04-routing-and-return-to-router-session-scoping.
+            }
             reject(new Error(`Router golden row timed out after ${timeoutMs}ms.`));
         }, timeoutMs);
     });

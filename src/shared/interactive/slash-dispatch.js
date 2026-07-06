@@ -11,7 +11,6 @@
  */
 
 import { abortActiveSession, expandPromptTemplate, expandSkillCommand } from "../session/session.js";
-import { getActiveOnMessage, getRootSessionManager } from "../session/session-state.js";
 import { setTerminalTitleForName } from "../ui/terminal-title.js";
 
 const OPERATOR_AGENT = "operator";
@@ -23,8 +22,12 @@ const OPERATOR_AGENT = "operator";
  *
  * @param {string} command
  */
-function maybeUpdateTitleForSlashCommand(command) {
-    const rootSessionManager = getRootSessionManager();
+/**
+ * @param {string} command
+ * @param {import('../session/hosted-session.js').HostedSession} hostedSession
+ */
+function maybeUpdateTitleForSlashCommand(command, hostedSession) {
+    const rootSessionManager = /** @type {any} */ (hostedSession?.getRootSessionManager?.());
     if (rootSessionManager && !rootSessionManager.getSessionName?.()) {
         setTerminalTitleForName(command);
     }
@@ -43,6 +46,8 @@ function maybeUpdateTitleForSlashCommand(command) {
  * @typedef {Object} SlashContext
  * @property {string} userRequest
  * @property {import('../session/types.js').ImageAttachment[]} savedImages
+ * @property {import('../session/hosted-session.js').HostedSession} hostedSession
+ * @property {import('../session/session-host.js').SessionHost} [sessionHost]
  * @property {import('../ui/types.js').UiAPI} uiAPI
  * @property {import('@earendil-works/pi-tui').Editor} editor
  * @property {import('@earendil-works/pi-tui').TUI} tui
@@ -53,8 +58,10 @@ function maybeUpdateTitleForSlashCommand(command) {
  * @property {SkillMeta[]} skills
  * @property {string} chatPromptAgentName
  * @property {(templateModel: string) => ({ ok: true, provider: string, id: string } | { ok: false })} resolveTemplateModel
- * @property {(agentName: string, handler: import('../session/types.js').AgentMessageHandler, uiAPI: import('../ui/types.js').UiAPI, agentModel?: string) => void} setActiveAgent
- * @property {(uiAPI: import('../ui/types.js').UiAPI) => Promise<void>} applyPendingRootSwap
+ * @property {(hostedSession: import('../session/hosted-session.js').HostedSession | undefined, agentName: string, handler: import('../session/types.js').AgentMessageHandler, uiAPI: import('../ui/types.js').UiAPI, agentModel?: string) => void} setActiveAgent
+ * @property {(hostedSession: import('../session/hosted-session.js').HostedSession | undefined, uiAPI: import('../ui/types.js').UiAPI) => Promise<void>} applyPendingRootSwap
+ * @property {(model: string, provider?: string) => Promise<void> | void} [setActiveModel]
+ * @property {(nextSession: import('../session/hosted-session.js').HostedSession) => void} [replaceHostedSession]
  * @property {(text: string, images: import('../session/types.js').ImageAttachment[]) => Promise<void>} [dispatchExpandedUserRequest]
  * @property {import('./generation-guard.js').GenerationGuard} generationGuard
  * @property {(cancel: (() => void) | null) => void} registerOperationCancel
@@ -62,9 +69,9 @@ function maybeUpdateTitleForSlashCommand(command) {
  *   abortActiveSession?: typeof abortActiveSession,
  *   expandPromptTemplate?: typeof expandPromptTemplate,
  *   expandSkillCommand?: typeof expandSkillCommand,
- *   getRootSessionManager?: typeof getRootSessionManager,
- *   getActiveOnMessage?: typeof getActiveOnMessage,
- *   createAgentHandler?: (agentName: string) => import('../session/types.js').AgentMessageHandler,
+ *   getRootSessionManager?: () => import('../session/types.js').SessionManagerLike | null,
+ *   getActiveOnMessage?: () => import('../session/types.js').AgentMessageHandler | null,
+ *   createAgentHandler?: (agentName: string, deps?: { hostedSession?: import('../session/hosted-session.js').HostedSession }) => import('../session/types.js').AgentMessageHandler,
  *   commandRegistry?: Record<string, { execute: (args: string[], deps: object) => Promise<void> | void }>,
  *   getSlashCommandDefinition?: (name: string) => { name: string } | undefined,
  * }} [__deps]
@@ -96,14 +103,14 @@ export async function handleSlashCommand(ctx) {
 
     const builtinCommand = getSlashCommandDefinition(command);
     if (builtinCommand && ctx.builtinNames.has(builtinCommand.name)) {
-        maybeUpdateTitleForSlashCommand(builtinCommand.name);
+        maybeUpdateTitleForSlashCommand(builtinCommand.name, ctx.hostedSession);
         await dispatchBuiltin(ctx, builtinCommand.name, args, commandRegistry, thisGen);
         return true;
     }
 
     const template = ctx.promptTemplateByName.get(command);
     if (template) {
-        maybeUpdateTitleForSlashCommand(command);
+        maybeUpdateTitleForSlashCommand(command, ctx.hostedSession);
         await dispatchTemplate(ctx, template, args.join(" "), thisGen);
         return true;
     }
@@ -113,7 +120,7 @@ export async function handleSlashCommand(ctx) {
         const skillName = command.slice(6);
         const skill = ctx.skills.find((s) => s.name === skillName);
         if (skill) {
-            maybeUpdateTitleForSlashCommand(command);
+            maybeUpdateTitleForSlashCommand(command, ctx.hostedSession);
             await dispatchSkill(ctx, skill, args.join(" "), thisGen);
             return true;
         }
@@ -145,21 +152,27 @@ async function dispatchBuiltin(ctx, command, args, commandRegistry, thisGen) {
 
     const deps = ctx.__deps || {};
     const abortActiveSessionImpl = deps.abortActiveSession || abortActiveSession;
-    const getRootSessionManagerImpl = deps.getRootSessionManager || getRootSessionManager;
+    const getRootSessionManagerImpl = deps.getRootSessionManager || (() => ctx.hostedSession.getRootSessionManager());
 
     registerOperationCancel(() => {
-        abortActiveSessionImpl();
+        abortActiveSessionImpl(ctx.hostedSession);
     });
 
     try {
         await commandRegistry[command].execute(args, {
             uiAPI,
             editor,
+            hostedSession: ctx.hostedSession,
+            sessionHost: ctx.sessionHost,
             sessionManager: getRootSessionManagerImpl() || undefined,
             sessionStartedAt,
             tui,
             originalHandleInput,
             registerOperationCancel,
+            setActiveAgent: ctx.setActiveAgent,
+            applyPendingRootSwap: ctx.applyPendingRootSwap,
+            setActiveModel: ctx.setActiveModel,
+            replaceHostedSession: ctx.replaceHostedSession,
         });
     } catch (err) {
         if (generationGuard.isCurrent(thisGen)) {
@@ -169,7 +182,7 @@ async function dispatchBuiltin(ctx, command, args, commandRegistry, thisGen) {
         }
     } finally {
         registerOperationCancel(null);
-        await applyPendingRootSwap(uiAPI);
+        await applyPendingRootSwap(ctx.hostedSession, uiAPI);
     }
 }
 
@@ -187,8 +200,8 @@ async function dispatchExpandedInput(ctx, expandedText, images) {
     }
 
     const deps = ctx.__deps || {};
-    const getActiveOnMessageImpl = deps.getActiveOnMessage || getActiveOnMessage;
-    const getRootSessionManagerImpl = deps.getRootSessionManager || getRootSessionManager;
+    const getActiveOnMessageImpl = deps.getActiveOnMessage || (() => ctx.hostedSession.getActiveOnMessage());
+    const getRootSessionManagerImpl = deps.getRootSessionManager || (() => ctx.hostedSession.getRootSessionManager());
     const activeOnMessage = getActiveOnMessageImpl();
     const rootSessionManager = getRootSessionManagerImpl();
     if (!activeOnMessage || !rootSessionManager) {
@@ -244,7 +257,12 @@ async function switchToOperatorForTemplate(ctx) {
         createAgentHandlerImpl = agentHandlerModule.createAgentHandler;
     }
 
-    ctx.setActiveAgent(OPERATOR_AGENT, createAgentHandlerImpl(OPERATOR_AGENT), ctx.uiAPI);
+    ctx.setActiveAgent(
+        ctx.hostedSession,
+        OPERATOR_AGENT,
+        createAgentHandlerImpl(OPERATOR_AGENT, { hostedSession: ctx.hostedSession }),
+        ctx.uiAPI,
+    );
 }
 
 /**

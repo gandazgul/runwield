@@ -1,8 +1,9 @@
 import { assert, assertEquals, assertRejects } from "@std/assert";
 import { join } from "@std/path";
-import { CWD } from "../../../constants.js";
+import { AGENTS, CWD } from "../../../constants.js";
 import { __resetSettingsForTests } from "../../settings.js";
 import { loadAgentDef, resolveSessionToolNames } from "../agents.js";
+import { HostedSession } from "../hosted-session.js";
 import { buildAgentSession, resolveEffectiveSessionToolNames } from "../session.js";
 
 const localAgentsDir = join(CWD, ".wld", "agents");
@@ -140,6 +141,89 @@ Deno.test("resolveEffectiveSessionToolNames normalizes legacy multi replace tool
         resolveEffectiveSessionToolNames(["read", "edit", "multi_replace_file_content"], undefined, []),
         ["read", "edit", "multi_file_edit"],
     );
+});
+
+Deno.test("buildAgentSession auto-wires return_to_router to the target HostedSession", async () => {
+    const originalHome = Deno.env.get("HOME");
+    const tempHome = await Deno.makeTempDir({ prefix: "runwield-return-router-wiring-" });
+    /** @type {import('@earendil-works/pi-coding-agent').AgentSession | undefined} */
+    let session;
+
+    try {
+        Deno.env.set("HOME", tempHome);
+        __resetSettingsForTests();
+        await Deno.mkdir(join(tempHome, ".wld"), { recursive: true });
+        await Deno.writeTextFile(
+            join(tempHome, ".wld", "models.json"),
+            JSON.stringify({
+                providers: {
+                    test: {
+                        baseUrl: "https://example.invalid/v1",
+                        api: "openai-completions",
+                        apiKey: "test-key",
+                        models: [{ id: "model" }],
+                    },
+                },
+            }),
+        );
+
+        const targetHostedSession = new HostedSession({ id: "target-session", cwd: CWD });
+        const otherHostedSession = new HostedSession({ id: "other-session", cwd: CWD });
+        const uiAPI = /** @type {import('../../ui/types.js').UiAPI} */ ({
+            appendSystemMessage: () => {},
+            appendAgentMessageStart: () => ({ appendText: () => {} }),
+            promptSelect: () => Promise.resolve(null),
+            promptText: () => Promise.resolve(null),
+            requestRender: () => {},
+            setAgentInfo: () => {},
+            showModelSelector: () => {},
+        });
+
+        const built = await buildAgentSession({
+            hostedSession: targetHostedSession,
+            agentName: AGENTS.GUIDE,
+            modelOverride: "test/model",
+            uiAPI,
+            allowReturnToRouter: true,
+            _agentDefOverride: {
+                name: AGENTS.GUIDE,
+                displayName: "Guide",
+                model: "",
+                description: "Test guide",
+                tools: ["return_to_router"],
+                systemPrompt: "Test guide prompt.",
+            },
+        });
+        session = built.session;
+        const tool = built.finalCustomTools.find((candidate) => candidate.name === "return_to_router");
+        assert(tool, "expected return_to_router to be auto-wired");
+        const execute =
+            /** @type {(id: string, params: { reason: string }, signal: AbortSignal, onUpdate: () => void, context: object) => Promise<unknown>} */ (tool
+                .execute);
+
+        await execute(
+            "tool-call-1",
+            { reason: "Route this from the target session." },
+            new AbortController().signal,
+            () => {},
+            { hostedSession: otherHostedSession, uiAPI },
+        );
+
+        assertEquals(targetHostedSession.consumePendingSwitchHandoff(), {
+            agentName: AGENTS.ROUTER,
+            reason: "Route this from the target session.",
+        });
+        assertEquals(targetHostedSession.getPendingRootSwap()?.agentName, AGENTS.ROUTER);
+        assertEquals(otherHostedSession.consumePendingSwitchHandoff(), null);
+        assertEquals(otherHostedSession.getPendingRootSwap(), null);
+    } finally {
+        session?.dispose();
+        __resetSettingsForTests();
+        if (originalHome === undefined) Deno.env.delete("HOME");
+        else Deno.env.set("HOME", originalHome);
+        __resetSettingsForTests();
+        await Deno.remove(tempHome, { recursive: true });
+    }
 });
 
 Deno.test("buildAgentSession wires task_completed with agent displayName", async () => {

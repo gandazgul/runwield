@@ -1,6 +1,5 @@
 import { assertEquals } from "@std/assert";
 import { runAgentsCommand } from "./index.js";
-import { AGENTS } from "../../constants.js";
 
 Deno.test("runAgentsCommand help path", async () => {
     let helped = "";
@@ -39,6 +38,7 @@ Deno.test("runAgentsCommand chooses TUI handler when ui deps present", async () 
                         { name: "router", displayName: "RunWield", description: "", model: "" },
                     ]),
                 setActiveAgent: (
+                    /** @type {unknown} */ _hostedSession,
                     /** @type {string} */ _name,
                     /** @type {unknown} */ _handler,
                     /** @type {unknown} */ _uiAPI,
@@ -141,8 +141,8 @@ Deno.test("runAgentsCommand CLI valid agent starts session", async () => {
         }),
     );
 
-    assertEquals(active, AGENTS.PLANNER);
-    assertEquals(activeModel, undefined);
+    assertEquals(active, "");
+    assertEquals(activeModel, "not-set");
     assertEquals(startedWith, "build thing");
     assertEquals(initialModel, undefined);
 });

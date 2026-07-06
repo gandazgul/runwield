@@ -2,7 +2,10 @@
 
 ## Bugs
 
-- [ ]
+- [ ] hittin up arrow when there's a scheduled steering message, fills the input but, doesnt remove the scheduled
+      message.
+- [ ] when I use /agent the name of the agent is shown then the system message switched to agent, hide the agent name
+      that replaces the multiselect. ![alt text](image.png)
 
 ## Backlog
 

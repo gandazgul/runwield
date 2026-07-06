@@ -13,7 +13,7 @@ import {
     steerRootSession,
     steerRootSessionWithTarget,
 } from "./session.js";
-import { setRootAgentSession } from "./session-state.js";
+import { HostedSession } from "./hosted-session.js";
 
 const localPromptsDir = join(Deno.cwd(), ".wld", "prompts");
 const localSkillsDir = join(Deno.cwd(), ".wld", "skills");
@@ -303,25 +303,21 @@ Deno.test("steerRootSession sends image content only while root is streaming", a
         },
     });
 
-    try {
-        setRootAgentSession(null);
-        assertEquals(await steerRootSession("queued"), false);
+    const hostedSession = new HostedSession({ id: "steer-catalog", cwd: Deno.cwd() });
+    assertEquals(await steerRootSession(hostedSession, "queued"), false);
 
-        setRootAgentSession(session);
-        assertEquals(await steerRootSession("queued"), false);
-        assertEquals(steerCalls, []);
+    hostedSession.setRootAgentSession(session);
+    assertEquals(await steerRootSession(hostedSession, "queued"), false);
+    assertEquals(steerCalls, []);
 
-        session.isStreaming = true;
-        assertEquals(
-            await steerRootSession("interrupt", [{ base64: "abc123", mimeType: "image/png" }]),
-            true,
-        );
-        assertEquals(steerCalls, [{
-            text: "interrupt",
-            images: [{ type: "image", data: "abc123", mimeType: "image/png" }],
-        }]);
-        assertEquals(await steerRootSessionWithTarget("targeted"), session);
-    } finally {
-        setRootAgentSession(null);
-    }
+    session.isStreaming = true;
+    assertEquals(
+        await steerRootSession(hostedSession, "interrupt", [{ base64: "abc123", mimeType: "image/png" }]),
+        true,
+    );
+    assertEquals(steerCalls, [{
+        text: "interrupt",
+        images: [{ type: "image", data: "abc123", mimeType: "image/png" }],
+    }]);
+    assertEquals(await steerRootSessionWithTarget(hostedSession, "targeted"), session);
 });

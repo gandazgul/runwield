@@ -1,12 +1,23 @@
 import { assertEquals } from "@std/assert";
-import { createAgentHandler } from "./agent-handler.js";
-import {
-    clearActiveExecutionWorkflow,
-    getActiveExecutionWorkflow,
-    setActiveExecutionWorkflow,
-    setRootAgentName,
-    setRootAgentSession,
-} from "./session-state.js";
+import { createAgentHandler as createAgentHandlerFn } from "./agent-handler.js";
+import { HostedSession } from "./hosted-session.js";
+
+/**
+ * @param {string} [id]
+ */
+function makeHostedSession(id = `agent-handler-test-${crypto.randomUUID()}`) {
+    return new HostedSession({ id, cwd: Deno.cwd() });
+}
+
+/**
+ * @param {string} agentName
+ * @param {any} [deps]
+ */
+function createAgentHandler(agentName, deps = {}) {
+    const hostedSession =
+        /** @type {import('./hosted-session.js').HostedSession} */ (deps.hostedSession || makeHostedSession());
+    return createAgentHandlerFn(agentName, { ...deps, hostedSession });
+}
 
 Deno.test("agent-handler dispatches triage_report from any agent", async () => {
     /** @type {import('../workflow/orchestrator.js').TriageOutcome} */
@@ -25,12 +36,12 @@ Deno.test("agent-handler dispatches triage_report from any agent", async () => {
     /** @type {any} */
     let runArgs = null;
     const handler = createAgentHandler("operator", {
-        runAgentSession: (opts) => {
+        runAgentSession: (/** @type {any} */ opts) => {
             runArgs = opts;
             return Promise.resolve(/** @type {any} */ ([]));
         },
         readLatestTriageOutcome: () => triage,
-        dispatchPostTriage: (args) => {
+        dispatchPostTriage: (/** @type {any} */ args) => {
             dispatchArgs = args;
             return Promise.resolve();
         },
@@ -42,16 +53,14 @@ Deno.test("agent-handler dispatches triage_report from any agent", async () => {
     await handler("classify this", images, uiAPI, sessionManager);
 
     assertEquals(runArgs.useRootSession, false);
-    assertEquals(dispatchArgs, {
-        triage,
-        userRequest: "classify this",
-        images,
-        uiAPI,
-        sessionManager,
-        __deps: {
-            createAgentHandler,
-        },
-    });
+    const scopedDispatchArgs = /** @type {any} */ (dispatchArgs);
+    assertEquals(scopedDispatchArgs.triage, triage);
+    assertEquals(scopedDispatchArgs.userRequest, "classify this");
+    assertEquals(scopedDispatchArgs.images, images);
+    assertEquals(scopedDispatchArgs.uiAPI, uiAPI);
+    assertEquals(scopedDispatchArgs.sessionManager, sessionManager);
+    assertEquals(scopedDispatchArgs.hostedSession instanceof HostedSession, true);
+    assertEquals(typeof scopedDispatchArgs.__deps.createAgentHandler, "function");
 });
 
 Deno.test("agent-handler passes agent definition overrides and custom tools to root turns", async () => {
@@ -61,11 +70,14 @@ Deno.test("agent-handler passes agent definition overrides and custom tools to r
         /** @type {any} */ ({ name: "slicer_finalize_decomposition" }),
     ];
     const agentDef = /** @type {any} */ ({ displayName: "Slicer" });
+    const hostedSession = makeHostedSession();
+    hostedSession.setRootAgentName("slicer");
     const handler = createAgentHandler("slicer", {
+        hostedSession,
         _agentDefOverride: agentDef,
         customTools,
         allowReturnToRouter: false,
-        runRootTurn: (opts) => {
+        runRootTurn: (/** @type {any} */ opts) => {
             captured = opts;
             return Promise.resolve([]);
         },
@@ -74,12 +86,7 @@ Deno.test("agent-handler passes agent definition overrides and custom tools to r
         readLatestTaskCompletedOutcome: () => false,
     });
 
-    setRootAgentName("slicer");
-    try {
-        await handler("write the drafts", [], /** @type {any} */ ({}), /** @type {any} */ ({ id: "root-session" }));
-    } finally {
-        setRootAgentName(null);
-    }
+    await handler("write the drafts", [], /** @type {any} */ ({}), /** @type {any} */ ({ id: "root-session" }));
 
     assertEquals(captured.agentName, "slicer");
     assertEquals(captured.allowReturnToRouter, false);
@@ -104,7 +111,7 @@ Deno.test("agent-handler calls executePlan when outcome is approved_execute", as
                     },
                 }]),
             ),
-        readLatestPlanOutcome: (msgs) => /** @type {any} */ (msgs[0]).details,
+        readLatestPlanOutcome: (/** @type {any} */ msgs) => /** @type {any} */ (msgs[0]).details,
         executePlan: /** @type {any} */ ((/** @type {unknown[]} */ ...args) => {
             executeCalls.push(args);
             return Promise.resolve(undefined);
@@ -125,7 +132,7 @@ Deno.test("agent-handler validates after approved_execute only when execution co
         runAgentSession: () => Promise.resolve(/** @type {any} */ ([])),
         readLatestPlanOutcome: () => /** @type {any} */ ({ outcome: "approved_execute", planName: "p" }),
         executePlan: /** @type {any} */ (() => Promise.resolve({ repairRequired: false, executionComplete: true })),
-        runValidationLoop: (args) => {
+        runValidationLoop: (/** @type {any} */ args) => {
             validationCount++;
             finalAgentName = /** @type {any} */ (args).finalAgentName;
             return Promise.resolve();
@@ -165,6 +172,7 @@ Deno.test("agent-handler keeps Engineer active when approved_execute execution i
             throw new Error("should not validate incomplete execution");
         },
         setActiveAgent: (
+            /** @type {unknown} */ _hostedSession,
             /** @type {string} */ name,
             /** @type {unknown} */ _handler,
             /** @type {any} */ actualUiAPI,
@@ -293,13 +301,15 @@ Deno.test("agent-handler records delayed implementation finish before continuati
     let workflowDuringValidation = null;
     /** @type {string[]} */
     const events = [];
-    setActiveExecutionWorkflow({
+    const hostedSession = makeHostedSession();
+    hostedSession.setActiveExecutionWorkflow({
         planName: "p",
         triageMeta: { classification: "FEATURE" },
         baselineTree: "baseline-tree",
     });
 
     const handler = createAgentHandler("engineer", {
+        hostedSession,
         runAgentSession: () =>
             Promise.resolve(
                 /** @type {any} */ ([{
@@ -318,8 +328,8 @@ Deno.test("agent-handler records delayed implementation finish before continuati
         },
         runValidationLoop: () => {
             events.push("validation_started");
-            workflowDuringValidation = getActiveExecutionWorkflow();
-            clearActiveExecutionWorkflow();
+            workflowDuringValidation = hostedSession.getActiveExecutionWorkflow();
+            hostedSession.clearActiveExecutionWorkflow();
             return Promise.resolve();
         },
     });
@@ -342,19 +352,21 @@ Deno.test("agent-handler ignores stale task_completed outcomes from earlier root
         toolName: "task_completed",
         details: { outcome: "task_completed" },
     };
-    setActiveExecutionWorkflow({
+    const hostedSession = makeHostedSession();
+    hostedSession.setActiveExecutionWorkflow({
         planName: "p",
         triageMeta: { classification: "FEATURE" },
         baselineTree: "baseline-tree",
     });
-    setRootAgentName("engineer");
-    setRootAgentSession(
+    hostedSession.setRootAgentName("engineer");
+    hostedSession.setRootAgentSession(
         /** @type {any} */ ({
             agent: { state: { messages: [staleCompletion] } },
         }),
     );
 
     const handler = createAgentHandler("engineer", {
+        hostedSession,
         runRootTurn: () =>
             Promise.resolve(
                 /** @type {any} */ ([
@@ -379,27 +391,71 @@ Deno.test("agent-handler ignores stale task_completed outcomes from earlier root
 
         assertEquals(recordCount, 0);
         assertEquals(validationCount, 0);
-        assertEquals(getActiveExecutionWorkflow(), {
+        assertEquals(hostedSession.getActiveExecutionWorkflow(), {
             planName: "p",
             triageMeta: { classification: "FEATURE" },
             baselineTree: "baseline-tree",
         });
     } finally {
-        setRootAgentName(null);
-        setRootAgentSession(null);
-        clearActiveExecutionWorkflow();
+        hostedSession.setRootAgentName(null);
+        hostedSession.setRootAgentSession(null);
+        hostedSession.clearActiveExecutionWorkflow();
+    }
+});
+
+Deno.test("agent-handler validates task_completed against hosted workflow", async () => {
+    /** @type {unknown} */
+    let validationWorkflow = null;
+    const hostedSession = makeHostedSession();
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "hosted-plan",
+        triageMeta: { classification: "FEATURE" },
+        baselineTree: "hosted-tree",
+    });
+    const handler = createAgentHandler("engineer", {
+        hostedSession,
+        runAgentSession: () =>
+            Promise.resolve(
+                /** @type {any} */ ([{
+                    role: "toolResult",
+                    toolName: "task_completed",
+                    details: { outcome: "task_completed" },
+                }]),
+            ),
+        readLatestPlanOutcome: () => null,
+        readLatestTaskCompletedOutcome: () => true,
+        recordPlanEvent: () => Promise.resolve(/** @type {any} */ ({})),
+        runValidationLoop: (/** @type {{ hostedSession: HostedSession }} */ args) => {
+            validationWorkflow = args.hostedSession.getActiveExecutionWorkflow();
+            args.hostedSession.clearActiveExecutionWorkflow();
+            return Promise.resolve();
+        },
+    });
+
+    try {
+        await handler("continue", [], /** @type {any} */ ({}), /** @type {any} */ (undefined));
+
+        assertEquals(validationWorkflow, {
+            planName: "hosted-plan",
+            triageMeta: { classification: "FEATURE" },
+            baselineTree: "hosted-tree",
+        });
+    } finally {
+        hostedSession.clearActiveExecutionWorkflow();
     }
 });
 
 Deno.test("agent-handler skips validation and clears workflow marker for QUICK_FIX completion", async () => {
     let validationCount = 0;
-    setActiveExecutionWorkflow({
+    const hostedSession = makeHostedSession();
+    hostedSession.setActiveExecutionWorkflow({
         planName: "quick-fix",
         triageMeta: { classification: "QUICK_FIX" },
         baselineTree: "baseline-tree",
     });
 
     const handler = createAgentHandler("operator", {
+        hostedSession,
         runAgentSession: () =>
             Promise.resolve(
                 /** @type {any} */ ([{
@@ -419,5 +475,5 @@ Deno.test("agent-handler skips validation and clears workflow marker for QUICK_F
     await handler("answer", [], /** @type {any} */ ({}), /** @type {any} */ (undefined));
 
     assertEquals(validationCount, 0);
-    assertEquals(getActiveExecutionWorkflow(), null);
+    assertEquals(hostedSession.getActiveExecutionWorkflow(), null);
 });

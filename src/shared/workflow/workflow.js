@@ -8,11 +8,6 @@ import { AGENTS, CWD } from "../../constants.js";
 import { loadPlan } from "../../plan-store.js";
 import { getAgentDisplayName } from "../session/agents.js";
 import { runAgentSession } from "../session/session.js";
-import {
-    getActiveExecutionWorkflow,
-    getRootAgentSession,
-    setActiveExecutionWorkflow,
-} from "../session/session-state.js";
 import { createExecutionWorktree, findReusableWorktree } from "../worktree.js";
 import { updateEntry as updateWorktreeRegistryEntry } from "../worktree-registry.js";
 import { captureWorktreeTree } from "./git-snapshot.js";
@@ -84,11 +79,15 @@ export { extractAssistantOutput, readLatestPlanOutcome, readLatestTaskCompletedO
  * @param {import('../../tools/plan-written.js').TriageMeta} [opts.triageMeta]
  * @param {UiAPI} opts.uiAPI
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager]
+ * @param {import('../session/hosted-session.js').HostedSession} [opts.hostedSession]
  * @returns {Promise<PlanOutcomeResult>}
  */
-export async function runPlanningAgent({ agentName, initialRequest, triageMeta, uiAPI, sessionManager }) {
+export async function runPlanningAgent(
+    { agentName, initialRequest, triageMeta, uiAPI, sessionManager, hostedSession },
+) {
     if (!uiAPI) throw new Error("runPlanningAgent: uiAPI is required");
     const messages = await runAgentSession({
+        hostedSession,
         agentName,
         userRequest: initialRequest,
         triageMeta,
@@ -115,6 +114,7 @@ export async function runPlanningAgent({ agentName, initialRequest, triageMeta, 
  *   executeSingleEngineerPlan?: typeof executeSingleEngineerPlan,
  *   recordPlanEvent?: typeof recordPlanEvent,
  *   markActiveWorktreeStatus?: typeof markActiveWorktreeStatus,
+ *   hostedSession?: import('../session/hosted-session.js').HostedSession,
  * }} [__deps]
  * @returns {Promise<PlanExecutionResult>}
  */
@@ -122,6 +122,7 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
     if (!uiAPI) throw new Error("executePlan: uiAPI is required");
 
     const loadPlanFn = __deps.loadPlan || loadPlan;
+    const hostedSession = __deps.hostedSession;
     void structuredTasks;
     const executeSingleEngineerPlanFn = __deps.executeSingleEngineerPlan || executeSingleEngineerPlan;
     const recordPlanEventFn = __deps.recordPlanEvent || recordPlanEvent;
@@ -159,6 +160,7 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
         uiAPI,
         sessionManager,
         currentStatus: plan.attrs.status,
+        hostedSession,
     });
     if (!result.executionComplete) return result;
 
@@ -174,7 +176,7 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
         currentStatus: "in_progress",
         details: { triageMeta: effectiveMeta },
     });
-    await markActiveWorktreeStatusFn("completed");
+    await markActiveWorktreeStatusFn("completed", { hostedSession });
     return { repairRequired: false, executionComplete: true };
 }
 
@@ -186,17 +188,21 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
  *     uiAPI: UiAPI,
  *     sessionManager?: import('@earendil-works/pi-coding-agent').SessionManager,
  *     currentStatus: import('./plan-lifecycle.js').PlanStatus,
+ *     hostedSession?: import('../session/hosted-session.js').HostedSession,
  * }} opts
  * @returns {Promise<PlanExecutionResult>}
  */
-async function executeSingleEngineerPlan({ planName, planBody, triageMeta, uiAPI, sessionManager, currentStatus }) {
-    const executionContext = await startActiveExecutionWorkflow(planName, triageMeta, currentStatus);
+async function executeSingleEngineerPlan(
+    { planName, planBody, triageMeta, uiAPI, sessionManager, currentStatus, hostedSession },
+) {
+    const executionContext = await startActiveExecutionWorkflow({ planName, triageMeta, currentStatus, hostedSession });
     const engineerResult = await runEngineerWithPlan(
         planName,
         planBody,
         uiAPI,
         sessionManager,
         executionContext.executionCwd,
+        hostedSession,
     );
     if (!engineerResult.completed) {
         return { repairRequired: false, executionComplete: false, error: engineerResult.error };
@@ -212,12 +218,14 @@ async function executeSingleEngineerPlan({ planName, planBody, triageMeta, uiAPI
  * @param {UiAPI} uiAPI
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [sessionManager]
  * @param {string} [executionCwd]
+ * @param {import('../session/hosted-session.js').HostedSession} [hostedSession]
  * @returns {Promise<{ completed: boolean, messages: import('@earendil-works/pi-agent-core').AgentMessage[], error?: string }>}
  */
-async function runEngineerWithPlan(planName, planBody, uiAPI, sessionManager, executionCwd) {
+async function runEngineerWithPlan(planName, planBody, uiAPI, sessionManager, executionCwd, hostedSession) {
     let messages;
     try {
         messages = await runAgentSession({
+            hostedSession,
             agentName: AGENTS.ENGINEER,
             userRequest: buildEngineerRequest(planName, planBody),
             uiAPI,
@@ -227,7 +235,8 @@ async function runEngineerWithPlan(planName, planBody, uiAPI, sessionManager, ex
         });
     } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
-        const rootMessages = getRootAgentSession()?.agent?.state?.messages || [];
+        const hostedRootSession = /** @type {any} */ (hostedSession?.getRootAgentSession?.());
+        const rootMessages = hostedRootSession?.agent?.state?.messages || [];
         uiAPI.appendSystemMessage(
             buildEngineerPausedMessage(errorMessage),
             true,
@@ -259,13 +268,44 @@ function buildEngineerPausedMessage(reason) {
 }
 
 /**
- * @param {string} planName
- * @param {Partial<import('../../plan-store.js').PlanFrontMatter>} triageMeta
- * @param {import('./plan-lifecycle.js').PlanStatus} currentStatus
+ * @param {unknown} value
+ * @returns {string | undefined}
+ */
+export function normalizeExecutionTargetBranch(value) {
+    if (typeof value !== "string") return undefined;
+    const target = value.trim();
+    return target && target !== "HEAD" ? target : undefined;
+}
+
+/**
+ * @param {string | undefined} reusableBaseBranch
+ * @param {string | undefined} targetBranch
+ */
+export function assertReusableWorktreeTargetMatches(reusableBaseBranch, targetBranch) {
+    const reusableTarget = normalizeExecutionTargetBranch(reusableBaseBranch);
+    const planTarget = normalizeExecutionTargetBranch(targetBranch);
+    if (reusableTarget !== planTarget) {
+        throw new Error(
+            `Existing execution worktree targets ${reusableTarget || "HEAD/current checkout"}, but plan targets ${
+                planTarget || "HEAD/current checkout"
+            }. Aborting before Engineer starts.`,
+        );
+    }
+}
+
+/**
+ * @param {{
+ *   planName: string,
+ *   triageMeta: Partial<import('../../plan-store.js').PlanFrontMatter>,
+ *   currentStatus: import('./plan-lifecycle.js').PlanStatus,
+ *   hostedSession?: import('../session/hosted-session.js').HostedSession,
+ * }} opts
  * @returns {Promise<{ projectRoot: string, executionCwd: string, baselineTree: string, worktreeId: string, worktreeBranch: string, worktreeBaseBranch?: string }>}
  */
-async function startActiveExecutionWorkflow(planName, triageMeta, currentStatus) {
-    const existing = getActiveExecutionWorkflow();
+export async function startActiveExecutionWorkflow({ planName, triageMeta, currentStatus, hostedSession }) {
+    if (!hostedSession) throw new Error("startActiveExecutionWorkflow: hostedSession is required");
+    const targetBranch = normalizeExecutionTargetBranch(triageMeta.worktreeBaseBranch);
+    const existing = hostedSession.getActiveExecutionWorkflow();
     const reusable =
         existing?.planName === planName && existing.executionCwd && existing.worktreeId && existing.worktreeBranch
             ? {
@@ -276,7 +316,9 @@ async function startActiveExecutionWorkflow(planName, triageMeta, currentStatus)
                     (typeof triageMeta.worktreeBaseBranch === "string" ? triageMeta.worktreeBaseBranch : undefined),
             }
             : await findReusableWorktree({ projectRoot: CWD, planName });
-    const worktree = reusable || await createExecutionWorktree({ projectRoot: CWD, planName, baseRef: "HEAD" });
+    if (reusable) assertReusableWorktreeTargetMatches(reusable.baseBranch, targetBranch);
+    const worktree = reusable ||
+        await createExecutionWorktree({ projectRoot: CWD, planName, baseRef: targetBranch || "HEAD" });
     const worktreeBaseBranch = worktree.baseBranch === "HEAD" ? undefined : worktree.baseBranch;
     const baselineTree =
         existing?.planName === planName && existing.executionCwd === worktree.path && existing.baselineTree
@@ -292,7 +334,7 @@ async function startActiveExecutionWorkflow(planName, triageMeta, currentStatus)
         worktreeBranch: worktree.branch,
         worktreeBaseBranch,
     };
-    setActiveExecutionWorkflow(workflow);
+    hostedSession.setActiveExecutionWorkflow(workflow);
     if (worktree.id) {
         await updateWorktreeRegistryEntry(CWD, worktree.id, { status: "active" });
     }
@@ -314,9 +356,12 @@ async function startActiveExecutionWorkflow(planName, triageMeta, currentStatus)
     return workflow;
 }
 
-/** @param {import('../../plan-store.js').PlanFrontMatter['worktreeStatus']} status */
-async function markActiveWorktreeStatus(status) {
-    const workflow = getActiveExecutionWorkflow();
+/**
+ * @param {import('../../plan-store.js').PlanFrontMatter['worktreeStatus']} status
+ * @param {{ hostedSession?: import('../session/hosted-session.js').HostedSession }} [opts]
+ */
+async function markActiveWorktreeStatus(status, opts = {}) {
+    const workflow = opts.hostedSession?.getActiveExecutionWorkflow();
     if (!workflow?.worktreeId || !status || status === "none") return;
     await updateWorktreeRegistryEntry(workflow.projectRoot || CWD, workflow.worktreeId, { status });
 }

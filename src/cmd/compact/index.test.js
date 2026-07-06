@@ -1,6 +1,6 @@
 import { assertEquals } from "@std/assert";
 import { runCompactCommand } from "./index.js";
-import { setRootAgentSession } from "../../shared/session/session-state.js";
+import { HostedSession } from "../../shared/session/hosted-session.js";
 import { initRunWieldTheme } from "../../shared/ui/theme.js";
 
 initRunWieldTheme();
@@ -19,24 +19,25 @@ function makeUi() {
     };
 }
 
+/** @param {any} [rootAgentSession] */
+function makeHostedSession(rootAgentSession = null) {
+    const hostedSession = new HostedSession({ id: `compact-command-${crypto.randomUUID()}`, cwd: Deno.cwd() });
+    hostedSession.setRootAgentSession(rootAgentSession);
+    return hostedSession;
+}
+
 Deno.test("runCompactCommand reports missing active agent session", async () => {
-    setRootAgentSession(null);
     const { uiAPI, messages } = makeUi();
 
-    await runCompactCommand([], { uiAPI });
+    await runCompactCommand([], { uiAPI, hostedSession: makeHostedSession() });
 
     assertEquals(messages, ["Error: No active agent session."]);
 });
 
 Deno.test("runCompactCommand reports when compaction is already running", async () => {
     const { uiAPI, messages } = makeUi();
-    setRootAgentSession(/** @type {any} */ ({ isCompacting: true }));
 
-    try {
-        await runCompactCommand([], { uiAPI });
-    } finally {
-        setRootAgentSession(null);
-    }
+    await runCompactCommand([], { uiAPI, hostedSession: makeHostedSession({ isCompacting: true }) });
 
     assertEquals(messages, ["Compaction is already in progress. Press Escape to cancel."]);
 });
@@ -44,7 +45,7 @@ Deno.test("runCompactCommand reports when compaction is already running", async 
 Deno.test("runCompactCommand skips empty sessions before invoking compact", async () => {
     const { uiAPI, messages } = makeUi();
     let compactCalled = false;
-    setRootAgentSession(
+    const hostedSession = makeHostedSession(
         /** @type {any} */ ({
             isCompacting: false,
             sessionManager: { getBranch: () => [] },
@@ -55,11 +56,7 @@ Deno.test("runCompactCommand skips empty sessions before invoking compact", asyn
         }),
     );
 
-    try {
-        await runCompactCommand([], { uiAPI });
-    } finally {
-        setRootAgentSession(null);
-    }
+    await runCompactCommand([], { uiAPI, hostedSession });
 
     assertEquals(compactCalled, false);
     assertEquals(messages[0].includes("Nothing meaningful to compact"), true);
@@ -67,7 +64,7 @@ Deno.test("runCompactCommand skips empty sessions before invoking compact", asyn
 
 Deno.test("runCompactCommand skips immediately after an existing compaction", async () => {
     const { uiAPI, messages } = makeUi();
-    setRootAgentSession(
+    const hostedSession = makeHostedSession(
         /** @type {any} */ ({
             isCompacting: false,
             sessionManager: { getBranch: () => [{ type: "message" }, { type: "compaction" }] },
@@ -75,11 +72,7 @@ Deno.test("runCompactCommand skips immediately after an existing compaction", as
         }),
     );
 
-    try {
-        await runCompactCommand([], { uiAPI });
-    } finally {
-        setRootAgentSession(null);
-    }
+    await runCompactCommand([], { uiAPI, hostedSession });
 
     assertEquals(messages, ["Already compacted — no new messages since the last compaction."]);
 });
@@ -89,7 +82,7 @@ Deno.test("runCompactCommand registers cancellation and reports compact success"
     let cancelHandler = /** @type {(() => void) | null} */ (null);
     let abortCalled = false;
     let instructions = "";
-    setRootAgentSession(
+    const hostedSession = makeHostedSession(
         /** @type {any} */ ({
             isCompacting: false,
             sessionManager: {
@@ -110,17 +103,14 @@ Deno.test("runCompactCommand registers cancellation and reports compact success"
         }),
     );
 
-    try {
-        await runCompactCommand(["keep", "decisions"], {
-            uiAPI,
-            registerOperationCancel: (handler) => {
-                cancelHandler = handler;
-            },
-        });
-        cancelHandler?.();
-    } finally {
-        setRootAgentSession(null);
-    }
+    await runCompactCommand(["keep", "decisions"], {
+        uiAPI,
+        hostedSession,
+        registerOperationCancel: (handler) => {
+            cancelHandler = handler;
+        },
+    });
+    cancelHandler?.();
 
     assertEquals(instructions, "keep decisions");
     assertEquals(abortCalled, true);
@@ -138,7 +128,7 @@ Deno.test("runCompactCommand reports compact cancellation and failures", async (
         ]
     ) {
         const { uiAPI, messages } = makeUi();
-        setRootAgentSession(
+        const hostedSession = makeHostedSession(
             /** @type {any} */ ({
                 isCompacting: false,
                 sessionManager: {
@@ -153,11 +143,7 @@ Deno.test("runCompactCommand reports compact cancellation and failures", async (
             }),
         );
 
-        try {
-            await runCompactCommand([], { uiAPI });
-        } finally {
-            setRootAgentSession(null);
-        }
+        await runCompactCommand([], { uiAPI, hostedSession });
 
         assertEquals(messages.at(-1), expected);
     }

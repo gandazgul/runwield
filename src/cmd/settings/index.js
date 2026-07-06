@@ -8,7 +8,6 @@ import {
     setCompactionKeepRecentTokens as setCompactionKeepRecentTokensFn,
     setCompactionReserveTokens as setCompactionReserveTokensFn,
 } from "../../shared/settings.js";
-import { getRootAgentSession as getRootAgentSessionFn } from "../../shared/session/session-state.js";
 import { theme } from "../../shared/ui/theme.js";
 
 /**
@@ -158,7 +157,7 @@ async function editTokenSetting(label, currentValue, uiAPI, setter) {
 export async function runSettingsCommand(argv, options = {}) {
     const deps = /** @type {CommandDependencies} */ (options.__testDeps || {});
     const getSettingsManager = deps.getSettingsManager || getSettingsManagerFn;
-    const getRootAgentSession = deps.getRootAgentSession || getRootAgentSessionFn;
+    const getRootAgentSession = deps.getRootAgentSession || (() => options.hostedSession?.getRootAgentSession?.());
     const setCompactionReserveTokens = deps.setCompactionReserveTokens || setCompactionReserveTokensFn;
     const setCompactionKeepRecentTokens = deps.setCompactionKeepRecentTokens || setCompactionKeepRecentTokensFn;
 

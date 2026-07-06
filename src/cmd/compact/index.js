@@ -4,7 +4,6 @@
  */
 
 import { estimateTokens, findCutPoint } from "@earendil-works/pi-coding-agent";
-import { getRootAgentSession } from "../../shared/session/session-state.js";
 import { theme } from "../../shared/ui/theme.js";
 
 // Minimum tokens that must fall outside the keep-recent window for compaction to
@@ -71,8 +70,8 @@ export async function runCompactCommand(argv, options = {}) {
         return;
     }
 
-    const { uiAPI, registerOperationCancel } = options;
-    const session = getRootAgentSession();
+    const { uiAPI, registerOperationCancel, hostedSession } = options;
+    const session = /** @type {any} */ (hostedSession?.getRootAgentSession?.());
     if (!session) {
         uiAPI.appendSystemMessage("Error: No active agent session.");
         return;

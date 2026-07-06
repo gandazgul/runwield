@@ -7,7 +7,6 @@
  * provided `uiAPI`.
  */
 
-import { getActiveAgentName } from "../session/session-state.js";
 import { appendTaskCompletedMessage, extractTaskCompletedMessage } from "../ui/task-completed-message.js";
 
 const MAX_HYDRATED_TEXT_LINES = 24;
@@ -222,11 +221,13 @@ function entryToHydrationMessage(entry) {
 /**
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} sessionManager
  * @param {import('../ui/types.js').UiAPI} uiAPI
+ * @param {{ hostedSession?: import('../session/hosted-session.js').HostedSession, activeAgentLabel?: string }} [options]
  */
-export function restorePersistedMessagesToUi(sessionManager, uiAPI) {
+export function restorePersistedMessagesToUi(sessionManager, uiAPI, options = {}) {
     const messages = getMessagesForUiHydration(sessionManager);
     if (messages.length === 0) return;
 
+    const activeAgentLabel = options.activeAgentLabel || options.hostedSession?.getActiveAgentName?.() || "RunWield";
     /** @type {Map<string, { block: import('../ui/types.js').ToolExecutionBlockApi, startedAt: number }>} */
     const restoredToolBlocks = new Map();
     let skipNextAssistantMessage = false;
@@ -271,7 +272,7 @@ export function restorePersistedMessagesToUi(sessionManager, uiAPI) {
                     if (typedBlock.type === "text") {
                         if (typeof typedBlock.text === "string" && typedBlock.text) {
                             if (!appender) {
-                                appender = uiAPI.appendAgentMessageStart(getActiveAgentName() || "assistant");
+                                appender = uiAPI.appendAgentMessageStart(activeAgentLabel);
                             }
                             appender.appendText(compactHydratedText(typedBlock.text));
                         }
@@ -286,7 +287,7 @@ export function restorePersistedMessagesToUi(sessionManager, uiAPI) {
                         if (toolName === "task_completed") {
                             appendTaskCompletedMessage(
                                 uiAPI,
-                                getActiveAgentName() || "RunWield",
+                                activeAgentLabel || "RunWield",
                                 extractTaskCompletedMessage(args),
                             );
                             continue;
@@ -312,7 +313,7 @@ export function restorePersistedMessagesToUi(sessionManager, uiAPI) {
 
             const text = messageToDisplayText(message);
             if (text) {
-                const appender = uiAPI.appendAgentMessageStart(getActiveAgentName() || "assistant");
+                const appender = uiAPI.appendAgentMessageStart(activeAgentLabel);
                 appender.appendText(compactHydratedText(text));
             }
             continue;
