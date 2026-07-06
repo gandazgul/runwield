@@ -12,75 +12,89 @@ affectedPaths:
     - "src/tools/triage-report.js"
 frontend: false
 createdAt: "2026-07-05T01:09:07-04:00"
-updatedAt: "2026-07-05T05:12:12.281Z"
-status: "draft"
+updatedAt: "2026-07-06T20:53:57.779Z"
+status: "verified"
 origin: "internal"
+verifiedAt: "2026-07-06T20:53:57.779Z"
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
 ---
 
 # Reorganize UI Source Tree
 
 ## Context
 
-The current `src/shared/ui/` directory mixes terminal UI implementation, TUI-facing API types, and theme JSON
-resolution/registry logic. The requested outcome is a clearer source tree with three distinct UI responsibilities:
+`src/shared/ui/` currently contains 24 files that mix three responsibilities:
 
-- `src/ui/tui/` for the terminal UI implementation and TUI-facing APIs.
-- `src/ui/theme/` for theme resolution, registry, discovery, and bundled theme JSON shared by TUI and browser UI.
-- existing `src/ui/workspace/` and `src/ui/design-system/` kept in place, with design-system/browser theme bridge code
-  importing from `src/ui/theme/`.
+- TUI implementation and TUI-facing interfaces (`tui.js`, `api.js`, `blocks.js`, prompts, terminal title helpers,
+  manager/crash guards, typedefs, and related tests).
+- Theme resolution/registry/discovery modules plus the bundled `catppuccin-mocha.json` theme.
+- Modules consumed by browser UI surfaces such as the RunWield Design System and Workspace theme bridge.
 
-This is a source-organization refactor only. It should preserve behavior, public command surfaces, tests, and pure
-JavaScript/JSDoc style. No TypeScript files or TypeScript syntax should be introduced.
+This makes `src/shared/` look like the owner of UI-specific modules even though RunWield already has `src/ui/` seams for
+Workspace and Design System code. ADR-007 keeps Workspace under `src/ui/workspace/`, and the current design-system theme
+bridge should continue to live under `src/ui/design-system/` while importing shared theme resolution from a UI-owned
+theme module.
+
+This is a source-organization refactor only. It should preserve runtime behavior, slash commands, theme behavior,
+Workspace/design-system theme CSS behavior, tests, and pure JavaScript/JSDoc style. No TypeScript files or TypeScript
+syntax should be introduced. No product clarification is needed because this plan changes module locality, not
+user-facing workflow or UI behavior.
 
 ## Objective
 
-Move all files currently in `src/shared/ui/` to either `src/ui/tui/` or `src/ui/theme/`, then update every code import,
-dynamic import, JSDoc `import(...)` reference, module doc comment, bundled compile include, and active documentation
-reference that points at the old `src/shared/ui/` seam.
+Move every file currently under `src/shared/ui/` to one of these two UI seams:
+
+- `src/ui/tui/` — terminal UI implementation, prompt helpers, terminal title helpers, TUI lifecycle, TUI-facing
+  typedefs, and their tests.
+- `src/ui/theme/` — theme singleton integration, theme discovery/registry/JSON helpers, bundled theme JSON, and their
+  tests.
 
 After the change:
 
-- `src/shared/ui/` should not remain as a compatibility shim or generic shared UI path.
+- `src/shared/ui/` should be deleted and should not be recreated as a compatibility shim, barrel, or redirect layer.
 - TUI modules may depend on `src/ui/theme/`.
 - `src/ui/design-system/` may depend on `src/ui/theme/`.
 - `src/ui/workspace/` may depend on `src/ui/theme/` and/or `src/ui/design-system/`.
-- Shared workflow/session/interactive modules may depend on the concrete `src/ui/tui/` or `src/ui/theme/` modules they
+- Shared workflow/session/interactive modules may import the concrete `src/ui/tui/` or `src/ui/theme/` modules they
   already use.
+- Current source, build scripts, JSDoc `import(...)` paths, and current docs should not refer to `src/shared/ui/`.
 
 ## Approach
 
 Use `git mv` so file history follows the reorganization. Move the TUI implementation files into `src/ui/tui/` and theme
-files into `src/ui/theme/`, then perform a repository-wide import-path update in small, reviewable passes:
+files into `src/ui/theme/`, then perform the import-path update in small, reviewable passes:
 
-1. Fix imports inside the moved modules based on their new relative location.
-2. Fix source and test consumers in `src/`, including JSDoc type imports.
+1. Fix imports inside the moved modules based on their new relative locations.
+2. Fix source and test consumers in `src/`, including JSDoc `import(...)` references.
 3. Fix build/resource references such as `scripts/compile.js` and Workspace tests that read the bundled JSON.
 4. Update module doc comments from `shared/ui/...` or `shared/theme` to `ui/tui/...` or `ui/theme/...`.
-5. Update active documentation that describes the current theme module path. Historical archived plans may be left
-   intact if they are clearly past records, but the executor should run `rg "shared/ui|\.\./ui/" src scripts docs` and
-   eliminate current-code/current-doc references.
+5. Update current documentation references that describe the present theme module path.
+6. Search for stale `shared/ui` references and old `src/shared/* -> ../ui/*` relative paths until none remain in current
+   source/build/docs.
 
-Prefer direct relative imports that match existing style rather than introducing an import alias or barrel module. Do
-not recreate `src/shared/ui/` as a redirect layer.
+Prefer direct relative imports matching the existing code style. Do not introduce import aliases, new barrels, or
+compatibility redirects.
 
 ## Files to Modify
 
-- `src/shared/ui/` — remove after moving all listed files; no compatibility shim should remain.
-- `src/ui/tui/api.js` — moved from `src/shared/ui/api.js`; update its settings import from `../settings.js` to
-  `../../shared/settings.js` and preserve `UiAPI` JSDoc imports via `./types.js`.
+- `src/shared/ui/` — source directory to empty via `git mv` and remove; no compatibility shim should remain.
+- `src/ui/tui/api.js` — moved from `src/shared/ui/api.js`; update settings import from `../settings.js` to
+  `../../shared/settings.js` and keep `UiAPI` JSDoc imports adjacent via `./types.js`.
 - `src/ui/tui/api.test.js` — moved test; update theme import to `../theme/theme.js`.
 - `src/ui/tui/blocks.js` — moved from `src/shared/ui/blocks.js`; update theme import to `../theme/theme.js`.
 - `src/ui/tui/blocks.test.js` — moved test; update theme import to `../theme/theme.js`.
 - `src/ui/tui/boot-logo.js` — moved from `src/shared/ui/boot-logo.js`; keep `./tui.js` and update theme import to
   `../theme/theme.js`.
-- `src/ui/tui/prompts.js` and `src/ui/tui/prompts.test.js` — moved TUI prompt implementation/tests; update theme import
-  to `../theme/theme.js` while keeping `./tui.js`.
-- `src/ui/tui/task-completed-message.js` — moved helper; preserve `./types.js` JSDoc reference.
+- `src/ui/tui/prompts.js` and `src/ui/tui/prompts.test.js` — moved prompt helpers/tests; update theme import to
+  `../theme/theme.js` while preserving TUI imports from `./tui.js`.
+- `src/ui/tui/task-completed-message.js` — moved task-completion rendering helper; preserve `./types.js` JSDoc
+  reference.
 - `src/ui/tui/terminal-title.js` and `src/ui/tui/terminal-title.test.js` — moved terminal-title helper/tests; preserve
   `./tui.js` references.
 - `src/ui/tui/tui.js`, `src/ui/tui/tui-crash-guards.js`, `src/ui/tui/tui-crash-guards.test.js`,
-  `src/ui/tui/tui-manager.js`, `src/ui/tui/tui-manager.test.js`, `src/ui/tui/types.js` — moved TUI implementation,
-  guards, manager, tests, and API typedefs.
+  `src/ui/tui/tui-manager.js`, `src/ui/tui/tui-manager.test.js`, `src/ui/tui/types.js` — moved TUI singleton, guards,
+  manager, tests, and typedefs.
 - `src/ui/theme/catppuccin-mocha.json` — moved bundled default theme JSON.
 - `src/ui/theme/theme.js` — moved theme singleton/registry integration; update settings imports to
   `../../shared/settings.js`, keep adjacent JSON loading, and update module doc comment to `@module ui/theme/theme`.
@@ -88,47 +102,49 @@ not recreate `src/shared/ui/` as a redirect layer.
   `src/ui/theme/theme-json.test.js`, `src/ui/theme/theme-registry.js`, `src/ui/theme/theme-registry.test.js` — moved
   theme resolution/registry/discovery modules/tests with local `./` imports preserved and module doc comments updated.
 - `src/cli.js` — update `stopTUI` import to `./ui/tui/tui.js`.
+- `src/cmd/**/*.js` and `src/cmd/**/*.test.js` — update runtime imports and JSDoc imports from `../../shared/ui/...`,
+  `../shared/ui/...`, or old `../ui/...` forms to the correct `../../ui/tui/...`, `../../ui/theme/...`, or
+  `../ui/tui/...` paths based on file depth.
 - `src/tools/*.js` and `src/tools/__tests__/*.js` — update imports/JSDoc imports for prompts, terminal-title,
   task-completed-message, and `UiAPI` types to `../ui/tui/...` or `../../ui/tui/...`.
-- `src/cmd/**/*.js` — update command imports and JSDoc imports from `../../shared/ui/...` or `../shared/ui/...` to
-  `../../ui/tui/...`, `../../ui/theme/...`, or `../ui/tui/...` as appropriate.
-- `src/shared/interactive/**/*.js` — update TUI imports from `../ui/...` to `../../ui/tui/...` and theme imports to
-  `../../ui/theme/theme.js`.
-- `src/shared/session/**/*.js` — update `UiAPI` JSDoc imports and dynamic theme imports from `../ui/...` /
+- `src/shared/interactive/**/*.js` and tests — update TUI imports from `../ui/...` to `../../ui/tui/...` and theme
+  imports to `../../ui/theme/theme.js`.
+- `src/shared/session/**/*.js` and tests — update `UiAPI` JSDoc imports and dynamic theme imports from `../ui/...` /
   `../../ui/...` to the new `../../ui/tui/...`, `../../../ui/tui/...`, or `../../ui/theme/...` paths by directory depth.
 - `src/shared/workflow/**/*.js` — update `UiAPI` JSDoc imports, `createFooterOnlyUiApi`, and terminal-title imports to
   `../../ui/tui/...`.
 - `src/ui/design-system/theme-bridge.js` — update `resolveSelectedThemeJson` import to `../theme/theme.js`.
 - `src/ui/workspace/workspace.test.js` — update the bundled Catppuccin Mocha JSON fixture path to
   `../theme/catppuccin-mocha.json`.
-- `scripts/compile.js` — update the `--include` path to `src/ui/theme/catppuccin-mocha.json` so compiled binaries still
-  embed the default theme.
-- `docs/prd/done/theme-extensions.md`, `docs/themes.md`, `docs/settings.md`, and other active docs found by
-  `rg "shared/ui" docs` — update current source-path references when they describe present behavior.
+- `scripts/compile.js` — update the `deno compile --include` path to `src/ui/theme/catppuccin-mocha.json` so compiled
+  binaries still embed the default theme.
+- `docs/prd/done/theme-extensions.md` — update current source-path references from `src/shared/ui/theme.js` to
+  `src/ui/theme/theme.js` or annotate them as historical if preserving original implementation wording is intentional.
 
 ## Reuse Opportunities
 
-- Existing moved tests under `src/shared/ui/*.test.js` — keep the tests with the modules in their new directories; they
+- Existing moved tests from `src/shared/ui/*.test.js` — keep the tests with the modules in their new directories; they
   are the main regression suite for this refactor.
 - Existing theme singleton behavior in `theme.js` — preserve `DEFAULT_THEME_NAME`, `DEFAULT_THEME_JSON`, `theme`,
-  `initRunWieldTheme()`, `discoverAndRegisterThemes()`, and `resolveSelectedThemeJson()` unchanged except for
+  `initRunWieldTheme()`, `discoverAndRegisterThemes()`, and `resolveSelectedThemeJson()` behavior unchanged except for
   paths/imports/doc comments.
-- Existing TUI API typedefs in `types.js` — continue using JSDoc `import(...)` references to these typedefs; only update
+- Existing TUI typedefs in `types.js` — continue using JSDoc `import(...)` references to these typedefs; only update
   paths.
-- Existing command/test conventions — use relative imports, JSDoc typedefs, and pure `.js` files only.
-- Existing `deno task ci` pipeline — rely on check/lint/fmt/test to catch stale imports, broken JSDoc paths, and JSON
-  include mistakes.
+- Existing command/test conventions — use relative imports, JSDoc typedefs, and pure `.js`/`.jsx` files only.
+- Existing `deno.json` CI task — `deno task ci` runs check, lint, format-check, and tests and should remain the final
+  repository validation command for this refactor.
 
 ## Implementation Steps
 
+- [ ] Check `git status --short` before moving files and avoid touching unrelated dirty files.
 - [ ] Create `src/ui/tui/` and `src/ui/theme/`.
 - [ ] Move TUI files with `git mv`:
   - [ ] `api.js`, `api.test.js`, `blocks.js`, `blocks.test.js`, `boot-logo.js`, `prompts.js`, `prompts.test.js`,
         `task-completed-message.js`, `terminal-title.js`, `terminal-title.test.js`, `tui.js`, `tui-crash-guards.js`,
-        `tui-crash-guards.test.js`, `tui-manager.js`, `tui-manager.test.js`, `types.js` to `src/ui/tui/`.
+        `tui-crash-guards.test.js`, `tui-manager.js`, `tui-manager.test.js`, and `types.js` to `src/ui/tui/`.
 - [ ] Move theme files with `git mv`:
   - [ ] `catppuccin-mocha.json`, `theme.js`, `theme-discovery.js`, `theme-discovery.test.js`, `theme-json.js`,
-        `theme-json.test.js`, `theme-registry.js`, `theme-registry.test.js` to `src/ui/theme/`.
+        `theme-json.test.js`, `theme-registry.js`, and `theme-registry.test.js` to `src/ui/theme/`.
 - [ ] Update moved-module internal imports:
   - [ ] In TUI files, replace old theme imports with `../theme/theme.js`.
   - [ ] In `src/ui/tui/api.js`, import settings from `../../shared/settings.js`.
@@ -139,15 +155,17 @@ not recreate `src/shared/ui/` as a redirect layer.
   - [ ] `src/ui/tui/api.js` if it gains/has a module comment → `@module ui/tui/api`.
   - [ ] all moved TUI module comments from `shared/ui/<name>` → `ui/tui/<name>`.
   - [ ] `src/ui/theme/theme.js` → `@module ui/theme/theme`.
-  - [ ] all moved theme module comments from `shared/ui/<name>` → `ui/theme/<name>`.
-- [ ] Update all runtime imports in `src/`:
+  - [ ] all moved theme module comments from `shared/ui/<name>` or `shared/theme` → `ui/theme/<name>`.
+- [ ] Update runtime imports in `src/`:
   - [ ] `src/cli.js` to import `stopTUI` from `./ui/tui/tui.js`.
-  - [ ] commands under `src/cmd/` to import theme APIs from `../../ui/theme/theme.js` and TUI APIs/types from
-        `../../ui/tui/...`.
-  - [ ] tools under `src/tools/` to import prompts, terminal-title, task-completed-message, and types from
-        `../ui/tui/...`.
-  - [ ] shared interactive/workflow/session modules to import or JSDoc-reference `../../ui/tui/...` and
-        `../../ui/theme/theme.js` instead of `../ui/...`.
+  - [ ] `src/cmd/*` modules to import theme APIs from `../../ui/theme/theme.js` and TUI modules/types from
+        `../../ui/tui/...`; update one-level command helpers/registry to `../ui/tui/...`.
+  - [ ] `src/tools/*` modules to import prompts, terminal-title, task-completed-message, and types from `../ui/tui/...`.
+  - [ ] `src/shared/interactive/*` modules to import TUI modules from `../../ui/tui/...` and theme APIs from
+        `../../ui/theme/theme.js`.
+  - [ ] `src/shared/workflow/*` modules to import TUI modules/types from `../../ui/tui/...`.
+  - [ ] `src/shared/session/*` modules to import theme APIs from `../../ui/theme/theme.js` and TUI types from
+        `../../ui/tui/types.js`; tests under `src/shared/session/__tests__/` need `../../../ui/tui/types.js`.
 - [ ] Update all JSDoc `import(...)` paths in source and tests from `shared/ui/types.js` or `../ui/types.js` to the
       correct relative `ui/tui/types.js` location.
 - [ ] Update browser/theme consumers:
@@ -155,28 +173,27 @@ not recreate `src/shared/ui/` as a redirect layer.
   - [ ] `src/ui/workspace/workspace.test.js` to read `../theme/catppuccin-mocha.json`.
 - [ ] Update build/resource references:
   - [ ] `scripts/compile.js` include path to `src/ui/theme/catppuccin-mocha.json`.
-- [ ] Update active docs that describe current source paths, especially theme extension docs, theme docs, and settings
-      docs if they reference `src/shared/ui/`.
-- [ ] Run
-      `rg "shared/ui|\.\./ui/(api|blocks|boot-logo|prompts|task-completed-message|terminal-title|theme|tui|tui-crash-guards|tui-manager|types)" src scripts docs`
-      and fix remaining current references.
+- [ ] Update current docs that describe current source paths, especially `docs/prd/done/theme-extensions.md` references
+      to the theme module path.
+- [ ] Run this stale-reference search and fix all current source/build/doc hits:
+      `rg "src/shared/ui|shared/ui|shared/theme|\.\./ui/(api|blocks|boot-logo|prompts|task-completed-message|terminal-title|theme|tui|tui-crash-guards|tui-manager|types)" src scripts docs`
 - [ ] Confirm `src/shared/ui/` no longer exists and no replacement shim/barrel was added.
 - [ ] Run `deno fmt`.
-- [ ] Run targeted tests/checks while iterating if useful:
+- [ ] Run targeted checks while iterating if useful:
   - [ ] `deno test -A src/ui/tui src/ui/theme src/ui/design-system src/ui/workspace`
   - [ ] `deno check --doc src/**/*.js src/**/*.jsx`
-- [ ] Run `deno run ci` and fix all formatting, import, lint, type-check, and test failures caused by the rename.
+- [ ] Run `deno task ci` from the repository root and fix all formatting, import, lint, type-check, and test failures
+      caused by the rename.
 
 ## Verification Plan
 
 - Automated:
   - `deno fmt`
-  - `deno run ci`
+  - `deno task ci`
 - Targeted optional checks during implementation:
   - `deno test -A src/ui/tui src/ui/theme src/ui/design-system src/ui/workspace`
   - `deno check --doc src/**/*.js src/**/*.jsx`
-  - `rg "shared/ui" src scripts docs` should return no current source/build/doc references after active references are
-    updated.
+  - `rg "src/shared/ui|shared/ui|shared/theme" src scripts docs` should return no current source/build/doc references.
   - `test ! -d src/shared/ui` should pass.
 - Manual:
   - No browser or TUI behavioral flow is required because this is a source-tree refactor with no intended UI behavior
@@ -200,7 +217,7 @@ not recreate `src/shared/ui/` as a redirect layer.
 - Do not move files out of `src/ui/design-system/` unless a file clearly belongs in `src/ui/theme/`; currently
   `theme-bridge.js` should remain in design-system and import shared theme logic from `src/ui/theme/`.
 - Historical archived Plan files may mention old paths as past implementation records. Treat them separately from
-  current source/build/doc references and do not rewrite large archived history unless explicitly required by validation
+  current source/build/doc references and do not rewrite archived plan history unless explicitly required by validation
   or user review.
 - Keep all implementation in `.js`/`.jsx` as already used by the repo; do not add `.ts` files, TypeScript syntax,
   interfaces, or type aliases.

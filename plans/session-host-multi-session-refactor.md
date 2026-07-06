@@ -11,10 +11,14 @@ affectedPaths:
     - "docs/prd/runwield-acp-session-host-PRD.md"
 frontend: false
 createdAt: "2026-07-03T01:17:49-04:00"
-updatedAt: "2026-07-03T05:36:00.000Z"
-status: "ready_for_work"
+updatedAt: "2026-07-06T18:44:35.061Z"
+status: "verified"
 origin: "internal"
 type: "epic"
+verifiedAt: "2026-07-06T18:44:35.061Z"
+epicCompletionMode: "done_enough"
+epicDoneEnoughAt: "2026-07-06T18:44:35.061Z"
+epicDoneEnoughSummary: "Done enough for now: 6/6 child FEATUREs verified, 0 active/implemented, 0 remaining."
 routingIntent: "PROJECT"
 sessionName: "session host multi-session refactor"
 ---
