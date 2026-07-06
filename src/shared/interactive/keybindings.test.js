@@ -75,6 +75,7 @@ function makeContext(overrides = {}) {
         submissionQueue: /** @type {unknown[]} */ ([]),
         generationGuard: { invalidateAll: () => invalidations++ },
         cancelActiveOperation: () => false,
+        abortActiveSession: () => false,
         dismissActivePrompt: () => {
             promptDismissals++;
         },
@@ -144,9 +145,7 @@ function makeContext(overrides = {}) {
 }
 
 Deno.test({
-    name:
-        "installKeybindings handles Escape cancellation priority and renders once (skipped until 03-tui-single-hostedsession-adapter scopes cancellation)",
-    ignore: true,
+    name: "installKeybindings handles Escape cancellation priority and renders once",
     fn: async () => {
         const ctx = makeContext({
             submissionQueue: [1, 2],
@@ -167,9 +166,7 @@ Deno.test({
 });
 
 Deno.test({
-    name:
-        "installKeybindings Ctrl+C cancels, clears input, and removes pasted previews (skipped until 03-tui-single-hostedsession-adapter scopes cancellation)",
-    ignore: true,
+    name: "installKeybindings Ctrl+C cancels, clears input, and removes pasted previews",
     fn: async () => {
         const ctx = makeContext();
         ctx.pastedImages.push({ base64: "a", mimeType: "image/png" });

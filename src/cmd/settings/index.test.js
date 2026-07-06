@@ -1,5 +1,6 @@
 import { assertEquals } from "@std/assert";
 import { runSettingsCommand } from "./index.js";
+import { HostedSession } from "../../shared/session/hosted-session.js";
 import { initRunWieldTheme } from "../../shared/ui/theme.js";
 
 initRunWieldTheme();
@@ -76,6 +77,27 @@ Deno.test("runSettingsCommand exits quietly when the main menu is cancelled", as
 
     assertEquals(harness.messages, []);
     assertEquals(harness.editor.disableSubmit, false);
+});
+
+Deno.test("runSettingsCommand reads the active session from the supplied HostedSession", async () => {
+    const harness = makeHarness({ selections: ["compaction", "summary", "back", "done"] });
+    const { manager } = makeSettingsManager();
+    const hostedSession = new HostedSession({ id: "settings-command-hosted", cwd: Deno.cwd() });
+    hostedSession.setRootAgentSession(
+        /** @type {any} */ ({
+            getContextUsage: () => ({ tokens: 64000, contextWindow: 128000, percent: 50 }),
+        }),
+    );
+
+    await runSettingsCommand([], {
+        uiAPI: /** @type {any} */ (harness.uiAPI),
+        hostedSession,
+        __testDeps: {
+            getSettingsManager: () => manager,
+        },
+    });
+
+    assertEquals(harness.messages.join("\n").includes("64,000/128,000 tokens (50.0%)"), true);
 });
 
 Deno.test("runSettingsCommand toggles auto-compaction on the active session", async () => {

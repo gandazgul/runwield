@@ -1,7 +1,6 @@
 import { assertEquals } from "@std/assert";
 import { createAgentHandler as createAgentHandlerFn } from "./agent-handler.js";
 import { HostedSession } from "./hosted-session.js";
-import { clearActiveExecutionWorkflow, setActiveExecutionWorkflow } from "./session-state.js";
 
 /**
  * @param {string} [id]
@@ -404,7 +403,7 @@ Deno.test("agent-handler ignores stale task_completed outcomes from earlier root
     }
 });
 
-Deno.test("agent-handler validates task_completed against hosted workflow instead of singleton workflow", async () => {
+Deno.test("agent-handler validates task_completed against hosted workflow", async () => {
     /** @type {unknown} */
     let validationWorkflow = null;
     const hostedSession = makeHostedSession();
@@ -413,12 +412,6 @@ Deno.test("agent-handler validates task_completed against hosted workflow instea
         triageMeta: { classification: "FEATURE" },
         baselineTree: "hosted-tree",
     });
-    setActiveExecutionWorkflow({
-        planName: "singleton-plan",
-        triageMeta: { classification: "FEATURE" },
-        baselineTree: "singleton-tree",
-    });
-
     const handler = createAgentHandler("engineer", {
         hostedSession,
         runAgentSession: () =>
@@ -448,7 +441,6 @@ Deno.test("agent-handler validates task_completed against hosted workflow instea
             baselineTree: "hosted-tree",
         });
     } finally {
-        clearActiveExecutionWorkflow();
         hostedSession.clearActiveExecutionWorkflow();
     }
 });

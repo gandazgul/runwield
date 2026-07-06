@@ -59,7 +59,6 @@ import {
 import { getCustomSetting, getMergedCustomSetting, getSettingsDir, getSettingsManager } from "../settings.js";
 import { modelSupportsImageInput, prepareImagesForModel, resolveVisionFallbackModel } from "./image-attachments.js";
 import { recordActiveAgent } from "./active-agent-session.js";
-import { getRootAgentSession, setRootAgentName, setRootAgentSession } from "./session-state.js";
 import { getPackagePromptTemplatePaths, resolveInstalledPackagePromptResources } from "../package-resources.js";
 import { getWldExtensionPaths, resolveInstalledWldExtensionResources } from "../extensions/wld-extension-manifest.js";
 
@@ -2003,10 +2002,11 @@ export function __getRootSessionMetadataForTests(session) {
  * agent switches, model switches, and reloads cannot accidentally kill root
  * context. /new is the only production caller.
  *
- * @param {import('./hosted-session.js').HostedSession} [hostedSession]
+ * @param {import('./hosted-session.js').HostedSession} hostedSession
  */
 export function disposeRootAgentSessionForNewSession(hostedSession) {
-    const existing = /** @type {any} */ (hostedSession?.getRootAgentSession?.() || getRootAgentSession());
+    const targetHostedSession = requireHostedSession(hostedSession, "disposeRootAgentSessionForNewSession");
+    const existing = /** @type {any} */ (targetHostedSession.getRootAgentSession());
     if (existing) {
         const meta = rootSessionMetadata.get(existing);
         try {
@@ -2017,13 +2017,8 @@ export function disposeRootAgentSessionForNewSession(hostedSession) {
         } catch (_e) { /* ignore */ }
         rootSessionMetadata.delete(existing);
     }
-    if (hostedSession) {
-        hostedSession.setRootAgentSession(null);
-        hostedSession.setRootAgentName(null);
-        return;
-    }
-    setRootAgentSession(null);
-    setRootAgentName(null);
+    targetHostedSession.setRootAgentSession(null);
+    targetHostedSession.setRootAgentName(null);
 }
 
 /**

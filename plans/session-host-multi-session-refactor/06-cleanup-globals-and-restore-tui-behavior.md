@@ -21,6 +21,7 @@ affectedPaths:
     - "src/tools/plan-written.js"
     - "src/**/*.test.js"
 frontend: false
+worktreeBaseBranch: "multi-session-refactor"
 createdAt: "2026-07-03T18:03:46.155Z"
 updatedAt: "2026-07-03T18:03:46.155Z"
 status: "draft"
