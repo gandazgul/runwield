@@ -8,7 +8,7 @@ import { AGENTS, CWD } from "../../constants.js";
 import { loadPlan } from "../../plan-store.js";
 import { getAgentDisplayName } from "../session/agents.js";
 import { runAgentSession } from "../session/session.js";
-import { createExecutionWorktree, findReusableWorktree, prepareTargetBranchRef } from "../worktree.js";
+import { createExecutionWorktree, findReusableWorktree } from "../worktree.js";
 import { updateEntry as updateWorktreeRegistryEntry } from "../worktree-registry.js";
 import { captureWorktreeTree } from "./git-snapshot.js";
 import { isEpicPlan, isExecutablePlanStatus, recordPlanEvent } from "./plan-lifecycle.js";
@@ -261,9 +261,8 @@ async function runEngineerWithPlan(planName, planBody, uiAPI, sessionManager, ex
  * @param {string} [reason]
  */
 function buildEngineerPausedMessage(reason) {
-    const base = `${
-        getAgentDisplayName(AGENTS.ENGINEER)
-    } stopped without task_completed; execution is paused. Say "continue" to resume with the Engineer.`;
+    const base = `${getAgentDisplayName(AGENTS.ENGINEER)
+        } stopped without task_completed; execution is paused. Say "continue" to resume with the Engineer.`;
     return reason ? `${base}\nReason: ${reason}` : base;
 }
 
@@ -286,8 +285,7 @@ export function assertReusableWorktreeTargetMatches(reusableBaseBranch, targetBr
     const planTarget = normalizeExecutionTargetBranch(targetBranch);
     if (reusableTarget !== planTarget) {
         throw new Error(
-            `Existing execution worktree targets ${reusableTarget || "HEAD/current checkout"}, but plan targets ${
-                planTarget || "HEAD/current checkout"
+            `Existing execution worktree targets ${reusableTarget || "HEAD/current checkout"}, but plan targets ${planTarget || "HEAD/current checkout"
             }. Aborting before Engineer starts.`,
         );
     }
@@ -312,20 +310,11 @@ export async function startActiveExecutionWorkflow({ planName, triageMeta, curre
                 id: existing.worktreeId,
                 path: existing.executionCwd,
                 branch: existing.worktreeBranch,
-                baseBranch: existing.worktreeBaseBranch,
+                baseBranch: existing.worktreeBaseBranch ||
+                    (typeof triageMeta.worktreeBaseBranch === "string" ? triageMeta.worktreeBaseBranch : undefined),
             }
             : await findReusableWorktree({ projectRoot: CWD, planName });
-    if (reusable) assertReusableWorktreeTargetMatches(reusable.baseBranch, targetBranch);
-    const worktree = reusable || await createExecutionWorktree(
-        targetBranch
-            ? {
-                projectRoot: CWD,
-                planName,
-                baseRef: await prepareTargetBranchRef(CWD, targetBranch),
-                baseBranch: targetBranch,
-            }
-            : { projectRoot: CWD, planName, baseRef: "HEAD" },
-    );
+    const worktree = reusable || await createExecutionWorktree({ projectRoot: CWD, planName, baseRef: "HEAD" });
     const worktreeBaseBranch = worktree.baseBranch === "HEAD" ? undefined : worktree.baseBranch;
     const baselineTree =
         existing?.planName === planName && existing.executionCwd === worktree.path && existing.baselineTree
