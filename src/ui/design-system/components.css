@@ -1,4 +1,5 @@
-.eyebrow, .card-kicker {
+.eyebrow,
+.card-kicker {
     color: var(--rw-accent-strong);
     text-transform: uppercase;
     letter-spacing: 0.12em;
@@ -49,7 +50,10 @@
     border-color: var(--rw-accent);
 }
 
-.plan-card, .detail, .error-panel, .repair-lane {
+.plan-card,
+.detail,
+.error-panel,
+.repair-lane {
     background: var(--rw-surface-raised);
     border: 1px solid var(--rw-border);
     border-radius: 16px;
@@ -118,7 +122,8 @@
     z-index: 2;
 }
 
-.status, .badge {
+.status,
+.badge {
     align-items: center;
     background: var(--rw-surface-muted);
     border: 1px solid var(--rw-border);
@@ -227,7 +232,10 @@
     padding: 14px 14px 14px 32px;
 }
 
-.badge-row, .card-actions, .detail-actions, .progress-meter {
+.badge-row,
+.card-actions,
+.detail-actions,
+.progress-meter {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
@@ -374,14 +382,19 @@ button.danger-action:hover {
     padding: 18px;
 }
 
-.markdown-view h1, .markdown-view h2, .markdown-view h3, .markdown-view h4 {
+.markdown-view h1,
+.markdown-view h2,
+.markdown-view h3,
+.markdown-view h4 {
     color: var(--rw-accent-text);
     line-height: 1.15;
     margin: 1.2rem 0 0.5rem;
     overflow-wrap: anywhere;
 }
 
-.markdown-view h1:first-child, .markdown-view h2:first-child, .markdown-view h3:first-child {
+.markdown-view h1:first-child,
+.markdown-view h2:first-child,
+.markdown-view h3:first-child {
     margin-top: 0;
 }
 
