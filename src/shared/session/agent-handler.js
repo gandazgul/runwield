@@ -18,13 +18,6 @@ import {
     decidePostExecution as decidePostExecutionFn,
     decidePostPlanning as decidePostPlanningFn,
 } from "../workflow/decisions.js";
-import {
-    clearActiveExecutionWorkflow,
-    consumePendingSwitchHandoff,
-    getActiveExecutionWorkflow,
-    getRootAgentName,
-    getRootAgentSession,
-} from "./session-state.js";
 import { runValidationLoop, shouldRunWorkflowValidation } from "../workflow/validation.js";
 import { recordPlanEvent as recordPlanEventFn } from "../workflow/plan-lifecycle.js";
 import { setActiveAgent as setActiveAgentFn } from "../interactive/chat-session.js";
@@ -55,6 +48,7 @@ import { AGENTS, CWD } from "../../constants.js";
  *   runValidationLoop?: typeof runValidationLoop,
  *   recordPlanEvent?: typeof recordPlanEventFn,
  *   setActiveAgent?: typeof setActiveAgentFn,
+ *   hostedSession?: import('./hosted-session.js').HostedSession,
  *   _agentDefOverride?: import('./types.js').AgentDefinition,
  *   customTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[],
  *   allowReturnToRouter?: boolean,
@@ -62,6 +56,7 @@ import { AGENTS, CWD } from "../../constants.js";
  * @returns {import('./types.js').AgentMessageHandler}
  */
 export function createAgentHandler(agentName, __deps) {
+    const hostedSession = __deps?.hostedSession;
     const runAgentSession = __deps?.runAgentSession || runAgentSessionFn;
     const runRootTurn = __deps?.runRootTurn || runRootTurnFn;
     const readLatestTriageOutcome = __deps?.readLatestTriageOutcome || readLatestTriageOutcomeFn;
@@ -81,20 +76,24 @@ export function createAgentHandler(agentName, __deps) {
     };
 
     return async (userRequest, images, uiAPI, sessionManager) => {
+        if (!hostedSession) throw new Error("createAgentHandler: hostedSession is required");
+
         // If the live root is already this agent (the common case after a switch has been
         // applied), reuse it. Otherwise fall back to a transient invocation — this can happen
         // before the first applyPendingRootSwap (e.g. mid-turn from a workflow sub-step).
-        const useRoot = getRootAgentName() === agentName;
+        const useRoot = hostedSession.getRootAgentName() === agentName;
 
         // Capture the pre-turn message count so we only consider plan_written outcomes
         // from the current turn. Stale outcomes from earlier turns (e.g. an already-executed
         // approved_execute) would otherwise trigger duplicate executePlan calls on
         // follow-up questions.
-        const preTurnCount = useRoot ? getRootAgentSession()?.agent?.state?.messages?.length ?? 0 : 0;
+        const rootAgentSession = /** @type {any} */ (hostedSession.getRootAgentSession());
+        const preTurnCount = useRoot ? rootAgentSession?.agent?.state?.messages?.length ?? 0 : 0;
 
         const messages = useRoot
-            ? await runRootTurn({ agentName, userRequest, images, uiAPI, ...sessionOptions })
+            ? await runRootTurn({ hostedSession, agentName, userRequest, images, uiAPI, ...sessionOptions })
             : await runAgentSession({
+                hostedSession,
                 agentName,
                 userRequest,
                 images,
@@ -107,13 +106,14 @@ export function createAgentHandler(agentName, __deps) {
         const triage = readLatestTriageOutcome(messages, preTurnCount);
         if (triage) {
             await dispatchPostTriage({
+                hostedSession,
                 triage,
                 userRequest,
                 images,
                 uiAPI,
                 sessionManager,
                 __deps: {
-                    createAgentHandler,
+                    createAgentHandler: (nextAgentName) => createAgentHandler(nextAgentName, { hostedSession }),
                 },
             });
             return;
@@ -144,6 +144,7 @@ export function createAgentHandler(agentName, __deps) {
                     uiAPI,
                     tasks,
                     sessionManager,
+                    { hostedSession },
                 );
             } catch (error) {
                 const reason = error instanceof Error ? error.message : String(error);
@@ -152,11 +153,16 @@ export function createAgentHandler(agentName, __deps) {
                     true,
                     "RunWield",
                 );
-                setActiveAgent(AGENTS.ENGINEER, createAgentHandler(AGENTS.ENGINEER), uiAPI);
+                setActiveAgent(
+                    hostedSession,
+                    AGENTS.ENGINEER,
+                    createAgentHandler(AGENTS.ENGINEER, { hostedSession }),
+                    uiAPI,
+                );
                 return;
             }
 
-            consumePendingSwitchHandoff(); // Drain any switch requests from execution sub-agents
+            hostedSession.consumePendingSwitchHandoff(); // Drain any switch requests from execution sub-agents
 
             let planContent = "";
             try {
@@ -173,6 +179,7 @@ export function createAgentHandler(agentName, __deps) {
 
             if (executionDecision.kind === "run_validation") {
                 await runValidationLoopImpl({
+                    hostedSession,
                     planName,
                     planContent,
                     triageMeta,
@@ -182,7 +189,12 @@ export function createAgentHandler(agentName, __deps) {
                 });
             } else if (executionDecision.kind === "stay_with_agent") {
                 const nextAgentName = /** @type {string} */ (executionDecision.payload.agentName || AGENTS.ENGINEER);
-                setActiveAgent(nextAgentName, createAgentHandler(nextAgentName), uiAPI);
+                setActiveAgent(
+                    hostedSession,
+                    nextAgentName,
+                    createAgentHandler(nextAgentName, { hostedSession }),
+                    uiAPI,
+                );
             } else {
                 // halt or repair_plan — stay with Engineer for manual recovery
                 const reason = executionDecision.payload?.reason || "unknown";
@@ -191,7 +203,12 @@ export function createAgentHandler(agentName, __deps) {
                     true,
                     "RunWield",
                 );
-                setActiveAgent(AGENTS.ENGINEER, createAgentHandler(AGENTS.ENGINEER), uiAPI);
+                setActiveAgent(
+                    hostedSession,
+                    AGENTS.ENGINEER,
+                    createAgentHandler(AGENTS.ENGINEER, { hostedSession }),
+                    uiAPI,
+                );
             }
             return;
         }
@@ -199,9 +216,9 @@ export function createAgentHandler(agentName, __deps) {
         // If the agent declared they finished an assigned workflow task
         const taskCompleted = readLatestTaskCompletedOutcome(messages, preTurnCount);
         if (taskCompleted) {
-            const workflow = getActiveExecutionWorkflow();
+            const workflow = hostedSession.getActiveExecutionWorkflow();
             if (workflow && !shouldRunWorkflowValidation(workflow.triageMeta)) {
-                clearActiveExecutionWorkflow();
+                hostedSession.clearActiveExecutionWorkflow();
                 return;
             }
 
@@ -234,6 +251,7 @@ export function createAgentHandler(agentName, __deps) {
                 }
 
                 await runValidationLoopImpl({
+                    hostedSession,
                     planName: workflow.planName,
                     planContent,
                     triageMeta: workflow.triageMeta,

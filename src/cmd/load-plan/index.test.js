@@ -2,7 +2,7 @@ import { assertEquals } from "@std/assert";
 import { runLoadPlanCommand } from "./index.js";
 import { resolveSiblingChildPlanDependencies, savePlan } from "../../plan-store.js";
 import { AGENTS } from "../../constants.js";
-import { clearActiveExecutionWorkflow, getActiveExecutionWorkflow } from "../../shared/session/session-state.js";
+import { HostedSession } from "../../shared/session/hosted-session.js";
 
 function makeUi() {
     /** @type {string[]} */
@@ -99,6 +99,7 @@ Deno.test("runLoadPlanCommand prints help", async () => {
     let helped = "";
 
     await runLoadPlanCommand(["--help"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         __testDeps: /** @type {any} */ ({
             printCommandHelp: (/** @type {string} */ name) => {
                 helped = name;
@@ -121,6 +122,7 @@ Deno.test("runLoadPlanCommand no-arg TUI menu excludes child plans and shows top
     selections.push(null);
 
     await runLoadPlanCommand([], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor,
         __testDeps: /** @type {any} */ ({
@@ -181,6 +183,7 @@ Deno.test("runLoadPlanCommand no-arg TUI menu sorts by status then name with on_
     selections.push(null);
 
     await runLoadPlanCommand([], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor,
         __testDeps: /** @type {any} */ ({
@@ -226,6 +229,7 @@ Deno.test("runLoadPlanCommand no-arg TUI reports when only child plans exist", a
     });
 
     await runLoadPlanCommand([], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor,
         __testDeps: /** @type {any} */ ({
@@ -258,6 +262,7 @@ Deno.test("runLoadPlanCommand empty plan list in TUI mode", async () => {
     });
 
     await runLoadPlanCommand([], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor,
         __testDeps: /** @type {any} */ ({
@@ -277,6 +282,7 @@ Deno.test("runLoadPlanCommand approved plan proceed path", async () => {
     let executed = false;
 
     await runLoadPlanCommand(["plan-a"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -315,6 +321,7 @@ Deno.test("runLoadPlanCommand Epic with no children opens Slicer", async () => {
     let executed = false;
 
     await runLoadPlanCommand(["epic-a"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -359,6 +366,7 @@ Deno.test("runLoadPlanCommand Epic with children shows ordered child labels, dep
     selections.push("pick_child", null);
 
     await runLoadPlanCommand(["epic-b"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -426,6 +434,7 @@ Deno.test("runLoadPlanCommand View Epic details includes child FEATURE labels an
     selections.push("view", "cancel");
 
     await runLoadPlanCommand(["epic-view"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -490,6 +499,7 @@ Deno.test("runLoadPlanCommand child FEATURE detail inspection resolves and displ
     let executed = false;
 
     await runLoadPlanCommand(["epic-inspect"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -564,6 +574,7 @@ Deno.test("runLoadPlanCommand child FEATURE submenu back returns without loading
     let executed = false;
 
     await runLoadPlanCommand(["epic-back"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -619,6 +630,7 @@ Deno.test("runLoadPlanCommand Epic done-enough confirm records lifecycle event",
     let recorded = null;
 
     await runLoadPlanCommand(["epic-done"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -669,6 +681,7 @@ Deno.test("runLoadPlanCommand Epic done-enough can be canceled", async () => {
     let recorded = false;
 
     await runLoadPlanCommand(["epic-cancel"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -715,6 +728,7 @@ Deno.test("runLoadPlanCommand verified done-enough Epic remains re-enterable", a
     selections.push("pick_child", null);
 
     await runLoadPlanCommand(["epic-verified"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -765,6 +779,7 @@ Deno.test("runLoadPlanCommand verified done-enough Epic shows banner without chi
     selections.push("cancel");
 
     await runLoadPlanCommand(["epic-empty-done"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -803,6 +818,7 @@ Deno.test("runLoadPlanCommand Epic child selection can be canceled", async () =>
     let executed = false;
 
     await runLoadPlanCommand(["epic-c"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -857,6 +873,7 @@ Deno.test("runLoadPlanCommand Epic child selection delegates to FEATURE load beh
     let executedPlanName = "";
 
     await runLoadPlanCommand(["epic-d"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -930,6 +947,7 @@ Deno.test("runLoadPlanCommand Epic next shortcut loads first ordered non-verifie
     let executedPlanName = "";
 
     await runLoadPlanCommand(["epic-next"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -1011,6 +1029,7 @@ Deno.test("runLoadPlanCommand child FEATURE with verified dependencies executes 
     let executed = false;
 
     await runLoadPlanCommand(["epic-e/02-second"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -1060,6 +1079,7 @@ Deno.test("runLoadPlanCommand child FEATURE warns for unverified dependencies an
     let executed = false;
 
     await runLoadPlanCommand(["epic-f/02-second"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -1110,6 +1130,7 @@ Deno.test("runLoadPlanCommand child FEATURE warns for missing dependencies", asy
     let executed = false;
 
     await runLoadPlanCommand(["epic-g/02-second"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -1157,6 +1178,7 @@ Deno.test("runLoadPlanCommand child FEATURE dependency warning can be canceled",
     let executed = false;
 
     await runLoadPlanCommand(["epic-h/02-second"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -1210,6 +1232,7 @@ Deno.test("runLoadPlanCommand warns and cancels execution when affected paths ch
     let checkedPaths;
 
     await runLoadPlanCommand(["plan-stale"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -1270,6 +1293,7 @@ Deno.test("runLoadPlanCommand proceeds after affected path warning confirmation"
     let checkedTimestamp;
 
     await runLoadPlanCommand(["plan-stale-confirmed"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -1323,6 +1347,7 @@ Deno.test("runLoadPlanCommand validates completed execution against freshly load
     let validatedPlanContent;
 
     await runLoadPlanCommand(["plan-fresh"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -1363,6 +1388,7 @@ Deno.test("runLoadPlanCommand non-approved plan kicks off planning agent", async
     let lifecycleCalled = false;
 
     await runLoadPlanCommand(["plan-b"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -1398,6 +1424,7 @@ Deno.test("runLoadPlanCommand approved plan view then cancel", async () => {
     selections.push("view", null);
 
     await runLoadPlanCommand(["plan-c"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -1432,6 +1459,7 @@ Deno.test("runLoadPlanCommand approved review approves directly via submitPlanFo
     let executed = false;
 
     await runLoadPlanCommand(["plan-d"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -1478,6 +1506,7 @@ Deno.test("runLoadPlanCommand approved PROJECT review runs slicer before proceed
     let validated = false;
 
     await runLoadPlanCommand(["plan-project-review"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -1538,6 +1567,7 @@ Deno.test("runLoadPlanCommand approved PROJECT Epic opens Slicer without executi
     const events = [];
 
     await runLoadPlanCommand(["epic-review"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -1599,6 +1629,7 @@ Deno.test("runLoadPlanCommand ready_for_decomposition PROJECT Epic does not exec
     let executed = false;
 
     await runLoadPlanCommand(["epic-ready"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -1640,6 +1671,7 @@ Deno.test("runLoadPlanCommand approved review proceed keeps plan owner without t
     const activeAgents = [];
 
     await runLoadPlanCommand(["plan-project-review"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -1679,6 +1711,7 @@ Deno.test("runLoadPlanCommand approved review kicks off planner on denial", asyn
     let plannerCalled = false;
 
     await runLoadPlanCommand(["plan-d2"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -1717,6 +1750,7 @@ Deno.test("runLoadPlanCommand approved proceed with repair reroutes to planner",
     let repairRequest = "";
 
     await runLoadPlanCommand(["plan-e"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -1765,6 +1799,7 @@ Deno.test("runLoadPlanCommand ready_for_work plan proceed path executes", async 
     let executed = false;
 
     await runLoadPlanCommand(["plan-ready-exec"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -1803,6 +1838,7 @@ Deno.test("runLoadPlanCommand in_progress plan can continue from current worktre
     let lifecycleEvent = null;
 
     await runLoadPlanCommand(["plan-progress"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -1849,6 +1885,7 @@ Deno.test("runLoadPlanCommand failed plan can reset baseline and start over", as
     let lifecycleEvent = null;
 
     await runLoadPlanCommand(["plan-failed"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -1899,6 +1936,7 @@ Deno.test("runLoadPlanCommand refuses worktree reset when recorded recreate base
     let recreated = false;
 
     await runLoadPlanCommand(["plan-missing-base"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -1951,6 +1989,7 @@ Deno.test("runLoadPlanCommand recreates worktree reset from recorded base commit
     let executed = false;
 
     await runLoadPlanCommand(["plan-recorded-base"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -2032,6 +2071,7 @@ Deno.test("runLoadPlanCommand in_progress inspect reports failure and baseline d
     selections.push("inspect", "cancel");
 
     await runLoadPlanCommand(["plan-inspect"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -2070,9 +2110,13 @@ Deno.test("runLoadPlanCommand implemented plan retries validation", async () => 
     let validated = false;
     /** @type {unknown} */
     let workflowDuringValidation = null;
+    const hostedSession = new HostedSession({ id: "load-plan-validation" });
+    const otherHostedSession = new HostedSession({ id: "load-plan-other" });
+    otherHostedSession.setActiveExecutionWorkflow({ planName: "other", triageMeta: {}, baselineTree: "other-tree" });
 
     await runLoadPlanCommand(["plan-implemented"], {
         uiAPI,
+        hostedSession,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false, _: ["plan-implemented"] }),
@@ -2092,10 +2136,12 @@ Deno.test("runLoadPlanCommand implemented plan retries validation", async () => 
                         executionBaselineTree: "baseline-tree",
                     },
                 }),
-            runValidationLoop: () => {
+            runValidationLoop: (
+                /** @type {{ hostedSession: HostedSession }} */ { hostedSession: validationHostedSession },
+            ) => {
                 validated = true;
-                workflowDuringValidation = getActiveExecutionWorkflow();
-                clearActiveExecutionWorkflow();
+                workflowDuringValidation = validationHostedSession.getActiveExecutionWorkflow();
+                validationHostedSession.clearActiveExecutionWorkflow();
                 return Promise.resolve();
             },
             createAgentHandler: () => async () => {},
@@ -2118,6 +2164,11 @@ Deno.test("runLoadPlanCommand implemented plan retries validation", async () => 
         },
         baselineTree: "baseline-tree",
     });
+    assertEquals(otherHostedSession.getActiveExecutionWorkflow(), {
+        planName: "other",
+        triageMeta: {},
+        baselineTree: "other-tree",
+    });
 });
 
 Deno.test("runLoadPlanCommand only offers manual merge for merge-conflict worktree recovery", async () => {
@@ -2126,6 +2177,7 @@ Deno.test("runLoadPlanCommand only offers manual merge for merge-conflict worktr
         selections.push("cancel");
 
         await runLoadPlanCommand([`plan-${worktreeStatus}`], {
+            hostedSession: new HostedSession({ id: "load-plan-test" }),
             uiAPI,
             editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
             __testDeps: /** @type {any} */ ({
@@ -2168,6 +2220,7 @@ Deno.test("runLoadPlanCommand refuses forced manual merge before validation-back
     const events = [];
 
     await runLoadPlanCommand(["plan-completed-worktree"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -2228,6 +2281,7 @@ Deno.test("runLoadPlanCommand can manually merge merge-conflict worktree recover
         let lifecycleEvent = null;
 
         await runLoadPlanCommand(["plan-merge-conflict"], {
+            hostedSession: new HostedSession({ id: "load-plan-test" }),
             uiAPI,
             editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
             __testDeps: /** @type {any} */ ({
@@ -2339,6 +2393,7 @@ Deno.test("runLoadPlanCommand verified plan review path records review_reopened"
     let lifecycleEvent = null;
 
     await runLoadPlanCommand(["plan-verified-review"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -2382,6 +2437,7 @@ Deno.test("runLoadPlanCommand verified plan cancel returns without changes", asy
     let lifecycleEvents = 0;
 
     await runLoadPlanCommand(["plan-verified-cancel"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -2425,6 +2481,7 @@ Deno.test("runLoadPlanCommand verified plan cancel returns without changes", asy
 Deno.test("runLoadPlanCommand starts interactive session when ui missing", async () => {
     let started = false;
     await runLoadPlanCommand(["plan-f"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false, _: ["plan-f"] }),
             startInteractiveSession: () => {
@@ -2444,6 +2501,7 @@ Deno.test("runLoadPlanCommand keeps planner active when lifecycle canceled", asy
     const activeAgents = [];
 
     await runLoadPlanCommand(["plan-h"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -2481,6 +2539,7 @@ Deno.test("runLoadPlanCommand keeps planner active when agent ends without plan_
     const activeAgents = [];
 
     await runLoadPlanCommand(["plan-i"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -2516,6 +2575,7 @@ Deno.test("runLoadPlanCommand keeps planner active after lifecycle saves a plan 
     const restoredAgents = [];
 
     await runLoadPlanCommand(["plan-g"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -2557,6 +2617,7 @@ Deno.test("runLoadPlanCommand restores the initially active agent after lifecycl
     const restoredAgents = [];
 
     await runLoadPlanCommand(["plan-j"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -2599,6 +2660,7 @@ Deno.test("runLoadPlanCommand draft FEATURE can be put on hold", async () => {
     let recorded = null;
 
     await runLoadPlanCommand(["hold-me"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -2638,6 +2700,7 @@ Deno.test("runLoadPlanCommand on-hold plan resumes after passing Resume Check", 
     let recorded = null;
 
     await runLoadPlanCommand(["held-plan"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -2683,6 +2746,7 @@ Deno.test("runLoadPlanCommand on-hold plan can reset status to draft", async () 
     let recorded = null;
 
     await runLoadPlanCommand(["held-reset"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -2720,6 +2784,7 @@ Deno.test("runLoadPlanCommand blocks child FEATURE when parent Epic is on hold",
     selections.push("cancel");
 
     await runLoadPlanCommand(["epic/child"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -2771,6 +2836,7 @@ Deno.test("runLoadPlanCommand Epic can be put on hold with warning", async () =>
     let recorded = null;
 
     await runLoadPlanCommand(["epic-hold"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -2818,6 +2884,7 @@ Deno.test("runLoadPlanCommand child FEATURE can be put on hold with child-only w
     let recorded = null;
 
     await runLoadPlanCommand(["epic/child-hold"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -2873,6 +2940,7 @@ Deno.test("runLoadPlanCommand on-hold resume warning can keep plan on hold", asy
     let recorded = null;
 
     await runLoadPlanCommand(["held-warning"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -2917,6 +2985,7 @@ Deno.test("runLoadPlanCommand on-hold resume warning can proceed", async () => {
     let recorded = null;
 
     await runLoadPlanCommand(["held-warning-proceed"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -2956,6 +3025,7 @@ Deno.test("runLoadPlanCommand failed Resume Check keeps plan on hold", async () 
     let recorded = null;
 
     await runLoadPlanCommand(["held-fail"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -3000,6 +3070,7 @@ Deno.test("runLoadPlanCommand on-hold reset can delete recorded worktree", async
     let registryUpdate = null;
 
     await runLoadPlanCommand(["held-delete-worktree"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({

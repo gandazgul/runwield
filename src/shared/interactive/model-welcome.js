@@ -19,8 +19,9 @@ import { theme } from "../ui/theme.js";
  * @property {import('../ui/types.js').UiAPI} uiAPI
  * @property {import('@earendil-works/pi-tui').Editor} editor
  * @property {import('@earendil-works/pi-tui').TUI} tui
+ * @property {import('../session/hosted-session.js').HostedSession} [hostedSession]
  * @property {import('../session/types.js').SessionManagerLike} sessionManager
- * @property {(opts: { agentName: string, modelOverride?: string, uiAPI: import('../ui/types.js').UiAPI, sessionManager: import('../session/types.js').SessionManagerLike }) => Promise<unknown>} ensureRootAgentSession
+ * @property {(opts: { hostedSession?: import('../session/hosted-session.js').HostedSession, agentName: string, modelOverride?: string, uiAPI: import('../ui/types.js').UiAPI, sessionManager: import('../session/types.js').SessionManagerLike }) => Promise<unknown>} ensureRootAgentSession
  * @property {string} initialAgentInternalName
  * @property {string} [initialAgentModel]
  * @property {Record<string, { execute: (argv: string[], options?: import('../../cmd/registry.js').CommandContext) => Promise<void> }>} [commandRegistry]
@@ -182,6 +183,7 @@ export async function maybeShowModelWelcome(options) {
         uiAPI: options.uiAPI,
         editor: options.editor,
         tui: options.tui,
+        hostedSession: options.hostedSession,
         sessionManager: options.sessionManager,
     });
 
@@ -206,6 +208,7 @@ export async function maybeShowModelWelcome(options) {
 
     try {
         await options.ensureRootAgentSession({
+            hostedSession: options.hostedSession,
             agentName: options.initialAgentInternalName,
             modelOverride: options.initialAgentModel,
             uiAPI: options.uiAPI,

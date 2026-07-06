@@ -46,6 +46,8 @@ async function runAgentsCommandCli(agentName, rest, deps = {}) {
     const createAgentHandler = createAgentHandlerDep || createAgentHandlerFn;
     const setActiveAgent = setActiveAgentDep || setActiveAgentFn;
     const startInteractiveSession = startInteractiveSessionDep || startInteractiveSessionFn;
+    void createAgentHandler;
+    void setActiveAgent;
     const exit = exitDep || Deno.exit;
 
     const agents = await listAvailableAgents();
@@ -72,11 +74,9 @@ async function runAgentsCommandCli(agentName, rest, deps = {}) {
         return;
     }
 
-    const handler = createAgentHandler(agentName);
     const userRequest = rest.join(" ").trim();
 
-    setActiveAgent(match.name, handler);
-    await startInteractiveSession(userRequest || null, handler, {
+    await startInteractiveSession(userRequest || null, null, {
         initialAgentName: match.name,
     });
 }
@@ -90,6 +90,7 @@ async function runAgentsCommandCli(agentName, rest, deps = {}) {
  *   tui: import('../../shared/ui/types.js').TuiAPI,
  *   uiAPI: import('../../shared/ui/types.js').UiAPI,
  *   editor: import('../../shared/ui/types.js').EditorAPI,
+ *   hostedSession?: import('../../shared/session/hosted-session.js').HostedSession,
  * }} options
  * @param {CommandDependencies} [deps]
  * @return {Promise<void>}
@@ -106,7 +107,7 @@ async function runAgentsCommandTUI(agentName, _rest, options, deps = {}) {
     const setActiveAgent = setActiveAgentDep || setActiveAgentFn;
 
     const agents = await listAvailableAgents();
-    const { tui, uiAPI, editor } = options;
+    const { tui, uiAPI, editor, hostedSession } = options;
     editor.setText("");
 
     /** @type {string|null} */
@@ -138,9 +139,9 @@ async function runAgentsCommandTUI(agentName, _rest, options, deps = {}) {
         return;
     }
 
-    const handler = createAgentHandler(match.name);
+    const handler = createAgentHandler(match.name, { hostedSession });
 
-    setActiveAgent(match.name, handler, uiAPI);
+    setActiveAgent(hostedSession, match.name, handler, uiAPI);
     tui.setFocus(/** @type {import('@earendil-works/pi-tui').Component} */ (/** @type {unknown} */ (editor)));
 }
 
@@ -177,6 +178,7 @@ export async function runAgentsCommand(argv, options = {}) {
             uiAPI: options.uiAPI,
             editor: options.editor,
             tui: options.tui,
+            hostedSession: /** @type {any} */ (options).hostedSession,
         }, deps);
     }
 

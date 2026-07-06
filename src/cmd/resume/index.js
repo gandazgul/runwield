@@ -8,8 +8,9 @@
 
 import { estimateTokens } from "@earendil-works/pi-coding-agent";
 import { getRunWieldSessionDir } from "../../shared/session/root-session.js";
-import { getRootAgentSession, setRootSessionManager } from "../../shared/session/session-state.js";
-import { ensureRootAgentSession } from "../../shared/session/session.js";
+import { disposeRootAgentSessionForNewSession, ensureRootAgentSession } from "../../shared/session/session.js";
+import { HostedSession } from "../../shared/session/hosted-session.js";
+import { createAgentHandler } from "../../shared/session/agent-handler.js";
 import { restorePersistedMessagesToUi } from "../../shared/interactive/message-hydration.js";
 import { getMergedCustomSetting, getSettingsManager } from "../../shared/settings.js";
 import { getModelRegistry } from "../../shared/models/model-registry.js";
@@ -139,25 +140,69 @@ function getCompactThresholdPercent() {
  *
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} rootSessionManager
  * @param {import('../../shared/ui/types.js').UiAPI} uiAPI
+ * @param {import('../registry.js').CommandContext} options
  * @param {ResumeCommandDeps} deps
  * @param {{ agentName: string, message?: string, modelOverride?: string }} resumeOptions
  */
-async function resumeWithManager(rootSessionManager, uiAPI, deps, resumeOptions) {
-    setRootSessionManager(rootSessionManager);
+async function resumeWithManager(rootSessionManager, uiAPI, options, deps, resumeOptions) {
+    const hostedSession = prepareHostedSessionForResume(rootSessionManager, uiAPI, options);
 
     await deps.ensureRootAgentSession({
+        hostedSession,
         agentName: resumeOptions.agentName,
         modelOverride: resumeOptions.modelOverride,
         uiAPI,
         sessionManager: rootSessionManager,
     });
+    hostedSession.setActiveOnMessage(createAgentHandler(resumeOptions.agentName, { hostedSession }));
 
     if (uiAPI.clearMessages) {
         uiAPI.clearMessages();
     }
-    deps.restorePersistedMessagesToUi(rootSessionManager, uiAPI);
+    deps.restorePersistedMessagesToUi(rootSessionManager, uiAPI, { hostedSession });
     uiAPI.appendSystemMessage(resumeOptions.message || `Resumed session: ${rootSessionManager.getSessionId()}`);
     setTerminalTitleForSession(rootSessionManager, Deno.cwd());
+}
+
+/**
+ * @param {import('@earendil-works/pi-coding-agent').SessionManager} rootSessionManager
+ * @param {import('../../shared/ui/types.js').UiAPI} uiAPI
+ * @param {import('../registry.js').CommandContext} options
+ * @returns {import('../../shared/session/hosted-session.js').HostedSession}
+ */
+function prepareHostedSessionForResume(rootSessionManager, uiAPI, options) {
+    if (options.replaceHostedSession) {
+        const nextSession = options.sessionHost?.createSession?.({
+            sessionManager: rootSessionManager,
+            cwd: Deno.cwd(),
+            uiAPI,
+            eventSink: uiAPI,
+        }) || new HostedSession({
+            id: rootSessionManager.getSessionId?.() || crypto.randomUUID(),
+            cwd: Deno.cwd(),
+            sessionManager: rootSessionManager,
+            uiAPI,
+            eventSink: uiAPI,
+        });
+        options.replaceHostedSession(nextSession);
+        return nextSession;
+    }
+
+    const hostedSession = options.hostedSession;
+    if (!hostedSession) throw new Error("/resume requires an active HostedSession.");
+    const previousManager = hostedSession.getRootSessionManager();
+    disposeRootAgentSessionForNewSession(hostedSession);
+    if (previousManager && previousManager !== rootSessionManager) {
+        try {
+            previousManager.dispose?.();
+        } catch {
+            // Resume should continue even if the old persistence object cannot be disposed.
+        }
+    }
+    hostedSession.setRootSessionManager(rootSessionManager);
+    hostedSession.setActiveUiAPI(uiAPI);
+    hostedSession.setEventSink(uiAPI);
+    return hostedSession;
 }
 
 /**
@@ -172,18 +217,22 @@ async function resumeWithManager(rootSessionManager, uiAPI, deps, resumeOptions)
  * @param {string | undefined} modelOverride
  */
 async function compactThenResume(rootSessionManager, uiAPI, options, deps, agentName, modelOverride) {
+    /** @type {import('../../shared/session/hosted-session.js').HostedSession | null} */
+    let hostedSession = null;
     try {
-        setRootSessionManager(rootSessionManager);
+        hostedSession = prepareHostedSessionForResume(rootSessionManager, uiAPI, options);
 
         await deps.ensureRootAgentSession({
+            hostedSession,
             agentName,
             modelOverride,
             uiAPI,
             sessionManager: rootSessionManager,
         });
+        hostedSession.setActiveOnMessage(createAgentHandler(agentName, { hostedSession }));
 
         // 3. Run compaction
-        const session = getRootAgentSession();
+        const session = /** @type {any} */ (hostedSession.getRootAgentSession());
         if (!session) {
             throw new Error("Failed to create agent session");
         }
@@ -200,17 +249,14 @@ async function compactThenResume(rootSessionManager, uiAPI, options, deps, agent
 
         const result = await session.compact();
 
-        await resumeWithManager(
-            rootSessionManager,
-            uiAPI,
-            deps,
-            {
-                agentName,
-                message:
-                    `Compacted. Tokens before: ${result.tokensBefore.toLocaleString()}\nResumed (compacted) session: ${rootSessionManager.getSessionId()}`,
-                modelOverride,
-            },
+        if (uiAPI.clearMessages) {
+            uiAPI.clearMessages();
+        }
+        deps.restorePersistedMessagesToUi(rootSessionManager, uiAPI, { hostedSession });
+        uiAPI.appendSystemMessage(
+            `Compacted. Tokens before: ${result.tokensBefore.toLocaleString()}\nResumed (compacted) session: ${rootSessionManager.getSessionId()}`,
         );
+        setTerminalTitleForSession(rootSessionManager, Deno.cwd());
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         const isCancelled = message === "Compaction cancelled" || message.includes("cancelled");
@@ -219,11 +265,20 @@ async function compactThenResume(rootSessionManager, uiAPI, options, deps, agent
             ? "Compaction cancelled, resuming as-is..."
             : `Compaction failed: ${message} — resuming as-is...`;
 
-        await resumeWithManager(rootSessionManager, uiAPI, deps, {
-            agentName,
-            message: `${resumeNotice}\nResumed session: ${rootSessionManager.getSessionId()}`,
-            modelOverride,
-        });
+        if (!hostedSession) {
+            await resumeWithManager(rootSessionManager, uiAPI, options, deps, {
+                agentName,
+                message: `${resumeNotice}\nResumed session: ${rootSessionManager.getSessionId()}`,
+                modelOverride,
+            });
+            return;
+        }
+        if (uiAPI.clearMessages) {
+            uiAPI.clearMessages();
+        }
+        deps.restorePersistedMessagesToUi(rootSessionManager, uiAPI, { hostedSession });
+        uiAPI.appendSystemMessage(`${resumeNotice}\nResumed session: ${rootSessionManager.getSessionId()}`);
+        setTerminalTitleForSession(rootSessionManager, Deno.cwd());
     }
 }
 
@@ -349,5 +404,5 @@ export async function runResumeCommand(_argv, options = {}) {
         // choice === "resume" — fall through to normal resume
     }
 
-    await resumeWithManager(rootSessionManager, uiAPI, deps, { agentName, modelOverride });
+    await resumeWithManager(rootSessionManager, uiAPI, options, deps, { agentName, modelOverride });
 }

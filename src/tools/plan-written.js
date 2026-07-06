@@ -115,12 +115,13 @@ async function resolveTriageMeta(triageMeta, planName) {
  *   uiAPI: import('../shared/workflow/workflow.js').UiAPI,
  *   triageMeta?: TriageMeta,
  *   agentName?: string,
+ *   hostedSession?: import('../shared/session/hosted-session.js').HostedSession,
  *   __deps?: PlanWrittenDeps,
  * }} opts
  * @returns {import('@earendil-works/pi-coding-agent').ToolDefinition}
  */
 export function createPlanWrittenTool(
-    { uiAPI, triageMeta, agentName = "planner", __deps } = /** @type {any} */ ({}),
+    { uiAPI, triageMeta, agentName = "planner", hostedSession, __deps } = /** @type {any} */ ({}),
 ) {
     if (!uiAPI) throw new Error("createPlanWrittenTool: uiAPI is required");
     const deps = __deps || {};
@@ -180,6 +181,7 @@ export function createPlanWrittenTool(
                 planPath,
                 triageMeta: effectiveMeta,
                 uiAPI,
+                hostedSession,
             });
 
             if (reviewResult.canceled) {
@@ -236,14 +238,14 @@ export function createPlanWrittenTool(
 
                 // Run the slicer on the root session so its output is part of the single
                 // continuous session file (not a forked / in-memory session).
-                const { getRootSessionManager } = await import("../shared/session/session-state.js");
-                const sessionManager = getRootSessionManager() || undefined;
+                const sessionManager = hostedSession?.getRootSessionManager?.() || undefined;
 
                 if (isEpicPlan(projectMeta)) {
                     const slicerResult = await runSlicerAgent({
                         planName,
                         triageMeta: projectMeta,
                         uiAPI,
+                        hostedSession,
                         sessionManager,
                     });
                     if (!slicerResult.ok) {
@@ -267,6 +269,7 @@ export function createPlanWrittenTool(
                     planPath,
                     triageMeta: effectiveMeta,
                     uiAPI,
+                    hostedSession,
                     sessionManager,
                 });
 

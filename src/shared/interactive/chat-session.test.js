@@ -6,32 +6,26 @@ import {
     __setSteeringUiRefsForTests,
     applyPendingRootSwap,
     collectFooterUsage,
+    createSteeringState,
     getActiveModel,
     getFooterSessions,
     persistThinkingLevel,
     resolveTemplateModel,
+    runScopedSubmitHandoffLoop,
     setActiveAgent,
     setActiveModel,
     shouldShowFooterThinkingLevel,
     trackPendingSteeringMessage,
 } from "./chat-session.js";
-import {
-    addSubAgentSession,
-    clearUserModelOverride,
-    getActiveOnMessage,
-    getPendingRootSwap,
-    getRootAgentSession,
-    getSubAgentSessions,
-    removeSubAgentSession,
-    setActiveUiAPI,
-    setPendingRootSwap,
-    setProjectStateContext,
-    setRootAgentName,
-    setRootAgentSession,
-} from "../session/session-state.js";
+import { HostedSession } from "../session/hosted-session.js";
 import { __resetSettingsForTests } from "../settings.js";
 import { __getRootSessionMetadataForTests, ensureRootAgentSession } from "../session/session.js";
 import { EMPTY_PROJECT_DIRECTORY_PROMPT_NOTE } from "../project-state.js";
+
+/** @param {string} [id] */
+function makeHostedSession(id = "test-session") {
+    return new HostedSession({ id });
+}
 
 /**
  * @param {string} prefix
@@ -78,21 +72,18 @@ Deno.test("footer usage includes active sub-agent sessions and cache writes", ()
         },
     };
 
-    try {
-        addSubAgentSession(/** @type {any} */ (subSession));
-        const sessions = getFooterSessions(rootSession, getSubAgentSessions());
-        assertEquals(sessions, [rootSession, subSession]);
+    const hostedSession = makeHostedSession();
+    hostedSession.addSubAgentSession(/** @type {any} */ (subSession));
+    const sessions = getFooterSessions(rootSession, hostedSession.getSubAgentSessions());
+    assertEquals(sessions, [rootSession, subSession]);
 
-        assertEquals(collectFooterUsage(sessions), {
-            input: 103,
-            output: 52,
-            cacheRead: 26,
-            cacheWrite: 14,
-            cost: 0.03,
-        });
-    } finally {
-        removeSubAgentSession(/** @type {any} */ (subSession));
-    }
+    assertEquals(collectFooterUsage(sessions), {
+        input: 103,
+        output: 52,
+        cacheRead: 26,
+        cacheWrite: 14,
+        cost: 0.03,
+    });
 });
 
 Deno.test("footer thinking level is hidden until a model is configured", () => {
@@ -110,7 +101,8 @@ Deno.test("setActiveModel reports setModel rejection instead of leaving an unhan
     try {
         Deno.env.set("OPENAI_API_KEY", "test-key");
         await withTempHome("runwield-set-active-model-", async () => {
-            setActiveUiAPI(
+            const hostedSession = makeHostedSession();
+            hostedSession.setActiveUiAPI(
                 /** @type {any} */ ({
                     appendSystemMessage: (/** @type {string} */ message) => messages.push(message),
                     requestRender: () => {
@@ -118,20 +110,18 @@ Deno.test("setActiveModel reports setModel rejection instead of leaving an unhan
                     },
                 }),
             );
-            setRootAgentSession(
+            hostedSession.setRootAgentSession(
                 /** @type {any} */ ({
                     setModel: () => Promise.reject(new Error("No API key for openai/gpt-5")),
                 }),
             );
 
-            await setActiveModel("gpt-5", "openai");
+            await setActiveModel(hostedSession, "gpt-5", "openai");
 
             assertEquals(messages, ["Failed to switch model: No API key for openai/gpt-5"]);
             assertEquals(renderRequested, true);
         });
     } finally {
-        setRootAgentSession(null);
-        setActiveUiAPI(null);
         if (originalOpenAiKey === undefined) Deno.env.delete("OPENAI_API_KEY");
         else Deno.env.set("OPENAI_API_KEY", originalOpenAiKey);
     }
@@ -144,23 +134,19 @@ Deno.test("setActiveAgent updates the active handler and queues a pending root s
         requestRender: () => renders.push(1),
     });
 
-    try {
-        setRootAgentName("router");
-        setPendingRootSwap(null);
+    const hostedSession = makeHostedSession();
+    hostedSession.setRootAgentName("router");
+    hostedSession.setPendingRootSwap(null);
 
-        setActiveAgent("planner", handler, uiAPI, "test/model");
+    setActiveAgent(hostedSession, "planner", handler, uiAPI, "test/model");
 
-        assertEquals(getActiveOnMessage(), handler);
-        assertEquals(getPendingRootSwap(), {
-            agentName: "planner",
-            displayName: "Planner",
-            model: "test/model",
-        });
-        assertEquals(renders.length, 1);
-    } finally {
-        setRootAgentName(null);
-        setPendingRootSwap(null);
-    }
+    assertEquals(hostedSession.getActiveOnMessage(), handler);
+    assertEquals(hostedSession.getPendingRootSwap(), {
+        agentName: "planner",
+        displayName: "Planner",
+        model: "test/model",
+    });
+    assertEquals(renders.length, 1);
 });
 
 Deno.test("setActiveAgent only requests render when target already owns the root", () => {
@@ -170,19 +156,15 @@ Deno.test("setActiveAgent only requests render when target already owns the root
         requestRender: () => renders.push(1),
     });
 
-    try {
-        setRootAgentName("router");
-        setPendingRootSwap({ agentName: "planner", displayName: "Planner" });
+    const hostedSession = makeHostedSession();
+    hostedSession.setRootAgentName("router");
+    hostedSession.setPendingRootSwap({ agentName: "planner", displayName: "Planner" });
 
-        setActiveAgent("router", handler, uiAPI);
+    setActiveAgent(hostedSession, "router", handler, uiAPI);
 
-        assertEquals(getActiveOnMessage(), handler);
-        assertEquals(getPendingRootSwap(), { agentName: "planner", displayName: "Planner" });
-        assertEquals(renders.length, 1);
-    } finally {
-        setRootAgentName(null);
-        setPendingRootSwap(null);
-    }
+    assertEquals(hostedSession.getActiveOnMessage(), handler);
+    assertEquals(hostedSession.getPendingRootSwap(), { agentName: "planner", displayName: "Planner" });
+    assertEquals(renders.length, 1);
 });
 
 Deno.test("applyPendingRootSwap clears no-op swaps without rebuilding", async () => {
@@ -193,18 +175,14 @@ Deno.test("applyPendingRootSwap clears no-op swaps without rebuilding", async ()
         requestRender: () => {},
     });
 
-    try {
-        setRootAgentName("planner");
-        setPendingRootSwap({ agentName: "planner", displayName: "Planner" });
+    const hostedSession = makeHostedSession();
+    hostedSession.setRootAgentName("planner");
+    hostedSession.setPendingRootSwap({ agentName: "planner", displayName: "Planner" });
 
-        await applyPendingRootSwap(uiAPI);
+    await applyPendingRootSwap(hostedSession, uiAPI);
 
-        assertEquals(getPendingRootSwap(), null);
-        assertEquals(messages, []);
-    } finally {
-        setRootAgentName(null);
-        setPendingRootSwap(null);
-    }
+    assertEquals(hostedSession.getPendingRootSwap(), null);
+    assertEquals(messages, []);
 });
 
 Deno.test("resolveTemplateModel validates provider/id format, model lookup, and configured auth", () => {
@@ -225,7 +203,7 @@ Deno.test("resolveTemplateModel validates provider/id format, model lookup, and 
 });
 
 Deno.test("getActiveModel reflects setActiveModel state when no root session is present", async () => {
-    setRootAgentSession(null);
+    const hostedSession = makeHostedSession();
     /** @type {string[]} */
     const persisted = [];
 
@@ -240,9 +218,9 @@ Deno.test("getActiveModel reflects setActiveModel state when no root session is 
                 return Promise.resolve();
             },
         }));
-        await setActiveModel("model-a", "provider-a");
+        await setActiveModel(hostedSession, "model-a", "provider-a");
 
-        assertEquals(getActiveModel(), "model-a");
+        assertEquals(getActiveModel(hostedSession), "model-a");
         assertEquals(persisted, ["model:model-a", "provider:provider-a"]);
     } finally {
         __setSettingsManagerForPersistenceTests(null);
@@ -297,9 +275,11 @@ Deno.test("trackPendingSteeringMessage only consumes queue updates from the sess
     /** @type {string[]} */
     const userMessages = [];
     let renders = 0;
+    const steeringState = createSteeringState();
 
     try {
         __setSteeringUiRefsForTests(
+            steeringState,
             /** @type {any} */ ({
                 removeChild: (/** @type {unknown} */ child) => removed.push(child),
             }),
@@ -314,6 +294,7 @@ Deno.test("trackPendingSteeringMessage only consumes queue updates from the sess
         );
 
         trackPendingSteeringMessage(
+            steeringState,
             sessionA,
             "same text",
             [],
@@ -321,6 +302,7 @@ Deno.test("trackPendingSteeringMessage only consumes queue updates from the sess
             /** @type {any} */ (spacerA),
         );
         trackPendingSteeringMessage(
+            steeringState,
             sessionB,
             "same text",
             [],
@@ -340,7 +322,7 @@ Deno.test("trackPendingSteeringMessage only consumes queue updates from the sess
         assertEquals(removed, [blockB, spacerB, blockA, spacerA]);
         assertEquals(renders, 2);
     } finally {
-        __resetPendingSteeringForTests();
+        __resetPendingSteeringForTests(steeringState);
     }
 });
 
@@ -378,11 +360,14 @@ Deno.test("setActiveModel rebuilds root session tool set when switching between 
                 }),
             );
             __resetSettingsForTests();
-            clearUserModelOverride();
-            setProjectStateContext(EMPTY_PROJECT_DIRECTORY_PROMPT_NOTE);
-            setActiveUiAPI(/** @type {any} */ ({ appendSystemMessage: () => {}, requestRender: () => {} }));
-
+            const hostedSession = makeHostedSession("model-switch");
+            hostedSession.clearUserModelOverride();
+            hostedSession.setProjectStateContext(EMPTY_PROJECT_DIRECTORY_PROMPT_NOTE);
+            hostedSession.setActiveUiAPI(
+                /** @type {any} */ ({ appendSystemMessage: () => {}, requestRender: () => {} }),
+            );
             await ensureRootAgentSession({
+                hostedSession,
                 agentName: "operator",
                 modelOverride: "test/text",
                 _agentDefOverride: {
@@ -394,7 +379,7 @@ Deno.test("setActiveModel rebuilds root session tool set when switching between 
                     systemPrompt: "Test operator prompt.",
                 },
             });
-            let session = getRootAgentSession();
+            let session = hostedSession.getRootAgentSession();
             rootsBuiltDuringTest.add(session);
             const firstRoot = /** @type {any} */ (session);
             let firstRootDisposeCalls = 0;
@@ -412,8 +397,8 @@ Deno.test("setActiveModel rebuilds root session tool set when switching between 
                 EMPTY_PROJECT_DIRECTORY_PROMPT_NOTE,
             );
 
-            await setActiveModel("vision", "test");
-            session = getRootAgentSession();
+            await setActiveModel(hostedSession, "vision", "test");
+            session = hostedSession.getRootAgentSession();
             rootsBuiltDuringTest.add(session);
             assertEquals(firstRootDisposeCalls, 0);
             assertEquals(
@@ -425,8 +410,8 @@ Deno.test("setActiveModel rebuilds root session tool set when switching between 
                 EMPTY_PROJECT_DIRECTORY_PROMPT_NOTE,
             );
 
-            await setActiveModel("text", "test");
-            session = getRootAgentSession();
+            await setActiveModel(hostedSession, "text", "test");
+            session = hostedSession.getRootAgentSession();
             rootsBuiltDuringTest.add(session);
             assertEquals(firstRootDisposeCalls, 0);
             assertEquals(
@@ -439,19 +424,71 @@ Deno.test("setActiveModel rebuilds root session tool set when switching between 
             );
         });
     } finally {
-        rootsBuiltDuringTest.add(getRootAgentSession());
         for (const root of rootsBuiltDuringTest) {
             try {
                 root?.dispose?.();
             } catch (_e) { /* ignore */ }
         }
-        setRootAgentSession(null);
-        setRootAgentName(null);
-        setActiveUiAPI(null);
-        setProjectStateContext("");
         Deno.chdir(originalCwd);
         if (originalOpenAiKey === undefined) Deno.env.delete("OPENAI_API_KEY");
         else Deno.env.set("OPENAI_API_KEY", originalOpenAiKey);
         await Deno.remove(tempProject, { recursive: true });
     }
+});
+
+Deno.test("submit handoff loop consumes only the current HostedSession handoff", async () => {
+    const current = makeHostedSession("current-handoff-session");
+    const other = makeHostedSession("other-handoff-session");
+    /** @type {string[]} */
+    const seenRequests = [];
+    current.setRootSessionManager(/** @type {any} */ ({ id: "current-root" }));
+    current.setActiveOnMessage((/** @type {string} */ request) => {
+        seenRequests.push(String(request));
+        if (seenRequests.length === 1) {
+            current.setPendingSwitchHandoff({ agentName: "router", reason: "current handoff" });
+        }
+        return Promise.resolve();
+    });
+    other.setPendingSwitchHandoff({ agentName: "router", reason: "other handoff" });
+
+    await runScopedSubmitHandoffLoop({
+        hostedSession: current,
+        uiAPI: /** @type {any} */ ({ appendSystemMessage: () => {} }),
+        initialRequest: "first request",
+        initialImages: [],
+        applyPendingRootSwapImpl: () => Promise.resolve(),
+    });
+
+    assertEquals(seenRequests, ["first request", "current handoff"]);
+    assertEquals(current.consumePendingSwitchHandoff(), null);
+    assertEquals(other.consumePendingSwitchHandoff()?.reason, "other handoff");
+});
+
+Deno.test("submit handoff loop preserves the chained handoff limit", async () => {
+    const current = makeHostedSession("limited-handoff-session");
+    /** @type {string[]} */
+    const messages = [];
+    let turnCount = 0;
+    current.setRootSessionManager(/** @type {any} */ ({ id: "current-root" }));
+    current.setActiveOnMessage(() => {
+        turnCount++;
+        current.setPendingSwitchHandoff({ agentName: "router", reason: `handoff ${turnCount}` });
+        return Promise.resolve();
+    });
+
+    await runScopedSubmitHandoffLoop({
+        hostedSession: current,
+        uiAPI: /** @type {any} */ ({
+            appendSystemMessage: (/** @type {unknown} */ message) => messages.push(String(message)),
+        }),
+        initialRequest: "start",
+        initialImages: [],
+        applyPendingRootSwapImpl: () => Promise.resolve(),
+    });
+
+    assertEquals(turnCount, 5);
+    assertEquals(
+        messages.includes("return_to_router handoff limit reached — refusing further chained handoffs in this turn."),
+        true,
+    );
 });

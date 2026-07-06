@@ -3,7 +3,6 @@
  * Command to copy the last assistant message to the clipboard.
  */
 
-import { getRootAgentSession } from "../../shared/session/session-state.js";
 import { theme } from "../../shared/ui/theme.js";
 
 /**
@@ -124,8 +123,8 @@ export async function runCopyCommand(_argv, options = {}) {
         return;
     }
 
-    const { uiAPI } = options;
-    const session = getRootAgentSession();
+    const { uiAPI, hostedSession } = options;
+    const session = /** @type {any} */ (hostedSession?.getRootAgentSession?.());
     if (!session) {
         uiAPI.appendSystemMessage("Error: No active agent session.");
         return;

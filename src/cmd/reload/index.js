@@ -17,7 +17,7 @@ export async function runReloadCommand(_argv, options = {}) {
     }
 
     try {
-        const success = await reloadRootAgentSession(options.uiAPI);
+        const success = await reloadRootAgentSession(options.hostedSession, options.uiAPI);
         if (success) {
             options.uiAPI.appendSystemMessage("Successfully reloaded configs, themes, and agent context.");
         } else {

@@ -7,6 +7,7 @@ import { parseArgs as parseArgsFn } from "@std/cli/parse-args";
 import { dirname, fromFileUrl, join } from "@std/path";
 import { COMMAND_NAMES } from "../registry.js";
 import { runAgentSession as runAgentSessionFn } from "../../shared/session/session.js";
+import { SessionHost } from "../../shared/session/session-host.js";
 import { printCommandHelp as printCommandHelpFn } from "../help/index.js";
 import { ensureMnemosyneBinary as ensureMnemosyneBinaryFn } from "../../shared/runtime-preflight.js";
 
@@ -26,7 +27,7 @@ const SLEEP_PROMPT_FILE = "prompt.md";
  * Handle `sleep` command.
  *
  * @param {string[]} argv
- * @param {{ __testDeps?: CommandDependencies, uiAPI?: { appendSystemMessage?: (message: string) => void } }} [options]
+ * @param {import('../registry.js').CommandContext & { __testDeps?: CommandDependencies, uiAPI?: { appendSystemMessage?: (message: string) => void } }} [options]
  */
 export async function runSleepCommand(argv, options = {}) {
     const deps = /** @type {CommandDependencies} */ ((/** @type {any} */ (options)).__testDeps || {});
@@ -71,11 +72,23 @@ export async function runSleepCommand(argv, options = {}) {
 
     const sleepPrompt = await readTextFile(join(__dirname, SLEEP_PROMPT_FILE));
 
+    const sessionHost = new SessionHost();
+    const hostedSession = options.hostedSession || sessionHost.createSession({
+        id: `sleep-${crypto.randomUUID()}`,
+        cwd: Deno.cwd(),
+        sessionManager: null,
+        uiAPI,
+        eventSink: uiAPI,
+    });
+
     // Sleep is command-owned rather than a prompt template so memory-system
     // maintenance cannot be shadowed by local/home prompt-template overrides.
     await runAgentSession({
+        hostedSession,
         agentName: "operator",
         userRequest: sleepPrompt,
+        uiAPI,
+        sessionManager: /** @type {any} */ (hostedSession.getRootSessionManager() || undefined),
         useRootSession: false,
     });
 

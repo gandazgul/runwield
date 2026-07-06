@@ -75,6 +75,7 @@ function makeContext(overrides = {}) {
         submissionQueue: /** @type {unknown[]} */ ([]),
         generationGuard: { invalidateAll: () => invalidations++ },
         cancelActiveOperation: () => false,
+        abortActiveSession: () => false,
         dismissActivePrompt: () => {
             promptDismissals++;
         },
@@ -143,37 +144,43 @@ function makeContext(overrides = {}) {
     return Object.assign(ctx, overrides);
 }
 
-Deno.test("installKeybindings handles Escape cancellation priority and renders once", async () => {
-    const ctx = makeContext({
-        submissionQueue: [1, 2],
-        cancelActiveOperation: () => true,
-    });
-    installKeybindings(ctx);
+Deno.test({
+    name: "installKeybindings handles Escape cancellation priority and renders once",
+    fn: async () => {
+        const ctx = makeContext({
+            submissionQueue: [1, 2],
+            cancelActiveOperation: () => true,
+        });
+        installKeybindings(ctx);
 
-    await ctx.editor.handleInput(RAW_KEY.escape);
+        await ctx.editor.handleInput(RAW_KEY.escape);
 
-    assertEquals(ctx.submissionQueue, []);
-    assertEquals(ctx.stats.invalidations, 1);
-    assertEquals(ctx.stats.clearSteeringCalls, 1);
-    assertEquals(ctx.stats.promptDismissals, 1);
-    assertEquals(ctx.stats.resets, 1);
-    assertEquals(ctx.stats.systemMessages, ["Operation canceled."]);
-    assertEquals(ctx.stats.renderCount, 1);
+        assertEquals(ctx.submissionQueue, []);
+        assertEquals(ctx.stats.invalidations, 1);
+        assertEquals(ctx.stats.clearSteeringCalls, 1);
+        assertEquals(ctx.stats.promptDismissals, 1);
+        assertEquals(ctx.stats.resets, 1);
+        assertEquals(ctx.stats.systemMessages, ["Operation canceled."]);
+        assertEquals(ctx.stats.renderCount, 1);
+    },
 });
 
-Deno.test("installKeybindings Ctrl+C cancels, clears input, and removes pasted previews", async () => {
-    const ctx = makeContext();
-    ctx.pastedImages.push({ base64: "a", mimeType: "image/png" });
-    ctx.previewImages.children.push("preview");
-    ctx.editor.setText("draft");
-    installKeybindings(ctx);
+Deno.test({
+    name: "installKeybindings Ctrl+C cancels, clears input, and removes pasted previews",
+    fn: async () => {
+        const ctx = makeContext();
+        ctx.pastedImages.push({ base64: "a", mimeType: "image/png" });
+        ctx.previewImages.children.push("preview");
+        ctx.editor.setText("draft");
+        installKeybindings(ctx);
 
-    await ctx.editor.handleInput(RAW_KEY.ctrlC);
+        await ctx.editor.handleInput(RAW_KEY.ctrlC);
 
-    assertEquals(ctx.stats.text, "");
-    assertEquals(ctx.pastedImages, []);
-    assertEquals(ctx.previewImages.children, []);
-    assertEquals(ctx.stats.invalidations, 1);
+        assertEquals(ctx.stats.text, "");
+        assertEquals(ctx.pastedImages, []);
+        assertEquals(ctx.previewImages.children, []);
+        assertEquals(ctx.stats.invalidations, 1);
+    },
 });
 
 Deno.test("installKeybindings toggles tool output and startup help on Ctrl+O", async () => {

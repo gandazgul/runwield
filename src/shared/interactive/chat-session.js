@@ -21,6 +21,7 @@ import { endBlink, renderBootLogo } from "../ui/boot-logo.js";
 import { createUiApi } from "../ui/api.js";
 import { SpinnerBlock, SystemMessageBlock } from "../ui/blocks.js";
 import {
+    abortActiveSession,
     ensureRootAgentSession,
     listPromptTemplates,
     listSkills,
@@ -37,6 +38,7 @@ import {
 } from "../project-state.js";
 import { COMMAND_NAMES } from "../../cmd/registry.js";
 import { getAgentDisplayName, listAvailableAgents } from "../session/agents.js";
+import { createAgentHandler } from "../session/agent-handler.js";
 import { getModelRegistry } from "../models/model-registry.js";
 import { getSettingsManager, initSettings } from "../settings.js";
 import {
@@ -44,27 +46,7 @@ import {
     isInitOffered as isInitOfferedFn,
     recordInitOffered as recordInitOfferedFn,
 } from "../../cmd/init/init-state.js";
-import {
-    clearUserModelOverride,
-    consumePendingSwitchHandoff,
-    getActiveAgentName,
-    getActiveModelState,
-    getActiveOnMessage,
-    getActiveUiAPIState,
-    getPendingRootSwap,
-    getRootAgentName,
-    getRootAgentSession,
-    getRootSessionManager,
-    getSubAgentSessions,
-    getThinkingLevel,
-    setActiveModelState,
-    setActiveOnMessage,
-    setActiveUiAPI,
-    setPendingRootSwap,
-    setProjectStateContext,
-    setRootSessionManager,
-    setThinkingLevel,
-} from "../session/session-state.js";
+import { SessionHost } from "../session/session-host.js";
 import { parseProviderModel } from "../models/model-validation.js";
 import { createRootSessionManager } from "../session/root-session.js";
 import { createGenerationGuard } from "./generation-guard.js";
@@ -216,25 +198,35 @@ function getMostRecentSessionModelParts(sessions) {
 }
 
 /**
- * @type {Map<number, { session: import('@earendil-works/pi-coding-agent').AgentSession, text: string, images: import('../session/types.js').ImageAttachment[], systemBlock: SystemMessageBlock, spacer: Spacer }>}
- * Tracks steering messages that have been queued on an agent but not yet consumed by the LLM.
+ * @typedef {Object} PendingSteeringEntry
+ * @property {import('@earendil-works/pi-coding-agent').AgentSession} session
+ * @property {string} text
+ * @property {import('../session/types.js').ImageAttachment[]} images
+ * @property {SystemMessageBlock} systemBlock
+ * @property {Spacer} spacer
  */
-const pendingSteeringMessages = new Map();
 
-/** @type {Map<import('@earendil-works/pi-coding-agent').AgentSession, () => void>} */
-const pendingSteeringUnsubs = new Map();
+/**
+ * @typedef {Object} SteeringState
+ * @property {Map<number, PendingSteeringEntry>} pendingMessages
+ * @property {Map<import('@earendil-works/pi-coding-agent').AgentSession, () => void>} pendingUnsubs
+ * @property {number} nextId
+ * @property {import('@earendil-works/pi-tui').Container | undefined} messageList
+ * @property {import('@earendil-works/pi-tui').TUI | undefined} tui
+ * @property {import('../ui/types.js').UiAPI | undefined} uiAPI
+ */
 
-let nextPendingSteeringId = 1;
-
-// References needed by setupSteeringConsumedListener, stored at module level
-// so accepted steering messages can be rewritten when their owning session
-// emits queue updates.
-/** @type {import('@earendil-works/pi-tui').Container | undefined} */
-let _messageList;
-/** @type {import('@earendil-works/pi-tui').TUI | undefined} */
-let _tui;
-/** @type {import('../ui/types.js').UiAPI | undefined} */
-let _uiAPI;
+/** @returns {SteeringState} */
+export function createSteeringState() {
+    return {
+        pendingMessages: new Map(),
+        pendingUnsubs: new Map(),
+        nextId: 1,
+        messageList: undefined,
+        tui: undefined,
+        uiAPI: undefined,
+    };
+}
 
 /**
  * @param {readonly string[] | undefined} steering
@@ -250,36 +242,38 @@ function countQueuedSteeringByText(steering) {
 }
 
 /**
+ * @param {SteeringState} steeringState
  * @param {import('@earendil-works/pi-coding-agent').AgentSession} session
  */
-function cleanupSteeringSubscriptionIfIdle(session) {
-    for (const entry of pendingSteeringMessages.values()) {
+function cleanupSteeringSubscriptionIfIdle(steeringState, session) {
+    for (const entry of steeringState.pendingMessages.values()) {
         if (entry.session === session) return;
     }
-    const unsubscribe = pendingSteeringUnsubs.get(session);
+    const unsubscribe = steeringState.pendingUnsubs.get(session);
     if (unsubscribe) {
         unsubscribe();
-        pendingSteeringUnsubs.delete(session);
+        steeringState.pendingUnsubs.delete(session);
     }
 }
 
 /**
+ * @param {SteeringState} steeringState
  * @param {number} id
- * @param {{ session: import('@earendil-works/pi-coding-agent').AgentSession, text: string, images: import('../session/types.js').ImageAttachment[], systemBlock: SystemMessageBlock, spacer: Spacer }} entry
+ * @param {PendingSteeringEntry} entry
  */
-function transitionSteeringToUserMessage(id, entry) {
-    if (!_messageList || !_uiAPI || !_tui) return;
-    _messageList.removeChild(entry.systemBlock);
-    _messageList.removeChild(entry.spacer);
-    _uiAPI.appendUserMessage?.(entry.text);
+function transitionSteeringToUserMessage(steeringState, id, entry) {
+    if (!steeringState.messageList || !steeringState.uiAPI || !steeringState.tui) return;
+    steeringState.messageList.removeChild(entry.systemBlock);
+    steeringState.messageList.removeChild(entry.spacer);
+    steeringState.uiAPI.appendUserMessage?.(entry.text);
     if (entry.images.length > 0) {
         for (const img of entry.images) {
-            _uiAPI.appendImage?.(img.base64, img.mimeType);
+            steeringState.uiAPI.appendImage?.(img.base64, img.mimeType);
         }
     }
-    pendingSteeringMessages.delete(id);
-    cleanupSteeringSubscriptionIfIdle(entry.session);
-    _tui.requestRender();
+    steeringState.pendingMessages.delete(id);
+    cleanupSteeringSubscriptionIfIdle(steeringState, entry.session);
+    steeringState.tui.requestRender();
 }
 
 /**
@@ -287,40 +281,42 @@ function transitionSteeringToUserMessage(id, entry) {
  * message is consumed by the LLM (no longer in that session's queue_update
  * steering list), transition from "Steering:" to a proper UserPromptBlock.
  *
+ * @param {SteeringState} steeringState
  * @param {import('@earendil-works/pi-coding-agent').AgentSession} session
  */
-function setupSteeringConsumedListener(session) {
-    if (pendingSteeringUnsubs.has(session)) return;
-    pendingSteeringUnsubs.set(
+function setupSteeringConsumedListener(steeringState, session) {
+    if (steeringState.pendingUnsubs.has(session)) return;
+    steeringState.pendingUnsubs.set(
         session,
         session.subscribe((event) => {
             if (event.type !== "queue_update") return;
-            if (!_messageList || !_uiAPI || !_tui) return;
+            if (!steeringState.messageList || !steeringState.uiAPI || !steeringState.tui) return;
             const activeSteeringCounts = countQueuedSteeringByText(event.steering);
-            for (const [id, entry] of pendingSteeringMessages) {
+            for (const [id, entry] of steeringState.pendingMessages) {
                 if (entry.session !== session) continue;
                 const activeCount = activeSteeringCounts.get(entry.text) || 0;
                 if (activeCount > 0) {
                     activeSteeringCounts.set(entry.text, activeCount - 1);
                     continue;
                 }
-                transitionSteeringToUserMessage(id, entry);
+                transitionSteeringToUserMessage(steeringState, id, entry);
             }
         }),
     );
 }
 
 /**
+ * @param {SteeringState} steeringState
  * @param {import('@earendil-works/pi-coding-agent').AgentSession} session
  * @param {string} text
  * @param {import('../session/types.js').ImageAttachment[]} images
  * @param {SystemMessageBlock} systemBlock
  * @param {Spacer} spacer
  */
-export function trackPendingSteeringMessage(session, text, images, systemBlock, spacer) {
-    setupSteeringConsumedListener(session);
-    const id = nextPendingSteeringId++;
-    pendingSteeringMessages.set(id, {
+export function trackPendingSteeringMessage(steeringState, session, text, images, systemBlock, spacer) {
+    setupSteeringConsumedListener(steeringState, session);
+    const id = steeringState.nextId++;
+    steeringState.pendingMessages.set(id, {
         session,
         text,
         images: [...images],
@@ -333,26 +329,33 @@ export function trackPendingSteeringMessage(session, text, images, systemBlock, 
 /**
  * Test-only hook for exercising steering queue consumption without booting the TUI.
  *
+ * @param {SteeringState} steeringState
  * @param {import('@earendil-works/pi-tui').Container} messageList
  * @param {import('../ui/types.js').UiAPI} uiAPI
  * @param {import('@earendil-works/pi-tui').TUI} tui
  */
-export function __setSteeringUiRefsForTests(messageList, uiAPI, tui) {
-    _messageList = messageList;
-    _uiAPI = uiAPI;
-    _tui = tui;
+export function __setSteeringUiRefsForTests(steeringState, messageList, uiAPI, tui) {
+    steeringState.messageList = messageList;
+    steeringState.uiAPI = uiAPI;
+    steeringState.tui = tui;
 }
 
-export function __resetPendingSteeringForTests() {
-    pendingSteeringMessages.clear();
-    for (const unsubscribe of pendingSteeringUnsubs.values()) {
+/** @param {SteeringState} steeringState */
+export function clearSteeringState(steeringState) {
+    steeringState.pendingMessages.clear();
+    for (const unsubscribe of steeringState.pendingUnsubs.values()) {
         unsubscribe();
     }
-    pendingSteeringUnsubs.clear();
-    nextPendingSteeringId = 1;
-    _messageList = undefined;
-    _uiAPI = undefined;
-    _tui = undefined;
+    steeringState.pendingUnsubs.clear();
+    steeringState.nextId = 1;
+    steeringState.messageList = undefined;
+    steeringState.uiAPI = undefined;
+    steeringState.tui = undefined;
+}
+
+/** @param {SteeringState} steeringState */
+export function __resetPendingSteeringForTests(steeringState) {
+    clearSteeringState(steeringState);
 }
 
 /**
@@ -367,23 +370,29 @@ export function __resetPendingSteeringForTests() {
  * Callers must pass the internal agent name from the `AGENTS` constant; the
  * display name is read from the agent definition's frontmatter when needed.
  *
- * @param {string} agentName  Internal agent name (filename of the agent
+ * @param {any} hostedSession
+ * @param {any} agentName  Internal agent name (filename of the agent
  *   definition without `.md`, e.g. `AGENTS.ROUTER` → `"router"`).
- * @param {import('../session/types.js').AgentMessageHandler} handler
- * @param {import('../ui/types.js').UiAPI} [uiAPI]
- * @param {string} [agentModel]
- * @param {{ allowReturnToRouter?: boolean }} [options]
+ * @param {any} [handler]
+ * @param {any} [uiAPI]
+ * @param {any} [agentModel]
+ * @param {any} [options]
  */
-export function setActiveAgent(agentName, handler, uiAPI, agentModel, options = {}) {
-    setActiveOnMessage(handler);
+export function setActiveAgent(hostedSession, agentName, handler, uiAPI, agentModel, options = {}) {
+    if (!hostedSession || typeof hostedSession !== "object" || typeof hostedSession.setActiveOnMessage !== "function") {
+        uiAPI?.appendSystemMessage?.("Cannot switch agents before a HostedSession is available.");
+        uiAPI?.requestRender?.();
+        return;
+    }
+    hostedSession.setActiveOnMessage(/** @type {import('../session/types.js').AgentMessageHandler} */ (handler));
 
     if (uiAPI) {
-        setActiveUiAPI(uiAPI);
+        hostedSession.setActiveUiAPI(uiAPI);
     }
 
     // If the active root is already this agent, no swap is needed and the
     // footer already matches reality.
-    if (agentName === getRootAgentName()) {
+    if (agentName === hostedSession.getRootAgentName()) {
         uiAPI?.requestRender();
         return;
     }
@@ -393,16 +402,16 @@ export function setActiveAgent(agentName, handler, uiAPI, agentModel, options = 
     // by applyPendingRootSwap() — it is unsafe to dispose the root mid-prompt,
     // and updating the footer earlier would let the UI claim a switch that
     // has not yet taken effect.
-    /** @type {import('../session/session-state.js').PendingRootSwap} */
+    /** @type {import('../session/hosted-session.js').PendingRootSwap} */
     const pendingSwap = {
-        agentName,
-        displayName: getAgentDisplayName(agentName),
+        agentName: /** @type {string} */ (agentName),
+        displayName: getAgentDisplayName(/** @type {string} */ (agentName)),
         model: agentModel,
     };
     if (options.allowReturnToRouter !== undefined) {
         pendingSwap.allowReturnToRouter = options.allowReturnToRouter;
     }
-    setPendingRootSwap(pendingSwap);
+    hostedSession.setPendingRootSwap(pendingSwap);
 
     uiAPI?.requestRender();
 }
@@ -417,41 +426,48 @@ export function setActiveAgent(agentName, handler, uiAPI, agentModel, options = 
  * the new root is in place — never before. The user-facing "Switched to X"
  * notice is emitted here only after the rebuild succeeds, for the same reason.
  *
- * @param {import('../ui/types.js').UiAPI} uiAPI
+ * @param {any} hostedSession
+ * @param {any} [uiAPI]
  * @returns {Promise<void>}
  */
-export async function applyPendingRootSwap(uiAPI) {
-    const pending = getPendingRootSwap();
-    if (!pending) return;
-    if (pending.agentName === getRootAgentName()) {
-        setPendingRootSwap(null);
+export async function applyPendingRootSwap(hostedSession, uiAPI) {
+    if (!hostedSession || typeof hostedSession !== "object" || typeof hostedSession.getPendingRootSwap !== "function") {
         return;
     }
-    setPendingRootSwap(null);
+    const targetHostedSession = /** @type {import('../session/hosted-session.js').HostedSession} */ (hostedSession);
+    const pending = targetHostedSession.getPendingRootSwap();
+    if (!pending) return;
+    if (pending.agentName === targetHostedSession.getRootAgentName()) {
+        targetHostedSession.setPendingRootSwap(null);
+        return;
+    }
+    targetHostedSession.setPendingRootSwap(null);
     try {
-        clearUserModelOverride();
+        targetHostedSession.clearUserModelOverride();
         await ensureRootAgentSession({
+            hostedSession: targetHostedSession,
             agentName: pending.agentName,
             modelOverride: pending.model,
-            uiAPI,
-            sessionManager: getRootSessionManager() || undefined,
+            uiAPI: /** @type {any} */ (uiAPI),
+            sessionManager: /** @type {any} */ (targetHostedSession.getRootSessionManager() || undefined),
             allowReturnToRouter: pending.allowReturnToRouter,
         });
         const modelText = pending.model ? ` (model: ${pending.model})` : "";
-        uiAPI.appendSystemMessage(`Switched to ${pending.displayName}${modelText}.`);
-        uiAPI.requestRender();
+        uiAPI?.appendSystemMessage?.(`Switched to ${pending.displayName}${modelText}.`);
+        uiAPI?.requestRender?.();
     } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        uiAPI.appendSystemMessage(`Failed to switch root agent to "${pending.agentName}": ${msg}`);
+        uiAPI?.appendSystemMessage?.(`Failed to switch root agent to "${pending.agentName}": ${msg}`);
     }
 }
 
 /**
+ * @param {import('../session/hosted-session.js').HostedSession} hostedSession
  * @param {string} model
  * @param {string} [provider]
  */
-export async function setActiveModel(model, provider) {
-    setActiveModelState(model, provider || "", true);
+export async function setActiveModel(hostedSession, model, provider) {
+    hostedSession.setActiveModelState(model, provider || "", true);
 
     try {
         const settingsManager = getSettingsManagerForPersistence();
@@ -462,19 +478,23 @@ export async function setActiveModel(model, provider) {
     }
 
     // Rebuild the root session so image capability changes update the available tool set.
-    const session = getRootAgentSession();
-    const rootAgentName = getRootAgentName();
+    const session = /** @type {any} */ (hostedSession.getRootAgentSession());
+    const rootAgentName = hostedSession.getRootAgentName();
     if (session && rootAgentName) {
         try {
             await ensureRootAgentSession({
+                hostedSession,
                 agentName: rootAgentName,
                 modelOverride: provider ? `${provider}/${model}` : model,
-                uiAPI: getActiveUiAPIState() || undefined,
-                sessionManager: getRootSessionManager() || undefined,
+                uiAPI: /** @type {any} */ (hostedSession.getActiveUiAPIState() || undefined),
+                sessionManager: /** @type {any} */ (hostedSession.getRootSessionManager() || undefined),
             });
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
-            getActiveUiAPIState()?.appendSystemMessage?.(`Failed to switch model: ${msg}`, true);
+            (/** @type {any} */ (hostedSession.getActiveUiAPIState()))?.appendSystemMessage?.(
+                `Failed to switch model: ${msg}`,
+                true,
+            );
         }
     } else if (session && typeof session.setModel === "function") {
         const modelRegistry = getModelRegistry();
@@ -484,12 +504,15 @@ export async function setActiveModel(model, provider) {
                 await session.setModel(found);
             } catch (error) {
                 const msg = error instanceof Error ? error.message : String(error);
-                getActiveUiAPIState()?.appendSystemMessage?.(`Failed to switch model: ${msg}`, true);
+                (/** @type {any} */ (hostedSession.getActiveUiAPIState()))?.appendSystemMessage?.(
+                    `Failed to switch model: ${msg}`,
+                    true,
+                );
             }
         }
     }
 
-    getActiveUiAPIState()?.requestRender();
+    (/** @type {any} */ (hostedSession.getActiveUiAPIState()))?.requestRender();
 }
 
 /**
@@ -508,16 +531,68 @@ export async function persistThinkingLevel(level) {
  * Get the active UI API reference.
  * @returns {import('../workflow/workflow.js').UiAPI | null}
  */
-export function getActiveUiAPI() {
-    return getActiveUiAPIState();
+/**
+ * @param {import('../session/hosted-session.js').HostedSession} [hostedSession]
+ * @returns {any}
+ */
+export function getActiveUiAPI(hostedSession = undefined) {
+    return hostedSession?.getActiveUiAPIState?.() || null;
 }
 
 /**
  * Get the active model identifier (may include provider prefix).
+ * @param {import('../session/hosted-session.js').HostedSession} hostedSession
  * @returns {string}
  */
-export function getActiveModel() {
-    return getActiveModelState().model;
+export function getActiveModel(hostedSession) {
+    return hostedSession.getActiveModelState().model;
+}
+
+/**
+ * Testable core of the interactive submit loop. It applies root swaps and
+ * follows return_to_router handoffs recorded on the supplied HostedSession only.
+ *
+ * @param {Object} args
+ * @param {import('../session/hosted-session.js').HostedSession} args.hostedSession
+ * @param {import('../ui/types.js').UiAPI} args.uiAPI
+ * @param {string} args.initialRequest
+ * @param {import('../session/types.js').ImageAttachment[]} args.initialImages
+ * @param {(uiAPI: import('../ui/types.js').UiAPI) => Promise<void>} args.applyPendingRootSwapImpl
+ */
+export async function runScopedSubmitHandoffLoop(
+    { hostedSession, uiAPI, initialRequest, initialImages, applyPendingRootSwapImpl },
+) {
+    let currentRequest = initialRequest;
+    let currentImages = initialImages;
+    let isHandoff = false;
+    let handoffsLeft = 4;
+
+    while (true) {
+        await applyPendingRootSwapImpl(uiAPI);
+        const activeOnMessage = hostedSession.getActiveOnMessage();
+        const rootSessionManager = hostedSession.getRootSessionManager();
+        if (!activeOnMessage || !rootSessionManager) {
+            uiAPI.appendSystemMessage?.("Error: No active agent handler or session manager.");
+            break;
+        }
+        hostedSession.setActiveUiAPI(uiAPI);
+        if (isHandoff) {
+            uiAPI.appendSystemMessage?.(currentRequest, false, "Handoff:");
+        }
+        await activeOnMessage(currentRequest, currentImages, uiAPI, rootSessionManager);
+
+        const handoff = hostedSession.consumePendingSwitchHandoff();
+        if (!handoff) break;
+        if (handoffsLeft-- <= 0) {
+            uiAPI.appendSystemMessage?.(
+                "return_to_router handoff limit reached — refusing further chained handoffs in this turn.",
+            );
+            break;
+        }
+        currentRequest = handoff.reason;
+        currentImages = [];
+        isHandoff = true;
+    }
 }
 
 /**
@@ -558,11 +633,11 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         getSlashCommandDefinitions().map((command) => command.name),
     );
 
+    const sessionHost = new SessionHost();
     const rootSessionManager = await createRootSessionManager(options.sessionStartMode || "new", Deno.cwd());
-    setRootSessionManager(rootSessionManager);
+    let hostedSession = sessionHost.createSession({ sessionManager: rootSessionManager, cwd: Deno.cwd() });
     initSettings();
     const sessionStartedAt = rootSessionManager.getHeader()?.timestamp || new Date().toISOString();
-    setActiveOnMessage(onMessage);
 
     let sessionStartedEmptyProjectDirectory = false;
     try {
@@ -570,7 +645,9 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
     } catch {
         sessionStartedEmptyProjectDirectory = false;
     }
-    setProjectStateContext(sessionStartedEmptyProjectDirectory ? EMPTY_PROJECT_DIRECTORY_PROMPT_NOTE : "");
+    hostedSession.setProjectStateContext(
+        sessionStartedEmptyProjectDirectory ? EMPTY_PROJECT_DIRECTORY_PROMPT_NOTE : "",
+    );
 
     // Pre-warm the display-name cache so any sync getAgentDisplayName call
     // before the root session is built can resolve from cache instead of
@@ -583,6 +660,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
     // Track which agent the initial root will be built for. Callers (e.g. `wld agent <name>`)
     // can override via options.initialAgentName.
     const initialAgentInternalName = options.initialAgentName || AGENTS.ROUTER;
+    hostedSession.setActiveOnMessage(onMessage || createAgentHandler(initialAgentInternalName, { hostedSession }));
     await ensureMnemosyneBinary();
     initRunWieldTheme();
     await applyPersistedTheme();
@@ -677,7 +755,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         };
         let { model, provider } = defaults;
 
-        const activeModel = getActiveModelState();
+        const activeModel = hostedSession.getActiveModelState();
         if (activeModel.model) {
             const slashIndex = activeModel.model.indexOf("/");
             if (slashIndex > 0) {
@@ -694,14 +772,14 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         }
 
         const sessionModel = getMostRecentSessionModelParts(
-            getFooterSessions(getRootAgentSession(), getSubAgentSessions()),
+            getFooterSessions(hostedSession.getRootAgentSession(), hostedSession.getSubAgentSessions()),
         );
         if (!activeModel.model && sessionModel?.model) {
             model = sessionModel.model;
             provider = sessionModel.provider || provider;
         }
 
-        const thinkingLevel = getThinkingLevel();
+        const thinkingLevel = hostedSession.getThinkingLevel();
 
         return { model, provider, thinkingLevel };
     };
@@ -748,8 +826,10 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
             const modelStr = model
                 ? provider && !model.startsWith(`${provider}/`) ? `${provider}/${model}` : model
                 : "";
-            const activeAgentName = getActiveAgentName() ||
-                (getRootAgentName() ? getAgentDisplayName(/** @type {string} */ (getRootAgentName())) : "");
+            const activeAgentName = hostedSession.getActiveAgentName() ||
+                (hostedSession.getRootAgentName()
+                    ? getAgentDisplayName(/** @type {string} */ (hostedSession.getRootAgentName()))
+                    : "");
 
             // Right block (agent name) is always pinned flush to the right edge.
             // The left block (cwd/branch) is truncated when it would collide,
@@ -764,7 +844,10 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
                 theme.fg("accent", activeAgentName);
 
             // ── Token consumption data (Pi.dev-style footer) ──
-            const sessions = getFooterSessions(getRootAgentSession(), getSubAgentSessions());
+            const sessions = getFooterSessions(
+                hostedSession.getRootAgentSession(),
+                hostedSession.getSubAgentSessions(),
+            );
             const activeUsageSession = sessions[sessions.length - 1];
             const usage = collectFooterUsage(sessions);
             let contextStr = "";
@@ -859,22 +942,112 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
 
     // Expose a UI API for agents to append to the message list
     const uiAPI = createUiApi(tui, messageList, runningTasksComponent);
-    // Store module-level refs so setupSteeringConsumedListener can rewrite
-    // accepted steering blocks when their owning session emits queue updates.
-    _messageList = messageList;
-    _tui = tui;
-    _uiAPI = uiAPI;
+    const steeringState = createSteeringState();
+    steeringState.messageList = messageList;
+    steeringState.tui = tui;
+    steeringState.uiAPI = uiAPI;
+
+    hostedSession.setActiveUiAPI(uiAPI);
+    hostedSession.setEventSink(uiAPI);
+
+    /**
+     * @param {import('../session/hosted-session.js').HostedSession | string | undefined} hostedSessionOrAgentName
+     * @param {string | import('../session/types.js').AgentMessageHandler} agentNameOrHandler
+     * @param {import('../session/types.js').AgentMessageHandler | import('../ui/types.js').UiAPI} [handlerOrUiAPI]
+     * @param {import('../ui/types.js').UiAPI | string} [uiAPIOrAgentModel]
+     * @param {string | { allowReturnToRouter?: boolean }} [agentModelOrOptions]
+     * @param {{ allowReturnToRouter?: boolean }} [agentOptions]
+     */
+    const setCurrentActiveAgent = (
+        hostedSessionOrAgentName,
+        agentNameOrHandler,
+        handlerOrUiAPI,
+        uiAPIOrAgentModel,
+        agentModelOrOptions,
+        agentOptions,
+    ) => {
+        const hasExplicitSession = hostedSessionOrAgentName && typeof hostedSessionOrAgentName === "object";
+        const targetHostedSession = hasExplicitSession
+            ? /** @type {import('../session/hosted-session.js').HostedSession} */ (hostedSessionOrAgentName)
+            : hostedSession;
+        const agentName = hasExplicitSession ? agentNameOrHandler : hostedSessionOrAgentName;
+        const handler = hasExplicitSession ? handlerOrUiAPI : agentNameOrHandler;
+        const uiAPIArg = hasExplicitSession ? uiAPIOrAgentModel : handlerOrUiAPI;
+        const agentModel = hasExplicitSession ? agentModelOrOptions : uiAPIOrAgentModel;
+        const nextAgentOptions = hasExplicitSession ? agentOptions : agentModelOrOptions;
+        setActiveAgent(
+            targetHostedSession,
+            agentName,
+            handler,
+            uiAPIArg,
+            typeof agentModel === "string" ? agentModel : undefined,
+            typeof nextAgentOptions === "object" ? nextAgentOptions : undefined,
+        );
+    };
+    /**
+     * @param {import('../session/hosted-session.js').HostedSession | import('../ui/types.js').UiAPI | undefined} hostedSessionOrUiAPI
+     * @param {import('../ui/types.js').UiAPI} [uiAPIArg]
+     */
+    const applyCurrentPendingRootSwap = (hostedSessionOrUiAPI, uiAPIArg) => {
+        const hasExplicitSession = hostedSessionOrUiAPI && typeof hostedSessionOrUiAPI === "object" &&
+            typeof /** @type {any} */ (hostedSessionOrUiAPI).getPendingRootSwap === "function";
+        return applyPendingRootSwap(
+            hasExplicitSession
+                ? /** @type {import('../session/hosted-session.js').HostedSession} */ (hostedSessionOrUiAPI)
+                : hostedSession,
+            hasExplicitSession ? uiAPIArg : /** @type {import('../ui/types.js').UiAPI} */ (hostedSessionOrUiAPI),
+        );
+    };
+    /** @param {string} model @param {string} [provider] */
+    const setCurrentActiveModel = (model, provider) => setActiveModel(hostedSession, model, provider);
+
+    /**
+     * @param {import('../session/hosted-session.js').HostedSession} nextSession
+     */
+    function replaceHostedSession(nextSession) {
+        const previousHostedSession = hostedSession;
+        if (previousHostedSession !== nextSession) {
+            if (!sessionHost.disposeSession(previousHostedSession.id)) {
+                previousHostedSession.dispose();
+            }
+        }
+        hostedSession = nextSession;
+        hostedSession.setActiveUiAPI(uiAPI);
+        hostedSession.setEventSink(uiAPI);
+        hostedSession.setActiveOnMessage(createAgentHandler(AGENTS.ROUTER, { hostedSession }));
+        hostedSession.setPendingRootSwap(null);
+        hostedSession.setPendingSwitchHandoff(null);
+        pastedImages.length = 0;
+        previewImages.clear();
+        submissionQueue.length = 0;
+        clearSteeringState(steeringState);
+        steeringState.messageList = messageList;
+        steeringState.tui = tui;
+        steeringState.uiAPI = uiAPI;
+        editor.setText("");
+        tui.setFocus(editor);
+        tui.requestRender();
+    }
 
     // Install chat-session-specific UiAPI methods (setAgentInfo, enableInput,
     // showModelSelector, …) BEFORE building the first root session — buildAgentSession
     // calls uiAPI.setAgentInfo() to seed the footer with the agent's display name
     // and model, and that setter only exists once the overrides are installed.
-    installUiApiOverrides({ uiAPI, tui, editor, container, messageList, setActiveModel });
+    installUiApiOverrides({
+        uiAPI,
+        tui,
+        editor,
+        container,
+        messageList,
+        setActiveModel: setCurrentActiveModel,
+        getActiveModelState: () => hostedSession.getActiveModelState(),
+    });
 
     const modelWelcomeResult = await maybeShowModelWelcome({
         uiAPI,
         editor,
         tui,
+        hostedSession,
         sessionManager: rootSessionManager,
         ensureRootAgentSession,
         initialAgentInternalName,
@@ -890,6 +1063,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
     if (!modelWelcomeResult.shown) {
         try {
             await ensureRootAgentSession({
+                hostedSession,
                 agentName: initialAgentInternalName,
                 modelOverride: options.initialAgentModel,
                 uiAPI,
@@ -942,7 +1116,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
      * @returns {Promise<{ ok: true, warning?: string } | { ok: false, message: string }>}
      */
     async function preflightCurrentImages(images) {
-        const session = getRootAgentSession();
+        const session = /** @type {any} */ (hostedSession.getRootAgentSession());
         const activeModel = session?.model;
         let fallbackModelRef = undefined;
         if (images.length > 0 && !modelSupportsImageInput(activeModel)) {
@@ -963,7 +1137,11 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
      * @returns {Promise<import('../session/types.js').ImageAttachment | null>}
      */
     async function handleImagePaste(image) {
-        const persisted = await persistImageAttachment(image, rootSessionManager, Deno.cwd());
+        const persisted = await persistImageAttachment(
+            image,
+            /** @type {any} */ (hostedSession.getRootSessionManager()),
+            Deno.cwd(),
+        );
         const preflight = await preflightCurrentImages([persisted]);
         if (!preflight.ok) {
             uiAPI.appendSystemMessage(preflight.message);
@@ -992,7 +1170,9 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
                 // User accepted — run init and record success
                 await commandRegistry[COMMAND_NAMES.INIT].execute([], {
                     uiAPI,
-                    sessionManager: rootSessionManager || undefined,
+                    hostedSession,
+                    sessionHost,
+                    sessionManager: /** @type {any} */ (hostedSession.getRootSessionManager() || undefined),
                 });
                 // Dynamically hide /init from slash commands for the rest of this session
                 CHAT_BUILTIN_SLASH_NAMES.delete("init");
@@ -1201,53 +1381,19 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         // Generation gating
         const thisGen = generationGuard.bump();
 
-        let currentRequest = userRequest;
-        let currentImages = savedImages;
-        let isHandoff = false;
-        // Safety cap on chained return_to_router handoffs in a single user submission.
-        let handoffsLeft = 4;
-
-        uiAPI.appendUserMessage?.(currentRequest);
-        currentImages.forEach((/** @type {import('../session/types.js').ImageAttachment} */ img) => {
+        uiAPI.appendUserMessage?.(userRequest);
+        savedImages.forEach((/** @type {import('../session/types.js').ImageAttachment} */ img) => {
             if (uiAPI.appendImage) uiAPI.appendImage(img.base64, img.mimeType);
         });
 
         try {
-            while (true) {
-                // Apply any root swap queued before this turn (e.g. by a slash
-                // `/agent engineer` between turns, or by a return_to_router tool call
-                // in the previous iteration). Without this, the first turn after a
-                // switch would hit a transient fallback that still uses the previous
-                // agent's session history.
-                await applyPendingRootSwap(uiAPI);
-                const activeOnMessage = getActiveOnMessage();
-                const rootSessionManager = getRootSessionManager();
-                if (!activeOnMessage || !rootSessionManager) {
-                    uiAPI.appendSystemMessage("Error: No active agent handler or session manager.");
-                    break;
-                }
-                setActiveUiAPI(uiAPI);
-                if (isHandoff) {
-                    uiAPI.appendSystemMessage(currentRequest, false, "Handoff:");
-                }
-                await activeOnMessage(currentRequest, currentImages, uiAPI, rootSessionManager);
-
-                // If the agent called return_to_router, its turn was terminated and the
-                // tool recorded a handoff. Continue the loop: the next iteration
-                // applies the queued root swap and feeds `reason` as the new agent's
-                // first user message — making the chain visible and uninterrupted.
-                const handoff = consumePendingSwitchHandoff();
-                if (!handoff) break;
-                if (handoffsLeft-- <= 0) {
-                    uiAPI.appendSystemMessage(
-                        "return_to_router handoff limit reached — refusing further chained handoffs in this turn.",
-                    );
-                    break;
-                }
-                currentRequest = handoff.reason;
-                currentImages = [];
-                isHandoff = true;
-            }
+            await runScopedSubmitHandoffLoop({
+                hostedSession,
+                uiAPI,
+                initialRequest: userRequest,
+                initialImages: savedImages,
+                applyPendingRootSwapImpl: applyCurrentPendingRootSwap,
+            });
         } catch (err) {
             if (generationStillCurrent(thisGen)) {
                 uiAPI.appendSystemMessage(
@@ -1257,7 +1403,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         } finally {
             // Drain any pending root swap recorded during the last turn (covers the
             // case where the agent queued a swap but didn't call return_to_router).
-            await applyPendingRootSwap(uiAPI);
+            await applyCurrentPendingRootSwap(uiAPI);
         }
     }
 
@@ -1275,6 +1421,8 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         const handledSlash = await handleSlashCommand({
             userRequest,
             savedImages,
+            hostedSession,
+            sessionHost,
             uiAPI,
             editor,
             tui,
@@ -1285,9 +1433,11 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
             skills,
             chatPromptAgentName: CHAT_PROMPT_AGENT_NAME,
             resolveTemplateModel,
-            setActiveAgent,
-            applyPendingRootSwap,
+            setActiveAgent: setCurrentActiveAgent,
+            applyPendingRootSwap: applyCurrentPendingRootSwap,
             dispatchExpandedUserRequest: submitToActiveRoot,
+            setActiveModel: setCurrentActiveModel,
+            replaceHostedSession,
             generationGuard,
             registerOperationCancel: (cancel) => {
                 activeOperationCancel = cancel;
@@ -1347,7 +1497,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
                 uiAPI,
                 tui,
                 editor,
-                getSessionManager: getRootSessionManager,
+                getSessionManager: () => /** @type {any} */ (hostedSession.getRootSessionManager()),
                 generationGuard,
                 registerBashProc: (proc) => {
                     activeBashProc = proc;
@@ -1367,7 +1517,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
                 return;
             }
 
-            steerRootSessionWithTarget(userRequest, images).then((steeredSession) => {
+            steerRootSessionWithTarget(hostedSession, userRequest, images).then((steeredSession) => {
                 if (steeredSession) {
                     // Phase 1: Show "Steering:" system block immediately
                     const block = new SystemMessageBlock(userRequest, false, "Steering:");
@@ -1375,7 +1525,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
                     messageList.addChild(block);
                     messageList.addChild(spacer);
                     // Track for phase 2 transition when consumed by LLM
-                    trackPendingSteeringMessage(steeredSession, userRequest, images, block, spacer);
+                    trackPendingSteeringMessage(steeringState, steeredSession, userRequest, images, block, spacer);
                 } else {
                     // Add the visual block manually (bypassing appendSystemMessage's coalescing)
                     // so we can remove this exact block if the user dequeues with up-arrow.
@@ -1407,7 +1557,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
     const settingsManager = getSettingsManager();
     const savedThinkingLevel = settingsManager.getDefaultThinkingLevel();
     if (savedThinkingLevel) {
-        setThinkingLevel(savedThinkingLevel);
+        hostedSession.setThinkingLevel(savedThinkingLevel);
     }
 
     // Ordered thinking levels for cycling
@@ -1424,24 +1574,24 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
     /** Cycle the thinking level and persist to settings */
     async function cycleThinkingLevel() {
         // If an active agent session exists, delegate to it for model-aware cycling
-        const session = getRootAgentSession();
+        const session = /** @type {any} */ (hostedSession.getRootAgentSession());
         if (session) {
             const newLevel = session.cycleThinkingLevel();
             if (newLevel === undefined) {
                 uiAPI.appendSystemMessage("Current model does not support thinking");
                 return;
             }
-            setThinkingLevel(newLevel);
+            hostedSession.setThinkingLevel(newLevel);
             await persistThinkingLevel(newLevel);
             tui.requestRender();
             return;
         }
         // No active session: cycle through levels directly and persist
-        const current = getThinkingLevel();
+        const current = hostedSession.getThinkingLevel();
         const currentIdx = THINKING_LEVELS.indexOf(current);
         const nextIdx = (currentIdx + 1) % THINKING_LEVELS.length;
         const nextLevel = THINKING_LEVELS[nextIdx];
-        setThinkingLevel(nextLevel);
+        hostedSession.setThinkingLevel(nextLevel);
         await persistThinkingLevel(nextLevel);
         tui.requestRender();
     }
@@ -1466,14 +1616,15 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         toggleStartupHelp: () => setHelpExpanded(!helpExpanded),
         cycleThinkingLevel,
         handleImagePaste,
+        abortActiveSession: () => abortActiveSession(hostedSession),
         clearPendingSteeringMessages: () => {
-            pendingSteeringMessages.clear();
-            for (const unsubscribe of pendingSteeringUnsubs.values()) {
+            steeringState.pendingMessages.clear();
+            for (const unsubscribe of steeringState.pendingUnsubs.values()) {
                 unsubscribe();
             }
-            pendingSteeringUnsubs.clear();
+            steeringState.pendingUnsubs.clear();
             // Also flush any stale steering messages from the agent's queue
-            const session = getRootAgentSession();
+            const session = /** @type {any} */ (hostedSession.getRootAgentSession());
             if (session) {
                 try {
                     session.clearQueue();
@@ -1500,7 +1651,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
 
     // Hydrate TUI from persisted root-session history (e.g. --continue)
     // Keep this after startup system notices so those appear first.
-    restorePersistedMessagesToUi(rootSessionManager, uiAPI);
+    restorePersistedMessagesToUi(/** @type {any} */ (hostedSession.getRootSessionManager()), uiAPI, { hostedSession });
 
     // Trigger initial user request
     if (initialUserRequest) {

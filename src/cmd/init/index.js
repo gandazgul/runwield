@@ -21,6 +21,7 @@ import {
     ensureBundledAgentDefFile as ensureBundledAgentDefFileFn,
     runAgentSession as runAgentSessionFn,
 } from "../../shared/session/session.js";
+import { SessionHost } from "../../shared/session/session-host.js";
 import { printCommandHelp as printCommandHelpFn } from "../help/index.js";
 import {
     isInitDone as isInitDoneFn,
@@ -115,6 +116,14 @@ export async function runInitCommand(argv, options = {}) {
     // "init" identifier rather than the file's basename ("init-agent-prompt").
     const initAgentPath = await ensureBundledAgentDefFile(join("workflow-prompts", "init-agent-prompt.md"));
     const agentDef = await loadAgentDefFromPath(initAgentPath, { agentName: AGENTS.INIT });
+    const sessionHost = new SessionHost();
+    const hostedSession = options.hostedSession || sessionHost.createSession({
+        id: `init-${crypto.randomUUID()}`,
+        cwd: cwd(),
+        sessionManager: options.sessionManager || null,
+        uiAPI: options.uiAPI,
+        eventSink: options.uiAPI,
+    });
 
     await recordInitOffered();
 
@@ -124,10 +133,12 @@ export async function runInitCommand(argv, options = {}) {
     // session is built — no manual footer mutation needed here.
     try {
         await runAgentSession({
+            hostedSession,
             agentName: AGENTS.INIT,
             userRequest: "Initialize this project for RunWield. Follow the instructions in your system prompt.",
             uiAPI: options.uiAPI,
-            sessionManager: options.sessionManager,
+            sessionManager:
+                /** @type {any} */ (options.sessionManager || hostedSession.getRootSessionManager() || undefined),
             _agentDefOverride: agentDef,
             useRootSession: false,
         });

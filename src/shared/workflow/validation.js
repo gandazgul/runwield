@@ -8,11 +8,6 @@ import { dirname, fromFileUrl, join } from "@std/path";
 import { AGENTS, CWD } from "../../constants.js";
 import { getAgentDisplayName } from "../session/agents.js";
 import { ensureBundledAgentDefFile, runAgentSession } from "../session/session.js";
-import {
-    clearActiveExecutionWorkflow,
-    consumePendingSwitchHandoff,
-    getActiveExecutionWorkflow,
-} from "../session/session-state.js";
 import { getCodeReviewMode, getCustomSetting, setCustomSetting, shouldCleanupMergedWorktrees } from "../settings.js";
 import { extractAssistantOutput, readLatestTaskCompletedOutcome } from "./workflow.js";
 import { setActiveAgent } from "../interactive/chat-session.js";
@@ -173,6 +168,7 @@ export async function runLocalCI(uiAPI, cwd = CWD) {
  * @param {import('./workflow.js').UiAPI} args.uiAPI
  * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined} args.sessionManager
  * @param {string} [args.cwd]
+ * @param {import('../session/hosted-session.js').HostedSession} [args.hostedSession]
  * @param {typeof runAgentSession} [args.runAgentSession]
  * @param {typeof readLatestTaskCompletedOutcome} [args.readLatestTaskCompletedOutcome]
  * @returns {Promise<boolean>}
@@ -183,10 +179,12 @@ async function runCompletionGatedRepair({
     uiAPI,
     sessionManager,
     cwd,
+    hostedSession,
     runAgentSession: runAgentSessionImpl = runAgentSession,
     readLatestTaskCompletedOutcome: readTaskCompleted = readLatestTaskCompletedOutcome,
 }) {
     const messages = await runAgentSessionImpl({
+        hostedSession,
         agentName,
         userRequest,
         uiAPI,
@@ -194,7 +192,7 @@ async function runCompletionGatedRepair({
         cwd,
         useRootSession: true,
     });
-    consumePendingSwitchHandoff();
+    hostedSession?.consumePendingSwitchHandoff?.();
 
     return readTaskCompleted(messages);
 }
@@ -432,6 +430,7 @@ export function shouldRunWorkflowValidation(triageMeta) {
  * @param {Object} args
  * @param {import('./workflow.js').UiAPI} args.uiAPI
  * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined} args.sessionManager
+ * @param {import('../session/hosted-session.js').HostedSession} [args.hostedSession]
  * @param {string} [args.cwd]
  * @param {{
  *   runLocalCI?: typeof runLocalCI,
@@ -443,7 +442,7 @@ export function shouldRunWorkflowValidation(triageMeta) {
  * }} [args.__deps] Test-only injection point.
  * @returns {Promise<{ passed: boolean, attempts: number, reason?: string }>}
  */
-export async function runMechanicalValidation({ uiAPI, sessionManager, cwd = CWD, __deps }) {
+export async function runMechanicalValidation({ uiAPI, sessionManager, hostedSession, cwd = CWD, __deps }) {
     const runLocalCIImpl = __deps?.runLocalCI || runLocalCI;
     const runAgentSessionImpl = __deps?.runAgentSession || runAgentSession;
     const repair = __deps?.runCompletionGatedRepair ||
@@ -452,10 +451,16 @@ export async function runMechanicalValidation({ uiAPI, sessionManager, cwd = CWD
                 ...repairArgs,
                 runAgentSession: runAgentSessionImpl,
                 readLatestTaskCompletedOutcome: __deps?.readLatestTaskCompletedOutcome,
+                hostedSession,
             }));
     const setActiveAgentImpl = __deps?.setActiveAgent || setActiveAgent;
     const createAgentHandlerImpl = __deps?.createAgentHandler ||
         (await import("../session/agent-handler.js")).createAgentHandler;
+    /** @param {string} agentName */
+    const activateAgent = (agentName) => {
+        const handler = createAgentHandlerImpl(agentName, { hostedSession });
+        setActiveAgentImpl(hostedSession, agentName, handler, uiAPI);
+    };
     const maxRepairAttempts = 3;
     let repairAttempts = 0;
 
@@ -481,7 +486,7 @@ export async function runMechanicalValidation({ uiAPI, sessionManager, cwd = CWD
                 false,
                 SUCCESS_MESSAGE_STYLE,
             );
-            setActiveAgentImpl(AGENTS.ENGINEER, createAgentHandlerImpl(AGENTS.ENGINEER), uiAPI);
+            activateAgent(AGENTS.ENGINEER);
             return { passed: true, attempts: repairAttempts };
         }
 
@@ -489,7 +494,7 @@ export async function runMechanicalValidation({ uiAPI, sessionManager, cwd = CWD
             const reason =
                 `QUICK_FIX Mechanical Validation failed after ${maxRepairAttempts} Engineer repair attempts.`;
             appendRunWieldSystemMessage(uiAPI, reason, true);
-            setActiveAgentImpl(AGENTS.ENGINEER, createAgentHandlerImpl(AGENTS.ENGINEER), uiAPI);
+            activateAgent(AGENTS.ENGINEER);
             return { passed: false, attempts: repairAttempts, reason };
         }
 
@@ -510,13 +515,14 @@ export async function runMechanicalValidation({ uiAPI, sessionManager, cwd = CWD
             uiAPI,
             sessionManager,
             cwd,
+            hostedSession,
         });
         if (!completed) {
             const reason = `${
                 getAgentDisplayName(AGENTS.ENGINEER)
             } stopped without task_completed during QUICK_FIX repair.`;
             appendRunWieldSystemMessage(uiAPI, reason, true);
-            setActiveAgentImpl(AGENTS.ENGINEER, createAgentHandlerImpl(AGENTS.ENGINEER), uiAPI);
+            activateAgent(AGENTS.ENGINEER);
             return { passed: false, attempts: repairAttempts, reason };
         }
     }
@@ -531,6 +537,7 @@ export async function runMechanicalValidation({ uiAPI, sessionManager, cwd = CWD
  * @param {import('../../tools/plan-written.js').TriageMeta} args.triageMeta
  * @param {import('./workflow.js').UiAPI} args.uiAPI
  * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined} args.sessionManager
+ * @param {import('../session/hosted-session.js').HostedSession} [args.hostedSession]
  * @param {string | undefined} [args.finalAgentName] Agent to restore after router-started or direct workflows.
  * @param {{
  *   runLocalCI?: typeof runLocalCI,
@@ -557,6 +564,7 @@ export async function runValidationLoop({
     triageMeta,
     uiAPI,
     sessionManager,
+    hostedSession,
     finalAgentName,
     __deps,
 }) {
@@ -568,6 +576,7 @@ export async function runValidationLoop({
                 ...args,
                 runAgentSession: runAgentSessionImpl,
                 readLatestTaskCompletedOutcome: __deps?.readLatestTaskCompletedOutcome,
+                hostedSession,
             }));
     const getDiffText = __deps?.getDiffText || getGitDiffText;
     const recordPlanEventImpl = __deps?.recordPlanEvent || recordPlanEvent;
@@ -579,7 +588,7 @@ export async function runValidationLoop({
     const shouldCleanupMergedWorktreesImpl = __deps?.shouldCleanupMergedWorktrees || shouldCleanupMergedWorktrees;
     const getCodeReviewModeImpl = __deps?.getCodeReviewMode || getCodeReviewMode;
     const runPlannotatorCodeReviewImpl = __deps?.runPlannotatorCodeReview || runPlannotatorCodeReview;
-    const activeWorkflow = getActiveExecutionWorkflow();
+    const activeWorkflow = hostedSession?.getActiveExecutionWorkflow?.() || null;
     const baselineTree = activeWorkflow?.baselineTree;
     const projectRoot = activeWorkflow?.projectRoot || CWD;
     const executionCwd = activeWorkflow?.executionCwd || CWD;
@@ -587,7 +596,7 @@ export async function runValidationLoop({
     const worktreeBaseBranch = activeWorkflow?.worktreeBaseBranch;
     const worktreeId = activeWorkflow?.worktreeId;
     if (activeWorkflow) {
-        clearActiveExecutionWorkflow();
+        hostedSession?.clearActiveExecutionWorkflow();
     }
     const setActiveAgentImpl = __deps?.setActiveAgent || setActiveAgent;
     let executionComplete = false;
@@ -666,6 +675,7 @@ export async function runValidationLoop({
                 const reviewerAgentDef = await loadReviewerPromptImpl();
 
                 const sessionMessages = await runAgentSessionImpl({
+                    hostedSession,
                     agentName: AGENTS.REVIEWER,
                     userRequest: reviewPrompt,
                     uiAPI,
@@ -675,7 +685,7 @@ export async function runValidationLoop({
                     includeEditFallback: false,
                     useRootSession: false,
                 });
-                consumePendingSwitchHandoff();
+                hostedSession?.consumePendingSwitchHandoff?.();
 
                 reviewResponse = extractAssistantOutput(sessionMessages) || "";
             }
@@ -1034,6 +1044,7 @@ export async function runValidationLoop({
     if (finalAgentName) {
         const createAgentHandler = __deps?.createAgentHandler ||
             (await import("../session/agent-handler.js")).createAgentHandler;
-        setActiveAgentImpl(finalAgentName, createAgentHandler(finalAgentName), uiAPI);
+        const handler = createAgentHandler(finalAgentName, { hostedSession });
+        setActiveAgentImpl(hostedSession, finalAgentName, handler, uiAPI);
     }
 }

@@ -1,16 +1,15 @@
 import { assertEquals } from "@std/assert";
 import { estimateSessionContextTokens, runResumeCommand } from "./index.js";
-import { setRootAgentName, setRootAgentSession, setRootSessionManager } from "../../shared/session/session-state.js";
 import { AGENTS } from "../../constants.js";
+import { HostedSession } from "../../shared/session/hosted-session.js";
 
 /**
  * @typedef {{ title: string, options: Array<{ value: string, label: string }> }} PromptRecord
  */
 
-function resetRootState() {
-    setRootAgentSession(null);
-    setRootAgentName(null);
-    setRootSessionManager(null);
+/** @param {string} [id] */
+function makeHostedSession(id = `resume-command-${crypto.randomUUID()}`) {
+    return new HostedSession({ id, cwd: Deno.cwd() });
 }
 
 /**
@@ -75,12 +74,14 @@ function makeDeps({ sessionManager, compactSession, estimateTokens }) {
                 return sessionManager;
             },
         },
-        ensureRootAgentSession: (/** @type {{ agentName: string, sessionManager: any }} */ _opts) => {
+        ensureRootAgentSession: (
+            /** @type {{ hostedSession: HostedSession, agentName: string, sessionManager: any }} */ _opts,
+        ) => {
             agentNames.push(_opts.agentName);
             ensuredManagers.push(_opts.sessionManager);
             modelOverrides.push(/** @type {{ modelOverride?: string }} */ (_opts).modelOverride);
             if (compactSession) {
-                setRootAgentSession(compactSession);
+                _opts.hostedSession.setRootAgentSession(compactSession);
             }
             return Promise.resolve(compactSession || {});
         },
@@ -133,7 +134,7 @@ Deno.test("estimateSessionContextTokens counts hydrated context instead of compa
 });
 
 Deno.test("runResumeCommand does not offer compaction when hydrated context is below threshold", async () => {
-    resetRootState();
+    const hostedSession = makeHostedSession();
     /** @type {PromptRecord[]} */
     const prompts = [];
     /** @type {string[]} */
@@ -161,6 +162,7 @@ Deno.test("runResumeCommand does not offer compaction when hydrated context is b
         await runResumeCommand([], {
             uiAPI,
             editor,
+            hostedSession,
             __testDeps: harness.deps,
         });
 
@@ -174,12 +176,12 @@ Deno.test("runResumeCommand does not offer compaction when hydrated context is b
         assertEquals(clearCalls.length, 1);
         assertEquals(messages, ["Resumed session: session-id"]);
     } finally {
-        resetRootState();
+        hostedSession.dispose();
     }
 });
 
 Deno.test("runResumeCommand offers compaction for large context and resumes as-is when selected", async () => {
-    resetRootState();
+    const hostedSession = makeHostedSession();
     /** @type {PromptRecord[]} */
     const prompts = [];
     /** @type {string[]} */
@@ -202,6 +204,7 @@ Deno.test("runResumeCommand offers compaction for large context and resumes as-i
         await runResumeCommand([], {
             uiAPI,
             editor,
+            hostedSession,
             __testDeps: harness.deps,
         });
 
@@ -216,12 +219,12 @@ Deno.test("runResumeCommand offers compaction for large context and resumes as-i
         assertEquals(clearCalls.length, 1);
         assertEquals(messages, ["Resumed session: session-id"]);
     } finally {
-        resetRootState();
+        hostedSession.dispose();
     }
 });
 
 Deno.test("runResumeCommand resumes as-is when selected compaction fails", async () => {
-    resetRootState();
+    const hostedSession = makeHostedSession();
     /** @type {PromptRecord[]} */
     const prompts = [];
     /** @type {string[]} */
@@ -249,6 +252,7 @@ Deno.test("runResumeCommand resumes as-is when selected compaction fails", async
         await runResumeCommand([], {
             uiAPI,
             editor,
+            hostedSession,
             registerOperationCancel: () => {
                 registeredCancel = true;
             },
@@ -258,9 +262,9 @@ Deno.test("runResumeCommand resumes as-is when selected compaction fails", async
         assertEquals(registeredCancel, true);
         assertEquals(prompts.length, 2);
         assertEquals(harness.openCount, 1);
-        assertEquals(harness.ensuredManagers, [sessionManager, sessionManager]);
-        assertEquals(harness.agentNames, [AGENTS.PLANNER, AGENTS.PLANNER]);
-        assertEquals(harness.modelOverrides, ["test/resumed-model", "test/resumed-model"]);
+        assertEquals(harness.ensuredManagers, [sessionManager]);
+        assertEquals(harness.agentNames, [AGENTS.PLANNER]);
+        assertEquals(harness.modelOverrides, ["test/resumed-model"]);
         assertEquals(harness.hydrated, 1);
         assertEquals(clearCalls.length, 1);
         assertEquals(messages, [
@@ -268,12 +272,12 @@ Deno.test("runResumeCommand resumes as-is when selected compaction fails", async
             "Compaction failed: boom — resuming as-is...\nResumed session: session-id",
         ]);
     } finally {
-        resetRootState();
+        hostedSession.dispose();
     }
 });
 
 Deno.test("runResumeCommand shows compaction result after compacting and resuming", async () => {
-    resetRootState();
+    const hostedSession = makeHostedSession();
     /** @type {PromptRecord[]} */
     const prompts = [];
     /** @type {string[]} */
@@ -300,14 +304,15 @@ Deno.test("runResumeCommand shows compaction result after compacting and resumin
         await runResumeCommand([], {
             uiAPI,
             editor,
+            hostedSession,
             __testDeps: harness.deps,
         });
 
         assertEquals(prompts.length, 2);
         assertEquals(harness.openCount, 1);
-        assertEquals(harness.ensuredManagers, [sessionManager, sessionManager]);
-        assertEquals(harness.agentNames, [AGENTS.PLANNER, AGENTS.PLANNER]);
-        assertEquals(harness.modelOverrides, ["test/resumed-model", "test/resumed-model"]);
+        assertEquals(harness.ensuredManagers, [sessionManager]);
+        assertEquals(harness.agentNames, [AGENTS.PLANNER]);
+        assertEquals(harness.modelOverrides, ["test/resumed-model"]);
         assertEquals(harness.hydrated, 1);
         assertEquals(clearCalls.length, 1);
         assertEquals(messages, [
@@ -315,6 +320,6 @@ Deno.test("runResumeCommand shows compaction result after compacting and resumin
             "Compacted. Tokens before: 12,345\nResumed (compacted) session: session-id",
         ]);
     } finally {
-        resetRootState();
+        hostedSession.dispose();
     }
 });
