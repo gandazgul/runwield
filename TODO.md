@@ -6,6 +6,10 @@
       message.
 - [ ] when I use /agent the name of the agent is shown then the system message switched to agent, hide the agent name
       that replaces the multiselect. ![alt text](image.png)
+- [ ] fold the runwield system message plan declared into the tool call block so it doesnt look visually broken
+      ![alt text](image-1.png)
+- [ ] The commit message for worktrees is cutting the name of the plans it shouldn't e.g.
+      `* Complete session-host-multi-session-refactor/05-wo`
 
 ## Backlog
 
@@ -28,6 +32,24 @@
 - [ ] Refactor before broad test expansion: `src/shared/interactive/chat-session.js` and
       `src/shared/session/root-session.js` are the main candidates.
 - [ ] Add more focused tests after the refactor boundaries are clearer.
+
+- [ ] Implement Guided Reviews using plnnotator
+
+```markdown
+Large changesets are hard to review top-to-bottom in file order. A Guided Review has an agent organize the current
+changeset — any PR or local diff — into importance-ordered chapters: the heart of the change first, its consequences
+next, glue last. Each section pairs a prose overview and per-file summaries with the live diffs it covers, and those
+diffs are the real diff viewer — annotations made inside a guide land in the same review state and export in the same
+feedback as everywhere else.
+
+Open it with the Guide button in the review header or Mod+Shift+G, pick an engine and model, and generate. Sections
+track their own reviewed state so you can work through a big change across sittings. Guides run on Claude or Codex
+natively, and on Cursor, OpenCode, Pi, or GitHub Copilot CLI when installed. Every changed file is validated against the
+real diff server-side, so a guide can never invent files or drop them silently.
+
+A one-time intro dialog announces the feature on first open, and the Guide button carries a subtle hint until the first
+time you use it.
+```
 
 ### P2 - Extension and Package Ecosystem
 
