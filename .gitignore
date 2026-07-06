@@ -13,3 +13,5 @@ debug.log
 .wld/collaboration-secrets.json
 
 prototypes/
+
+src/shared/version.js
