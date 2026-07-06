@@ -1,263 +1,484 @@
 # Product Requirements Document (PRD): RunWield Core
 
-This document preserves the implementation-facing RunWield Core PRD. The root [PRD.md](../../PRD.md) describes the
-broader product architecture across RunWield Core and RunWield Workspace; this file remains the detailed source for
-local harness, TUI, routing, lifecycle, tooling, and validation requirements.
+This is the implementation-facing PRD for **RunWield Core**. The root [PRD.md](../../PRD.md) describes the broader
+product architecture across RunWield Core and RunWield Workspace; this file remains the detailed source for local
+harness, TUI, routing, lifecycle, tooling, validation, and core runtime requirements.
+
+RunWield Core is a living product surface. This PRD distinguishes current requirements from future/open requirements so
+aspirational work remains visible without confusing it with shipped behavior.
 
 ## 1. Vision & Strategy
 
-**RunWield Core** is an opinionated, developer-first coding harness designed for deep architectural alignment and token
-efficiency. It moves beyond "chat-and-hope" AI by enforcing a "Plan-by-Default" philosophy, utilizing persistent project
-memory, and treating the SDLC as a series of intentional gates.
+**RunWield Core** is an opinionated, local-first coding harness for AI-partnered software planning and execution. It
+moves beyond "chat-and-hope" AI by enforcing a Plan-by-Default philosophy, routing requests through specialized Agents,
+preserving project/session context, validating implementation work, and keeping durable Plan artifacts in the repo.
+
+Core is the free local engine behind the broader RunWield product:
+
+- local `wld` CLI
+- interactive TUI
+- local browser Workspace client
+- Plan lifecycle and validation workflows
+- local markdown Plans, PRDs, ADRs, and future Work Records
+- agent definitions, skills, tools, and model configuration
+- future Session Host / ACP runtime boundary for external clients
+
+Where RunWield's product vision does not require deliberate divergence, Core should remain compatible with
+`@earendil-works/pi-coding-agent` conventions, APIs, session behavior, model/provider configuration, and skill/tool
+ecosystem expectations. RunWield should diverge only where its planning, lifecycle, validation, memory, or Workspace
+goals require a distinct product surface.
 
 ## 2. Core Philosophies
 
-- **Plan-by-Default:** Most tasks start with structural planning rather than immediate code execution.
-- **Token Parsimony:** Minimize context pollution. Spend tokens upfront (indexing/init) to save them during every
-  subsequent turn.
-- **Architectural Intent:** Provide specialized agents (Architect, PM, Coder, etc.) that respect the project's "Gravity
-  Centers."
-- **Session Persistence:** Branching, tree-based session states that can span days, preserve the active agent, and
-  survive interruptions.
+- **Plan-by-Default:** Material work should become a reviewed Plan unless it is explicitly `OPERATION` or `QUICK_FIX`.
+- **Right ceremony for the request:** Router should distinguish inquiry, ideation, operation, quick fix, feature, and
+  project work so simple tasks are not over-planned and large work is not under-specified.
+- **Artifacts over vibes:** Plans, PRDs, ADRs, validation notes, and future Work Records are durable project memory.
+- **Session continuity:** Fresh sessions start with Router, but follow-up messages stay with the specialist Agent that
+  owns the current topic unless the user explicitly starts fresh or returns to Router.
+- **Tool-driven workflow:** Agents declare intent with custom tools; orchestration code decides lifecycle transitions,
+  execution, validation, and recovery.
+- **Local-first control:** Core must remain useful without the hosted Workspace.
+- **Context parsimony:** Prefer targeted project context, memory recall, code intelligence, and Plan artifacts over
+  dumping broad context into every prompt.
+- **Pi compatibility by default:** Stay compatible with Pi Coding Agent conventions where RunWield's product vision does
+  not intentionally require different behavior.
+- **Extensible but guarded:** Agent definitions, skills, prompt templates, and tools are customizable, but protected
+  workflow tools preserve Core invariants.
 
-## 3. Core Features & Functional Requirements
+## 3. Current Core Product Surface
 
-### 3.1 The TUI Shell & Agent Workflows
+### 3.1 TUI Shell and Root Agent Behavior
 
-The primary interface for RunWield Core is the TUI Shell. It acts as a universal host for interacting with different
-agents. By default, when the TUI opens, the user talks to the **Router** agent. The Router is not a special system
-wrapper; it is a peer agent (like the Architect, Planner, or Coder) that simply acts as the default triage point.
+The TUI is currently the primary interactive Core client. It starts a session, renders the conversation, hosts slash
+commands, and displays workflow/tool progress.
 
-**The Router (Adaptive Path Engine):** When active, the Router automatically triages incoming requests into one of three
-paths:
+New sessions start with the **Router** Agent. Router is not a special runtime mode; it is a normal Agent activated
+through the same Agent Handler as other Agents.
 
-- **Quick Fix:** Troubleshooting and rapid changes with no upfront decisions. Uses Debugger or Execution agents.
-- **Feature:** Requires upfront clarification and a structured executable plan. Child FEATURE plans can declare sibling
-  dependencies when they belong to an Epic.
-- **Project:** Epic-scale changes that are too large to execute directly. The **Architect Agent** performs deep
-  vertical-slice exploration and produces an Epic proposal; the Slicer decomposes approved Epics into child FEATURE
-  plans that execute independently.
+After Router hands off to Guide, Ideator, Operator, Planner, Architect, Engineer, or another specialist, that specialist
+remains the active root Agent. This keeps follow-up messages in useful context.
 
-**Dynamic Agent Switching:** Users can switch the active agent they are conversing with using slash commands (e.g.
-`/resume <plan>`). When `/resume` is invoked, the TUI drops the Router and connects the user directly to the Planner or
-Architect agent managing that specific plan. This works seamlessly whether the TUI was already running or if it was
-started via `wld resume <plan>`.
+Users can:
 
-#### Routing & Lifecycle Tools
+- use `/new` to start a fresh routed session
+- use `/agent router` to route the next message in the same session
+- use `/resume` for chat-session resume
+- use `/load-plan <plan>` for Plan workflow resume
 
-Routing and the planning lifecycle are driven by a small set of **declaration tools** plus a session-level orchestrator.
-Factory tools are auto-wired by the session runner and capture TUI/session context (`uiAPI`, `sessionManager`,
-`triageMeta`) at session-start time, so the same tool name is implemented by a different concrete instance per session.
-The agent declares intent by calling the tool; RunWield orchestration code decides what happens next.
+### 3.2 Routing Intents
 
-**`triage_report` (router-only)**
+Router emits one canonical **Routing Intent**:
 
-- **Owner:** the Router agent. The Router's only job is to explore narrowly, classify, and call this tool exactly once.
-- **Parameters:** `classification` (`QUICK_FIX | FEATURE | PROJECT`), `complexity` (`LOW | MEDIUM | HIGH`), `summary`,
-  `affectedPaths` (ordered vertical-slice).
-- **Behavior on `execute`:**
-  1. Emits the triage report to the TUI.
-  2. Stores the structured triage outcome in the tool result.
-  3. Terminates the Router turn so the session-level orchestrator can dispatch without extra Router prose.
-- **Post-tool orchestration:** after the Router turn ends, the orchestrator reads the latest `triage_report` outcome and
-  runs the downstream flow on the **same root session**:
-  - `QUICK_FIX` -> set active agent to Operator and run the Operator with the user request plus triage block.
-  - `FEATURE` -> set active agent to Planner, ensure `plans/`, and call the planning workflow.
-  - `PROJECT` -> set active agent to Architect for targeted deep exploration and Epic planning. After approval, the
-    readiness flow opens Slicer decomposition instead of executing the PROJECT directly.
-- After the downstream agent finishes, the active agent **stays** on the assigned Planner, Architect, or Operator. There
-  is no automatic restoration to Router; the user can `/agent router` explicitly to triage a new request.
-- **No parallel router/operator process model:** execution happens through the same root session manager. "Switching
-  agents" means rebinding the active agent name and message handler, while persisted active-agent markers allow
-  `/resume` to reopen the session with the correct specialist.
+- `INQUIRY`: read-mostly understanding work, answered by Guide.
+- `IDEATION`: strategic/product exploration and Socratic shaping, handled by Ideator.
+- `OPERATION`: direct non-code repository or environment operation, handled by Operator.
+- `QUICK_FIX`: bounded no-plan code implementation, handled by Engineer with Mechanical Validation only.
+- `FEATURE`: planned executable work, handled by Planner.
+- `PROJECT`: Epic-scale work, handled by Architect and Slicer.
 
-**`plan_written` (planner / architect)**
+Only `FEATURE` and `PROJECT` are Plan-producing classifications. Older `classification` values are treated as legacy
+compatibility input and normalized into `routingIntent`.
 
-- **Owner:** the Planner and Architect agents. It is auto-wired into any agent whose frontmatter `tools:` list contains
-  `plan_written` (currently planner.md and architect.md).
-- **Parameters:** `planName` (filename without `.md`).
-- **Behavior on `execute`:**
-  1. Validate that `plans/<planName>.md` exists; if not, return guidance text as the tool result so the agent writes the
-     file first and re-calls.
-  2. Resolve `triageMeta` (factory-captured value first, plan front matter as fallback).
-  3. Call `submitPlanForReview` (browser UI) and wait for the user's decision.
-     - **Approved:** record durable approval, run the classification-aware readiness gate, then ask save-vs-proceed. On
-       `proceed`, return an `approved_execute` outcome so the orchestrator can execute the plan after the planning agent
-       turn ends.
-     - **Feedback submitted:** return the user's feedback as the tool result so the agent revises the plan in the same
-       session and calls `plan_written` again.
-     - **Canceled:** return a "control returned to the user" tool result; the active agent stays on the planner so the
-       user can resume the conversation.
-     - **Readiness repair required:** if legacy project task slicing fails or produces invalid tasks, keep the plan
-       approved and return corrective feedback so the agent can retry the readiness step. PROJECT Epics instead route to
-       Slicer decomposition.
-- **Readiness Gate:** `FEATURE` plans promote from approved to executable without another LLM call. PROJECT Epics
-  promote to `ready_for_decomposition` and open the interactive Slicer; finalizing decomposition with child FEATURE
-  plans moves the Epic to `ready_for_work` for child selection. Legacy non-Epic PROJECT plans keep the task-table Slicer
-  compatibility path.
-- **Tool result `details.outcome`:** one of
-  `approved_execute | saved | feedback | canceled | repair_required | no_call`. Callers use
-  `readLatestPlanOutcome(messages)` to drive UI state -- for example, executing an approved plan, saving for later, or
-  keeping the planner mid-conversation for feedback.
-- **Free-form clarification questions are allowed.** If the planner needs clarification it cannot phrase via
-  `user_interview`, it stops without calling any tool. The session ends and control returns to the user; the planner
-  remains the active agent and the conversation continues on the user's next message. There is no "agent did not declare
-  a plan" hard error -- `plan_written` is the lifecycle trigger, not a session terminator.
+### 3.3 Router Tool: `triage_report`
 
-#### Plan Lifecycle, Validation, and Recovery
+`triage_report` is Router-owned and should be called exactly once after enough discovery to classify the request.
 
-Saved plans are governed by an event-driven lifecycle rather than direct status mutation. Workflow code records facts as
-Plan Events, and the Plan Lifecycle decides the durable status and front matter updates.
+Parameters:
 
-**Canonical statuses:**
+- `routingIntent`: one of the six canonical Routing Intents
+- `complexity`: `LOW | MEDIUM | HIGH`
+- `summary`: concise summary and rationale
+- `sessionName`: short human label for unnamed sessions
+- `affectedPaths`: ordered vertical-slice paths when relevant
 
-- `draft`: a plan exists but has not completed review.
-- `feedback`: the review loop returned user feedback, or the planning agent was interrupted while handling feedback.
-- `approved`: the user approved the plan, but readiness work may still be unfinished.
-- `ready_for_decomposition`: an approved PROJECT Epic is ready for Slicer decomposition, but is not executable.
-- `ready_for_work`: the only executable status for FEATURE and legacy non-Epic PROJECT plans; on PROJECT Epics, it means
-  child FEATURE selection is available.
-- `in_progress`: execution has started and may have partially changed the worktree.
-- `failed`: execution began but implementation did not finish.
-- `implemented`: implementation finished, but workflow validation has not passed.
-- `verified`: implementation and workflow validation both passed.
+Behavior:
 
-**Lifecycle gates:**
+1. Emits the Triage Report to the TUI.
+2. Stores the structured outcome in the tool result.
+3. Terminates the Router turn.
+4. The Agent Handler reads the tool outcome and dispatches through workflow orchestration.
 
-- **Review Gate:** Plannotator approval records `review_approved`; feedback records `review_feedback`.
-- **Readiness Gate:** approved `FEATURE` plans promote directly to `ready_for_work`; approved PROJECT Epics promote to
-  `ready_for_decomposition` and later to `ready_for_work` when the Slicer finalizes child FEATURE plans. Legacy non-Epic
-  PROJECT plans promote only after the Slicer produces a valid task table.
-- **Execution Gate:** execution can start only from `ready_for_work`, records `execution_started`, and captures an
-  `executionBaselineTree` for scoped diffs and recovery.
-- **Implementation Gate:** successful implementation records `implementation_finished` and moves the plan to
-  `implemented`.
-- **Workflow Validation Gate:** executable FEATURE and legacy non-Epic PROJECT plans run local validation plus semantic
-  review. Passing validation records `validation_passed` and moves the plan to `verified`; failing validation records
-  `validation_failed` while keeping the implementation state visible. PROJECT Epics are containers; their child FEATURE
-  plans validate independently.
+Post-triage dispatch:
 
-**Recovery:**
+- `INQUIRY` -> Guide
+- `IDEATION` -> Ideator
+- `OPERATION` -> Operator
+- `QUICK_FIX` -> Engineer, then no-plan Mechanical Validation after `task_completed`
+- `FEATURE` -> Planner and Plan workflow
+- `PROJECT` -> Architect and Epic Plan workflow, then Slicer after approval
 
-Loading an `in_progress`, `failed`, or `implemented` plan opens a recovery path rather than guessing what happened. The
-user can inspect the scoped diff, continue from the current worktree, reset to the captured execution baseline tree and
-retry, re-open the plan for review, or retry workflow validation when implementation already finished. Baseline-tree
-recovery restores the worktree snapshot captured at execution start and records the corresponding recovery event before
-execution resumes.
+After dispatch, the specialist remains the active root Agent.
 
-### 3.2 Advanced Memory & Indexing
+### 3.4 Plan Tool: `plan_written`
 
-- **Mnemosyne Integration:** (Active) A "Day Zero" memory system that gathers core memories, user preferences, and
-  project architecture during `init`. Supports global and project-scoped persistent memory with `core` tagging for
-  critical context.
-- **Memory Maintenance:** Includes a `sleep` command for memory cleanup, organization, and optimization using built-in
-  operator prompts.
-- **Hybrid Indexing:** Fast structural mapping using `ripgrep` and `Tree-sitter`, with semantic search powered by
-  `LanceDB`.
-- **Project Brief:** A highly compressed "DNA" summary injected into every prompt to maintain context without bloat.
+`plan_written` is owned by Planner and Architect. It declares that a Plan file exists and submits it to the review and
+readiness workflow.
 
-### 3.3 Dynamic Agent Specialization ("The Forge")
+Parameters:
 
-- **Base Agents:** Systems Architect, Planner, Ideator, Engineer, Security Reviewer, Operator.
-- **Customization:** Users can "plug in" skills to create specialized agents (e.g., "Playwright Engineer").
-- **Self-Evolution:** The agent must be capable of building its own specializations or extensions.
+- `planName`: filename without `.md`
 
-#### Agent Tool Policy
+Behavior:
 
-Every agent's capabilities are defined declaratively via a YAML frontmatter `tools` list in its agent definition file.
-Tools are resolved using a layered override system with a strict allowlist policy.
+1. Validate that `plans/<planName>.md` exists.
+2. Resolve effective triage metadata from captured context or Plan front matter.
+3. Submit the Plan for review.
+4. On approval, record approval and run the classification-aware Readiness Gate.
+5. Return a semantic outcome for orchestration.
 
-**Definition format:**
+Outcomes:
 
-```yaml
----
-name: router
-model: super-smart-9000
-description: "Triage agent that classifies user requests."
-tools:
-    - read
-    - grep
-      ...
----
+- `approved_execute`
+- `saved`
+- `feedback`
+- `canceled`
+- `repair_required`
+- `no_call`
 
-System prompt goes here. You can use the tools defined above to perform actions.
+Feedback remains in the same planning session so the planning Agent can revise and call `plan_written` again.
+
+### 3.5 Plan Lifecycle
+
+Saved Plans are governed by an event-driven lifecycle. Workflow code records Plan Events; the Plan Lifecycle module
+decides status and front matter mutations.
+
+Current statuses:
+
+- `draft`
+- `feedback`
+- `approved`
+- `ready_for_decomposition`
+- `ready_for_work`
+- `in_progress`
+- `failed`
+- `implemented`
+- `verified`
+- `closed_without_verification`
+- `on_hold`
+
+Current key events:
+
+- `review_feedback`
+- `review_approved`
+- `readiness_passed`
+- `epic_readiness_passed`
+- `decomposition_finalized`
+- `execution_started`
+- `execution_failed`
+- `implementation_finished`
+- `validation_failed`
+- `validation_passed`
+- `worktree_merge_failed`
+- `recovery_continue`
+- `recovery_reset`
+- `review_reopened`
+- `epic_done_enough`
+- `manual_status_change`
+- `manual_closed_without_verification`
+- `plan_held`
+- `hold_resumed`
+- `hold_reset_to_draft`
+
+Lifecycle requirements:
+
+- FEATURE Plans reach `ready_for_work` after approval and readiness.
+- PROJECT Epics reach `ready_for_decomposition` after approval.
+- Slicer finalization moves Epics to `ready_for_work` for child Plan selection.
+- PROJECT Epics are containers and are not directly executed as implementation work.
+- Child FEATURE Plans execute and validate independently.
+- FEATURE Plans reach `verified` only through Workflow Validation.
+- Epics may also reach `verified` through the existing `epic_done_enough` event.
+- `closed_without_verification` is a terminal manual closure outcome distinct from `verified`.
+- `on_hold` is paused-but-resumable and preserves held-from metadata.
+- Manual board movements must call lifecycle helpers rather than editing front matter directly.
+
+### 3.6 Execution, Worktrees, Validation, and Recovery
+
+Executable Plan work starts only from `ready_for_work`.
+
+Execution requirements:
+
+- create or reuse an isolated execution worktree
+- capture an `executionBaselineTree`
+- record `execution_started`
+- run Engineer against the approved Plan body
+- require Engineer `task_completed` before implementation is treated as finished
+- record `implementation_finished`
+
+Workflow Validation requirements:
+
+- run the configured local validation command
+- compute the workflow diff from the execution baseline
+- run semantic review against the approved Plan
+- optionally run human code review according to settings
+- run repair loops in the execution worktree when validation or review fails
+- merge validated work back into the primary checkout
+- record `validation_passed` only after validation and merge-back succeed
+- record `validation_failed` or `worktree_merge_failed` while preserving recoverable state
+
+QUICK_FIX work does not create a Plan and runs Mechanical Validation only.
+
+Recovery requirements:
+
+- loading `in_progress`, `failed`, or `implemented` Plans should open a recovery path
+- users can continue, reset to baseline, re-open for review, retry validation, or address merge-back failures
+- failed Plans leave recovery through dedicated recovery actions, not casual board movement
+
+## 4. Current Local Workspace Surface
+
+RunWield Core includes a local browser Workspace launched by:
+
+```bash
+wld plans ui
 ```
 
-**Layered override precedence (highest wins):**
+Current local Workspace requirements:
 
-1. **Local overrides:** `./.wld/agents/<agent>.md`
-2. **Home overrides:** `~/.wld/agents/<agent>.md`
-3. **Bundled defaults:** `src/agent-definitions/<agent>.md`
+- scoped to the current checkout
+- starts an ephemeral Fresh server
+- binds to `127.0.0.1` by default
+- uses a random token for non-public routes and state-changing requests
+- exposes board, detail, lifecycle-action, and body-save APIs
+- reads and writes canonical markdown Plans through Plan store and lifecycle APIs
+- preserves `plans/` as the source of truth
 
-Each layer that defines a `tools` list replaces the lower layer's tool set entirely. Prompt bodies append by default
-unless `promptOverride: true` is set.
+The local Workspace is a Core client, not the SaaS product. Broader Workspace and SaaS requirements live in
+[runwield-workspace-PRD.md](./runwield-workspace-PRD.md).
 
-**Protected tools:**
+## 5. Current Collaborative Planning Surface
 
-A core set of tools cannot be removed by any override. The protected set is computed per-agent as the intersection of:
+Core includes the beginning of encrypted collaborative Plan sharing.
 
-- That agent's bundled (`src/agent-definitions/`) frontmatter tools, and
-- The global `PROTECTED_TOOL_NAMES` list (exported from `src/tools/registry.js`).
+Current implemented surface:
 
-If a bundled agent declares a protected tool in its frontmatter, it cannot be removed by any override. If a bundled
-agent does not declare a protected tool, it is not granted to that agent.
+- `wld plans share <plan-name-or-id>`
+- generated Plan identity when needed
+- encrypted Plan payload
+- reviewer and maintainer bearer capabilities
+- local secret storage
+- remote-canonical collaboration metadata in Plan front matter
+- Shared Plan Lock that blocks normal local Plan writes while the Plan is remote-canonical
 
-**Final tool resolution:**
+Still incomplete collaboration surface:
 
-For each agent, effective tools = `merged_override_tools ∪ (bundled_tools ∩ PROTECTED_TOOL_NAMES)`.
+- `wld plans pull`
+- `wld plans push`
+- `wld plans unshare`
+- complete shared-review incorporation loop
+- hosted/self-hosted server hardening beyond the current remote adapter/protocol work
 
-This means:
+The full collaboration and Workspace story lives in [runwield-workspace-PRD.md](./runwield-workspace-PRD.md).
 
-- Overrides can add any tool (including user-installed extension tools).
-- Overrides can remove non-protected bundled tools (e.g., `bash`, `edit`, `write`).
-- Overrides cannot remove protected tools that were present in the bundled definition.
-- At runtime, `toolNames` overrides can narrow the tool set but cannot add tools outside the effective set.
-- At runtime, `customTools` (user-provided or extension tools) are always available when passed through the API.
+## 6. Memory, Context, and Code Intelligence
 
-**Example:**
+### 6.1 Current
 
-If bundled `router.md` declares `[read, grep, find, ls, bash, triage_report]` and a local override declares
-`tools: [read]`, the final tool set is:
+- **Mnemosyne:** project/global persistent memory for preferences, project facts, and critical context.
+- **Init:** `wld init` / `/init` explores the project, writes context, stores memories, and records initialization.
+- **Sleep:** `wld sleep` / `/sleep` runs memory and context cleanup prompts.
+- **Cymbal:** external semantic/structural code intelligence for search, symbol lookup, impact analysis, tracing, and
+  related code queries.
+- **Snip:** optional command-output filtering for compact diagnostics.
+- **Project context:** `CONTEXT.md`, memories, settings, and Plan files provide durable project knowledge.
 
-```yaml
-- read
-- triage_report # protected (was in bundled frontmatter and in protected list)
+### 6.2 Future / Open
+
+The older Core PRD described hybrid indexing with in-process Tree-sitter and LanceDB. Current Core instead leans on
+external Cymbal and command/search tools. Future indexing work should decide whether to:
+
+- continue with Cymbal as the primary code intelligence surface
+- add a local RunWield-owned structural index
+- add a RunWield-owned semantic index
+- retire the LanceDB/Tree-sitter language from Core PRDs if it no longer matches product direction
+
+## 7. Agent Definitions, Skills, and Tool Policy
+
+### 7.1 Agent Definitions
+
+Bundled Agents include:
+
+- Router
+- Guide
+- Ideator
+- Operator
+- Planner
+- Architect
+- Engineer
+- Tester
+- workflow-only Slicer
+- workflow-only Reviewer
+- init pseudo-Agent
+
+Agent definitions are markdown files with YAML front matter. Definitions are layered:
+
+1. local project overrides: `./.wld/agents/<agent>.md`
+2. home overrides: `~/.wld/agents/<agent>.md`
+3. bundled defaults: `src/agent-definitions/<agent>.md`
+
+Scalar front matter overrides by precedence. Prompt bodies append by default unless `promptOverride: true` is set.
+
+### 7.2 Tool Policy
+
+Every Agent's capabilities are defined by front matter `tools`.
+
+Protected tools cannot be removed by overrides when they are both:
+
+- present in the bundled Agent definition
+- listed in the global protected-tool policy
+
+Final effective tools:
+
+```text
+effective tools = merged override tools + protected bundled tools
 ```
 
-`bash`, `grep`, `find`, and `ls` are removed because they are not in the protected list.
+Runtime `toolNames` can narrow the effective set but cannot add outside it. Runtime `customTools` can be supplied
+explicitly by the host.
 
-### 3.4 Multi-Model Broker
+### 7.3 Skills
 
-- **Mapping:** Configuration-based mapping of LLMs to tasks based on Price/Skill ratio.
-- **Provider Support:** Support for Anthropic, OpenAI, Gemini, OpenCode Zen, Ollama, and LMStudio.
-- **Provider-Specific Prompts:** Ability to tweak system prompts per provider/agent combo for quality optimization.
+Core supports layered Skill discovery:
 
-### 3.5 Skills & Tools
+1. local project skills
+2. home skills
+3. bundled skills
+4. external-compatible skills
 
-- **Open Standard:** Support for the skill open standard (used by Claude Code/OpenCode).
-- **Layered Skill Discovery:** Load skills from local project, home, bundled, and external-compatible directories, with
-  slash-command expansion that injects the full skill instructions only when explicitly invoked.
-- **CLI Focus:** Favor CLI-based tools (e.g., `gh`, `glab`) over heavy MCP implementations.
-- **MCP Plugin:** MCP support remains an optional, non-default plugin to avoid context pollution.
+Slash-command skill invocation injects full Skill instructions only when needed.
 
-### 3.6 Safety & Guardrails
+### 7.4 Future / Open
 
-- **Git Awareness:** Mandatory check for a clean working tree. Offer to commit, stash, or bypass.
-- **Shell Safety:** Integration of OS-level guardrails (e.g., `rbash` principles) and regex blacklists for destructive
-  commands.
-- **Governance Agent:** Optional "Architecture Guardrail" skill to check diffs against `GUIDELINES.md`.
+The older "Forge" idea remains aspirational. Current Core supports customization and Skill loading; it does not yet
+provide a first-class product flow where Agents build and install their own specializations. Future work should either
+define that flow concretely or remove "self-evolution" from the Core product language.
 
-## 4. Technical Stack
+## 8. Models and Providers
 
-- **CLI Environment:** Deno (for security and native permissions).
-- **Frontend/Dashboard:** Potential Astro integration for visual plan reviews and Plannotator wrapping.
-- **Persistence:** SQLite/LanceDB for local indexing and Mnemosyne storage.
-- **Versioning & Recovery:** Capture git tree snapshots at execution start for scoped diffs, workflow validation, and
-  baseline-tree recovery, with Git Worktree isolation available for separating agent execution from the primary
-  workspace.
+Core uses RunWield-owned model/auth config built on Pi's provider system.
 
-## 5. Success Metrics
+Current requirements:
 
-- **Token Efficiency:** Reduction in average prompt context compared to competitors.
-- **Success Rate:** Percentage of tasks successfully executed without manual plan revision.
-- **Speed to First Plan:** Latency from prompt to the delivery of an actionable blueprint.
+- store RunWield model/auth config under RunWield-owned settings paths
+- migrate older Pi config once when useful
+- support user-selected model overrides
+- support Agent/default/provider model resolution rules
+- support OpenAI-compatible provider discovery through `/models`
+- support local/custom providers through `models.json`
+- support vision fallback configuration for pasted images when the active model is text-only
+
+Future/open requirements:
+
+- keep provider-specific prompt or temperature tuning only where it materially improves behavior
+- document realistic provider support in terms of current Pi/RunWield config rather than a static vendor checklist
+
+## 9. Safety and Guardrails
+
+### 9.1 Current
+
+Current safety is centered on:
+
+- Plan-by-default routing
+- protected workflow tools
+- Plan Lifecycle state machine
+- execution worktree isolation
+- baseline-tree recovery
+- local validation
+- semantic review
+- optional human code review
+- merge-back checks and repair loops
+- Shared Plan Lock for remote-canonical collaboration
+- token-protected local Workspace server
+
+### 9.2 Future / Open
+
+The older PRD described mandatory clean-working-tree checks, commit/stash/bypass prompts, shell blacklists, and
+`rbash`-style sandboxing. Future safety work should decide which of these are still desired and where they belong.
+
+Open questions:
+
+- Should Core require a clean primary checkout before every Plan execution, or is worktree isolation plus merge-risk
+  inspection enough?
+- Should dangerous shell command policy live in RunWield itself, in Pi, or in user/project instructions?
+- Should a Governance Agent or architecture guardrail become a first-class workflow, or remain a Skill/policy option?
+
+## 10. Session Host and External Integration
+
+### 10.1 Current
+
+Current interactive runtime still has a single process-global session state owner for:
+
+- active Agent
+- active model/thinking state
+- root Session Manager
+- root Agent Session
+- active UI API
+- pending root swap
+- pending return-to-router handoff
+- transient sub-Agent Sessions
+- active execution workflow
+- project-state context
+
+This is sufficient for the current TUI-oriented runtime, but it is not the target architecture for ACP, Workspace-driven
+sessions, or messaging transports.
+
+### 10.2 Future / Open
+
+The next major Core architecture goal is the multi-session **Session Host**, described in
+[runwield-acp-session-host-PRD.md](./runwield-acp-session-host-PRD.md).
+
+Requirements:
+
+- introduce a Session Host abstraction that owns one or more Hosted Sessions
+- move session-scoped state out of process-global `session-state.js`
+- make the TUI a client of one Hosted Session
+- support multiple independent Hosted Sessions in one process
+- expose create/load/prompt/cancel/observe semantics for non-TUI clients
+- make ACP the strategic external protocol
+- preserve existing TUI behavior while changing the runtime ownership boundary
+
+Session Host comes before ACP. ACP should expose RunWield behavior; it should not reach into TUI globals.
+
+## 11. Technical Stack
+
+Current:
+
+- **Language/runtime:** Deno, pure JavaScript, JSDoc types.
+- **CLI/TUI:** Deno CLI plus Pi/Pi-TUI runtime.
+- **Agent runtime:** `@earendil-works/pi-coding-agent`.
+- **Compatibility:** preserve Pi Coding Agent behavior and configuration compatibility where it does not conflict with
+  RunWield's planning/lifecycle product model.
+- **Local UI:** Fresh 2, Vite, Preact islands/signals, UnoCSS.
+- **Plan persistence:** repo-local markdown under `plans/`.
+- **RunWield settings/state:** `~/.wld/` and `.wld/` where appropriate.
+- **Memory:** Mnemosyne.
+- **Code intelligence:** Cymbal plus command/search tools.
+- **Execution isolation:** Git worktrees and `.wld/worktrees.json` runtime registry.
+- **Validation:** project-configured validation command, semantic review, optional human review, merge-back.
+- **Collaboration:** encrypted Shared Space protocol and local sharing command work in progress.
+
+Future/open:
+
+- Session Host and ACP runtime mode.
+- Work Records as first-class local markdown planning memory.
+- Complete shared Plan pull/push/unshare lifecycle.
+- Any RunWield-owned semantic index if Cymbal is not sufficient.
+
+## 12. Success Metrics
+
+Current Core metrics:
+
+- Router produces correct Routing Intent without excessive exploration.
+- Plans reach review quickly and with enough context for approval.
+- Approved FEATURE Plans reach `verified` after validation.
+- Recovery paths preserve enough state to continue safely after failed execution, validation, or merge-back.
+- QUICK_FIX runs remain bounded and validate mechanically without unnecessary Plan ceremony.
+- Local Workspace manages Plans without corrupting front matter or bypassing lifecycle rules.
+
+Future Core metrics:
+
+- TUI runs through Session Host with no intended behavior regression.
+- Multiple Hosted Sessions can run in one process without state bleed.
+- ACP clients can create/load/prompt/cancel sessions and observe workflow events.
+- Work Records are generated for verified planned work and improve future planning retrieval.
+- Shared Plan pull/push/unshare flows complete the remote-canonical collaboration loop.
