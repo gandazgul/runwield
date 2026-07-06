@@ -16,7 +16,7 @@ function makeUi() {
         messages,
         selections,
         prompts,
-        uiAPI: /** @type {import('../../shared/ui/types.js').UiAPI} */ ({
+        uiAPI: /** @type {import('../../ui/tui/types.js').UiAPI} */ ({
             appendSystemMessage: (msg) => messages.push(String(msg)),
             appendAgentMessageStart: () => ({ appendText: () => {} }),
             requestRender: () => {},
@@ -113,7 +113,7 @@ Deno.test("runLoadPlanCommand prints help", async () => {
 
 Deno.test("runLoadPlanCommand no-arg TUI menu excludes child plans and shows top-level summaries", async () => {
     const { uiAPI, selections, prompts, messages } = makeUi();
-    const editor = /** @type {import('../../shared/ui/types.js').EditorAPI} */ ({
+    const editor = /** @type {import('../../ui/tui/types.js').EditorAPI} */ ({
         disableSubmit: true,
         setText: () => {},
         setAutocompleteProvider: () => {},
@@ -174,7 +174,7 @@ Deno.test("runLoadPlanCommand no-arg TUI menu excludes child plans and shows top
 
 Deno.test("runLoadPlanCommand no-arg TUI menu sorts by status then name with on_hold last", async () => {
     const { uiAPI, selections, prompts } = makeUi();
-    const editor = /** @type {import('../../shared/ui/types.js').EditorAPI} */ ({
+    const editor = /** @type {import('../../ui/tui/types.js').EditorAPI} */ ({
         disableSubmit: true,
         setText: () => {},
         setAutocompleteProvider: () => {},
@@ -221,7 +221,7 @@ Deno.test("runLoadPlanCommand no-arg TUI menu sorts by status then name with on_
 
 Deno.test("runLoadPlanCommand no-arg TUI reports when only child plans exist", async () => {
     const { uiAPI, messages } = makeUi();
-    const editor = /** @type {import('../../shared/ui/types.js').EditorAPI} */ ({
+    const editor = /** @type {import('../../ui/tui/types.js').EditorAPI} */ ({
         disableSubmit: true,
         setText: () => {},
         setAutocompleteProvider: () => {},
@@ -254,7 +254,7 @@ Deno.test("runLoadPlanCommand no-arg TUI reports when only child plans exist", a
 
 Deno.test("runLoadPlanCommand empty plan list in TUI mode", async () => {
     const { uiAPI, messages } = makeUi();
-    const editor = /** @type {import('../../shared/ui/types.js').EditorAPI} */ ({
+    const editor = /** @type {import('../../ui/tui/types.js').EditorAPI} */ ({
         disableSubmit: true,
         setText: () => {},
         setAutocompleteProvider: () => {},

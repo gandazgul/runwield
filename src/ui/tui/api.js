@@ -1,5 +1,5 @@
 import { Spacer } from "@earendil-works/pi-tui";
-import { getSettingsManager } from "../settings.js";
+import { getSettingsManager } from "../../shared/settings.js";
 import {
     AgentMessageBlock,
     PromptSelectBlock,

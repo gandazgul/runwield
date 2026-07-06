@@ -23,7 +23,7 @@ function getDeps(options) {
 
 /**
  * @param {import('../../cmd/registry.js').CommandContext} options
- * @returns {import('../../shared/ui/types.js').UiAPI | undefined}
+ * @returns {import('../../ui/tui/types.js').UiAPI | undefined}
  */
 function getUi(options) {
     return options.uiAPI;
@@ -97,7 +97,7 @@ function parseAuthType(value) {
 }
 
 /**
- * @param {import('../../shared/ui/types.js').UiAPI} uiAPI
+ * @param {import('../../ui/tui/types.js').UiAPI} uiAPI
  * @returns {Promise<"oauth" | "api_key" | null>}
  */
 async function promptForAuthType(uiAPI) {
@@ -109,7 +109,7 @@ async function promptForAuthType(uiAPI) {
 }
 
 /**
- * @param {import('../../shared/ui/types.js').UiAPI} uiAPI
+ * @param {import('../../ui/tui/types.js').UiAPI} uiAPI
  * @param {Array<{ id: string, name: string, authType: "oauth" | "api_key" }>} providers
  * @param {"login" | "logout"} mode
  * @returns {Promise<{ id: string, name: string, authType: "oauth" | "api_key" } | null>}
@@ -127,7 +127,7 @@ async function promptForProvider(uiAPI, providers, mode) {
 }
 
 /**
- * @param {import('../../shared/ui/types.js').UiAPI} uiAPI
+ * @param {import('../../ui/tui/types.js').UiAPI} uiAPI
  * @param {{ id: string, name: string }} provider
  * @param {{ authStorage: { login: (providerId: string, callbacks: any) => Promise<void> } }} registry
  */
@@ -179,7 +179,7 @@ async function loginWithSubscription(uiAPI, provider, registry) {
 }
 
 /**
- * @param {import('../../shared/ui/types.js').UiAPI} uiAPI
+ * @param {import('../../ui/tui/types.js').UiAPI} uiAPI
  * @param {{ id: string, name: string }} provider
  * @param {{ authStorage: { set: (providerId: string, credential: { type: "api_key", key: string }) => void } }} registry
  */

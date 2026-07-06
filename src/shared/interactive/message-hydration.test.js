@@ -1,6 +1,6 @@
 import { assertEquals } from "@std/assert";
-import { ToolExecutionBlock } from "../ui/blocks.js";
-import { initRunWieldTheme } from "../ui/theme.js";
+import { ToolExecutionBlock } from "../../ui/tui/blocks.js";
+import { initRunWieldTheme } from "../../ui/theme/theme.js";
 import { restorePersistedMessagesToUi } from "./message-hydration.js";
 
 initRunWieldTheme();
@@ -28,7 +28,7 @@ function makeUi() {
     /** @type {string[]} */
     const agentLabels = [];
 
-    const uiAPI = /** @type {import('../ui/types.js').UiAPI} */ ({
+    const uiAPI = /** @type {import('../../ui/tui/types.js').UiAPI} */ ({
         appendSystemMessage: (text) => systemMessages.push(text),
         appendAgentMessageStart: (label) => {
             agentLabels.push(label);

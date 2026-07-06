@@ -3,7 +3,7 @@
  * Implementation of the theme selection command.
  */
 
-import { discoverAndRegisterThemes, getAvailableThemes, setTheme } from "../../shared/ui/theme.js";
+import { discoverAndRegisterThemes, getAvailableThemes, setTheme } from "../../ui/theme/theme.js";
 import { getSettingsManager } from "../../shared/settings.js";
 import { COMMAND_NAMES } from "../registry.js";
 import { printCommandHelp as printCommandHelpFn } from "../help/index.js";

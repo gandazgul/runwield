@@ -4,7 +4,7 @@
  */
 
 import { estimateTokens, findCutPoint } from "@earendil-works/pi-coding-agent";
-import { theme } from "../../shared/ui/theme.js";
+import { theme } from "../../ui/theme/theme.js";
 
 // Minimum tokens that must fall outside the keep-recent window for compaction to
 // produce a useful summary. Below this, the LLM is handed too little context and

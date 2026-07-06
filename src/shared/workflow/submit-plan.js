@@ -90,7 +90,7 @@ export function cancelActivePlanReview(hostedSession) {
  * @param {string} opts.planName - Plan filename (without .md)
  * @param {string} opts.planPath - Absolute path to the plan .md file
  * @param {Partial<import('../../plan-store.js').PlanFrontMatter>} [opts.triageMeta] - Triage metadata to ensure in front matter
- * @param {import('../ui/types.js').UiAPI} opts.uiAPI - UI API for output
+ * @param {import('../../ui/tui/types.js').UiAPI} opts.uiAPI - UI API for output
  * @param {import('../session/hosted-session.js').HostedSession} opts.hostedSession
  * @param {{
  *   startPlanReviewServer?: typeof startPlanReviewServer,

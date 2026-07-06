@@ -10,7 +10,7 @@ import { dirname, join } from "@std/path";
 import { AGENTS, MAX_PARALLEL_TASKS } from "../../constants.js";
 import { runAgentSession } from "../session/session.js";
 import { getAgentDisplayName } from "../session/agents.js";
-import { createFooterOnlyUiApi } from "../ui/api.js";
+import { createFooterOnlyUiApi } from "../../ui/tui/api.js";
 import { selectNonConflictingTasks } from "./task-scheduling.js";
 import { extractAssistantOutput, readLatestTaskCompletedOutcome } from "./workflow-results.js";
 import { buildTaskAssignmentRequest, buildTaskResultDisplay } from "./workflow-prompts.js";
@@ -91,7 +91,7 @@ function formatAgentTranscript(messages) {
  * @param {string} planName
  * @param {string} planBody
  * @param {Array<{ task: number, assignee: string, dependencies: string, description: string, writeScope?: string }>} tasks
- * @param {import('../ui/types.js').UiAPI} uiAPI
+ * @param {import('../../ui/tui/types.js').UiAPI} uiAPI
  * @param {number[]} [seedFailedTasks]
  * @param {(runningTasks: Array<{task: number, assignee: string, description: string}>) => void} [onRunningTasksChange]
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [sessionManager]

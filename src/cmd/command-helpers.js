@@ -3,9 +3,9 @@
  */
 
 /**
- * @param {import('../shared/ui/types.js').EditorAPI | undefined} editor
- * @param {import('../shared/ui/types.js').UiAPI | undefined} uiAPI
- * @param {import('../shared/ui/types.js').TuiAPI | undefined} tui
+ * @param {import('../ui/tui/types.js').EditorAPI | undefined} editor
+ * @param {import('../ui/tui/types.js').UiAPI | undefined} uiAPI
+ * @param {import('../ui/tui/types.js').TuiAPI | undefined} tui
  */
 export function resetTuiState(editor, uiAPI, tui) {
     if (editor) editor.disableSubmit = false;

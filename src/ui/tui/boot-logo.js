@@ -1,5 +1,5 @@
 /**
- * @module shared/ui/boot-logo
+ * @module ui/tui/boot-logo
  *
  * Renders the RunWield boot banner with a block W logo centered on screen.
  * The logo is tinted with the theme's "teal" color. The square on the
@@ -9,7 +9,7 @@
 
 import { Spacer, Text } from "@earendil-works/pi-tui";
 import { getTUI } from "./tui.js";
-import { theme } from "./theme.js";
+import { theme } from "../theme/theme.js";
 
 const logo = [
     "▓▓▓▓▓▓▓▓▓▓                            ▓▓▓▓▓▓▓▓▓▓",

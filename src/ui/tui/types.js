@@ -1,5 +1,5 @@
 /**
- * @module shared/ui/types
+ * @module ui/tui/types
  */
 
 /**

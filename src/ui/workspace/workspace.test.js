@@ -437,7 +437,7 @@ Deno.test("renderRunWieldThemeCss maps agent theme tokens to workspace CSS varia
 
 Deno.test("renderRunWieldThemeCss renders bundled Catppuccin Mocha export colors", async () => {
     const themeJson = JSON.parse(
-        await Deno.readTextFile(new URL("../../shared/ui/catppuccin-mocha.json", import.meta.url)),
+        await Deno.readTextFile(new URL("../theme/catppuccin-mocha.json", import.meta.url)),
     );
     const css = renderRunWieldThemeCss(themeJson);
 

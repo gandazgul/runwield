@@ -2,7 +2,7 @@ import { assertEquals } from "@std/assert";
 import { Spacer } from "@earendil-works/pi-tui";
 import { createFooterOnlyUiApi, createSilentUiApi, createUiApi } from "./api.js";
 import { SpinnerBlock } from "./blocks.js";
-import { initRunWieldTheme } from "./theme.js";
+import { initRunWieldTheme } from "../theme/theme.js";
 
 initRunWieldTheme();
 

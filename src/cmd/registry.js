@@ -73,18 +73,18 @@ const bin = (...parts) => [CLI_BIN, ...parts].join(" ");
 
 /**
  * @typedef {Object} CommandContext
- * @property {import('../shared/ui/types.js').UiAPI} [uiAPI]
- * @property {import('../shared/ui/types.js').EditorAPI} [editor]
+ * @property {import('../ui/tui/types.js').UiAPI} [uiAPI]
+ * @property {import('../ui/tui/types.js').EditorAPI} [editor]
  * @property {import('../shared/session/hosted-session.js').HostedSession} [hostedSession]
  * @property {import('../shared/session/session-host.js').SessionHost} [sessionHost]
  * @property {import('../shared/session/types.js').SessionManagerLike} [sessionManager]
  * @property {string} [sessionStartedAt]
- * @property {import('../shared/ui/types.js').TuiAPI} [tui]
+ * @property {import('../ui/tui/types.js').TuiAPI} [tui]
  * @property {(data: string) => void | Promise<void>} [originalHandleInput]
  * @property {"new" | "continue"} [sessionStartMode]
  * @property {(cancel: (() => void) | null) => void} [registerOperationCancel]  Set by the slash dispatcher; lets a long-running command install its own Esc handler.
- * @property {(hostedSession: import('../shared/session/hosted-session.js').HostedSession | undefined, agentName: string, handler: import('../shared/session/types.js').AgentMessageHandler, uiAPI?: import('../shared/ui/types.js').UiAPI, agentModel?: string, options?: { allowReturnToRouter?: boolean }) => void} [setActiveAgent]
- * @property {(hostedSession: import('../shared/session/hosted-session.js').HostedSession | undefined, uiAPI: import('../shared/ui/types.js').UiAPI) => Promise<void>} [applyPendingRootSwap]
+ * @property {(hostedSession: import('../shared/session/hosted-session.js').HostedSession | undefined, agentName: string, handler: import('../shared/session/types.js').AgentMessageHandler, uiAPI?: import('../ui/tui/types.js').UiAPI, agentModel?: string, options?: { allowReturnToRouter?: boolean }) => void} [setActiveAgent]
+ * @property {(hostedSession: import('../shared/session/hosted-session.js').HostedSession | undefined, uiAPI: import('../ui/tui/types.js').UiAPI) => Promise<void>} [applyPendingRootSwap]
  * @property {(model: string, provider?: string) => Promise<void> | void} [setActiveModel]
  * @property {(nextSession: import('../shared/session/hosted-session.js').HostedSession) => void} [replaceHostedSession]
  * @property {Record<string, unknown>} [__testDeps]

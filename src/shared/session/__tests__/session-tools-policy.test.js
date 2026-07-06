@@ -169,7 +169,7 @@ Deno.test("buildAgentSession auto-wires return_to_router to the target HostedSes
 
         const targetHostedSession = new HostedSession({ id: "target-session", cwd: CWD });
         const otherHostedSession = new HostedSession({ id: "other-session", cwd: CWD });
-        const uiAPI = /** @type {import('../../ui/types.js').UiAPI} */ ({
+        const uiAPI = /** @type {import('../../../ui/tui/types.js').UiAPI} */ ({
             appendSystemMessage: () => {},
             appendAgentMessageStart: () => ({ appendText: () => {} }),
             promptSelect: () => Promise.resolve(null),
@@ -230,7 +230,7 @@ Deno.test("buildAgentSession wires task_completed with agent displayName", async
     /** @type {Array<{ agentName: string, text: string }>} */
     const rendered = [];
     const debugLogPath = await Deno.makeTempFile({ prefix: "runwield-session-debug-test-", suffix: ".log" });
-    const uiAPI = /** @type {import('../../ui/types.js').UiAPI} */ ({
+    const uiAPI = /** @type {import('../../../ui/tui/types.js').UiAPI} */ ({
         appendSystemMessage: () => {},
         appendAgentMessageStart: (agentName) => ({
             appendText: (text) => rendered.push({ agentName, text }),
