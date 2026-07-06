@@ -6,7 +6,8 @@ description: Generates a concise commit message, stages changes, and pushes to t
 
 Generate a concise, informative commit message and commit the current pending changes in the repo staged or not, even
 unrelated to your current context. If the changes seem very different and unrelated then feel free to make several
-commits instead of one.
+commits instead of one. If the changes are all docs or plans merge them together with a headline and a list of all the
+docs changed dont make 1 commit per plan.
 
 **Execution Steps:**
 
