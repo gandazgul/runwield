@@ -37,13 +37,6 @@ const CHILD_DESCRIPTOR_SCHEMA = Type.Object({
     devServerHmr: Type.Optional(Type.Boolean({
         description: "Whether the dev server is expected to support hot module reload.",
     })),
-    worktreeBaseBranch: Type.Optional(Type.Union([
-        Type.String(),
-        Type.Null(),
-    ], {
-        description:
-            "Target execution branch. Omit to inherit the parent Epic target; use null in JSON if deliberately clearing is required.",
-    })),
     content: Type.String({ description: "Complete child FEATURE plan markdown body without YAML front matter." }),
 });
 
@@ -54,23 +47,12 @@ const CHILD_DESCRIPTOR_SCHEMA = Type.Object({
  * @param {string} opts.cwd - Project root.
  * @param {string} opts.epicPlanName - Parent Epic plan name.
  * @param {import('../../plan-store.js').ChildFeaturePlanDescriptor[]} opts.children
- * @param {{ saveChildFeaturePlans?: typeof saveChildFeaturePlans, loadPlan?: typeof loadPlan }} [opts.__deps] - Test-only injection point.
+ * @param {{ saveChildFeaturePlans?: typeof saveChildFeaturePlans }} [opts.__deps] - Test-only injection point.
  * @returns {ReturnType<typeof saveChildFeaturePlans>}
  */
 export async function materializeSlicerDraft({ cwd, epicPlanName, children, __deps }) {
     const saveChildren = __deps?.saveChildFeaturePlans || saveChildFeaturePlans;
-    const loadParent = __deps?.loadPlan || loadPlan;
-    const parent = await loadParent(cwd, epicPlanName);
-    const parentTarget = typeof parent?.attrs?.worktreeBaseBranch === "string"
-        ? parent.attrs.worktreeBaseBranch.trim()
-        : "";
-    const inheritedChildren = parentTarget
-        ? children.map((child) => {
-            if (Object.hasOwn(child, "worktreeBaseBranch")) return child;
-            return { ...child, worktreeBaseBranch: parentTarget };
-        })
-        : children;
-    return await saveChildren(cwd, epicPlanName, inheritedChildren);
+    return await saveChildren(cwd, epicPlanName, children);
 }
 
 /**

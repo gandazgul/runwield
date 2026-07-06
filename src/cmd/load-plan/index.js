@@ -210,7 +210,6 @@ function buildPlanSummary(plan) {
         `Status:         ${a.status}`,
         `Summary:        ${a.summary || "(none)"}`,
     ];
-    if (a.worktreeBaseBranch) lines.push(`Target branch: ${a.worktreeBaseBranch}`);
     if (a.affectedPaths?.length) {
         lines.push(`Affected paths:`);
         for (const p of a.affectedPaths) lines.push(`  - ${p}`);
@@ -1126,14 +1125,6 @@ function hasWorktreeContext(context) {
 }
 
 /**
- * @param {string | undefined} baseBranch
- * @returns {string}
- */
-function formatRecoveryTargetBranch(baseBranch) {
-    return baseBranch || "(unknown; legacy current-checkout fallback)";
-}
-
-/**
  * Manual merge recovery is only safe after Workflow Validation has already
  * passed and the automatic merge-back failed.
  *
@@ -1205,7 +1196,7 @@ async function appendRecoveryReport(plan, uiAPI, getWorkflowDiff, worktreeContex
                 `Worktree status: ${worktreeContext?.status || "unknown"}`,
                 `Worktree path:   ${worktreeContext?.path || "(unknown)"}`,
                 `Worktree branch: ${worktreeContext?.branch || "(unknown)"}`,
-                `Worktree target: ${formatRecoveryTargetBranch(worktreeContext?.baseBranch)}`,
+                `Worktree target: ${worktreeContext?.baseBranch || "(unknown)"}`,
                 `Worktree base:   ${worktreeContext?.baseCommit || worktreeContext?.baseRef || "(unknown)"}`,
             ].join("\n"),
         );
@@ -1540,13 +1531,6 @@ async function handlePlanRecovery({
                     await updateWorktreeRegistryEntry(CWD, worktreeContext.id, { status: "abandoned" });
                 }
                 const recreateBaseBranch = worktreeContext?.baseBranch;
-                uiAPI.appendSystemMessage(
-                    `Recreating worktree from ${recreateBaseRef} targeting ${
-                        formatRecoveryTargetBranch(recreateBaseBranch)
-                    }.`,
-                    false,
-                    "RunWield",
-                );
                 const recreated = await createExecutionWorktree({
                     projectRoot: CWD,
                     planName: plan.planName,
@@ -1677,13 +1661,7 @@ async function handlePlanRecovery({
                     currentStatus: "implemented",
                     details: { triageMeta: plan.attrs, worktreeStatus: "merged", cleanupMergedWorktrees },
                 });
-                uiAPI.appendSystemMessage(
-                    `Worktree changes merged into ${
-                        formatRecoveryTargetBranch(worktreeContext.baseBranch)
-                    } and plan marked verified.`,
-                    false,
-                    "RunWield",
-                );
+                uiAPI.appendSystemMessage("Worktree changes merged and plan marked verified.", false, "RunWield");
             } catch (error) {
                 const reason = error instanceof Error ? error.message : String(error);
                 uiAPI.appendSystemMessage(`Worktree merge failed: ${reason}`, true, "RunWield");
@@ -2339,9 +2317,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
         const plan = await resolvePlan(CWD, planArg);
         uiAPI.appendSystemMessage(`Plan loaded: ${plan.planName}`, false, "RunWield");
         uiAPI.appendSystemMessage(
-            `Classification: ${plan.attrs.classification}, Status: ${plan.attrs.status}${
-                plan.attrs.worktreeBaseBranch ? `, Target branch: ${plan.attrs.worktreeBaseBranch}` : ""
-            }`,
+            `Classification: ${plan.attrs.classification}, Status: ${plan.attrs.status}`,
             false,
             "RunWield",
         );

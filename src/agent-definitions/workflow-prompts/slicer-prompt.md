@@ -107,8 +107,6 @@ Each child descriptor must include:
 - `devServerUrl` — the local URL to open if discoverable; omit when unknown.
 - `devServerHmr` — `true` when the dev server is expected to support hot module reload, `false` only when you know it
   does not.
-- `worktreeBaseBranch` — target execution branch. Omit to inherit the parent Epic target branch; include a string only
-  when the child explicitly overrides the parent target because the user or plan review said so.
 - `content` — complete planner-format FEATURE plan markdown body with implementation steps and verification plan.
 
 Draft child plans should be useful to an Engineer as standalone FEATURE requests. They must have
