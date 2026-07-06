@@ -35,10 +35,14 @@ bundled skills, Snip filters, workspace CSS, and theme JSON. Deno 2.9 adds two r
 - Experimental `--bundle` runs the entrypoint through Deno's bundler first, avoiding the default behavior of embedding
   the entire resolved `node_modules` tree. `--minify` can further shrink the embedded bundle.
 
-The repository is already on Deno 2.9.1 locally. The main risks are compile-bundle compatibility with dynamic
-imports/package asset reads and preserving the runtime-readable path behavior used by bundled agent definitions and
-skills. Bundled skills and agent definitions are currently copied out of the compile virtual filesystem to
-`~/.wld/bundled-skills` and `~/.wld/bundled-agent-definitions` so external tools can read them by absolute path.
+The repository is already on Deno 2.9.1 locally. Discovery note: the installed `deno compile --help` exposes `--bundle`,
+`--minify`, `--app-name`, and `--exclude-unused-npm`, but did not expose `--include-as-is` despite the Deno 2.9
+blog/docs mentioning it. The implementation should detect support for `--include-as-is` and fall back to `--include`
+with an explanatory warning until the local/CI Deno version supports the flag. The main risks are compile-bundle
+compatibility with dynamic imports/package asset reads and preserving the runtime-readable path behavior used by bundled
+agent definitions and skills. Bundled skills and agent definitions are currently copied out of the compile virtual
+filesystem to `~/.wld/bundled-skills` and `~/.wld/bundled-agent-definitions` so external tools can read them by absolute
+path.
 
 ## Objective
 
@@ -55,8 +59,10 @@ features while preserving these behaviors:
 
 ## Approach
 
-Use `--bundle --minify` for smaller artifacts, convert static resource includes from `--include` to `--include-as-is`,
-and make bundled resource resolution explicit enough that source runs and compiled runs use the same path expectations.
+Use `--bundle --minify` for smaller artifacts, prefer `--include-as-is` for static resources when the active Deno CLI
+supports it, fall back to `--include` when it does not, and make bundled resource resolution explicit enough that source
+runs and compiled runs use the same path expectations. Keep the fallback visible in compile output so a future Deno
+upgrade can switch to the verbatim include path automatically.
 
 The preferred implementation is not to enable `--self-extracting` globally. RunWield only needs real on-disk paths for
 resources that external tools read directly, and the existing extraction cache pattern already handles bundled skills
@@ -65,8 +71,9 @@ and agent definitions. Internal resources can continue to be read from Deno's co
 
 Because `--bundle` can omit untraced `node_modules` assets, explicitly account for any package asset that RunWield reads
 by filesystem path. The known case is `node_modules/@gandazgul/plannotator-pi-extension-compiled/review-editor.html` in
-`src/shared/workflow/code-review.js`; either include it with `--include-as-is` or switch the code to a compile-safe
-exported asset if the package exposes one.
+`src/shared/workflow/code-review.js`. The installed package exports `./assets`, but discovery showed that export only
+contains `plannotatorHtml`; it does not expose `review-editor.html`, so the practical near-term path is an explicit
+compile include for that HTML file unless the dependency is upgraded.
 
 ## Files to Modify
 
