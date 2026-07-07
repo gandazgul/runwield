@@ -16,6 +16,7 @@ devServerHmr: true
 createdAt: "2026-07-07T13:30:52-04:00"
 updatedAt: "2026-07-07T18:01:43.377Z"
 status: "ready_for_work"
+worktreeBaseBranch: "workspace-astro-react-plannotator-migration"
 origin: "internal"
 type: "epic"
 routingIntent: "PROJECT"
