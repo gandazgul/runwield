@@ -25,7 +25,7 @@
 
 import { AGENTS, CWD, ROUTING_INTENTS } from "../../constants.js";
 import { ensurePlansDir, loadPlan } from "../../plan-store.js";
-import { applyPendingRootSwap, setActiveAgent } from "../interactive/chat-session.js";
+import { applyPendingRootSwap, setActiveAgent } from "../session/agent-switching.js";
 import { runRootTurn } from "../session/session.js";
 import { getAgentDisplayName } from "../session/agents.js";
 import { sanitizeSessionName, setTerminalTitleForName } from "../../ui/tui/terminal-title.js";

@@ -19,7 +19,7 @@
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { AGENTS } from "../constants.js";
-import { setActiveAgent } from "../shared/interactive/chat-session.js";
+import { setActiveAgent } from "../shared/session/agent-switching.js";
 import { getAgentDisplayName, loadAgentDef } from "../shared/session/agents.js";
 
 /**
