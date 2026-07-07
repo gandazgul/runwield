@@ -94,6 +94,7 @@ async function main() {
     const parsed = parseArgs(args, {
         stopEarly: true,
         boolean: ["help", "continue", "version"],
+        string: ["mode"],
         alias: { h: "help", c: "continue", v: "version" },
     });
 
@@ -103,6 +104,12 @@ async function main() {
     // Version flag: `cli.js --version` or `cli.js -v`
     if (parsed.version) {
         await runVersionCommand();
+        return;
+    }
+
+    // ACP mode must route before normal command/TUI dispatch so stdout stays protocol-pure.
+    if (parsed.mode === COMMAND_NAMES.ACP) {
+        await commandRegistry[COMMAND_NAMES.ACP].execute([]);
         return;
     }
 
