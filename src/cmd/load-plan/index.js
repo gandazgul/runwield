@@ -211,6 +211,7 @@ function buildPlanSummary(plan) {
         `Status:         ${a.status}`,
         `Summary:        ${a.summary || "(none)"}`,
     ];
+    if (a.worktreeBaseBranch) lines.push(`Target branch:  ${a.worktreeBaseBranch}`);
     if (a.affectedPaths?.length) {
         lines.push(`Affected paths:`);
         for (const p of a.affectedPaths) lines.push(`  - ${p}`);
