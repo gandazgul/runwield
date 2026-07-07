@@ -160,5 +160,10 @@ export function startWorkspaceServer(options) {
     const app = options.mode === "remote"
         ? createWorkspaceApp({ mode: "remote", dbPath: options.dbPath })
         : createWorkspaceApp({ cwd: options.cwd ?? Deno.cwd(), token: options.token ?? "" });
-    return Deno.serve({ hostname: options.host, port: options.port, signal: options.signal }, app.handler());
+    return Deno.serve({
+        hostname: options.host,
+        port: options.port,
+        signal: options.signal,
+        automaticCompression: true,
+    }, app.handler());
 }
