@@ -3,7 +3,7 @@
  * Launches the Plannotator human code review UI for a completed workflow diff.
  */
 
-import { startReviewServer } from "@gandazgul/plannotator-pi-extension-compiled/server";
+const PLANNOTATOR_SERVER_MODULE = "@gandazgul/plannotator-pi-extension-compiled/server";
 
 /**
  * @typedef {Object} CodeReviewAnnotation
@@ -61,9 +61,22 @@ async function openInDefaultBrowser(url) {
 /**
  * @returns {Promise<string>}
  */
-async function loadReviewEditorHtml() {
-    const resolvedServerUrl = import.meta.resolve("@gandazgul/plannotator-pi-extension-compiled/server");
+export async function loadReviewEditorHtml() {
+    const resolvedServerUrl = import.meta.resolve(PLANNOTATOR_SERVER_MODULE);
     return await Deno.readTextFile(new URL("../review-editor.html", resolvedServerUrl));
+}
+
+/**
+ * Load Plannotator's code-review server lazily. This keeps `deno compile --bundle`
+ * from trying to statically bundle Plannotator's optional dynamic imports;
+ * `scripts/compile.js` explicitly includes the package module for compiled runs.
+ *
+ * @returns {Promise<(options: object) => Promise<any>>}
+ */
+async function loadStartReviewServer() {
+    const serverModule = PLANNOTATOR_SERVER_MODULE;
+    const server = await import(serverModule);
+    return server.startReviewServer;
 }
 
 /**
@@ -123,7 +136,7 @@ export function formatCodeReviewAnnotations(annotations) {
  * @param {string} opts.executionCwd
  * @param {import('./workflow.js').UiAPI} opts.uiAPI
  * @param {{
- *   startReviewServer?: typeof startReviewServer,
+ *   startReviewServer?: (options: object) => Promise<any>,
  *   loadReviewEditorHtml?: typeof loadReviewEditorHtml,
  *   openInDefaultBrowser?: typeof openInDefaultBrowser,
  * }} [opts.__deps]
@@ -136,7 +149,7 @@ export async function runPlannotatorCodeReview({
     uiAPI,
     __deps,
 }) {
-    const startReviewServerImpl = __deps?.startReviewServer || startReviewServer;
+    const startReviewServerImpl = __deps?.startReviewServer || await loadStartReviewServer();
     const loadReviewEditorHtmlImpl = __deps?.loadReviewEditorHtml || loadReviewEditorHtml;
     const openInDefaultBrowserImpl = __deps?.openInDefaultBrowser || openInDefaultBrowser;
 

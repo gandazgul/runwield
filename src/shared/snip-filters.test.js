@@ -1,11 +1,19 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
+import { SNIP_FILTERS_DIR } from "../constants.js";
 import {
     cleanupRunWieldSnipFiltersForUser,
     getRunWieldSnipFilterInstallStatus,
     getRunWieldSnipPaths,
     installRunWieldSnipFiltersForUser,
 } from "./snip-filters.js";
+
+Deno.test("bundled Snip filters are readable from the compile-safe resource directory", async () => {
+    const denoTestFilter = await Deno.readTextFile(join(SNIP_FILTERS_DIR, "deno-test.yaml"));
+
+    assertStringIncludes(SNIP_FILTERS_DIR, "src/snip-filters");
+    assertStringIncludes(denoTestFilter, "deno test");
+});
 
 Deno.test("user Snip filter install and cleanup only manage RunWield-owned files", async () => {
     const homeDir = await Deno.makeTempDir({ prefix: "runwield-snip-home-" });
