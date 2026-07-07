@@ -37,6 +37,10 @@ const CHILD_DESCRIPTOR_SCHEMA = Type.Object({
     devServerHmr: Type.Optional(Type.Boolean({
         description: "Whether the dev server is expected to support hot module reload.",
     })),
+    worktreeBaseBranch: Type.Optional(Type.Union([
+        Type.String({ description: "Target branch this child FEATURE should execute from and merge back into." }),
+        Type.Null({ description: "Do not inherit the parent Epic target branch for this child FEATURE." }),
+    ])),
     content: Type.String({ description: "Complete child FEATURE plan markdown body without YAML front matter." }),
 });
 
@@ -47,12 +51,20 @@ const CHILD_DESCRIPTOR_SCHEMA = Type.Object({
  * @param {string} opts.cwd - Project root.
  * @param {string} opts.epicPlanName - Parent Epic plan name.
  * @param {import('../../plan-store.js').ChildFeaturePlanDescriptor[]} opts.children
+ * @param {string} [opts.parentWorktreeBaseBranch]
  * @param {{ saveChildFeaturePlans?: typeof saveChildFeaturePlans }} [opts.__deps] - Test-only injection point.
  * @returns {ReturnType<typeof saveChildFeaturePlans>}
  */
-export async function materializeSlicerDraft({ cwd, epicPlanName, children, __deps }) {
+export async function materializeSlicerDraft({ cwd, epicPlanName, children, parentWorktreeBaseBranch, __deps }) {
     const saveChildren = __deps?.saveChildFeaturePlans || saveChildFeaturePlans;
-    return await saveChildren(cwd, epicPlanName, children);
+    const inheritedChildren = parentWorktreeBaseBranch
+        ? children.map((child) =>
+            Object.hasOwn(child, "worktreeBaseBranch")
+                ? child
+                : { ...child, worktreeBaseBranch: parentWorktreeBaseBranch }
+        )
+        : children;
+    return await saveChildren(cwd, epicPlanName, inheritedChildren);
 }
 
 /**
@@ -108,9 +120,12 @@ export function createSlicerFinalizeTool({ planName, cwd = CWD, __deps }) {
 
                 const childDescriptors = /** @type {import('../../plan-store.js').ChildFeaturePlanDescriptor[]} */
                     (params.children || []);
-                const writeResults = childDescriptors.length === 0
-                    ? []
-                    : await materialize({ cwd, epicPlanName: planName, children: childDescriptors });
+                const writeResults = childDescriptors.length === 0 ? [] : await materialize({
+                    cwd,
+                    epicPlanName: planName,
+                    children: childDescriptors,
+                    parentWorktreeBaseBranch: epic.attrs.worktreeBaseBranch || undefined,
+                });
 
                 const children = (await findChildren(cwd, planName)).filter((child) =>
                     child.attrs.classification === "FEATURE"

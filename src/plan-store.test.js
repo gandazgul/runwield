@@ -858,6 +858,7 @@ testWithFs("saveChildFeaturePlans creates draft child FEATURE plans with order a
                 devServerCommand: "deno task workspace:dev",
                 devServerUrl: "http://localhost:5173",
                 devServerHmr: true,
+                worktreeBaseBranch: "feature-base",
                 dependencies: [],
                 content: "# Preserve Epic and child metadata\n\n## Context\nDraft slice",
             },
@@ -885,6 +886,7 @@ testWithFs("saveChildFeaturePlans creates draft child FEATURE plans with order a
             devServerCommand: "deno task workspace:dev",
             devServerUrl: "http://localhost:5173",
             devServerHmr: true,
+            worktreeBaseBranch: "feature-base",
         });
 
         const first = await loadPlan(cwd, "project-breakdown-epic/01-preserve-epic-and-child-metadata");
@@ -897,6 +899,7 @@ testWithFs("saveChildFeaturePlans creates draft child FEATURE plans with order a
         assertEquals(first?.attrs.devServerCommand, "deno task workspace:dev");
         assertEquals(first?.attrs.devServerUrl, "http://localhost:5173");
         assertEquals(first?.attrs.devServerHmr, true);
+        assertEquals(first?.attrs.worktreeBaseBranch, "feature-base");
 
         const second = await loadPlan(cwd, "project-breakdown-epic/02-load-child-features");
         assertEquals(second?.attrs.dependencies, ["project-breakdown-epic/01-preserve-epic-and-child-metadata"]);

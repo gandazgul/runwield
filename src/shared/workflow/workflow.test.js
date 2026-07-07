@@ -1,4 +1,4 @@
-import { assertEquals, assertMatch, assertStringIncludes, assertThrows } from "@std/assert";
+import { assertEquals, assertMatch, assertRejects, assertStringIncludes, assertThrows } from "@std/assert";
 import {
     buildSlicerRequest,
     createSlicerFinalizeTool,
@@ -12,6 +12,7 @@ import {
     readLatestPlanOutcome,
     runSlicerAgent,
     selectNonConflictingTasks,
+    startActiveExecutionWorkflow,
     taskWriteScopesOverlap,
     validateProjectTasks,
 } from "./workflow.js";
@@ -38,6 +39,201 @@ Deno.test("HostedSession scopes active execution workflow independently", () => 
     assertEquals(sessionA.getActiveExecutionCwd(), "/project-a");
     assertEquals(sessionB.getActiveExecutionWorkflow(), workflowB);
     assertEquals(sessionB.getActiveExecutionCwd(), "/work/b");
+});
+
+Deno.test("startActiveExecutionWorkflow prepares targeted branch creation args", async () => {
+    const hostedSession = makeHostedSession("targeted-workflow");
+    /** @type {unknown[]} */
+    const createCalls = [];
+    /** @type {unknown[]} */
+    const prepareCalls = [];
+    const result = await startActiveExecutionWorkflow({
+        planName: "targeted-plan",
+        triageMeta: { worktreeBaseBranch: " feature-base " },
+        currentStatus: "ready_for_work",
+        hostedSession,
+        __deps: {
+            findReusableWorktree: () => Promise.resolve(null),
+            prepareTargetBranchRef: (projectRoot, branch) => {
+                prepareCalls.push({ projectRoot, branch });
+                return Promise.resolve({ baseRef: "refs/heads/feature-base", baseBranch: "feature-base" });
+            },
+            createExecutionWorktree: (opts) => {
+                createCalls.push(opts);
+                return Promise.resolve(
+                    /** @type {any} */ ({
+                        id: "wt1",
+                        path: "/tmp/wt1",
+                        branch: "runwield/worktree/targeted-plan-wt1",
+                        baseBranch: "feature-base",
+                    }),
+                );
+            },
+            captureWorktreeTree: () => Promise.resolve("tree1"),
+            updateWorktreeRegistryEntry: () => Promise.resolve(null),
+            recordPlanEvent: () => Promise.resolve(/** @type {any} */ ({})),
+        },
+    });
+
+    assertEquals(prepareCalls.length, 1);
+    assertEquals(/** @type {{ branch: string }} */ (prepareCalls[0]).branch, "feature-base");
+    assertEquals(
+        /** @type {{ baseRef: string, baseBranch: string }} */ (createCalls[0]).baseRef,
+        "refs/heads/feature-base",
+    );
+    assertEquals(/** @type {{ baseRef: string, baseBranch: string }} */ (createCalls[0]).baseBranch, "feature-base");
+    assertEquals(result.worktreeBaseBranch, "feature-base");
+});
+
+Deno.test("startActiveExecutionWorkflow keeps HEAD fallback for untargeted plans", async () => {
+    const hostedSession = makeHostedSession("untargeted-workflow");
+    /** @type {unknown[]} */
+    const createCalls = [];
+    let prepareCalls = 0;
+    await startActiveExecutionWorkflow({
+        planName: "untargeted-plan",
+        triageMeta: {},
+        currentStatus: "ready_for_work",
+        hostedSession,
+        __deps: {
+            findReusableWorktree: () => Promise.resolve(null),
+            prepareTargetBranchRef: () => {
+                prepareCalls++;
+                return Promise.resolve({ baseRef: "refs/heads/nope", baseBranch: "nope" });
+            },
+            createExecutionWorktree: (opts) => {
+                createCalls.push(opts);
+                return Promise.resolve(
+                    /** @type {any} */ ({
+                        id: "wt2",
+                        path: "/tmp/wt2",
+                        branch: "runwield/worktree/untargeted-plan-wt2",
+                        baseBranch: "HEAD",
+                    }),
+                );
+            },
+            captureWorktreeTree: () => Promise.resolve("tree2"),
+            updateWorktreeRegistryEntry: () => Promise.resolve(null),
+            recordPlanEvent: () => Promise.resolve(/** @type {any} */ ({})),
+        },
+    });
+
+    assertEquals(prepareCalls, 0);
+    assertEquals(/** @type {{ baseRef: string, baseBranch?: string }} */ (createCalls[0]).baseRef, "HEAD");
+    assertEquals(/** @type {{ baseRef: string, baseBranch?: string }} */ (createCalls[0]).baseBranch, undefined);
+});
+
+Deno.test("startActiveExecutionWorkflow rejects reusable worktree target mismatches", async () => {
+    const hostedSession = makeHostedSession("mismatched-workflow");
+    let prepareCalls = 0;
+    await assertRejects(
+        () =>
+            startActiveExecutionWorkflow({
+                planName: "targeted-plan",
+                triageMeta: { worktreeBaseBranch: "feature-base" },
+                currentStatus: "ready_for_work",
+                hostedSession,
+                __deps: {
+                    findReusableWorktree: () =>
+                        Promise.resolve(
+                            /** @type {any} */ ({
+                                id: "wt3",
+                                path: "/tmp/wt3",
+                                branch: "runwield/worktree/targeted-plan-wt3",
+                                baseBranch: "other-base",
+                            }),
+                        ),
+                    prepareTargetBranchRef: () => {
+                        prepareCalls++;
+                        return Promise.resolve({ baseRef: "refs/heads/feature-base", baseBranch: "feature-base" });
+                    },
+                    createExecutionWorktree: () => Promise.reject(new Error("should not create")),
+                    captureWorktreeTree: () => Promise.resolve("tree3"),
+                    updateWorktreeRegistryEntry: () => Promise.resolve(null),
+                    recordPlanEvent: () => Promise.resolve(/** @type {any} */ ({})),
+                },
+            }),
+        Error,
+        "Existing execution worktree targets other-base, but plan targets feature-base",
+    );
+    assertEquals(prepareCalls, 0);
+});
+
+Deno.test("startActiveExecutionWorkflow matches explicit remote target to recorded local reusable target", async () => {
+    const hostedSession = makeHostedSession("remote-reusable-workflow");
+    let createCalls = 0;
+    let prepareCalls = 0;
+    const result = await startActiveExecutionWorkflow({
+        planName: "targeted-plan",
+        triageMeta: { worktreeBaseBranch: "origin/feature-base" },
+        currentStatus: "ready_for_work",
+        hostedSession,
+        __deps: {
+            findReusableWorktree: () =>
+                Promise.resolve(
+                    /** @type {any} */ ({
+                        id: "wt4",
+                        path: "/tmp/wt4",
+                        branch: "runwield/worktree/targeted-plan-wt4",
+                        baseBranch: "feature-base",
+                    }),
+                ),
+            resolveTargetBranchName: () => Promise.resolve("feature-base"),
+            prepareTargetBranchRef: () => {
+                prepareCalls++;
+                return Promise.resolve({ baseRef: "refs/heads/feature-base", baseBranch: "feature-base" });
+            },
+            createExecutionWorktree: () => {
+                createCalls++;
+                return Promise.reject(new Error("should not create"));
+            },
+            captureWorktreeTree: () => Promise.resolve("tree4"),
+            updateWorktreeRegistryEntry: () => Promise.resolve(null),
+            recordPlanEvent: () => Promise.resolve(/** @type {any} */ ({})),
+        },
+    });
+
+    assertEquals(createCalls, 0);
+    assertEquals(prepareCalls, 0);
+    assertEquals(result.worktreeBaseBranch, "feature-base");
+});
+
+Deno.test("startActiveExecutionWorkflow does not let plan target overwrite unknown active worktree target", async () => {
+    const hostedSession = makeHostedSession("unknown-active-target-workflow");
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "targeted-plan",
+        triageMeta: {},
+        baselineTree: "tree4",
+        projectRoot: "/repo",
+        executionCwd: "/tmp/wt4",
+        worktreeId: "wt4",
+        worktreeBranch: "runwield/worktree/targeted-plan-wt4",
+    });
+    let prepareCalls = 0;
+
+    await assertRejects(
+        () =>
+            startActiveExecutionWorkflow({
+                planName: "targeted-plan",
+                triageMeta: { worktreeBaseBranch: "feature-base" },
+                currentStatus: "ready_for_work",
+                hostedSession,
+                __deps: {
+                    findReusableWorktree: () => Promise.reject(new Error("should use active workflow")),
+                    prepareTargetBranchRef: () => {
+                        prepareCalls++;
+                        return Promise.resolve({ baseRef: "refs/heads/feature-base", baseBranch: "feature-base" });
+                    },
+                    createExecutionWorktree: () => Promise.reject(new Error("should not create")),
+                    captureWorktreeTree: () => Promise.resolve("tree4"),
+                    updateWorktreeRegistryEntry: () => Promise.resolve(null),
+                    recordPlanEvent: () => Promise.resolve(/** @type {any} */ ({})),
+                },
+            }),
+        Error,
+        "Existing execution worktree targets HEAD/current checkout, but plan targets feature-base",
+    );
+    assertEquals(prepareCalls, 0);
 });
 
 Deno.test("readLatestPlanOutcome returns the latest plan_written outcome", () => {
@@ -1027,7 +1223,7 @@ Deno.test("runSlicerAgent reports failure via uiAPI when present", async () => {
 Deno.test("createSlicerFinalizeTool writes draft child FEATURE plans before finalizing approved Epic", async () => {
     /** @type {any} */
     let recorded = null;
-    /** @type {Array<{ cwd: string, epicPlanName: string, children: unknown[] }>} */
+    /** @type {Array<{ cwd: string, epicPlanName: string, children: unknown[], parentWorktreeBaseBranch?: string }>} */
     const materializeCalls = [];
     const childDescriptors = [{
         order: 1,
@@ -1052,7 +1248,12 @@ Deno.test("createSlicerFinalizeTool writes draft child FEATURE plans before fina
             loadPlan: () =>
                 Promise.resolve(
                     /** @type {any} */ ({
-                        attrs: { classification: "PROJECT", type: "epic", status: "approved" },
+                        attrs: {
+                            classification: "PROJECT",
+                            type: "epic",
+                            status: "approved",
+                            worktreeBaseBranch: "feature-base",
+                        },
                     }),
                 ),
             materializeSlicerDraft: (args) => {
@@ -1081,7 +1282,12 @@ Deno.test("createSlicerFinalizeTool writes draft child FEATURE plans before fina
         /** @type {any} */ ({}),
     );
 
-    assertEquals(materializeCalls, [{ cwd: "/repo", epicPlanName: "epic-a", children: childDescriptors }]);
+    assertEquals(materializeCalls, [{
+        cwd: "/repo",
+        epicPlanName: "epic-a",
+        children: childDescriptors,
+        parentWorktreeBaseBranch: "feature-base",
+    }]);
     assertEquals(recorded.event, "decomposition_finalized");
     assertEquals(recorded.currentStatus, "approved");
     assertEquals(result.details, {
@@ -1194,6 +1400,7 @@ Deno.test("materializeSlicerDraft delegates child FEATURE draft writes", async (
         cwd: "/repo",
         epicPlanName: "epic-a",
         children,
+        parentWorktreeBaseBranch: "feature-base",
         __deps: {
             saveChildFeaturePlans: (cwd, epicPlanName, descriptors) => {
                 calls.push({ cwd, epicPlanName, descriptors });
@@ -1214,7 +1421,11 @@ Deno.test("materializeSlicerDraft delegates child FEATURE draft writes", async (
         },
     });
 
-    assertEquals(calls, [{ cwd: "/repo", epicPlanName: "epic-a", descriptors: children }]);
+    assertEquals(calls, [{
+        cwd: "/repo",
+        epicPlanName: "epic-a",
+        descriptors: [{ ...children[0], worktreeBaseBranch: "feature-base" }],
+    }]);
     assertEquals(result[0].name, "epic-a/01-draft-child");
 });
 

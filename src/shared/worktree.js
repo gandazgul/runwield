@@ -15,13 +15,21 @@ import { addEntry, listEntries, pruneStaleEntries, removeEntry } from "./worktre
  * @returns {Promise<string>}
  */
 async function runGit(cwd, args) {
+    const result = await runGitResult(cwd, args);
+    if (result.code !== 0) throw new Error(`git ${args.join(" ")} failed: ${result.stderr || result.stdout}`.trim());
+    return result.stdout;
+}
+
+/**
+ * @param {string} cwd
+ * @param {string[]} args
+ * @returns {Promise<{ code: number, stdout: string, stderr: string }>}
+ */
+async function runGitResult(cwd, args) {
     const command = new Deno.Command("git", { args, cwd, stdout: "piped", stderr: "piped" });
     const { code, stdout, stderr } = await command.output();
     const decoder = new TextDecoder();
-    const out = decoder.decode(stdout);
-    const err = decoder.decode(stderr);
-    if (code !== 0) throw new Error(`git ${args.join(" ")} failed: ${err || out}`.trim());
-    return out;
+    return { code, stdout: decoder.decode(stdout), stderr: decoder.decode(stderr) };
 }
 
 /** @param {string} value */
@@ -118,6 +126,131 @@ function findWorktreePathForBranch(porcelainText, branch) {
  */
 async function assertLocalBranchExists(projectRoot, branch) {
     await runGit(projectRoot, ["rev-parse", "--verify", `refs/heads/${branch}`]);
+}
+
+/**
+ * @typedef {Object} PreparedTargetBranchRef
+ * @property {string} baseRef
+ * @property {string} baseBranch
+ */
+
+/**
+ * @param {string} projectRoot
+ * @param {string} ref
+ * @returns {Promise<boolean>}
+ */
+async function gitRefExists(projectRoot, ref) {
+    const result = await runGitResult(projectRoot, ["rev-parse", "--verify", "--quiet", ref]);
+    return result.code === 0;
+}
+
+/**
+ * @param {string} projectRoot
+ * @param {string} branch
+ */
+async function assertValidTargetBranchName(projectRoot, branch) {
+    if (!branch || branch === "HEAD") throw new Error("Target branch must be a branch name, not HEAD.");
+    if (branch.startsWith("refs/")) throw new Error(`Target branch must not be a full ref: ${branch}`);
+    if (branch.startsWith(WORKTREE_BRANCH_PREFIX)) {
+        throw new Error(`Target branch cannot use reserved execution prefix: ${WORKTREE_BRANCH_PREFIX}`);
+    }
+    const result = await runGitResult(projectRoot, ["check-ref-format", "--branch", branch]);
+    if (result.code !== 0) throw new Error(`Invalid target branch name: ${branch}`);
+}
+
+/**
+ * @param {string} projectRoot
+ * @param {string} branch
+ * @returns {Promise<boolean>}
+ */
+async function remoteBranchExists(projectRoot, branch) {
+    const remoteResult = await runGitResult(projectRoot, ["remote", "get-url", "origin"]);
+    if (remoteResult.code !== 0) return false;
+
+    const fetchResult = await runGitResult(
+        projectRoot,
+        ["fetch", "origin", `+refs/heads/${branch}:refs/remotes/origin/${branch}`],
+    );
+    if (fetchResult.code !== 0) {
+        const message = fetchResult.stderr || fetchResult.stdout;
+        if (message.includes("couldn't find remote ref")) {
+            return false;
+        }
+        throw new Error(`Could not check remote target branch origin/${branch}: ${message}`.trim());
+    }
+    return await gitRefExists(projectRoot, `refs/remotes/origin/${branch}`);
+}
+
+/**
+ * @param {string} projectRoot
+ * @param {string} localBranch
+ * @param {string} remoteBranch
+ * @returns {Promise<PreparedTargetBranchRef>}
+ */
+async function createLocalTrackingBranch(projectRoot, localBranch, remoteBranch) {
+    await runGit(projectRoot, ["branch", "--track", localBranch, `origin/${remoteBranch}`]);
+    return { baseRef: `refs/heads/${localBranch}`, baseBranch: localBranch };
+}
+
+/**
+ * @param {string} projectRoot
+ * @param {string} branch
+ * @returns {Promise<PreparedTargetBranchRef>}
+ */
+async function createLocalBranchFromMain(projectRoot, branch) {
+    if (!await gitRefExists(projectRoot, "refs/heads/main")) {
+        throw new Error(`Cannot create target branch ${branch}: refs/heads/main does not exist.`);
+    }
+    await runGit(projectRoot, ["branch", branch, "refs/heads/main"]);
+    return { baseRef: `refs/heads/${branch}`, baseBranch: branch };
+}
+
+/**
+ * Resolve the local branch name that a plan-authored target would record, without creating or fetching branches.
+ *
+ * @param {string} projectRoot
+ * @param {string} branch
+ * @returns {Promise<string>}
+ */
+export async function resolveTargetBranchName(projectRoot, branch) {
+    const target = typeof branch === "string" ? branch.trim() : "";
+    await assertValidTargetBranchName(projectRoot, target);
+    if (await gitRefExists(projectRoot, `refs/heads/${target}`)) return target;
+
+    if (target.startsWith("origin/")) {
+        const localBranch = target.slice("origin/".length);
+        await assertValidTargetBranchName(projectRoot, localBranch);
+        return localBranch;
+    }
+
+    return target;
+}
+
+/**
+ * Prepare an unambiguous local branch ref for a plan-authored execution target.
+ *
+ * @param {string} projectRoot
+ * @param {string} branch
+ * @returns {Promise<PreparedTargetBranchRef>}
+ */
+export async function prepareTargetBranchRef(projectRoot, branch) {
+    const target = await resolveTargetBranchName(projectRoot, branch);
+    if (await gitRefExists(projectRoot, `refs/heads/${target}`)) {
+        return { baseRef: `refs/heads/${target}`, baseBranch: target };
+    }
+
+    if (typeof branch === "string" && branch.trim().startsWith("origin/")) {
+        if (!await remoteBranchExists(projectRoot, target)) {
+            throw new Error(`Remote target branch does not exist: origin/${target}`);
+        }
+        return await createLocalTrackingBranch(projectRoot, target, target);
+    }
+
+    if (await remoteBranchExists(projectRoot, target)) {
+        return await createLocalTrackingBranch(projectRoot, target, target);
+    }
+
+    return await createLocalBranchFromMain(projectRoot, target);
 }
 
 /**
