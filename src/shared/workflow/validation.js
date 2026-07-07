@@ -24,6 +24,91 @@ export const __dirname = dirname(fromFileUrl(import.meta.url));
 const WORKFLOW_PROMPTS_DIR = "workflow-prompts";
 const REVIEWER_PROMPT_FILE = "reviewer-prompt.md";
 const SUCCESS_MESSAGE_STYLE = { bodyColor: "success" };
+const VALIDATION_STREAM_OUTPUT_LIMIT_BYTES = 1024 * 1024;
+
+/**
+ * @typedef {Object} CapturedProcessStream
+ * @property {string} text
+ * @property {number} totalBytes
+ * @property {boolean} truncated
+ */
+
+/**
+ * @param {Uint8Array<ArrayBufferLike>} left
+ * @param {Uint8Array<ArrayBufferLike>} right
+ * @returns {Uint8Array<ArrayBufferLike>}
+ */
+function concatBytes(left, right) {
+    const combined = new Uint8Array(left.byteLength + right.byteLength);
+    combined.set(left, 0);
+    combined.set(right, left.byteLength);
+    return combined;
+}
+
+/**
+ * Read a process stream without using Deno.Command.output(), whose internal
+ * buffer can throw before large-but-successful validation commands finish.
+ * Retain the tail because build/test failures are usually reported last.
+ *
+ * @param {ReadableStream<Uint8Array>} stream
+ * @param {number} limitBytes
+ * @returns {Promise<CapturedProcessStream>}
+ */
+async function captureProcessStreamTail(stream, limitBytes) {
+    const reader = stream.getReader();
+    /** @type {Uint8Array<ArrayBufferLike>} */
+    let retained = /** @type {Uint8Array<ArrayBufferLike>} */ (new Uint8Array(0));
+    let totalBytes = 0;
+
+    try {
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            totalBytes += value.byteLength;
+
+            if (value.byteLength >= limitBytes) {
+                retained = value.slice(value.byteLength - limitBytes);
+                continue;
+            }
+
+            retained = concatBytes(retained, value);
+            if (retained.byteLength > limitBytes) {
+                retained = retained.slice(retained.byteLength - limitBytes);
+            }
+        }
+    } finally {
+        reader.releaseLock();
+    }
+
+    return {
+        text: new TextDecoder().decode(retained),
+        totalBytes,
+        truncated: totalBytes > retained.byteLength,
+    };
+}
+
+/**
+ * @param {CapturedProcessStream} stdout
+ * @param {CapturedProcessStream} stderr
+ * @returns {string}
+ */
+function formatCapturedProcessOutput(stdout, stderr) {
+    const output = `${stdout.text}\n${stderr.text}`;
+    if (!stdout.truncated && !stderr.truncated) return output;
+
+    const notices = [];
+    if (stdout.truncated) {
+        notices.push(
+            `[RunWield] stdout truncated; showing last ${VALIDATION_STREAM_OUTPUT_LIMIT_BYTES} of ${stdout.totalBytes} bytes.`,
+        );
+    }
+    if (stderr.truncated) {
+        notices.push(
+            `[RunWield] stderr truncated; showing last ${VALIDATION_STREAM_OUTPUT_LIMIT_BYTES} of ${stderr.totalBytes} bytes.`,
+        );
+    }
+    return `${output}\n${notices.join("\n")}\n`;
+}
 
 /**
  * Load reviewer as a bare workflow prompt instead of a normal agent definition.
@@ -123,23 +208,27 @@ export async function runLocalCI(uiAPI, cwd = CWD) {
             stderr: "piped",
         });
 
-        const { code, stdout, stderr } = await command.output();
-        const decoder = new TextDecoder();
-        const output = decoder.decode(stdout) + "\n" + decoder.decode(stderr);
+        const child = command.spawn();
+        const [status, stdout, stderr] = await Promise.all([
+            child.status,
+            captureProcessStreamTail(child.stdout, VALIDATION_STREAM_OUTPUT_LIMIT_BYTES),
+            captureProcessStreamTail(child.stderr, VALIDATION_STREAM_OUTPUT_LIMIT_BYTES),
+        ]);
+        const output = formatCapturedProcessOutput(stdout, stderr);
         const durationMs = Date.now() - startTime;
 
         toolBlock?.appendOutput(output.trim() ? output : "(no output)\n");
-        toolBlock?.endExecution(code !== 0, durationMs);
+        toolBlock?.endExecution(status.code !== 0, durationMs);
         uiAPI.addToolResult?.({
             id: toolCallId,
             name: "bash",
             result: output,
-            isError: code !== 0,
+            isError: status.code !== 0,
             durationMs,
         });
 
         return {
-            exitCode: code,
+            exitCode: status.code,
             output,
         };
     } catch (/** @type {any} */ error) {

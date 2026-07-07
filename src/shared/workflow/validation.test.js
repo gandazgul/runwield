@@ -141,6 +141,30 @@ Deno.test("runLocalCI displays validation command as a TUI tool call", async () 
     }
 });
 
+Deno.test("runLocalCI streams large validation output without failing the process buffer", async () => {
+    const originalCwd = Deno.cwd();
+    const tempDir = await Deno.makeTempDir({ prefix: "runwield-validation-large-output-test-" });
+    const uiAPI = makeUi();
+
+    try {
+        Deno.chdir(tempDir);
+        __resetSettingsForTests();
+        const command = `${Deno.execPath()} eval "console.log('x'.repeat(1200000)); console.error('tail-marker')"`;
+        uiAPI.promptText = () => Promise.resolve(command);
+
+        const result = await runLocalCI(uiAPI, tempDir);
+
+        assertEquals(result.exitCode, 0);
+        assertStringIncludes(result.output, "tail-marker");
+        assertStringIncludes(result.output, "stdout truncated; showing last");
+        assertEquals(uiAPI.toolResults.some((/** @type {{ isError: boolean }} */ result) => !result.isError), true);
+    } finally {
+        Deno.chdir(originalCwd);
+        __resetSettingsForTests();
+        await Deno.remove(tempDir, { recursive: true });
+    }
+});
+
 Deno.test("runMechanicalValidation passes local CI without plan-specific work", async () => {
     const uiAPI = makeUi();
     /** @type {string[]} */
