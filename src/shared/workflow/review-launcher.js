@@ -7,6 +7,87 @@ const PLANNOTATOR_SERVER_MODULE = "@gandazgul/plannotator-pi-extension-compiled/
 const PLANNOTATOR_ASSETS_MODULE = "@gandazgul/plannotator-pi-extension-compiled/assets";
 
 /**
+ * @typedef {Object} ReviewSurfaceServer
+ * @property {string} url
+ * @property {() => Promise<any>} waitForDecision
+ * @property {() => void | Promise<void>} stop
+ */
+
+/** @type {Set<ReviewSurfaceServer>} */
+const activeReviewSurfaces = new Set();
+
+let processExitCleanupInstalled = false;
+let stoppingActiveReviewSurfaces = false;
+
+/**
+ * Stop all active Plannotator review servers. This is exported for lifecycle
+ * owners and tests; callers should still prefer per-surface stop in normal flow.
+ *
+ * @returns {Promise<void>}
+ */
+export async function stopActiveReviewSurfaces() {
+    if (stoppingActiveReviewSurfaces) return;
+    stoppingActiveReviewSurfaces = true;
+    const surfaces = Array.from(activeReviewSurfaces);
+    activeReviewSurfaces.clear();
+
+    try {
+        await Promise.all(surfaces.map(async (surface) => {
+            try {
+                await surface.stop();
+            } catch {
+                // Exit cleanup is best-effort. Normal per-review cleanup still
+                // reports failures through the caller's await server.stop().
+            }
+        }));
+    } finally {
+        stoppingActiveReviewSurfaces = false;
+    }
+}
+
+function stopActiveReviewSurfacesBestEffort() {
+    void stopActiveReviewSurfaces();
+}
+
+function installProcessExitCleanup() {
+    if (processExitCleanupInstalled) return;
+    processExitCleanupInstalled = true;
+
+    globalThis.addEventListener?.("unload", stopActiveReviewSurfacesBestEffort);
+
+    for (const [signal, exitCode] of /** @type {const} */ ([["SIGINT", 130], ["SIGTERM", 143]])) {
+        try {
+            Deno.addSignalListener(signal, () => {
+                void (async () => {
+                    await stopActiveReviewSurfaces();
+                    Deno.exit(exitCode);
+                })();
+            });
+        } catch {
+            // Some platforms or test environments do not support all signals.
+        }
+    }
+}
+
+/**
+ * @param {ReviewSurfaceServer} server
+ * @returns {ReviewSurfaceServer}
+ */
+function registerReviewSurface(server) {
+    installProcessExitCleanup();
+    activeReviewSurfaces.add(server);
+
+    const stop = server.stop.bind(server);
+    return {
+        ...server,
+        stop: async () => {
+            activeReviewSurfaces.delete(server);
+            await stop();
+        },
+    };
+}
+
+/**
  * Open a URL in the system default browser.
  * Non-fatal: returns false if opening fails.
  *
@@ -109,11 +190,13 @@ export async function startPlanReviewSurface({
     const serverModule = startPlanReviewServer ? null : await loadPlannotatorServerModule();
     const startPlanReviewServerImpl = startPlanReviewServer || serverModule?.startPlanReviewServer;
     if (!startPlanReviewServerImpl) throw new Error("startPlanReviewSurface: Plannotator server failed to load");
-    const server = await startPlanReviewServerImpl({
-        plan,
-        htmlContent: htmlContent || await loadPlanReviewHtml(),
-        origin: "runwield",
-    });
+    const server = registerReviewSurface(
+        await startPlanReviewServerImpl({
+            plan,
+            htmlContent: htmlContent || await loadPlanReviewHtml(),
+            origin: "runwield",
+        }),
+    );
     const opened = await openInDefaultBrowserImpl(server.url);
     return { ...server, opened };
 }
@@ -146,13 +229,15 @@ export async function startCodeReviewSurface({
     const startReviewServerImpl = startReviewServer || serverModule?.startReviewServer;
     if (!startReviewServerImpl) throw new Error("startCodeReviewSurface: Plannotator server failed to load");
     const resolvedHtmlContent = htmlContent || await loadReviewEditorHtmlImpl();
-    const server = await startReviewServerImpl({
-        rawPatch,
-        gitRef,
-        htmlContent: resolvedHtmlContent,
-        origin: "runwield",
-        agentCwd,
-    });
+    const server = registerReviewSurface(
+        await startReviewServerImpl({
+            rawPatch,
+            gitRef,
+            htmlContent: resolvedHtmlContent,
+            origin: "runwield",
+            agentCwd,
+        }),
+    );
     const opened = await openInDefaultBrowserImpl(server.url);
     return { ...server, opened };
 }

@@ -16,7 +16,7 @@
 
 import { Key, matchesKey, Text } from "@earendil-works/pi-tui";
 import { abortActiveSession as abortActiveSessionFn } from "../session/session.js";
-import { cancelActivePlanReview } from "../workflow/submit-plan.js";
+import { cancelActivePlanReview as cancelActivePlanReviewFn } from "../workflow/submit-plan.js";
 import { stopTUI } from "../../ui/tui/tui.js";
 import { readClipboardImage } from "../clipboard.js";
 import { theme } from "../../ui/theme/theme.js";
@@ -58,6 +58,7 @@ function isEditorEmpty(editor) {
  * @property {() => void} cycleThinkingLevel
  * @property {(image: import('../session/types.js').ImageAttachment) => Promise<import('../session/types.js').ImageAttachment | null>} [handleImagePaste]
  * @property {(hostedSession?: import('../session/hosted-session.js').HostedSession) => boolean} [abortActiveSession]
+ * @property {() => boolean} [cancelActivePlanReview]
  * @property {import('../session/hosted-session.js').HostedSession} [hostedSession]
  * @property {() => void} [clearPendingSteeringMessages]  Callback to clear pending steering messages on cancel
  */
@@ -90,6 +91,7 @@ export function installKeybindings(ctx) {
         clearPendingSteeringMessages,
     } = ctx;
     const abortActiveSession = ctx.abortActiveSession || abortActiveSessionFn;
+    const cancelActivePlanReview = ctx.cancelActivePlanReview || (() => cancelActivePlanReviewFn(ctx.hostedSession));
 
     function cancelEverything() {
         generationGuard.invalidateAll();
@@ -98,7 +100,7 @@ export function installKeybindings(ctx) {
         dismissActivePrompt();
         const opCanceled = cancelActiveOperation();
         const sessionAborted = abortActiveSession(ctx.hostedSession);
-        const planCanceled = cancelActivePlanReview(ctx.hostedSession);
+        const planCanceled = cancelActivePlanReview();
         forceResetUI();
         return { opCanceled, sessionAborted, planCanceled };
     }
