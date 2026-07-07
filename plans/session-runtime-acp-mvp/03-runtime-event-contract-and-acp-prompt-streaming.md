@@ -16,21 +16,15 @@ affectedPaths:
     - "src/shared/session/session-runtime.test.js"
 frontend: false
 createdAt: "2026-07-07T02:13:46.228Z"
-updatedAt: "2026-07-07T19:59:26.880Z"
-status: "in_progress"
+updatedAt: "2026-07-07T20:35:45.550Z"
+status: "implemented"
 origin: "internal"
 parentPlan: "session-runtime-acp-mvp"
 order: 3
 dependencies:
     - "02-sessionruntime-core-for-tui-preserved-prompting"
-humanReviewMode: null
-humanReviewDecision: null
-executionBaselineTree: "ab0fdbf205285348d5fd9aa3ba97cbed2174b054"
-worktreeId: "673600de"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-harns--/harns-runwield-session-runtime-acp-mvp-03-runtime-event-contrac-673600de"
-worktreeBranch: "runwield/worktree/session-runtime-acp-mvp-03-runtime-event-contrac-673600de"
-worktreeBaseBranch: "main"
-worktreeStatus: "active"
+implementedAt: "2026-07-07T20:35:45.550Z"
+worktreeStatus: "completed"
 ---
 
 # Runtime Event Contract and ACP Prompt Streaming
