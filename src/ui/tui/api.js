@@ -172,6 +172,17 @@ export function createUiApi(tui, messageList, spinner) {
             const lastBlock = lastBlockIndex >= 0 ? children[lastBlockIndex] : null;
 
             if (
+                lastBlock instanceof ToolExecutionBlock && lastBlock.toolName === "plan_written" && !lastBlock.ended &&
+                !isError
+            ) {
+                const prefix = header ? `${header} ` : "";
+                const separator = lastBlock.bodyText ? "\n" : "";
+                lastBlock.appendOutput(`${separator}${prefix}${text}`);
+                tui.requestRender();
+                return;
+            }
+
+            if (
                 lastBlock instanceof SystemMessageBlock && lastBlock.isError === isError &&
                 JSON.stringify(lastBlock.style) === JSON.stringify(style)
             ) {
@@ -265,21 +276,29 @@ export function createUiApi(tui, messageList, spinner) {
         /**
          * @param {string} title
          * @param {Array<{value: string, label: string}>} options
-         * @param {{ onSelectionChange?: (value: string) => void, layout?: import('@earendil-works/pi-tui').SelectListLayoutOptions, hint?: string }} [hooks]
+         * @param {{ onSelectionChange?: (value: string) => void, layout?: import('@earendil-works/pi-tui').SelectListLayoutOptions, hint?: string, persistResult?: boolean }} [hooks]
          */
         promptSelect: (title, options, hooks) => {
             return new Promise((resolve) => {
                 const block = new PromptSelectBlock(title, options, hooks?.hint, hooks?.layout);
+                const spacer = new Spacer(1);
                 messageList.addChild(block);
-                messageList.addChild(new Spacer(1));
+                messageList.addChild(spacer);
 
                 tui.setFocus(block);
                 tui.requestRender();
 
+                const shouldPersistResult = hooks?.persistResult !== false && title !== "Switch agent:";
+
                 // Single path for settling and cleanup
                 const settleAndCleanup = (/** @type {string | null} */ value) => {
                     activePromptCancel = null;
-                    block.settle(value);
+                    if (shouldPersistResult) {
+                        block.settle(value);
+                    } else {
+                        messageList.removeChild(block);
+                        messageList.removeChild(spacer);
+                    }
                     resolve(value);
                     tui.requestRender();
                 };

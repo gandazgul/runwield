@@ -36,7 +36,7 @@
  *   setBusy?: (busy: boolean) => void,
  *   setRunningTasks?: (tasks: RunningTask[]) => void,
  *   clearMessages?: () => void,
- *   promptSelect: (title: string, options: SelectOption[], hooks?: { onSelectionChange?: (value: string) => void, layout?: import('@earendil-works/pi-tui').SelectListLayoutOptions, hint?: string }) => Promise<string | null>,
+ *   promptSelect: (title: string, options: SelectOption[], hooks?: { onSelectionChange?: (value: string) => void, layout?: import('@earendil-works/pi-tui').SelectListLayoutOptions, hint?: string, persistResult?: boolean }) => Promise<string | null>,
  *   promptText: (title: string, options?: { defaultValue?: string, placeholder?: string, allowEmpty?: boolean }) => Promise<string | null>,
  *   showModelSelector: () => Promise<void> | void,
  *   setAgentInfo?: (agentName: string, agentModel?: string) => void,

@@ -357,13 +357,14 @@ export class ToolExecutionBlock {
         this.durationStr = "";
         this.bodyText = "";
         this.isError = false;
+        this.ended = false;
         this.startTime = Date.now();
         this.bgToken = "toolPendingBg";
 
         // Header text
-        const displayToolName = normalizeToolHeaderText(toolName);
+        this.toolName = normalizeToolHeaderText(toolName);
         const commandText = normalizeToolHeaderText(argsStr);
-        this.headerText = commandText ? `${displayToolName} ${commandText}` : displayToolName;
+        this.headerText = commandText ? `${this.toolName} ${commandText}` : this.toolName;
 
         // Body text component (rendered inside the block)
         this.bodyTextComponent = new Text("", 0, 0);
@@ -409,6 +410,7 @@ export class ToolExecutionBlock {
      */
     endExecution(isError, durationMs) {
         this.isError = isError;
+        this.ended = true;
         if (isError) {
             this.bgToken = "toolErrorBg";
         } else {

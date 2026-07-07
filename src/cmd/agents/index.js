@@ -125,7 +125,7 @@ async function runAgentsCommandTUI(agentName, _rest, options, deps = {}) {
                 description: agent.name === AGENTS.ROUTER ? "Reset to default router (triage flow)" : agent.description,
             }));
 
-        const selected = await uiAPI.promptSelect("Switch agent:", agentOptions);
+        const selected = await uiAPI.promptSelect("Switch agent:", agentOptions, { persistResult: false });
         if (!selected) {
             // User pressed Esc — silently cancel
             return;
