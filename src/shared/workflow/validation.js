@@ -164,15 +164,38 @@ export async function runLocalCI(uiAPI, cwd = CWD) {
 /**
  * @param {import('../session/hosted-session.js').HostedSession | undefined} hostedSession
  * @param {string} agentName
- * @returns {number}
+ * @returns {unknown[]}
  */
-function getRootMessageCount(hostedSession, agentName) {
-    if (hostedSession?.getRootAgentName?.() !== agentName) return 0;
+function getRootMessages(hostedSession, agentName) {
+    if (hostedSession?.getRootAgentName?.() !== agentName) return [];
     const rootSession = hostedSession?.getRootAgentSession?.();
     const messages = /** @type {{ agent?: { state?: { messages?: unknown[] } } } | undefined} */ (rootSession)?.agent
         ?.state
         ?.messages;
-    return Array.isArray(messages) ? messages.length : 0;
+    return Array.isArray(messages) ? messages : [];
+}
+
+/**
+ * @param {unknown} left
+ * @param {unknown} right
+ * @returns {boolean}
+ */
+function isSameMessage(left, right) {
+    if (left === right) return true;
+    try {
+        return JSON.stringify(left) === JSON.stringify(right);
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * @param {unknown[]} messages
+ * @param {unknown[]} prefix
+ * @returns {boolean}
+ */
+function startsWithMessages(messages, prefix) {
+    return prefix.every((message, index) => isSameMessage(messages[index], message));
 }
 
 /**
@@ -197,7 +220,8 @@ async function runCompletionGatedRepair({
     runAgentSession: runAgentSessionImpl = runAgentSession,
     readLatestTaskCompletedOutcome: readTaskCompleted = readLatestTaskCompletedOutcome,
 }) {
-    const fromIndex = getRootMessageCount(hostedSession, agentName);
+    const previousRootMessages = getRootMessages(hostedSession, agentName).slice();
+    const fromIndex = previousRootMessages.length;
     const messages = await runAgentSessionImpl({
         hostedSession,
         agentName,
@@ -209,7 +233,8 @@ async function runCompletionGatedRepair({
     });
     hostedSession?.consumePendingSwitchHandoff?.();
 
-    return readTaskCompleted(messages, fromIndex);
+    const returnedRootTranscript = startsWithMessages(messages, previousRootMessages);
+    return readTaskCompleted(messages, returnedRootTranscript ? fromIndex : undefined);
 }
 
 /**
@@ -544,6 +569,7 @@ export async function runMechanicalValidation({ uiAPI, sessionManager, hostedSes
         (await import("../session/agent-handler.js")).createAgentHandler;
     /** @param {string} agentName */
     const activateAgent = (agentName) => {
+        if (!hostedSession) return;
         const handler = createAgentHandlerImpl(agentName, { hostedSession });
         setActiveAgentImpl(hostedSession, agentName, handler, uiAPI);
     };
@@ -1176,7 +1202,7 @@ export async function runValidationLoop({
         }
     }
 
-    if (finalAgentName) {
+    if (finalAgentName && hostedSession) {
         const createAgentHandler = __deps?.createAgentHandler ||
             (await import("../session/agent-handler.js")).createAgentHandler;
         const handler = createAgentHandler(finalAgentName, { hostedSession });

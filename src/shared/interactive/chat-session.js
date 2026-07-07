@@ -47,6 +47,8 @@ import {
     recordInitOffered as recordInitOfferedFn,
 } from "../../cmd/init/init-state.js";
 import { SessionHost } from "../session/session-host.js";
+import { SessionRuntime } from "../session/session-runtime.js";
+import { applyPendingRootSwap, setActiveAgent } from "../session/agent-switching.js";
 import { parseProviderModel } from "../models/model-validation.js";
 import { createRootSessionManager } from "../session/root-session.js";
 import { createGenerationGuard } from "./generation-guard.js";
@@ -58,6 +60,7 @@ import { handleBashCommand } from "./bash-interceptor.js";
 import { handleSlashCommand } from "./slash-dispatch.js";
 import { installKeybindings } from "./keybindings.js";
 import {
+    formatImageAttachmentMarker,
     modelSupportsImageInput,
     persistImageAttachment,
     preflightImageAttachments,
@@ -229,6 +232,17 @@ export function createSteeringState() {
 }
 
 /**
+ * @param {string} text
+ * @param {import('../session/types.js').ImageAttachment[]} images
+ * @returns {string}
+ */
+export function formatSteeringBlockText(text, images) {
+    if (images.length === 0) return text;
+    const markers = images.map(formatImageAttachmentMarker).join("\n");
+    return `${text}\n\n${markers}`;
+}
+
+/**
  * @param {readonly string[] | undefined} steering
  * @returns {Map<string, number>}
  */
@@ -358,105 +372,7 @@ export function __resetPendingSteeringForTests(steeringState) {
     clearSteeringState(steeringState);
 }
 
-/**
- * Update the active agent and its message handler.
- *
- * Footer state (agent display name + model) is NOT changed here — it is
- * updated only when the root session is actually rebuilt for the new agent,
- * via `buildAgentSession` → `uiAPI.setAgentInfo`. This guarantees the footer
- * reflects the agent that's truly handling turns and never claims a switch
- * that has not yet taken effect.
- *
- * Callers must pass the internal agent name from the `AGENTS` constant; the
- * display name is read from the agent definition's frontmatter when needed.
- *
- * @param {any} hostedSession
- * @param {any} agentName  Internal agent name (filename of the agent
- *   definition without `.md`, e.g. `AGENTS.ROUTER` → `"router"`).
- * @param {any} [handler]
- * @param {any} [uiAPI]
- * @param {any} [agentModel]
- * @param {any} [options]
- */
-export function setActiveAgent(hostedSession, agentName, handler, uiAPI, agentModel, options = {}) {
-    if (!hostedSession || typeof hostedSession !== "object" || typeof hostedSession.setActiveOnMessage !== "function") {
-        uiAPI?.appendSystemMessage?.("Cannot switch agents before a HostedSession is available.");
-        uiAPI?.requestRender?.();
-        return;
-    }
-    hostedSession.setActiveOnMessage(/** @type {import('../session/types.js').AgentMessageHandler} */ (handler));
-
-    if (uiAPI) {
-        hostedSession.setActiveUiAPI(uiAPI);
-    }
-
-    // If the active root is already this agent, no swap is needed and the
-    // footer already matches reality.
-    if (agentName === hostedSession.getRootAgentName()) {
-        uiAPI?.requestRender();
-        return;
-    }
-
-    // Queue a root rebuild. The actual swap (and the corresponding footer
-    // update) is applied at the next turn boundary by applyPendingRootSwap() —
-    // it is unsafe to dispose the root mid-prompt, and updating the footer
-    // earlier would let the UI claim a switch that has not yet taken effect.
-    /** @type {import('../session/hosted-session.js').PendingRootSwap} */
-    const pendingSwap = {
-        agentName: /** @type {string} */ (agentName),
-        displayName: getAgentDisplayName(/** @type {string} */ (agentName)),
-        model: agentModel,
-    };
-    if (options.allowReturnToRouter !== undefined) {
-        pendingSwap.allowReturnToRouter = options.allowReturnToRouter;
-    }
-    hostedSession.setPendingRootSwap(pendingSwap);
-
-    uiAPI?.requestRender();
-}
-
-/**
- * If a pending root swap is queued, build a new root for the target agent
- * without disposing the current root. Safe to call when the root is idle
- * (between user turns).
- *
- * The footer (active agent name + model) is updated as a side-effect of
- * `buildAgentSession` calling `uiAPI.setAgentInfo`, so it changes exactly when
- * the new root is in place — never before. Successful swaps do not add chat
- * messages; the footer is the user-facing confirmation.
- *
- * @param {any} hostedSession
- * @param {any} [uiAPI]
- * @returns {Promise<void>}
- */
-export async function applyPendingRootSwap(hostedSession, uiAPI) {
-    if (!hostedSession || typeof hostedSession !== "object" || typeof hostedSession.getPendingRootSwap !== "function") {
-        return;
-    }
-    const targetHostedSession = /** @type {import('../session/hosted-session.js').HostedSession} */ (hostedSession);
-    const pending = targetHostedSession.getPendingRootSwap();
-    if (!pending) return;
-    if (pending.agentName === targetHostedSession.getRootAgentName()) {
-        targetHostedSession.setPendingRootSwap(null);
-        return;
-    }
-    targetHostedSession.setPendingRootSwap(null);
-    try {
-        targetHostedSession.clearUserModelOverride();
-        await ensureRootAgentSession({
-            hostedSession: targetHostedSession,
-            agentName: pending.agentName,
-            modelOverride: pending.model,
-            uiAPI: /** @type {any} */ (uiAPI),
-            sessionManager: /** @type {any} */ (targetHostedSession.getRootSessionManager() || undefined),
-            allowReturnToRouter: pending.allowReturnToRouter,
-        });
-        uiAPI?.requestRender?.();
-    } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        uiAPI?.appendSystemMessage?.(`Failed to switch root agent to "${pending.agentName}": ${msg}`);
-    }
-}
+export { applyPendingRootSwap, setActiveAgent };
 
 /**
  * @param {import('../session/hosted-session.js').HostedSession} hostedSession
@@ -559,37 +475,13 @@ export function getActiveModel(hostedSession) {
 export async function runScopedSubmitHandoffLoop(
     { hostedSession, uiAPI, initialRequest, initialImages, applyPendingRootSwapImpl },
 ) {
-    let currentRequest = initialRequest;
-    let currentImages = initialImages;
-    let isHandoff = false;
-    let handoffsLeft = 4;
-
-    while (true) {
-        await applyPendingRootSwapImpl(uiAPI);
-        const activeOnMessage = hostedSession.getActiveOnMessage();
-        const rootSessionManager = hostedSession.getRootSessionManager();
-        if (!activeOnMessage || !rootSessionManager) {
-            uiAPI.appendSystemMessage?.("Error: No active agent handler or session manager.");
-            break;
-        }
-        hostedSession.setActiveUiAPI(uiAPI);
-        if (isHandoff) {
-            uiAPI.appendSystemMessage?.(currentRequest, false, "Handoff:");
-        }
-        await activeOnMessage(currentRequest, currentImages, uiAPI, rootSessionManager);
-
-        const handoff = hostedSession.consumePendingSwitchHandoff();
-        if (!handoff) break;
-        if (handoffsLeft-- <= 0) {
-            uiAPI.appendSystemMessage?.(
-                "return_to_router handoff limit reached — refusing further chained handoffs in this turn.",
-            );
-            break;
-        }
-        currentRequest = handoff.reason;
-        currentImages = [];
-        isHandoff = true;
-    }
+    const runtime = new SessionRuntime({
+        applyPendingRootSwap: (
+            /** @type {import('../session/hosted-session.js').HostedSession} */ _hostedSession,
+            /** @type {import('../../ui/tui/types.js').UiAPI | undefined} */ targetUiAPI,
+        ) => applyPendingRootSwapImpl(/** @type {import('../../ui/tui/types.js').UiAPI} */ (targetUiAPI)),
+    });
+    await runtime.promptSession(hostedSession, { uiAPI, initialRequest, initialImages });
 }
 
 /**
@@ -631,6 +523,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
     );
 
     const sessionHost = new SessionHost();
+    const sessionRuntime = new SessionRuntime({ sessionHost });
     const rootSessionManager = await createRootSessionManager(options.sessionStartMode || "new", Deno.cwd());
     let hostedSession = sessionHost.createSession({ sessionManager: rootSessionManager, cwd: Deno.cwd() });
     initSettings();
@@ -974,7 +867,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         const nextAgentOptions = hasExplicitSession ? agentOptions : agentModelOrOptions;
         setActiveAgent(
             targetHostedSession,
-            agentName,
+            /** @type {string} */ (agentName),
             handler,
             uiAPIArg,
             typeof agentModel === "string" ? agentModel : undefined,
@@ -1432,12 +1325,10 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         });
 
         try {
-            await runScopedSubmitHandoffLoop({
-                hostedSession,
+            await sessionRuntime.promptSession(hostedSession, {
                 uiAPI,
                 initialRequest: userRequest,
                 initialImages: savedImages,
-                applyPendingRootSwapImpl: applyCurrentPendingRootSwap,
             });
         } catch (err) {
             if (generationStillCurrent(thisGen)) {
@@ -1445,10 +1336,6 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
                     `Error: ${err instanceof Error ? err.message : String(err)}`,
                 );
             }
-        } finally {
-            // Drain any pending root swap recorded during the last turn (covers the
-            // case where the agent queued a swap but didn't call return_to_router).
-            await applyCurrentPendingRootSwap(uiAPI);
         }
     }
 
@@ -1565,7 +1452,11 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
             steerRootSessionWithTarget(hostedSession, userRequest, images).then((steeredSession) => {
                 if (steeredSession) {
                     // Phase 1: Show "Steering:" system block immediately
-                    const block = new SystemMessageBlock(userRequest, false, "Steering:");
+                    const block = new SystemMessageBlock(
+                        formatSteeringBlockText(userRequest, images),
+                        false,
+                        "Steering:",
+                    );
                     const spacer = new Spacer(1);
                     messageList.addChild(block);
                     messageList.addChild(spacer);
