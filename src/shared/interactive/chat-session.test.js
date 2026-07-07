@@ -7,6 +7,7 @@ import {
     applyPendingRootSwap,
     collectFooterUsage,
     createSteeringState,
+    formatSteeringBlockText,
     getActiveModel,
     getFooterSessions,
     persistThinkingLevel,
@@ -262,6 +263,16 @@ function makeSteeringSession() {
         },
     });
 }
+
+Deno.test("formatSteeringBlockText includes existing image attachment markers", () => {
+    assertEquals(
+        formatSteeringBlockText("look here", [
+            { base64: "abc", mimeType: "image/png", ref: "attachment:abc" },
+            { base64: "def", mimeType: "image/jpeg", path: "/tmp/photo.jpg" },
+        ]),
+        "look here\n\n[Image attached: attachment:abc image/png]\n[Image attached: photo.jpg image/jpeg]",
+    );
+});
 
 Deno.test("trackPendingSteeringMessage only consumes queue updates from the session that accepted steering", () => {
     const sessionA = makeSteeringSession();
