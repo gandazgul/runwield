@@ -5,7 +5,7 @@
 
 import { basename, dirname, fromFileUrl, join } from "@std/path";
 import { extractYaml, test as hasFrontMatter } from "@std/front-matter";
-import { AGENT_DEFS_DIR, AGENTS, CWD, HOME_DIR } from "../../constants.js";
+import { AGENT_DEFS_DIR, AGENTS, CWD, HOME_DIR, SYSTEM_PROMPT_TEMPLATE_PATH } from "../../constants.js";
 import { directoryExists, fileExists } from "../helpers.js";
 import { PROTECTED_TOOL_NAMES } from "../../tools/registry.js";
 
@@ -326,7 +326,7 @@ async function loadAgentDefFromPaths(agentName, filePaths) {
     const temperature = normalizeTemperature(mergedAttrs.temperature);
 
     const mergedPromptBody = promptSegments.join("\n\n").trim();
-    const CORE_SYSTEM_PROMPT = await Deno.readTextFile(join(__dirname, "SYSTEM_PROMPT_TEMPLATE.md"));
+    const CORE_SYSTEM_PROMPT = await Deno.readTextFile(SYSTEM_PROMPT_TEMPLATE_PATH);
     const systemPrompt = CORE_SYSTEM_PROMPT.replace("{{AGENT_PROMPT}}", mergedPromptBody);
 
     const protectedToolsForAgent = bundledTools.filter((toolName) => PROTECTED_TOOL_NAMES.includes(toolName));

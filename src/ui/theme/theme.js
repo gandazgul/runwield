@@ -11,6 +11,7 @@ import {
     getMarkdownTheme as upstreamGetMarkdownTheme,
     getSelectListTheme as upstreamGetSelectListTheme,
 } from "@earendil-works/pi-coding-agent";
+import { CATPPUCCIN_MOCHA_THEME_PATH } from "../../constants.js";
 import { getSettingsDir, getSettingsManager } from "../../shared/settings.js";
 import { loadExternalThemeJsons } from "./theme-discovery.js";
 import { createThemeFromJson } from "./theme-json.js";
@@ -78,7 +79,7 @@ export const imageTheme = {
 // ─── Theme JSON → Theme instance ─────────────────────────────────────────────
 
 export const DEFAULT_THEME_JSON = /** @type {ThemeJson} */ (JSON.parse(
-    Deno.readTextFileSync(new URL("./catppuccin-mocha.json", import.meta.url)),
+    Deno.readTextFileSync(CATPPUCCIN_MOCHA_THEME_PATH),
 ));
 
 // Construct the embedded theme once at module load. It's both the boot default

@@ -3,7 +3,7 @@
  * Shared constants for RunWield CLI orchestration.
  */
 
-import { dirname, fromFileUrl, join } from "@std/path";
+import { basename, dirname, fromFileUrl, join } from "@std/path";
 
 /** Name of the installed CLI binary shown in user-facing docs/help. */
 export const CLI_BIN = "wld";
@@ -14,8 +14,10 @@ export const DEV_CLI_RUN = "deno run -A src/cli.js";
 /** Primary project root used for RunWield metadata, settings, and command state. */
 export const CWD = Deno.cwd();
 
-/** RunWield source root path (works for source runs and compiled binaries). */
-const SRC_DIR = dirname(fromFileUrl(import.meta.url));
+/** RunWield source root path (works for source runs and compiled bundled binaries). */
+const MODULE_DIR = dirname(fromFileUrl(import.meta.url));
+const MODULE_FILE = basename(fromFileUrl(import.meta.url));
+const SRC_DIR = MODULE_FILE.startsWith(".deno_compile_bundle_") ? join(MODULE_DIR, "src") : MODULE_DIR;
 
 /** Directory containing bundled default agent definition markdown files. */
 export const AGENT_DEFS_DIR = join(SRC_DIR, "agent-definitions");
@@ -25,6 +27,15 @@ export const PROMPT_TEMPLATES_DIR = join(SRC_DIR, "prompt-templates");
 
 /** Directory containing bundled default skill definitions. */
 export const SKILLS_DIR = join(SRC_DIR, "skills");
+
+/** Path to the bundled core system prompt template. */
+export const SYSTEM_PROMPT_TEMPLATE_PATH = join(SRC_DIR, "shared", "session", "SYSTEM_PROMPT_TEMPLATE.md");
+
+/** Directory containing bundled Snip filter definitions. */
+export const SNIP_FILTERS_DIR = join(SRC_DIR, "snip-filters");
+
+/** Path to the bundled Catppuccin Mocha theme JSON. */
+export const CATPPUCCIN_MOCHA_THEME_PATH = join(SRC_DIR, "ui", "theme", "catppuccin-mocha.json");
 
 /** Allowed Routing Intent values emitted by the router. */
 export const ROUTING_INTENTS = ["INQUIRY", "IDEATION", "OPERATION", "QUICK_FIX", "FEATURE", "PROJECT"];

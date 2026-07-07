@@ -3,11 +3,10 @@
  * Installs RunWield-bundled Snip filters into Snip's user filter directory.
  */
 
-import { dirname, fromFileUrl, join } from "@std/path";
-import { HOME_DIR } from "../constants.js";
+import { join } from "@std/path";
+import { HOME_DIR, SNIP_FILTERS_DIR } from "../constants.js";
 
-const __dirname = dirname(fromFileUrl(import.meta.url));
-const BUNDLED_SNIP_FILTERS_DIR = join(__dirname, "..", "snip-filters");
+const BUNDLED_SNIP_FILTERS_DIR = SNIP_FILTERS_DIR;
 const FILTER_FILE_NAMES = ["deno-check.yaml", "deno-fmt.yaml", "deno-lint.yaml", "deno-test.yaml"];
 const RUNWEILD_MANAGED_SNIP_FILTER_MARKER = "# Managed by RunWield. Remove with: wld snip-filters cleanup";
 
