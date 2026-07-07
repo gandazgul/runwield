@@ -126,6 +126,10 @@ export function PlanBodyEditor({ plan, initialEdit = false }) {
     useEffect(() => {
         if (mode !== "read" || !readHost.current) return undefined;
         const host = readHost.current;
+        const entryUrl = new URL("../react/plan-detail-entry.tsx", import.meta.url);
+        void import(entryUrl.href).then(() => {
+            host.dispatchEvent(new CustomEvent("runwield:plannotator-plan-body:mount", { bubbles: true }));
+        });
         return () => {
             host.dispatchEvent(new CustomEvent("runwield:plannotator-plan-body:unmount"));
         };
@@ -246,7 +250,6 @@ export function PlanBodyEditor({ plan, initialEdit = false }) {
                             dangerouslySetInnerHTML={{ __html: planBodyJson }}
                         />
                         <div data-plannotator-plan-body-root />
-                        <script type="module" src="/src/ui/workspace/react/plan-detail-entry.tsx" />
                         {preview
                             ? <div class="markdown-view" dangerouslySetInnerHTML={{ __html: preview }} />
                             : (

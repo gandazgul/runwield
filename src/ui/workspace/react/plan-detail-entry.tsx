@@ -78,6 +78,17 @@ function mountAllPlannotatorPlanBodies() {
     }
 }
 
+function handlePlannotatorPlanBodyMount(event: Event) {
+    if (!(event.target instanceof HTMLElement)) return;
+    const host = event.target.matches("[data-plannotator-plan-body]")
+        ? event.target
+        : event.target.closest("[data-plannotator-plan-body]");
+    if (!host || host.dataset.plannotatorRenderer === "rendered" || host.dataset.plannotatorRenderer === "loading") {
+        return;
+    }
+    void mountPlannotatorPlanBody(host);
+}
+
 function findPlannotatorPlanBodyHosts(node: Node) {
     if (!(node instanceof HTMLElement)) return [];
     const hosts = Array.from(node.querySelectorAll("[data-plannotator-plan-body]"));
@@ -105,6 +116,7 @@ const observer = new MutationObserver((records) => {
 });
 
 function start() {
+    document.addEventListener("runwield:plannotator-plan-body:mount", handlePlannotatorPlanBodyMount);
     mountAllPlannotatorPlanBodies();
     observer.observe(document.body, { childList: true, subtree: true });
 }
