@@ -13,6 +13,7 @@ affectedPaths:
     - "src/ui/design-system/"
     - "src/ui/design-system/theme-bridge.js"
     - "docs/design-system.md"
+worktreeBaseBranch: "workspace-astro-react-plannotator-migration"
 frontend: true
 devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://localhost:5173/"

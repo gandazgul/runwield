@@ -14,6 +14,7 @@ affectedPaths:
     - "src/ui/workspace/workspace.test.js"
     - "src/ui/design-system/components/"
     - "deno.json"
+worktreeBaseBranch: "workspace-astro-react-plannotator-migration"
 frontend: true
 devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://localhost:5173/"
