@@ -1,0 +1,5 @@
+@import "tailwindcss";
+@import "@plannotator/ui/theme.css";
+
+@source "./";
+@source "../../../../third_party/plannotator/packages/ui";

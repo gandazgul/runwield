@@ -577,6 +577,12 @@ Deno.test("Workspace API and detail route return readable editable Plan body met
         const detail = await app(new Request("http://localhost/plans/detail-id?token=secret"));
         const html = await detail.text();
         assertStringIncludes(html, "Readable body");
+        assertStringIncludes(html, "data-plannotator-plan-body");
+        assertStringIncludes(html, "data-plannotator-plan-body-json");
+        assertStringIncludes(html, "data-plannotator-plan-body-root");
+        assertStringIncludes(html, "Readable body");
+        assertStringIncludes(html, 'data-plan-id="detail-id"');
+        assertStringIncludes(html, 'data-plannotator-renderer="ssr-fallback"');
         assertStringIncludes(html, 'class="complexity-label complexity-high"');
         assertStringIncludes(html, 'href="https://runwield.dev"');
         assertStringIncludes(html, "RunWield");

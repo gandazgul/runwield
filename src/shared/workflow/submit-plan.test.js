@@ -75,6 +75,60 @@ async function makePlanFile() {
     return { dir, planPath };
 }
 
+Deno.test("submitPlanForReview delegates review launching through the review surface seam", async () => {
+    const { dir, planPath } = await makePlanFile();
+    const uiAPI = makeUi();
+    const events = /** @type {any[]} */ ([]);
+    const launcherOptions = /** @type {any[]} */ ([]);
+    let stopped = false;
+
+    try {
+        const result = await submitPlanForReview({
+            cwd: dir,
+            planName: "plan",
+            planPath,
+            uiAPI,
+            hostedSession: makeHostedSession("review-surface-seam"),
+            __deps: {
+                htmlContent: "<html>review</html>",
+                startPlanReviewServer: /** @type {any} */ (() =>
+                    Promise.reject(new Error("should not start directly"))),
+                openInDefaultBrowser: /** @type {any} */ (() => Promise.reject(new Error("should not open directly"))),
+                startPlanReviewSurface: (options) => {
+                    launcherOptions.push(options);
+                    return Promise.resolve({
+                        url: "http://127.0.0.1:9999/review",
+                        opened: false,
+                        waitForDecision: () => Promise.resolve({ approved: true, feedback: "ok" }),
+                        stop: () => {
+                            stopped = true;
+                        },
+                    });
+                },
+                recordPlanEvent: /** @type {any} */ ((/** @type {any} */ event) => {
+                    events.push(event);
+                    return Promise.resolve();
+                }),
+            },
+        });
+
+        assertEquals(result, { approved: true, feedback: "ok" });
+        assertEquals(stopped, true);
+        assertEquals(events[0].event, "review_approved");
+        assertEquals(launcherOptions.length, 1);
+        assertEquals(launcherOptions[0].plan.includes("# Plan"), true);
+        assertEquals(launcherOptions[0].htmlContent, "<html>review</html>");
+        assertEquals(typeof launcherOptions[0].startPlanReviewServer, "function");
+        assertEquals(typeof launcherOptions[0].openInDefaultBrowser, "function");
+        assertEquals(
+            uiAPI.messages.some((/** @type {string} */ message) => message.includes("Could not auto-open browser")),
+            true,
+        );
+    } finally {
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
 Deno.test("submitPlanForReview approves a plan, records event, and updates front matter", async () => {
     const { dir, planPath } = await makePlanFile();
     const uiAPI = makeUi();

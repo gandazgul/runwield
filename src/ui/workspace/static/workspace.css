@@ -569,3 +569,29 @@
         align-items: stretch;
     }
 }
+
+/* Plannotator imported-component proof surface. These aliases let upstream
+   Tailwind-token classes resolve against RunWield's Workspace tokens while the
+   first React component-reuse slice is still embedded in the existing detail UI. */
+.plannotator-plan-body {
+    --background: var(--rw-page-bg);
+    --foreground: var(--rw-text);
+    --card: var(--rw-surface-raised);
+    --card-foreground: var(--rw-text);
+    --muted: var(--rw-surface-muted);
+    --muted-foreground: var(--rw-text-muted);
+    --primary: var(--rw-accent);
+    --primary-foreground: var(--rw-text-strong);
+    --border: var(--rw-border);
+    --success: var(--rw-success);
+    --warning: var(--rw-warning);
+    --destructive: var(--rw-error);
+}
+
+[data-plannotator-plan-body][data-plannotator-renderer="loading"] {
+    opacity: 0.82;
+}
+
+[data-plannotator-plan-body][data-plannotator-renderer="rendered"] > .markdown-view {
+    display: none;
+}

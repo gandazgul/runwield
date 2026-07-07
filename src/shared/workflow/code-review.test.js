@@ -45,6 +45,60 @@ Deno.test("loadReviewEditorHtml reads the package review HTML asset", async () =
     assertStringIncludes(html, "<!DOCTYPE html>");
 });
 
+Deno.test("runPlannotatorCodeReview delegates launching through the code review surface seam", async () => {
+    /** @type {string[]} */
+    const messages = [];
+    /** @type {any[]} */
+    const launcherOptions = [];
+    let stopped = false;
+
+    const result = await runPlannotatorCodeReview({
+        planName: "surface-seam-plan",
+        diffText: "diff --git a/src/a.js b/src/a.js\n+change",
+        executionCwd: "/tmp/worktree",
+        uiAPI: /** @type {any} */ ({
+            appendSystemMessage: (/** @type {string} */ message) => messages.push(message),
+        }),
+        __deps: {
+            startCodeReviewSurface: (options) => {
+                launcherOptions.push(options);
+                return Promise.resolve({
+                    url: "http://localhost:2468",
+                    opened: false,
+                    waitForDecision: () => Promise.resolve({ approved: true, feedback: "ok" }),
+                    stop: () => {
+                        stopped = true;
+                    },
+                });
+            },
+            loadReviewEditorHtml: () => Promise.reject(new Error("should not load directly")),
+            openInDefaultBrowser: () => Promise.reject(new Error("should not open directly")),
+            startReviewServer: /** @type {any} */ (() => Promise.reject(new Error("should not start directly"))),
+        },
+    });
+
+    assertEquals(result.approved, true);
+    assertEquals(result.feedback, "ok");
+    assertEquals(stopped, true);
+    assertEquals(launcherOptions, [
+        {
+            rawPatch: "diff --git a/src/a.js b/src/a.js\n+change",
+            gitRef: "RunWield workflow diff: surface-seam-plan",
+            agentCwd: "/tmp/worktree",
+            startReviewServer: launcherOptions[0].startReviewServer,
+            loadReviewEditorHtml: launcherOptions[0].loadReviewEditorHtml,
+            openInDefaultBrowser: launcherOptions[0].openInDefaultBrowser,
+        },
+    ]);
+    assertEquals(typeof launcherOptions[0].startReviewServer, "function");
+    assertEquals(typeof launcherOptions[0].loadReviewEditorHtml, "function");
+    assertEquals(typeof launcherOptions[0].openInDefaultBrowser, "function");
+    assertEquals(messages, [
+        "Code review UI available at: http://localhost:2468",
+        "Could not auto-open browser. Open manually: http://localhost:2468",
+    ]);
+});
+
 Deno.test("runPlannotatorCodeReview reports browser fallback and still waits for decision", async () => {
     /** @type {string[]} */
     const messages = [];
