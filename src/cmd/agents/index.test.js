@@ -149,6 +149,8 @@ Deno.test("runAgentsCommand CLI valid agent starts session", async () => {
 
 Deno.test("runAgentsCommand TUI with missing selected agent shows message", async () => {
     let msg = "";
+    /** @type {unknown} */
+    let promptHooks;
     await runAgentsCommand(
         [],
         /** @type {any} */ ({
@@ -156,7 +158,14 @@ Deno.test("runAgentsCommand TUI with missing selected agent shows message", asyn
                 appendSystemMessage: (/** @type {string} */ m) => {
                     msg = String(m);
                 },
-                promptSelect: () => Promise.resolve("nope"),
+                promptSelect: (
+                    /** @type {string} */ _title,
+                    /** @type {unknown[]} */ _options,
+                    /** @type {unknown} */ hooks,
+                ) => {
+                    promptHooks = hooks;
+                    return Promise.resolve("nope");
+                },
             },
             editor: { setText: () => {} },
             tui: { setFocus: () => {} },
@@ -168,4 +177,5 @@ Deno.test("runAgentsCommand TUI with missing selected agent shows message", asyn
     );
 
     assertEquals(msg.includes('Agent "nope" not found'), true);
+    assertEquals(promptHooks, { persistResult: false });
 });

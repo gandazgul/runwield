@@ -1,7 +1,7 @@
 import { assertEquals } from "@std/assert";
 import { Spacer } from "@earendil-works/pi-tui";
 import { createFooterOnlyUiApi, createSilentUiApi, createUiApi } from "./api.js";
-import { SpinnerBlock } from "./blocks.js";
+import { SpinnerBlock, SystemMessageBlock } from "./blocks.js";
 import { initRunWieldTheme } from "../theme/theme.js";
 
 initRunWieldTheme();
@@ -111,6 +111,26 @@ Deno.test("createUiApi appends visible blocks, merges compatible system messages
     assertEquals(messageList.children, []);
 });
 
+Deno.test("createUiApi folds plan_written system messages into the active tool block", () => {
+    const { tui, messageList } = makeTuiHarness();
+    const ui = /** @type {any} */ (createUiApi(tui, messageList, new SpinnerBlock()));
+
+    const tool = ui.startToolExecution("plan-tool", "plan_written", "plans/example.md");
+    ui.appendSystemMessage("Plan declared: plans/example.md", false, "RunWield");
+    ui.appendSystemMessage("[RunWield] Opening plan review UI for: example");
+
+    assertEquals(messageList.children.length, 2);
+    assertEquals(
+        tool.bodyText,
+        "RunWield Plan declared: plans/example.md\n[RunWield] Opening plan review UI for: example",
+    );
+
+    tool.endExecution(false, 1);
+    ui.appendSystemMessage("after completion", false, "RunWield");
+
+    assertEquals(messageList.children[2] instanceof SystemMessageBlock, true);
+});
+
 Deno.test("createUiApi setBusy starts and stops the spinner loop", () => {
     const { tui, messageList, renders } = makeTuiHarness();
     const spinner = new SpinnerBlock();
@@ -147,6 +167,19 @@ Deno.test("createUiApi promptSelect resolves selection, cancellation, and select
     assertEquals(messageList.children[3] instanceof Spacer, true);
     focus().list.onCancel();
     assertEquals(await cancelPromise, null);
+
+    const childCountBeforeTransient = messageList.children.length;
+    const transientPromise = ui.promptSelect("Transient", [{ value: "router", label: "router" }], {
+        persistResult: false,
+    });
+    focus().list.onSelect({ value: "router" });
+    assertEquals(await transientPromise, "router");
+    assertEquals(messageList.children.length, childCountBeforeTransient);
+
+    const agentPromptPromise = ui.promptSelect("Switch agent:", [{ value: "engineer", label: "engineer" }]);
+    focus().list.onSelect({ value: "engineer" });
+    assertEquals(await agentPromptPromise, "engineer");
+    assertEquals(messageList.children.length, childCountBeforeTransient);
 });
 
 Deno.test("createUiApi promptText resolves submit, rejects empty required submit, and aborts", async () => {

@@ -252,6 +252,7 @@ Deno.test("attachUiSubscribers formats tool headers, streams output deltas, and 
         ],
         ["11", "code_refs", { symbol: "Thing" }, "Thing", "code_refs"],
         ["12", "code_importers", { target: "src/a.js" }, "src/a.js", "code_importers"],
+        ["12b", "plan_written", { planName: "example-plan.md" }, "plans/example-plan.md", "plan_written"],
         ["13", "memory_recall", { query: "plans" }, "plans", "memory_recall"],
         ["14", "memory_store", { content: "short memory" }, "short memory", "memory_store"],
         ["15", "memory_delete", { id: 123 }, "id: 123", "memory_delete"],

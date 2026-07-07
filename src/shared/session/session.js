@@ -1681,6 +1681,9 @@ export function attachUiSubscribers(session, agentDef, uiAPI, debugLogPath = und
                     event.toolName === "code_structure" || event.toolName === "code_codebase_info"
                 ) {
                     // no args to show
+                } else if (event.toolName === "plan_written") {
+                    const planName = String(event.args?.planName || "").replace(/\.md$/i, "").trim();
+                    headerArgs = planName ? `plans/${planName}.md` : "";
                 } else if (
                     event.toolName === "memory_recall" || event.toolName === "memory_recall_global"
                 ) {
