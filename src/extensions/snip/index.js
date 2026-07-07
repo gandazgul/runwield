@@ -34,6 +34,9 @@ const SHELL_BUILTINS = new Set([
 
 /** Commands (by prefix) that should never be wrapped with `snip run --`. */
 const NO_REWRITE_PREFIXES = [
+    "git clone",
+    "git submodule",
+    "git worktree",
     "git diff",
     "npm view",
     "npm info",

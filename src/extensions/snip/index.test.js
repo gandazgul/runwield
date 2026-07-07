@@ -59,6 +59,17 @@ Deno.test("snip extension handles shell safety and env prefixes", async () => {
     await handler(cdEvent, {});
     assertEquals(cdEvent.input.command, "cd repo && deno test");
 
+    const gitCloneEvent = {
+        toolName: "bash",
+        input: { command: "git clone https://example.test/repo.git third_party/repo" },
+    };
+    await handler(gitCloneEvent, {});
+    assertEquals(gitCloneEvent.input.command, "git clone https://example.test/repo.git third_party/repo");
+
+    const gitWorktreeEvent = { toolName: "bash", input: { command: "git worktree add -b demo ../demo HEAD" } };
+    await handler(gitWorktreeEvent, {});
+    assertEquals(gitWorktreeEvent.input.command, "git worktree add -b demo ../demo HEAD");
+
     const envEvent = { toolName: "bash", input: { command: "FOO=1 deno test" } };
     await handler(envEvent, {});
     assertEquals(envEvent.input.command, `FOO=1 snip run -- deno test ${SNIP_NO_FILTER_STDERR_FILTER}`);
