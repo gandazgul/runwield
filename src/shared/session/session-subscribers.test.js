@@ -247,7 +247,7 @@ Deno.test("attachUiSubscribers formats tool headers, streams output deltas, and 
             "10b",
             "code_batch",
             { operations: [{ op: "show", target: "mod.fn" }, { op: "outline", file: "src/a.js" }] },
-            "2 operations",
+            "show mod.fn; outline src/a.js",
             "code_batch",
         ],
         ["11", "code_refs", { symbol: "Thing" }, "Thing", "code_refs"],

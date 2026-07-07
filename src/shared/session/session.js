@@ -1668,8 +1668,7 @@ export function attachUiSubscribers(session, agentDef, uiAPI, debugLogPath = und
                 } else if (event.toolName === "code_outline") {
                     headerArgs = event.args?.file || "";
                 } else if (event.toolName === "code_batch") {
-                    const count = Array.isArray(event.args?.operations) ? event.args.operations.length : 0;
-                    headerArgs = `${count} ${count === 1 ? "operation" : "operations"}`;
+                    headerArgs = formatCodeBatchHeaderArgs(event.args);
                 } else if (
                     event.toolName === "code_refs" || event.toolName === "code_impact" ||
                     event.toolName === "code_trace" || event.toolName === "code_investigate" ||
@@ -2439,6 +2438,33 @@ export async function expandPromptTemplate(templatePath, additionalInstructions)
         const message = err instanceof Error ? err.message : String(err);
         throw new Error(`Failed to read prompt template at "${templatePath}": ${message}`);
     }
+}
+
+/**
+ * @typedef {Object} CodeBatchOperation
+ * @property {string} op
+ * @property {string} [target]
+ * @property {string} [file]
+ */
+
+/**
+ * @param {{ operations?: CodeBatchOperation[] } | undefined | null} args
+ * @returns {string}
+ */
+function formatCodeBatchHeaderArgs(args) {
+    if (!args || !Array.isArray(args.operations)) return "0 operations";
+
+    const operations = args.operations;
+    if (operations.length === 0) return "0 operations";
+
+    const summaries = operations.slice(0, 3).map((operation) => {
+        if (operation.op === "show") return `show ${operation.target || ""}`.trim();
+        if (operation.op === "outline") return `outline ${operation.file || ""}`.trim();
+        return operation.op || "operation";
+    });
+    const remainingCount = operations.length - summaries.length;
+    if (remainingCount > 0) summaries.push(`+${remainingCount} more`);
+    return summaries.join("; ");
 }
 
 /**
