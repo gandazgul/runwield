@@ -1299,6 +1299,25 @@ async function confirmWorktreeAction(planName, uiAPI, action) {
  * @param {string} planName
  * @param {RecoveryWorktreeContext | null} worktreeContext
  * @param {import('../../shared/workflow/workflow.js').UiAPI} uiAPI
+ * @returns {Promise<boolean>}
+ */
+async function confirmMissingWorktreeRecreate(planName, worktreeContext, uiAPI) {
+    const path = worktreeContext?.path;
+    const message = path
+        ? `The recorded worktree for "${planName}" does not exist at ${path}. Recreating it will abandon the stale metadata and start implementation from a new worktree.`
+        : `The recorded worktree for "${planName}" has no usable path. Recreating it will abandon the stale metadata and start implementation from a new worktree.`;
+    uiAPI.appendSystemMessage(message, true, "RunWield");
+    const answer = await uiAPI.promptSelect("Recreate the worktree and start over?", [
+        { value: "confirm", label: "Yes, create a new worktree and start over" },
+        { value: "cancel", label: "Cancel" },
+    ]);
+    return answer === "confirm";
+}
+
+/**
+ * @param {string} planName
+ * @param {RecoveryWorktreeContext | null} worktreeContext
+ * @param {import('../../shared/workflow/workflow.js').UiAPI} uiAPI
  * @param {typeof getWorktreeStatusFn} getWorktreeStatus
  * @returns {Promise<boolean>}
  */
@@ -1548,7 +1567,11 @@ async function handlePlanRecovery({
                     );
                     continue;
                 }
-                if (!(await confirmWorktreeAction(plan.planName, uiAPI, "Delete/recreate"))) continue;
+                const recordedPathExists = await pathExists(worktreeContext?.path);
+                const confirmed = recordedPathExists
+                    ? await confirmWorktreeAction(plan.planName, uiAPI, "Delete/recreate")
+                    : await confirmMissingWorktreeRecreate(plan.planName, worktreeContext, uiAPI);
+                if (!confirmed) continue;
                 if (worktreeContext?.path) {
                     await removeExecutionWorktree({
                         projectRoot: CWD,
