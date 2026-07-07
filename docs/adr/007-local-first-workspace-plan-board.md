@@ -92,3 +92,39 @@ This exception is intentionally narrow:
 The first proof should render a Plan detail body through an imported Plannotator component in read-only mode while
 preserving existing Workspace lifecycle actions, metadata, and body-edit conflict behavior. Replacing the Plannotator
 compiled bridge for `plan_written` and code review is a follow-up slice after direct component reuse is proven.
+
+## 2026-07 Amendment: Astro, React, Radix, and Plannotator Workspace migration
+
+The Plannotator component proof is accepted, and Workspace may now move beyond the narrow Fresh/Preact bridge. For
+`src/ui/workspace/` only, this amendment supersedes the Fresh/Preact/UnoCSS/Zag implementation direction above with an
+Astro SSR application using React islands, Radix-compatible React primitives, Tailwind 4, and selective reuse of pinned
+Plannotator UI source for document, review, editor, and diff surfaces.
+
+The stable decisions from the original ADR remain binding:
+
+- `wld plans ui` remains the user-facing launch command for the local Workspace.
+- Workspace remains local-first, cwd-scoped, token-protected, and backed by canonical markdown Plan files.
+- Plan store, Plan Lifecycle, body hash, hierarchy, dependency, and workflow APIs remain the source of truth.
+- The top-level Plan Board and lifecycle semantics remain RunWield-owned, not Plannotator-owned.
+- RunWield visual identity and selected `wld` theme remain the browser UI source of truth.
+
+The new Workspace implementation direction is:
+
+- Astro owns Workspace SSR routes and pages.
+- React islands own interactive surfaces.
+- Radix-compatible React primitives replace Preact/Zag primitives for Workspace design-system interactions.
+- Tailwind 4 plus RunWield CSS variables replace UnoCSS as the Workspace styling endpoint.
+- Workspace is a scoped `.astro`/`.ts`/`.tsx` exception zone; non-Workspace RunWield code remains JavaScript/JSDoc.
+- Plannotator components are reused selectively for markdown/document/review/editor/diff surfaces where they fit
+  RunWield semantics and theming.
+- `wld` selected theme must flow through the browser theme bridge into the Workspace shell, Plan review screens, code
+  review screens, Radix primitives, and imported Plannotator components.
+- Plan review and code review may use internal Workspace launchers/routes rather than the public `wld plans ui` route
+  shape, but workflow callers should remain behind a review-surface adapter.
+- Before replacing the compiled Plannotator server, implementation must audit whether its `startPlanReviewServer` and
+  `startReviewServer` paths provide special behavior beyond static asset serving, such as decision transport, payload
+  shape normalization, URL/open lifecycle, server shutdown, or browser fallback behavior.
+
+Intermediate Workspace breakage is acceptable on an isolated migration branch because there are no active Workspace
+users. Merge readiness still requires current core Workspace parity for board/detail/lifecycle/body editing, plus headed
+browser verification of theme propagation and review-surface behavior.
