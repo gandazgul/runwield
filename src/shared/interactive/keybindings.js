@@ -204,13 +204,10 @@ export function installKeybindings(ctx) {
         }
 
         // Up arrow on empty editor with a queued message: dequeue it back into the
-        // editor for editing or deletion. Otherwise fall through to the editor's
-        // built-in history navigation.
-        if (
-            matchesKey(data, Key.up) &&
-            isEditorEmpty(editor) &&
-            submissionQueue.length > 0
-        ) {
+        // editor for editing or deletion. Steering messages are tracked outside
+        // submissionQueue, so always ask the dequeue callback before falling
+        // through to the editor's built-in history navigation.
+        if (matchesKey(data, Key.up) && isEditorEmpty(editor)) {
             if (dequeueLastSubmission()) return;
         }
 

@@ -235,6 +235,17 @@ Deno.test("installKeybindings checks editor emptiness through public getText", a
     assertEquals(ctx.stats.originalInputs, []);
 });
 
+Deno.test("installKeybindings asks dequeue callback for up-arrow even without submission queue", async () => {
+    const ctx = makeContext();
+    ctx.stats.dequeueResult = true;
+    installKeybindings(ctx);
+
+    await ctx.editor.handleInput(RAW_KEY.up);
+
+    assertEquals(ctx.stats.dequeues, 1);
+    assertEquals(ctx.stats.originalInputs, []);
+});
+
 Deno.test("installKeybindings delegates pasted images through handleImagePaste", async () => {
     initRunWieldTheme();
     const enc = new TextEncoder();
