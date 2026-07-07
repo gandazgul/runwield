@@ -833,20 +833,21 @@ Deno.test("mergeExecutionWorktree includes uncommitted worktree changes", async 
         await Deno.writeTextFile(`${worktree.path}/README.md`, "base\nchanged\n");
         await Deno.writeTextFile(`${worktree.path}/feature.txt`, "feature\n");
 
+        const planName = "session-host-multi-session-refactor/05-worktree-commit-message-subject";
         await mergeExecutionWorktree({
             projectRoot,
             branch: worktree.branch,
             worktreePath: worktree.path,
             allowedDirtyPaths: [".wld/"],
-            planName: "Useful Commit Messages",
+            planName,
             planDescription: "Reference the plan description in dirty worktree commits.",
         });
 
         assertEquals(await Deno.readTextFile(`${projectRoot}/README.md`), "base\nchanged\n");
         assertEquals(await Deno.readTextFile(`${projectRoot}/feature.txt`), "feature\n");
         const commitMessage = await git(worktree.path, ["log", "-1", "--format=%B"]);
-        assertStringIncludes(commitMessage, "Complete Useful Commit Messages");
-        assertStringIncludes(commitMessage, "- Plan: Useful Commit Messages");
+        assertStringIncludes(commitMessage, `Complete ${planName}`);
+        assertStringIncludes(commitMessage, `- Plan: ${planName}`);
         assertStringIncludes(
             commitMessage,
             "- Description: Reference the plan description in dirty worktree commits.",
