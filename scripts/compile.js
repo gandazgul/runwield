@@ -13,8 +13,8 @@ const STATIC_INCLUDE_PATHS = [
 ];
 
 const PLANNOTATOR_SERVER_EXPORT = "@gandazgul/plannotator-pi-extension-compiled/server";
-const PLANNOTATOR_SERVER_INCLUDE = "npm:@gandazgul/plannotator-pi-extension-compiled@^0.21.4/server";
-const PLANNOTATOR_ASSETS_INCLUDE = "npm:@gandazgul/plannotator-pi-extension-compiled@^0.21.4/assets";
+const PLANNOTATOR_SERVER_INCLUDE = "npm:@gandazgul/plannotator-pi-extension-compiled@^0.22.0/server";
+const PLANNOTATOR_ASSETS_INCLUDE = "npm:@gandazgul/plannotator-pi-extension-compiled@^0.22.0/assets";
 const PLANNOTATOR_REVIEW_EDITOR_RELATIVE_PATH = "../review-editor.html";
 
 /**
