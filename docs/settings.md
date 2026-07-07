@@ -288,6 +288,7 @@ These keys are read by RunWield outside the upstream Pi `SettingsManager` schema
 | `verification_command`            | string  | no default                              | project          | Command used by workflow validation. Saved when RunWield asks for a validation command.                                                                                            |
 | `codereview`                      | string  | `none`, `ask`, `always`; default `none` | global + project | Optional Plannotator human code review gate after local validation and semantic review pass, before merge-back. Invalid values fall back to `none`.                                |
 | `cleanupMergedWorktrees`          | boolean | default `true`                          | global + project | When true, successful merge-back removes the execution checkout, deletes its registry entry, and clears plan worktree metadata. Set false to keep merged worktrees for inspection. |
+| `notifications`                   | object  | enabled by default                      | global + project | Desktop attention notifications for agent stops, `plan_written`, and `user_interview` prompts when the host platform has a supported notifier.                                     |
 | `enableExternalSkills`            | boolean | default `true`                          | global           | When true, RunWield includes skills from `~/.agents/skills` after local, home, and bundled RunWield skills.                                                                        |
 | `enableExternalGlobalAgentsMd`    | boolean | default `true`                          | global           | When true, global prompt loading includes `~/.agents/AGENTS.md` after `~/.wld/RUNWEILD.md` and `~/.wld/AGENTS.md`.                                                                 |
 
@@ -310,6 +311,53 @@ Example:
 ```jsonc
 {
     "codereview": "ask"
+}
+```
+
+### `notifications`
+
+`notifications` controls desktop attention notifications. RunWield sends these when an agent stops and returns control
+without an automated continuation, when `plan_written` starts plan review/approval, and when `user_interview` starts a
+structured prompt.
+
+Defaults:
+
+- `enabled`: `true`; if the platform has no supported notifier, RunWield silently skips notifications.
+- `activation`: `tab`; notification clicks try exact tab/pane activation where the terminal supports it, then fall back
+  to activating the terminal app or showing session context in the notification.
+- `events.agentStopped`, `events.planWritten`, `events.userInterview`: all `true`.
+
+macOS click-to-return support uses the optional `terminal-notifier` command when it is installed. Without it, RunWield
+can still use system notifications where available, but those notifications may not run a click action. Exact tab
+activation is terminal-specific: Terminal.app and iTerm2 can use the current TTY, WezTerm can use its pane id, and Kitty
+requires remote-control environment support; otherwise the notification includes the RunWield session name so you can
+identify the source manually.
+
+Example:
+
+```jsonc
+{
+    "notifications": {
+        "enabled": true,
+        "activation": "tab",
+        "events": {
+            "agentStopped": true,
+            "planWritten": true,
+            "userInterview": true
+        }
+    }
+}
+```
+
+To disable only routine agent-stop notifications while keeping prompts/review alerts:
+
+```jsonc
+{
+    "notifications": {
+        "events": {
+            "agentStopped": false
+        }
+    }
 }
 ```
 
