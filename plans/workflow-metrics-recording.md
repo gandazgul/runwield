@@ -7,9 +7,17 @@ affectedPaths:
     []
 frontend: false
 createdAt: "2026-07-05T00:25:41-04:00"
-updatedAt: "2026-07-05T04:45:53.068Z"
-status: "draft"
+updatedAt: "2026-07-07T20:02:24.032Z"
+status: "in_progress"
 origin: "internal"
+humanReviewMode: null
+humanReviewDecision: null
+executionBaselineTree: "ab0fdbf205285348d5fd9aa3ba97cbed2174b054"
+worktreeId: "17687ccc"
+worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-harns--/harns-runwield-workflow-metrics-recording-17687ccc"
+worktreeBranch: "runwield/worktree/workflow-metrics-recording-17687ccc"
+worktreeBaseBranch: "main"
+worktreeStatus: "active"
 ---
 
 # Workflow Metrics Recording
@@ -17,9 +25,9 @@ origin: "internal"
 ## Context
 
 The request is to record local-only workflow metrics for RunWield decisions across the core lifecycle, plus tool-call
-counters to understand which tools are used most often and in which broad mode. This covers Router triage, planning
-outcomes, execution outcomes, validation/repair loops, recovery choices, model selection, and tool usage. Today these
-decisions are spread across tool implementations and workflow orchestrators:
+counter events to understand which tools are used most often and in which broad mode. This covers Router triage,
+planning outcomes, execution outcomes, validation/repair loops, recovery choices, model selection, and tool usage. Today
+these decisions are spread across tool implementations and workflow orchestrators:
 
 - Router triage is emitted by `triage_report` and dispatched in `dispatchPostTriage`.
 - Planning decisions are normalized by `decidePostPlanning` after `plan_written` review/approval outcomes.
@@ -30,18 +38,15 @@ decisions are spread across tool implementations and workflow orchestrators:
 - Tool invocation lifecycle events are already observed in `attachUiSubscribers` via `tool_execution_start` and
   `tool_execution_end`.
 
-The metrics must be local-only: no network transmission, no analytics sharing, and no prompt/diff/user-content capture.
-The implementation should produce durable, inspectable local records that help evaluate workflow behavior without
-changing the workflow state machine.
+Confirmed product decisions from the existing draft:
 
-Confirmed product decisions:
-
+- Metrics are local-only: no network transmission, no analytics sharing, and no prompt/diff/user-content capture.
 - Store metrics as newline-delimited JSON under the user's RunWield home directory, scoped per project similarly to
   sessions: `~/.wld/workflow-metrics/<encoded-cwd>/metrics.jsonl`.
 - Metrics recording is opt-in. By default RunWield records nothing; users enable it with `workflowMetrics: true` or
   `{ "workflowMetrics": { "enabled": true } }` in settings.
-- This feature only records data, including per-call counter events for tool usage. It does not add a reporting UI or
-  CLI reader yet.
+- This feature only records data, including per-call counter events for tool usage. It does not add a reporting UI,
+  analytics sync, or CLI reader yet.
 
 ## Objective
 
@@ -51,8 +56,8 @@ like:
 - How often does Router choose each routing intent and complexity?
 - How often are plans saved, approved for execution, canceled, or returned for feedback?
 - How often does execution complete, pause, require repair, or fail before validation?
-- How many validation cycles/CI repair attempts/semantic repair attempts/merge repair attempts happen before success or
-  halt?
+- How many validation cycles, CI repair attempts, semantic repair attempts, human-review repair attempts, and merge
+  repair attempts happen before success or halt?
 - Which recovery action was selected for held/failed plans?
 - Which model source was selected for each agent, and which candidates failed before selection?
 - Which tools are called most often overall, by agent, and by broad sub-usage such as code search vs code read, memory
@@ -61,8 +66,8 @@ like:
 ## Approach
 
 Implement a dedicated `src/shared/workflow/metrics.js` module that appends sanitized event records to a local JSONL
-file. Keep the call sites intentionally thin: each workflow component should emit one semantic event at the point it
-already has the normalized decision/outcome, without adding metrics-specific branching to core logic.
+file. Keep call sites intentionally thin: each workflow component should emit one semantic event at the point it already
+has the normalized decision/outcome, without adding metrics-specific branching to core workflow logic.
 
 Recommended event shape:
 
@@ -89,23 +94,25 @@ Privacy and robustness rules:
 - Record model identifiers and source labels, but never auth state beyond a boolean/enum such as
   `authConfigured: true|false`.
 - For tool-call counters, record `toolName`, `agentName`, safe `subUsage`, success/error outcome, and duration when
-  available; never record the argument payload or result text.
+  available; never record the argument payload, result text, shell command, search query, or file content.
 - Metrics writes are best-effort. A metrics write failure must never halt routing, planning, execution, validation,
-  recovery, or model selection.
+  recovery, model selection, or tool rendering.
 - Keep records local to the user's `~/.wld/` directory, separate from repo-tracked plan metadata.
+- Use pure JavaScript plus JSDoc typedefs only; do not introduce TypeScript syntax.
 
 ## Files to Modify
 
 - `src/shared/workflow/metrics.js` — new metrics recorder module with home-scoped per-project path resolution, settings
-  gate, JSONL append, sanitization, project-root hashing, and convenience helpers such as `recordWorkflowMetric()`.
+  gate, JSONL append, sanitization, project-root hashing, and convenience helpers such as `recordWorkflowMetric()` and
+  `classifyToolSubUsage()`.
 - `src/shared/workflow/metrics.test.js` — tests for enabled/disabled behavior, JSONL append format, sanitization,
-  write-failure swallowing, and path/hash behavior.
+  write-failure swallowing, path/hash behavior, and tool sub-usage classification.
 - `src/tools/triage-report.js` — record `routing/triage_reported` with routing intent, complexity, classification,
-  affected path count/list, and session name presence.
+  affected path count/list, and session-name presence after triage normalization.
 - `src/shared/workflow/orchestrator.js` — record the dispatch branch selected for each routing intent and high-level
   outcomes for OPERATION/QUICK_FIX/FEATURE/PROJECT orchestration.
-- `src/shared/workflow/decisions.js` — record or expose enough normalized planning/execution decision data for callers
-  to record `planning/decision` and `execution/decision` consistently.
+- `src/shared/workflow/decisions.js` — either record normalized planning/execution decisions directly or expose safe
+  decision summary helpers so callers record `planning/decision` and `execution/decision` consistently.
 - `src/tools/plan-written.js` — record plan review outcomes: canceled, feedback, approved/saved, approved/execute,
   project decomposition started/saved, and readiness lifecycle success/failure where useful.
 - `src/tools/task-completed.js` — record `execution/task_completed` with agent name and whether a message was supplied,
@@ -115,8 +122,8 @@ Privacy and robustness rules:
 - `src/shared/workflow/workflow.js` — record plan execution start, execution result, non-executable plan rejection,
   worktree creation/reuse metadata without full paths, and implementation completion.
 - `src/shared/workflow/validation.js` — record QUICK_FIX mechanical validation attempts/results, FEATURE validation
-  cycles, CI pass/fail attempts, semantic review pass/fail, human review decisions, semantic/CI/merge repair attempts,
-  validation pass/fail, and merge-back outcome.
+  cycles, CI pass/fail attempts, semantic review pass/fail, human review decisions, semantic/CI/human/merge repair
+  attempts, validation pass/fail, and merge-back outcome.
 - `src/cmd/load-plan/index.js` — record recovery prompt selections (`validate`, `inspect`, `continue`, `reset`, `merge`,
   `abandon`, `review`, `hold`, `cancel`) and recovery action outcomes.
 - `src/shared/session/session.js` — instrument model-selection resolution by recording candidate sources, failed
@@ -134,16 +141,20 @@ Privacy and robustness rules:
 
 ## Reuse Opportunities
 
+Existing functions, modules, or patterns to reuse:
+
 - `src/shared/settings.js#getMergedCustomSetting` — read a merged global/project `workflowMetrics` setting without
   introducing a new settings subsystem.
-- `src/constants.js#CWD` and `HOME_DIR` — anchor metrics to the primary project root while storing records under the
-  user's RunWield home directory.
+- `src/constants.js#CWD` and `HOME_DIR`/`RUNWEILD_DIR_NAME` — anchor metrics to the primary project root while storing
+  records under the user's RunWield home directory.
 - `src/shared/session/root-session.js#encodeCwdForSessionDir` — reuse the session directory encoding for per-project
   metrics directories.
 - Existing workflow decision functions in `src/shared/workflow/decisions.js` — instrument normalized decision outcomes
   instead of duplicating branch logic.
+- Existing dependency-injection patterns in workflow modules (`__deps`) — inject metric recorders in tests and keep
+  instrumentation low-risk.
 - Existing workflow tests in `src/shared/workflow/orchestrator.test.js`, `validation.test.js`, and `workflow.test.js` —
-  extend dependency-injection patterns to assert metrics calls without touching real user files.
+  extend tests to assert metrics calls without touching real user files.
 - Existing model-selection tests under `src/shared/session/__tests__/` — add coverage for model metrics around
   overrides/fallbacks.
 - `src/shared/session/session.js#attachUiSubscribers` — reuse existing tool execution start/end events so tool counters
@@ -154,20 +165,20 @@ Privacy and robustness rules:
 ## Implementation Steps
 
 - [ ] Add `src/shared/workflow/metrics.js`.
-  - [ ] Define JSDoc typedefs for metric category, record, settings, and safe details; do not use TypeScript syntax.
+  - [ ] Define JSDoc typedefs for metric category, record, settings, and safe details.
   - [ ] Resolve the default metrics path to
-        `join(HOME_DIR, ".wld", "workflow-metrics", encodeCwdForSessionDir(CWD), "metrics.jsonl")`.
+        `join(HOME_DIR, RUNWEILD_DIR_NAME, "workflow-metrics", encodeCwdForSessionDir(CWD), "metrics.jsonl")`.
   - [ ] Read `workflowMetrics` via `getMergedCustomSetting("workflowMetrics")` with default disabled.
   - [ ] Support `workflowMetrics: true` or `{ enabled: true }` to enable writes; treat `false`, missing, or
         `{ enabled: false }` as disabled.
-  - [ ] Do not add arbitrary path redirection in this feature unless it is constrained to the same
-        `~/.wld/workflow-metrics/` tree; keep the first implementation simple if possible.
+  - [ ] Do not add arbitrary user-configured output paths in this feature; keep all writes under
+        `~/.wld/workflow-metrics/`.
   - [ ] Sanitize `details` recursively: allow primitives, arrays, and plain objects; redact suspicious keys (`prompt`,
         `request`, `content`, `diff`, `output`, `apiKey`, `token`, `secret`, `authorization`, `password`); truncate long
         strings; avoid absolute paths.
   - [ ] Hash the project root to `cwdHash` using Web Crypto SHA-256 rather than recording `CWD`.
-  - [ ] Append one JSON object per line; swallow write errors after optionally emitting debug output only when existing
-        debug conventions allow.
+  - [ ] Append one JSON object per line; swallow write errors after optionally emitting debug output only if an existing
+        debug convention is available at the call site.
 - [ ] Add `src/shared/workflow/metrics.test.js` for recorder behavior.
   - [ ] Use temp project roots/dependency injection rather than the real `.wld/`.
   - [ ] Assert missing/default settings and disabled settings produce no file, while opt-in settings create the expected
@@ -178,8 +189,8 @@ Privacy and robustness rules:
 - [ ] Instrument routing.
   - [ ] In `createTriageReportTool`, record `routing/triage_reported` after normalization with routing intent,
         complexity, classification, affectedPaths, affectedPathCount, and `hasSessionName`.
-  - [ ] In `dispatchPostTriage`, record `routing/dispatch_selected` with selected routing intent and target
-        agent/branch.
+  - [ ] In `dispatchPostTriage`, record `routing/dispatch_selected` with selected routing intent and target agent/branch
+        before dispatching.
   - [ ] In `return-to-router.js`, record `routing/return_to_router` with target agent and `hasReason`, but never the
         reason text.
   - [ ] For OPERATION and QUICK_FIX, record whether `task_completed` was observed and whether mechanical validation
@@ -194,7 +205,7 @@ Privacy and robustness rules:
   - [ ] In `executePlan`, record start, non-executable rejection reasons, execution completion/incompletion, and
         implementation-finished lifecycle success.
   - [ ] In `startActiveExecutionWorkflow`, record whether an existing worktree was reused or a new worktree was created,
-        worktree status, branch presence, and base-branch presence without full paths.
+        worktree status, branch presence, base-branch presence, and baseline-tree presence without full paths.
   - [ ] In `agent-handler.js` and `orchestrator.js`, record `execution/decision` after `decidePostExecution` with
         `kind`, `reason`, failed task count, and next agent.
 - [ ] Instrument validation and repair.
@@ -203,7 +214,8 @@ Privacy and robustness rules:
   - [ ] In `runValidationLoop`, record validation start, validation cycle count, CI attempt results, semantic review
         result, human review mode/decision, repair dispatch/completion for CI/semantic/human/merge repair, merge-back
         pass/fail, and final validation pass/fail.
-  - [ ] Ensure CI output, review feedback, diff text, and human review comments are never recorded.
+  - [ ] Ensure CI output, review feedback, diff text, human review comments, and merge repair request text are never
+        recorded.
 - [ ] Instrument recovery.
   - [ ] In `handlePlanRecovery`, record the selected recovery action, current plan status, worktree availability flags,
         and action result.
@@ -218,28 +230,30 @@ Privacy and robustness rules:
         mode, vision fallback presence, resolved thinking level, and whether temperature was configured.
 - [ ] Instrument tool-call counters.
   - [ ] In `attachUiSubscribers`, record a `tool_usage/tool_call_started` counter event on `tool_execution_start` with
-        `toolName`, `agentName`, and a safe `subUsage` derived from the tool name and argument shape only.
+        `toolName`, `agentName`, and a safe `subUsage` derived from the tool name and coarse argument shape only.
   - [ ] Record `tool_usage/tool_call_finished` on `tool_execution_end` with `toolName`, `agentName`, safe `subUsage`,
         `isError`, and duration when available.
-  - [ ] Add a helper such as `classifyToolSubUsage(toolName, args)` that never returns raw args. Suggested splits:
-        `bash` into `validation_command`, `git`, `package_manager`, `filesystem`, or `shell_other`; code tools into
-        `search`, `read`, `outline`, `refs`, `impact`, `trace`; memory tools into `read`, `write`, `delete`; file tools
-        into `read`, `search`, `list`, `edit`, `multi_edit`, `write`; workflow tools into `triage`, `plan_written`,
+  - [ ] Add `classifyToolSubUsage(toolName, args)` that never returns raw args. Suggested splits: `bash` into
+        `validation_command`, `git`, `package_manager`, `filesystem`, or `shell_other`; code tools into `search`,
+        `read`, `outline`, `refs`, `impact`, `trace`; memory tools into `read`, `write`, `delete`; file tools into
+        `read`, `search`, `list`, `edit`, `multi_edit`, `write`; workflow tools into `triage`, `plan_written`,
         `task_completed`, `return_to_router`, `user_interview`; browser tools, if present, into `navigate`, `inspect`,
         `interact`, `screenshot`, or `browser_other`.
   - [ ] Keep these as append-only metric events rather than an in-place aggregate file; reporting can later aggregate
         JSONL by `toolName`, `subUsage`, agent, category, or session.
 - [ ] Add or update tests around instrumentation.
   - [ ] Prefer dependency injection of `recordWorkflowMetric` where existing modules already use `__deps`.
-  - [ ] For tool modules without `__deps`, mock via imported helper behavior only if feasible; otherwise assert by
-        writing to a temp `.wld/` with settings reset.
+  - [ ] For tool modules without `__deps`, pass the recorder through existing factory dependencies where feasible;
+        otherwise assert by writing to a temp `.wld/` with settings reset.
   - [ ] Cover at least one event in each category: routing, planning, execution, validation, recovery, model_selection,
         and tool_usage.
-  - [ ] Add tests for `classifyToolSubUsage` that prove raw commands, search queries, file contents, and reason/message
-        text are not preserved in tool usage metrics.
+  - [ ] Add tests for `classifyToolSubUsage` proving raw commands, search queries, file contents, reason/message text,
+        and tool results are not preserved in tool usage metrics.
 - [ ] Update docs and schema.
-  - [ ] Add `workflowMetrics` to `docs/settings.md` custom keys with opt-in examples and the default storage path.
-  - [ ] Add matching `workflowMetrics` schema to `config.schema.json`.
+  - [ ] Add `workflowMetrics` to `docs/settings.md` with opt-in examples, default disabled behavior, the storage path,
+        and privacy constraints.
+  - [ ] Add matching `workflowMetrics` schema to `config.schema.json`, accepting either a boolean or
+        `{ enabled: boolean }`.
   - [ ] Explicitly note that reporting/CLI summaries are out of scope for this feature.
 
 ## Verification Plan
@@ -261,7 +275,7 @@ Privacy and robustness rules:
   - Metrics records are valid JSONL, append-only, local to `~/.wld/`, and not written unless explicitly enabled.
   - Workflow behavior and plan lifecycle statuses are unchanged.
   - No record contains prompt text, user request text, diff text, CI output, review feedback, raw tool args/results,
-    secrets, full auth config, or absolute worktree paths.
+    secrets, full auth config, shell commands, search queries, file contents, or absolute worktree paths.
 
 ## Edge Cases & Considerations
 
@@ -272,7 +286,9 @@ Privacy and robustness rules:
   degrade the error message users already see.
 - Concurrent worktrees or multiple sessions may append to the same JSONL file. Individual writes should be one JSON line
   and small; do not introduce a lock unless tests show interleaving is a real problem.
-- Store under `~/.wld/workflow-metrics/` rather than project `.wld/`, matching the user's preference for per-project
+- Store under `~/.wld/workflow-metrics/` rather than project `.wld/`, matching the confirmed preference for per-project
   home-local storage similar to sessions.
+- Existing uncommitted implementation work may be present in some target files; execution agents should inspect the
+  current tree before editing and preserve unrelated changes.
 - Reporting/summary commands are intentionally out of scope and can be planned later once the raw event vocabulary
   stabilizes.

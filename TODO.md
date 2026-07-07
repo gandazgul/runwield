@@ -11,15 +11,15 @@ P1 critical bug
 
 - [x] hittin up arrow when there's a scheduled steering message, fills the input but, doesnt remove the scheduled
       message.
-- [ ] when queing up a steering message with an image the fact that the image is attached is not shown in the steering:
+- [x] when queing up a steering message with an image the fact that the image is attached is not shown in the steering:
       block
-- [ ] when I use /agent the name of the agent is shown then the system message switched to agent, hide the agent name
+- [x] when I use /agent the name of the agent is shown then the system message switched to agent, hide the agent name
       that replaces the multiselect. ![alt text](image.png)
-- [ ] fold the runwield system message plan declared into the tool call block so it doesnt look visually broken
+- [x] fold the runwield system message plan declared into the tool call block so it doesnt look visually broken
       ![alt text](image-1.png)
-- [ ] The commit message for worktrees is cutting the name of the plans it shouldn't e.g.
+- [x] The commit message for worktrees is cutting the name of the plans it shouldn't e.g.
       `* Complete session-host-multi-session-refactor/05-wo`
-- [ ] cancelling with esc while waiting on plannotator doesnt allow slash commands to work correctly and hitting esc
+- [x] cancelling with esc while waiting on plannotator doesnt allow slash commands to work correctly and hitting esc
       again outputs the message but doesnt actually restore the TUI. ![alt text](image-2.png)
 
 ## Backlog
@@ -44,7 +44,7 @@ P1 critical bug
       `src/shared/session/root-session.js` are the main candidates.
 - [ ] Add more focused tests after the refactor boundaries are clearer.
 
-- [ ] Implement Guided Reviews using plnnotator
+- [ ] Implement Guided Reviews using plannotator
 
 ```markdown
 Large changesets are hard to review top-to-bottom in file order. A Guided Review has an agent organize the current
