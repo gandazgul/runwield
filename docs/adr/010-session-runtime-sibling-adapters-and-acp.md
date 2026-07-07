@@ -21,10 +21,12 @@ emission, and interaction requests. The TUI and ACP stdio server are sibling ada
 WebUI, Takopi, Slack/Discord, or other clients should be additional siblings rather than children of the TUI or ACP
 adapter.
 
-Session-scoped capabilities must attach to a specific `HostedSession`. Adapter-specific rendering, transport framing,
-and user input collection stay outside the core runtime. The ACP adapter maps `SessionRuntime` events and interaction
-requests to ACP v1 messages, using standard ACP primitives where possible and RunWield-specific ACP extensions/fallbacks
-where no standard primitive exists.
+Session-scoped capabilities must attach to a specific `HostedSession`. Shared agent switching and pending root-swap
+application are session-layer behavior, not TUI behavior, so core workflow modules and tools should use a session-layer
+helper rather than importing the TUI adapter. Adapter-specific rendering, transport framing, and user input collection
+stay outside the core runtime. The ACP adapter maps `SessionRuntime` events and interaction requests to ACP v1 messages,
+using standard ACP primitives where possible and RunWield-specific ACP extensions/fallbacks where no standard primitive
+exists.
 
 ## Consequences
 
