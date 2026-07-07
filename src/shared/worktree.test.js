@@ -7,6 +7,7 @@ import {
     getWorktreeStatus,
     inspectExecutionWorktreeMergeRisk,
     mergeExecutionWorktree,
+    prepareTargetBranchRef,
     removeExecutionWorktree,
     resolveWorktreeParent,
 } from "./worktree.js";
@@ -67,6 +68,140 @@ Deno.test("createExecutionWorktree creates a unique branch/path and registry ent
         const status = await getWorktreeStatus({ projectRoot, path: worktree.path, branch: worktree.branch });
         assertEquals(status.exists, true);
         assertEquals(status.clean, true);
+    } finally {
+        if (worktree) {
+            await removeExecutionWorktree({
+                projectRoot,
+                path: worktree.path,
+                branch: worktree.branch,
+                force: true,
+            });
+        }
+        await Deno.remove(projectRoot, { recursive: true });
+        await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("prepareTargetBranchRef returns an existing local branch", async () => {
+    const projectRoot = await makeRepo();
+    try {
+        await git(projectRoot, ["checkout", "-b", "feature-base"]);
+        await git(projectRoot, ["checkout", "main"]);
+
+        const prepared = await prepareTargetBranchRef(projectRoot, " feature-base ");
+
+        assertEquals(prepared, { baseRef: "refs/heads/feature-base", baseBranch: "feature-base" });
+        assertEquals(await git(projectRoot, ["branch", "--show-current"]), "main");
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true });
+    }
+});
+
+Deno.test("prepareTargetBranchRef creates a local tracking branch for a remote-only target", async () => {
+    const remoteRoot = await makeRepo();
+    const projectRoot = await Deno.makeTempDir();
+    try {
+        await git(remoteRoot, ["checkout", "-b", "feature-base"]);
+        await Deno.writeTextFile(`${remoteRoot}/remote.txt`, "remote\n");
+        await git(remoteRoot, ["add", "."]);
+        await git(remoteRoot, ["commit", "-m", "remote branch"]);
+        await git(remoteRoot, ["checkout", "main"]);
+        await git(projectRoot, ["clone", remoteRoot, "."]);
+        await git(projectRoot, ["checkout", "main"]);
+        await git(projectRoot, ["branch", "-D", "feature-base"]).catch(() => Promise.resolve());
+
+        const prepared = await prepareTargetBranchRef(projectRoot, "feature-base");
+
+        assertEquals(prepared, { baseRef: "refs/heads/feature-base", baseBranch: "feature-base" });
+        assertEquals(
+            await git(projectRoot, ["rev-parse", "--abbrev-ref", "feature-base@{upstream}"]),
+            "origin/feature-base",
+        );
+        assertEquals(await git(projectRoot, ["show", "feature-base:remote.txt"]), "remote");
+    } finally {
+        await Deno.remove(remoteRoot, { recursive: true });
+        await Deno.remove(projectRoot, { recursive: true });
+    }
+});
+
+Deno.test("prepareTargetBranchRef accepts explicit origin branch input", async () => {
+    const remoteRoot = await makeRepo();
+    const projectRoot = await Deno.makeTempDir();
+    try {
+        await git(remoteRoot, ["checkout", "-b", "feature-explicit"]);
+        await Deno.writeTextFile(`${remoteRoot}/explicit.txt`, "remote\n");
+        await git(remoteRoot, ["add", "."]);
+        await git(remoteRoot, ["commit", "-m", "explicit remote branch"]);
+        await git(remoteRoot, ["checkout", "main"]);
+        await git(projectRoot, ["clone", remoteRoot, "."]);
+        await git(projectRoot, ["checkout", "main"]);
+
+        const prepared = await prepareTargetBranchRef(projectRoot, "origin/feature-explicit");
+
+        assertEquals(prepared, { baseRef: "refs/heads/feature-explicit", baseBranch: "feature-explicit" });
+        assertEquals(await git(projectRoot, ["show", "feature-explicit:explicit.txt"]), "remote");
+    } finally {
+        await Deno.remove(remoteRoot, { recursive: true });
+        await Deno.remove(projectRoot, { recursive: true });
+    }
+});
+
+Deno.test("prepareTargetBranchRef creates a new target branch from main", async () => {
+    const projectRoot = await makeRepo();
+    try {
+        const mainCommit = await git(projectRoot, ["rev-parse", "refs/heads/main"]);
+
+        const prepared = await prepareTargetBranchRef(projectRoot, "new-target");
+
+        assertEquals(prepared, { baseRef: "refs/heads/new-target", baseBranch: "new-target" });
+        assertEquals(await git(projectRoot, ["rev-parse", "refs/heads/new-target"]), mainCommit);
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true });
+    }
+});
+
+Deno.test("prepareTargetBranchRef rejects invalid and reserved branch names", async () => {
+    const projectRoot = await makeRepo();
+    try {
+        await assertRejects(() => prepareTargetBranchRef(projectRoot, "HEAD"), Error, "not HEAD");
+        await assertRejects(
+            () => prepareTargetBranchRef(projectRoot, "refs/heads/main"),
+            Error,
+            "must not be a full ref",
+        );
+        await assertRejects(
+            () => prepareTargetBranchRef(projectRoot, "runwield/worktree/demo"),
+            Error,
+            "reserved execution prefix",
+        );
+        await assertRejects(() => prepareTargetBranchRef(projectRoot, "bad branch"), Error, "Invalid target branch");
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true });
+    }
+});
+
+Deno.test("createExecutionWorktree records supplied target branch independent of current checkout", async () => {
+    const projectRoot = await makeRepo();
+    const worktreeRoot = await Deno.makeTempDir();
+    let worktree;
+    try {
+        await git(projectRoot, ["checkout", "-b", "feature-base"]);
+        await Deno.writeTextFile(`${projectRoot}/feature.txt`, "feature-base\n");
+        await git(projectRoot, ["add", "."]);
+        await git(projectRoot, ["commit", "-m", "feature base"]);
+        await git(projectRoot, ["checkout", "main"]);
+
+        worktree = await createExecutionWorktree({
+            projectRoot,
+            planName: "Targeted Plan",
+            baseRef: "refs/heads/feature-base",
+            baseBranch: "feature-base",
+            worktreeRoot,
+        });
+
+        assertEquals(worktree.baseBranch, "feature-base");
+        assertEquals(worktree.baseRef, "refs/heads/feature-base");
+        assertEquals(await Deno.readTextFile(`${worktree.path}/feature.txt`), "feature-base\n");
     } finally {
         if (worktree) {
             await removeExecutionWorktree({

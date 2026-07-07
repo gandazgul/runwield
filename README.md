@@ -39,6 +39,13 @@ work done with the right amount of ceremony.
 Use RunWield when you want an agent workflow that leaves durable plans, review points, validation notes, and a clear
 record of why each change happened. Use a lighter harness when you only want a one-shot chat wrapper around edit tools.
 
+### Targeting a plan at a branch
+
+By default, saved FEATURE plan execution starts from the current checkout branch. To run hands-off work against another
+branch, ask for the plan to target that branch or add `worktreeBaseBranch: "branch-name"` to the plan front matter
+before execution. RunWield creates the execution worktree from that local branch, a matching `origin/<branch-name>`
+tracking branch, or a new local branch from `main`, then merges validated work back to that same target branch.
+
 ## High-Level Flow
 
 ```mermaid

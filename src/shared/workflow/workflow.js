@@ -8,7 +8,12 @@ import { AGENTS, CWD } from "../../constants.js";
 import { loadPlan } from "../../plan-store.js";
 import { getAgentDisplayName } from "../session/agents.js";
 import { runAgentSession } from "../session/session.js";
-import { createExecutionWorktree, findReusableWorktree } from "../worktree.js";
+import {
+    createExecutionWorktree,
+    findReusableWorktree,
+    prepareTargetBranchRef,
+    resolveTargetBranchName,
+} from "../worktree.js";
 import { updateEntry as updateWorktreeRegistryEntry } from "../worktree-registry.js";
 import { captureWorktreeTree } from "./git-snapshot.js";
 import { isEpicPlan, isExecutablePlanStatus, recordPlanEvent } from "./plan-lifecycle.js";
@@ -299,11 +304,27 @@ export function assertReusableWorktreeTargetMatches(reusableBaseBranch, targetBr
  *   triageMeta: Partial<import('../../plan-store.js').PlanFrontMatter>,
  *   currentStatus: import('./plan-lifecycle.js').PlanStatus,
  *   hostedSession?: import('../session/hosted-session.js').HostedSession,
+ *   __deps?: {
+ *     createExecutionWorktree?: typeof createExecutionWorktree,
+ *     findReusableWorktree?: typeof findReusableWorktree,
+ *     prepareTargetBranchRef?: typeof prepareTargetBranchRef,
+ *     resolveTargetBranchName?: typeof resolveTargetBranchName,
+ *     captureWorktreeTree?: typeof captureWorktreeTree,
+ *     updateWorktreeRegistryEntry?: typeof updateWorktreeRegistryEntry,
+ *     recordPlanEvent?: typeof recordPlanEvent,
+ *   },
  * }} opts
  * @returns {Promise<{ projectRoot: string, executionCwd: string, baselineTree: string, worktreeId: string, worktreeBranch: string, worktreeBaseBranch?: string }>}
  */
-export async function startActiveExecutionWorkflow({ planName, triageMeta, currentStatus, hostedSession }) {
+export async function startActiveExecutionWorkflow({ planName, triageMeta, currentStatus, hostedSession, __deps }) {
     if (!hostedSession) throw new Error("startActiveExecutionWorkflow: hostedSession is required");
+    const createWorktree = __deps?.createExecutionWorktree || createExecutionWorktree;
+    const findReusable = __deps?.findReusableWorktree || findReusableWorktree;
+    const prepareTarget = __deps?.prepareTargetBranchRef || prepareTargetBranchRef;
+    const resolveTarget = __deps?.resolveTargetBranchName || resolveTargetBranchName;
+    const captureTree = __deps?.captureWorktreeTree || captureWorktreeTree;
+    const updateRegistry = __deps?.updateWorktreeRegistryEntry || updateWorktreeRegistryEntry;
+    const recordEvent = __deps?.recordPlanEvent || recordPlanEvent;
     const targetBranch = normalizeExecutionTargetBranch(triageMeta.worktreeBaseBranch);
     const existing = hostedSession.getActiveExecutionWorkflow();
     const reusable =
@@ -312,18 +333,21 @@ export async function startActiveExecutionWorkflow({ planName, triageMeta, curre
                 id: existing.worktreeId,
                 path: existing.executionCwd,
                 branch: existing.worktreeBranch,
-                baseBranch: existing.worktreeBaseBranch ||
-                    (typeof triageMeta.worktreeBaseBranch === "string" ? triageMeta.worktreeBaseBranch : undefined),
+                baseBranch: existing.worktreeBaseBranch,
             }
-            : await findReusableWorktree({ projectRoot: CWD, planName });
-    if (reusable) assertReusableWorktreeTargetMatches(reusable.baseBranch, targetBranch);
-    const worktree = reusable ||
-        await createExecutionWorktree({ projectRoot: CWD, planName, baseRef: targetBranch || "HEAD" });
+            : await findReusable({ projectRoot: CWD, planName });
+    const resolvedTargetBranch = reusable && targetBranch ? await resolveTarget(CWD, targetBranch) : targetBranch;
+    if (reusable) assertReusableWorktreeTargetMatches(reusable.baseBranch, resolvedTargetBranch);
+    const worktree = reusable || await createWorktree({
+        projectRoot: CWD,
+        planName,
+        ...(targetBranch ? await prepareTarget(CWD, targetBranch) : { baseRef: "HEAD" }),
+    });
     const worktreeBaseBranch = worktree.baseBranch === "HEAD" ? undefined : worktree.baseBranch;
     const baselineTree =
         existing?.planName === planName && existing.executionCwd === worktree.path && existing.baselineTree
             ? existing.baselineTree
-            : await captureWorktreeTree(worktree.path);
+            : await captureTree(worktree.path);
     const workflow = {
         planName,
         triageMeta,
@@ -336,9 +360,9 @@ export async function startActiveExecutionWorkflow({ planName, triageMeta, curre
     };
     hostedSession.setActiveExecutionWorkflow(workflow);
     if (worktree.id) {
-        await updateWorktreeRegistryEntry(CWD, worktree.id, { status: "active" });
+        await updateRegistry(CWD, worktree.id, { status: "active" });
     }
-    await recordPlanEvent({
+    await recordEvent({
         cwd: CWD,
         planName,
         event: "execution_started",

@@ -157,6 +157,7 @@ function getStoredPlanLocation(cwd, planName) {
  * @property {string|null} [devServerCommand] - Project dev/preview command for browser verification, if known.
  * @property {string|null} [devServerUrl] - Local URL expected for browser verification, if known.
  * @property {boolean|null} [devServerHmr] - Whether the dev server is expected to support hot module reload.
+ * @property {string|null} [worktreeBaseBranch] - Target branch this child FEATURE should execute from and merge back into.
  * @property {string[]} dependencies - Sibling child plan names or identifiers required first.
  * @property {string} content - Planner-format markdown body for the child FEATURE.
  * @property {number} [order] - Optional stable execution order used in front matter and the file name.
@@ -1039,10 +1040,16 @@ export async function saveChildFeaturePlans(cwd, epicPlanName, children, options
             ? null
             : undefined;
         const devServerHmr = child.devServerHmr === null ? null : normalizeOptionalBoolean(child.devServerHmr);
+        const worktreeBaseBranch = typeof child.worktreeBaseBranch === "string"
+            ? child.worktreeBaseBranch
+            : child.worktreeBaseBranch === null
+            ? null
+            : undefined;
         if (frontend !== undefined) metadata.frontend = frontend;
         if (devServerCommand !== undefined) metadata.devServerCommand = devServerCommand;
         if (devServerUrl !== undefined) metadata.devServerUrl = devServerUrl;
         if (devServerHmr !== undefined) metadata.devServerHmr = devServerHmr;
+        if (worktreeBaseBranch !== undefined) metadata.worktreeBaseBranch = worktreeBaseBranch;
         const path = await savePlan(cwd, name, child.content, {
             ...metadata,
             summary: child.summary,

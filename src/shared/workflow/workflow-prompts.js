@@ -51,6 +51,7 @@ export function buildSlicerRequest(input, legacyTriageMeta) {
 
     if (attrs.summary) lines.push(`- Summary: ${attrs.summary}`);
     if (attrs.parentPlan) lines.push(`- Parent plan: ${attrs.parentPlan}`);
+    if (attrs.worktreeBaseBranch) lines.push(`- Target branch: ${attrs.worktreeBaseBranch}`);
     if (Array.isArray(attrs.dependencies) && attrs.dependencies.length) {
         lines.push(`- Epic dependencies: ${attrs.dependencies.join(", ")}`);
     }

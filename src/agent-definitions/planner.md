@@ -102,6 +102,7 @@ Front matter is mandatory and must be parseable by RunWield plan parsing. Includ
 - `devServerCommand` (string or null)
 - `devServerUrl` (string or null)
 - `devServerHmr` (boolean or null)
+- `worktreeBaseBranch` (optional string) — include only when the user explicitly specifies a target execution branch
 - `createdAt` (Local time ISO timestamp, get it with `date`)
 - `status` draft
 
