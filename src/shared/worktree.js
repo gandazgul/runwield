@@ -293,13 +293,6 @@ function normalizeCommitMessageLine(value) {
     return String(value || "").replace(/\s+/g, " ").trim();
 }
 
-/** @param {string} subject */
-function clampCommitSubject(subject) {
-    const normalized = normalizeCommitMessageLine(subject);
-    if (normalized.length <= 50) return normalized;
-    return normalized.slice(0, 50).trimEnd();
-}
-
 /** @param {string[]} stagedPaths */
 function formatStagedPaths(stagedPaths) {
     const visiblePaths = stagedPaths.slice(0, 5);
@@ -315,7 +308,7 @@ function buildWorktreeCommitMessage({ planName, planDescription, branch, stagedP
     const normalizedPlanName = normalizeCommitMessageLine(planName);
     const normalizedDescription = normalizeCommitMessageLine(planDescription);
     const subject = normalizedPlanName
-        ? clampCommitSubject(`Complete ${normalizedPlanName}`)
+        ? normalizeCommitMessageLine(`Complete ${normalizedPlanName}`)
         : "Commit execution worktree updates";
     const bodyLines = [];
     if (normalizedPlanName) bodyLines.push(`- Plan: ${normalizedPlanName}`);
