@@ -16,21 +16,16 @@ affectedPaths:
     - "src/shared/session/agent-handler.test.js"
 frontend: false
 createdAt: "2026-07-07T02:13:46.228Z"
-updatedAt: "2026-07-07T18:31:54.981Z"
-status: "in_progress"
+updatedAt: "2026-07-07T19:12:38.121Z"
+status: "verified"
 origin: "internal"
 parentPlan: "session-runtime-acp-mvp"
 order: 2
 dependencies:
     - "01-acp-sdk-and-stdio-entrypoint-skeleton"
-humanReviewMode: null
-humanReviewDecision: null
-executionBaselineTree: "b257722247e1db5a956f2ac63c97776c1f38f2fc"
-worktreeId: "564b86f6"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-harns--/harns-runwield-session-runtime-acp-mvp-02-sessionruntime-core-f-564b86f6"
-worktreeBranch: "runwield/worktree/session-runtime-acp-mvp-02-sessionruntime-core-f-564b86f6"
-worktreeBaseBranch: "main"
-worktreeStatus: "active"
+verifiedAt: "2026-07-07T19:12:38.121Z"
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
 ---
 
 # SessionRuntime Core for TUI-Preserved Prompting
