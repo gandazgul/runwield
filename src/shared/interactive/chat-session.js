@@ -398,10 +398,9 @@ export function setActiveAgent(hostedSession, agentName, handler, uiAPI, agentMo
     }
 
     // Queue a root rebuild. The actual swap (and the corresponding footer
-    // update + "Switched to X" message) is applied at the next turn boundary
-    // by applyPendingRootSwap() — it is unsafe to dispose the root mid-prompt,
-    // and updating the footer earlier would let the UI claim a switch that
-    // has not yet taken effect.
+    // update) is applied at the next turn boundary by applyPendingRootSwap() —
+    // it is unsafe to dispose the root mid-prompt, and updating the footer
+    // earlier would let the UI claim a switch that has not yet taken effect.
     /** @type {import('../session/hosted-session.js').PendingRootSwap} */
     const pendingSwap = {
         agentName: /** @type {string} */ (agentName),
@@ -423,8 +422,8 @@ export function setActiveAgent(hostedSession, agentName, handler, uiAPI, agentMo
  *
  * The footer (active agent name + model) is updated as a side-effect of
  * `buildAgentSession` calling `uiAPI.setAgentInfo`, so it changes exactly when
- * the new root is in place — never before. The user-facing "Switched to X"
- * notice is emitted here only after the rebuild succeeds, for the same reason.
+ * the new root is in place — never before. Successful swaps do not add chat
+ * messages; the footer is the user-facing confirmation.
  *
  * @param {any} hostedSession
  * @param {any} [uiAPI]
@@ -452,8 +451,6 @@ export async function applyPendingRootSwap(hostedSession, uiAPI) {
             sessionManager: /** @type {any} */ (targetHostedSession.getRootSessionManager() || undefined),
             allowReturnToRouter: pending.allowReturnToRouter,
         });
-        const modelText = pending.model ? ` (model: ${pending.model})` : "";
-        uiAPI?.appendSystemMessage?.(`Switched to ${pending.displayName}${modelText}.`);
         uiAPI?.requestRender?.();
     } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -1336,14 +1333,12 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
     const submissionQueue = [];
     let isProcessingSubmission = false;
 
-    /** Pop the most recent queued submission and restore it into the editor.
-     *  Returns true if a queued message was dequeued. */
-    function dequeueLastSubmission() {
-        if (submissionQueue.length === 0) return false;
-        const item = submissionQueue.pop();
-        if (!item) return false;
-        if (item.block) messageList.removeChild(item.block);
-        if (item.spacer) messageList.removeChild(item.spacer);
+    /**
+     * Restore a queued item into the editor.
+     *
+     * @param {{ text: string, images: import('../session/types.js').ImageAttachment[] }} item
+     */
+    function restoreQueuedItemToEditor(item) {
         editor.setText(item.text);
         if (item.images && item.images.length > 0) {
             for (const img of item.images) {
@@ -1353,6 +1348,56 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
                 );
             }
         }
+    }
+
+    /**
+     * Remove a pending steering entry's visual block.
+     *
+     * @param {PendingSteeringEntry} entry
+     */
+    function removePendingSteeringVisual(entry) {
+        messageList.removeChild(entry.systemBlock);
+        messageList.removeChild(entry.spacer);
+    }
+
+    /**
+     * Pop the most recent queued submission or pending steering message and
+     * restore it into the editor. Returns true if a message was dequeued.
+     */
+    function dequeueLastSubmission() {
+        if (submissionQueue.length > 0) {
+            const item = submissionQueue.pop();
+            if (!item) return false;
+            if (item.block) messageList.removeChild(item.block);
+            if (item.spacer) messageList.removeChild(item.spacer);
+            restoreQueuedItemToEditor(item);
+            tui.requestRender();
+            return true;
+        }
+
+        const pendingEntries = Array.from(steeringState.pendingMessages.entries());
+        const selected = pendingEntries[pendingEntries.length - 1];
+        if (!selected) return false;
+
+        const [selectedId, selectedEntry] = selected;
+        try {
+            selectedEntry.session.clearQueue?.();
+        } catch (_e) { /* ignore */ }
+
+        for (const [id, entry] of pendingEntries) {
+            if (entry.session !== selectedEntry.session) continue;
+            removePendingSteeringVisual(entry);
+            steeringState.pendingMessages.delete(id);
+            if (id === selectedId) continue;
+
+            const block = new SystemMessageBlock(entry.text, false, "Queued message:");
+            const spacer = new Spacer(1);
+            messageList.addChild(block);
+            messageList.addChild(spacer);
+            submissionQueue.push({ text: entry.text, images: entry.images, block, spacer });
+        }
+        cleanupSteeringSubscriptionIfIdle(steeringState, selectedEntry.session);
+        restoreQueuedItemToEditor(selectedEntry);
         tui.requestRender();
         return true;
     }

@@ -9,7 +9,7 @@ P1 critical bug
       we have this tool. 2nd the orchestrator needs to ensure the changes are ACTUALLY merged in before deleting the
       worktree, if unsure then stop and tell the user.
 
-- [ ] hittin up arrow when there's a scheduled steering message, fills the input but, doesnt remove the scheduled
+- [x] hittin up arrow when there's a scheduled steering message, fills the input but, doesnt remove the scheduled
       message.
 - [ ] when queing up a steering message with an image the fact that the image is attached is not shown in the steering:
       block

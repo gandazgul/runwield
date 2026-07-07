@@ -6,33 +6,31 @@ summary: "Introduce the adapter-neutral SessionRuntime seam over SessionHost/Hos
 affectedPaths:
     - "docs/adr/010-session-runtime-sibling-adapters-and-acp.md"
     - "src/shared/session/session-runtime.js"
-    - "src/shared/session/agent-switching.js"
     - "src/shared/session/session-host.js"
     - "src/shared/session/hosted-session.js"
     - "src/shared/session/agent-handler.js"
+    - "src/shared/interactive/chat-session.js"
+    - "src/shared/interactive/slash-dispatch.js"
     - "src/shared/session/session-runtime.test.js"
     - "src/shared/session/session-host.test.js"
     - "src/shared/session/agent-handler.test.js"
-    - "src/shared/interactive/chat-session.js"
-    - "src/shared/interactive/chat-session.test.js"
-    - "src/shared/interactive/slash-dispatch.js"
-    - "src/shared/interactive/slash-dispatch.test.js"
-    - "src/shared/workflow/orchestrator.js"
-    - "src/shared/workflow/validation.js"
-    - "src/shared/workflow/workflow-slicer.js"
-    - "src/tools/return-to-router.js"
 frontend: false
-devServerCommand: null
-devServerUrl: null
-devServerHmr: null
-createdAt: "2026-07-07T02:13:46-04:00"
-updatedAt: "2026-07-07T14:24:59-04:00"
-status: "draft"
+createdAt: "2026-07-07T02:13:46.228Z"
+updatedAt: "2026-07-07T18:31:54.981Z"
+status: "in_progress"
 origin: "internal"
 parentPlan: "session-runtime-acp-mvp"
 order: 2
 dependencies:
     - "01-acp-sdk-and-stdio-entrypoint-skeleton"
+humanReviewMode: null
+humanReviewDecision: null
+executionBaselineTree: "b257722247e1db5a956f2ac63c97776c1f38f2fc"
+worktreeId: "564b86f6"
+worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-harns--/harns-runwield-session-runtime-acp-mvp-02-sessionruntime-core-f-564b86f6"
+worktreeBranch: "runwield/worktree/session-runtime-acp-mvp-02-sessionruntime-core-f-564b86f6"
+worktreeBaseBranch: "main"
+worktreeStatus: "active"
 ---
 
 # SessionRuntime Core for TUI-Preserved Prompting
