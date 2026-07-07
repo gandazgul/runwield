@@ -99,6 +99,51 @@ Deno.test("runPlannotatorCodeReview delegates launching through the code review 
     ]);
 });
 
+Deno.test("runPlannotatorCodeReview disables input while waiting for reviewer decision", async () => {
+    /** @type {string[]} */
+    const events = [];
+    /** @type {(value: { approved: boolean, feedback?: string }) => void} */
+    let resolveDecision = () => {};
+    const decisionPromise = new Promise((resolve) => {
+        resolveDecision = resolve;
+    });
+
+    const reviewPromise = runPlannotatorCodeReview({
+        planName: "input-disabled-plan",
+        diffText: "diff --git a/src/a.js b/src/a.js\n+change",
+        executionCwd: "/tmp/worktree",
+        uiAPI: /** @type {any} */ ({
+            appendSystemMessage: () => {},
+            disableInput: () => events.push("disable"),
+            enableInput: () => events.push("enable"),
+        }),
+        __deps: {
+            startCodeReviewSurface: () =>
+                Promise.resolve({
+                    url: "http://localhost:2468",
+                    opened: true,
+                    waitForDecision: () => {
+                        events.push("wait");
+                        return decisionPromise;
+                    },
+                    stop: () => {
+                        events.push("stop");
+                    },
+                }),
+        },
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+    assertEquals(events, ["disable", "wait"]);
+
+    resolveDecision({ approved: true, feedback: "ok" });
+    const result = await reviewPromise;
+
+    assertEquals(result.approved, true);
+    assertEquals(events, ["disable", "wait", "enable", "stop"]);
+});
+
 Deno.test("runPlannotatorCodeReview reports browser fallback and still waits for decision", async () => {
     /** @type {string[]} */
     const messages = [];
