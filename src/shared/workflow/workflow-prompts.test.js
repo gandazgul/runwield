@@ -13,7 +13,12 @@ Deno.test("buildSlicerRequest includes existing child order and dependencies", (
     const request = buildSlicerRequest({
         planName: "epic-a",
         epicBody: "# Epic",
-        epicAttrs: { classification: "PROJECT", type: "epic", status: "ready_for_work" },
+        epicAttrs: {
+            classification: "PROJECT",
+            type: "epic",
+            status: "ready_for_work",
+            worktreeBaseBranch: "feature-base",
+        },
         children: [
             {
                 name: "epic-a/02-second",
@@ -30,6 +35,7 @@ Deno.test("buildSlicerRequest includes existing child order and dependencies", (
     assertStringIncludes(request, "  - Order: 2");
     assertStringIncludes(request, "  - Status: draft");
     assertStringIncludes(request, "  - Dependencies: 01-first");
+    assertStringIncludes(request, "- Target branch: feature-base");
 });
 
 Deno.test("buildDependencyOutputsContext includes only successful dependency displays", () => {
