@@ -162,6 +162,20 @@ export async function runLocalCI(uiAPI, cwd = CWD) {
 }
 
 /**
+ * @param {import('../session/hosted-session.js').HostedSession | undefined} hostedSession
+ * @param {string} agentName
+ * @returns {number}
+ */
+function getRootMessageCount(hostedSession, agentName) {
+    if (hostedSession?.getRootAgentName?.() !== agentName) return 0;
+    const rootSession = hostedSession?.getRootAgentSession?.();
+    const messages = /** @type {{ agent?: { state?: { messages?: unknown[] } } } | undefined} */ (rootSession)?.agent
+        ?.state
+        ?.messages;
+    return Array.isArray(messages) ? messages.length : 0;
+}
+
+/**
  * @param {Object} args
  * @param {string} args.agentName
  * @param {string} args.userRequest
@@ -183,6 +197,7 @@ async function runCompletionGatedRepair({
     runAgentSession: runAgentSessionImpl = runAgentSession,
     readLatestTaskCompletedOutcome: readTaskCompleted = readLatestTaskCompletedOutcome,
 }) {
+    const fromIndex = getRootMessageCount(hostedSession, agentName);
     const messages = await runAgentSessionImpl({
         hostedSession,
         agentName,
@@ -194,7 +209,7 @@ async function runCompletionGatedRepair({
     });
     hostedSession?.consumePendingSwitchHandoff?.();
 
-    return readTaskCompleted(messages);
+    return readTaskCompleted(messages, fromIndex);
 }
 
 /**
@@ -290,6 +305,77 @@ async function getGitStatusContext(cwd) {
         return status || "(clean)";
     } catch {
         return undefined;
+    }
+}
+
+/**
+ * @param {string} cwd
+ * @param {string[]} args
+ * @returns {Promise<{ exitCode: number, stdout: string, stderr: string }>}
+ */
+async function runGitForMergeVerification(cwd, args) {
+    const command = new Deno.Command("git", { args, cwd, stdout: "piped", stderr: "piped" });
+    const output = await command.output();
+    const decoder = new TextDecoder();
+    return {
+        exitCode: output.code,
+        stdout: decoder.decode(output.stdout),
+        stderr: decoder.decode(output.stderr),
+    };
+}
+
+/**
+ * @typedef {Object} MergeVerificationResult
+ * @property {boolean} merged
+ * @property {string} message
+ */
+
+/**
+ * @param {Object} opts
+ * @param {string} opts.projectRoot
+ * @param {string} opts.worktreeBranch
+ * @param {string | undefined} opts.worktreeBaseBranch
+ * @returns {Promise<MergeVerificationResult>}
+ */
+async function verifyExecutionWorktreeMerged({ projectRoot, worktreeBranch, worktreeBaseBranch }) {
+    try {
+        const targetRef = worktreeBaseBranch ? `refs/heads/${worktreeBaseBranch}` : "HEAD";
+        const branchResult = await runGitForMergeVerification(projectRoot, ["rev-parse", "--verify", worktreeBranch]);
+        if (branchResult.exitCode !== 0) {
+            return {
+                merged: false,
+                message: `Could not verify execution branch ${worktreeBranch}: ${branchResult.stderr.trim()}`,
+            };
+        }
+
+        const targetResult = await runGitForMergeVerification(projectRoot, ["rev-parse", "--verify", targetRef]);
+        if (targetResult.exitCode !== 0) {
+            return {
+                merged: false,
+                message: `Could not verify merge target ${targetRef}: ${targetResult.stderr.trim()}`,
+            };
+        }
+
+        const ancestorResult = await runGitForMergeVerification(projectRoot, [
+            "merge-base",
+            "--is-ancestor",
+            worktreeBranch,
+            targetRef,
+        ]);
+        if (ancestorResult.exitCode === 0) {
+            return { merged: true, message: `${worktreeBranch} is contained in ${targetRef}.` };
+        }
+
+        const detail = (ancestorResult.stderr || ancestorResult.stdout).trim();
+        return {
+            merged: false,
+            message: detail
+                ? `${worktreeBranch} is not verified as merged into ${targetRef}: ${detail}`
+                : `${worktreeBranch} is not verified as merged into ${targetRef}.`,
+        };
+    } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        return { merged: false, message: `Could not run merge verification: ${reason}` };
     }
 }
 
@@ -556,6 +642,7 @@ export async function runMechanicalValidation({ uiAPI, sessionManager, hostedSes
  *   shouldCleanupMergedWorktrees?: typeof shouldCleanupMergedWorktrees,
  *   getCodeReviewMode?: typeof getCodeReviewMode,
  *   runPlannotatorCodeReview?: typeof runPlannotatorCodeReview,
+ *   verifyExecutionWorktreeMerged?: typeof verifyExecutionWorktreeMerged,
  * }} [args.__deps] Test-only injection point.
  */
 export async function runValidationLoop({
@@ -588,6 +675,7 @@ export async function runValidationLoop({
     const shouldCleanupMergedWorktreesImpl = __deps?.shouldCleanupMergedWorktrees || shouldCleanupMergedWorktrees;
     const getCodeReviewModeImpl = __deps?.getCodeReviewMode || getCodeReviewMode;
     const runPlannotatorCodeReviewImpl = __deps?.runPlannotatorCodeReview || runPlannotatorCodeReview;
+    const verifyExecutionWorktreeMergedImpl = __deps?.verifyExecutionWorktreeMerged || verifyExecutionWorktreeMerged;
     const activeWorkflow = hostedSession?.getActiveExecutionWorkflow?.() || null;
     const baselineTree = activeWorkflow?.baselineTree;
     const projectRoot = activeWorkflow?.projectRoot || CWD;
@@ -876,6 +964,18 @@ export async function runValidationLoop({
                             ".wld/worktrees.lock",
                         ],
                     });
+                    const mergeVerification = await verifyExecutionWorktreeMergedImpl({
+                        projectRoot,
+                        worktreeBranch,
+                        worktreeBaseBranch,
+                    });
+                    if (!mergeVerification.merged) {
+                        executionComplete = false;
+                        haltReason =
+                            `Worktree merge verification failed after merge-back reported success: ${mergeVerification.message}`;
+                        appendRunWieldSystemMessage(uiAPI, `Workflow halted: ${haltReason}`, true);
+                        break;
+                    }
                     pendingRepairMergeWorktreePath = undefined;
                     if (worktreeId) {
                         await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, { status: "merged" });
@@ -1022,6 +1122,41 @@ export async function runValidationLoop({
                         ...(humanReviewMetadata || {}),
                     },
                 });
+            }
+        } else if (haltReason) {
+            if (worktreeId) {
+                try {
+                    await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, { status: "validation_failed" });
+                } catch (metadataError) {
+                    const metadataReason = metadataError instanceof Error
+                        ? metadataError.message
+                        : String(metadataError);
+                    appendRunWieldSystemMessage(
+                        uiAPI,
+                        `Could not update worktree registry after merge halt: ${metadataReason}`,
+                        true,
+                    );
+                }
+            }
+            if (planName && planName !== "quick-fix") {
+                try {
+                    await recordPlanEventImpl({
+                        cwd: CWD,
+                        planName,
+                        event: "validation_failed",
+                        currentStatus: "implemented",
+                        details: { triageMeta, failureReason: haltReason },
+                    });
+                } catch (metadataError) {
+                    const metadataReason = metadataError instanceof Error
+                        ? metadataError.message
+                        : String(metadataError);
+                    appendRunWieldSystemMessage(
+                        uiAPI,
+                        `Could not update plan metadata after merge halt: ${metadataReason}`,
+                        true,
+                    );
+                }
             }
         }
     } else {

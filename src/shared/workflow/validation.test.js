@@ -205,6 +205,58 @@ Deno.test("runMechanicalValidation repairs CI failures through Engineer and then
     assertEquals(actions, ["ci:1", "repair:engineer:/repo:true", "ci:2", "active:engineer"]);
 });
 
+Deno.test("runMechanicalValidation ignores stale task_completed from earlier root turns", async () => {
+    const uiAPI = makeUi();
+    const staleHostedSession = new HostedSession({ id: "stale-task-completed-test" });
+    staleHostedSession.setRootAgentName("engineer");
+    staleHostedSession.setRootAgentSession(
+        /** @type {any} */ ({
+            agent: {
+                state: {
+                    messages: [{
+                        role: "toolResult",
+                        toolName: "task_completed",
+                        details: { outcome: "task_completed" },
+                    }],
+                },
+            },
+        }),
+    );
+    /** @type {number[]} */
+    const fromIndexes = [];
+
+    const result = await runMechanicalValidation({
+        hostedSession: staleHostedSession,
+        uiAPI,
+        sessionManager: undefined,
+        cwd: "/repo",
+        __deps: /** @type {any} */ ({
+            runLocalCI: () => Promise.resolve({ exitCode: 1, output: "boom" }),
+            runAgentSession: () =>
+                Promise.resolve(
+                    /** @type {any} */ ([
+                        {
+                            role: "toolResult",
+                            toolName: "task_completed",
+                            details: { outcome: "task_completed" },
+                        },
+                        { role: "assistant", content: [{ type: "text", text: "cancelled" }] },
+                    ]),
+                ),
+            readLatestTaskCompletedOutcome: (/** @type {any[]} */ messages, /** @type {number} */ fromIndex) => {
+                fromIndexes.push(fromIndex);
+                return messages.slice(fromIndex).some((message) => message.toolName === "task_completed");
+            },
+            setActiveAgent: () => {},
+            createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
+        }),
+    });
+
+    assertEquals(result.passed, false);
+    assertEquals(result.reason, "Engineer stopped without task_completed during QUICK_FIX repair.");
+    assertEquals(fromIndexes, [1]);
+});
+
 Deno.test("runMechanicalValidation stops after three Engineer repair attempts without Plan side effects", async () => {
     const uiAPI = makeUi();
     let repairCalls = 0;
@@ -670,6 +722,7 @@ Deno.test("runValidationLoop records validation_passed only after worktree merge
                 actions.push(`registry-remove:${projectRoot}:${id}`);
                 return Promise.resolve();
             },
+            verifyExecutionWorktreeMerged: () => Promise.resolve({ merged: true, message: "merged" }),
 
             updateWorktreeRegistryEntry: (
                 /** @type {string} */ _projectRoot,
@@ -694,6 +747,81 @@ Deno.test("runValidationLoop records validation_passed only after worktree merge
         "registry-remove:/primary:wt1",
         "event:validation_passed:merged",
     ]);
+});
+
+Deno.test("runValidationLoop does not delete worktree when merge verification is uncertain", async () => {
+    const uiAPI = makeUi();
+    /** @type {string[]} */
+    const actions = [];
+
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "p",
+        triageMeta: { classification: "FEATURE" },
+        baselineTree: "baseline-tree",
+        projectRoot: "/primary",
+        executionCwd: "/worktree",
+        worktreeId: "wt1",
+        worktreeBranch: "runwield/worktree/p-wt1",
+        worktreeBaseBranch: "feature-base",
+    });
+
+    await runValidationLoop({
+        hostedSession,
+        planName: "p",
+        planContent: "plan",
+        triageMeta: { classification: "FEATURE" },
+        uiAPI,
+        sessionManager: undefined,
+        __deps: /** @type {any} */ ({
+            runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
+            getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
+            runAgentSession: () =>
+                Promise.resolve(
+                    /** @type {any} */ ([{
+                        role: "assistant",
+                        content: [{ type: "text", text: "APPROVED" }],
+                    }]),
+                ),
+            mergeExecutionWorktree: () => {
+                actions.push("merge");
+                return Promise.resolve();
+            },
+            verifyExecutionWorktreeMerged: () =>
+                Promise.resolve({ merged: false, message: "branch is not contained in target" }),
+            updateWorktreeRegistryEntry: (
+                /** @type {string} */ _projectRoot,
+                /** @type {string} */ _id,
+                /** @type {{ status: string }} */ updates,
+            ) => {
+                actions.push(`registry:${updates.status}`);
+                return Promise.resolve({});
+            },
+            removeExecutionWorktree: () => {
+                actions.push("remove");
+                return Promise.resolve();
+            },
+            recordPlanEvent: (/** @type {any} */ event) => {
+                actions.push(
+                    `event:${event.event}:${event.details.failureReason || event.details.worktreeStatus || ""}`,
+                );
+                return Promise.resolve({});
+            },
+            getCodeReviewMode: () => "none",
+            setActiveAgent: () => {},
+        }),
+    });
+
+    assertEquals(actions, [
+        "merge",
+        "registry:validation_failed",
+        "event:validation_failed:Worktree merge verification failed after merge-back reported success: branch is not contained in target",
+    ]);
+    assertEquals(
+        uiAPI.messages.some((/** @type {string} */ message) =>
+            message.includes("Worktree merge verification failed after merge-back reported success")
+        ),
+        true,
+    );
 });
 
 Deno.test("runValidationLoop runs always human review after semantic approval and before merge", async () => {
@@ -740,6 +868,7 @@ Deno.test("runValidationLoop runs always human review after semantic approval an
             },
             removeExecutionWorktree: () => Promise.resolve(),
             removeWorktreeRegistryEntry: () => Promise.resolve(),
+            verifyExecutionWorktreeMerged: () => Promise.resolve({ merged: true, message: "merged" }),
             updateWorktreeRegistryEntry: () => {
                 actions.push("registry");
                 return Promise.resolve({});
@@ -809,6 +938,7 @@ Deno.test("runValidationLoop ask mode can skip human review and merge", async ()
             },
             removeExecutionWorktree: () => Promise.resolve(),
             removeWorktreeRegistryEntry: () => Promise.resolve(),
+            verifyExecutionWorktreeMerged: () => Promise.resolve({ merged: true, message: "merged" }),
             updateWorktreeRegistryEntry: () => Promise.resolve({}),
             recordPlanEvent: (/** @type {any} */ event) => {
                 actions.push(
@@ -871,6 +1001,7 @@ Deno.test("runValidationLoop ask mode opens human review before merge when appro
             },
             removeExecutionWorktree: () => Promise.resolve(),
             removeWorktreeRegistryEntry: () => Promise.resolve(),
+            verifyExecutionWorktreeMerged: () => Promise.resolve({ merged: true, message: "merged" }),
             updateWorktreeRegistryEntry: () => Promise.resolve({}),
             recordPlanEvent: (/** @type {any} */ event) => {
                 actions.push(
@@ -1051,6 +1182,7 @@ Deno.test("runValidationLoop keeps merged worktree when cleanup setting is disab
                 actions.push("registry-remove");
                 return Promise.resolve();
             },
+            verifyExecutionWorktreeMerged: () => Promise.resolve({ merged: true, message: "merged" }),
             updateWorktreeRegistryEntry: () => {
                 actions.push("registry");
                 return Promise.resolve({});
@@ -1112,7 +1244,9 @@ Deno.test("runValidationLoop records worktree_merge_failed when merge-back fails
                 return Promise.resolve({});
             },
             recordPlanEvent: (/** @type {any} */ event) => {
-                mergeFailedDetails = event.details;
+                if (event.event === "worktree_merge_failed") {
+                    mergeFailedDetails = event.details;
+                }
                 actions.push(`event:${event.event}:${event.details.failureReason}`);
                 return Promise.resolve({});
             },
@@ -1121,7 +1255,12 @@ Deno.test("runValidationLoop records worktree_merge_failed when merge-back fails
         }),
     });
 
-    assertEquals(actions, ["registry:merge_conflict", "event:worktree_merge_failed:conflict"]);
+    assertEquals(actions, [
+        "registry:merge_conflict",
+        "event:worktree_merge_failed:conflict",
+        "registry:validation_failed",
+        "event:validation_failed:Worktree merge failed: conflict",
+    ]);
     assertEquals(mergeFailedDetails.worktreePath, "/worktree");
     assertEquals(mergeFailedDetails.worktreeBranch, "runwield/worktree/p-wt1");
     assertEquals(mergeFailedDetails.worktreeBaseBranch, "feature-base");
@@ -1185,7 +1324,7 @@ Deno.test("runValidationLoop still prompts when merge-conflict metadata updates 
         }),
     });
 
-    assertEquals(actions, ["registry-failed", "plan-event-failed"]);
+    assertEquals(actions, ["registry-failed", "plan-event-failed", "registry-failed", "plan-event-failed"]);
     assertEquals(uiAPI.promptSelections, ["prompted"]);
     assertEquals(
         uiAPI.messages.some((/** @type {string} */ message) =>
@@ -1331,6 +1470,7 @@ Deno.test("runValidationLoop dispatches Engineer merge repair and retries merge-
                 actions.push("remove");
                 return Promise.resolve();
             },
+            verifyExecutionWorktreeMerged: () => Promise.resolve({ merged: true, message: "merged" }),
             getCodeReviewMode: () => "none",
             setActiveAgent: () => {},
         }),
@@ -1411,6 +1551,7 @@ Deno.test("runValidationLoop retries worktree merge after user fixes primary che
                 actions.push("remove");
                 return Promise.resolve();
             },
+            verifyExecutionWorktreeMerged: () => Promise.resolve({ merged: true, message: "merged" }),
             getCodeReviewMode: () => "none",
             setActiveAgent: () => {},
         }),
