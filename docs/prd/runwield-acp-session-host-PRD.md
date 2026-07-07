@@ -67,13 +67,14 @@ Each Hosted Session should own, at minimum:
 The existing TUI should be adapted to create/use exactly one Hosted Session. Success for Slice 1 is: **the existing TUI
 runs entirely through Session Host with no intended behavior change.**
 
-### Slice 2 — MVP ACP in core
+### Slice 2 — SessionRuntime + ACP MVP
 
-Add `wld --mode acp` or equivalent core entry point that speaks ACP JSON-RPC over stdio.
+Add `wld acp` and `wld --mode acp` core entry points that speak ACP JSON-RPC over stdio. ACP is a sibling adapter over a
+shared SessionRuntime/Session Host boundary, not a wrapper around TUI internals.
 
 MVP ACP capabilities:
 
-- initialize
+- initialize and advertise only implemented safe capabilities
 - create session with cwd
 - load/resume session
 - prompt session
@@ -81,7 +82,7 @@ MVP ACP capabilities:
 - stream assistant text and tool/status updates
 - return stable session ids
 
-The ACP implementation should call the Session Host, not TUI internals.
+The ACP implementation should call the SessionRuntime/Session Host boundary directly and must not import TUI modules.
 
 ### Slice 3 — MVP Takopi RunWield plugin
 
