@@ -2066,6 +2066,101 @@ Deno.test("runLoadPlanCommand recreates worktree reset from recorded base commit
     assertEquals(executed, true);
 });
 
+Deno.test("runLoadPlanCommand recreates missing worktree reset after warning confirmation", async () => {
+    const { uiAPI, selections, messages, prompts } = makeUi();
+    selections.push("reset", "confirm");
+    let removedPath = "";
+    let abandoned = false;
+    let createdBaseRef = "";
+    let executed = false;
+
+    await runLoadPlanCommand(["plan-lost-worktree"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: () => ({ help: false, _: ["plan-lost-worktree"] }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "plan-lost-worktree",
+                    path: "plans/plan-lost-worktree.md",
+                    body: "body",
+                    markdown: "markdown",
+                    attrs: {
+                        classification: "FEATURE",
+                        complexity: "LOW",
+                        summary: "s",
+                        affectedPaths: [],
+                        status: "failed",
+                        executionBaselineTree: "baseline-tree",
+                        worktreeId: "wt-lost-worktree",
+                        worktreePath: "/tmp/runwield-missing-plan-worktree",
+                        worktreeBranch: "runwield/worktree/plan-lost-worktree",
+                        worktreeStatus: "execution_failed",
+                    },
+                }),
+            findWorktreeById: () =>
+                Promise.resolve({
+                    id: "wt-lost-worktree",
+                    planName: "plan-lost-worktree",
+                    path: "/tmp/runwield-missing-plan-worktree",
+                    branch: "runwield/worktree/plan-lost-worktree",
+                    baseRef: "main",
+                    baseCommit: "abc123",
+                    baseTree: "baseline-tree",
+                    status: "execution_failed",
+                    createdAt: "2026-01-01T00:00:00.000Z",
+                    updatedAt: "2026-01-01T00:00:00.000Z",
+                }),
+            findWorktreeByPlanName: () => Promise.resolve(null),
+            removeExecutionWorktree: (/** @type {{ path: string }} */ args) => {
+                removedPath = args.path;
+                return Promise.resolve();
+            },
+            updateWorktreeRegistryEntry: () => {
+                abandoned = true;
+                return Promise.resolve(/** @type {any} */ ({}));
+            },
+            createExecutionWorktree: (/** @type {{ baseRef: string }} */ args) => {
+                createdBaseRef = args.baseRef;
+                return Promise.resolve({
+                    id: "wt-recreated",
+                    path: "/tmp/runwield-plan-worktree-2",
+                    branch: "runwield/worktree/plan-lost-worktree-2",
+                    status: "active",
+                    baseRef: "abc123",
+                    baseCommit: "abc123",
+                    baseTree: "new-baseline-tree",
+                });
+            },
+            updatePlanFrontMatter: (
+                /** @type {string} */ _cwd,
+                /** @type {string} */ _planName,
+                /** @type {Partial<import('../../plan-store.js').PlanFrontMatter>} */ updates,
+                /** @type {import('../../plan-store.js').PlanFrontMatter} */ attrs,
+            ) => Promise.resolve({ ...attrs, ...updates }),
+            recordPlanEvent: noOpRecordPlanEvent,
+            executePlan: () => {
+                executed = true;
+                return Promise.resolve(undefined);
+            },
+            createAgentHandler: () => async () => {},
+            resetTuiState: () => {},
+            setActiveAgent: () => {},
+        }),
+    });
+
+    assertEquals(
+        messages.some((message) => message.includes("does not exist at /tmp/runwield-missing-plan-worktree")),
+        true,
+    );
+    assertEquals(prompts.some((prompt) => prompt.prompt === "Recreate the worktree and start over?"), true);
+    assertEquals(removedPath, "/tmp/runwield-missing-plan-worktree");
+    assertEquals(abandoned, true);
+    assertEquals(createdBaseRef, "abc123");
+    assertEquals(executed, true);
+});
+
 Deno.test("runLoadPlanCommand in_progress inspect reports failure and baseline diff", async () => {
     const { uiAPI, selections, messages } = makeUi();
     selections.push("inspect", "cancel");
