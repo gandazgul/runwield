@@ -121,13 +121,15 @@ export function readLatestPlanOutcome(messages, fromIndex) {
  *
  * When `fromIndex` is provided, only messages at or after that index are searched,
  * preventing stale completions from earlier root turns from advancing workflow state.
+ * If the returned message stream is shorter than `fromIndex`, treat it as a fresh
+ * or sliced transcript and search it from the beginning.
  *
  * @param {import('@earendil-works/pi-agent-core').AgentMessage[]} messages
  * @param {number} [fromIndex] - Only search messages from this index onwards.
  * @returns {boolean}
  */
 export function readLatestTaskCompletedOutcome(messages, fromIndex) {
-    const start = fromIndex != null ? fromIndex : 0;
+    const start = fromIndex != null && fromIndex <= messages.length ? fromIndex : 0;
     for (let i = messages.length - 1; i >= start; i--) {
         const msg = messages[i];
         if (
