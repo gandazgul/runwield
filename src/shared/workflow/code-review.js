@@ -3,7 +3,9 @@
  * Launches the Plannotator human code review UI for a completed workflow diff.
  */
 
-const PLANNOTATOR_SERVER_MODULE = "@gandazgul/plannotator-pi-extension-compiled/server";
+import { startCodeReviewSurface } from "./review-launcher.js";
+
+export { loadReviewEditorHtml } from "./review-launcher.js";
 
 /**
  * @typedef {Object} CodeReviewAnnotation
@@ -21,63 +23,6 @@ const PLANNOTATOR_SERVER_MODULE = "@gandazgul/plannotator-pi-extension-compiled/
  * @property {CodeReviewAnnotation[]} annotations
  * @property {boolean} exit
  */
-
-/**
- * Open a URL in the system default browser.
- * Non-fatal: returns false if opening fails.
- *
- * @param {string} url
- * @returns {Promise<boolean>}
- */
-async function openInDefaultBrowser(url) {
-    /** @type {{ command: string; args: string[] }} */
-    let launcher;
-
-    switch (Deno.build.os) {
-        case "darwin":
-            launcher = { command: "open", args: [url] };
-            break;
-        case "windows":
-            launcher = { command: "cmd", args: ["/c", "start", "", url] };
-            break;
-        default:
-            launcher = { command: "xdg-open", args: [url] };
-            break;
-    }
-
-    try {
-        const proc = new Deno.Command(launcher.command, {
-            args: launcher.args,
-            stdout: "null",
-            stderr: "null",
-        }).spawn();
-        await proc.status.catch(() => {});
-        return true;
-    } catch {
-        return false;
-    }
-}
-
-/**
- * @returns {Promise<string>}
- */
-export async function loadReviewEditorHtml() {
-    const resolvedServerUrl = import.meta.resolve(PLANNOTATOR_SERVER_MODULE);
-    return await Deno.readTextFile(new URL("../review-editor.html", resolvedServerUrl));
-}
-
-/**
- * Load Plannotator's code-review server lazily. This keeps `deno compile --bundle`
- * from trying to statically bundle Plannotator's optional dynamic imports;
- * `scripts/compile.js` explicitly includes the package module for compiled runs.
- *
- * @returns {Promise<(options: object) => Promise<any>>}
- */
-async function loadStartReviewServer() {
-    const serverModule = PLANNOTATOR_SERVER_MODULE;
-    const server = await import(serverModule);
-    return server.startReviewServer;
-}
 
 /**
  * @param {unknown} value
@@ -136,9 +81,10 @@ export function formatCodeReviewAnnotations(annotations) {
  * @param {string} opts.executionCwd
  * @param {import('./workflow.js').UiAPI} opts.uiAPI
  * @param {{
+ *   startCodeReviewSurface?: typeof startCodeReviewSurface,
  *   startReviewServer?: (options: object) => Promise<any>,
- *   loadReviewEditorHtml?: typeof loadReviewEditorHtml,
- *   openInDefaultBrowser?: typeof openInDefaultBrowser,
+ *   loadReviewEditorHtml?: typeof import("./review-launcher.js").loadReviewEditorHtml,
+ *   openInDefaultBrowser?: typeof import("./review-launcher.js").openInDefaultBrowser,
  * }} [opts.__deps]
  * @returns {Promise<CodeReviewDecision>}
  */
@@ -149,23 +95,20 @@ export async function runPlannotatorCodeReview({
     uiAPI,
     __deps,
 }) {
-    const startReviewServerImpl = __deps?.startReviewServer || await loadStartReviewServer();
-    const loadReviewEditorHtmlImpl = __deps?.loadReviewEditorHtml || loadReviewEditorHtml;
-    const openInDefaultBrowserImpl = __deps?.openInDefaultBrowser || openInDefaultBrowser;
+    const startCodeReviewSurfaceImpl = __deps?.startCodeReviewSurface || startCodeReviewSurface;
 
-    const htmlContent = await loadReviewEditorHtmlImpl();
-    const server = await startReviewServerImpl({
+    const server = await startCodeReviewSurfaceImpl({
         rawPatch: diffText,
         gitRef: `RunWield workflow diff: ${planName}`,
-        htmlContent,
-        origin: "runwield",
         agentCwd: executionCwd,
+        startReviewServer: __deps?.startReviewServer,
+        loadReviewEditorHtml: __deps?.loadReviewEditorHtml,
+        openInDefaultBrowser: __deps?.openInDefaultBrowser,
     });
 
     uiAPI.appendSystemMessage(`Code review UI available at: ${server.url}`, false, "RunWield");
 
-    const opened = await openInDefaultBrowserImpl(server.url);
-    if (!opened) {
+    if (!server.opened) {
         uiAPI.appendSystemMessage(`Could not auto-open browser. Open manually: ${server.url}`, false, "RunWield");
     }
 

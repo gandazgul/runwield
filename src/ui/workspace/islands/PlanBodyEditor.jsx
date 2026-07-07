@@ -67,6 +67,7 @@ export function PlanBodyEditor({ plan, initialEdit = false }) {
     const [draft, setDraft] = useState(/** @type {PlanBodyDraft | null} */ (null));
     const [saving, setSaving] = useState(false);
     const editorHost = useRef(/** @type {HTMLDivElement | null} */ (null));
+    const readHost = useRef(/** @type {HTMLDivElement | null} */ (null));
     const editorView = useRef(/** @type {EditorView | null} */ (null));
     const dirty = body !== savedBody;
     const draftKey = planBodyDraftKey(plan.workspaceKey || "unknown", plan.planId);
@@ -121,6 +122,14 @@ export function PlanBodyEditor({ plan, initialEdit = false }) {
         if (current === body) return;
         editorView.current.dispatch({ changes: { from: 0, to: current.length, insert: body } });
     }, [body, canEdit, mode]);
+
+    useEffect(() => {
+        if (mode !== "read" || !readHost.current) return undefined;
+        const host = readHost.current;
+        return () => {
+            host.dispatchEvent(new CustomEvent("runwield:plannotator-plan-body:unmount"));
+        };
+    }, [mode, savedBody]);
 
     useEffect(() => {
         if (!canEdit || !dirty) return;
@@ -191,6 +200,7 @@ export function PlanBodyEditor({ plan, initialEdit = false }) {
 
     const recovery = draftRecoveryState(draft, bodyHash);
     const preview = renderMarkdown(savedBody);
+    const planBodyJson = JSON.stringify({ body: savedBody }).replace(/</g, "\\u003c");
 
     return (
         <section class="plan-body-editor" data-editor-mode={mode}>
@@ -223,11 +233,27 @@ export function PlanBodyEditor({ plan, initialEdit = false }) {
                 : null}
             {mode === "edit"
                 ? <div class="codemirror-shell" ref={editorHost} aria-label="Plan body markdown editor" />
-                : preview
-                ? <div class="markdown-view" dangerouslySetInnerHTML={{ __html: preview }} />
                 : (
-                    <div class="markdown-view">
-                        <p class="empty">No Plan body content.</p>
+                    <div
+                        ref={readHost}
+                        data-plannotator-plan-body
+                        data-plan-id={plan.planId}
+                        data-plannotator-renderer="ssr-fallback"
+                    >
+                        <script
+                            type="application/json"
+                            data-plannotator-plan-body-json
+                            dangerouslySetInnerHTML={{ __html: planBodyJson }}
+                        />
+                        <div data-plannotator-plan-body-root />
+                        <script type="module" src="/src/ui/workspace/react/plan-detail-entry.tsx" />
+                        {preview
+                            ? <div class="markdown-view" dangerouslySetInnerHTML={{ __html: preview }} />
+                            : (
+                                <div class="markdown-view">
+                                    <p class="empty">No Plan body content.</p>
+                                </div>
+                            )}
                     </div>
                 )}
         </section>

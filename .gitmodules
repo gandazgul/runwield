@@ -1,0 +1,4 @@
+[submodule "third_party/plannotator"]
+	path = third_party/plannotator
+	url = https://github.com/backnotprop/plannotator.git
+	branch = main

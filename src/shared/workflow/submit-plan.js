@@ -2,56 +2,16 @@
  * @module submit-plan
  * RunWield function that submits a plan to the Plannotator review UI.
  *
- * Now uses the compiled @gandazgul/plannotator-pi-extension-compiled package
- * to call the server in-process, eliminating the need for the plannotator CLI.
+ * Launches the review UI through review-launcher.js so a future Workspace-hosted
+ * Plannotator surface can replace the compiled bridge behind one seam.
  */
 
 import { injectFrontMatter, parsePlanFrontMatter } from "../../plan-store.js";
 import { assertSharedPlanWriteAllowed } from "../collaboration/lock.js";
 import { recordPlanEvent } from "./plan-lifecycle.js";
+import { startPlanReviewSurface } from "./review-launcher.js";
 
-const PLANNOTATOR_SERVER_MODULE = "@gandazgul/plannotator-pi-extension-compiled/server";
-const PLANNOTATOR_ASSETS_MODULE = "@gandazgul/plannotator-pi-extension-compiled/assets";
-
-// ─── Browser Helpers ───────────────────────────────────────────────────
-
-/**
- * Open a URL in the system default browser.
- * Non-fatal: returns false if opening fails.
- *
- * @param {string} url
- * @returns {Promise<boolean>}
- */
-async function openInDefaultBrowser(url) {
-    /** @type {{ command: string; args: string[] }} */
-    let launcher;
-
-    switch (Deno.build.os) {
-        case "darwin":
-            launcher = { command: "open", args: [url] };
-            break;
-        case "windows":
-            launcher = { command: "cmd", args: ["/c", "start", "", url] };
-            break;
-        default:
-            launcher = { command: "xdg-open", args: [url] };
-            break;
-    }
-
-    try {
-        const proc = new Deno.Command(launcher.command, {
-            args: launcher.args,
-            stdout: "null",
-            stderr: "null",
-        }).spawn();
-
-        // We don't fail the flow if browser opening fails.
-        await proc.status.catch(() => {});
-        return true;
-    } catch {
-        return false;
-    }
-}
+// Browser opening lives in review-launcher.js and is imported here for dependency injection types.
 
 // ─── Cancellation State ───────────────────────────────────────────────
 
@@ -84,24 +44,6 @@ export function cancelActivePlanReview(hostedSession) {
 // ─── Main Function ────────────────────────────────────────────────────
 
 /**
- * Load Plannotator's review server and embedded plan-review HTML lazily. This keeps
- * `deno compile --bundle` from trying to bundle Plannotator's optional dynamic imports;
- * `scripts/compile.js` explicitly includes the package modules for compiled runs.
- *
- * @returns {Promise<{ startPlanReviewServer: (options: object) => Promise<any>, plannotatorHtml: string }>}
- */
-async function loadPlannotatorPlanReviewAssets() {
-    const serverModule = PLANNOTATOR_SERVER_MODULE;
-    const assetsModule = PLANNOTATOR_ASSETS_MODULE;
-    const server = await import(serverModule);
-    const assets = await import(assetsModule);
-    return {
-        startPlanReviewServer: server.startPlanReviewServer,
-        plannotatorHtml: assets.plannotatorHtml,
-    };
-}
-
-/**
  * Submit a plan for interactive review via the Plannotator browser UI.
  *
  * @param {Object} opts
@@ -112,8 +54,9 @@ async function loadPlannotatorPlanReviewAssets() {
  * @param {import('../../ui/tui/types.js').UiAPI} opts.uiAPI - UI API for output
  * @param {import('../session/hosted-session.js').HostedSession} opts.hostedSession
  * @param {{
+ *   startPlanReviewSurface?: typeof startPlanReviewSurface,
  *   startPlanReviewServer?: (options: object) => Promise<any>,
- *   openInDefaultBrowser?: typeof openInDefaultBrowser,
+ *   openInDefaultBrowser?: typeof import("./review-launcher.js").openInDefaultBrowser,
  *   recordPlanEvent?: typeof recordPlanEvent,
  *   htmlContent?: string,
  * }} [opts.__deps]
@@ -130,13 +73,8 @@ export async function submitPlanForReview({
 }) {
     if (!uiAPI) throw new Error("submitPlanForReview: uiAPI is required");
     if (!hostedSession) throw new Error("submitPlanForReview: hostedSession is required");
-    const plannotatorAssets = __deps?.startPlanReviewServer && __deps?.htmlContent
-        ? null
-        : await loadPlannotatorPlanReviewAssets();
-    const startPlanReviewServerImpl = __deps?.startPlanReviewServer || plannotatorAssets?.startPlanReviewServer;
-    const openInDefaultBrowserImpl = __deps?.openInDefaultBrowser || openInDefaultBrowser;
+    const startPlanReviewSurfaceImpl = __deps?.startPlanReviewSurface || startPlanReviewSurface;
     const recordPlanEventImpl = __deps?.recordPlanEvent || recordPlanEvent;
-    if (!startPlanReviewServerImpl) throw new Error("submitPlanForReview: Plannotator server failed to load");
 
     // 1. Read plan
     const planContent = await Deno.readTextFile(planPath);
@@ -164,23 +102,20 @@ export async function submitPlanForReview({
     const planWithFm = injectFrontMatter(body, fmOverrides);
     await Deno.writeTextFile(planPath, planWithFm);
 
-    // 3. Use HTML embedded in package exports (compile-safe; no runtime fs lookup).
-    const htmlContent = __deps?.htmlContent || plannotatorAssets?.plannotatorHtml;
-    if (!htmlContent) throw new Error("submitPlanForReview: Plannotator HTML failed to load");
-
     uiAPI.appendSystemMessage(`[RunWield] Opening plan review UI for: ${planName}`);
     uiAPI.appendSystemMessage(`[RunWield] Plan file: ${planPath}`);
 
-    // 4. Start review server IN-PROCESS
-    const server = await startPlanReviewServerImpl({
+    // 4. Start the review surface through an adapter seam.
+    const server = await startPlanReviewSurfaceImpl({
         plan: planWithFm,
-        htmlContent,
-        origin: "runwield",
+        htmlContent: __deps?.htmlContent,
+        startPlanReviewServer: __deps?.startPlanReviewServer,
+        openInDefaultBrowser: __deps?.openInDefaultBrowser,
     });
 
     uiAPI.appendSystemMessage(`[RunWield] Review UI available at: ${server.url}`);
 
-    const opened = await openInDefaultBrowserImpl(server.url);
+    const opened = server.opened;
     if (opened) {
         uiAPI.appendSystemMessage(`[RunWield] Opened review UI in your default browser.`);
     } else {
@@ -269,6 +204,6 @@ export async function submitPlanForReview({
         planReviewCancelBySession.delete(hostedSession);
         if (uiAPI.enableInput) uiAPI.enableInput();
         // Ensure server is stopped regardless of outcome
-        server.stop();
+        await server.stop();
     }
 }

@@ -353,3 +353,24 @@ Before adding or changing browser UI, check:
 - No requirement to extract a full component library immediately.
 - No replacement of RunWield theme files with a separate design-token build system.
 - No commitment to W3C Design Tokens file format until a real integration needs it.
+
+## Plannotator component reuse exception
+
+Workspace may temporarily host imported upstream Plannotator React/TypeScript components while RunWield validates deeper
+collaboration with the Plannotator ecosystem. This exception is scoped to `src/ui/workspace/` and does not by itself
+change the rest of RunWield's JS/JSDoc convention.
+
+When imported Plannotator components are used:
+
+- prefer package-style imports such as `@plannotator/ui/components/RenderedMarkdown` through Vite aliases that point at
+  a pinned checkout under `third_party/plannotator/`;
+- pin and review the upstream commit before updating it;
+- preserve RunWield Plan vocabulary, Plan Lifecycle controls, and canonical markdown storage;
+- bridge Plannotator/Tailwind-style tokens to RunWield `--rw-*` variables instead of replacing the Workspace visual
+  identity in one step;
+- use Radix primitives from Plannotator when needed for shared React surfaces, but keep RunWield-owned semantics and
+  workflow language around them.
+
+The first accepted proof is read-only Plan detail rendering through an imported Plannotator UI component. Editable Plan
+body replacement, built-in Plan Review, built-in code review, and WebTUI chat integration require follow-up slices with
+their own verification.
