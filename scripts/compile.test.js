@@ -6,7 +6,7 @@ Deno.test("selectStaticIncludeFlag prefers verbatim includes when supported", ()
     assertEquals(selectStaticIncludeFlag("deno compile --include <path>"), "--include");
 });
 
-Deno.test("buildCompileArgs uses Deno 2.9 binary-size flags and bundled resource includes", () => {
+Deno.test("buildCompileArgs uses Deno compile flags and bundled resource includes", () => {
     const args = buildCompileArgs({
         staticIncludeFlag: "--include-as-is",
         reviewEditorHtmlPath: "/tmp/plannotator/review-editor.html",
@@ -33,8 +33,8 @@ Deno.test("buildCompileArgs uses Deno 2.9 binary-size flags and bundled resource
     assertStringIncludes(args.join("\n"), "src/skills");
     assertStringIncludes(args.join("\n"), "src/snip-filters");
     assertStringIncludes(args.join("\n"), "src/ui/theme/catppuccin-mocha.json");
-    assertStringIncludes(args.join("\n"), "npm:@gandazgul/plannotator-pi-extension-compiled@^0.21.4/server");
-    assertStringIncludes(args.join("\n"), "npm:@gandazgul/plannotator-pi-extension-compiled@^0.21.4/assets");
+    assertStringIncludes(args.join("\n"), "npm:@gandazgul/plannotator-pi-extension-compiled@^0.22.0/server");
+    assertStringIncludes(args.join("\n"), "npm:@gandazgul/plannotator-pi-extension-compiled@^0.22.0/assets");
     assertStringIncludes(args.join("\n"), "/tmp/plannotator/review-editor.html");
 });
 

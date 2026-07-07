@@ -126,8 +126,9 @@ export function PlanBodyEditor({ plan, initialEdit = false }) {
     useEffect(() => {
         if (mode !== "read" || !readHost.current) return undefined;
         const host = readHost.current;
-        const entryUrl = new URL("../react/plan-detail-entry.tsx", import.meta.url);
-        void import(entryUrl.href).then(() => {
+        const entryPath = "../react/" + "plan-detail-entry.tsx";
+        const entryUrl = new URL(entryPath, import.meta.url);
+        void import(/* @vite-ignore */ entryUrl.href).then(() => {
             host.dispatchEvent(new CustomEvent("runwield:plannotator-plan-body:mount", { bubbles: true }));
         });
         return () => {
