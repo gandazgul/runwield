@@ -31,6 +31,7 @@ function makeContext(overrides = {}) {
     let startupToggles = 0;
     let thinkingCycles = 0;
     let promptDismissals = 0;
+    let planReviewCancels = 0;
     let resets = 0;
     let invalidations = 0;
     let clearSteeringCalls = 0;
@@ -76,6 +77,10 @@ function makeContext(overrides = {}) {
         generationGuard: { invalidateAll: () => invalidations++ },
         cancelActiveOperation: () => false,
         abortActiveSession: () => false,
+        cancelActivePlanReview: () => {
+            planReviewCancels++;
+            return false;
+        },
         dismissActivePrompt: () => {
             promptDismissals++;
         },
@@ -123,6 +128,9 @@ function makeContext(overrides = {}) {
             get promptDismissals() {
                 return promptDismissals;
             },
+            get planReviewCancels() {
+                return planReviewCancels;
+            },
             get resets() {
                 return resets;
             },
@@ -161,6 +169,28 @@ Deno.test({
         assertEquals(ctx.stats.promptDismissals, 1);
         assertEquals(ctx.stats.resets, 1);
         assertEquals(ctx.stats.systemMessages, ["Operation canceled."]);
+        assertEquals(ctx.stats.renderCount, 1);
+    },
+});
+
+Deno.test({
+    name: "installKeybindings reports Escape cancellation for active plan review waits",
+    fn: async () => {
+        let planReviewCancelCalls = 0;
+        const ctx = makeContext({
+            cancelActivePlanReview: () => {
+                planReviewCancelCalls++;
+                return true;
+            },
+        });
+        installKeybindings(ctx);
+
+        await ctx.editor.handleInput(RAW_KEY.escape);
+
+        assertEquals(ctx.stats.invalidations, 1);
+        assertEquals(planReviewCancelCalls, 1);
+        assertEquals(ctx.stats.resets, 1);
+        assertEquals(ctx.stats.systemMessages, ["Plan review canceled."]);
         assertEquals(ctx.stats.renderCount, 1);
     },
 });

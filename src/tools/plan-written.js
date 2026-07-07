@@ -162,7 +162,7 @@ export function createPlanWrittenTool(
 
             const effectiveMeta = await resolveTriageMeta(triageMeta, planName);
 
-            uiAPI.appendSystemMessage(`Plan declared: plans/${planName}.md`, false, "RunWield");
+            uiAPI.appendSystemMessage(`[RunWield] Plan declared: plans/${planName}.md`);
 
             // Lazy imports break the circular dep: plan-written → workflow → session → plan-written.
             const submitPlanForReview = deps.submitPlanForReview ||

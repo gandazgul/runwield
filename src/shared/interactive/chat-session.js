@@ -59,6 +59,7 @@ import { getSelectedDefaultModelAvailability, maybeShowModelWelcome } from "./mo
 import { handleBashCommand } from "./bash-interceptor.js";
 import { handleSlashCommand } from "./slash-dispatch.js";
 import { installKeybindings } from "./keybindings.js";
+import { cancelActivePlanReview } from "../workflow/submit-plan.js";
 import {
     formatImageAttachmentMarker,
     modelSupportsImageInput,
@@ -1553,6 +1554,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         cycleThinkingLevel,
         handleImagePaste,
         abortActiveSession: () => abortActiveSession(hostedSession),
+        cancelActivePlanReview: () => cancelActivePlanReview(hostedSession),
         clearPendingSteeringMessages: () => {
             steeringState.pendingMessages.clear();
             for (const unsubscribe of steeringState.pendingUnsubs.values()) {

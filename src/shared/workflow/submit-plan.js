@@ -122,7 +122,7 @@ export async function submitPlanForReview({
         uiAPI.appendSystemMessage(`[RunWield] Could not auto-open browser. Open manually: ${server.url}`);
     }
 
-    uiAPI.appendSystemMessage(`[RunWield] Waiting for user decision...`);
+    uiAPI.appendSystemMessage(`[RunWield] Waiting for user decision...\n`);
 
     /** @type {() => void} */
     let localCancel = () => {};
