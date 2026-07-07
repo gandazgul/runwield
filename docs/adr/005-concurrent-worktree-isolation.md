@@ -32,8 +32,11 @@ avoids per-task worktree complexity while allowing concurrent plan executions to
 ### Worktree Lifecycle
 
 1. **Creation** — Before `execution_started`, RunWield creates or reuses a worktree branch with the prefix
-   `runwield/worktree/` from the selected base ref. The worktree path is created adjacent to the primary repo and
-   includes a sanitized plan slug plus a short id, e.g. `../<repo>-runwield-<plan-slug>-<id>`.
+   `runwield/worktree/` from the selected base ref. FEATURE plans may set `worktreeBaseBranch` before execution to
+   choose a target branch independent of the primary checkout. RunWield resolves that target to a local branch, creating
+   a local tracking branch from `origin/<branch>` or a new branch from `main` when needed. The worktree path is created
+   adjacent to the primary repo and includes a sanitized plan slug plus a short id, e.g.
+   `../<repo>-runwield-<plan-slug>-<id>`.
 2. **Execution** — Implementation runs in the worktree cwd. RunWield records the execution baseline tree from that
    worktree. Agent sessions and file-writing tools receive the worktree cwd explicitly; RunWield does not mutate the
    process cwd with `Deno.chdir()`.
@@ -97,23 +100,31 @@ while creating, updating, or deleting registry entries.
 
 The plan's `PlanFrontMatter` includes optional worktree fields:
 
-| Field            | Type                                                                                                                                    | Description                                     |
-| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
-| `worktreeId`     | `string \| null`                                                                                                                        | Durable registry id for the execution worktree. |
-| `worktreePath`   | `string \| null`                                                                                                                        | Filesystem path to the execution worktree.      |
-| `worktreeBranch` | `string \| null`                                                                                                                        | Branch checked out in the execution worktree.   |
-| `worktreeStatus` | `"none" \| "active" \| "completed" \| "execution_failed" \| "validation_failed" \| "merge_conflict" \| "merged" \| "abandoned" \| null` | Lifecycle status of the worktree.               |
+| Field                | Type                                                                                                                                    | Description                                                          |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `worktreeId`         | `string \| null`                                                                                                                        | Durable registry id for the execution worktree.                      |
+| `worktreePath`       | `string \| null`                                                                                                                        | Filesystem path to the execution worktree.                           |
+| `worktreeBranch`     | `string \| null`                                                                                                                        | Branch checked out in the execution worktree.                        |
+| `worktreeBaseBranch` | `string \| null`                                                                                                                        | Target branch used as the execution base and merge-back destination. |
+| `worktreeStatus`     | `"none" \| "active" \| "completed" \| "execution_failed" \| "validation_failed" \| "merge_conflict" \| "merged" \| "abandoned" \| null` | Lifecycle status of the worktree.                                    |
+
+Before execution, Planner/Architect may write `worktreeBaseBranch` only when the user explicitly requests a target
+branch. During execution and recovery, the same field records the local branch that validated work will merge back into.
 
 ### Merge Strategy
 
-RunWield performs a branch merge from the primary checkout after validation passes. The merge helper refuses to proceed
-when the primary checkout has blocking uncommitted changes, while allowing RunWield-owned metadata paths needed during
-the workflow. If merge fails or is refused, RunWield records `worktree_merge_failed`, keeps Plan Status `implemented`,
-sets `worktreeStatus: "merge_conflict"`, and leaves the worktree branch/path intact for recovery.
+RunWield merges the execution worktree branch into the recorded target branch after validation passes. For targeted
+plans, the target branch is `worktreeBaseBranch`; for legacy untargeted plans, merge-back uses the current-checkout
+fallback. When the target branch is not checked out, RunWield performs merge-back through a detached merge worktree and
+updates the target ref after a successful merge. When the target branch is checked out in the primary checkout, RunWield
+merges there and refuses blocking uncommitted changes while allowing RunWield-owned metadata paths needed during the
+workflow. If merge fails or is refused, RunWield records `worktree_merge_failed`, keeps Plan Status `implemented`, sets
+`worktreeStatus: "merge_conflict"`, and leaves the worktree branch/path intact for recovery.
 
-Dirty primary checkout state is therefore a **merge-back risk**, not a worktree creation blocker. Worktree creation can
-start from `HEAD` even when the primary checkout has unrelated uncommitted edits; those edits are not copied into the
-execution worktree.
+Dirty primary checkout state is therefore a **merge-back risk** only for legacy current-checkout fallback or when the
+recorded target branch is checked out in the primary checkout; it is not a worktree creation blocker. Worktree creation
+can start from `HEAD` or a prepared target branch even when the primary checkout has unrelated uncommitted edits; those
+edits are not copied into the execution worktree.
 
 ### Recovery Integration
 
