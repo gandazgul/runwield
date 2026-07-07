@@ -144,6 +144,9 @@ Plannotator. _Avoid_: Feedback loop, approval cycle
 **Plannotator**: The browser-based review UI where users approve, save, deny, or annotate a Plan. _Avoid_: Review UI,
 approval screen
 
+**Guided Review**: A Plannotator code-review mode that organizes a PR or local diff into importance-ordered chapters
+with live annotatable diffs and per-section reviewed state. _Avoid_: Guide, review summary, file-order review
+
 **Plan Board**: A browser-based local UI over the current checkout's `plans/` directory that displays Plans by Plan
 Status and lets the user inspect or edit Plan files while preserving the local Plan files as the canonical source of
 truth. _Avoid_: Remote plan database, hosted board, task board

@@ -8,17 +8,14 @@ affectedPaths:
     - "src/tools/plan-written.js"
 frontend: false
 createdAt: "2026-07-07T15:02:17-04:00"
-updatedAt: "2026-07-07T19:37:14.388Z"
-status: "in_progress"
+updatedAt: "2026-07-07T20:19:26.252Z"
+status: "verified"
 origin: "internal"
-humanReviewMode: null
-humanReviewDecision: null
-executionBaselineTree: "d929d64deddbec001844c5a3bf52936e9afedb79"
-worktreeId: "da0d941c"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-harns--/harns-runwield-system-notifications-terminal-activation-da0d941c"
-worktreeBranch: "runwield/worktree/system-notifications-terminal-activation-da0d941c"
-worktreeBaseBranch: "main"
-worktreeStatus: "active"
+implementedAt: "2026-07-07T20:07:41.915Z"
+verifiedAt: "2026-07-07T20:19:26.252Z"
+humanReviewMode: "ask"
+humanReviewDecision: "approved"
+humanReviewedAt: "2026-07-07T20:19:21.996Z"
 routingIntent: "FEATURE"
 sessionName: "system notifications for agent events"
 ---
