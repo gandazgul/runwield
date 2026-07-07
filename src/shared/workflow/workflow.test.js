@@ -1153,6 +1153,12 @@ Deno.test("runSlicerAgent returns ok=true when session resolves", async () => {
     assertEquals(result.ok, true);
     assertEquals(loadedPaths, ["/tmp/bundled-agent-definitions/workflow-prompts/slicer-prompt.md:slicer"]);
     assertEquals(captured.agentName, "slicer");
+    assertEquals(captured.allowReturnToRouter, false);
+    /** @param {{ name: string }} tool */
+    function getToolName(tool) {
+        return tool.name;
+    }
+    assertEquals(captured.customTools.map(getToolName), ["slicer_finalize_decomposition"]);
     assertStringIncludes(captured.userRequest, "my-plan");
 });
 
