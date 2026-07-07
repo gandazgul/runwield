@@ -257,6 +257,55 @@ Deno.test("runMechanicalValidation ignores stale task_completed from earlier roo
     assertEquals(fromIndexes, [1]);
 });
 
+Deno.test("runMechanicalValidation detects task_completed when repair returns a fresh root transcript", async () => {
+    const uiAPI = makeUi();
+    const rebuiltHostedSession = new HostedSession({ id: "fresh-root-task-completed-test" });
+    rebuiltHostedSession.setRootAgentName("engineer");
+    rebuiltHostedSession.setRootAgentSession(
+        /** @type {any} */ ({
+            agent: {
+                state: {
+                    messages: [
+                        { role: "user", content: [{ type: "text", text: "old" }] },
+                        { role: "assistant", content: [{ type: "text", text: "old" }] },
+                        {
+                            role: "toolResult",
+                            toolName: "task_completed",
+                            details: { outcome: "task_completed" },
+                        },
+                    ],
+                },
+            },
+        }),
+    );
+    let ciRuns = 0;
+
+    const result = await runMechanicalValidation({
+        hostedSession: rebuiltHostedSession,
+        uiAPI,
+        sessionManager: undefined,
+        cwd: "/repo",
+        __deps: /** @type {any} */ ({
+            runLocalCI: () => {
+                ciRuns++;
+                return Promise.resolve(ciRuns === 1 ? { exitCode: 1, output: "boom" } : { exitCode: 0, output: "" });
+            },
+            runAgentSession: () =>
+                Promise.resolve(
+                    /** @type {any} */ ([{
+                        role: "toolResult",
+                        toolName: "task_completed",
+                        details: { outcome: "task_completed" },
+                    }]),
+                ),
+            setActiveAgent: () => {},
+            createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
+        }),
+    });
+
+    assertEquals(result, { passed: true, attempts: 1 });
+});
+
 Deno.test("runMechanicalValidation stops after three Engineer repair attempts without Plan side effects", async () => {
     const uiAPI = makeUi();
     let repairCalls = 0;
