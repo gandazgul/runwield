@@ -10,7 +10,7 @@ import { getAgentDisplayName } from "../session/agents.js";
 import { ensureBundledAgentDefFile, runAgentSession } from "../session/session.js";
 import { getCodeReviewMode, getCustomSetting, setCustomSetting, shouldCleanupMergedWorktrees } from "../settings.js";
 import { extractAssistantOutput, readLatestTaskCompletedOutcome } from "./workflow.js";
-import { setActiveAgent } from "../interactive/chat-session.js";
+import { setActiveAgent } from "../session/agent-switching.js";
 import { getWorkflowDiff } from "./git-snapshot.js";
 import { recordPlanEvent } from "./plan-lifecycle.js";
 import { formatCodeReviewAnnotations, runPlannotatorCodeReview } from "./code-review.js";

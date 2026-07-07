@@ -231,7 +231,7 @@ function createSlicerCustomTools(planName, deps) {
  *   ensureBundledAgentDefFile?: typeof ensureBundledAgentDefFile,
  *   loadPlan?: typeof loadPlan,
  *   findPlansByParent?: typeof findPlansByParent,
- *   setActiveAgent?: typeof import('../interactive/chat-session.js').setActiveAgent,
+ *   setActiveAgent?: typeof import('../session/agent-switching.js').setActiveAgent,
  *   createSlicerFinalizeTool?: typeof createSlicerFinalizeTool,
  * }} [opts.__deps] - Test-only injection point.
  * @returns {Promise<{ ok: boolean, error?: string }>}
@@ -252,7 +252,7 @@ export async function runSlicerAgent({ planName, triageMeta, uiAPI, hostedSessio
     const findChildren = __deps?.findPlansByParent || (__deps ? (() => Promise.resolve([])) : findPlansByParent);
     const setActive = __deps
         ? (__deps.setActiveAgent || (() => {}))
-        : (await import("../interactive/chat-session.js")).setActiveAgent;
+        : (await import("../session/agent-switching.js")).setActiveAgent;
     const slicerAgentDef = await loadSlicerAgentDef(__deps);
 
     const slicerDisplay = slicerAgentDef.displayName;
