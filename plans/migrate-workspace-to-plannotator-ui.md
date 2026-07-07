@@ -1,5 +1,5 @@
 ---
-planId: "ae6f9970-48f8-496e-bec3-109b6bbb7a62"
+planId: "544d15a1-8c14-4beb-9475-81e2c538b344"
 classification: "FEATURE"
 complexity: "HIGH"
 summary: "Migrate the Workspace UI toward React/TypeScript and prove direct reuse of upstream Plannotator UI components by rendering Plan detail markdown through Plannotator components."
@@ -20,17 +20,15 @@ devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://localhost:5173/"
 devServerHmr: true
 createdAt: "2026-07-06T19:08:48-04:00"
-updatedAt: "2026-07-07T01:28:46.805Z"
-status: "in_progress"
+updatedAt: "2026-07-07T03:57:16.338Z"
+status: "implemented"
 origin: "internal"
-humanReviewMode: null
-humanReviewDecision: null
-executionBaselineTree: "61e2061e29d18c5474b4b74484a1534b283a669c"
+failureReason: "Semantic validation did not approve after 3 cycles."
 worktreeId: "ac489aab"
 worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-harns--/harns-runwield-migrate-workspace-to-plannotator-ui-ac489aab"
 worktreeBranch: "runwield/worktree/migrate-workspace-to-plannotator-ui-ac489aab"
 worktreeBaseBranch: "main"
-worktreeStatus: "active"
+worktreeStatus: "validation_failed"
 ---
 
 # Migrate Workspace Toward Direct Plannotator UI Reuse

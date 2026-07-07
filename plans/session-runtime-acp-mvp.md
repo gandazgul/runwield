@@ -29,8 +29,8 @@ affectedPaths:
     - "src/acp/server.test.js"
 frontend: false
 createdAt: "2026-07-06T13:31:28-04:00"
-updatedAt: "2026-07-06T18:01:28.414Z"
-status: "ready_for_decomposition"
+updatedAt: "2026-07-07T02:13:46.240Z"
+status: "ready_for_work"
 origin: "internal"
 type: "epic"
 ---
