@@ -21,6 +21,7 @@ import {
 import { runValidationLoop, shouldRunWorkflowValidation } from "../workflow/validation.js";
 import { recordPlanEvent as recordPlanEventFn } from "../workflow/plan-lifecycle.js";
 import { setActiveAgent as setActiveAgentFn } from "./agent-switching.js";
+import { notifyRunWieldEvent as notifyRunWieldEventFn } from "../system-notifications.js";
 import { join } from "@std/path";
 import { AGENTS, CWD } from "../../constants.js";
 
@@ -48,6 +49,7 @@ import { AGENTS, CWD } from "../../constants.js";
  *   runValidationLoop?: typeof runValidationLoop,
  *   recordPlanEvent?: typeof recordPlanEventFn,
  *   setActiveAgent?: typeof setActiveAgentFn,
+ *   notifyRunWieldEvent?: typeof notifyRunWieldEventFn,
  *   hostedSession?: import('./hosted-session.js').HostedSession,
  *   _agentDefOverride?: import('./types.js').AgentDefinition,
  *   customTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[],
@@ -69,6 +71,7 @@ export function createAgentHandler(agentName, __deps) {
     const runValidationLoopImpl = __deps?.runValidationLoop || runValidationLoop;
     const recordPlanEventImpl = __deps?.recordPlanEvent || recordPlanEventFn;
     const setActiveAgent = __deps?.setActiveAgent || setActiveAgentFn;
+    const notifyRunWieldEvent = __deps?.notifyRunWieldEvent || notifyRunWieldEventFn;
     const sessionOptions = {
         _agentDefOverride: __deps?._agentDefOverride,
         customTools: __deps?.customTools,
@@ -89,6 +92,16 @@ export function createAgentHandler(agentName, __deps) {
         // follow-up questions.
         const rootAgentSession = /** @type {any} */ (hostedSession.getRootAgentSession());
         const preTurnCount = useRoot ? rootAgentSession?.agent?.state?.messages?.length ?? 0 : 0;
+        let agentStoppedNotified = false;
+        const notifyAgentStopped = async () => {
+            if (agentStoppedNotified) return;
+            agentStoppedNotified = true;
+            const activeSessionManager = /** @type {any} */ (sessionManager || hostedSession.getRootSessionManager?.());
+            await notifyRunWieldEvent("agentStopped", {
+                sessionName: activeSessionManager?.getSessionName?.(),
+                agentName,
+            });
+        };
 
         const messages = useRoot
             ? await runRootTurn({ hostedSession, agentName, userRequest, images, uiAPI, ...sessionOptions })
@@ -159,6 +172,7 @@ export function createAgentHandler(agentName, __deps) {
                     createAgentHandler(AGENTS.ENGINEER, { hostedSession }),
                     uiAPI,
                 );
+                await notifyAgentStopped();
                 return;
             }
 
@@ -187,6 +201,7 @@ export function createAgentHandler(agentName, __deps) {
                     sessionManager,
                     finalAgentName: agentName,
                 });
+                await notifyAgentStopped();
             } else if (executionDecision.kind === "stay_with_agent") {
                 const nextAgentName = /** @type {string} */ (executionDecision.payload.agentName || AGENTS.ENGINEER);
                 setActiveAgent(
@@ -195,6 +210,7 @@ export function createAgentHandler(agentName, __deps) {
                     createAgentHandler(nextAgentName, { hostedSession }),
                     uiAPI,
                 );
+                await notifyAgentStopped();
             } else {
                 // halt or repair_plan — stay with Engineer for manual recovery
                 const reason = executionDecision.payload?.reason || "unknown";
@@ -209,7 +225,12 @@ export function createAgentHandler(agentName, __deps) {
                     createAgentHandler(AGENTS.ENGINEER, { hostedSession }),
                     uiAPI,
                 );
+                await notifyAgentStopped();
             }
+            return;
+        }
+
+        if (outcome) {
             return;
         }
 
@@ -219,6 +240,7 @@ export function createAgentHandler(agentName, __deps) {
             const workflow = hostedSession.getActiveExecutionWorkflow();
             if (workflow && !shouldRunWorkflowValidation(workflow.triageMeta)) {
                 hostedSession.clearActiveExecutionWorkflow();
+                await notifyAgentStopped();
                 return;
             }
 
@@ -246,6 +268,7 @@ export function createAgentHandler(agentName, __deps) {
                             true,
                             "RunWield",
                         );
+                        await notifyAgentStopped();
                         return;
                     }
                 }
@@ -259,7 +282,10 @@ export function createAgentHandler(agentName, __deps) {
                     sessionManager,
                     finalAgentName: agentName,
                 });
+                await notifyAgentStopped();
             }
         }
+
+        await notifyAgentStopped();
     };
 }

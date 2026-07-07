@@ -61,6 +61,7 @@ import { modelSupportsImageInput, prepareImagesForModel, resolveVisionFallbackMo
 import { recordActiveAgent } from "./active-agent-session.js";
 import { getPackagePromptTemplatePaths, resolveInstalledPackagePromptResources } from "../package-resources.js";
 import { getWldExtensionPaths, resolveInstalledWldExtensionResources } from "../extensions/wld-extension-manifest.js";
+import { notifyRunWieldEventQuietly } from "../system-notifications.js";
 
 const HOME_PROMPTS_DIR = HOME_DIR ? join(HOME_DIR, ".wld", "prompts") : null;
 const LOCAL_PROMPTS_DIR = join(CWD, ".wld", "prompts");
@@ -1444,7 +1445,14 @@ export async function buildAgentSession({
  *
  * @returns {SubscriberState}
  */
-export function attachUiSubscribers(session, agentDef, uiAPI, debugLogPath = undefined, hostedSession = undefined) {
+export function attachUiSubscribers(
+    session,
+    agentDef,
+    uiAPI,
+    debugLogPath = undefined,
+    hostedSession = undefined,
+    deps = {},
+) {
     /** @type {{ appendText: (delta: string) => void } | null} */
     let currentMarkdownBlock = null;
     // Whether the agent-name header has already been rendered this turn. Only
@@ -1455,6 +1463,8 @@ export function attachUiSubscribers(session, agentDef, uiAPI, debugLogPath = und
     let invokedToolNames = [];
     /** @type {{ appendDelta: (delta: string) => void, end: () => void } | null} */
     let currentThinkingStream = null;
+    const notifyDeps = /** @type {{ notifyRunWieldEventQuietly?: typeof notifyRunWieldEventQuietly }} */ (deps);
+    const notifyRunWieldEvent = notifyDeps.notifyRunWieldEventQuietly || notifyRunWieldEventQuietly;
 
     const endThinking = () => {
         if (currentThinkingStream) {
@@ -1629,6 +1639,14 @@ export function attachUiSubscribers(session, agentDef, uiAPI, debugLogPath = und
             case "tool_execution_start": {
                 currentMarkdownBlock = null;
                 invokedToolNames.push(event.toolName);
+
+                if (event.toolName === "plan_written" || event.toolName === "user_interview") {
+                    const sessionManager = /** @type {any} */ (hostedSession?.getRootSessionManager?.());
+                    notifyRunWieldEvent(event.toolName === "plan_written" ? "planWritten" : "userInterview", {
+                        sessionName: sessionManager?.getSessionName?.(),
+                        agentName: agentDef.displayName,
+                    });
+                }
 
                 if (shouldWriteDebugLog(debugLogPath) && debugLogPath) {
                     appendDebugLog(

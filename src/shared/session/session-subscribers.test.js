@@ -226,6 +226,36 @@ Deno.test("attachUiSubscribers uses the target HostedSession active UI fallback"
     assertEquals(otherUi.agentMessages.length, 0, "other HostedSession UI must not receive target output");
 });
 
+Deno.test("attachUiSubscribers sends attention notifications for plan_written and user_interview", () => {
+    const { session, emit } = makeSubscribableSession();
+    const ui = makeUi();
+    const hostedSession = new HostedSession({
+        id: "subscriber-notifications",
+        cwd: Deno.cwd(),
+        sessionManager: /** @type {any} */ ({ getSessionName: () => "notification session" }),
+    });
+    /** @type {Array<{ eventName: string, sessionName: string | undefined, agentName: string | undefined }>} */
+    const notifications = [];
+
+    attachUiSubscribers(session, agentDef, ui, undefined, hostedSession, {
+        notifyRunWieldEventQuietly: (
+            /** @type {string} */ eventName,
+            /** @type {{ sessionName?: string, agentName?: string }} */ options,
+        ) => {
+            notifications.push({ eventName, sessionName: options?.sessionName, agentName: options?.agentName });
+        },
+    });
+
+    emit({ type: "tool_execution_start", toolCallId: "1", toolName: "plan_written", args: { planName: "p" } });
+    emit({ type: "tool_execution_start", toolCallId: "2", toolName: "user_interview", args: { question: {} } });
+    emit({ type: "tool_execution_start", toolCallId: "3", toolName: "bash", args: { command: "true" } });
+
+    assertEquals(notifications, [
+        { eventName: "planWritten", sessionName: "notification session", agentName: "Tester" },
+        { eventName: "userInterview", sessionName: "notification session", agentName: "Tester" },
+    ]);
+});
+
 Deno.test("attachUiSubscribers formats tool headers, streams output deltas, and drains invoked tools", () => {
     const { session, emit, unsubscribed } = makeSubscribableSession();
     const ui = makeUi();
