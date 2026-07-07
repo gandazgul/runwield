@@ -113,8 +113,10 @@ export async function runPlannotatorCodeReview({
     }
 
     try {
+        uiAPI.disableInput?.();
         return normalizeCodeReviewDecision(await server.waitForDecision());
     } finally {
+        uiAPI.enableInput?.();
         await server.stop();
     }
 }
