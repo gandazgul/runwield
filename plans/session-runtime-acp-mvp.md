@@ -1,4 +1,5 @@
 ---
+planId: "42255481-0492-4fa1-a83b-db7e419c607b"
 classification: "PROJECT"
 complexity: "HIGH"
 summary: "Introduce a shared SessionRuntime sibling-adapter boundary and implement RunWield ACP v1 stdio MVP over it, leaving Takopi/WebUI for later adapters."
