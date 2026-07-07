@@ -9,8 +9,9 @@
 import { injectFrontMatter, parsePlanFrontMatter } from "../../plan-store.js";
 import { assertSharedPlanWriteAllowed } from "../collaboration/lock.js";
 import { recordPlanEvent } from "./plan-lifecycle.js";
-import { startPlanReviewServer } from "@gandazgul/plannotator-pi-extension-compiled/server";
-import { plannotatorHtml } from "@gandazgul/plannotator-pi-extension-compiled/assets";
+
+const PLANNOTATOR_SERVER_MODULE = "@gandazgul/plannotator-pi-extension-compiled/server";
+const PLANNOTATOR_ASSETS_MODULE = "@gandazgul/plannotator-pi-extension-compiled/assets";
 
 // ─── Browser Helpers ───────────────────────────────────────────────────
 
@@ -83,6 +84,24 @@ export function cancelActivePlanReview(hostedSession) {
 // ─── Main Function ────────────────────────────────────────────────────
 
 /**
+ * Load Plannotator's review server and embedded plan-review HTML lazily. This keeps
+ * `deno compile --bundle` from trying to bundle Plannotator's optional dynamic imports;
+ * `scripts/compile.js` explicitly includes the package modules for compiled runs.
+ *
+ * @returns {Promise<{ startPlanReviewServer: (options: object) => Promise<any>, plannotatorHtml: string }>}
+ */
+async function loadPlannotatorPlanReviewAssets() {
+    const serverModule = PLANNOTATOR_SERVER_MODULE;
+    const assetsModule = PLANNOTATOR_ASSETS_MODULE;
+    const server = await import(serverModule);
+    const assets = await import(assetsModule);
+    return {
+        startPlanReviewServer: server.startPlanReviewServer,
+        plannotatorHtml: assets.plannotatorHtml,
+    };
+}
+
+/**
  * Submit a plan for interactive review via the Plannotator browser UI.
  *
  * @param {Object} opts
@@ -93,7 +112,7 @@ export function cancelActivePlanReview(hostedSession) {
  * @param {import('../../ui/tui/types.js').UiAPI} opts.uiAPI - UI API for output
  * @param {import('../session/hosted-session.js').HostedSession} opts.hostedSession
  * @param {{
- *   startPlanReviewServer?: typeof startPlanReviewServer,
+ *   startPlanReviewServer?: (options: object) => Promise<any>,
  *   openInDefaultBrowser?: typeof openInDefaultBrowser,
  *   recordPlanEvent?: typeof recordPlanEvent,
  *   htmlContent?: string,
@@ -111,9 +130,13 @@ export async function submitPlanForReview({
 }) {
     if (!uiAPI) throw new Error("submitPlanForReview: uiAPI is required");
     if (!hostedSession) throw new Error("submitPlanForReview: hostedSession is required");
-    const startPlanReviewServerImpl = __deps?.startPlanReviewServer || startPlanReviewServer;
+    const plannotatorAssets = __deps?.startPlanReviewServer && __deps?.htmlContent
+        ? null
+        : await loadPlannotatorPlanReviewAssets();
+    const startPlanReviewServerImpl = __deps?.startPlanReviewServer || plannotatorAssets?.startPlanReviewServer;
     const openInDefaultBrowserImpl = __deps?.openInDefaultBrowser || openInDefaultBrowser;
     const recordPlanEventImpl = __deps?.recordPlanEvent || recordPlanEvent;
+    if (!startPlanReviewServerImpl) throw new Error("submitPlanForReview: Plannotator server failed to load");
 
     // 1. Read plan
     const planContent = await Deno.readTextFile(planPath);
@@ -142,7 +165,8 @@ export async function submitPlanForReview({
     await Deno.writeTextFile(planPath, planWithFm);
 
     // 3. Use HTML embedded in package exports (compile-safe; no runtime fs lookup).
-    const htmlContent = __deps?.htmlContent || plannotatorHtml;
+    const htmlContent = __deps?.htmlContent || plannotatorAssets?.plannotatorHtml;
+    if (!htmlContent) throw new Error("submitPlanForReview: Plannotator HTML failed to load");
 
     uiAPI.appendSystemMessage(`[RunWield] Opening plan review UI for: ${planName}`);
     uiAPI.appendSystemMessage(`[RunWield] Plan file: ${planPath}`);
