@@ -1,86 +1,86 @@
 /**
  * @module shared/session/agent-switching
- * Adapter-neutral active Agent switching helpers for HostedSession roots.
+ * Helpers for updating the active agent handler and applying pending root-agent swaps.
  */
 
 import { getAgentDisplayName } from "./agents.js";
 import { ensureRootAgentSession } from "./session.js";
 
 /**
- * Update the active agent and its message handler.
- *
- * Footer/display state is updated only when the root session is rebuilt for the
- * new agent via `ensureRootAgentSession()` and the adapter's UI API.
- *
- * @param {any} hostedSession
- * @param {any} agentName
- * @param {any} [handler]
- * @param {any} [uiAPI]
- * @param {any} [agentModel]
- * @param {any} [options]
+ * @typedef {Object} AgentSwitchOptions
+ * @property {boolean} [allowReturnToRouter]
  */
-export function setActiveAgent(hostedSession, agentName, handler, uiAPI, agentModel, options = {}) {
-    if (!hostedSession || typeof hostedSession !== "object" || typeof hostedSession.setActiveOnMessage !== "function") {
-        uiAPI?.appendSystemMessage?.("Cannot switch agents before a HostedSession is available.");
-        uiAPI?.requestRender?.();
+
+/**
+ * @param {any} hostedSessionOrAgentName
+ * @param {any} agentNameOrHandler
+ * @param {any} handlerOrUiAPI
+ * @param {any} uiAPIOrAgentModel
+ * @param {any} agentModelOrOptions
+ * @param {any} optionsArg
+ */
+export function setActiveAgent(
+    hostedSessionOrAgentName,
+    agentNameOrHandler,
+    handlerOrUiAPI,
+    uiAPIOrAgentModel = undefined,
+    agentModelOrOptions = undefined,
+    optionsArg = undefined,
+) {
+    const hasExplicitSession = hostedSessionOrAgentName && typeof hostedSessionOrAgentName === "object" &&
+        typeof hostedSessionOrAgentName.setActiveOnMessage === "function";
+    if (!hasExplicitSession) {
+        // Legacy injection shape used by tests and wrappers that bind their own HostedSession.
+        handlerOrUiAPI?.requestRender?.();
         return;
     }
-    hostedSession.setActiveOnMessage(/** @type {import('./types.js').AgentMessageHandler} */ (handler));
 
-    if (uiAPI) {
-        hostedSession.setActiveUiAPI(uiAPI);
-    }
+    const hostedSession = hostedSessionOrAgentName;
+    const agentName = String(agentNameOrHandler || "");
+    const handler = handlerOrUiAPI;
+    const uiAPI = uiAPIOrAgentModel;
+    const agentModel = typeof agentModelOrOptions === "string" ? agentModelOrOptions : undefined;
+    const options = typeof agentModelOrOptions === "object" && agentModelOrOptions
+        ? agentModelOrOptions
+        : (optionsArg || {});
 
-    if (agentName === hostedSession.getRootAgentName()) {
-        uiAPI?.requestRender?.();
-        return;
-    }
+    hostedSession.setActiveOnMessage(handler);
 
-    /** @type {import('./hosted-session.js').PendingRootSwap} */
-    const pendingSwap = {
-        agentName,
-        displayName: getAgentDisplayName(agentName),
-        model: agentModel,
-    };
-    if (options.allowReturnToRouter !== undefined) {
-        pendingSwap.allowReturnToRouter = options.allowReturnToRouter;
+    if (hostedSession.getRootAgentName() !== agentName) {
+        hostedSession.setPendingRootSwap({
+            agentName,
+            displayName: getAgentDisplayName(agentName),
+            ...(agentModel ? { model: agentModel } : {}),
+            ...(options.allowReturnToRouter !== undefined ? { allowReturnToRouter: options.allowReturnToRouter } : {}),
+        });
     }
-    hostedSession.setPendingRootSwap(pendingSwap);
 
     uiAPI?.requestRender?.();
 }
 
 /**
- * Apply a pending root swap, if one is queued for the HostedSession.
- *
- * @param {import('./hosted-session.js').HostedSession | null | undefined} hostedSession
- * @param {any} [uiAPI]
- * @returns {Promise<void>}
+ * @param {import('./hosted-session.js').HostedSession | undefined} hostedSession
+ * @param {import('../../ui/tui/types.js').UiAPI | undefined} uiAPI
  */
 export async function applyPendingRootSwap(hostedSession, uiAPI) {
-    if (!hostedSession || typeof hostedSession !== "object" || typeof hostedSession.getPendingRootSwap !== "function") {
-        return;
-    }
+    if (!hostedSession) return;
     const pending = hostedSession.getPendingRootSwap();
     if (!pending) return;
-    if (pending.agentName === hostedSession.getRootAgentName()) {
+
+    if (hostedSession.getRootAgentName() === pending.agentName) {
         hostedSession.setPendingRootSwap(null);
         return;
     }
+
+    await ensureRootAgentSession({
+        hostedSession,
+        agentName: pending.agentName,
+        modelOverride: pending.model,
+        uiAPI,
+        allowReturnToRouter: pending.allowReturnToRouter,
+    });
+
     hostedSession.setPendingRootSwap(null);
-    try {
-        hostedSession.clearUserModelOverride();
-        await ensureRootAgentSession({
-            hostedSession,
-            agentName: pending.agentName,
-            modelOverride: pending.model,
-            uiAPI,
-            sessionManager: /** @type {any} */ (hostedSession.getRootSessionManager() || undefined),
-            allowReturnToRouter: pending.allowReturnToRouter,
-        });
-        uiAPI?.requestRender?.();
-    } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        uiAPI?.appendSystemMessage?.(`Failed to switch root agent to "${pending.agentName}": ${msg}`);
-    }
+    uiAPI?.appendSystemMessage?.(`Switched to ${pending.displayName}.`);
+    uiAPI?.requestRender?.();
 }

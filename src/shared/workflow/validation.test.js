@@ -1538,6 +1538,89 @@ Deno.test("runValidationLoop dispatches Engineer merge repair and retries merge-
     assertEquals(uiAPI.promptSelections, []);
 });
 
+Deno.test("runValidationLoop records validation_passed after merge repair task_completed and retry", async () => {
+    const uiAPI = makeUi();
+    const repairHostedSession = new HostedSession({ id: "merge-repair-completion-test" });
+    repairHostedSession.setRootAgentName("engineer");
+    repairHostedSession.setRootAgentSession(
+        /** @type {any} */ ({
+            agent: {
+                state: {
+                    messages: [{ role: "assistant", content: [{ type: "text", text: "previous turn" }] }],
+                },
+            },
+        }),
+    );
+    /** @type {string[]} */
+    const events = [];
+    let mergeAttempts = 0;
+
+    repairHostedSession.setActiveExecutionWorkflow({
+        planName: "p",
+        triageMeta: { classification: "FEATURE" },
+        baselineTree: "baseline-tree",
+        projectRoot: "/primary",
+        executionCwd: "/worktree",
+        worktreeId: "wt1",
+        worktreeBranch: "runwield/worktree/p-wt1",
+        worktreeBaseBranch: "feature-base",
+    });
+
+    await runValidationLoop({
+        hostedSession: repairHostedSession,
+        planName: "p",
+        planContent: "plan",
+        triageMeta: { classification: "FEATURE" },
+        uiAPI,
+        sessionManager: undefined,
+        __deps: /** @type {any} */ ({
+            runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
+            getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
+            runAgentSession: (/** @type {{ agentName: string }} */ opts) => {
+                if (opts.agentName === "reviewer") {
+                    return Promise.resolve(
+                        /** @type {any} */ ([{
+                            role: "assistant",
+                            content: [{ type: "text", text: "APPROVED" }],
+                        }]),
+                    );
+                }
+                return Promise.resolve(
+                    /** @type {any} */ ([{
+                        role: "toolResult",
+                        toolName: "task_completed",
+                        details: { outcome: "task_completed" },
+                    }]),
+                );
+            },
+            mergeExecutionWorktree: () => {
+                mergeAttempts++;
+                if (mergeAttempts === 1) {
+                    return Promise.reject(new Error("merge conflict"));
+                }
+                return Promise.resolve();
+            },
+            updateWorktreeRegistryEntry: () => Promise.resolve({}),
+            recordPlanEvent: (/** @type {{ event: string }} */ event) => {
+                events.push(event.event);
+                return Promise.resolve({});
+            },
+            removeExecutionWorktree: () => Promise.resolve(),
+            verifyExecutionWorktreeMerged: () => Promise.resolve({ merged: true, message: "merged" }),
+            getCodeReviewMode: () => "none",
+            setActiveAgent: () => {},
+        }),
+    });
+
+    assertEquals(events, ["worktree_merge_failed", "validation_passed"]);
+    assertEquals(
+        uiAPI.messages.some((/** @type {string} */ message) =>
+            message.includes("Feature execution and validation complete")
+        ),
+        true,
+    );
+});
+
 Deno.test("runValidationLoop retries worktree merge after user fixes primary checkout", async () => {
     const uiAPI = makeUi();
     /** @type {string[]} */
