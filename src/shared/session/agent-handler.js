@@ -20,7 +20,7 @@ import {
 } from "../workflow/decisions.js";
 import { runValidationLoop, shouldRunWorkflowValidation } from "../workflow/validation.js";
 import { recordPlanEvent as recordPlanEventFn } from "../workflow/plan-lifecycle.js";
-import { setActiveAgent as setActiveAgentFn } from "../interactive/chat-session.js";
+import { setActiveAgent as setActiveAgentFn } from "./agent-switching.js";
 import { join } from "@std/path";
 import { AGENTS, CWD } from "../../constants.js";
 
