@@ -2,34 +2,20 @@
 planId: "c32ce3fa-1708-4da8-bb9d-82a75e780283"
 classification: "FEATURE"
 complexity: "MEDIUM"
-summary: "Allow specifying a target branch during planning and use that branch for worktree creation and final merge-back, instead of defaulting to the current checkout's branch."
+summary: "Allow specifying a target branch during planning and use that branch for worktree creation and final merge-back, instead of defaulting to the current checkout's branch. This involves updating plan frontmatter to store the target branch and modifying the execution workflow to respect this branch during worktree setup and merge."
 affectedPaths:
     - "src/shared/workflow/workflow.js"
-    - "src/shared/workflow/workflow.test.js"
     - "src/shared/worktree.js"
-    - "src/shared/worktree.test.js"
     - "src/cmd/load-plan/index.js"
-    - "src/cmd/load-plan/index.test.js"
     - "src/plan-store.js"
-    - "src/plan-store.test.js"
-    - "src/shared/workflow/workflow-slicer.js"
-    - "src/shared/workflow/workflow-prompts.js"
-    - "src/shared/workflow/workflow-prompts.test.js"
-    - "src/agent-definitions/planner.md"
-    - "src/agent-definitions/architect.md"
-    - "src/agent-definitions/workflow-prompts/slicer-prompt.md"
-    - "src/agent-definitions/document-formats/planner-plan-format.md"
-    - "src/agent-definitions/document-formats/architect-plan-format.md"
-    - "docs/adr/005-concurrent-worktree-isolation.md"
-    - "README.md"
 frontend: false
-devServerCommand: null
-devServerUrl: null
-devServerHmr: null
 createdAt: "2026-07-05T01:12:56-04:00"
-updatedAt: "2026-07-06T21:21:33-04:00"
-status: "feedback"
+updatedAt: "2026-07-07T03:51:54.396Z"
+status: "verified"
 origin: "internal"
+verifiedAt: "2026-07-07T03:51:54.396Z"
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
 ---
 
 # Branch-Specific Plan Execution
