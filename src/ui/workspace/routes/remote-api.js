@@ -12,7 +12,7 @@ import {
 } from "../../../shared/collaboration/protocol.js";
 import { RemoteWorkspaceError } from "../server/remote-adapter.js";
 
-/** @param {import("fresh").App<any>} app */
+/** @param {{ get: Function, post: Function }} app */
 export function registerRemoteApiRoutes(app) {
     app.post("/api/spaces", createSpaceApi);
     app.get("/api/spaces/:spaceId", getSpaceApi);
