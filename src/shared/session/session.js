@@ -1419,6 +1419,11 @@ export async function buildAgentSession({
         finalCustomTools.push(createTaskCompletedTool({ uiAPI, agentName: agentDef.displayName }));
     }
 
+    if (tools.includes("review_complete") && uiAPI && !finalCustomTools.find((t) => t.name === "review_complete")) {
+        const { createReviewCompletedTool } = await import("../../tools/review-complete.js");
+        finalCustomTools.push(createReviewCompletedTool({ uiAPI, agentName: agentDef.displayName }));
+    }
+
     // Override the built-in edit tool to return file contents on failure.
     if (includeEditFallback !== false) {
         finalCustomTools.push(createEditWithFallbackToolDefinition(sessionCwd));

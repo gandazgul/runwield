@@ -71,6 +71,53 @@ export function extractAssistantOutput(messages) {
 }
 
 /**
+ * @typedef {"approved" | "feedback"} ReviewOutcome
+ */
+
+/**
+ * @typedef {Object} ReviewOutcomeResult
+ * @property {ReviewOutcome} outcome
+ * @property {boolean} approved
+ * @property {string} feedback
+ */
+
+/**
+ * Read the latest review_complete tool result from a message stream.
+ *
+ * Returns null when no review_complete call is found (for example, the session
+ * was interrupted, or the agent finished via text output instead of the tool).
+ *
+ * When `fromIndex` is provided, only messages at or after that index are searched,
+ * preventing stale outcomes from earlier turns from being picked up.
+ *
+ * @param {import('@earendil-works/pi-agent-core').AgentMessage[]} messages
+ * @param {number} [fromIndex] - Only search messages from this index onwards.
+ * @returns {ReviewOutcomeResult | null}
+ */
+export function readLatestReviewOutcome(messages, fromIndex) {
+    const start = fromIndex != null && fromIndex <= messages.length ? fromIndex : 0;
+    for (let i = messages.length - 1; i >= start; i--) {
+        const msg = messages[i];
+        if (
+            msg && "role" in msg && msg.role === "toolResult" &&
+            "toolName" in msg && msg.toolName === "review_complete"
+        ) {
+            // @ts-ignore details set by tool implementation
+            const details = msg.details || {};
+            const outcome = details.outcome;
+            if (outcome === "approved" || outcome === "feedback") {
+                return {
+                    outcome: /** @type {ReviewOutcome} */ (outcome),
+                    approved: details.approved === true,
+                    feedback: typeof details.feedback === "string" ? details.feedback : "",
+                };
+            }
+        }
+    }
+    return null;
+}
+
+/**
  * @typedef {"approved_execute" | "saved" | "feedback" | "canceled" | "repair_required" | "no_call"} PlanOutcome
  */
 
