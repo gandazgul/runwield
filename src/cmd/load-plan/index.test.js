@@ -420,8 +420,14 @@ Deno.test("runLoadPlanCommand Epic with children shows ordered child labels, dep
         }),
     });
 
-    assertEquals(prompts[0].options.some((option) => option.value === "pick_child"), true);
-    assertEquals(prompts[0].options.some((option) => option.value === "done_enough"), true);
+    assertEquals(prompts[0].options.map((option) => option.value), [
+        "pick_child",
+        "slicer",
+        "done_enough",
+        "view",
+        "hold",
+        "cancel",
+    ]);
     assertEquals(prompts[1].options[0].value, "__next_child__");
     assertEquals(prompts[1].options[0].label, "Execute next non-verified child FEATURE: 02. Second child [draft]");
     assertEquals(prompts[1].options[1].label, "01. epic-b/01-first [verified] — First child");
