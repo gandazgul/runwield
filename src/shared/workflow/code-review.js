@@ -22,6 +22,7 @@ export { loadReviewEditorHtml } from "./review-launcher.js";
  * @property {string} feedback
  * @property {CodeReviewAnnotation[]} annotations
  * @property {boolean} exit
+ * @property {boolean} [canceled]
  */
 
 /**
@@ -39,14 +40,15 @@ function normalizeAnnotations(value) {
  */
 export function normalizeCodeReviewDecision(decision) {
     if (!decision || typeof decision !== "object") {
-        return { approved: false, feedback: "", annotations: [], exit: true };
+        return { approved: false, feedback: "", annotations: [], exit: true, canceled: false };
     }
 
     const record = /** @type {Record<string, unknown>} */ (decision);
     const approved = record.approved === true;
     const feedback = typeof record.feedback === "string" ? record.feedback : "";
     const annotations = normalizeAnnotations(record.annotations);
-    const explicitlyExited = record.exit === true || record.canceled === true || record.cancelled === true;
+    const canceled = record.canceled === true || record.cancelled === true;
+    const explicitlyExited = record.exit === true || canceled;
     const noDecision = !approved && !feedback.trim() && annotations.length === 0;
 
     return {
@@ -54,6 +56,7 @@ export function normalizeCodeReviewDecision(decision) {
         feedback,
         annotations,
         exit: explicitlyExited || noDecision,
+        canceled,
     };
 }
 

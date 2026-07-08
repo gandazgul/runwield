@@ -25,11 +25,26 @@ Deno.test("task_completed renders completion message as markdown", async () => {
         promptText: () => Promise.resolve(null),
         showModelSelector: () => {},
     });
-    const tool = createTaskCompletedTool({ uiAPI, agentName: "Engineer" });
+    /** @type {any[]} */
+    const metrics = [];
+    const tool = createTaskCompletedTool({
+        uiAPI,
+        agentName: "Engineer",
+        recordWorkflowMetric: (metric) => {
+            metrics.push(metric);
+            return Promise.resolve(null);
+        },
+    });
 
     const result = await executeTool(tool, { message: "Fixed **CI**." });
 
     assertEquals(result.terminate, true);
     assertEquals(result.details, { outcome: "task_completed", message: "Fixed **CI**." });
     assertEquals(rendered, [{ agentName: "Engineer", text: "**Task completed.**\n\nFixed **CI**." }]);
+    assertEquals(metrics, [{
+        category: "execution",
+        event: "task_completed",
+        agentName: "Engineer",
+        details: { hasMessage: true },
+    }]);
 });

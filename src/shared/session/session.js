@@ -63,6 +63,7 @@ import { recordActiveAgent } from "./active-agent-session.js";
 import { getPackagePromptTemplatePaths, resolveInstalledPackagePromptResources } from "../package-resources.js";
 import { getWldExtensionPaths, resolveInstalledWldExtensionResources } from "../extensions/wld-extension-manifest.js";
 import { notifyRunWieldEventQuietly } from "../system-notifications.js";
+import { recordToolCallFinished, recordToolCallStarted, recordWorkflowMetric } from "../workflow/metrics.js";
 
 const HOME_PROMPTS_DIR = HOME_DIR ? join(HOME_DIR, ".wld", "prompts") : null;
 const LOCAL_PROMPTS_DIR = join(CWD, ".wld", "prompts");
@@ -71,6 +72,9 @@ const LOCAL_PROMPTS_DIR = join(CWD, ".wld", "prompts");
 const HTML_ERROR_RE = /^(.*?\b404\b.*?)(?:<!DOCTYPE|<html|<body)/i;
 const UNSUPPORTED_TEMPERATURE_RE =
     /\bunsupported (?:parameter|field|argument)\b[^.:\n]*(?::|\b)\s*["']?temperature["']?|\btemperature\b[^.:\n]*\bunsupported\b/i;
+
+/** @type {WeakMap<object, string>} */
+const modelSelectionSourceByModel = new WeakMap();
 
 /**
  * @param {unknown} hostedSession
@@ -970,44 +974,166 @@ async function resolveModel(
     for (const candidate of candidateModels) {
         const parsed = parseProviderModel(candidate.model);
         if (!parsed.ok) {
+            await recordWorkflowMetric({
+                category: "model_selection",
+                event: "candidate_evaluated",
+                agentName,
+                details: {
+                    source: candidate.source,
+                    strict: candidate.strict,
+                    parsed: false,
+                    selected: false,
+                    failedReason: "invalid_candidate",
+                },
+            });
             if (candidate.strict) {
+                await recordWorkflowMetric({
+                    category: "model_selection",
+                    event: "selection_failed",
+                    agentName,
+                    details: { reason: "invalid_candidate", source: candidate.source },
+                });
                 throw new Error(`Invalid ${candidate.source}: ${candidate.model}. Use provider/id.`);
             }
             continue;
         }
 
         let found = modelRegistry.find(parsed.provider, parsed.id);
+        let discovered = false;
         if (!found) {
             try {
                 found = await discoverProviderModel(modelRegistry, parsed.provider, parsed.id);
+                discovered = Boolean(found);
             } catch (error) {
+                await recordWorkflowMetric({
+                    category: "model_selection",
+                    event: "candidate_evaluated",
+                    agentName,
+                    details: {
+                        source: candidate.source,
+                        strict: candidate.strict,
+                        parsed: true,
+                        found: false,
+                        discovered: false,
+                        selected: false,
+                        failedReason: "discovery_error",
+                    },
+                });
                 if (candidate.strict) {
                     const message = error instanceof Error ? error.message : String(error);
+                    await recordWorkflowMetric({
+                        category: "model_selection",
+                        event: "selection_failed",
+                        agentName,
+                        details: { reason: "unknown_candidate", source: candidate.source, parsed: true },
+                    });
                     throw new Error(`Unknown ${candidate.source}: ${candidate.model}. ${message}`);
                 }
             }
         }
 
         if (!found) {
+            await recordWorkflowMetric({
+                category: "model_selection",
+                event: "candidate_evaluated",
+                agentName,
+                details: {
+                    source: candidate.source,
+                    strict: candidate.strict,
+                    parsed: true,
+                    found: false,
+                    discovered: false,
+                    selected: false,
+                    failedReason: "unknown_candidate",
+                },
+            });
             if (candidate.strict) {
+                await recordWorkflowMetric({
+                    category: "model_selection",
+                    event: "selection_failed",
+                    agentName,
+                    details: { reason: "unknown_candidate", source: candidate.source, parsed: true },
+                });
                 throw new Error(`Unknown ${candidate.source}: ${candidate.model}`);
             }
             continue;
         }
 
         if (!modelRegistry.hasConfiguredAuth(found)) {
+            await recordWorkflowMetric({
+                category: "model_selection",
+                event: "candidate_evaluated",
+                agentName,
+                details: {
+                    source: candidate.source,
+                    strict: candidate.strict,
+                    provider: found.provider,
+                    model: found.id,
+                    parsed: true,
+                    found: true,
+                    discovered,
+                    authConfigured: false,
+                    selected: false,
+                    failedReason: "missing_auth",
+                },
+            });
             if (candidate.strict) {
+                await recordWorkflowMetric({
+                    category: "model_selection",
+                    event: "selection_failed",
+                    agentName,
+                    details: {
+                        reason: "missing_auth",
+                        source: candidate.source,
+                        provider: found.provider,
+                        model: found.id,
+                    },
+                });
                 throw new Error(`No API key configured for ${candidate.source}: ${found.provider}/${found.id}`);
             }
             continue;
         }
 
+        await recordWorkflowMetric({
+            category: "model_selection",
+            event: "candidate_evaluated",
+            agentName,
+            details: {
+                source: candidate.source,
+                strict: candidate.strict,
+                provider: found.provider,
+                model: found.id,
+                parsed: true,
+                found: true,
+                discovered,
+                authConfigured: true,
+                selected: true,
+            },
+        });
+        await recordWorkflowMetric({
+            category: "model_selection",
+            event: "selection_resolved",
+            agentName,
+            details: {
+                source: candidate.source,
+                provider: found.provider,
+                model: found.id,
+                discovered,
+            },
+        });
+        if (found && typeof found === "object") modelSelectionSourceByModel.set(found, candidate.source);
         resolvedModel = found;
         break;
     }
 
     if (resolvedModel) return resolvedModel;
 
+    await recordWorkflowMetric({
+        category: "model_selection",
+        event: "selection_failed",
+        agentName,
+        details: { reason: "no_configured_model", candidateCount: candidateModels.length },
+    });
     throw new Error(
         `No configured model found${agentName ? ` for agent "${agentName}"` : ""}. Select one with /model, ` +
             "or configure activeModelPreset/modelPresets, agents.<agent>.model, defaultProvider/defaultModel, " +
@@ -1368,8 +1494,11 @@ export async function buildAgentSession({
         ...(resolvedModel ? { model: resolvedModel } : {}),
     });
 
-    const resolvedTemperature = (agentName ? getConfiguredAgentTemperature(agentName) : undefined) ??
-        agentDef.temperature;
+    const configuredTemperature = agentName ? getConfiguredAgentTemperature(agentName) : undefined;
+    const temperatureSource = configuredTemperature !== undefined ? "settings agent temperature" : (
+        agentDef.temperature !== undefined ? "agent definition temperature" : undefined
+    );
+    const resolvedTemperature = configuredTemperature ?? agentDef.temperature;
     applySessionTemperature(session, resolvedTemperature);
 
     if (extensionsResult?.errors?.length) {
@@ -1387,12 +1516,18 @@ export async function buildAgentSession({
     }
 
     // Apply thinking level — settings values take priority over layered frontmatter.
+    let thinkingLevelSource = undefined;
     let resolvedThinkingLevel = agentName ? getConfiguredAgentThinkingLevel(agentName) : undefined;
+    if (resolvedThinkingLevel) {
+        thinkingLevelSource = "settings agent thinking level";
+    }
     if (!resolvedThinkingLevel) {
         resolvedThinkingLevel = getSettingsManager().getDefaultThinkingLevel();
+        if (resolvedThinkingLevel) thinkingLevelSource = "settings default thinking level";
     }
     if (!resolvedThinkingLevel) {
         resolvedThinkingLevel = agentDef.thinkingLevel;
+        if (resolvedThinkingLevel) thinkingLevelSource = "agent definition thinking level";
     }
     if (resolvedThinkingLevel) {
         session.setThinkingLevel(
@@ -1408,6 +1543,29 @@ export async function buildAgentSession({
     await session.bindExtensions({});
 
     const imageMode = activeModelSupportsImages ? "direct" : (visionFallback ? "fallback" : "blocked");
+    await recordWorkflowMetric({
+        category: "model_selection",
+        event: "session_configured",
+        agentName,
+        details: {
+            provider: resolvedModel?.provider,
+            model: resolvedModel?.id,
+            source: resolvedModel && typeof resolvedModel === "object"
+                ? modelSelectionSourceByModel.get(resolvedModel)
+                : undefined,
+            selectedProvider: resolvedModel?.provider,
+            selectedModel: resolvedModel?.id,
+            selectedSource: resolvedModel && typeof resolvedModel === "object"
+                ? modelSelectionSourceByModel.get(resolvedModel)
+                : undefined,
+            imageMode,
+            hasVisionFallback: Boolean(visionFallback),
+            resolvedThinkingLevel,
+            thinkingLevelSource,
+            temperatureConfigured: resolvedTemperature !== undefined,
+            temperatureSource,
+        },
+    });
     return {
         session,
         agentDef,
@@ -1724,6 +1882,12 @@ export function attachUiSubscribers(
             case "tool_execution_start": {
                 currentMarkdownBlock = null;
                 invokedToolNames.push(event.toolName);
+                recordToolCallStarted(
+                    event.toolCallId,
+                    event.toolName,
+                    event.args,
+                    agentDef.displayName || agentDef.name,
+                );
 
                 if (event.toolName === "plan_written" || event.toolName === "user_interview") {
                     const sessionManager = /** @type {any} */ (hostedSession?.getRootSessionManager?.());
@@ -1863,6 +2027,12 @@ export function attachUiSubscribers(
                 break;
             }
             case "tool_execution_end": {
+                recordToolCallFinished(
+                    event.toolCallId,
+                    event.toolName,
+                    Boolean(event.isError),
+                    agentDef.displayName || agentDef.name,
+                );
                 if (shouldWriteDebugLog(debugLogPath) && debugLogPath) {
                     appendDebugLog(
                         debugLogPath,

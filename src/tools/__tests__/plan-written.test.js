@@ -227,6 +227,8 @@ Deno.test("PROJECT plan saves before invoking Slicer when decomposition is defer
 
 Deno.test("PROJECT plan returns feedback outcome when Slicer fails to start", async () => {
     let events = 0;
+    /** @type {any[]} */
+    const metrics = [];
     const result = await runTool(
         { planName: "p" },
         {
@@ -237,6 +239,10 @@ Deno.test("PROJECT plan returns feedback outcome when Slicer fails to start", as
                     events++;
                     return Promise.resolve(/** @type {any} */ ({}));
                 },
+                recordWorkflowMetric: (metric) => {
+                    metrics.push(metric);
+                    return Promise.resolve(null);
+                },
             }),
         },
     );
@@ -245,6 +251,13 @@ Deno.test("PROJECT plan returns feedback outcome when Slicer fails to start", as
     assertStringIncludes(result.content[0]?.text ?? "", "the slicer agent failed");
     // It is ready for decomposition, but Slicer did not start successfully.
     assertEquals(events, 1);
+    assertEquals(
+        metrics.some((metric) =>
+            metric.category === "planning" && metric.event === "readiness_outcome" &&
+            metric.details.outcome === "repair_required" && metric.details.stage === "slicer"
+        ),
+        true,
+    );
 });
 
 Deno.test("PROJECT plan propagates readiness recording failure", async () => {
@@ -268,6 +281,8 @@ Deno.test("PROJECT plan propagates readiness recording failure", async () => {
 Deno.test("FEATURE plan records readiness without invoking slicer", async () => {
     /** @type {string[]} */
     const events = [];
+    /** @type {any[]} */
+    const metrics = [];
     const result = await runTool(
         { planName: "p" },
         {
@@ -277,11 +292,22 @@ Deno.test("FEATURE plan records readiness without invoking slicer", async () => 
                     events.push(event);
                     return Promise.resolve(/** @type {any} */ ({}));
                 },
+                recordWorkflowMetric: (metric) => {
+                    metrics.push(metric);
+                    return Promise.resolve(null);
+                },
             }),
         },
     );
     assertEquals(result.details.outcome, "approved_execute");
     assertEquals(events, ["readiness_passed"]);
+    assertEquals(
+        metrics.some((metric) =>
+            metric.category === "planning" && metric.event === "readiness_outcome" &&
+            metric.details.lifecycleEvent === "readiness_passed"
+        ),
+        true,
+    );
 });
 
 // ── FEATURE / non-PROJECT path ──────────────────────────────────

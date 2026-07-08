@@ -11,6 +11,7 @@ import { StringEnum, Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { ROUTING_INTENTS } from "../constants.js";
 import { sanitizeSessionName } from "../ui/tui/terminal-title.js";
+import { recordWorkflowMetric } from "../shared/workflow/metrics.js";
 
 const PLAN_CLASSIFICATIONS = ["FEATURE", "PROJECT"];
 
@@ -84,10 +85,13 @@ function normalizeTriageParams(params) {
  *
  * @param {{
  *   uiAPI?: import('../shared/workflow/workflow.js').UiAPI,
+ *   recordWorkflowMetric?: typeof recordWorkflowMetric,
  * }} [opts]
  * @returns {import('@earendil-works/pi-coding-agent').ToolDefinition}
  */
-export function createTriageReportTool({ uiAPI } = {}) {
+export function createTriageReportTool(
+    { uiAPI, recordWorkflowMetric: recordWorkflowMetricImpl = recordWorkflowMetric } = {},
+) {
     return defineTool({
         name: "triage_report",
         label: "Routing Intent Report",
@@ -96,7 +100,6 @@ export function createTriageReportTool({ uiAPI } = {}) {
             "Clearly operational or informational requests may need no codebase exploration before routing. " +
             "Do not output the Routing Intent as freeform text — use this tool.",
         parameters: TOOL_PARAMS,
-        // deno-lint-ignore require-await
         async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
             const details = normalizeTriageParams(/** @type {Record<string, unknown>} */ (params));
             const { routingIntent, complexity, summary } = details;
@@ -106,6 +109,19 @@ export function createTriageReportTool({ uiAPI } = {}) {
                 false,
                 "Triage",
             );
+
+            await recordWorkflowMetricImpl({
+                category: "routing",
+                event: "triage_reported",
+                details: {
+                    routingIntent,
+                    complexity,
+                    classification: details.classification,
+                    affectedPaths: details.affectedPaths,
+                    affectedPathCount: Array.isArray(details.affectedPaths) ? details.affectedPaths.length : 0,
+                    hasSessionName: Boolean(details.sessionName),
+                },
+            });
 
             return {
                 content: [
