@@ -210,25 +210,96 @@ async function cleanupRemoteSpace(deps, serverUrl, spaceId, maintainerCapability
 }
 
 /**
- * @param {string[]} argv
- * @param {{ __testDeps?: ShareCommandDependencies }} [options]
+ * @typedef {Object} SharePlanForReviewOptions
+ * @property {string} target
+ * @property {string} [cwd]
+ * @property {string} [planServer]
+ * @property {boolean} [projectSecrets]
+ * @property {boolean} [allowExisting]
  */
-export async function runPlansShareCommand(argv, options = {}) {
-    const deps = /** @type {ShareCommandDependencies} */ (options.__testDeps || {});
-    const parseArgs = deps.parseArgs || parseArgsFn;
-    const args = parsePlansShareArgsWith(parseArgs, argv);
-    if (args.help) {
-        printShareHelp();
-        return;
-    }
 
-    const cwd = deps.cwd || CWD;
-    const target = /** @type {string} */ (args.target);
+/**
+ * @typedef {Object} SharedPlanReviewLink
+ * @property {string} planName
+ * @property {string} planId
+ * @property {string} reviewerUrl
+ * @property {string} maintainerUrl
+ * @property {string} serverUrl
+ * @property {string} spaceId
+ * @property {number} revision
+ * @property {boolean} reused
+ */
+
+/**
+ * @param {SharePlanForReviewOptions} shareOptions
+ * @param {ShareCommandDependencies} [deps]
+ * @returns {Promise<SharedPlanReviewLink>}
+ */
+export async function sharePlanForReview(shareOptions, deps = {}) {
+    const cwd = shareOptions.cwd || deps.cwd || CWD;
+    const target = shareOptions.target;
     const resource = await resolveActivePlan(cwd, target, deps);
+    const args = {
+        target,
+        planServer: shareOptions.planServer,
+        projectSecrets: Boolean(shareOptions.projectSecrets),
+        help: false,
+    };
+    const buildCollaborationUrl = deps.buildCollaborationUrl || buildCollaborationUrlFn;
+
     if (resource.attrs.collaborationState === COLLABORATION_STATE_REMOTE_CANONICAL) {
-        throw new Error(
-            "This Plan is already shared and remote-canonical. Use future `wld plans pull`, `wld plans push`, or `wld plans unshare` flows.",
-        );
+        if (!shareOptions.allowExisting) {
+            throw new Error(
+                "This Plan is already shared and remote-canonical. Use future `wld plans pull`, `wld plans push`, or `wld plans unshare` flows.",
+            );
+        }
+        const serverUrl = String(resource.attrs.collaborationServerUrl || "");
+        if (!serverUrl) {
+            throw new Error("Shared Plan is missing collaborationServerUrl; cannot reconstruct review URL.");
+        }
+        const spaceId = String(resource.attrs.collaborationSpaceId || "");
+        if (!spaceId) throw new Error("Shared Plan is missing collaborationSpaceId; cannot reconstruct review URL.");
+        const getGlobalSecretStorePath = deps.getGlobalSecretStorePath || getGlobalSecretStorePathFn;
+        const getProjectSecretStorePath = deps.getProjectSecretStorePath || getProjectSecretStorePathFn;
+        const explicitSecretStorePath = shareOptions.projectSecrets
+            ? getProjectSecretStorePath(cwd)
+            : getGlobalSecretStorePath();
+        const fallbackSecretStorePath = shareOptions.projectSecrets
+            ? getGlobalSecretStorePath()
+            : getProjectSecretStorePath(cwd);
+        const getSecretRecord = deps.getSecretRecord || getSecretRecordFn;
+        const secretRecord =
+            await getSecretRecord(explicitSecretStorePath, secretRecordKey(resource.planId, spaceId)) ||
+            await getSecretRecord(explicitSecretStorePath, resource.planId) ||
+            await getSecretRecord(fallbackSecretStorePath, secretRecordKey(resource.planId, spaceId)) ||
+            await getSecretRecord(fallbackSecretStorePath, resource.planId);
+        if (!secretRecord?.contentKey || !secretRecord?.reviewerCapability) {
+            throw new Error("Shared Plan local reviewer secrets are missing; cannot reconstruct review URL.");
+        }
+        return {
+            planName: resource.name,
+            planId: resource.planId,
+            reviewerUrl: buildCollaborationUrl({
+                serverUrl,
+                spaceId,
+                contentKey: secretRecord.contentKey,
+                bearerCapability: secretRecord.reviewerCapability,
+                role: REVIEWER_SCOPE,
+            }),
+            maintainerUrl: secretRecord.maintainerCapability
+                ? buildCollaborationUrl({
+                    serverUrl,
+                    spaceId,
+                    contentKey: secretRecord.contentKey,
+                    bearerCapability: secretRecord.maintainerCapability,
+                    role: MAINTAINER_SCOPE,
+                })
+                : "",
+            serverUrl,
+            spaceId,
+            revision: Number(resource.attrs.collaborationRevision || 1),
+            reused: true,
+        };
     }
 
     const serverUrl = resolvePlanServerUrl(args, deps);
@@ -239,7 +310,6 @@ export async function runPlansShareCommand(argv, options = {}) {
     const generateBearerCapability = deps.generateBearerCapability || generateBearerCapabilityFn;
     const hashCapability = deps.hashCapability || hashCapabilityFn;
     const createCollaborationClient = deps.createCollaborationClient || createCollaborationClientFn;
-    const buildCollaborationUrl = deps.buildCollaborationUrl || buildCollaborationUrlFn;
 
     const contentKey = await generateContentKey();
     const exportedContentKey = await exportContentKey(contentKey);
@@ -297,15 +367,14 @@ export async function runPlansShareCommand(argv, options = {}) {
         await assertNoConflictingSecretRecord(deps, secretStorePath, resource.planId, created.spaceId);
         const putSecretRecord = deps.putSecretRecord || putSecretRecordFn;
         localSecretKey = secretRecordKey(resource.planId, created.spaceId);
-        const secretRecord = {
+        await putSecretRecord(secretStorePath, localSecretKey, {
             planId: resource.planId,
             spaceId: created.spaceId,
             contentKey: exportedContentKey,
             reviewerCapability,
             maintainerCapability,
             updatedAt: now,
-        };
-        await putSecretRecord(secretStorePath, localSecretKey, secretRecord);
+        });
 
         const hashPlanBody = deps.hashPlanBody || hashPlanBodyFn;
         const updatePlanCollaborationMetadata = deps.updatePlanCollaborationMetadata ||
@@ -367,17 +436,50 @@ export async function runPlansShareCommand(argv, options = {}) {
         );
     }
 
-    console.log(`[RunWield] Shared Plan ${resource.name} as remote Shared Space ${created.spaceId} (revision 1).`);
+    return {
+        planName: resource.name,
+        planId: resource.planId,
+        reviewerUrl,
+        maintainerUrl,
+        serverUrl,
+        spaceId: created.spaceId,
+        revision: 1,
+        reused: false,
+    };
+}
+
+/**
+ * @param {string[]} argv
+ * @param {{ __testDeps?: ShareCommandDependencies }} [options]
+ */
+export async function runPlansShareCommand(argv, options = {}) {
+    const deps = /** @type {ShareCommandDependencies} */ (options.__testDeps || {});
+    const parseArgs = deps.parseArgs || parseArgsFn;
+    const args = parsePlansShareArgsWith(parseArgs, argv);
+    if (args.help) {
+        printShareHelp();
+        return;
+    }
+    const shared = await sharePlanForReview({
+        target: /** @type {string} */ (args.target),
+        cwd: deps.cwd || CWD,
+        planServer: args.planServer,
+        projectSecrets: args.projectSecrets,
+        allowExisting: false,
+    }, deps);
+    console.log(
+        `[RunWield] Shared Plan ${shared.planName} as remote Shared Space ${shared.spaceId} (revision ${shared.revision}).`,
+    );
     console.log("\nReviewer URL (secret; share only with reviewers):");
-    console.log(reviewerUrl);
+    console.log(shared.reviewerUrl);
     console.log("\nMaintainer URL (powerful secret):");
-    console.log(maintainerUrl);
+    console.log(shared.maintainerUrl);
     console.log(
         "\nWarning: anyone with the maintainer URL can pull, push, close, or unshare this Shared Space. Store these URLs securely; RunWield will not print them again.",
     );
     console.log(
         `[RunWield] Stored local secret material outside Plan front matter/settings. API/server URL: ${
-            redactCollaborationUrl(serverUrl)
+            redactCollaborationUrl(shared.serverUrl)
         }`,
     );
 }

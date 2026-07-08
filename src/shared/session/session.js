@@ -22,6 +22,7 @@ import { extractYaml, test as hasFrontMatter } from "@std/front-matter";
 import { dirname, join } from "@std/path";
 import { AGENT_DEFS_DIR, AGENTS, CWD, HOME_DIR, PROMPT_TEMPLATES_DIR, SKILLS_DIR } from "../../constants.js";
 import { RuntimeEventTypes } from "./session-runtime-events.js";
+import { createUiPromptInteractionAdapter } from "./session-runtime-interactions.js";
 import mnemosyneExtension, {
     memoryDeleteToolDef,
     memoryRecallGlobalToolDef,
@@ -1380,6 +1381,13 @@ export async function buildAgentSession({
     // This keeps agent frontmatter declarative: adding/removing tool names controls availability,
     // while RunWield runtime injects the concrete tool implementations.
 
+    if (uiAPI && targetHostedSession?.setInteractionAdapter) {
+        const currentMeta = targetHostedSession.getInteractionAdapterMeta?.();
+        if (currentMeta?.kind !== "acp") {
+            targetHostedSession.setInteractionAdapter(createUiPromptInteractionAdapter(uiAPI), { kind: "tui" });
+        }
+    }
+
     if (tools.includes("return_to_router") && !finalCustomTools.find((t) => t.name === "return_to_router")) {
         // Root sessions are hosted explicitly; close over the session/UI used to
         // build this AgentSession instead of relying on dynamic tool context or
@@ -1411,7 +1419,7 @@ export async function buildAgentSession({
     }
 
     if (tools.includes("user_interview") && !finalCustomTools.find((t) => t.name === "user_interview")) {
-        finalCustomTools.push(createUserInterviewTool(uiAPI));
+        finalCustomTools.push(createUserInterviewTool({ uiAPI, hostedSession: targetHostedSession || undefined }));
     }
 
     if (tools.includes("task_completed") && uiAPI && !finalCustomTools.find((t) => t.name === "task_completed")) {

@@ -4,6 +4,7 @@
 
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 import { mapRuntimeEventToAcpUpdate } from "./event-mapper.js";
+import { createAcpInteractionAdapter } from "./interaction-mapper.js";
 import { createInitializeResponse, startRunWieldAcpServer } from "./server.js";
 
 /**
@@ -251,6 +252,149 @@ Deno.test("ACP initialize advertises implemented MVP prompt/session capabilities
     assertEquals(capabilities.sessionCapabilities._meta.runwield.updateNotifications, ["session/update"]);
     assertEquals(capabilities.loadSession, undefined);
     assertEquals(capabilities.sessionCapabilities.close, undefined);
+});
+
+Deno.test("ACP server clears per-prompt interaction adapter after prompt settles", async () => {
+    const runtime = makeFakeRuntime();
+    /** @type {Array<{ adapter: unknown, meta: unknown }>} */
+    const adapterCalls = [];
+    runtime.setInteractionAdapter = (
+        /** @type {unknown} */ _session,
+        /** @type {unknown} */ adapter,
+        /** @type {unknown} */ meta,
+    ) => {
+        adapterCalls.push({ adapter, meta });
+        return { ok: true };
+    };
+    const handle = startTestServer({ runtime });
+    try {
+        const newResponse = await request(handle, {
+            jsonrpc: "2.0",
+            id: 20,
+            method: "session/new",
+            params: { cwd: Deno.cwd(), mcpServers: [] },
+        });
+        assert(newResponse.result, JSON.stringify(newResponse));
+        await handle.inputWriter.write(encoder.encode(`${
+            JSON.stringify({
+                jsonrpc: "2.0",
+                id: 21,
+                method: "session/prompt",
+                params: { sessionId: newResponse.result.sessionId, prompt: [{ type: "text", text: "hello" }] },
+            })
+        }\n`));
+        for (let i = 0; i < 4; i++) {
+            const message = await readMessage(handle);
+            if (message.id === 21) break;
+        }
+
+        assertEquals(adapterCalls.length, 2);
+        assertEquals(/** @type {any} */ (adapterCalls[0].meta).kind, "acp");
+        assertEquals(adapterCalls[1], { adapter: null, meta: null });
+    } finally {
+        await closeTestServer(handle);
+    }
+});
+
+Deno.test("ACP server ends prompt when interaction adapter setup fails", async () => {
+    const runtime = makeFakeRuntime();
+    let setupAttempts = 0;
+    runtime.setInteractionAdapter = (
+        /** @type {unknown} */ _session,
+        /** @type {unknown} */ adapter,
+        /** @type {unknown} */ _meta,
+    ) => {
+        if (adapter) {
+            setupAttempts++;
+            if (setupAttempts === 1) throw new Error("adapter setup failed");
+        }
+        return { ok: true };
+    };
+    const handle = startTestServer({ runtime });
+    try {
+        const newResponse = await request(handle, {
+            jsonrpc: "2.0",
+            id: "new",
+            method: "session/new",
+            params: { cwd: Deno.cwd(), mcpServers: [] },
+        });
+        const sessionId = newResponse.result.sessionId;
+
+        const failed = await request(handle, {
+            jsonrpc: "2.0",
+            id: "prompt-fails-during-adapter-setup",
+            method: "session/prompt",
+            params: { sessionId, prompt: [{ type: "text", text: "first" }] },
+        });
+        assertEquals(failed.error.code, -32603);
+
+        await handle.inputWriter.write(encoder.encode(`${
+            JSON.stringify({
+                jsonrpc: "2.0",
+                id: "prompt-after-adapter-setup-failure",
+                method: "session/prompt",
+                params: { sessionId, prompt: [{ type: "text", text: "second" }] },
+            })
+        }\n`));
+        /** @type {Record<string, any> | null} */
+        let response = null;
+        for (let i = 0; i < 4 && !response; i++) {
+            const message = await readMessage(handle);
+            if (message.id === "prompt-after-adapter-setup-failure") response = message;
+        }
+
+        assertEquals(response?.result.stopReason, "end_turn");
+        assertEquals(setupAttempts, 2);
+    } finally {
+        await closeTestServer(handle);
+    }
+});
+
+Deno.test("ACP server ends prompt when interaction adapter cleanup fails", async () => {
+    const runtime = makeFakeRuntime();
+    runtime.promptSession = () => Promise.resolve({ ok: true, turns: 1, handoffs: 0, handoffLimitReached: false });
+    let cleanupAttempts = 0;
+    runtime.setInteractionAdapter = (
+        /** @type {unknown} */ _session,
+        /** @type {unknown} */ adapter,
+        /** @type {unknown} */ _meta,
+    ) => {
+        if (!adapter) {
+            cleanupAttempts++;
+            if (cleanupAttempts === 1) throw new Error("adapter cleanup failed");
+        }
+        return { ok: true };
+    };
+    const handle = startTestServer({ runtime });
+    try {
+        const newResponse = await request(handle, {
+            jsonrpc: "2.0",
+            id: "new",
+            method: "session/new",
+            params: { cwd: Deno.cwd(), mcpServers: [] },
+        });
+        const sessionId = newResponse.result.sessionId;
+
+        const failed = await request(handle, {
+            jsonrpc: "2.0",
+            id: "prompt-fails-during-adapter-cleanup",
+            method: "session/prompt",
+            params: { sessionId, prompt: [{ type: "text", text: "first" }] },
+        });
+        assertEquals(failed.error.code, -32603);
+
+        const next = await request(handle, {
+            jsonrpc: "2.0",
+            id: "prompt-after-adapter-cleanup-failure",
+            method: "session/prompt",
+            params: { sessionId, prompt: [{ type: "text", text: "second" }] },
+        });
+
+        assertEquals(next.result.stopReason, "end_turn");
+        assertEquals(cleanupAttempts, 2);
+    } finally {
+        await closeTestServer(handle);
+    }
 });
 
 Deno.test("ACP server creates sessions and streams prompt updates", async () => {
@@ -570,4 +714,136 @@ Deno.test("ACP modules do not import TUI chat-session internals", async () => {
     const output = decoder.decode(stdout);
     assertEquals(code, 0);
     assertEquals(output, "");
+});
+
+Deno.test("ACP interaction adapter maps form elicitation answers", async () => {
+    /** @type {unknown[]} */
+    const requests = [];
+    const adapter = createAcpInteractionAdapter({
+        acpSessionId: "acp-1",
+        clientCapabilities: { elicitation: { form: {} } },
+        context: {
+            request: (/** @type {string} */ method, /** @type {unknown} */ params) => {
+                requests.push({ method, params });
+                return Promise.resolve({ action: "accept", content: { answer: "yes" } });
+            },
+        },
+    });
+
+    const response = await adapter.requestInteraction({
+        id: "interaction-1",
+        type: "select",
+        prompt: "Proceed?",
+        options: [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }],
+    });
+
+    assertEquals(response.outcome, "selected");
+    assertEquals(response.value, "yes");
+    assertEquals(/** @type {any} */ (requests[0]).method, "elicitation/create");
+    assertEquals(/** @type {any} */ (requests[0]).params.sessionId, "acp-1");
+});
+
+Deno.test("ACP interaction adapter rejects invalid selected options", async () => {
+    const adapter = createAcpInteractionAdapter({
+        acpSessionId: "acp-1",
+        clientCapabilities: { elicitation: { form: {} } },
+        context: {
+            request: () => Promise.resolve({ action: "accept", content: { answer: "invalid" } }),
+        },
+    });
+
+    const response = await adapter.requestInteraction({
+        id: "interaction-1",
+        type: "select",
+        prompt: "Proceed?",
+        options: [{ value: "yes", label: "Yes" }],
+    });
+
+    assertEquals(response.outcome, "unsupported");
+    assertEquals(response.message, "ACP elicitation returned invalid option: invalid");
+});
+
+Deno.test("ACP interaction adapter maps declined approval choices to canceled outcome", async () => {
+    const adapter = createAcpInteractionAdapter({
+        acpSessionId: "acp-1",
+        clientCapabilities: { elicitation: { form: {} } },
+        context: {
+            request: () => Promise.resolve({ action: "accept", content: { answer: "deny" } }),
+        },
+    });
+
+    const response = await adapter.requestInteraction({
+        id: "interaction-1",
+        type: "approval",
+        prompt: "Approve?",
+        options: [{ value: "approve", label: "Approve" }, { value: "deny", label: "Deny" }],
+    });
+
+    assertEquals(response.outcome, "canceled");
+    assertEquals(response.value, false);
+});
+
+Deno.test("ACP interaction adapter does not auto-accept arbitrary single approval options", async () => {
+    const adapter = createAcpInteractionAdapter({
+        acpSessionId: "acp-1",
+        clientCapabilities: { elicitation: { form: {} } },
+        context: {
+            request: () => Promise.resolve({ action: "accept", content: { answer: "deny" } }),
+        },
+    });
+
+    const response = await adapter.requestInteraction({
+        id: "interaction-1",
+        type: "approval",
+        prompt: "Approve?",
+        options: [{ value: "deny", label: "Deny" }],
+    });
+
+    assertEquals(response.outcome, "canceled");
+    assertEquals(response.value, false);
+});
+
+Deno.test("ACP interaction adapter maps approval acceptance to accepted outcome", async () => {
+    const adapter = createAcpInteractionAdapter({
+        acpSessionId: "acp-1",
+        clientCapabilities: { elicitation: { form: {} } },
+        context: {
+            request: () => Promise.resolve({ action: "accept", content: { answer: "approve" } }),
+        },
+    });
+
+    const response = await adapter.requestInteraction({
+        id: "interaction-1",
+        type: "approval",
+        prompt: "Approve?",
+        options: [{ value: "approve", label: "Approve" }],
+    });
+
+    assertEquals(response.outcome, "accepted");
+    assertEquals(response.value, true);
+});
+
+Deno.test("ACP interaction adapter returns unsupported without form capabilities", async () => {
+    const adapter = createAcpInteractionAdapter({
+        acpSessionId: "acp-1",
+        clientCapabilities: {},
+        context: {},
+    });
+    const response = await adapter.requestInteraction({ type: "text", prompt: "Name?" });
+    assertEquals(response.outcome, "unsupported");
+});
+
+Deno.test("ACP event mapper maps plan review links without maintainer secrets", () => {
+    const update = mapRuntimeEventToAcpUpdate({
+        type: "plan_review_link",
+        sessionId: "s1",
+        timestamp: "2026-07-07T00:00:00.000Z",
+        planName: "p",
+        reviewerUrl: "https://plans.example/#key=review&cap=reviewer&role=reviewer",
+        spaceId: "space-1",
+        message: "review it",
+    });
+    assertEquals(update?.sessionUpdate, "agent_message_chunk");
+    assertStringIncludes(JSON.stringify(update), "reviewer");
+    assertEquals(JSON.stringify(update).includes("maintainer"), false);
 });
