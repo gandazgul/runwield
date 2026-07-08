@@ -454,3 +454,13 @@ Deno.test("buildAgentSession fails clearly for invalid vision fallback", async (
         await Deno.remove(tempHome, { recursive: true });
     }
 });
+
+Deno.test("resolveModel candidate metrics include enum failed reasons for skipped candidates", async () => {
+    const source = await Deno.readTextFile(new URL("../session.js", import.meta.url));
+    assertEquals(source.includes('failedReason: "invalid_candidate"'), true);
+    assertEquals(source.includes('failedReason: "unknown_candidate"'), true);
+    assertEquals(source.includes('failedReason: "discovery_error"'), true);
+    assertEquals(source.includes('failedReason: "missing_auth"'), true);
+    assertEquals(source.includes('event: "selection_resolved"'), true);
+    assertEquals(source.includes("discovered"), true);
+});

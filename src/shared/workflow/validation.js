@@ -14,6 +14,7 @@ import { setActiveAgent } from "../session/agent-switching.js";
 import { getWorkflowDiff } from "./git-snapshot.js";
 import { recordPlanEvent } from "./plan-lifecycle.js";
 import { formatCodeReviewAnnotations, runPlannotatorCodeReview } from "./code-review.js";
+import { recordWorkflowMetric } from "./metrics.js";
 import { mergeExecutionWorktree, removeExecutionWorktree } from "../worktree.js";
 import {
     removeEntry as removeWorktreeRegistryEntry,
@@ -639,6 +640,7 @@ export function shouldRunWorkflowValidation(triageMeta) {
  *   readLatestTaskCompletedOutcome?: typeof readLatestTaskCompletedOutcome,
  *   setActiveAgent?: typeof setActiveAgent,
  *   createAgentHandler?: (agentName: string) => import('../session/types.js').AgentMessageHandler,
+ *   recordWorkflowMetric?: typeof recordWorkflowMetric,
  * }} [args.__deps] Test-only injection point.
  * @returns {Promise<{ passed: boolean, attempts: number, reason?: string }>}
  */
@@ -656,6 +658,7 @@ export async function runMechanicalValidation({ uiAPI, sessionManager, hostedSes
     const setActiveAgentImpl = __deps?.setActiveAgent || setActiveAgent;
     const createAgentHandlerImpl = __deps?.createAgentHandler ||
         (await import("../session/agent-handler.js")).createAgentHandler;
+    const recordWorkflowMetricImpl = __deps?.recordWorkflowMetric || recordWorkflowMetric;
     /** @param {string} agentName */
     const activateAgent = (agentName) => {
         if (!hostedSession) return;
@@ -665,6 +668,12 @@ export async function runMechanicalValidation({ uiAPI, sessionManager, hostedSes
     const maxRepairAttempts = 3;
     let repairAttempts = 0;
 
+    await recordWorkflowMetricImpl({
+        category: "validation",
+        event: "mechanical_validation_started",
+        planName: "quick-fix",
+        details: { maxRepairAttempts },
+    });
     appendRunWieldSystemMessage(uiAPI, "Starting QUICK_FIX Mechanical Validation.");
 
     while (true) {
@@ -680,6 +689,12 @@ export async function runMechanicalValidation({ uiAPI, sessionManager, hostedSes
             uiAPI?.setBusy?.(false);
         }
 
+        await recordWorkflowMetricImpl({
+            category: "validation",
+            event: "mechanical_ci_attempt",
+            planName: "quick-fix",
+            details: { attempt: repairAttempts + 1, exitCode: ciResult.exitCode, passed: ciResult.exitCode === 0 },
+        });
         if (ciResult.exitCode === 0) {
             appendRunWieldSystemMessage(
                 uiAPI,
@@ -687,6 +702,12 @@ export async function runMechanicalValidation({ uiAPI, sessionManager, hostedSes
                 false,
                 SUCCESS_MESSAGE_STYLE,
             );
+            await recordWorkflowMetricImpl({
+                category: "validation",
+                event: "mechanical_validation_finished",
+                planName: "quick-fix",
+                details: { passed: true, attempts: repairAttempts },
+            });
             activateAgent(AGENTS.ENGINEER);
             return { passed: true, attempts: repairAttempts };
         }
@@ -695,11 +716,24 @@ export async function runMechanicalValidation({ uiAPI, sessionManager, hostedSes
             const reason =
                 `QUICK_FIX Mechanical Validation failed after ${maxRepairAttempts} Engineer repair attempts.`;
             appendRunWieldSystemMessage(uiAPI, reason, true);
+            await recordWorkflowMetricImpl({
+                category: "validation",
+                event: "mechanical_validation_finished",
+                planName: "quick-fix",
+                details: { passed: false, attempts: repairAttempts, reason: "max_repair_attempts" },
+            });
             activateAgent(AGENTS.ENGINEER);
             return { passed: false, attempts: repairAttempts, reason };
         }
 
         repairAttempts++;
+        await recordWorkflowMetricImpl({
+            category: "validation",
+            event: "mechanical_repair_dispatched",
+            agentName: AGENTS.ENGINEER,
+            planName: "quick-fix",
+            details: { repairAttempt: repairAttempts },
+        });
         appendRunWieldSystemMessage(
             uiAPI,
             `QUICK_FIX CI failed. Dispatching ${
@@ -718,6 +752,13 @@ export async function runMechanicalValidation({ uiAPI, sessionManager, hostedSes
             cwd,
             hostedSession,
         });
+        await recordWorkflowMetricImpl({
+            category: "validation",
+            event: "mechanical_repair_completed",
+            agentName: AGENTS.ENGINEER,
+            planName: "quick-fix",
+            details: { repairAttempt: repairAttempts, taskCompletedObserved: Boolean(completed) },
+        });
         if (!completed) {
             const reason = `${
                 getAgentDisplayName(AGENTS.ENGINEER)
@@ -730,6 +771,12 @@ export async function runMechanicalValidation({ uiAPI, sessionManager, hostedSes
                     "Mechanical Validation will resume after task_completed.",
                 true,
             );
+            await recordWorkflowMetricImpl({
+                category: "validation",
+                event: "mechanical_validation_finished",
+                planName: "quick-fix",
+                details: { passed: false, attempts: repairAttempts, reason: "repair_without_task_completed" },
+            });
             hostedSession?.setActiveExecutionWorkflow({
                 planName: "quick-fix",
                 triageMeta: { classification: "QUICK_FIX" },
@@ -771,6 +818,7 @@ export async function runMechanicalValidation({ uiAPI, sessionManager, hostedSes
  *   getCodeReviewMode?: typeof getCodeReviewMode,
  *   runPlannotatorCodeReview?: typeof runPlannotatorCodeReview,
  *   verifyExecutionWorktreeMerged?: typeof verifyExecutionWorktreeMerged,
+ *   recordWorkflowMetric?: typeof recordWorkflowMetric,
  * }} [args.__deps] Test-only injection point.
  */
 export async function runValidationLoop({
@@ -804,6 +852,7 @@ export async function runValidationLoop({
     const getCodeReviewModeImpl = __deps?.getCodeReviewMode || getCodeReviewMode;
     const runPlannotatorCodeReviewImpl = __deps?.runPlannotatorCodeReview || runPlannotatorCodeReview;
     const verifyExecutionWorktreeMergedImpl = __deps?.verifyExecutionWorktreeMerged || verifyExecutionWorktreeMerged;
+    const recordWorkflowMetricImpl = __deps?.recordWorkflowMetric || recordWorkflowMetric;
     const activeWorkflow = hostedSession?.getActiveExecutionWorkflow?.() || null;
     const baselineTree = activeWorkflow?.baselineTree;
     const projectRoot = activeWorkflow?.projectRoot || CWD;
@@ -846,8 +895,21 @@ export async function runValidationLoop({
     let validationCycles = 0;
     const MAX_VALIDATION_CYCLES = 3;
 
+    await recordWorkflowMetricImpl({
+        category: "validation",
+        event: "workflow_validation_started",
+        planName,
+        details: { classification: triageMeta?.classification, hasWorktree: Boolean(worktreeBranch) },
+    });
+
     while (!executionComplete && !haltReason && validationCycles < MAX_VALIDATION_CYCLES) {
         validationCycles++;
+        await recordWorkflowMetricImpl({
+            category: "validation",
+            event: "validation_cycle_started",
+            planName,
+            details: { validationCycle: validationCycles, maxValidationCycles: MAX_VALIDATION_CYCLES },
+        });
         appendRunWieldSystemMessage(uiAPI, `Starting Validation Cycle ${validationCycles}/${MAX_VALIDATION_CYCLES}`);
 
         let buildPasses = false;
@@ -864,6 +926,17 @@ export async function runValidationLoop({
                 uiAPI?.setBusy?.(false);
             }
 
+            await recordWorkflowMetricImpl({
+                category: "validation",
+                event: "ci_attempt",
+                planName,
+                details: {
+                    validationCycle: validationCycles,
+                    mechanicalAttempt: mechanicalAttempts,
+                    exitCode: ciResult.exitCode,
+                    passed: ciResult.exitCode === 0,
+                },
+            });
             if (ciResult.exitCode === 0) {
                 buildPasses = true;
                 appendRunWieldSystemMessage(uiAPI, "Build and tests passed.", false, SUCCESS_MESSAGE_STYLE);
@@ -873,6 +946,13 @@ export async function runValidationLoop({
                     `Build failed. Dispatching ${getAgentDisplayName(AGENTS.ENGINEER)} to fix syntax/types...`,
                     true,
                 );
+                await recordWorkflowMetricImpl({
+                    category: "validation",
+                    event: "repair_dispatched",
+                    agentName: AGENTS.OPERATOR,
+                    planName,
+                    details: { repairKind: "ci", validationCycle: validationCycles, attempt: mechanicalAttempts },
+                });
                 const completed = await repair({
                     agentName: AGENTS.ENGINEER,
                     userRequest:
@@ -881,6 +961,18 @@ export async function runValidationLoop({
                     uiAPI,
                     sessionManager,
                     cwd: executionCwd,
+                });
+                await recordWorkflowMetricImpl({
+                    category: "validation",
+                    event: "repair_completed",
+                    agentName: AGENTS.OPERATOR,
+                    planName,
+                    details: {
+                        repairKind: "ci",
+                        validationCycle: validationCycles,
+                        attempt: mechanicalAttempts,
+                        taskCompletedObserved: Boolean(completed),
+                    },
                 });
                 if (!completed) {
                     await pauseForEngineerContinuation(
@@ -955,6 +1047,12 @@ export async function runValidationLoop({
         }
 
         if (isApprovedReviewResponse(reviewResponse)) {
+            await recordWorkflowMetricImpl({
+                category: "validation",
+                event: "semantic_review_result",
+                planName,
+                details: { validationCycle: validationCycles, approved: true, hasDiff: Boolean(diffText.trim()) },
+            });
             appendRunWieldSystemMessage(uiAPI, "Semantic Code Review Approved.", false, SUCCESS_MESSAGE_STYLE);
             const codeReviewMode = getCodeReviewModeImpl();
             if (codeReviewMode === "none") {
@@ -963,6 +1061,12 @@ export async function runValidationLoop({
                     humanReviewDecision: "not_required",
                     humanReviewedAt: null,
                 };
+                await recordWorkflowMetricImpl({
+                    category: "validation",
+                    event: "human_review_result",
+                    planName,
+                    details: { mode: "none", decision: "not_required" },
+                });
                 executionComplete = true;
             } else {
                 let shouldOpenReview = codeReviewMode === "always";
@@ -981,6 +1085,12 @@ export async function runValidationLoop({
                             humanReviewDecision: "skipped",
                             humanReviewedAt: null,
                         };
+                        await recordWorkflowMetricImpl({
+                            category: "validation",
+                            event: "human_review_result",
+                            planName,
+                            details: { mode: "ask", decision: "skipped" },
+                        });
                         executionComplete = true;
                     }
                 }
@@ -998,6 +1108,18 @@ export async function runValidationLoop({
                         humanReview.feedback?.trim() || humanReview.annotations?.length,
                     );
                     if (humanReview.exit || (!humanReview.approved && !hasHumanFeedback)) {
+                        const decision = humanReview.canceled ? "canceled" : humanReview.exit ? "exited" : "halted";
+                        await recordWorkflowMetricImpl({
+                            category: "validation",
+                            event: "human_review_result",
+                            planName,
+                            details: {
+                                mode: codeReviewMode,
+                                decision,
+                                hasFeedback: Boolean(humanReview.feedback?.trim()),
+                                annotationCount: humanReview.annotations?.length || 0,
+                            },
+                        });
                         haltReason = "User code review exited without approval or feedback.";
                         break;
                     }
@@ -1009,6 +1131,12 @@ export async function runValidationLoop({
                             humanReviewDecision: "approved",
                             humanReviewedAt: new Date().toISOString(),
                         };
+                        await recordWorkflowMetricImpl({
+                            category: "validation",
+                            event: "human_review_result",
+                            planName,
+                            details: { mode: codeReviewMode, decision: "approved" },
+                        });
                         executionComplete = true;
                     } else {
                         const annotationText = formatCodeReviewAnnotations(humanReview.annotations || []);
@@ -1023,6 +1151,24 @@ export async function runValidationLoop({
                             }...\nUser Code Review Feedback:\n${feedbackText}`,
                             true,
                         );
+                        await recordWorkflowMetricImpl({
+                            category: "validation",
+                            event: "human_review_result",
+                            planName,
+                            details: {
+                                mode: codeReviewMode,
+                                decision: "feedback_requested",
+                                hasFeedback: Boolean(humanReview.feedback?.trim()),
+                                annotationCount: humanReview.annotations?.length || 0,
+                            },
+                        });
+                        await recordWorkflowMetricImpl({
+                            category: "validation",
+                            event: "repair_dispatched",
+                            agentName: AGENTS.ENGINEER,
+                            planName,
+                            details: { repairKind: "human_review", validationCycle: validationCycles },
+                        });
                         const completed = await repair({
                             agentName: AGENTS.ENGINEER,
                             userRequest:
@@ -1032,6 +1178,17 @@ export async function runValidationLoop({
                             uiAPI,
                             sessionManager,
                             cwd: executionCwd,
+                        });
+                        await recordWorkflowMetricImpl({
+                            category: "validation",
+                            event: "repair_completed",
+                            agentName: AGENTS.ENGINEER,
+                            planName,
+                            details: {
+                                repairKind: "human_review",
+                                validationCycle: validationCycles,
+                                taskCompletedObserved: Boolean(completed),
+                            },
                         });
                         if (!completed) {
                             await pauseForEngineerContinuation(
@@ -1045,12 +1202,29 @@ export async function runValidationLoop({
                 }
             }
         } else {
+            await recordWorkflowMetricImpl({
+                category: "validation",
+                event: "semantic_review_result",
+                planName,
+                details: {
+                    validationCycle: validationCycles,
+                    approved: false,
+                    hasReviewerOutput: Boolean(reviewResponse),
+                },
+            });
             appendRunWieldSystemMessage(
                 uiAPI,
                 `Review failed. Sending feedback back to ${getAgentDisplayName(AGENTS.ENGINEER)}...\n\n` +
                     `Reviewer Feedback:\n${reviewResponse || "(no reviewer output captured)"}`,
                 true,
             );
+            await recordWorkflowMetricImpl({
+                category: "validation",
+                event: "repair_dispatched",
+                agentName: AGENTS.ENGINEER,
+                planName,
+                details: { repairKind: "semantic", validationCycle: validationCycles },
+            });
             const completed = await repair({
                 agentName: AGENTS.ENGINEER,
                 userRequest: "The code reviewer found issues with your implementation. Please fix them, do not break " +
@@ -1058,6 +1232,17 @@ export async function runValidationLoop({
                 uiAPI,
                 sessionManager,
                 cwd: executionCwd,
+            });
+            await recordWorkflowMetricImpl({
+                category: "validation",
+                event: "repair_completed",
+                agentName: AGENTS.ENGINEER,
+                planName,
+                details: {
+                    repairKind: "semantic",
+                    validationCycle: validationCycles,
+                    taskCompletedObserved: Boolean(completed),
+                },
             });
             if (!completed) {
                 await pauseForEngineerContinuation(
@@ -1129,6 +1314,12 @@ export async function runValidationLoop({
                         break;
                     }
                     pendingRepairMergeWorktreePath = undefined;
+                    await recordWorkflowMetricImpl({
+                        category: "validation",
+                        event: "merge_back_result",
+                        planName,
+                        details: { passed: true, hasWorktreeBranch: Boolean(worktreeBranch), cleanupMergedWorktrees },
+                    });
                     if (worktreeId) {
                         await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, { status: "merged" });
                     }
@@ -1203,6 +1394,13 @@ export async function runValidationLoop({
 
                     pendingRepairMergeWorktreePath = getMergeWorktreePath(error) || pendingRepairMergeWorktreePath;
 
+                    await recordWorkflowMetricImpl({
+                        category: "validation",
+                        event: "merge_back_result",
+                        planName,
+                        details: { passed: false, mergeFailureKind: getMergeFailureKind(error) },
+                    });
+
                     if (mergeRepairAttempts < maxMergeRepairAttempts) {
                         mergeRepairAttempts++;
                         const repairCwd = getMergeRepairCwd(error) || pendingRepairMergeWorktreePath || executionCwd ||
@@ -1215,6 +1413,13 @@ export async function runValidationLoop({
                             } for merge repair attempt ${mergeRepairAttempts}/${maxMergeRepairAttempts}...`,
                             true,
                         );
+                        await recordWorkflowMetricImpl({
+                            category: "validation",
+                            event: "repair_dispatched",
+                            agentName: AGENTS.ENGINEER,
+                            planName,
+                            details: { repairKind: "merge", repairAttempt: mergeRepairAttempts },
+                        });
                         const completed = await repair({
                             agentName: AGENTS.ENGINEER,
                             userRequest: buildMergeRepairRequest({
@@ -1232,6 +1437,17 @@ export async function runValidationLoop({
                             uiAPI,
                             sessionManager,
                             cwd: repairCwd,
+                        });
+                        await recordWorkflowMetricImpl({
+                            category: "validation",
+                            event: "repair_completed",
+                            agentName: AGENTS.ENGINEER,
+                            planName,
+                            details: {
+                                repairKind: "merge",
+                                repairAttempt: mergeRepairAttempts,
+                                taskCompletedObserved: Boolean(completed),
+                            },
                         });
                         if (completed) continue;
                         appendRunWieldSystemMessage(
@@ -1255,6 +1471,12 @@ export async function runValidationLoop({
         }
 
         if (executionComplete) {
+            await recordWorkflowMetricImpl({
+                category: "validation",
+                event: "workflow_validation_finished",
+                planName,
+                details: { passed: true, validationCycles, hasWorktreeBranch: Boolean(worktreeBranch) },
+            });
             appendRunWieldSystemMessage(
                 uiAPI,
                 `${triageClassificationDisplay} execution and validation complete.`,
@@ -1276,6 +1498,12 @@ export async function runValidationLoop({
                 });
             }
         } else if (haltReason) {
+            await recordWorkflowMetricImpl({
+                category: "validation",
+                event: "workflow_validation_finished",
+                planName,
+                details: { passed: false, validationCycles, reason: "halted_after_merge" },
+            });
             if (worktreeId) {
                 try {
                     await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, { status: "validation_failed" });
@@ -1313,6 +1541,12 @@ export async function runValidationLoop({
         }
     } else {
         const reason = haltReason || "Validation stopped before completion.";
+        await recordWorkflowMetricImpl({
+            category: "validation",
+            event: "workflow_validation_finished",
+            planName,
+            details: { passed: false, validationCycles, reason: "halted" },
+        });
         appendRunWieldSystemMessage(uiAPI, `Workflow halted: ${reason}`, true);
         if (worktreeId) {
             await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, { status: "validation_failed" });

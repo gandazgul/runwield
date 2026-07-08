@@ -652,6 +652,8 @@ Deno.test("executePlan still executes ready FEATURE plans", async () => {
     let engineerCalled = false;
     /** @type {string[]} */
     const events = [];
+    /** @type {any[]} */
+    const metrics = [];
     const result = await executePlan(
         "feature-plan",
         { classification: "FEATURE" },
@@ -677,12 +679,34 @@ Deno.test("executePlan still executes ready FEATURE plans", async () => {
                 return Promise.resolve(/** @type {any} */ ({}));
             },
             markActiveWorktreeStatus: () => Promise.resolve(),
+            recordWorkflowMetric: (/** @type {any} */ metric) => {
+                metrics.push(metric);
+                return Promise.resolve(null);
+            },
         },
     );
 
     assertEquals(result, { repairRequired: false, executionComplete: true });
     assertEquals(engineerCalled, true);
     assertEquals(events, ["implementation_finished"]);
+    assertEquals(
+        metrics.some((metric) =>
+            metric.category === "execution" && metric.event === "plan_execution_started" &&
+            metric.planName === "feature-plan"
+        ),
+        true,
+    );
+    assertEquals(
+        metrics.some((metric) =>
+            metric.category === "execution" && metric.event === "plan_execution_result" &&
+            metric.details.executionComplete === true
+        ),
+        true,
+    );
+    assertEquals(
+        metrics.some((metric) => metric.category === "execution" && metric.event === "implementation_finished"),
+        true,
+    );
 });
 
 Deno.test("executePlan treats incomplete Engineer execution as resumable", async () => {

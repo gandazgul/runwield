@@ -132,6 +132,8 @@ Deno.test("agent-handler validates after approved_execute only when execution co
     let validationCount = 0;
     /** @type {string | undefined} */
     let finalAgentName;
+    /** @type {any[]} */
+    const metrics = [];
     const handler = createAgentHandler("planner", {
         runAgentSession: () => Promise.resolve(/** @type {any} */ ([])),
         readLatestPlanOutcome: () => /** @type {any} */ ({ outcome: "approved_execute", planName: "p" }),
@@ -141,11 +143,29 @@ Deno.test("agent-handler validates after approved_execute only when execution co
             finalAgentName = /** @type {any} */ (args).finalAgentName;
             return Promise.resolve();
         },
+        recordWorkflowMetric: (/** @type {any} */ metric) => {
+            metrics.push(metric);
+            return Promise.resolve(null);
+        },
     });
 
     await handler("req", [], /** @type {any} */ (undefined), /** @type {any} */ (undefined));
     assertEquals(validationCount, 1);
     assertEquals(finalAgentName, "planner");
+    assertEquals(
+        metrics.some((metric) =>
+            metric.category === "planning" && metric.event === "active_agent_transition" &&
+            metric.details.transition === "execute_plan"
+        ),
+        true,
+    );
+    assertEquals(
+        metrics.some((metric) =>
+            metric.category === "execution" && metric.event === "active_agent_transition" &&
+            metric.details.transition === "run_validation"
+        ),
+        true,
+    );
 });
 
 Deno.test("agent-handler skips validation when approved_execute did not complete execution", async () => {

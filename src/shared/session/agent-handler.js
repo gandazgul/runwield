@@ -17,7 +17,9 @@ import {
 import {
     decidePostExecution as decidePostExecutionFn,
     decidePostPlanning as decidePostPlanningFn,
+    summarizeWorkflowDecision,
 } from "../workflow/decisions.js";
+import { recordWorkflowMetric } from "../workflow/metrics.js";
 import { runMechanicalValidation, runValidationLoop, shouldRunWorkflowValidation } from "../workflow/validation.js";
 import { recordPlanEvent as recordPlanEventFn } from "../workflow/plan-lifecycle.js";
 import { setActiveAgent as setActiveAgentFn } from "./agent-switching.js";
@@ -49,6 +51,7 @@ import { AGENTS, CWD } from "../../constants.js";
  *   runValidationLoop?: typeof runValidationLoop,
  *   runMechanicalValidation?: typeof runMechanicalValidation,
  *   recordPlanEvent?: typeof recordPlanEventFn,
+ *   recordWorkflowMetric?: typeof recordWorkflowMetric,
  *   setActiveAgent?: typeof setActiveAgentFn,
  *   notifyRunWieldEvent?: typeof notifyRunWieldEventFn,
  *   hostedSession?: import('./hosted-session.js').HostedSession,
@@ -72,6 +75,7 @@ export function createAgentHandler(agentName, __deps) {
     const runValidationLoopImpl = __deps?.runValidationLoop || runValidationLoop;
     const runMechanicalValidationImpl = __deps?.runMechanicalValidation || runMechanicalValidation;
     const recordPlanEventImpl = __deps?.recordPlanEvent || recordPlanEventFn;
+    const recordWorkflowMetricImpl = __deps?.recordWorkflowMetric || recordWorkflowMetric;
     const setActiveAgent = __deps?.setActiveAgent || setActiveAgentFn;
     const notifyRunWieldEvent = __deps?.notifyRunWieldEvent || notifyRunWieldEventFn;
     const sessionOptions = {
@@ -128,7 +132,12 @@ export function createAgentHandler(agentName, __deps) {
                 uiAPI,
                 sessionManager,
                 __deps: {
-                    createAgentHandler: (nextAgentName) => createAgentHandler(nextAgentName, { hostedSession }),
+                    createAgentHandler: (nextAgentName) =>
+                        createAgentHandler(nextAgentName, {
+                            hostedSession,
+                            recordWorkflowMetric: recordWorkflowMetricImpl,
+                        }),
+                    recordWorkflowMetric: recordWorkflowMetricImpl,
                 },
             });
             return;
@@ -142,7 +151,25 @@ export function createAgentHandler(agentName, __deps) {
             planningAgentName: agentName,
             fallbackTriageMeta: {},
         });
+        await recordWorkflowMetricImpl({
+            category: "planning",
+            event: "decision",
+            agentName,
+            planName: typeof planningDecision.payload.planName === "string"
+                ? planningDecision.payload.planName
+                : undefined,
+            details: summarizeWorkflowDecision(planningDecision),
+        });
         if (planningDecision.kind === "execute_plan") {
+            await recordWorkflowMetricImpl({
+                category: "planning",
+                event: "active_agent_transition",
+                agentName,
+                planName: typeof planningDecision.payload.planName === "string"
+                    ? planningDecision.payload.planName
+                    : undefined,
+                details: { transition: "execute_plan", decisionKind: planningDecision.kind },
+            });
             const planName = /** @type {string} */ (planningDecision.payload.planName);
             const triageMeta = /** @type {import('../../tools/plan-written.js').TriageMeta} */ (
                 planningDecision.payload.triageMeta || {}
@@ -159,7 +186,7 @@ export function createAgentHandler(agentName, __deps) {
                     uiAPI,
                     tasks,
                     sessionManager,
-                    { hostedSession },
+                    { hostedSession, recordWorkflowMetric: recordWorkflowMetricImpl },
                 );
             } catch (error) {
                 const reason = error instanceof Error ? error.message : String(error);
@@ -192,8 +219,22 @@ export function createAgentHandler(agentName, __deps) {
                 triageMeta,
                 executionAgentName: AGENTS.ENGINEER,
             });
+            await recordWorkflowMetricImpl({
+                category: "execution",
+                event: "decision",
+                agentName: AGENTS.ENGINEER,
+                planName,
+                details: summarizeWorkflowDecision(executionDecision),
+            });
 
             if (executionDecision.kind === "run_validation") {
+                await recordWorkflowMetricImpl({
+                    category: "execution",
+                    event: "active_agent_transition",
+                    agentName: AGENTS.ENGINEER,
+                    planName,
+                    details: { transition: "run_validation", decisionKind: executionDecision.kind },
+                });
                 await runValidationLoopImpl({
                     hostedSession,
                     planName,
@@ -202,10 +243,18 @@ export function createAgentHandler(agentName, __deps) {
                     uiAPI,
                     sessionManager,
                     finalAgentName: agentName,
+                    __deps: { recordWorkflowMetric: recordWorkflowMetricImpl },
                 });
                 await notifyAgentStopped();
             } else if (executionDecision.kind === "stay_with_agent") {
                 const nextAgentName = /** @type {string} */ (executionDecision.payload.agentName || AGENTS.ENGINEER);
+                await recordWorkflowMetricImpl({
+                    category: "execution",
+                    event: "active_agent_transition",
+                    agentName: nextAgentName,
+                    planName,
+                    details: { transition: "stay_with_agent", decisionKind: executionDecision.kind },
+                });
                 setActiveAgent(
                     hostedSession,
                     nextAgentName,
@@ -216,6 +265,17 @@ export function createAgentHandler(agentName, __deps) {
             } else {
                 // halt or repair_plan — stay with Engineer for manual recovery
                 const reason = executionDecision.payload?.reason || "unknown";
+                await recordWorkflowMetricImpl({
+                    category: "execution",
+                    event: "active_agent_transition",
+                    agentName: AGENTS.ENGINEER,
+                    planName,
+                    details: {
+                        transition: executionDecision.kind === "halt" ? "halt" : "stay_with_agent",
+                        decisionKind: executionDecision.kind,
+                        hasReason: Boolean(reason),
+                    },
+                });
                 uiAPI?.appendSystemMessage?.(
                     `Execution stopped: ${reason}. Staying with Engineer for manual intervention.`,
                     true,
@@ -230,6 +290,22 @@ export function createAgentHandler(agentName, __deps) {
                 await notifyAgentStopped();
             }
             return;
+        }
+
+        if (planningDecision.kind === "stay_with_agent" || planningDecision.kind === "save_plan") {
+            await recordWorkflowMetricImpl({
+                category: "planning",
+                event: "active_agent_transition",
+                agentName,
+                details: { transition: "stay_with_agent", decisionKind: planningDecision.kind },
+            });
+        } else if (planningDecision.kind === "halt") {
+            await recordWorkflowMetricImpl({
+                category: "planning",
+                event: "active_agent_transition",
+                agentName,
+                details: { transition: "halt", decisionKind: planningDecision.kind },
+            });
         }
 
         if (outcome) {
@@ -297,6 +373,7 @@ export function createAgentHandler(agentName, __deps) {
                     uiAPI,
                     sessionManager,
                     finalAgentName: agentName,
+                    __deps: { recordWorkflowMetric: recordWorkflowMetricImpl },
                 });
                 await notifyAgentStopped();
             }

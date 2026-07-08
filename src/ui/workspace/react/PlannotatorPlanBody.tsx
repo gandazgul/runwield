@@ -1,10 +1,11 @@
-// @ts-nocheck: upstream Plannotator UI source is React TSX while repo-wide Deno checks remain Preact/JSDoc-oriented.
+// @ts-nocheck: this React Vite entry consumes the Workspace JSX markdown helper while repo-wide Deno checks remain Preact/JSDoc-oriented.
 
 import React from "react";
-import { RenderedMarkdown } from "@plannotator/ui/components/RenderedMarkdown.tsx";
+import { renderMarkdown } from "../components/MarkdownView.jsx";
 
 export function PlannotatorPlanBody({ markdown }) {
-    if (!markdown.trim()) {
+    const html = renderMarkdown(markdown || "");
+    if (!html) {
         return React.createElement(
             "div",
             { className: "markdown-view plannotator-plan-body", "data-plannotator-renderer": "empty" },
@@ -12,8 +13,8 @@ export function PlannotatorPlanBody({ markdown }) {
         );
     }
 
-    return React.createElement(RenderedMarkdown, {
-        markdown,
+    return React.createElement("div", {
         className: "markdown-view plannotator-plan-body",
+        dangerouslySetInnerHTML: { __html: html },
     });
 }

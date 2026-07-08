@@ -66,7 +66,14 @@ Deno.test("returnToRouterTool terminates the calling turn and records a Router h
     hostedSession.setRootAgentName(AGENTS.PLANNER);
 
     const reason = "The user wants you to review the architecture of the auth module.";
-    const result = await executeReturnToRouter({ reason }, uiAPI, hostedSession);
+    /** @type {any[]} */
+    const metrics = [];
+    const result = await executeReturnToRouter({ reason }, uiAPI, hostedSession, {
+        recordWorkflowMetric: (metric) => {
+            metrics.push(metric);
+            return Promise.resolve(null);
+        },
+    });
 
     assertEquals(result.terminate, true);
     assertEquals(result.content.length, 0);
@@ -77,6 +84,10 @@ Deno.test("returnToRouterTool terminates the calling turn and records a Router h
     const handoff = hostedSession.consumePendingSwitchHandoff();
     assertEquals(handoff?.agentName, AGENTS.ROUTER);
     assertEquals(handoff?.reason, reason);
+    assertEquals(metrics.length, 1);
+    assertEquals(metrics[0].category, "routing");
+    assertEquals(metrics[0].event, "return_to_router");
+    assertEquals(metrics[0].details.hasReason, true);
 });
 
 Deno.test("executeReturnToRouter installs the normal Router agent handler on HostedSession", async () => {

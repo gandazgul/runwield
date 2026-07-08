@@ -28,6 +28,25 @@ function decision(kind, payload = {}) {
 }
 
 /**
+ * Build a sanitized metric payload for workflow decisions.
+ *
+ * @param {WorkflowDecision} workflowDecision
+ * @returns {Record<string, unknown>}
+ */
+export function summarizeWorkflowDecision(workflowDecision) {
+    const payload = workflowDecision.payload || {};
+    return {
+        kind: workflowDecision.kind,
+        reason: payload.reason,
+        planName: payload.planName,
+        classification: /** @type {{ classification?: unknown }} */ (payload.triageMeta || {}).classification,
+        hasTasks: Array.isArray(payload.tasks) ? payload.tasks.length > 0 : undefined,
+        failedTaskCount: Array.isArray(payload.failedTasks) ? payload.failedTasks.length : undefined,
+        nextAgent: payload.agentName,
+    };
+}
+
+/**
  * Normalize the planning phase's raw plan_written outcome into a Workflow
  * Decision for callers such as the Router Orchestrator and load-plan command.
  *

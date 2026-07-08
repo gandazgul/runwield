@@ -17,6 +17,7 @@ import {
 import { updateEntry as updateWorktreeRegistryEntry } from "../worktree-registry.js";
 import { captureWorktreeTree } from "./git-snapshot.js";
 import { isEpicPlan, isExecutablePlanStatus, recordPlanEvent } from "./plan-lifecycle.js";
+import { recordWorkflowMetric } from "./metrics.js";
 import { buildEngineerRequest } from "./workflow-prompts.js";
 import { readLatestPlanOutcome, readLatestTaskCompletedOutcome } from "./workflow-results.js";
 
@@ -119,6 +120,7 @@ export async function runPlanningAgent(
  *   executeSingleEngineerPlan?: typeof executeSingleEngineerPlan,
  *   recordPlanEvent?: typeof recordPlanEvent,
  *   markActiveWorktreeStatus?: typeof markActiveWorktreeStatus,
+ *   recordWorkflowMetric?: typeof recordWorkflowMetric,
  *   hostedSession?: import('../session/hosted-session.js').HostedSession,
  * }} [__deps]
  * @returns {Promise<PlanExecutionResult>}
@@ -132,10 +134,23 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
     const executeSingleEngineerPlanFn = __deps.executeSingleEngineerPlan || executeSingleEngineerPlan;
     const recordPlanEventFn = __deps.recordPlanEvent || recordPlanEvent;
     const markActiveWorktreeStatusFn = __deps.markActiveWorktreeStatus || markActiveWorktreeStatus;
+    const recordWorkflowMetricFn = __deps.recordWorkflowMetric || recordWorkflowMetric;
 
+    await recordWorkflowMetricFn({
+        category: "execution",
+        event: "plan_execution_started",
+        planName,
+        details: { classification: triageMeta?.classification, status: triageMeta?.status },
+    });
     const plan = await loadPlanFn(CWD, planName);
     if (!plan) {
         uiAPI.appendSystemMessage(`ERROR: Could not load plan ${planName}`, true, "RunWield");
+        await recordWorkflowMetricFn({
+            category: "execution",
+            event: "plan_execution_rejected",
+            planName,
+            details: { reason: "plan_not_found" },
+        });
         return { repairRequired: false, executionComplete: false, error: `Could not load plan ${planName}` };
     }
 
@@ -144,12 +159,24 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
     if (isEpicPlan(plan.attrs)) {
         const error = `Plan ${planName} is a PROJECT Epic container and cannot be executed directly.`;
         uiAPI.appendSystemMessage(`ERROR: ${error}`, true, "RunWield");
+        await recordWorkflowMetricFn({
+            category: "execution",
+            event: "plan_execution_rejected",
+            planName,
+            details: { reason: "epic_container", classification: effectiveMeta.classification },
+        });
         return { repairRequired: false, executionComplete: false, error };
     }
 
     if (!isExecutablePlanStatus(plan.attrs.status)) {
         const error = `Plan ${planName} is not ready for work (status: ${plan.attrs.status}).`;
         uiAPI.appendSystemMessage(`ERROR: ${error}`, true, "RunWield");
+        await recordWorkflowMetricFn({
+            category: "execution",
+            event: "plan_execution_rejected",
+            planName,
+            details: { reason: "not_ready_for_work", status: plan.attrs.status },
+        });
         return { repairRequired: false, executionComplete: false, error };
     }
 
@@ -166,8 +193,29 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
         sessionManager,
         currentStatus: plan.attrs.status,
         hostedSession,
+        __deps: { recordWorkflowMetric: recordWorkflowMetricFn },
     });
-    if (!result.executionComplete) return result;
+    if (!result.executionComplete) {
+        await recordWorkflowMetricFn({
+            category: "execution",
+            event: "plan_execution_result",
+            planName,
+            details: {
+                executionComplete: false,
+                repairRequired: result.repairRequired,
+                failedTaskCount: Array.isArray(result.failedTasks) ? result.failedTasks.length : undefined,
+                hasError: Boolean(result.error),
+            },
+        });
+        return result;
+    }
+
+    await recordWorkflowMetricFn({
+        category: "execution",
+        event: "plan_execution_result",
+        planName,
+        details: { executionComplete: true, repairRequired: false },
+    });
 
     uiAPI.appendSystemMessage(
         `✅ Plan implementation complete: ${planName}`,
@@ -180,6 +228,12 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
         event: "implementation_finished",
         currentStatus: "in_progress",
         details: { triageMeta: effectiveMeta },
+    });
+    await recordWorkflowMetricFn({
+        category: "execution",
+        event: "implementation_finished",
+        planName,
+        details: { classification: effectiveMeta.classification },
     });
     await markActiveWorktreeStatusFn("completed", { hostedSession });
     return { repairRequired: false, executionComplete: true };
@@ -194,13 +248,20 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
  *     sessionManager?: import('@earendil-works/pi-coding-agent').SessionManager,
  *     currentStatus: import('./plan-lifecycle.js').PlanStatus,
  *     hostedSession?: import('../session/hosted-session.js').HostedSession,
+ *     __deps?: { recordWorkflowMetric?: typeof recordWorkflowMetric },
  * }} opts
  * @returns {Promise<PlanExecutionResult>}
  */
 async function executeSingleEngineerPlan(
-    { planName, planBody, triageMeta, uiAPI, sessionManager, currentStatus, hostedSession },
+    { planName, planBody, triageMeta, uiAPI, sessionManager, currentStatus, hostedSession, __deps },
 ) {
-    const executionContext = await startActiveExecutionWorkflow({ planName, triageMeta, currentStatus, hostedSession });
+    const executionContext = await startActiveExecutionWorkflow({
+        planName,
+        triageMeta,
+        currentStatus,
+        hostedSession,
+        __deps,
+    });
     const engineerResult = await runEngineerWithPlan(
         planName,
         planBody,
@@ -312,6 +373,7 @@ export function assertReusableWorktreeTargetMatches(reusableBaseBranch, targetBr
  *     captureWorktreeTree?: typeof captureWorktreeTree,
  *     updateWorktreeRegistryEntry?: typeof updateWorktreeRegistryEntry,
  *     recordPlanEvent?: typeof recordPlanEvent,
+ *     recordWorkflowMetric?: typeof recordWorkflowMetric,
  *   },
  * }} opts
  * @returns {Promise<{ projectRoot: string, executionCwd: string, baselineTree: string, worktreeId: string, worktreeBranch: string, worktreeBaseBranch?: string }>}
@@ -325,6 +387,7 @@ export async function startActiveExecutionWorkflow({ planName, triageMeta, curre
     const captureTree = __deps?.captureWorktreeTree || captureWorktreeTree;
     const updateRegistry = __deps?.updateWorktreeRegistryEntry || updateWorktreeRegistryEntry;
     const recordEvent = __deps?.recordPlanEvent || recordPlanEvent;
+    const recordWorkflowMetricFn = __deps?.recordWorkflowMetric || recordWorkflowMetric;
     const targetBranch = normalizeExecutionTargetBranch(triageMeta.worktreeBaseBranch);
     const existing = hostedSession.getActiveExecutionWorkflow();
     const reusable =
@@ -338,6 +401,7 @@ export async function startActiveExecutionWorkflow({ planName, triageMeta, curre
             : await findReusable({ projectRoot: CWD, planName });
     const resolvedTargetBranch = reusable && targetBranch ? await resolveTarget(CWD, targetBranch) : targetBranch;
     if (reusable) assertReusableWorktreeTargetMatches(reusable.baseBranch, resolvedTargetBranch);
+    const reusedWorktree = Boolean(reusable);
     const worktree = reusable || await createWorktree({
         projectRoot: CWD,
         planName,
@@ -375,6 +439,18 @@ export async function startActiveExecutionWorkflow({ planName, triageMeta, curre
             worktreeBranch: worktree.branch,
             worktreeBaseBranch,
             worktreeStatus: "active",
+        },
+    });
+    await recordWorkflowMetricFn({
+        category: "execution",
+        event: "worktree_prepared",
+        planName,
+        details: {
+            reusedWorktree,
+            worktreeStatus: "active",
+            hasBranch: Boolean(worktree.branch),
+            hasBaseBranch: Boolean(worktreeBaseBranch),
+            hasBaselineTree: Boolean(baselineTree),
         },
     });
     return workflow;

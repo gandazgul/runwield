@@ -41,6 +41,8 @@ Deno.test("dispatchPostTriage routes INQUIRY to Guide without completion or vali
     const rootTurns = [];
     let taskCompletedChecked = false;
     let validationCount = 0;
+    /** @type {any[]} */
+    const metrics = [];
 
     await dispatchPostTriage({
         hostedSession: makeHostedSession(),
@@ -70,6 +72,10 @@ Deno.test("dispatchPostTriage routes INQUIRY to Guide without completion or vali
                 validationCount++;
                 return Promise.resolve();
             },
+            recordWorkflowMetric: (/** @type {any} */ metric) => {
+                metrics.push(metric);
+                return Promise.resolve(null);
+            },
             setActiveAgent: (/** @type {unknown} */ _hostedSession, /** @type {string} */ name) =>
                 activeAgents.push(name),
         }),
@@ -79,6 +85,13 @@ Deno.test("dispatchPostTriage routes INQUIRY to Guide without completion or vali
     assertEquals(rootTurns, ["guide"]);
     assertEquals(taskCompletedChecked, false);
     assertEquals(validationCount, 0);
+    assertEquals(
+        metrics.some((metric) =>
+            metric.category === "routing" && metric.event === "dispatch_selected" &&
+            metric.agentName === "guide" && metric.details.routingIntent === "INQUIRY"
+        ),
+        true,
+    );
 });
 
 Deno.test("dispatchPostTriage routes IDEATION to Ideator without completion or validation checks", async () => {
@@ -127,6 +140,8 @@ Deno.test("dispatchPostTriage routes OPERATION to Operator without validation", 
     /** @type {string[]} */
     const rootTurns = [];
     let mechanicalValidationCount = 0;
+    /** @type {any[]} */
+    const metrics = [];
 
     await dispatchPostTriage({
         hostedSession: makeHostedSession(),
@@ -159,6 +174,10 @@ Deno.test("dispatchPostTriage routes OPERATION to Operator without validation", 
                 mechanicalValidationCount++;
                 return Promise.resolve({ passed: true, attempts: 0 });
             },
+            recordWorkflowMetric: (/** @type {any} */ metric) => {
+                metrics.push(metric);
+                return Promise.resolve(null);
+            },
             setActiveAgent: (/** @type {unknown} */ _hostedSession, /** @type {string} */ name) =>
                 activeAgents.push(name),
         }),
@@ -167,6 +186,13 @@ Deno.test("dispatchPostTriage routes OPERATION to Operator without validation", 
     assertEquals(activeAgents, ["operator"]);
     assertEquals(rootTurns, ["operator"]);
     assertEquals(mechanicalValidationCount, 0);
+    assertEquals(
+        metrics.some((metric) =>
+            metric.category === "execution" && metric.event === "operation_completed_observed" &&
+            metric.details.taskCompletedObserved === true
+        ),
+        true,
+    );
 });
 
 Deno.test("dispatchPostTriage routes QUICK_FIX to Engineer and runs Mechanical Validation after completion", async () => {
@@ -176,6 +202,8 @@ Deno.test("dispatchPostTriage routes QUICK_FIX to Engineer and runs Mechanical V
     /** @type {string[]} */
     const rootTurns = [];
     let mechanicalValidationCount = 0;
+    /** @type {any[]} */
+    const metrics = [];
 
     await dispatchPostTriage({
         hostedSession: makeHostedSession(),
@@ -211,6 +239,10 @@ Deno.test("dispatchPostTriage routes QUICK_FIX to Engineer and runs Mechanical V
             runValidationLoop: () => {
                 throw new Error("saved-plan validation should not run");
             },
+            recordWorkflowMetric: (/** @type {any} */ metric) => {
+                metrics.push(metric);
+                return Promise.resolve(null);
+            },
             setActiveAgent: (/** @type {unknown} */ _hostedSession, /** @type {string} */ name) =>
                 activeAgents.push(name),
         }),
@@ -219,6 +251,13 @@ Deno.test("dispatchPostTriage routes QUICK_FIX to Engineer and runs Mechanical V
     assertEquals(activeAgents, ["engineer"]);
     assertEquals(rootTurns, ["engineer"]);
     assertEquals(mechanicalValidationCount, 1);
+    assertEquals(
+        metrics.some((metric) =>
+            metric.category === "execution" && metric.event === "quick_fix_completed_observed" &&
+            metric.details.taskCompletedObserved === true && metric.details.mechanicalValidationRan === true
+        ),
+        true,
+    );
 });
 
 Deno.test("dispatchPostTriage warns and skips Mechanical Validation when QUICK_FIX stops without task_completed", async () => {
@@ -316,6 +355,8 @@ Deno.test("dispatchPostTriage executes approved FEATURE plans and runs validatio
     const executed = [];
     /** @type {unknown[]} */
     const validations = [];
+    /** @type {any[]} */
+    const metrics = [];
 
     await dispatchPostTriage({
         hostedSession: makeHostedSession(),
@@ -357,6 +398,10 @@ Deno.test("dispatchPostTriage executes approved FEATURE plans and runs validatio
                 validations.push(args);
                 return Promise.resolve();
             },
+            recordWorkflowMetric: (/** @type {any} */ metric) => {
+                metrics.push(metric);
+                return Promise.resolve(null);
+            },
         }),
     });
 
@@ -365,6 +410,15 @@ Deno.test("dispatchPostTriage executes approved FEATURE plans and runs validatio
     assertEquals(validations.length, 1);
     assertEquals(/** @type {any} */ (validations[0]).planContent, "plan markdown");
     assertEquals(/** @type {any} */ (validations[0]).finalAgentName, "planner");
+    assertEquals(typeof /** @type {any[]} */ (executed[0])[5].recordWorkflowMetric, "function");
+    assertEquals(typeof /** @type {any} */ (validations[0]).__deps.recordWorkflowMetric, "function");
+    assertEquals(
+        metrics.some((metric) =>
+            metric.category === "execution" && metric.event === "feature_project_outcome" &&
+            metric.details.outcome === "validation_completed"
+        ),
+        true,
+    );
 });
 
 Deno.test("dispatchPostTriage keeps Engineer active after incomplete PROJECT execution", async () => {
