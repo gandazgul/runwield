@@ -298,6 +298,9 @@ Deno.test("attachUiSubscribers formats tool headers, streams output deltas, and 
     emit({ type: "tool_execution_start", toolCallId: "18", toolName: "task_completed", args: { message: "done" } });
     assertEquals(ui.tools.some((/** @type {{ id: string }} */ tool) => tool.id === "18"), false);
 
+    emit({ type: "tool_execution_start", toolCallId: "19", toolName: "user_interview", args: { question: {} } });
+    assertEquals(ui.tools.some((/** @type {{ id: string }} */ tool) => tool.id === "19"), false);
+
     emit({
         type: "tool_execution_update",
         toolCallId: "4",
@@ -319,7 +322,10 @@ Deno.test("attachUiSubscribers formats tool headers, streams output deltas, and 
     assertEquals(bashBlock.bodyText, "hello world!");
     assertEquals(bashBlock.ended, true);
 
-    assertEquals(state.drainInvokedToolNames(), starts.map((entry) => entry[1]).concat("task_completed"));
+    assertEquals(
+        state.drainInvokedToolNames(),
+        starts.map((entry) => entry[1]).concat("task_completed", "user_interview"),
+    );
     assertEquals(state.drainInvokedToolNames(), []);
     state.unsubscribe();
     assertEquals(unsubscribed(), true);
