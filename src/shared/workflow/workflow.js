@@ -49,7 +49,12 @@ export {
     buildTaskResultDisplay,
     reportExecutionSummary,
 } from "./workflow-prompts.js";
-export { extractAssistantOutput, readLatestPlanOutcome, readLatestTaskCompletedOutcome } from "./workflow-results.js";
+export {
+    extractAssistantOutput,
+    readLatestPlanOutcome,
+    readLatestReviewOutcome,
+    readLatestTaskCompletedOutcome,
+} from "./workflow-results.js";
 
 /**
  * @typedef {import('../../ui/tui/types.js').UiAPI} UiAPI
