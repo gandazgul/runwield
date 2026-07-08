@@ -1,5 +1,6 @@
 import { assertEquals, assertMatch, assertStringIncludes } from "@std/assert";
 import { createPlanWrittenTool } from "../plan-written.js";
+import { HostedSession } from "../../shared/session/hosted-session.js";
 
 const noopUiAPI = /** @type {any} */ ({ appendSystemMessage: () => {} });
 
@@ -392,4 +393,52 @@ Deno.test("strips trailing .md from planName before processing", async () => {
         },
     );
     assertEquals(seenPlanNames, ["my-plan"]);
+});
+
+Deno.test("ACP plan_written shares review link and skips local review lifecycle", async () => {
+    const hostedSession = new HostedSession({ id: "acp-plan" });
+    hostedSession.setInteractionAdapter(null, { kind: "acp", acpSessionId: "acp-1" });
+    /** @type {unknown[]} */
+    const emitted = [];
+    hostedSession.setEventSink({ emit: (/** @type {unknown} */ event) => emitted.push(event) });
+    let localReviewCalled = false;
+    let recordCalled = false;
+
+    const result = await runTool(
+        { planName: "p" },
+        {
+            hostedSession,
+            triageMeta: { classification: "FEATURE", complexity: "LOW", summary: "x", affectedPaths: [] },
+            __deps: makeDeps({
+                submitPlanForReview: () => {
+                    localReviewCalled = true;
+                    return Promise.resolve({ approved: true });
+                },
+                recordPlanEvent: () => {
+                    recordCalled = true;
+                    return Promise.resolve(/** @type {any} */ ({}));
+                },
+                sharePlanForReview: () =>
+                    Promise.resolve({
+                        planName: "p",
+                        planId: "plan-1",
+                        reviewerUrl: "https://plans.example/#key=review&cap=reviewer&role=reviewer",
+                        maintainerUrl: "https://plans.example/#key=maint&cap=maintainer&role=maintainer",
+                        serverUrl: "https://plans.example",
+                        spaceId: "space-1",
+                        revision: 1,
+                        reused: false,
+                    }),
+            }),
+        },
+    );
+
+    assertEquals(result.details.outcome, "saved");
+    assertEquals(result.details.remoteReview, true);
+    assertEquals(result.details.spaceId, "space-1");
+    assertEquals(result.terminate, true);
+    assertEquals(localReviewCalled, false);
+    assertEquals(recordCalled, false);
+    assertEquals(/** @type {any} */ (emitted[0]).type, "plan_review_link");
+    assertEquals(JSON.stringify(emitted).includes("maintainer"), false);
 });

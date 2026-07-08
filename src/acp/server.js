@@ -8,6 +8,7 @@ import { isAbsolute } from "@std/path";
 import { SessionRuntime } from "../shared/session/session-runtime.js";
 import { AcpSessionMap } from "./session-map.js";
 import { mapRuntimeEventToAcpSessionNotification } from "./event-mapper.js";
+import { createAcpInteractionAdapter } from "./interaction-mapper.js";
 
 const ACP_NOT_IMPLEMENTED = -32004;
 const ACP_INVALID_PARAMS = -32602;
@@ -176,11 +177,31 @@ function createAcpRuntimeUi(runtime, hostedSession) {
         },
         setBusy() {},
         requestRender() {},
-        promptSelect() {
-            return Promise.reject(new Error("ACP interactive select prompts are not supported in this slice"));
+        /** @param {string} title @param {Array<{ value: string, label: string }>} options */
+        async promptSelect(title, options) {
+            const response = /** @type {any} */ (await runtime.requestInteraction(hostedSession, {
+                type: "select",
+                prompt: title,
+                options,
+            }));
+            if (response.outcome === "canceled") return null;
+            if (response.outcome !== "selected") {
+                throw new Error(response.message || "ACP select prompt was not answered");
+            }
+            return String(response.value ?? "");
         },
-        promptText() {
-            return Promise.reject(new Error("ACP interactive text prompts are not supported in this slice"));
+        /** @param {string} title @param {{ defaultValue?: string, placeholder?: string, allowEmpty?: boolean }} [opts] */
+        async promptText(title, opts = {}) {
+            const response = /** @type {any} */ (await runtime.requestInteraction(hostedSession, {
+                type: "text",
+                prompt: title,
+                defaultValue: opts.defaultValue,
+                placeholder: opts.placeholder,
+                allowEmpty: opts.allowEmpty,
+            }));
+            if (response.outcome === "canceled") return null;
+            if (response.outcome !== "text") throw new Error(response.message || "ACP text prompt was not answered");
+            return String(response.value ?? "");
         },
     };
 }
@@ -221,8 +242,13 @@ export function createRunWieldAcpServer(options = {}) {
     const app = agent({ name: "RunWield ACP MVP" });
     const runtime = options.runtime || new SessionRuntime();
     const sessionMap = options.sessionMap || new AcpSessionMap();
+    /** @type {unknown} */
+    let clientCapabilities = null;
 
-    app.onRequest(methods.agent.initialize, (context) => createInitializeResponse(context.params));
+    app.onRequest(methods.agent.initialize, (context) => {
+        clientCapabilities = context.params?.clientCapabilities || null;
+        return createInitializeResponse(context.params);
+    });
 
     app.onRequest(methods.agent.session.new, async (context) => {
         const request = validateNewSessionParams(context.params);
@@ -260,21 +286,36 @@ export function createRunWieldAcpServer(options = {}) {
 
         /** @type {Promise<void>[]} */
         const pendingNotifications = [];
-        const unsubscribe = runtime.subscribeSessionEvents(hostedSession, (event) => {
-            const notification = mapRuntimeEventToAcpSessionNotification(acpSessionId, event);
-            if (!notification) return;
-            const pending = notifyClient(context, methods.client.session.update, notification);
-            pendingNotifications.push(pending);
-            return pending;
-        });
-
-        const runtimePrompt = runtime.promptSession(hostedSession, {
-            uiAPI: createAcpRuntimeUi(runtime, hostedSession),
-            initialRequest: promptText,
-            initialImages: [],
-        });
+        /** @type {() => void} */
+        let unsubscribe = () => {};
 
         try {
+            runtime.setInteractionAdapter?.(
+                hostedSession,
+                createAcpInteractionAdapter({
+                    context,
+                    acpSessionId,
+                    clientCapabilities,
+                }),
+                {
+                    kind: "acp",
+                    acpSessionId,
+                    capabilities: /** @type {Record<string, unknown>} */ (clientCapabilities || {}),
+                },
+            );
+            unsubscribe = runtime.subscribeSessionEvents(hostedSession, (event) => {
+                const notification = mapRuntimeEventToAcpSessionNotification(acpSessionId, event);
+                if (!notification) return;
+                const pending = notifyClient(context, methods.client.session.update, notification);
+                pendingNotifications.push(pending);
+                return pending;
+            });
+
+            const runtimePrompt = runtime.promptSession(hostedSession, {
+                uiAPI: createAcpRuntimeUi(runtime, hostedSession),
+                initialRequest: promptText,
+                initialImages: [],
+            });
             const result = /** @type {any} */ (await Promise.race([runtimePrompt, activePrompt.cancellation]));
             await Promise.allSettled(pendingNotifications);
             if (sessionMap.isPromptCancelled(acpSessionId)) return { stopReason: "cancelled" };
@@ -286,8 +327,15 @@ export function createRunWieldAcpServer(options = {}) {
             if (sessionMap.isPromptCancelled(acpSessionId)) return { stopReason: "cancelled" };
             throw error;
         } finally {
-            unsubscribe();
-            sessionMap.endPrompt(acpSessionId);
+            try {
+                unsubscribe();
+            } finally {
+                try {
+                    runtime.setInteractionAdapter?.(hostedSession, null, null);
+                } finally {
+                    sessionMap.endPrompt(acpSessionId);
+                }
+            }
         }
     });
 
