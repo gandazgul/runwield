@@ -628,6 +628,10 @@ Deno.test("runValidationLoop pauses with Engineer on interrupted semantic repair
                     /** @type {any} */ ([{
                         role: "assistant",
                         content: [{ type: "text", text: "missing requirement" }],
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_complete",
+                        details: { outcome: "feedback", approved: false, feedback: "missing requirement" },
                     }]),
                 ),
             runCompletionGatedRepair: () => Promise.resolve(false),
@@ -693,7 +697,11 @@ Deno.test("runValidationLoop reviews the diff scoped to the active workflow base
                 return Promise.resolve(
                     /** @type {any} */ ([{
                         role: "assistant",
-                        content: [{ type: "text", text: "APPROVED" }],
+                        content: [{ type: "text", text: "The implementation matches the plan." }],
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_complete",
+                        details: { outcome: "approved", approved: true, feedback: "" },
                     }]),
                 );
             },
@@ -753,7 +761,11 @@ Deno.test("runValidationLoop runs validation and reviewer in active execution cw
                 return Promise.resolve(
                     /** @type {any} */ ([{
                         role: "assistant",
-                        content: [{ type: "text", text: "APPROVED" }],
+                        content: [{ type: "text", text: "The implementation matches the plan." }],
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_complete",
+                        details: { outcome: "approved", approved: true, feedback: "" },
                     }]),
                 );
             },
@@ -768,7 +780,7 @@ Deno.test("runValidationLoop runs validation and reviewer in active execution cw
     assertEquals(diffCwds, ["/worktree"]);
     assertEquals(sessionCwds, ["/worktree"]);
     assertEquals(sessionOpts[0].uiAPI, uiAPI);
-    assertEquals(sessionOpts[0]._agentDefOverride.tools, []);
+    assertEquals(sessionOpts[0]._agentDefOverride.tools, ["review_complete"]);
     assertEquals(sessionOpts[0]._agentDefOverride.systemPrompt.includes("{{SKILLS}}"), false);
     assertEquals(sessionOpts[0].includeEditFallback, false);
     assertEquals(sessionOpts[0].useRootSession, false);
@@ -806,7 +818,11 @@ Deno.test("runValidationLoop records validation_passed only after worktree merge
                 Promise.resolve(
                     /** @type {any} */ ([{
                         role: "assistant",
-                        content: [{ type: "text", text: "APPROVED" }],
+                        content: [{ type: "text", text: "The implementation matches the plan." }],
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_complete",
+                        details: { outcome: "approved", approved: true, feedback: "" },
                     }]),
                 ),
             mergeExecutionWorktree: (
@@ -896,7 +912,11 @@ Deno.test("runValidationLoop does not delete worktree when merge verification is
                 Promise.resolve(
                     /** @type {any} */ ([{
                         role: "assistant",
-                        content: [{ type: "text", text: "APPROVED" }],
+                        content: [{ type: "text", text: "The implementation matches the plan." }],
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_complete",
+                        details: { outcome: "approved", approved: true, feedback: "" },
                     }]),
                 ),
             mergeExecutionWorktree: () => {
@@ -971,7 +991,11 @@ Deno.test("runValidationLoop runs always human review after semantic approval an
                 Promise.resolve(
                     /** @type {any} */ ([{
                         role: "assistant",
-                        content: [{ type: "text", text: "APPROVED" }],
+                        content: [{ type: "text", text: "The implementation matches the plan." }],
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_complete",
+                        details: { outcome: "approved", approved: true, feedback: "" },
                     }]),
                 ),
             getCodeReviewMode: () => "always",
@@ -1042,7 +1066,11 @@ Deno.test("runValidationLoop ask mode can skip human review and merge", async ()
                 Promise.resolve(
                     /** @type {any} */ ([{
                         role: "assistant",
-                        content: [{ type: "text", text: "APPROVED" }],
+                        content: [{ type: "text", text: "The implementation matches the plan." }],
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_complete",
+                        details: { outcome: "approved", approved: true, feedback: "" },
                     }]),
                 ),
             getCodeReviewMode: () => "ask",
@@ -1104,7 +1132,11 @@ Deno.test("runValidationLoop ask mode opens human review before merge when appro
                 Promise.resolve(
                     /** @type {any} */ ([{
                         role: "assistant",
-                        content: [{ type: "text", text: "APPROVED" }],
+                        content: [{ type: "text", text: "The implementation matches the plan." }],
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_complete",
+                        details: { outcome: "approved", approved: true, feedback: "" },
                     }]),
                 ),
             getCodeReviewMode: () => "ask",
@@ -1155,7 +1187,11 @@ Deno.test("runValidationLoop sends human feedback to Engineer and continues vali
                 Promise.resolve(
                     /** @type {any} */ ([{
                         role: "assistant",
-                        content: [{ type: "text", text: "APPROVED" }],
+                        content: [{ type: "text", text: "The implementation matches the plan." }],
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_complete",
+                        details: { outcome: "approved", approved: true, feedback: "" },
                     }]),
                 ),
             getCodeReviewMode: () => "always",
@@ -1238,7 +1274,11 @@ Deno.test("runValidationLoop treats human review exit as validation failure with
                 Promise.resolve(
                     /** @type {any} */ ([{
                         role: "assistant",
-                        content: [{ type: "text", text: "APPROVED" }],
+                        content: [{ type: "text", text: "The implementation matches the plan." }],
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_complete",
+                        details: { outcome: "approved", approved: true, feedback: "" },
                     }]),
                 ),
             getCodeReviewMode: () => "always",
@@ -1311,7 +1351,11 @@ Deno.test("runValidationLoop keeps merged worktree when cleanup setting is disab
                 Promise.resolve(
                     /** @type {any} */ ([{
                         role: "assistant",
-                        content: [{ type: "text", text: "APPROVED" }],
+                        content: [{ type: "text", text: "The implementation matches the plan." }],
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_complete",
+                        details: { outcome: "approved", approved: true, feedback: "" },
                     }]),
                 ),
             mergeExecutionWorktree: () => {
@@ -1375,7 +1419,11 @@ Deno.test("runValidationLoop records worktree_merge_failed when merge-back fails
                 Promise.resolve(
                     /** @type {any} */ ([{
                         role: "assistant",
-                        content: [{ type: "text", text: "APPROVED" }],
+                        content: [{ type: "text", text: "The implementation matches the plan." }],
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_complete",
+                        details: { outcome: "approved", approved: true, feedback: "" },
                     }]),
                 ),
             mergeExecutionWorktree: () => Promise.reject(new Error("conflict")),
@@ -1451,7 +1499,11 @@ Deno.test("runValidationLoop still prompts when merge-conflict metadata updates 
                 Promise.resolve(
                     /** @type {any} */ ([{
                         role: "assistant",
-                        content: [{ type: "text", text: "APPROVED" }],
+                        content: [{ type: "text", text: "The implementation matches the plan." }],
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_complete",
+                        details: { outcome: "approved", approved: true, feedback: "" },
                     }]),
                 ),
             mergeExecutionWorktree: () => Promise.reject(new Error("merge conflict")),
@@ -1513,7 +1565,11 @@ Deno.test("runValidationLoop warns when using legacy current-checkout merge fall
                 Promise.resolve(
                     /** @type {any} */ ([{
                         role: "assistant",
-                        content: [{ type: "text", text: "APPROVED" }],
+                        content: [{ type: "text", text: "The implementation matches the plan." }],
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_complete",
+                        details: { outcome: "approved", approved: true, feedback: "" },
                     }]),
                 ),
             mergeExecutionWorktree: (/** @type {{ targetBranch?: string }} */ args) => {
@@ -1568,7 +1624,11 @@ Deno.test("runValidationLoop dispatches Engineer merge repair and retries merge-
                 Promise.resolve(
                     /** @type {any} */ ([{
                         role: "assistant",
-                        content: [{ type: "text", text: "APPROVED" }],
+                        content: [{ type: "text", text: "The implementation matches the plan." }],
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_complete",
+                        details: { outcome: "approved", approved: true, feedback: "" },
                     }]),
                 ),
             mergeExecutionWorktree: (/** @type {any} */ args) => {
@@ -1676,7 +1736,11 @@ Deno.test("runValidationLoop records validation_passed after merge repair task_c
                     return Promise.resolve(
                         /** @type {any} */ ([{
                             role: "assistant",
-                            content: [{ type: "text", text: "APPROVED" }],
+                            content: [{ type: "text", text: "The implementation matches the plan." }],
+                        }, {
+                            role: "toolResult",
+                            toolName: "review_complete",
+                            details: { outcome: "approved", approved: true, feedback: "" },
                         }]),
                     );
                 }
@@ -1751,7 +1815,11 @@ Deno.test("runValidationLoop retries worktree merge after user fixes primary che
                 Promise.resolve(
                     /** @type {any} */ ([{
                         role: "assistant",
-                        content: [{ type: "text", text: "APPROVED" }],
+                        content: [{ type: "text", text: "The implementation matches the plan." }],
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_complete",
+                        details: { outcome: "approved", approved: true, feedback: "" },
                     }]),
                 ),
             mergeExecutionWorktree: () => {
@@ -2111,7 +2179,11 @@ Deno.test("runValidationLoop uses large-diff prompt when diff exceeds inline thr
                 return Promise.resolve(
                     /** @type {any} */ ([{
                         role: "assistant",
-                        content: [{ type: "text", text: "APPROVED" }],
+                        content: [{ type: "text", text: "The implementation matches the plan." }],
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_complete",
+                        details: { outcome: "approved", approved: true, feedback: "" },
                     }]),
                 );
             },
@@ -2206,7 +2278,7 @@ Deno.test("runValidationLoop halts when reviewer returns blank output and user c
     // Since promptSelect returns "stop" (default in makeUi), validation should halt
     assertStringIncludes(
         uiAPI.messages.join(" "),
-        "returned no output",
+        "did not call review_complete",
     );
     assertStringIncludes(
         uiAPI.messages.join(" "),
@@ -2241,7 +2313,11 @@ Deno.test("runValidationLoop retries semantic review when user chooses retry", a
                 return Promise.resolve(
                     /** @type {any} */ ([{
                         role: "assistant",
-                        content: [{ type: "text", text: "APPROVED" }],
+                        content: [{ type: "text", text: "The implementation matches the plan." }],
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_complete",
+                        details: { outcome: "approved", approved: true, feedback: "" },
                     }]),
                 );
             },
