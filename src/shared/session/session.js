@@ -13,7 +13,9 @@ import {
     createReadToolDefinition,
     createWriteToolDefinition,
     DefaultResourceLoader,
+    estimateTokens,
     SessionManager,
+    shouldCompact,
 } from "@earendil-works/pi-coding-agent";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import { createEditWithFallbackToolDefinition } from "../../tools/edit-with-fallback.js";
@@ -1606,6 +1608,69 @@ export async function buildAgentSession({
  */
 
 /**
+ * @typedef {Object} PreparedPromptContent
+ * @property {string} text
+ * @property {Array<{base64?: string, mimeType?: string, type?: string}>} [images]
+ */
+
+/**
+ * @param {import('@earendil-works/pi-agent-core').AgentMessage[]} messages
+ * @returns {number}
+ */
+function estimateAgentMessagesTokens(messages) {
+    let tokens = 0;
+    for (const message of messages) {
+        tokens += estimateTokens(message);
+    }
+    return tokens;
+}
+
+/**
+ * Pi's built-in threshold compaction checks the last assistant response before
+ * adding the next user prompt. That can miss a large incoming prompt: the
+ * previous turn is under the threshold, but previous context + new prompt no
+ * longer leaves enough reserve tokens and the provider rejects it before Pi can
+ * compact. RunWield performs a pre-prompt threshold check that includes the
+ * prepared user message, then delegates to Pi's auto-compaction path so normal
+ * compaction events and extension hooks still fire with reason "threshold".
+ *
+ * @param {import('@earendil-works/pi-coding-agent').AgentSession} session
+ * @param {PreparedPromptContent} prepared
+ * @returns {Promise<boolean>} true when a compaction attempt was started and succeeded
+ */
+async function compactBeforePromptIfNeeded(session, prepared) {
+    const settings = session.settingsManager?.getCompactionSettings?.();
+    if (!settings?.enabled) return false;
+    if (session.isStreaming || session.isCompacting) return false;
+
+    const contextWindow = session.model?.contextWindow ?? 0;
+    if (typeof contextWindow !== "number" || contextWindow <= 0) return false;
+
+    const usage = session.getContextUsage?.();
+    let currentTokens = typeof usage?.tokens === "number" ? usage.tokens : 0;
+    const contextMessages = session.sessionManager?.buildSessionContext?.().messages;
+    if (Array.isArray(contextMessages)) {
+        currentTokens = Math.max(currentTokens, estimateAgentMessagesTokens(contextMessages));
+    }
+
+    const pendingUserMessage = {
+        role: "user",
+        content: [
+            { type: "text", text: prepared.text },
+            ...(prepared.images || []),
+        ],
+        timestamp: Date.now(),
+    };
+    const totalTokens = currentTokens + estimateTokens(/** @type {any} */ (pendingUserMessage));
+    if (!shouldCompact(totalTokens, contextWindow, settings)) return false;
+
+    const runAutoCompaction = /** @type {{ _runAutoCompaction?: (reason: string, willRetry: boolean) => Promise<boolean> }} */
+        (/** @type {unknown} */ (session))._runAutoCompaction;
+    if (typeof runAutoCompaction !== "function") return false;
+    return await runAutoCompaction.call(session, "threshold", false);
+}
+
+/**
  * Attach UI event subscribers to an AgentSession. Called once per AgentSession lifetime
  * (whether root or transient). Returns lifecycle handles for the caller to reset turn-scoped
  * state between prompts.
@@ -1615,6 +1680,7 @@ export async function buildAgentSession({
  * @param {import('../workflow/workflow.js').UiAPI | undefined} uiAPI
  * @param {string} [debugLogPath]
  * @param {import('./hosted-session.js').HostedSession} [hostedSession]
+ * @param {object} [deps]
  *
  * @returns {SubscriberState}
  */
@@ -2258,6 +2324,10 @@ export async function runPrompt({
     let promptError = null;
 
     try {
+        await compactBeforePromptIfNeeded(session, {
+            text: preparedImages.text,
+            images: preparedImages.images,
+        });
         await session.prompt(preparedImages.text, requestOptions);
         await session.agent.waitForIdle();
     } catch (error) {
