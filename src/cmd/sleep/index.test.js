@@ -1,5 +1,5 @@
 import { assertEquals } from "@std/assert";
-import { runSleepCommand } from "./index.js";
+import { runSleepCommand, SLEEP_PROMPT } from "./index.js";
 
 Deno.test("runSleepCommand help path", async () => {
     let helped = "";
@@ -25,7 +25,6 @@ Deno.test("runSleepCommand runs operator sleep prompt as an isolated session", a
         __testDeps: /** @type {any} */ ({
             parseArgs: () => ({ help: false }),
             ensureMnemosyneBinary: () => Promise.resolve(),
-            readTextFile: () => Promise.resolve("# Test Sleep\n\nOptimize memories."),
             runAgentSession: (
                 /** @type {{agentName: string, userRequest: string, useRootSession?: boolean}} */ opts,
             ) => {
@@ -36,6 +35,6 @@ Deno.test("runSleepCommand runs operator sleep prompt as an isolated session", a
         }),
     });
 
-    assertEquals(invoked, "operator:# Test Sleep\n\nOptimize memories.");
+    assertEquals(invoked, `operator:${SLEEP_PROMPT}`);
     assertEquals(useRootSession, false);
 });
