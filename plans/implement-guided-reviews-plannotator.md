@@ -1,4 +1,5 @@
 ---
+planId: "4a8f571f-4022-4dea-bc71-6a7134e11e9e"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Implement Guided Reviews by integrating Plannotator's guide functionality into the RunWield code review surface. This involves updating the Plannotator compiled bridge or adapting source components to support agent-generated, chaptered reviews of changesets with live annotatable diffs and per-section reviewed state."

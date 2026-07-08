@@ -1,4 +1,5 @@
 ---
+planId: "44a682b4-1ecf-43c0-a3f2-f8e65a3ecd26"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Implement system notifications when the agent stops, calls `plan_written`, or calls `user_interview`. Notifications should activate the terminal tab when clicked. This requires integrating a notification system (likely via a Deno module or OS-level call) and identifying the correct hooks in `agent-handler.js` and the specific tool implementations."

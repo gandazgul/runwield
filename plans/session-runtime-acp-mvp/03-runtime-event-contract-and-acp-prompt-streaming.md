@@ -16,15 +16,16 @@ affectedPaths:
     - "src/shared/session/session-runtime.test.js"
 frontend: false
 createdAt: "2026-07-07T02:13:46.228Z"
-updatedAt: "2026-07-07T20:35:45.550Z"
-status: "implemented"
+updatedAt: "2026-07-08T01:24:51.540Z"
+status: "verified"
 origin: "internal"
 parentPlan: "session-runtime-acp-mvp"
 order: 3
 dependencies:
     - "02-sessionruntime-core-for-tui-preserved-prompting"
-implementedAt: "2026-07-07T20:35:45.550Z"
-worktreeStatus: "completed"
+verifiedAt: "2026-07-08T01:24:51.540Z"
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
 ---
 
 # Runtime Event Contract and ACP Prompt Streaming
