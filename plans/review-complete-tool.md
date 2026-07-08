@@ -7,9 +7,15 @@ affectedPaths:
     - "src/shared/workflow/workflow-results.js"
 frontend: false
 createdAt: "2026-07-08T14:59:11-04:00"
-updatedAt: "2026-07-08T15:00:07.448Z"
-status: "draft"
+updatedAt: "2026-07-08T15:58:50.575Z"
+status: "verified"
 origin: "internal"
+implementedAt: "2026-07-08T15:17:43.745Z"
+verifiedAt: "2026-07-08T15:58:50.575Z"
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
+routingIntent: "FEATURE"
+sessionName: "fix reviewer workflow signal"
 ---
 
 # Review Complete Structured Tool
