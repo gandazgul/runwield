@@ -12,12 +12,15 @@ affectedPaths:
     - "src/tools/triage-report.js"
 frontend: false
 createdAt: "2026-07-05T01:09:07-04:00"
-updatedAt: "2026-07-06T20:53:57.779Z"
 status: "verified"
 origin: "internal"
 verifiedAt: "2026-07-06T20:53:57.779Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
+updatedAt: "2026-07-08T16:34:21.764Z"
+archivedAt: "2026-07-08T16:34:21.764Z"
+archivedFromStatus: "verified"
+archivedFromPath: "plans/reorganize-ui-source-tree.md"
 ---
 
 # Reorganize UI Source Tree

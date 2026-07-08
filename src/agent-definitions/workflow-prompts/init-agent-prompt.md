@@ -24,8 +24,10 @@ tools:
     - code_importers
 ---
 
-We are initializing RunWield into this project. We need to gather the project context and architecture to seed the index
-and mnemosyne effectively.
+# Context
+
+We are initializing RunWield into this project. We need to gather project language, architecture, conventions, and
+constraints so future RunWield sessions can use the right vocabulary and recall the right durable facts.
 
 1. **Project architecture** — main directories, entry points, module boundaries
 2. **Key patterns** — coding conventions, data flow, state management, API patterns
@@ -44,16 +46,17 @@ and mnemosyne effectively.
 4. Trace connections — follow import chains, understand how modules connect. `code_trace` can help with this.
 5. Map conventions — identify patterns: error handling, logging, testing, CI/CD, pre-commit checks, and documentation.
    For example, if a linter is configured and expected before commits, store that in memory.
-6. As you go, collect and formalize domain terminology from your exploration into a consistent glossary. Feel free to
-   make a draft `CONTEXT.md` at the project root as you go to organize your findings, but you will finalize it at the
-   end of the process.
-7. Seed the memory system with the tech stack and other significant info about the codebase that you find during your
-   exploration using `memory_store`. Set `core: true` sparingly for critical, always-relevant project facts such as the
-   tech stack, validation command, and architectural boundaries.
-8. At the end, write the final version of the `CONTEXT.md` file at the project root, summarizing your findings. Use the
-   canonical format at `{{BUNDLED_AGENT_DEFS_DIR}}/document-formats/CONTEXT-FORMAT.md`.
-9. Before ending, re-read `CONTEXT.md` and verify that it exists, follows the canonical format, and captures the key
-   architecture, terminology, constraints, and conventions you discovered.
+6. As you go, collect and formalize domain terminology from your exploration into a consistent glossary. Create or
+   update `CONTEXT.md` only for resolved domain language: canonical terms, avoided aliases, stable domain relationships,
+   and durable flagged ambiguities.
+7. Seed the memory system with the tech stack, architectural boundaries, validation commands, conventions, and other
+   significant project facts using `memory_store`. Set `core: true` sparingly for critical, always-relevant project
+   facts.
+8. At the end, write the final version of the `CONTEXT.md` file at the project root using the canonical format at
+   `{{BUNDLED_AGENT_DEFS_DIR}}/document-formats/CONTEXT-FORMAT.md`.
+9. Before ending, re-read `CONTEXT.md` and verify that it exists, follows the canonical format, captures the resolved
+   domain language, and does not include implementation details, project architecture, conventions, constraints, or plan
+   content.
 
 ## Important Rules
 
@@ -65,5 +68,5 @@ and mnemosyne effectively.
 - Do NOT modify any project files other than `CONTEXT.md`.
 - Use project-scoped `memory_store` only. Use `memory_recall_global` to learn global preferences, but do not write
   project facts to global memory.
-- Be thorough — the user and the future sessions of RunWield will rely on the CONTEXT.md you create to understand the
-  codebase.
+- Be thorough — the user and future RunWield sessions will rely on `CONTEXT.md` for domain language and on project
+  memory for architecture, conventions, constraints, and validation facts.

@@ -7,7 +7,6 @@ affectedPaths:
     - "src/shared/workflow/workflow-results.js"
 frontend: false
 createdAt: "2026-07-08T14:59:11-04:00"
-updatedAt: "2026-07-08T15:58:50.575Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-07-08T15:17:43.745Z"
@@ -16,6 +15,10 @@ humanReviewMode: "ask"
 humanReviewDecision: "skipped"
 routingIntent: "FEATURE"
 sessionName: "fix reviewer workflow signal"
+updatedAt: "2026-07-08T16:34:21.764Z"
+archivedAt: "2026-07-08T16:34:21.764Z"
+archivedFromStatus: "verified"
+archivedFromPath: "plans/review-complete-tool.md"
 ---
 
 # Review Complete Structured Tool
