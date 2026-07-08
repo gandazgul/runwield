@@ -1,4 +1,5 @@
 ---
+planId: "398521ca-6995-4eae-a8b5-8e4bd2f0751e"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Replace compiled Plannotator plan/code review launch surfaces with Workspace-hosted Astro/React/Plannotator routes behind the existing review-launcher adapter. Preserve workflow decision behavior while keeping direct HMR dev commands for visual testing and iteration."
