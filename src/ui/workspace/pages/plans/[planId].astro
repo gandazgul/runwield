@@ -1,0 +1,22 @@
+---
+import WorkspaceLayout from "../../layouts/WorkspaceLayout.astro";
+
+const planId = Astro.params.planId ?? "fixture-plan";
+---
+<WorkspaceLayout title="Plan Detail · RunWield Workspace" selectedTab="active">
+    <section class="page-header">
+        <p class="eyebrow">Astro SSR scaffold</p>
+        <h2>Fixture Plan detail</h2>
+        <p>Initial Astro detail route. Full metadata/actions/body editor parity is implemented in the next slice.</p>
+    </section>
+    <article class="detail" data-astro-detail-scaffold>
+        <p class="card-kicker"><span class="status">fixture</span> <span>FEATURE</span></p>
+        <h3 class="card-title">{planId}</h3>
+        <p>Real Plan detail data remains behind the RunWield wrapper/API seam until parity is ported.</p>
+        <dl class="metadata-grid">
+            <div><dt>Renderer</dt><dd>Astro SSR scaffold</dd></div>
+            <div><dt>Token bridge</dt><dd>Uses Workspace <code>--rw-*</code> variables</dd></div>
+        </dl>
+        <p><a class="secondary-action" href="/">Back to board</a></p>
+    </article>
+</WorkspaceLayout>

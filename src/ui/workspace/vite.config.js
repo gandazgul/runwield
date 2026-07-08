@@ -1,14 +1,14 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
-import { fresh } from "@fresh/plugin-vite";
 import tailwindcss from "@tailwindcss/vite";
-import UnoCSS from "unocss/vite";
 import tidewave from "tidewave/vite-plugin";
 
 const ROOT_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const PLANNOTATOR_DIR = resolve(ROOT_DIR, "third_party/plannotator");
 
+// Astro owns Workspace dev/build through astro.config.mjs. This Vite config is
+// retained only for tools that need the shared alias/plugin setup directly.
 export default defineConfig({
     resolve: {
         alias: {
@@ -18,15 +18,5 @@ export default defineConfig({
         },
         dedupe: ["react", "react-dom"],
     },
-    plugins: [
-        tidewave(),
-        fresh({
-            serverEntry: "src/ui/workspace/dev.js",
-            clientEntry: "src/ui/workspace/client.js",
-            staticDir: ["src/ui/workspace/static"],
-            islandsDir: "src/ui/workspace/islands",
-        }),
-        tailwindcss(),
-        UnoCSS(),
-    ],
+    plugins: [tidewave(), tailwindcss()],
 });
