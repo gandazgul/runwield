@@ -2,6 +2,7 @@ import { assertEquals, assertStrictEquals } from "@std/assert";
 import { HostedSession } from "./hosted-session.js";
 import { SessionHost } from "./session-host.js";
 import { RuntimeEventTypes } from "./session-runtime-events.js";
+import { createUiPromptInteractionAdapter } from "./session-runtime-interactions.js";
 import { HANDOFF_LIMIT_MESSAGE, SessionRuntime } from "./session-runtime.js";
 
 /** @param {string} id */
@@ -256,4 +257,130 @@ Deno.test("SessionRuntime cancelSession emits cancellation event", () => {
     assertEquals(runtime.cancelSession(hostedSession), { ok: true, aborted: true });
     assertEquals(/** @type {any} */ (events[0]).type, "cancellation");
     assertEquals(/** @type {any} */ (events[0]).aborted, true);
+});
+
+Deno.test("SessionRuntime requestInteraction settles adapter outcomes and emits lifecycle", async () => {
+    const hostedSession = new HostedSession({ id: "interactions" });
+    const runtime = new SessionRuntime();
+    /** @type {string[]} */
+    const events = [];
+    runtime.subscribeSessionEvents(hostedSession, (event) => {
+        events.push(event.type);
+    });
+    runtime.setInteractionAdapter(hostedSession, {
+        requestInteraction: (request) => ({
+            outcome: "selected",
+            value: request.options?.[0]?.value,
+            valueLabel: "First",
+        }),
+    }, { kind: "test" });
+
+    const response = await runtime.requestInteraction(hostedSession, {
+        type: "select",
+        prompt: "Pick",
+        options: [{ value: "a", label: "First" }],
+    });
+
+    assertEquals(response, { outcome: "selected", value: "a", valueLabel: "First" });
+    assertEquals(hostedSession.getActiveInteractions().size, 0);
+    assertEquals(events, [RuntimeEventTypes.INTERACTION_REQUESTED, RuntimeEventTypes.INTERACTION_RESOLVED]);
+});
+
+Deno.test("SessionRuntime requestInteraction returns unsupported without adapter", async () => {
+    const hostedSession = new HostedSession({ id: "unsupported-interactions" });
+    const runtime = new SessionRuntime();
+    const response = await runtime.requestInteraction(hostedSession, { type: "text", prompt: "Name?" });
+    assertEquals(response.outcome, "unsupported");
+});
+
+Deno.test("SessionRuntime requestInteraction resolves canceled when session cancellation aborts active interaction", async () => {
+    const hostedSession = new HostedSession({ id: "cancel-interactions" });
+    const runtime = new SessionRuntime();
+    let sawAbortSignal = false;
+    hostedSession.setInteractionAdapter({
+        requestInteraction: (
+            /** @type {unknown} */ _request,
+            /** @type {AbortSignal | undefined} */ signal,
+        ) => {
+            sawAbortSignal = Boolean(signal);
+            return new Promise(() => {});
+        },
+    });
+
+    const pending = runtime.requestInteraction(hostedSession, { type: "text", prompt: "Name?" });
+    await Promise.resolve();
+    runtime.cancelSession(hostedSession);
+    const response = await pending;
+
+    assertEquals(sawAbortSignal, true);
+    assertEquals(response.outcome, "canceled");
+    assertEquals(hostedSession.getActiveInteractions().size, 0);
+});
+
+Deno.test("createUiPromptInteractionAdapter rejects invalid selected options", async () => {
+    const adapter = createUiPromptInteractionAdapter(
+        /** @type {any} */ ({
+            promptSelect: () => Promise.resolve("invalid"),
+        }),
+    );
+
+    const response = await adapter.requestInteraction({
+        type: "select",
+        prompt: "Pick",
+        options: [{ value: "valid", label: "Valid" }],
+    });
+
+    assertEquals(response.outcome, "unsupported");
+    assertEquals(response.message, "Select prompt returned invalid option: invalid");
+});
+
+Deno.test("createUiPromptInteractionAdapter maps declined approval choices to canceled outcome", async () => {
+    const adapter = createUiPromptInteractionAdapter(
+        /** @type {any} */ ({
+            promptSelect: () => Promise.resolve("deny"),
+        }),
+    );
+
+    const response = await adapter.requestInteraction({
+        type: "approval",
+        prompt: "Approve?",
+        options: [{ value: "approve", label: "Approve" }, { value: "deny", label: "Deny" }],
+    });
+
+    assertEquals(response.outcome, "canceled");
+    assertEquals(response.value, false);
+});
+
+Deno.test("createUiPromptInteractionAdapter does not auto-accept arbitrary single approval options", async () => {
+    const adapter = createUiPromptInteractionAdapter(
+        /** @type {any} */ ({
+            promptSelect: () => Promise.resolve("deny"),
+        }),
+    );
+
+    const response = await adapter.requestInteraction({
+        type: "approval",
+        prompt: "Approve?",
+        options: [{ value: "deny", label: "Deny" }],
+    });
+
+    assertEquals(response.outcome, "canceled");
+    assertEquals(response.value, false);
+});
+
+Deno.test("createUiPromptInteractionAdapter maps approval prompts to accepted outcome", async () => {
+    const adapter = createUiPromptInteractionAdapter(
+        /** @type {any} */ ({
+            promptSelect: () => Promise.resolve("approve"),
+        }),
+    );
+
+    const response = await adapter.requestInteraction({
+        type: "approval",
+        prompt: "Approve?",
+        options: [{ value: "approve", label: "Approve" }],
+    });
+
+    assertEquals(response.outcome, "accepted");
+    assertEquals(response.value, true);
 });
