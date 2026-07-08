@@ -68,6 +68,7 @@ import { recordToolCallFinished, recordToolCallStarted, recordWorkflowMetric } f
 
 const HOME_PROMPTS_DIR = HOME_DIR ? join(HOME_DIR, ".wld", "prompts") : null;
 const LOCAL_PROMPTS_DIR = join(CWD, ".wld", "prompts");
+const HIDDEN_UI_TOOL_BLOCK_NAMES = new Set(["user_interview"]);
 
 /** Regex to detect an HTML body in an error message (e.g. from a 404 page). */
 const HTML_ERROR_RE = /^(.*?\b404\b.*?)(?:<!DOCTYPE|<html|<body)/i;
@@ -1988,7 +1989,7 @@ export function attachUiSubscribers(
                     args: event.args,
                 });
 
-                if (event.toolName === "task_completed") {
+                if (event.toolName === "task_completed" || HIDDEN_UI_TOOL_BLOCK_NAMES.has(event.toolName)) {
                     break;
                 }
 
