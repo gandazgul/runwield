@@ -38,6 +38,7 @@ import {
     listCommitsTouchingPathsSince as listCommitsTouchingPathsSinceFn,
     restoreWorktreeTree as restoreWorktreeTreeFn,
 } from "../../shared/workflow/git-snapshot.js";
+import { recordWorkflowMetric } from "../../shared/workflow/metrics.js";
 import {
     createExecutionWorktree as createExecutionWorktreeFn,
     getWorktreeStatus as getWorktreeStatusFn,
@@ -105,6 +106,7 @@ export { getLoadPlanCompletions } from "./getArgumentCompletions.js";
  * @property {typeof removeExecutionWorktreeFn} [removeExecutionWorktree]
  * @property {typeof removeWorktreeRegistryEntryFn} [removeWorktreeRegistryEntry]
  * @property {typeof shouldCleanupMergedWorktreesFn} [shouldCleanupMergedWorktrees]
+ * @property {typeof recordWorkflowMetric} [recordWorkflowMetric]
  * @property {typeof setTerminalTitleForNameFn} [setTerminalTitleForName]
  */
 
@@ -1410,6 +1412,7 @@ async function confirmRecoveryWorktreeAvailable(planName, worktreeContext, uiAPI
  * @param {typeof removeExecutionWorktreeFn} opts.removeExecutionWorktree
  * @param {typeof removeWorktreeRegistryEntryFn} opts.removeWorktreeRegistryEntry
  * @param {typeof shouldCleanupMergedWorktreesFn} opts.shouldCleanupMergedWorktrees
+ * @param {typeof recordWorkflowMetric} [opts.recordWorkflowMetric]
  * @param {typeof setActiveAgentFn} opts.setActiveAgent
  * @param {typeof createAgentHandlerFn} opts.createAgentHandler
  * @param {typeof findPlansByParentFn} opts.findPlansByParent
@@ -1440,6 +1443,7 @@ async function handlePlanRecovery({
     removeExecutionWorktree,
     removeWorktreeRegistryEntry,
     shouldCleanupMergedWorktrees,
+    recordWorkflowMetric: recordWorkflowMetricImpl = recordWorkflowMetric,
     setActiveAgent,
     createAgentHandler,
     findPlansByParent,
@@ -1452,6 +1456,21 @@ async function handlePlanRecovery({
         return resolved;
     };
     let worktreeContext = await refreshRecoveryWorktree();
+    /**
+     * @param {string} action
+     * @param {string} result
+     * @param {Record<string, unknown>} [details]
+     */
+    const recordRecoveryResult = async (action, result, details = {}) => {
+        const hasWorktree = hasWorktreeContext(worktreeContext);
+        const canMergeWorktree = canManuallyMergeRecoveredWorktree(worktreeContext);
+        await recordWorkflowMetricImpl({
+            category: "recovery",
+            event: "recovery_action_result",
+            planName: plan.planName,
+            details: { action, result, currentStatus: plan.attrs.status, hasWorktree, canMergeWorktree, ...details },
+        });
+    };
     while (true) {
         const hasWorktree = hasWorktreeContext(worktreeContext);
         const canMergeWorktree = canManuallyMergeRecoveredWorktree(worktreeContext);
@@ -1483,16 +1502,32 @@ async function handlePlanRecovery({
             ];
 
         const answer = await uiAPI.promptSelect(`Plan recovery (${plan.attrs.status}):`, options);
-        if (!answer || answer === "cancel") return "handled";
+        await recordWorkflowMetricImpl({
+            category: "recovery",
+            event: "recovery_action_selected",
+            planName: plan.planName,
+            details: {
+                action: answer || "cancel",
+                currentStatus: plan.attrs.status,
+                hasWorktree,
+                canMergeWorktree,
+            },
+        });
+        if (!answer || answer === "cancel") {
+            await recordRecoveryResult("cancel", "handled");
+            return "handled";
+        }
 
         if (answer === "hold") {
             await putPlanOnHold({ plan, uiAPI, recordPlanEvent, findPlansByParent });
+            await recordRecoveryResult("hold", "handled");
             return "handled";
         }
 
         if (answer === "inspect") {
             worktreeContext = await refreshRecoveryWorktree();
             await appendRecoveryReport(plan, uiAPI, getWorkflowDiff, worktreeContext, getWorktreeStatus);
+            await recordRecoveryResult("inspect", "reported", { hasWorktree: hasWorktreeContext(worktreeContext) });
             continue;
         }
 
@@ -1513,6 +1548,7 @@ async function handlePlanRecovery({
                 worktreeContext,
                 hostedSession,
             );
+            await recordRecoveryResult("validate", "handled");
             return "handled";
         }
 
@@ -1545,6 +1581,7 @@ async function handlePlanRecovery({
                 createAgentHandler,
                 hostedSession,
             });
+            await recordRecoveryResult("continue", "handled");
             return "handled";
         }
 
@@ -1636,6 +1673,7 @@ async function handlePlanRecovery({
                 createAgentHandler,
                 hostedSession,
             });
+            await recordRecoveryResult("reset", "handled");
             return "handled";
         }
 
@@ -1717,6 +1755,7 @@ async function handlePlanRecovery({
                     details: { triageMeta: plan.attrs, worktreeStatus: "merged", cleanupMergedWorktrees },
                 });
                 uiAPI.appendSystemMessage("Worktree changes merged and plan marked verified.", false, "RunWield");
+                await recordRecoveryResult("merge", "merged", { cleanupMergedWorktrees });
             } catch (error) {
                 const reason = error instanceof Error ? error.message : String(error);
                 uiAPI.appendSystemMessage(`Worktree merge failed: ${reason}`, true, "RunWield");
@@ -1758,6 +1797,7 @@ async function handlePlanRecovery({
                         "RunWield",
                     );
                 }
+                await recordRecoveryResult("merge", "failed", { mergeFailureKind: "manual_merge_failed" });
             }
             return "handled";
         }
@@ -1783,6 +1823,7 @@ async function handlePlanRecovery({
             }, plan.attrs);
             worktreeContext = null;
             uiAPI.appendSystemMessage("Worktree abandoned and removed.", false, "RunWield");
+            await recordRecoveryResult("abandon", "abandoned");
             continue;
         }
 
@@ -1800,6 +1841,7 @@ async function handlePlanRecovery({
                 details: { triageMeta: plan.attrs },
             });
             plan.attrs.status = "feedback";
+            await recordRecoveryResult("review", "review");
             return "review";
         }
     }
@@ -2259,6 +2301,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
         removeExecutionWorktree: removeExecutionWorktreeDep,
         removeWorktreeRegistryEntry: removeWorktreeRegistryEntryDep,
         shouldCleanupMergedWorktrees: shouldCleanupMergedWorktreesDep,
+        recordWorkflowMetric: recordWorkflowMetricDep,
     } = deps;
 
     const parseArgs = parseArgsDep || parseArgsFn;
@@ -2320,6 +2363,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
     const removeExecutionWorktree = removeExecutionWorktreeDep || removeExecutionWorktreeFn;
     const removeWorktreeRegistryEntry = removeWorktreeRegistryEntryDep || removeWorktreeRegistryEntryFn;
     const shouldCleanupMergedWorktrees = shouldCleanupMergedWorktreesDep || shouldCleanupMergedWorktreesFn;
+    const recordWorkflowMetricForLoadPlan = recordWorkflowMetricDep || recordWorkflowMetric;
 
     const parsedArgs = parseArgs(argv, {
         boolean: ["help"],
@@ -2501,6 +2545,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                 removeExecutionWorktree,
                 removeWorktreeRegistryEntry,
                 shouldCleanupMergedWorktrees,
+                recordWorkflowMetric: recordWorkflowMetricForLoadPlan,
                 setActiveAgent,
                 createAgentHandler,
                 findPlansByParent,
