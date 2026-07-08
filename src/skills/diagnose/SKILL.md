@@ -1,20 +1,23 @@
 ---
 name: diagnose
-description: Use this skill when the user reports a bug, says something is broken, throwing errors, or failing — even if they don't say "diagnose" or "debug". Also use for performance regressions: when the user says something is slow, degraded, or slower than before. Follows a reproduce → minimise → hypothesise → fix → regression-test loop.
+description: Use this skill when the user reports a bug, says something is broken, throwing errors, or failing — even if they don't say "diagnose" or "debug". Also use for performance regressions: when the user says something is slow, degraded, or slower than before. Follows a feedback-loop → reproduce + minimise → hypothesise → instrument → fix → regression-test loop.
 ---
 
 # Diagnose
 
 A discipline for hard bugs. Skip phases only when explicitly justified.
 
-When exploring the codebase, use the project's domain glossary to get a clear mental model of the relevant modules, and
-check ADRs in the area you're touching.
+This skill is for the execution/debugging agent after routing. Router Diagnostic Triage stays read-only: it may gather
+evidence and route with "use diagnose", but it should not build the feedback loop, instrument, or attempt the fix.
+
+When exploring the codebase, read `CONTEXT.md` if it exists to get a clear mental model of the relevant domain language,
+and check ADRs in the area you're touching.
 
 ## Phase 1 — Build a feedback loop
 
-**This is the skill.** Everything else is mechanical. If you have a fast, deterministic, agent-runnable pass/fail signal
-for the bug, you will find the cause — bisection, hypothesis-testing, and instrumentation all just consume that signal.
-If you don't have one, no amount of staring at code will save you.
+**This is the skill.** Everything else is mechanical. If you have a **tight** pass/fail signal for the bug — one that
+goes red on _this_ bug — you will find the cause; bisection, hypothesis-testing, and instrumentation all just consume
+that signal. If you don't have one, no amount of staring at code will save you.
 
 Spend disproportionate effort here. **Be aggressive. Be creative. Refuse to give up.**
 
@@ -38,15 +41,15 @@ Spend disproportionate effort here. **Be aggressive. Be creative. Refuse to give
 
 Build the right feedback loop, and the bug is 90% fixed.
 
-### Iterate on the loop itself
+### Tighten the loop
 
-Treat the loop as a product. Once you have _a_ loop, ask:
+Treat the loop as a product. Once you have _a_ loop, **tighten** it:
 
 - Can I make it faster? (Cache setup, skip unrelated init, narrow the test scope.)
 - Can I make the signal sharper? (Assert on the specific symptom, not "didn't crash".)
 - Can I make it more deterministic? (Pin time, seed RNG, isolate filesystem, freeze network.)
 
-A 30-second flaky loop is barely better than no loop. A 2-second deterministic loop is a debugging superpower.
+A 30-second flaky loop is barely better than no loop; a 2-second deterministic one is tight — a debugging superpower.
 
 ### Non-deterministic bugs
 
@@ -59,11 +62,23 @@ Stop and say so explicitly. List what you tried. Ask the user for: (a) access to
 a captured artifact (HAR file, log dump, core dump, screen recording with timestamps), or (c) permission to add
 temporary production instrumentation. Do **not** proceed to hypothesise without a loop.
 
-Do not proceed to Phase 2 until you have a loop you believe in.
+### Completion criterion — a tight loop that goes red
 
-## Phase 2 — Reproduce
+Phase 1 is done when the loop is **tight** and **red-capable**: you can name **one command** — a script path, test
+invocation, curl command, or equivalent — that you have **already run at least once**, and that is:
 
-Run the loop. Watch the bug appear.
+- [ ] **Red-capable** — it drives the actual bug code path and asserts the **user's exact symptom**, so it can go red on
+      this bug and green once fixed. Not "runs without erroring" — it must be able to catch this specific bug.
+- [ ] **Deterministic** — same verdict every run. For flaky bugs, use a pinned, high reproduction rate.
+- [ ] **Fast** — seconds, not minutes.
+- [ ] **Agent-runnable** — you can run it unattended; a human is in the loop only via `scripts/hitl-loop.template.sh`.
+
+If you catch yourself reading code to build a theory before this command exists, stop. Jumping straight to a hypothesis
+is the exact failure this skill prevents. No red-capable command, no Phase 2.
+
+## Phase 2 — Reproduce + minimise
+
+Run the loop. Watch it go red — the bug appears.
 
 Confirm:
 
@@ -74,7 +89,16 @@ Confirm:
 - [ ] You have captured the exact symptom (error message, wrong output, slow timing) so later phases can verify the fix
       actually addresses it.
 
-Do not proceed until you reproduce the bug.
+### Minimise
+
+Once the loop is red, shrink the repro to the **smallest scenario that still goes red**. Cut inputs, callers, config,
+data, and steps **one at a time**, re-running the loop after each cut. Keep only what's load-bearing for the failure.
+
+Why bother: a minimal repro shrinks the hypothesis space in Phase 3 and becomes the clean regression test in Phase 5.
+
+Done when **every remaining element is load-bearing**: removing any one of them makes the loop go green.
+
+Do not proceed until you have reproduced **and** minimised.
 
 ## Phase 3 — Hypothesise
 
@@ -134,7 +158,8 @@ Required before declaring done:
 - [ ] Regression test passes (or absence of seam is documented)
 - [ ] All `[DEBUG-...]` instrumentation removed (`grep` the prefix)
 - [ ] Throwaway prototypes deleted (or moved to a clearly-marked debug location)
-- [ ] The hypothesis that turned out correct is stated in the commit / PR message — so the next debugger learns
+- [ ] The hypothesis that turned out correct is stated in the completion note, commit, or PR message when applicable —
+      so the next debugger learns
 
 **Then ask: what would have prevented this bug?** If the answer involves architectural change (no good test seam,
 tangled callers, hidden coupling) hand off to the `/improve-codebase-architecture` skill with the specifics. Make the
