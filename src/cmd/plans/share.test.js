@@ -1,5 +1,5 @@
 import { assert, assertEquals, assertRejects, assertThrows } from "@std/assert";
-import { parsePlansShareArgs, runPlansShareCommand } from "./share.js";
+import { parsePlansShareArgs, runPlansShareCommand, sharePlanForReview } from "./share.js";
 
 /** @param {Record<string, unknown>} [overrides] */
 function activeResource(overrides = {}) {
@@ -314,4 +314,40 @@ Deno.test("runPlansShareCommand prints recovery maintainer URL once if cleanup f
         "Recovery URL was printed once",
     );
     assert(!result.message.includes("maintainer-raw-cap failed"));
+});
+
+Deno.test("sharePlanForReview returns reviewer metadata without printing", async () => {
+    const { deps } = fakeShareDeps();
+    const { logs } = await captureLogs(async () => {
+        const shared = await sharePlanForReview({ target: "demo-plan", cwd: "/repo" }, deps);
+        assertEquals(shared.planName, "demo-plan");
+        assertEquals(shared.spaceId, "space-1");
+        assertEquals(shared.reviewerUrl.includes("role=reviewer"), true);
+        assertEquals(shared.maintainerUrl.includes("role=maintainer"), true);
+        assertEquals(shared.reused, false);
+    });
+    assertEquals(logs, []);
+});
+
+Deno.test("sharePlanForReview reuses already shared Plan from local secrets", async () => {
+    const { deps } = fakeShareDeps({
+        resource: activeResource({
+            collaborationState: "remote_canonical",
+            collaborationServerUrl: "https://plans.example/root",
+            collaborationSpaceId: "space-1",
+            collaborationRevision: 3,
+        }),
+        existingSecret: {
+            planId: "plan-1",
+            spaceId: "space-1",
+            contentKey: "exported-crypto-key",
+            reviewerCapability: "reviewer-raw-cap",
+            maintainerCapability: "maintainer-raw-cap",
+            updatedAt: "2026-07-04T12:00:00.000Z",
+        },
+    });
+    const shared = await sharePlanForReview({ target: "demo-plan", cwd: "/repo", allowExisting: true }, deps);
+    assertEquals(shared.reused, true);
+    assertEquals(shared.revision, 3);
+    assertEquals(shared.reviewerUrl.includes("#key=exported-crypto-key&cap=reviewer-raw-cap&role=reviewer"), true);
 });

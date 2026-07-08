@@ -87,6 +87,25 @@ export function mapRuntimeEventToAcpUpdate(event) {
                 ...(event.cost || raw.cost ? { cost: event.cost || raw.cost } : {}),
             };
         }
+        case RuntimeEventTypes.PLAN_REVIEW_LINK: {
+            const reviewEvent = /** @type {any} */ (event);
+            const text = reviewEvent.message ||
+                `Plan review link for ${reviewEvent.planName}: ${reviewEvent.reviewerUrl}`;
+            return {
+                sessionUpdate: "agent_message_chunk",
+                messageId: messageId(event.sessionId, event),
+                content: { type: "text", text },
+                _meta: safeMeta({
+                    type: event.type,
+                    planName: reviewEvent.planName,
+                    reviewerUrl: reviewEvent.reviewerUrl,
+                    spaceId: reviewEvent.spaceId,
+                    serverUrl: reviewEvent.serverUrl,
+                    revision: reviewEvent.revision,
+                    reused: reviewEvent.reused,
+                }),
+            };
+        }
         case RuntimeEventTypes.SYSTEM_STATUS:
         case RuntimeEventTypes.CANCELLATION:
         case RuntimeEventTypes.TERMINAL_ERROR: {

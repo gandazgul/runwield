@@ -106,6 +106,8 @@ async function resolveTriageMeta(triageMeta, planName) {
  * @property {(opts: { planName: string, triageMeta?: TriageMeta, uiAPI: any, sessionManager?: import('@earendil-works/pi-coding-agent').SessionManager }) => Promise<{ ok: true } | { ok: false, error: string }>} [runSlicerAgent]
  * @property {typeof recordPlanEvent} [recordPlanEvent]
  * @property {typeof recordWorkflowMetric} [recordWorkflowMetric]
+ * @property {(opts: import('../cmd/plans/share.js').SharePlanForReviewOptions, deps?: any) => Promise<import('../cmd/plans/share.js').SharedPlanReviewLink>} [sharePlanForReview]
+ * @property {(event: Partial<import('../shared/session/session-runtime-events.js').SessionRuntimeEvent> & { type: string }) => void} [emitSessionEvent]
  * @property {(path: string) => Promise<{ isFile: boolean }>} [stat]
  * @property {string} [cwd]
  */
@@ -165,6 +167,48 @@ export function createPlanWrittenTool(
             const effectiveMeta = await resolveTriageMeta(triageMeta, planName);
 
             uiAPI.appendSystemMessage(`[RunWield] Plan declared: plans/${planName}.md`);
+
+            if (hostedSession?.getInteractionAdapterMeta?.()?.kind === "acp") {
+                const sharePlanForReview = deps.sharePlanForReview ||
+                    (await import("../cmd/plans/share.js")).sharePlanForReview;
+                const shared = await sharePlanForReview({
+                    target: planName,
+                    cwd,
+                    allowExisting: true,
+                }, deps);
+                const message = `Plan "${planName}" saved for remote review: ${shared.reviewerUrl}`;
+                const event =
+                    /** @type {Partial<import('../shared/session/session-runtime-events.js').RuntimePlanReviewLinkEvent> & { type: "plan_review_link" }} */ ({
+                        type: "plan_review_link",
+                        planName,
+                        reviewerUrl: shared.reviewerUrl,
+                        spaceId: shared.spaceId,
+                        serverUrl: shared.serverUrl,
+                        revision: shared.revision,
+                        reused: shared.reused,
+                        message,
+                    });
+                const sink = hostedSession?.getEventSink?.();
+                if (sink && typeof sink.emit === "function") sink.emit(event);
+                deps.emitSessionEvent?.(event);
+                uiAPI.appendSystemMessage(message, false, "RunWield");
+                return textResult(
+                    `${message}\n\nYour role as ${agentName} is complete. Do not generate any further text.`,
+                    {
+                        ...params,
+                        outcome: "saved",
+                        planName,
+                        triageMeta: effectiveMeta,
+                        remoteReview: true,
+                        reviewerUrl: shared.reviewerUrl,
+                        spaceId: shared.spaceId,
+                        serverUrl: shared.serverUrl,
+                        revision: shared.revision,
+                        reused: shared.reused,
+                    },
+                    true,
+                );
+            }
 
             // Lazy imports break the circular dep: plan-written → workflow → session → plan-written.
             const submitPlanForReview = deps.submitPlanForReview ||
