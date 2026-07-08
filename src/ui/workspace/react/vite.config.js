@@ -18,7 +18,7 @@ export default defineConfig({
         dedupe: ["react", "react-dom"],
     },
     build: {
-        outDir: resolve(ROOT_DIR, "_fresh/workspace-react-check"),
+        outDir: resolve(ROOT_DIR, "_workspace/workspace-react-check"),
         emptyOutDir: true,
         rollupOptions: {
             input: resolve(WORKSPACE_REACT_DIR, "plan-detail-entry.tsx"),

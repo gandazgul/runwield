@@ -1,7 +1,11 @@
-import { PLAN_FRONT_MATTER_KEY_ORDER, PLAN_FRONT_MATTER_KEYS } from "../../../plan-store.js";
+import {
+    PLAN_FRONT_MATTER_KEY_ORDER as FRONT_MATTER_KEY_ORDER,
+    PLAN_FRONT_MATTER_KEYS as FM,
+} from "../../../plan-front-matter.js";
 import { PlanBodyEditor } from "../islands/PlanBodyEditor.jsx";
 import { PlanLifecycleActions } from "../islands/PlanLifecycleActions.jsx";
 import { BoardColumn } from "./BoardColumn.jsx";
+import { MarkdownView } from "./MarkdownView.jsx";
 import { ComplexityLabel, workspaceHref } from "./PlanCard.jsx";
 
 const CLOSED_STATUSES = new Set(["verified", "closed_without_verification"]);
@@ -15,7 +19,7 @@ export function tabForPlanStatus(status) {
 
 /**
  * @param {string} status
- * @param {URL} url
+ * @param {URL | string} url
  */
 export function boardHrefForPlanStatus(status, url) {
     const tab = tabForPlanStatus(status);
@@ -43,11 +47,10 @@ function dependencyLabel(entry) {
     return `${entry.dependency}: ${entry.state}${entry.status ? ` (${entry.status})` : ""}`;
 }
 
-const FM = PLAN_FRONT_MATTER_KEYS;
 /** @type {string[]} */
-const FRONT_MATTER_KEY_ORDER = [...PLAN_FRONT_MATTER_KEY_ORDER];
+const FRONT_MATTER_KEYS_IN_ORDER = [...FRONT_MATTER_KEY_ORDER];
 /** @type {Set<string>} */
-const FRONT_MATTER_KEY_SET = new Set(FRONT_MATTER_KEY_ORDER);
+const FRONT_MATTER_KEY_SET = new Set(FRONT_MATTER_KEYS_IN_ORDER);
 /** @type {Set<string>} */
 const HIDDEN_METADATA_KEYS = new Set([FM.worktreePath]);
 const RESOURCE_METADATA_KEYS = Object.freeze({
@@ -233,7 +236,7 @@ function additionalMetadataEntries(metadata, renderedKeys) {
         .sort(([a], [b]) => {
             const aKnown = FRONT_MATTER_KEY_SET.has(a);
             const bKnown = FRONT_MATTER_KEY_SET.has(b);
-            if (aKnown && bKnown) return FRONT_MATTER_KEY_ORDER.indexOf(a) - FRONT_MATTER_KEY_ORDER.indexOf(b);
+            if (aKnown && bKnown) return FRONT_MATTER_KEYS_IN_ORDER.indexOf(a) - FRONT_MATTER_KEYS_IN_ORDER.indexOf(b);
             if (aKnown) return -1;
             if (bKnown) return 1;
             return a.localeCompare(b);
@@ -245,9 +248,9 @@ function additionalMetadataEntries(metadata, renderedKeys) {
 function MetadataGroup({ title, entries }) {
     if (!entries.length) return null;
     return (
-        <section class="metadata-group" aria-label={`${title} metadata`}>
-            <h4 class="metadata-group-title">{title}</h4>
-            <dl class="meta-list stacked">
+        <section className="metadata-group" aria-label={`${title} metadata`}>
+            <h4 className="metadata-group-title">{title}</h4>
+            <dl className="meta-list stacked">
                 {entries.map((entry) => (
                     <div key={entry.key}>
                         <dt>{entry.label}</dt>
@@ -270,7 +273,7 @@ function DetailMetadata({ plan }) {
     const additionalEntries = additionalMetadataEntries(metadata, renderedKeys);
 
     return (
-        <div class="metadata-section">
+        <div className="metadata-section">
             {groups.map((group) => <MetadataGroup key={group.title} title={group.title} entries={group.entries} />)}
             <MetadataGroup title="Additional metadata" entries={additionalEntries} />
         </div>
@@ -288,7 +291,7 @@ function EpicSummary({ epic }) {
 
     return (
         <>
-            <div class="progress-meter large" aria-label="Epic child progress">
+            <div className="progress-meter large" aria-label="Epic child progress">
                 <span>{progress.verified}/{progress.total} child Plans verified</span>
                 <span>{progress.active} active or implemented</span>
                 <span>{progress.remaining} remaining</span>
@@ -297,33 +300,35 @@ function EpicSummary({ epic }) {
                 {blocked ? <span>{blocked} blocked by dependencies</span> : null}
                 {missing ? <span>{missing} with missing dependencies</span> : null}
             </div>
-            <div class="badge-row health-summary">
+            <div className="badge-row health-summary">
                 {epic.doneEnough
                     ? (
-                        <span class="badge success">
+                        <span className="badge success">
                             Epic marked done enough{epic.epicDoneEnoughAt ? ` at ${epic.epicDoneEnoughAt}` : ""}
                         </span>
                     )
                     : null}
                 {epic.status === "on_hold"
                     ? (
-                        <span class="badge muted">
+                        <span className="badge muted">
                             Epic on hold{epic.heldFromStatus ? ` from ${epic.heldFromStatus}` : ""}
                             {epic.heldAt ? ` at ${epic.heldAt}` : ""}
                         </span>
                     )
                     : null}
-                {failed ? <span class="badge danger">{failed} failed child Plans</span> : null}
-                {held ? <span class="badge muted">{held} child Plans on hold</span> : null}
-                {blocked ? <span class="badge warning">{blocked} child Plans blocked</span> : null}
-                {missing ? <span class="badge warning">{missing} child Plans with missing dependencies</span> : null}
+                {failed ? <span className="badge danger">{failed} failed child Plans</span> : null}
+                {held ? <span className="badge muted">{held} child Plans on hold</span> : null}
+                {blocked ? <span className="badge warning">{blocked} child Plans blocked</span> : null}
+                {missing
+                    ? <span className="badge warning">{missing} child Plans with missing dependencies</span>
+                    : null}
             </div>
             {epic.doneEnough && epic.epicDoneEnoughSummary
-                ? <p class="notice success">Done enough: {epic.epicDoneEnoughSummary}</p>
+                ? <p className="notice success">Done enough: {epic.epicDoneEnoughSummary}</p>
                 : null}
             {epic.status === "on_hold"
                 ? (
-                    <p class="notice muted">
+                    <p className="notice muted">
                         Held Epic only blocks child work in UI context; child statuses are shown unchanged.{" "}
                         {holdMetadata(epic)}
                     </p>
@@ -333,7 +338,7 @@ function EpicSummary({ epic }) {
     );
 }
 
-/** @param {{ epic: any, url: URL }} props */
+/** @param {{ epic: any, url: URL | string }} props */
 function EpicDetailSections({ epic, url }) {
     const health = epic.childHealth || {};
     const failed = health.failed?.length || 0;
@@ -349,11 +354,11 @@ function EpicDetailSections({ epic, url }) {
 
     return (
         <>
-            <section class="child-plan-section">
+            <section className="child-plan-section">
                 <h3>Child health</h3>
                 {failed || held || blocked || missing
                     ? (
-                        <ul class="health-list">
+                        <ul className="health-list">
                             {(health.failed || []).map(/** @param {any} child */ (child) => (
                                 <li key={`failed-${child.planId}`}>
                                     <strong>Failed:</strong> {child.planName} {child.failureReason ||
@@ -385,13 +390,13 @@ function EpicDetailSections({ epic, url }) {
                             ))}
                         </ul>
                     )
-                    : <p class="empty">No failed, held, or dependency-blocked children.</p>}
+                    : <p className="empty">No failed, held, or dependency-blocked children.</p>}
             </section>
-            <section class="child-plan-section">
+            <section className="child-plan-section">
                 <h3>Child dependencies</h3>
                 {childrenWithDependencies.length
                     ? (
-                        <ul class="health-list dependency-health-list">
+                        <ul className="health-list dependency-health-list">
                             {childrenWithDependencies.map(/** @param {any} child */ (child) => (
                                 <li key={`dependencies-${child.planId}`}>
                                     <strong>{child.planName}:</strong>{" "}
@@ -402,70 +407,129 @@ function EpicDetailSections({ epic, url }) {
                             ))}
                         </ul>
                     )
-                    : <p class="empty">No child FEATURE Plan dependencies declared.</p>}
+                    : <p className="empty">No child FEATURE Plan dependencies declared.</p>}
             </section>
-            <section class="child-plan-section">
+            <section className="child-plan-section">
                 <h3>Child FEATURE Plans</h3>
                 {visibleColumns.length
                     ? (
-                        <div class="status-board child-status-board">
+                        <div className="status-board child-status-board">
                             {visibleColumns.map(/** @param {any} column */ (column) => (
                                 <BoardColumn key={column.status} column={column} url={url} />
                             ))}
                         </div>
                     )
-                    : <p class="empty">No child FEATURE Plans are attached to this Epic.</p>}
+                    : <p className="empty">No child FEATURE Plans are attached to this Epic.</p>}
             </section>
         </>
     );
 }
 
-/** @param {{ plan: any, url: URL, editIntent?: boolean }} props */
-export function PlanDetail({ plan, url, editIntent = false }) {
+/** @param {{ plan: any }} props */
+function StaticPlanBody({ plan }) {
+    const body = plan.body || "";
+    const planBodyJson = JSON.stringify({ body }).replace(/</g, "\\u003c");
+    return (
+        <section className="plan-body-editor" data-editor-mode="read">
+            <div data-plannotator-plan-body data-plan-id={plan.planId} data-plannotator-renderer="ssr-fallback">
+                <script
+                    type="application/json"
+                    data-plannotator-plan-body-json
+                    dangerouslySetInnerHTML={{ __html: planBodyJson }}
+                />
+                <div data-plannotator-plan-body-root>
+                    <MarkdownView markdown={body} />
+                </div>
+            </div>
+        </section>
+    );
+}
+
+/** @param {{ plan: any }} props */
+function StaticLifecycleActions({ plan }) {
+    const actions = plan.actions || {};
+    return (
+        <section className="lifecycle-actions compact" aria-label="Lifecycle actions">
+            <div className="lifecycle-action-list">
+                {(actions.manualTargetOptions || []).map((/** @type {any} */ option) => (
+                    <button
+                        key={option.status}
+                        type="button"
+                        className="secondary-action lifecycle-action"
+                        data-action-target-status={option.status}
+                    >
+                        Move to {option.label}
+                    </button>
+                ))}
+                {actions.canPutOnHold
+                    ? (
+                        <button type="button" className="secondary-action lifecycle-action hold-action">
+                            Put on hold
+                        </button>
+                    )
+                    : null}
+                {actions.canCloseWithoutVerification
+                    ? (
+                        <button type="button" className="danger-action lifecycle-action">
+                            Close without verification
+                        </button>
+                    )
+                    : null}
+            </div>
+        </section>
+    );
+}
+
+/** @param {{ plan: any, url: URL | string, editIntent?: boolean, staticRender?: boolean }} props */
+export function PlanDetail({ plan, url, editIntent = false, staticRender = false }) {
     const isEpic = isEpicDetail(plan);
     const canEditBody = plan.capabilities?.bodyEditing !== false && !isEpic;
     const editHref = workspaceHref(`/plans/${encodeURIComponent(plan.planId)}?edit=body`, url);
     const closeHref = boardHrefForPlanStatus(plan.status, url);
     return (
-        <article class="detail" data-plan-id={plan.planId} data-selected-tab={tabForPlanStatus(plan.status)}>
-            <header class="page-header detail-header split-header">
+        <article className="detail" data-plan-id={plan.planId} data-selected-tab={tabForPlanStatus(plan.status)}>
+            <header className="page-header detail-header split-header">
                 <div>
-                    <div class="detail-title-row">
-                        <a class="detail-back-link" href={closeHref}>{"< Back"}</a>
-                        <div class="detail-title-group">
+                    <div className="detail-title-row">
+                        <a className="detail-back-link" href={closeHref}>{"< Back"}</a>
+                        <div className="detail-title-group">
                             <h2>{plan.planName}</h2>
-                            <span class={`status status-${plan.status}`}>{plan.status}</span>
+                            <span className={`status status-${plan.status}`}>{plan.status}</span>
                         </div>
-                        <a class="detail-close-link" href={closeHref} aria-label="Close plan detail">X</a>
+                        <a className="detail-close-link" href={closeHref} aria-label="Close plan detail">X</a>
                     </div>
                     <p>{plan.summary || "No summary provided."}</p>
                     {isEpic ? <EpicSummary epic={plan} /> : null}
-                    {!isEpic && plan.status === "on_hold" ? <p class="notice muted">{holdMetadata(plan)}</p> : null}
+                    {!isEpic && plan.status === "on_hold" ? <p className="notice muted">{holdMetadata(plan)}</p> : null}
                     {plan.hierarchyRole === "orphan-child" || plan.blockedByDependencies
                         ? (
-                            <div class="detail-actions" aria-label="Plan warnings">
+                            <div className="detail-actions" aria-label="Plan warnings">
                                 {plan.hierarchyRole === "orphan-child"
-                                    ? <span class="badge warning">Missing parent Epic</span>
+                                    ? <span className="badge warning">Missing parent Epic</span>
                                     : null}
                                 {plan.blockedByDependencies
-                                    ? <span class="badge warning">Dependency blocked</span>
+                                    ? <span className="badge warning">Dependency blocked</span>
                                     : null}
                             </div>
                         )
                         : null}
                 </div>
             </header>
-            <section class="detail-grid">
+            <section className="detail-grid">
                 <div>
-                    <PlanBodyEditor plan={plan} initialEdit={canEditBody && editIntent} />
+                    {staticRender
+                        ? <StaticPlanBody plan={plan} />
+                        : <PlanBodyEditor plan={plan} initialEdit={canEditBody && editIntent} />}
                     {isEpic ? <EpicDetailSections epic={plan} url={url} /> : null}
                 </div>
-                <aside class="detail-sidebar">
-                    <div class="detail-sidebar-actions" aria-label="Plan detail actions">
+                <aside className="detail-sidebar">
+                    <div className="detail-sidebar-actions" aria-label="Plan detail actions">
                         {canEditBody && !editIntent
-                            ? <a class="primary-action detail-sidebar-edit" href={editHref}>Edit</a>
+                            ? <a className="primary-action detail-sidebar-edit" href={editHref}>Edit</a>
                             : null}
-                        <PlanLifecycleActions plan={plan} compact epic={isEpic} />
+                        {staticRender
+                            ? <StaticLifecycleActions plan={plan} />
+                            : <PlanLifecycleActions plan={plan} compact epic={isEpic} />}
                     </div>
                     <h3>Metadata</h3>
                     <DetailMetadata plan={plan} />

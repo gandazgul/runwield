@@ -47,7 +47,7 @@ The current reference implementation is the Workspace UI:
 - CSS baseline: `src/ui/design-system/tokens.css`, `src/ui/design-system/components.css`, and
   `src/ui/workspace/static/workspace.css`
 - theme bridge: `src/ui/design-system/theme-bridge.js`
-- shell and navigation: `src/ui/workspace/components/AppWrapper.jsx` and `src/ui/workspace/components/Layout.jsx`
+- shell and navigation: `src/ui/workspace/layouts/WorkspaceLayout.astro`
 - board patterns: `src/ui/workspace/components/BoardColumn.jsx`, `PlanCard.jsx`, and `EpicCard.jsx`
 - detail patterns: `src/ui/workspace/components/PlanDetail.jsx`
 - editor and action islands: `src/ui/workspace/islands/`
@@ -57,29 +57,24 @@ so they agree again.
 
 ## Component architecture
 
-RunWield owns its browser UI components. Shared design-system components should live under `src/ui/design-system/` so
-Workspace, Plannotator, and future browser surfaces can consume the same primitives. During the Workspace Astro
-migration, the design system has two supported endpoints:
+RunWield owns its browser UI components. Shared design-system CSS and primitives should live under
+`src/ui/design-system/` so Workspace, Plannotator, and future browser surfaces can consume the same visual language. For
+Workspace under `src/ui/workspace/`, the supported endpoint is Astro SSR, React islands, and Tailwind 4. Fresh, Preact,
+and UnoCSS runtime code is retired for Workspace; remaining Preact/Zag components under
+`src/ui/design-system/components/*.jsx` are legacy non-Workspace primitives until a dedicated design-system migration
+replaces them.
 
-- Existing Fresh/Preact/Zag components remain available for not-yet-ported Workspace code until parity is proven.
-- New Workspace surfaces under `src/ui/workspace/` should use Astro SSR, React islands, Tailwind 4, and Radix-compatible
-  React primitives.
+Workspace surfaces must use RunWield semantic tokens for color, radius, spacing, and status intent. Tailwind utilities
+and framework primitives are implementation tools; they should not introduce a competing visual language or bypass
+`--rw-*` tokens.
 
-Both endpoints must use RunWield semantic tokens for color, radius, spacing, and status intent. Tailwind utilities and
-Radix primitives are implementation tools; they should not introduce a competing visual language or bypass `--rw-*`
-tokens.
-
-RunWield components should preserve the current Workspace aesthetic. React/Radix primitives are now accepted for the
-Workspace migration, but RunWield still owns the shell, workflow vocabulary, variants, and token bridge around them.
+RunWield components should preserve the current Workspace aesthetic. React primitives may be added under explicit React
+paths such as `src/ui/design-system/components/react/`, but RunWield still owns the shell, workflow vocabulary,
+variants, and token bridge around them.
 
 Primitive visual components such as buttons, cards, badges, notices, tabs, inputs, and textareas should be
 RunWield-owned without a headless interaction dependency unless they require non-trivial keyboard, focus, portal, or
 ARIA behavior.
-
-Dialog is the first reference example for Zag-backed components. Workspace does not currently use dialogs, so Dialog is
-a general primitive for upcoming browser surfaces rather than an extracted Workspace pattern. It should use a Zag state
-machine for focus trapping, keyboard behavior, dismissal, and ARIA attributes, while RunWield owns the visual shell,
-overlay, panel, title, description, footer, and action styling.
 
 ## Token model
 
@@ -225,7 +220,7 @@ workflow-critical changes.
 
 Dialog is a general modal primitive for browser surfaces that need focused confirmation, short forms, or blocking
 workflow decisions. Workspace does not currently provide a source pattern for dialogs, so new dialogs should preserve
-the Workspace visual language while using Zag for accessibility and interaction behavior.
+the Workspace visual language while using Radix-compatible React behavior for accessibility and interaction behavior.
 
 Dialog should be flexible rather than confirmation-only:
 

@@ -1,3 +1,4 @@
+// @jsxImportSource preact
 /**
  * Shared RunWield badge primitive.
  */
@@ -24,7 +25,7 @@ function badgeVariantClassName(variant = "default") {
 /** @param {{ variant?: BadgeVariant, class?: string, className?: string, children?: any, [key: string]: any }} props */
 export function Badge({ variant = "default", class: className, className: compatClassName, children, ...props }) {
     return (
-        <span {...props} class={classNames(["badge", badgeVariantClassName(variant), className, compatClassName])}>
+        <span {...props} className={classNames(["badge", badgeVariantClassName(variant), className, compatClassName])}>
             {children}
         </span>
     );

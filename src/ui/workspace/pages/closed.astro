@@ -1,16 +1,27 @@
 ---
 import WorkspaceLayout from "../layouts/WorkspaceLayout.astro";
+import { PlanBoard } from "../components/Board.jsx";
+import { loadCanonicalBoard, serializeCanonicalPlanError } from "../server/astro-canonical-data.js";
+
+const runtime = globalThis as any;
+const workspaceCwd = Astro.request.headers.get("x-runwield-workspace-cwd") || runtime.Deno?.cwd?.() || ".";
+let board = null;
+let error = null;
+try {
+    board = await loadCanonicalBoard(workspaceCwd);
+} catch (caught) {
+    error = await serializeCanonicalPlanError(caught);
+    Astro.response.status = 409;
+}
 ---
-<WorkspaceLayout title="Closed Plans · RunWield Workspace" selectedTab="closed">
-    <section class="page-header">
-        <p class="eyebrow">Astro SSR scaffold</p>
-        <h2>Closed Plans</h2>
-        <p>Fixture-backed route scaffold for the closed board while full Workspace parity is ported.</p>
-    </section>
-    <nav class="tabs" aria-label="Workspace views">
-        <a href="/" data-tab="active">Active</a>
-        <a href="/closed" class="active" data-tab="closed">Closed</a>
-        <a href="/on-hold" data-tab="on-hold">On hold</a>
-    </nav>
-    <article class="plan-card compact"><p class="card-kicker">Fixture</p><h3 class="card-title">No closed fixture Plans</h3><p>Real closed board data remains behind the wrapper/API seam.</p></article>
+<WorkspaceLayout title="Closed Plans · RunWield Workspace" selectedTab="closed" url={Astro.url.href}>
+    {error ? (
+        <section class="error-panel">
+            <h2>Plan Board failed to load</h2>
+            <p>{error.error}</p>
+            <p>{error.repair}</p>
+        </section>
+    ) : (
+        <PlanBoard board={board} view="closed" url={Astro.url.href} client:load />
+    )}
 </WorkspaceLayout>

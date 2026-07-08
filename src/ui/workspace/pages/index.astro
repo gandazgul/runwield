@@ -1,54 +1,27 @@
 ---
 import WorkspaceLayout from "../layouts/WorkspaceLayout.astro";
+import { PlanBoard } from "../components/Board.jsx";
+import { loadCanonicalBoard, serializeCanonicalPlanError } from "../server/astro-canonical-data.js";
 
-const columns = [
-    {
-        label: "Draft",
-        description: "Plans still being shaped.",
-        cards: [{ planId: "fixture-draft", classification: "FEATURE", title: "Astro Workspace shell", summary: "Fixture-backed scaffold route for HMR while board parity is ported." }],
-    },
-    { label: "Ready for Work", description: "Executable work ready for an agent.", cards: [{ planId: "fixture-ready", classification: "PROJECT", title: "Workspace migration", summary: "Astro SSR, React-rendered review scaffolds, Tailwind, Radix-compatible primitives, and RunWield tokens." }] },
-    { label: "Implemented", description: "Implemented work awaiting validation or closure.", cards: [] },
-];
-const planCount = columns.reduce((total, column) => total + column.cards.length, 0);
+const runtime = globalThis as any;
+const workspaceCwd = Astro.request.headers.get("x-runwield-workspace-cwd") || runtime.Deno?.cwd?.() || ".";
+let board = null;
+let error = null;
+try {
+    board = await loadCanonicalBoard(workspaceCwd);
+} catch (caught) {
+    error = await serializeCanonicalPlanError(caught);
+    Astro.response.status = 409;
+}
 ---
-<WorkspaceLayout title="RunWield Workspace" selectedTab="active">
-    <section class="page-header">
-        <p class="eyebrow">Astro SSR scaffold</p>
-        <h2>Workspace platform migration</h2>
-        <p>
-            Astro now owns the development shell. Full board/detail parity remains in the next migration slice.
-        </p>
-    </section>
-
-    <nav class="tabs" aria-label="Workspace views">
-        <a href="/" class="active" data-tab="active">Active</a>
-        <a href="/closed" data-tab="closed">Closed</a>
-        <a href="/on-hold" data-tab="on-hold">On hold</a>
-        <span class="tab-search-slot"><span class="badge muted">{planCount} fixture cards</span></span>
-    </nav>
-
-    <section class="status-board" data-astro-board-scaffold>
-        {columns.map((column) => (
-            <article class="board-column">
-                <header class="column-header">
-                    <div>
-                        <h3>{column.label}</h3>
-                        <p>{column.description}</p>
-                    </div>
-                    <span class="status">{column.cards.length}</span>
-                </header>
-                <div class="column-cards">
-                    {column.cards.map((plan) => (
-                        <article class="plan-card compact">
-                            <p class="card-kicker">{plan.classification}</p>
-                            <a class="card-title" href={`/plans/${plan.planId}`}>{plan.title}</a>
-                            <p>{plan.summary}</p>
-                        </article>
-                    ))}
-                    {column.cards.length === 0 ? <p class="empty-state">No cards in this column.</p> : null}
-                </div>
-            </article>
-        ))}
-    </section>
+<WorkspaceLayout title="RunWield Workspace" selectedTab="active" url={Astro.url.href}>
+    {error ? (
+        <section class="error-panel">
+            <h2>Plan Board failed to load</h2>
+            <p>{error.error}</p>
+            <p>{error.repair}</p>
+        </section>
+    ) : (
+        <PlanBoard board={board} view="active" url={Astro.url.href} client:load />
+    )}
 </WorkspaceLayout>

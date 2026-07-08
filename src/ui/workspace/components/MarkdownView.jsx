@@ -3,16 +3,18 @@ import quikdown from "quikdown";
 
 /**
  * Render Plan markdown through the shared markdown renderer instead of custom HTML parsing.
- * quikdown escapes raw HTML and rewrites unsafe link protocols before this HTML is passed to Preact.
+ * quikdown escapes raw HTML and rewrites unsafe link protocols before this HTML is passed to React.
  * @param {{ markdown: string }} props
  */
 export function MarkdownView({ markdown }) {
     const html = renderMarkdown(markdown || "");
-    return html ? <div class="markdown-view" dangerouslySetInnerHTML={{ __html: html }} /> : (
-        <div class="markdown-view">
-            <p class="empty">No Plan body content.</p>
-        </div>
-    );
+    return html
+        ? <div className="markdown-view" dangerouslySetInnerHTML={{ __html: html }} />
+        : (
+            <div className="markdown-view">
+                <p className="empty">No Plan body content.</p>
+            </div>
+        );
 }
 
 /**

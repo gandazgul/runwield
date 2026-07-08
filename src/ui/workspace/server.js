@@ -1,3 +1,4 @@
+// @ts-nocheck: local wrapper includes a tiny Fresh-free router and production Astro bridge with dynamic handler shapes.
 /**
  * Programmatic Workspace server composition.
  *
@@ -7,12 +8,7 @@
  */
 
 import { dirname, extname, fromFileUrl, join, toFileUrl } from "@std/path";
-import { App } from "fresh";
 import { PLAN_UI_TOKEN_HEADER, PLAN_UI_TOKEN_QUERY } from "../../constants.js";
-import { AppWrapper } from "./components/AppWrapper.jsx";
-import { WorkspaceLayout } from "./components/Layout.jsx";
-import { boardRoute } from "./routes/board.jsx";
-import { detailRoute } from "./routes/detail.jsx";
 import {
     boardApi,
     lifecycleActionApi,
@@ -36,6 +32,7 @@ const LOGO_PATH = join(ROOT_DIR, "logo.svg");
 const ASTRO_DIST_DIR = join(ROOT_DIR, "dist", "workspace");
 const ASTRO_ENTRY_PATH = join(ASTRO_DIST_DIR, "server", "entry.mjs");
 const ASTRO_CLIENT_ASSET_DIR = join(ASTRO_DIST_DIR, "client", "_astro");
+const WORKSPACE_CWD_HEADER = "x-runwield-workspace-cwd";
 
 /** @typedef {{ handler: () => (request: Request) => Promise<Response> }} WorkspaceApp */
 
@@ -72,7 +69,7 @@ export function createWorkspaceApp(options) {
 
 /** @param {RemoteWorkspaceAppOptions} options */
 export function createRemoteWorkspaceApp(options = { mode: "remote" }) {
-    const app = new App();
+    const app = createWorkspaceRouter();
     const adapter = options.adapter ?? createRemoteWorkspaceAdapter({ dbPath: options.dbPath });
     registerStaticRoutes(app);
     app.use(async (ctx) => {
@@ -101,7 +98,6 @@ function createLocalWorkspaceApp({ cwd, token, skipTokenCheck = false }) {
     };
 }
 
-/** @param {{ cwd: string }} state */
 /** @param {Request} request @param {{ cwd: string }} state */
 async function handleLocalWorkspaceRequest(request, state) {
     const url = new URL(request.url);
@@ -112,7 +108,7 @@ async function handleLocalWorkspaceRequest(request, state) {
     if (isAstroPageRoute(pathname)) {
         const astroResponse = await renderAstroPage(request, state.cwd);
         if (astroResponse) return astroResponse;
-        return await renderLegacyWorkspacePage(request, state.cwd);
+        return workspaceBuildUnavailable();
     }
 
     return new Response("Not found", { status: 404 });
@@ -165,37 +161,83 @@ async function loadAstroHandle() {
 
 /** @param {Request} request @param {string} cwd */
 async function renderAstroPage(request, cwd) {
-    if (cwd !== Deno.cwd()) return null;
     const handle = await loadAstroHandle();
     if (!handle) return null;
-    const response = await handle(request);
+    const response = await handle(withWorkspaceCwdHeader(request, cwd));
     return response.status === 404 ? null : response;
 }
 
+function workspaceBuildUnavailable() {
+    return new Response(
+        "Workspace Astro build unavailable. Run `deno task workspace:build` before serving page routes.",
+        {
+            status: 503,
+            headers: { "content-type": "text/plain; charset=utf-8" },
+        },
+    );
+}
+
 /** @param {Request} request @param {string} cwd */
-async function renderLegacyWorkspacePage(request, cwd) {
-    const app = createLegacyLocalPageApp(cwd);
-    return await app.handler()(request);
+function withWorkspaceCwdHeader(request, cwd) {
+    const headers = new Headers(request.headers);
+    headers.set(WORKSPACE_CWD_HEADER, cwd);
+    return new Request(request, { headers });
 }
 
-/** @param {string} cwd */
-function createLegacyLocalPageApp(cwd) {
-    const app = new App();
-    app.use(async (ctx) => {
-        ctx.state.cwd = cwd;
-        return await ctx.next();
-    });
-    app.appWrapper(AppWrapper);
-    app.layout("*", WorkspaceLayout);
-    app.get("/", boardRoute("active"));
-    app.get("/closed", boardRoute("closed"));
-    app.get("/on-hold", boardRoute("onHold"));
-    app.get("/plans/:planId", detailRoute);
-    app.notFound(() => new Response("Not found", { status: 404 }));
-    return app;
+function createWorkspaceRouter() {
+    const routes = [];
+    const middleware = [];
+    let notFoundHandler = () => jsonNotFound();
+    const add = (method, pattern, handler) => routes.push({ method, pattern, handler });
+    return {
+        get: (pattern, handler) => add("GET", pattern, handler),
+        post: (pattern, handler) => add("POST", pattern, handler),
+        use: (handler) => middleware.push(handler),
+        notFound: (handler) => {
+            notFoundHandler = handler;
+        },
+        handler: () => async (request) => {
+            const url = new URL(request.url);
+            const route = routes.find((candidate) =>
+                candidate.method === request.method && matchRoute(candidate.pattern, url.pathname)
+            );
+            const params = route ? matchRoute(route.pattern, url.pathname) : {};
+            const state = {};
+            const context = {
+                req: request,
+                request,
+                url,
+                params,
+                state,
+                next: async () => await runMiddleware(0),
+            };
+            const runMiddleware = async (index) => {
+                const item = middleware[index];
+                if (!item) return route ? await route.handler(context) : await notFoundHandler(context);
+                context.next = async () => await runMiddleware(index + 1);
+                return await item(context);
+            };
+            return await runMiddleware(0);
+        },
+    };
 }
 
-/** @param {App<any>} app */
+/** @param {string} pattern @param {string} pathname */
+function matchRoute(pattern, pathname) {
+    const patternParts = pattern.split("/").filter(Boolean);
+    const pathParts = pathname.split("/").filter(Boolean);
+    if (patternParts.length !== pathParts.length) return null;
+    const params = {};
+    for (let index = 0; index < patternParts.length; index += 1) {
+        const patternPart = patternParts[index];
+        const pathPart = pathParts[index];
+        if (patternPart.startsWith(":")) params[patternPart.slice(1)] = decodeURIComponent(pathPart);
+        else if (patternPart !== pathPart) return null;
+    }
+    return params;
+}
+
+/** @param {ReturnType<typeof createWorkspaceRouter>} app */
 function registerStaticRoutes(app) {
     app.get("/styles.css", async () => await handleStaticRoute("/styles.css"));
     app.get("/tokens.css", async () => await handleStaticRoute("/tokens.css"));
