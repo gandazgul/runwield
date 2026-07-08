@@ -3,6 +3,7 @@
  * Agent command — list available Agents or start with a chosen active Agent.
  */
 
+import { basename } from "@std/path";
 import { printCommandHelp as printCommandHelpFn } from "../help/index.js";
 import {
     setActiveAgent as setActiveAgentFn,
@@ -12,6 +13,7 @@ import { listAvailableAgents as listAvailableAgentsFn } from "../../shared/sessi
 import { AGENTS } from "../../constants.js";
 import { COMMAND_NAMES } from "../registry.js";
 import { createAgentHandler as createAgentHandlerFn } from "../../shared/session/agent-handler.js";
+import { setTerminalTitleForName } from "../../ui/tui/terminal-title.js";
 
 export { getAgentCompletions } from "./getArgumentCompletions.js";
 
@@ -142,6 +144,14 @@ async function runAgentsCommandTUI(agentName, _rest, options, deps = {}) {
     const handler = createAgentHandler(match.name, { hostedSession });
 
     setActiveAgent(hostedSession, match.name, handler, uiAPI);
+
+    // Update terminal title with chosen agent name
+    const rootSessionManager = /** @type {any} */ (hostedSession?.getRootSessionManager?.());
+    if (rootSessionManager && !rootSessionManager.getSessionName?.()) {
+        const folder = basename(Deno.cwd());
+        setTerminalTitleForName(`${folder} - ${match.name}`);
+    }
+
     tui.setFocus(/** @type {import('@earendil-works/pi-tui').Component} */ (/** @type {unknown} */ (editor)));
 }
 

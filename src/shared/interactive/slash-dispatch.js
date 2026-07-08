@@ -10,6 +10,7 @@
  * active root path. Skills expand in the current active agent context.
  */
 
+import { basename } from "@std/path";
 import { abortActiveSession, expandPromptTemplate, expandSkillCommand } from "../session/session.js";
 import { setTerminalTitleForName } from "../../ui/tui/terminal-title.js";
 
@@ -17,19 +18,26 @@ const OPERATOR_AGENT = "operator";
 
 /**
  * If the current session has no display name, update the terminal title to
- * `wld - ${command}` so it reflects the active slash command rather than
- * the cwd basename.
+ * `wld - {folder} - {displayName}` so it reflects the active slash command
+ * rather than the raw cwd basename.
+ *
+ * For `/agent`, displayName should be the chosen agent name (not "agent").
  *
  * @param {string} command
- */
-/**
- * @param {string} command
  * @param {import('../session/hosted-session.js').HostedSession} hostedSession
+ * @param {string} [displayName] - Override for the suffix (e.g. agent name).
  */
-function maybeUpdateTitleForSlashCommand(command, hostedSession) {
+function maybeUpdateTitleForSlashCommand(command, hostedSession, displayName) {
     const rootSessionManager = /** @type {any} */ (hostedSession?.getRootSessionManager?.());
     if (rootSessionManager && !rootSessionManager.getSessionName?.()) {
-        setTerminalTitleForName(command);
+        const folder = basename(Deno.cwd());
+        if (displayName === "") {
+            // No suffix yet (e.g. /agent with interactive picker before selection)
+            setTerminalTitleForName(folder);
+        } else {
+            const label = displayName || command;
+            setTerminalTitleForName(`${folder} - ${label}`);
+        }
     }
 }
 
@@ -103,7 +111,11 @@ export async function handleSlashCommand(ctx) {
 
     const builtinCommand = getSlashCommandDefinition(command);
     if (builtinCommand && ctx.builtinNames.has(builtinCommand.name)) {
-        maybeUpdateTitleForSlashCommand(builtinCommand.name, ctx.hostedSession);
+        // For /agent, use the chosen agent name instead of "agent".
+        // When no arg is given (interactive picker), pass "" so title is folder-only
+        // until the user picks; runAgentsCommandTUI updates it after selection.
+        const displayName = command === "agent" ? (args[0] || "") : undefined;
+        maybeUpdateTitleForSlashCommand(builtinCommand.name, ctx.hostedSession, displayName);
         await dispatchBuiltin(ctx, builtinCommand.name, args, commandRegistry, thisGen);
         return true;
     }
