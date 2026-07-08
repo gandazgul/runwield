@@ -18,6 +18,7 @@ import { defineTool } from "@earendil-works/pi-coding-agent";
 import { CLI_BIN, CWD, PLANS_DIR_NAME } from "../constants.js";
 import { loadPlan } from "../plan-store.js";
 import { isEpicPlan, recordPlanEvent } from "../shared/workflow/plan-lifecycle.js";
+import { recordWorkflowMetric } from "../shared/workflow/metrics.js";
 
 /**
  * @typedef {{
@@ -104,6 +105,7 @@ async function resolveTriageMeta(triageMeta, planName) {
  * @property {(opts: { planName: string, planPath: string, triageMeta?: TriageMeta, uiAPI: any }) => Promise<{ ok: true, slicerInvoked: boolean } | { ok: false, error: string, stage: "slicer" | "validation" }>} [ensureSlicerTasks]
  * @property {(opts: { planName: string, triageMeta?: TriageMeta, uiAPI: any, sessionManager?: import('@earendil-works/pi-coding-agent').SessionManager }) => Promise<{ ok: true } | { ok: false, error: string }>} [runSlicerAgent]
  * @property {typeof recordPlanEvent} [recordPlanEvent]
+ * @property {typeof recordWorkflowMetric} [recordWorkflowMetric]
  * @property {(path: string) => Promise<{ isFile: boolean }>} [stat]
  * @property {string} [cwd]
  */
@@ -174,6 +176,7 @@ export function createPlanWrittenTool(
             const ensureSlicerTasks = deps.ensureSlicerTasks || workflow.ensureSlicerTasks;
             const runSlicerAgent = deps.runSlicerAgent || workflow.runSlicerAgent;
             const recordPlanEventFn = deps.recordPlanEvent || recordPlanEvent;
+            const recordWorkflowMetricFn = deps.recordWorkflowMetric || recordWorkflowMetric;
 
             const reviewResult = await submitPlanForReview({
                 cwd,
@@ -186,6 +189,13 @@ export function createPlanWrittenTool(
 
             if (reviewResult.canceled) {
                 uiAPI.appendSystemMessage("Plan review canceled. Returning control to user.", false, "RunWield");
+                await recordWorkflowMetricFn({
+                    category: "planning",
+                    event: "review_outcome",
+                    agentName,
+                    planName,
+                    details: { outcome: "canceled", classification: effectiveMeta.classification },
+                });
                 return textResult(
                     "Plan review canceled by the user. Stop generating; control has returned to the user.",
                     { ...params, outcome: "canceled" },
@@ -194,6 +204,13 @@ export function createPlanWrittenTool(
             }
 
             if (!reviewResult.approved) {
+                await recordWorkflowMetricFn({
+                    category: "planning",
+                    event: "review_outcome",
+                    agentName,
+                    planName,
+                    details: { outcome: "feedback", classification: effectiveMeta.classification },
+                });
                 return textResult(
                     buildFeedbackRequestText({
                         round: 1,
@@ -213,6 +230,13 @@ export function createPlanWrittenTool(
                     currentStatus: "approved",
                     details: { triageMeta: projectMeta },
                 });
+                await recordWorkflowMetricFn({
+                    category: "planning",
+                    event: "readiness_outcome",
+                    agentName,
+                    planName,
+                    details: { outcome: "passed", classification: "PROJECT", lifecycleEvent: "epic_readiness_passed" },
+                });
                 uiAPI.appendSystemMessage(
                     `PROJECT plan ready for decomposition or child plan selection: ${planName}`,
                     false,
@@ -221,6 +245,13 @@ export function createPlanWrittenTool(
 
                 const action = await askProjectDecompositionApproval(planName, uiAPI);
                 if (action !== "proceed") {
+                    await recordWorkflowMetricFn({
+                        category: "planning",
+                        event: "review_outcome",
+                        agentName,
+                        planName,
+                        details: { outcome: "saved", classification: "PROJECT", projectAction: action },
+                    });
                     uiAPI.appendSystemMessage(
                         `Plan saved. Resume later with: ${CLI_BIN} load-plan ${planName}`,
                         false,
@@ -249,11 +280,34 @@ export function createPlanWrittenTool(
                         sessionManager,
                     });
                     if (!slicerResult.ok) {
+                        await recordWorkflowMetricFn({
+                            category: "planning",
+                            event: "readiness_outcome",
+                            agentName,
+                            planName,
+                            details: {
+                                outcome: "repair_required",
+                                classification: "PROJECT",
+                                projectAction: "decomposition_failed",
+                                stage: "slicer",
+                            },
+                        });
                         return textResult(
                             `plan_written: the slicer agent failed for plans/${planName}.md: ${slicerResult.error}`,
                             { ...params, outcome: "feedback", feedback: slicerResult.error },
                         );
                     }
+                    await recordWorkflowMetricFn({
+                        category: "planning",
+                        event: "review_outcome",
+                        agentName,
+                        planName,
+                        details: {
+                            outcome: "saved",
+                            classification: "PROJECT",
+                            projectAction: "decomposition_started",
+                        },
+                    });
                     const slicerFeedbackSuffix = reviewResult.feedback
                         ? `\n\nFeedback/annotations from review: ${reviewResult.feedback}`
                         : "";
@@ -274,6 +328,18 @@ export function createPlanWrittenTool(
                 });
 
                 if (!sliceResult.ok) {
+                    await recordWorkflowMetricFn({
+                        category: "planning",
+                        event: "readiness_outcome",
+                        agentName,
+                        planName,
+                        details: {
+                            outcome: "repair_required",
+                            classification: "PROJECT",
+                            projectAction: "decomposition_failed",
+                            stage: sliceResult.stage,
+                        },
+                    });
                     const intro = sliceResult.stage === "slicer"
                         ? `plan_written: the slicer agent failed to produce tasks for plans/${planName}.md`
                         : `plan_written: slicer ran but the resulting Tasks table is not parseable`;
@@ -291,6 +357,17 @@ export function createPlanWrittenTool(
                     currentStatus: "ready_for_decomposition",
                     details: { triageMeta: effectiveMeta },
                 });
+                await recordWorkflowMetricFn({
+                    category: "planning",
+                    event: "readiness_outcome",
+                    agentName,
+                    planName,
+                    details: {
+                        outcome: "passed",
+                        classification: "PROJECT",
+                        lifecycleEvent: "decomposition_finalized",
+                    },
+                });
             } else {
                 await recordPlanEventFn({
                     cwd,
@@ -299,11 +376,29 @@ export function createPlanWrittenTool(
                     currentStatus: "approved",
                     details: { triageMeta: effectiveMeta },
                 });
+                await recordWorkflowMetricFn({
+                    category: "planning",
+                    event: "readiness_outcome",
+                    agentName,
+                    planName,
+                    details: {
+                        outcome: "passed",
+                        classification: effectiveMeta.classification,
+                        lifecycleEvent: "readiness_passed",
+                    },
+                });
             }
 
             const action = await askPostApproval(planName, uiAPI);
 
             if (action !== "proceed") {
+                await recordWorkflowMetricFn({
+                    category: "planning",
+                    event: "review_outcome",
+                    agentName,
+                    planName,
+                    details: { outcome: "saved", classification: effectiveMeta.classification, action },
+                });
                 uiAPI.appendSystemMessage(
                     `Plan saved. Resume later with: ${CLI_BIN} resume ${planName}`,
                     false,
@@ -319,6 +414,13 @@ export function createPlanWrittenTool(
                 );
             }
 
+            await recordWorkflowMetricFn({
+                category: "planning",
+                event: "review_outcome",
+                agentName,
+                planName,
+                details: { outcome: "approved_execute", classification: effectiveMeta.classification, action },
+            });
             const execFeedbackSuffix = reviewResult.feedback
                 ? `\n\nFeedback/annotations from review: ${reviewResult.feedback}`
                 : "";

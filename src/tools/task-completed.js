@@ -8,6 +8,7 @@
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { appendTaskCompletedMessage } from "../ui/tui/task-completed-message.js";
+import { recordWorkflowMetric } from "../shared/workflow/metrics.js";
 
 const TOOL_PARAMS = Type.Object({
     message: Type.Optional(Type.String({
@@ -21,10 +22,14 @@ const TOOL_PARAMS = Type.Object({
  * @param {{
  *   uiAPI: import('../shared/workflow/workflow.js').UiAPI,
  *   agentName?: string,
+ *   recordWorkflowMetric?: typeof recordWorkflowMetric,
  * }} opts
  * @returns {import('@earendil-works/pi-coding-agent').ToolDefinition}
  */
-export function createTaskCompletedTool({ uiAPI, agentName = "agent" } = /** @type {any} */ ({})) {
+export function createTaskCompletedTool(
+    { uiAPI, agentName = "agent", recordWorkflowMetric: recordWorkflowMetricImpl = recordWorkflowMetric } =
+        /** @type {any} */ ({}),
+) {
     if (!uiAPI) throw new Error("createTaskCompletedTool: uiAPI is required");
     return defineTool({
         name: "task_completed",
@@ -44,6 +49,12 @@ export function createTaskCompletedTool({ uiAPI, agentName = "agent" } = /** @ty
         async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
             await Promise.resolve();
             appendTaskCompletedMessage(uiAPI, agentName, params.message);
+            await recordWorkflowMetricImpl({
+                category: "execution",
+                event: "task_completed",
+                agentName,
+                details: { hasMessage: Boolean(params.message) },
+            });
 
             return {
                 content: [],

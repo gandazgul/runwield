@@ -50,6 +50,22 @@
             "$ref": "#/$defs/notifications",
             "description": "Desktop attention notifications for agent stops, plan review, and user interview prompts."
         },
+        "workflowMetrics": {
+            "description": "Opt-in local-only workflow metrics recording. When disabled or unset, no metrics are written. Records are stored under ~/.wld/workflow-metrics/<encoded-cwd>/metrics.jsonl.",
+            "oneOf": [
+                { "type": "boolean" },
+                {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "enabled": {
+                            "type": "boolean",
+                            "description": "Enable local-only workflow metrics recording."
+                        }
+                    }
+                }
+            ]
+        },
         "enableExternalSkills": {
             "type": "boolean",
             "description": "Global setting. When true, RunWeild includes skills from ~/.agents/skills after local, home, and bundled skills."
