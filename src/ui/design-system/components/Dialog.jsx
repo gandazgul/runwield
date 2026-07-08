@@ -1,3 +1,4 @@
+// @jsxImportSource preact
 /**
  * Shared RunWield Dialog primitive.
  */
@@ -5,6 +6,8 @@
 import * as dialog from "@zag-js/dialog";
 import { normalizeProps, Portal, useMachine } from "@zag-js/preact";
 import { useId } from "preact/hooks";
+
+const DialogPortal = /** @type {any} */ (Portal);
 
 /** @typedef {"primary" | "secondary" | "danger"} DialogActionVariant */
 
@@ -38,7 +41,7 @@ function DialogAction(action, index) {
         <button
             key={action.key || index}
             {...props}
-            class={classNames([actionClassName(variant), className, compatClassName])}
+            className={classNames([actionClassName(variant), className, compatClassName])}
         >
             {label}
         </button>
@@ -92,40 +95,46 @@ export function Dialog({
     });
     const api = dialog.connect(service, normalizeProps);
     const actions = Array.isArray(footer) ? footer : footer ? [footer] : [];
+    const triggerProps = /** @type {any} */ (api.getTriggerProps());
+    const backdropProps = /** @type {any} */ (api.getBackdropProps());
+    const positionerProps = /** @type {any} */ (api.getPositionerProps());
+    const contentProps = /** @type {any} */ (api.getContentProps());
+    const titleProps = /** @type {any} */ (api.getTitleProps());
+    const descriptionProps = /** @type {any} */ (api.getDescriptionProps());
 
     return (
         <>
             {typeof trigger === "function"
                 ? trigger(api)
                 : trigger
-                ? <button {...api.getTriggerProps()} class="secondary-action">{trigger}</button>
+                ? <button {...triggerProps} className="secondary-action">{trigger}</button>
                 : null}
             {api.open
                 ? (
-                    <Portal>
-                        <div {...api.getBackdropProps()} class="rw-dialog-backdrop" />
-                        <div {...api.getPositionerProps()} class="rw-dialog-positioner">
+                    <DialogPortal>
+                        <div {...backdropProps} className="rw-dialog-backdrop" />
+                        <div {...positionerProps} className="rw-dialog-positioner">
                             <section
-                                {...api.getContentProps()}
-                                class={classNames(["rw-dialog-panel", className, compatClassName])}
+                                {...contentProps}
+                                className={classNames(["rw-dialog-panel", className, compatClassName])}
                             >
-                                <header class="rw-dialog-header">
-                                    {title ? <h2 {...api.getTitleProps()} class="rw-dialog-title">{title}</h2> : null}
+                                <header className="rw-dialog-header">
+                                    {title ? <h2 {...titleProps} className="rw-dialog-title">{title}</h2> : null}
                                     {description
                                         ? (
-                                            <p {...api.getDescriptionProps()} class="rw-dialog-description">
+                                            <p {...descriptionProps} className="rw-dialog-description">
                                                 {description}
                                             </p>
                                         )
                                         : null}
                                 </header>
-                                <div class="rw-dialog-body">{children}</div>
+                                <div className="rw-dialog-body">{children}</div>
                                 {actions.length
-                                    ? <footer class="rw-dialog-footer">{actions.map(DialogAction)}</footer>
+                                    ? <footer className="rw-dialog-footer">{actions.map(DialogAction)}</footer>
                                     : null}
                             </section>
                         </div>
-                    </Portal>
+                    </DialogPortal>
                 )
                 : null}
         </>

@@ -1,8 +1,11 @@
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "react";
 import { basicSetup, EditorView } from "codemirror";
 import { markdown } from "@codemirror/lang-markdown";
 import { PLAN_UI_TOKEN_HEADER, PLAN_UI_TOKEN_QUERY } from "../constants.js";
-import { renderMarkdown } from "../components/MarkdownView.jsx";
+import { MarkdownView } from "../components/MarkdownView.jsx";
+const planDetailEntryModules = typeof import.meta.glob === "function"
+    ? import.meta.glob("../react/plan-detail-entry.tsx")
+    : { "../react/plan-detail-entry.tsx": () => Promise.resolve() };
 
 /**
  * @param {string} workspaceKey
@@ -126,8 +129,8 @@ export function PlanBodyEditor({ plan, initialEdit = false }) {
     useEffect(() => {
         if (mode !== "read" || !readHost.current) return undefined;
         const host = readHost.current;
-        const entryUrl = new URL("../react/plan-detail-entry.tsx", import.meta.url);
-        void import(entryUrl.href).then(() => {
+        const loadPlanDetailEntry = planDetailEntryModules["../react/plan-detail-entry.tsx"];
+        void loadPlanDetailEntry?.().then(() => {
             host.dispatchEvent(new CustomEvent("runwield:plannotator-plan-body:mount", { bubbles: true }));
         });
         return () => {
@@ -203,32 +206,31 @@ export function PlanBodyEditor({ plan, initialEdit = false }) {
     }
 
     const recovery = draftRecoveryState(draft, bodyHash);
-    const preview = renderMarkdown(savedBody);
     const planBodyJson = JSON.stringify({ body: savedBody }).replace(/</g, "\\u003c");
 
     return (
-        <section class="plan-body-editor" data-editor-mode={mode}>
+        <section className="plan-body-editor" data-editor-mode={mode}>
             {mode === "edit"
                 ? (
-                    <div class="editor-toolbar">
-                        <button type="button" class="primary-action" disabled={saving || !dirty} onClick={saveBody}>
+                    <div className="editor-toolbar">
+                        <button type="button" className="primary-action" disabled={saving || !dirty} onClick={saveBody}>
                             {saving ? "Saving…" : "Save"}
                         </button>
                         <button type="button" onClick={cancelEdit}>Cancel</button>
-                        <span class={dirty ? "dirty-indicator" : "saved-indicator"}>
+                        <span className={dirty ? "dirty-indicator" : "saved-indicator"}>
                             {dirty ? "Unsaved changes" : "No changes"}
                         </span>
                     </div>
                 )
                 : null}
-            {message ? <p class="notice editor-notice">{message}</p> : null}
+            {message ? <p className="notice editor-notice">{message}</p> : null}
             {canEdit && draft && mode === "read"
                 ? (
-                    <div class={recovery === "changed-on-disk" ? "notice warning" : "notice"}>
+                    <div className={recovery === "changed-on-disk" ? "notice warning" : "notice"}>
                         {recovery === "changed-on-disk"
                             ? "A local draft exists, but this Plan changed on disk. Restore only if you want to copy or merge it manually."
                             : "A local unsaved draft is available for this Plan body."}
-                        <div class="inline-actions">
+                        <div className="inline-actions">
                             <button type="button" onClick={restoreDraft}>Restore draft</button>
                             <button type="button" onClick={discardDraft}>Discard draft</button>
                         </div>
@@ -236,7 +238,7 @@ export function PlanBodyEditor({ plan, initialEdit = false }) {
                 )
                 : null}
             {mode === "edit"
-                ? <div class="codemirror-shell" ref={editorHost} aria-label="Plan body markdown editor" />
+                ? <div className="codemirror-shell" ref={editorHost} aria-label="Plan body markdown editor" />
                 : (
                     <div
                         ref={readHost}
@@ -249,14 +251,9 @@ export function PlanBodyEditor({ plan, initialEdit = false }) {
                             data-plannotator-plan-body-json
                             dangerouslySetInnerHTML={{ __html: planBodyJson }}
                         />
-                        <div data-plannotator-plan-body-root />
-                        {preview
-                            ? <div class="markdown-view" dangerouslySetInnerHTML={{ __html: preview }} />
-                            : (
-                                <div class="markdown-view">
-                                    <p class="empty">No Plan body content.</p>
-                                </div>
-                            )}
+                        <div data-plannotator-plan-body-root>
+                            <MarkdownView markdown={savedBody} />
+                        </div>
                     </div>
                 )}
         </section>
