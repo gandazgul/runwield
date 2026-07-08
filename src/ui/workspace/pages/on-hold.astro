@@ -1,0 +1,16 @@
+---
+import WorkspaceLayout from "../layouts/WorkspaceLayout.astro";
+---
+<WorkspaceLayout title="On-hold Plans · RunWield Workspace" selectedTab="on-hold">
+    <section class="page-header">
+        <p class="eyebrow">Astro SSR scaffold</p>
+        <h2>On-hold Plans</h2>
+        <p>Fixture-backed route scaffold for held work while full Workspace parity is ported.</p>
+    </section>
+    <nav class="tabs" aria-label="Workspace views">
+        <a href="/" data-tab="active">Active</a>
+        <a href="/closed" data-tab="closed">Closed</a>
+        <a href="/on-hold" class="active" data-tab="on-hold">On hold</a>
+    </nav>
+    <article class="plan-card compact"><p class="card-kicker">Fixture</p><h3 class="card-title">No on-hold fixture Plans</h3><p>Real on-hold board data remains behind the wrapper/API seam.</p></article>
+</WorkspaceLayout>

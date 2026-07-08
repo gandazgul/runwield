@@ -1,0 +1,30 @@
+{
+    "extends": "astro/tsconfigs/strict",
+    "compilerOptions": {
+        "allowImportingTsExtensions": true,
+        "jsx": "react-jsx",
+        "jsxImportSource": "react",
+        "baseUrl": "../../..",
+        "paths": {
+            "@plannotator/ui/*": ["third_party/plannotator/packages/ui/*"],
+            "@plannotator/shared/*": ["third_party/plannotator/packages/shared/*"],
+            "@plannotator/ai": ["third_party/plannotator/packages/ai/index.ts"],
+            "@plannotator/ai/*": ["third_party/plannotator/packages/ai/*"]
+        },
+        "types": [
+            "astro/client",
+            "vite/client"
+        ]
+    },
+    "include": [
+        "./**/*",
+        "../../../third_party/plannotator/packages/ui/components/RenderedMarkdown.tsx"
+    ],
+    "exclude": [
+        "./node_modules",
+        "./.astro",
+        "../../../third_party/plannotator/**/*.test.ts",
+        "../../../third_party/plannotator/**/*.test.tsx",
+        "../../../third_party/plannotator/apps/**/*"
+    ]
+}

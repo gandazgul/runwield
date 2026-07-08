@@ -3,8 +3,6 @@
  * Converts the active RunWield TUI theme into browser CSS variables.
  */
 
-import { resolveSelectedThemeJson } from "../theme/theme.js";
-
 /**
  * @typedef {Object} RunWieldBrowserThemeJson
  * @property {string} [name]
@@ -113,6 +111,11 @@ export function renderRunWieldThemeCss(themeJson) {
         if (cssValue) lines.push(`    ${mapping.css}: ${cssValue};`);
     }
 
+    lines.push("    --rw-radix-popover-bg: var(--rw-surface-raised);");
+    lines.push("    --rw-radix-focus-ring: var(--rw-accent);");
+    lines.push("    --rw-plannotator-surface: var(--rw-surface-raised);");
+    lines.push("    --rw-plannotator-text: var(--rw-text);");
+    lines.push("    --rw-plannotator-accent: var(--rw-accent);");
     lines.push("}");
     lines.push("");
     return lines.join("\n");
@@ -122,5 +125,6 @@ export function renderRunWieldThemeCss(themeJson) {
  * @returns {Promise<string>}
  */
 export async function loadRunWieldThemeCss() {
+    const { resolveSelectedThemeJson } = await import("../theme/theme.js");
     return renderRunWieldThemeCss(await resolveSelectedThemeJson());
 }
