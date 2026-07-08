@@ -1,3 +1,4 @@
+// @ts-nocheck: Astro/Vite plugin type packages resolve to multiple Vite versions under Deno npm nodeModulesDir.
 // Polyfill for Astro's Vite CJS evaluator in Deno, following the local Goaly Astro app pattern.
 globalThis.exports = globalThis.exports || {};
 globalThis.module = globalThis.module || { exports: globalThis.exports };

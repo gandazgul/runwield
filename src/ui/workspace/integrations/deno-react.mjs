@@ -1,3 +1,4 @@
+// @ts-nocheck: local Astro integration mirrors @astrojs/react hooks where Deno/Vite types are not stable.
 import viteReact from "@vitejs/plugin-react";
 
 /**
