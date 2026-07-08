@@ -1,4 +1,5 @@
 ---
+planId: "24d8eefb-a688-4559-8519-33b123a3eb49"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Replace compiled Plannotator plan/code review launch surfaces with Workspace-hosted Astro/React/Plannotator routes behind the existing review-launcher adapter. Preserve workflow decision behavior while keeping direct HMR dev commands for visual testing and iteration."
@@ -13,7 +14,6 @@ affectedPaths:
     - "src/ui/design-system/theme-bridge.js"
     - "deno.json"
     - "third_party/plannotator/"
-worktreeBaseBranch: "workspace-astro-react-plannotator-migration"
 frontend: true
 devServerCommand: "deno task workspace:dev:plan-review"
 devServerUrl: "http://localhost:5173/"
@@ -27,6 +27,7 @@ order: 3
 dependencies:
     - "01-astro-react-workspace-platform-and-review-dev-entrypoints"
     - "02-core-workspace-astro-react-parity-and-fresh-retirement"
+worktreeBaseBranch: "workspace-astro-react-plannotator-migration"
 ---
 
 # Workspace Hosted Plan and Code Review Surfaces
@@ -48,6 +49,10 @@ Implement Workspace-hosted Plan review and code review surfaces behind the exist
 approval/feedback and code review annotation/decision behavior, browser-open fallback, wait-for-decision behavior, and
 server shutdown semantics. Keep `workspace:dev:plan-review` and `workspace:dev:code-review` useful as direct browser
 development entrypoints for these internal UIs.
+
+its important that our code review reuses plannotator's components I want to see the actual code review interface, same
+with the plan review interface it has to use plannotator's annotating editor. The visual and feature parity here is with
+plannotator's interfaces and is not done unless there's parity. Lets talk about the features that matter.
 
 ## Approach
 
