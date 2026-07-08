@@ -21,6 +21,7 @@ import { createRunWieldGrepToolDefinition } from "../../tools/grep.js";
 import { extractYaml, test as hasFrontMatter } from "@std/front-matter";
 import { dirname, join } from "@std/path";
 import { AGENT_DEFS_DIR, AGENTS, CWD, HOME_DIR, PROMPT_TEMPLATES_DIR, SKILLS_DIR } from "../../constants.js";
+import { RuntimeEventTypes } from "./session-runtime-events.js";
 import mnemosyneExtension, {
     memoryDeleteToolDef,
     memoryRecallGlobalToolDef,
@@ -1465,6 +1466,42 @@ export function attachUiSubscribers(
     let currentThinkingStream = null;
     const notifyDeps = /** @type {{ notifyRunWieldEventQuietly?: typeof notifyRunWieldEventQuietly }} */ (deps);
     const notifyRunWieldEvent = notifyDeps.notifyRunWieldEventQuietly || notifyRunWieldEventQuietly;
+    let currentRuntimeTurnId = crypto.randomUUID();
+    let assistantMessageSequence = 0;
+    let thinkingMessageSequence = 0;
+    /** @type {string | null} */
+    let currentAssistantMessageId = null;
+    /** @type {string | null} */
+    let currentThinkingMessageId = null;
+
+    /** @returns {string} */
+    const nextAssistantMessageId = () => `${currentRuntimeTurnId}:assistant:${++assistantMessageSequence}`;
+    /** @returns {string} */
+    const nextThinkingMessageId = () => `${currentRuntimeTurnId}:thinking:${++thinkingMessageSequence}`;
+
+    /**
+     * @param {Partial<import('./session-runtime-events.js').SessionRuntimeEvent> & { type: string }} runtimeEvent
+     */
+    const emitRuntimeEvent = (runtimeEvent) => {
+        const sink = hostedSession?.getEventSink?.();
+        if (!sink) return false;
+        const eventWithTurnId = runtimeEvent.turnId ? runtimeEvent : { turnId: currentRuntimeTurnId, ...runtimeEvent };
+        try {
+            if (typeof sink === "function") {
+                sink(eventWithTurnId);
+                return true;
+            }
+            if (typeof sink === "object" && "emit" in sink && typeof sink.emit === "function") {
+                sink.emit(eventWithTurnId);
+                return true;
+            }
+        } catch {
+            // Adapter event sinks must not break the core pi-agent subscriber.
+        }
+        return false;
+    };
+
+    const hasRuntimeEventSink = () => Boolean(hostedSession?.getEventSink?.());
 
     const endThinking = () => {
         if (currentThinkingStream) {
@@ -1495,12 +1532,20 @@ export function attachUiSubscribers(
                     // (or when rendering an assistant error on message_end).
                     currentMarkdownBlock = null;
                     agentHeaderShown = false;
+                    currentAssistantMessageId = /** @type {any} */ (event.message).id || nextAssistantMessageId();
+                    currentThinkingMessageId = null;
                     endThinking();
                 }
                 break;
             }
             case "message_update": {
                 if (event.assistantMessageEvent.type === "thinking_delta") {
+                    currentThinkingMessageId = currentThinkingMessageId || nextThinkingMessageId();
+                    emitRuntimeEvent({
+                        type: RuntimeEventTypes.ASSISTANT_THINKING_DELTA,
+                        messageId: currentThinkingMessageId,
+                        delta: event.assistantMessageEvent.delta,
+                    });
                     if (shouldWriteDebugLog(debugLogPath) && debugLogPath) {
                         appendDebugLog(
                             debugLogPath,
@@ -1518,13 +1563,17 @@ export function attachUiSubscribers(
                     }
                     if (currentThinkingStream) {
                         currentThinkingStream.appendDelta(event.assistantMessageEvent.delta);
-                    } else {
+                    } else if (!hasRuntimeEventSink()) {
                         console.log(event.assistantMessageEvent.delta);
                     }
                     break;
                 }
 
                 if (event.assistantMessageEvent.type === "thinking_end") {
+                    emitRuntimeEvent({
+                        type: RuntimeEventTypes.ASSISTANT_THINKING_END,
+                        ...(currentThinkingMessageId ? { messageId: currentThinkingMessageId } : {}),
+                    });
                     if (shouldWriteDebugLog(debugLogPath) && debugLogPath) {
                         appendDebugLog(
                             debugLogPath,
@@ -1540,6 +1589,12 @@ export function attachUiSubscribers(
                 }
 
                 if (event.assistantMessageEvent.type === "text_delta") {
+                    currentAssistantMessageId = currentAssistantMessageId || nextAssistantMessageId();
+                    emitRuntimeEvent({
+                        type: RuntimeEventTypes.ASSISTANT_TEXT_DELTA,
+                        messageId: currentAssistantMessageId,
+                        delta: event.assistantMessageEvent.delta,
+                    });
                     if (shouldWriteDebugLog(debugLogPath) && debugLogPath) {
                         appendDebugLog(
                             debugLogPath,
@@ -1561,7 +1616,7 @@ export function attachUiSubscribers(
                         agentHeaderShown = true;
                         block.appendText(event.assistantMessageEvent.delta);
                         liveUiAPI.requestRender();
-                    } else {
+                    } else if (!hasRuntimeEventSink()) {
                         Deno.stdout.writeSync(
                             new TextEncoder().encode(event.assistantMessageEvent.delta),
                         );
@@ -1572,7 +1627,7 @@ export function attachUiSubscribers(
             case "message_end": {
                 if (shouldWriteDebugLog(debugLogPath) && debugLogPath) {
                     const message =
-                        /** @type {import('@earendil-works/pi-agent-core').AgentMessage & { stopReason?: string, errorMessage?: string }} */ (event
+                        /** @type {import('@earendil-works/pi-agent-core').AgentMessage & { stopReason?: string, errorMessage?: string, usage?: unknown }} */ (event
                             .message);
                     appendDebugLog(
                         debugLogPath,
@@ -1588,6 +1643,23 @@ export function attachUiSubscribers(
                 }
                 if (event.message.role === "assistant") {
                     endThinking();
+                }
+
+                const endedMessage = /** @type {any} */ (event.message);
+                if (endedMessage?.usage) {
+                    emitRuntimeEvent({
+                        type: RuntimeEventTypes.USAGE,
+                        raw: endedMessage.usage,
+                    });
+                }
+
+                if (event.message.role === "assistant" && event.message.stopReason === "error") {
+                    const message = sanitizeApiErrorMessage(event.message.errorMessage || "Unknown LLM error");
+                    emitRuntimeEvent({
+                        type: RuntimeEventTypes.TERMINAL_ERROR,
+                        message,
+                        error: event.message.errorMessage,
+                    });
                 }
 
                 if (
@@ -1618,21 +1690,34 @@ export function attachUiSubscribers(
                 break;
             }
             case "auto_retry_start": {
+                const message = `[Retry ${event.attempt}/${event.maxAttempts}] ${
+                    sanitizeApiErrorMessage(event.errorMessage)
+                } — waiting ${event.delayMs}ms...`;
+                emitRuntimeEvent({
+                    type: RuntimeEventTypes.SYSTEM_STATUS,
+                    level: "warning",
+                    message,
+                    raw: event,
+                });
                 if (liveUiAPI) {
-                    liveUiAPI.appendSystemMessage(
-                        `[Retry ${event.attempt}/${event.maxAttempts}] ${
-                            sanitizeApiErrorMessage(event.errorMessage)
-                        } — waiting ${event.delayMs}ms...`,
-                    );
+                    liveUiAPI.appendSystemMessage(message);
                 }
                 break;
             }
             case "auto_retry_end": {
-                if (liveUiAPI && !event.success) {
-                    liveUiAPI.appendSystemMessage(
-                        `Auto-retry failed after ${event.attempt} attempts: ${event.finalError || "Unknown error"}`,
-                        true,
-                    );
+                if (!event.success) {
+                    const message = `Auto-retry failed after ${event.attempt} attempts: ${
+                        event.finalError || "Unknown error"
+                    }`;
+                    emitRuntimeEvent({
+                        type: RuntimeEventTypes.SYSTEM_STATUS,
+                        level: "error",
+                        message,
+                        raw: event,
+                    });
+                    if (liveUiAPI) {
+                        liveUiAPI.appendSystemMessage(message, true);
+                    }
                 }
                 break;
             }
@@ -1661,10 +1746,6 @@ export function attachUiSubscribers(
                             "",
                         ].join("\n"),
                     );
-                }
-
-                if (event.toolName === "task_completed") {
-                    break;
                 }
 
                 const filePath = getFilePathForTool(event.toolName, event.args);
@@ -1720,10 +1801,24 @@ export function attachUiSubscribers(
                     headerArgs = "to router";
                 }
 
+                emitRuntimeEvent({
+                    type: RuntimeEventTypes.TOOL_START,
+                    toolCallId: event.toolCallId,
+                    toolName: event.toolName,
+                    title: event.toolName === "bash"
+                        ? `$ ${headerArgs}`.trim()
+                        : `${event.toolName} ${headerArgs}`.trim(),
+                    args: event.args,
+                });
+
+                if (event.toolName === "task_completed") {
+                    break;
+                }
+
                 if (liveUiAPI && liveUiAPI.startToolExecution) {
                     const headerName = event.toolName === "bash" ? "$" : event.toolName;
                     liveUiAPI.startToolExecution(event.toolCallId, headerName, headerArgs);
-                } else {
+                } else if (!hasRuntimeEventSink()) {
                     console.log(`\n  [Tool] ${event.toolName} ${headerArgs}`);
                 }
                 break;
@@ -1743,14 +1838,22 @@ export function attachUiSubscribers(
                         ].join("\n"),
                     );
                 }
+                const partialText = event.partialResult?.content
+                    ?.map((/** @type {{ text?: string } | null | undefined } */ contentBlock) =>
+                        contentBlock && typeof contentBlock === "object" ? String(contentBlock.text || "") : ""
+                    )
+                    .join("") || "";
+                emitRuntimeEvent({
+                    type: RuntimeEventTypes.TOOL_UPDATE,
+                    toolCallId: event.toolCallId,
+                    toolName: event.toolName,
+                    partialResult: event.partialResult,
+                    text: partialText,
+                });
                 if (liveUiAPI && liveUiAPI.getActiveToolBlock) {
                     const block = liveUiAPI.getActiveToolBlock(event.toolCallId);
                     if (block && event.partialResult && event.partialResult.content) {
-                        const newContentText = event.partialResult.content
-                            .map((/** @type {{ text?: string } | null | undefined } */ contentBlock) =>
-                                contentBlock && typeof contentBlock === "object" ? String(contentBlock.text || "") : ""
-                            )
-                            .join("");
+                        const newContentText = partialText;
                         const currentText = block.bodyText || "";
                         if (newContentText.length > currentText.length) {
                             block.appendOutput(newContentText.slice(currentText.length));
@@ -1775,18 +1878,25 @@ export function attachUiSubscribers(
                         ].join("\n"),
                     );
                 }
+                const resultText = event.result?.content
+                    ?.map((/** @type {{ text?: string } | null | undefined } */ contentBlock) =>
+                        contentBlock && typeof contentBlock === "object" ? String(contentBlock.text || "") : ""
+                    )
+                    .join("") || "";
+                emitRuntimeEvent({
+                    type: RuntimeEventTypes.TOOL_END,
+                    toolCallId: event.toolCallId,
+                    toolName: event.toolName,
+                    isError: event.isError,
+                    result: event.result,
+                    text: resultText,
+                });
                 if (liveUiAPI && liveUiAPI.getActiveToolBlock) {
                     const block = liveUiAPI.getActiveToolBlock(event.toolCallId);
                     if (block) {
                         // Make sure we append any final result text that wasn't streamed
                         if (event.result && event.result.content) {
-                            const newContentText = event.result.content
-                                .map((/** @type {{ text?: string } | null | undefined } */ contentBlock) =>
-                                    contentBlock && typeof contentBlock === "object"
-                                        ? String(contentBlock.text || "")
-                                        : ""
-                                )
-                                .join("");
+                            const newContentText = resultText;
                             const currentText = block.bodyText || "";
                             if (newContentText.length > currentText.length) {
                                 block.appendOutput(newContentText.slice(currentText.length));
@@ -1795,43 +1905,74 @@ export function attachUiSubscribers(
                         const durationMs = Date.now() - block.startTime;
                         block.endExecution(event.isError, durationMs);
                     }
-                } else {
+                } else if (!hasRuntimeEventSink()) {
                     console.log(`  [Tool] ${event.toolName} — ${event.isError ? "error" : "ok"}`);
                 }
                 break;
             }
             case "turn_start": {
+                currentRuntimeTurnId = /** @type {any} */ (event).turnId || crypto.randomUUID();
+                assistantMessageSequence = 0;
+                thinkingMessageSequence = 0;
+                currentAssistantMessageId = null;
+                currentThinkingMessageId = null;
+                emitRuntimeEvent({ type: RuntimeEventTypes.TURN_START, turnId: currentRuntimeTurnId });
                 if (liveUiAPI && liveUiAPI.setBusy) liveUiAPI.setBusy(true);
                 break;
             }
             case "turn_end": {
+                emitRuntimeEvent({ type: RuntimeEventTypes.TURN_END, turnId: currentRuntimeTurnId, ok: true });
+                currentAssistantMessageId = null;
+                currentThinkingMessageId = null;
                 if (liveUiAPI && liveUiAPI.setBusy) liveUiAPI.setBusy(false);
                 break;
             }
             case "compaction_start": {
                 // Manual /compact has its own UI in cmd/compact/index.js — avoid duplicate status.
-                if (liveUiAPI && event.reason !== "manual") {
+                if (event.reason !== "manual") {
                     const label = event.reason === "overflow"
                         ? "Context overflow detected, auto-compacting..."
                         : "Auto-compacting context...";
-                    liveUiAPI.appendSystemMessage(label);
+                    emitRuntimeEvent({
+                        type: RuntimeEventTypes.SYSTEM_STATUS,
+                        level: "info",
+                        message: label,
+                        raw: event,
+                    });
+                    if (liveUiAPI) liveUiAPI.appendSystemMessage(label);
                 }
                 break;
             }
             case "compaction_end": {
                 // Manual /compact's success/failure is reported by the slash command itself
                 // (which awaits session.compact()). Only emit a UI message for auto runs.
-                if (liveUiAPI && event.reason !== "manual") {
+                if (event.reason !== "manual") {
                     if (event.aborted) {
-                        liveUiAPI.appendSystemMessage("Auto-compaction cancelled.");
+                        emitRuntimeEvent({
+                            type: RuntimeEventTypes.SYSTEM_STATUS,
+                            level: "warning",
+                            message: "Auto-compaction cancelled.",
+                            raw: event,
+                        });
+                        if (liveUiAPI) liveUiAPI.appendSystemMessage("Auto-compaction cancelled.");
                     } else if (event.result) {
-                        liveUiAPI.appendSystemMessage(
-                            `Auto-compacted. Tokens before: ${event.result.tokensBefore.toLocaleString()}`,
-                        );
+                        const message = `Auto-compacted. Tokens before: ${event.result.tokensBefore.toLocaleString()}`;
+                        emitRuntimeEvent({
+                            type: RuntimeEventTypes.SYSTEM_STATUS,
+                            level: "info",
+                            message,
+                            raw: event,
+                        });
+                        if (liveUiAPI) liveUiAPI.appendSystemMessage(message);
                     } else if (event.errorMessage) {
-                        liveUiAPI.appendSystemMessage(
-                            `Auto-compaction failed: ${sanitizeApiErrorMessage(event.errorMessage)}`,
-                        );
+                        const message = `Auto-compaction failed: ${sanitizeApiErrorMessage(event.errorMessage)}`;
+                        emitRuntimeEvent({
+                            type: RuntimeEventTypes.SYSTEM_STATUS,
+                            level: "error",
+                            message,
+                            raw: event,
+                        });
+                        if (liveUiAPI) liveUiAPI.appendSystemMessage(message);
                     }
                 }
                 break;
