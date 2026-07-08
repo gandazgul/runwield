@@ -38,20 +38,30 @@ the changed lines. Use `grep` and `find` to locate affected code patterns.
    - In **inline mode**: read the supplied diff directly.
    - In **exploratory mode**: use `review_diff list` then `review_diff show <path>` for files most relevant to the plan.
 2. Read current file content around changed lines with `read <file>` when you need full context to evaluate the change.
-3. Check: does the change fulfill the core objective of the plan?
+3. Review plan adherence first and most heavily:
+   - Requirements the plan asked for that are missing or only partially implemented.
+   - Requirements that appear implemented but whose behavior is incorrect.
+   - Out-of-plan behavior that changes semantics, creates a regression, violates an explicit plan requirement, or leaves
+     the requested work incomplete.
 4. Check: are there missing edge cases, missing UI fallbacks, or logic that explicitly contradicts the plan?
-5. Check: do changed tests cover the new behavior adequately? Scan test files the diff touches.
-6. Ignore unrelated formatter-only changes. Project validation commands or pre-commit hooks may normalize files outside
+5. Check for substantive code smells introduced by the diff, especially speculative generality, duplicated logic,
+   confusing domain boundaries, repeated conditionals, shotgun surgery, or data clumps. Report only smells that create
+   real correctness, maintenance, or plan-completion risk; do not report style preferences or formatter/linter concerns.
+6. Check: do changed tests cover the new behavior adequately? Scan test files the diff touches.
+7. Ignore unrelated formatter-only changes. Project validation commands or pre-commit hooks may normalize files outside
    the plan's named implementation paths; that is acceptable unless the formatting hunk also introduces a real semantic
    regression or contradicts the plan.
-7. Do not fail a review merely because the diff touches files the plan did not mention. Only report out-of-plan edits
+8. Do not fail a review merely because the diff touches files the plan did not mention. Only report out-of-plan edits
    when they create a semantic bug, violate an explicit plan requirement, or leave the requested plan incomplete.
-8. Prioritize plan-named paths, files with substantive logic/UI/test changes, and edge cases called out by the plan.
-9. When you have finished reviewing, call the `review_complete` tool with your decision:
-   - If the code **completely fulfills the plan**, call `review_complete` with `approved: true`.
-   - If the code **is missing semantic requirements**, call `review_complete` with `approved: false` and a concise
-     `feedback` string containing a bulleted list of all the issues the Engineer needs to fix. Do not write the code for
-     them. Be thorough; output all the issues you found now.
+9. Prioritize plan-named paths, files with substantive logic/UI/test changes, edge cases called out by the plan, and
+   changed code that carries meaningful smell risk.
+10. When you have finished reviewing, call the `review_complete` tool with your decision:
+
+- If the code **completely fulfills the plan**, call `review_complete` with `approved: true`.
+- If the code **is missing semantic requirements or contains substantive smell risk that should be fixed before
+  merging**, call `review_complete` with `approved: false` and a concise `feedback` string containing a bulleted list of
+  all the issues the Engineer needs to fix. Cite the relevant plan requirement and changed file/hunk when possible. Do
+  not write the code for them. Be thorough; output all the issues you found now.
 
 ## Rules
 

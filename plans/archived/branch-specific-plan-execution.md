@@ -10,12 +10,15 @@ affectedPaths:
     - "src/plan-store.js"
 frontend: false
 createdAt: "2026-07-05T01:12:56-04:00"
-updatedAt: "2026-07-07T03:51:54.396Z"
 status: "verified"
 origin: "internal"
 verifiedAt: "2026-07-07T03:51:54.396Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
+updatedAt: "2026-07-08T16:34:21.764Z"
+archivedAt: "2026-07-08T16:34:21.764Z"
+archivedFromStatus: "verified"
+archivedFromPath: "plans/branch-specific-plan-execution.md"
 ---
 
 # Branch-Specific Plan Execution

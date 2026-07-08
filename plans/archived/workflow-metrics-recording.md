@@ -7,12 +7,15 @@ affectedPaths:
     []
 frontend: false
 createdAt: "2026-07-05T00:25:41-04:00"
-updatedAt: "2026-07-08T04:32:33.201Z"
 status: "verified"
 origin: "internal"
 verifiedAt: "2026-07-08T04:32:33.201Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
+updatedAt: "2026-07-08T16:34:21.764Z"
+archivedAt: "2026-07-08T16:34:21.764Z"
+archivedFromStatus: "verified"
+archivedFromPath: "plans/workflow-metrics-recording.md"
 ---
 
 # Workflow Metrics Recording
