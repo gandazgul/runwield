@@ -324,3 +324,81 @@ Deno.test("attachUiSubscribers formats tool headers, streams output deltas, and 
     state.unsubscribe();
     assertEquals(unsubscribed(), true);
 });
+
+Deno.test("attachUiSubscribers emits runtime events with turn and stable stream ids", () => {
+    const { session, emit } = makeSubscribableSession();
+    const hostedSession = new HostedSession({ id: "runtime-ids", cwd: Deno.cwd() });
+    /** @type {any[]} */
+    const events = [];
+    hostedSession.setEventSink({ emit: (/** @type {unknown} */ event) => events.push(event) });
+    attachUiSubscribers(session, agentDef, undefined, undefined, hostedSession);
+
+    emit({ type: "turn_start", turnId: "turn-known" });
+    emit({ type: "message_start", message: { id: "assistant-known", role: "assistant" } });
+    emit({ type: "message_update", assistantMessageEvent: { type: "thinking_delta", delta: "think 1" } });
+    emit({ type: "message_update", assistantMessageEvent: { type: "thinking_delta", delta: "think 2" } });
+    emit({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "answer 1" } });
+    emit({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "answer 2" } });
+    emit({ type: "turn_end" });
+
+    const thinking = events.filter((event) => event.type === "assistant_thinking_delta");
+    const text = events.filter((event) => event.type === "assistant_text_delta");
+    assertEquals(events.every((event) => event.turnId === "turn-known"), true);
+    assertEquals(thinking[0].messageId, thinking[1].messageId);
+    assertStringIncludes(thinking[0].messageId, "turn-known:thinking:");
+    assertEquals(text[0].messageId, "assistant-known");
+    assertEquals(text[1].messageId, "assistant-known");
+});
+
+Deno.test("attachUiSubscribers emits runtime events without console fallback when sink is active", () => {
+    const { session, emit } = makeSubscribableSession();
+    const hostedSession = new HostedSession({ id: "runtime-sink", cwd: Deno.cwd() });
+    /** @type {unknown[]} */
+    const events = [];
+    hostedSession.setEventSink({
+        emit: (/** @type {unknown} */ event) => events.push(event),
+    });
+    const originalLog = console.log;
+    /** @type {unknown[]} */
+    const logs = [];
+    console.log = (...args) => logs.push(args);
+    try {
+        attachUiSubscribers(session, agentDef, undefined, undefined, hostedSession);
+
+        emit({ type: "message_start", message: { role: "assistant" } });
+        emit({ type: "message_update", assistantMessageEvent: { type: "thinking_delta", delta: "thinking" } });
+        emit({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "answer" } });
+        emit({ type: "tool_execution_start", toolCallId: "tool-1", toolName: "bash", args: { command: "echo hi" } });
+        emit({
+            type: "tool_execution_update",
+            toolCallId: "tool-1",
+            toolName: "bash",
+            partialResult: { content: [{ text: "hi" }] },
+        });
+        emit({
+            type: "tool_execution_end",
+            toolCallId: "tool-1",
+            toolName: "bash",
+            isError: false,
+            result: { content: [{ text: "hi" }] },
+        });
+        emit({ type: "auto_retry_end", success: false, attempt: 2, finalError: "nope" });
+        emit({ type: "compaction_start", reason: "overflow" });
+    } finally {
+        console.log = originalLog;
+    }
+
+    assertEquals(logs, []);
+    assertEquals(
+        events.map((/** @type {any} */ event) => event.type),
+        [
+            "assistant_thinking_delta",
+            "assistant_text_delta",
+            "tool_start",
+            "tool_update",
+            "tool_end",
+            "system_status",
+            "system_status",
+        ],
+    );
+});
