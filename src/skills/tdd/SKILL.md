@@ -5,6 +5,10 @@ description: Test-driven development with red-green-refactor loop. Use when user
 
 # Test-Driven Development
 
+TDD is the red → green loop. This skill is the reference that makes that loop produce tests worth keeping: what a good
+test is, where tests go, the anti-patterns, and the rules of the loop. Every section applies on every cycle — consult
+them before and during the loop, not after.
+
 ## Philosophy
 
 **Core principle**: Tests should verify behavior through public interfaces, not implementation details. Code can change
@@ -20,6 +24,17 @@ when you refactor, but behavior hasn't changed. If you rename an internal functi
 testing implementation, not behavior.
 
 See [tests.md](tests.md) for examples and [mocking.md](mocking.md) for mocking guidelines.
+
+## Seams — Where Tests Go
+
+A **seam** is the public boundary you test at: the interface where you observe behavior without reaching inside. Tests
+live at seams, never against internals.
+
+**Test only at pre-agreed seams.** Before writing any test, write down the seams under test and confirm them with the
+user. No test is written at an unconfirmed seam. You can't test everything — agreeing the seams up front is how testing
+effort lands on critical paths and complex logic instead of every edge case.
+
+Ask: "What's the public interface, and which seams should we test?"
 
 ## Anti-Pattern: Horizontal Slices
 
@@ -49,6 +64,14 @@ RIGHT (vertical):
   ...
 ```
 
+## Anti-Pattern: Tautological Tests
+
+**DO NOT write tests whose expected value is computed the same way as the implementation.** These tests pass by
+construction and can never disagree with the code.
+
+Expected values must come from an independent source of truth: a known-good literal, a worked example, the spec, or an
+externally observed behavior.
+
 ## Workflow
 
 ### 1. Planning
@@ -58,7 +81,8 @@ project's language, and respect ADRs in the area you're touching.
 
 Before writing any code:
 
-- [ ] Confirm with user what interface changes are needed
+- [ ] Confirm with user what public interface changes are needed
+- [ ] Confirm the seams where tests will be written
 - [ ] Confirm with user which behaviors to test (prioritize)
 - [ ] Identify opportunities for [deep modules](deep-modules.md) (small interface, deep implementation)
 - [ ] Design interfaces for [testability](interface-design.md)
@@ -97,9 +121,10 @@ Rules:
 - Don't anticipate future tests
 - Keep tests focused on observable behavior
 
-### 4. Refactor
+### 4. Post-Green Review + Refactor
 
-After all tests pass, look for [refactor candidates](refactoring.md):
+Refactoring is not part of the red → green implementation loop. After all tests pass, do a separate post-green review
+for [refactor candidates](refactoring.md):
 
 - [ ] Extract duplication
 - [ ] Deepen modules (move complexity behind simple interfaces)
