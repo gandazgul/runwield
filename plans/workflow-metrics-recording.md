@@ -7,15 +7,12 @@ affectedPaths:
     []
 frontend: false
 createdAt: "2026-07-05T00:25:41-04:00"
-updatedAt: "2026-07-08T02:43:48.388Z"
-status: "implemented"
+updatedAt: "2026-07-08T04:32:33.201Z"
+status: "verified"
 origin: "internal"
-failureReason: "Semantic validation did not approve after 3 cycles."
-worktreeId: "17687ccc"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-harns--/harns-runwield-workflow-metrics-recording-17687ccc"
-worktreeBranch: "runwield/worktree/workflow-metrics-recording-17687ccc"
-worktreeBaseBranch: "main"
-worktreeStatus: "validation_failed"
+verifiedAt: "2026-07-08T04:32:33.201Z"
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
 ---
 
 # Workflow Metrics Recording
