@@ -9,7 +9,7 @@ import { AGENTS, CWD } from "../../constants.js";
 import { getAgentDisplayName } from "../session/agents.js";
 import { ensureBundledAgentDefFile, runAgentSession } from "../session/session.js";
 import { getCodeReviewMode, getCustomSetting, setCustomSetting, shouldCleanupMergedWorktrees } from "../settings.js";
-import { extractAssistantOutput, readLatestTaskCompletedOutcome } from "./workflow.js";
+import { readLatestReviewOutcome, readLatestTaskCompletedOutcome } from "./workflow.js";
 import { setActiveAgent } from "../session/agent-switching.js";
 import { getWorkflowDiff } from "./git-snapshot.js";
 import { recordPlanEvent } from "./plan-lifecycle.js";
@@ -343,14 +343,6 @@ async function runCompletionGatedRepair({
  */
 async function getGitDiffText(baselineTree, cwd = CWD) {
     return await getWorkflowDiff(cwd, baselineTree);
-}
-
-/**
- * @param {string} response
- * @returns {boolean}
- */
-function isApprovedReviewResponse(response) {
-    return response.trim() === "APPROVED";
 }
 
 /**
@@ -1001,6 +993,7 @@ export async function runValidationLoop({
         uiAPI?.setBusy?.(true);
         let diffText = "";
         let reviewResponse = "";
+        let reviewOutcome = null;
         // Track reviewer execution failures (errors, blank output) for retry flow
         /** @type {boolean} */
         let reviewerFailed = false;
@@ -1026,16 +1019,30 @@ export async function runValidationLoop({
                     reviewPrompt = buildLargeDiffReviewPrompt(reviewerAgentDef, planContent, diffText, diffBytes);
                     // Attach the bounded diff-inspection tool
                     reviewerCustomTools.push(createReviewDiffTool(diffText));
-                    // Enable read-only file + memory exploration
-                    reviewerToolNames = ["read", "grep", "find", "ls", "memory_recall", "memory_recall_global"];
+                    // Enable read-only file + memory exploration + review_complete signal
+                    reviewerToolNames = [
+                        "read",
+                        "grep",
+                        "find",
+                        "ls",
+                        "memory_recall",
+                        "memory_recall_global",
+                        "review_complete",
+                    ];
                     // Create a modified definition that permits these tools
                     reviewerAgentDef = {
                         ...reviewerAgentDef,
                         tools: reviewerToolNames,
                     };
                 } else {
+                    // For small diffs, also provide review_complete so the reviewer can signal
+                    // its decision through the structured tool instead of brittle text output.
+                    reviewerAgentDef = {
+                        ...reviewerAgentDef,
+                        tools: ["review_complete"],
+                    };
                     reviewPrompt =
-                        `Compare the current implementation diff against the original plan. If the code fully satisfies the plan, reply ONLY with the word 'APPROVED'. Otherwise, list the missing semantic requirements.\n\n### Original Plan\n${planContent}\n\n### Git Diff\n${diffText}`;
+                        `Compare the current implementation diff against the original plan. If the code fully satisfies the plan, call review_complete with approved: true. Otherwise, call review_complete with approved: false and a feedback string listing the missing semantic requirements.\n\n### Original Plan\n${planContent}\n\n### Git Diff\n${diffText}`;
                 }
 
                 /** @type {import('@earendil-works/pi-agent-core').AgentMessage[]} */
@@ -1069,14 +1076,16 @@ export async function runValidationLoop({
                 }
 
                 if (!reviewerFailed) {
-                    reviewResponse = extractAssistantOutput(sessionMessages) || "";
-                    if (!reviewResponse.trim()) {
+                    reviewOutcome = readLatestReviewOutcome(sessionMessages);
+                    if (!reviewOutcome) {
                         appendRunWieldSystemMessage(
                             uiAPI,
-                            "Semantic Reviewer returned no output. Treating as execution failure.",
+                            "Semantic Reviewer did not call review_complete. Treating as execution failure.",
                             true,
                         );
                         reviewerFailed = true;
+                    } else {
+                        reviewResponse = reviewOutcome.feedback || "";
                     }
                 }
             }
@@ -1115,11 +1124,23 @@ export async function runValidationLoop({
                         retryCustomTools.push(createReviewDiffTool(retryDiffText));
                         retryAgentDef = {
                             ...retryAgentDef,
-                            tools: ["read", "grep", "find", "ls", "memory_recall", "memory_recall_global"],
+                            tools: [
+                                "read",
+                                "grep",
+                                "find",
+                                "ls",
+                                "memory_recall",
+                                "memory_recall_global",
+                                "review_complete",
+                            ],
                         };
                     } else {
+                        retryAgentDef = {
+                            ...retryAgentDef,
+                            tools: ["review_complete"],
+                        };
                         retryPrompt =
-                            `Compare the current implementation diff against the original plan. If the code fully satisfies the plan, reply ONLY with the word 'APPROVED'. Otherwise, list the missing semantic requirements.\n\n### Original Plan\n${planContent}\n\n### Git Diff\n${retryDiffText}`;
+                            `Compare the current implementation diff against the original plan. If the code fully satisfies the plan, call review_complete with approved: true. Otherwise, call review_complete with approved: false and a feedback string listing the missing semantic requirements.\n\n### Original Plan\n${planContent}\n\n### Git Diff\n${retryDiffText}`;
                     }
 
                     try {
@@ -1136,7 +1157,10 @@ export async function runValidationLoop({
                             useRootSession: false,
                         });
                         hostedSession?.consumePendingSwitchHandoff?.();
-                        reviewResponse = extractAssistantOutput(retryMessages) || "";
+                        const retryOutcome = readLatestReviewOutcome(retryMessages);
+                        reviewResponse = retryOutcome?.feedback || "";
+                        // Propagate the reviewOutcome up so the approved/rejected check below sees it
+                        reviewOutcome = retryOutcome;
                     } catch (/** @type {any} */ retryError) {
                         const errorMsg = retryError instanceof Error ? retryError.message : String(retryError);
                         appendRunWieldSystemMessage(
@@ -1150,7 +1174,7 @@ export async function runValidationLoop({
                     uiAPI?.setBusy?.(false);
                 }
 
-                if (!reviewerFailed && reviewResponse.trim()) {
+                if (!reviewerFailed && reviewOutcome?.feedback != null) {
                     appendRunWieldSystemMessage(
                         uiAPI,
                         "Semantic Review retry completed.",
@@ -1216,7 +1240,7 @@ export async function runValidationLoop({
             break;
         }
 
-        if (isApprovedReviewResponse(reviewResponse)) {
+        if (!reviewerFailed && reviewOutcome?.approved) {
             await recordWorkflowMetricImpl({
                 category: "validation",
                 event: "semantic_review_result",
