@@ -1,5 +1,6 @@
 import { assert, assertEquals, assertMatch } from "@std/assert";
 import { createUserInterviewTool } from "../user-interview.js";
+import { HostedSession } from "../../shared/session/hosted-session.js";
 
 /**
  * @param {Partial<import('../../ui/tui/types.js').UiAPI>} overrides
@@ -281,4 +282,25 @@ Deno.test("userInterviewTool returns validation_error for invalid yes/no respons
     assertEquals(result.details.status, "validation_error");
     assertEquals(result.details.errors?.[0]?.code, "INVALID_ANSWER");
     assertMatch(result.details.errors?.[0]?.message ?? "", /Unexpected yes\/no response/i);
+});
+
+Deno.test("userInterviewTool uses HostedSession interaction broker when available", async () => {
+    const hostedSession = new HostedSession({ id: "brokered-interview" });
+    /** @type {string[]} */
+    const prompts = [];
+    hostedSession.setInteractionAdapter({
+        requestInteraction: (request) => {
+            prompts.push(request.prompt);
+            return { outcome: "selected", value: "yes", valueLabel: "Yes" };
+        },
+    }, { kind: "test" });
+    const tool = createUserInterviewTool({ uiAPI: makeUi({}), hostedSession });
+
+    const result = await executeTool(tool, {
+        question: { type: "yes_no", prompt: "Proceed?" },
+    });
+
+    assertEquals(prompts, ["Proceed?"]);
+    assertEquals(result.details.status, "completed");
+    assertEquals(result.details.answers[0].value, true);
 });

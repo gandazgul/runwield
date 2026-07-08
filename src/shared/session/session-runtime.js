@@ -9,6 +9,7 @@ import { abortActiveSession as abortActiveSessionFn, ensureRootAgentSession } fr
 import { SessionHost } from "./session-host.js";
 import { createRootSessionManager } from "./root-session.js";
 import { createSessionRuntimeEvent, getRuntimeErrorMessage, RuntimeEventTypes } from "./session-runtime-events.js";
+import { requestHostedSessionInteraction } from "./session-runtime-interactions.js";
 import { isAbsolute } from "@std/path";
 
 export const HANDOFF_LIMIT_MESSAGE =
@@ -181,12 +182,52 @@ export class SessionRuntime {
         return hostedSession;
     }
 
+    /**
+     * @param {string | import('./hosted-session.js').HostedSession} sessionOrId
+     * @param {import('./session-runtime-interactions.js').RuntimeInteractionAdapter | null} adapter
+     * @param {import('./session-runtime-interactions.js').RuntimeInteractionAdapterMeta | null} [meta]
+     */
+    setInteractionAdapter(sessionOrId, adapter, meta = null) {
+        const session = typeof sessionOrId === "string" ? this.sessionHost.getSession(sessionOrId) : sessionOrId;
+        if (!session) return { ok: false, error: "not_found" };
+        session.setInteractionAdapter(adapter, meta);
+        return { ok: true };
+    }
+
+    /**
+     * @param {string | import('./hosted-session.js').HostedSession} sessionOrId
+     * @param {import('./session-runtime-interactions.js').RuntimeInteractionRequest} request
+     * @param {AbortSignal} [signal]
+     */
+    async requestInteraction(sessionOrId, request, signal) {
+        const session = typeof sessionOrId === "string" ? this.sessionHost.getSession(sessionOrId) : sessionOrId;
+        if (!session) return { outcome: "unsupported", message: "Session not found." };
+        const interactionId = request.id || crypto.randomUUID();
+        this.emitSessionEvent(session, {
+            type: RuntimeEventTypes.INTERACTION_REQUESTED,
+            interactionId,
+            interactionType: request.type,
+        });
+        const response = await requestHostedSessionInteraction(session, { ...request, id: interactionId }, signal);
+        this.emitSessionEvent(session, {
+            type: response.outcome === "canceled"
+                ? RuntimeEventTypes.INTERACTION_CANCELED
+                : RuntimeEventTypes.INTERACTION_RESOLVED,
+            interactionId,
+            interactionType: request.type,
+            outcome: response.outcome,
+            message: response.message,
+        });
+        return response;
+    }
+
     /** @param {string | import('./hosted-session.js').HostedSession} sessionOrId */
     cancelSession(sessionOrId) {
         const session = typeof sessionOrId === "string" ? this.sessionHost.getSession(sessionOrId) : sessionOrId;
         if (!session) return { ok: false, aborted: false, error: "not_found" };
         let aborted = false;
         try {
+            session.cancelActiveInteractions?.();
             aborted = this.abortActiveSession(session);
         } finally {
             this.emitSessionEvent(session, {
