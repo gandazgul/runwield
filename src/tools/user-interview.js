@@ -6,6 +6,11 @@
 import { StringEnum, Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { promptText, select } from "../ui/tui/prompts.js";
+import {
+    requestHostedSessionInteraction,
+    RuntimeInteractionOutcomes,
+    RuntimeInteractionTypes,
+} from "../shared/session/session-runtime-interactions.js";
 
 const OTHER_VALUE = "other";
 
@@ -131,9 +136,19 @@ const interviewParametersSchema = Type.Object({
  */
 
 /**
- * @param {import('../shared/workflow/workflow.js').UiAPI | undefined} uiAPI
+ * @typedef {{ canceled?: boolean, value?: string | boolean, valueLabel?: string, otherText?: string, error?: InterviewError }} InterviewAnswer
  */
-export function createUserInterviewTool(uiAPI) {
+
+/**
+ * @param {import('../shared/workflow/workflow.js').UiAPI | { uiAPI?: import('../shared/workflow/workflow.js').UiAPI, hostedSession?: import('../shared/session/hosted-session.js').HostedSession } | undefined} opts
+ */
+export function createUserInterviewTool(opts) {
+    const uiAPI = /** @type {import('../shared/workflow/workflow.js').UiAPI | undefined} */ (
+        opts && typeof opts === "object" && "uiAPI" in opts ? opts.uiAPI : opts
+    );
+    const hostedSession = /** @type {import('../shared/session/hosted-session.js').HostedSession | undefined} */ (
+        opts && typeof opts === "object" && "hostedSession" in opts ? opts.hostedSession : undefined
+    );
     return defineTool({
         name: "user_interview",
         label: "User Interview",
@@ -179,9 +194,10 @@ export function createUserInterviewTool(uiAPI) {
 
             for (let i = 0; i < questions.length; i++) {
                 const question = questions[i];
-                const answer = await askQuestion(question, uiAPI);
+                const answer = /** @type {InterviewAnswer} */ (await askQuestion(question, uiAPI, hostedSession));
 
-                if (answer.canceled) {
+                const answerAny = /** @type {any} */ (answer);
+                if (answerAny.canceled) {
                     return buildResult({
                         status: "canceled",
                         canceled: true,
@@ -200,7 +216,7 @@ export function createUserInterviewTool(uiAPI) {
                     });
                 }
 
-                if (answer.error) {
+                if (answerAny.error) {
                     return buildResult({
                         status: "validation_error",
                         canceled: false,
@@ -209,11 +225,11 @@ export function createUserInterviewTool(uiAPI) {
                         answeredCount: answers.length,
                         remainingCount: questions.length - answers.length,
                         answers,
-                        errors: [answer.error],
+                        errors: [answerAny.error],
                     });
                 }
 
-                if (typeof answer.value === "undefined") {
+                if (typeof answerAny.value === "undefined") {
                     return buildResult({
                         status: "validation_error",
                         canceled: false,
@@ -236,9 +252,9 @@ export function createUserInterviewTool(uiAPI) {
                     id: question.id,
                     type: question.type,
                     prompt: question.prompt,
-                    value: answer.value,
-                    valueLabel: answer.valueLabel,
-                    otherText: answer.otherText,
+                    value: answerAny.value,
+                    valueLabel: answerAny.valueLabel,
+                    otherText: answerAny.otherText,
                 });
             }
 
@@ -383,56 +399,129 @@ function validateBatch(questions) {
 }
 
 /**
+ * @param {import('../shared/session/hosted-session.js').HostedSession | undefined} hostedSession
+ * @param {import('../shared/session/session-runtime-interactions.js').RuntimeInteractionRequest} request
+ */
+async function askBrokered(hostedSession, request) {
+    if (!hostedSession?.getInteractionAdapter?.()) return null;
+    return await requestHostedSessionInteraction(hostedSession, request);
+}
+
+/**
+ * @param {import('../shared/session/session-runtime-interactions.js').RuntimeInteractionResponse} response
+ * @param {InterviewQuestion} question
+ */
+function brokerFailureToAnswer(response, question) {
+    if (response.outcome === RuntimeInteractionOutcomes.CANCELED) return { canceled: true };
+    if (
+        response.outcome === RuntimeInteractionOutcomes.UNSUPPORTED ||
+        response.outcome === RuntimeInteractionOutcomes.BLOCKED
+    ) {
+        return {
+            error: {
+                code: response.outcome === RuntimeInteractionOutcomes.BLOCKED
+                    ? "INTERACTION_BLOCKED"
+                    : "INTERACTION_UNSUPPORTED",
+                message: response.message || "The current client cannot answer this structured interview prompt.",
+                questionId: question.id,
+            },
+        };
+    }
+    return null;
+}
+
+/**
+ * @param {InterviewQuestion} question
+ * @param {Array<{ value: string, label: string }>} options
+ * @param {import('../ui/tui/types.js').UiAPI | undefined} uiAPI
+ * @param {import('../shared/session/hosted-session.js').HostedSession | undefined} hostedSession
+ * @param {{ defaultValue?: string }} [extra]
+ * @returns {Promise<InterviewAnswer>}
+ */
+async function askSelect(question, options, uiAPI, hostedSession, extra = {}) {
+    const brokerResponse = await askBrokered(hostedSession, {
+        type: RuntimeInteractionTypes.SELECT,
+        prompt: question.prompt,
+        options,
+        defaultValue: extra.defaultValue,
+        _meta: { source: "user_interview", questionType: question.type, questionId: question.id },
+    });
+    const brokerFailure = brokerResponse ? brokerFailureToAnswer(brokerResponse, question) : null;
+    if (brokerFailure) return brokerFailure;
+    const selected = brokerResponse
+        ? brokerResponse.value
+        : uiAPI?.promptSelect
+        ? await uiAPI.promptSelect(question.prompt, options)
+        : await select(question.prompt, options);
+    if (selected === null || typeof selected === "undefined") return { canceled: true };
+    const option = options.find((item) => item.value === selected);
+    return { value: String(selected), valueLabel: brokerResponse?.valueLabel || option?.label };
+}
+
+/**
  * @param {InterviewQuestion} question
  * @param {import('../ui/tui/types.js').UiAPI | undefined} uiAPI
- * @returns {Promise<{ canceled?: true, value?: string | boolean, valueLabel?: string, otherText?: string, error?: InterviewError }>}
+ * @param {import('../shared/session/hosted-session.js').HostedSession | undefined} hostedSession
+ * @returns {Promise<InterviewAnswer>}
  */
-async function askQuestion(question, uiAPI) {
+async function askOther(question, uiAPI, hostedSession) {
+    const followUpPrompt = `Please specify your answer for: "${question.prompt}"`;
+    const otherResponse = await askBrokered(hostedSession, {
+        type: RuntimeInteractionTypes.TEXT,
+        prompt: followUpPrompt,
+        allowEmpty: false,
+        _meta: { source: "user_interview", questionType: question.type, questionId: question.id, other: true },
+    });
+    const otherFailure = otherResponse ? brokerFailureToAnswer(otherResponse, question) : null;
+    if (otherFailure) return otherFailure;
+    const otherText = otherResponse
+        ? String(otherResponse.value ?? "")
+        : uiAPI?.promptText
+        ? await uiAPI.promptText(followUpPrompt, { allowEmpty: false })
+        : await promptText(followUpPrompt, { allowEmpty: false });
+    if (otherText === null) return { canceled: true };
+    const normalized = otherText.trim();
+    if (!normalized) {
+        return {
+            error: {
+                code: "EMPTY_ANSWER",
+                message: "The 'Other' answer cannot be empty.",
+                questionId: question.id,
+            },
+        };
+    }
+    return { value: OTHER_VALUE, valueLabel: "Other", otherText: normalized };
+}
+
+/**
+ * @param {InterviewQuestion} question
+ * @param {import('../ui/tui/types.js').UiAPI | undefined} uiAPI
+ * @param {import('../shared/session/hosted-session.js').HostedSession | undefined} hostedSession
+ * @returns {Promise<InterviewAnswer>}
+ */
+async function askQuestion(question, uiAPI, hostedSession) {
     if (question.type === "yes_no") {
         const options = [
             { value: "yes", label: question.default === true ? "Yes (recommended)" : "Yes" },
             { value: "no", label: question.default === false ? "No (recommended)" : "No" },
+            { value: OTHER_VALUE, label: "Other" },
         ];
-
-        options.push({ value: OTHER_VALUE, label: "Other" });
-
-        const selected = uiAPI?.promptSelect
-            ? await uiAPI.promptSelect(question.prompt, options)
-            : await select(question.prompt, options);
-
-        if (selected === null) return { canceled: true };
-
-        if (selected === OTHER_VALUE) {
-            const followUpPrompt = `Please specify your answer for: "${question.prompt}"`;
-            const otherText = uiAPI?.promptText
-                ? await uiAPI.promptText(followUpPrompt, { allowEmpty: false })
-                : await promptText(followUpPrompt, { allowEmpty: false });
-
-            if (otherText === null) return { canceled: true };
-            const normalized = otherText.trim();
-            if (!normalized) {
-                return {
-                    error: {
-                        code: "EMPTY_ANSWER",
-                        message: "The 'Other' answer cannot be empty.",
-                        questionId: question.id,
-                    },
-                };
-            }
-            return { value: OTHER_VALUE, valueLabel: "Other", otherText: normalized };
-        }
-
-        if (selected !== "yes" && selected !== "no") {
+        const selected = await askSelect(question, options, uiAPI, hostedSession, {
+            defaultValue: typeof question.default === "boolean" ? (question.default ? "yes" : "no") : undefined,
+        });
+        const selectedAnswer = /** @type {any} */ (selected);
+        if (selectedAnswer.canceled || selectedAnswer.error) return selected;
+        if (selectedAnswer.value === OTHER_VALUE) return await askOther(question, uiAPI, hostedSession);
+        if (selectedAnswer.value !== "yes" && selectedAnswer.value !== "no") {
             return {
                 error: {
                     code: "INVALID_ANSWER",
-                    message: `Unexpected yes/no response: ${selected}`,
+                    message: `Unexpected yes/no response: ${selectedAnswer.value}`,
                     questionId: question.id,
                 },
             };
         }
-
-        return { value: selected === "yes", valueLabel: selected };
+        return { value: selectedAnswer.value === "yes", valueLabel: String(selectedAnswer.value) };
     }
 
     if (question.type === "multiple_choice") {
@@ -444,51 +533,40 @@ async function askQuestion(question, uiAPI) {
                     : (choice.label || choice.value),
             }))
         );
-
         options.push({ value: OTHER_VALUE, label: "Other" });
-
-        const selected = uiAPI?.promptSelect
-            ? await uiAPI.promptSelect(question.prompt, options)
-            : await select(question.prompt, options);
-
-        if (selected === null) return { canceled: true };
-
-        if (selected === OTHER_VALUE) {
-            const followUpPrompt = `Please specify your answer for: "${question.prompt}"`;
-            const otherText = uiAPI?.promptText
-                ? await uiAPI.promptText(followUpPrompt, { allowEmpty: false })
-                : await promptText(followUpPrompt, { allowEmpty: false });
-
-            if (otherText === null) return { canceled: true };
-            const normalized = otherText.trim();
-            if (!normalized) {
-                return {
-                    error: {
-                        code: "EMPTY_ANSWER",
-                        message: "The 'Other' answer cannot be empty.",
-                        questionId: question.id,
-                    },
-                };
-            }
-            return { value: OTHER_VALUE, valueLabel: "Other", otherText: normalized };
-        }
-
-        const selectedOption = options.find((/** @type {{ value: string }} */ opt) => opt.value === selected);
+        const selected = await askSelect(question, options, uiAPI, hostedSession, { defaultValue: question.default });
+        const selectedAnswer = /** @type {any} */ (selected);
+        if (selectedAnswer.canceled || selectedAnswer.error) return selected;
+        if (selectedAnswer.value === OTHER_VALUE) return await askOther(question, uiAPI, hostedSession);
+        const selectedOption = options.find((/** @type {{ value: string }} */ opt) =>
+            opt.value === selectedAnswer.value
+        );
         if (!selectedOption) {
             return {
                 error: {
                     code: "INVALID_ANSWER",
-                    message: `Selected option does not exist: ${selected}`,
+                    message: `Selected option does not exist: ${selectedAnswer.value}`,
                     questionId: question.id,
                 },
             };
         }
-
-        return { value: selected, valueLabel: selectedOption.label };
+        return { value: String(selectedAnswer.value), valueLabel: selectedOption.label };
     }
 
     const allowEmpty = question.allowEmpty === true;
-    const text = uiAPI?.promptText
+    const brokerResponse = await askBrokered(hostedSession, {
+        type: RuntimeInteractionTypes.TEXT,
+        prompt: question.prompt,
+        defaultValue: question.default,
+        placeholder: question.placeholder,
+        allowEmpty,
+        _meta: { source: "user_interview", questionType: question.type, questionId: question.id },
+    });
+    const brokerFailure = brokerResponse ? brokerFailureToAnswer(brokerResponse, question) : null;
+    if (brokerFailure) return brokerFailure;
+    const text = brokerResponse
+        ? String(brokerResponse.value ?? "")
+        : uiAPI?.promptText
         ? await uiAPI.promptText(question.prompt, {
             defaultValue: question.default,
             placeholder: question.placeholder,

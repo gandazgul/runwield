@@ -21,6 +21,10 @@ export const RuntimeEventTypes = Object.freeze({
     USAGE: "usage",
     CANCELLATION: "cancellation",
     TERMINAL_ERROR: "terminal_error",
+    INTERACTION_REQUESTED: "interaction_requested",
+    INTERACTION_RESOLVED: "interaction_resolved",
+    INTERACTION_CANCELED: "interaction_canceled",
+    PLAN_REVIEW_LINK: "plan_review_link",
 });
 
 /**
@@ -85,7 +89,15 @@ export const RuntimeEventTypes = Object.freeze({
  */
 
 /**
- * @typedef {RuntimeSessionLifecycleEvent | RuntimeReplayEvent | RuntimeUserMessageEvent | RuntimeAssistantDeltaEvent | RuntimeAssistantThinkingEndEvent | RuntimeToolStartEvent | RuntimeToolUpdateEvent | RuntimeToolEndEvent | RuntimeSystemStatusEvent | RuntimeTurnEvent | RuntimeUsageEvent | RuntimeCancellationEvent | RuntimeTerminalErrorEvent} SessionRuntimeEvent
+ * @typedef {RuntimeEventBase & { type: "interaction_requested" | "interaction_resolved" | "interaction_canceled", interactionId: string, interactionType?: string, outcome?: string, message?: string }} RuntimeInteractionLifecycleEvent
+ */
+
+/**
+ * @typedef {RuntimeEventBase & { type: "plan_review_link", planName: string, reviewerUrl: string, spaceId?: string, serverUrl?: string, revision?: number, reused?: boolean, message?: string }} RuntimePlanReviewLinkEvent
+ */
+
+/**
+ * @typedef {RuntimeSessionLifecycleEvent | RuntimeReplayEvent | RuntimeUserMessageEvent | RuntimeAssistantDeltaEvent | RuntimeAssistantThinkingEndEvent | RuntimeToolStartEvent | RuntimeToolUpdateEvent | RuntimeToolEndEvent | RuntimeSystemStatusEvent | RuntimeTurnEvent | RuntimeUsageEvent | RuntimeCancellationEvent | RuntimeTerminalErrorEvent | RuntimeInteractionLifecycleEvent | RuntimePlanReviewLinkEvent} SessionRuntimeEvent
  */
 
 /**

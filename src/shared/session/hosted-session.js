@@ -56,12 +56,20 @@ import { CWD } from "../../constants.js";
  */
 
 /**
+ * @typedef {Object} ActiveInteractionRecord
+ * @property {import('./session-runtime-interactions.js').RuntimeInteractionRequest} [request]
+ * @property {AbortController} [abortController]
+ */
+
+/**
  * @typedef {Object} HostedSessionOptions
  * @property {string} [id]
  * @property {string} [cwd]
  * @property {MinimalSessionManagerLike | null} [sessionManager]
  * @property {unknown} [uiAPI]
  * @property {unknown} [eventSink]
+ * @property {import('./session-runtime-interactions.js').RuntimeInteractionAdapter} [interactionAdapter]
+ * @property {import('./session-runtime-interactions.js').RuntimeInteractionAdapterMeta} [interactionAdapterMeta]
  */
 
 /** @param {unknown} value */
@@ -119,6 +127,12 @@ export class HostedSession {
         this.activeUiAPI = options.uiAPI || null;
         /** @type {unknown} */
         this.eventSink = options.eventSink || null;
+        /** @type {import('./session-runtime-interactions.js').RuntimeInteractionAdapter | null} */
+        this.interactionAdapter = options.interactionAdapter || null;
+        /** @type {import('./session-runtime-interactions.js').RuntimeInteractionAdapterMeta | null} */
+        this.interactionAdapterMeta = options.interactionAdapterMeta || null;
+        /** @type {Map<string, ActiveInteractionRecord>} */
+        this.activeInteractions = new Map();
         /** @type {DisposableLike | null} */
         this.rootAgentSession = null;
         /** @type {string | null} */
@@ -240,6 +254,47 @@ export class HostedSession {
         return this.eventSink;
     }
 
+    /**
+     * @param {import('./session-runtime-interactions.js').RuntimeInteractionAdapter | null} adapter
+     * @param {import('./session-runtime-interactions.js').RuntimeInteractionAdapterMeta | null} [meta]
+     */
+    setInteractionAdapter(adapter, meta = null) {
+        this.assertActive();
+        this.interactionAdapter = adapter;
+        this.interactionAdapterMeta = meta;
+    }
+
+    getInteractionAdapter() {
+        return this.interactionAdapter;
+    }
+
+    getInteractionAdapterMeta() {
+        return this.interactionAdapterMeta;
+    }
+
+    /** @param {string} id @param {ActiveInteractionRecord} record */
+    addActiveInteraction(id, record) {
+        this.assertActive();
+        this.activeInteractions.set(id, record);
+    }
+
+    /** @param {string} id */
+    removeActiveInteraction(id) {
+        this.activeInteractions.delete(id);
+    }
+
+    getActiveInteractions() {
+        return new Map(this.activeInteractions);
+    }
+
+    cancelActiveInteractions() {
+        for (const record of this.activeInteractions.values()) {
+            record.abortController?.abort();
+        }
+        this.interactionAdapter?.cancelAll?.();
+        this.activeInteractions.clear();
+    }
+
     /** @param {DisposableLike | null} session */
     setRootAgentSession(session) {
         this.assertActive();
@@ -352,6 +407,10 @@ export class HostedSession {
         this.rootSessionManager = null;
         this.activeUiAPI = null;
         this.eventSink = null;
+        this.interactionAdapter?.cancelAll?.();
+        this.interactionAdapter = null;
+        this.interactionAdapterMeta = null;
+        this.activeInteractions.clear();
         this.rootAgentSession = null;
         this.rootAgentName = null;
         this.subAgentSessions.clear();
