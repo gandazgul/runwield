@@ -29,7 +29,8 @@ import { applyPendingRootSwap, setActiveAgent } from "../session/agent-switching
 import { runRootTurn } from "../session/session.js";
 import { getAgentDisplayName } from "../session/agents.js";
 import { sanitizeSessionName, setTerminalTitleForName } from "../../ui/tui/terminal-title.js";
-import { decidePostExecution, decidePostPlanning } from "./decisions.js";
+import { decidePostExecution, decidePostPlanning, summarizeWorkflowDecision } from "./decisions.js";
+import { recordWorkflowMetric } from "./metrics.js";
 import { executePlan, readLatestTaskCompletedOutcome, runPlanningAgent } from "./workflow.js";
 import { runMechanicalValidation, runValidationLoop, shouldRunWorkflowValidation } from "./validation.js";
 
@@ -184,6 +185,7 @@ function applyAutoSessionName(sessionManager, triage, setTitle) {
  *   setActiveAgent?: typeof setActiveAgent,
  *   setTerminalTitleForName?: typeof setTerminalTitleForName,
  *   shouldRunWorkflowValidation?: typeof shouldRunWorkflowValidation,
+ *   recordWorkflowMetric?: typeof recordWorkflowMetric,
  * }} [args.__deps]
  */
 export async function dispatchPostTriage(
@@ -210,8 +212,32 @@ export async function dispatchPostTriage(
     const decidePostExecutionImpl = __deps?.decidePostExecution || decidePostExecution;
     const setActiveAgentImpl = __deps?.setActiveAgent || setActiveAgent;
     const setTerminalTitleForNameImpl = __deps?.setTerminalTitleForName || setTerminalTitleForName;
+    const recordWorkflowMetricImpl = __deps?.recordWorkflowMetric || recordWorkflowMetric;
 
     applyAutoSessionName(sessionManager, normalizedTriage, setTerminalTitleForNameImpl);
+
+    const dispatchTarget = normalizedTriage.routingIntent === "INQUIRY"
+        ? AGENTS.GUIDE
+        : normalizedTriage.routingIntent === "IDEATION"
+        ? AGENTS.IDEATOR
+        : normalizedTriage.routingIntent === "OPERATION"
+        ? AGENTS.OPERATOR
+        : normalizedTriage.routingIntent === "QUICK_FIX"
+        ? AGENTS.ENGINEER
+        : normalizedTriage.routingIntent === "FEATURE"
+        ? AGENTS.PLANNER
+        : AGENTS.ARCHITECT;
+    await recordWorkflowMetricImpl({
+        category: "routing",
+        event: "dispatch_selected",
+        agentName: dispatchTarget,
+        details: {
+            routingIntent: normalizedTriage.routingIntent,
+            targetAgent: dispatchTarget,
+            classification: normalizedTriage.classification,
+            complexity: normalizedTriage.complexity,
+        },
+    });
 
     if (normalizedTriage.routingIntent === "INQUIRY" || normalizedTriage.routingIntent === "IDEATION") {
         const agentName = normalizedTriage.routingIntent === "INQUIRY" ? AGENTS.GUIDE : AGENTS.IDEATOR;
@@ -247,6 +273,12 @@ export async function dispatchPostTriage(
             uiAPI,
         });
         const completed = readLatestTaskCompletedOutcomeImpl(messages);
+        await recordWorkflowMetricImpl({
+            category: "execution",
+            event: "operation_completed_observed",
+            agentName: AGENTS.OPERATOR,
+            details: { taskCompletedObserved: Boolean(completed), mechanicalValidationRan: false },
+        });
         if (!completed) {
             uiAPI.appendSystemMessage(
                 `${operatorDisplay} stopped without task_completed; OPERATION may be incomplete.`,
@@ -275,6 +307,12 @@ export async function dispatchPostTriage(
         });
         const completed = readLatestTaskCompletedOutcomeImpl(messages);
         if (!completed) {
+            await recordWorkflowMetricImpl({
+                category: "execution",
+                event: "quick_fix_completed_observed",
+                agentName: AGENTS.ENGINEER,
+                details: { taskCompletedObserved: false, mechanicalValidationRan: false },
+            });
             uiAPI.appendSystemMessage(
                 `${engineerDisplay} stopped without task_completed; QUICK_FIX may be incomplete and Mechanical Validation will not run.`,
                 false,
@@ -283,10 +321,21 @@ export async function dispatchPostTriage(
             return;
         }
 
-        await runMechanicalValidationImpl({
+        const mechanicalResult = await runMechanicalValidationImpl({
             hostedSession,
             uiAPI,
             sessionManager,
+        });
+        await recordWorkflowMetricImpl({
+            category: "execution",
+            event: "quick_fix_completed_observed",
+            agentName: AGENTS.ENGINEER,
+            details: {
+                taskCompletedObserved: true,
+                mechanicalValidationRan: true,
+                mechanicalValidationPassed: mechanicalResult?.passed,
+                attempts: mechanicalResult?.attempts,
+            },
         });
         return;
     }
@@ -316,13 +365,41 @@ export async function dispatchPostTriage(
             planningAgentName: agentName,
             fallbackTriageMeta: normalizedTriage,
         });
+        await recordWorkflowMetricImpl({
+            category: "planning",
+            event: "decision",
+            agentName,
+            planName: typeof decision.payload.planName === "string" ? decision.payload.planName : undefined,
+            details: summarizeWorkflowDecision(decision),
+        });
 
         if (decision.kind === "stay_with_agent" || decision.kind === "save_plan") {
+            await recordWorkflowMetricImpl({
+                category: "execution",
+                event: "feature_project_outcome",
+                agentName,
+                planName: typeof decision.payload.planName === "string" ? decision.payload.planName : undefined,
+                details: {
+                    routingIntent: normalizedTriage.routingIntent,
+                    outcome: decision.kind === "save_plan" ? "plan_saved" : "planning_incomplete",
+                    decisionKind: decision.kind,
+                },
+            });
             setActiveAgentImpl(hostedSession, agentName, createAgentHandlerImpl(agentName), uiAPI);
             return;
         }
 
         if (decision.kind !== "execute_plan") {
+            await recordWorkflowMetricImpl({
+                category: "execution",
+                event: "feature_project_outcome",
+                agentName,
+                details: {
+                    routingIntent: normalizedTriage.routingIntent,
+                    outcome: "planning_halted",
+                    decisionKind: decision.kind,
+                },
+            });
             uiAPI.appendSystemMessage(`Workflow halted: ${String(decision.payload.reason || "unknown reason")}`);
             setActiveAgentImpl(hostedSession, agentName, createAgentHandlerImpl(agentName), uiAPI);
             return;
@@ -343,11 +420,22 @@ export async function dispatchPostTriage(
                 uiAPI,
                 tasks,
                 sessionManager,
-                { hostedSession },
+                { hostedSession, recordWorkflowMetric: recordWorkflowMetricImpl },
             );
         } catch (error) {
             hostedSession.consumePendingSwitchHandoff(); // Drain any switch requests from execution sub-agents
             const reason = error instanceof Error ? error.message : String(error);
+            await recordWorkflowMetricImpl({
+                category: "execution",
+                event: "feature_project_outcome",
+                agentName: AGENTS.ENGINEER,
+                planName,
+                details: {
+                    routingIntent: normalizedTriage.routingIntent,
+                    outcome: "execution_threw",
+                    hasError: Boolean(reason),
+                },
+            });
             uiAPI.appendSystemMessage(
                 `Plan execution failed: ${reason}. The Engineer may need manual intervention.`,
                 true,
@@ -363,6 +451,13 @@ export async function dispatchPostTriage(
             triageMeta: decisionTriageMeta,
             executionAgentName: AGENTS.ENGINEER,
         });
+        await recordWorkflowMetricImpl({
+            category: "execution",
+            event: "decision",
+            agentName: AGENTS.ENGINEER,
+            planName,
+            details: summarizeWorkflowDecision(executionDecision),
+        });
         if (executionDecision.kind === "run_validation") {
             const plan = await loadPlanImpl(CWD, planName);
             if (shouldRunWorkflowValidationImpl(decisionTriageMeta)) {
@@ -374,14 +469,61 @@ export async function dispatchPostTriage(
                     uiAPI,
                     sessionManager,
                     finalAgentName: agentName,
+                    __deps: { recordWorkflowMetric: recordWorkflowMetricImpl },
+                });
+                await recordWorkflowMetricImpl({
+                    category: "execution",
+                    event: "feature_project_outcome",
+                    agentName: AGENTS.ENGINEER,
+                    planName,
+                    details: {
+                        routingIntent: normalizedTriage.routingIntent,
+                        outcome: "validation_completed",
+                        executionDecisionKind: executionDecision.kind,
+                    },
+                });
+            } else {
+                await recordWorkflowMetricImpl({
+                    category: "execution",
+                    event: "feature_project_outcome",
+                    agentName: AGENTS.ENGINEER,
+                    planName,
+                    details: {
+                        routingIntent: normalizedTriage.routingIntent,
+                        outcome: "validation_skipped",
+                        executionDecisionKind: executionDecision.kind,
+                    },
                 });
             }
         } else if (executionDecision.kind === "stay_with_agent") {
             const nextAgentName = /** @type {string} */ (executionDecision.payload.agentName || AGENTS.ENGINEER);
+            await recordWorkflowMetricImpl({
+                category: "execution",
+                event: "feature_project_outcome",
+                agentName: nextAgentName,
+                planName,
+                details: {
+                    routingIntent: normalizedTriage.routingIntent,
+                    outcome: "execution_incomplete",
+                    executionDecisionKind: executionDecision.kind,
+                },
+            });
             setActiveAgentImpl(hostedSession, nextAgentName, createAgentHandlerImpl(nextAgentName), uiAPI);
         } else {
             // halt or repair_plan — stay with Engineer for manual recovery
             const reason = executionDecision.payload?.reason || "unknown";
+            await recordWorkflowMetricImpl({
+                category: "execution",
+                event: "feature_project_outcome",
+                agentName: AGENTS.ENGINEER,
+                planName,
+                details: {
+                    routingIntent: normalizedTriage.routingIntent,
+                    outcome: "execution_halted",
+                    executionDecisionKind: executionDecision.kind,
+                    hasReason: Boolean(reason),
+                },
+            });
             uiAPI.appendSystemMessage(
                 `Execution stopped: ${reason}. Staying with Engineer for manual intervention.`,
                 true,

@@ -169,6 +169,8 @@ Deno.test("runMechanicalValidation passes local CI without plan-specific work", 
     const uiAPI = makeUi();
     /** @type {string[]} */
     const actions = [];
+    /** @type {any[]} */
+    const metrics = [];
 
     const result = await runMechanicalValidation({
         hostedSession,
@@ -186,6 +188,10 @@ Deno.test("runMechanicalValidation passes local CI without plan-specific work", 
             setActiveAgent: (/** @type {unknown} */ _hostedSession, /** @type {string} */ name) =>
                 actions.push(`active:${name}`),
             createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
+            recordWorkflowMetric: (/** @type {any} */ metric) => {
+                metrics.push(metric);
+                return Promise.resolve(null);
+            },
         }),
     });
 
@@ -195,6 +201,11 @@ Deno.test("runMechanicalValidation passes local CI without plan-specific work", 
         uiAPI.messages.some((/** @type {string} */ m) => m.includes("QUICK_FIX Mechanical Validation passed")),
         true,
     );
+    assertEquals(metrics.map((metric) => metric.event), [
+        "mechanical_validation_started",
+        "mechanical_ci_attempt",
+        "mechanical_validation_finished",
+    ]);
 });
 
 Deno.test("runMechanicalValidation repairs CI failures through Engineer and then passes", async () => {
@@ -767,6 +778,8 @@ Deno.test("runValidationLoop records validation_passed only after worktree merge
     const uiAPI = makeUi();
     /** @type {string[]} */
     const actions = [];
+    /** @type {any[]} */
+    const metrics = [];
 
     hostedSession.setActiveExecutionWorkflow({
         planName: "p",
@@ -828,6 +841,11 @@ Deno.test("runValidationLoop records validation_passed only after worktree merge
                 actions.push(`event:${event.event}:${event.details.worktreeStatus || ""}`);
                 return Promise.resolve({});
             },
+            getCodeReviewMode: () => "none",
+            recordWorkflowMetric: (/** @type {any} */ metric) => {
+                metrics.push(metric);
+                return Promise.resolve(null);
+            },
             setActiveAgent: () => {},
         }),
     });
@@ -839,6 +857,13 @@ Deno.test("runValidationLoop records validation_passed only after worktree merge
         "registry-remove:/primary:wt1",
         "event:validation_passed:merged",
     ]);
+    assertEquals(
+        metrics.some((metric) =>
+            metric.category === "validation" && metric.event === "human_review_result" &&
+            metric.details.mode === "none" && metric.details.decision === "not_required"
+        ),
+        true,
+    );
 });
 
 Deno.test("runValidationLoop does not delete worktree when merge verification is uncertain", async () => {
@@ -1112,6 +1137,8 @@ Deno.test("runValidationLoop sends human feedback to Engineer and continues vali
     const uiAPI = makeUi();
     /** @type {string[]} */
     const actions = [];
+    /** @type {any[]} */
+    const metrics = [];
     let humanReviewCalls = 0;
 
     await runValidationLoop({
@@ -1145,6 +1172,10 @@ Deno.test("runValidationLoop sends human feedback to Engineer and continues vali
                 }
                 return Promise.resolve({ approved: true, feedback: "", annotations: [], exit: false });
             },
+            recordWorkflowMetric: (/** @type {any} */ metric) => {
+                metrics.push(metric);
+                return Promise.resolve(null);
+            },
             runCompletionGatedRepair: (/** @type {any} */ opts) => {
                 actions.push(`repair:${opts.agentName}:${opts.userRequest.includes("Needs test.")}`);
                 return Promise.resolve(true);
@@ -1165,12 +1196,22 @@ Deno.test("runValidationLoop sends human feedback to Engineer and continues vali
         "human-review:2",
         "event:validation_passed:always:approved",
     ]);
+    assertEquals(
+        metrics.some((metric) =>
+            metric.category === "validation" && metric.event === "human_review_result" &&
+            metric.details.mode === "always" && metric.details.decision === "feedback_requested" &&
+            metric.details.hasFeedback === true && metric.details.annotationCount === 1
+        ),
+        true,
+    );
 });
 
 Deno.test("runValidationLoop treats human review exit as validation failure without merge", async () => {
     const uiAPI = makeUi();
     /** @type {string[]} */
     const actions = [];
+    /** @type {any[]} */
+    const metrics = [];
 
     hostedSession.setActiveExecutionWorkflow({
         planName: "p",
@@ -1219,6 +1260,10 @@ Deno.test("runValidationLoop treats human review exit as validation failure with
                 actions.push(`event:${event.event}:${event.details.failureReason}`);
                 return Promise.resolve({});
             },
+            recordWorkflowMetric: (/** @type {any} */ metric) => {
+                metrics.push(metric);
+                return Promise.resolve(null);
+            },
             setActiveAgent: () => {},
         }),
     });
@@ -1227,6 +1272,13 @@ Deno.test("runValidationLoop treats human review exit as validation failure with
         "registry:validation_failed",
         "event:validation_failed:User code review exited without approval or feedback.",
     ]);
+    assertEquals(
+        metrics.some((metric) =>
+            metric.category === "validation" && metric.event === "human_review_result" &&
+            metric.details.decision === "exited"
+        ),
+        true,
+    );
 });
 
 Deno.test("runValidationLoop keeps merged worktree when cleanup setting is disabled", async () => {

@@ -18,6 +18,7 @@ Deno.test("normalizeCodeReviewDecision handles approvals, feedback, annotations,
             feedback: "ship it",
             annotations: [{ file: "src/a.js", line: 3, text: "nice" }],
             exit: false,
+            canceled: false,
         },
     );
 
@@ -26,6 +27,7 @@ Deno.test("normalizeCodeReviewDecision handles approvals, feedback, annotations,
         feedback: "",
         annotations: [],
         exit: true,
+        canceled: true,
     });
 });
 

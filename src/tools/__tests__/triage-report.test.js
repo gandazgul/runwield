@@ -36,7 +36,15 @@ Deno.test("triage_report execute returns canonical routingIntent details for INQ
             messages.push(msg);
         },
     });
-    const tool = createTriageReportTool({ uiAPI });
+    /** @type {any[]} */
+    const metrics = [];
+    const tool = createTriageReportTool({
+        uiAPI,
+        recordWorkflowMetric: (metric) => {
+            metrics.push(metric);
+            return Promise.resolve(null);
+        },
+    });
 
     const params = {
         routingIntent: /** @type {const} */ ("INQUIRY"),
@@ -54,6 +62,10 @@ Deno.test("triage_report execute returns canonical routingIntent details for INQ
     assertMatch(result.content[0].text, /Triage complete/);
     assertEquals(messages.length, 1);
     assertMatch(messages[0], /Routing Intent: INQUIRY/);
+    assertEquals(metrics.length, 1);
+    assertEquals(metrics[0].category, "routing");
+    assertEquals(metrics[0].event, "triage_reported");
+    assertEquals(metrics[0].details.routingIntent, "INQUIRY");
 });
 
 Deno.test("triage_report execute preserves plan classification only for FEATURE and PROJECT", async () => {

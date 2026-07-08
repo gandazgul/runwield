@@ -2482,6 +2482,92 @@ Deno.test("runLoadPlanCommand can manually merge merge-conflict worktree recover
     }
 });
 
+Deno.test("runLoadPlanCommand records recovery metric when manual merge fails", async () => {
+    const worktreePath = await Deno.makeTempDir({ prefix: "runwield-load-plan-merge-fail-" });
+    try {
+        const { uiAPI, selections } = makeUi();
+        selections.push("merge");
+        /** @type {any[]} */
+        const metrics = [];
+
+        await runLoadPlanCommand(["plan-merge-conflict-fail"], {
+            hostedSession: new HostedSession({ id: "load-plan-test" }),
+            uiAPI,
+            editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+            __testDeps: /** @type {any} */ ({
+                parseArgs: () => ({ help: false, _: ["plan-merge-conflict-fail"] }),
+                resolvePlan: () =>
+                    Promise.resolve({
+                        planName: "plan-merge-conflict-fail",
+                        path: "plans/plan-merge-conflict-fail.md",
+                        body: "body",
+                        markdown: "markdown",
+                        attrs: {
+                            classification: "FEATURE",
+                            complexity: "LOW",
+                            summary: "Resolve a manual merge conflict.",
+                            affectedPaths: [],
+                            status: "implemented",
+                            worktreeId: "wt1",
+                            worktreePath,
+                            worktreeBranch: "runwield/worktree/plan-merge-conflict-fail",
+                            worktreeStatus: "merge_conflict",
+                        },
+                    }),
+                findWorktreeById: () =>
+                    Promise.resolve({
+                        id: "wt1",
+                        planName: "plan-merge-conflict-fail",
+                        path: worktreePath,
+                        branch: "runwield/worktree/plan-merge-conflict-fail",
+                        baseBranch: "feature-base",
+                        baseRef: "feature-base",
+                        baseCommit: "abc123",
+                        baseTree: "baseline-tree",
+                        status: "merge_conflict",
+                        createdAt: "2026-01-01T00:00:00.000Z",
+                        updatedAt: "2026-01-01T00:00:00.000Z",
+                    }),
+                getWorktreeStatus: () =>
+                    Promise.resolve({
+                        exists: true,
+                        path: worktreePath,
+                        branch: "runwield/worktree/plan-merge-conflict-fail",
+                        statusText: "",
+                        diff: "",
+                    }),
+                mergeExecutionWorktree: () => Promise.reject(new Error("conflict")),
+                updateWorktreeRegistryEntry: () => Promise.resolve({}),
+                updatePlanFrontMatter: (
+                    /** @type {string} */ _cwd,
+                    /** @type {string} */ _planName,
+                    /** @type {any} */ updates,
+                    /** @type {any} */ attrs,
+                ) => Promise.resolve({ ...attrs, ...updates }),
+                recordPlanEvent: () => Promise.resolve(/** @type {any} */ ({})),
+                recordWorkflowMetric: (/** @type {any} */ metric) => {
+                    metrics.push(metric);
+                    return Promise.resolve(null);
+                },
+                createAgentHandler: () => async () => {},
+                resetTuiState: () => {},
+                setActiveAgent: () => {},
+            }),
+        });
+
+        assertEquals(
+            metrics.some((metric) =>
+                metric.category === "recovery" && metric.event === "recovery_action_result" &&
+                metric.details.action === "merge" && metric.details.result === "failed" &&
+                metric.details.hasWorktree === true && metric.details.canMergeWorktree === true
+            ),
+            true,
+        );
+    } finally {
+        await Deno.remove(worktreePath, { recursive: true });
+    }
+});
+
 Deno.test("runLoadPlanCommand verified plan review path records review_reopened", async () => {
     const { uiAPI, selections } = makeUi();
     selections.push("review", "resume");
