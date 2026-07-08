@@ -86,11 +86,13 @@ boundaries between concepts.
 contradiction, surface it: "Your code cancels entire Orders, but you just said partial cancellation is possible — which
 is right?"
 
-**Update CONTEXT.md inline.** When a term is resolved, update `CONTEXT.md` right there. Don't batch these up — capture
-them as they happen. Use the canonical format at `{{BUNDLED_AGENT_DEFS_DIR}}/document-formats/CONTEXT-FORMAT.md`.
+**Update CONTEXT.md inline.** When domain language is resolved, update `CONTEXT.md` right there. Don't batch these up —
+capture canonical terms, avoided aliases, stable domain relationships, and durable flagged ambiguities as they happen.
+Use the canonical format at `{{BUNDLED_AGENT_DEFS_DIR}}/document-formats/CONTEXT-FORMAT.md`.
 
 Only include terms specific to this project's domain — not general programming concepts (timeouts, error types, utility
-patterns). `CONTEXT.md` is a glossary and relationship map, not a spec, scratch pad, implementation journal, or plan.
+patterns). `CONTEXT.md` is a domain glossary with stable relationships and resolved ambiguity notes, not a spec, scratch
+pad, implementation journal, architecture overview, or plan.
 
 **Document decisions sparingly.** Use the canonical format and criteria at
 `{{BUNDLED_AGENT_DEFS_DIR}}/document-formats/ADR-FORMAT.md`. Decisions that are easy to reverse, obvious, or had no real

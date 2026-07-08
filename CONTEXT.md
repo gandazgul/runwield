@@ -147,6 +147,9 @@ approval screen
 **Guided Review**: A Plannotator code-review mode that organizes a PR or local diff into importance-ordered chapters
 with live annotatable diffs and per-section reviewed state. _Avoid_: Guide, review summary, file-order review
 
+**Guided Review Policy**: The validation-time setting that decides whether RunWield never, conditionally, or always
+generates a Guided Review for a human code review. _Avoid_: Diff size setting, guide preference
+
 **Plan Board**: A browser-based local UI over the current checkout's `plans/` directory that displays Plans by Plan
 Status and lets the user inspect or edit Plan files while preserving the local Plan files as the canonical source of
 truth. _Avoid_: Remote plan database, hosted board, task board

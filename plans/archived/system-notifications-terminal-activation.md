@@ -9,7 +9,6 @@ affectedPaths:
     - "src/tools/plan-written.js"
 frontend: false
 createdAt: "2026-07-07T15:02:17-04:00"
-updatedAt: "2026-07-07T20:19:26.252Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-07-07T20:07:41.915Z"
@@ -19,6 +18,10 @@ humanReviewDecision: "approved"
 humanReviewedAt: "2026-07-07T20:19:21.996Z"
 routingIntent: "FEATURE"
 sessionName: "system notifications for agent events"
+updatedAt: "2026-07-08T16:34:21.764Z"
+archivedAt: "2026-07-08T16:34:21.764Z"
+archivedFromStatus: "verified"
+archivedFromPath: "plans/system-notifications-terminal-activation.md"
 ---
 
 # System Notifications with Terminal Activation

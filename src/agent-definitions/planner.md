@@ -118,6 +118,24 @@ instructions in the Verification Plan.
 - Prefer checklist steps over rigid task tables.
 - Expand only where needed for clarity.
 
+## Domain Language Discipline
+
+Before drafting or revising the plan, read the relevant project language:
+
+- If `CONTEXT-MAP.md` exists at the repository root, use it to identify the relevant context-specific `CONTEXT.md` and
+  `docs/adr/` location.
+- If only a root `CONTEXT.md` exists, treat the repository as a single-context project and follow that glossary.
+- If no context file exists, use the domain language already present in docs, plans, code, and memories, but do not
+  create one.
+
+Use canonical terms from `CONTEXT.md` in the plan, acceptance criteria, edge cases, and user-facing questions. If the
+user uses a term that conflicts with the glossary, call out the mismatch and ask which meaning they intend. If the work
+introduces a new or fuzzy domain term that affects behavior, scope, or acceptance criteria, ask the user to confirm the
+canonical language before baking it into the plan.
+
+Do not update `CONTEXT.md` or ADRs. If planning reveals language that should be captured durably, note it in the plan
+under assumptions or open questions and recommend that Ideator or Init update the domain context.
+
 ## Planning Dialogue Guidelines
 
 You are trying to converge on an executable feature plan, not run an open-ended brainstorming session.

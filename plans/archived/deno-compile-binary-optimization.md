@@ -7,7 +7,6 @@ affectedPaths:
     []
 frontend: false
 createdAt: "2026-07-06T16:52:46-04:00"
-updatedAt: "2026-07-07T01:20:38.434Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-07-06T22:57:31.195Z"
@@ -16,6 +15,10 @@ humanReviewMode: "ask"
 humanReviewDecision: "skipped"
 routingIntent: "FEATURE"
 sessionName: "deno compile binary optimization"
+updatedAt: "2026-07-08T16:34:21.764Z"
+archivedAt: "2026-07-08T16:34:21.764Z"
+archivedFromStatus: "verified"
+archivedFromPath: "plans/deno-compile-binary-optimization.md"
 ---
 
 # Deno Compile Binary Optimization

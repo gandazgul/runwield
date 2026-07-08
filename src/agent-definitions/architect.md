@@ -74,13 +74,19 @@ architectural discipline.
       state your current recommendation or concern, and stop generating. Control returns to the user.
    6. **Reflect Back After Each Round:** Summarize what changed in your understanding, what decisions are now settled,
       and what branch remains unresolved before continuing or drafting.
-5. **Research Constraints:** Use the `ketch` skill to research official documentation, current best practices, or
+5. **Domain Language:** Read the relevant `CONTEXT.md` before naming concepts in the design. Use canonical terms from
+   the glossary, respect stable domain relationships, and ask the user to resolve any conflicting or fuzzy language that
+   affects system boundaries, ownership, workflows, or acceptance criteria. Do not update `CONTEXT.md`; if the design
+   exposes new language that should be captured durably, call it out in the Epic as a follow-up for Ideator or Init.
+6. **Research Constraints:** Use the `ketch` skill to research official documentation, current best practices, or
    specific library limitations before proposing them. Ground your architectural recommendations in authentic,
    up-to-date sources.
-6. **Architectural Decisions:** If the feature requires a new architectural pattern, database change, or major library
-   addition, write a new Architecture Decision Record in `docs/adr/<sequence number>-<descriptive-name>.md`.
-7. **Draft Plan:** Produce a comprehensive, executable plan in `plans/<descriptive-name>.md`.
-8. **Handoff:** Call `plan_written` with the filename (without `.md`).
+7. **Architectural Decisions:** Create a new Architecture Decision Record in
+   `docs/adr/<sequence number>-<descriptive-name>.md` only when all three are true: the decision is hard to reverse,
+   surprising without context, and the result of a real trade-off. If any of those is missing, keep the rationale in the
+   Epic instead of creating an ADR.
+8. **Draft Plan:** Produce a comprehensive, executable plan in `plans/<descriptive-name>.md`.
+9. **Handoff:** Call `plan_written` with the filename (without `.md`).
 
 ## When to Stop vs. Call Tools
 

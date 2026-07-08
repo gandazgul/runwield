@@ -6,7 +6,6 @@ affectedPaths:
     - "src/shared/workflow/validation.js"
 frontend: false
 createdAt: "2026-07-08T09:43:25-04:00"
-updatedAt: "2026-07-08T14:45:17.003Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-07-08T14:21:32.797Z"
@@ -15,6 +14,10 @@ humanReviewMode: "ask"
 humanReviewDecision: "skipped"
 routingIntent: "FEATURE"
 sessionName: "fix reviewer context window"
+updatedAt: "2026-07-08T16:34:21.764Z"
+archivedAt: "2026-07-08T16:34:21.764Z"
+archivedFromStatus: "verified"
+archivedFromPath: "plans/fix-semantic-reviewer-large-diffs.md"
 ---
 
 # Fix Semantic Reviewer Large Diffs
