@@ -58,16 +58,19 @@ so they agree again.
 ## Component architecture
 
 RunWield owns its browser UI components. Shared design-system components should live under `src/ui/design-system/` so
-Workspace, Plannotator, and future browser surfaces can consume the same primitives. The design system should use:
+Workspace, Plannotator, and future browser surfaces can consume the same primitives. During the Workspace Astro
+migration, the design system has two supported endpoints:
 
-- RunWield semantic tokens for color, radius, spacing, and status intent;
-- UnoCSS for utility styling and generated CSS;
-- Preact/Fresh components written in pure JavaScript and JSDoc;
-- Zag.js state machines only for complex accessible interactions such as dialogs, selects, menus, popovers, tooltips,
-  comboboxes, and toasts.
+- Existing Fresh/Preact/Zag components remain available for not-yet-ported Workspace code until parity is proven.
+- New Workspace surfaces under `src/ui/workspace/` should use Astro SSR, React islands, Tailwind 4, and Radix-compatible
+  React primitives.
 
-RunWield components should preserve the current Workspace aesthetic and avoid React-only primitive stacks unless a
-future spike proves a narrow need.
+Both endpoints must use RunWield semantic tokens for color, radius, spacing, and status intent. Tailwind utilities and
+Radix primitives are implementation tools; they should not introduce a competing visual language or bypass `--rw-*`
+tokens.
+
+RunWield components should preserve the current Workspace aesthetic. React/Radix primitives are now accepted for the
+Workspace migration, but RunWield still owns the shell, workflow vocabulary, variants, and token bridge around them.
 
 Primitive visual components such as buttons, cards, badges, notices, tabs, inputs, and textareas should be
 RunWield-owned without a headless interaction dependency unless they require non-trivial keyboard, focus, portal, or
@@ -371,6 +374,13 @@ When imported Plannotator components are used:
 - use Radix primitives from Plannotator when needed for shared React surfaces, but keep RunWield-owned semantics and
   workflow language around them.
 
-The first accepted proof is read-only Plan detail rendering through an imported Plannotator UI component. Editable Plan
-body replacement, built-in Plan Review, built-in code review, and WebTUI chat integration require follow-up slices with
-their own verification.
+The first accepted proof is read-only Plan detail rendering through an imported Plannotator UI component. The next
+Workspace platform slice adds Astro dev entrypoints:
+
+- `deno task workspace:dev` for the Workspace shell;
+- `deno task workspace:dev:plan-review` for a fixture-backed internal Plan review route;
+- `deno task workspace:dev:code-review` for a fixture-backed internal code review route.
+
+These review routes are HMR development surfaces only until workflow decision transport is implemented behind the
+review-launcher seam. Editable Plan body replacement, built-in Plan Review, built-in code review, and WebTUI chat
+integration require follow-up slices with their own verification.

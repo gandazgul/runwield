@@ -1,0 +1,25 @@
+---
+const { title = "RunWield Workspace", selectedTab = "active" } = Astro.props;
+---
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="generator" content={Astro.generator} />
+        <title>{title}</title>
+        <link rel="stylesheet" href="/styles.css" />
+        <link rel="stylesheet" href="/theme.css" />
+    </head>
+    <body>
+        <main class="workspace-shell" data-selected-tab={selectedTab} data-astro-workspace-shell>
+            <header class="topbar">
+                <a class="brand" href="/" aria-label="RunWield Workspace">
+                    <img class="brand-logo" src="/logo.svg" alt="" />
+                    <span>RunWield Workspace</span>
+                </a>
+            </header>
+            <slot />
+        </main>
+    </body>
+</html>

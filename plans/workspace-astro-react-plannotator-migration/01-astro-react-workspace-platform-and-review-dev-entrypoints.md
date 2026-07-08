@@ -1,4 +1,5 @@
 ---
+planId: "c3e3ea5c-d55b-487d-b3e7-a22d2553cf4c"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Establish the Astro SSR + React + Tailwind + Radix Workspace platform while preserving RunWield launch/security/API boundaries. Add HMR-friendly dev entrypoints for the Workspace, plan review UI, and code review UI so later visual migration work can be tested directly in browser."
