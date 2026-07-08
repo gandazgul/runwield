@@ -1,4 +1,4 @@
-// @ts-nocheck: upstream Plannotator UI source is React TSX while repo-wide Deno checks remain Preact/JSDoc-oriented.
+// @ts-nocheck: Workspace is the scoped TSX exception zone and the pinned Plannotator checkout uses TS syntax.
 
 import React from "react";
 import { RenderedMarkdown } from "@plannotator/ui/components/RenderedMarkdown.tsx";

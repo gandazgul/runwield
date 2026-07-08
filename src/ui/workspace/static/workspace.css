@@ -595,3 +595,55 @@
 [data-plannotator-plan-body][data-plannotator-renderer="rendered"] > .markdown-view {
     display: none;
 }
+
+.review-dev-surface {
+    display: grid;
+    gap: 1rem;
+}
+
+.review-dev-card {
+    display: grid;
+    gap: 1rem;
+}
+
+.review-dev-actions {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    justify-content: flex-end;
+}
+
+.rw-react-tabs .tabs {
+    margin-top: 1rem;
+}
+
+.rw-react-tabs-trigger {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    color: var(--rw-text-muted);
+    cursor: pointer;
+    padding: 0.62rem 1rem;
+}
+
+.rw-react-tabs-trigger[data-state="active"] {
+    background: var(--rw-surface-muted);
+    border-color: var(--rw-border);
+    box-shadow: inset 0 -2px 0 var(--rw-accent), 0 8px 22px #0003;
+    color: var(--rw-text-strong);
+    font-weight: 800;
+}
+
+.rw-react-tabs-content {
+    margin-top: 1rem;
+}
+
+.review-dev-diff {
+    background: color-mix(in srgb, var(--rw-page-bg) 78%, black);
+    border: 1px solid var(--rw-border);
+    border-radius: 12px;
+    color: var(--rw-code);
+    overflow: auto;
+    padding: 1rem;
+}
