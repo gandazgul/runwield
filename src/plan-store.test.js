@@ -295,7 +295,7 @@ testWithFs("body-only save preserves front matter bytes and markdown body fideli
             "status: in_progress",
             "worktreeStatus: active",
             "dependencies:",
-            "  - sibling",
+            "    - sibling",
             "---\n",
         ].join("\n");
         const body =
@@ -387,7 +387,7 @@ testWithFs("updatePlanStatus self-heals malformed front matter using recovery at
             'classification: "FEATURE"',
             'summary: "bad "quote"',
             "affectedPaths:",
-            '  - "<|"|src/tools/user-interview.js<|"|"',
+            '    - "<|"|src/tools/user-interview.js<|"|"',
             'status: "in_review"',
             "---",
             "## Objective",
@@ -787,7 +787,7 @@ testWithFs("archived plan store resolves planId and preserves custom front matte
                 "complexity: MEDIUM",
                 "summary: Custom metadata",
                 "affectedPaths:",
-                "  []",
+                "    []",
                 "status: verified",
                 "customObject:",
                 "  nested: true",

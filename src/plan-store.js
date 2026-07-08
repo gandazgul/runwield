@@ -292,12 +292,12 @@ function appendYamlField(lines, key, value) {
     if (Array.isArray(value)) {
         lines.push(`${key}:`);
         if (value.length === 0) {
-            lines.push(`  []`);
+            lines.push(`    []`);
         } else {
             for (const item of value) {
-                if (typeof item === "string") lines.push(`  - "${escapeYamlDoubleQuoted(item)}"`);
-                else if (item === null) lines.push("  - null");
-                else lines.push(`  - ${String(item)}`);
+                if (typeof item === "string") lines.push(`    - "${escapeYamlDoubleQuoted(item)}"`);
+                else if (item === null) lines.push("    - null");
+                else lines.push(`    - ${String(item)}`);
             }
         }
         return;
