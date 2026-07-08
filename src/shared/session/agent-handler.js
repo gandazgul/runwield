@@ -18,7 +18,7 @@ import {
     decidePostExecution as decidePostExecutionFn,
     decidePostPlanning as decidePostPlanningFn,
 } from "../workflow/decisions.js";
-import { runValidationLoop, shouldRunWorkflowValidation } from "../workflow/validation.js";
+import { runMechanicalValidation, runValidationLoop, shouldRunWorkflowValidation } from "../workflow/validation.js";
 import { recordPlanEvent as recordPlanEventFn } from "../workflow/plan-lifecycle.js";
 import { setActiveAgent as setActiveAgentFn } from "./agent-switching.js";
 import { notifyRunWieldEvent as notifyRunWieldEventFn } from "../system-notifications.js";
@@ -47,6 +47,7 @@ import { AGENTS, CWD } from "../../constants.js";
  *   decidePostExecution?: typeof decidePostExecutionFn,
  *   executePlan?: typeof executePlanFn,
  *   runValidationLoop?: typeof runValidationLoop,
+ *   runMechanicalValidation?: typeof runMechanicalValidation,
  *   recordPlanEvent?: typeof recordPlanEventFn,
  *   setActiveAgent?: typeof setActiveAgentFn,
  *   notifyRunWieldEvent?: typeof notifyRunWieldEventFn,
@@ -69,6 +70,7 @@ export function createAgentHandler(agentName, __deps) {
     const decidePostExecution = __deps?.decidePostExecution || decidePostExecutionFn;
     const executePlan = __deps?.executePlan || executePlanFn;
     const runValidationLoopImpl = __deps?.runValidationLoop || runValidationLoop;
+    const runMechanicalValidationImpl = __deps?.runMechanicalValidation || runMechanicalValidation;
     const recordPlanEventImpl = __deps?.recordPlanEvent || recordPlanEventFn;
     const setActiveAgent = __deps?.setActiveAgent || setActiveAgentFn;
     const notifyRunWieldEvent = __deps?.notifyRunWieldEvent || notifyRunWieldEventFn;
@@ -238,6 +240,18 @@ export function createAgentHandler(agentName, __deps) {
         const taskCompleted = readLatestTaskCompletedOutcome(messages, preTurnCount);
         if (taskCompleted) {
             const workflow = hostedSession.getActiveExecutionWorkflow();
+            if (workflow?.triageMeta?.classification === "QUICK_FIX") {
+                hostedSession.clearActiveExecutionWorkflow();
+                await runMechanicalValidationImpl({
+                    hostedSession,
+                    uiAPI,
+                    sessionManager,
+                    cwd: workflow.executionCwd || CWD,
+                });
+                await notifyAgentStopped();
+                return;
+            }
+
             if (workflow && !shouldRunWorkflowValidation(workflow.triageMeta)) {
                 hostedSession.clearActiveExecutionWorkflow();
                 await notifyAgentStopped();
@@ -253,23 +267,25 @@ export function createAgentHandler(agentName, __deps) {
                         // Ignore
                     }
 
-                    try {
-                        await recordPlanEventImpl({
-                            cwd: CWD,
-                            planName: workflow.planName,
-                            event: "implementation_finished",
-                            currentStatus: "in_progress",
-                            details: { triageMeta: workflow.triageMeta },
-                        });
-                    } catch (error) {
-                        const reason = error instanceof Error ? error.message : String(error);
-                        uiAPI?.appendSystemMessage?.(
-                            `Workflow halted: Could not record implementation_finished before validation: ${reason}`,
-                            true,
-                            "RunWield",
-                        );
-                        await notifyAgentStopped();
-                        return;
+                    if (!workflow.validationContinuation) {
+                        try {
+                            await recordPlanEventImpl({
+                                cwd: CWD,
+                                planName: workflow.planName,
+                                event: "implementation_finished",
+                                currentStatus: "in_progress",
+                                details: { triageMeta: workflow.triageMeta },
+                            });
+                        } catch (error) {
+                            const reason = error instanceof Error ? error.message : String(error);
+                            uiAPI?.appendSystemMessage?.(
+                                `Workflow halted: Could not record implementation_finished before validation: ${reason}`,
+                                true,
+                                "RunWield",
+                            );
+                            await notifyAgentStopped();
+                            return;
+                        }
                     }
                 }
 

@@ -348,6 +348,52 @@ Deno.test("agent-handler records delayed implementation finish before continuati
     assertEquals(events, ["implementation_finished", "validation_started"]);
 });
 
+Deno.test("agent-handler resumes validation continuation without recording implementation_finished again", async () => {
+    /** @type {unknown} */
+    let workflowDuringValidation = null;
+    let recordCount = 0;
+    const hostedSession = makeHostedSession();
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "p",
+        triageMeta: { classification: "FEATURE" },
+        baselineTree: "baseline-tree",
+        validationContinuation: true,
+    });
+
+    const handler = createAgentHandler("engineer", {
+        hostedSession,
+        runAgentSession: () =>
+            Promise.resolve(
+                /** @type {any} */ ([{
+                    role: "toolResult",
+                    toolName: "task_completed",
+                    details: { outcome: "task_completed" },
+                }]),
+            ),
+        readLatestPlanOutcome: () => null,
+        readLatestTaskCompletedOutcome: () => true,
+        recordPlanEvent: () => {
+            recordCount++;
+            return Promise.resolve(/** @type {any} */ ({}));
+        },
+        runValidationLoop: () => {
+            workflowDuringValidation = hostedSession.getActiveExecutionWorkflow();
+            hostedSession.clearActiveExecutionWorkflow();
+            return Promise.resolve();
+        },
+    });
+
+    await handler("continue", [], /** @type {any} */ ({}), /** @type {any} */ (undefined));
+
+    assertEquals(recordCount, 0);
+    assertEquals(workflowDuringValidation, {
+        planName: "p",
+        triageMeta: { classification: "FEATURE" },
+        baselineTree: "baseline-tree",
+        validationContinuation: true,
+    });
+});
+
 Deno.test("agent-handler ignores stale task_completed outcomes from earlier root turns", async () => {
     let validationCount = 0;
     let recordCount = 0;
@@ -449,16 +495,17 @@ Deno.test("agent-handler validates task_completed against hosted workflow", asyn
     }
 });
 
-Deno.test("agent-handler skips validation and clears workflow marker for QUICK_FIX completion", async () => {
-    let validationCount = 0;
+Deno.test("agent-handler resumes QUICK_FIX mechanical validation after repair task_completed", async () => {
+    let mechanicalValidationCount = 0;
     const hostedSession = makeHostedSession();
     hostedSession.setActiveExecutionWorkflow({
         planName: "quick-fix",
         triageMeta: { classification: "QUICK_FIX" },
-        baselineTree: "baseline-tree",
+        executionCwd: "/quick-fix-repair",
+        validationContinuation: true,
     });
 
-    const handler = createAgentHandler("operator", {
+    const handler = createAgentHandler("engineer", {
         hostedSession,
         runAgentSession: () =>
             Promise.resolve(
@@ -470,15 +517,21 @@ Deno.test("agent-handler skips validation and clears workflow marker for QUICK_F
             ),
         readLatestPlanOutcome: () => null,
         readLatestTaskCompletedOutcome: () => true,
+        runMechanicalValidation: (/** @type {any} */ args) => {
+            mechanicalValidationCount++;
+            assertEquals(args.cwd, "/quick-fix-repair");
+            assertEquals(args.hostedSession, hostedSession);
+            assertEquals(hostedSession.getActiveExecutionWorkflow(), null);
+            return Promise.resolve({ passed: true, attempts: 0 });
+        },
         runValidationLoop: () => {
-            validationCount++;
-            return Promise.resolve();
+            throw new Error("plan validation should not run for quick-fix mechanical continuation");
         },
     });
 
     await handler("answer", [], /** @type {any} */ ({}), /** @type {any} */ (undefined));
 
-    assertEquals(validationCount, 0);
+    assertEquals(mechanicalValidationCount, 1);
     assertEquals(hostedSession.getActiveExecutionWorkflow(), null);
 });
 

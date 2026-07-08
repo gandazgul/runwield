@@ -549,11 +549,13 @@ Deno.test("runValidationLoop fails PROJECT validation when workflow diff only ch
     );
 });
 
-Deno.test("runValidationLoop halts when CI repair does not call task_completed", async () => {
+Deno.test("runValidationLoop pauses with Engineer when CI repair does not call task_completed", async () => {
     const uiAPI = makeUi();
+    const repairHostedSession = new HostedSession({ id: "ci-repair-pause-test" });
     let repairCalls = 0;
+    let repairAgentName = "";
     await runValidationLoop({
-        hostedSession,
+        hostedSession: repairHostedSession,
         planName: "p",
         planContent: "",
         triageMeta: { classification: "FEATURE" },
@@ -561,8 +563,9 @@ Deno.test("runValidationLoop halts when CI repair does not call task_completed",
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
             runLocalCI: () => Promise.resolve({ exitCode: 1, output: "boom" }),
-            runAgentSession: () => {
+            runAgentSession: (/** @type {any} */ opts) => {
                 repairCalls++;
+                repairAgentName = opts.agentName;
                 return Promise.resolve([]);
             },
             readLatestTaskCompletedOutcome: () => false,
@@ -572,9 +575,17 @@ Deno.test("runValidationLoop halts when CI repair does not call task_completed",
     });
 
     assertEquals(repairCalls, 1);
+    assertEquals(repairAgentName, "engineer");
+    assertEquals(repairHostedSession.getActiveExecutionWorkflow(), {
+        planName: "p",
+        triageMeta: { classification: "FEATURE" },
+        executionCwd: Deno.cwd(),
+        validationContinuation: true,
+    });
     assertEquals(
         uiAPI.messages.some((/** @type {string} */ m) =>
-            m.includes("Workflow halted: Operator stopped without task_completed during CI repair.")
+            m.includes("Engineer stopped without task_completed during CI repair.") &&
+            m.includes("Validation will resume after task_completed")
         ),
         true,
     );
@@ -588,10 +599,11 @@ Deno.test("runValidationLoop halts when CI repair does not call task_completed",
     );
 });
 
-Deno.test("runValidationLoop reports exact semantic repair halt reason", async () => {
+Deno.test("runValidationLoop pauses with Engineer on interrupted semantic repair", async () => {
     const uiAPI = makeUi();
+    const repairHostedSession = new HostedSession({ id: "semantic-repair-pause-test" });
     await runValidationLoop({
-        hostedSession,
+        hostedSession: repairHostedSession,
         planName: "p",
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
@@ -613,9 +625,16 @@ Deno.test("runValidationLoop reports exact semantic repair halt reason", async (
         }),
     });
 
+    assertEquals(repairHostedSession.getActiveExecutionWorkflow(), {
+        planName: "p",
+        triageMeta: { classification: "FEATURE" },
+        executionCwd: Deno.cwd(),
+        validationContinuation: true,
+    });
     assertEquals(
         uiAPI.messages.some((/** @type {string} */ m) =>
-            m.includes("Workflow halted: Engineer stopped without task_completed during semantic repair.")
+            m.includes("Engineer stopped without task_completed during semantic repair.") &&
+            m.includes("Validation will resume after task_completed")
         ),
         true,
     );
