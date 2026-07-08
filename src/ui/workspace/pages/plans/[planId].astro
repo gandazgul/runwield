@@ -1,22 +1,33 @@
 ---
 import WorkspaceLayout from "../../layouts/WorkspaceLayout.astro";
+import { PlanDetail, tabForPlanStatus } from "../../components/PlanDetail.jsx";
+import { loadCanonicalWorkspaceDetail, serializeCanonicalPlanError } from "../../server/astro-canonical-data.js";
 
-const planId = Astro.params.planId ?? "fixture-plan";
+const runtime = globalThis as any;
+const workspaceCwd = Astro.request.headers.get("x-runwield-workspace-cwd") || runtime.Deno?.cwd?.() || ".";
+const planId = Astro.params.planId ?? "";
+const editIntent = Astro.url.searchParams.get("edit") === "body";
+let plan = null;
+let error = null;
+try {
+    plan = await loadCanonicalWorkspaceDetail(workspaceCwd, planId);
+} catch (caught) {
+    error = await serializeCanonicalPlanError(caught);
+    Astro.response.status = error.error.includes("not found") || error.error.includes("Plan not found") ? 404 : 409;
+}
 ---
-<WorkspaceLayout title="Plan Detail · RunWield Workspace" selectedTab="active">
-    <section class="page-header">
-        <p class="eyebrow">Astro SSR scaffold</p>
-        <h2>Fixture Plan detail</h2>
-        <p>Initial Astro detail route. Full metadata/actions/body editor parity is implemented in the next slice.</p>
-    </section>
-    <article class="detail" data-astro-detail-scaffold>
-        <p class="card-kicker"><span class="status">fixture</span> <span>FEATURE</span></p>
-        <h3 class="card-title">{planId}</h3>
-        <p>Real Plan detail data remains behind the RunWield wrapper/API seam until parity is ported.</p>
-        <dl class="metadata-grid">
-            <div><dt>Renderer</dt><dd>Astro SSR scaffold</dd></div>
-            <div><dt>Token bridge</dt><dd>Uses Workspace <code>--rw-*</code> variables</dd></div>
-        </dl>
-        <p><a class="secondary-action" href="/">Back to board</a></p>
-    </article>
+<WorkspaceLayout
+    title={plan ? `${plan.planName} · RunWield Workspace` : "Plan Detail · RunWield Workspace"}
+    selectedTab={plan ? tabForPlanStatus(plan.status) : "active"}
+    url={Astro.url.href}
+>
+    {error ? (
+        <section class="error-panel">
+            <h2>Plan lookup failed</h2>
+            <p>{error.error}</p>
+            <p>{error.repair}</p>
+        </section>
+    ) : (
+        <PlanDetail plan={plan} url={Astro.url.href} editIntent={editIntent} client:load />
+    )}
 </WorkspaceLayout>

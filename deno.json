@@ -2,7 +2,7 @@
     "compilerOptions": {
         "checkJs": true,
         "jsx": "react-jsx",
-        "jsxImportSource": "preact",
+        "jsxImportSource": "react",
         "types": [
             "vite/client"
         ],
@@ -37,8 +37,6 @@
         "quikdown": "npm:quikdown@^1.2.21",
         "quikdown/ast": "npm:quikdown@^1.2.21/ast",
         "proper-lockfile": "npm:proper-lockfile@^4.1.2",
-        "fresh": "jsr:@fresh/core@^2.3.3",
-        "@fresh/plugin-vite": "jsr:@fresh/plugin-vite@^1.1.2",
         "preact": "npm:preact@^10.29.4",
         "preact/jsx-runtime": "npm:preact@^10.29.4/jsx-runtime",
         "preact/jsx-dev-runtime": "npm:preact@^10.29.4/jsx-dev-runtime",
@@ -55,7 +53,6 @@
         "tidewave": "npm:tidewave@^0.7.0",
         "vite": "npm:vite@^8.1.3",
         "esbuild": "npm:esbuild@^0.28.1",
-        "unocss": "npm:unocss@^66.5.9",
         "codemirror": "npm:codemirror@^6.0.2",
         "@codemirror/lang-markdown": "npm:@codemirror/lang-markdown@^6.5.0",
         "@codemirror/lang-javascript": "npm:@codemirror/lang-javascript@^6.2.5",
@@ -95,7 +92,9 @@
         "@astrojs/check": "npm:@astrojs/check@^0.9.9",
         "astro": "npm:astro@^5.13.11",
         "typescript": "npm:typescript@^5.9.3",
-        "@vitejs/plugin-react": "npm:@vitejs/plugin-react@^4.7.0"
+        "@vitejs/plugin-react": "npm:@vitejs/plugin-react@^4.7.0",
+        "react/jsx-runtime": "npm:react@^19.2.3/jsx-runtime",
+        "react/jsx-dev-runtime": "npm:react@^19.2.3/jsx-dev-runtime"
     },
     "tasks": {
         "ci": "deno task -q check && deno task -q workspace:check && deno task -q lint && deno task -q fmt:check && deno task -q test",

@@ -1,3 +1,4 @@
+// @jsxImportSource preact
 /**
  * Shared RunWield notice primitive.
  */
@@ -24,7 +25,7 @@ function noticeVariantClassName(variant = "default") {
 /** @param {{ variant?: NoticeVariant, class?: string, className?: string, children?: any, [key: string]: any }} props */
 export function Notice({ variant = "default", class: className, className: compatClassName, children, ...props }) {
     return (
-        <div {...props} class={classNames(["notice", noticeVariantClassName(variant), className, compatClassName])}>
+        <div {...props} className={classNames(["notice", noticeVariantClassName(variant), className, compatClassName])}>
             {children}
         </div>
     );
