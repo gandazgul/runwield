@@ -2115,13 +2115,11 @@ async function handleEpicPlan({
     while (true) {
         /** @type {Array<{ value: string, label: string }>} */
         const epicOptions = [
+            ...(canPickChild ? [{ value: "pick_child", label: "Pick a child FEATURE plan" }] : []),
             { value: "slicer", label: "Open or resume Slicer decomposition" },
             { value: "view", label: "View Epic details" },
             { value: "cancel", label: "Cancel" },
         ];
-        if (canPickChild) {
-            epicOptions.splice(1, 0, { value: "pick_child", label: "Pick a child FEATURE plan" });
-        }
         if (isHoldableStatus(plan.attrs.status)) {
             epicOptions.splice(epicOptions.length - 1, 0, { value: "hold", label: "Put Epic on hold" });
         }
