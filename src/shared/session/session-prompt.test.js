@@ -151,6 +151,53 @@ Deno.test("shouldReuseExistingRootSession ignores undefined optional overrides",
     );
 });
 
+Deno.test("runPrompt proactively compacts before a prompt that would exceed the safe threshold", async () => {
+    const calls = /** @type {string[]} */ ([]);
+    const session = /** @type {any} */ ({
+        model: { provider: "test", id: "model", input: ["text"], contextWindow: 100 },
+        modelRegistry: { hasConfiguredAuth: () => true },
+        settingsManager: {
+            getCompactionSettings: () => ({ enabled: true, reserveTokens: 40, keepRecentTokens: 10 }),
+        },
+        sessionManager: {
+            buildSessionContext: () => ({ messages: [], thinkingLevel: "", model: null }),
+        },
+        getContextUsage: () => ({ tokens: 50, contextWindow: 100, percent: 50 }),
+        _runAutoCompaction: (/** @type {string} */ reason, /** @type {boolean} */ willRetry) => {
+            calls.push(`compact:${reason}:${willRetry}`);
+            return Promise.resolve(true);
+        },
+        prompt: () => {
+            calls.push("prompt");
+            return Promise.resolve();
+        },
+        agent: { waitForIdle: () => Promise.resolve(), state: { messages: [] } },
+    });
+    const subscriberState = /** @type {any} */ ({
+        resetTurn: () => {},
+        endThinking: () => {},
+        drainInvokedToolNames: () => [],
+    });
+
+    await runPrompt({
+        session,
+        agentDef: {
+            name: "engineer",
+            displayName: "Engineer",
+            model: "",
+            description: "Test engineer",
+            tools: [],
+            systemPrompt: "system",
+        },
+        agentName: "engineer",
+        userRequest: "large incoming prompt ".repeat(60),
+        finalSystemPrompt: "system",
+        subscriberState,
+    });
+
+    assertEquals(calls, ["compact:threshold:false", "prompt"]);
+});
+
 Deno.test("runPrompt sends fallback image markers without raw image content to text-only model", async () => {
     const originalHome = Deno.env.get("HOME");
     const originalCwd = Deno.cwd();
