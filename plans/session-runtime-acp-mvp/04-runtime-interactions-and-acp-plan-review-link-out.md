@@ -21,19 +21,16 @@ affectedPaths:
     - "src/cmd/plans/share.test.js"
 frontend: false
 createdAt: "2026-07-07T02:13:46.229Z"
-updatedAt: "2026-07-08T13:44:12.533Z"
-status: "implemented"
+updatedAt: "2026-07-08T16:29:00.540Z"
+status: "verified"
 origin: "internal"
 parentPlan: "session-runtime-acp-mvp"
 order: 4
 dependencies:
     - "03-runtime-event-contract-and-acp-prompt-streaming"
-failureReason: "Semantic validation did not approve after 3 cycles."
-worktreeId: "61abb47e"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-harns--/harns-runwield-session-runtime-acp-mvp-04-runtime-interactions--61abb47e"
-worktreeBranch: "runwield/worktree/session-runtime-acp-mvp-04-runtime-interactions--61abb47e"
-worktreeBaseBranch: "main"
-worktreeStatus: "validation_failed"
+verifiedAt: "2026-07-08T16:29:00.540Z"
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
 ---
 
 # Runtime Interactions and ACP Plan Review Link-Out
