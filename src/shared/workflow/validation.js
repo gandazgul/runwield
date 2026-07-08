@@ -722,7 +722,20 @@ export async function runMechanicalValidation({ uiAPI, sessionManager, hostedSes
             const reason = `${
                 getAgentDisplayName(AGENTS.ENGINEER)
             } stopped without task_completed during QUICK_FIX repair.`;
-            appendRunWieldSystemMessage(uiAPI, reason, true);
+            appendRunWieldSystemMessage(
+                uiAPI,
+                `${reason} Staying with ${
+                    getAgentDisplayName(AGENTS.ENGINEER)
+                } so the user can continue the session. ` +
+                    "Mechanical Validation will resume after task_completed.",
+                true,
+            );
+            hostedSession?.setActiveExecutionWorkflow({
+                planName: "quick-fix",
+                triageMeta: { classification: "QUICK_FIX" },
+                executionCwd: cwd,
+                validationContinuation: true,
+            });
             activateAgent(AGENTS.ENGINEER);
             return { passed: false, attempts: repairAttempts, reason };
         }
@@ -802,6 +815,28 @@ export async function runValidationLoop({
         hostedSession?.clearActiveExecutionWorkflow();
     }
     const setActiveAgentImpl = __deps?.setActiveAgent || setActiveAgent;
+    /** @param {string} reason */
+    const pauseForEngineerContinuation = async (reason) => {
+        appendRunWieldSystemMessage(
+            uiAPI,
+            `${reason} Staying with ${getAgentDisplayName(AGENTS.ENGINEER)} so the user can continue the session. ` +
+                "Validation will resume after task_completed.",
+            true,
+        );
+        if (hostedSession) {
+            hostedSession.setActiveExecutionWorkflow({
+                ...(activeWorkflow || {}),
+                planName,
+                triageMeta,
+                executionCwd,
+                validationContinuation: true,
+            });
+            const createAgentHandler = __deps?.createAgentHandler ||
+                (await import("../session/agent-handler.js")).createAgentHandler;
+            const handler = createAgentHandler(AGENTS.ENGINEER, { hostedSession });
+            setActiveAgentImpl(hostedSession, AGENTS.ENGINEER, handler, uiAPI);
+        }
+    };
     let executionComplete = false;
     let latestDiffText = "";
     /** @type {string | null} */
@@ -835,11 +870,11 @@ export async function runValidationLoop({
             } else {
                 appendRunWieldSystemMessage(
                     uiAPI,
-                    `Build failed. Dispatching ${getAgentDisplayName(AGENTS.OPERATOR)} to fix syntax/types...`,
+                    `Build failed. Dispatching ${getAgentDisplayName(AGENTS.ENGINEER)} to fix syntax/types...`,
                     true,
                 );
                 const completed = await repair({
-                    agentName: AGENTS.OPERATOR,
+                    agentName: AGENTS.ENGINEER,
                     userRequest:
                         "The project failed CI validation. Fix the following build errors, then call task_completed " +
                         `when the repair is complete:\n\n${ciResult.output}`,
@@ -848,10 +883,10 @@ export async function runValidationLoop({
                     cwd: executionCwd,
                 });
                 if (!completed) {
-                    haltReason = `${
-                        getAgentDisplayName(AGENTS.OPERATOR)
-                    } stopped without task_completed during CI repair.`;
-                    break;
+                    await pauseForEngineerContinuation(
+                        `${getAgentDisplayName(AGENTS.ENGINEER)} stopped without task_completed during CI repair.`,
+                    );
+                    return;
                 }
             }
         }
@@ -999,10 +1034,12 @@ export async function runValidationLoop({
                             cwd: executionCwd,
                         });
                         if (!completed) {
-                            haltReason = `${
-                                getAgentDisplayName(AGENTS.ENGINEER)
-                            } stopped without task_completed during human code review repair.`;
-                            break;
+                            await pauseForEngineerContinuation(
+                                `${
+                                    getAgentDisplayName(AGENTS.ENGINEER)
+                                } stopped without task_completed during human code review repair.`,
+                            );
+                            return;
                         }
                     }
                 }
@@ -1023,10 +1060,10 @@ export async function runValidationLoop({
                 cwd: executionCwd,
             });
             if (!completed) {
-                haltReason = `${
-                    getAgentDisplayName(AGENTS.ENGINEER)
-                } stopped without task_completed during semantic repair.`;
-                break;
+                await pauseForEngineerContinuation(
+                    `${getAgentDisplayName(AGENTS.ENGINEER)} stopped without task_completed during semantic repair.`,
+                );
+                return;
             }
         }
     }

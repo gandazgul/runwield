@@ -40,6 +40,7 @@ import { CWD } from "../../constants.js";
  * @property {string} [worktreeId]
  * @property {string} [worktreeBranch]
  * @property {string} [worktreeBaseBranch]
+ * @property {boolean} [validationContinuation]
  */
 
 /**
