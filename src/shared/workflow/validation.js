@@ -20,12 +20,16 @@ import {
     removeEntry as removeWorktreeRegistryEntry,
     updateEntry as updateWorktreeRegistryEntry,
 } from "../worktree-registry.js";
+import { buildLargeDiffReviewPrompt, createReviewDiffTool } from "./review-diff-tool.js";
 
 export const __dirname = dirname(fromFileUrl(import.meta.url));
 const WORKFLOW_PROMPTS_DIR = "workflow-prompts";
 const REVIEWER_PROMPT_FILE = "reviewer-prompt.md";
 const SUCCESS_MESSAGE_STYLE = { bodyColor: "success" };
 const VALIDATION_STREAM_OUTPUT_LIMIT_BYTES = 1024 * 1024;
+
+/** @type {number} Maximum bytes of workflow diff to include inline in the reviewer prompt. */
+const REVIEW_INLINE_DIFF_MAX_BYTES = 60 * 1024;
 
 /**
  * @typedef {Object} CapturedProcessStream
@@ -115,7 +119,12 @@ function formatCapturedProcessOutput(stdout, stderr) {
  * Load reviewer as a bare workflow prompt instead of a normal agent definition.
  * Normal agent definitions are wrapped with RunWield' shared system prompt, which
  * advertises skills, memory, and exploration tools. Semantic review is a
- * mechanical plan-vs-diff check, so it intentionally receives none of that.
+ * mechanical plan-vs-diff check, so it intentionally receives none of that by default.
+ *
+ * For small diffs, the reviewer gets the plan and full diff inline with no tools.
+ * For large diffs, the caller augments the returned definition with
+ * read-only exploration tools (`read`, `grep`, `find`, `ls`) and attaches a custom
+ * `review_diff` tool for bounded per-file diff inspection.
  *
  * @param {(path: string) => Promise<string>} [readTextFile]
  * @param {typeof ensureBundledAgentDefFile} [ensurePromptFile]
@@ -992,6 +1001,9 @@ export async function runValidationLoop({
         uiAPI?.setBusy?.(true);
         let diffText = "";
         let reviewResponse = "";
+        // Track reviewer execution failures (errors, blank output) for retry flow
+        /** @type {boolean} */
+        let reviewerFailed = false;
         try {
             diffText = await getDiffText(baselineTree, executionCwd);
             latestDiffText = diffText;
@@ -1000,27 +1012,185 @@ export async function runValidationLoop({
                 (!requiresImplementationDiff(triageMeta) || hasImplementationDiff(diffText, planName)) &&
                 diffText.trim()
             ) {
-                const reviewPrompt =
-                    `Compare the current implementation diff against the original plan. If the code fully satisfies the plan, reply ONLY with the word 'APPROVED'. Otherwise, list the missing semantic requirements.\n\n### Original Plan\n${planContent}\n\n### Git Diff\n${diffText}`;
-                const reviewerAgentDef = await loadReviewerPromptImpl();
+                const diffBytes = new TextEncoder().encode(diffText).byteLength;
+                const isLargeDiff = diffBytes > REVIEW_INLINE_DIFF_MAX_BYTES;
 
-                const sessionMessages = await runAgentSessionImpl({
-                    hostedSession,
-                    agentName: AGENTS.REVIEWER,
-                    userRequest: reviewPrompt,
-                    uiAPI,
-                    sessionManager,
-                    cwd: executionCwd,
-                    _agentDefOverride: reviewerAgentDef,
-                    includeEditFallback: false,
-                    useRootSession: false,
-                });
-                hostedSession?.consumePendingSwitchHandoff?.();
+                let reviewPrompt;
+                let reviewerAgentDef = await loadReviewerPromptImpl();
+                /** @type {import('@earendil-works/pi-coding-agent').ToolDefinition[]} */
+                const reviewerCustomTools = [];
+                /** @type {string[]} */
+                let reviewerToolNames = [];
 
-                reviewResponse = extractAssistantOutput(sessionMessages) || "";
+                if (isLargeDiff) {
+                    reviewPrompt = buildLargeDiffReviewPrompt(reviewerAgentDef, planContent, diffText, diffBytes);
+                    // Attach the bounded diff-inspection tool
+                    reviewerCustomTools.push(createReviewDiffTool(diffText));
+                    // Enable read-only file + memory exploration
+                    reviewerToolNames = ["read", "grep", "find", "ls", "memory_recall", "memory_recall_global"];
+                    // Create a modified definition that permits these tools
+                    reviewerAgentDef = {
+                        ...reviewerAgentDef,
+                        tools: reviewerToolNames,
+                    };
+                } else {
+                    reviewPrompt =
+                        `Compare the current implementation diff against the original plan. If the code fully satisfies the plan, reply ONLY with the word 'APPROVED'. Otherwise, list the missing semantic requirements.\n\n### Original Plan\n${planContent}\n\n### Git Diff\n${diffText}`;
+                }
+
+                /** @type {import('@earendil-works/pi-agent-core').AgentMessage[]} */
+                let sessionMessages;
+                try {
+                    sessionMessages = await runAgentSessionImpl({
+                        hostedSession,
+                        agentName: AGENTS.REVIEWER,
+                        userRequest: reviewPrompt,
+                        uiAPI,
+                        sessionManager,
+                        cwd: executionCwd,
+                        _agentDefOverride: reviewerAgentDef,
+                        customTools: reviewerCustomTools.length > 0 ? reviewerCustomTools : undefined,
+                        includeEditFallback: false,
+                        useRootSession: false,
+                    });
+                    hostedSession?.consumePendingSwitchHandoff?.();
+                } catch (/** @type {any} */ invocationError) {
+                    const errorMsg = invocationError instanceof Error
+                        ? invocationError.message
+                        : String(invocationError);
+                    appendRunWieldSystemMessage(
+                        uiAPI,
+                        `Semantic Reviewer execution failed: ${errorMsg}`,
+                        true,
+                    );
+                    reviewerFailed = true;
+                    reviewResponse = "";
+                    sessionMessages = [];
+                }
+
+                if (!reviewerFailed) {
+                    reviewResponse = extractAssistantOutput(sessionMessages) || "";
+                    if (!reviewResponse.trim()) {
+                        appendRunWieldSystemMessage(
+                            uiAPI,
+                            "Semantic Reviewer returned no output. Treating as execution failure.",
+                            true,
+                        );
+                        reviewerFailed = true;
+                    }
+                }
             }
         } finally {
             uiAPI?.setBusy?.(false);
+        }
+
+        // Handle reviewer execution failures with retry/cancel menu
+        if (reviewerFailed && diffText.trim()) {
+            const shouldRetry = await uiAPI.promptSelect?.(
+                "Semantic Review failed to complete. What would you like to do?",
+                [
+                    { value: "retry", label: "Retry Semantic Review" },
+                    { value: "cancel", label: "Stop/Cancel Validation" },
+                ],
+            );
+            if (shouldRetry === "retry") {
+                // Reset failure flag before retry; the first failure should not carry over
+                reviewerFailed = false;
+                // Rerun semantic review from the beginning of the cycle
+                appendRunWieldSystemMessage(uiAPI, "Retrying Semantic Code Review...");
+                uiAPI?.setBusy?.(true);
+                try {
+                    // Rebuild diff and try again
+                    const retryDiffText = await getDiffText(baselineTree, executionCwd);
+                    const diffBytes = new TextEncoder().encode(retryDiffText).byteLength;
+                    const isLargeDiff = diffBytes > REVIEW_INLINE_DIFF_MAX_BYTES;
+
+                    let retryPrompt;
+                    let retryAgentDef = await loadReviewerPromptImpl();
+                    /** @type {import('@earendil-works/pi-coding-agent').ToolDefinition[]} */
+                    const retryCustomTools = [];
+
+                    if (isLargeDiff) {
+                        retryPrompt = buildLargeDiffReviewPrompt(retryAgentDef, planContent, retryDiffText, diffBytes);
+                        retryCustomTools.push(createReviewDiffTool(retryDiffText));
+                        retryAgentDef = {
+                            ...retryAgentDef,
+                            tools: ["read", "grep", "find", "ls", "memory_recall", "memory_recall_global"],
+                        };
+                    } else {
+                        retryPrompt =
+                            `Compare the current implementation diff against the original plan. If the code fully satisfies the plan, reply ONLY with the word 'APPROVED'. Otherwise, list the missing semantic requirements.\n\n### Original Plan\n${planContent}\n\n### Git Diff\n${retryDiffText}`;
+                    }
+
+                    try {
+                        const retryMessages = await runAgentSessionImpl({
+                            hostedSession,
+                            agentName: AGENTS.REVIEWER,
+                            userRequest: retryPrompt,
+                            uiAPI,
+                            sessionManager,
+                            cwd: executionCwd,
+                            _agentDefOverride: retryAgentDef,
+                            customTools: retryCustomTools.length > 0 ? retryCustomTools : undefined,
+                            includeEditFallback: false,
+                            useRootSession: false,
+                        });
+                        hostedSession?.consumePendingSwitchHandoff?.();
+                        reviewResponse = extractAssistantOutput(retryMessages) || "";
+                    } catch (/** @type {any} */ retryError) {
+                        const errorMsg = retryError instanceof Error ? retryError.message : String(retryError);
+                        appendRunWieldSystemMessage(
+                            uiAPI,
+                            `Semantic Reviewer retry also failed: ${errorMsg}`,
+                            true,
+                        );
+                        reviewerFailed = true;
+                    }
+                } finally {
+                    uiAPI?.setBusy?.(false);
+                }
+
+                if (!reviewerFailed && reviewResponse.trim()) {
+                    appendRunWieldSystemMessage(
+                        uiAPI,
+                        "Semantic Review retry completed.",
+                        false,
+                        SUCCESS_MESSAGE_STYLE,
+                    );
+                    // Reset reviewerFailed so normal flow continues below
+                    reviewerFailed = false;
+                } else {
+                    haltReason = "Semantic Review failed after retry. Validation halted.";
+                    await recordWorkflowMetricImpl({
+                        category: "validation",
+                        event: "semantic_review_result",
+                        planName,
+                        details: {
+                            validationCycle: validationCycles,
+                            approved: false,
+                            reason: "failed_and_retried",
+                        },
+                    });
+                    // Fall through to the halt handling below
+                }
+            } else {
+                haltReason = "User canceled validation after Semantic Review failure.";
+                reviewerFailed = true;
+            }
+
+            if (haltReason) {
+                await recordWorkflowMetricImpl({
+                    category: "validation",
+                    event: "semantic_review_result",
+                    planName,
+                    details: {
+                        validationCycle: validationCycles,
+                        approved: false,
+                        reason: haltReason,
+                    },
+                });
+                break;
+            }
         }
 
         if (requiresImplementationDiff(triageMeta) && !hasImplementationDiff(diffText, planName)) {
