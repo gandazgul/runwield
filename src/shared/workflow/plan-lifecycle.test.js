@@ -43,6 +43,20 @@ Deno.test("buildPlanEventUpdates captures execution baseline when work starts", 
     assertEquals(updates.implementedAt, null);
 });
 
+Deno.test("buildPlanEventUpdates omits worktree metadata for non-Git in-place execution", () => {
+    const updates = buildPlanEventUpdates("execution_started", "ready_for_work", {
+        nonGitInPlace: true,
+        executionBaselineTree: "abc123",
+        worktreeId: "wt-1",
+        worktreeStatus: "active",
+    });
+
+    assertEquals(updates.status, "in_progress");
+    assertEquals(updates.executionBaselineTree, null);
+    assertEquals(updates.worktreeId, null);
+    assertEquals(updates.worktreeStatus, null);
+});
+
 Deno.test("buildPlanEventUpdates records worktree metadata when execution starts", () => {
     const updates = buildPlanEventUpdates("execution_started", "ready_for_work", {
         executionBaselineTree: "abc123",

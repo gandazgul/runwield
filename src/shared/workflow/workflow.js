@@ -6,6 +6,7 @@
 
 import { AGENTS, CWD } from "../../constants.js";
 import { loadPlan } from "../../plan-store.js";
+import { hasNonGitExecutionConsent, probeGitRepository, rememberNonGitExecutionConsent } from "../git.js";
 import { getAgentDisplayName } from "../session/agents.js";
 import { runAgentSession } from "../session/session.js";
 import {
@@ -227,12 +228,13 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
         false,
         "RunWield",
     );
+    const activeWorkflow = hostedSession?.getActiveExecutionWorkflow?.();
     await recordPlanEventFn({
         cwd: CWD,
         planName,
         event: "implementation_finished",
         currentStatus: "in_progress",
-        details: { triageMeta: effectiveMeta },
+        details: { triageMeta: effectiveMeta, nonGitInPlace: activeWorkflow?.nonGitInPlace === true },
     });
     await recordWorkflowMetricFn({
         category: "execution",
@@ -260,13 +262,21 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
 async function executeSingleEngineerPlan(
     { planName, planBody, triageMeta, uiAPI, sessionManager, currentStatus, hostedSession, __deps },
 ) {
-    const executionContext = await startActiveExecutionWorkflow({
-        planName,
-        triageMeta,
-        currentStatus,
-        hostedSession,
-        __deps,
-    });
+    let executionContext;
+    try {
+        executionContext = await startActiveExecutionWorkflow({
+            planName,
+            triageMeta,
+            currentStatus,
+            hostedSession,
+            uiAPI,
+            __deps,
+        });
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        uiAPI.appendSystemMessage(`Execution did not start: ${message}`, true, "RunWield");
+        return { repairRequired: false, executionComplete: false, error: message };
+    }
     const engineerResult = await runEngineerWithPlan(
         planName,
         planBody,
@@ -349,6 +359,24 @@ export function normalizeExecutionTargetBranch(value) {
 }
 
 /**
+ * @param {UiAPI | undefined} uiAPI
+ * @returns {Promise<boolean>}
+ */
+async function confirmNonGitFeaturePlanExecution(uiAPI) {
+    if (!uiAPI?.promptSelect) return false;
+    const answer = await uiAPI.promptSelect(
+        "Git is not available for this project. RunWield recommends using Git so Plan execution can run in an isolated Worktree with diff-based review and merge-back. Proceeding will modify the current files directly and skip Git-only isolation/recovery.",
+        [
+            { value: "proceed", label: "Proceed in current files and remember for FEATURE/Plan work" },
+            { value: "cancel", label: "Cancel execution" },
+        ],
+    );
+    if (answer !== "proceed") return false;
+    await rememberNonGitExecutionConsent("featurePlan");
+    return true;
+}
+
+/**
  * @param {string | undefined} reusableBaseBranch
  * @param {string | undefined} targetBranch
  */
@@ -370,6 +398,7 @@ export function assertReusableWorktreeTargetMatches(reusableBaseBranch, targetBr
  *   triageMeta: Partial<import('../../plan-store.js').PlanFrontMatter>,
  *   currentStatus: import('./plan-lifecycle.js').PlanStatus,
  *   hostedSession?: import('../session/hosted-session.js').HostedSession,
+ *   uiAPI?: UiAPI,
  *   __deps?: {
  *     createExecutionWorktree?: typeof createExecutionWorktree,
  *     findReusableWorktree?: typeof findReusableWorktree,
@@ -379,11 +408,16 @@ export function assertReusableWorktreeTargetMatches(reusableBaseBranch, targetBr
  *     updateWorktreeRegistryEntry?: typeof updateWorktreeRegistryEntry,
  *     recordPlanEvent?: typeof recordPlanEvent,
  *     recordWorkflowMetric?: typeof recordWorkflowMetric,
+ *     probeGitRepository?: typeof probeGitRepository,
+ *     hasNonGitExecutionConsent?: typeof hasNonGitExecutionConsent,
+ *     confirmNonGitFeaturePlanExecution?: typeof confirmNonGitFeaturePlanExecution,
  *   },
  * }} opts
- * @returns {Promise<{ projectRoot: string, executionCwd: string, baselineTree: string, worktreeId: string, worktreeBranch: string, worktreeBaseBranch?: string }>}
+ * @returns {Promise<{ projectRoot: string, executionCwd: string, baselineTree?: string, worktreeId?: string, worktreeBranch?: string, worktreeBaseBranch?: string, nonGitInPlace?: boolean }>}
  */
-export async function startActiveExecutionWorkflow({ planName, triageMeta, currentStatus, hostedSession, __deps }) {
+export async function startActiveExecutionWorkflow(
+    { planName, triageMeta, currentStatus, hostedSession, uiAPI, __deps },
+) {
     if (!hostedSession) throw new Error("startActiveExecutionWorkflow: hostedSession is required");
     const createWorktree = __deps?.createExecutionWorktree || createExecutionWorktree;
     const findReusable = __deps?.findReusableWorktree || findReusableWorktree;
@@ -393,6 +427,39 @@ export async function startActiveExecutionWorkflow({ planName, triageMeta, curre
     const updateRegistry = __deps?.updateWorktreeRegistryEntry || updateWorktreeRegistryEntry;
     const recordEvent = __deps?.recordPlanEvent || recordPlanEvent;
     const recordWorkflowMetricFn = __deps?.recordWorkflowMetric || recordWorkflowMetric;
+    const probeGit = __deps?.probeGitRepository || probeGitRepository;
+    const hasConsent = __deps?.hasNonGitExecutionConsent || hasNonGitExecutionConsent;
+    const confirmNonGit = __deps?.confirmNonGitFeaturePlanExecution || confirmNonGitFeaturePlanExecution;
+    const gitProbe = await probeGit(CWD);
+    if (!gitProbe.ok) {
+        if (!hasConsent("featurePlan") && !(await confirmNonGit(uiAPI))) {
+            throw new Error(
+                "Plan execution canceled because Git is not available and in-place execution was not approved.",
+            );
+        }
+        const workflow = {
+            planName,
+            triageMeta,
+            projectRoot: CWD,
+            executionCwd: CWD,
+            nonGitInPlace: true,
+        };
+        hostedSession.setActiveExecutionWorkflow(workflow);
+        await recordEvent({
+            cwd: CWD,
+            planName,
+            event: "execution_started",
+            currentStatus,
+            details: { triageMeta, nonGitInPlace: true },
+        });
+        await recordWorkflowMetricFn({
+            category: "execution",
+            event: "non_git_in_place_execution_started",
+            planName,
+            details: { gitState: gitProbe.state },
+        });
+        return workflow;
+    }
     const targetBranch = normalizeExecutionTargetBranch(triageMeta.worktreeBaseBranch);
     const existing = hostedSession.getActiveExecutionWorkflow();
     const reusable =
