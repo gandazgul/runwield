@@ -134,3 +134,5 @@ Use these to diagnose issues the user may be having with the skill.
 - **No-op** — a line the model already obeys by default, so you pay load to say nothing. The test: does it change
   behaviour versus the default? A weak leading word (_be thorough_ when the agent is already thorough-ish) is a no-op;
   the fix is a stronger word (_relentless_), not a different technique.
+- **Negation** — steering by prohibition makes the forbidden behaviour more available. Prompt the positive behaviour
+  instead, and keep prohibitions only as hard guardrails paired with what to do.

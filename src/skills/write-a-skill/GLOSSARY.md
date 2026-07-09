@@ -305,3 +305,15 @@ two people disagreeing over whether a line is a no-op disagree about the default
 not by debate.
 
 _Avoid_: redundant instruction, restating the obvious, belaboring
+
+### Negation
+
+_Failure mode._ Steering by prohibition: telling the agent what _not_ to do drags the forbidden behaviour into context
+and makes it more available. The negation is a weak modifier that the strongly activated concept can overrun, so the ban
+half-reads as an instruction to do the thing.
+
+Prompt the **positive** instead: describe the target behaviour so the banned one is never spoken. A prohibition earns
+its place only as a hard guardrail on behaviour you cannot phrase positively; even then, pair it with what to do so
+attention lands on the target.
+
+_Avoid_: ironic rebound, don't-prompting, the pink elephant
