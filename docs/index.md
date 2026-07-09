@@ -163,6 +163,11 @@ For editor behavior, message queue behavior, file references, shell commands, an
 - [Router Model Selection](router-model-selection.md) - evaluation findings for the Router model choice.
 - [Compaction Research](compaction-research.md) - research notes for context compaction behavior.
 
+### RunWield vision
+
+- [Domain Harness Blueprint](vision/domain-harness-blueprint.md) - exploratory blueprint for domain-specific LLM
+  harnesses, using RunWield as the software engineering example.
+
 ### Pi docs that mostly apply unchanged
 
 RunWield inherits Pi's terminal UI and much of its model/provider, session, theme, and customization infrastructure. Use
