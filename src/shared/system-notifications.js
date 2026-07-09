@@ -250,7 +250,8 @@ export async function buildNotificationCommand(options, deps = defaultDeps) {
     if (deps.os !== "darwin") return null;
 
     const activationCommand = buildActivationCommand(options.terminal, options.settings.activation);
-    if (activationCommand && await commandExists("terminal-notifier", deps)) {
+    const senderBundleId = inferTerminalSenderBundleId(options.terminal);
+    if (activationCommand && senderBundleId && await commandExists("terminal-notifier", deps)) {
         return {
             cmd: "terminal-notifier",
             args: [
@@ -262,6 +263,8 @@ export async function buildNotificationCommand(options, deps = defaultDeps) {
                 buildNotificationGroup(options.eventName),
                 "-execute",
                 activationCommand,
+                "-sender",
+                senderBundleId,
             ],
         };
     }
@@ -347,6 +350,16 @@ export function inferTerminalApplication(terminal) {
     if (isAppleTerminal(terminal)) return "Terminal";
     if (terminal.weztermPane || terminal.termProgram === "WezTerm") return "WezTerm";
     if (isKitty(terminal)) return "kitty";
+    return null;
+}
+
+/**
+ * @param {TerminalIdentity} terminal
+ * @returns {string | null}
+ */
+export function inferTerminalSenderBundleId(terminal) {
+    if (isITerm(terminal)) return "com.googlecode.iterm2";
+    if (isAppleTerminal(terminal)) return "com.apple.Terminal";
     return null;
 }
 

@@ -6,6 +6,7 @@ import {
     buildITermActivationScript,
     buildNotificationCommand,
     detectTerminalIdentity,
+    inferTerminalSenderBundleId,
     notifyRunWieldEvent,
     resolveNotificationSettings,
 } from "./system-notifications.js";
@@ -134,6 +135,22 @@ Deno.test("activation scripts look for matching tty", () => {
     assertStringIncludes(buildITermActivationScript("/dev/ttys123"), 'tty of s is "/dev/ttys123"');
 });
 
+Deno.test("inferTerminalSenderBundleId maps reliable notification sender terminal apps", () => {
+    assertEquals(
+        inferTerminalSenderBundleId({ sessionLabel: "s", terminalTitle: "wld - s", termProgram: "iTerm.app" }),
+        "com.googlecode.iterm2",
+    );
+    assertEquals(
+        inferTerminalSenderBundleId({ sessionLabel: "s", terminalTitle: "wld - s", termProgram: "Apple_Terminal" }),
+        "com.apple.Terminal",
+    );
+    assertEquals(
+        inferTerminalSenderBundleId({ sessionLabel: "s", terminalTitle: "wld - s", term: "xterm-kitty" }),
+        null,
+    );
+    assertEquals(inferTerminalSenderBundleId({ sessionLabel: "s", terminalTitle: "wld - s" }), null);
+});
+
 Deno.test("buildNotificationCommand uses terminal-notifier with click execute when available", async () => {
     const commands = makeCommandRecorder({ "terminal-notifier": true, osascript: true });
     const command = await buildNotificationCommand({
@@ -161,10 +178,11 @@ Deno.test("buildNotificationCommand uses terminal-notifier with click execute wh
     assert(command.args.includes("-message"));
     assertStringIncludes(command.args[command.args.indexOf("-group") + 1], "runwield-agentStopped-");
     assertStringIncludes(command.args[command.args.indexOf("-execute") + 1], "/dev/ttys123");
+    assertEquals(command.args[command.args.indexOf("-sender") + 1], "com.apple.Terminal");
 });
 
 Deno.test("buildNotificationCommand falls back to osascript notification", async () => {
-    const commands = makeCommandRecorder({ osascript: true });
+    const commands = makeCommandRecorder({ "terminal-notifier": true, osascript: true });
     const command = await buildNotificationCommand({
         eventName: "userInterview",
         title: "Input requested — demo",
