@@ -50,6 +50,17 @@ export default defineConfig({
         },
         resolve: {
             alias: {
+                "@plannotator/web-highlighter": resolve(WORKSPACE_DIR, "react/web-highlighter-shim.js"),
+                "@pierre/diffs/worker/worker.js?worker&inline": resolve(
+                    WORKSPACE_DIR,
+                    "react/pierre-diffs-worker-shim.js",
+                ),
+                "@pierre/diffs/worker/worker.js": resolve(WORKSPACE_DIR, "react/pierre-diffs-worker-shim.js"),
+                "@plannotator/markdown-editor/themes/plannotator.css": resolve(
+                    WORKSPACE_DIR,
+                    "react/markdown-editor-shim.css",
+                ),
+                "@plannotator/markdown-editor": resolve(WORKSPACE_DIR, "react/markdown-editor-shim.tsx"),
                 "@plannotator/ui": resolve(PLANNOTATOR_DIR, "packages/ui"),
                 "@plannotator/shared": resolve(PLANNOTATOR_DIR, "packages/shared"),
                 "@plannotator/ai": resolve(PLANNOTATOR_DIR, "packages/ai"),
