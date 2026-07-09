@@ -4,6 +4,7 @@
  */
 
 import { join } from "@std/path";
+import { assertGitRepository, GitRepositoryRequiredError } from "../git.js";
 
 /**
  * @param {string} cwd
@@ -12,20 +13,38 @@ import { join } from "@std/path";
  * @returns {Promise<string>}
  */
 async function runGit(cwd, args, env = {}) {
-    const command = new Deno.Command("git", {
-        args,
-        cwd,
-        env,
-        stdout: "piped",
-        stderr: "piped",
-    });
-    const { code, stdout, stderr } = await command.output();
+    let output;
+    try {
+        const command = new Deno.Command("git", {
+            args,
+            cwd,
+            env,
+            stdout: "piped",
+            stderr: "piped",
+        });
+        output = await command.output();
+    } catch (error) {
+        if (error instanceof Deno.errors.NotFound) {
+            throw new GitRepositoryRequiredError(
+                `Git operation requires a Git repository: git ${args.join(" ")}. The git executable was not found.`,
+                { cwd, operation: `git ${args.join(" ")}`, state: "git_missing" },
+            );
+        }
+        throw error;
+    }
     const decoder = new TextDecoder();
-    const stdoutText = decoder.decode(stdout);
-    const stderrText = decoder.decode(stderr);
+    const stdoutText = decoder.decode(output.stdout);
+    const stderrText = decoder.decode(output.stderr);
 
-    if (code !== 0) {
-        throw new Error(`git ${args.join(" ")} failed: ${stderrText || stdoutText}`.trim());
+    if (output.code !== 0) {
+        const text = stderrText || stdoutText;
+        if (text.includes("not a git repository")) {
+            throw new GitRepositoryRequiredError(
+                `Git operation requires a Git repository: git ${args.join(" ")}. ${text}`.trim(),
+                { cwd, operation: `git ${args.join(" ")}`, state: "not_git" },
+            );
+        }
+        throw new Error(`git ${args.join(" ")} failed: ${text}`.trim());
     }
 
     return stdoutText;
@@ -52,6 +71,7 @@ export async function listCommitsTouchingPathsSince(cwd, since, paths) {
         .map((path) => String(path || "").trim())
         .filter(Boolean);
     if (!since || pathspecs.length === 0) return [];
+    await assertGitRepository(cwd, "Checking affected path commit history");
 
     const output = await runGit(cwd, [
         "log",
@@ -89,6 +109,7 @@ async function listTreePaths(cwd, tree) {
  * @returns {Promise<string>}
  */
 export async function captureWorktreeTree(cwd) {
+    await assertGitRepository(cwd, "Capturing an execution baseline tree");
     const tempDir = await Deno.makeTempDir({ prefix: "runwield-git-index-" });
     const indexPath = join(tempDir, "index");
     const env = { GIT_INDEX_FILE: indexPath };
@@ -108,6 +129,7 @@ export async function captureWorktreeTree(cwd) {
  * @returns {Promise<string>}
  */
 export async function diffTrees(cwd, baseTree, currentTree) {
+    await assertGitRepository(cwd, "Computing a workflow diff");
     return await runGit(cwd, ["diff", `${baseTree}..${currentTree}`]);
 }
 
@@ -117,6 +139,7 @@ export async function diffTrees(cwd, baseTree, currentTree) {
  * @returns {Promise<string>}
  */
 export async function getWorkflowDiff(cwd, baselineTree) {
+    await assertGitRepository(cwd, "Computing a workflow diff");
     if (!baselineTree) {
         return await runGit(cwd, ["diff"]);
     }
@@ -135,6 +158,7 @@ export async function getWorkflowDiff(cwd, baselineTree) {
  * @returns {Promise<void>}
  */
 export async function restoreWorktreeTree(cwd, targetTree) {
+    await assertGitRepository(cwd, "Restoring an execution baseline tree");
     const targetType = (await runGit(cwd, ["cat-file", "-t", targetTree])).trim();
     if (targetType !== "tree") {
         throw new Error(`Target ${targetTree} is a ${targetType}, not a git tree.`);

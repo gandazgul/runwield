@@ -376,6 +376,60 @@ Deno.test("runMechanicalValidation stops after three Engineer repair attempts wi
     );
 });
 
+Deno.test("runValidationLoop skips semantic review and merge-back for non-Git in-place execution", async () => {
+    const uiAPI = makeUi();
+    const session = new HostedSession({ id: "non-git-validation-test" });
+    session.setActiveExecutionWorkflow({
+        planName: "p",
+        triageMeta: { classification: "FEATURE" },
+        projectRoot: Deno.cwd(),
+        executionCwd: Deno.cwd(),
+        nonGitInPlace: true,
+    });
+    /** @type {any[]} */
+    const events = [];
+    let reviewCalls = 0;
+    let mergeCalls = 0;
+
+    await runValidationLoop({
+        hostedSession: session,
+        planName: "p",
+        planContent: "# Plan",
+        triageMeta: { classification: "FEATURE" },
+        uiAPI,
+        sessionManager: undefined,
+        __deps: {
+            runLocalCI: () => Promise.resolve({ exitCode: 0, output: "ok" }),
+            getDiffText: () => {
+                throw new Error("should not compute git diff");
+            },
+            runAgentSession: () => {
+                reviewCalls++;
+                return Promise.resolve([]);
+            },
+            mergeExecutionWorktree: () => {
+                mergeCalls++;
+                return Promise.resolve();
+            },
+            recordPlanEvent: (event) => {
+                events.push(event);
+                return Promise.resolve(/** @type {any} */ ({}));
+            },
+            recordWorkflowMetric: () => Promise.resolve(null),
+        },
+    });
+
+    assertEquals(reviewCalls, 0);
+    assertEquals(mergeCalls, 0);
+    assertEquals(
+        uiAPI.messages.some((/** @type {string} */ message) =>
+            message.includes("Semantic Code Review") && message.includes("skipped")
+        ),
+        true,
+    );
+    assertEquals(events.some((event) => event.event === "validation_passed"), true);
+});
+
 Deno.test("runValidationLoop does not switch active agent unless finalAgentName is provided", async () => {
     const uiAPI = makeUi();
     await runValidationLoop({

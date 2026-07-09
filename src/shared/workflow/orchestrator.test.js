@@ -260,6 +260,94 @@ Deno.test("dispatchPostTriage routes QUICK_FIX to Engineer and runs Mechanical V
     );
 });
 
+Deno.test("dispatchPostTriage prompts before QUICK_FIX in non-Git projects", async () => {
+    const uiAPI = makeUi();
+    /** @type {string[]} */
+    const prompts = [];
+    uiAPI.promptSelect = (/** @type {string} */ prompt) => {
+        prompts.push(prompt);
+        return Promise.resolve("proceed");
+    };
+    /** @type {string[]} */
+    const rootTurns = [];
+
+    await dispatchPostTriage({
+        hostedSession: makeHostedSession(),
+        triage: {
+            routingIntent: "QUICK_FIX",
+            complexity: "LOW",
+            summary: "small fix",
+            affectedPaths: ["src/a.js"],
+        },
+        userRequest: "Fix it",
+        images: [],
+        uiAPI,
+        sessionManager: undefined,
+        __deps: /** @type {any} */ ({
+            applyPendingRootSwap: () => Promise.resolve(),
+            createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
+            probeGitRepository: () => Promise.resolve({ ok: false, state: "not_git", cwd: Deno.cwd() }),
+            hasNonGitExecutionConsent: () => false,
+            confirmNonGitQuickFixExecution: async (/** @type {any} */ ui) => {
+                await ui.promptSelect("quick fix non git prompt", []);
+                return true;
+            },
+            readLatestTaskCompletedOutcome: () => true,
+            runRootTurn: (/** @type {any} */ args) => {
+                rootTurns.push(args.agentName);
+                return Promise.resolve(/** @type {any} */ ([{ toolName: "task_completed" }]));
+            },
+            runMechanicalValidation: () => Promise.resolve({ passed: true, attempts: 0 }),
+            recordWorkflowMetric: () => Promise.resolve(null),
+            setActiveAgent: () => {},
+        }),
+    });
+
+    assertEquals(prompts, ["quick fix non git prompt"]);
+    assertEquals(rootTurns, ["engineer"]);
+});
+
+Deno.test("dispatchPostTriage cancels QUICK_FIX before Engineer when non-Git consent is declined", async () => {
+    const uiAPI = makeUi();
+    let rootTurns = 0;
+    let validationCount = 0;
+
+    await dispatchPostTriage({
+        hostedSession: makeHostedSession(),
+        triage: {
+            routingIntent: "QUICK_FIX",
+            complexity: "LOW",
+            summary: "small fix",
+            affectedPaths: ["src/a.js"],
+        },
+        userRequest: "Fix it",
+        images: [],
+        uiAPI,
+        sessionManager: undefined,
+        __deps: /** @type {any} */ ({
+            applyPendingRootSwap: () => Promise.resolve(),
+            createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
+            probeGitRepository: () => Promise.resolve({ ok: false, state: "not_git", cwd: Deno.cwd() }),
+            hasNonGitExecutionConsent: () => false,
+            confirmNonGitQuickFixExecution: () => Promise.resolve(false),
+            runRootTurn: () => {
+                rootTurns++;
+                return Promise.resolve([]);
+            },
+            runMechanicalValidation: () => {
+                validationCount++;
+                return Promise.resolve({ passed: true, attempts: 0 });
+            },
+            recordWorkflowMetric: () => Promise.resolve(null),
+            setActiveAgent: () => {},
+        }),
+    });
+
+    assertEquals(rootTurns, 0);
+    assertEquals(validationCount, 0);
+    assertEquals(uiAPI.messages.some((/** @type {string} */ message) => message.includes("QUICK_FIX canceled")), true);
+});
+
 Deno.test("dispatchPostTriage warns and skips Mechanical Validation when QUICK_FIX stops without task_completed", async () => {
     const uiAPI = makeUi();
     let mechanicalValidationCount = 0;

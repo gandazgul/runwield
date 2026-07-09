@@ -1,10 +1,11 @@
-import { assertEquals, assertStringIncludes } from "@std/assert";
+import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import {
     captureWorktreeTree,
     getWorkflowDiff,
     listCommitsTouchingPathsSince,
     restoreWorktreeTree,
 } from "./git-snapshot.js";
+import { GitRepositoryRequiredError } from "../git.js";
 
 /**
  * @param {string} cwd
@@ -139,3 +140,31 @@ async function assertRejectsNotFound(path) {
     }
     assertEquals(notFound, true);
 }
+
+Deno.test("git snapshot helpers fail gracefully outside Git", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "runwield-non-git-snapshot-" });
+    try {
+        await assertRejects(
+            () => captureWorktreeTree(dir),
+            GitRepositoryRequiredError,
+            "Capturing an execution baseline tree requires a Git repository",
+        );
+        await assertRejects(
+            () => getWorkflowDiff(dir, undefined),
+            GitRepositoryRequiredError,
+            "Computing a workflow diff requires a Git repository",
+        );
+        await assertRejects(
+            () => listCommitsTouchingPathsSince(dir, new Date().toISOString(), ["README.md"]),
+            GitRepositoryRequiredError,
+            "Checking affected path commit history requires a Git repository",
+        );
+        await assertRejects(
+            () => restoreWorktreeTree(dir, "abc123"),
+            GitRepositoryRequiredError,
+            "Restoring an execution baseline tree requires a Git repository",
+        );
+    } finally {
+        await Deno.remove(dir, { recursive: true });
+    }
+});
