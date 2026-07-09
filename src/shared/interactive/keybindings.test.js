@@ -1,4 +1,5 @@
 import { assertEquals } from "@std/assert";
+import { Image } from "@earendil-works/pi-tui";
 import { __setClipboardDepsForTest } from "../clipboard.js";
 import { initRunWieldTheme } from "../../ui/theme/theme.js";
 import { installKeybindings } from "./keybindings.js";
@@ -317,6 +318,7 @@ Deno.test("installKeybindings delegates pasted images through handleImagePaste",
         assertEquals(handled, [{ base64: "YQ==", mimeType: "image/png" }]);
         assertEquals(ctx.pastedImages, [{ base64: "YQ==", mimeType: "image/png", ref: "attachment:abc" }]);
         assertEquals(ctx.previewImages.children.length, 1);
+        assertEquals(ctx.previewImages.children[0] instanceof Image, true);
         assertEquals(ctx.stats.renderCount, 1);
     } finally {
         __setClipboardDepsForTest();

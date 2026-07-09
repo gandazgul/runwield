@@ -265,12 +265,18 @@ function makeSteeringSession() {
 }
 
 Deno.test("formatSteeringBlockText includes existing image attachment markers", () => {
+    const images = [
+        { base64: "abc", mimeType: "image/png", ref: "attachment:abc" },
+        { base64: "def", mimeType: "image/jpeg", path: "/tmp/photo.jpg" },
+    ];
+
     assertEquals(
-        formatSteeringBlockText("look here", [
-            { base64: "abc", mimeType: "image/png", ref: "attachment:abc" },
-            { base64: "def", mimeType: "image/jpeg", path: "/tmp/photo.jpg" },
-        ]),
+        formatSteeringBlockText("look here", images),
         "look here\n\n[Image attached: attachment:abc image/png]\n[Image attached: photo.jpg image/jpeg]",
+    );
+    assertEquals(
+        formatSteeringBlockText("", images),
+        "[Image attached: attachment:abc image/png]\n[Image attached: photo.jpg image/jpeg]",
     );
 });
 
