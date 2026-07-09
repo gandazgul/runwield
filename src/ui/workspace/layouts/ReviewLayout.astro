@@ -1,0 +1,22 @@
+---
+const { title = "RunWield Review" } = Astro.props;
+---
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="generator" content={Astro.generator} />
+        <title>{title}</title>
+        <link rel="icon" href="/logo.svg" type="image/svg+xml" />
+        <link rel="stylesheet" href="/tokens.css" />
+        <link rel="stylesheet" href="/components.css" />
+        <link rel="stylesheet" href="/workspace.css" />
+        <link rel="stylesheet" href="/theme.css" />
+    </head>
+    <body>
+        <main class="review-shell" data-astro-review-shell>
+            <slot />
+        </main>
+    </body>
+</html>

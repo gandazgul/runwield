@@ -29,7 +29,7 @@ function makeUi() {
 }
 
 /**
- * @param {{ approved?: boolean, feedback?: string, openResult?: boolean, pending?: boolean }} opts
+ * @param {{ approved?: boolean, feedback?: string, plan?: string, savedPath?: string, openResult?: boolean, pending?: boolean }} opts
  * @returns {{ deps: any, events: any[], stops: () => number, openedUrls: string[] }}
  */
 function makeDeps(opts = {}) {
@@ -39,9 +39,12 @@ function makeDeps(opts = {}) {
     const server = {
         url: "http://127.0.0.1:9999/review",
         waitForDecision: () =>
-            opts.pending
-                ? new Promise(() => {})
-                : Promise.resolve({ approved: opts.approved ?? true, feedback: opts.feedback }),
+            opts.pending ? new Promise(() => {}) : Promise.resolve({
+                approved: opts.approved ?? true,
+                feedback: opts.feedback,
+                ...(opts.plan && { plan: opts.plan }),
+                ...(opts.savedPath && { savedPath: opts.savedPath }),
+            }),
         stop: () => {
             stopCount++;
         },
@@ -163,6 +166,29 @@ Deno.test("submitPlanForReview approves a plan, records event, and updates front
         assertEquals(uiAPI.disabled, 1);
         assertEquals(uiAPI.enabled, 1);
         assertEquals(uiAPI.messages.some((/** @type {string} */ message) => message.includes("Plan approved")), true);
+    } finally {
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
+Deno.test("submitPlanForReview writes edited review plan and returns saved path", async () => {
+    const { dir, planPath } = await makePlanFile();
+    const uiAPI = makeUi();
+    const editedPlan = "---\nstatus: draft\n---\n\n# Edited Plan\n\n- [x] done\n";
+    const harness = makeDeps({ approved: true, feedback: "edited", plan: editedPlan, savedPath: planPath });
+
+    try {
+        const result = await submitPlanForReview({
+            cwd: dir,
+            planName: "plan",
+            planPath,
+            uiAPI,
+            hostedSession: makeHostedSession("review-edited-plan"),
+            __deps: harness.deps,
+        });
+
+        assertEquals(await Deno.readTextFile(planPath), editedPlan);
+        assertEquals(result, { approved: true, feedback: "edited", savedPath: planPath });
     } finally {
         await Deno.remove(dir, { recursive: true });
     }
