@@ -16,7 +16,7 @@
 
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import { appendTaskCompletedMessage } from "../ui/tui/task-completed-message.js";
+import { appendReviewResultMessage } from "../ui/tui/task-completed-message.js";
 import { recordWorkflowMetric } from "../shared/workflow/metrics.js";
 
 const TOOL_PARAMS = Type.Object({
@@ -64,7 +64,7 @@ export function createReviewCompletedTool(
                 ? "Semantic review approved — implementation matches the plan."
                 : `Semantic review rejected — issues found:\n${feedback || "(no feedback provided)"}`;
 
-            appendTaskCompletedMessage(uiAPI, agentName, message);
+            appendReviewResultMessage(uiAPI, agentName, message, approved);
             await recordWorkflowMetricImpl({
                 category: "validation",
                 event: "review_complete",

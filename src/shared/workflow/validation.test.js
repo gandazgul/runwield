@@ -654,11 +654,12 @@ Deno.test("runValidationLoop pauses with Engineer on interrupted semantic repair
         true,
     );
     assertEquals(
-        uiAPI.messages.some((/** @type {string} */ m) =>
-            m.includes("Review failed. Sending feedback back to Engineer") &&
-            m.includes("Reviewer Feedback:\nmissing requirement")
-        ),
+        uiAPI.messages.some((/** @type {string} */ m) => m === "Review failed. Sending feedback back to Engineer..."),
         true,
+    );
+    assertEquals(
+        uiAPI.messages.some((/** @type {string} */ m) => m.includes("Reviewer Feedback:\nmissing requirement")),
+        false,
     );
     assertEquals(
         uiAPI.messages.some((/** @type {string} */ m) => m.includes("Maximum validation cycles")),

@@ -321,6 +321,36 @@ export class AgentMessageBlock {
 /**
  * System Message Block.
  */
+export class ReviewResultBlock {
+    /**
+     * @param {string} agentName
+     * @param {string} markdownText
+     * @param {boolean} approved
+     */
+    constructor(agentName, markdownText, approved) {
+        this.container = new Container();
+        this.agentName = agentName || "Reviewer";
+        this.markdownText = markdownText || "";
+        this.approved = approved;
+        this.bgToken = approved ? "toolSuccessBg" : "toolErrorBg";
+
+        this.container.addChild(new Text(theme.fg("success", theme.bold(`${this.agentName}:`)), 0, 0));
+        this.markdown = new Markdown(this.markdownText, 0, 0, getMarkdownTheme());
+        this.container.addChild(this.markdown);
+        this.block = new StyledBlock(this.bgToken, 2, 1, this.container);
+    }
+
+    invalidate() {
+        this.markdown.setText(this.markdownText);
+        this.block.invalidate();
+    }
+
+    /** @param {number} w */
+    render(w) {
+        return this.block.render(w);
+    }
+}
+
 export class SystemMessageBlock {
     /**
      * @param {string} text
