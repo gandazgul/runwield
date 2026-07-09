@@ -203,6 +203,16 @@ Deno.test("preserveRunWieldCustomSettingsForWrite keeps codereview", () => {
     });
 });
 
+Deno.test("preserveRunWieldCustomSettingsForWrite keeps notifications", () => {
+    const previous = JSON.stringify({ notifications: { enabled: true, activation: "tab" } });
+    const next = JSON.stringify({ theme: "new-theme" });
+
+    assertEquals(JSON.parse(preserveRunWieldCustomSettingsForWrite(previous, next)), {
+        theme: "new-theme",
+        notifications: { enabled: true, activation: "tab" },
+    });
+});
+
 Deno.test("preserveRunWieldCustomSettingsForWrite preserves codereview across SettingsManager-shaped writes", () => {
     const previous = JSON.stringify({
         theme: "dark",
