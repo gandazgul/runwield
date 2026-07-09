@@ -25,7 +25,7 @@ async function executeTool(tool, params, context = {}) {
 
 function makeMockUiAPI() {
     let systemMessageCount = 0;
-    const uiAPI = /** @type {import('../../ui/tui/types.js').UiAPI} */ ({
+    const uiAPI = /** @type {import('../../shared/types.js').SessionUiPort} */ ({
         appendSystemMessage: () => {
             systemMessageCount += 1;
         },

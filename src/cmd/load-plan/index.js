@@ -64,7 +64,7 @@ import { printCommandHelp as printCommandHelpFn } from "../help/index.js";
 import {
     setActiveAgent as setActiveAgentFn,
     startInteractiveSession as startInteractiveSessionFn,
-} from "../../shared/interactive/chat-session.js";
+} from "../../ui/tui/chat-session.js";
 import { shouldCleanupMergedWorktrees as shouldCleanupMergedWorktreesFn } from "../../shared/settings.js";
 import { setTerminalTitleForName as setTerminalTitleForNameFn } from "../../ui/tui/terminal-title.js";
 import { resetTuiState as resetTuiStateFn } from "../command-helpers.js";
@@ -2574,7 +2574,11 @@ export async function runLoadPlanCommand(argv, options = {}) {
     if (!uiAPI) {
         uiAPI = await startInteractiveSession(
             null,
-            (_userRequest, _images, currentUiAPI) => {
+            (
+                /** @type {string} */ _userRequest,
+                /** @type {import('../../shared/session/types.js').ImageAttachment[]} */ _images,
+                /** @type {import('../../shared/types.js').SessionUiPort} */ currentUiAPI,
+            ) => {
                 currentUiAPI.appendSystemMessage("Please wait for the plan to load...");
                 return Promise.resolve();
             },
@@ -2886,7 +2890,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                             return;
                         }
                         const action = plan.attrs.classification === "PROJECT"
-                            ? await askApprovalWithTasks(plan.planName, uiAPI)
+                            ? await askApprovalWithTasks(plan.planName, uiAPI, undefined, hostedSession.cwd)
                             : await askPostApproval(plan.planName, uiAPI);
                         if (action === "proceed") {
                             const confirmed = await confirmAffectedPathChangesBeforeExecution({

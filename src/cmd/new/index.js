@@ -35,6 +35,21 @@ export async function runNewCommand(argv, options = {}) {
     const { uiAPI } = options;
     const sessionName = argv.join(" ").trim();
 
+    if (options.sessionRuntime && options.replaceHostedSession) {
+        const projectRoot = options.hostedSession?.cwd || Deno.cwd();
+        const nextHostedSession = await options.sessionRuntime.createPromptReadySession({
+            cwd: projectRoot,
+            agentName: AGENTS.ROUTER,
+        });
+        if (sessionName) options.sessionRuntime.renameSession(nextHostedSession, sessionName);
+        options.replaceHostedSession(nextHostedSession);
+        const nextManager = nextHostedSession.getRootSessionManager();
+        if (nextManager) setTitle(nextManager, projectRoot);
+        uiAPI.clearMessages?.();
+        uiAPI.appendSystemMessage(`Started new session: ${nextManager?.getSessionId?.() || nextHostedSession.id}`);
+        return;
+    }
+
     if (options.hostedSession) {
         disposeRoot(options.hostedSession);
     }

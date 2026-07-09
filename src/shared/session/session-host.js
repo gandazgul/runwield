@@ -53,7 +53,7 @@ export class SessionHost {
 
     /** @param {CreateSessionOptions} options */
     createSession(options = {}) {
-        const id = getSessionManagerId(options.sessionManager) || options.id || this.idFactory();
+        const id = options.id || getSessionManagerId(options.sessionManager) || this.idFactory();
         const hostedSession = new HostedSession({ ...options, id });
         return this.adoptSession(hostedSession);
     }

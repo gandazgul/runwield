@@ -53,6 +53,8 @@ import { CWD } from "../../constants.js";
  * @typedef {Object} MinimalSessionManagerLike
  * @property {() => string} [getSessionId]
  * @property {() => string} [getCwd]
+ * @property {() => string | undefined} [getSessionName]
+ * @property {(name: string) => void} [appendSessionInfo]
  * @property {() => void | Promise<void>} [dispose]
  */
 
@@ -107,7 +109,7 @@ export class HostedSession {
      * @param {HostedSessionOptions} options
      */
     constructor(options) {
-        const id = getSessionManagerId(options?.sessionManager) || options?.id;
+        const id = options?.id || getSessionManagerId(options?.sessionManager);
         if (!id) throw new Error("HostedSession requires an id");
         this.id = id;
         this.cwd = getSessionManagerCwd(options.sessionManager) || options.cwd || CWD;
@@ -147,6 +149,8 @@ export class HostedSession {
         this.projectStateContext = "";
         /** @type {ActiveExecutionWorkflow | null} */
         this.activeExecutionWorkflow = null;
+        /** @type {string | null} */
+        this.activeTurnId = null;
     }
 
     assertActive() {
@@ -394,6 +398,29 @@ export class HostedSession {
         this.activeExecutionWorkflow = null;
     }
 
+    /** @param {string} turnId */
+    beginTurn(turnId) {
+        this.assertActive();
+        if (this.activeTurnId) return false;
+        this.activeTurnId = turnId;
+        return true;
+    }
+
+    /** @param {string} turnId */
+    endTurn(turnId) {
+        if (this.activeTurnId !== turnId) return false;
+        this.activeTurnId = null;
+        return true;
+    }
+
+    getActiveTurnId() {
+        return this.activeTurnId;
+    }
+
+    isTurnActive() {
+        return Boolean(this.activeTurnId);
+    }
+
     dispose() {
         if (this.disposed) return;
         disposeIfPresent(this.rootAgentSession);
@@ -419,6 +446,7 @@ export class HostedSession {
         this.pendingSwitchHandoff = null;
         this.projectStateContext = "";
         this.activeExecutionWorkflow = null;
+        this.activeTurnId = null;
         this.disposed = true;
     }
 }

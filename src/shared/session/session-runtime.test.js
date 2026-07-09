@@ -1,9 +1,8 @@
-import { assertEquals, assertStrictEquals } from "@std/assert";
+import { assertEquals, assertRejects, assertStrictEquals } from "@std/assert";
 import { HostedSession } from "./hosted-session.js";
 import { SessionHost } from "./session-host.js";
 import { RuntimeEventTypes } from "./session-runtime-events.js";
-import { createUiPromptInteractionAdapter } from "./session-runtime-interactions.js";
-import { HANDOFF_LIMIT_MESSAGE, SessionRuntime } from "./session-runtime.js";
+import { HANDOFF_LIMIT_MESSAGE, SessionRuntime, SessionTurnInProgressError } from "./session-runtime.js";
 
 /** @param {string} id */
 function makeSessionManager(id) {
@@ -50,7 +49,6 @@ Deno.test("SessionRuntime promptSession consumes only the target HostedSession h
     other.setPendingSwitchHandoff({ agentName: "router", reason: "other handoff" });
 
     const result = await runtime.promptSession(current, {
-        uiAPI: /** @type {any} */ ({ appendSystemMessage: () => {} }),
         initialRequest: "first",
         initialImages: [],
     });
@@ -75,11 +73,11 @@ Deno.test("SessionRuntime promptSession preserves the chained handoff limit", as
         return Promise.resolve();
     });
     const runtime = new SessionRuntime();
+    runtime.subscribeSessionEvents(hostedSession, (event) => {
+        if (event.type === RuntimeEventTypes.SYSTEM_STATUS) messages.push(event.message);
+    });
 
     const result = await runtime.promptSession(hostedSession, {
-        uiAPI: /** @type {any} */ ({
-            appendSystemMessage: (/** @type {unknown} */ message) => messages.push(String(message)),
-        }),
         initialRequest: "start",
         initialImages: [],
     });
@@ -108,7 +106,6 @@ Deno.test("SessionRuntime promptSession applies root swaps before turns and drai
     });
 
     await runtime.promptSession(hostedSession, {
-        uiAPI: /** @type {any} */ ({}),
         initialRequest: "start",
         initialImages: [],
     });
@@ -135,8 +132,6 @@ Deno.test("SessionRuntime cancelSession aborts the target HostedSession and hand
 Deno.test("SessionRuntime promptSession reports missing active handler or session manager", async () => {
     const hostedSession = new HostedSession({ id: "missing-handler" });
     /** @type {string[]} */
-    const messages = [];
-    /** @type {string[]} */
     const events = [];
     const runtime = new SessionRuntime();
     runtime.subscribeSessionEvents(hostedSession, (event) => {
@@ -144,9 +139,6 @@ Deno.test("SessionRuntime promptSession reports missing active handler or sessio
     });
 
     const result = await runtime.promptSession(hostedSession, {
-        uiAPI: /** @type {any} */ ({
-            appendSystemMessage: (/** @type {string} */ message) => messages.push(message),
-        }),
         initialRequest: "hello",
         initialImages: [],
     });
@@ -158,13 +150,14 @@ Deno.test("SessionRuntime promptSession reports missing active handler or sessio
         handoffLimitReached: false,
         error: "missing_active_handler_or_session_manager",
     });
-    assertEquals(messages, ["Error: No active agent handler or session manager."]);
     assertEquals(events, [
         RuntimeEventTypes.USER_MESSAGE,
         RuntimeEventTypes.TURN_START,
+        RuntimeEventTypes.BUSY_CHANGED,
         RuntimeEventTypes.SYSTEM_STATUS,
         RuntimeEventTypes.TERMINAL_ERROR,
         RuntimeEventTypes.TURN_END,
+        RuntimeEventTypes.BUSY_CHANGED,
     ]);
 });
 
@@ -261,7 +254,7 @@ Deno.test("SessionRuntime loadSession opens persisted session restores agent and
 
     const result = await runtime.loadSession({ cwd: "/repo/acp", sessionId: "persisted-1" });
 
-    assertEquals(result.hostedSession.id, "persisted-1");
+    assertEquals(result.hostedSession.id === "persisted-1", false);
     assertEquals(result.hostedSession.cwd, "/repo/acp");
     assertEquals(result.hostedSession.getRootAgentName(), "planner");
     assertEquals(result.sessionManagerId, "persisted-1");
@@ -330,12 +323,28 @@ Deno.test("SessionRuntime createPromptReadySession creates Router-backed hosted 
     });
     runtime.emitSessionEvent(hostedSession, { type: "system_status", message: "ready" });
 
-    assertEquals(hostedSession.id, "acp");
+    assertEquals(hostedSession.id === "acp", false);
     assertEquals(hostedSession.cwd, "/repo/acp");
     assertEquals(hostedSession.getRootAgentName(), "router");
     assertEquals(typeof hostedSession.getActiveOnMessage(), "function");
     assertEquals(typeof /** @type {any} */ (hostedSession.getEventSink()).emit, "function");
     assertEquals(/** @type {any} */ (events[0]).message, "ready");
+});
+
+Deno.test("SessionRuntime removes partially initialized sessions when root creation fails", async () => {
+    const manager = makeSessionManager("partial");
+    const runtime = new SessionRuntime({
+        createRootSessionManager: () => Promise.resolve(manager),
+        ensureRootAgentSession: () => Promise.reject(new Error("root failed")),
+    });
+
+    await assertRejects(
+        () => runtime.createPromptReadySession({ cwd: "/repo/partial" }),
+        Error,
+        "root failed",
+    );
+    assertEquals(runtime.listSessions(), []);
+    assertEquals(manager.disposed, true);
 });
 
 Deno.test("SessionRuntime promptSession emits user turn and terminal error events", async () => {
@@ -361,7 +370,97 @@ Deno.test("SessionRuntime promptSession emits user turn and terminal error event
     assertEquals(types.includes("user_message"), true);
     assertEquals(types.includes("turn_start"), true);
     assertEquals(types.includes("terminal_error"), true);
-    assertEquals(types.at(-1), "turn_end");
+    assertEquals(types.at(-1), "busy_changed");
+    assertEquals(hostedSession.isTurnActive(), false);
+});
+
+Deno.test("SessionRuntime owns same-session turn exclusion and exposes busy snapshots", async () => {
+    const hostedSession = new HostedSession({ id: "turn-lock", cwd: "/repo/turn-lock" });
+    hostedSession.setRootSessionManager(/** @type {any} */ ({ id: "root" }));
+    const gate = { release: () => {} };
+    hostedSession.setActiveOnMessage(() =>
+        new Promise((resolve) => {
+            gate.release = () => resolve(undefined);
+        })
+    );
+    const runtime = new SessionRuntime();
+
+    const firstPrompt = runtime.promptSession(hostedSession, {
+        initialRequest: "first",
+        initialImages: [],
+    });
+    await Promise.resolve();
+
+    const activeSnapshot = runtime.getSessionSnapshot(hostedSession);
+    assertEquals(activeSnapshot?.busy, true);
+    assertEquals(typeof activeSnapshot?.activeTurnId, "string");
+    await assertRejects(
+        () => runtime.promptSession(hostedSession, { initialRequest: "second", initialImages: [] }),
+        SessionTurnInProgressError,
+        "already has an active turn",
+    );
+
+    gate.release();
+    await firstPrompt;
+    const idleSnapshot = runtime.getSessionSnapshot(hostedSession);
+    assertEquals(idleSnapshot?.busy, false);
+    assertEquals(idleSnapshot?.activeTurnId, null);
+});
+
+Deno.test("SessionRuntime keeps canceled turns reserved and closes only after prompt settlement", async () => {
+    const runtime = new SessionRuntime({ abortActiveSession: () => true });
+    const hostedSession = runtime.createSession({ id: "settled-close", cwd: "/repo/settled-close" });
+    hostedSession.setRootSessionManager(/** @type {any} */ ({ id: "root", dispose() {} }));
+    let release = () => {};
+    hostedSession.setActiveOnMessage(() =>
+        new Promise((resolve) => {
+            release = () => resolve(undefined);
+        })
+    );
+
+    const prompt = runtime.promptSession(hostedSession, { initialRequest: "long turn", initialImages: [] });
+    await Promise.resolve();
+    const close = runtime.closeSessionWhenIdle(hostedSession);
+    await Promise.resolve();
+
+    assertEquals(hostedSession.isTurnActive(), true);
+    assertEquals(hostedSession.disposed, false);
+    await assertRejects(
+        () => runtime.promptSession(hostedSession, { initialRequest: "overlap", initialImages: [] }),
+        SessionTurnInProgressError,
+    );
+
+    release();
+    await prompt;
+    assertEquals(await close, { ok: true, closed: true });
+    assertEquals(hostedSession.disposed, true);
+});
+
+Deno.test("SessionRuntime permits independent Hosted Sessions to prompt concurrently", async () => {
+    const runtime = new SessionRuntime();
+    const alpha = runtime.createSession({ id: "concurrent-alpha", cwd: "/repo/alpha" });
+    const beta = runtime.createSession({ id: "concurrent-beta", cwd: "/repo/beta" });
+    alpha.setRootSessionManager(/** @type {any} */ ({ id: "alpha-root" }));
+    beta.setRootSessionManager(/** @type {any} */ ({ id: "beta-root" }));
+    /** @type {Array<() => void>} */
+    const releases = [];
+    for (const session of [alpha, beta]) {
+        session.setActiveOnMessage(() =>
+            new Promise((resolve) => {
+                releases.push(() => resolve(undefined));
+            })
+        );
+    }
+
+    const prompts = [
+        runtime.promptSession(alpha, { initialRequest: "alpha", initialImages: [] }),
+        runtime.promptSession(beta, { initialRequest: "beta", initialImages: [] }),
+    ];
+    for (let i = 0; i < 10 && releases.length < 2; i++) await Promise.resolve();
+    assertEquals(runtime.getSessionSnapshot(alpha)?.busy, true);
+    assertEquals(runtime.getSessionSnapshot(beta)?.busy, true);
+    for (const release of releases) release();
+    assertEquals((await Promise.all(prompts)).map((result) => result.ok), [true, true]);
 });
 
 Deno.test("SessionRuntime cancelSession emits cancellation event", () => {
@@ -434,72 +533,4 @@ Deno.test("SessionRuntime requestInteraction resolves canceled when session canc
     assertEquals(sawAbortSignal, true);
     assertEquals(response.outcome, "canceled");
     assertEquals(hostedSession.getActiveInteractions().size, 0);
-});
-
-Deno.test("createUiPromptInteractionAdapter rejects invalid selected options", async () => {
-    const adapter = createUiPromptInteractionAdapter(
-        /** @type {any} */ ({
-            promptSelect: () => Promise.resolve("invalid"),
-        }),
-    );
-
-    const response = await adapter.requestInteraction({
-        type: "select",
-        prompt: "Pick",
-        options: [{ value: "valid", label: "Valid" }],
-    });
-
-    assertEquals(response.outcome, "unsupported");
-    assertEquals(response.message, "Select prompt returned invalid option: invalid");
-});
-
-Deno.test("createUiPromptInteractionAdapter maps declined approval choices to canceled outcome", async () => {
-    const adapter = createUiPromptInteractionAdapter(
-        /** @type {any} */ ({
-            promptSelect: () => Promise.resolve("deny"),
-        }),
-    );
-
-    const response = await adapter.requestInteraction({
-        type: "approval",
-        prompt: "Approve?",
-        options: [{ value: "approve", label: "Approve" }, { value: "deny", label: "Deny" }],
-    });
-
-    assertEquals(response.outcome, "canceled");
-    assertEquals(response.value, false);
-});
-
-Deno.test("createUiPromptInteractionAdapter does not auto-accept arbitrary single approval options", async () => {
-    const adapter = createUiPromptInteractionAdapter(
-        /** @type {any} */ ({
-            promptSelect: () => Promise.resolve("deny"),
-        }),
-    );
-
-    const response = await adapter.requestInteraction({
-        type: "approval",
-        prompt: "Approve?",
-        options: [{ value: "deny", label: "Deny" }],
-    });
-
-    assertEquals(response.outcome, "canceled");
-    assertEquals(response.value, false);
-});
-
-Deno.test("createUiPromptInteractionAdapter maps approval prompts to accepted outcome", async () => {
-    const adapter = createUiPromptInteractionAdapter(
-        /** @type {any} */ ({
-            promptSelect: () => Promise.resolve("approve"),
-        }),
-    );
-
-    const response = await adapter.requestInteraction({
-        type: "approval",
-        prompt: "Approve?",
-        options: [{ value: "approve", label: "Approve" }],
-    });
-
-    assertEquals(response.outcome, "accepted");
-    assertEquals(response.value, true);
 });

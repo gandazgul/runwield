@@ -1,5 +1,5 @@
 /**
- * @module shared/interactive/boot-banner
+ * @module ui/tui/boot-banner
  *
  * Boot summary printed at the top of an interactive session: the loaded
  * prompt templates, available skills, and warnings for any prompt template
@@ -8,8 +8,8 @@
 
 import { CWD, HOME_DIR } from "../../constants.js";
 import { recordSnipMissingWarningShown, shouldShowSnipMissingWarning } from "../../cmd/init/init-state.js";
-import { hasSnipBinary } from "../runtime-preflight.js";
-import { listLoadedAgentMdFiles, listSkills } from "../session/session.js";
+import { hasSnipBinary } from "../../shared/runtime-preflight.js";
+import { listLoadedAgentMdFiles, listSkills } from "../../shared/session/session.js";
 
 /**
  * @typedef {{
@@ -36,10 +36,11 @@ function toUserFacingPromptPath(template) {
 
 /**
  * @param {{ path: string, source: "home" | "external" | "local" }} file
+ * @param {string} projectRoot
  */
-function toUserFacingAgentMdPath(file) {
-    if (CWD && file.path.startsWith(CWD)) {
-        return `.${file.path.slice(CWD.length)}`;
+function toUserFacingAgentMdPath(file, projectRoot) {
+    if (projectRoot && file.path.startsWith(projectRoot)) {
+        return `.${file.path.slice(projectRoot.length)}`;
     }
     if ((file.source === "home" || file.source === "external") && HOME_DIR && file.path.startsWith(HOME_DIR)) {
         return `~${file.path.slice(HOME_DIR.length)}`;
@@ -49,14 +50,15 @@ function toUserFacingAgentMdPath(file) {
 
 /**
  * @param {{
- *   uiAPI: import('../../ui/tui/types.js').UiAPI,
+ *   uiAPI: import('./types.js').UiAPI,
  *   invokablePromptTemplates: PromptTemplate[],
  *   blockedPromptTemplates: PromptTemplate[],
  *   chatPromptAgentName: string,
+ *   projectRoot?: string,
  *   __deps?: {
  *     listSkills?: typeof listSkills,
  *     listLoadedAgentMdFiles?: typeof listLoadedAgentMdFiles,
- *     getSettingsManager?: () => { getTheme: () => string | undefined },
+ *     getSettingsManager?: (projectRoot?: string) => { getTheme: () => string | undefined },
  *     hasSnipBinary?: typeof hasSnipBinary,
  *     shouldShowSnipMissingWarning?: typeof shouldShowSnipMissingWarning,
  *     recordSnipMissingWarningShown?: typeof recordSnipMissingWarningShown,
@@ -68,6 +70,7 @@ export async function renderBootBanner({
     invokablePromptTemplates,
     blockedPromptTemplates,
     chatPromptAgentName,
+    projectRoot = CWD,
     __deps,
 }) {
     const listSkillsImpl = __deps?.listSkills || listSkills;
@@ -90,7 +93,7 @@ export async function renderBootBanner({
         uiAPI.appendSystemMessage("none", false, "Prompt Templates:", headerStyle);
     }
 
-    const skills = await listSkillsImpl();
+    const skills = await listSkillsImpl({ cwd: projectRoot });
     if (skills && skills.length > 0) {
         const skillNames = skills.map((s) => s.name).join(", ");
         uiAPI.appendSystemMessage(skillNames, false, `Skills (${skills.length}):`, headerStyle);
@@ -99,18 +102,19 @@ export async function renderBootBanner({
     }
 
     // Report the active theme
-    const getSettingsManagerImpl = __deps?.getSettingsManager || (await import("../settings.js")).getSettingsManager;
-    const activeTheme = getSettingsManagerImpl().getTheme() || "catppuccin-mocha";
+    const getSettingsManagerImpl = __deps?.getSettingsManager || (await import("../../shared/settings.js"))
+        .getSettingsManager;
+    const activeTheme = getSettingsManagerImpl(projectRoot).getTheme() || "catppuccin-mocha";
     uiAPI.appendSystemMessage(activeTheme, false, "Theme:", headerStyle);
 
     if (snipAvailable) {
         uiAPI.appendSystemMessage("Snip", false, "Runtime Optimizers:", headerStyle);
     }
 
-    const agentMdFiles = await listLoadedAgentMdFilesImpl();
+    const agentMdFiles = await listLoadedAgentMdFilesImpl(projectRoot);
     if (agentMdFiles.length > 0) {
         const lines = agentMdFiles
-            .map((file) => `- ${toUserFacingAgentMdPath(file)}`)
+            .map((file) => `- ${toUserFacingAgentMdPath(file, projectRoot)}`)
             .join("\n");
         uiAPI.appendSystemMessage(`\n${lines}`, false, "Context:", headerStyle);
     }

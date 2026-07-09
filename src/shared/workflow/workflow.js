@@ -58,7 +58,7 @@ export {
 } from "./workflow-results.js";
 
 /**
- * @typedef {import('../../ui/tui/types.js').UiAPI} UiAPI
+ * @typedef {import('../types.js').SessionUiPort} UiAPI
  */
 
 /**
@@ -136,6 +136,7 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
 
     const loadPlanFn = __deps.loadPlan || loadPlan;
     const hostedSession = __deps.hostedSession;
+    const projectRoot = hostedSession?.cwd || CWD;
     void structuredTasks;
     const executeSingleEngineerPlanFn = __deps.executeSingleEngineerPlan || executeSingleEngineerPlan;
     const recordPlanEventFn = __deps.recordPlanEvent || recordPlanEvent;
@@ -147,8 +148,8 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
         event: "plan_execution_started",
         planName,
         details: { classification: triageMeta?.classification, status: triageMeta?.status },
-    });
-    const plan = await loadPlanFn(CWD, planName);
+    }, { cwd: projectRoot });
+    const plan = await loadPlanFn(projectRoot, planName);
     if (!plan) {
         uiAPI.appendSystemMessage(`ERROR: Could not load plan ${planName}`, true, "RunWield");
         await recordWorkflowMetricFn({
@@ -156,7 +157,7 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
             event: "plan_execution_rejected",
             planName,
             details: { reason: "plan_not_found" },
-        });
+        }, { cwd: projectRoot });
         return { repairRequired: false, executionComplete: false, error: `Could not load plan ${planName}` };
     }
 
@@ -170,7 +171,7 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
             event: "plan_execution_rejected",
             planName,
             details: { reason: "epic_container", classification: effectiveMeta.classification },
-        });
+        }, { cwd: projectRoot });
         return { repairRequired: false, executionComplete: false, error };
     }
 
@@ -182,7 +183,7 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
             event: "plan_execution_rejected",
             planName,
             details: { reason: "not_ready_for_work", status: plan.attrs.status },
-        });
+        }, { cwd: projectRoot });
         return { repairRequired: false, executionComplete: false, error };
     }
 
@@ -212,7 +213,7 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
                 failedTaskCount: Array.isArray(result.failedTasks) ? result.failedTasks.length : undefined,
                 hasError: Boolean(result.error),
             },
-        });
+        }, { cwd: projectRoot });
         return result;
     }
 
@@ -221,7 +222,7 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
         event: "plan_execution_result",
         planName,
         details: { executionComplete: true, repairRequired: false },
-    });
+    }, { cwd: projectRoot });
 
     uiAPI.appendSystemMessage(
         `✅ Plan implementation complete: ${planName}`,
@@ -230,7 +231,7 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
     );
     const activeWorkflow = hostedSession?.getActiveExecutionWorkflow?.();
     await recordPlanEventFn({
-        cwd: CWD,
+        cwd: projectRoot,
         planName,
         event: "implementation_finished",
         currentStatus: "in_progress",
@@ -241,7 +242,7 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
         event: "implementation_finished",
         planName,
         details: { classification: effectiveMeta.classification },
-    });
+    }, { cwd: projectRoot });
     await markActiveWorktreeStatusFn("completed", { hostedSession });
     return { repairRequired: false, executionComplete: true };
 }
@@ -319,7 +320,7 @@ async function runEngineerWithPlan(planName, planBody, uiAPI, sessionManager, ex
         const hostedRootSession = /** @type {any} */ (hostedSession?.getRootAgentSession?.());
         const rootMessages = hostedRootSession?.agent?.state?.messages || [];
         uiAPI.appendSystemMessage(
-            buildEngineerPausedMessage(errorMessage),
+            buildEngineerPausedMessage(errorMessage, hostedSession?.cwd),
             true,
             "RunWield",
         );
@@ -329,7 +330,7 @@ async function runEngineerWithPlan(planName, planBody, uiAPI, sessionManager, ex
     const completed = readLatestTaskCompletedOutcome(messages);
     if (!completed) {
         uiAPI.appendSystemMessage(
-            buildEngineerPausedMessage(),
+            buildEngineerPausedMessage(undefined, hostedSession?.cwd),
             false,
             "RunWield",
         );
@@ -340,10 +341,11 @@ async function runEngineerWithPlan(planName, planBody, uiAPI, sessionManager, ex
 
 /**
  * @param {string} [reason]
+ * @param {string} [projectRoot]
  */
-function buildEngineerPausedMessage(reason) {
+function buildEngineerPausedMessage(reason, projectRoot = CWD) {
     const base = `${
-        getAgentDisplayName(AGENTS.ENGINEER)
+        getAgentDisplayName(AGENTS.ENGINEER, projectRoot)
     } stopped without task_completed; execution is paused. Say "continue" to resume with the Engineer.`;
     return reason ? `${base}\nReason: ${reason}` : base;
 }
@@ -360,9 +362,10 @@ export function normalizeExecutionTargetBranch(value) {
 
 /**
  * @param {UiAPI | undefined} uiAPI
+ * @param {string} projectRoot
  * @returns {Promise<boolean>}
  */
-async function confirmNonGitFeaturePlanExecution(uiAPI) {
+async function confirmNonGitFeaturePlanExecution(uiAPI, projectRoot) {
     if (!uiAPI?.promptSelect) return false;
     const answer = await uiAPI.promptSelect(
         "Git is not available for this project. RunWield recommends using Git so Plan execution can run in an isolated Worktree with diff-based review and merge-back. Proceeding will modify the current files directly and skip Git-only isolation/recovery.",
@@ -372,7 +375,7 @@ async function confirmNonGitFeaturePlanExecution(uiAPI) {
         ],
     );
     if (answer !== "proceed") return false;
-    await rememberNonGitExecutionConsent("featurePlan");
+    await rememberNonGitExecutionConsent("featurePlan", projectRoot);
     return true;
 }
 
@@ -419,6 +422,7 @@ export async function startActiveExecutionWorkflow(
     { planName, triageMeta, currentStatus, hostedSession, uiAPI, __deps },
 ) {
     if (!hostedSession) throw new Error("startActiveExecutionWorkflow: hostedSession is required");
+    const projectRoot = hostedSession.cwd;
     const createWorktree = __deps?.createExecutionWorktree || createExecutionWorktree;
     const findReusable = __deps?.findReusableWorktree || findReusableWorktree;
     const prepareTarget = __deps?.prepareTargetBranchRef || prepareTargetBranchRef;
@@ -430,9 +434,9 @@ export async function startActiveExecutionWorkflow(
     const probeGit = __deps?.probeGitRepository || probeGitRepository;
     const hasConsent = __deps?.hasNonGitExecutionConsent || hasNonGitExecutionConsent;
     const confirmNonGit = __deps?.confirmNonGitFeaturePlanExecution || confirmNonGitFeaturePlanExecution;
-    const gitProbe = await probeGit(CWD);
+    const gitProbe = await probeGit(projectRoot);
     if (!gitProbe.ok) {
-        if (!hasConsent("featurePlan") && !(await confirmNonGit(uiAPI))) {
+        if (!hasConsent("featurePlan", projectRoot) && !(await confirmNonGit(uiAPI, projectRoot))) {
             throw new Error(
                 "Plan execution canceled because Git is not available and in-place execution was not approved.",
             );
@@ -440,13 +444,13 @@ export async function startActiveExecutionWorkflow(
         const workflow = {
             planName,
             triageMeta,
-            projectRoot: CWD,
-            executionCwd: CWD,
+            projectRoot,
+            executionCwd: projectRoot,
             nonGitInPlace: true,
         };
         hostedSession.setActiveExecutionWorkflow(workflow);
         await recordEvent({
-            cwd: CWD,
+            cwd: projectRoot,
             planName,
             event: "execution_started",
             currentStatus,
@@ -457,7 +461,7 @@ export async function startActiveExecutionWorkflow(
             event: "non_git_in_place_execution_started",
             planName,
             details: { gitState: gitProbe.state },
-        });
+        }, { cwd: projectRoot });
         return workflow;
     }
     const targetBranch = normalizeExecutionTargetBranch(triageMeta.worktreeBaseBranch);
@@ -470,14 +474,16 @@ export async function startActiveExecutionWorkflow(
                 branch: existing.worktreeBranch,
                 baseBranch: existing.worktreeBaseBranch,
             }
-            : await findReusable({ projectRoot: CWD, planName });
-    const resolvedTargetBranch = reusable && targetBranch ? await resolveTarget(CWD, targetBranch) : targetBranch;
+            : await findReusable({ projectRoot, planName });
+    const resolvedTargetBranch = reusable && targetBranch
+        ? await resolveTarget(projectRoot, targetBranch)
+        : targetBranch;
     if (reusable) assertReusableWorktreeTargetMatches(reusable.baseBranch, resolvedTargetBranch);
     const reusedWorktree = Boolean(reusable);
     const worktree = reusable || await createWorktree({
-        projectRoot: CWD,
+        projectRoot,
         planName,
-        ...(targetBranch ? await prepareTarget(CWD, targetBranch) : { baseRef: "HEAD" }),
+        ...(targetBranch ? await prepareTarget(projectRoot, targetBranch) : { baseRef: "HEAD" }),
     });
     const worktreeBaseBranch = worktree.baseBranch === "HEAD" ? undefined : worktree.baseBranch;
     const baselineTree =
@@ -488,7 +494,7 @@ export async function startActiveExecutionWorkflow(
         planName,
         triageMeta,
         baselineTree,
-        projectRoot: CWD,
+        projectRoot,
         executionCwd: worktree.path,
         worktreeId: worktree.id,
         worktreeBranch: worktree.branch,
@@ -496,10 +502,10 @@ export async function startActiveExecutionWorkflow(
     };
     hostedSession.setActiveExecutionWorkflow(workflow);
     if (worktree.id) {
-        await updateRegistry(CWD, worktree.id, { status: "active" });
+        await updateRegistry(projectRoot, worktree.id, { status: "active" });
     }
     await recordEvent({
-        cwd: CWD,
+        cwd: projectRoot,
         planName,
         event: "execution_started",
         currentStatus,
@@ -524,7 +530,7 @@ export async function startActiveExecutionWorkflow(
             hasBaseBranch: Boolean(worktreeBaseBranch),
             hasBaselineTree: Boolean(baselineTree),
         },
-    });
+    }, { cwd: projectRoot });
     return workflow;
 }
 

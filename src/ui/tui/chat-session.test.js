@@ -11,17 +11,17 @@ import {
     getActiveModel,
     getFooterSessions,
     persistThinkingLevel,
-    resolveTemplateModel,
     runScopedSubmitHandoffLoop,
     setActiveAgent,
     setActiveModel,
     shouldShowFooterThinkingLevel,
     trackPendingSteeringMessage,
 } from "./chat-session.js";
-import { HostedSession } from "../session/hosted-session.js";
-import { __resetSettingsForTests } from "../settings.js";
-import { __getRootSessionMetadataForTests, ensureRootAgentSession } from "../session/session.js";
-import { EMPTY_PROJECT_DIRECTORY_PROMPT_NOTE } from "../project-state.js";
+import { resolveTemplateModel } from "../../shared/models/model-validation.js";
+import { HostedSession } from "../../shared/session/hosted-session.js";
+import { __resetSettingsForTests } from "../../shared/settings.js";
+import { __getRootSessionMetadataForTests, ensureRootAgentSession } from "../../shared/session/session.js";
+import { EMPTY_PROJECT_DIRECTORY_PROMPT_NOTE } from "../../shared/project-state.js";
 
 /** @param {string} [id] */
 function makeHostedSession(id = "test-session") {

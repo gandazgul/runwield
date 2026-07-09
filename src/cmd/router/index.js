@@ -8,7 +8,7 @@
  */
 
 import { COMMAND_NAMES } from "../registry.js";
-import { startInteractiveSession as startInteractiveSessionFn } from "../../shared/interactive/chat-session.js";
+import { startInteractiveSession as startInteractiveSessionFn } from "../../ui/tui/chat-session.js";
 import { createAgentHandler as createAgentHandlerFn } from "../../shared/session/agent-handler.js";
 import { printCommandHelp as printCommandHelpFn } from "../help/index.js";
 

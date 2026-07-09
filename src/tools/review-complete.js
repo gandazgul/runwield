@@ -16,7 +16,7 @@
 
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import { appendReviewResultMessage } from "../ui/tui/task-completed-message.js";
+import { appendReviewResultMessage } from "../shared/session/presentation-messages.js";
 import { recordWorkflowMetric } from "../shared/workflow/metrics.js";
 
 const TOOL_PARAMS = Type.Object({

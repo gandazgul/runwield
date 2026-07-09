@@ -49,7 +49,7 @@ export function setActiveAgent(
     if (hostedSession.getRootAgentName() !== agentName) {
         hostedSession.setPendingRootSwap({
             agentName,
-            displayName: getAgentDisplayName(agentName),
+            displayName: getAgentDisplayName(agentName, hostedSession.cwd),
             ...(agentModel ? { model: agentModel } : {}),
             ...(options.allowReturnToRouter !== undefined ? { allowReturnToRouter: options.allowReturnToRouter } : {}),
         });
@@ -60,7 +60,7 @@ export function setActiveAgent(
 
 /**
  * @param {import('./hosted-session.js').HostedSession | undefined} hostedSession
- * @param {import('../../ui/tui/types.js').UiAPI | undefined} uiAPI
+ * @param {import('../types.js').SessionUiPort | undefined} uiAPI
  */
 export async function applyPendingRootSwap(hostedSession, uiAPI) {
     if (!hostedSession) return;

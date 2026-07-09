@@ -48,13 +48,14 @@ export function readPersistedActiveAgentName(sessionManager) {
  */
 export async function resolveResumeAgentName(sessionManager) {
     const entries = getSessionEntries(sessionManager);
+    const projectRoot = sessionManager?.getCwd?.();
 
     for (let i = entries.length - 1; i >= 0; i--) {
         const agentName = readAgentNameFromEntry(entries[i]);
         if (!agentName) continue;
 
         try {
-            await loadAgentDef(agentName);
+            await loadAgentDef(agentName, projectRoot || undefined);
             return agentName;
         } catch (_e) {
             // Keep scanning so a corrupt/stale marker does not hide the last

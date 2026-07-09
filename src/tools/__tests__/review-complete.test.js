@@ -15,7 +15,7 @@ async function executeTool(tool, params) {
 Deno.test("review_complete renders rejected feedback once as reviewer result markdown", async () => {
     /** @type {Array<{ agentName: string, markdown: string, approved: boolean }>} */
     const rendered = [];
-    const uiAPI = /** @type {import('../../ui/tui/types.js').UiAPI} */ ({
+    const uiAPI = /** @type {import('../../shared/types.js').SessionUiPort} */ ({
         appendSystemMessage: () => {},
         appendAgentMessageStart: () => ({ appendText: () => {} }),
         appendReviewResult: (agentName, markdown, approved) => rendered.push({ agentName, markdown, approved }),
@@ -55,7 +55,7 @@ Deno.test("review_complete renders rejected feedback once as reviewer result mar
 Deno.test("review_complete renders approved result with success state", async () => {
     /** @type {Array<{ agentName: string, markdown: string, approved: boolean }>} */
     const rendered = [];
-    const uiAPI = /** @type {import('../../ui/tui/types.js').UiAPI} */ ({
+    const uiAPI = /** @type {import('../../shared/types.js').SessionUiPort} */ ({
         appendSystemMessage: () => {},
         appendAgentMessageStart: () => ({ appendText: () => {} }),
         appendReviewResult: (agentName, markdown, approved) => rendered.push({ agentName, markdown, approved }),

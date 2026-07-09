@@ -2,10 +2,10 @@
  * @module acp/server.test
  */
 
-import { assert, assertEquals, assertStringIncludes } from "@std/assert";
+import { assert, assertEquals, assertStringIncludes, assertThrows } from "@std/assert";
 import { mapRuntimeEventToAcpUpdate } from "./event-mapper.js";
 import { createAcpInteractionAdapter } from "./interaction-mapper.js";
-import { createInitializeResponse, startRunWieldAcpServer } from "./server.js";
+import { createInitializeResponse, startRunWieldAcpServer, validateNewSessionParams } from "./server.js";
 
 /**
  * @typedef {Object} TestServerHandle
@@ -730,21 +730,15 @@ Deno.test("ACP server rejects invalid new prompt and overlap inputs", async () =
         });
         assertEquals(relative.error.code, -32602);
 
-        const objectMcpServers = await request(handle, {
-            jsonrpc: "2.0",
-            id: "bad-mcp-object",
-            method: "session/new",
-            params: { cwd: Deno.cwd(), mcpServers: { local: { command: "secret" } } },
-        });
-        assertEquals(objectMcpServers.error.code, -32602);
+        const objectMcpServersError = assertThrows(() =>
+            validateNewSessionParams({ cwd: Deno.cwd(), mcpServers: { local: { command: "secret" } } })
+        );
+        assertEquals(/** @type {any} */ (objectMcpServersError).code, -32602);
 
-        const objectAdditionalDirectories = await request(handle, {
-            jsonrpc: "2.0",
-            id: "bad-additional-directories-object",
-            method: "session/new",
-            params: { cwd: Deno.cwd(), additionalDirectories: { docs: Deno.cwd() } },
-        });
-        assertEquals(objectAdditionalDirectories.error.code, -32602);
+        const objectAdditionalDirectoriesError = assertThrows(() =>
+            validateNewSessionParams({ cwd: Deno.cwd(), additionalDirectories: { docs: Deno.cwd() } })
+        );
+        assertEquals(/** @type {any} */ (objectAdditionalDirectoriesError).code, -32602);
 
         const newResponse = await request(handle, {
             jsonrpc: "2.0",
@@ -811,7 +805,7 @@ Deno.test("ACP server rejects invalid new prompt and overlap inputs", async () =
     }
 });
 
-Deno.test("ACP session/cancel settles prompt as cancelled even when runtime abort throws", async () => {
+Deno.test("ACP session/cancel keeps the turn reserved when runtime abort throws", async () => {
     const runtime = makeFakeRuntime();
     /** @type {any} */
     let activeSession = null;
@@ -887,7 +881,7 @@ Deno.test("ACP session/cancel settles prompt as cancelled even when runtime abor
             const message = await readMessage(handle);
             if (message.id === "after-cancel") afterCancel = message;
         }
-        assertEquals(afterCancel?.result.stopReason, "end_turn");
+        assertEquals(afterCancel?.error.code, -32002);
     } finally {
         await closeTestServer(handle);
     }
@@ -981,19 +975,17 @@ Deno.test("ACP session/cancel makes the in-flight prompt return cancelled", asyn
     }
 });
 
-Deno.test("ACP modules do not import TUI chat-session internals", async () => {
-    const command = new Deno.Command("bash", {
-        args: [
-            "-lc",
-            "if /usr/bin/find src/acp src/shared/session -name '*.js' ! -name '*.test.js' -print0 | xargs -0 grep -n 'shared/interactive/chat-session'; then exit 1; else exit 0; fi",
-        ],
-        stdout: "piped",
-        stderr: "piped",
-    });
-    const { code, stdout } = await command.output();
-    const output = decoder.decode(stdout);
-    assertEquals(code, 0);
-    assertEquals(output, "");
+Deno.test("ACP production modules do not import TUI adapter code", async () => {
+    /** @type {string[]} */
+    const violations = [];
+    for await (const entry of Deno.readDir("src/acp")) {
+        if (!entry.isFile || !entry.name.endsWith(".js") || entry.name.endsWith(".test.js")) continue;
+        const path = `src/acp/${entry.name}`;
+        const source = await Deno.readTextFile(path);
+        if (/from\s+["'][^"']*(?:\/ui\/|shared\/interactive)/.test(source)) violations.push(path);
+        if (/import\(["'][^"']*(?:\/ui\/|shared\/interactive)/.test(source)) violations.push(path);
+    }
+    assertEquals(violations, []);
 });
 
 Deno.test("ACP interaction adapter maps form elicitation answers", async () => {

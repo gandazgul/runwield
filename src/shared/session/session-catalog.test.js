@@ -14,6 +14,9 @@ import {
     steerRootSessionWithTarget,
 } from "./session.js";
 import { HostedSession } from "./hosted-session.js";
+import { getAgentDisplayName, listAvailableAgents } from "./agents.js";
+import { getCustomSetting } from "../settings.js";
+import { loadPlan } from "../../plan-store.js";
 
 const localPromptsDir = join(Deno.cwd(), ".wld", "prompts");
 const localSkillsDir = join(Deno.cwd(), ".wld", "skills");
@@ -23,6 +26,61 @@ async function cleanupLocalCatalogFixtures() {
     await Deno.remove(join(localPromptsDir, "coverage-local.md")).catch(() => {});
     await Deno.remove(join(localSkillsDir, "coverage-skill"), { recursive: true }).catch(() => {});
 }
+
+Deno.test("two project roots keep local catalogs settings and Plans isolated", async () => {
+    const alpha = await Deno.makeTempDir({ prefix: "runwield-project-alpha-" });
+    const beta = await Deno.makeTempDir({ prefix: "runwield-project-beta-" });
+    try {
+        for (const [root, marker] of [[alpha, "alpha"], [beta, "beta"]]) {
+            await Deno.mkdir(join(root, ".wld", "prompts"), { recursive: true });
+            await Deno.mkdir(join(root, ".wld", "skills", "local-skill"), { recursive: true });
+            await Deno.mkdir(join(root, ".wld", "agents"), { recursive: true });
+            await Deno.mkdir(join(root, "plans"), { recursive: true });
+            await Deno.writeTextFile(
+                join(root, ".wld", "prompts", "local-prompt.md"),
+                `---\ndescription: "${marker} prompt"\n---\n${marker} prompt body`,
+            );
+            await Deno.writeTextFile(
+                join(root, ".wld", "skills", "local-skill", "SKILL.md"),
+                `---\nname: "local-skill"\ndescription: "${marker} skill"\n---\n${marker} skill body`,
+            );
+            await Deno.writeTextFile(
+                join(root, ".wld", "agents", "local-agent.md"),
+                `---\nname: "${marker} Agent"\ndescription: "${marker}"\ntools: []\n---\n${marker} agent body`,
+            );
+            await Deno.writeTextFile(join(root, ".wld", "settings.json"), JSON.stringify({ marker }));
+            await Deno.writeTextFile(
+                join(root, "plans", "same-plan.md"),
+                `---\nclassification: FEATURE\ncomplexity: LOW\nsummary: "${marker} plan"\naffectedPaths: []\nstatus: approved\n---\n# ${marker} plan`,
+            );
+        }
+
+        const [alphaPrompts, betaPrompts, alphaSkills, betaSkills, alphaAgents, betaAgents] = await Promise.all([
+            listPromptTemplates({ cwd: alpha }),
+            listPromptTemplates({ cwd: beta }),
+            listSkills({ cwd: alpha }),
+            listSkills({ cwd: beta }),
+            listAvailableAgents(alpha),
+            listAvailableAgents(beta),
+        ]);
+
+        assertEquals(alphaPrompts.find((item) => item.name === "local-prompt")?.description, "alpha prompt");
+        assertEquals(betaPrompts.find((item) => item.name === "local-prompt")?.description, "beta prompt");
+        assertEquals(alphaSkills.find((item) => item.name === "local-skill")?.description, "alpha skill");
+        assertEquals(betaSkills.find((item) => item.name === "local-skill")?.description, "beta skill");
+        assertEquals(alphaAgents.some((item) => item.name === "local-agent"), true);
+        assertEquals(betaAgents.some((item) => item.name === "local-agent"), true);
+        assertEquals(getAgentDisplayName("local-agent", alpha), "alpha Agent");
+        assertEquals(getAgentDisplayName("local-agent", beta), "beta Agent");
+        assertEquals(getCustomSetting("marker", "project", alpha), "alpha");
+        assertEquals(getCustomSetting("marker", "project", beta), "beta");
+        assertEquals((await loadPlan(alpha, "same-plan"))?.attrs.summary, "alpha plan");
+        assertEquals((await loadPlan(beta, "same-plan"))?.attrs.summary, "beta plan");
+    } finally {
+        await Deno.remove(alpha, { recursive: true });
+        await Deno.remove(beta, { recursive: true });
+    }
+});
 
 Deno.test("listPromptTemplates gives local templates precedence and parses metadata", async () => {
     await cleanupLocalCatalogFixtures();

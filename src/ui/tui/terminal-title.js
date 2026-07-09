@@ -4,27 +4,10 @@
  */
 
 import { basename } from "@std/path";
+import { formatSessionTerminalTitle, sanitizeSessionName } from "../../shared/session/session-name.js";
 import { getTUI } from "./tui.js";
 
-const SESSION_NAME_MAX_LENGTH = 40;
-
-/**
- * Sanitize a value so it is safe and compact as a persisted Session Name and
- * terminal title suffix.
- *
- * @param {unknown} value
- * @returns {string}
- */
-export function sanitizeSessionName(value) {
-    return Array.from(String(value ?? ""), (char) => {
-        const code = char.charCodeAt(0);
-        return code < 32 || code === 127 ? " " : char;
-    }).join("")
-        .replace(/\s+/g, " ")
-        .trim()
-        .slice(0, SESSION_NAME_MAX_LENGTH)
-        .trim();
-}
+export { sanitizeSessionName } from "../../shared/session/session-name.js";
 
 /**
  * Format a terminal title from a Session Name.
@@ -33,8 +16,7 @@ export function sanitizeSessionName(value) {
  * @returns {string}
  */
 export function formatTerminalTitle(name) {
-    const sanitized = sanitizeSessionName(name);
-    return sanitized ? `wld - ${sanitized}` : "wld";
+    return formatSessionTerminalTitle(name);
 }
 
 /**

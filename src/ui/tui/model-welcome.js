@@ -1,12 +1,12 @@
 /**
- * @module shared/interactive/model-welcome
+ * @module ui/tui/model-welcome
  * No-model onboarding orchestration for the interactive TUI.
  */
 
 import { COMMAND_NAMES, commandRegistry as defaultCommandRegistry } from "../../cmd/registry.js";
-import { getModelRegistry as getModelRegistryFn } from "../models/model-registry.js";
-import { getSettingsManager as getSettingsManagerFn } from "../settings.js";
-import { theme } from "../../ui/theme/theme.js";
+import { getModelRegistry as getModelRegistryFn } from "../../shared/models/model-registry.js";
+import { getSettingsManager as getSettingsManagerFn } from "../../shared/settings.js";
+import { theme } from "../theme/theme.js";
 
 /**
  * @typedef {Object} ModelAvailability
@@ -16,12 +16,12 @@ import { theme } from "../../ui/theme/theme.js";
 
 /**
  * @typedef {Object} MaybeShowModelWelcomeOptions
- * @property {import('../../ui/tui/types.js').UiAPI} uiAPI
+ * @property {import('./types.js').UiAPI} uiAPI
  * @property {import('@earendil-works/pi-tui').Editor} editor
  * @property {import('@earendil-works/pi-tui').TUI} tui
- * @property {import('../session/hosted-session.js').HostedSession} [hostedSession]
- * @property {import('../session/types.js').SessionManagerLike} sessionManager
- * @property {(opts: { hostedSession?: import('../session/hosted-session.js').HostedSession, agentName: string, modelOverride?: string, uiAPI: import('../../ui/tui/types.js').UiAPI, sessionManager: import('../session/types.js').SessionManagerLike }) => Promise<unknown>} ensureRootAgentSession
+ * @property {import('../../shared/session/hosted-session.js').HostedSession} [hostedSession]
+ * @property {import('../../shared/session/types.js').SessionManagerLike} sessionManager
+ * @property {(opts: { hostedSession?: import('../../shared/session/hosted-session.js').HostedSession, agentName: string, modelOverride?: string, uiAPI: import('../../shared/types.js').SessionUiPort, sessionManager: import('../../shared/session/types.js').SessionManagerLike }) => Promise<unknown>} ensureRootAgentSession
  * @property {string} initialAgentInternalName
  * @property {string} [initialAgentModel]
  * @property {Record<string, { execute: (argv: string[], options?: import('../../cmd/registry.js').CommandContext) => Promise<void> }>} [commandRegistry]
