@@ -1,7 +1,8 @@
 import { assertEquals } from "@std/assert";
 import { Spacer } from "@earendil-works/pi-tui";
 import { createFooterOnlyUiApi, createSilentUiApi, createUiApi } from "./api.js";
-import { SpinnerBlock, SystemMessageBlock } from "./blocks.js";
+import { SpinnerBlock, SystemMessageBlock, ThinkingBlock } from "./blocks.js";
+import stripAnsi from "strip-ansi";
 import { initRunWieldTheme } from "../theme/theme.js";
 
 initRunWieldTheme();
@@ -79,6 +80,17 @@ Deno.test("createFooterOnlyUiApi suppresses message bodies but forwards footer r
 
     assertEquals(ui.isOutputSuppressed?.(), false);
     assertEquals(renders, 1);
+});
+
+Deno.test("ThinkingBlock hides markdown comments and unwraps emphasis markers", () => {
+    const block = new ThinkingBlock();
+    block.appendText(
+        "**Planning page layout and token guard**\n\n<!-- -->\n\n**Inspecting server for static theme assets**",
+    );
+
+    const rendered = block.render(120).map((line) => stripAnsi(line).trimEnd()).join("\n").trimEnd();
+
+    assertEquals(rendered, "Planning page layout and token guard\n\nInspecting server for static theme assets");
 });
 
 Deno.test("createUiApi appends visible blocks, merges compatible system messages, and controls tools", () => {

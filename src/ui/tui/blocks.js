@@ -146,6 +146,24 @@ function getThinkingFrame(frameIndex) {
 }
 
 /**
+ * Normalize presentation-only markdown that some providers include in their
+ * thinking deltas. Thinking blocks intentionally render as muted plain text,
+ * so CommonMark comments should be invisible and simple emphasis wrappers
+ * should not leak as literal punctuation.
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+function normalizeThinkingText(text) {
+    return text
+        .replace(/<!--[^]*?-->/g, "")
+        .split(/\r?\n/)
+        .map((line) => line.replace(/^(\s*)(\*\*\*|___|\*\*|__|\*|_)(\S[\s\S]*?\S|\S)\2(\s*)$/u, "$1$3$4"))
+        .join("\n")
+        .replace(/\n{3,}/g, "\n\n");
+}
+
+/**
  * A block that applies a background color, horizontal/vertical padding,
  * and stretches each line to the full available width.
  *
@@ -253,7 +271,7 @@ export class ThinkingBlock {
 
     /** @param {number} w */
     render(w) {
-        const rawBody = this.hidden ? "hidden" : this.currentText.trimStart();
+        const rawBody = this.hidden ? "hidden" : normalizeThinkingText(this.currentText).trimStart();
         const bodyLines = rawBody ? rawBody.split(/\r?\n/).flatMap((line) => wrapPlainLine(line, w)) : [];
         const renderedLines = bodyLines.map((line) => theme.fg("thinkingText", line));
         return renderedLines
