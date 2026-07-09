@@ -6,7 +6,7 @@
 import { agent, methods, ndJsonStream, PROTOCOL_VERSION, RequestError } from "@agentclientprotocol/sdk";
 import { isAbsolute } from "@std/path";
 import { SessionRuntime } from "../shared/session/session-runtime.js";
-import { AcpSessionMap } from "./session-map.js";
+import { AcpSessionMap, normalizeAcpSessionIdForLoad } from "./session-map.js";
 import { mapRuntimeEventToAcpSessionNotification } from "./event-mapper.js";
 import { createAcpInteractionAdapter } from "./interaction-mapper.js";
 
@@ -316,16 +316,23 @@ export function createRunWieldAcpServer(options = {}) {
         const record = sessionMap.createRecord(hostedSession);
         return {
             sessionId: record.acpSessionId,
-            _meta: { runwield: { hostedSessionId: hostedSession.id, cwd: hostedSession.cwd } },
+            _meta: {
+                runwield: {
+                    hostedSessionId: hostedSession.id,
+                    persistedSessionId: hostedSession.id,
+                    cwd: hostedSession.cwd,
+                },
+            },
         };
     });
 
     app.onRequest(methods.agent.session.load, async (context) => {
         const request = validateLoadSessionParams(context.params);
+        const persistedSessionId = normalizeAcpSessionIdForLoad(request.sessionId);
         try {
             const result = await runtime.loadSession({
                 cwd: request.cwd,
-                sessionId: request.sessionId,
+                sessionId: persistedSessionId,
                 sessionPath: request.sessionPath,
             });
             const record = sessionMap.createRecord(result.hostedSession, {
