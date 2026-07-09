@@ -19,7 +19,7 @@ devServerCommand: "deno task workspace:dev:plan-review"
 devServerUrl: "http://localhost:5173/"
 devServerHmr: true
 createdAt: "2026-07-07T18:01:43.370Z"
-updatedAt: "2026-07-08T17:22:46.761Z"
+updatedAt: "2026-07-09T00:08:24.350Z"
 status: "implemented"
 origin: "internal"
 parentPlan: "workspace-astro-react-plannotator-migration"
@@ -27,9 +27,12 @@ order: 3
 dependencies:
     - "01-astro-react-workspace-platform-and-review-dev-entrypoints"
     - "02-core-workspace-astro-react-parity-and-fresh-retirement"
-implementedAt: "2026-07-08T17:22:46.761Z"
+failureReason: "Semantic validation did not approve after 3 cycles."
+worktreeId: "fcde4e03"
+worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-harns--/harns-runwield-workspace-astro-react-plannotator-migration-03-w-fcde4e03"
+worktreeBranch: "runwield/worktree/workspace-astro-react-plannotator-migration-03-w-fcde4e03"
 worktreeBaseBranch: "workspace-astro-react-plannotator-migration"
-worktreeStatus: "completed"
+worktreeStatus: "validation_failed"
 ---
 
 # Workspace Hosted Plan and Code Review Surfaces
