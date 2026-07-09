@@ -26,11 +26,12 @@ import {
     lifecycleActionLabel,
 } from "./islands/PlanLifecycleActions.jsx";
 import { renderRunWieldThemeCss } from "../design-system/theme-bridge.js";
-import { createWorkspaceApp, hasWorkspaceToken } from "./server.js";
+import { createReviewWorkspaceApp, createWorkspaceApp, hasWorkspaceToken } from "./server.js";
 import { COLLABORATION_STATE_REMOTE_CANONICAL } from "../../shared/collaboration/lock.js";
 import { hashCapability } from "../../shared/collaboration/capabilities.js";
 import { openRemoteDatabase } from "./server/remote-db.js";
 import { createRemoteWorkspaceAdapter } from "./server/remote-adapter.js";
+import { registerReviewDecisionPromise, unregisterReviewDecision } from "./routes/api/review-handlers.js";
 
 /**
  * @param {string} cwd
@@ -61,6 +62,65 @@ Deno.test("workspace static assets bypass token checks for tokenized pages", asy
         const response = await app(new Request(`http://localhost${path}`));
         assertEquals(response.status, 200);
     }
+});
+
+Deno.test("review API accepts review token header before workspace app token gate", async () => {
+    const token = "review-secret";
+    const { promise } = registerReviewDecisionPromise(token);
+    try {
+        const app = createReviewWorkspaceApp({
+            cwd: Deno.cwd(),
+            token,
+            reviewPayload: {},
+            reviewType: "code",
+        }).handler();
+
+        const response = await app(
+            new Request("http://localhost/api/review/feedback", {
+                method: "POST",
+                headers: {
+                    "content-type": "application/json",
+                    "x-runwield-review-token": token,
+                },
+                body: JSON.stringify({ approved: false, feedback: "fix annotations" }),
+            }),
+        );
+
+        assertEquals(response.status, 200);
+        assertEquals(await promise, {
+            approved: false,
+            feedback: "fix annotations",
+            annotations: [],
+            agentSwitch: undefined,
+        });
+    } finally {
+        unregisterReviewDecision(token);
+    }
+});
+
+Deno.test("review API returns 401 for invalid token and 404 for expired matching token", async () => {
+    const app = createReviewWorkspaceApp({
+        cwd: Deno.cwd(),
+        token: "expected-review-token",
+        reviewPayload: {},
+        reviewType: "plan",
+    }).handler();
+
+    const invalidResponse = await app(
+        new Request("http://localhost/api/review/decision", {
+            method: "POST",
+            headers: { "x-runwield-review-token": "wrong-review-token" },
+        }),
+    );
+    assertEquals(invalidResponse.status, 401);
+
+    const expiredResponse = await app(
+        new Request("http://localhost/api/review/decision", {
+            method: "POST",
+            headers: { "x-runwield-review-token": "expected-review-token" },
+        }),
+    );
+    assertEquals(expiredResponse.status, 404);
 });
 
 Deno.test("serializePlanSummary omits absolute paths and surfaces hierarchy/dependency metadata", () => {

@@ -18,6 +18,14 @@ import {
     workspaceApi,
 } from "./routes/api/handlers.js";
 import { registerRemoteApiRoutes } from "./routes/remote-api.js";
+import {
+    registerReviewDecisionPromise,
+    resolveReviewDecision,
+    reviewDecisionApi,
+    reviewDenyApi,
+    reviewExitApi,
+    reviewFeedbackApi,
+} from "./routes/api/review-handlers.js";
 import { createRemoteWorkspaceAdapter } from "./server/remote-adapter.js";
 import { loadRunWieldThemeCss } from "../design-system/theme-bridge.js";
 
@@ -35,6 +43,7 @@ const ASTRO_CLIENT_ASSET_DIR = join(ASTRO_DIST_DIR, "client", "_astro");
 const WORKSPACE_CWD_HEADER = "x-runwield-workspace-cwd";
 
 /** @typedef {{ handler: () => (request: Request) => Promise<Response> }} WorkspaceApp */
+const REVIEW_PAYLOAD_HEADER = "x-runwield-review-payload";
 
 /**
  * @param {Request} request
@@ -98,6 +107,33 @@ function createLocalWorkspaceApp({ cwd, token, skipTokenCheck = false }) {
     };
 }
 
+/**
+ * @param {{ cwd: string, token: string, reviewPayload: Record<string, unknown>, reviewType: "plan" | "code" }} options
+ */
+export function createReviewWorkspaceApp({ cwd, token, reviewPayload, reviewType }) {
+    return {
+        handler() {
+            /** @param {Request} request */
+            return async (request) => {
+                const url = new URL(request.url);
+                if (isPublicWorkspaceAsset(url.pathname)) return await handleStaticRoute(url.pathname);
+                if (url.pathname.startsWith("/api/review/") || isLegacyReviewApiPath(url.pathname)) {
+                    return await handleReviewApiRequest(request, { cwd, reviewToken: token }, url.pathname);
+                }
+                if (!hasWorkspaceToken(request, token)) return new Response("Review token required.", { status: 401 });
+                const expectedPath = reviewType === "plan" ? "/review/plan" : "/review/code";
+                if (url.pathname === expectedPath) {
+                    const payload = { ...reviewPayload, token, mode: "workflow" };
+                    const astroResponse = await renderAstroReviewPage(request, cwd, payload);
+                    if (astroResponse) return astroResponse;
+                    return workspaceBuildUnavailable();
+                }
+                return new Response("Not found", { status: 404 });
+            };
+        },
+    };
+}
+
 /** @param {Request} request @param {{ cwd: string }} state */
 async function handleLocalWorkspaceRequest(request, state) {
     const url = new URL(request.url);
@@ -144,6 +180,23 @@ async function handleLocalApiRequest(request, state, pathname) {
     return null;
 }
 
+/** @param {Request} request @param {{ cwd: string }} state @param {string} pathname */
+async function handleReviewApiRequest(request, state, pathname) {
+    if (request.method === "POST" && (pathname === "/api/review/decision" || pathname === "/api/decision")) {
+        return await reviewDecisionApi(ctx(request, state));
+    }
+    if (request.method === "POST" && (pathname === "/api/review/deny" || pathname === "/api/deny")) {
+        return await reviewDenyApi(ctx(request, state));
+    }
+    if (request.method === "POST" && (pathname === "/api/review/feedback" || pathname === "/api/feedback")) {
+        return await reviewFeedbackApi(ctx(request, state));
+    }
+    if (request.method === "POST" && (pathname === "/api/review/exit" || pathname === "/api/exit")) {
+        return await reviewExitApi(ctx(request, state));
+    }
+    return jsonNotFound();
+}
+
 /** @param {Request} req @param {{ cwd: string }} state @param {Record<string, string>} [params] */
 function ctx(req, state, params = {}) {
     return { req, request: req, url: new URL(req.url), state, params };
@@ -165,6 +218,25 @@ async function renderAstroPage(request, cwd) {
     if (!handle) return null;
     const response = await handle(withWorkspaceCwdHeader(request, cwd));
     return response.status === 404 ? null : response;
+}
+
+/** @param {Request} request @param {string} cwd @param {Record<string, unknown>} payload */
+async function renderAstroReviewPage(request, cwd, payload) {
+    const handle = await loadAstroHandle();
+    if (!handle) return null;
+    const headers = new Headers(request.headers);
+    headers.set(WORKSPACE_CWD_HEADER, cwd);
+    headers.set(REVIEW_PAYLOAD_HEADER, JSON.stringify(payload));
+    const response = await handle(new Request(request, { headers }));
+    return response.status === 404 ? null : response;
+}
+
+/** @param {string} pathname */
+function isLegacyReviewApiPath(pathname) {
+    return pathname === "/api/decision" ||
+        pathname === "/api/deny" ||
+        pathname === "/api/feedback" ||
+        pathname === "/api/exit";
 }
 
 function workspaceBuildUnavailable() {
@@ -344,4 +416,47 @@ export function startWorkspaceServer(options) {
         signal: options.signal,
         automaticCompression: true,
     }, app.handler());
+}
+
+/**
+ * @param {{ cwd?: string, token: string, reviewPayload: Record<string, unknown>, reviewType: "plan" | "code", host?: string, port?: number, signal?: AbortSignal }} options
+ */
+export function startReviewWorkspaceServer(options) {
+    const cwd = options.cwd ?? Deno.cwd();
+    const host = options.host ?? "127.0.0.1";
+    const controller = new AbortController();
+    const onAbort = () => controller.abort();
+    options.signal?.addEventListener("abort", onAbort, { once: true });
+    const { promise } = registerReviewDecisionPromise(options.token);
+    const app = createReviewWorkspaceApp({
+        cwd,
+        token: options.token,
+        reviewPayload: options.reviewPayload,
+        reviewType: options.reviewType,
+    });
+    const server = Deno.serve({
+        hostname: host,
+        port: options.port ?? 0,
+        signal: controller.signal,
+        automaticCompression: true,
+        onListen() {},
+    }, app.handler());
+    const port = server.addr.port;
+    const url = `http://${host}:${port}`;
+    return {
+        url,
+        waitForDecision: () => promise,
+        stop: () => {
+            options.signal?.removeEventListener("abort", onAbort);
+            const canceledDecision = options.reviewType === "plan"
+                ? { approved: false, feedback: "", exit: true, canceled: true }
+                : { approved: false, feedback: "", annotations: [], exit: true, canceled: true };
+            resolveReviewDecision(options.token, canceledDecision);
+            try {
+                controller.abort();
+            } catch {
+                // Deno can throw BadResource while aborting a server after a completed response.
+            }
+        },
+    };
 }

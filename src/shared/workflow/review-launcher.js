@@ -3,6 +3,8 @@
  * Adapter seam for human Plan and code review browser surfaces.
  */
 
+import { startReviewWorkspaceServer } from "../../ui/workspace/server.js";
+
 const PLANNOTATOR_SERVER_MODULE = "@gandazgul/plannotator-pi-extension-compiled/server";
 const PLANNOTATOR_ASSETS_MODULE = "@gandazgul/plannotator-pi-extension-compiled/assets";
 
@@ -44,18 +46,6 @@ export async function openInDefaultBrowser(url) {
 }
 
 /**
- * @returns {Promise<{ startPlanReviewServer: (options: object) => Promise<any>, startReviewServer: (options: object) => Promise<any> }>}
- */
-async function loadPlannotatorServerModule() {
-    const serverModule = PLANNOTATOR_SERVER_MODULE;
-    const server = await import(serverModule);
-    return {
-        startPlanReviewServer: server.startPlanReviewServer,
-        startReviewServer: server.startReviewServer,
-    };
-}
-
-/**
  * @returns {Promise<string>}
  */
 async function loadPlanReviewHtml() {
@@ -70,6 +60,56 @@ async function loadPlanReviewHtml() {
 export async function loadReviewEditorHtml() {
     const resolvedServerUrl = import.meta.resolve(PLANNOTATOR_SERVER_MODULE);
     return await Deno.readTextFile(new URL("../review-editor.html", resolvedServerUrl));
+}
+
+/**
+ * @param {string} cwd
+ * @returns {Promise<{ stagedFiles: string[], unstagedFiles: string[], untrackedFiles: string[] }>}
+ */
+async function loadCodeReviewStatus(cwd) {
+    const empty = { stagedFiles: [], unstagedFiles: [], untrackedFiles: [] };
+    try {
+        const output = await new Deno.Command("git", {
+            args: ["status", "--porcelain=v1", "-z"],
+            cwd,
+            stdout: "piped",
+            stderr: "null",
+        }).output();
+        if (!output.success) return empty;
+        return parseGitPorcelainStatus(new TextDecoder().decode(output.stdout));
+    } catch {
+        return empty;
+    }
+}
+
+/**
+ * @param {string} text
+ * @returns {{ stagedFiles: string[], unstagedFiles: string[], untrackedFiles: string[] }}
+ */
+function parseGitPorcelainStatus(text) {
+    const stagedFiles = new Set();
+    const unstagedFiles = new Set();
+    const untrackedFiles = new Set();
+    const parts = text.split("\0").filter(Boolean);
+    for (let index = 0; index < parts.length; index += 1) {
+        const entry = parts[index];
+        if (entry.length < 4) continue;
+        const x = entry[0];
+        const y = entry[1];
+        const path = entry.slice(3);
+        if (x === "?" && y === "?") {
+            untrackedFiles.add(path);
+            continue;
+        }
+        if (x === "R" || x === "C") index += 1;
+        if (x !== " " && x !== "?") stagedFiles.add(path);
+        if (y !== " " && y !== "?") unstagedFiles.add(path);
+    }
+    return {
+        stagedFiles: [...stagedFiles],
+        unstagedFiles: [...unstagedFiles],
+        untrackedFiles: [...untrackedFiles],
+    };
 }
 
 /**
@@ -89,12 +129,34 @@ export async function loadReviewEditorHtml() {
  */
 
 /**
- * Start the current Plan Review surface. This adapter intentionally keeps the
- * compiled Plannotator bridge as the default while Workspace-hosted review
- * routes are developed behind the same interface.
+ * @param {{ plan: string, planPath?: string, token?: string, openInDefaultBrowser?: typeof openInDefaultBrowser }} opts
+ * @returns {Promise<PlanReviewSurface>}
+ */
+async function startWorkspaceHostedPlanReview({
+    plan,
+    planPath,
+    token = crypto.randomUUID(),
+    openInDefaultBrowser: openInDefaultBrowserImpl = openInDefaultBrowser,
+}) {
+    const server = startReviewWorkspaceServer({
+        cwd: Deno.cwd(),
+        token,
+        reviewPayload: { plan, planPath },
+        reviewType: "plan",
+    });
+    const url = `${server.url}/review/plan?token=${encodeURIComponent(token)}`;
+    const opened = await openInDefaultBrowserImpl(url);
+    return { ...server, url, opened };
+}
+
+/**
+ * Start the current Plan Review surface. Workspace-hosted review routes are the
+ * default, while the compiled Plannotator server remains injectable for tests
+ * and fallback verification.
  *
  * @param {Object} opts
  * @param {string} opts.plan
+ * @param {string} [opts.planPath]
  * @param {string} [opts.htmlContent]
  * @param {(options: object) => Promise<any>} [opts.startPlanReviewServer]
  * @param {typeof openInDefaultBrowser} [opts.openInDefaultBrowser]
@@ -102,15 +164,17 @@ export async function loadReviewEditorHtml() {
  */
 export async function startPlanReviewSurface({
     plan,
+    planPath,
     htmlContent,
     startPlanReviewServer,
     openInDefaultBrowser: openInDefaultBrowserImpl = openInDefaultBrowser,
 }) {
-    const serverModule = startPlanReviewServer ? null : await loadPlannotatorServerModule();
-    const startPlanReviewServerImpl = startPlanReviewServer || serverModule?.startPlanReviewServer;
-    if (!startPlanReviewServerImpl) throw new Error("startPlanReviewSurface: Plannotator server failed to load");
-    const server = await startPlanReviewServerImpl({
+    if (!startPlanReviewServer) {
+        return await startWorkspaceHostedPlanReview({ plan, planPath, openInDefaultBrowser: openInDefaultBrowserImpl });
+    }
+    const server = await startPlanReviewServer({
         plan,
+        planPath,
         htmlContent: htmlContent || await loadPlanReviewHtml(),
         origin: "runwield",
     });
@@ -119,9 +183,33 @@ export async function startPlanReviewSurface({
 }
 
 /**
- * Start the current code review surface. This adapter intentionally keeps the
- * compiled Plannotator bridge as the default while Workspace-hosted review
- * routes are developed behind the same interface.
+ * @param {{ rawPatch: string, gitRef: string, agentCwd: string, token?: string, openInDefaultBrowser?: typeof openInDefaultBrowser }} opts
+ * @returns {Promise<CodeReviewSurface>}
+ */
+async function startWorkspaceHostedCodeReview({
+    rawPatch,
+    gitRef,
+    agentCwd,
+    token = crypto.randomUUID(),
+    openInDefaultBrowser: openInDefaultBrowserImpl = openInDefaultBrowser,
+}) {
+    const cwd = agentCwd || Deno.cwd();
+    const reviewStatus = await loadCodeReviewStatus(cwd);
+    const server = startReviewWorkspaceServer({
+        cwd,
+        token,
+        reviewPayload: { rawPatch, gitRef, agentCwd: cwd, reviewStatus },
+        reviewType: "code",
+    });
+    const url = `${server.url}/review/code?token=${encodeURIComponent(token)}`;
+    const opened = await openInDefaultBrowserImpl(url);
+    return { ...server, url, opened };
+}
+
+/**
+ * Start the current code review surface. Workspace-hosted review routes are the
+ * default, while the compiled Plannotator server remains injectable for tests
+ * and fallback verification.
  *
  * @param {Object} opts
  * @param {string} opts.rawPatch
@@ -142,11 +230,16 @@ export async function startCodeReviewSurface({
     loadReviewEditorHtml: loadReviewEditorHtmlImpl = loadReviewEditorHtml,
     openInDefaultBrowser: openInDefaultBrowserImpl = openInDefaultBrowser,
 }) {
-    const serverModule = startReviewServer ? null : await loadPlannotatorServerModule();
-    const startReviewServerImpl = startReviewServer || serverModule?.startReviewServer;
-    if (!startReviewServerImpl) throw new Error("startCodeReviewSurface: Plannotator server failed to load");
+    if (!startReviewServer) {
+        return await startWorkspaceHostedCodeReview({
+            rawPatch,
+            gitRef,
+            agentCwd,
+            openInDefaultBrowser: openInDefaultBrowserImpl,
+        });
+    }
     const resolvedHtmlContent = htmlContent || await loadReviewEditorHtmlImpl();
-    const server = await startReviewServerImpl({
+    const server = await startReviewServer({
         rawPatch,
         gitRef,
         htmlContent: resolvedHtmlContent,
