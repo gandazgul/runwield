@@ -3,10 +3,10 @@ import { createUserInterviewTool } from "../user-interview.js";
 import { HostedSession } from "../../shared/session/hosted-session.js";
 
 /**
- * @param {Partial<import('../../ui/tui/types.js').UiAPI>} overrides
+ * @param {Partial<import('../../shared/types.js').SessionUiPort>} overrides
  */
 function makeUi(overrides) {
-    return /** @type {import('../../ui/tui/types.js').UiAPI} */ ({
+    return /** @type {import('../../shared/types.js').SessionUiPort} */ ({
         appendSystemMessage: () => {},
         appendAgentMessageStart: () => ({ appendText: () => {} }),
         requestRender: () => {},

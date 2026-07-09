@@ -18,6 +18,14 @@ export const RuntimeEventTypes = Object.freeze({
     SYSTEM_STATUS: "system_status",
     TURN_START: "turn_start",
     TURN_END: "turn_end",
+    BUSY_CHANGED: "busy_changed",
+    AGENT_CHANGED: "agent_changed",
+    MODEL_CHANGED: "model_changed",
+    THINKING_LEVEL_CHANGED: "thinking_level_changed",
+    SESSION_RENAMED: "session_renamed",
+    INPUT_STATE_CHANGED: "input_state_changed",
+    RUNNING_TASKS_CHANGED: "running_tasks_changed",
+    MESSAGES_CLEARED: "messages_cleared",
     USAGE: "usage",
     CANCELLATION: "cancellation",
     TERMINAL_ERROR: "terminal_error",
@@ -25,6 +33,7 @@ export const RuntimeEventTypes = Object.freeze({
     INTERACTION_RESOLVED: "interaction_resolved",
     INTERACTION_CANCELED: "interaction_canceled",
     PLAN_REVIEW_LINK: "plan_review_link",
+    ATTENTION_REQUESTED: "attention_requested",
 });
 
 /**
@@ -77,6 +86,30 @@ export const RuntimeEventTypes = Object.freeze({
  */
 
 /**
+ * @typedef {RuntimeEventBase & { type: "busy_changed", busy: boolean }} RuntimeBusyChangedEvent
+ */
+
+/**
+ * @typedef {RuntimeEventBase & { type: "agent_changed", agentName: string, model?: string }} RuntimeAgentChangedEvent
+ */
+
+/**
+ * @typedef {RuntimeEventBase & { type: "model_changed", model: string, provider?: string }} RuntimeModelChangedEvent
+ */
+
+/**
+ * @typedef {RuntimeEventBase & { type: "thinking_level_changed", thinkingLevel: string }} RuntimeThinkingLevelChangedEvent
+ */
+
+/**
+ * @typedef {RuntimeEventBase & { type: "session_renamed", name: string }} RuntimeSessionRenamedEvent
+ */
+
+/**
+ * @typedef {RuntimeEventBase & { type: "input_state_changed", enabled: boolean } | RuntimeEventBase & { type: "running_tasks_changed", tasks: Array<{ task: number, assignee: string, description: string }> } | RuntimeEventBase & { type: "messages_cleared" }} RuntimePresentationStateEvent
+ */
+
+/**
  * @typedef {RuntimeEventBase & { type: "usage", used?: number, size?: number, cost?: unknown, raw?: unknown }} RuntimeUsageEvent
  */
 
@@ -97,7 +130,11 @@ export const RuntimeEventTypes = Object.freeze({
  */
 
 /**
- * @typedef {RuntimeSessionLifecycleEvent | RuntimeReplayEvent | RuntimeUserMessageEvent | RuntimeAssistantDeltaEvent | RuntimeAssistantThinkingEndEvent | RuntimeToolStartEvent | RuntimeToolUpdateEvent | RuntimeToolEndEvent | RuntimeSystemStatusEvent | RuntimeTurnEvent | RuntimeUsageEvent | RuntimeCancellationEvent | RuntimeTerminalErrorEvent | RuntimeInteractionLifecycleEvent | RuntimePlanReviewLinkEvent} SessionRuntimeEvent
+ * @typedef {RuntimeEventBase & { type: "attention_requested", reason: "agentStopped" | "planWritten" | "userInterview", agentName?: string }} RuntimeAttentionRequestedEvent
+ */
+
+/**
+ * @typedef {RuntimeSessionLifecycleEvent | RuntimeReplayEvent | RuntimeUserMessageEvent | RuntimeAssistantDeltaEvent | RuntimeAssistantThinkingEndEvent | RuntimeToolStartEvent | RuntimeToolUpdateEvent | RuntimeToolEndEvent | RuntimeSystemStatusEvent | RuntimeTurnEvent | RuntimeBusyChangedEvent | RuntimeAgentChangedEvent | RuntimeModelChangedEvent | RuntimeThinkingLevelChangedEvent | RuntimeSessionRenamedEvent | RuntimePresentationStateEvent | RuntimeUsageEvent | RuntimeCancellationEvent | RuntimeTerminalErrorEvent | RuntimeInteractionLifecycleEvent | RuntimePlanReviewLinkEvent | RuntimeAttentionRequestedEvent} SessionRuntimeEvent
  */
 
 /**
@@ -111,6 +148,32 @@ export function createSessionRuntimeEvent(sessionId, event) {
         sessionId,
         timestamp: typeof event.timestamp === "string" ? event.timestamp : new Date().toISOString(),
     });
+}
+
+/**
+ * Publish a partial semantic event through a Hosted Session's installed sink.
+ * Adapters own sink failures and cannot interrupt engine execution.
+ *
+ * @param {import('./hosted-session.js').HostedSession | undefined} hostedSession
+ * @param {Partial<SessionRuntimeEvent> & { type: string }} event
+ * @returns {boolean}
+ */
+export function emitHostedSessionRuntimeEvent(hostedSession, event) {
+    const sink = hostedSession?.getEventSink?.();
+    if (!sink) return false;
+    try {
+        if (typeof sink === "function") {
+            sink(event);
+            return true;
+        }
+        if (typeof sink === "object" && "emit" in sink && typeof sink.emit === "function") {
+            sink.emit(event);
+            return true;
+        }
+    } catch {
+        // Adapter event sinks must not break core execution.
+    }
+    return false;
 }
 
 /**

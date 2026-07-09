@@ -27,15 +27,16 @@ const RUNWEILD_CUSTOM_SETTING_KEYS = [
  * Get the settings directory path for a given scope.
  *
  * @param {string} scope
+ * @param {string} [projectRoot]
  *
  * @returns {string}
  */
-export function getSettingsDir(scope) {
+export function getSettingsDir(scope, projectRoot = Deno.cwd()) {
     const homeDir = Deno.env.get("HOME") || "";
     if (scope === "global") {
         return join(homeDir, ".wld");
     }
-    return join(Deno.cwd(), ".wld");
+    return join(projectRoot, ".wld");
 }
 
 /**
@@ -87,13 +88,18 @@ export function migratePiSettingsOnce(options = {}) {
 }
 
 class RunWieldSettingsStorage {
+    /** @param {string} [projectRoot] */
+    constructor(projectRoot = Deno.cwd()) {
+        this.projectRoot = projectRoot;
+    }
+
     /**
      * Resolves the path for a given scope.
      * @param {"global" | "project"} scope
      * @returns {string}
      */
     #resolvePath(scope) {
-        return getSettingsDir(scope) + "/settings.json";
+        return getSettingsDir(scope, this.projectRoot) + "/settings.json";
     }
 
     /**
@@ -200,28 +206,43 @@ class RunWieldSettingsStorage {
 /** @type {RunWieldSettingsStorage | null} */
 let storageInstance = null;
 
-/** @type {SettingsManager | null} */
-let settingsManager = null;
+/** @type {Map<string, RunWieldSettingsStorage>} */
+const projectStorageInstances = new Map();
+
+/** @type {Map<string, SettingsManager>} */
+const projectSettingsManagers = new Map();
 
 /**
- * Initializes the settings manager with the current working directory.
+ * Initializes a settings manager for the requested project root.
+ *
+ * @param {string} [projectRoot]
  */
-export function initSettings() {
-    if (!settingsManager) {
-        storageInstance = new RunWieldSettingsStorage();
-        settingsManager = SettingsManager.fromStorage(storageInstance);
+export function initSettings(projectRoot = Deno.cwd()) {
+    if (!projectSettingsManagers.has(projectRoot)) {
+        const storage = new RunWieldSettingsStorage(projectRoot);
+        projectStorageInstances.set(projectRoot, storage);
+        projectSettingsManagers.set(projectRoot, SettingsManager.fromStorage(storage));
     }
+    storageInstance = /** @type {RunWieldSettingsStorage} */ (projectStorageInstances.get(projectRoot));
 }
 
 /**
  * Provides the SettingsManager singleton.
+ * @param {string} [projectRoot]
  * @returns {SettingsManager}
  */
-export function getSettingsManager() {
-    if (!settingsManager) {
-        initSettings();
-    }
-    return /** @type {SettingsManager} */ (settingsManager);
+export function getSettingsManager(projectRoot = Deno.cwd()) {
+    if (!projectSettingsManagers.has(projectRoot)) initSettings(projectRoot);
+    return /** @type {SettingsManager} */ (projectSettingsManagers.get(projectRoot));
+}
+
+/**
+ * @param {string} projectRoot
+ * @returns {RunWieldSettingsStorage}
+ */
+function getSettingsStorage(projectRoot) {
+    if (!projectStorageInstances.has(projectRoot)) initSettings(projectRoot);
+    return /** @type {RunWieldSettingsStorage} */ (projectStorageInstances.get(projectRoot));
 }
 
 /**
@@ -230,7 +251,8 @@ export function getSettingsManager() {
  */
 export function __resetSettingsForTests() {
     storageInstance = null;
-    settingsManager = null;
+    projectStorageInstances.clear();
+    projectSettingsManagers.clear();
 }
 
 /**
@@ -294,14 +316,14 @@ export function preserveRunWieldCustomSettingsForWrite(previousContent, nextCont
  * Content is parsed as JSONC (comments/trailing commas tolerated).
  * @param {string} key
  * @param {"global" | "project"} scope
+ * @param {string} [projectRoot]
  * @returns {any}
  */
-export function getCustomSetting(key, scope = "project") {
-    if (!storageInstance) initSettings();
+export function getCustomSetting(key, scope = "project", projectRoot = Deno.cwd()) {
+    const storage = getSettingsStorage(projectRoot);
     let result = undefined;
 
-    // @ts-ignore storageInstance is definitely assigned here
-    storageInstance.withLock(scope, (content) => {
+    storage.withLock(scope, (content) => {
         if (content) {
             try {
                 const parsed = /** @type {Record<string, any>} */ (parseJsonc(content));
@@ -324,12 +346,12 @@ export function getCustomSetting(key, scope = "project") {
  * @param {string} key
  * @param {any} value
  * @param {"global" | "project"} scope
+ * @param {string} [projectRoot]
  */
-export async function setCustomSetting(key, value, scope = "project") {
-    if (!storageInstance) initSettings();
+export async function setCustomSetting(key, value, scope = "project", projectRoot = Deno.cwd()) {
+    const storage = getSettingsStorage(projectRoot);
 
-    // @ts-ignore storageInstance is definitely assigned here
-    storageInstance.withLock(scope, (content) => {
+    storage.withLock(scope, (content) => {
         let parsed = /** @type {Record<string, any>} */ ({});
         if (content) {
             try {
@@ -343,7 +365,7 @@ export async function setCustomSetting(key, value, scope = "project") {
 
     // Force Pi's manager to reload from disk so it doesn't accidentally
     // overwrite our custom key during its next flush() operation.
-    await getSettingsManager().reload();
+    await getSettingsManager(projectRoot).reload();
 }
 
 /**
@@ -414,13 +436,12 @@ export async function setCompactionKeepRecentTokens(value) {
  * For scalar keys, project value wins if present.
  *
  * @param {string} key
+ * @param {string} [projectRoot]
  * @returns {any} Merged value from global + project scopes, or undefined if neither has it.
  */
-export function getMergedCustomSetting(key) {
-    if (!storageInstance) initSettings();
-
-    const globalVal = getCustomSetting(key, "global");
-    const projectVal = getCustomSetting(key, "project");
+export function getMergedCustomSetting(key, projectRoot = Deno.cwd()) {
+    const globalVal = getCustomSetting(key, "global", projectRoot);
+    const projectVal = getCustomSetting(key, "project", projectRoot);
 
     if (globalVal === undefined && projectVal === undefined) return undefined;
     if (globalVal === undefined) return projectVal;

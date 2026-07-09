@@ -30,8 +30,15 @@ async function runQuitCommand(_argv, options = {}) {
     editor.setText("");
     tui.requestRender();
     setTimeout(() => {
-        stopTUI();
-        setTimeout(() => exit(0), 100);
+        void (async () => {
+            if (options.sessionRuntime?.closeAllSessionsWhenIdle) {
+                await options.sessionRuntime.closeAllSessionsWhenIdle();
+            } else {
+                options.sessionRuntime?.closeAllSessions();
+            }
+            stopTUI();
+            setTimeout(() => exit(0), 100);
+        })();
     }, 50);
 
     await Promise.resolve();

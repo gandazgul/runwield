@@ -23,13 +23,14 @@
  * iterates without rebuilding LLM context.
  */
 
-import { AGENTS, CWD, ROUTING_INTENTS } from "../../constants.js";
+import { AGENTS, ROUTING_INTENTS } from "../../constants.js";
 import { ensurePlansDir, loadPlan } from "../../plan-store.js";
 import { hasNonGitExecutionConsent, probeGitRepository, rememberNonGitExecutionConsent } from "../git.js";
 import { applyPendingRootSwap, setActiveAgent } from "../session/agent-switching.js";
 import { runRootTurn } from "../session/session.js";
 import { getAgentDisplayName } from "../session/agents.js";
-import { sanitizeSessionName, setTerminalTitleForName } from "../../ui/tui/terminal-title.js";
+import { sanitizeSessionName } from "../session/session-name.js";
+import { RuntimeEventTypes } from "../session/session-runtime-events.js";
 import { decidePostExecution, decidePostPlanning, summarizeWorkflowDecision } from "./decisions.js";
 import { recordWorkflowMetric } from "./metrics.js";
 import { executePlan, readLatestTaskCompletedOutcome, runPlanningAgent } from "./workflow.js";
@@ -51,9 +52,10 @@ const PLAN_ROUTING_INTENTS = ["FEATURE", "PROJECT"];
 
 /**
  * @param {import('./workflow.js').UiAPI} uiAPI
+ * @param {string} projectRoot
  * @returns {Promise<boolean>}
  */
-async function confirmNonGitQuickFixExecution(uiAPI) {
+async function confirmNonGitQuickFixExecution(uiAPI, projectRoot) {
     if (!uiAPI.promptSelect) return false;
     const answer = await uiAPI.promptSelect(
         "Git is not available for this project. RunWield recommends using Git before QUICK_FIX edits so changes can be reviewed and recovered with normal Git tools. Proceeding will modify the current files directly.",
@@ -63,7 +65,7 @@ async function confirmNonGitQuickFixExecution(uiAPI) {
         ],
     );
     if (answer !== "proceed") return false;
-    await rememberNonGitExecutionConsent("quickFix");
+    await rememberNonGitExecutionConsent("quickFix", projectRoot);
     return true;
 }
 
@@ -159,14 +161,19 @@ function buildTriageBlock(triage) {
  *
  * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined} sessionManager
  * @param {TriageOutcome} triage
- * @param {(name: string) => string} setTitle
+ * @param {import('../session/hosted-session.js').HostedSession} hostedSession
+ * @param {((name: string) => string) | undefined} [setTitle]
  */
-function applyAutoSessionName(sessionManager, triage, setTitle) {
+function applyAutoSessionName(sessionManager, triage, hostedSession, setTitle) {
     if (!sessionManager) return;
+    const eventSink = /** @type {{ emit?: (event: Record<string, unknown>) => void } | null} */ (
+        hostedSession.getEventSink?.() || null
+    );
 
     const existingName = sanitizeSessionName(sessionManager.getSessionName?.() || "");
     if (existingName) {
-        setTitle(existingName);
+        setTitle?.(existingName);
+        eventSink?.emit?.({ type: RuntimeEventTypes.SESSION_RENAMED, name: existingName });
         return;
     }
 
@@ -174,7 +181,8 @@ function applyAutoSessionName(sessionManager, triage, setTitle) {
     if (!sessionName) return;
 
     sessionManager.appendSessionInfo?.(sessionName);
-    setTitle(sessionName);
+    setTitle?.(sessionName);
+    eventSink?.emit?.({ type: RuntimeEventTypes.SESSION_RENAMED, name: sessionName });
 }
 
 /**
@@ -202,7 +210,7 @@ function applyAutoSessionName(sessionManager, triage, setTitle) {
  *   runMechanicalValidation?: typeof runMechanicalValidation,
  *   runValidationLoop?: typeof runValidationLoop,
  *   setActiveAgent?: typeof setActiveAgent,
- *   setTerminalTitleForName?: typeof setTerminalTitleForName,
+ *   setTerminalTitleForName?: (name: string) => string,
  *   shouldRunWorkflowValidation?: typeof shouldRunWorkflowValidation,
  *   recordWorkflowMetric?: typeof recordWorkflowMetric,
  *   probeGitRepository?: typeof probeGitRepository,
@@ -217,6 +225,7 @@ export async function dispatchPostTriage(
     if (!hostedSession || typeof hostedSession.getRootAgentName !== "function") {
         throw new Error("dispatchPostTriage: hostedSession is required");
     }
+    const projectRoot = hostedSession.cwd;
 
     const normalizedTriage = normalizeTriageOutcome(triage);
     if (!normalizedTriage) throw new Error("dispatchPostTriage: routingIntent is required");
@@ -233,13 +242,13 @@ export async function dispatchPostTriage(
     const decidePostPlanningImpl = __deps?.decidePostPlanning || decidePostPlanning;
     const decidePostExecutionImpl = __deps?.decidePostExecution || decidePostExecution;
     const setActiveAgentImpl = __deps?.setActiveAgent || setActiveAgent;
-    const setTerminalTitleForNameImpl = __deps?.setTerminalTitleForName || setTerminalTitleForName;
+    const setTerminalTitleForNameImpl = __deps?.setTerminalTitleForName;
     const recordWorkflowMetricImpl = __deps?.recordWorkflowMetric || recordWorkflowMetric;
     const probeGit = __deps?.probeGitRepository || probeGitRepository;
     const hasConsent = __deps?.hasNonGitExecutionConsent || hasNonGitExecutionConsent;
     const confirmQuickFix = __deps?.confirmNonGitQuickFixExecution || confirmNonGitQuickFixExecution;
 
-    applyAutoSessionName(sessionManager, normalizedTriage, setTerminalTitleForNameImpl);
+    applyAutoSessionName(sessionManager, normalizedTriage, hostedSession, setTerminalTitleForNameImpl);
 
     const dispatchTarget = normalizedTriage.routingIntent === "INQUIRY"
         ? AGENTS.GUIDE
@@ -282,7 +291,7 @@ export async function dispatchPostTriage(
     }
 
     if (normalizedTriage.routingIntent === "OPERATION") {
-        const operatorDisplay = getAgentDisplayName(AGENTS.OPERATOR);
+        const operatorDisplay = getAgentDisplayName(AGENTS.OPERATOR, projectRoot);
         const runRootTurnImpl = __deps?.runRootTurn || runRootTurn;
         const readLatestTaskCompletedOutcomeImpl = __deps?.readLatestTaskCompletedOutcome ||
             readLatestTaskCompletedOutcome;
@@ -315,12 +324,15 @@ export async function dispatchPostTriage(
     }
 
     if (normalizedTriage.routingIntent === "QUICK_FIX") {
-        const engineerDisplay = getAgentDisplayName(AGENTS.ENGINEER);
+        const engineerDisplay = getAgentDisplayName(AGENTS.ENGINEER, projectRoot);
         const runRootTurnImpl = __deps?.runRootTurn || runRootTurn;
         const readLatestTaskCompletedOutcomeImpl = __deps?.readLatestTaskCompletedOutcome ||
             readLatestTaskCompletedOutcome;
-        const gitProbe = await probeGit(CWD);
-        if (!gitProbe.ok && !hasConsent("quickFix") && !(await confirmQuickFix(uiAPI))) {
+        const gitProbe = await probeGit(projectRoot);
+        if (
+            !gitProbe.ok && !hasConsent("quickFix", projectRoot) &&
+            !(await confirmQuickFix(uiAPI, projectRoot))
+        ) {
             uiAPI.appendSystemMessage(
                 "QUICK_FIX canceled because Git is not available and in-place edits were not approved.",
                 false,
@@ -389,7 +401,7 @@ export async function dispatchPostTriage(
         const loadPlanImpl = __deps?.loadPlan || loadPlan;
         const shouldRunWorkflowValidationImpl = __deps?.shouldRunWorkflowValidation || shouldRunWorkflowValidation;
 
-        await ensurePlansDirImpl(CWD);
+        await ensurePlansDirImpl(projectRoot);
 
         const outcome = await runPlanningAgentImpl({
             agentName,
@@ -499,7 +511,7 @@ export async function dispatchPostTriage(
             details: summarizeWorkflowDecision(executionDecision),
         });
         if (executionDecision.kind === "run_validation") {
-            const plan = await loadPlanImpl(CWD, planName);
+            const plan = await loadPlanImpl(projectRoot, planName);
             if (shouldRunWorkflowValidationImpl(decisionTriageMeta)) {
                 await runValidationLoopImpl({
                     hostedSession,

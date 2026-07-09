@@ -1,7 +1,7 @@
 import { assertEquals } from "@std/assert";
 import { Image } from "@earendil-works/pi-tui";
-import { __setClipboardDepsForTest } from "../clipboard.js";
-import { initRunWieldTheme } from "../../ui/theme/theme.js";
+import { __setClipboardDepsForTest } from "./clipboard.js";
+import { initRunWieldTheme } from "../theme/theme.js";
 import { installKeybindings } from "./keybindings.js";
 
 const RAW_KEY = {

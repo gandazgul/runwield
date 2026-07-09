@@ -94,6 +94,9 @@ by explicit request. _Avoid_: Superseded record, deleted record, draft record
 **External Work Record**: A Work Record imported or manually created for work performed outside RunWield or recovered
 after the original Plan was lost. _Avoid_: Draft record, ad hoc note, memory
 
+**Work Record Provenance**: Source evidence for a Work Record, including source Plans when available and stable
+file-level code evidence when constructed from existing code. _Avoid_: Line references, raw diff log, chat evidence
+
 **Front Matter**: YAML metadata at the top of a Plan containing classification, complexity, status, timestamps, and
 origin. _Avoid_: Metadata, header, YAML block
 
@@ -390,7 +393,12 @@ command definition, prompt command
   **Epic** container.
 - A **Verified Plan** may produce one **Work Record**.
 - A **Recorder** generates **Work Records** from verified planned work.
+- A **Work Record** has **Work Record Provenance**.
+- A user-requested QUICK_FIX **Work Record** is an **External Work Record** whose **Work Record Provenance** points to
+  code evidence rather than a source Plan.
 - A **Superseded Work Record** is replaced by a newer **Work Record** but is not necessarily archived.
+- Agent planning retrieval excludes **Superseded Work Records** by default, while human search may show them with a
+  prominent replacement notice.
 - An **Archived Work Record** is excluded from default Work Record search and planning retrieval.
 - A **Failed Plan** must have reached **Ready For Work** before work failed.
 - An **In-Progress Plan** requires recovery because execution may have partially changed the worktree.

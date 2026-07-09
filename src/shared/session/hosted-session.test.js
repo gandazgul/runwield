@@ -52,7 +52,7 @@ Deno.test("HostedSession stores mutable root runtime state per session", () => {
         executionCwd: "/exec/a",
     });
 
-    assertEquals(session.id, "alpha-manager");
+    assertEquals(session.id, "alpha");
     assertEquals(session.cwd, "/tmp/alpha-manager");
     assertStrictEquals(session.getRootSessionManager(), sessionManager);
     assertStrictEquals(session.getActiveUiAPIState(), uiAPI);
@@ -166,8 +166,8 @@ Deno.test("two Hosted Sessions do not share session-scoped runtime state", () =>
     assertEquals(beta.getProjectStateContext(), "beta context");
     assertEquals(alpha.getActiveExecutionCwd(), "/exec/alpha");
     assertEquals(beta.getActiveExecutionCwd(), "/exec/beta");
-    assertEquals(alpha.id, "alpha-manager");
-    assertEquals(beta.id, "beta-manager");
+    assertEquals(alpha.id, "alpha");
+    assertEquals(beta.id, "beta");
     assertEquals(alpha.cwd, "/tmp/alpha-manager");
     assertEquals(beta.cwd, "/tmp/beta-manager");
     assertEquals(alpha.getRootSessionManager()?.getSessionId?.(), "alpha-manager");
@@ -198,7 +198,7 @@ Deno.test("HostedSession dispose clears owned runtime references and rejects lat
     assertEquals(root.disposed, true);
     assertEquals(sub.disposed, true);
     assertEquals(sessionManager.disposed, true);
-    assertEquals(session.id, "disposing-manager");
+    assertEquals(session.id, "disposing");
     assertEquals(session.cwd, "/tmp/disposing-manager");
     assertEquals(session.getActiveAgentName(), "");
     assertEquals(session.getRootAgentName(), null);
@@ -211,6 +211,6 @@ Deno.test("HostedSession dispose clears owned runtime references and rejects lat
     assertThrows(
         () => session.setThinkingLevel("medium"),
         Error,
-        'HostedSession "disposing-manager" is disposed',
+        'HostedSession "disposing" is disposed',
     );
 });

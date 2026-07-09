@@ -179,10 +179,10 @@ export function sanitizeMetricDetails(details) {
 export async function recordWorkflowMetric(metric, deps = {}) {
     try {
         const setting = deps.settings !== undefined ? deps.settings : deps.getSetting ? deps.getSetting() : undefined;
-        const resolvedSetting = setting !== undefined ? setting : getMergedCustomSetting("workflowMetrics");
+        const cwd = deps.cwd || CWD;
+        const resolvedSetting = setting !== undefined ? setting : getMergedCustomSetting("workflowMetrics", cwd);
         if (!isWorkflowMetricsEnabled(resolvedSetting)) return null;
 
-        const cwd = deps.cwd || CWD;
         const filePath = getWorkflowMetricsFilePath(cwd, deps.homeDir);
         const now = deps.now || (() => new Date());
         /** @type {WorkflowMetricRecord} */
@@ -271,7 +271,7 @@ export function classifyToolSubUsage(toolName, args = undefined) {
  * @param {string} toolName
  * @param {unknown} args
  * @param {string} [agentName]
- * @param {{ recordWorkflowMetric?: typeof recordWorkflowMetric, now?: () => number }} [deps]
+ * @param {{ recordWorkflowMetric?: typeof recordWorkflowMetric, now?: () => number, cwd?: string }} [deps]
  */
 export function recordToolCallStarted(toolCallId, toolName, args, agentName, deps = {}) {
     const subUsage = classifyToolSubUsage(toolName, args);
@@ -281,7 +281,7 @@ export function recordToolCallStarted(toolCallId, toolName, args, agentName, dep
         event: "tool_call_started",
         agentName,
         details: { toolName, subUsage },
-    });
+    }, { cwd: deps.cwd });
 }
 
 /**
@@ -289,7 +289,7 @@ export function recordToolCallStarted(toolCallId, toolName, args, agentName, dep
  * @param {string} toolName
  * @param {boolean} isError
  * @param {string} [agentName]
- * @param {{ recordWorkflowMetric?: typeof recordWorkflowMetric, now?: () => number }} [deps]
+ * @param {{ recordWorkflowMetric?: typeof recordWorkflowMetric, now?: () => number, cwd?: string }} [deps]
  */
 export function recordToolCallFinished(toolCallId, toolName, isError, agentName, deps = {}) {
     const started = activeToolCalls.get(toolCallId);
@@ -305,5 +305,5 @@ export function recordToolCallFinished(toolCallId, toolName, isError, agentName,
             isError,
             durationMs: started ? now - started.startedAt : undefined,
         },
-    });
+    }, { cwd: deps.cwd });
 }

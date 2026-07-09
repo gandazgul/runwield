@@ -81,12 +81,13 @@ function textResult(text, details, terminate) {
  *
  * @param {TriageMeta | undefined} triageMeta
  * @param {string} planName
+ * @param {string} cwd
  * @returns {Promise<TriageMeta>}
  */
-async function resolveTriageMeta(triageMeta, planName) {
+async function resolveTriageMeta(triageMeta, planName, cwd) {
     if (triageMeta && triageMeta.classification) return triageMeta;
     try {
-        const plan = await loadPlan(CWD, planName);
+        const plan = await loadPlan(cwd, planName);
         if (plan?.attrs) {
             return /** @type {TriageMeta} */ ({ ...triageMeta, ...plan.attrs });
         }
@@ -129,7 +130,7 @@ export function createPlanWrittenTool(
 ) {
     if (!uiAPI) throw new Error("createPlanWrittenTool: uiAPI is required");
     const deps = __deps || {};
-    const cwd = deps.cwd ?? CWD;
+    const cwd = deps.cwd ?? hostedSession?.cwd ?? CWD;
     return defineTool({
         name: "plan_written",
         label: "Plan Written",
@@ -164,7 +165,7 @@ export function createPlanWrittenTool(
                 );
             }
 
-            const effectiveMeta = await resolveTriageMeta(triageMeta, planName);
+            const effectiveMeta = await resolveTriageMeta(triageMeta, planName, cwd);
 
             uiAPI.appendSystemMessage(`[RunWield] Plan declared: plans/${planName}.md`);
 
@@ -220,7 +221,11 @@ export function createPlanWrittenTool(
             const ensureSlicerTasks = deps.ensureSlicerTasks || workflow.ensureSlicerTasks;
             const runSlicerAgent = deps.runSlicerAgent || workflow.runSlicerAgent;
             const recordPlanEventFn = deps.recordPlanEvent || recordPlanEvent;
-            const recordWorkflowMetricFn = deps.recordWorkflowMetric || recordWorkflowMetric;
+            const recordWorkflowMetricSource = deps.recordWorkflowMetric || recordWorkflowMetric;
+            /** @param {Parameters<typeof recordWorkflowMetricSource>[0]} metric */
+            function recordWorkflowMetricFn(metric) {
+                return recordWorkflowMetricSource(metric, { cwd });
+            }
 
             const reviewResult = await submitPlanForReview({
                 cwd,

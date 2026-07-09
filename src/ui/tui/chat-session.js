@@ -1,5 +1,5 @@
 /**
- * @module shared/interactive/chat-session
+ * @module ui/tui/chat-session
  * High-level interactive loop for the TUI. This manages the long-running
  * user interaction — distinct from individual agent invocations (see session.js).
  */
@@ -14,8 +14,8 @@ import {
     truncateToWidth,
     visibleWidth,
 } from "@earendil-works/pi-tui";
-import { initTUI } from "../../ui/tui/tui.js";
-import { setTerminalTitleForSession } from "../../ui/tui/terminal-title.js";
+import { initTUI } from "./tui.js";
+import { setTerminalTitleForSession } from "./terminal-title.js";
 import {
     applyPersistedTheme,
     getEditorTheme,
@@ -23,19 +23,19 @@ import {
     initRunWieldTheme,
     onThemeChange,
     theme,
-} from "../../ui/theme/theme.js";
-import { VERSION } from "../version.js";
-import { endBlink, renderBootLogo } from "../../ui/tui/boot-logo.js";
-import { createUiApi } from "../../ui/tui/api.js";
-import { SpinnerBlock, SystemMessageBlock } from "../../ui/tui/blocks.js";
+} from "../theme/theme.js";
+import { VERSION } from "../../shared/version.js";
+import { endBlink, renderBootLogo } from "./boot-logo.js";
+import { createUiApi } from "./api.js";
+import { attachTuiRuntimeAdapter } from "./runtime-adapter.js";
+import { SpinnerBlock, SystemMessageBlock } from "./blocks.js";
 import {
-    abortActiveSession,
     ensureRootAgentSession,
     listPromptTemplates,
     listSkills,
     steerRootSessionWithTarget,
-} from "../session/session.js";
-import { ensureMnemosyneBinary } from "../runtime-preflight.js";
+} from "../../shared/session/session.js";
+import { ensureMnemosyneBinary } from "../../shared/runtime-preflight.js";
 import { commandRegistry, getCommandInvocationNames, getSlashCommandDefinitions } from "../../cmd/registry.js";
 import { AGENTS } from "../../constants.js";
 import {
@@ -43,22 +43,22 @@ import {
     EMPTY_PROJECT_DIRECTORY_PROMPT_NOTE,
     EMPTY_PROJECT_DIRECTORY_WELCOME_BODY,
     isEmptyProjectDirectory,
-} from "../project-state.js";
+} from "../../shared/project-state.js";
 import { COMMAND_NAMES } from "../../cmd/registry.js";
-import { getAgentDisplayName, listAvailableAgents } from "../session/agents.js";
-import { createAgentHandler } from "../session/agent-handler.js";
-import { getModelRegistry } from "../models/model-registry.js";
-import { getSettingsManager, initSettings } from "../settings.js";
+import { getAgentDisplayName, listAvailableAgents } from "../../shared/session/agents.js";
+import { createAgentHandler } from "../../shared/session/agent-handler.js";
+import { getModelRegistry } from "../../shared/models/model-registry.js";
+import { getSettingsManager, initSettings } from "../../shared/settings.js";
 import {
     isInitDone as isInitDoneFn,
     isInitOffered as isInitOfferedFn,
     recordInitOffered as recordInitOfferedFn,
 } from "../../cmd/init/init-state.js";
-import { SessionHost } from "../session/session-host.js";
-import { SessionRuntime } from "../session/session-runtime.js";
-import { applyPendingRootSwap, setActiveAgent } from "../session/agent-switching.js";
-import { parseProviderModel } from "../models/model-validation.js";
-import { createRootSessionManager } from "../session/root-session.js";
+import { SessionHost } from "../../shared/session/session-host.js";
+import { SessionRuntime, SessionTurnInProgressError } from "../../shared/session/session-runtime.js";
+import { applyPendingRootSwap, setActiveAgent } from "../../shared/session/agent-switching.js";
+import { resolveTemplateModel } from "../../shared/models/model-validation.js";
+import { createRootSessionManager } from "../../shared/session/root-session.js";
 import { createGenerationGuard } from "./generation-guard.js";
 import { restorePersistedMessagesToUi } from "./message-hydration.js";
 import { installUiApiOverrides } from "./ui-api-overrides.js";
@@ -67,24 +67,24 @@ import { getSelectedDefaultModelAvailability, maybeShowModelWelcome } from "./mo
 import { handleBashCommand } from "./bash-interceptor.js";
 import { handleSlashCommand } from "./slash-dispatch.js";
 import { installKeybindings } from "./keybindings.js";
-import { cancelActivePlanReview } from "../workflow/submit-plan.js";
+import { cancelActivePlanReview } from "../../shared/workflow/submit-plan.js";
 import {
     formatImageAttachmentMarker,
     modelSupportsImageInput,
     persistImageAttachment,
     preflightImageAttachments,
     resolveVisionFallbackModel,
-} from "../session/image-attachments.js";
+} from "../../shared/session/image-attachments.js";
 
 const CHAT_PROMPT_AGENT_NAME = AGENTS.OPERATOR;
 
-/** @type {() => ReturnType<typeof getSettingsManager>} */
+/** @type {(projectRoot?: string) => ReturnType<typeof getSettingsManager>} */
 let getSettingsManagerForPersistence = getSettingsManager;
 
 /**
  * Test-only hook for code paths that persist model/thinking selections.
  *
- * @param {(() => ReturnType<typeof getSettingsManager>) | null} provider
+ * @param {((projectRoot?: string) => ReturnType<typeof getSettingsManager>) | null} provider
  */
 export function __setSettingsManagerForPersistenceTests(provider) {
     getSettingsManagerForPersistence = provider || getSettingsManager;
@@ -213,7 +213,7 @@ function getMostRecentSessionModelParts(sessions) {
  * @typedef {Object} PendingSteeringEntry
  * @property {import('@earendil-works/pi-coding-agent').AgentSession} session
  * @property {string} text
- * @property {import('../session/types.js').ImageAttachment[]} images
+ * @property {import('../../shared/session/types.js').ImageAttachment[]} images
  * @property {SystemMessageBlock} systemBlock
  * @property {Spacer} spacer
  */
@@ -225,7 +225,7 @@ function getMostRecentSessionModelParts(sessions) {
  * @property {number} nextId
  * @property {import('@earendil-works/pi-tui').Container | undefined} messageList
  * @property {import('@earendil-works/pi-tui').TUI | undefined} tui
- * @property {import('../../ui/tui/types.js').UiAPI | undefined} uiAPI
+ * @property {import('./types.js').UiAPI | undefined} uiAPI
  */
 
 /** @returns {SteeringState} */
@@ -242,7 +242,7 @@ export function createSteeringState() {
 
 /**
  * @param {string} text
- * @param {import('../session/types.js').ImageAttachment[]} images
+ * @param {import('../../shared/session/types.js').ImageAttachment[]} images
  * @returns {string}
  */
 export function formatSteeringBlockText(text, images) {
@@ -253,7 +253,7 @@ export function formatSteeringBlockText(text, images) {
 }
 
 /**
- * @param {import('../session/types.js').ImageAttachment} image
+ * @param {import('../../shared/session/types.js').ImageAttachment} image
  * @returns {Image}
  */
 function createPastedImagePreview(image) {
@@ -345,7 +345,7 @@ function setupSteeringConsumedListener(steeringState, session) {
  * @param {SteeringState} steeringState
  * @param {import('@earendil-works/pi-coding-agent').AgentSession} session
  * @param {string} text
- * @param {import('../session/types.js').ImageAttachment[]} images
+ * @param {import('../../shared/session/types.js').ImageAttachment[]} images
  * @param {SystemMessageBlock} systemBlock
  * @param {Spacer} spacer
  */
@@ -367,7 +367,7 @@ export function trackPendingSteeringMessage(steeringState, session, text, images
  *
  * @param {SteeringState} steeringState
  * @param {import('@earendil-works/pi-tui').Container} messageList
- * @param {import('../../ui/tui/types.js').UiAPI} uiAPI
+ * @param {import('./types.js').UiAPI} uiAPI
  * @param {import('@earendil-works/pi-tui').TUI} tui
  */
 export function __setSteeringUiRefsForTests(steeringState, messageList, uiAPI, tui) {
@@ -397,15 +397,17 @@ export function __resetPendingSteeringForTests(steeringState) {
 export { applyPendingRootSwap, setActiveAgent };
 
 /**
- * @param {import('../session/hosted-session.js').HostedSession} hostedSession
+ * @param {import('../../shared/session/hosted-session.js').HostedSession} hostedSession
  * @param {string} model
  * @param {string} [provider]
+ * @param {SessionRuntime} [runtime]
  */
-export async function setActiveModel(hostedSession, model, provider) {
-    hostedSession.setActiveModelState(model, provider || "", true);
+export async function setActiveModel(hostedSession, model, provider, runtime) {
+    if (runtime) runtime.setSessionModel(hostedSession, model, provider || "", true);
+    else hostedSession.setActiveModelState(model, provider || "", true);
 
     try {
-        const settingsManager = getSettingsManagerForPersistence();
+        const settingsManager = getSettingsManagerForPersistence(hostedSession.cwd);
         await settingsManager.setDefaultModel(model);
         await settingsManager.setDefaultProvider(provider || "");
     } catch (e) {
@@ -447,15 +449,16 @@ export async function setActiveModel(hostedSession, model, provider) {
         }
     }
 
-    (/** @type {any} */ (hostedSession.getActiveUiAPIState()))?.requestRender();
+    if (!runtime) (/** @type {any} */ (hostedSession.getActiveUiAPIState()))?.requestRender();
 }
 
 /**
  * @param {"off" | "minimal" | "low" | "medium" | "high" | "xhigh"} level
+ * @param {string} [projectRoot]
  */
-export async function persistThinkingLevel(level) {
+export async function persistThinkingLevel(level, projectRoot) {
     try {
-        const settingsManager = getSettingsManagerForPersistence();
+        const settingsManager = getSettingsManagerForPersistence(projectRoot);
         await settingsManager.setDefaultThinkingLevel(level);
     } catch (e) {
         console.error(`Failed to persist thinking level: ${e}`);
@@ -464,10 +467,10 @@ export async function persistThinkingLevel(level) {
 
 /**
  * Get the active UI API reference.
- * @returns {import('../workflow/workflow.js').UiAPI | null}
+ * @returns {import('../../shared/types.js').SessionUiPort | null}
  */
 /**
- * @param {import('../session/hosted-session.js').HostedSession} [hostedSession]
+ * @param {import('../../shared/session/hosted-session.js').HostedSession} [hostedSession]
  * @returns {any}
  */
 export function getActiveUiAPI(hostedSession = undefined) {
@@ -476,7 +479,7 @@ export function getActiveUiAPI(hostedSession = undefined) {
 
 /**
  * Get the active model identifier (may include provider prefix).
- * @param {import('../session/hosted-session.js').HostedSession} hostedSession
+ * @param {import('../../shared/session/hosted-session.js').HostedSession} hostedSession
  * @returns {string}
  */
 export function getActiveModel(hostedSession) {
@@ -488,55 +491,33 @@ export function getActiveModel(hostedSession) {
  * follows return_to_router handoffs recorded on the supplied HostedSession only.
  *
  * @param {Object} args
- * @param {import('../session/hosted-session.js').HostedSession} args.hostedSession
- * @param {import('../../ui/tui/types.js').UiAPI} args.uiAPI
+ * @param {import('../../shared/session/hosted-session.js').HostedSession} args.hostedSession
+ * @param {import('./types.js').UiAPI} args.uiAPI
  * @param {string} args.initialRequest
- * @param {import('../session/types.js').ImageAttachment[]} args.initialImages
- * @param {(uiAPI: import('../../ui/tui/types.js').UiAPI) => Promise<void>} args.applyPendingRootSwapImpl
+ * @param {import('../../shared/session/types.js').ImageAttachment[]} args.initialImages
+ * @param {(uiAPI: import('../../shared/types.js').SessionUiPort) => Promise<void>} args.applyPendingRootSwapImpl
  */
 export async function runScopedSubmitHandoffLoop(
     { hostedSession, uiAPI, initialRequest, initialImages, applyPendingRootSwapImpl },
 ) {
     const runtime = new SessionRuntime({
         applyPendingRootSwap: (
-            /** @type {import('../session/hosted-session.js').HostedSession} */ _hostedSession,
-            /** @type {import('../../ui/tui/types.js').UiAPI | undefined} */ targetUiAPI,
-        ) => applyPendingRootSwapImpl(/** @type {import('../../ui/tui/types.js').UiAPI} */ (targetUiAPI)),
+            /** @type {import('../../shared/session/hosted-session.js').HostedSession} */ _hostedSession,
+            /** @type {import('../../shared/types.js').SessionUiPort | undefined} */ targetUiAPI,
+        ) => applyPendingRootSwapImpl(/** @type {import('../../shared/types.js').SessionUiPort} */ (targetUiAPI)),
     });
-    await runtime.promptSession(hostedSession, { uiAPI, initialRequest, initialImages });
-}
-
-/**
- * Resolve and validate a template-declared model.
- * Requires strict provider/id format and configured auth.
- *
- * @param {string} templateModel
- * @param {object} [modelRegistry]
- * @returns {{ ok: true, provider: string, id: string } | { ok: false }}
- */
-export function resolveTemplateModel(templateModel, modelRegistry) {
-    const registry =
-        /** @type {{ find: (provider: string, model: string) => unknown, hasConfiguredAuth: (model: unknown) => boolean }} */ (
-            modelRegistry || getModelRegistry()
-        );
-    const parsed = parseProviderModel(templateModel);
-    if (!parsed.ok) {
-        return { ok: false };
+    const adapter = attachTuiRuntimeAdapter({ runtime, hostedSession, uiAPI });
+    try {
+        await runtime.promptSession(hostedSession, { initialRequest, initialImages });
+    } finally {
+        adapter.dispose();
     }
-
-    const resolvedModel = registry.find(parsed.provider, parsed.id);
-    if (!resolvedModel || !registry.hasConfiguredAuth(resolvedModel)) {
-        return { ok: false };
-    }
-
-    const configuredModel = /** @type {{ provider: string, id: string }} */ (resolvedModel);
-    return { ok: true, provider: configuredModel.provider, id: configuredModel.id };
 }
 
 /**
  * Starts the interactive TUI loop.
  * @param {string | null} initialUserRequest
- * @param {import('../session/types.js').AgentMessageHandler | null} onMessage - Handler for user submissions
+ * @param {import('../../shared/session/types.js').AgentMessageHandler | null} onMessage - Handler for user submissions
  * @param {{ sessionStartMode?: "new" | "continue", initialAgentName?: string, initialAgentModel?: string }} [options]
  */
 export async function startInteractiveSession(initialUserRequest, onMessage, options = {}) {
@@ -547,8 +528,11 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
     const sessionHost = new SessionHost();
     const sessionRuntime = new SessionRuntime({ sessionHost });
     const rootSessionManager = await createRootSessionManager(options.sessionStartMode || "new", Deno.cwd());
-    let hostedSession = sessionHost.createSession({ sessionManager: rootSessionManager, cwd: Deno.cwd() });
-    initSettings();
+    let hostedSession = sessionRuntime.createSession({ sessionManager: rootSessionManager, cwd: Deno.cwd() });
+    let runtimeUiAPI = sessionRuntime.getSessionUiPort(hostedSession);
+    sessionRuntime.attachRuntimeEventSink(hostedSession);
+    hostedSession.setActiveUiAPI(runtimeUiAPI);
+    initSettings(hostedSession.cwd);
     const sessionStartedAt = rootSessionManager.getHeader()?.timestamp || new Date().toISOString();
 
     let sessionStartedEmptyProjectDirectory = false;
@@ -567,7 +551,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
     // ensureRootAgentSession below will populate it via setAgentInfo once the
     // session actually exists, so the UI never shows an agent name that has
     // no live session behind it.)
-    await listAvailableAgents();
+    await listAvailableAgents(hostedSession.cwd);
 
     // Track which agent the initial root will be built for. Callers (e.g. `wld agent <name>`)
     // can override via options.initialAgentName.
@@ -638,7 +622,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
     const runningTasksComponent = new SpinnerBlock();
     container.addChild(runningTasksComponent);
 
-    /** @type {import('../session/types.js').ImageAttachment[]} */
+    /** @type {import('../../shared/session/types.js').ImageAttachment[]} */
     const pastedImages = [];
     const previewImages = new Container();
     container.addChild(previewImages);
@@ -660,7 +644,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
     }
 
     const getModelAndProvider = () => {
-        const settingsManager = getSettingsManager();
+        const settingsManager = getSettingsManager(hostedSession.cwd);
         const defaults = {
             model: settingsManager.getDefaultModel() ?? "",
             provider: settingsManager.getDefaultProvider() ?? "",
@@ -740,7 +724,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
                 : "";
             const activeAgentName = hostedSession.getActiveAgentName() ||
                 (hostedSession.getRootAgentName()
-                    ? getAgentDisplayName(/** @type {string} */ (hostedSession.getRootAgentName()))
+                    ? getAgentDisplayName(/** @type {string} */ (hostedSession.getRootAgentName()), hostedSession.cwd)
                     : "");
 
             // Right block (agent name) is always pinned flush to the right edge.
@@ -847,10 +831,10 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
     }
 
     // Load prompt-template metadata once per interactive session.
-    const promptTemplates = await listPromptTemplates();
+    const promptTemplates = await listPromptTemplates({ cwd: hostedSession.cwd });
 
     // Load skills metadata once per interactive session.
-    const skills = await listSkills();
+    const skills = await listSkills({ cwd: hostedSession.cwd });
 
     // Expose a UI API for agents to append to the message list
     const uiAPI = createUiApi(tui, messageList, runningTasksComponent);
@@ -859,14 +843,13 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
     steeringState.tui = tui;
     steeringState.uiAPI = uiAPI;
 
-    hostedSession.setActiveUiAPI(uiAPI);
-    hostedSession.setEventSink(uiAPI);
+    let tuiRuntimeAdapter = attachTuiRuntimeAdapter({ runtime: sessionRuntime, hostedSession, uiAPI });
 
     /**
-     * @param {import('../session/hosted-session.js').HostedSession | string | undefined} hostedSessionOrAgentName
-     * @param {string | import('../session/types.js').AgentMessageHandler} agentNameOrHandler
-     * @param {import('../session/types.js').AgentMessageHandler | import('../../ui/tui/types.js').UiAPI} [handlerOrUiAPI]
-     * @param {import('../../ui/tui/types.js').UiAPI | string} [uiAPIOrAgentModel]
+     * @param {import('../../shared/session/hosted-session.js').HostedSession | string | undefined} hostedSessionOrAgentName
+     * @param {string | import('../../shared/session/types.js').AgentMessageHandler} agentNameOrHandler
+     * @param {import('../../shared/session/types.js').AgentMessageHandler | import('./types.js').UiAPI} [handlerOrUiAPI]
+     * @param {import('./types.js').UiAPI | string} [uiAPIOrAgentModel]
      * @param {string | { allowReturnToRouter?: boolean }} [agentModelOrOptions]
      * @param {{ allowReturnToRouter?: boolean }} [agentOptions]
      */
@@ -880,52 +863,52 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
     ) => {
         const hasExplicitSession = hostedSessionOrAgentName && typeof hostedSessionOrAgentName === "object";
         const targetHostedSession = hasExplicitSession
-            ? /** @type {import('../session/hosted-session.js').HostedSession} */ (hostedSessionOrAgentName)
+            ? /** @type {import('../../shared/session/hosted-session.js').HostedSession} */ (hostedSessionOrAgentName)
             : hostedSession;
         const agentName = hasExplicitSession ? agentNameOrHandler : hostedSessionOrAgentName;
         const handler = hasExplicitSession ? handlerOrUiAPI : agentNameOrHandler;
-        const uiAPIArg = hasExplicitSession ? uiAPIOrAgentModel : handlerOrUiAPI;
         const agentModel = hasExplicitSession ? agentModelOrOptions : uiAPIOrAgentModel;
         const nextAgentOptions = hasExplicitSession ? agentOptions : agentModelOrOptions;
         setActiveAgent(
             targetHostedSession,
             /** @type {string} */ (agentName),
             handler,
-            uiAPIArg,
+            sessionRuntime.getSessionUiPort(targetHostedSession),
             typeof agentModel === "string" ? agentModel : undefined,
             typeof nextAgentOptions === "object" ? nextAgentOptions : undefined,
         );
     };
     /**
-     * @param {import('../session/hosted-session.js').HostedSession | import('../../ui/tui/types.js').UiAPI | undefined} hostedSessionOrUiAPI
-     * @param {import('../../ui/tui/types.js').UiAPI} [uiAPIArg]
+     * @param {import('../../shared/session/hosted-session.js').HostedSession | import('./types.js').UiAPI | undefined} hostedSessionOrUiAPI
+     * @param {import('./types.js').UiAPI} [_uiAPIArg]
      */
-    const applyCurrentPendingRootSwap = (hostedSessionOrUiAPI, uiAPIArg) => {
+    const applyCurrentPendingRootSwap = (hostedSessionOrUiAPI, _uiAPIArg) => {
         const hasExplicitSession = hostedSessionOrUiAPI && typeof hostedSessionOrUiAPI === "object" &&
             typeof /** @type {any} */ (hostedSessionOrUiAPI).getPendingRootSwap === "function";
-        return applyPendingRootSwap(
-            hasExplicitSession
-                ? /** @type {import('../session/hosted-session.js').HostedSession} */ (hostedSessionOrUiAPI)
-                : hostedSession,
-            hasExplicitSession ? uiAPIArg : /** @type {import('../../ui/tui/types.js').UiAPI} */ (hostedSessionOrUiAPI),
-        );
+        const targetHostedSession = hasExplicitSession
+            ? /** @type {import('../../shared/session/hosted-session.js').HostedSession} */ (hostedSessionOrUiAPI)
+            : hostedSession;
+        return applyPendingRootSwap(targetHostedSession, sessionRuntime.getSessionUiPort(targetHostedSession));
     };
     /** @param {string} model @param {string} [provider] */
-    const setCurrentActiveModel = (model, provider) => setActiveModel(hostedSession, model, provider);
+    const setCurrentActiveModel = (model, provider) => setActiveModel(hostedSession, model, provider, sessionRuntime);
 
     /**
-     * @param {import('../session/hosted-session.js').HostedSession} nextSession
+     * @param {import('../../shared/session/hosted-session.js').HostedSession} nextSession
      */
     function replaceHostedSession(nextSession) {
         const previousHostedSession = hostedSession;
         if (previousHostedSession !== nextSession) {
-            if (!sessionHost.disposeSession(previousHostedSession.id)) {
+            tuiRuntimeAdapter.dispose();
+            if (!sessionRuntime.closeSession(previousHostedSession.id).closed) {
                 previousHostedSession.dispose();
             }
         }
+        if (!sessionRuntime.getSession(nextSession.id)) sessionRuntime.adoptSession(nextSession);
         hostedSession = nextSession;
-        hostedSession.setActiveUiAPI(uiAPI);
-        hostedSession.setEventSink(uiAPI);
+        runtimeUiAPI = sessionRuntime.getSessionUiPort(hostedSession);
+        hostedSession.setActiveUiAPI(runtimeUiAPI);
+        tuiRuntimeAdapter = attachTuiRuntimeAdapter({ runtime: sessionRuntime, hostedSession, uiAPI });
         hostedSession.setActiveOnMessage(createAgentHandler(AGENTS.ROUTER, { hostedSession }));
         hostedSession.setPendingRootSwap(null);
         hostedSession.setPendingSwitchHandoff(null);
@@ -953,6 +936,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         messageList,
         setActiveModel: setCurrentActiveModel,
         getActiveModelState: () => hostedSession.getActiveModelState(),
+        __deps: { getSettingsManager: () => getSettingsManager(hostedSession.cwd) },
     });
 
     const modelWelcomeResult = await maybeShowModelWelcome({
@@ -961,11 +945,12 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         tui,
         hostedSession,
         sessionManager: rootSessionManager,
-        ensureRootAgentSession,
+        ensureRootAgentSession: (opts) => ensureRootAgentSession({ ...opts, uiAPI: runtimeUiAPI }),
         initialAgentInternalName,
         initialAgentModel: options.initialAgentModel,
         commandRegistry,
         getModelRegistry,
+        getSettingsManager: () => getSettingsManager(hostedSession.cwd),
     });
 
     // ── Eagerly build the root AgentSession for the initial agent ──
@@ -978,7 +963,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
                 hostedSession,
                 agentName: initialAgentInternalName,
                 modelOverride: options.initialAgentModel,
-                uiAPI,
+                uiAPI: runtimeUiAPI,
                 sessionManager: rootSessionManager,
             });
         } catch (err) {
@@ -1006,7 +991,10 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
     /** @returns {boolean} */
     function shouldBlockForModelSetup() {
         if (!modelSetupRequired) return false;
-        const availability = getSelectedDefaultModelAvailability(getModelRegistry, getSettingsManager);
+        const availability = getSelectedDefaultModelAvailability(
+            getModelRegistry,
+            () => getSettingsManager(hostedSession.cwd),
+        );
         if (availability.available) {
             modelSetupRequired = false;
             editor.disableSubmit = false;
@@ -1018,13 +1006,13 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
     /** @type {Set<string>} */
     const warnedImageRefs = new Set();
 
-    /** @param {import('../session/types.js').ImageAttachment} image */
+    /** @param {import('../../shared/session/types.js').ImageAttachment} image */
     function imageWarningKey(image) {
         return image.ref || image.path || `${image.mimeType}:${image.base64.slice(0, 24)}`;
     }
 
     /**
-     * @param {import('../session/types.js').ImageAttachment[]} images
+     * @param {import('../../shared/session/types.js').ImageAttachment[]} images
      * @returns {Promise<{ ok: true, warning?: string } | { ok: false, message: string }>}
      */
     async function preflightCurrentImages(images) {
@@ -1045,14 +1033,14 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
     }
 
     /**
-     * @param {import('../session/types.js').ImageAttachment} image
-     * @returns {Promise<import('../session/types.js').ImageAttachment | null>}
+     * @param {import('../../shared/session/types.js').ImageAttachment} image
+     * @returns {Promise<import('../../shared/session/types.js').ImageAttachment | null>}
      */
     async function handleImagePaste(image) {
         const persisted = await persistImageAttachment(
             image,
             /** @type {any} */ (hostedSession.getRootSessionManager()),
-            Deno.cwd(),
+            hostedSession.cwd,
         );
         const preflight = await preflightCurrentImages([persisted]);
         if (!preflight.ok) {
@@ -1132,7 +1120,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
                     description: skill.description,
                 })),
         ],
-        Deno.cwd(),
+        hostedSession.cwd,
         "fd", // Since pi 0.20 the agent guarantees that fd is available in PATH or it polyfills it so using 'fd' directly as binary path is safe.
     );
     editor.setAutocompleteProvider(autocompleteProvider);
@@ -1244,14 +1232,14 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
     }
 
     // Handle Editor events
-    /** @type {Array<{text: string, images: import('../session/types.js').ImageAttachment[], block?: SystemMessageBlock, spacer?: Spacer}>} */
+    /** @type {Array<{text: string, images: import('../../shared/session/types.js').ImageAttachment[], block?: SystemMessageBlock, spacer?: Spacer}>} */
     const submissionQueue = [];
     let isProcessingSubmission = false;
 
     /**
      * Restore a queued item into the editor.
      *
-     * @param {{ text: string, images: import('../session/types.js').ImageAttachment[] }} item
+     * @param {{ text: string, images: import('../../shared/session/types.js').ImageAttachment[] }} item
      */
     function restoreQueuedItemToEditor(item) {
         editor.setText(item.text);
@@ -1337,25 +1325,22 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
     // Handle Editor events
     /**
      * @param {string} userRequest
-     * @param {import('../session/types.js').ImageAttachment[]} savedImages
+     * @param {import('../../shared/session/types.js').ImageAttachment[]} savedImages
      */
     async function submitToActiveRoot(userRequest, savedImages) {
         // Generation gating
         const thisGen = generationGuard.bump();
 
-        savedImages.forEach((/** @type {import('../session/types.js').ImageAttachment} */ img) => {
+        savedImages.forEach((/** @type {import('../../shared/session/types.js').ImageAttachment} */ img) => {
             if (uiAPI.appendImage) uiAPI.appendImage(img.base64, img.mimeType);
         });
-        if (userRequest) uiAPI.appendUserMessage?.(userRequest);
-
         try {
             await sessionRuntime.promptSession(hostedSession, {
-                uiAPI,
                 initialRequest: userRequest,
                 initialImages: savedImages,
             });
         } catch (err) {
-            if (generationStillCurrent(thisGen)) {
+            if (generationStillCurrent(thisGen) && err instanceof SessionTurnInProgressError) {
                 uiAPI.appendSystemMessage(
                     `Error: ${err instanceof Error ? err.message : String(err)}`,
                 );
@@ -1365,7 +1350,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
 
     /**
      * @param {string} text
-     * @param {import('../session/types.js').ImageAttachment[]} savedImages
+     * @param {import('../../shared/session/types.js').ImageAttachment[]} savedImages
      */
     async function executeUserRequest(text, savedImages) {
         const userRequest = text.trim();
@@ -1380,6 +1365,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
                 savedImages,
                 hostedSession,
                 sessionHost,
+                sessionRuntime,
                 uiAPI,
                 editor,
                 tui,
@@ -1456,6 +1442,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
                 tui,
                 editor,
                 getSessionManager: () => /** @type {any} */ (hostedSession.getRootSessionManager()),
+                cwd: hostedSession.cwd,
                 generationGuard,
                 registerBashProc: (proc) => {
                     activeBashProc = proc;
@@ -1524,10 +1511,10 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
     };
 
     // Initialize thinking level from settings
-    const settingsManager = getSettingsManager();
+    const settingsManager = getSettingsManager(hostedSession.cwd);
     const savedThinkingLevel = settingsManager.getDefaultThinkingLevel();
     if (savedThinkingLevel) {
-        hostedSession.setThinkingLevel(savedThinkingLevel);
+        sessionRuntime.setSessionThinkingLevel(hostedSession, savedThinkingLevel);
     }
 
     // Ordered thinking levels for cycling
@@ -1551,8 +1538,8 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
                 uiAPI.appendSystemMessage("Current model does not support thinking");
                 return;
             }
-            hostedSession.setThinkingLevel(newLevel);
-            await persistThinkingLevel(newLevel);
+            sessionRuntime.setSessionThinkingLevel(hostedSession, newLevel);
+            await persistThinkingLevel(newLevel, hostedSession.cwd);
             tui.requestRender();
             return;
         }
@@ -1561,8 +1548,8 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         const currentIdx = THINKING_LEVELS.indexOf(current);
         const nextIdx = (currentIdx + 1) % THINKING_LEVELS.length;
         const nextLevel = THINKING_LEVELS[nextIdx];
-        hostedSession.setThinkingLevel(nextLevel);
-        await persistThinkingLevel(nextLevel);
+        sessionRuntime.setSessionThinkingLevel(hostedSession, nextLevel);
+        await persistThinkingLevel(nextLevel, hostedSession.cwd);
         tui.requestRender();
     }
 
@@ -1586,7 +1573,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         toggleStartupHelp: () => setHelpExpanded(!helpExpanded),
         cycleThinkingLevel,
         handleImagePaste,
-        abortActiveSession: () => abortActiveSession(hostedSession),
+        abortActiveSession: () => sessionRuntime.cancelSession(hostedSession).aborted,
         cancelActivePlanReview: () => cancelActivePlanReview(hostedSession),
         clearPendingSteeringMessages: () => {
             steeringState.pendingMessages.clear();
@@ -1617,6 +1604,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
             invokablePromptTemplates,
             blockedPromptTemplates,
             chatPromptAgentName: CHAT_PROMPT_AGENT_NAME,
+            projectRoot: hostedSession.cwd,
         });
     }
 

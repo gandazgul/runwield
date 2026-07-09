@@ -148,76 +148,9 @@ export function convertAcpPromptToText(blocks) {
 }
 
 /**
- * @param {SessionRuntime} runtime
- * @param {import('../shared/session/hosted-session.js').HostedSession} hostedSession
- * @returns {any}
- */
-function createAcpRuntimeUi(runtime, hostedSession) {
-    return {
-        /** @param {unknown} message @param {boolean} [isError] */
-        appendSystemMessage(message, isError = false) {
-            runtime.emitSessionEvent(hostedSession, {
-                type: "system_status",
-                level: isError ? "error" : "info",
-                message: String(message),
-            });
-        },
-        appendAgentMessageStart() {
-            return { appendText() {} };
-        },
-        appendThinkingStart() {
-            return { appendDelta() {}, end() {} };
-        },
-        /** @param {string} _id @param {string} _name @param {string} _args */
-        startToolExecution(_id, _name, _args) {
-            return {
-                bodyText: "",
-                startTime: Date.now(),
-                /** @param {unknown} delta */
-                appendOutput(delta) {
-                    this.bodyText += String(delta || "");
-                },
-                endExecution() {},
-            };
-        },
-        getActiveToolBlock() {
-            return null;
-        },
-        setBusy() {},
-        requestRender() {},
-        /** @param {string} title @param {Array<{ value: string, label: string }>} options */
-        async promptSelect(title, options) {
-            const response = /** @type {any} */ (await runtime.requestInteraction(hostedSession, {
-                type: "select",
-                prompt: title,
-                options,
-            }));
-            if (response.outcome === "canceled") return null;
-            if (response.outcome !== "selected") {
-                throw new Error(response.message || "ACP select prompt was not answered");
-            }
-            return String(response.value ?? "");
-        },
-        /** @param {string} title @param {{ defaultValue?: string, placeholder?: string, allowEmpty?: boolean }} [opts] */
-        async promptText(title, opts = {}) {
-            const response = /** @type {any} */ (await runtime.requestInteraction(hostedSession, {
-                type: "text",
-                prompt: title,
-                defaultValue: opts.defaultValue,
-                placeholder: opts.placeholder,
-                allowEmpty: opts.allowEmpty,
-            }));
-            if (response.outcome === "canceled") return null;
-            if (response.outcome !== "text") throw new Error(response.message || "ACP text prompt was not answered");
-            return String(response.value ?? "");
-        },
-    };
-}
-
-/**
  * @param {unknown} params
  */
-function validateNewSessionParams(params) {
+export function validateNewSessionParams(params) {
     const request = /** @type {import('@agentclientprotocol/sdk').NewSessionRequest} */ (params || {});
     if (!request.cwd || typeof request.cwd !== "string" || !isAbsolute(request.cwd)) {
         throwInvalidParams("session/new requires an absolute cwd", { cwd: request.cwd });
@@ -269,27 +202,32 @@ function validateCloseSessionParams(params) {
  * @param {AcpSessionMap} sessionMap
  * @param {string} acpSessionId
  */
-function closeMappedSession(runtime, sessionMap, acpSessionId) {
+async function closeMappedSession(runtime, sessionMap, acpSessionId) {
     const record = sessionMap.getRecord(acpSessionId);
     if (!record) return { ok: false, closed: false, error: "not_found" };
     const hostedSession = sessionMap.getHostedSession(acpSessionId, runtime);
     sessionMap.markCancelled(acpSessionId);
     if (hostedSession) {
-        try {
-            runtime.cancelSession(hostedSession);
-        } catch {
-            // Close should still dispose mapping if cancellation fails.
+        if (runtime.closeSessionWhenIdle) {
+            await runtime.closeSessionWhenIdle(hostedSession);
+        } else {
+            try {
+                runtime.cancelSession(hostedSession);
+            } catch {
+                // Close should still dispose mapping if cancellation fails.
+            }
+            runtime.closeSession(hostedSession.id);
         }
-        runtime.closeSession(hostedSession.id);
     }
     sessionMap.deleteRecord(acpSessionId);
     return { ok: true, closed: Boolean(hostedSession), record };
 }
 
 /** @param {SessionRuntime} runtime @param {AcpSessionMap} sessionMap */
-function closeAllMappedSessions(runtime, sessionMap) {
-    for (const record of sessionMap.listRecords()) closeMappedSession(runtime, sessionMap, record.acpSessionId);
-    runtime.closeAllSessions?.();
+async function closeAllMappedSessions(runtime, sessionMap) {
+    for (const record of sessionMap.listRecords()) await closeMappedSession(runtime, sessionMap, record.acpSessionId);
+    if (runtime.closeAllSessionsWhenIdle) await runtime.closeAllSessionsWhenIdle();
+    else runtime.closeAllSessions?.();
 }
 
 /**
@@ -397,6 +335,22 @@ export function createRunWieldAcpServer(options = {}) {
         const pendingNotifications = [];
         /** @type {() => void} */
         let unsubscribe = () => {};
+        let deferCleanupUntilRuntimeSettles = false;
+        let cleanupStarted = false;
+
+        const cleanupPrompt = () => {
+            if (cleanupStarted) return;
+            cleanupStarted = true;
+            try {
+                unsubscribe();
+            } finally {
+                try {
+                    runtime.setInteractionAdapter?.(hostedSession, null, null);
+                } finally {
+                    sessionMap.endPrompt(acpSessionId);
+                }
+            }
+        };
 
         try {
             runtime.setInteractionAdapter?.(
@@ -421,13 +375,16 @@ export function createRunWieldAcpServer(options = {}) {
             });
 
             const runtimePrompt = runtime.promptSession(hostedSession, {
-                uiAPI: createAcpRuntimeUi(runtime, hostedSession),
                 initialRequest: promptText,
                 initialImages: [],
             });
             const result = /** @type {any} */ (await Promise.race([runtimePrompt, activePrompt.cancellation]));
             await Promise.allSettled(pendingNotifications);
-            if (sessionMap.isPromptCancelled(acpSessionId)) return { stopReason: "cancelled" };
+            if (sessionMap.isPromptCancelled(acpSessionId)) {
+                deferCleanupUntilRuntimeSettles = true;
+                void runtimePrompt.then(cleanupPrompt, cleanupPrompt);
+                return { stopReason: "cancelled" };
+            }
             if (result?.stopReason === "cancelled") return result;
             if (!result.ok) return { stopReason: "refusal" };
             return { stopReason: "end_turn" };
@@ -436,23 +393,15 @@ export function createRunWieldAcpServer(options = {}) {
             if (sessionMap.isPromptCancelled(acpSessionId)) return { stopReason: "cancelled" };
             throw error;
         } finally {
-            try {
-                unsubscribe();
-            } finally {
-                try {
-                    runtime.setInteractionAdapter?.(hostedSession, null, null);
-                } finally {
-                    sessionMap.endPrompt(acpSessionId);
-                }
-            }
+            if (!deferCleanupUntilRuntimeSettles) cleanupPrompt();
         }
     });
 
-    app.onRequest(methods.agent.session.close, (context) => {
+    app.onRequest(methods.agent.session.close, async (context) => {
         const request = validateCloseSessionParams(context.params);
         const record = sessionMap.getRecord(request.sessionId);
         if (!record) throwUnknownSession(request.sessionId);
-        const result = closeMappedSession(runtime, sessionMap, request.sessionId);
+        const result = await closeMappedSession(runtime, sessionMap, request.sessionId);
         if (!result.ok) throwUnknownSession(request.sessionId);
         return { _meta: { runwield: { sessionId: request.sessionId, closed: result.closed } } };
     });
@@ -462,22 +411,21 @@ export function createRunWieldAcpServer(options = {}) {
         if (!sessionId || typeof sessionId !== "string") return;
         const hostedSession = sessionMap.getHostedSession(sessionId, runtime);
         if (!hostedSession) return;
-        const hasActivePrompt = sessionMap.hasActivePrompt(sessionId);
-        if (hasActivePrompt) {
+        sessionMap.markCancelled(sessionId);
+        try {
+            runtime.cancelSession(hostedSession);
+        } catch (_error) {
+            // Preserve protocol feedback when an injected/runtime abort fails before
+            // it can publish the normal cancellation event. This is fallback-only,
+            // so successful cancellation still has a single event path.
             const notification = mapRuntimeEventToAcpSessionNotification(sessionId, {
                 type: "cancellation",
                 sessionId: hostedSession.id,
                 timestamp: new Date().toISOString(),
                 reason: "session_cancel",
-                aborted: true,
+                aborted: false,
             });
             if (notification) await notifyClient(context, methods.client.session.update, notification);
-        }
-        sessionMap.markCancelled(sessionId);
-        try {
-            runtime.cancelSession(hostedSession);
-        } catch (_error) {
-            // ACP cancellation has already been marked and reported; abort failures must not prevent cancelled resolution.
         }
     });
 
@@ -513,8 +461,8 @@ export function startRunWieldAcpServer(input, output, options = {}) {
     const sessionMap = options.sessionMap || new AcpSessionMap();
     const connection = createRunWieldAcpServer({ ...options, runtime, sessionMap }).connect(stream);
     connection.closed.then(
-        () => closeAllMappedSessions(runtime, sessionMap),
-        () => closeAllMappedSessions(runtime, sessionMap),
+        () => void closeAllMappedSessions(runtime, sessionMap),
+        () => void closeAllMappedSessions(runtime, sessionMap),
     );
     const diagnostics = options.diagnostic;
     if (diagnostics) diagnostics("RunWield ACP stdio server started");

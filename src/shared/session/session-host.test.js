@@ -24,13 +24,13 @@ Deno.test("SessionHost creates sessions with deterministic ids and owns lookup m
     const session = host.createSession({ id: "alpha", cwd: "/fallback/alpha", sessionManager });
 
     assertEquals(session instanceof HostedSession, true);
-    assertEquals(session.id, "manager-alpha");
+    assertEquals(session.id, "alpha");
     assertEquals(session.cwd, "/repo/alpha");
     assertStrictEquals(session.getRootSessionManager(), sessionManager);
-    assertStrictEquals(host.getSession("manager-alpha"), session);
-    assertStrictEquals(host.requireSession("manager-alpha"), session);
+    assertStrictEquals(host.getSession("alpha"), session);
+    assertStrictEquals(host.requireSession("alpha"), session);
     assertEquals(host.listSessions(), [
-        { id: "manager-alpha", cwd: "/repo/alpha", sessionManagerId: "manager-alpha", disposed: false },
+        { id: "alpha", cwd: "/repo/alpha", sessionManagerId: "manager-alpha", disposed: false },
     ]);
 });
 
@@ -45,13 +45,13 @@ Deno.test("SessionHost can adopt an existing HostedSession", () => {
     const adopted = host.adoptSession(hostedSession);
 
     assertStrictEquals(adopted, hostedSession);
-    assertStrictEquals(host.getSession("adopted-manager"), hostedSession);
+    assertStrictEquals(host.getSession("adopted"), hostedSession);
     assertEquals(host.listSessions(), [
-        { id: "adopted-manager", cwd: "/repo/adopted", sessionManagerId: "adopted-manager", disposed: false },
+        { id: "adopted", cwd: "/repo/adopted", sessionManagerId: "adopted-manager", disposed: false },
     ]);
 });
 
-Deno.test("SessionHost prefers SessionManager ids over provided or generated ids", () => {
+Deno.test("SessionHost prefers explicit internal ids and otherwise reuses SessionManager ids", () => {
     let idFactoryCalls = 0;
     const host = new SessionHost({ idFactory: () => `generated-${++idFactoryCalls}` });
 
@@ -63,9 +63,9 @@ Deno.test("SessionHost prefers SessionManager ids over provided or generated ids
     });
 
     assertEquals(first.id, "one");
-    assertEquals(second.id, "two");
+    assertEquals(second.id, "provided-two");
     assertEquals(idFactoryCalls, 0);
-    assertEquals(host.listSessions().map((session) => session.id), ["one", "two"]);
+    assertEquals(host.listSessions().map((session) => session.id), ["one", "provided-two"]);
 });
 
 Deno.test("SessionHost falls back to provided or generated ids when SessionManager has none", () => {
@@ -99,7 +99,7 @@ Deno.test("SessionHost rejects duplicate ids for created or adopted sessions", (
     assertThrows(
         () =>
             host.createSession({
-                id: "duplicate-fallback",
+                id: "duplicate",
                 cwd: "/repo/duplicate-2",
                 sessionManager: makeSessionManager("duplicate"),
             }),
@@ -110,7 +110,7 @@ Deno.test("SessionHost rejects duplicate ids for created or adopted sessions", (
         () =>
             host.adoptSession(
                 new HostedSession({
-                    id: "duplicate-fallback",
+                    id: "duplicate",
                     cwd: "/repo/adopted",
                     sessionManager: makeSessionManager("duplicate"),
                 }),
@@ -127,16 +127,16 @@ Deno.test("SessionHost disposeSession removes and disposes only the target Hoste
     const alpha = host.createSession({ id: "alpha", cwd: "/repo/alpha", sessionManager: alphaManager });
     const beta = host.createSession({ id: "beta", cwd: "/repo/beta", sessionManager: betaManager });
 
-    assertEquals(host.disposeSession("alpha-manager"), true);
+    assertEquals(host.disposeSession("alpha"), true);
 
     assertEquals(alpha.disposed, true);
     assertEquals(alphaManager.disposed, true);
     assertEquals(beta.disposed, false);
     assertEquals(betaManager.disposed, false);
-    assertEquals(host.getSession("alpha-manager"), null);
-    assertStrictEquals(host.getSession("beta-manager"), beta);
+    assertEquals(host.getSession("alpha"), null);
+    assertStrictEquals(host.getSession("beta"), beta);
     assertEquals(host.listSessions(), [
-        { id: "beta-manager", cwd: "/work/beta-manager", sessionManagerId: "beta-manager", disposed: false },
+        { id: "beta", cwd: "/work/beta-manager", sessionManagerId: "beta-manager", disposed: false },
     ]);
     assertEquals(host.disposeSession("missing"), false);
 });

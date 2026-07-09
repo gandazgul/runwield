@@ -23,9 +23,9 @@ import { recordWorkflowMetric } from "../workflow/metrics.js";
 import { runMechanicalValidation, runValidationLoop, shouldRunWorkflowValidation } from "../workflow/validation.js";
 import { recordPlanEvent as recordPlanEventFn } from "../workflow/plan-lifecycle.js";
 import { setActiveAgent as setActiveAgentFn } from "./agent-switching.js";
-import { notifyRunWieldEvent as notifyRunWieldEventFn } from "../system-notifications.js";
+import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runtime-events.js";
 import { join } from "@std/path";
-import { AGENTS, CWD } from "../../constants.js";
+import { AGENTS } from "../../constants.js";
 
 /**
  * @param {string} agentName
@@ -61,7 +61,7 @@ function canCompleteActiveExecutionWorkflow(agentName) {
  *   recordPlanEvent?: typeof recordPlanEventFn,
  *   recordWorkflowMetric?: typeof recordWorkflowMetric,
  *   setActiveAgent?: typeof setActiveAgentFn,
- *   notifyRunWieldEvent?: typeof notifyRunWieldEventFn,
+ *   requestAttention?: (hostedSession: import('./hosted-session.js').HostedSession, reason: "agentStopped", agentName: string) => void,
  *   hostedSession?: import('./hosted-session.js').HostedSession,
  *   _agentDefOverride?: import('./types.js').AgentDefinition,
  *   customTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[],
@@ -83,9 +83,15 @@ export function createAgentHandler(agentName, __deps) {
     const runValidationLoopImpl = __deps?.runValidationLoop || runValidationLoop;
     const runMechanicalValidationImpl = __deps?.runMechanicalValidation || runMechanicalValidation;
     const recordPlanEventImpl = __deps?.recordPlanEvent || recordPlanEventFn;
-    const recordWorkflowMetricImpl = __deps?.recordWorkflowMetric || recordWorkflowMetric;
+    const recordWorkflowMetricSource = __deps?.recordWorkflowMetric || recordWorkflowMetric;
     const setActiveAgent = __deps?.setActiveAgent || setActiveAgentFn;
-    const notifyRunWieldEvent = __deps?.notifyRunWieldEvent || notifyRunWieldEventFn;
+    const requestAttention = __deps?.requestAttention || ((targetSession, reason, targetAgentName) => {
+        emitHostedSessionRuntimeEvent(targetSession, {
+            type: RuntimeEventTypes.ATTENTION_REQUESTED,
+            reason,
+            agentName: targetAgentName,
+        });
+    });
     const sessionOptions = {
         _agentDefOverride: __deps?._agentDefOverride,
         customTools: __deps?.customTools,
@@ -94,6 +100,14 @@ export function createAgentHandler(agentName, __deps) {
 
     return async (userRequest, images, uiAPI, sessionManager) => {
         if (!hostedSession) throw new Error("createAgentHandler: hostedSession is required");
+        const projectRoot = hostedSession.cwd;
+        /**
+         * @param {Parameters<typeof recordWorkflowMetricSource>[0]} metric
+         * @param {Parameters<typeof recordWorkflowMetricSource>[1]} [deps]
+         */
+        function recordWorkflowMetricImpl(metric, deps = {}) {
+            return recordWorkflowMetricSource(metric, { cwd: projectRoot, ...deps });
+        }
 
         // If the live root is already this agent (the common case after a switch has been
         // applied), reuse it. Otherwise fall back to a transient invocation — this can happen
@@ -106,15 +120,11 @@ export function createAgentHandler(agentName, __deps) {
         // follow-up questions.
         const rootAgentSession = /** @type {any} */ (hostedSession.getRootAgentSession());
         const preTurnCount = useRoot ? rootAgentSession?.agent?.state?.messages?.length ?? 0 : 0;
-        let agentStoppedNotified = false;
-        const notifyAgentStopped = async () => {
-            if (agentStoppedNotified) return;
-            agentStoppedNotified = true;
-            const activeSessionManager = /** @type {any} */ (sessionManager || hostedSession.getRootSessionManager?.());
-            await notifyRunWieldEvent("agentStopped", {
-                sessionName: activeSessionManager?.getSessionName?.(),
-                agentName,
-            });
+        let agentStoppedAttentionRequested = false;
+        const requestAgentStoppedAttention = () => {
+            if (agentStoppedAttentionRequested) return;
+            agentStoppedAttentionRequested = true;
+            requestAttention(hostedSession, "agentStopped", agentName);
         };
 
         const messages = useRoot
@@ -209,7 +219,7 @@ export function createAgentHandler(agentName, __deps) {
                     createAgentHandler(AGENTS.ENGINEER, { hostedSession }),
                     uiAPI,
                 );
-                await notifyAgentStopped();
+                requestAgentStoppedAttention();
                 return;
             }
 
@@ -217,7 +227,7 @@ export function createAgentHandler(agentName, __deps) {
 
             let planContent = "";
             try {
-                planContent = await Deno.readTextFile(join(CWD, "plans", `${planName}.md`));
+                planContent = await Deno.readTextFile(join(projectRoot, "plans", `${planName}.md`));
             } catch {
                 // Ignore in tests or if the file doesn't exist
             }
@@ -253,7 +263,7 @@ export function createAgentHandler(agentName, __deps) {
                     finalAgentName: agentName,
                     __deps: { recordWorkflowMetric: recordWorkflowMetricImpl },
                 });
-                await notifyAgentStopped();
+                requestAgentStoppedAttention();
             } else if (executionDecision.kind === "stay_with_agent") {
                 const nextAgentName = /** @type {string} */ (executionDecision.payload.agentName || AGENTS.ENGINEER);
                 await recordWorkflowMetricImpl({
@@ -269,7 +279,7 @@ export function createAgentHandler(agentName, __deps) {
                     createAgentHandler(nextAgentName, { hostedSession }),
                     uiAPI,
                 );
-                await notifyAgentStopped();
+                requestAgentStoppedAttention();
             } else {
                 // halt or repair_plan — stay with Engineer for manual recovery
                 const reason = executionDecision.payload?.reason || "unknown";
@@ -295,7 +305,7 @@ export function createAgentHandler(agentName, __deps) {
                     createAgentHandler(AGENTS.ENGINEER, { hostedSession }),
                     uiAPI,
                 );
-                await notifyAgentStopped();
+                requestAgentStoppedAttention();
             }
             return;
         }
@@ -325,7 +335,7 @@ export function createAgentHandler(agentName, __deps) {
         if (taskCompleted) {
             const workflow = hostedSession.getActiveExecutionWorkflow();
             if (workflow && !canCompleteActiveExecutionWorkflow(agentName)) {
-                await notifyAgentStopped();
+                requestAgentStoppedAttention();
                 return;
             }
 
@@ -335,15 +345,15 @@ export function createAgentHandler(agentName, __deps) {
                     hostedSession,
                     uiAPI,
                     sessionManager,
-                    cwd: workflow.executionCwd || CWD,
+                    cwd: workflow.executionCwd || projectRoot,
                 });
-                await notifyAgentStopped();
+                requestAgentStoppedAttention();
                 return;
             }
 
             if (workflow && !shouldRunWorkflowValidation(workflow.triageMeta)) {
                 hostedSession.clearActiveExecutionWorkflow();
-                await notifyAgentStopped();
+                requestAgentStoppedAttention();
                 return;
             }
 
@@ -351,7 +361,7 @@ export function createAgentHandler(agentName, __deps) {
                 let planContent = "";
                 if (workflow.planName && workflow.planName !== "quick-fix") {
                     try {
-                        planContent = await Deno.readTextFile(join(CWD, "plans", `${workflow.planName}.md`));
+                        planContent = await Deno.readTextFile(join(projectRoot, "plans", `${workflow.planName}.md`));
                     } catch {
                         // Ignore
                     }
@@ -359,7 +369,7 @@ export function createAgentHandler(agentName, __deps) {
                     if (!workflow.validationContinuation) {
                         try {
                             await recordPlanEventImpl({
-                                cwd: CWD,
+                                cwd: projectRoot,
                                 planName: workflow.planName,
                                 event: "implementation_finished",
                                 currentStatus: "in_progress",
@@ -372,7 +382,7 @@ export function createAgentHandler(agentName, __deps) {
                                 true,
                                 "RunWield",
                             );
-                            await notifyAgentStopped();
+                            requestAgentStoppedAttention();
                             return;
                         }
                     }
@@ -388,10 +398,10 @@ export function createAgentHandler(agentName, __deps) {
                     finalAgentName: agentName,
                     __deps: { recordWorkflowMetric: recordWorkflowMetricImpl },
                 });
-                await notifyAgentStopped();
+                requestAgentStoppedAttention();
             }
         }
 
-        await notifyAgentStopped();
+        requestAgentStoppedAttention();
     };
 }

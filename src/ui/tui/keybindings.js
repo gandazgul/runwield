@@ -1,5 +1,5 @@
 /**
- * @module shared/interactive/keybindings
+ * @module ui/tui/keybindings
  *
  * Wraps the editor's input handler with chat-session keybindings:
  *   Esc          cancel whatever is in flight (bash, agent, plan review, prompts)
@@ -15,11 +15,11 @@
  */
 
 import { Image, Key, matchesKey } from "@earendil-works/pi-tui";
-import { abortActiveSession as abortActiveSessionFn } from "../session/session.js";
-import { cancelActivePlanReview as cancelActivePlanReviewFn } from "../workflow/submit-plan.js";
-import { stopTUI } from "../../ui/tui/tui.js";
-import { readClipboardImage } from "../clipboard.js";
-import { imageTheme } from "../../ui/theme/theme.js";
+import { abortActiveSession as abortActiveSessionFn } from "../../shared/session/session.js";
+import { cancelActivePlanReview as cancelActivePlanReviewFn } from "../../shared/workflow/submit-plan.js";
+import { stopTUI } from "./tui.js";
+import { readClipboardImage } from "./clipboard.js";
+import { imageTheme } from "../theme/theme.js";
 
 /**
  * @param {import('@earendil-works/pi-tui').Editor} editor
@@ -40,7 +40,7 @@ function isEditorEmpty(editor) {
 }
 
 /**
- * @param {import('../session/types.js').ImageAttachment} image
+ * @param {import('../../shared/session/types.js').ImageAttachment} image
  * @returns {Image}
  */
 function createPastedImagePreview(image) {
@@ -55,8 +55,8 @@ function createPastedImagePreview(image) {
  * @typedef {Object} KeybindingsContext
  * @property {import('@earendil-works/pi-tui').Editor} editor
  * @property {import('@earendil-works/pi-tui').TUI} tui
- * @property {import('../../ui/tui/types.js').UiAPI} uiAPI
- * @property {import('../session/types.js').ImageAttachment[]} pastedImages
+ * @property {import('./types.js').UiAPI} uiAPI
+ * @property {import('../../shared/session/types.js').ImageAttachment[]} pastedImages
  * @property {import('@earendil-works/pi-tui').Container} previewImages
  * @property {Array<unknown>} submissionQueue
  * @property {import('./generation-guard.js').GenerationGuard} generationGuard
@@ -68,10 +68,10 @@ function createPastedImagePreview(image) {
  * @property {() => boolean} isCtrlCPendingExit
  * @property {() => void} [toggleStartupHelp]
  * @property {() => void} cycleThinkingLevel
- * @property {(image: import('../session/types.js').ImageAttachment) => Promise<import('../session/types.js').ImageAttachment | null>} [handleImagePaste]
- * @property {(hostedSession?: import('../session/hosted-session.js').HostedSession) => boolean} [abortActiveSession]
+ * @property {(image: import('../../shared/session/types.js').ImageAttachment) => Promise<import('../../shared/session/types.js').ImageAttachment | null>} [handleImagePaste]
+ * @property {(hostedSession?: import('../../shared/session/hosted-session.js').HostedSession) => boolean} [abortActiveSession]
  * @property {() => boolean} [cancelActivePlanReview]
- * @property {import('../session/hosted-session.js').HostedSession} [hostedSession]
+ * @property {import('../../shared/session/hosted-session.js').HostedSession} [hostedSession]
  * @property {() => void} [clearPendingSteeringMessages]  Callback to clear pending steering messages on cancel
  */
 
@@ -159,7 +159,7 @@ export function installKeybindings(ctx) {
         if (matchesKey(data, Key.ctrl("v"))) {
             const img = await readClipboardImage();
             if (img) {
-                const attachment = /** @type {import('../session/types.js').ImageAttachment | null} */ (
+                const attachment = /** @type {import('../../shared/session/types.js').ImageAttachment | null} */ (
                     handleImagePaste ? await handleImagePaste(img) : img
                 );
                 if (attachment) {

@@ -79,6 +79,7 @@ const bin = (...parts) => [CLI_BIN, ...parts].join(" ");
  * @property {import('../ui/tui/types.js').EditorAPI} [editor]
  * @property {import('../shared/session/hosted-session.js').HostedSession} [hostedSession]
  * @property {import('../shared/session/session-host.js').SessionHost} [sessionHost]
+ * @property {import('../shared/session/session-runtime.js').SessionRuntime} [sessionRuntime]
  * @property {import('../shared/session/types.js').SessionManagerLike} [sessionManager]
  * @property {string} [sessionStartedAt]
  * @property {import('../ui/tui/types.js').TuiAPI} [tui]

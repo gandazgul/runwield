@@ -206,14 +206,15 @@ async function loadSlicerAgentDef(deps) {
 
 /**
  * @param {string} planName
+ * @param {string} cwd
  * @param {{
  *   createSlicerFinalizeTool?: typeof createSlicerFinalizeTool,
  * }} [deps]
  * @returns {import('@earendil-works/pi-coding-agent').ToolDefinition[]}
  */
-function createSlicerCustomTools(planName, deps) {
+function createSlicerCustomTools(planName, cwd, deps) {
     const makeFinalizeTool = deps?.createSlicerFinalizeTool || createSlicerFinalizeTool;
-    return [makeFinalizeTool({ planName })];
+    return [makeFinalizeTool({ planName, cwd })];
 }
 
 /**
@@ -222,7 +223,7 @@ function createSlicerCustomTools(planName, deps) {
  * @param {Object} opts
  * @param {string} opts.planName
  * @param {import('../../tools/plan-written.js').TriageMeta} [opts.triageMeta]
- * @param {import('../../ui/tui/types.js').UiAPI} opts.uiAPI
+ * @param {import('../types.js').SessionUiPort} opts.uiAPI
  * @param {import('../session/hosted-session.js').HostedSession} opts.hostedSession
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager]
  * @param {{
@@ -239,6 +240,7 @@ function createSlicerCustomTools(planName, deps) {
 export async function runSlicerAgent({ planName, triageMeta, uiAPI, hostedSession, sessionManager, __deps }) {
     if (!uiAPI) throw new Error("runSlicerAgent: uiAPI is required");
     if (!hostedSession) throw new Error("runSlicerAgent: hostedSession is required");
+    const projectRoot = hostedSession.cwd;
     const session = __deps?.runAgentSession || runAgentSession;
     const loadEpic = __deps?.loadPlan || (__deps
         ? (() =>
@@ -258,10 +260,10 @@ export async function runSlicerAgent({ planName, triageMeta, uiAPI, hostedSessio
     const slicerDisplay = slicerAgentDef.displayName;
 
     try {
-        const epic = await loadEpic(CWD, planName);
+        const epic = await loadEpic(projectRoot, planName);
         if (!epic) throw new Error(`Epic plan not found: ${planName}`);
         if (!isEpicPlan(epic.attrs)) throw new Error(`Plan is not a PROJECT Epic: ${planName}`);
-        const children = (await findChildren(CWD, planName))
+        const children = (await findChildren(projectRoot, planName))
             .filter((child) => child.attrs.classification === "FEATURE")
             .map(summarizeChild);
 
@@ -280,7 +282,7 @@ export async function runSlicerAgent({ planName, triageMeta, uiAPI, hostedSessio
             uiAPI,
             sessionManager,
             _agentDefOverride: slicerAgentDef,
-            customTools: createSlicerCustomTools(planName, __deps),
+            customTools: createSlicerCustomTools(planName, projectRoot, __deps),
             useRootSession: true,
             allowReturnToRouter: false,
         });
@@ -290,7 +292,7 @@ export async function runSlicerAgent({ planName, triageMeta, uiAPI, hostedSessio
             createAgentHandler(AGENTS.SLICER, {
                 hostedSession,
                 _agentDefOverride: slicerAgentDef,
-                customTools: createSlicerCustomTools(planName, __deps),
+                customTools: createSlicerCustomTools(planName, projectRoot, __deps),
                 allowReturnToRouter: false,
             }),
             uiAPI,
@@ -317,7 +319,7 @@ export async function runSlicerAgent({ planName, triageMeta, uiAPI, hostedSessio
  * @param {string} opts.planName
  * @param {string} opts.planPath - Absolute path to the plan markdown file.
  * @param {import('../../tools/plan-written.js').TriageMeta} [opts.triageMeta]
- * @param {import('../../ui/tui/types.js').UiAPI} opts.uiAPI
+ * @param {import('../types.js').SessionUiPort} opts.uiAPI
  * @param {import('../session/hosted-session.js').HostedSession} opts.hostedSession
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager]
  * @param {{

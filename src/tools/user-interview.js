@@ -5,7 +5,6 @@
 
 import { StringEnum, Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import { promptText, select } from "../ui/tui/prompts.js";
 import {
     requestHostedSessionInteraction,
     RuntimeInteractionOutcomes,
@@ -433,7 +432,7 @@ function brokerFailureToAnswer(response, question) {
 /**
  * @param {InterviewQuestion} question
  * @param {Array<{ value: string, label: string }>} options
- * @param {import('../ui/tui/types.js').UiAPI | undefined} uiAPI
+ * @param {import('../shared/types.js').SessionUiPort | undefined} uiAPI
  * @param {import('../shared/session/hosted-session.js').HostedSession | undefined} hostedSession
  * @param {{ defaultValue?: string }} [extra]
  * @returns {Promise<InterviewAnswer>}
@@ -448,11 +447,21 @@ async function askSelect(question, options, uiAPI, hostedSession, extra = {}) {
     });
     const brokerFailure = brokerResponse ? brokerFailureToAnswer(brokerResponse, question) : null;
     if (brokerFailure) return brokerFailure;
-    const selected = brokerResponse
-        ? brokerResponse.value
-        : uiAPI?.promptSelect
-        ? await uiAPI.promptSelect(question.prompt, options)
-        : await select(question.prompt, options);
+    /** @type {string | boolean | null | undefined} */
+    let selected = brokerResponse?.value;
+    if (!brokerResponse) {
+        const promptSelect = uiAPI?.promptSelect?.bind(uiAPI);
+        if (!promptSelect) {
+            return {
+                error: {
+                    code: "INTERACTION_UNSUPPORTED",
+                    message: "No interaction adapter is available for this interview prompt.",
+                    questionId: question.id,
+                },
+            };
+        }
+        selected = await promptSelect(question.prompt, options);
+    }
     if (selected === null || typeof selected === "undefined") return { canceled: true };
     const option = options.find((item) => item.value === selected);
     return { value: String(selected), valueLabel: brokerResponse?.valueLabel || option?.label };
@@ -460,7 +469,7 @@ async function askSelect(question, options, uiAPI, hostedSession, extra = {}) {
 
 /**
  * @param {InterviewQuestion} question
- * @param {import('../ui/tui/types.js').UiAPI | undefined} uiAPI
+ * @param {import('../shared/types.js').SessionUiPort | undefined} uiAPI
  * @param {import('../shared/session/hosted-session.js').HostedSession | undefined} hostedSession
  * @returns {Promise<InterviewAnswer>}
  */
@@ -474,11 +483,20 @@ async function askOther(question, uiAPI, hostedSession) {
     });
     const otherFailure = otherResponse ? brokerFailureToAnswer(otherResponse, question) : null;
     if (otherFailure) return otherFailure;
-    const otherText = otherResponse
-        ? String(otherResponse.value ?? "")
-        : uiAPI?.promptText
-        ? await uiAPI.promptText(followUpPrompt, { allowEmpty: false })
-        : await promptText(followUpPrompt, { allowEmpty: false });
+    let otherText = otherResponse ? String(otherResponse.value ?? "") : null;
+    if (!otherResponse) {
+        const promptText = uiAPI?.promptText?.bind(uiAPI);
+        if (!promptText) {
+            return {
+                error: {
+                    code: "INTERACTION_UNSUPPORTED",
+                    message: "No interaction adapter is available for this interview prompt.",
+                    questionId: question.id,
+                },
+            };
+        }
+        otherText = await promptText(followUpPrompt, { allowEmpty: false });
+    }
     if (otherText === null) return { canceled: true };
     const normalized = otherText.trim();
     if (!normalized) {
@@ -495,7 +513,7 @@ async function askOther(question, uiAPI, hostedSession) {
 
 /**
  * @param {InterviewQuestion} question
- * @param {import('../ui/tui/types.js').UiAPI | undefined} uiAPI
+ * @param {import('../shared/types.js').SessionUiPort | undefined} uiAPI
  * @param {import('../shared/session/hosted-session.js').HostedSession | undefined} hostedSession
  * @returns {Promise<InterviewAnswer>}
  */
@@ -564,19 +582,24 @@ async function askQuestion(question, uiAPI, hostedSession) {
     });
     const brokerFailure = brokerResponse ? brokerFailureToAnswer(brokerResponse, question) : null;
     if (brokerFailure) return brokerFailure;
-    const text = brokerResponse
-        ? String(brokerResponse.value ?? "")
-        : uiAPI?.promptText
-        ? await uiAPI.promptText(question.prompt, {
-            defaultValue: question.default,
-            placeholder: question.placeholder,
-            allowEmpty,
-        })
-        : await promptText(question.prompt, {
+    let text = brokerResponse ? String(brokerResponse.value ?? "") : null;
+    if (!brokerResponse) {
+        const promptText = uiAPI?.promptText?.bind(uiAPI);
+        if (!promptText) {
+            return {
+                error: {
+                    code: "INTERACTION_UNSUPPORTED",
+                    message: "No interaction adapter is available for this interview prompt.",
+                    questionId: question.id,
+                },
+            };
+        }
+        text = await promptText(question.prompt, {
             defaultValue: question.default,
             placeholder: question.placeholder,
             allowEmpty,
         });
+    }
 
     if (text === null) return { canceled: true };
 

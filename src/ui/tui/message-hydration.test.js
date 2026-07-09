@@ -1,6 +1,6 @@
 import { assertEquals } from "@std/assert";
-import { ToolExecutionBlock } from "../../ui/tui/blocks.js";
-import { initRunWieldTheme } from "../../ui/theme/theme.js";
+import { ToolExecutionBlock } from "./blocks.js";
+import { initRunWieldTheme } from "../theme/theme.js";
 import { restorePersistedMessagesToUi } from "./message-hydration.js";
 
 initRunWieldTheme();
@@ -28,7 +28,7 @@ function makeUi() {
     /** @type {string[]} */
     const agentLabels = [];
 
-    const uiAPI = /** @type {import('../../ui/tui/types.js').UiAPI} */ ({
+    const uiAPI = /** @type {import('./types.js').UiAPI} */ ({
         appendSystemMessage: (text) => systemMessages.push(text),
         appendAgentMessageStart: (label) => {
             agentLabels.push(label);
@@ -281,7 +281,7 @@ Deno.test("restorePersistedMessagesToUi uses activeAgentLabel option for restore
 
 Deno.test("restorePersistedMessagesToUi uses HostedSession label instead of global state", () => {
     const { uiAPI, agentLabels } = makeUi();
-    const hostedSession = /** @type {import('../session/hosted-session.js').HostedSession} */ ({
+    const hostedSession = /** @type {import('../../shared/session/hosted-session.js').HostedSession} */ ({
         getActiveAgentName: () => "Operator",
     });
 

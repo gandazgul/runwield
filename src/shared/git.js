@@ -152,18 +152,25 @@ function normalizeConsent(value) {
 
 /**
  * @param {NonGitConsentKind} kind
+ * @param {string} [projectRoot]
  * @returns {boolean}
  */
-export function hasNonGitExecutionConsent(kind) {
-    const consent = normalizeConsent(getCustomSetting(NON_GIT_EXECUTION_CONSENT_KEY, "project"));
+export function hasNonGitExecutionConsent(kind, projectRoot = Deno.cwd()) {
+    const consent = normalizeConsent(getCustomSetting(NON_GIT_EXECUTION_CONSENT_KEY, "project", projectRoot));
     return consent[kind] === true;
 }
 
 /**
  * @param {NonGitConsentKind} kind
+ * @param {string} [projectRoot]
  * @returns {Promise<void>}
  */
-export async function rememberNonGitExecutionConsent(kind) {
-    const consent = normalizeConsent(getCustomSetting(NON_GIT_EXECUTION_CONSENT_KEY, "project"));
-    await setCustomSetting(NON_GIT_EXECUTION_CONSENT_KEY, { ...consent, [kind]: true }, "project");
+export async function rememberNonGitExecutionConsent(kind, projectRoot = Deno.cwd()) {
+    const consent = normalizeConsent(getCustomSetting(NON_GIT_EXECUTION_CONSENT_KEY, "project", projectRoot));
+    await setCustomSetting(
+        NON_GIT_EXECUTION_CONSENT_KEY,
+        { ...consent, [kind]: true },
+        "project",
+        projectRoot,
+    );
 }
