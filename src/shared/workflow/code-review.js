@@ -11,6 +11,7 @@ export { loadReviewEditorHtml } from "./review-launcher.js";
  * @typedef {Object} CodeReviewAnnotation
  * @property {string} [file]
  * @property {string} [path]
+ * @property {string} [filePath]
  * @property {number} [line]
  * @property {string} [text]
  * @property {string} [comment]
@@ -65,7 +66,7 @@ export function formatCodeReviewAnnotations(annotations) {
     if (annotations.length === 0) return "";
 
     return annotations.map((annotation, index) => {
-        const file = annotation.file || annotation.path || "unknown file";
+        const file = annotation.file || annotation.path || annotation.filePath || "unknown file";
         const line = typeof annotation.line === "number" ? `:${annotation.line}` : "";
         const text = annotation.text || annotation.comment || "";
         return `${index + 1}. ${file}${line}${text ? `\n${text}` : ""}`;
