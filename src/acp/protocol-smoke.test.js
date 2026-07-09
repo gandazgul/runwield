@@ -17,9 +17,11 @@ Deno.test("ACP SDK import exposes agent and NDJSON stream primitives under Deno"
     assertEquals(typeof stream.writable.getWriter, "function");
 });
 
-Deno.test("ACP method constants include session new prompt cancel and update", () => {
+Deno.test("ACP method constants include session lifecycle and update methods", () => {
     assertEquals(methods.agent.session.new, "session/new");
+    assertEquals(methods.agent.session.load, "session/load");
     assertEquals(methods.agent.session.prompt, "session/prompt");
     assertEquals(methods.agent.session.cancel, "session/cancel");
+    assertEquals(methods.agent.session.close, "session/close");
     assertEquals(methods.client.session.update, "session/update");
 });
