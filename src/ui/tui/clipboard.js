@@ -1,6 +1,6 @@
 /**
- * @module shared/clipboard
- * Utility to read images from the system clipboard.
+ * @module ui/tui/clipboard
+ * Terminal UI integration for reading images from the system clipboard.
  */
 
 const defaultClipboardDeps = {

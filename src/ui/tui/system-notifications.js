@@ -1,10 +1,10 @@
 /**
- * @module shared/system-notifications
- * Best-effort desktop notifications for RunWield attention events.
+ * @module ui/tui/system-notifications
+ * Best-effort desktop notifications for terminal UI attention events.
  */
 
-import { getMergedCustomSetting } from "./settings.js";
-import { formatTerminalTitle } from "../ui/tui/terminal-title.js";
+import { getMergedCustomSetting } from "../../shared/settings.js";
+import { formatSessionTerminalTitle } from "../../shared/session/session-name.js";
 
 const EVENT_LABELS = {
     agentStopped: "Agent stopped",
@@ -224,7 +224,7 @@ export function resolveNotificationSettings(raw) {
  */
 export async function detectTerminalIdentity(sessionLabel, deps = defaultDeps) {
     const env = deps.env || {};
-    const terminalTitle = formatTerminalTitle(sessionLabel);
+    const terminalTitle = formatSessionTerminalTitle(sessionLabel);
     const tty = await readTty(deps);
     return {
         sessionLabel,

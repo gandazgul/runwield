@@ -10,7 +10,6 @@ import { directoryExists, fileExists } from "../helpers.js";
 import { PROTECTED_TOOL_NAMES } from "../../tools/registry.js";
 
 const HOME_AGENT_DEFS_DIR = HOME_DIR ? join(HOME_DIR, ".wld", "agents") : null;
-const LOCAL_AGENT_DEFS_DIR = join(CWD, ".wld", "agents");
 
 export const __dirname = dirname(fromFileUrl(import.meta.url));
 
@@ -30,22 +29,24 @@ export const _AGENT_ATTENTION_NUDGES = {
 };
 
 /**
+ * @param {string} projectRoot
  * @returns {string[]}
  */
-function getAgentDefLayerDirs() {
+function getAgentDefLayerDirs(projectRoot) {
     return [
         AGENT_DEFS_DIR,
         ...(HOME_AGENT_DEFS_DIR ? [HOME_AGENT_DEFS_DIR] : []),
-        LOCAL_AGENT_DEFS_DIR,
+        join(projectRoot, ".wld", "agents"),
     ];
 }
 
 /**
+ * @param {string} projectRoot
  * @returns {string[]}
  */
-function getAgentDefDirsByPriority() {
+function getAgentDefDirsByPriority(projectRoot) {
     return [
-        LOCAL_AGENT_DEFS_DIR,
+        join(projectRoot, ".wld", "agents"),
         ...(HOME_AGENT_DEFS_DIR ? [HOME_AGENT_DEFS_DIR] : []),
         AGENT_DEFS_DIR,
     ];
@@ -55,17 +56,19 @@ function getAgentDefDirsByPriority() {
  * Resolve an existing agent definitions directory for pi-coding-agent resource loading.
  * Priority: local (`.wld/agents`) > home (`~/.wld/agents`) > bundled defaults.
  *
+ * @param {string} [projectRoot]
  * @returns {Promise<string>}
  */
-export async function resolveAgentDefsDir() {
-    for (const dir of getAgentDefDirsByPriority()) {
+export async function resolveAgentDefsDir(projectRoot = CWD) {
+    const localAgentDefsDir = join(projectRoot, ".wld", "agents");
+    for (const dir of getAgentDefDirsByPriority(projectRoot)) {
         if (await directoryExists(dir)) return dir;
     }
 
     throw new Error(
         [
             "Could not find any agent defs directory.",
-            `Tried local: ${LOCAL_AGENT_DEFS_DIR}`,
+            `Tried local: ${localAgentDefsDir}`,
             ...(HOME_AGENT_DEFS_DIR ? [`Tried home: ${HOME_AGENT_DEFS_DIR}`] : []),
             `Tried bundled: ${AGENT_DEFS_DIR}`,
         ].join(" "),
@@ -82,15 +85,25 @@ export async function resolveAgentDefsDir() {
 const displayNameCache = new Map();
 
 /**
+ * @param {string} projectRoot
+ * @param {string} internalName
+ * @returns {string}
+ */
+function displayNameCacheKey(projectRoot, internalName) {
+    return `${projectRoot}\0${internalName}`;
+}
+
+/**
  * Synchronously read an agent file's frontmatter `name:` field. Used by
  * `getAgentDisplayName` when the cache is cold. The frontmatter is the only
  * source of truth — we never synthesize a display name from the internal name.
  *
  * @param {string} internalName
+ * @param {string} projectRoot
  * @returns {string | null}
  */
-function readDisplayNameFromFrontMatterSync(internalName) {
-    const candidatePaths = getAgentDefDirsByPriority().map((dir) => join(dir, `${internalName}.md`));
+function readDisplayNameFromFrontMatterSync(internalName, projectRoot) {
+    const candidatePaths = getAgentDefDirsByPriority(projectRoot).map((dir) => join(dir, `${internalName}.md`));
 
     for (const filePath of candidatePaths) {
         let raw;
@@ -119,41 +132,46 @@ function readDisplayNameFromFrontMatterSync(internalName) {
  * silently inventing a display name would hide misconfiguration.
  *
  * @param {string} internalName
+ * @param {string} [projectRoot]
  * @returns {string}
  */
-export function getAgentDisplayName(internalName) {
+export function getAgentDisplayName(internalName, projectRoot = CWD) {
     if (!internalName) {
         throw new Error("getAgentDisplayName: internalName is required");
     }
-    const cached = displayNameCache.get(internalName);
+    const cacheKey = displayNameCacheKey(projectRoot, internalName);
+    const cached = displayNameCache.get(cacheKey);
     if (cached) return cached;
 
-    const fromFile = readDisplayNameFromFrontMatterSync(internalName);
+    const fromFile = readDisplayNameFromFrontMatterSync(internalName, projectRoot);
     if (fromFile) {
-        displayNameCache.set(internalName, fromFile);
+        displayNameCache.set(cacheKey, fromFile);
         return fromFile;
     }
 
     if (internalName === AGENTS.SLICER) {
-        displayNameCache.set(internalName, "Slicer");
+        displayNameCache.set(cacheKey, "Slicer");
         return "Slicer";
     }
 
     throw new Error(
         `getAgentDisplayName: no agent definition with a frontmatter "name:" field was found for "${internalName}". ` +
-            `Searched: ${getAgentDefDirsByPriority().map((dir) => join(dir, `${internalName}.md`)).join(", ")}.`,
+            `Searched: ${
+                getAgentDefDirsByPriority(projectRoot).map((dir) => join(dir, `${internalName}.md`)).join(", ")
+            }.`,
     );
 }
 
 /**
  * List all known agent definition names across bundled + home + local layers.
  *
+ * @param {string} [projectRoot]
  * @returns {Promise<string[]>}
  */
-export async function listAgentDefNames() {
+export async function listAgentDefNames(projectRoot = CWD) {
     const names = new Set();
 
-    for (const dir of getAgentDefLayerDirs()) {
+    for (const dir of getAgentDefLayerDirs(projectRoot)) {
         if (!(await directoryExists(dir))) continue;
         for await (const entry of Deno.readDir(dir)) {
             if (!entry.isFile || !entry.name.endsWith(".md")) continue;
@@ -228,16 +246,17 @@ export function resolveSessionToolNames(agentTools, toolNames, customToolNames) 
 /**
  * List all available merged agent definitions.
  *
+ * @param {string} [projectRoot]
  * @returns {Promise<import('./types.js').AgentDefinition[]>}
  */
-export async function listAvailableAgents() {
-    const names = await listAgentDefNames();
+export async function listAvailableAgents(projectRoot = CWD) {
+    const names = await listAgentDefNames(projectRoot);
     /** @type {import('./types.js').AgentDefinition[]} */
     const agents = [];
 
     for (const name of names) {
         try {
-            const def = await loadAgentDef(name);
+            const def = await loadAgentDef(name, projectRoot);
             agents.push(def);
         } catch (err) {
             // Surface malformed agent definitions instead of silently dropping them.
@@ -264,9 +283,10 @@ export async function listAvailableAgents() {
  *
  * @param {string} agentName - the file name to load (without .md)
  * @param {string[]} filePaths - Paths to attempt, ordered low → high priority
+ * @param {string} projectRoot
  * @returns {Promise<import('./types.js').AgentDefinition>}
  */
-async function loadAgentDefFromPaths(agentName, filePaths) {
+async function loadAgentDefFromPaths(agentName, filePaths, projectRoot) {
     /** @type {{ name?: string, model?: string, description?: string, promptOverride?: boolean, thinkingLevel?: string, temperature?: unknown, tools?: unknown[], [key: string]: unknown }} */
     let mergedAttrs = {};
     /** @type {string[]} */
@@ -335,7 +355,7 @@ async function loadAgentDefFromPaths(agentName, filePaths) {
         if (!tools.includes(toolName)) tools.push(toolName);
     }
 
-    displayNameCache.set(agentName, displayName);
+    displayNameCache.set(displayNameCacheKey(projectRoot, agentName), displayName);
 
     return {
         name: agentName,
@@ -356,12 +376,13 @@ async function loadAgentDefFromPaths(agentName, filePaths) {
  * 3) local override: `<cwd>/.wld/agents/<name>.md`
  *
  * @param {string} agentName
+ * @param {string} [projectRoot]
  * @returns {Promise<import('./types.js').AgentDefinition>}
  */
-export function loadAgentDef(agentName) {
-    const filePaths = getAgentDefLayerDirs().map((dir) => join(dir, `${agentName}.md`));
+export function loadAgentDef(agentName, projectRoot = CWD) {
+    const filePaths = getAgentDefLayerDirs(projectRoot).map((dir) => join(dir, `${agentName}.md`));
 
-    return loadAgentDefFromPaths(agentName, filePaths);
+    return loadAgentDefFromPaths(agentName, filePaths, projectRoot);
 }
 
 /**
@@ -376,5 +397,5 @@ export function loadAgentDef(agentName) {
  */
 export function loadAgentDefFromPath(filePath, options) {
     const agentName = options?.agentName || basename(filePath, ".md");
-    return loadAgentDefFromPaths(agentName, [filePath]);
+    return loadAgentDefFromPaths(agentName, [filePath], dirname(filePath));
 }

@@ -1,5 +1,5 @@
 /**
- * @module shared/interactive/generation-guard
+ * @module ui/tui/generation-guard
  *
  * Generation gating for the interactive TUI loop.
  *

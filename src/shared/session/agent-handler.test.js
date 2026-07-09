@@ -17,7 +17,6 @@ function createAgentHandler(agentName, deps = {}) {
     const hostedSession =
         /** @type {import('./hosted-session.js').HostedSession} */ (deps.hostedSession || makeHostedSession());
     return createAgentHandlerFn(agentName, {
-        notifyRunWieldEvent: () => Promise.resolve(/** @type {any} */ ({ sent: false })),
         ...deps,
         hostedSession,
     });
@@ -558,7 +557,7 @@ Deno.test("agent-handler resumes QUICK_FIX mechanical validation after repair ta
 Deno.test("agent-handler ignores operator task_completed while an Engineer workflow is active", async () => {
     let mechanicalValidationCount = 0;
     let planValidationCount = 0;
-    let notifications = 0;
+    let attentionRequests = 0;
     const hostedSession = makeHostedSession();
     hostedSession.setActiveExecutionWorkflow({
         planName: "quick-fix",
@@ -587,9 +586,8 @@ Deno.test("agent-handler ignores operator task_completed while an Engineer workf
             planValidationCount++;
             return Promise.resolve();
         },
-        notifyRunWieldEvent: () => {
-            notifications++;
-            return Promise.resolve(/** @type {any} */ ({ sent: false }));
+        requestAttention: () => {
+            attentionRequests++;
         },
     });
 
@@ -597,7 +595,7 @@ Deno.test("agent-handler ignores operator task_completed while an Engineer workf
 
     assertEquals(mechanicalValidationCount, 0);
     assertEquals(planValidationCount, 0);
-    assertEquals(notifications, 1);
+    assertEquals(attentionRequests, 1);
     assertEquals(hostedSession.getActiveExecutionWorkflow(), {
         planName: "quick-fix",
         triageMeta: { classification: "QUICK_FIX" },
@@ -606,20 +604,20 @@ Deno.test("agent-handler ignores operator task_completed while an Engineer workf
     });
 });
 
-Deno.test("agent-handler notifies when an ordinary turn returns control to the user", async () => {
-    /** @type {Array<{ eventName: string, sessionName: string | undefined, agentName: string | undefined }>} */
-    const notifications = [];
+Deno.test("agent-handler requests attention when an ordinary turn returns control to the user", async () => {
+    /** @type {Array<{ sessionId: string, reason: string, agentName: string }>} */
+    const attentions = [];
     const handler = createAgentHandler("planner", {
         runAgentSession: () => Promise.resolve(/** @type {any} */ ([])),
         readLatestTriageOutcome: () => null,
         readLatestPlanOutcome: () => null,
         readLatestTaskCompletedOutcome: () => false,
-        notifyRunWieldEvent: (
-            /** @type {string} */ eventName,
-            /** @type {{ sessionName?: string, agentName?: string }} */ options,
+        requestAttention: (
+            /** @type {HostedSession} */ hostedSession,
+            /** @type {string} */ reason,
+            /** @type {string} */ agentName,
         ) => {
-            notifications.push({ eventName, sessionName: options?.sessionName, agentName: options?.agentName });
-            return Promise.resolve(/** @type {any} */ ({ sent: false }));
+            attentions.push({ sessionId: hostedSession.id, reason, agentName });
         },
     });
 
@@ -630,11 +628,13 @@ Deno.test("agent-handler notifies when an ordinary turn returns control to the u
         /** @type {any} */ ({ getSessionName: () => "ordinary session" }),
     );
 
-    assertEquals(notifications, [{ eventName: "agentStopped", sessionName: "ordinary session", agentName: "planner" }]);
+    assertEquals(attentions.length, 1);
+    assertEquals(attentions[0].reason, "agentStopped");
+    assertEquals(attentions[0].agentName, "planner");
 });
 
-Deno.test("agent-handler does not send agent-stopped notification before triage dispatch", async () => {
-    let notificationCount = 0;
+Deno.test("agent-handler does not request agent-stopped attention before triage dispatch", async () => {
+    let attentionCount = 0;
     const handler = createAgentHandler("router", {
         runAgentSession: () => Promise.resolve(/** @type {any} */ ([])),
         readLatestTriageOutcome: () => /** @type {any} */ ({ routingIntent: "INQUIRY" }),
@@ -642,18 +642,17 @@ Deno.test("agent-handler does not send agent-stopped notification before triage 
         readLatestPlanOutcome: () => {
             throw new Error("triage should short-circuit");
         },
-        notifyRunWieldEvent: () => {
-            notificationCount++;
-            return Promise.resolve(/** @type {any} */ ({ sent: false }));
+        requestAttention: () => {
+            attentionCount++;
         },
     });
 
     await handler("route", [], /** @type {any} */ ({}), /** @type {any} */ ({}));
 
-    assertEquals(notificationCount, 0);
+    assertEquals(attentionCount, 0);
 });
 
-Deno.test("agent-handler notifies after validation completes", async () => {
+Deno.test("agent-handler requests attention after validation completes", async () => {
     /** @type {string[]} */
     const events = [];
     const hostedSession = makeHostedSession();
@@ -678,19 +677,18 @@ Deno.test("agent-handler notifies after validation completes", async () => {
             events.push("validation");
             return Promise.resolve();
         },
-        notifyRunWieldEvent: () => {
-            events.push("notification");
-            return Promise.resolve(/** @type {any} */ ({ sent: false }));
+        requestAttention: () => {
+            events.push("attention");
         },
     });
 
     await handler("done", [], /** @type {any} */ ({}), /** @type {any} */ (undefined));
 
-    assertEquals(events, ["validation", "notification"]);
+    assertEquals(events, ["validation", "attention"]);
 });
 
-Deno.test("agent-handler does not duplicate agent-stopped notification after plan_written saved outcome", async () => {
-    let notificationCount = 0;
+Deno.test("agent-handler does not request agent-stopped attention after plan_written saved outcome", async () => {
+    let attentionCount = 0;
     const handler = createAgentHandler("planner", {
         runAgentSession: () =>
             Promise.resolve(
@@ -703,13 +701,12 @@ Deno.test("agent-handler does not duplicate agent-stopped notification after pla
         readLatestTriageOutcome: () => null,
         readLatestPlanOutcome: (/** @type {any} */ msgs) => /** @type {any} */ (msgs[0]).details,
         readLatestTaskCompletedOutcome: () => false,
-        notifyRunWieldEvent: () => {
-            notificationCount++;
-            return Promise.resolve(/** @type {any} */ ({ sent: false }));
+        requestAttention: () => {
+            attentionCount++;
         },
     });
 
     await handler("plan", [], /** @type {any} */ ({}), /** @type {any} */ (undefined));
 
-    assertEquals(notificationCount, 0);
+    assertEquals(attentionCount, 0);
 });

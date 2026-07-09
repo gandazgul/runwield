@@ -8,7 +8,7 @@ import { printCommandHelp as printCommandHelpFn } from "../help/index.js";
 import {
     setActiveAgent as setActiveAgentFn,
     startInteractiveSession as startInteractiveSessionFn,
-} from "../../shared/interactive/chat-session.js";
+} from "../../ui/tui/chat-session.js";
 import { listAvailableAgents as listAvailableAgentsFn } from "../../shared/session/agents.js";
 import { AGENTS } from "../../constants.js";
 import { COMMAND_NAMES } from "../registry.js";

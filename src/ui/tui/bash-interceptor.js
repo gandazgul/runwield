@@ -1,5 +1,5 @@
 /**
- * @module shared/interactive/bash-interceptor
+ * @module ui/tui/bash-interceptor
  *
  * Handles `!command` and `!!command` user input.
  *
@@ -19,11 +19,12 @@
 /**
  * @typedef {Object} BashContext
  * @property {string} userRequest - Raw input (still includes leading `!` or `!!`).
- * @property {import('../../ui/tui/types.js').UiAPI} uiAPI
+ * @property {import('./types.js').UiAPI} uiAPI
  * @property {import('@earendil-works/pi-tui').TUI} tui
  * @property {import('@earendil-works/pi-tui').Editor} editor
- * @property {() => (import('../session/types.js').SessionManagerLike | null)} getSessionManager
+ * @property {() => (import('../../shared/session/types.js').SessionManagerLike | null)} getSessionManager
  * @property {import('./generation-guard.js').GenerationGuard} generationGuard
+ * @property {string} [cwd]
  * @property {(proc: { kill?: () => void } | null) => void} registerBashProc
  * @property {boolean} [concurrent] - True when another operation is in flight; skips gen-guard bump and session persistence.
  */
@@ -97,7 +98,7 @@ async function runPipedCommand(ctx, command, userRequest, persistToSession) {
         try {
             const commandProc = new Deno.Command("sh", {
                 args: ["-c", command],
-                cwd: Deno.cwd(),
+                cwd: ctx.cwd || Deno.cwd(),
                 stdout: "piped",
                 stderr: "piped",
             });

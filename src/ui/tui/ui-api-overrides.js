@@ -1,5 +1,5 @@
 /**
- * @module shared/interactive/ui-api-overrides
+ * @module ui/tui/ui-api-overrides
  *
  * Wires chat-session-specific behavior onto the shared UiAPI: keeps the
  * active-agent / model state in sync with TUI renders, swaps the editor for
@@ -8,13 +8,13 @@
 
 import { Image, Spacer } from "@earendil-works/pi-tui";
 import { ModelSelectorComponent } from "@earendil-works/pi-coding-agent";
-import { getModelRegistry } from "../models/model-registry.js";
-import { getSettingsManager } from "../settings.js";
-import { imageTheme } from "../../ui/theme/theme.js";
+import { getModelRegistry } from "../../shared/models/model-registry.js";
+import { getSettingsManager } from "../../shared/settings.js";
+import { imageTheme } from "../theme/theme.js";
 
 /**
  * @param {{
- *   uiAPI: import('../../ui/tui/types.js').UiAPI,
+ *   uiAPI: import('./types.js').UiAPI,
  *   tui: import('@earendil-works/pi-tui').TUI,
  *   editor: import('@earendil-works/pi-tui').Editor,
  *   container: import('@earendil-works/pi-tui').Container,

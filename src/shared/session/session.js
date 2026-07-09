@@ -23,8 +23,7 @@ import { createRunWieldGrepToolDefinition } from "../../tools/grep.js";
 import { extractYaml, test as hasFrontMatter } from "@std/front-matter";
 import { dirname, join } from "@std/path";
 import { AGENT_DEFS_DIR, AGENTS, CWD, HOME_DIR, PROMPT_TEMPLATES_DIR, SKILLS_DIR } from "../../constants.js";
-import { RuntimeEventTypes } from "./session-runtime-events.js";
-import { createUiPromptInteractionAdapter } from "./session-runtime-interactions.js";
+import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runtime-events.js";
 import mnemosyneExtension, {
     memoryDeleteToolDef,
     memoryRecallGlobalToolDef,
@@ -65,11 +64,9 @@ import { modelSupportsImageInput, prepareImagesForModel, resolveVisionFallbackMo
 import { recordActiveAgent } from "./active-agent-session.js";
 import { getPackagePromptTemplatePaths, resolveInstalledPackagePromptResources } from "../package-resources.js";
 import { getWldExtensionPaths, resolveInstalledWldExtensionResources } from "../extensions/wld-extension-manifest.js";
-import { notifyRunWieldEventQuietly } from "../system-notifications.js";
 import { recordToolCallFinished, recordToolCallStarted, recordWorkflowMetric } from "../workflow/metrics.js";
 
 const HOME_PROMPTS_DIR = HOME_DIR ? join(HOME_DIR, ".wld", "prompts") : null;
-const LOCAL_PROMPTS_DIR = join(CWD, ".wld", "prompts");
 const HIDDEN_UI_TOOL_BLOCK_NAMES = new Set(["review_complete", "user_interview"]);
 
 /** Regex to detect an HTML body in an error message (e.g. from a 404 page). */
@@ -194,11 +191,12 @@ const promptTemplateModelByName = new Map();
 /**
  * Resolve prompt template search paths by priority: local > home > bundled.
  *
+ * @param {string} [cwd]
  * @returns {string[]}
  */
-export function getPromptTemplatePaths() {
+export function getPromptTemplatePaths(cwd = CWD) {
     return [
-        LOCAL_PROMPTS_DIR,
+        join(cwd, ".wld", "prompts"),
         ...(HOME_PROMPTS_DIR ? [HOME_PROMPTS_DIR] : []),
         PROMPT_TEMPLATES_DIR,
     ];
@@ -243,7 +241,7 @@ async function parsePromptTemplateMeta(filePath) {
  * List all known prompt templates across bundled + home + local layers.
  * First name wins, based on priority local > home > bundled.
  *
- * @param {{ packagePromptResources?: import("../package-resources.js").ResolvedResource[] }} [options]
+ * @param {{ cwd?: string, packagePromptResources?: import("../package-resources.js").ResolvedResource[] }} [options]
  * @returns {Promise<PromptTemplateMeta[]>}
  */
 export async function listPromptTemplates(options = {}) {
@@ -251,10 +249,11 @@ export async function listPromptTemplates(options = {}) {
     const templates = [];
     promptTemplateModelByName.clear();
     const seen = new Set();
+    const cwd = options.cwd || CWD;
 
     /** @type {Array<{dir: string, source: PromptTemplateSource}>} */
     const layers = [
-        { dir: LOCAL_PROMPTS_DIR, source: "local" },
+        { dir: join(cwd, ".wld", "prompts"), source: "local" },
         ...(HOME_PROMPTS_DIR ? [{ dir: HOME_PROMPTS_DIR, source: /** @type {PromptTemplateSource} */ ("home") }] : []),
         { dir: PROMPT_TEMPLATES_DIR, source: "bundled" },
     ];
@@ -458,9 +457,10 @@ export async function ensureBundledAgentDefFile(relativePath) {
  * List all known skills across bundled + home + local layers.
  * First name wins, based on priority local > home > bundled.
  *
+ * @param {{ cwd?: string }} [options]
  * @returns {Promise<SkillMeta[]>}
  */
-export async function listSkills() {
+export async function listSkills(options = {}) {
     const skills = [];
     const seen = new Set();
 
@@ -470,7 +470,7 @@ export async function listSkills() {
 
     const layers = [
         {
-            dir: join(CWD, ".wld", "skills"),
+            dir: join(options.cwd || CWD, ".wld", "skills"),
             source: /** @type {"local" | "home" | "bundled" | "external"} */ ("local"),
         },
         ...(HOME_DIR
@@ -570,9 +570,10 @@ export async function readGlobalAgentMd(homeDir, options = {}) {
  * `assembleFinalSystemPrompt` reads from. Used by the boot banner to show
  * the user what context was actually injected into the system prompt.
  *
+ * @param {string} [cwd]
  * @returns {Promise<{ path: string, source: "home" | "external" | "local" }[]>}
  */
-export async function listLoadedAgentMdFiles() {
+export async function listLoadedAgentMdFiles(cwd = CWD) {
     /** @type {{ path: string, source: "home" | "external" | "local" }[]} */
     const results = [];
 
@@ -586,7 +587,7 @@ export async function listLoadedAgentMdFiles() {
         }
     }
 
-    for (const projectPath of [join(CWD, "RUNWEILD.md"), join(CWD, "AGENTS.md")]) {
+    for (const projectPath of [join(cwd, "RUNWEILD.md"), join(cwd, "AGENTS.md")]) {
         if (await fileExists(projectPath)) {
             results.push({ path: projectPath, source: "local" });
             break;
@@ -690,19 +691,19 @@ export async function steerRootSessionWithTarget(hostedSession, text, images) {
  * @param {string} agentName
  * @returns {string | undefined}
  */
-export function getConfiguredAgentModel(agentName) {
+export function getConfiguredAgentModel(agentName, projectRoot = CWD) {
     const agents = /** @type {Record<string, { model?: string }> | undefined} */ (
-        getMergedCustomSetting("agents")
+        getMergedCustomSetting("agents", projectRoot)
     );
 
     // Check active preset first
     const activeModelPreset = /** @type {string | undefined} */ (
-        getMergedCustomSetting("activeModelPreset")
+        getMergedCustomSetting("activeModelPreset", projectRoot)
     );
     if (activeModelPreset) {
         const modelPresets =
             /** @type {Record<string, { agents?: Record<string, { model?: string }> }> | undefined} */ (
-                getMergedCustomSetting("modelPresets")
+                getMergedCustomSetting("modelPresets", projectRoot)
             );
         const preset = modelPresets?.[activeModelPreset];
         const presetModel = preset?.agents?.[agentName]?.model;
@@ -724,19 +725,19 @@ export function getConfiguredAgentModel(agentName) {
  * @param {string} agentName
  * @returns {string | undefined}
  */
-export function getConfiguredAgentThinkingLevel(agentName) {
+export function getConfiguredAgentThinkingLevel(agentName, projectRoot = CWD) {
     const agents = /** @type {Record<string, { thinkingLevel?: string }> | undefined} */ (
-        getMergedCustomSetting("agents")
+        getMergedCustomSetting("agents", projectRoot)
     );
 
     // Check active preset first
     const activeModelPreset = /** @type {string | undefined} */ (
-        getMergedCustomSetting("activeModelPreset")
+        getMergedCustomSetting("activeModelPreset", projectRoot)
     );
     if (activeModelPreset) {
         const modelPresets =
             /** @type {Record<string, { agents?: Record<string, { thinkingLevel?: string }> }> | undefined} */ (
-                getMergedCustomSetting("modelPresets")
+                getMergedCustomSetting("modelPresets", projectRoot)
             );
         const preset = modelPresets?.[activeModelPreset];
         const presetLevel = preset?.agents?.[agentName]?.thinkingLevel;
@@ -847,18 +848,18 @@ function omitTemperatureOption(options) {
  * @param {string} agentName
  * @returns {number | undefined}
  */
-export function getConfiguredAgentTemperature(agentName) {
+export function getConfiguredAgentTemperature(agentName, projectRoot = CWD) {
     const agents = /** @type {Record<string, { temperature?: unknown }> | undefined} */ (
-        getMergedCustomSetting("agents")
+        getMergedCustomSetting("agents", projectRoot)
     );
 
     const activeModelPreset = /** @type {string | undefined} */ (
-        getMergedCustomSetting("activeModelPreset")
+        getMergedCustomSetting("activeModelPreset", projectRoot)
     );
     if (activeModelPreset) {
         const modelPresets =
             /** @type {Record<string, { agents?: Record<string, { temperature?: unknown }> }> | undefined} */ (
-                getMergedCustomSetting("modelPresets")
+                getMergedCustomSetting("modelPresets", projectRoot)
             );
         const preset = modelPresets?.[activeModelPreset];
         const presetTemperature = normalizeAgentTemperature(preset?.agents?.[agentName]?.temperature);
@@ -921,6 +922,11 @@ async function resolveModel(
     hostedSession = undefined,
 ) {
     let resolvedModel = null;
+    const projectRoot = hostedSession?.cwd || CWD;
+    /** @param {Parameters<typeof recordWorkflowMetric>[0]} metric */
+    function recordModelMetric(metric) {
+        return recordWorkflowMetric(metric, { cwd: projectRoot });
+    }
 
     /** @type {Array<{ model: string, source: string, strict: boolean }>} */
     const candidateModels = [];
@@ -945,7 +951,7 @@ async function resolveModel(
 
     // Config-driven per-agent model override (agents.<name>.model or active preset)
     if (agentName) {
-        const configuredModel = getConfiguredAgentModel(agentName);
+        const configuredModel = getConfiguredAgentModel(agentName, hostedSession?.cwd || CWD);
         if (configuredModel) {
             candidateModels.push({
                 model: configuredModel,
@@ -956,7 +962,7 @@ async function resolveModel(
     }
 
     // Settings default is still a settings value, so it wins over layered agent definitions.
-    const settingsManager = getSettingsManager();
+    const settingsManager = getSettingsManager(hostedSession?.cwd || CWD);
     const defaultModelId = settingsManager.getDefaultModel();
     const defaultProvider = settingsManager.getDefaultProvider();
     if (defaultModelId) {
@@ -978,7 +984,7 @@ async function resolveModel(
     for (const candidate of candidateModels) {
         const parsed = parseProviderModel(candidate.model);
         if (!parsed.ok) {
-            await recordWorkflowMetric({
+            await recordModelMetric({
                 category: "model_selection",
                 event: "candidate_evaluated",
                 agentName,
@@ -991,7 +997,7 @@ async function resolveModel(
                 },
             });
             if (candidate.strict) {
-                await recordWorkflowMetric({
+                await recordModelMetric({
                     category: "model_selection",
                     event: "selection_failed",
                     agentName,
@@ -1009,7 +1015,7 @@ async function resolveModel(
                 found = await discoverProviderModel(modelRegistry, parsed.provider, parsed.id);
                 discovered = Boolean(found);
             } catch (error) {
-                await recordWorkflowMetric({
+                await recordModelMetric({
                     category: "model_selection",
                     event: "candidate_evaluated",
                     agentName,
@@ -1025,7 +1031,7 @@ async function resolveModel(
                 });
                 if (candidate.strict) {
                     const message = error instanceof Error ? error.message : String(error);
-                    await recordWorkflowMetric({
+                    await recordModelMetric({
                         category: "model_selection",
                         event: "selection_failed",
                         agentName,
@@ -1037,7 +1043,7 @@ async function resolveModel(
         }
 
         if (!found) {
-            await recordWorkflowMetric({
+            await recordModelMetric({
                 category: "model_selection",
                 event: "candidate_evaluated",
                 agentName,
@@ -1052,7 +1058,7 @@ async function resolveModel(
                 },
             });
             if (candidate.strict) {
-                await recordWorkflowMetric({
+                await recordModelMetric({
                     category: "model_selection",
                     event: "selection_failed",
                     agentName,
@@ -1064,7 +1070,7 @@ async function resolveModel(
         }
 
         if (!modelRegistry.hasConfiguredAuth(found)) {
-            await recordWorkflowMetric({
+            await recordModelMetric({
                 category: "model_selection",
                 event: "candidate_evaluated",
                 agentName,
@@ -1082,7 +1088,7 @@ async function resolveModel(
                 },
             });
             if (candidate.strict) {
-                await recordWorkflowMetric({
+                await recordModelMetric({
                     category: "model_selection",
                     event: "selection_failed",
                     agentName,
@@ -1098,7 +1104,7 @@ async function resolveModel(
             continue;
         }
 
-        await recordWorkflowMetric({
+        await recordModelMetric({
             category: "model_selection",
             event: "candidate_evaluated",
             agentName,
@@ -1114,7 +1120,7 @@ async function resolveModel(
                 selected: true,
             },
         });
-        await recordWorkflowMetric({
+        await recordModelMetric({
             category: "model_selection",
             event: "selection_resolved",
             agentName,
@@ -1132,7 +1138,7 @@ async function resolveModel(
 
     if (resolvedModel) return resolvedModel;
 
-    await recordWorkflowMetric({
+    await recordModelMetric({
         category: "model_selection",
         event: "selection_failed",
         agentName,
@@ -1240,7 +1246,7 @@ export async function assembleFinalSystemPrompt(
     try {
         const command = new Deno.Command("mnemosyne", {
             args: ["list", "-t", "core", "-f", "plain"],
-            cwd: CWD,
+            cwd,
             stdout: "piped",
             stderr: "piped",
         });
@@ -1256,7 +1262,7 @@ export async function assembleFinalSystemPrompt(
 
     let skillsBlock = "";
     try {
-        const skills = await listSkills();
+        const skills = await listSkills({ cwd });
         skillsBlock = skills
             .filter((skill) => skill.name && skill.description && !skill.disableModelInvocation)
             .map((skill) => `- ${skill.name} - ${skill.description} (read: ${skill.path})`)
@@ -1358,7 +1364,7 @@ export async function buildAgentSession({
     const sessionCwd = cwd || targetHostedSession?.cwd || CWD;
     await ensureMnemosyneBinary();
     await ensureCymbalBinary();
-    const agentDef = _agentDefOverride || await loadAgentDef(agentName);
+    const agentDef = _agentDefOverride || await loadAgentDef(agentName, sessionCwd);
 
     const modelRegistry = getModelRegistry();
     const resolvedModel = await resolveModel(
@@ -1383,13 +1389,6 @@ export async function buildAgentSession({
     // Auto-wire internal custom tools if requested by name and not already provided.
     // This keeps agent frontmatter declarative: adding/removing tool names controls availability,
     // while RunWield runtime injects the concrete tool implementations.
-
-    if (uiAPI && targetHostedSession?.setInteractionAdapter) {
-        const currentMeta = targetHostedSession.getInteractionAdapterMeta?.();
-        if (currentMeta?.kind !== "acp") {
-            targetHostedSession.setInteractionAdapter(createUiPromptInteractionAdapter(uiAPI), { kind: "tui" });
-        }
-    }
 
     if (tools.includes("return_to_router") && !finalCustomTools.find((t) => t.name === "return_to_router")) {
         // Root sessions are hosted explicitly; close over the session/UI used to
@@ -1482,7 +1481,7 @@ export async function buildAgentSession({
         extensionFactories,
         additionalExtensionPaths: getWldExtensionPaths(packageExtensionResources),
         additionalPromptTemplatePaths: [
-            ...getPromptTemplatePaths(),
+            ...getPromptTemplatePaths(sessionCwd),
             ...getPackagePromptTemplatePaths(packagePromptResources),
         ],
         noExtensions: true,
@@ -1502,7 +1501,7 @@ export async function buildAgentSession({
         agentDir: getSettingsDir("global"),
         authStorage: modelRegistry.authStorage,
         modelRegistry,
-        settingsManager: getSettingsManager(),
+        settingsManager: getSettingsManager(sessionCwd),
         tools,
         customTools: finalCustomTools,
         resourceLoader: loader,
@@ -1510,7 +1509,7 @@ export async function buildAgentSession({
         ...(resolvedModel ? { model: resolvedModel } : {}),
     });
 
-    const configuredTemperature = agentName ? getConfiguredAgentTemperature(agentName) : undefined;
+    const configuredTemperature = agentName ? getConfiguredAgentTemperature(agentName, sessionCwd) : undefined;
     const temperatureSource = configuredTemperature !== undefined ? "settings agent temperature" : (
         agentDef.temperature !== undefined ? "agent definition temperature" : undefined
     );
@@ -1533,12 +1532,12 @@ export async function buildAgentSession({
 
     // Apply thinking level — settings values take priority over layered frontmatter.
     let thinkingLevelSource = undefined;
-    let resolvedThinkingLevel = agentName ? getConfiguredAgentThinkingLevel(agentName) : undefined;
+    let resolvedThinkingLevel = agentName ? getConfiguredAgentThinkingLevel(agentName, sessionCwd) : undefined;
     if (resolvedThinkingLevel) {
         thinkingLevelSource = "settings agent thinking level";
     }
     if (!resolvedThinkingLevel) {
-        resolvedThinkingLevel = getSettingsManager().getDefaultThinkingLevel();
+        resolvedThinkingLevel = getSettingsManager(sessionCwd).getDefaultThinkingLevel();
         if (resolvedThinkingLevel) thinkingLevelSource = "settings default thinking level";
     }
     if (!resolvedThinkingLevel) {
@@ -1581,7 +1580,7 @@ export async function buildAgentSession({
             temperatureConfigured: resolvedTemperature !== undefined,
             temperatureSource,
         },
-    });
+    }, { cwd: sessionCwd });
     return {
         session,
         agentDef,
@@ -1680,7 +1679,6 @@ async function compactBeforePromptIfNeeded(session, prepared) {
  * @param {import('../workflow/workflow.js').UiAPI | undefined} uiAPI
  * @param {string} [debugLogPath]
  * @param {import('./hosted-session.js').HostedSession} [hostedSession]
- * @param {object} [deps]
  *
  * @returns {SubscriberState}
  */
@@ -1690,7 +1688,6 @@ export function attachUiSubscribers(
     uiAPI,
     debugLogPath = undefined,
     hostedSession = undefined,
-    deps = {},
 ) {
     /** @type {{ appendText: (delta: string) => void } | null} */
     let currentMarkdownBlock = null;
@@ -1702,8 +1699,6 @@ export function attachUiSubscribers(
     let invokedToolNames = [];
     /** @type {{ appendDelta: (delta: string) => void, end: () => void } | null} */
     let currentThinkingStream = null;
-    const notifyDeps = /** @type {{ notifyRunWieldEventQuietly?: typeof notifyRunWieldEventQuietly }} */ (deps);
-    const notifyRunWieldEvent = notifyDeps.notifyRunWieldEventQuietly || notifyRunWieldEventQuietly;
     let currentRuntimeTurnId = crypto.randomUUID();
     let assistantMessageSequence = 0;
     let thinkingMessageSequence = 0;
@@ -1721,22 +1716,8 @@ export function attachUiSubscribers(
      * @param {Partial<import('./session-runtime-events.js').SessionRuntimeEvent> & { type: string }} runtimeEvent
      */
     const emitRuntimeEvent = (runtimeEvent) => {
-        const sink = hostedSession?.getEventSink?.();
-        if (!sink) return false;
         const eventWithTurnId = runtimeEvent.turnId ? runtimeEvent : { turnId: currentRuntimeTurnId, ...runtimeEvent };
-        try {
-            if (typeof sink === "function") {
-                sink(eventWithTurnId);
-                return true;
-            }
-            if (typeof sink === "object" && "emit" in sink && typeof sink.emit === "function") {
-                sink.emit(eventWithTurnId);
-                return true;
-            }
-        } catch {
-            // Adapter event sinks must not break the core pi-agent subscriber.
-        }
-        return false;
+        return emitHostedSessionRuntimeEvent(hostedSession, eventWithTurnId);
     };
 
     const hasRuntimeEventSink = () => Boolean(hostedSession?.getEventSink?.());
@@ -1750,6 +1731,7 @@ export function attachUiSubscribers(
 
     const unsubscribe = session.subscribe((event) => {
         const liveUiAPI = /** @type {any} */ (uiAPI || hostedSession?.getActiveUiAPIState?.() || undefined);
+        const renderUiAPI = liveUiAPI?._runtimeEventBridge === true ? null : liveUiAPI;
 
         switch (event.type) {
             case "message_start": {
@@ -1796,8 +1778,8 @@ export function attachUiSubscribers(
                             ].join("\n"),
                         );
                     }
-                    if (!currentThinkingStream && liveUiAPI) {
-                        currentThinkingStream = liveUiAPI.appendThinkingStart?.() ?? null;
+                    if (!currentThinkingStream && renderUiAPI) {
+                        currentThinkingStream = renderUiAPI.appendThinkingStart?.() ?? null;
                     }
                     if (currentThinkingStream) {
                         currentThinkingStream.appendDelta(event.assistantMessageEvent.delta);
@@ -1832,6 +1814,7 @@ export function attachUiSubscribers(
                         type: RuntimeEventTypes.ASSISTANT_TEXT_DELTA,
                         messageId: currentAssistantMessageId,
                         delta: event.assistantMessageEvent.delta,
+                        _meta: { agentName: agentDef.displayName },
                     });
                     if (shouldWriteDebugLog(debugLogPath) && debugLogPath) {
                         appendDebugLog(
@@ -1846,14 +1829,14 @@ export function attachUiSubscribers(
                         );
                     }
                     endThinking();
-                    if (liveUiAPI) {
-                        const block = currentMarkdownBlock ?? liveUiAPI.appendAgentMessageStart(
+                    if (renderUiAPI) {
+                        const block = currentMarkdownBlock ?? renderUiAPI.appendAgentMessageStart(
                             agentHeaderShown ? "" : agentDef.displayName,
                         );
                         currentMarkdownBlock = block;
                         agentHeaderShown = true;
                         block.appendText(event.assistantMessageEvent.delta);
-                        liveUiAPI.requestRender();
+                        renderUiAPI.requestRender();
                     } else if (!hasRuntimeEventSink()) {
                         Deno.stdout.writeSync(
                             new TextEncoder().encode(event.assistantMessageEvent.delta),
@@ -1902,7 +1885,7 @@ export function attachUiSubscribers(
 
                 if (
                     event.message.role === "assistant" && event.message.stopReason === "error" &&
-                    liveUiAPI
+                    renderUiAPI
                 ) {
                     if (shouldWriteDebugLog(debugLogPath) && debugLogPath) {
                         appendDebugLog(
@@ -1915,7 +1898,7 @@ export function attachUiSubscribers(
                             ].join("\n"),
                         );
                     }
-                    const block = currentMarkdownBlock ?? liveUiAPI.appendAgentMessageStart(
+                    const block = currentMarkdownBlock ?? renderUiAPI.appendAgentMessageStart(
                         agentHeaderShown ? "" : agentDef.displayName,
                     );
                     currentMarkdownBlock = block;
@@ -1923,7 +1906,7 @@ export function attachUiSubscribers(
                     block.appendText(
                         `\n\n**Error:** ${sanitizeApiErrorMessage(event.message.errorMessage || "Unknown LLM error")}`,
                     );
-                    liveUiAPI.requestRender();
+                    renderUiAPI.requestRender();
                 }
                 break;
             }
@@ -1937,8 +1920,8 @@ export function attachUiSubscribers(
                     message,
                     raw: event,
                 });
-                if (liveUiAPI) {
-                    liveUiAPI.appendSystemMessage(message);
+                if (renderUiAPI) {
+                    renderUiAPI.appendSystemMessage(message);
                 }
                 break;
             }
@@ -1953,8 +1936,8 @@ export function attachUiSubscribers(
                         message,
                         raw: event,
                     });
-                    if (liveUiAPI) {
-                        liveUiAPI.appendSystemMessage(message, true);
+                    if (renderUiAPI) {
+                        renderUiAPI.appendSystemMessage(message, true);
                     }
                 }
                 break;
@@ -1967,12 +1950,13 @@ export function attachUiSubscribers(
                     event.toolName,
                     event.args,
                     agentDef.displayName || agentDef.name,
+                    { cwd: hostedSession?.cwd },
                 );
 
                 if (event.toolName === "plan_written" || event.toolName === "user_interview") {
-                    const sessionManager = /** @type {any} */ (hostedSession?.getRootSessionManager?.());
-                    notifyRunWieldEvent(event.toolName === "plan_written" ? "planWritten" : "userInterview", {
-                        sessionName: sessionManager?.getSessionName?.(),
+                    emitRuntimeEvent({
+                        type: RuntimeEventTypes.ATTENTION_REQUESTED,
+                        reason: event.toolName === "plan_written" ? "planWritten" : "userInterview",
                         agentName: agentDef.displayName,
                     });
                 }
@@ -2059,9 +2043,9 @@ export function attachUiSubscribers(
                     break;
                 }
 
-                if (liveUiAPI && liveUiAPI.startToolExecution) {
+                if (renderUiAPI && renderUiAPI.startToolExecution) {
                     const headerName = event.toolName === "bash" ? "$" : event.toolName;
-                    liveUiAPI.startToolExecution(event.toolCallId, headerName, headerArgs);
+                    renderUiAPI.startToolExecution(event.toolCallId, headerName, headerArgs);
                 } else if (!hasRuntimeEventSink()) {
                     console.log(`\n  [Tool] ${event.toolName} ${headerArgs}`);
                 }
@@ -2094,8 +2078,8 @@ export function attachUiSubscribers(
                     partialResult: event.partialResult,
                     text: partialText,
                 });
-                if (liveUiAPI && liveUiAPI.getActiveToolBlock) {
-                    const block = liveUiAPI.getActiveToolBlock(event.toolCallId);
+                if (renderUiAPI && renderUiAPI.getActiveToolBlock) {
+                    const block = renderUiAPI.getActiveToolBlock(event.toolCallId);
                     if (block && event.partialResult && event.partialResult.content) {
                         const newContentText = partialText;
                         const currentText = block.bodyText || "";
@@ -2112,6 +2096,7 @@ export function attachUiSubscribers(
                     event.toolName,
                     Boolean(event.isError),
                     agentDef.displayName || agentDef.name,
+                    { cwd: hostedSession?.cwd },
                 );
                 if (shouldWriteDebugLog(debugLogPath) && debugLogPath) {
                     appendDebugLog(
@@ -2141,8 +2126,8 @@ export function attachUiSubscribers(
                     result: event.result,
                     text: resultText,
                 });
-                if (liveUiAPI && liveUiAPI.getActiveToolBlock) {
-                    const block = liveUiAPI.getActiveToolBlock(event.toolCallId);
+                if (renderUiAPI && renderUiAPI.getActiveToolBlock) {
+                    const block = renderUiAPI.getActiveToolBlock(event.toolCallId);
                     if (block) {
                         // Make sure we append any final result text that wasn't streamed
                         if (event.result && event.result.content) {
@@ -2167,14 +2152,14 @@ export function attachUiSubscribers(
                 currentAssistantMessageId = null;
                 currentThinkingMessageId = null;
                 emitRuntimeEvent({ type: RuntimeEventTypes.TURN_START, turnId: currentRuntimeTurnId });
-                if (liveUiAPI && liveUiAPI.setBusy) liveUiAPI.setBusy(true);
+                if (renderUiAPI && renderUiAPI.setBusy) renderUiAPI.setBusy(true);
                 break;
             }
             case "turn_end": {
                 emitRuntimeEvent({ type: RuntimeEventTypes.TURN_END, turnId: currentRuntimeTurnId, ok: true });
                 currentAssistantMessageId = null;
                 currentThinkingMessageId = null;
-                if (liveUiAPI && liveUiAPI.setBusy) liveUiAPI.setBusy(false);
+                if (renderUiAPI && renderUiAPI.setBusy) renderUiAPI.setBusy(false);
                 break;
             }
             case "compaction_start": {
@@ -2189,7 +2174,7 @@ export function attachUiSubscribers(
                         message: label,
                         raw: event,
                     });
-                    if (liveUiAPI) liveUiAPI.appendSystemMessage(label);
+                    if (renderUiAPI) renderUiAPI.appendSystemMessage(label);
                 }
                 break;
             }
@@ -2204,7 +2189,7 @@ export function attachUiSubscribers(
                             message: "Auto-compaction cancelled.",
                             raw: event,
                         });
-                        if (liveUiAPI) liveUiAPI.appendSystemMessage("Auto-compaction cancelled.");
+                        if (renderUiAPI) renderUiAPI.appendSystemMessage("Auto-compaction cancelled.");
                     } else if (event.result) {
                         const message = `Auto-compacted. Tokens before: ${event.result.tokensBefore.toLocaleString()}`;
                         emitRuntimeEvent({
@@ -2213,7 +2198,7 @@ export function attachUiSubscribers(
                             message,
                             raw: event,
                         });
-                        if (liveUiAPI) liveUiAPI.appendSystemMessage(message);
+                        if (renderUiAPI) renderUiAPI.appendSystemMessage(message);
                     } else if (event.errorMessage) {
                         const message = `Auto-compaction failed: ${sanitizeApiErrorMessage(event.errorMessage)}`;
                         emitRuntimeEvent({
@@ -2222,7 +2207,7 @@ export function attachUiSubscribers(
                             message,
                             raw: event,
                         });
-                        if (liveUiAPI) liveUiAPI.appendSystemMessage(message);
+                        if (renderUiAPI) renderUiAPI.appendSystemMessage(message);
                     }
                 }
                 break;
@@ -2749,7 +2734,8 @@ export async function runAgentSession(opts) {
 /**
  * Reloads the active root session without destroying it.
  * Re-reads settings.json from disk, refreshes the dynamic system prompt,
- * resource loader, theme, model, and thinking level.
+ * resource loader, model, and thinking level. TUI theme reload belongs to the
+ * TUI command adapter and is intentionally outside shared core.
  *
  * @param {import('./hosted-session.js').HostedSession | import('../workflow/workflow.js').UiAPI} [hostedSession]
  * @param {import('../workflow/workflow.js').UiAPI} [uiAPI]
@@ -2762,13 +2748,8 @@ export async function reloadRootAgentSession(hostedSession, uiAPI) {
     const meta = rootSessionMetadata.get(session);
     if (!meta) return false;
 
-    const settings = getSettingsManager();
+    const settings = getSettingsManager(targetHostedSession.cwd);
     await settings.reload();
-
-    const { discoverAndRegisterThemes, setTheme } = await import("../../ui/theme/theme.js");
-    await discoverAndRegisterThemes();
-    const persistedTheme = settings.getTheme();
-    if (persistedTheme) setTheme(persistedTheme);
 
     await ensureRootAgentSession({
         hostedSession: targetHostedSession,
@@ -2787,10 +2768,11 @@ export async function reloadRootAgentSession(hostedSession, uiAPI) {
  *
  * @param {string} skillName
  * @param {string} [additionalInstructions]
+ * @param {string} [cwd]
  * @returns {Promise<string>} Formatted skill block string
  */
-export async function expandSkillCommand(skillName, additionalInstructions) {
-    const skills = await listSkills();
+export async function expandSkillCommand(skillName, additionalInstructions, cwd = CWD) {
+    const skills = await listSkills({ cwd });
     const skill = skills.find((s) => s.name === skillName);
     if (!skill) {
         throw new Error(`Unknown skill: ${skillName}`);

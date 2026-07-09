@@ -28,9 +28,20 @@ stay outside the core runtime. The ACP adapter maps `SessionRuntime` events and 
 using standard ACP primitives where possible and RunWield-specific ACP extensions/fallbacks where no standard primitive
 exists.
 
+Each Hosted Session carries an absolute project root. Shared catalogs, layered settings, Plans, workflow metrics, memory
+commands, validation, and Worktree operations resolve from that root rather than the server process cwd. A Hosted
+Session id is an in-process runtime identity and is deliberately distinct from both persisted SessionManager ids and
+transport-facing ACP session ids, so loading the same persisted conversation never aliases mutable runtime state.
+
+Adapters consume ordered semantic events and install a typed interaction adapter. They do not pass a rendering object to
+`createPromptReadySession()`, `loadSession()`, or `promptSession()`. During the remaining workflow migration,
+`SessionRuntime` owns a private compatibility presentation port that translates legacy engine output calls into the same
+event stream; this port is not an adapter extension API. New UIs should use `getSessionSnapshot()`, runtime events,
+runtime actions, and interaction requests only.
+
 ## Consequences
 
-- ACP must not import or call `src/shared/interactive/chat-session.js` TUI internals to submit prompts.
+- ACP must not import or call `src/ui/tui/chat-session.js` TUI internals to submit prompts.
 - TUI-specific orchestration that is actually session behavior should move into `SessionRuntime` or lower-level shared
   modules.
 - Adapter-neutral event and interaction contracts become first-class and reusable by future WebUI/Takopi integrations.
@@ -38,3 +49,12 @@ exists.
   handlers.
 - Rich external workflow UX can evolve incrementally on top of the interaction contract without requiring another
   TUI-to-core refactor.
+- Same-session turn exclusion and cancellation settlement are runtime invariants. Cancellation does not release the turn
+  or permit disposal until the underlying Agent Session prompt settles; different Hosted Sessions remain independently
+  promptable.
+- Production modules under `src/shared` and `src/tools` cannot import `src/ui` or `src/acp`; automated boundary tests
+  enforce the dependency direction.
+- TUI composition, terminal integration helpers, and their tests live under `src/ui/tui`. The `src/shared` tree is
+  reserved for reusable runtime, session, model, workflow, Plan, tool-support, and platform policy.
+- Core requests user attention through semantic runtime events. Desktop notification delivery and terminal activation
+  are TUI adapter behavior, so ACP or future server adapters never target the host terminal implicitly.

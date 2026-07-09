@@ -100,7 +100,7 @@ export function buildSlicerRequest(input, legacyTriageMeta) {
  * Ask user what to do after plan approval.
  *
  * @param {string} planName
- * @param {import('../../ui/tui/types.js').UiAPI} uiAPI
+ * @param {import('../types.js').SessionUiPort} uiAPI
  * @returns {Promise<"proceed" | "save">}
  */
 export async function askPostApproval(planName, uiAPI) {
@@ -117,7 +117,7 @@ export async function askPostApproval(planName, uiAPI) {
  * Ask user whether to start PROJECT decomposition now or save the ready Epic for later.
  *
  * @param {string} planName
- * @param {import('../../ui/tui/types.js').UiAPI} uiAPI
+ * @param {import('../types.js').SessionUiPort} uiAPI
  * @returns {Promise<"proceed" | "save">}
  */
 export async function askProjectDecompositionApproval(planName, uiAPI) {
@@ -134,12 +134,13 @@ export async function askProjectDecompositionApproval(planName, uiAPI) {
  * Project-specific post-approval selection that also prints task list.
  *
  * @param {string} planName
- * @param {import('../../ui/tui/types.js').UiAPI} uiAPI
+ * @param {import('../types.js').SessionUiPort} uiAPI
  * @param {Array<{ task: number, assignee: string, dependencies: string, description: string, writeScope?: string }>} [structuredTasks]
+ * @param {string} [projectRoot]
  * @returns {Promise<"proceed" | "save">}
  */
-export async function askApprovalWithTasks(planName, uiAPI, structuredTasks) {
-    const plan = await loadPlan(CWD, planName);
+export async function askApprovalWithTasks(planName, uiAPI, structuredTasks, projectRoot = CWD) {
+    const plan = await loadPlan(projectRoot, planName);
 
     let tasks = structuredTasks || [];
     if (tasks.length === 0 && plan) {
@@ -173,7 +174,7 @@ export async function askApprovalWithTasks(planName, uiAPI, structuredTasks) {
 
 /**
  * @param {{ failedTasks: number[], results: Map<number, { status: string, error?: string }> }} executionResult
- * @param {import('../../ui/tui/types.js').UiAPI} uiAPI
+ * @param {import('../types.js').SessionUiPort} uiAPI
  * @returns {Promise<boolean>}
  */
 export async function askRetryFailedTasks(executionResult, uiAPI) {
@@ -187,7 +188,7 @@ export async function askRetryFailedTasks(executionResult, uiAPI) {
 
 /**
  * @param {{ results: Map<number, { status: string, error?: string }> }} result
- * @param {import('../../ui/tui/types.js').UiAPI} uiAPI
+ * @param {import('../types.js').SessionUiPort} uiAPI
  */
 export function reportExecutionSummary(result, uiAPI) {
     const { results } = result;

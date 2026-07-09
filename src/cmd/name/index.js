@@ -41,7 +41,11 @@ export async function runNameCommand(argv, options = {}) {
         return;
     }
 
-    sessionManager.appendSessionInfo?.(name);
-    setTitle(name);
+    if (options.sessionRuntime && options.hostedSession) {
+        options.sessionRuntime.renameSession(options.hostedSession, name);
+    } else {
+        sessionManager.appendSessionInfo?.(name);
+        setTitle(name);
+    }
     uiAPI.appendSystemMessage(theme.fg("dim", `Session name set: ${name}`));
 }

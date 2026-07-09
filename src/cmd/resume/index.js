@@ -11,7 +11,7 @@ import { getRunWieldSessionDir } from "../../shared/session/root-session.js";
 import { disposeRootAgentSessionForNewSession, ensureRootAgentSession } from "../../shared/session/session.js";
 import { HostedSession } from "../../shared/session/hosted-session.js";
 import { createAgentHandler } from "../../shared/session/agent-handler.js";
-import { restorePersistedMessagesToUi } from "../../shared/interactive/message-hydration.js";
+import { restorePersistedMessagesToUi } from "../../ui/tui/message-hydration.js";
 import { getMergedCustomSetting, getSettingsManager } from "../../shared/settings.js";
 import { getModelRegistry } from "../../shared/models/model-registry.js";
 import { resolveResumeAgentName } from "../../shared/session/active-agent-session.js";
@@ -311,6 +311,74 @@ function getDeps(options) {
 }
 
 /**
+ * Load and optionally compact a persisted conversation through SessionRuntime,
+ * then bind the resulting Hosted Session to the TUI adapter.
+ *
+ * @param {string} chosenPath
+ * @param {import('@earendil-works/pi-coding-agent').SessionManager} openedManager
+ * @param {import('../registry.js').CommandContext} options
+ * @param {ResumeCommandDeps} deps
+ * @param {string | undefined} modelOverride
+ * @param {boolean} compact
+ */
+async function resumeWithRuntime(chosenPath, openedManager, options, deps, modelOverride, compact) {
+    const runtime = options.sessionRuntime;
+    const replaceHostedSession = options.replaceHostedSession;
+    const uiAPI = options.uiAPI;
+    if (!runtime || !replaceHostedSession || !uiAPI) {
+        throw new Error("Runtime-backed resume requires a SessionRuntime, replacement hook, and UI adapter.");
+    }
+
+    const cwd = options.hostedSession?.cwd || Deno.cwd();
+    const sessionId = openedManager.getSessionId();
+    const loaded = await runtime.loadSession({
+        cwd,
+        sessionId,
+        sessionPath: chosenPath,
+        modelOverride,
+    });
+    try {
+        (/** @type {any} */ (openedManager)).dispose?.();
+    } catch {
+        // The runtime-owned manager is already open; stale list handles are best-effort cleanup.
+    }
+
+    replaceHostedSession(loaded.hostedSession);
+    const manager = /** @type {import('@earendil-works/pi-coding-agent').SessionManager} */ (
+        loaded.hostedSession.getRootSessionManager()
+    );
+    let notice = `Resumed session: ${loaded.sessionManagerId}`;
+
+    if (compact) {
+        const agentSession = /** @type {any} */ (loaded.hostedSession.getRootAgentSession());
+        uiAPI.appendSystemMessage("Compacting session before resume... (Esc to cancel)");
+        options.registerOperationCancel?.(() => {
+            try {
+                agentSession?.abortCompaction?.();
+            } catch {
+                // Cancellation is best effort.
+            }
+        });
+        try {
+            const result = await agentSession.compact();
+            notice =
+                `Compacted. Tokens before: ${result.tokensBefore.toLocaleString()}\nResumed (compacted) session: ${loaded.sessionManagerId}`;
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            const canceled = message === "Compaction cancelled" || message.includes("cancelled");
+            notice = canceled
+                ? `Compaction cancelled, resuming as-is...\n${notice}`
+                : `Compaction failed: ${message} — resuming as-is...\n${notice}`;
+        }
+    }
+
+    uiAPI.clearMessages?.();
+    deps.restorePersistedMessagesToUi(manager, uiAPI, { hostedSession: loaded.hostedSession });
+    uiAPI.appendSystemMessage(notice);
+    setTerminalTitleForSession(manager, cwd);
+}
+
+/**
  * Handle resume session command.
  *
  * @param {string[]} _argv
@@ -398,11 +466,19 @@ export async function runResumeCommand(_argv, options = {}) {
         }
 
         if (choice === "compact") {
+            if (options.sessionRuntime && options.replaceHostedSession) {
+                await resumeWithRuntime(chosenPath, rootSessionManager, options, deps, modelOverride, true);
+                return;
+            }
             await compactThenResume(rootSessionManager, uiAPI, options, deps, agentName, modelOverride);
             return;
         }
         // choice === "resume" — fall through to normal resume
     }
 
+    if (options.sessionRuntime && options.replaceHostedSession) {
+        await resumeWithRuntime(chosenPath, rootSessionManager, options, deps, modelOverride, false);
+        return;
+    }
     await resumeWithManager(rootSessionManager, uiAPI, options, deps, { agentName, modelOverride });
 }

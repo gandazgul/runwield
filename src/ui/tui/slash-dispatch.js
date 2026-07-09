@@ -1,5 +1,5 @@
 /**
- * @module shared/interactive/slash-dispatch
+ * @module ui/tui/slash-dispatch
  *
  * Routes a `/command` user submission to either:
  * - a built-in command from cmd/registry.js, or
@@ -11,8 +11,8 @@
  */
 
 import { basename } from "@std/path";
-import { abortActiveSession, expandPromptTemplate, expandSkillCommand } from "../session/session.js";
-import { setTerminalTitleForName } from "../../ui/tui/terminal-title.js";
+import { abortActiveSession, expandPromptTemplate, expandSkillCommand } from "../../shared/session/session.js";
+import { setTerminalTitleForName } from "./terminal-title.js";
 
 const OPERATOR_AGENT = "operator";
 
@@ -24,13 +24,13 @@ const OPERATOR_AGENT = "operator";
  * For `/agent`, displayName should be the chosen agent name (not "agent").
  *
  * @param {string} command
- * @param {import('../session/hosted-session.js').HostedSession} hostedSession
+ * @param {import('../../shared/session/hosted-session.js').HostedSession} hostedSession
  * @param {string} [displayName] - Override for the suffix (e.g. agent name).
  */
 function maybeUpdateTitleForSlashCommand(command, hostedSession, displayName) {
     const rootSessionManager = /** @type {any} */ (hostedSession?.getRootSessionManager?.());
     if (rootSessionManager && !rootSessionManager.getSessionName?.()) {
-        const folder = basename(Deno.cwd());
+        const folder = basename(hostedSession.cwd || Deno.cwd());
         if (displayName === "") {
             // No suffix yet (e.g. /agent with interactive picker before selection)
             setTerminalTitleForName(folder);
@@ -53,10 +53,11 @@ function maybeUpdateTitleForSlashCommand(command, hostedSession, displayName) {
 /**
  * @typedef {Object} SlashContext
  * @property {string} userRequest
- * @property {import('../session/types.js').ImageAttachment[]} savedImages
- * @property {import('../session/hosted-session.js').HostedSession} hostedSession
- * @property {import('../session/session-host.js').SessionHost} [sessionHost]
- * @property {import('../../ui/tui/types.js').UiAPI} uiAPI
+ * @property {import('../../shared/session/types.js').ImageAttachment[]} savedImages
+ * @property {import('../../shared/session/hosted-session.js').HostedSession} hostedSession
+ * @property {import('../../shared/session/session-host.js').SessionHost} [sessionHost]
+ * @property {import('../../shared/session/session-runtime.js').SessionRuntime} [sessionRuntime]
+ * @property {import('./types.js').UiAPI} uiAPI
  * @property {import('@earendil-works/pi-tui').Editor} editor
  * @property {import('@earendil-works/pi-tui').TUI} tui
  * @property {string} sessionStartedAt
@@ -66,20 +67,20 @@ function maybeUpdateTitleForSlashCommand(command, hostedSession, displayName) {
  * @property {SkillMeta[]} skills
  * @property {string} chatPromptAgentName
  * @property {(templateModel: string) => ({ ok: true, provider: string, id: string } | { ok: false })} resolveTemplateModel
- * @property {(hostedSession: import('../session/hosted-session.js').HostedSession | undefined, agentName: string, handler: import('../session/types.js').AgentMessageHandler, uiAPI: import('../../ui/tui/types.js').UiAPI, agentModel?: string) => void} setActiveAgent
- * @property {(hostedSession: import('../session/hosted-session.js').HostedSession | undefined, uiAPI: import('../../ui/tui/types.js').UiAPI) => Promise<void>} applyPendingRootSwap
+ * @property {(hostedSession: import('../../shared/session/hosted-session.js').HostedSession | undefined, agentName: string, handler: import('../../shared/session/types.js').AgentMessageHandler, uiAPI: import('./types.js').UiAPI, agentModel?: string) => void} setActiveAgent
+ * @property {(hostedSession: import('../../shared/session/hosted-session.js').HostedSession | undefined, uiAPI: import('./types.js').UiAPI) => Promise<void>} applyPendingRootSwap
  * @property {(model: string, provider?: string) => Promise<void> | void} [setActiveModel]
- * @property {(nextSession: import('../session/hosted-session.js').HostedSession) => void} [replaceHostedSession]
- * @property {(text: string, images: import('../session/types.js').ImageAttachment[]) => Promise<void>} [dispatchExpandedUserRequest]
+ * @property {(nextSession: import('../../shared/session/hosted-session.js').HostedSession) => void} [replaceHostedSession]
+ * @property {(text: string, images: import('../../shared/session/types.js').ImageAttachment[]) => Promise<void>} [dispatchExpandedUserRequest]
  * @property {import('./generation-guard.js').GenerationGuard} generationGuard
  * @property {(cancel: (() => void) | null) => void} registerOperationCancel
  * @property {{
  *   abortActiveSession?: typeof abortActiveSession,
  *   expandPromptTemplate?: typeof expandPromptTemplate,
  *   expandSkillCommand?: typeof expandSkillCommand,
- *   getRootSessionManager?: () => import('../session/types.js').SessionManagerLike | null,
- *   getActiveOnMessage?: () => import('../session/types.js').AgentMessageHandler | null,
- *   createAgentHandler?: (agentName: string, deps?: { hostedSession?: import('../session/hosted-session.js').HostedSession }) => import('../session/types.js').AgentMessageHandler,
+ *   getRootSessionManager?: () => import('../../shared/session/types.js').SessionManagerLike | null,
+ *   getActiveOnMessage?: () => import('../../shared/session/types.js').AgentMessageHandler | null,
+ *   createAgentHandler?: (agentName: string, deps?: { hostedSession?: import('../../shared/session/hosted-session.js').HostedSession }) => import('../../shared/session/types.js').AgentMessageHandler,
  *   commandRegistry?: Record<string, { execute: (args: string[], deps: object) => Promise<void> | void }>,
  *   getSlashCommandDefinition?: (name: string) => { name: string } | undefined,
  * }} [__deps]
@@ -176,6 +177,7 @@ async function dispatchBuiltin(ctx, command, args, commandRegistry, thisGen) {
             editor,
             hostedSession: ctx.hostedSession,
             sessionHost: ctx.sessionHost,
+            sessionRuntime: ctx.sessionRuntime,
             sessionManager: getRootSessionManagerImpl() || undefined,
             sessionStartedAt,
             tui,
@@ -203,7 +205,7 @@ async function dispatchBuiltin(ctx, command, args, commandRegistry, thisGen) {
  *
  * @param {SlashContext} ctx
  * @param {string} expandedText
- * @param {import('../session/types.js').ImageAttachment[]} images
+ * @param {import('../../shared/session/types.js').ImageAttachment[]} images
  */
 async function dispatchExpandedInput(ctx, expandedText, images) {
     if (ctx.dispatchExpandedUserRequest) {
@@ -244,7 +246,11 @@ async function dispatchSkill(ctx, skill, additionalInstructions, thisGen) {
     const expandSkillCommandImpl = deps.expandSkillCommand || expandSkillCommand;
 
     try {
-        const expandedText = await expandSkillCommandImpl(skill.name, additionalInstructions || undefined);
+        const expandedText = await expandSkillCommandImpl(
+            skill.name,
+            additionalInstructions || undefined,
+            ctx.hostedSession?.cwd,
+        );
 
         await dispatchExpandedInput(ctx, expandedText, savedImages);
     } catch (err) {
@@ -263,11 +269,8 @@ async function dispatchSkill(ctx, skill, additionalInstructions, thisGen) {
  */
 async function switchToOperatorForTemplate(ctx) {
     const deps = ctx.__deps || {};
-    let createAgentHandlerImpl = deps.createAgentHandler;
-    if (!createAgentHandlerImpl) {
-        const agentHandlerModule = await import("../session/agent-handler.js");
-        createAgentHandlerImpl = agentHandlerModule.createAgentHandler;
-    }
+    const createAgentHandlerImpl = deps.createAgentHandler ||
+        (await import("../../shared/session/agent-handler.js")).createAgentHandler;
 
     ctx.setActiveAgent(
         ctx.hostedSession,

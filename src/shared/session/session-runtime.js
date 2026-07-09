@@ -11,6 +11,7 @@ import { SessionHost } from "./session-host.js";
 import { createRootSessionManager, getRootSessionBranchEntries, openPersistedRootSession } from "./root-session.js";
 import { createSessionRuntimeEvent, getRuntimeErrorMessage, RuntimeEventTypes } from "./session-runtime-events.js";
 import { requestHostedSessionInteraction } from "./session-runtime-interactions.js";
+import { createRuntimeSessionUi } from "./session-runtime-ui.js";
 import { isAbsolute } from "@std/path";
 
 export const HANDOFF_LIMIT_MESSAGE =
@@ -19,7 +20,7 @@ export const HANDOFF_LIMIT_MESSAGE =
 /**
  * @typedef {Object} SessionRuntimeOptions
  * @property {SessionHost} [sessionHost]
- * @property {(hostedSession: import('./hosted-session.js').HostedSession, uiAPI: import('../../ui/tui/types.js').UiAPI | undefined) => Promise<void> | void} [applyPendingRootSwap]
+ * @property {(hostedSession: import('./hosted-session.js').HostedSession, uiAPI: import('../types.js').SessionUiPort | undefined) => Promise<void> | void} [applyPendingRootSwap]
  * @property {(hostedSession: import('./hosted-session.js').HostedSession) => boolean} [abortActiveSession]
  * @property {(mode: string, cwd: string) => Promise<any>} [createRootSessionManager]
  * @property {(options: import('./root-session.js').ResolvePersistedRootSessionOptions) => Promise<{ sessionManager: any, resolved: import('./root-session.js').ResolvedPersistedRootSession }>} [openPersistedRootSession]
@@ -31,13 +32,11 @@ export const HANDOFF_LIMIT_MESSAGE =
 /**
  * @typedef {Object} PromptReadySessionOptions
  * @property {string} cwd
- * @property {import('../../ui/tui/types.js').UiAPI} [uiAPI]
  * @property {string} [agentName]
  */
 
 /**
  * @typedef {Object} PromptSessionOptions
- * @property {import('../../ui/tui/types.js').UiAPI} [uiAPI]
  * @property {string} initialRequest
  * @property {import('./types.js').ImageAttachment[]} [initialImages]
  */
@@ -47,7 +46,7 @@ export const HANDOFF_LIMIT_MESSAGE =
  * @property {string} cwd
  * @property {string} sessionId
  * @property {string} [sessionPath]
- * @property {import('../../ui/tui/types.js').UiAPI} [uiAPI]
+ * @property {string} [modelOverride]
  */
 
 /**
@@ -55,6 +54,15 @@ export const HANDOFF_LIMIT_MESSAGE =
  */
 
 const MAX_CHAINED_HANDOFFS = 4;
+
+export class SessionTurnInProgressError extends Error {
+    /** @param {string} sessionId */
+    constructor(sessionId) {
+        super(`HostedSession "${sessionId}" already has an active turn`);
+        this.name = "SessionTurnInProgressError";
+        this.sessionId = sessionId;
+    }
+}
 
 /** @param {unknown} value */
 function isHostedSessionLike(value) {
@@ -262,6 +270,10 @@ export class SessionRuntime {
         this.ensureRootAgentSession = options.ensureRootAgentSession || ensureRootAgentSession;
         /** @type {Map<string, Set<SessionRuntimeEventListener>>} */
         this.eventListeners = new Map();
+        /** @type {Map<string, import('../types.js').SessionUiPort>} */
+        this.sessionUiPorts = new Map();
+        /** @type {Map<string, Promise<void>>} */
+        this.turnSettlements = new Map();
     }
 
     /** @param {import('./session-host.js').CreateSessionOptions} options */
@@ -283,14 +295,113 @@ export class SessionRuntime {
         return this.sessionHost.listSessions();
     }
 
+    /** @param {import('./hosted-session.js').HostedSession} hostedSession */
+    getSessionUiPort(hostedSession) {
+        let uiPort = this.sessionUiPorts.get(hostedSession.id);
+        if (!uiPort) {
+            uiPort = createRuntimeSessionUi({ runtime: this, hostedSession });
+            this.sessionUiPorts.set(hostedSession.id, uiPort);
+        }
+        return uiPort;
+    }
+
+    /**
+     * @param {string | import('./hosted-session.js').HostedSession} sessionOrId
+     * @returns {import('../types.js').SessionSnapshot | null}
+     */
+    getSessionSnapshot(sessionOrId) {
+        const session = typeof sessionOrId === "string" ? this.sessionHost.getSession(sessionOrId) : sessionOrId;
+        if (!session) return null;
+        const sessionManager = session.getRootSessionManager();
+        const rawSessionManagerId = sessionManager?.getSessionId?.();
+        const sessionManagerId = typeof rawSessionManagerId === "string" && rawSessionManagerId
+            ? rawSessionManagerId
+            : null;
+        const workflow = session.getActiveExecutionWorkflow();
+        const interactionMeta = session.getInteractionAdapterMeta();
+        return {
+            id: session.id,
+            cwd: session.cwd,
+            sessionManagerId,
+            name: sessionManager?.getSessionName?.() || null,
+            disposed: session.disposed,
+            activeAgent: session.getRootAgentName(),
+            activeModel: session.getActiveModelState(),
+            thinkingLevel: session.getThinkingLevel(),
+            busy: session.isTurnActive(),
+            activeTurnId: session.getActiveTurnId(),
+            workflow: workflow ? { ...workflow } : null,
+            interactionAdapter: interactionMeta
+                ? { kind: interactionMeta.kind, capabilities: { ...(interactionMeta.capabilities || {}) } }
+                : null,
+        };
+    }
+
+    /**
+     * @param {string | import('./hosted-session.js').HostedSession} sessionOrId
+     * @param {string} name
+     */
+    renameSession(sessionOrId, name) {
+        const session = typeof sessionOrId === "string" ? this.sessionHost.getSession(sessionOrId) : sessionOrId;
+        if (!session) return { ok: false, error: "not_found" };
+        const normalizedName = String(name || "").trim();
+        if (!normalizedName) return { ok: false, error: "invalid_name" };
+        session.getRootSessionManager()?.appendSessionInfo?.(normalizedName);
+        this.emitSessionEvent(session, { type: RuntimeEventTypes.SESSION_RENAMED, name: normalizedName });
+        return { ok: true, name: normalizedName };
+    }
+
+    /**
+     * @param {string | import('./hosted-session.js').HostedSession} sessionOrId
+     * @param {string} model
+     * @param {string} [provider]
+     * @param {boolean} [userOverride]
+     */
+    setSessionModel(sessionOrId, model, provider = "", userOverride = true) {
+        const session = typeof sessionOrId === "string" ? this.sessionHost.getSession(sessionOrId) : sessionOrId;
+        if (!session) return { ok: false, error: "not_found" };
+        session.setActiveModelState(model, provider, userOverride);
+        this.emitSessionEvent(session, { type: RuntimeEventTypes.MODEL_CHANGED, model, provider });
+        return { ok: true, model, provider };
+    }
+
+    /**
+     * @param {string | import('./hosted-session.js').HostedSession} sessionOrId
+     * @param {import('./hosted-session.js').ThinkingLevel} thinkingLevel
+     */
+    setSessionThinkingLevel(sessionOrId, thinkingLevel) {
+        const session = typeof sessionOrId === "string" ? this.sessionHost.getSession(sessionOrId) : sessionOrId;
+        if (!session) return { ok: false, error: "not_found" };
+        session.setThinkingLevel(thinkingLevel);
+        this.emitSessionEvent(session, { type: RuntimeEventTypes.THINKING_LEVEL_CHANGED, thinkingLevel });
+        return { ok: true, thinkingLevel };
+    }
+
     /** @param {string} id */
     closeSession(id) {
         const closed = this.sessionHost.disposeSession(id);
         if (closed) {
             this.emitSessionEvent(id, { type: RuntimeEventTypes.SESSION_CLOSED });
             this.eventListeners.delete(id);
+            this.sessionUiPorts.delete(id);
         }
         return { ok: true, closed };
+    }
+
+    /**
+     * Cancel an active turn, wait for the underlying Agent Session prompt to
+     * settle, then dispose the Hosted Session.
+     *
+     * @param {string | import('./hosted-session.js').HostedSession} sessionOrId
+     */
+    async closeSessionWhenIdle(sessionOrId) {
+        const session = typeof sessionOrId === "string" ? this.sessionHost.getSession(sessionOrId) : sessionOrId;
+        if (!session) return { ok: true, closed: false };
+        if (session.isTurnActive()) {
+            this.cancelSession(session);
+            await this.turnSettlements.get(session.id);
+        }
+        return this.closeSession(session.id);
     }
 
     closeAllSessions() {
@@ -304,6 +415,12 @@ export class SessionRuntime {
             }
             this.closeSession(session.id);
         }
+        return { ok: true, closed: sessions.length };
+    }
+
+    async closeAllSessionsWhenIdle() {
+        const sessions = this.listSessions();
+        await Promise.all(sessions.map((session) => this.closeSessionWhenIdle(session.id)));
         return { ok: true, closed: sessions.length };
     }
 
@@ -383,18 +500,24 @@ export class SessionRuntime {
         const agentName = options.agentName || AGENTS.ROUTER;
         const sessionManager = await this.createRootSessionManager("new", options.cwd);
         const hostedSession = this.createSession({
+            id: crypto.randomUUID(),
             sessionManager,
             cwd: options.cwd,
-            uiAPI: options.uiAPI,
         });
+        const runtimeUiAPI = this.getSessionUiPort(hostedSession);
         this.attachRuntimeEventSink(hostedSession);
-        hostedSession.setActiveOnMessage(this.createAgentHandler(agentName, { hostedSession }));
-        await this.ensureRootAgentSession({ hostedSession, agentName, uiAPI: options.uiAPI, sessionManager });
-        this.emitSessionEvent(hostedSession, {
-            type: RuntimeEventTypes.SESSION_CREATED,
-            cwd: hostedSession.cwd,
-        });
-        return hostedSession;
+        try {
+            hostedSession.setActiveOnMessage(this.createAgentHandler(agentName, { hostedSession }));
+            await this.ensureRootAgentSession({ hostedSession, agentName, uiAPI: runtimeUiAPI, sessionManager });
+            this.emitSessionEvent(hostedSession, {
+                type: RuntimeEventTypes.SESSION_CREATED,
+                cwd: hostedSession.cwd,
+            });
+            return hostedSession;
+        } catch (error) {
+            this.closeSession(hostedSession.id);
+            throw error;
+        }
     }
 
     /**
@@ -415,26 +538,38 @@ export class SessionRuntime {
         });
         const agentName = await this.resolveResumeAgentName(sessionManager);
         const hostedSession = this.createSession({
+            id: crypto.randomUUID(),
             sessionManager,
             cwd: options.cwd,
-            uiAPI: options.uiAPI,
         });
+        const runtimeUiAPI = this.getSessionUiPort(hostedSession);
         this.attachRuntimeEventSink(hostedSession);
-        hostedSession.setActiveOnMessage(this.createAgentHandler(agentName, { hostedSession }));
-        await this.ensureRootAgentSession({ hostedSession, agentName, uiAPI: options.uiAPI, sessionManager });
-        const replayEvents = createReplayEvents(hostedSession.id, getRootSessionBranchEntries(sessionManager))
-            .map((event) => createSessionRuntimeEvent(hostedSession.id, /** @type {any} */ (event)));
-        this.emitSessionEvent(hostedSession, {
-            type: RuntimeEventTypes.SESSION_LOADED,
-            cwd: hostedSession.cwd,
-            _meta: { sessionManagerId: resolved.sessionId, sessionPath: resolved.sessionPath },
-        });
-        return {
-            hostedSession,
-            replayEvents,
-            sessionManagerId: resolved.sessionId,
-            sessionPath: resolved.sessionPath,
-        };
+        try {
+            hostedSession.setActiveOnMessage(this.createAgentHandler(agentName, { hostedSession }));
+            await this.ensureRootAgentSession({
+                hostedSession,
+                agentName,
+                modelOverride: options.modelOverride,
+                uiAPI: runtimeUiAPI,
+                sessionManager,
+            });
+            const replayEvents = createReplayEvents(hostedSession.id, getRootSessionBranchEntries(sessionManager))
+                .map((event) => createSessionRuntimeEvent(hostedSession.id, /** @type {any} */ (event)));
+            this.emitSessionEvent(hostedSession, {
+                type: RuntimeEventTypes.SESSION_LOADED,
+                cwd: hostedSession.cwd,
+                _meta: { sessionManagerId: resolved.sessionId, sessionPath: resolved.sessionPath },
+            });
+            return {
+                hostedSession,
+                replayEvents,
+                sessionManagerId: resolved.sessionId,
+                sessionPath: resolved.sessionPath,
+            };
+        } catch (error) {
+            this.closeSession(hostedSession.id);
+            throw error;
+        }
     }
 
     /**
@@ -500,8 +635,15 @@ export class SessionRuntime {
      * @returns {Promise<{ ok: boolean, turns: number, handoffs: number, handoffLimitReached: boolean, error?: string }>}
      */
     async promptSession(hostedSession, options) {
-        const uiAPI = options.uiAPI;
+        const uiAPI = this.getSessionUiPort(hostedSession);
         const turnId = crypto.randomUUID();
+        if (!hostedSession.beginTurn(turnId)) throw new SessionTurnInProgressError(hostedSession.id);
+        /** @type {() => void} */
+        let settleTurn = () => {};
+        const turnSettlement = new Promise((resolve) => {
+            settleTurn = () => resolve(undefined);
+        });
+        this.turnSettlements.set(hostedSession.id, turnSettlement);
         let request = options.initialRequest;
         let images = options.initialImages || [];
         let turns = 0;
@@ -513,11 +655,11 @@ export class SessionRuntime {
         hostedSession.setActiveUiAPI(uiAPI || null);
         this.emitSessionEvent(hostedSession, { type: RuntimeEventTypes.USER_MESSAGE, turnId, text: request });
         this.emitSessionEvent(hostedSession, { type: RuntimeEventTypes.TURN_START, turnId });
+        this.emitSessionEvent(hostedSession, { type: RuntimeEventTypes.BUSY_CHANGED, turnId, busy: true });
 
         try {
             if (!hostedSession.getActiveOnMessage() || !hostedSession.getRootSessionManager()) {
                 const message = "Error: No active agent handler or session manager.";
-                uiAPI?.appendSystemMessage?.(message);
                 this.emitSessionEvent(hostedSession, {
                     type: RuntimeEventTypes.SYSTEM_STATUS,
                     turnId,
@@ -546,7 +688,6 @@ export class SessionRuntime {
                 const handler = hostedSession.getActiveOnMessage();
                 if (!handler) {
                     const message = "Error: No active agent handler or session manager.";
-                    uiAPI?.appendSystemMessage?.(message);
                     this.emitSessionEvent(hostedSession, {
                         type: RuntimeEventTypes.SYSTEM_STATUS,
                         turnId,
@@ -575,7 +716,6 @@ export class SessionRuntime {
                 }
 
                 if (turn === MAX_CHAINED_HANDOFFS) {
-                    uiAPI?.appendSystemMessage?.(HANDOFF_LIMIT_MESSAGE);
                     this.emitSessionEvent(hostedSession, {
                         type: RuntimeEventTypes.SYSTEM_STATUS,
                         turnId,
@@ -610,6 +750,12 @@ export class SessionRuntime {
                 ok,
                 result: result || { turns, handoffs },
             });
+            hostedSession.endTurn(turnId);
+            this.emitSessionEvent(hostedSession, { type: RuntimeEventTypes.BUSY_CHANGED, turnId, busy: false });
+            settleTurn();
+            if (this.turnSettlements.get(hostedSession.id) === turnSettlement) {
+                this.turnSettlements.delete(hostedSession.id);
+            }
         }
     }
 }

@@ -153,11 +153,12 @@ export async function loadReviewerPrompt(
 
 /**
  * @param {import('./workflow.js').UiAPI} uiAPI
+ * @param {string} projectRoot
  *
  * @returns {Promise<string>}
  */
-async function getOrAskForValidationCommand(uiAPI) {
-    const existingCommand = getCustomSetting("verification_command", "project");
+async function getOrAskForValidationCommand(uiAPI, projectRoot) {
+    const existingCommand = getCustomSetting("verification_command", "project", projectRoot);
     if (existingCommand) {
         return /** @type {string} */ (existingCommand);
     }
@@ -173,7 +174,7 @@ async function getOrAskForValidationCommand(uiAPI) {
     }
 
     const newCommand = userInput.trim();
-    await setCustomSetting("verification_command", newCommand, "project");
+    await setCustomSetting("verification_command", newCommand, "project", projectRoot);
 
     uiAPI.appendSystemMessage(`Saved validation command: '${newCommand}'`);
     return newCommand;
@@ -188,7 +189,7 @@ async function getOrAskForValidationCommand(uiAPI) {
  * @returns {Promise<{ exitCode: number, output: string }>}
  */
 export async function runLocalCI(uiAPI, cwd = CWD) {
-    const cmdArgs = await getOrAskForValidationCommand(uiAPI);
+    const cmdArgs = await getOrAskForValidationCommand(uiAPI, cwd);
 
     if (!cmdArgs) {
         return {
@@ -646,7 +647,9 @@ export function shouldRunWorkflowValidation(triageMeta) {
  * }} [args.__deps] Test-only injection point.
  * @returns {Promise<{ passed: boolean, attempts: number, reason?: string }>}
  */
-export async function runMechanicalValidation({ uiAPI, sessionManager, hostedSession, cwd = CWD, __deps }) {
+export async function runMechanicalValidation({ uiAPI, sessionManager, hostedSession, cwd, __deps }) {
+    const projectRoot = hostedSession?.cwd || CWD;
+    const validationCwd = cwd || hostedSession?.getActiveExecutionCwd?.() || projectRoot;
     const runLocalCIImpl = __deps?.runLocalCI || runLocalCI;
     const runAgentSessionImpl = __deps?.runAgentSession || runAgentSession;
     const repair = __deps?.runCompletionGatedRepair ||
@@ -660,7 +663,14 @@ export async function runMechanicalValidation({ uiAPI, sessionManager, hostedSes
     const setActiveAgentImpl = __deps?.setActiveAgent || setActiveAgent;
     const createAgentHandlerImpl = __deps?.createAgentHandler ||
         (await import("../session/agent-handler.js")).createAgentHandler;
-    const recordWorkflowMetricImpl = __deps?.recordWorkflowMetric || recordWorkflowMetric;
+    const recordWorkflowMetricSource = __deps?.recordWorkflowMetric || recordWorkflowMetric;
+    /**
+     * @param {Parameters<typeof recordWorkflowMetricSource>[0]} metric
+     * @param {Parameters<typeof recordWorkflowMetricSource>[1]} [deps]
+     */
+    function recordWorkflowMetricImpl(metric, deps = {}) {
+        return recordWorkflowMetricSource(metric, { cwd: projectRoot, ...deps });
+    }
     /** @param {string} agentName */
     const activateAgent = (agentName) => {
         if (!hostedSession) return;
@@ -686,7 +696,7 @@ export async function runMechanicalValidation({ uiAPI, sessionManager, hostedSes
         uiAPI?.setBusy?.(true);
         let ciResult;
         try {
-            ciResult = await runLocalCIImpl(uiAPI, cwd);
+            ciResult = await runLocalCIImpl(uiAPI, validationCwd);
         } finally {
             uiAPI?.setBusy?.(false);
         }
@@ -739,7 +749,7 @@ export async function runMechanicalValidation({ uiAPI, sessionManager, hostedSes
         appendRunWieldSystemMessage(
             uiAPI,
             `QUICK_FIX CI failed. Dispatching ${
-                getAgentDisplayName(AGENTS.ENGINEER)
+                getAgentDisplayName(AGENTS.ENGINEER, projectRoot)
             } for repair attempt ${repairAttempts}/${maxRepairAttempts}...`,
             true,
         );
@@ -751,7 +761,7 @@ export async function runMechanicalValidation({ uiAPI, sessionManager, hostedSes
                 ciResult.output,
             uiAPI,
             sessionManager,
-            cwd,
+            cwd: validationCwd,
             hostedSession,
         });
         await recordWorkflowMetricImpl({
@@ -763,12 +773,12 @@ export async function runMechanicalValidation({ uiAPI, sessionManager, hostedSes
         });
         if (!completed) {
             const reason = `${
-                getAgentDisplayName(AGENTS.ENGINEER)
+                getAgentDisplayName(AGENTS.ENGINEER, projectRoot)
             } stopped without task_completed during QUICK_FIX repair.`;
             appendRunWieldSystemMessage(
                 uiAPI,
                 `${reason} Staying with ${
-                    getAgentDisplayName(AGENTS.ENGINEER)
+                    getAgentDisplayName(AGENTS.ENGINEER, projectRoot)
                 } so the user can continue the session. ` +
                     "Mechanical Validation will resume after task_completed.",
                 true,
@@ -782,7 +792,7 @@ export async function runMechanicalValidation({ uiAPI, sessionManager, hostedSes
             hostedSession?.setActiveExecutionWorkflow({
                 planName: "quick-fix",
                 triageMeta: { classification: "QUICK_FIX" },
-                executionCwd: cwd,
+                executionCwd: validationCwd,
                 validationContinuation: true,
             });
             activateAgent(AGENTS.ENGINEER);
@@ -854,11 +864,18 @@ export async function runValidationLoop({
     const getCodeReviewModeImpl = __deps?.getCodeReviewMode || getCodeReviewMode;
     const runPlannotatorCodeReviewImpl = __deps?.runPlannotatorCodeReview || runPlannotatorCodeReview;
     const verifyExecutionWorktreeMergedImpl = __deps?.verifyExecutionWorktreeMerged || verifyExecutionWorktreeMerged;
-    const recordWorkflowMetricImpl = __deps?.recordWorkflowMetric || recordWorkflowMetric;
+    const recordWorkflowMetricSource = __deps?.recordWorkflowMetric || recordWorkflowMetric;
     const activeWorkflow = hostedSession?.getActiveExecutionWorkflow?.() || null;
     const baselineTree = activeWorkflow?.baselineTree;
-    const projectRoot = activeWorkflow?.projectRoot || CWD;
-    const executionCwd = activeWorkflow?.executionCwd || CWD;
+    const projectRoot = activeWorkflow?.projectRoot || hostedSession?.cwd || CWD;
+    const executionCwd = activeWorkflow?.executionCwd || hostedSession?.cwd || CWD;
+    /**
+     * @param {Parameters<typeof recordWorkflowMetricSource>[0]} metric
+     * @param {Parameters<typeof recordWorkflowMetricSource>[1]} [deps]
+     */
+    function recordWorkflowMetricImpl(metric, deps = {}) {
+        return recordWorkflowMetricSource(metric, { cwd: projectRoot, ...deps });
+    }
     const worktreeBranch = activeWorkflow?.worktreeBranch;
     const worktreeBaseBranch = activeWorkflow?.worktreeBaseBranch;
     const worktreeId = activeWorkflow?.worktreeId;
@@ -871,7 +888,9 @@ export async function runValidationLoop({
     const pauseForEngineerContinuation = async (reason) => {
         appendRunWieldSystemMessage(
             uiAPI,
-            `${reason} Staying with ${getAgentDisplayName(AGENTS.ENGINEER)} so the user can continue the session. ` +
+            `${reason} Staying with ${
+                getAgentDisplayName(AGENTS.ENGINEER, projectRoot)
+            } so the user can continue the session. ` +
                 "Validation will resume after task_completed.",
             true,
         );
@@ -1587,7 +1606,7 @@ export async function runValidationLoop({
                     if (planName && planName !== "quick-fix") {
                         try {
                             await recordPlanEventImpl({
-                                cwd: CWD,
+                                cwd: projectRoot,
                                 planName,
                                 event: "worktree_merge_failed",
                                 currentStatus: "implemented",
@@ -1704,7 +1723,7 @@ export async function runValidationLoop({
             );
             if (planName && planName !== "quick-fix") {
                 await recordPlanEventImpl({
-                    cwd: CWD,
+                    cwd: projectRoot,
                     planName,
                     event: "validation_passed",
                     currentStatus: "implemented",
@@ -1740,7 +1759,7 @@ export async function runValidationLoop({
             if (planName && planName !== "quick-fix") {
                 try {
                     await recordPlanEventImpl({
-                        cwd: CWD,
+                        cwd: projectRoot,
                         planName,
                         event: "validation_failed",
                         currentStatus: "implemented",
@@ -1772,7 +1791,7 @@ export async function runValidationLoop({
         }
         if (planName && planName !== "quick-fix") {
             await recordPlanEventImpl({
-                cwd: CWD,
+                cwd: projectRoot,
                 planName,
                 event: "validation_failed",
                 currentStatus: "implemented",

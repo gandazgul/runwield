@@ -1,6 +1,7 @@
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 import { attachUiSubscribers } from "./session.js";
 import { HostedSession } from "./hosted-session.js";
+import { SessionRuntime } from "./session-runtime.js";
 
 /**
  * @returns {{ session: any, emit: (event: any) => void, unsubscribed: () => boolean }}
@@ -164,6 +165,29 @@ Deno.test("attachUiSubscribers renders assistant text, thinking, retries, compac
     state.endThinking();
 });
 
+Deno.test("runtime presentation bridge emits retry and compaction statuses exactly once", () => {
+    const { session, emit } = makeSubscribableSession();
+    const runtime = new SessionRuntime();
+    const hostedSession = runtime.createSession({ id: "subscriber-runtime-events", cwd: Deno.cwd() });
+    const uiPort = runtime.getSessionUiPort(hostedSession);
+    runtime.attachRuntimeEventSink(hostedSession);
+    /** @type {string[]} */
+    const statuses = [];
+    runtime.subscribeSessionEvents(hostedSession, (event) => {
+        if (event.type === "system_status") statuses.push(event.message);
+    });
+    attachUiSubscribers(session, agentDef, uiPort, undefined, hostedSession);
+
+    emit({ type: "auto_retry_start", attempt: 1, maxAttempts: 2, errorMessage: "retry", delayMs: 10 });
+    emit({ type: "compaction_start", reason: "overflow" });
+    emit({ type: "compaction_end", reason: "overflow", result: { tokensBefore: 1000 } });
+
+    assertEquals(statuses.length, 3);
+    assertEquals(statuses.filter((message) => message.includes("[Retry 1/2]")).length, 1);
+    assertEquals(statuses.filter((message) => message.includes("auto-compacting")).length, 1);
+    assertEquals(statuses.filter((message) => message.includes("Auto-compacted")).length, 1);
+});
+
 Deno.test("attachUiSubscribers streams assistant deltas to debug log path immediately", async () => {
     const { session, emit } = makeSubscribableSession();
     const ui = makeUi();
@@ -226,7 +250,7 @@ Deno.test("attachUiSubscribers uses the target HostedSession active UI fallback"
     assertEquals(otherUi.agentMessages.length, 0, "other HostedSession UI must not receive target output");
 });
 
-Deno.test("attachUiSubscribers sends attention notifications for plan_written and user_interview", () => {
+Deno.test("attachUiSubscribers emits attention requests for plan_written and user_interview", () => {
     const { session, emit } = makeSubscribableSession();
     const ui = makeUi();
     const hostedSession = new HostedSession({
@@ -234,26 +258,26 @@ Deno.test("attachUiSubscribers sends attention notifications for plan_written an
         cwd: Deno.cwd(),
         sessionManager: /** @type {any} */ ({ getSessionName: () => "notification session" }),
     });
-    /** @type {Array<{ eventName: string, sessionName: string | undefined, agentName: string | undefined }>} */
-    const notifications = [];
+    /** @type {any[]} */
+    const events = [];
+    hostedSession.setEventSink({ emit: (/** @type {any} */ event) => events.push(event) });
 
-    attachUiSubscribers(session, agentDef, ui, undefined, hostedSession, {
-        notifyRunWieldEventQuietly: (
-            /** @type {string} */ eventName,
-            /** @type {{ sessionName?: string, agentName?: string }} */ options,
-        ) => {
-            notifications.push({ eventName, sessionName: options?.sessionName, agentName: options?.agentName });
-        },
-    });
+    attachUiSubscribers(session, agentDef, ui, undefined, hostedSession);
 
     emit({ type: "tool_execution_start", toolCallId: "1", toolName: "plan_written", args: { planName: "p" } });
     emit({ type: "tool_execution_start", toolCallId: "2", toolName: "user_interview", args: { question: {} } });
     emit({ type: "tool_execution_start", toolCallId: "3", toolName: "bash", args: { command: "true" } });
 
-    assertEquals(notifications, [
-        { eventName: "planWritten", sessionName: "notification session", agentName: "Tester" },
-        { eventName: "userInterview", sessionName: "notification session", agentName: "Tester" },
-    ]);
+    assertEquals(
+        events.filter((event) => event.type === "attention_requested").map((event) => ({
+            reason: event.reason,
+            agentName: event.agentName,
+        })),
+        [
+            { reason: "planWritten", agentName: "Tester" },
+            { reason: "userInterview", agentName: "Tester" },
+        ],
+    );
 });
 
 Deno.test("attachUiSubscribers formats tool headers, streams output deltas, and drains invoked tools", () => {

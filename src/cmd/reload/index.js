@@ -4,6 +4,8 @@
  */
 
 import { reloadRootAgentSession } from "../../shared/session/session.js";
+import { discoverAndRegisterThemes, setTheme } from "../../ui/theme/theme.js";
+import { getSettingsManager } from "../../shared/settings.js";
 
 /**
  * Executed when /reload is called.
@@ -19,6 +21,10 @@ export async function runReloadCommand(_argv, options = {}) {
     try {
         const success = await reloadRootAgentSession(options.hostedSession, options.uiAPI);
         if (success) {
+            const settings = getSettingsManager(options.hostedSession?.cwd);
+            await discoverAndRegisterThemes();
+            const persistedTheme = settings.getTheme();
+            if (persistedTheme) setTheme(persistedTheme);
             options.uiAPI.appendSystemMessage("Successfully reloaded configs, themes, and agent context.");
         } else {
             options.uiAPI.appendSystemMessage("Reload skipped (no active root session found).");
