@@ -1,5 +1,4 @@
 ---
-planId: "beaa2cb8-c785-4569-9957-0d7b313b099d"
 classification: "FEATURE"
 complexity: "HIGH"
 summary: "Ensure wld handles non-git project roots gracefully across plan execution, worktree creation/merge, workflow diff/snapshot validation, recovery, and load-plan flows; planner/implementer should identify git-dependent situations and ask the user for policy where behavior is not evident."
@@ -13,17 +12,11 @@ affectedPaths:
     - "src/shared/workflow/validation.test.js"
 frontend: false
 createdAt: "2026-07-08T16:25:14-04:00"
-updatedAt: "2026-07-09T01:00:06.135Z"
-status: "in_progress"
+updatedAt: "2026-07-09T01:54:17.770Z"
+status: "implemented"
 origin: "internal"
-humanReviewMode: null
-humanReviewDecision: null
-executionBaselineTree: "ffbaf90ed6e81aace6ec5fe9f8e5d60935769580"
-worktreeId: "d64cf4f1"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-harns--/harns-runwield-graceful-non-git-projects-d64cf4f1"
-worktreeBranch: "runwield/worktree/graceful-non-git-projects-d64cf4f1"
-worktreeBaseBranch: "main"
-worktreeStatus: "active"
+implementedAt: "2026-07-09T01:54:17.770Z"
+worktreeStatus: "completed"
 routingIntent: "FEATURE"
 sessionName: "non git graceful failure"
 ---

@@ -15,21 +15,16 @@ affectedPaths:
     - "src/shared/session/session-runtime.test.js"
 frontend: false
 createdAt: "2026-07-07T02:13:46.229Z"
-updatedAt: "2026-07-09T01:21:47.521Z"
-status: "in_progress"
+updatedAt: "2026-07-09T02:25:30.020Z"
+status: "verified"
 origin: "internal"
 parentPlan: "session-runtime-acp-mvp"
 order: 5
 dependencies:
     - "04-runtime-interactions-and-acp-plan-review-link-out"
-humanReviewMode: null
-humanReviewDecision: null
-executionBaselineTree: "d89d2d69f0842beb4a9248bd7eaa14689ab05faf"
-worktreeId: "fc4ad473"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-harns--/harns-runwield-session-runtime-acp-mvp-05-acp-session-load-repl-fc4ad473"
-worktreeBranch: "runwield/worktree/session-runtime-acp-mvp-05-acp-session-load-repl-fc4ad473"
-worktreeBaseBranch: "main"
-worktreeStatus: "active"
+verifiedAt: "2026-07-09T02:25:30.020Z"
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
 ---
 
 # ACP Session Load Replay and Lifecycle Hardening
