@@ -1,4 +1,5 @@
 ---
+planId: "beaa2cb8-c785-4569-9957-0d7b313b099d"
 classification: "FEATURE"
 complexity: "HIGH"
 summary: "Ensure wld handles non-git project roots gracefully across plan execution, worktree creation/merge, workflow diff/snapshot validation, recovery, and load-plan flows; planner/implementer should identify git-dependent situations and ask the user for policy where behavior is not evident."
