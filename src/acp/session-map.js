@@ -6,6 +6,14 @@
 const ACP_SESSION_PREFIX = "acp-";
 
 /**
+ * @param {string} sessionId
+ * @returns {string}
+ */
+export function normalizeAcpSessionIdForLoad(sessionId) {
+    return sessionId.startsWith(ACP_SESSION_PREFIX) ? sessionId.slice(ACP_SESSION_PREFIX.length) : sessionId;
+}
+
+/**
  * @typedef {Object} AcpPromptRecord
  * @property {boolean} cancelled
  * @property {Promise<{ stopReason: "cancelled" }>} cancellation

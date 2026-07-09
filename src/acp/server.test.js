@@ -509,6 +509,55 @@ Deno.test("ACP session/load replays updates before load response and loaded sess
     }
 });
 
+Deno.test("ACP session/load accepts ACP-facing session ids from earlier session/new responses", async () => {
+    const runtime = makeFakeRuntime();
+    /** @type {string[]} */
+    const loadedIds = [];
+    const originalLoadSession = runtime.loadSession.bind(runtime);
+    runtime.loadSession = (/** @type {{ cwd: string, sessionId: string }} */ options) => {
+        loadedIds.push(options.sessionId);
+        return originalLoadSession(options);
+    };
+    const handle = startTestServer({ runtime });
+    try {
+        await handle.inputWriter.write(encoder.encode(`${
+            JSON.stringify({
+                jsonrpc: "2.0",
+                id: "load-acp-id",
+                method: "session/load",
+                params: { sessionId: "acp-persisted-1", cwd: Deno.cwd(), mcpServers: [] },
+            })
+        }\n`));
+
+        const first = await readMessage(handle);
+        const second = await readMessage(handle);
+        const third = await readMessage(handle);
+        assertEquals(loadedIds, ["persisted-1"]);
+        assertEquals(first.params.sessionId, "acp-persisted-1");
+        assertEquals(second.params.sessionId, "acp-persisted-1");
+        assertEquals(third.id, "load-acp-id");
+        assertEquals(third.result._meta.runwield.persistedSessionId, "persisted-1");
+
+        await handle.inputWriter.write(encoder.encode(`${
+            JSON.stringify({
+                jsonrpc: "2.0",
+                id: "prompt-loaded-acp-id",
+                method: "session/prompt",
+                params: { sessionId: "acp-persisted-1", prompt: [{ type: "text", text: "continue" }] },
+            })
+        }\n`));
+        /** @type {Record<string, any> | null} */
+        let response = null;
+        for (let i = 0; i < 4 && !response; i++) {
+            const message = await readMessage(handle);
+            if (message.id === "prompt-loaded-acp-id") response = message;
+        }
+        assertEquals(response?.result.stopReason, "end_turn");
+    } finally {
+        await closeTestServer(handle);
+    }
+});
+
 Deno.test("ACP session/load validates params and maps unknown persisted sessions", async () => {
     const runtime = makeFakeRuntime();
     runtime.loadSession = () => Promise.reject(new Error("Persisted session not found for cwd"));
