@@ -1,6 +1,7 @@
 import { assertEquals, assertMatch, assertRejects, assertStringIncludes } from "@std/assert";
 import { basename, dirname } from "@std/path";
 import { HOME_DIR } from "../constants.js";
+import { GitRepositoryRequiredError } from "./git.js";
 import { findByPlanName } from "./worktree-registry.js";
 import {
     createExecutionWorktree,
@@ -1154,6 +1155,39 @@ Deno.test("inspectExecutionWorktreeMergeRisk fails on missing branch", async () 
         assertEquals(
             result.failures.some((failure) => failure.includes("Recorded worktree branch is not available")),
             true,
+        );
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true });
+    }
+});
+
+Deno.test("worktree helpers report Git requirement outside Git", async () => {
+    const projectRoot = await Deno.makeTempDir({ prefix: "runwield-non-git-worktree-" });
+    try {
+        await assertRejects(
+            () => createExecutionWorktree({ projectRoot, planName: "Non Git Plan" }),
+            GitRepositoryRequiredError,
+            "Creating an execution worktree requires a Git repository",
+        );
+        await assertRejects(
+            () => prepareTargetBranchRef(projectRoot, "main"),
+            GitRepositoryRequiredError,
+            "Preparing an execution target branch requires a Git repository",
+        );
+        await assertRejects(
+            () => mergeExecutionWorktree({ projectRoot, branch: "runwield/worktree/non-git" }),
+            GitRepositoryRequiredError,
+            "Merging an execution worktree requires a Git repository",
+        );
+        await assertRejects(
+            () =>
+                removeExecutionWorktree({
+                    projectRoot,
+                    path: `${projectRoot}/missing`,
+                    branch: "runwield/worktree/non-git",
+                }),
+            GitRepositoryRequiredError,
+            "Removing an execution worktree requires a Git repository",
         );
     } finally {
         await Deno.remove(projectRoot, { recursive: true });

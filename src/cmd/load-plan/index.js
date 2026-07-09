@@ -38,6 +38,11 @@ import {
     listCommitsTouchingPathsSince as listCommitsTouchingPathsSinceFn,
     restoreWorktreeTree as restoreWorktreeTreeFn,
 } from "../../shared/workflow/git-snapshot.js";
+import {
+    formatGitRequiredMessage,
+    isGitRepositoryRequiredError,
+    probeGitRepository as probeGitRepositoryFn,
+} from "../../shared/git.js";
 import { recordWorkflowMetric } from "../../shared/workflow/metrics.js";
 import {
     createExecutionWorktree as createExecutionWorktreeFn,
@@ -107,6 +112,7 @@ export { getLoadPlanCompletions } from "./getArgumentCompletions.js";
  * @property {typeof removeWorktreeRegistryEntryFn} [removeWorktreeRegistryEntry]
  * @property {typeof shouldCleanupMergedWorktreesFn} [shouldCleanupMergedWorktrees]
  * @property {typeof recordWorkflowMetric} [recordWorkflowMetric]
+ * @property {typeof probeGitRepositoryFn} [probeGitRepository]
  * @property {typeof setTerminalTitleForNameFn} [setTerminalTitleForName]
  */
 
@@ -315,6 +321,14 @@ async function confirmAffectedPathChangesBeforeExecution({
     try {
         commits = await listCommitsTouchingPathsSince(CWD, timestamp, affectedPaths);
     } catch (error) {
+        if (isGitRepositoryRequiredError(error)) {
+            uiAPI.appendSystemMessage(
+                "Skipping affected path history check because this project is not a Git repository.",
+                false,
+                "RunWield",
+            );
+            return true;
+        }
         const message = error instanceof Error ? error.message : String(error);
         uiAPI.appendSystemMessage(
             `Could not check affected path history before execution: ${message}`,
@@ -1247,7 +1261,11 @@ async function appendRecoveryReport(plan, uiAPI, getWorkflowDiff, worktreeContex
                         : "No changes since baseline.",
                 );
             } catch (error) {
-                const message = error instanceof Error ? error.message : String(error);
+                const message = isGitRepositoryRequiredError(error)
+                    ? formatGitRequiredMessage(error)
+                    : error instanceof Error
+                    ? error.message
+                    : String(error);
                 lines.push(`Could not inspect worktree: ${message}`);
             }
         }
@@ -1257,7 +1275,11 @@ async function appendRecoveryReport(plan, uiAPI, getWorkflowDiff, worktreeContex
             const diff = await getWorkflowDiff(CWD, plan.attrs.executionBaselineTree);
             lines.push(diff.trim() ? `Changes since execution baseline:\n${diff}` : "No changes since baseline.");
         } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
+            const message = isGitRepositoryRequiredError(error)
+                ? formatGitRequiredMessage(error)
+                : error instanceof Error
+                ? error.message
+                : String(error);
             lines.push(`Could not compute baseline diff: ${message}`);
         }
     } else {
@@ -1282,6 +1304,24 @@ async function confirmBaselineReset(planName, uiAPI) {
         ],
     );
     return answer === "reset";
+}
+
+/**
+ * @param {string} planName
+ * @param {import('../../shared/workflow/workflow.js').UiAPI} uiAPI
+ * @returns {Promise<boolean>}
+ */
+async function confirmMetadataOnlyRecoveryCleanup(planName, uiAPI) {
+    uiAPI.appendSystemMessage(
+        `Git is not available for this project, so RunWield cannot inspect, restore, recreate, continue, validate, or merge the recorded Git recovery state for "${planName}". It can safely clear only the stale Plan/Worktree metadata; no project files or recorded paths will be modified.`,
+        true,
+        "RunWield",
+    );
+    const answer = await uiAPI.promptSelect("Clear stale Git recovery metadata and mark the plan ready for work?", [
+        { value: "clear", label: "Clear metadata only" },
+        { value: "cancel", label: "Cancel" },
+    ]);
+    return answer === "clear";
 }
 
 /**
@@ -1417,6 +1457,7 @@ async function confirmRecoveryWorktreeAvailable(planName, worktreeContext, uiAPI
  * @param {typeof createAgentHandlerFn} opts.createAgentHandler
  * @param {typeof findPlansByParentFn} opts.findPlansByParent
  * @param {import('../../shared/session/hosted-session.js').HostedSession} opts.hostedSession
+ * @param {typeof probeGitRepositoryFn} [opts.probeGitRepository]
  * @returns {Promise<"handled" | "review">}
  */
 async function handlePlanRecovery({
@@ -1448,6 +1489,7 @@ async function handlePlanRecovery({
     createAgentHandler,
     findPlansByParent,
     hostedSession,
+    probeGitRepository = probeGitRepositoryFn,
 }) {
     if (!hostedSession) throw new Error("handlePlanRecovery: hostedSession is required");
     const refreshRecoveryWorktree = async () => {
@@ -1474,15 +1516,22 @@ async function handlePlanRecovery({
     while (true) {
         const hasWorktree = hasWorktreeContext(worktreeContext);
         const canMergeWorktree = canManuallyMergeRecoveredWorktree(worktreeContext);
+        const gitProbe = await probeGitRepository(CWD);
+        const hasGitRecoveryMetadata = hasWorktree || Boolean(plan.attrs.executionBaselineTree);
+        const gitRecoveryBlocked = !gitProbe.ok && hasGitRecoveryMetadata;
+        const resetLabel = gitRecoveryBlocked
+            ? "Clear stale Git recovery metadata"
+            : hasWorktree
+            ? "Delete/recreate worktree and start over"
+            : "Reset tree and start over";
         const options = plan.attrs.status === "implemented"
             ? [
-                { value: "validate", label: "Retry Workflow Validation" },
+                ...(gitRecoveryBlocked ? [] : [{ value: "validate", label: "Retry Workflow Validation" }]),
                 { value: "inspect", label: "Inspect and report current state" },
-                ...(canMergeWorktree ? [{ value: "merge", label: "Merge validated worktree changes" }] : []),
-                {
-                    value: "reset",
-                    label: hasWorktree ? "Delete/recreate worktree and start over" : "Reset tree and start over",
-                },
+                ...(canMergeWorktree && !gitRecoveryBlocked
+                    ? [{ value: "merge", label: "Merge validated worktree changes" }]
+                    : []),
+                { value: "reset", label: resetLabel },
                 ...(hasWorktree ? [{ value: "abandon", label: "Delete/abandon worktree" }] : []),
                 { value: "review", label: "Re-open for review" },
                 { value: "hold", label: "Put on hold" },
@@ -1490,11 +1539,10 @@ async function handlePlanRecovery({
             ]
             : [
                 { value: "inspect", label: "Inspect and report current state" },
-                { value: "continue", label: "Continue execution from current worktree" },
-                {
-                    value: "reset",
-                    label: hasWorktree ? "Delete/recreate worktree and start over" : "Reset tree and start over",
-                },
+                ...(gitRecoveryBlocked
+                    ? []
+                    : [{ value: "continue", label: "Continue execution from current worktree" }]),
+                { value: "reset", label: resetLabel },
                 ...(hasWorktree ? [{ value: "abandon", label: "Delete/abandon worktree" }] : []),
                 { value: "review", label: "Re-open for review" },
                 { value: "hold", label: "Put on hold" },
@@ -1522,6 +1570,16 @@ async function handlePlanRecovery({
             await putPlanOnHold({ plan, uiAPI, recordPlanEvent, findPlansByParent });
             await recordRecoveryResult("hold", "handled");
             return "handled";
+        }
+
+        if (gitRecoveryBlocked && ["continue", "validate", "merge"].includes(answer)) {
+            uiAPI.appendSystemMessage(
+                `Cannot ${answer} this Plan recovery state because Git is not available for the project. Git is required for recorded Worktree/baseline recovery operations. Use metadata-only reset or abandon cleanup, or initialize Git and try again.`,
+                true,
+                "RunWield",
+            );
+            await recordRecoveryResult(answer, "blocked", { gitState: gitProbe.state });
+            continue;
         }
 
         if (answer === "inspect") {
@@ -1595,6 +1653,35 @@ async function handlePlanRecovery({
                 );
                 continue;
             }
+            if (gitRecoveryBlocked) {
+                if (!(await confirmMetadataOnlyRecoveryCleanup(plan.planName, uiAPI))) continue;
+                await recordPlanEvent({
+                    cwd: CWD,
+                    planName: plan.planName,
+                    event: "recovery_reset",
+                    currentStatus: plan.attrs.status,
+                    details: { triageMeta: plan.attrs },
+                });
+                if (worktreeContext?.id) {
+                    await updateWorktreeRegistryEntry(CWD, worktreeContext.id, { status: "abandoned" });
+                }
+                plan.attrs = await updatePlanFrontMatter(CWD, plan.planName, {
+                    executionBaselineTree: null,
+                    worktreeId: null,
+                    worktreePath: null,
+                    worktreeBranch: null,
+                    worktreeBaseBranch: null,
+                    worktreeStatus: null,
+                }, { ...plan.attrs, status: "ready_for_work" });
+                worktreeContext = null;
+                uiAPI.appendSystemMessage(
+                    "Cleared stale Git recovery metadata. No project files or recorded paths were modified; the plan is ready for work.",
+                    false,
+                    "RunWield",
+                );
+                await recordRecoveryResult("reset", "metadata_only", { gitState: gitProbe.state });
+                return "handled";
+            }
             if (hasWorktree) {
                 const recreateBaseRef = getRecordedWorktreeRecreateBase(worktreeContext);
                 if (!recreateBaseRef) {
@@ -1611,23 +1698,52 @@ async function handlePlanRecovery({
                     : await confirmMissingWorktreeRecreate(plan.planName, worktreeContext, uiAPI);
                 if (!confirmed) continue;
                 if (worktreeContext?.path) {
-                    await removeExecutionWorktree({
-                        projectRoot: CWD,
-                        path: worktreeContext.path,
-                        branch: worktreeContext.branch,
-                        force: true,
-                    });
+                    try {
+                        await removeExecutionWorktree({
+                            projectRoot: CWD,
+                            path: worktreeContext.path,
+                            branch: worktreeContext.branch,
+                            force: true,
+                        });
+                    } catch (error) {
+                        const message = isGitRepositoryRequiredError(error)
+                            ? formatGitRequiredMessage(error)
+                            : error instanceof Error
+                            ? error.message
+                            : String(error);
+                        uiAPI.appendSystemMessage(
+                            `Cannot delete/recreate the recorded worktree: ${message}`,
+                            true,
+                            "RunWield",
+                        );
+                        continue;
+                    }
                 }
                 if (worktreeContext?.id) {
                     await updateWorktreeRegistryEntry(CWD, worktreeContext.id, { status: "abandoned" });
                 }
                 const recreateBaseBranch = worktreeContext?.baseBranch;
-                const recreated = await createExecutionWorktree({
-                    projectRoot: CWD,
-                    planName: plan.planName,
-                    baseRef: recreateBaseRef,
-                    baseBranch: recreateBaseBranch,
-                });
+                let recreated;
+                try {
+                    recreated = await createExecutionWorktree({
+                        projectRoot: CWD,
+                        planName: plan.planName,
+                        baseRef: recreateBaseRef,
+                        baseBranch: recreateBaseBranch,
+                    });
+                } catch (error) {
+                    const message = isGitRepositoryRequiredError(error)
+                        ? formatGitRequiredMessage(error)
+                        : error instanceof Error
+                        ? error.message
+                        : String(error);
+                    uiAPI.appendSystemMessage(
+                        `Cannot recreate the recorded worktree: ${message}`,
+                        true,
+                        "RunWield",
+                    );
+                    continue;
+                }
                 plan.attrs = await updatePlanFrontMatter(CWD, plan.planName, {
                     worktreeId: recreated.id,
                     worktreePath: recreated.path,
@@ -1648,7 +1764,17 @@ async function handlePlanRecovery({
                 };
             } else {
                 if (!(await confirmBaselineReset(plan.planName, uiAPI))) continue;
-                await restoreWorktreeTree(CWD, /** @type {string} */ (plan.attrs.executionBaselineTree));
+                try {
+                    await restoreWorktreeTree(CWD, /** @type {string} */ (plan.attrs.executionBaselineTree));
+                } catch (error) {
+                    const message = isGitRepositoryRequiredError(error)
+                        ? formatGitRequiredMessage(error)
+                        : error instanceof Error
+                        ? error.message
+                        : String(error);
+                    uiAPI.appendSystemMessage(`Cannot reset baseline tree: ${message}`, true, "RunWield");
+                    continue;
+                }
             }
             await recordPlanEvent({
                 cwd: CWD,
@@ -1757,7 +1883,11 @@ async function handlePlanRecovery({
                 uiAPI.appendSystemMessage("Worktree changes merged and plan marked verified.", false, "RunWield");
                 await recordRecoveryResult("merge", "merged", { cleanupMergedWorktrees });
             } catch (error) {
-                const reason = error instanceof Error ? error.message : String(error);
+                const reason = isGitRepositoryRequiredError(error)
+                    ? formatGitRequiredMessage(error)
+                    : error instanceof Error
+                    ? error.message
+                    : String(error);
                 uiAPI.appendSystemMessage(`Worktree merge failed: ${reason}`, true, "RunWield");
                 if (worktreeContext.id) {
                     try {
@@ -1804,13 +1934,26 @@ async function handlePlanRecovery({
 
         if (answer === "abandon") {
             if (!(await confirmWorktreeAction(plan.planName, uiAPI, "Delete/abandon"))) continue;
+            let removedWorktree = true;
             if (worktreeContext?.path) {
-                await removeExecutionWorktree({
-                    projectRoot: CWD,
-                    path: worktreeContext.path,
-                    branch: worktreeContext.branch,
-                    force: true,
-                });
+                try {
+                    await removeExecutionWorktree({
+                        projectRoot: CWD,
+                        path: worktreeContext.path,
+                        branch: worktreeContext.branch,
+                        force: true,
+                    });
+                } catch (error) {
+                    if (!isGitRepositoryRequiredError(error)) throw error;
+                    removedWorktree = false;
+                    uiAPI.appendSystemMessage(
+                        `Git is required to delete the recorded worktree. Proceeding with metadata-only abandon: ${
+                            formatGitRequiredMessage(error)
+                        }`,
+                        true,
+                        "RunWield",
+                    );
+                }
             }
             if (worktreeContext?.id) {
                 await updateWorktreeRegistryEntry(CWD, worktreeContext.id, { status: "abandoned" });
@@ -1822,7 +1965,13 @@ async function handlePlanRecovery({
                 worktreeBranch: null,
             }, plan.attrs);
             worktreeContext = null;
-            uiAPI.appendSystemMessage("Worktree abandoned and removed.", false, "RunWield");
+            uiAPI.appendSystemMessage(
+                removedWorktree
+                    ? "Worktree abandoned and removed."
+                    : "Worktree metadata abandoned; recorded path was left untouched because Git is unavailable.",
+                false,
+                "RunWield",
+            );
             await recordRecoveryResult("abandon", "abandoned");
             continue;
         }
@@ -2300,6 +2449,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
         removeWorktreeRegistryEntry: removeWorktreeRegistryEntryDep,
         shouldCleanupMergedWorktrees: shouldCleanupMergedWorktreesDep,
         recordWorkflowMetric: recordWorkflowMetricDep,
+        probeGitRepository: probeGitRepositoryDep,
     } = deps;
 
     const parseArgs = parseArgsDep || parseArgsFn;
@@ -2362,6 +2512,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
     const removeWorktreeRegistryEntry = removeWorktreeRegistryEntryDep || removeWorktreeRegistryEntryFn;
     const shouldCleanupMergedWorktrees = shouldCleanupMergedWorktreesDep || shouldCleanupMergedWorktreesFn;
     const recordWorkflowMetricForLoadPlan = recordWorkflowMetricDep || recordWorkflowMetric;
+    const probeGitRepository = probeGitRepositoryDep || probeGitRepositoryFn;
 
     const parsedArgs = parseArgs(argv, {
         boolean: ["help"],
@@ -2548,6 +2699,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                 createAgentHandler,
                 findPlansByParent,
                 hostedSession,
+                probeGitRepository,
             });
             if (result === "handled") return;
         }

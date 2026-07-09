@@ -6,6 +6,7 @@
 import { extractYaml } from "@std/front-matter";
 import { dirname, fromFileUrl, join } from "@std/path";
 import { AGENTS, CWD } from "../../constants.js";
+import { formatGitRequiredMessage, isGitRepositoryRequiredError } from "../git.js";
 import { getAgentDisplayName } from "../session/agents.js";
 import { ensureBundledAgentDefFile, runAgentSession } from "../session/session.js";
 import { getCodeReviewMode, getCustomSetting, setCustomSetting, shouldCleanupMergedWorktrees } from "../settings.js";
@@ -861,6 +862,7 @@ export async function runValidationLoop({
     const worktreeBranch = activeWorkflow?.worktreeBranch;
     const worktreeBaseBranch = activeWorkflow?.worktreeBaseBranch;
     const worktreeId = activeWorkflow?.worktreeId;
+    const nonGitInPlace = activeWorkflow?.nonGitInPlace === true;
     if (activeWorkflow) {
         hostedSession?.clearActiveExecutionWorkflow();
     }
@@ -989,6 +991,21 @@ export async function runValidationLoop({
             break;
         }
 
+        if (nonGitInPlace) {
+            appendRunWieldSystemMessage(
+                uiAPI,
+                "Git is not available for this project. RunWield cannot compute a Git diff, so automated Semantic Code Review and human diff review are skipped for this in-place execution.",
+                true,
+            );
+            humanReviewMetadata = {
+                humanReviewMode: getCodeReviewModeImpl(),
+                humanReviewDecision: "skipped",
+                humanReviewedAt: null,
+            };
+            executionComplete = true;
+            break;
+        }
+
         appendRunWieldSystemMessage(uiAPI, "Running Semantic Code Review...");
         uiAPI?.setBusy?.(true);
         let diffText = "";
@@ -1089,9 +1106,18 @@ export async function runValidationLoop({
                     }
                 }
             }
+        } catch (error) {
+            if (isGitRepositoryRequiredError(error)) {
+                haltReason = formatGitRequiredMessage(error);
+                appendRunWieldSystemMessage(uiAPI, `Workflow halted: ${haltReason}`, true);
+            } else {
+                throw error;
+            }
         } finally {
             uiAPI?.setBusy?.(false);
         }
+
+        if (haltReason) break;
 
         // Handle reviewer execution failures with retry/cancel menu
         if (reviewerFailed && diffText.trim()) {
@@ -1718,7 +1744,7 @@ export async function runValidationLoop({
                         planName,
                         event: "validation_failed",
                         currentStatus: "implemented",
-                        details: { triageMeta, failureReason: haltReason },
+                        details: { triageMeta, failureReason: haltReason, nonGitInPlace },
                     });
                 } catch (metadataError) {
                     const metadataReason = metadataError instanceof Error
@@ -1750,7 +1776,7 @@ export async function runValidationLoop({
                 planName,
                 event: "validation_failed",
                 currentStatus: "implemented",
-                details: { triageMeta, failureReason: reason },
+                details: { triageMeta, failureReason: reason, nonGitInPlace },
             });
         }
     }

@@ -25,6 +25,7 @@
 
 import { AGENTS, CWD, ROUTING_INTENTS } from "../../constants.js";
 import { ensurePlansDir, loadPlan } from "../../plan-store.js";
+import { hasNonGitExecutionConsent, probeGitRepository, rememberNonGitExecutionConsent } from "../git.js";
 import { applyPendingRootSwap, setActiveAgent } from "../session/agent-switching.js";
 import { runRootTurn } from "../session/session.js";
 import { getAgentDisplayName } from "../session/agents.js";
@@ -47,6 +48,24 @@ export { runLocalCI, runMechanicalValidation, runValidationLoop } from "./valida
  */
 
 const PLAN_ROUTING_INTENTS = ["FEATURE", "PROJECT"];
+
+/**
+ * @param {import('./workflow.js').UiAPI} uiAPI
+ * @returns {Promise<boolean>}
+ */
+async function confirmNonGitQuickFixExecution(uiAPI) {
+    if (!uiAPI.promptSelect) return false;
+    const answer = await uiAPI.promptSelect(
+        "Git is not available for this project. RunWield recommends using Git before QUICK_FIX edits so changes can be reviewed and recovered with normal Git tools. Proceeding will modify the current files directly.",
+        [
+            { value: "proceed", label: "Proceed in current files and remember for QUICK_FIX work" },
+            { value: "cancel", label: "Cancel QUICK_FIX" },
+        ],
+    );
+    if (answer !== "proceed") return false;
+    await rememberNonGitExecutionConsent("quickFix");
+    return true;
+}
 
 /**
  * @param {unknown} value
@@ -186,6 +205,9 @@ function applyAutoSessionName(sessionManager, triage, setTitle) {
  *   setTerminalTitleForName?: typeof setTerminalTitleForName,
  *   shouldRunWorkflowValidation?: typeof shouldRunWorkflowValidation,
  *   recordWorkflowMetric?: typeof recordWorkflowMetric,
+ *   probeGitRepository?: typeof probeGitRepository,
+ *   hasNonGitExecutionConsent?: typeof hasNonGitExecutionConsent,
+ *   confirmNonGitQuickFixExecution?: typeof confirmNonGitQuickFixExecution,
  * }} [args.__deps]
  */
 export async function dispatchPostTriage(
@@ -213,6 +235,9 @@ export async function dispatchPostTriage(
     const setActiveAgentImpl = __deps?.setActiveAgent || setActiveAgent;
     const setTerminalTitleForNameImpl = __deps?.setTerminalTitleForName || setTerminalTitleForName;
     const recordWorkflowMetricImpl = __deps?.recordWorkflowMetric || recordWorkflowMetric;
+    const probeGit = __deps?.probeGitRepository || probeGitRepository;
+    const hasConsent = __deps?.hasNonGitExecutionConsent || hasNonGitExecutionConsent;
+    const confirmQuickFix = __deps?.confirmNonGitQuickFixExecution || confirmNonGitQuickFixExecution;
 
     applyAutoSessionName(sessionManager, normalizedTriage, setTerminalTitleForNameImpl);
 
@@ -294,6 +319,21 @@ export async function dispatchPostTriage(
         const runRootTurnImpl = __deps?.runRootTurn || runRootTurn;
         const readLatestTaskCompletedOutcomeImpl = __deps?.readLatestTaskCompletedOutcome ||
             readLatestTaskCompletedOutcome;
+        const gitProbe = await probeGit(CWD);
+        if (!gitProbe.ok && !hasConsent("quickFix") && !(await confirmQuickFix(uiAPI))) {
+            uiAPI.appendSystemMessage(
+                "QUICK_FIX canceled because Git is not available and in-place edits were not approved.",
+                false,
+                "RunWield",
+            );
+            await recordWorkflowMetricImpl({
+                category: "execution",
+                event: "quick_fix_non_git_canceled",
+                agentName: AGENTS.ENGINEER,
+                details: { gitState: gitProbe.state },
+            });
+            return;
+        }
 
         setActiveAgentImpl(hostedSession, AGENTS.ENGINEER, createAgentHandlerImpl(AGENTS.ENGINEER), uiAPI);
         await applyPendingRootSwapImpl(hostedSession, uiAPI);
