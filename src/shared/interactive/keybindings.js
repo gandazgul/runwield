@@ -14,12 +14,12 @@
  * cancel callbacks) is passed in by the caller — this module owns no state.
  */
 
-import { Key, matchesKey, Text } from "@earendil-works/pi-tui";
+import { Image, Key, matchesKey } from "@earendil-works/pi-tui";
 import { abortActiveSession as abortActiveSessionFn } from "../session/session.js";
 import { cancelActivePlanReview as cancelActivePlanReviewFn } from "../workflow/submit-plan.js";
 import { stopTUI } from "../../ui/tui/tui.js";
 import { readClipboardImage } from "../clipboard.js";
-import { theme } from "../../ui/theme/theme.js";
+import { imageTheme } from "../../ui/theme/theme.js";
 
 /**
  * @param {import('@earendil-works/pi-tui').Editor} editor
@@ -37,6 +37,18 @@ function isEditorEmpty(editor) {
         return readableEditor.isEditorEmpty();
     }
     return false;
+}
+
+/**
+ * @param {import('../session/types.js').ImageAttachment} image
+ * @returns {Image}
+ */
+function createPastedImagePreview(image) {
+    return new Image(image.base64, image.mimeType, imageTheme, {
+        filename: image.ref || image.path || image.mimeType,
+        maxWidthCells: 30,
+        maxHeightCells: 10,
+    });
 }
 
 /**
@@ -152,14 +164,7 @@ export function installKeybindings(ctx) {
                 );
                 if (attachment) {
                     pastedImages.push(attachment);
-                    previewImages.addChild(
-                        new Text(
-                            theme.fg(
-                                "dim",
-                                `[Attached image: ${attachment.ref ? `${attachment.ref} ` : ""}${attachment.mimeType}]`,
-                            ),
-                        ),
-                    );
+                    previewImages.addChild(createPastedImagePreview(attachment));
                     tui.requestRender();
                 }
             }

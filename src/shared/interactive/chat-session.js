@@ -8,6 +8,7 @@ import {
     CombinedAutocompleteProvider,
     Container,
     Editor,
+    Image,
     Spacer,
     Text,
     truncateToWidth,
@@ -15,7 +16,14 @@ import {
 } from "@earendil-works/pi-tui";
 import { initTUI } from "../../ui/tui/tui.js";
 import { setTerminalTitleForSession } from "../../ui/tui/terminal-title.js";
-import { applyPersistedTheme, getEditorTheme, initRunWieldTheme, onThemeChange, theme } from "../../ui/theme/theme.js";
+import {
+    applyPersistedTheme,
+    getEditorTheme,
+    imageTheme,
+    initRunWieldTheme,
+    onThemeChange,
+    theme,
+} from "../../ui/theme/theme.js";
 import { VERSION } from "../version.js";
 import { endBlink, renderBootLogo } from "../../ui/tui/boot-logo.js";
 import { createUiApi } from "../../ui/tui/api.js";
@@ -240,7 +248,20 @@ export function createSteeringState() {
 export function formatSteeringBlockText(text, images) {
     if (images.length === 0) return text;
     const markers = images.map(formatImageAttachmentMarker).join("\n");
+    if (!text.trim()) return markers;
     return `${text}\n\n${markers}`;
+}
+
+/**
+ * @param {import('../session/types.js').ImageAttachment} image
+ * @returns {Image}
+ */
+function createPastedImagePreview(image) {
+    return new Image(image.base64, image.mimeType, imageTheme, {
+        filename: image.ref || image.path || image.mimeType,
+        maxWidthCells: 30,
+        maxHeightCells: 10,
+    });
 }
 
 /**
@@ -1237,9 +1258,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         if (item.images && item.images.length > 0) {
             for (const img of item.images) {
                 pastedImages.push(img);
-                previewImages.addChild(
-                    new Text(theme.fg("dim", `[Attached image: ${img.mimeType}]`)),
-                );
+                previewImages.addChild(createPastedImagePreview(img));
             }
         }
     }
@@ -1284,7 +1303,11 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
             steeringState.pendingMessages.delete(id);
             if (id === selectedId) continue;
 
-            const block = new SystemMessageBlock(entry.text, false, "Queued message:");
+            const block = new SystemMessageBlock(
+                formatSteeringBlockText(entry.text, entry.images),
+                false,
+                "Queued message:",
+            );
             const spacer = new Spacer(1);
             messageList.addChild(block);
             messageList.addChild(spacer);
@@ -1320,10 +1343,10 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         // Generation gating
         const thisGen = generationGuard.bump();
 
-        uiAPI.appendUserMessage?.(userRequest);
         savedImages.forEach((/** @type {import('../session/types.js').ImageAttachment} */ img) => {
             if (uiAPI.appendImage) uiAPI.appendImage(img.base64, img.mimeType);
         });
+        if (userRequest) uiAPI.appendUserMessage?.(userRequest);
 
         try {
             await sessionRuntime.promptSession(hostedSession, {
@@ -1346,36 +1369,38 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
      */
     async function executeUserRequest(text, savedImages) {
         const userRequest = text.trim();
-        if (!userRequest) return;
+        if (!userRequest && savedImages.length === 0) return;
 
-        editor.addToHistory?.(userRequest);
+        if (userRequest) editor.addToHistory?.(userRequest);
 
         // Slash commands (`/builtin` or `/template`)
-        const handledSlash = await handleSlashCommand({
-            userRequest,
-            savedImages,
-            hostedSession,
-            sessionHost,
-            uiAPI,
-            editor,
-            tui,
-            sessionStartedAt,
-            originalHandleInput,
-            builtinNames: CHAT_BUILTIN_SLASH_NAMES,
-            promptTemplateByName,
-            skills,
-            chatPromptAgentName: CHAT_PROMPT_AGENT_NAME,
-            resolveTemplateModel,
-            setActiveAgent: setCurrentActiveAgent,
-            applyPendingRootSwap: applyCurrentPendingRootSwap,
-            dispatchExpandedUserRequest: submitToActiveRoot,
-            setActiveModel: setCurrentActiveModel,
-            replaceHostedSession,
-            generationGuard,
-            registerOperationCancel: (cancel) => {
-                activeOperationCancel = cancel;
-            },
-        });
+        const handledSlash = userRequest
+            ? await handleSlashCommand({
+                userRequest,
+                savedImages,
+                hostedSession,
+                sessionHost,
+                uiAPI,
+                editor,
+                tui,
+                sessionStartedAt,
+                originalHandleInput,
+                builtinNames: CHAT_BUILTIN_SLASH_NAMES,
+                promptTemplateByName,
+                skills,
+                chatPromptAgentName: CHAT_PROMPT_AGENT_NAME,
+                resolveTemplateModel,
+                setActiveAgent: setCurrentActiveAgent,
+                applyPendingRootSwap: applyCurrentPendingRootSwap,
+                dispatchExpandedUserRequest: submitToActiveRoot,
+                setActiveModel: setCurrentActiveModel,
+                replaceHostedSession,
+                generationGuard,
+                registerOperationCancel: (cancel) => {
+                    activeOperationCancel = cancel;
+                },
+            })
+            : false;
         if (handledSlash) return;
 
         await submitToActiveRoot(userRequest, savedImages);
@@ -1386,7 +1411,8 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         endBlink();
 
         const userRequest = text.trim();
-        if (!userRequest) return;
+        const images = [...pastedImages];
+        if (!userRequest && images.length === 0) return;
 
         if (shouldBlockForModelSetup() && !(userRequest.startsWith("/") && isModelSetupRecoveryCommand(userRequest))) {
             uiAPI.appendSystemMessage(
@@ -1400,7 +1426,6 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
             return;
         }
 
-        const images = [...pastedImages];
         if (images.length > 0) {
             const preflight = await preflightCurrentImages(images);
             if (!preflight.ok) {
@@ -1415,7 +1440,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
             }
         }
 
-        editor.addToHistory?.(userRequest);
+        if (userRequest) editor.addToHistory?.(userRequest);
 
         pastedImages.length = 0;
         previewImages.clear();
@@ -1466,7 +1491,11 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
                 } else {
                     // Add the visual block manually (bypassing appendSystemMessage's coalescing)
                     // so we can remove this exact block if the user dequeues with up-arrow.
-                    const block = new SystemMessageBlock(userRequest, false, "Queued message:");
+                    const block = new SystemMessageBlock(
+                        formatSteeringBlockText(userRequest, images),
+                        false,
+                        "Queued message:",
+                    );
                     const spacer = new Spacer(1);
                     messageList.addChild(block);
                     messageList.addChild(spacer);
@@ -1476,7 +1505,11 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
             }).catch((_err) => {
                 // On error (e.g. extension command rejected by session.steer()),
                 // fall back to queuing for next submission
-                const block = new SystemMessageBlock(userRequest, false, "Queued message (steer failed):");
+                const block = new SystemMessageBlock(
+                    formatSteeringBlockText(userRequest, images),
+                    false,
+                    "Queued message (steer failed):",
+                );
                 const spacer = new Spacer(1);
                 messageList.addChild(block);
                 messageList.addChild(spacer);
