@@ -3,7 +3,7 @@
  * Root interactive session lifecycle helpers (persisted in ~/.wld/sessions).
  */
 
-import { dirname, join, resolve } from "@std/path";
+import { dirname, isAbsolute, join, resolve } from "@std/path";
 
 /**
  * Encode cwd into a filesystem-safe directory segment (Pi-style).
@@ -75,6 +75,126 @@ export async function createRootSessionManager(mode, cwd) {
         return SessionManager.continueRecent(cwd, sessionDir);
     }
     return SessionManager.create(cwd, sessionDir);
+}
+
+/**
+ * @typedef {Object} PersistedRootSessionInfo
+ * @property {string} id
+ * @property {string} path
+ * @property {string} cwd
+ * @property {Date | string | number} [modified]
+ * @property {number} [messageCount]
+ * @property {string} [firstMessage]
+ * @property {string} [name]
+ */
+
+/**
+ * @typedef {Object} ResolvePersistedRootSessionOptions
+ * @property {string} cwd
+ * @property {string} sessionId
+ * @property {string} [sessionPath]
+ */
+
+/**
+ * @typedef {Object} ResolvedPersistedRootSession
+ * @property {string} cwd
+ * @property {string} sessionDir
+ * @property {string} sessionId
+ * @property {string} sessionPath
+ * @property {PersistedRootSessionInfo | null} info
+ */
+
+/** @param {string} path @param {string} baseDir */
+function isPathInside(path, baseDir) {
+    const resolvedPath = resolve(path);
+    const resolvedBase = resolve(baseDir);
+    return resolvedPath === resolvedBase || resolvedPath.startsWith(`${resolvedBase}/`);
+}
+
+/** @param {unknown} value */
+function getManagerCwd(value) {
+    if (!value || typeof value !== "object" || !("getCwd" in value) || typeof value.getCwd !== "function") return "";
+    const cwd = value.getCwd();
+    return typeof cwd === "string" ? cwd : "";
+}
+
+/**
+ * List persisted RunWield root sessions for a cwd.
+ *
+ * @param {string} cwd
+ * @returns {Promise<PersistedRootSessionInfo[]>}
+ */
+export async function listPersistedRootSessions(cwd) {
+    if (!cwd || !isAbsolute(cwd)) throw new Error("listPersistedRootSessions requires an absolute cwd");
+    const { SessionManager } = await import("@earendil-works/pi-coding-agent");
+    const sessionDir = getRunWieldSessionDir(cwd);
+    const sessions = await SessionManager.list(cwd, sessionDir);
+    return /** @type {PersistedRootSessionInfo[]} */ (sessions);
+}
+
+/**
+ * Resolve a persisted RunWield root session by id or guarded file path.
+ *
+ * @param {ResolvePersistedRootSessionOptions} options
+ * @returns {Promise<ResolvedPersistedRootSession>}
+ */
+export async function resolvePersistedRootSession(options) {
+    if (!options?.cwd || !isAbsolute(options.cwd)) {
+        throw new Error("resolvePersistedRootSession requires an absolute cwd");
+    }
+    if (!options.sessionId || typeof options.sessionId !== "string") {
+        throw new Error("resolvePersistedRootSession requires a session id");
+    }
+    const sessionDir = getRunWieldSessionDir(options.cwd);
+    const sessions = await listPersistedRootSessions(options.cwd);
+    const requestedPath = options.sessionPath ? resolve(options.sessionPath) : "";
+    if (requestedPath && !isPathInside(requestedPath, sessionDir)) {
+        throw new Error("Persisted session path is outside the RunWield session directory for cwd");
+    }
+
+    const match = sessions.find((session) => {
+        if (requestedPath) return resolve(session.path) === requestedPath && session.id === options.sessionId;
+        return session.id === options.sessionId;
+    });
+    if (!match) throw new Error(`Persisted session not found for cwd: ${options.sessionId}`);
+
+    return {
+        cwd: options.cwd,
+        sessionDir,
+        sessionId: match.id,
+        sessionPath: resolve(match.path),
+        info: match,
+    };
+}
+
+/**
+ * Open a persisted RunWield root session by id or guarded file path.
+ *
+ * @param {ResolvePersistedRootSessionOptions} options
+ * @returns {Promise<{ sessionManager: import('@earendil-works/pi-coding-agent').SessionManager, resolved: ResolvedPersistedRootSession }>}
+ */
+export async function openPersistedRootSession(options) {
+    const { SessionManager } = await import("@earendil-works/pi-coding-agent");
+    const resolved = await resolvePersistedRootSession(options);
+    const sessionManager = SessionManager.open(resolved.sessionPath, resolved.sessionDir, options.cwd);
+    if (resolve(getManagerCwd(sessionManager)) !== resolve(options.cwd)) {
+        try {
+            /** @type {{ dispose?: () => void }} */ (sessionManager).dispose?.();
+        } catch {
+            // Best-effort cleanup for rejected cross-cwd loads.
+        }
+        throw new Error("Persisted session cwd does not match requested cwd");
+    }
+    return { sessionManager, resolved };
+}
+
+/**
+ * @param {import('@earendil-works/pi-coding-agent').SessionManager | { getBranch?: Function, getEntries?: Function }} sessionManager
+ * @returns {unknown[]}
+ */
+export function getRootSessionBranchEntries(sessionManager) {
+    const entries = sessionManager?.getBranch?.() || sessionManager?.getEntries?.() || [];
+    return Array.isArray(entries) ? entries : [];
 }
 
 /**
