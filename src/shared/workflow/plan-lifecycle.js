@@ -28,6 +28,7 @@ import { SHARED_PLAN_LOCK_REPAIR, SharedPlanLockError } from "../collaboration/l
  * @property {string} [worktreeBranch]
  * @property {string} [worktreeBaseBranch]
  * @property {import('../../plan-store.js').PlanFrontMatter['worktreeStatus']} [worktreeStatus]
+ * @property {boolean} [nonGitInPlace]
  * @property {boolean} [cleanupMergedWorktrees]
  * @property {import('../../plan-store.js').PlanFrontMatter['humanReviewMode']} [humanReviewMode]
  * @property {import('../../plan-store.js').PlanFrontMatter['humanReviewDecision']} [humanReviewDecision]
@@ -385,12 +386,21 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
     }
 
     if (event === "execution_started") {
-        updates.executionBaselineTree = details.executionBaselineTree;
-        updates.worktreeId = details.worktreeId;
-        updates.worktreePath = details.worktreePath;
-        updates.worktreeBranch = details.worktreeBranch;
-        updates.worktreeBaseBranch = details.worktreeBaseBranch;
-        updates.worktreeStatus = details.worktreeStatus || "active";
+        if (details.nonGitInPlace) {
+            updates.executionBaselineTree = null;
+            updates.worktreeId = null;
+            updates.worktreePath = null;
+            updates.worktreeBranch = null;
+            updates.worktreeBaseBranch = null;
+            updates.worktreeStatus = null;
+        } else {
+            updates.executionBaselineTree = details.executionBaselineTree;
+            updates.worktreeId = details.worktreeId;
+            updates.worktreePath = details.worktreePath;
+            updates.worktreeBranch = details.worktreeBranch;
+            updates.worktreeBaseBranch = details.worktreeBaseBranch;
+            updates.worktreeStatus = details.worktreeStatus || "active";
+        }
         updates.failureReason = null;
         updates.failedAt = null;
         updates.implementedAt = null;
@@ -407,13 +417,13 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
     }
 
     if (event === "implementation_finished") {
-        updates.worktreeStatus = "completed";
+        if (!details.nonGitInPlace) updates.worktreeStatus = "completed";
         updates.implementedAt = now;
         updates.failedAt = null;
     }
 
     if (event === "validation_failed") {
-        updates.worktreeStatus = "validation_failed";
+        if (!details.nonGitInPlace) updates.worktreeStatus = "validation_failed";
         updates.failureReason = details.failureReason || "Workflow Validation failed.";
     }
 

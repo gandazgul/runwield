@@ -1838,6 +1838,55 @@ Deno.test("runLoadPlanCommand ready_for_work plan proceed path executes", async 
     assertEquals(executed, true);
 });
 
+Deno.test("runLoadPlanCommand skips affected path history in non-Git projects", async () => {
+    const { uiAPI, selections, messages } = makeUi();
+    selections.push("proceed");
+    let executed = false;
+
+    await runLoadPlanCommand(["plan-non-git-history"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: () => ({ help: false, _: ["plan-non-git-history"] }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "plan-non-git-history",
+                    path: "plans/plan-non-git-history.md",
+                    body: "body",
+                    attrs: {
+                        classification: "FEATURE",
+                        complexity: "LOW",
+                        summary: "s",
+                        affectedPaths: ["src/a.js"],
+                        status: "ready_for_work",
+                        updatedAt: "2026-01-01T00:00:00.000Z",
+                    },
+                }),
+            listCommitsTouchingPathsSince: () =>
+                Promise.reject({
+                    name: "GitRepositoryRequiredError",
+                    message: "Checking affected path commit history requires a Git repository.",
+                }),
+            executePlan: () => {
+                executed = true;
+                return Promise.resolve(undefined);
+            },
+            createAgentHandler: () => async () => {},
+            resetTuiState: () => {},
+            setActiveAgent: () => {},
+        }),
+    });
+
+    assertEquals(executed, true);
+    assertEquals(
+        messages.some((message) =>
+            message.includes("Skipping affected path history check because this project is not a Git repository")
+        ),
+        true,
+    );
+});
+
 Deno.test("runLoadPlanCommand in_progress plan can continue from current worktree", async () => {
     const { uiAPI, selections } = makeUi();
     selections.push("continue");
@@ -1882,6 +1931,151 @@ Deno.test("runLoadPlanCommand in_progress plan can continue from current worktre
 
     assertEquals(lifecycleEvent, "recovery_continue");
     assertEquals(executed, true);
+});
+
+Deno.test("runLoadPlanCommand blocks Git-dependent recovery continue in non-Git projects", async () => {
+    const { uiAPI, selections, prompts, messages } = makeUi();
+    selections.push("continue", "cancel");
+    let executed = false;
+
+    await runLoadPlanCommand(["plan-non-git-continue"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: () => ({ help: false, _: ["plan-non-git-continue"] }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "plan-non-git-continue",
+                    path: "plans/plan-non-git-continue.md",
+                    body: "body",
+                    markdown: "markdown",
+                    attrs: {
+                        classification: "FEATURE",
+                        complexity: "LOW",
+                        summary: "s",
+                        affectedPaths: [],
+                        status: "in_progress",
+                        executionBaselineTree: "baseline-tree",
+                        worktreeId: "wt-1",
+                        worktreePath: "/tmp/recorded-worktree",
+                        worktreeBranch: "runwield/worktree/plan-non-git-continue",
+                    },
+                }),
+            probeGitRepository: () => Promise.resolve({ ok: false, state: "not_git", cwd: Deno.cwd() }),
+            findWorktreeById: () => Promise.resolve(null),
+            findWorktreeByPlanName: () => Promise.resolve(null),
+            executePlan: () => {
+                executed = true;
+                return Promise.resolve(undefined);
+            },
+            recordWorkflowMetric: () => Promise.resolve(null),
+            createAgentHandler: () => async () => {},
+            resetTuiState: () => {},
+            setActiveAgent: () => {},
+        }),
+    });
+
+    assertEquals(executed, false);
+    assertEquals(prompts[0].options.some((option) => option.value === "continue"), false);
+    assertEquals(
+        messages.some((message) =>
+            message.includes("Cannot continue this Plan recovery state because Git is not available")
+        ),
+        true,
+    );
+});
+
+Deno.test("runLoadPlanCommand performs metadata-only recovery reset in non-Git projects", async () => {
+    const { uiAPI, selections, messages } = makeUi();
+    selections.push("reset", "clear");
+    let removed = false;
+    let restored = false;
+    /** @type {Record<string, unknown> | null} */
+    let clearedUpdates = null;
+    /** @type {string | null} */
+    let lifecycleEvent = null;
+    /** @type {{ id: string, updates: Record<string, unknown> } | null} */
+    let registryUpdate = null;
+
+    await runLoadPlanCommand(["plan-non-git-reset"], {
+        hostedSession: new HostedSession({ id: "load-plan-test" }),
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: () => ({ help: false, _: ["plan-non-git-reset"] }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "plan-non-git-reset",
+                    path: "plans/plan-non-git-reset.md",
+                    body: "body",
+                    markdown: "markdown",
+                    attrs: {
+                        classification: "FEATURE",
+                        complexity: "LOW",
+                        summary: "s",
+                        affectedPaths: [],
+                        status: "failed",
+                        executionBaselineTree: "baseline-tree",
+                        worktreeId: "wt-1",
+                        worktreePath: "/tmp/recorded-worktree",
+                        worktreeBranch: "runwield/worktree/plan-non-git-reset",
+                        worktreeStatus: "execution_failed",
+                    },
+                }),
+            probeGitRepository: () => Promise.resolve({ ok: false, state: "not_git", cwd: Deno.cwd() }),
+            findWorktreeById: () => Promise.resolve(null),
+            findWorktreeByPlanName: () => Promise.resolve(null),
+            restoreWorktreeTree: () => {
+                restored = true;
+                return Promise.resolve();
+            },
+            removeExecutionWorktree: () => {
+                removed = true;
+                return Promise.resolve();
+            },
+            updatePlanFrontMatter: (
+                /** @type {string} */ _cwd,
+                /** @type {string} */ _planName,
+                /** @type {Record<string, unknown>} */ updates,
+                /** @type {Record<string, unknown>} */ current,
+            ) => {
+                clearedUpdates = updates;
+                return Promise.resolve(/** @type {any} */ ({ ...current, ...updates }));
+            },
+            updateWorktreeRegistryEntry: (
+                /** @type {string} */ _cwd,
+                /** @type {string} */ id,
+                /** @type {Record<string, unknown>} */ updates,
+            ) => {
+                registryUpdate = { id, updates };
+                return Promise.resolve(/** @type {any} */ ({ id, ...updates }));
+            },
+            recordPlanEvent: (/** @type {{ event: string }} */ args) => {
+                lifecycleEvent = args.event;
+                return Promise.resolve(/** @type {any} */ ({}));
+            },
+            recordWorkflowMetric: () => Promise.resolve(null),
+            createAgentHandler: () => async () => {},
+            resetTuiState: () => {},
+            setActiveAgent: () => {},
+        }),
+    });
+
+    assertEquals(restored, false);
+    assertEquals(removed, false);
+    assertEquals(lifecycleEvent, "recovery_reset");
+    const registry = /** @type {{ id?: string, updates?: Record<string, unknown> }} */ (registryUpdate || {});
+    assertEquals(registry.id, "wt-1");
+    assertEquals(registry.updates?.status, "abandoned");
+    const updates = /** @type {Record<string, unknown>} */ (clearedUpdates || {});
+    assertEquals(updates.executionBaselineTree, null);
+    assertEquals(updates.worktreeId, null);
+    assertEquals(updates.worktreePath, null);
+    assertEquals(
+        messages.some((message) => message.includes("Cleared stale Git recovery metadata")),
+        true,
+    );
 });
 
 Deno.test("runLoadPlanCommand failed plan can reset baseline and start over", async () => {
