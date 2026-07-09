@@ -1,4 +1,5 @@
 ---
+planId: "e95c3cc3-53d3-4af8-aa39-46cd951364bb"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Port the current Workspace board, detail, lifecycle interactions, Plannotator body rendering, and body editing behavior to Astro/React. Once parity is proven with automated and headed browser checks, retire the Fresh/Preact/Uno Workspace runtime."
