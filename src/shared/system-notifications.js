@@ -18,6 +18,8 @@ const EVENT_MESSAGES = {
     userInterview: "The agent is asking you a question.",
 };
 
+const TERMINAL_NOTIFIER_FALLBACK_REASON = "terminal_notifier_failed";
+
 /**
  * @typedef {"agentStopped" | "planWritten" | "userInterview"} NotificationEventName
  */
@@ -151,11 +153,31 @@ export async function notifyRunWieldEvent(eventName, options = {}) {
 
     try {
         const output = await deps.runCommand(command.cmd, command.args);
+        if (output.success) {
+            return {
+                ...baseResult,
+                command,
+                sent: true,
+                reason: "sent",
+            };
+        }
+
+        const fallbackCommand = await buildOsascriptNotificationCommand({ title, message }, deps);
+        if (fallbackCommand && command.cmd === "terminal-notifier") {
+            const fallbackOutput = await deps.runCommand(fallbackCommand.cmd, fallbackCommand.args);
+            return {
+                ...baseResult,
+                command: fallbackCommand,
+                sent: fallbackOutput.success,
+                reason: fallbackOutput.success ? `sent:${TERMINAL_NOTIFIER_FALLBACK_REASON}` : "command_failed",
+            };
+        }
+
         return {
             ...baseResult,
             command,
-            sent: output.success,
-            reason: output.success ? "sent" : "command_failed",
+            sent: false,
+            reason: "command_failed",
         };
     } catch (error) {
         const reason = error instanceof Error ? error.message : String(error);
@@ -237,26 +259,40 @@ export async function buildNotificationCommand(options, deps = defaultDeps) {
                 "-message",
                 options.message,
                 "-group",
-                `runwield-${options.eventName}`,
+                buildNotificationGroup(options.eventName),
                 "-execute",
                 activationCommand,
             ],
         };
     }
 
-    if (await commandExists("osascript", deps)) {
-        return {
-            cmd: "osascript",
-            args: [
-                "-e",
-                `display notification ${appleScriptString(options.message)} with title ${
-                    appleScriptString(options.title)
-                }`,
-            ],
-        };
-    }
+    return await buildOsascriptNotificationCommand({ title: options.title, message: options.message }, deps);
+}
 
-    return null;
+/**
+ * @param {NotificationEventName} eventName
+ * @returns {string}
+ */
+function buildNotificationGroup(eventName) {
+    return `runwield-${eventName}-${Date.now()}-${crypto.randomUUID()}`;
+}
+
+/**
+ * @param {{ title: string, message: string }} options
+ * @param {Required<SystemNotificationDeps>} deps
+ * @returns {Promise<CommandSpec | null>}
+ */
+async function buildOsascriptNotificationCommand(options, deps) {
+    if (deps.os !== "darwin") return null;
+    if (!await commandExists("osascript", deps)) return null;
+
+    return {
+        cmd: "osascript",
+        args: [
+            "-e",
+            `display notification ${appleScriptString(options.message)} with title ${appleScriptString(options.title)}`,
+        ],
+    };
 }
 
 /**
