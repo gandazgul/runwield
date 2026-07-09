@@ -82,8 +82,17 @@ _Avoid_: Cross-section, code path
 **Plan**: A markdown file in `plans/` with YAML Front Matter that describes the implementation strategy for a User
 Request. _Avoid_: Blueprint, spec, design doc
 
-**Work Record**: A retrospective planning-memory artifact that distills what verified planned work actually produced and
-what future planning should remember. _Avoid_: Review log, chat transcript, implementation diary
+**Work Record**: A repo-local markdown retrospective planning-memory artifact that distills what verified planned work
+actually produced and what future planning should remember. _Avoid_: Review log, chat transcript, implementation diary
+
+**Superseded Work Record**: A Work Record whose planning guidance has been replaced by a newer Work Record. _Avoid_:
+Archived record, deleted record, draft record
+
+**Archived Work Record**: A Work Record hidden from default human search and Agent retrieval while remaining available
+by explicit request. _Avoid_: Superseded record, deleted record, draft record
+
+**External Work Record**: A Work Record imported or manually created for work performed outside RunWield or recovered
+after the original Plan was lost. _Avoid_: Draft record, ad hoc note, memory
 
 **Front Matter**: YAML metadata at the top of a Plan containing classification, complexity, status, timestamps, and
 origin. _Avoid_: Metadata, header, YAML block
@@ -381,6 +390,8 @@ command definition, prompt command
   **Epic** container.
 - A **Verified Plan** may produce one **Work Record**.
 - A **Recorder** generates **Work Records** from verified planned work.
+- A **Superseded Work Record** is replaced by a newer **Work Record** but is not necessarily archived.
+- An **Archived Work Record** is excluded from default Work Record search and planning retrieval.
 - A **Failed Plan** must have reached **Ready For Work** before work failed.
 - An **In-Progress Plan** requires recovery because execution may have partially changed the worktree.
 - **Plan Recovery** resolves whether RunWield continues the current worktree state, reports on it, re-opens the Plan, or
