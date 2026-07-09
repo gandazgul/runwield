@@ -1,0 +1,19 @@
+---
+import ReviewLayout from "../../layouts/ReviewLayout.astro";
+import { CodeReviewSurface } from "../../react/CodeReviewSurface.tsx";
+
+const payloadHeader = Astro.request.headers.get("x-runwield-review-payload") || "";
+let payload = null;
+try {
+    payload = payloadHeader ? JSON.parse(payloadHeader) : null;
+} catch {
+    payload = null;
+}
+if (!payload) {
+    return new Response("Review token required.", { status: 401 });
+}
+---
+<ReviewLayout title="Code Review · RunWield Workspace">
+    <script type="application/json" data-code-review-payload set:html={JSON.stringify(payload)} />
+    <CodeReviewSurface payload={payload} client:only="react" />
+</ReviewLayout>

@@ -1,11 +1,11 @@
 ---
-import WorkspaceLayout from "../../layouts/WorkspaceLayout.astro";
+import ReviewLayout from "../../layouts/ReviewLayout.astro";
 import { ReviewDevSurface } from "../../react/ReviewDevSurface.tsx";
 
 if (!import.meta.env.DEV) {
     return new Response("Not found", { status: 404 });
 }
 ---
-<WorkspaceLayout title="Plan Review Dev · RunWield Workspace" selectedTab="active">
+<ReviewLayout title="Plan Review Dev · RunWield Workspace">
     <ReviewDevSurface surface="plan" client:only="react" />
-</WorkspaceLayout>
+</ReviewLayout>

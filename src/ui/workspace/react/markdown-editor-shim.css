@@ -1,0 +1,17 @@
+.rw-plannotator-markdown-editor {
+    height: 100%;
+    max-width: 76ch;
+    margin: 0 auto;
+    padding: 1rem;
+}
+
+.rw-plannotator-markdown-editor textarea {
+    width: 100%;
+    min-height: 65vh;
+    border: 1px solid hsl(var(--border, 215 28% 25%));
+    border-radius: .75rem;
+    background: hsl(var(--background, 222 47% 11%));
+    color: hsl(var(--foreground, 210 40% 98%));
+    padding: 1rem;
+    font: inherit;
+}
