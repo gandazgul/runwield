@@ -236,6 +236,72 @@ Deno.test("startActiveExecutionWorkflow does not let plan target overwrite unkno
     assertEquals(prepareCalls, 0);
 });
 
+Deno.test("startActiveExecutionWorkflow prompts once and uses CWD for non-Git in-place execution", async () => {
+    const hostedSession = makeHostedSession("non-git-feature-workflow");
+    /** @type {string[]} */
+    const prompts = [];
+    /** @type {any[]} */
+    const events = [];
+    const result = await startActiveExecutionWorkflow({
+        planName: "non-git-plan",
+        triageMeta: { classification: "FEATURE" },
+        currentStatus: "ready_for_work",
+        hostedSession,
+        uiAPI: /** @type {any} */ ({
+            promptSelect: (/** @type {string} */ prompt) => {
+                prompts.push(prompt);
+                return Promise.resolve("proceed");
+            },
+        }),
+        __deps: {
+            probeGitRepository: () => Promise.resolve({ ok: false, state: "not_git", cwd: Deno.cwd() }),
+            hasNonGitExecutionConsent: () => false,
+            confirmNonGitFeaturePlanExecution: async (/** @type {any} */ uiAPI) => {
+                await uiAPI.promptSelect("non git prompt", []);
+                return true;
+            },
+            findReusableWorktree: () => Promise.reject(new Error("should not inspect worktrees")),
+            createExecutionWorktree: () => Promise.reject(new Error("should not create worktree")),
+            captureWorktreeTree: () => Promise.reject(new Error("should not capture git tree")),
+            updateWorktreeRegistryEntry: () => Promise.resolve(null),
+            recordPlanEvent: (event) => {
+                events.push(event);
+                return Promise.resolve(/** @type {any} */ ({}));
+            },
+        },
+    });
+
+    assertEquals(prompts, ["non git prompt"]);
+    assertEquals(result.executionCwd, Deno.cwd());
+    assertEquals(result.nonGitInPlace, true);
+    assertEquals(result.worktreeId, undefined);
+    assertEquals(hostedSession.getActiveExecutionWorkflow()?.nonGitInPlace, true);
+    assertEquals(/** @type {any} */ (events[0]).details.nonGitInPlace, true);
+});
+
+Deno.test("startActiveExecutionWorkflow cancels non-Git execution without consent", async () => {
+    const hostedSession = makeHostedSession("non-git-feature-cancel-workflow");
+    await assertRejects(
+        () =>
+            startActiveExecutionWorkflow({
+                planName: "non-git-plan",
+                triageMeta: { classification: "FEATURE" },
+                currentStatus: "ready_for_work",
+                hostedSession,
+                uiAPI: /** @type {any} */ ({}),
+                __deps: {
+                    probeGitRepository: () => Promise.resolve({ ok: false, state: "not_git", cwd: Deno.cwd() }),
+                    hasNonGitExecutionConsent: () => false,
+                    confirmNonGitFeaturePlanExecution: () => Promise.resolve(false),
+                    recordPlanEvent: () => Promise.reject(new Error("should not record execution_started")),
+                },
+            }),
+        Error,
+        "in-place execution was not approved",
+    );
+    assertEquals(hostedSession.getActiveExecutionWorkflow(), null);
+});
+
 Deno.test("readLatestPlanOutcome returns the latest plan_written outcome", () => {
     const messages = [
         /** @type {any} */ ({

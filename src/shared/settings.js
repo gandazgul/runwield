@@ -17,6 +17,7 @@ const RUNWEILD_CUSTOM_SETTING_KEYS = [
     "cleanupMergedWorktrees",
     "workflowMetrics",
     "notifications",
+    "nonGitExecutionConsent",
     "enableExternalSkills",
     "enableExternalGlobalAgentsMd",
     PLAN_SERVER_URL_SETTING_KEY,

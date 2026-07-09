@@ -6,6 +6,7 @@
 import { basename, dirname, join } from "@std/path";
 import { HOME_DIR, RUNWEILD_DIR_NAME, WORKTREE_BRANCH_PREFIX, WORKTREE_PATH_PREFIX } from "../constants.js";
 import { encodeCwdForSessionDir } from "./session/root-session.js";
+import { assertGitRepository, GitRepositoryRequiredError } from "./git.js";
 import { getWorkflowDiff } from "./workflow/git-snapshot.js";
 import { addEntry, listEntries, pruneStaleEntries, removeEntry } from "./worktree-registry.js";
 
@@ -16,7 +17,16 @@ import { addEntry, listEntries, pruneStaleEntries, removeEntry } from "./worktre
  */
 async function runGit(cwd, args) {
     const result = await runGitResult(cwd, args);
-    if (result.code !== 0) throw new Error(`git ${args.join(" ")} failed: ${result.stderr || result.stdout}`.trim());
+    if (result.code !== 0) {
+        const output = result.stderr || result.stdout;
+        if (output.includes("not a git repository") || output.includes("not a git command")) {
+            throw new GitRepositoryRequiredError(
+                `Git operation requires a Git repository: git ${args.join(" ")}. ${output}`.trim(),
+                { cwd, operation: `git ${args.join(" ")}`, state: "not_git" },
+            );
+        }
+        throw new Error(`git ${args.join(" ")} failed: ${output}`.trim());
+    }
     return result.stdout;
 }
 
@@ -26,10 +36,17 @@ async function runGit(cwd, args) {
  * @returns {Promise<{ code: number, stdout: string, stderr: string }>}
  */
 async function runGitResult(cwd, args) {
-    const command = new Deno.Command("git", { args, cwd, stdout: "piped", stderr: "piped" });
-    const { code, stdout, stderr } = await command.output();
-    const decoder = new TextDecoder();
-    return { code, stdout: decoder.decode(stdout), stderr: decoder.decode(stderr) };
+    try {
+        const command = new Deno.Command("git", { args, cwd, stdout: "piped", stderr: "piped" });
+        const { code, stdout, stderr } = await command.output();
+        const decoder = new TextDecoder();
+        return { code, stdout: decoder.decode(stdout), stderr: decoder.decode(stderr) };
+    } catch (error) {
+        if (error instanceof Deno.errors.NotFound) {
+            return { code: 127, stdout: "", stderr: "The git executable was not found." };
+        }
+        throw error;
+    }
 }
 
 /** @param {string} value */
@@ -213,6 +230,7 @@ async function createLocalBranchFromMain(projectRoot, branch) {
  * @returns {Promise<string>}
  */
 export async function resolveTargetBranchName(projectRoot, branch) {
+    await assertGitRepository(projectRoot, "Resolving an execution target branch");
     const target = typeof branch === "string" ? branch.trim() : "";
     await assertValidTargetBranchName(projectRoot, target);
     if (await gitRefExists(projectRoot, `refs/heads/${target}`)) return target;
@@ -234,6 +252,7 @@ export async function resolveTargetBranchName(projectRoot, branch) {
  * @returns {Promise<PreparedTargetBranchRef>}
  */
 export async function prepareTargetBranchRef(projectRoot, branch) {
+    await assertGitRepository(projectRoot, "Preparing an execution target branch");
     const target = await resolveTargetBranchName(projectRoot, branch);
     if (await gitRefExists(projectRoot, `refs/heads/${target}`)) {
         return { baseRef: `refs/heads/${target}`, baseBranch: target };
@@ -351,6 +370,7 @@ export function resolveWorktreeParent(projectRoot, worktreeRoot) {
  * @param {{ projectRoot: string, planName: string, baseRef?: string, baseBranch?: string, worktreeRoot?: string }} opts
  */
 export async function createExecutionWorktree({ projectRoot, planName, baseRef = "HEAD", baseBranch, worktreeRoot }) {
+    await assertGitRepository(projectRoot, "Creating an execution worktree");
     const id = crypto.randomUUID().slice(0, 8);
     const slug = slugify(planName);
     const branch = `${WORKTREE_BRANCH_PREFIX}${slug}-${id}`;
@@ -390,6 +410,7 @@ export async function getWorktreeStatus({ path, branch, baseTree }) {
     if (!await pathExists(path)) {
         return { exists: false, clean: false, statusText: "missing", diff: "" };
     }
+    await assertGitRepository(path, "Inspecting an execution worktree");
     const statusText = await runGit(path, ["status", "--porcelain"]);
     const clean = statusText.trim() === "";
     let currentBranch = "";
@@ -811,6 +832,7 @@ export async function mergeExecutionWorktree(
         planDescription,
     },
 ) {
+    await assertGitRepository(projectRoot, "Merging an execution worktree");
     const normalizedTargetBranch = targetBranch === "HEAD" ? undefined : targetBranch;
     let resolvedWorktreePath = worktreePath;
     if (!resolvedWorktreePath) {
@@ -845,6 +867,7 @@ export async function mergeExecutionWorktree(
  * @param {{ projectRoot: string, path: string, branch?: string, force?: boolean }} opts
  */
 export async function removeExecutionWorktree({ projectRoot, path, branch, force = false }) {
+    await assertGitRepository(projectRoot, "Removing an execution worktree");
     const args = ["worktree", "remove"];
     if (force) args.push("--force");
     args.push(path);
