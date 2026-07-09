@@ -54,3 +54,29 @@ export function appendTaskCompletedMessage(uiAPI, agentName, message) {
 
     uiAPI.appendSystemMessage(markdown, false, displayName);
 }
+
+/**
+ * @param {import('./types.js').UiAPI} uiAPI
+ * @param {string} agentName
+ * @param {unknown} message
+ * @param {boolean} approved
+ */
+export function appendReviewResultMessage(uiAPI, agentName, message, approved) {
+    const displayName = agentName || "Reviewer";
+    const markdown = typeof message === "string" && message.trim() ? message.trim() : "Review complete.";
+
+    if (uiAPI.appendReviewResult) {
+        uiAPI.appendReviewResult(displayName, markdown, approved);
+        uiAPI.requestRender?.();
+        return;
+    }
+
+    const appender = uiAPI.appendAgentMessageStart?.(displayName);
+    if (appender) {
+        appender.appendText(markdown);
+        uiAPI.requestRender?.();
+        return;
+    }
+
+    uiAPI.appendSystemMessage(markdown, !approved, displayName);
+}

@@ -555,6 +555,57 @@ Deno.test("agent-handler resumes QUICK_FIX mechanical validation after repair ta
     assertEquals(hostedSession.getActiveExecutionWorkflow(), null);
 });
 
+Deno.test("agent-handler ignores operator task_completed while an Engineer workflow is active", async () => {
+    let mechanicalValidationCount = 0;
+    let planValidationCount = 0;
+    let notifications = 0;
+    const hostedSession = makeHostedSession();
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "quick-fix",
+        triageMeta: { classification: "QUICK_FIX" },
+        executionCwd: "/quick-fix-repair",
+        validationContinuation: true,
+    });
+
+    const handler = createAgentHandler("operator", {
+        hostedSession,
+        runAgentSession: () =>
+            Promise.resolve(
+                /** @type {any} */ ([{
+                    role: "toolResult",
+                    toolName: "task_completed",
+                    details: { outcome: "task_completed" },
+                }]),
+            ),
+        readLatestPlanOutcome: () => null,
+        readLatestTaskCompletedOutcome: () => true,
+        runMechanicalValidation: () => {
+            mechanicalValidationCount++;
+            return Promise.resolve({ passed: true, attempts: 0 });
+        },
+        runValidationLoop: () => {
+            planValidationCount++;
+            return Promise.resolve();
+        },
+        notifyRunWieldEvent: () => {
+            notifications++;
+            return Promise.resolve(/** @type {any} */ ({ sent: false }));
+        },
+    });
+
+    await handler("commit", [], /** @type {any} */ ({}), /** @type {any} */ (undefined));
+
+    assertEquals(mechanicalValidationCount, 0);
+    assertEquals(planValidationCount, 0);
+    assertEquals(notifications, 1);
+    assertEquals(hostedSession.getActiveExecutionWorkflow(), {
+        planName: "quick-fix",
+        triageMeta: { classification: "QUICK_FIX" },
+        executionCwd: "/quick-fix-repair",
+        validationContinuation: true,
+    });
+});
+
 Deno.test("agent-handler notifies when an ordinary turn returns control to the user", async () => {
     /** @type {Array<{ eventName: string, sessionName: string | undefined, agentName: string | undefined }>} */
     const notifications = [];

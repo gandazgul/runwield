@@ -12,6 +12,7 @@ import {
     AgentMessageBlock,
     PromptSelectBlock,
     PromptTextBlock,
+    ReviewResultBlock,
     SpinnerBlock,
     StyledBlock,
     SystemMessageBlock,
@@ -225,6 +226,31 @@ Deno.test("SystemMessageBlock appendText uses header and style", () => {
     const plain = lines.map((l) => stripAnsi(l)).join("\n");
     assertEquals(plain.includes("First line"), true);
     assertEquals(plain.includes("Loaded skills (1): s1"), true);
+});
+
+// ─── ReviewResultBlock ───────────────────────────────────────────────────────
+
+Deno.test("ReviewResultBlock renders approved markdown with success background", () => {
+    const w = 100;
+    const block = new ReviewResultBlock("Reviewer", "Semantic review **approved**.", true);
+    const lines = block.render(w);
+    const plain = lines.map((line) => stripAnsi(line)).join("\n");
+
+    assertBlockBackground(lines, w, "ReviewResultBlock(approved)");
+    assertEquals(plain.includes("Reviewer:"), true);
+    assertEquals(plain.includes("Semantic review approved."), true);
+});
+
+Deno.test("ReviewResultBlock renders feedback markdown with error background", () => {
+    const w = 100;
+    const block = new ReviewResultBlock("Reviewer", "Semantic review rejected:\n- Missing `thing`", false);
+    const lines = block.render(w);
+    const plain = lines.map((line) => stripAnsi(line)).join("\n");
+
+    assertBlockBackground(lines, w, "ReviewResultBlock(feedback)");
+    assertEquals(plain.includes("Reviewer:"), true);
+    assertEquals(plain.includes("Semantic review rejected:"), true);
+    assertEquals(plain.includes("Missing thing"), true);
 });
 
 // ─── ToolExecutionBlock ──────────────────────────────────────────────────────

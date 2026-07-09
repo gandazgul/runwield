@@ -70,7 +70,7 @@ import { recordToolCallFinished, recordToolCallStarted, recordWorkflowMetric } f
 
 const HOME_PROMPTS_DIR = HOME_DIR ? join(HOME_DIR, ".wld", "prompts") : null;
 const LOCAL_PROMPTS_DIR = join(CWD, ".wld", "prompts");
-const HIDDEN_UI_TOOL_BLOCK_NAMES = new Set(["user_interview"]);
+const HIDDEN_UI_TOOL_BLOCK_NAMES = new Set(["review_complete", "user_interview"]);
 
 /** Regex to detect an HTML body in an error message (e.g. from a 404 page). */
 const HTML_ERROR_RE = /^(.*?\b404\b.*?)(?:<!DOCTYPE|<html|<body)/i;

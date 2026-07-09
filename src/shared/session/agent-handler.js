@@ -28,6 +28,14 @@ import { join } from "@std/path";
 import { AGENTS, CWD } from "../../constants.js";
 
 /**
+ * @param {string} agentName
+ * @returns {boolean}
+ */
+function canCompleteActiveExecutionWorkflow(agentName) {
+    return agentName === AGENTS.ENGINEER;
+}
+
+/**
  * Create an onMessage handler for the active Agent.
  *
  * The returned function matches the `(userRequest, images, uiAPI) => Promise<void>`
@@ -316,6 +324,11 @@ export function createAgentHandler(agentName, __deps) {
         const taskCompleted = readLatestTaskCompletedOutcome(messages, preTurnCount);
         if (taskCompleted) {
             const workflow = hostedSession.getActiveExecutionWorkflow();
+            if (workflow && !canCompleteActiveExecutionWorkflow(agentName)) {
+                await notifyAgentStopped();
+                return;
+            }
+
             if (workflow?.triageMeta?.classification === "QUICK_FIX") {
                 hostedSession.clearActiveExecutionWorkflow();
                 await runMechanicalValidationImpl({

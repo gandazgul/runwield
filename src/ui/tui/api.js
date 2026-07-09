@@ -4,6 +4,7 @@ import {
     AgentMessageBlock,
     PromptSelectBlock,
     PromptTextBlock,
+    ReviewResultBlock,
     SystemMessageBlock,
     ThinkingBlock,
     ToolExecutionBlock,
@@ -25,6 +26,7 @@ export function createSilentUiApi() {
         appendUserMessage: () => {},
         appendAgentMessageStart: () => ({ appendText: () => {} }),
         appendImage: () => {},
+        appendReviewResult: () => {},
         appendSystemMessage: () => {},
         startToolExecution: () => ({
             appendOutput: () => {},
@@ -153,6 +155,19 @@ export function createUiApi(tui, messageList, spinner) {
                     tui.requestRender();
                 },
             };
+        },
+
+        /**
+         * @param {string} agentName
+         * @param {string} markdown
+         * @param {boolean} approved
+         */
+        appendReviewResult: (agentName, markdown, approved) => {
+            if (outputSuppressed) return;
+            const block = new ReviewResultBlock(agentName, markdown, approved);
+            messageList.addChild(block);
+            messageList.addChild(new Spacer(1));
+            tui.requestRender();
         },
 
         /**

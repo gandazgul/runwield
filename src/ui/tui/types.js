@@ -43,6 +43,7 @@
  *   disableInput?: () => void,
  *   enableInput?: () => void,
  *   startToolExecution?: (id: string, name: string, argsStr: string) => ToolExecutionBlockApi,
+ *   appendReviewResult?: (agentName: string, markdown: string, approved: boolean) => void,
  *   getActiveToolBlock?: (id: string) => ToolExecutionBlockApi | undefined,
  *   toggleToolOutputsExpanded?: () => void,
  *   addToolInvoked?: (event: import('@earendil-works/pi-coding-agent').SessionEvent) => void,

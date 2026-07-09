@@ -1408,8 +1408,7 @@ export async function runValidationLoop({
             });
             appendRunWieldSystemMessage(
                 uiAPI,
-                `Review failed. Sending feedback back to ${getAgentDisplayName(AGENTS.ENGINEER)}...\n\n` +
-                    `Reviewer Feedback:\n${reviewResponse || "(no reviewer output captured)"}`,
+                `Review failed. Sending feedback back to ${getAgentDisplayName(AGENTS.ENGINEER)}...`,
                 true,
             );
             await recordWorkflowMetricImpl({
