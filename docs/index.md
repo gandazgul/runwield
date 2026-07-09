@@ -167,6 +167,8 @@ For editor behavior, message queue behavior, file references, shell commands, an
 
 - [Domain Harness Blueprint](vision/domain-harness-blueprint.md) - exploratory blueprint for domain-specific LLM
   harnesses, using RunWield as the software engineering example.
+- [RunWield SE Harness Opportunities](vision/runwield-se-harness-opportunities.md) - capability opportunities for
+  expanding RunWield as a software engineering domain harness.
 
 ### Pi docs that mostly apply unchanged
 

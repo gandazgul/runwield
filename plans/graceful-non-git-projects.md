@@ -12,11 +12,13 @@ affectedPaths:
     - "src/shared/workflow/validation.test.js"
 frontend: false
 createdAt: "2026-07-08T16:25:14-04:00"
-updatedAt: "2026-07-09T01:54:17.770Z"
-status: "implemented"
+updatedAt: "2026-07-09T04:02:26.788Z"
+status: "verified"
 origin: "internal"
 implementedAt: "2026-07-09T01:54:17.770Z"
-worktreeStatus: "completed"
+verifiedAt: "2026-07-09T04:02:26.788Z"
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
 routingIntent: "FEATURE"
 sessionName: "non git graceful failure"
 ---
