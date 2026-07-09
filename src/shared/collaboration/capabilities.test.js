@@ -33,11 +33,13 @@ Deno.test("capability equality and redaction avoid raw bearer leakage", () => {
     assert(timingSafeEqual("same", "same"));
     assert(!timingSafeEqual("same", "different"));
     const generatedCapability = generateBearerCapability();
+    const edgeCapability = "-abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNO_";
     const redacted = redactSecrets(
-        `Authorization: Bearer raw-token #key=content&cap=raw-token raw-token appeared elsewhere ${generatedCapability} sha256:abcdef`,
+        `Authorization: Bearer raw-token #key=content&cap=raw-token raw-token appeared elsewhere ${generatedCapability} ${edgeCapability} sha256:abcdef`,
         ["raw-token"],
     );
     assert(!redacted.includes("raw-token"));
     assert(!redacted.includes(generatedCapability));
+    assert(!redacted.includes(edgeCapability));
     assert(!redacted.includes("abcdef"));
 });

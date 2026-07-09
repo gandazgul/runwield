@@ -71,7 +71,7 @@ export function redactSecrets(value, knownSecrets = []) {
     text = text.replace(/(cap=)[^&#\s]+/gi, "$1[redacted]");
     text = text.replace(/(key=)[^&#\s]+/gi, "$1[redacted]");
     text = text.replace(/sha256:[A-Za-z0-9_-]+/g, "sha256:[redacted]");
-    text = text.replace(/\b[A-Za-z0-9_-]{43}\b/g, "[redacted-capability]");
+    text = text.replace(/(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{43}(?![A-Za-z0-9_-])/g, "[redacted-capability]");
     for (const secret of knownSecrets) {
         if (typeof secret !== "string" || secret.length === 0) continue;
         text = text.replaceAll(secret, redactCapabilityValue(secret));
