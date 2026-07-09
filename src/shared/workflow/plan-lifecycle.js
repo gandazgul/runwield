@@ -7,7 +7,7 @@
  * See docs/plan-lifecycle.md for the human-readable workflow.
  */
 
-import { updatePlanFrontMatter } from "../../plan-store.js";
+import { findPlansByParent, loadPlan, updatePlanFrontMatter } from "../../plan-store.js";
 import { SHARED_PLAN_LOCK_REPAIR, SharedPlanLockError } from "../collaboration/lock.js";
 
 /**
@@ -508,6 +508,44 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
 }
 
 /**
+ * @param {Object} opts
+ * @param {string} opts.cwd
+ * @param {string} opts.planName
+ * @param {PlanEvent} opts.event
+ * @param {import('../../plan-store.js').PlanFrontMatter} opts.updatedAttrs
+ * @param {PlanEventDetails} [opts.details]
+ * @returns {Promise<void>}
+ */
+async function advanceParentEpicWhenAllChildrenVerified({ cwd, planName, event, updatedAttrs, details = {} }) {
+    if (event !== "validation_passed") return;
+    if (isEpicPlan(updatedAttrs)) return;
+
+    const parentPlanName = typeof updatedAttrs.parentPlan === "string" ? updatedAttrs.parentPlan : "";
+    if (!parentPlanName) return;
+
+    const parent = await loadPlan(cwd, parentPlanName);
+    if (!parent || !isEpicPlan(parent.attrs)) return;
+    if (parent.attrs.status === "verified") return;
+    if (parent.attrs.status !== "ready_for_work") return;
+
+    const children = await findPlansByParent(cwd, parentPlanName);
+    if (!children.length) return;
+    if (children.some((child) => child.attrs.status !== "verified")) return;
+
+    await recordPlanEvent({
+        cwd,
+        planName: parentPlanName,
+        event: "epic_done_enough",
+        currentStatus: "ready_for_work",
+        details: {
+            triageMeta: parent.attrs,
+            epicDoneEnoughSummary: `All ${children.length} child FEATURE plans are verified after ${planName}.`,
+            now: details.now,
+        },
+    });
+}
+
+/**
  * Record a Plan Event and persist the resulting Plan Front Matter.
  *
  * @param {Object} opts
@@ -521,7 +559,9 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
 export async function recordPlanEvent({ cwd, planName, event, currentStatus, details = {} }) {
     const updates = buildPlanEventUpdates(event, currentStatus, details);
     try {
-        return await updatePlanFrontMatter(cwd, planName, updates, details.triageMeta);
+        const updatedAttrs = await updatePlanFrontMatter(cwd, planName, updates, details.triageMeta);
+        await advanceParentEpicWhenAllChildrenVerified({ cwd, planName, event, updatedAttrs, details });
+        return updatedAttrs;
     } catch (error) {
         if (error instanceof SharedPlanLockError) {
             throw new SharedPlanLockError(error.collaboration, {
