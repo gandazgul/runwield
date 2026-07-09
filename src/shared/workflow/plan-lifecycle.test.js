@@ -480,6 +480,105 @@ Deno.test("recordPlanEvent mutates only the selected held plan file", async () =
     }
 });
 
+Deno.test("recordPlanEvent verifies parent Epic when the final child feature is verified", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "epic", "# Epic", {
+            classification: "PROJECT",
+            complexity: "HIGH",
+            summary: "Epic",
+            affectedPaths: [],
+            status: "ready_for_work",
+            type: "epic",
+        });
+        await savePlan(cwd, "epic/01-first", "# First", {
+            classification: "FEATURE",
+            complexity: "MEDIUM",
+            summary: "First",
+            affectedPaths: [],
+            status: "verified",
+            parentPlan: "epic",
+            order: 1,
+        });
+        await savePlan(cwd, "epic/02-last", "# Last", {
+            classification: "FEATURE",
+            complexity: "MEDIUM",
+            summary: "Last",
+            affectedPaths: [],
+            status: "implemented",
+            parentPlan: "epic",
+            order: 2,
+        });
+
+        await recordPlanEvent({
+            cwd,
+            planName: "epic/02-last",
+            event: "validation_passed",
+            currentStatus: "implemented",
+            details: {
+                triageMeta: { classification: "FEATURE", parentPlan: "epic" },
+                now: () => new Date("2026-01-02T03:04:05.000Z"),
+            },
+        });
+
+        const parent = await loadPlan(cwd, "epic");
+        const child = await loadPlan(cwd, "epic/02-last");
+        assertEquals(child?.attrs.status, "verified");
+        assertEquals(parent?.attrs.status, "verified");
+        assertEquals(parent?.attrs.verifiedAt, "2026-01-02T03:04:05.000Z");
+        assertEquals(parent?.attrs.epicCompletionMode, "done_enough");
+        assertEquals(parent?.attrs.epicDoneEnoughSummary, "All 2 child FEATURE plans are verified after epic/02-last.");
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+Deno.test("recordPlanEvent keeps parent Epic open while child features remain unverified", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "epic", "# Epic", {
+            classification: "PROJECT",
+            complexity: "HIGH",
+            summary: "Epic",
+            affectedPaths: [],
+            status: "ready_for_work",
+            type: "epic",
+        });
+        await savePlan(cwd, "epic/01-first", "# First", {
+            classification: "FEATURE",
+            complexity: "MEDIUM",
+            summary: "First",
+            affectedPaths: [],
+            status: "implemented",
+            parentPlan: "epic",
+            order: 1,
+        });
+        await savePlan(cwd, "epic/02-last", "# Last", {
+            classification: "FEATURE",
+            complexity: "MEDIUM",
+            summary: "Last",
+            affectedPaths: [],
+            status: "implemented",
+            parentPlan: "epic",
+            order: 2,
+        });
+
+        await recordPlanEvent({
+            cwd,
+            planName: "epic/02-last",
+            event: "validation_passed",
+            currentStatus: "implemented",
+            details: { triageMeta: { classification: "FEATURE", parentPlan: "epic" } },
+        });
+
+        const parent = await loadPlan(cwd, "epic");
+        assertEquals(parent?.attrs.status, "ready_for_work");
+        assertEquals(parent?.attrs.epicCompletionMode, undefined);
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
 Deno.test("buildPlanEventUpdates only allows documented transitions", () => {
     assertThrows(
         () => buildPlanEventUpdates("execution_started", "approved"),
