@@ -82,6 +82,9 @@ _Avoid_: Cross-section, code path
 **Plan**: A markdown file in `plans/` with YAML Front Matter that describes the implementation strategy for a User
 Request. _Avoid_: Blueprint, spec, design doc
 
+**Work Record**: A retrospective planning-memory artifact that distills what verified planned work actually produced and
+what future planning should remember. _Avoid_: Review log, chat transcript, implementation diary
+
 **Front Matter**: YAML metadata at the top of a Plan containing classification, complexity, status, timestamps, and
 origin. _Avoid_: Metadata, header, YAML block
 
@@ -206,6 +209,9 @@ planning or implementation. _Avoid_: General helper, explainer, guide
 
 **Slicer**: The Agent that helps decompose an approved PROJECT Epic into child FEATURE Plans and can materialize those
 plans under `plans/<epic-name>/`. _Avoid_: Task planner, splitter
+
+**Recorder**: The future Agent that generates Work Records from verified planned work. _Avoid_: Reviewer, summarizer,
+auditor
 
 **Engineer**: The execution Agent that implements approved executable Plans and bounded no-plan QUICK_FIX code changes.
 _Avoid_: Coder, implementer, developer
@@ -373,6 +379,8 @@ command definition, prompt command
 - An **Approved Plan** passes through the **Readiness Gate** before becoming **Ready For Work**.
 - A **Plan** can proceed to direct implementation only when its **Plan Status** is **Ready For Work** and it is not an
   **Epic** container.
+- A **Verified Plan** may produce one **Work Record**.
+- A **Recorder** generates **Work Records** from verified planned work.
 - A **Failed Plan** must have reached **Ready For Work** before work failed.
 - An **In-Progress Plan** requires recovery because execution may have partially changed the worktree.
 - **Plan Recovery** resolves whether RunWield continues the current worktree state, reports on it, re-opens the Plan, or
