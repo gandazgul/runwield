@@ -35,13 +35,21 @@ export function createInitializeResponse(request) {
     return {
         protocolVersion: request?.protocolVersion || PROTOCOL_VERSION,
         agentCapabilities: {
+            loadSession: true,
             promptCapabilities: {
                 _meta: { runwield: { contentTypes: ["text", "resource_link"] } },
             },
             sessionCapabilities: {
+                close: {},
                 _meta: {
                     runwield: {
-                        implementedMethods: ["session/new", "session/prompt", "session/cancel"],
+                        implementedMethods: [
+                            "session/new",
+                            "session/load",
+                            "session/prompt",
+                            "session/cancel",
+                            "session/close",
+                        ],
                         updateNotifications: ["session/update"],
                     },
                 },
@@ -232,6 +240,58 @@ function validateNewSessionParams(params) {
     return request;
 }
 
+/** @param {unknown} params */
+function validateLoadSessionParams(params) {
+    const request = /** @type {import('@agentclientprotocol/sdk').LoadSessionRequest & { _meta?: { runwield?: { sessionPath?: unknown } } }} */
+        (params || {});
+    validateNewSessionParams(request);
+    if (!request.sessionId || typeof request.sessionId !== "string") {
+        throwInvalidParams("session/load requires sessionId", { sessionId: request.sessionId });
+    }
+    const sessionPath = request._meta?.runwield?.sessionPath;
+    if (sessionPath !== undefined && typeof sessionPath !== "string") {
+        throwInvalidParams("session/load _meta.runwield.sessionPath must be a string", { field: "sessionPath" });
+    }
+    return { ...request, sessionPath };
+}
+
+/** @param {unknown} params */
+function validateCloseSessionParams(params) {
+    const request = /** @type {import('@agentclientprotocol/sdk').CloseSessionRequest} */ (params || {});
+    if (!request.sessionId || typeof request.sessionId !== "string") {
+        throwInvalidParams("session/close requires sessionId", { sessionId: request.sessionId });
+    }
+    return request;
+}
+
+/**
+ * @param {SessionRuntime} runtime
+ * @param {AcpSessionMap} sessionMap
+ * @param {string} acpSessionId
+ */
+function closeMappedSession(runtime, sessionMap, acpSessionId) {
+    const record = sessionMap.getRecord(acpSessionId);
+    if (!record) return { ok: false, closed: false, error: "not_found" };
+    const hostedSession = sessionMap.getHostedSession(acpSessionId, runtime);
+    sessionMap.markCancelled(acpSessionId);
+    if (hostedSession) {
+        try {
+            runtime.cancelSession(hostedSession);
+        } catch {
+            // Close should still dispose mapping if cancellation fails.
+        }
+        runtime.closeSession(hostedSession.id);
+    }
+    sessionMap.deleteRecord(acpSessionId);
+    return { ok: true, closed: Boolean(hostedSession), record };
+}
+
+/** @param {SessionRuntime} runtime @param {AcpSessionMap} sessionMap */
+function closeAllMappedSessions(runtime, sessionMap) {
+    for (const record of sessionMap.listRecords()) closeMappedSession(runtime, sessionMap, record.acpSessionId);
+    runtime.closeAllSessions?.();
+}
+
 /**
  * Create the RunWield ACP agent app.
  *
@@ -258,6 +318,48 @@ export function createRunWieldAcpServer(options = {}) {
             sessionId: record.acpSessionId,
             _meta: { runwield: { hostedSessionId: hostedSession.id, cwd: hostedSession.cwd } },
         };
+    });
+
+    app.onRequest(methods.agent.session.load, async (context) => {
+        const request = validateLoadSessionParams(context.params);
+        try {
+            const result = await runtime.loadSession({
+                cwd: request.cwd,
+                sessionId: request.sessionId,
+                sessionPath: request.sessionPath,
+            });
+            const record = sessionMap.createRecord(result.hostedSession, {
+                acpSessionId: request.sessionId,
+                loaded: true,
+                persistedSessionId: result.sessionManagerId,
+                sessionPath: result.sessionPath,
+            });
+            const notifications = result.replayEvents
+                .map((event) => mapRuntimeEventToAcpSessionNotification(record.acpSessionId, event))
+                .filter(Boolean)
+                .map((notification) => notifyClient(context, methods.client.session.update, notification));
+            await Promise.allSettled(notifications);
+            return {
+                _meta: {
+                    runwield: {
+                        hostedSessionId: result.hostedSession.id,
+                        persistedSessionId: result.sessionManagerId,
+                        sessionPath: result.sessionPath,
+                        cwd: result.hostedSession.cwd,
+                        replayedUpdates: notifications.length,
+                    },
+                },
+            };
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error || "session/load failed");
+            if (message.includes("already exists")) {
+                throw new RequestError(ACP_INVALID_STATE, message, { sessionId: request.sessionId });
+            }
+            throw new RequestError(ACP_NOT_FOUND, `Unable to load ACP session: ${request.sessionId}`, {
+                sessionId: request.sessionId,
+                cwd: request.cwd,
+            });
+        }
     });
 
     app.onRequest(methods.agent.session.prompt, async (context) => {
@@ -339,6 +441,15 @@ export function createRunWieldAcpServer(options = {}) {
         }
     });
 
+    app.onRequest(methods.agent.session.close, (context) => {
+        const request = validateCloseSessionParams(context.params);
+        const record = sessionMap.getRecord(request.sessionId);
+        if (!record) throwUnknownSession(request.sessionId);
+        const result = closeMappedSession(runtime, sessionMap, request.sessionId);
+        if (!result.ok) throwUnknownSession(request.sessionId);
+        return { _meta: { runwield: { sessionId: request.sessionId, closed: result.closed } } };
+    });
+
     app.onNotification(methods.agent.session.cancel, async (context) => {
         const sessionId = context.params?.sessionId;
         if (!sessionId || typeof sessionId !== "string") return;
@@ -368,12 +479,10 @@ export function createRunWieldAcpServer(options = {}) {
     registerUnimplementedRequest(app, methods.agent.providers.list);
     registerUnimplementedRequest(app, methods.agent.providers.set);
     registerUnimplementedRequest(app, methods.agent.providers.disable);
-    registerUnimplementedRequest(app, methods.agent.session.load);
     registerUnimplementedRequest(app, methods.agent.session.list);
     registerUnimplementedRequest(app, methods.agent.session.delete);
     registerUnimplementedRequest(app, methods.agent.session.fork);
     registerUnimplementedRequest(app, methods.agent.session.resume);
-    registerUnimplementedRequest(app, methods.agent.session.close);
     registerUnimplementedRequest(app, methods.agent.session.setMode);
     registerUnimplementedRequest(app, methods.agent.session.setConfigOption);
     registerUnimplementedRequest(app, methods.agent.nes.start);
@@ -393,7 +502,13 @@ export function createRunWieldAcpServer(options = {}) {
  */
 export function startRunWieldAcpServer(input, output, options = {}) {
     const stream = ndJsonStream(output, input);
-    const connection = createRunWieldAcpServer(options).connect(stream);
+    const runtime = options.runtime || new SessionRuntime();
+    const sessionMap = options.sessionMap || new AcpSessionMap();
+    const connection = createRunWieldAcpServer({ ...options, runtime, sessionMap }).connect(stream);
+    connection.closed.then(
+        () => closeAllMappedSessions(runtime, sessionMap),
+        () => closeAllMappedSessions(runtime, sessionMap),
+    );
     const diagnostics = options.diagnostic;
     if (diagnostics) diagnostics("RunWield ACP stdio server started");
     return connection;
