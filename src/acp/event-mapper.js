@@ -22,6 +22,17 @@ function safeMeta(value) {
     return { runwield: value };
 }
 
+/**
+ * @param {import('../shared/session/session-runtime-events.js').SessionRuntimeEvent} event
+ * @param {Record<string, unknown>} [extra]
+ */
+function runtimeMeta(event, extra = {}) {
+    const raw = /** @type {{ _meta?: unknown }} */ (event)._meta;
+    const base = raw && typeof raw === "object" ? /** @type {Record<string, unknown>} */ (raw) : {};
+    const merged = { ...base, ...extra };
+    return Object.keys(merged).length > 0 ? safeMeta(merged) : undefined;
+}
+
 /** @param {string} sessionId @param {import('../shared/session/session-runtime-events.js').SessionRuntimeEvent} event */
 function messageId(sessionId, event) {
     const value = /** @type {any} */ (event);
@@ -39,18 +50,21 @@ export function mapRuntimeEventToAcpUpdate(event) {
                 sessionUpdate: "user_message_chunk",
                 messageId: messageId(event.sessionId, event),
                 content: { type: "text", text: event.text || "" },
+                ...(runtimeMeta(event) ? { _meta: runtimeMeta(event) } : {}),
             };
         case RuntimeEventTypes.ASSISTANT_TEXT_DELTA:
             return {
                 sessionUpdate: "agent_message_chunk",
                 messageId: messageId(event.sessionId, event),
                 content: { type: "text", text: event.delta || "" },
+                ...(runtimeMeta(event) ? { _meta: runtimeMeta(event) } : {}),
             };
         case RuntimeEventTypes.ASSISTANT_THINKING_DELTA:
             return {
                 sessionUpdate: "agent_thought_chunk",
                 messageId: messageId(event.sessionId, event),
                 content: { type: "text", text: event.delta || "" },
+                ...(runtimeMeta(event) ? { _meta: runtimeMeta(event) } : {}),
             };
         case RuntimeEventTypes.TOOL_START:
             return {
@@ -58,7 +72,7 @@ export function mapRuntimeEventToAcpUpdate(event) {
                 toolCallId: event.toolCallId,
                 title: event.title || event.toolName,
                 status: "in_progress",
-                _meta: safeMeta({ toolName: event.toolName }),
+                _meta: runtimeMeta(event, { toolName: event.toolName }),
             };
         case RuntimeEventTypes.TOOL_UPDATE:
             return {
@@ -66,7 +80,7 @@ export function mapRuntimeEventToAcpUpdate(event) {
                 toolCallId: event.toolCallId,
                 status: "in_progress",
                 ...(event.text ? { content: [{ type: "content", content: { type: "text", text: event.text } }] } : {}),
-                _meta: safeMeta({ toolName: event.toolName }),
+                _meta: runtimeMeta(event, { toolName: event.toolName }),
             };
         case RuntimeEventTypes.TOOL_END:
             return {
@@ -74,7 +88,7 @@ export function mapRuntimeEventToAcpUpdate(event) {
                 toolCallId: event.toolCallId,
                 status: event.isError ? "failed" : "completed",
                 ...(event.text ? { content: [{ type: "content", content: { type: "text", text: event.text } }] } : {}),
-                _meta: safeMeta({ toolName: event.toolName }),
+                _meta: runtimeMeta(event, { toolName: event.toolName }),
             };
         case RuntimeEventTypes.USAGE: {
             const raw = /** @type {any} */ (event.raw || {});
@@ -116,7 +130,7 @@ export function mapRuntimeEventToAcpUpdate(event) {
                 sessionUpdate: "agent_message_chunk",
                 messageId: messageId(event.sessionId, event),
                 content: { type: "text", text },
-                _meta: safeMeta({ type: event.type, level: statusEvent.level }),
+                _meta: runtimeMeta(event, { type: event.type, level: statusEvent.level }),
             };
         }
         default:

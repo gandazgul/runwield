@@ -5,9 +5,10 @@
 
 import { AGENTS } from "../../constants.js";
 import { createAgentHandler } from "./agent-handler.js";
+import { resolveResumeAgentName } from "./active-agent-session.js";
 import { abortActiveSession as abortActiveSessionFn, ensureRootAgentSession } from "./session.js";
 import { SessionHost } from "./session-host.js";
-import { createRootSessionManager } from "./root-session.js";
+import { createRootSessionManager, getRootSessionBranchEntries, openPersistedRootSession } from "./root-session.js";
 import { createSessionRuntimeEvent, getRuntimeErrorMessage, RuntimeEventTypes } from "./session-runtime-events.js";
 import { requestHostedSessionInteraction } from "./session-runtime-interactions.js";
 import { isAbsolute } from "@std/path";
@@ -21,6 +22,8 @@ export const HANDOFF_LIMIT_MESSAGE =
  * @property {(hostedSession: import('./hosted-session.js').HostedSession, uiAPI: import('../../ui/tui/types.js').UiAPI | undefined) => Promise<void> | void} [applyPendingRootSwap]
  * @property {(hostedSession: import('./hosted-session.js').HostedSession) => boolean} [abortActiveSession]
  * @property {(mode: string, cwd: string) => Promise<any>} [createRootSessionManager]
+ * @property {(options: import('./root-session.js').ResolvePersistedRootSessionOptions) => Promise<{ sessionManager: any, resolved: import('./root-session.js').ResolvedPersistedRootSession }>} [openPersistedRootSession]
+ * @property {(sessionManager: any) => Promise<string>} [resolveResumeAgentName]
  * @property {(agentName: string, deps: any) => Function} [createAgentHandler]
  * @property {(opts: any) => Promise<any>} [ensureRootAgentSession]
  */
@@ -40,6 +43,14 @@ export const HANDOFF_LIMIT_MESSAGE =
  */
 
 /**
+ * @typedef {Object} LoadSessionOptions
+ * @property {string} cwd
+ * @property {string} sessionId
+ * @property {string} [sessionPath]
+ * @property {import('../../ui/tui/types.js').UiAPI} [uiAPI]
+ */
+
+/**
  * @typedef {(event: import('./session-runtime-events.js').SessionRuntimeEvent) => void | Promise<void>} SessionRuntimeEventListener
  */
 
@@ -50,6 +61,194 @@ function isHostedSessionLike(value) {
     return value && typeof value === "object" && "id" in value && typeof value.id === "string";
 }
 
+/** @param {unknown} value @returns {string} */
+function toReplayText(value) {
+    if (typeof value === "string") return value;
+    if (Array.isArray(value)) {
+        return value.map((block) => {
+            if (!block || typeof block !== "object") return "";
+            const typed = /** @type {{ type?: string, text?: string, name?: string }} */ (block);
+            if (typed.type === "text") return typed.text || "";
+            if (typed.type === "tool_result") return "[tool_result replayed]";
+            if (typed.type === "tool_use") return `[tool_use:${typed.name || "unknown"}]`;
+            return "";
+        }).filter(Boolean).join("\n");
+    }
+    if (value === undefined || value === null) return "";
+    return String(value);
+}
+
+/** @param {unknown} timestamp */
+function normalizeReplayTimestamp(timestamp) {
+    if (typeof timestamp === "string" && timestamp) return timestamp;
+    if (typeof timestamp === "number" && Number.isFinite(timestamp)) return new Date(timestamp).toISOString();
+    if (timestamp instanceof Date && !Number.isNaN(timestamp.getTime())) return timestamp.toISOString();
+    return undefined;
+}
+
+/** @param {unknown} entry */
+function replayMeta(entry) {
+    const value = /** @type {{ id?: string, type?: string, timestamp?: unknown, message?: { role?: string } }} */
+        (entry || {});
+    const timestamp = normalizeReplayTimestamp(value.timestamp);
+    return {
+        replay: true,
+        ...(value.id ? { entryId: value.id } : {}),
+        ...(value.type ? { entryType: value.type } : {}),
+        ...(value.message?.role ? { role: value.message.role } : {}),
+        ...(timestamp ? { timestamp } : {}),
+    };
+}
+
+/** @param {unknown} entry @param {string} fallback */
+function entryMessageId(entry, fallback) {
+    const value = /** @type {{ id?: string }} */ (entry || {});
+    return value.id || fallback;
+}
+
+/**
+ * @param {string} sessionId
+ * @param {unknown[]} entries
+ * @returns {Array<Record<string, any> & { type: string }>}
+ */
+function createReplayEvents(sessionId, entries) {
+    /** @type {Array<Record<string, any> & { type: string }>} */
+    const events = [];
+    for (const entry of entries) {
+        if (!entry || typeof entry !== "object") continue;
+        const value = /** @type {any} */ (entry);
+        const meta = replayMeta(value);
+        const common = {
+            timestamp: normalizeReplayTimestamp(value.timestamp),
+            _meta: meta,
+        };
+
+        if (value.type === "message") {
+            const role = value.message?.role || "unknown";
+            const content = value.message?.content;
+            const blocks = Array.isArray(content) ? content : [{ type: "text", text: toReplayText(content) }];
+            let blockIndex = 0;
+            for (const block of blocks) {
+                const typed = /** @type {any} */ (block || {});
+                const messageId = `${entryMessageId(value, `${sessionId}:replay`)}:${blockIndex++}`;
+                if (typed.type === "thinking" || typed.type === "reasoning") {
+                    const delta = toReplayText(typed.text || typed.thinking || typed.content || "");
+                    if (delta) {
+                        events.push({
+                            ...common,
+                            type: RuntimeEventTypes.ASSISTANT_THINKING_DELTA,
+                            messageId,
+                            delta,
+                        });
+                    }
+                    continue;
+                }
+                if (typed.type === "tool_use") {
+                    events.push({
+                        ...common,
+                        type: RuntimeEventTypes.TOOL_START,
+                        messageId,
+                        toolCallId: typed.id || messageId,
+                        toolName: typed.name || "tool",
+                        title: typed.name || "tool",
+                    });
+                    continue;
+                }
+                if (typed.type === "tool_result") {
+                    const toolCallId = typed.tool_use_id || typed.toolUseId || messageId;
+                    events.push({
+                        ...common,
+                        type: RuntimeEventTypes.TOOL_END,
+                        messageId,
+                        toolCallId,
+                        toolName: "tool",
+                        text: "[tool result replayed]",
+                        isError: Boolean(typed.is_error || typed.isError),
+                    });
+                    continue;
+                }
+                const text = toReplayText(typed.type === "text" ? typed.text : typed);
+                if (!text) continue;
+                if (role === "user") {
+                    events.push({ ...common, type: RuntimeEventTypes.USER_MESSAGE, messageId, text });
+                } else if (role === "assistant") {
+                    events.push({ ...common, type: RuntimeEventTypes.ASSISTANT_TEXT_DELTA, messageId, delta: text });
+                } else {
+                    events.push({ ...common, type: RuntimeEventTypes.SYSTEM_STATUS, messageId, message: text });
+                }
+            }
+            if (value.message?.usage) {
+                events.push({
+                    ...common,
+                    type: RuntimeEventTypes.USAGE,
+                    messageId: `${entryMessageId(value, `${sessionId}:replay`)}:usage`,
+                    raw: value.message.usage,
+                });
+            }
+            continue;
+        }
+
+        if (value.type === "compaction" || value.type === "branch_summary") {
+            const message = value.summary || `${value.type} replayed`;
+            events.push({
+                ...common,
+                type: RuntimeEventTypes.SYSTEM_STATUS,
+                messageId: entryMessageId(value, value.type),
+                message,
+            });
+            continue;
+        }
+
+        if (value.type === "session_info" && value.name) {
+            events.push({
+                ...common,
+                type: RuntimeEventTypes.SYSTEM_STATUS,
+                messageId: entryMessageId(value, value.type),
+                message: `Session name: ${value.name}`,
+            });
+            continue;
+        }
+
+        if (value.type === "model_change") {
+            events.push({
+                ...common,
+                type: RuntimeEventTypes.SYSTEM_STATUS,
+                messageId: entryMessageId(value, value.type),
+                message: `Model changed: ${[value.provider, value.modelId].filter(Boolean).join("/")}`,
+            });
+            continue;
+        }
+
+        if (value.type === "thinking_level_change") {
+            events.push({
+                ...common,
+                type: RuntimeEventTypes.SYSTEM_STATUS,
+                messageId: entryMessageId(value, value.type),
+                message: `Thinking level changed: ${value.thinkingLevel || "unknown"}`,
+            });
+            continue;
+        }
+
+        if (value.type === "custom" && value.customType) {
+            events.push({
+                ...common,
+                type: RuntimeEventTypes.SYSTEM_STATUS,
+                messageId: entryMessageId(value, value.type),
+                message: `RunWield session marker: ${value.customType}`,
+            });
+            continue;
+        }
+
+        events.push({
+            ...common,
+            type: RuntimeEventTypes.SYSTEM_STATUS,
+            messageId: entryMessageId(value, value.type || "unknown"),
+            message: `Persisted session entry replayed: ${value.type || "unknown"}`,
+        });
+    }
+    return events;
+}
+
 export class SessionRuntime {
     /** @param {SessionRuntimeOptions} [options] */
     constructor(options = {}) {
@@ -57,6 +256,8 @@ export class SessionRuntime {
         this.applyPendingRootSwap = options.applyPendingRootSwap || (() => {});
         this.abortActiveSession = options.abortActiveSession || abortActiveSessionFn;
         this.createRootSessionManager = options.createRootSessionManager || createRootSessionManager;
+        this.openPersistedRootSession = options.openPersistedRootSession || openPersistedRootSession;
+        this.resolveResumeAgentName = options.resolveResumeAgentName || resolveResumeAgentName;
         this.createAgentHandler = options.createAgentHandler || createAgentHandler;
         this.ensureRootAgentSession = options.ensureRootAgentSession || ensureRootAgentSession;
         /** @type {Map<string, Set<SessionRuntimeEventListener>>} */
@@ -90,6 +291,20 @@ export class SessionRuntime {
             this.eventListeners.delete(id);
         }
         return { ok: true, closed };
+    }
+
+    closeAllSessions() {
+        const sessions = this.listSessions();
+        for (const session of sessions) {
+            try {
+                const hostedSession = this.getSession(session.id);
+                if (hostedSession) this.cancelSession(hostedSession);
+            } catch {
+                // Shutdown cleanup is best effort.
+            }
+            this.closeSession(session.id);
+        }
+        return { ok: true, closed: sessions.length };
     }
 
     /**
@@ -180,6 +395,46 @@ export class SessionRuntime {
             cwd: hostedSession.cwd,
         });
         return hostedSession;
+    }
+
+    /**
+     * @param {LoadSessionOptions} options
+     * @returns {Promise<{ hostedSession: import('./hosted-session.js').HostedSession, replayEvents: import('./session-runtime-events.js').SessionRuntimeEvent[], sessionManagerId: string, sessionPath: string }>}
+     */
+    async loadSession(options) {
+        if (!options?.cwd || !isAbsolute(options.cwd)) {
+            throw new Error("SessionRuntime.loadSession requires an absolute cwd");
+        }
+        if (!options.sessionId || typeof options.sessionId !== "string") {
+            throw new Error("SessionRuntime.loadSession requires a session id");
+        }
+        const { sessionManager, resolved } = await this.openPersistedRootSession({
+            cwd: options.cwd,
+            sessionId: options.sessionId,
+            sessionPath: options.sessionPath,
+        });
+        const agentName = await this.resolveResumeAgentName(sessionManager);
+        const hostedSession = this.createSession({
+            sessionManager,
+            cwd: options.cwd,
+            uiAPI: options.uiAPI,
+        });
+        this.attachRuntimeEventSink(hostedSession);
+        hostedSession.setActiveOnMessage(this.createAgentHandler(agentName, { hostedSession }));
+        await this.ensureRootAgentSession({ hostedSession, agentName, uiAPI: options.uiAPI, sessionManager });
+        const replayEvents = createReplayEvents(hostedSession.id, getRootSessionBranchEntries(sessionManager))
+            .map((event) => createSessionRuntimeEvent(hostedSession.id, /** @type {any} */ (event)));
+        this.emitSessionEvent(hostedSession, {
+            type: RuntimeEventTypes.SESSION_LOADED,
+            cwd: hostedSession.cwd,
+            _meta: { sessionManagerId: resolved.sessionId, sessionPath: resolved.sessionPath },
+        });
+        return {
+            hostedSession,
+            replayEvents,
+            sessionManagerId: resolved.sessionId,
+            sessionPath: resolved.sessionPath,
+        };
     }
 
     /**

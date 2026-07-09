@@ -186,6 +186,125 @@ Deno.test("SessionRuntime emits scoped events and unsubscribe is deterministic",
     assertEquals(/** @type {any} */ (seen[0]).message, "hello");
 });
 
+Deno.test("SessionRuntime loadSession opens persisted session restores agent and returns replay events", async () => {
+    const sessionManager = {
+        disposed: false,
+        getSessionId: () => "persisted-1",
+        getCwd: () => "/repo/acp",
+        getBranch: () => [
+            {
+                type: "message",
+                id: "u1",
+                timestamp: "2026-07-08T00:00:00.000Z",
+                message: { role: "user", content: [{ type: "text", text: "hello" }] },
+            },
+            {
+                type: "message",
+                id: "a1",
+                timestamp: "2026-07-08T00:00:01.000Z",
+                message: { role: "assistant", content: [{ type: "text", text: "hi" }] },
+            },
+            {
+                type: "message",
+                id: "t1",
+                timestamp: "2026-07-08T00:00:02.000Z",
+                message: {
+                    role: "assistant",
+                    content: [{ type: "tool_use", id: "tool-1", name: "bash", input: { secret: "x" } }],
+                },
+            },
+            {
+                type: "message",
+                id: "tr1",
+                timestamp: new Date("2026-07-08T00:00:03.000Z"),
+                message: {
+                    role: "user",
+                    content: [{ type: "tool_result", tool_use_id: "tool-1", content: "password=secret" }],
+                },
+            },
+            {
+                type: "future_unknown",
+                id: "unknown-1",
+                timestamp: 1783478404000,
+                payload: { secret: "hidden" },
+            },
+        ],
+        dispose() {
+            this.disposed = true;
+        },
+    };
+    const runtime = new SessionRuntime({
+        openPersistedRootSession: (options) => {
+            assertEquals(options, { cwd: "/repo/acp", sessionId: "persisted-1", sessionPath: undefined });
+            return Promise.resolve({
+                sessionManager,
+                resolved: {
+                    cwd: "/repo/acp",
+                    sessionDir: "/sessions",
+                    sessionId: "persisted-1",
+                    sessionPath: "/sessions/persisted-1.jsonl",
+                    info: null,
+                },
+            });
+        },
+        resolveResumeAgentName: () => Promise.resolve("planner"),
+        createAgentHandler: (agentName) => {
+            assertEquals(agentName, "planner");
+            return () => Promise.resolve();
+        },
+        ensureRootAgentSession: (opts) => {
+            opts.hostedSession.setRootAgentName(opts.agentName);
+            opts.hostedSession.setRootAgentSession({ dispose() {} });
+            return Promise.resolve(/** @type {any} */ (opts.hostedSession.getRootAgentSession()));
+        },
+    });
+
+    const result = await runtime.loadSession({ cwd: "/repo/acp", sessionId: "persisted-1" });
+
+    assertEquals(result.hostedSession.id, "persisted-1");
+    assertEquals(result.hostedSession.cwd, "/repo/acp");
+    assertEquals(result.hostedSession.getRootAgentName(), "planner");
+    assertEquals(result.sessionManagerId, "persisted-1");
+    assertEquals(result.sessionPath, "/sessions/persisted-1.jsonl");
+    assertEquals(result.replayEvents.map((event) => event.type), [
+        "user_message",
+        "assistant_text_delta",
+        "tool_start",
+        "tool_end",
+        "system_status",
+    ]);
+    assertEquals(/** @type {any} */ (result.replayEvents[0])._meta.replay, true);
+    assertEquals(result.replayEvents[3].timestamp, "2026-07-08T00:00:03.000Z");
+    assertEquals(result.replayEvents[4].timestamp, "2026-07-08T02:40:04.000Z");
+    assertEquals(/** @type {any} */ (result.replayEvents[3]).text, "[tool result replayed]");
+    assertEquals(
+        /** @type {any} */ (result.replayEvents[4]).message,
+        "Persisted session entry replayed: future_unknown",
+    );
+    assertEquals(JSON.stringify(result.replayEvents).includes("password"), false);
+    assertEquals(JSON.stringify(result.replayEvents).includes("secret"), false);
+});
+
+Deno.test("SessionRuntime closeAllSessions cancels and disposes all hosted sessions", () => {
+    const runtime = new SessionRuntime({ abortActiveSession: () => true });
+    const first = runtime.createSession({ id: "first", cwd: "/repo/first" });
+    const second = runtime.createSession({ id: "second", cwd: "/repo/second" });
+    assertEquals(runtime.closeAllSessions(), { ok: true, closed: 2 });
+    assertEquals(first.disposed, true);
+    assertEquals(second.disposed, true);
+    assertEquals(runtime.listSessions(), []);
+});
+
+Deno.test("SessionRuntime loadSession rejects relative cwd", async () => {
+    const runtime = new SessionRuntime();
+    try {
+        await runtime.loadSession({ cwd: "relative", sessionId: "persisted" });
+        throw new Error("expected loadSession to reject");
+    } catch (error) {
+        assertEquals(error instanceof Error && error.message, "SessionRuntime.loadSession requires an absolute cwd");
+    }
+});
+
 Deno.test("SessionRuntime createPromptReadySession creates Router-backed hosted session", async () => {
     const runtime = new SessionRuntime({
         createRootSessionManager: (mode, cwd) => {

@@ -19,6 +19,17 @@ const ACP_SESSION_PREFIX = "acp-";
  * @property {string} hostedSessionId
  * @property {string} cwd
  * @property {AcpPromptRecord | null} activePrompt
+ * @property {boolean} loaded
+ * @property {string} [persistedSessionId]
+ * @property {string} [sessionPath]
+ */
+
+/**
+ * @typedef {Object} CreateAcpSessionRecordOptions
+ * @property {string} [acpSessionId]
+ * @property {boolean} [loaded]
+ * @property {string} [persistedSessionId]
+ * @property {string} [sessionPath]
  */
 
 export class AcpSessionMap {
@@ -31,15 +42,20 @@ export class AcpSessionMap {
 
     /**
      * @param {import('../shared/session/hosted-session.js').HostedSession} hostedSession
+     * @param {CreateAcpSessionRecordOptions} [options]
      * @returns {AcpSessionRecord}
      */
-    createRecord(hostedSession) {
-        const acpSessionId = `${ACP_SESSION_PREFIX}${hostedSession.id}`;
+    createRecord(hostedSession, options = {}) {
+        const acpSessionId = options.acpSessionId || `${ACP_SESSION_PREFIX}${hostedSession.id}`;
+        if (this.records.has(acpSessionId)) throw new Error(`ACP session already exists: ${acpSessionId}`);
         const record = {
             acpSessionId,
             hostedSessionId: hostedSession.id,
             cwd: hostedSession.cwd,
             activePrompt: null,
+            loaded: Boolean(options.loaded),
+            ...(options.persistedSessionId ? { persistedSessionId: options.persistedSessionId } : {}),
+            ...(options.sessionPath ? { sessionPath: options.sessionPath } : {}),
         };
         this.records.set(acpSessionId, record);
         this.acpIdsByHostedSessionId.set(hostedSession.id, acpSessionId);
@@ -49,6 +65,10 @@ export class AcpSessionMap {
     /** @param {string} acpSessionId */
     getRecord(acpSessionId) {
         return this.records.get(acpSessionId) || null;
+    }
+
+    listRecords() {
+        return Array.from(this.records.values());
     }
 
     /** @param {string} hostedSessionId */

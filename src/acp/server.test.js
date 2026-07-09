@@ -70,10 +70,14 @@ Deno.test("createInitializeResponse advertises only safe MVP capabilities", () =
 
     assertEquals(response.protocolVersion, 1);
     assertEquals(capabilities.promptCapabilities._meta.runwield.contentTypes, ["text", "resource_link"]);
+    assertEquals(capabilities.loadSession, true);
+    assertEquals(capabilities.sessionCapabilities.close, {});
     assertEquals(capabilities.sessionCapabilities._meta.runwield.implementedMethods, [
         "session/new",
+        "session/load",
         "session/prompt",
         "session/cancel",
+        "session/close",
     ]);
     assertEquals(capabilities.sessionCapabilities._meta.runwield.updateNotifications, ["session/update"]);
     assertEquals(response.authMethods, []);
@@ -120,6 +124,28 @@ Deno.test("ACP server returns structured errors for unimplemented session method
     } finally {
         await closeTestServer(handle);
     }
+});
+
+Deno.test("ACP server shutdown disposes mapped sessions without stdout diagnostics", async () => {
+    const runtime = makeFakeRuntime();
+    let closeAllCount = 0;
+    runtime.closeAllSessions = () => {
+        closeAllCount++;
+        return { ok: true, closed: 0 };
+    };
+    const handle = startTestServer({ runtime });
+    try {
+        await request(handle, {
+            jsonrpc: "2.0",
+            id: "new-before-shutdown",
+            method: "session/new",
+            params: { cwd: Deno.cwd(), mcpServers: [] },
+        });
+    } finally {
+        await closeTestServer(handle);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assertEquals(closeAllCount, 1);
 });
 
 Deno.test("ACP server diagnostics stay out of protocol output", async () => {
@@ -236,6 +262,46 @@ function makeFakeRuntime() {
             this.emit(session, { type: "cancellation", reason: "session_cancel", aborted: true });
             return { ok: true, aborted: true };
         },
+        /** @param {string} id */
+        closeSession(id) {
+            const closed = sessions.delete(id);
+            listeners.delete(id);
+            return { ok: true, closed };
+        },
+        closeAllSessions() {
+            const closed = sessions.size;
+            sessions.clear();
+            listeners.clear();
+            return { ok: true, closed };
+        },
+        /** @param {{ cwd: string, sessionId: string }} options */
+        loadSession(options) {
+            const hostedSession = { id: options.sessionId, cwd: options.cwd };
+            sessions.set(hostedSession.id, hostedSession);
+            return Promise.resolve({
+                hostedSession,
+                sessionManagerId: options.sessionId,
+                sessionPath: `/sessions/${options.sessionId}.jsonl`,
+                replayEvents: [
+                    {
+                        type: "user_message",
+                        sessionId: hostedSession.id,
+                        timestamp: "2026-07-08T00:00:00.000Z",
+                        messageId: "entry-user",
+                        text: "loaded user",
+                        _meta: { replay: true, entryId: "entry-user", entryType: "message", role: "user" },
+                    },
+                    {
+                        type: "assistant_text_delta",
+                        sessionId: hostedSession.id,
+                        timestamp: "2026-07-08T00:00:01.000Z",
+                        messageId: "entry-assistant",
+                        delta: "loaded assistant",
+                        _meta: { replay: true, entryId: "entry-assistant", entryType: "message", role: "assistant" },
+                    },
+                ],
+            });
+        },
     };
 }
 
@@ -244,14 +310,16 @@ Deno.test("ACP initialize advertises implemented MVP prompt/session capabilities
 
     const capabilities = /** @type {any} */ (response.agentCapabilities);
     assertEquals(capabilities.promptCapabilities._meta.runwield.contentTypes, ["text", "resource_link"]);
+    assertEquals(capabilities.loadSession, true);
+    assertEquals(capabilities.sessionCapabilities.close, {});
     assertEquals(capabilities.sessionCapabilities._meta.runwield.implementedMethods, [
         "session/new",
+        "session/load",
         "session/prompt",
         "session/cancel",
+        "session/close",
     ]);
     assertEquals(capabilities.sessionCapabilities._meta.runwield.updateNotifications, ["session/update"]);
-    assertEquals(capabilities.loadSession, undefined);
-    assertEquals(capabilities.sessionCapabilities.close, undefined);
 });
 
 Deno.test("ACP server clears per-prompt interaction adapter after prompt settles", async () => {
@@ -392,6 +460,169 @@ Deno.test("ACP server ends prompt when interaction adapter cleanup fails", async
 
         assertEquals(next.result.stopReason, "end_turn");
         assertEquals(cleanupAttempts, 2);
+    } finally {
+        await closeTestServer(handle);
+    }
+});
+
+Deno.test("ACP session/load replays updates before load response and loaded session accepts prompts", async () => {
+    const handle = startTestServer({ runtime: makeFakeRuntime() });
+    try {
+        await handle.inputWriter.write(encoder.encode(`${
+            JSON.stringify({
+                jsonrpc: "2.0",
+                id: "load",
+                method: "session/load",
+                params: { sessionId: "persisted-1", cwd: Deno.cwd(), mcpServers: [] },
+            })
+        }\n`));
+
+        const first = await readMessage(handle);
+        const second = await readMessage(handle);
+        const third = await readMessage(handle);
+        assertEquals(first.method, "session/update");
+        assertEquals(first.params.sessionId, "persisted-1");
+        assertEquals(first.params.update.sessionUpdate, "user_message_chunk");
+        assertEquals(first.params.update._meta.runwield.replay, true);
+        assertEquals(second.method, "session/update");
+        assertEquals(second.params.update.sessionUpdate, "agent_message_chunk");
+        assertEquals(third.id, "load");
+        assertEquals(third.result._meta.runwield.persistedSessionId, "persisted-1");
+
+        await handle.inputWriter.write(encoder.encode(`${
+            JSON.stringify({
+                jsonrpc: "2.0",
+                id: "prompt-loaded",
+                method: "session/prompt",
+                params: { sessionId: "persisted-1", prompt: [{ type: "text", text: "continue" }] },
+            })
+        }\n`));
+        /** @type {Record<string, any> | null} */
+        let response = null;
+        for (let i = 0; i < 4 && !response; i++) {
+            const message = await readMessage(handle);
+            if (message.id === "prompt-loaded") response = message;
+        }
+        assertEquals(response?.result.stopReason, "end_turn");
+    } finally {
+        await closeTestServer(handle);
+    }
+});
+
+Deno.test("ACP session/load validates params and maps unknown persisted sessions", async () => {
+    const runtime = makeFakeRuntime();
+    runtime.loadSession = () => Promise.reject(new Error("Persisted session not found for cwd"));
+    const handle = startTestServer({ runtime });
+    try {
+        const badCwd = await request(handle, {
+            jsonrpc: "2.0",
+            id: "bad-cwd",
+            method: "session/load",
+            params: { sessionId: "persisted-1", cwd: "relative", mcpServers: [] },
+        });
+        assertEquals(badCwd.error.code, -32602);
+
+        const badMeta = await request(handle, {
+            jsonrpc: "2.0",
+            id: "bad-meta",
+            method: "session/load",
+            params: {
+                sessionId: "persisted-1",
+                cwd: Deno.cwd(),
+                mcpServers: [],
+                _meta: { runwield: { sessionPath: 1 } },
+            },
+        });
+        assertEquals(badMeta.error.code, -32602);
+
+        const missing = await request(handle, {
+            jsonrpc: "2.0",
+            id: "missing",
+            method: "session/load",
+            params: { sessionId: "missing", cwd: Deno.cwd(), mcpServers: [] },
+        });
+        assertEquals(missing.error.code, -32001);
+    } finally {
+        await closeTestServer(handle);
+    }
+});
+
+Deno.test("ACP session/close disposes sessions and rejects later prompts", async () => {
+    const runtime = makeFakeRuntime();
+    const handle = startTestServer({ runtime });
+    try {
+        const newResponse = await request(handle, {
+            jsonrpc: "2.0",
+            id: "new-close",
+            method: "session/new",
+            params: { cwd: Deno.cwd(), mcpServers: [] },
+        });
+        const sessionId = newResponse.result.sessionId;
+        const closed = await request(handle, {
+            jsonrpc: "2.0",
+            id: "close",
+            method: "session/close",
+            params: { sessionId },
+        });
+        assertEquals(closed.result._meta.runwield.closed, true);
+
+        const afterClose = await request(handle, {
+            jsonrpc: "2.0",
+            id: "after-close",
+            method: "session/prompt",
+            params: { sessionId, prompt: [{ type: "text", text: "nope" }] },
+        });
+        assertEquals(afterClose.error.code, -32001);
+    } finally {
+        await closeTestServer(handle);
+    }
+});
+
+Deno.test("ACP session/close cancels an active prompt", async () => {
+    const runtime = makeFakeRuntime();
+    let promptStarted = false;
+    runtime.promptSession = () => {
+        promptStarted = true;
+        return new Promise(() => {});
+    };
+    const handle = startTestServer({ runtime });
+    try {
+        const newResponse = await request(handle, {
+            jsonrpc: "2.0",
+            id: "new-active-close",
+            method: "session/new",
+            params: { cwd: Deno.cwd(), mcpServers: [] },
+        });
+        const sessionId = newResponse.result.sessionId;
+        await handle.inputWriter.write(encoder.encode(`${
+            JSON.stringify({
+                jsonrpc: "2.0",
+                id: "prompt-active-close",
+                method: "session/prompt",
+                params: { sessionId, prompt: [{ type: "text", text: "wait" }] },
+            })
+        }\n`));
+        while (!promptStarted) await new Promise((resolve) => setTimeout(resolve, 0));
+        await handle.inputWriter.write(encoder.encode(`${
+            JSON.stringify({
+                jsonrpc: "2.0",
+                id: "close-active",
+                method: "session/close",
+                params: { sessionId },
+            })
+        }\n`));
+
+        /** @type {Record<string, any> | null} */
+        let promptResponse = null;
+        /** @type {Record<string, any> | null} */
+        let closeResponse = null;
+        for (let i = 0; i < 4 && (!promptResponse || !closeResponse); i++) {
+            const message = await readMessage(handle);
+            if (message.id === "prompt-active-close") promptResponse = message;
+            if (message.id === "close-active") closeResponse = message;
+        }
+        assertEquals(promptResponse?.result.stopReason, "cancelled");
+        assertEquals(closeResponse?.result._meta.runwield.closed, true);
     } finally {
         await closeTestServer(handle);
     }
