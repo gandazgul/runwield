@@ -16,6 +16,7 @@ const RUNWEILD_CUSTOM_SETTING_KEYS = [
     "codereview",
     "cleanupMergedWorktrees",
     "workflowMetrics",
+    "notifications",
     "enableExternalSkills",
     "enableExternalGlobalAgentsMd",
     PLAN_SERVER_URL_SETTING_KEY,

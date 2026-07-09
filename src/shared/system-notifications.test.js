@@ -11,7 +11,7 @@ import {
 } from "./system-notifications.js";
 
 /**
- * @param {Record<string, boolean>} existingCommands
+ * @param {Record<string, boolean | "fail">} existingCommands
  * @returns {{ calls: Array<{ cmd: string, args: string[] }>, runCommand: (cmd: string, args?: string[]) => Promise<{ success: boolean, stdout: string, stderr: string }> }}
  */
 function makeCommandRecorder(existingCommands = {}) {
@@ -22,13 +22,13 @@ function makeCommandRecorder(existingCommands = {}) {
         runCommand(cmd, args = []) {
             calls.push({ cmd, args });
             if (cmd === "command" && args[0] === "-v") {
-                const exists = existingCommands[args[1]] === true;
+                const exists = existingCommands[args[1]] === true || existingCommands[args[1]] === "fail";
                 return Promise.resolve({ success: exists, stdout: exists ? `/usr/bin/${args[1]}\n` : "", stderr: "" });
             }
             if (cmd === "tty") {
                 return Promise.resolve({ success: true, stdout: "/dev/ttys123\n", stderr: "" });
             }
-            return Promise.resolve({ success: true, stdout: "", stderr: "" });
+            return Promise.resolve({ success: existingCommands[cmd] !== "fail", stdout: "", stderr: "" });
         },
     };
 }
@@ -159,6 +159,7 @@ Deno.test("buildNotificationCommand uses terminal-notifier with click execute wh
     assertEquals(command.cmd, "terminal-notifier");
     assert(command.args.includes("-execute"));
     assert(command.args.includes("-message"));
+    assertStringIncludes(command.args[command.args.indexOf("-group") + 1], "runwield-agentStopped-");
     assertStringIncludes(command.args[command.args.indexOf("-execute") + 1], "/dev/ttys123");
 });
 
@@ -209,6 +210,24 @@ Deno.test("notifyRunWieldEvent returns unsupported on non-macOS and respects dis
     });
     assertEquals(disabled.sent, false);
     assertEquals(disabled.reason, "event_disabled");
+});
+
+Deno.test("notifyRunWieldEvent falls back to osascript when terminal-notifier command fails", async () => {
+    const commands = makeCommandRecorder({ "terminal-notifier": "fail", osascript: true });
+    const result = await notifyRunWieldEvent("agentStopped", {
+        sessionName: "demo",
+        __deps: {
+            os: "darwin",
+            env: { TERM_PROGRAM: "Apple_Terminal" },
+            pid: 1,
+            getMergedCustomSetting: () => undefined,
+            runCommand: commands.runCommand,
+        },
+    });
+
+    assertEquals(result.sent, true);
+    assertEquals(result.reason, "sent:terminal_notifier_failed");
+    assertEquals(result.command?.cmd, "osascript");
 });
 
 Deno.test("notifyRunWieldEvent includes session and agent context in sent notification", async () => {
