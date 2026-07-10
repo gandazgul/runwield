@@ -17,17 +17,13 @@ devServerCommand: "deno task workspace:dev:plan-review"
 devServerUrl: "http://localhost:5173/dev/plan-review"
 devServerHmr: true
 createdAt: "2026-07-09T17:11:07-04:00"
-updatedAt: "2026-07-10T05:08:52.298Z"
-status: "in_progress"
+updatedAt: "2026-07-10T14:13:42.094Z"
+status: "implemented"
 origin: "internal"
-humanReviewMode: null
-humanReviewDecision: null
-executionBaselineTree: "4ebc1d36ca2b8bef858f9ff6ba5f81ccda6e2b8c"
-worktreeId: "cd70cd44"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-harns--/harns-runwield-workspace-plan-review-parity-cd70cd44"
-worktreeBranch: "runwield/worktree/workspace-plan-review-parity-cd70cd44"
+failureReason: "Semantic validation did not approve after 3 cycles."
+implementedAt: "2026-07-10T06:26:49.981Z"
 worktreeBaseBranch: "main"
-worktreeStatus: "active"
+worktreeStatus: "validation_failed"
 routingIntent: "FEATURE"
 sessionName: "plan review parity"
 ---
