@@ -116,3 +116,54 @@ Deno.test("TUI and ACP adapters consume the same semantic runtime transcript", (
     ]);
     assertEquals(attentionRequests, [{ reason: "agentStopped", sessionName: undefined, agentName: "Guide" }]);
 });
+
+Deno.test("attaching a replacement TUI adapter does not duplicate session output", () => {
+    const runtime = new SessionRuntime();
+    const session = runtime.createSession({ id: "adapter-replacement", cwd: "/repo/replacement" });
+    const { transcript, uiAPI } = makeUi();
+
+    const previousAdapter = attachTuiRuntimeAdapter({ runtime, hostedSession: session, uiAPI });
+    const activeAdapter = attachTuiRuntimeAdapter({ runtime, hostedSession: session, uiAPI });
+
+    runtime.emitSessionEvent(session, {
+        type: RuntimeEventTypes.ASSISTANT_TEXT_DELTA,
+        messageId: "answer-1",
+        delta: "once",
+        _meta: { agentName: "Engineer" },
+    });
+    runtime.emitSessionEvent(session, {
+        type: RuntimeEventTypes.ASSISTANT_THINKING_DELTA,
+        messageId: "thinking-1",
+        delta: "once",
+    });
+    runtime.emitSessionEvent(session, {
+        type: RuntimeEventTypes.TOOL_START,
+        toolCallId: "tool-1",
+        toolName: "read",
+        title: "read README.md",
+    });
+    runtime.emitSessionEvent(session, {
+        type: RuntimeEventTypes.TOOL_START,
+        toolCallId: "tool-2",
+        toolName: "code_structure",
+        title: "code_structure",
+    });
+
+    previousAdapter.dispose();
+    runtime.emitSessionEvent(session, {
+        type: RuntimeEventTypes.ASSISTANT_TEXT_DELTA,
+        messageId: "answer-2",
+        delta: "still active",
+        _meta: { agentName: "Engineer" },
+    });
+    activeAdapter.dispose();
+
+    assertEquals(transcript, [
+        "assistant:Engineer:once",
+        "thinking:once",
+        "tool:start:tool-1:read:README.md",
+        "tool:start:tool-2:code_structure:",
+        "assistant:Engineer:still active",
+        "thinking:end",
+    ]);
+});

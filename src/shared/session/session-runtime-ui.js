@@ -80,6 +80,7 @@ export function createRuntimeSessionUi({ runtime, hostedSession }) {
         requestRender() {},
         advanceSpinner() {},
         setBusy(busy) {
+            if (hostedSession.isTurnActive()) return;
             emit({ type: RuntimeEventTypes.BUSY_CHANGED, busy });
         },
         setRunningTasks(tasks) {

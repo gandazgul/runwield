@@ -61,6 +61,35 @@ Deno.test("SessionRuntime promptSession consumes only the target HostedSession h
     assertEquals(other.consumePendingSwitchHandoff()?.reason, "other handoff");
 });
 
+Deno.test("SessionRuntime keeps the session busy while compatibility UI work is still in flight", async () => {
+    const hostedSession = new HostedSession({ id: "busy-owner" });
+    hostedSession.setRootSessionManager(/** @type {any} */ ({ id: "root" }));
+    /**
+     * @param {string} _request
+     * @param {import('./types.js').ImageAttachment[]} _images
+     * @param {import('../types.js').SessionUiPort} uiAPI
+     */
+    const simulateCompatibilityWork = (_request, _images, uiAPI) => {
+        uiAPI.setBusy?.(false);
+        uiAPI.setBusy?.(true);
+        return Promise.resolve();
+    };
+    hostedSession.setActiveOnMessage(simulateCompatibilityWork);
+    const runtime = new SessionRuntime();
+    /** @type {boolean[]} */
+    const busyStates = [];
+    runtime.subscribeSessionEvents(hostedSession, (event) => {
+        if (event.type === RuntimeEventTypes.BUSY_CHANGED) busyStates.push(event.busy);
+    });
+
+    await runtime.promptSession(hostedSession, {
+        initialRequest: "start",
+        initialImages: [],
+    });
+
+    assertEquals(busyStates, [true, false]);
+});
+
 Deno.test("SessionRuntime promptSession preserves the chained handoff limit", async () => {
     const hostedSession = new HostedSession({ id: "limited" });
     /** @type {string[]} */

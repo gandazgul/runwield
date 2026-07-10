@@ -11,6 +11,14 @@ import { notifyRunWieldEventQuietly } from "./system-notifications.js";
 const HIDDEN_TOOL_BLOCK_NAMES = new Set(["task_completed", "review_complete", "user_interview"]);
 
 /**
+ * @typedef {Object} TuiRuntimeAdapterRegistration
+ * @property {() => void} dispose
+ */
+
+/** @type {WeakMap<import('../../shared/session/hosted-session.js').HostedSession, TuiRuntimeAdapterRegistration>} */
+const activeAdapters = new WeakMap();
+
+/**
  * @typedef {Object} TuiRuntimeAdapterOptions
  * @property {import('../../shared/session/session-runtime.js').SessionRuntime} runtime
  * @property {import('../../shared/session/hosted-session.js').HostedSession} hostedSession
@@ -47,6 +55,8 @@ export function attachTuiRuntimeAdapter({
     uiAPI,
     notifyRunWieldEvent = notifyRunWieldEventQuietly,
 }) {
+    activeAdapters.get(hostedSession)?.dispose();
+
     /** @type {Map<string, import('./types.js').AgentMessageAppender>} */
     const assistantMessages = new Map();
     /** @type {Map<string, ReturnType<NonNullable<import('./types.js').UiAPI['appendThinkingStart']>>>} */
@@ -101,7 +111,7 @@ export function attachTuiRuntimeAdapter({
                 const displayName = value.toolName === "bash" ? "$" : textValue(value.toolName);
                 const title = textValue(value.title);
                 const prefix = displayName ? `${displayName} ` : "";
-                const args = title.startsWith(prefix) ? title.slice(prefix.length) : title;
+                const args = title === displayName ? "" : title.startsWith(prefix) ? title.slice(prefix.length) : title;
                 uiAPI.startToolExecution(value.toolCallId, displayName, args);
                 break;
             }
@@ -175,13 +185,20 @@ export function attachTuiRuntimeAdapter({
         }
     });
 
-    return {
+    let disposed = false;
+    const registration = {
         dispose() {
+            if (disposed) return;
+            disposed = true;
             unsubscribe();
-            runtime.setInteractionAdapter(hostedSession, null, null);
             for (const appender of thinkingMessages.values()) appender.end();
             thinkingMessages.clear();
             assistantMessages.clear();
+            if (activeAdapters.get(hostedSession) !== registration) return;
+            activeAdapters.delete(hostedSession);
+            runtime.setInteractionAdapter(hostedSession, null, null);
         },
     };
+    activeAdapters.set(hostedSession, registration);
+    return registration;
 }
