@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "react";
 import { createMoveStatusIntent, dispatchPlanLifecycleAction } from "./PlanLifecycleActions.jsx";
 
 /**
@@ -261,7 +261,7 @@ export function PlanBoardDragDrop({ boardId }) {
     }, [boardId]);
 
     return (
-        <p class="notice muted board-dnd-status" aria-live="polite" data-board-dnd-status>
+        <p className="notice muted board-dnd-status" aria-live="polite" data-board-dnd-status>
             {message}
         </p>
     );

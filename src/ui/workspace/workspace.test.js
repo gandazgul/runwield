@@ -1,4 +1,6 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { loadPlanBodyById, savePlan } from "../../plan-store.js";
 import { PLAN_UI_TOKEN_HEADER } from "../../constants.js";
 import {
@@ -11,8 +13,9 @@ import {
     serializePlanSummary,
     workspaceMetadata as _workspaceMetadata,
 } from "./server/plan-adapter.js";
-import { buildPlanBoardSearchIndex } from "./components/Board.jsx";
+import { buildPlanBoardSearchIndex, PlanBoard } from "./components/Board.jsx";
 import { renderMarkdown } from "./components/MarkdownView.jsx";
+import { PlanDetail } from "./components/PlanDetail.jsx";
 import { detailHref, workspaceHref } from "./components/PlanCard.jsx";
 import { draftRecoveryState, planBodyDraftKey, restoredDraftExpectedBodyHash } from "./islands/PlanBodyEditor.jsx";
 import { blockedDropMessage, isAllowedDropTarget, parseAllowedTargetStatuses } from "./islands/PlanBoardDragDrop.jsx";
@@ -23,11 +26,12 @@ import {
     lifecycleActionLabel,
 } from "./islands/PlanLifecycleActions.jsx";
 import { renderRunWieldThemeCss } from "../design-system/theme-bridge.js";
-import { createWorkspaceApp, hasWorkspaceToken } from "./server.js";
+import { createReviewWorkspaceApp, createWorkspaceApp, hasWorkspaceToken } from "./server.js";
 import { COLLABORATION_STATE_REMOTE_CANONICAL } from "../../shared/collaboration/lock.js";
 import { hashCapability } from "../../shared/collaboration/capabilities.js";
 import { openRemoteDatabase } from "./server/remote-db.js";
 import { createRemoteWorkspaceAdapter } from "./server/remote-adapter.js";
+import { registerReviewDecisionPromise, unregisterReviewDecision } from "./routes/api/review-handlers.js";
 
 /**
  * @param {string} cwd
@@ -50,6 +54,73 @@ Deno.test("workspace token accepts query or header and rejects missing tokens", 
         true,
     );
     assertEquals(hasWorkspaceToken(new Request("http://localhost/"), "abc"), false);
+});
+
+Deno.test("workspace static assets bypass token checks for tokenized pages", async () => {
+    const app = createWorkspaceApp({ cwd: Deno.cwd(), token: "secret" }).handler();
+    for (const path of ["/tokens.css", "/components.css", "/workspace.css", "/theme.css", "/logo.svg"]) {
+        const response = await app(new Request(`http://localhost${path}`));
+        assertEquals(response.status, 200);
+    }
+});
+
+Deno.test("review API accepts review token header before workspace app token gate", async () => {
+    const token = "review-secret";
+    const { promise } = registerReviewDecisionPromise(token);
+    try {
+        const app = createReviewWorkspaceApp({
+            cwd: Deno.cwd(),
+            token,
+            reviewPayload: {},
+            reviewType: "code",
+        }).handler();
+
+        const response = await app(
+            new Request("http://localhost/api/review/feedback", {
+                method: "POST",
+                headers: {
+                    "content-type": "application/json",
+                    "x-runwield-review-token": token,
+                },
+                body: JSON.stringify({ approved: false, feedback: "fix annotations" }),
+            }),
+        );
+
+        assertEquals(response.status, 200);
+        assertEquals(await promise, {
+            approved: false,
+            feedback: "fix annotations",
+            annotations: [],
+            agentSwitch: undefined,
+        });
+    } finally {
+        unregisterReviewDecision(token);
+    }
+});
+
+Deno.test("review API returns 401 for invalid token and 404 for expired matching token", async () => {
+    const app = createReviewWorkspaceApp({
+        cwd: Deno.cwd(),
+        token: "expected-review-token",
+        reviewPayload: {},
+        reviewType: "plan",
+    }).handler();
+
+    const invalidResponse = await app(
+        new Request("http://localhost/api/review/decision", {
+            method: "POST",
+            headers: { "x-runwield-review-token": "wrong-review-token" },
+        }),
+    );
+    assertEquals(invalidResponse.status, 401);
+
+    const expiredResponse = await app(
+        new Request("http://localhost/api/review/decision", {
+            method: "POST",
+            headers: { "x-runwield-review-token": "expected-review-token" },
+        }),
+    );
+    assertEquals(expiredResponse.status, 404);
 });
 
 Deno.test("serializePlanSummary omits absolute paths and surfaces hierarchy/dependency metadata", () => {
@@ -466,7 +537,7 @@ Deno.test("workspace detail header CSS lets lifecycle actions wrap without squee
     assertStringIncludes(componentsCss, "overflow-wrap: anywhere;");
 });
 
-Deno.test("Fresh Workspace rejects missing token and SSR-renders status column board cards", async () => {
+Deno.test("Workspace wrapper protects page routes and serves public assets without token", async () => {
     const cwd = await Deno.makeTempDir();
     try {
         await savePlan(cwd, "workspace-card", "# Workspace Card\n\nBody", {
@@ -478,6 +549,9 @@ Deno.test("Fresh Workspace rejects missing token and SSR-renders status column b
         const app = createWorkspaceApp({ cwd, token: "secret" }).handler();
         const rejected = await app(new Request("http://localhost/"));
         assertEquals(rejected.status, 401);
+        const unavailable = await app(new Request("http://localhost/?token=secret&q=workspace"));
+        assertEquals(unavailable.status, 503);
+        assertStringIncludes(await unavailable.text(), "Workspace Astro build unavailable");
         const tokensCss = await app(new Request("http://localhost/tokens.css"));
         assertEquals(tokensCss.status, 200);
         assertStringIncludes(await tokensCss.text(), "--rw-page-bg:");
@@ -491,24 +565,35 @@ Deno.test("Fresh Workspace rejects missing token and SSR-renders status column b
         assertEquals(themeCss.status, 200);
         assertEquals(themeCss.headers.get("cache-control"), "no-store");
         assertStringIncludes(await themeCss.text(), "--rw-theme-name:");
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
 
-        const accepted = await app(new Request("http://localhost/?token=secret&q=workspace"));
-        assertEquals(accepted.status, 200);
-        const html = await accepted.text();
-        assertStringIncludes(html, '<link rel="stylesheet" href="/tokens.css"');
-        assertStringIncludes(html, '<link rel="stylesheet" href="/components.css"');
-        assertStringIncludes(html, '<link rel="stylesheet" href="/workspace.css"');
-        assertStringIncludes(html, '<link rel="stylesheet" href="/theme.css"');
-        assertEquals(html.indexOf("/tokens.css") < html.indexOf("/components.css"), true);
-        assertEquals(html.indexOf("/components.css") < html.indexOf("/workspace.css"), true);
-        assertEquals(html.indexOf("/workspace.css") < html.indexOf("/theme.css"), true);
+Deno.test("PlanBoard SSR renders status column board cards", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "workspace-card", "# Workspace Card\n\nBody", {
+            planId: "workspace-card-id",
+            status: "draft",
+            classification: "FEATURE",
+            summary: "SSR card",
+        });
+        const board = await loadBoard(cwd);
+        const html = renderToStaticMarkup(
+            React.createElement(PlanBoard, {
+                board,
+                view: "active",
+                url: "http://localhost/?token=secret&q=workspace",
+                staticRender: true,
+            }),
+        );
         assertStringIncludes(html, 'aria-label="Search Plans"');
         assertStringIncludes(html, 'value="workspace"');
         assertEquals(html.includes("matching Plan"), false);
         assertEquals(html.includes("searchable Plan"), false);
         assertStringIncludes(html, 'data-plan-search-card="workspace-card-id"');
         assertStringIncludes(html, 'href="/plans/workspace-card-id?token=secret&amp;q=workspace"');
-        assertStringIncludes(html, 'href="/closed?token=secret&amp;q=workspace"');
         assertStringIncludes(html, "Draft");
         assertStringIncludes(html, "Ready for Work");
         assertStringIncludes(html, "workspace-card");
@@ -524,6 +609,32 @@ Deno.test("Fresh Workspace rejects missing token and SSR-renders status column b
         assertStringIncludes(html, 'data-action-target-status="draft"');
         assertStringIncludes(html, "Drag this Plan Card to an allowed status column");
         assertEquals(html.includes("Move to Feedback"), false);
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+Deno.test("Workspace page routes require Astro handler instead of static React fallback", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "one", "# One\n", {
+            planId: "duplicate-id",
+            status: "draft",
+            classification: "FEATURE",
+            summary: "One",
+        });
+        await savePlan(cwd, "two", "# Two\n", {
+            planId: "duplicate-id",
+            status: "draft",
+            classification: "FEATURE",
+            summary: "Two",
+        });
+        const app = createWorkspaceApp({ cwd, token: "secret" }).handler();
+        const response = await app(new Request("http://localhost/?token=secret"));
+        const body = await response.text();
+        assertEquals(response.status, 503);
+        assertStringIncludes(body, "Workspace Astro build unavailable");
+        assertEquals(body.includes("Duplicate planId"), false);
     } finally {
         await Deno.remove(cwd, { recursive: true });
     }
@@ -574,8 +685,14 @@ Deno.test("Workspace API and detail route return readable editable Plan body met
         assertEquals(Object.hasOwn(apiBody.plan.frontMatter, "worktreePath"), false);
         assertEquals(Object.hasOwn(apiBody.plan.attrs, "worktreePath"), false);
 
-        const detail = await app(new Request("http://localhost/plans/detail-id?token=secret"));
-        const html = await detail.text();
+        const plan = await loadWorkspaceDetail(cwd, "detail-id");
+        const html = renderToStaticMarkup(
+            React.createElement(PlanDetail, {
+                plan,
+                url: "http://localhost/plans/detail-id?token=secret",
+                staticRender: true,
+            }),
+        );
         assertStringIncludes(html, "Readable body");
         assertStringIncludes(html, "data-plannotator-plan-body");
         assertStringIncludes(html, "data-plannotator-plan-body-json");
@@ -583,9 +700,10 @@ Deno.test("Workspace API and detail route return readable editable Plan body met
         assertStringIncludes(html, "Readable body");
         assertStringIncludes(html, 'data-plan-id="detail-id"');
         assertStringIncludes(html, 'data-plannotator-renderer="ssr-fallback"');
+        assertStringIncludes(html, 'class="markdown-view"');
         assertStringIncludes(html, 'class="complexity-label complexity-high"');
         assertStringIncludes(html, 'href="https://runwield.dev"');
-        assertStringIncludes(html, "RunWield");
+        assertStringIncludes(html, ">RunWield</a>");
         assertStringIncludes(html, ">Put on hold</button>");
         assertStringIncludes(html, 'class="danger-action lifecycle-action"');
         assertStringIncludes(html, ">Close without verification</button>");
@@ -622,6 +740,33 @@ Deno.test("Workspace API and detail route return readable editable Plan body met
         assertStringIncludes(html, "Custom Priority");
         assertStringIncludes(html, "urgent");
         assertEquals(html.includes("/tmp/secret-worktree-path"), false);
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+Deno.test("Workspace detail SSR fallback renders visible empty Plan body state", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "empty-detail", "", {
+            planId: "empty-detail-id",
+            status: "draft",
+            classification: "FEATURE",
+            summary: "Empty body detail",
+        });
+
+        const plan = await loadWorkspaceDetail(cwd, "empty-detail-id");
+        const html = renderToStaticMarkup(
+            React.createElement(PlanDetail, {
+                plan,
+                url: "http://localhost/plans/empty-detail-id?token=secret",
+                staticRender: true,
+            }),
+        );
+        assertStringIncludes(html, "data-plannotator-plan-body");
+        assertStringIncludes(html, 'data-plannotator-renderer="ssr-fallback"');
+        assertStringIncludes(html, 'class="markdown-view"');
+        assertStringIncludes(html, "No Plan body content.");
     } finally {
         await Deno.remove(cwd, { recursive: true });
     }
@@ -759,21 +904,39 @@ Deno.test("Workspace Epic detail SSR-renders child FEATURE Plans by status", asy
             heldAt: "2026-01-03T00:00:00.000Z",
             holdReason: "waiting for budget",
         });
-        const app = createWorkspaceApp({ cwd, token: "secret" }).handler();
-        const board = await app(new Request("http://localhost/?token=secret"));
-        const boardHtml = await board.text();
+        const board = await loadBoard(cwd);
+        const boardHtml = renderToStaticMarkup(
+            React.createElement(PlanBoard, {
+                board,
+                view: "active",
+                url: "http://localhost/?token=secret",
+                staticRender: true,
+            }),
+        );
         assertStringIncludes(boardHtml, "Epic summary");
         assertStringIncludes(boardHtml, "Orphan summary");
         assertStringIncludes(boardHtml, "Missing parent Epic");
         assertEquals(boardHtml.includes("Child summary"), false);
 
-        const onHoldBoard = await app(new Request("http://localhost/on-hold?token=secret"));
-        const onHoldBoardHtml = await onHoldBoard.text();
+        const onHoldBoardHtml = renderToStaticMarkup(
+            React.createElement(PlanBoard, {
+                board,
+                view: "onHold",
+                url: "http://localhost/on-hold?token=secret",
+                staticRender: true,
+            }),
+        );
         assertStringIncludes(onHoldBoardHtml, "held from in_progress; held at 2026-01-03T00:00:00.000Z");
         assertStringIncludes(onHoldBoardHtml, "reason: waiting for budget");
 
-        const detail = await app(new Request("http://localhost/plans/epic-id?token=secret"));
-        const detailHtml = await detail.text();
+        const detailPlan = await loadWorkspaceDetail(cwd, "epic-id");
+        const detailHtml = renderToStaticMarkup(
+            React.createElement(PlanDetail, {
+                plan: detailPlan,
+                url: "http://localhost/plans/epic-id?token=secret",
+                staticRender: true,
+            }),
+        );
         assertStringIncludes(detailHtml, 'class="detail-title-row"');
         assertStringIncludes(detailHtml, "&lt; Back</a>");
         assertStringIncludes(detailHtml, 'class="detail-close-link"');
@@ -806,8 +969,14 @@ Deno.test("Workspace Epic detail SSR-renders child FEATURE Plans by status", asy
         assertStringIncludes(detailHtml, "Custom Risk");
         assertStringIncludes(detailHtml, "false");
 
-        const heldDetail = await app(new Request("http://localhost/plans/held-epic-id?token=secret"));
-        const heldDetailHtml = await heldDetail.text();
+        const heldDetailPlan = await loadWorkspaceDetail(cwd, "held-epic-id");
+        const heldDetailHtml = renderToStaticMarkup(
+            React.createElement(PlanDetail, {
+                plan: heldDetailPlan,
+                url: "http://localhost/plans/held-epic-id?token=secret",
+                staticRender: true,
+            }),
+        );
         assertStringIncludes(heldDetailHtml, "Epic on hold from in_progress at 2026-01-03T00:00:00.000Z");
         assertStringIncludes(heldDetailHtml, "reason: waiting for budget");
     } finally {

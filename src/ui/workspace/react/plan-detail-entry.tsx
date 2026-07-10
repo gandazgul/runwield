@@ -1,4 +1,4 @@
-// @ts-nocheck: this browser-only Vite entry imports upstream React TSX that Deno should not typecheck as Preact.
+// @ts-nocheck: this browser-only Vite entry imports upstream React TSX that Deno should not typecheck directly.
 
 import React from "react";
 import { createRoot } from "react-dom/client";

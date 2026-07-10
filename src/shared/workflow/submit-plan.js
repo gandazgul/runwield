@@ -108,6 +108,7 @@ export async function submitPlanForReview({
     // 4. Start the review surface through an adapter seam.
     const server = await startPlanReviewSurfaceImpl({
         plan: planWithFm,
+        planPath,
         htmlContent: __deps?.htmlContent,
         startPlanReviewServer: __deps?.startPlanReviewServer,
         openInDefaultBrowser: __deps?.openInDefaultBrowser,
@@ -149,6 +150,10 @@ export async function submitPlanForReview({
                 canceled: true,
                 feedback: "Cancelled by user (Esc)",
             };
+        }
+
+        if (decision && typeof decision.plan === "string") {
+            await Deno.writeTextFile(planPath, decision.plan);
         }
 
         // 6. Update status
@@ -199,6 +204,7 @@ export async function submitPlanForReview({
         return {
             approved: decision.approved,
             feedback: decision.feedback,
+            ...(decision.savedPath && { savedPath: decision.savedPath }),
         };
     } finally {
         planReviewCancelBySession.delete(hostedSession);

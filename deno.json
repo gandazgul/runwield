@@ -2,7 +2,7 @@
     "compilerOptions": {
         "checkJs": true,
         "jsx": "react-jsx",
-        "jsxImportSource": "preact",
+        "jsxImportSource": "react",
         "types": [
             "vite/client"
         ],
@@ -37,6 +37,10 @@
         "@gandazgul/plannotator-pi-extension-compiled": "npm:@gandazgul/plannotator-pi-extension-compiled@^0.22.0",
         "@gandazgul/plannotator-pi-extension-compiled/server": "npm:@gandazgul/plannotator-pi-extension-compiled@^0.22.0/server",
         "@gandazgul/plannotator-pi-extension-compiled/assets": "npm:@gandazgul/plannotator-pi-extension-compiled@^0.22.0/assets",
+        "dockview-react": "npm:dockview-react@^5.2.0",
+        "@plannotator/web-highlighter": "./src/ui/workspace/react/web-highlighter-shim.js",
+        "@plannotator/markdown-editor": "./src/ui/workspace/react/markdown-editor-shim.tsx",
+        "@plannotator/markdown-editor/themes/plannotator.css": "./src/ui/workspace/react/markdown-editor-shim.css",
         "@plannotator/ui/": "./third_party/plannotator/packages/ui/",
         "@plannotator/shared/": "./third_party/plannotator/packages/shared/",
         "@plannotator/ai/": "./third_party/plannotator/packages/ai/",
@@ -44,8 +48,6 @@
         "quikdown": "npm:quikdown@^1.2.21",
         "quikdown/ast": "npm:quikdown@^1.2.21/ast",
         "proper-lockfile": "npm:proper-lockfile@^4.1.2",
-        "fresh": "jsr:@fresh/core@^2.3.3",
-        "@fresh/plugin-vite": "jsr:@fresh/plugin-vite@^1.1.2",
         "preact": "npm:preact@^10.29.7",
         "preact/jsx-runtime": "npm:preact@^10.29.7/jsx-runtime",
         "preact/jsx-dev-runtime": "npm:preact@^10.29.7/jsx-dev-runtime",
@@ -62,7 +64,6 @@
         "tidewave": "npm:tidewave@^0.7.0",
         "vite": "npm:vite@^8.1.3",
         "esbuild": "npm:esbuild@^0.28.1",
-        "unocss": "npm:unocss@^66.7.5",
         "codemirror": "npm:codemirror@^6.0.2",
         "@codemirror/lang-markdown": "npm:@codemirror/lang-markdown@^6.5.0",
         "@codemirror/lang-javascript": "npm:@codemirror/lang-javascript@^6.2.5",
@@ -75,7 +76,12 @@
         "@codemirror/view": "npm:@codemirror/view@^6.43.6",
         "@lezer/common": "npm:@lezer/common@^1.5.2",
         "@lezer/highlight": "npm:@lezer/highlight@^1.2.3",
+        "@pierre/diffs/worker/worker.js": "./src/ui/workspace/react/pierre-diffs-worker-shim.js",
+        "@pierre/diffs/react": "npm:@pierre/diffs@1.2.8/react",
         "@pierre/diffs": "npm:@pierre/diffs@1.2.8",
+        "@radix-ui/react-checkbox": "npm:@radix-ui/react-checkbox@^1.3.3",
+        "@radix-ui/react-collapsible": "npm:@radix-ui/react-collapsible@^1.1.12",
+        "@radix-ui/react-context-menu": "npm:@radix-ui/react-context-menu@^2.2.15",
         "@radix-ui/react-dialog": "npm:@radix-ui/react-dialog@^1.1.19",
         "@radix-ui/react-dropdown-menu": "npm:@radix-ui/react-dropdown-menu@^2.1.20",
         "@radix-ui/react-popover": "npm:@radix-ui/react-popover@^1.1.19",
@@ -96,10 +102,19 @@
         "motion": "npm:motion@^12.42.2",
         "tailwind-merge": "npm:tailwind-merge@^3.6.0",
         "unique-username-generator": "npm:unique-username-generator@^1.5.1",
-        "fuse.js": "npm:fuse.js@^7.4.2"
+        "fuse.js": "npm:fuse.js@^7.4.2",
+        "perfect-freehand": "npm:perfect-freehand@^1.2.2",
+        "@deno/astro-adapter": "npm:@deno/astro-adapter@^0.3.2",
+        "@astrojs/react": "npm:@astrojs/react@^4.3.1",
+        "@astrojs/check": "npm:@astrojs/check@^0.9.9",
+        "astro": "npm:astro@^5.13.11",
+        "typescript": "npm:typescript@^5.9.3",
+        "@vitejs/plugin-react": "npm:@vitejs/plugin-react@^4.7.0",
+        "react/jsx-runtime": "npm:react@^19.2.7/jsx-runtime",
+        "react/jsx-dev-runtime": "npm:react@^19.2.7/jsx-dev-runtime"
     },
     "tasks": {
-        "ci": "deno task -q check && deno task -q workspace:react:check && deno task -q lint && deno task -q fmt:check && deno task -q test",
+        "ci": "deno task -q check && deno task -q workspace:check && deno task -q lint && deno task -q fmt:check && deno task -q test",
         "cli": "deno run -A src/cli.js",
         "test": "deno run -A scripts/write-version.js && snip run -- deno test -A",
         "lint": "snip run -- deno lint",
@@ -107,11 +122,15 @@
         "githooks:install": "git config core.hooksPath .githooks",
         "githooks:uninstall": "git config --unset core.hooksPath",
         "check": "deno run -A scripts/write-version.js && snip run -- deno check --doc src/**/*.js src/**/*.jsx",
-        "workspace:dev": "deno run -A npm:vite -c src/ui/workspace/vite.config.js",
-        "workspace:react:check": "deno run -A npm:vite -c src/ui/workspace/react/vite.config.js build && rm -rf _fresh/workspace-react-check",
+        "workspace:dev": "deno run -A --env npm:astro dev --config src/ui/workspace/astro.config.mjs --host 127.0.0.1 --port 5173",
+        "workspace:react:check": "deno task workspace:check",
         "workspace:test": "deno test -A src/ui/workspace src/cmd/plans/ui.test.js",
         "compile": "deno run -A ./scripts/compile.js",
-        "prototype:plan-ui": "deno task -c prototypes/fresh-plan-ui/deno.json dev"
+        "prototype:plan-ui": "deno task -c prototypes/fresh-plan-ui/deno.json dev",
+        "workspace:dev:plan-review": "deno run -A --env npm:astro dev --config src/ui/workspace/astro.config.mjs --host 127.0.0.1 --port 5173 --open /dev/plan-review",
+        "workspace:dev:code-review": "deno run -A --env npm:astro dev --config src/ui/workspace/astro.config.mjs --host 127.0.0.1 --port 5173 --open /dev/code-review",
+        "workspace:build": "deno run -A --env npm:astro build --config src/ui/workspace/astro.config.mjs",
+        "workspace:check": "deno run -A --env npm:astro check --root src/ui/workspace --tsconfig tsconfig.json"
     },
     "fmt": {
         "lineWidth": 120,
@@ -122,6 +141,10 @@
         ".idea",
         ".history",
         "third_party",
-        "_fresh"
+        "_fresh",
+        ".astro",
+        "dist",
+        "src/ui/workspace/node_modules",
+        "src/ui/workspace/.astro"
     ]
 }

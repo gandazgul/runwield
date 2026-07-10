@@ -1,0 +1,27 @@
+---
+import WorkspaceLayout from "../layouts/WorkspaceLayout.astro";
+import { PlanBoard } from "../components/Board.jsx";
+import { loadCanonicalBoard, serializeCanonicalPlanError } from "../server/astro-canonical-data.js";
+
+const runtime = globalThis as any;
+const workspaceCwd = Astro.request.headers.get("x-runwield-workspace-cwd") || runtime.Deno?.cwd?.() || ".";
+let board = null;
+let error = null;
+try {
+    board = await loadCanonicalBoard(workspaceCwd);
+} catch (caught) {
+    error = await serializeCanonicalPlanError(caught);
+    Astro.response.status = 409;
+}
+---
+<WorkspaceLayout title="On-hold Plans · RunWield Workspace" selectedTab="on-hold" url={Astro.url.href}>
+    {error ? (
+        <section class="error-panel">
+            <h2>Plan Board failed to load</h2>
+            <p>{error.error}</p>
+            <p>{error.repair}</p>
+        </section>
+    ) : (
+        <PlanBoard board={board} view="onHold" url={Astro.url.href} client:load />
+    )}
+</WorkspaceLayout>

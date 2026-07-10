@@ -1,0 +1,11 @@
+---
+import ReviewLayout from "../../layouts/ReviewLayout.astro";
+import { ReviewDevSurface } from "../../react/ReviewDevSurface.tsx";
+
+if (!import.meta.env.DEV) {
+    return new Response("Not found", { status: 404 });
+}
+---
+<ReviewLayout title="Code Review Dev · RunWield Workspace">
+    <ReviewDevSurface surface="code" client:only="react" />
+</ReviewLayout>

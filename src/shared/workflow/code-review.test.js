@@ -36,8 +36,9 @@ Deno.test("formatCodeReviewAnnotations renders file, line, and text", () => {
         formatCodeReviewAnnotations([
             { file: "src/a.js", line: 12, text: "Rename this." },
             { path: "src/b.js", comment: "Missing test." },
+            { filePath: "src/c.js", line: 4, comment: "From review surface." },
         ]),
-        "1. src/a.js:12\nRename this.\n\n2. src/b.js\nMissing test.",
+        "1. src/a.js:12\nRename this.\n\n2. src/b.js\nMissing test.\n\n3. src/c.js:4\nFrom review surface.",
     );
 });
 

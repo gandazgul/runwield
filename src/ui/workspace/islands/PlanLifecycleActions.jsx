@@ -1,4 +1,4 @@
-import { useState } from "preact/hooks";
+import { useState } from "react";
 import {
     lifecycleActionApiPath,
     PLAN_LIFECYCLE_ACTIONS,
@@ -166,21 +166,22 @@ export function PlanLifecycleActions({
 
     return (
         <section
-            class={`${compact ? "lifecycle-actions compact" : "lifecycle-actions"}${
+            className={`${compact ? "lifecycle-actions compact" : "lifecycle-actions"}${
                 putOnHoldOnly ? " hold-action-only" : ""
             }`}
             data-plan-id={plan.planId}
         >
-            {actions.terminalMessage ? <p class="terminal-message">{actions.terminalMessage}</p> : null}
-            {plan.status === "on_hold" ? <p class="hold-message">{actions.holdMessage}</p> : null}
+            {actions.terminalMessage ? <p className="terminal-message">{actions.terminalMessage}</p> : null}
+            {plan.status === "on_hold" ? <p className="hold-message">{actions.holdMessage}</p> : null}
             {hasPrimaryControls
                 ? (
-                    <div class="lifecycle-action-list" aria-label="Plan lifecycle actions">
+                    <div className="lifecycle-action-list" aria-label="Plan lifecycle actions">
                         {showStatusMoves
                             ? actions.manualTargetOptions?.map(/** @param {any} target */ (target) => (
                                 <button
+                                    key={target.status}
                                     type="button"
-                                    class="secondary-action lifecycle-action"
+                                    className="secondary-action lifecycle-action"
                                     disabled={disabled}
                                     data-action="move_status"
                                     data-action-target-status={target.status}
@@ -199,7 +200,7 @@ export function PlanLifecycleActions({
                             ? (
                                 <button
                                     type="button"
-                                    class="secondary-action lifecycle-action hold-action"
+                                    className="secondary-action lifecycle-action hold-action"
                                     disabled={disabled}
                                     onClick={hold}
                                 >
@@ -211,7 +212,7 @@ export function PlanLifecycleActions({
                             ? (
                                 <button
                                     type="button"
-                                    class="danger-action lifecycle-action"
+                                    className="danger-action lifecycle-action"
                                     disabled={disabled}
                                     onClick={() =>
                                         confirm(`${closeWithoutVerificationLabel}?`) && submit({
@@ -229,7 +230,7 @@ export function PlanLifecycleActions({
                                 <button
                                     type="button"
                                     disabled={disabled}
-                                    class="primary-action"
+                                    className="primary-action"
                                     onClick={() =>
                                         submit({
                                             planId: plan.planId,
@@ -245,7 +246,7 @@ export function PlanLifecycleActions({
                             ? (
                                 <button
                                     type="button"
-                                    class="secondary-action lifecycle-action"
+                                    className="secondary-action lifecycle-action"
                                     disabled={disabled}
                                     onClick={() =>
                                         confirm(`${resetToDraftLabel}?`) && submit({
@@ -263,15 +264,15 @@ export function PlanLifecycleActions({
                 : null}
             {warningIntent
                 ? (
-                    <div class="notice warning resume-warning">
+                    <div className="notice warning resume-warning">
                         <button type="button" disabled={disabled} onClick={() => submit(warningIntent)}>
                             Accept Resume Check warnings and {resumeFromHoldLabel}
                         </button>
                     </div>
                 )
                 : null}
-            {message ? <p class="notice lifecycle-message">{message}</p> : null}
-            {pending ? <p class="notice muted">Applying lifecycle action…</p> : null}
+            {message ? <p className="notice lifecycle-message">{message}</p> : null}
+            {pending ? <p className="notice muted">Applying lifecycle action…</p> : null}
         </section>
     );
 }

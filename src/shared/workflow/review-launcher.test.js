@@ -62,3 +62,30 @@ Deno.test("review surface stop unregisters the server from process-exit cleanup"
 
     assertEquals(stops, 1);
 });
+
+Deno.test("stopActiveReviewSurfaces stops Workspace-hosted plan and code review servers", async () => {
+    const planServer = await startPlanReviewSurface({
+        plan: "# Plan",
+        planPath: "plans/example.md",
+        openInDefaultBrowser: () => Promise.resolve(false),
+    });
+    const codeServer = await startCodeReviewSurface({
+        rawPatch: "diff --git a/a.js b/a.js\n+change",
+        gitRef: "test diff",
+        agentCwd: Deno.cwd(),
+        openInDefaultBrowser: () => Promise.resolve(false),
+    });
+
+    const planDecision = planServer.waitForDecision();
+    const codeDecision = codeServer.waitForDecision();
+    await stopActiveReviewSurfaces();
+
+    assertEquals(await planDecision, { approved: false, feedback: "", exit: true, canceled: true });
+    assertEquals(await codeDecision, {
+        approved: false,
+        feedback: "",
+        annotations: [],
+        exit: true,
+        canceled: true,
+    });
+});

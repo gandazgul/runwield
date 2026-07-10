@@ -1,5 +1,5 @@
 import Fuse from "fuse.js";
-import { useEffect, useMemo, useRef, useState } from "preact/hooks";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 /**
  * @typedef {Object} PlanSearchEntry
@@ -155,10 +155,9 @@ export function PlanBoardSearch({ boardId, searchIndex, initialQuery = "" }) {
         syncQueryInWorkspaceLinks(normalizedQuery);
     }, [boardId, query, resultIds]);
 
-    /** @param {InputEvent} event */
+    /** @param {{ currentTarget: HTMLInputElement }} event */
     function handleInput(event) {
-        const target = /** @type {HTMLInputElement} */ (event.currentTarget);
-        setQuery(target.value);
+        setQuery(event.currentTarget.value);
     }
 
     function handleClear() {
@@ -168,20 +167,20 @@ export function PlanBoardSearch({ boardId, searchIndex, initialQuery = "" }) {
     const hasQuery = Boolean(normalizePlanSearchQuery(query));
 
     return (
-        <div ref={searchElementRef} class="plan-search" role="search" aria-label="Filter board Plans">
-            <div class="plan-search-field">
-                <div class="plan-search-input-row">
+        <div ref={searchElementRef} className="plan-search" role="search" aria-label="Filter board Plans">
+            <div className="plan-search-field">
+                <div className="plan-search-input-row">
                     <input
                         id={`${boardId}-plan-search`}
                         type="search"
                         value={query}
                         placeholder="Filter by title, name, or summary"
-                        autocomplete="off"
+                        autoComplete="off"
                         aria-label="Search Plans"
                         onInput={handleInput}
                     />
                     {hasQuery
-                        ? <button type="button" class="plan-search-clear" onClick={handleClear}>Clear</button>
+                        ? <button type="button" className="plan-search-clear" onClick={handleClear}>Clear</button>
                         : null}
                 </div>
             </div>

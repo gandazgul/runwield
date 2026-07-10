@@ -1,32 +1,6 @@
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { defineConfig } from "vite";
-import { fresh } from "@fresh/plugin-vite";
-import tailwindcss from "@tailwindcss/vite";
-import UnoCSS from "unocss/vite";
-import tidewave from "tidewave/vite-plugin";
+// Workspace Vite configuration is now owned by Astro in astro.config.mjs.
+// This compatibility file intentionally avoids legacy Workspace runtime plugins so stale
+// direct Vite invocations do not resurrect the retired Workspace runtime.
+import astroConfig from "./astro.config.mjs";
 
-const ROOT_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
-const PLANNOTATOR_DIR = resolve(ROOT_DIR, "third_party/plannotator");
-
-export default defineConfig({
-    resolve: {
-        alias: {
-            "@plannotator/ui": resolve(PLANNOTATOR_DIR, "packages/ui"),
-            "@plannotator/shared": resolve(PLANNOTATOR_DIR, "packages/shared"),
-            "@plannotator/ai": resolve(PLANNOTATOR_DIR, "packages/ai"),
-        },
-        dedupe: ["react", "react-dom"],
-    },
-    plugins: [
-        tidewave(),
-        fresh({
-            serverEntry: "src/ui/workspace/dev.js",
-            clientEntry: "src/ui/workspace/client.js",
-            staticDir: ["src/ui/workspace/static"],
-            islandsDir: "src/ui/workspace/islands",
-        }),
-        tailwindcss(),
-        UnoCSS(),
-    ],
-});
+export default astroConfig.vite || {};
