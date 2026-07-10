@@ -13,10 +13,15 @@ import { getCodeReviewMode, getCustomSetting, setCustomSetting, shouldCleanupMer
 import { readLatestReviewOutcome, readLatestTaskCompletedOutcome } from "./workflow.js";
 import { setActiveAgent } from "../session/agent-switching.js";
 import { getWorkflowDiff } from "./git-snapshot.js";
-import { recordPlanEvent } from "./plan-lifecycle.js";
+import { recordPlanEvent, stageValidationPassedInExecutionWorktree } from "./plan-lifecycle.js";
 import { formatCodeReviewAnnotations, runPlannotatorCodeReview } from "./code-review.js";
 import { recordWorkflowMetric } from "./metrics.js";
-import { mergeExecutionWorktree, removeExecutionWorktree } from "../worktree.js";
+import {
+    mergeExecutionWorktree,
+    preparePrimaryPlanPathForMerge,
+    removeExecutionWorktree,
+    restorePrimaryPlanPathAfterMergeFailure,
+} from "../worktree.js";
 import {
     removeEntry as removeWorktreeRegistryEntry,
     updateEntry as updateWorktreeRegistryEntry,
@@ -819,6 +824,9 @@ export async function runMechanicalValidation({ uiAPI, sessionManager, hostedSes
  *   readLatestTaskCompletedOutcome?: typeof readLatestTaskCompletedOutcome,
  *   getDiffText?: typeof getGitDiffText,
  *   recordPlanEvent?: typeof recordPlanEvent,
+ *   stageValidationPassedInExecutionWorktree?: typeof stageValidationPassedInExecutionWorktree,
+ *   preparePrimaryPlanPathForMerge?: typeof preparePrimaryPlanPathForMerge,
+ *   restorePrimaryPlanPathAfterMergeFailure?: typeof restorePrimaryPlanPathAfterMergeFailure,
  *   mergeExecutionWorktree?: typeof mergeExecutionWorktree,
  *   removeExecutionWorktree?: typeof removeExecutionWorktree,
  *   removeWorktreeRegistryEntry?: typeof removeWorktreeRegistryEntry,
@@ -855,6 +863,11 @@ export async function runValidationLoop({
             }));
     const getDiffText = __deps?.getDiffText || getGitDiffText;
     const recordPlanEventImpl = __deps?.recordPlanEvent || recordPlanEvent;
+    const stageValidationPassedImpl = __deps?.stageValidationPassedInExecutionWorktree ||
+        stageValidationPassedInExecutionWorktree;
+    const preparePrimaryPlanPathImpl = __deps?.preparePrimaryPlanPathForMerge || preparePrimaryPlanPathForMerge;
+    const restorePrimaryPlanPathImpl = __deps?.restorePrimaryPlanPathAfterMergeFailure ||
+        restorePrimaryPlanPathAfterMergeFailure;
     const mergeExecutionWorktreeImpl = __deps?.mergeExecutionWorktree || mergeExecutionWorktree;
     const removeExecutionWorktreeImpl = __deps?.removeExecutionWorktree || removeExecutionWorktree;
     const removeWorktreeRegistryEntryImpl = __deps?.removeWorktreeRegistryEntry || removeWorktreeRegistryEntry;
@@ -1504,6 +1517,7 @@ export async function runValidationLoop({
         let mergeRepairAttempts = 0;
         /** @type {string | undefined} */
         let pendingRepairMergeWorktreePath;
+        let mergeBackCompleted = false;
 
         if (worktreeBranch && !worktreeBaseBranch) {
             appendRunWieldSystemMessage(
@@ -1516,15 +1530,38 @@ export async function runValidationLoop({
 
         if (worktreeBranch) {
             while (executionComplete) {
+                const planPath = `plans/${planName}.md`;
+                /** @type {Awaited<ReturnType<typeof preparePrimaryPlanPathForMerge>>[]} */
+                const primaryPlanSnapshots = [];
+                /** @type {string[]} */
+                let preservedPlanPaths = [];
+                let mergeCompleted = false;
                 try {
                     cleanupMergedWorktrees = shouldCleanupMergedWorktreesImpl();
+                    if (planName && planName !== "quick-fix") {
+                        const stagingResult = await stageValidationPassedImpl({
+                            projectRoot,
+                            executionCwd,
+                            planName,
+                            details: {
+                                triageMeta,
+                                worktreeStatus: "merged",
+                                cleanupMergedWorktrees,
+                                ...(humanReviewMetadata || {}),
+                            },
+                        });
+                        preservedPlanPaths = stagingResult.planPaths;
+                        for (const relativePath of preservedPlanPaths) {
+                            primaryPlanSnapshots.push(await preparePrimaryPlanPathImpl({ projectRoot, relativePath }));
+                        }
+                    }
                     appendRunWieldSystemMessage(
                         uiAPI,
                         worktreeBaseBranch
                             ? `Merging validated worktree branch ${worktreeBranch} into target branch ${worktreeBaseBranch}.`
                             : `Merging validated worktree branch ${worktreeBranch} into primary checkout.`,
                     );
-                    await mergeExecutionWorktreeImpl({
+                    const mergeResult = await mergeExecutionWorktreeImpl({
                         projectRoot,
                         branch: worktreeBranch,
                         targetBranch: worktreeBaseBranch,
@@ -1533,35 +1570,92 @@ export async function runValidationLoop({
                         planName,
                         planDescription: triageMeta?.summary,
                         allowedDirtyPaths: [
-                            `plans/${planName}.md`,
+                            planPath,
                             ".wld/",
                             ".wld/worktrees.json",
                             ".wld/worktrees.lock",
                         ],
+                        preservePlanPaths: preservedPlanPaths,
                     });
-                    const mergeVerification = await verifyExecutionWorktreeMergedImpl({
-                        projectRoot,
-                        worktreeBranch,
-                        worktreeBaseBranch,
-                    });
-                    if (!mergeVerification.merged) {
-                        executionComplete = false;
-                        haltReason =
-                            `Worktree merge verification failed after merge-back reported success: ${mergeVerification.message}`;
-                        appendRunWieldSystemMessage(uiAPI, `Workflow halted: ${haltReason}`, true);
-                        break;
+                    mergeCompleted = true;
+                    mergeBackCompleted = true;
+                    if (mergeResult?.updatedPrimaryCheckout === false) {
+                        for (const snapshot of primaryPlanSnapshots.toReversed()) {
+                            try {
+                                await restorePrimaryPlanPathImpl(snapshot);
+                            } catch (restoreError) {
+                                const restoreReason = restoreError instanceof Error
+                                    ? restoreError.message
+                                    : String(restoreError);
+                                appendRunWieldSystemMessage(
+                                    uiAPI,
+                                    `Worktree merged, but restoring the primary Plan snapshot failed: ${restoreReason}`,
+                                    true,
+                                );
+                            }
+                        }
+                    }
+                    let mergeVerified = true;
+                    try {
+                        const mergeVerification = await verifyExecutionWorktreeMergedImpl({
+                            projectRoot,
+                            worktreeBranch,
+                            worktreeBaseBranch,
+                        });
+                        if (!mergeVerification.merged) {
+                            mergeVerified = false;
+                            appendRunWieldSystemMessage(
+                                uiAPI,
+                                `Worktree merged, but post-merge verification was inconclusive: ${mergeVerification.message}`,
+                                true,
+                            );
+                        }
+                    } catch (verificationError) {
+                        mergeVerified = false;
+                        const verificationReason = verificationError instanceof Error
+                            ? verificationError.message
+                            : String(verificationError);
+                        appendRunWieldSystemMessage(
+                            uiAPI,
+                            `Worktree merged, but post-merge verification failed: ${verificationReason}`,
+                            true,
+                        );
                     }
                     pendingRepairMergeWorktreePath = undefined;
-                    await recordWorkflowMetricImpl({
-                        category: "validation",
-                        event: "merge_back_result",
-                        planName,
-                        details: { passed: true, hasWorktreeBranch: Boolean(worktreeBranch), cleanupMergedWorktrees },
-                    });
-                    if (worktreeId) {
-                        await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, { status: "merged" });
+                    try {
+                        await recordWorkflowMetricImpl({
+                            category: "validation",
+                            event: "merge_back_result",
+                            planName,
+                            details: {
+                                passed: true,
+                                hasWorktreeBranch: Boolean(worktreeBranch),
+                                cleanupMergedWorktrees,
+                            },
+                        });
+                    } catch (metricError) {
+                        const metricReason = metricError instanceof Error ? metricError.message : String(metricError);
+                        appendRunWieldSystemMessage(
+                            uiAPI,
+                            `Worktree merged, but recording the merge result failed: ${metricReason}`,
+                            true,
+                        );
                     }
-                    if (cleanupMergedWorktrees && executionCwd) {
+                    if (worktreeId) {
+                        try {
+                            await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, { status: "merged" });
+                        } catch (registryError) {
+                            const registryReason = registryError instanceof Error
+                                ? registryError.message
+                                : String(registryError);
+                            appendRunWieldSystemMessage(
+                                uiAPI,
+                                `Worktree merged, but updating its registry status failed: ${registryReason}`,
+                                true,
+                            );
+                        }
+                    }
+                    if (mergeVerified && cleanupMergedWorktrees && executionCwd) {
                         try {
                             await removeExecutionWorktreeImpl({
                                 projectRoot,
@@ -1585,7 +1679,27 @@ export async function runValidationLoop({
                     }
                     break;
                 } catch (/** @type {any} */ error) {
-                    const reason = error instanceof Error ? error.message : String(error);
+                    let reason = error instanceof Error ? error.message : String(error);
+                    if (mergeCompleted) {
+                        appendRunWieldSystemMessage(
+                            uiAPI,
+                            `Worktree merged, but post-merge processing failed: ${reason}`,
+                            true,
+                        );
+                        break;
+                    }
+                    if (primaryPlanSnapshots.length > 0) {
+                        for (const snapshot of primaryPlanSnapshots.toReversed()) {
+                            try {
+                                await restorePrimaryPlanPathImpl(snapshot);
+                            } catch (restoreError) {
+                                const restoreReason = restoreError instanceof Error
+                                    ? restoreError.message
+                                    : String(restoreError);
+                                reason += ` Primary Plan rollback also failed: ${restoreReason}`;
+                            }
+                        }
+                    }
                     appendRunWieldSystemMessage(uiAPI, `Worktree merge failed: ${reason}`, true);
                     if (worktreeId) {
                         try {
@@ -1709,19 +1823,29 @@ export async function runValidationLoop({
         }
 
         if (executionComplete) {
-            await recordWorkflowMetricImpl({
-                category: "validation",
-                event: "workflow_validation_finished",
-                planName,
-                details: { passed: true, validationCycles, hasWorktreeBranch: Boolean(worktreeBranch) },
-            });
+            try {
+                await recordWorkflowMetricImpl({
+                    category: "validation",
+                    event: "workflow_validation_finished",
+                    planName,
+                    details: { passed: true, validationCycles, hasWorktreeBranch: Boolean(worktreeBranch) },
+                });
+            } catch (metricError) {
+                if (!mergeBackCompleted) throw metricError;
+                const metricReason = metricError instanceof Error ? metricError.message : String(metricError);
+                appendRunWieldSystemMessage(
+                    uiAPI,
+                    `Worktree merged, but recording Workflow Validation completion failed: ${metricReason}`,
+                    true,
+                );
+            }
             appendRunWieldSystemMessage(
                 uiAPI,
                 `${triageClassificationDisplay} execution and validation complete.`,
                 false,
                 SUCCESS_MESSAGE_STYLE,
             );
-            if (planName && planName !== "quick-fix") {
+            if (planName && planName !== "quick-fix" && !worktreeBranch) {
                 await recordPlanEventImpl({
                     cwd: projectRoot,
                     planName,
@@ -1729,8 +1853,6 @@ export async function runValidationLoop({
                     currentStatus: "implemented",
                     details: {
                         triageMeta,
-                        worktreeStatus: worktreeBranch ? "merged" : undefined,
-                        cleanupMergedWorktrees: worktreeBranch ? cleanupMergedWorktrees : undefined,
                         ...(humanReviewMetadata || {}),
                     },
                 });
