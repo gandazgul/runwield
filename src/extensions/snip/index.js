@@ -37,7 +37,6 @@ const NO_REWRITE_PREFIXES = [
     "git clone",
     "git submodule",
     "git worktree",
-    "git diff",
     "npm view",
     "npm info",
     "npm search",
@@ -140,6 +139,40 @@ function baseCommand(word) {
     return cleaned.split(/[\\/]/).pop() || cleaned;
 }
 
+const GIT_OPTIONS_WITH_VALUES = new Set([
+    "-C",
+    "-c",
+    "--config-env",
+    "--exec-path",
+    "--git-dir",
+    "--namespace",
+    "--super-prefix",
+    "--work-tree",
+]);
+
+/**
+ * @param {string} commandText
+ * @returns {boolean}
+ */
+function isGitDiffCommand(commandText) {
+    const words = splitWords(commandText);
+    if (words.length < 2 || baseCommand(words[0]) !== "git") return false;
+
+    for (let index = 1; index < words.length; index++) {
+        const word = words[index].replace(/^['"]|['"]$/g, "");
+        if (word === "diff") return true;
+        if (word === "--") return words[index + 1]?.replace(/^['"]|['"]$/g, "") === "diff";
+        if (GIT_OPTIONS_WITH_VALUES.has(word)) {
+            index++;
+            continue;
+        }
+        if (word.startsWith("-")) continue;
+        return false;
+    }
+
+    return false;
+}
+
 /**
  * @param {string} segment
  * @returns {{ envPrefix: string, commandText: string, commandName: string } | null}
@@ -179,6 +212,7 @@ function rewriteCommand(originalCommand) {
     const parsed = parseSimpleSegment(segment);
     if (!parsed) return null;
     if (parsed.commandName === "snip" || SHELL_BUILTINS.has(parsed.commandName)) return null;
+    if (isGitDiffCommand(parsed.commandText)) return null;
     if (NO_REWRITE_PREFIXES.some((prefix) => parsed.commandText.startsWith(prefix))) return null;
 
     return `${parsed.envPrefix}snip run -- ${parsed.commandText.trimEnd()} ${SNIP_NO_FILTER_STDERR_FILTER}${rest}`;

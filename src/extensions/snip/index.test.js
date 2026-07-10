@@ -70,6 +70,10 @@ Deno.test("snip extension handles shell safety and env prefixes", async () => {
     await handler(gitWorktreeEvent, {});
     assertEquals(gitWorktreeEvent.input.command, "git worktree add -b demo ../demo HEAD");
 
+    const gitDiffEvent = { toolName: "bash", input: { command: "/usr/bin/git -C repo diff --cached" } };
+    await handler(gitDiffEvent, {});
+    assertEquals(gitDiffEvent.input.command, "/usr/bin/git -C repo diff --cached");
+
     const envEvent = { toolName: "bash", input: { command: "FOO=1 deno test" } };
     await handler(envEvent, {});
     assertEquals(envEvent.input.command, `FOO=1 snip run -- deno test ${SNIP_NO_FILTER_STDERR_FILTER}`);
