@@ -59,10 +59,16 @@ export function setActiveAgent(
 }
 
 /**
+ * @typedef {Object} RootSwapDependencies
+ * @property {typeof ensureRootAgentSession} [ensureRootAgentSession]
+ */
+
+/**
  * @param {import('./hosted-session.js').HostedSession | undefined} hostedSession
  * @param {import('../types.js').SessionUiPort | undefined} uiAPI
+ * @param {RootSwapDependencies} [dependencies]
  */
-export async function applyPendingRootSwap(hostedSession, uiAPI) {
+export async function applyPendingRootSwap(hostedSession, uiAPI, dependencies = {}) {
     if (!hostedSession) return;
     const pending = hostedSession.getPendingRootSwap();
     if (!pending) return;
@@ -72,14 +78,21 @@ export async function applyPendingRootSwap(hostedSession, uiAPI) {
         return;
     }
 
-    await ensureRootAgentSession({
-        hostedSession,
-        agentName: pending.agentName,
-        modelOverride: pending.model,
-        uiAPI,
-        allowReturnToRouter: pending.allowReturnToRouter,
-    });
+    const ensureRootAgentSessionImpl = dependencies.ensureRootAgentSession || ensureRootAgentSession;
+    try {
+        await ensureRootAgentSessionImpl({
+            hostedSession,
+            agentName: pending.agentName,
+            modelOverride: pending.model,
+            uiAPI,
+            allowReturnToRouter: pending.allowReturnToRouter,
+        });
+    } catch (error) {
+        if (hostedSession.disposed) return;
+        throw error;
+    }
 
+    if (hostedSession.disposed) return;
     hostedSession.setPendingRootSwap(null);
     uiAPI?.appendSystemMessage?.(`Switched to ${pending.displayName}.`);
     uiAPI?.requestRender?.();
