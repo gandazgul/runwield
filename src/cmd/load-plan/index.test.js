@@ -1,8 +1,26 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertStringIncludes } from "@std/assert";
 import { runLoadPlanCommand } from "./index.js";
-import { resolveSiblingChildPlanDependencies, savePlan } from "../../plan-store.js";
+import { loadPlan, resolveSiblingChildPlanDependencies, savePlan, updatePlanFrontMatter } from "../../plan-store.js";
 import { AGENTS } from "../../constants.js";
 import { HostedSession } from "../../shared/session/hosted-session.js";
+import { recordPlanEvent, stageValidationPassedInExecutionWorktree } from "../../shared/workflow/plan-lifecycle.js";
+import {
+    createExecutionWorktree,
+    mergeExecutionWorktree,
+    preparePrimaryPlanPathForMerge,
+    restorePrimaryPlanPathAfterMergeFailure,
+} from "../../shared/worktree.js";
+
+/**
+ * @param {string} cwd
+ * @param {string[]} args
+ * @returns {Promise<string>}
+ */
+async function git(cwd, args) {
+    const output = await new Deno.Command("git", { cwd, args, stdout: "piped", stderr: "piped" }).output();
+    if (!output.success) throw new Error(new TextDecoder().decode(output.stderr));
+    return new TextDecoder().decode(output.stdout).trim();
+}
 
 function makeUi() {
     /** @type {string[]} */
@@ -2560,10 +2578,10 @@ Deno.test("runLoadPlanCommand refuses forced manual merge before validation-back
     assertEquals(messages.some((message) => message.includes("Retry Workflow Validation first")), true);
 });
 
-Deno.test("runLoadPlanCommand can manually merge merge-conflict worktree recovery", async () => {
+Deno.test("runLoadPlanCommand keeps a successful manual merge canonical when registry bookkeeping fails", async () => {
     const worktreePath = await Deno.makeTempDir({ prefix: "runwield-load-plan-merge-" });
     try {
-        const { uiAPI, selections } = makeUi();
+        const { uiAPI, selections, messages } = makeUi();
         selections.push("merge");
         let mergedBranch = "";
         let mergedTargetBranch = "";
@@ -2572,6 +2590,8 @@ Deno.test("runLoadPlanCommand can manually merge merge-conflict worktree recover
         let registryStatus = "";
         let mergedPlanName = "";
         let mergedPlanDescription = "";
+        let stagedExecutionCwd = "";
+        let primaryPlanRestored = false;
         /** @type {Partial<import('../../plan-store.js').PlanFrontMatter>} */
         let persistedUpdates = {};
         /** @type {string | null} */
@@ -2624,6 +2644,30 @@ Deno.test("runLoadPlanCommand can manually merge merge-conflict worktree recover
                         statusText: "",
                         diff: "",
                     }),
+                stageValidationPassedInExecutionWorktree: (/** @type {{ executionCwd: string }} */ args) => {
+                    stagedExecutionCwd = args.executionCwd;
+                    return Promise.resolve(
+                        /** @type {any} */ ({
+                            attrs: { status: "verified" },
+                            planPaths: ["plans/plan-merge-conflict.md"],
+                        }),
+                    );
+                },
+                preparePrimaryPlanPathForMerge: () =>
+                    Promise.resolve(
+                        /** @type {any} */ ({
+                            projectRoot: "/primary",
+                            relativePath: "plans/plan-merge-conflict.md",
+                            absolutePath: "/primary/plans/plan-merge-conflict.md",
+                            existed: true,
+                            tracked: true,
+                            content: "implemented",
+                        }),
+                    ),
+                restorePrimaryPlanPathAfterMergeFailure: () => {
+                    primaryPlanRestored = true;
+                    return Promise.resolve();
+                },
                 mergeExecutionWorktree: (
                     /** @type {{ branch: string, targetBranch?: string, planName?: string, planDescription?: string }} */ args,
                 ) => {
@@ -2631,7 +2675,7 @@ Deno.test("runLoadPlanCommand can manually merge merge-conflict worktree recover
                     mergedTargetBranch = args.targetBranch || "";
                     mergedPlanName = args.planName || "";
                     mergedPlanDescription = args.planDescription || "";
-                    return Promise.resolve();
+                    return Promise.resolve({ updatedPrimaryCheckout: false });
                 },
                 removeExecutionWorktree: (/** @type {{ path: string }} */ args) => {
                     removedPath = args.path;
@@ -2647,7 +2691,7 @@ Deno.test("runLoadPlanCommand can manually merge merge-conflict worktree recover
                     /** @type {{ status: string }} */ updates,
                 ) => {
                     registryStatus = updates.status;
-                    return Promise.resolve(/** @type {any} */ ({}));
+                    return Promise.reject(new Error("registry unavailable"));
                 },
                 updatePlanFrontMatter: (
                     /** @type {string} */ _cwd,
@@ -2662,6 +2706,10 @@ Deno.test("runLoadPlanCommand can manually merge merge-conflict worktree recover
                     lifecycleEvent = args.event;
                     return Promise.resolve(/** @type {any} */ ({}));
                 },
+                recordWorkflowMetric: (/** @type {any} */ metric) =>
+                    metric.event === "recovery_action_result" && metric.details.result === "merged"
+                        ? Promise.reject(new Error("metrics unavailable"))
+                        : Promise.resolve(null),
                 createAgentHandler: () => async () => {},
                 resetTuiState: () => {},
                 setActiveAgent: () => {},
@@ -2669,16 +2717,145 @@ Deno.test("runLoadPlanCommand can manually merge merge-conflict worktree recover
         });
 
         assertEquals(persistedUpdates.worktreeBaseBranch, "feature-base");
+        assertEquals(stagedExecutionCwd, worktreePath);
         assertEquals(mergedBranch, "runwield/worktree/plan-merge-conflict");
         assertEquals(mergedTargetBranch, "feature-base");
         assertEquals(mergedPlanName, "plan-merge-conflict");
         assertEquals(mergedPlanDescription, "Resolve a manual merge conflict.");
+        assertEquals(primaryPlanRestored, true);
         assertEquals(removedPath, worktreePath);
         assertEquals(removedRegistryId, "wt1");
         assertEquals(registryStatus, "merged");
-        assertEquals(lifecycleEvent, "validation_passed");
+        assertEquals(lifecycleEvent, null);
+        assertEquals(
+            messages.some((message) =>
+                message.includes("Worktree merged, but updating its registry status failed: registry unavailable")
+            ),
+            true,
+        );
+        assertEquals(
+            messages.some((message) =>
+                message.includes("Worktree merged, but recording the recovery result failed: metrics unavailable")
+            ),
+            true,
+        );
     } finally {
         await Deno.remove(worktreePath, { recursive: true });
+    }
+});
+
+Deno.test("runLoadPlanCommand reapplies verified Plan metadata after real manual merge-conflict rollback", async () => {
+    const projectRoot = await Deno.makeTempDir();
+    const worktreeRoot = await Deno.makeTempDir();
+    try {
+        await git(projectRoot, ["init", "-b", "main"]);
+        await git(projectRoot, ["config", "user.email", "tests@example.com"]);
+        await git(projectRoot, ["config", "user.name", "RunWield Tests"]);
+        await Deno.writeTextFile(`${projectRoot}/.gitignore`, ".wld/\n");
+        await Deno.writeTextFile(`${projectRoot}/conflict.txt`, "base\n");
+        await savePlan(projectRoot, "manual-conflict", "# Manual Conflict", {
+            status: "ready_for_work",
+            classification: "FEATURE",
+        });
+        await git(projectRoot, ["add", ".gitignore", "conflict.txt", "plans/manual-conflict.md"]);
+        await git(projectRoot, ["commit", "-m", "add manual conflict plan"]);
+        const worktree = await createExecutionWorktree({ projectRoot, planName: "Manual Conflict", worktreeRoot });
+        await Deno.writeTextFile(`${projectRoot}/conflict.txt`, "target\n");
+        await git(projectRoot, ["add", "conflict.txt"]);
+        await git(projectRoot, ["commit", "-m", "target conflict"]);
+        await savePlan(projectRoot, "manual-conflict", "# Manual Conflict", {
+            status: "implemented",
+            classification: "FEATURE",
+            worktreeId: worktree.id,
+            worktreePath: worktree.path,
+            worktreeBranch: worktree.branch,
+            worktreeBaseBranch: "main",
+            worktreeStatus: "merge_conflict",
+        });
+        await Deno.writeTextFile(`${worktree.path}/conflict.txt`, "execution\n");
+        const worktreeRecord = {
+            id: worktree.id,
+            planName: "manual-conflict",
+            path: worktree.path,
+            branch: worktree.branch,
+            baseBranch: "main",
+            baseRef: "main",
+            baseCommit: worktree.baseCommit,
+            baseTree: worktree.baseTree,
+            status: "merge_conflict",
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+        };
+        const deps = /** @type {any} */ ({
+            parseArgs: () => ({ help: false, _: ["manual-conflict"] }),
+            resolvePlan: async () => ({
+                ...(await loadPlan(projectRoot, "manual-conflict")),
+                planName: "manual-conflict",
+            }),
+            findWorktreeById: () => Promise.resolve(worktreeRecord),
+            findWorktreeByPlanName: () => Promise.resolve(worktreeRecord),
+            getWorktreeStatus: () =>
+                Promise.resolve({
+                    exists: true,
+                    path: worktree.path,
+                    branch: worktree.branch,
+                    statusText: "",
+                    diff: "",
+                }),
+            stageValidationPassedInExecutionWorktree: (/** @type {any} */ args) =>
+                stageValidationPassedInExecutionWorktree({ ...args, projectRoot }),
+            preparePrimaryPlanPathForMerge: (/** @type {any} */ args) =>
+                preparePrimaryPlanPathForMerge({ ...args, projectRoot }),
+            restorePrimaryPlanPathAfterMergeFailure,
+            mergeExecutionWorktree: (/** @type {any} */ args) => mergeExecutionWorktree({ ...args, projectRoot }),
+            updatePlanFrontMatter: (
+                /** @type {string} */ _cwd,
+                /** @type {string} */ planName,
+                /** @type {any} */ updates,
+                /** @type {any} */ attrs,
+            ) => updatePlanFrontMatter(projectRoot, planName, updates, attrs),
+            recordPlanEvent: (/** @type {any} */ args) => recordPlanEvent({ ...args, cwd: projectRoot }),
+            updateWorktreeRegistryEntry: () => Promise.resolve({}),
+            removeExecutionWorktree: () => Promise.resolve(),
+            removeWorktreeRegistryEntry: () => Promise.resolve(),
+            shouldCleanupMergedWorktrees: () => false,
+            recordWorkflowMetric: () => Promise.resolve(null),
+            createAgentHandler: () => async () => {},
+            resetTuiState: () => {},
+            setActiveAgent: () => {},
+        });
+
+        const firstUi = makeUi();
+        firstUi.selections.push("merge");
+        await runLoadPlanCommand(["manual-conflict"], {
+            hostedSession: new HostedSession({ id: "manual-conflict-first" }),
+            uiAPI: firstUi.uiAPI,
+            editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+            __testDeps: deps,
+        });
+        assertEquals((await loadPlan(projectRoot, "manual-conflict"))?.attrs.status, "implemented");
+
+        await Deno.writeTextFile(`${projectRoot}/conflict.txt`, "resolved\n");
+        await git(projectRoot, ["add", "conflict.txt"]);
+        const secondUi = makeUi();
+        secondUi.selections.push("merge");
+        await runLoadPlanCommand(["manual-conflict"], {
+            hostedSession: new HostedSession({ id: "manual-conflict-second" }),
+            uiAPI: secondUi.uiAPI,
+            editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+            __testDeps: deps,
+        });
+
+        assertEquals((await loadPlan(projectRoot, "manual-conflict"))?.attrs.status, "verified");
+        assertStringIncludes(
+            await git(projectRoot, ["log", "-1", "-p", "--", "plans/manual-conflict.md"]),
+            'status: "verified"',
+        );
+        assertEquals(await Deno.readTextFile(`${projectRoot}/conflict.txt`), "resolved\n");
+    } finally {
+        await git(projectRoot, ["merge", "--abort"]).catch(() => {});
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+        await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
     }
 });
 
@@ -2689,6 +2866,7 @@ Deno.test("runLoadPlanCommand records recovery metric when manual merge fails", 
         selections.push("merge");
         /** @type {any[]} */
         const metrics = [];
+        let primaryPlanRestored = false;
 
         await runLoadPlanCommand(["plan-merge-conflict-fail"], {
             hostedSession: new HostedSession({ id: "load-plan-test" }),
@@ -2736,6 +2914,28 @@ Deno.test("runLoadPlanCommand records recovery metric when manual merge fails", 
                         statusText: "",
                         diff: "",
                     }),
+                stageValidationPassedInExecutionWorktree: () =>
+                    Promise.resolve(
+                        /** @type {any} */ ({
+                            attrs: { status: "verified" },
+                            planPaths: ["plans/plan-merge-conflict-fail.md"],
+                        }),
+                    ),
+                preparePrimaryPlanPathForMerge: () =>
+                    Promise.resolve(
+                        /** @type {any} */ ({
+                            projectRoot: "/primary",
+                            relativePath: "plans/plan-merge-conflict-fail.md",
+                            absolutePath: "/primary/plans/plan-merge-conflict-fail.md",
+                            existed: true,
+                            tracked: true,
+                            content: "implemented",
+                        }),
+                    ),
+                restorePrimaryPlanPathAfterMergeFailure: () => {
+                    primaryPlanRestored = true;
+                    return Promise.resolve();
+                },
                 mergeExecutionWorktree: () => Promise.reject(new Error("conflict")),
                 updateWorktreeRegistryEntry: () => Promise.resolve({}),
                 updatePlanFrontMatter: (
@@ -2755,6 +2955,7 @@ Deno.test("runLoadPlanCommand records recovery metric when manual merge fails", 
             }),
         });
 
+        assertEquals(primaryPlanRestored, true);
         assertEquals(
             metrics.some((metric) =>
                 metric.category === "recovery" && metric.event === "recovery_action_result" &&
