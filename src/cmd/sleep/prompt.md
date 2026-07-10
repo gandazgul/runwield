@@ -1,22 +1,57 @@
 # Sleep
 
-You are running RunWield sleep mode to optimize long-term memory quality.
+You are running RunWield sleep mode to optimize long-term memory quality conservatively.
 
 ## Goal
 
-- Improve memory signal quality for future sessions.
-- Preserve high-value, durable context.
-- Reduce noise, redundancy, and stale information.
+- Improve memory signal quality for future sessions without losing useful context.
+- Remove exact duplication, truly deprecated facts, and explicitly superseded memories.
+- Preserve durable decisions, rationale, constraints, exceptions, and the history needed to understand current truth.
+- Keep core memories limited to the most critical and frequently accessed context.
+
+Memory-count reduction is not a goal. When uncertain whether context remains useful, keep the memory.
+
+## Safety Rules
+
+- Never treat age, verbosity, completed implementation work, or discoverability in source code as sufficient reasons to
+  delete a memory.
+- Do not collapse distinct decisions merely because they concern the same feature. Preserve differences in scope,
+  chronology, rationale, constraints, and exceptions.
+- A consolidation must be lossless: its replacement must retain every durable fact from the source memories, including
+  why a decision changed and which statement is current.
+- Delete a superseded memory only when an authoritative replacement clearly captures the current truth and any useful
+  transition context.
+- Prefer demoting a memory from `core` to regular over deleting it when the content remains useful but is not needed in
+  every session.
+- Preserve all memories that are unrelated to an identified duplicate, deprecation, supersession, or lossless
+  consolidation.
 
 ## Process
 
-1. Use `mnemosyne export --no-embeddings` to export all memories and core memories to a file ([project name].jsonl in
-   the root directory).
-2. Analyze the memories for relevance, redundancy, and importance. Optimize the memories by deleting irrelevant or
-   redundant ones, and consolidating important but similar memories. Focus on keeping the most relevant and important
-   information while minimizing noise and redundancy in the memory system.
-3. Move memories from the core memories (tags: ['core']) to regular or vice versa as needed. Core memories should be
-   reserved for the most critical and frequently accessed information, while regular memories can be used for less
-   critical or less frequently accessed information.
+1. Export the collection with `mnemosyne export --no-embeddings` to a timestamped backup in the project root, such as
+   `[project name].sleep-backup-[timestamp].jsonl`. Never overwrite the pre-maintenance backup.
+2. Analyze the exported memories and classify proposed changes as one of:
+   - exact duplicate;
+   - truly deprecated or contradicted by an identified current authority;
+   - explicitly superseded by an identified replacement;
+   - lossless consolidation;
+   - core-tag promotion or demotion;
+   - keep.
+3. Before mutating Mnemosyne, write a timestamped deletion manifest in the project root. For every proposed deletion,
+   record the memory ID, its full content and tags, the classification and reason, and the replacement memory or
+   authoritative source that preserves its context.
+4. If the proposal would delete more than 25 memories or more than 10% of the collection, whichever threshold is reached
+   first, stop before mutation and ask the user to review the backup and manifest. Continue only after explicit
+   approval.
+5. Apply approved changes. Add and verify every consolidation or replacement before deleting its source memories. Move
+   memories between core (`--tag core`) and regular storage as needed; core is for critical, frequently accessed context
+   only.
+6. Export the post-maintenance collection to a separate file and verify:
+   - every untouched memory is still present with its original content and tags;
+   - every deleted memory appears in the manifest and has a verified replacement or authority;
+   - every consolidation preserves the durable facts, rationale, constraints, and exceptions of its sources;
+   - the original backup can be used to restore deleted memories.
+7. Report counts for kept, promoted, demoted, consolidated, and deleted memories, plus the backup and manifest paths. Do
+   not claim that deleted memories were unnecessary; report the specific reason each category was safe to remove.
 
 Delete with `mnemosyne delete [memory id]` and add with `mnemosyne add [memory content] --tag tag1 --tag tag2`.

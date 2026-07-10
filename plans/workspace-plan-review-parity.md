@@ -1,30 +1,26 @@
 ---
+planId: "cc6000b2-35df-42b0-b141-03e81161afe0"
 classification: "FEATURE"
 complexity: "HIGH"
-summary: "Bring the Workspace-hosted Plan Review surface to Plannotator-level layout and interaction parity while preserving RunWield theming, workflow decisions, and the explicitly scoped Plan review feature set."
+summary: "Bring the Workspace-hosted Plan Review surface to functional and visual parity with Plannotator, following the required priority order. This is multi-file frontend work spanning the React review composition, Plannotator component/provider integration, styling, decision transport, workflow launch wiring, and browser-backed verification; the current tree only has a basic Plannotator plan-body bridge and still defaults workflow reviews to the compiled server."
 affectedPaths:
-    - "src/ui/workspace/react/PlanReviewSurface.tsx"
-    - "src/ui/workspace/react/ReviewDevSurface.tsx"
-    - "src/ui/workspace/react/plannotator.css"
-    - "src/ui/workspace/layouts/ReviewLayout.astro"
     - "src/ui/workspace/pages/review/plan.astro"
-    - "src/ui/workspace/pages/dev/plan-review.astro"
-    - "src/ui/workspace/pages/api/upload.js"
-    - "src/ui/workspace/pages/api/image.js"
+    - "src/ui/workspace/react/PlanReviewSurface.tsx"
+    - "src/ui/workspace/react/plannotator.css"
     - "src/ui/workspace/routes/api/review-handlers.js"
-    - "src/ui/workspace/routes/api/review-media-handlers.js"
     - "src/ui/workspace/server.js"
-    - "src/shared/workflow/submit-plan.js"
-    - "src/shared/workflow/submit-plan.test.js"
+    - "src/shared/workflow/review-launcher.js"
     - "src/ui/workspace/workspace.test.js"
-    - "third_party/plannotator/packages/ui/components/Settings.tsx"
+    - "third_party/plannotator/packages/editor/App.tsx"
 frontend: true
 devServerCommand: "deno task workspace:dev:plan-review"
 devServerUrl: "http://localhost:5173/dev/plan-review"
 devServerHmr: true
-worktreeBaseBranch: "workspace-astro-react-plannotator-migration"
 createdAt: "2026-07-09T17:11:07-04:00"
+updatedAt: "2026-07-10T03:08:02.467Z"
 status: "draft"
+origin: "internal"
+worktreeBaseBranch: "main"
 ---
 
 # Workspace Plan Review Parity
@@ -36,11 +32,13 @@ This is a focused follow-up to
 the **Plan Review Surface** required features, in their documented priority order; code-review parity remains out of
 scope.
 
-The implementation to improve exists on branch `workspace-astro-react-plannotator-migration`, not on current `main`.
-That branch already has the Astro review route, React `PlanReviewSurface`, token-protected review APIs, Workspace review
-server, and workflow launcher. A headed comparison at 1440×1000 found that the current dev surface starts 139 px below
-the viewport in a rounded Workspace card with a 75 px custom header, while Plannotator uses a full-viewport surface and
-a sticky 48 px header. The current dev wrapper also adds an unrelated page heading above the review.
+Execution will start from a fresh worktree based on updated `main`, after the completed Workspace migration has landed
+there. This Plan assumes `main` contains the Astro review route, React `PlanReviewSurface`, token-protected review APIs,
+Workspace review server, and workflow launcher delivered by that migration; if those prerequisites are absent, execution
+must stop before editing rather than recreate or partially merge them. A headed comparison at 1440×1000 found that the
+current dev surface starts 139 px below the viewport in a rounded Workspace card with a 75 px custom header, while
+Plannotator uses a full-viewport surface and a sticky 48 px header. The current dev wrapper also adds an unrelated page
+heading above the review.
 
 Source and browser inspection found functional gaps in addition to styling drift:
 
@@ -123,7 +121,7 @@ The existing token-protected server/API boundary remains the decision authority.
 and Review Loop handling needed to make edited content, feedback, Exit, and the chosen Approve behavior observable end
 to end.
 
-**Confirmed product decisions:** execute from `workspace-astro-react-plannotator-migration`; use Plannotator's geometry,
+**Confirmed product decisions:** execute from a fresh worktree based on updated `main`; use Plannotator's geometry,
 density, and interaction patterns with RunWield branding and the selected `wld` theme; replace the inert
 `ApproveDropdown` with a plain working `ApproveButton` because Engineer is the only Plan executor. This Plan does not
 introduce post-review Agent switching.
@@ -197,10 +195,10 @@ Existing functions, modules, or patterns to reuse:
 
 ## Implementation Steps
 
-- [ ] Establish the execution baseline from `workspace-astro-react-plannotator-migration` and preserve any existing
-      dirty Workspace work before editing. Capture headed 1440×1000 screenshots of `/dev/plan-review` and the compiled
-      Plannotator Plan review with the same rich fixture so spacing, control placement, and panel dimensions have an
-      explicit before/reference baseline.
+- [ ] Confirm updated `main` contains the existing Workspace-hosted Plan Review files named in this Plan, then create a
+      fresh execution worktree from `main`; stop before editing if the migration prerequisite is absent. Capture headed
+      1440×1000 screenshots of `/dev/plan-review` and the compiled Plannotator Plan review with the same rich fixture so
+      spacing, control placement, and panel dimensions have an explicit before/reference baseline.
 - [ ] Replace the outer dev-page framing and `.rw-plannotator-host` card treatment with a full-viewport review root.
       Match Plannotator's sticky 48 px header, border rhythm, document padding/max width, panel surfaces, z-indexes, and
       scroll ownership while keeping the selected RunWield theme variables.
@@ -290,10 +288,9 @@ Existing functions, modules, or patterns to reuse:
 
 ## Edge Cases & Considerations
 
-- The implementation branch is currently checked out in `/private/tmp/runwield-review-demo-worktree` with dirty
-  `CodeReviewSurface.tsx`, `plannotator.css`, and vendored Plannotator state. Because `plannotator.css` overlaps this
-  feature, execution must start from a clean confirmed base or preserve/reconcile those edits explicitly rather than
-  overwrite them.
+- The Plan depends on the completed Workspace migration already being present on `main`. The first execution check must
+  fail closed if the named Astro/React review files are absent, rather than silently broadening this feature into a
+  migration or merge task.
 - Filtering `Settings` is a pinned shared-component API change. Defaults must preserve the full existing Plannotator
   settings set for editor/code-review callers, and the active tab must fall back safely if a caller excludes it.
 - Review media routes are a local file boundary. Require the active review token for upload and read, allow only

@@ -1,23 +1,22 @@
 ---
 classification: "FEATURE"
 complexity: "MEDIUM"
-summary: "Stage the validation_passed Plan Event in the execution worktree before merge-back so verified Front Matter is committed and merged with the implementation without dirtying the primary checkout."
+summary: "Change worktree-backed plan completion so the validation_passed lifecycle update is written inside the execution worktree before merge-back, causing verified plan metadata to be committed and merged with implementation changes instead of dirtying the primary checkout afterward. Cover both normal validation merge-back and manual merge recovery, including merge-failure/retry ordering and regression tests."
 affectedPaths:
-    - "src/shared/workflow/plan-lifecycle.js"
-    - "src/shared/workflow/plan-lifecycle.test.js"
     - "src/shared/workflow/validation.js"
-    - "src/shared/workflow/validation.test.js"
-    - "src/shared/worktree.js"
-    - "src/shared/worktree.test.js"
     - "src/cmd/load-plan/index.js"
+    - "src/shared/workflow/validation.test.js"
     - "src/cmd/load-plan/index.test.js"
-    - "docs/plan-lifecycle.md"
+    - "src/shared/workflow/plan-lifecycle.js"
 frontend: false
-devServerCommand: null
-devServerUrl: null
-devServerHmr: null
 createdAt: "2026-07-09T17:11:20-04:00"
-status: "draft"
+updatedAt: "2026-07-10T04:49:32.053Z"
+status: "implemented"
+origin: "internal"
+failureReason: "Semantic validation did not approve after 3 cycles."
+worktreeStatus: "validation_failed"
+routingIntent: "FEATURE"
+sessionName: "merge verified plan metadata"
 ---
 
 # Merge Verified Plan Metadata with Worktree Changes
