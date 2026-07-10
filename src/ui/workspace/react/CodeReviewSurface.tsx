@@ -202,6 +202,7 @@ export function CodeReviewSurface({ payload }) {
                             {currentFile
                                 ? (
                                     <DockviewReact
+                                        key={[...viewedFiles].sort().join("|")}
                                         className="rw-dockview dockview-theme-dark"
                                         components={dockComponents}
                                         onReady={handleDockReady}
@@ -293,6 +294,12 @@ function DiffPanel({
     isViewed,
     onToggleViewed,
 }) {
+    const handleToggleViewed = useCallback((event) => {
+        event?.preventDefault();
+        event?.stopPropagation();
+        onToggleViewed?.();
+    }, [onToggleViewed]);
+
     return (
         <section className="rw-plannotator-diff-panel">
             <FileHeader
@@ -301,28 +308,37 @@ function DiffPanel({
                 patch={file.patch}
                 status={file.status}
                 isViewed={isViewed}
-                onToggleViewed={onToggleViewed}
+                onToggleViewed={handleToggleViewed}
             />
-            <DiffViewer
-                patch={file.patch}
-                filePath={file.path}
-                oldPath={file.oldPath}
-                status={file.status}
-                diffStyle="split"
-                diffOverflow="scroll"
-                annotations={annotations}
-                selectedAnnotationId={selectedAnnotationId}
-                scrollTargetAnnotation={scrollTargetAnnotation}
-                pendingSelection={pendingSelection}
-                onLineSelection={onLineSelection}
-                onAddAnnotation={onAddAnnotation}
-                onAddFileComment={(text) => onAddAnnotation("comment", text)}
-                onEditAnnotation={onEditAnnotation}
-                onSelectAnnotation={onSelectAnnotation}
-                onDeleteAnnotation={onDeleteAnnotation}
-                isViewed={isViewed}
-                onToggleViewed={onToggleViewed}
-            />
+            {isViewed
+                ? (
+                    <div className="rw-viewed-diff-collapsed" role="status">
+                        File marked as viewed. Click Viewed to expand it again.
+                    </div>
+                )
+                : (
+                    <DiffViewer
+                        hideHeader
+                        patch={file.patch}
+                        filePath={file.path}
+                        oldPath={file.oldPath}
+                        status={file.status}
+                        diffStyle="split"
+                        diffOverflow="scroll"
+                        annotations={annotations}
+                        selectedAnnotationId={selectedAnnotationId}
+                        scrollTargetAnnotation={scrollTargetAnnotation}
+                        pendingSelection={pendingSelection}
+                        onLineSelection={onLineSelection}
+                        onAddAnnotation={onAddAnnotation}
+                        onAddFileComment={(text) => onAddAnnotation("comment", text)}
+                        onEditAnnotation={onEditAnnotation}
+                        onSelectAnnotation={onSelectAnnotation}
+                        onDeleteAnnotation={onDeleteAnnotation}
+                        isViewed={isViewed}
+                        onToggleViewed={onToggleViewed}
+                    />
+                )}
         </section>
     );
 }
