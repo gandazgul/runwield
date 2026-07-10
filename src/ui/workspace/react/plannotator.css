@@ -113,6 +113,27 @@
     height: calc(100% - 3rem);
 }
 
+.review-toolbar {
+    z-index: 1000;
+    border: 1px solid var(--border, var(--rw-border, #334155));
+    border-radius: 0.75rem;
+    background: var(--popover, var(--plannotator-surface, #111827));
+    color: var(--foreground, var(--plannotator-text, #f8fafc));
+    box-shadow: 0 18px 45px rgb(0 0 0 / 0.45), 0 0 0 1px rgb(148 163 184 / 0.12);
+    padding: 0.5rem;
+}
+
+.rw-viewed-diff-collapsed {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    place-items: center;
+    padding: 2rem;
+    color: var(--muted-foreground, #94a3b8);
+    background: color-mix(in oklab, var(--plannotator-surface, #111827) 82%, transparent);
+    border-bottom: 1px solid var(--rw-border, #2d3748);
+}
+
 .rw-plain-action {
     border: 1px solid var(--rw-border, #334155);
     border-radius: 999px;
