@@ -11,17 +11,13 @@ affectedPaths:
     - "src/cmd/sleep/index.test.js"
 frontend: false
 createdAt: "2026-07-09T23:35:35-04:00"
-updatedAt: "2026-07-10T05:08:57.752Z"
-status: "in_progress"
+updatedAt: "2026-07-10T05:20:16.571Z"
+status: "verified"
 origin: "internal"
-humanReviewMode: null
-humanReviewDecision: null
-executionBaselineTree: "4ebc1d36ca2b8bef858f9ff6ba5f81ccda6e2b8c"
-worktreeId: "c977d76b"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-harns--/harns-runwield-safe-engineer-sleep-mode-c977d76b"
-worktreeBranch: "runwield/worktree/safe-engineer-sleep-mode-c977d76b"
-worktreeBaseBranch: "main"
-worktreeStatus: "active"
+implementedAt: "2026-07-10T05:18:43.971Z"
+verifiedAt: "2026-07-10T05:20:16.571Z"
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
 routingIntent: "FEATURE"
 sessionName: "safe engineer sleep mode"
 ---
