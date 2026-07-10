@@ -1,0 +1,33 @@
+---
+import WorkspaceLayout from "../../layouts/WorkspaceLayout.astro";
+import { PlanDetail, tabForPlanStatus } from "../../components/PlanDetail.jsx";
+import { loadCanonicalWorkspaceDetail, serializeCanonicalPlanError } from "../../server/astro-canonical-data.js";
+
+const runtime = globalThis as any;
+const workspaceCwd = Astro.request.headers.get("x-runwield-workspace-cwd") || runtime.Deno?.cwd?.() || ".";
+const planId = Astro.params.planId ?? "";
+const editIntent = Astro.url.searchParams.get("edit") === "body";
+let plan = null;
+let error = null;
+try {
+    plan = await loadCanonicalWorkspaceDetail(workspaceCwd, planId);
+} catch (caught) {
+    error = await serializeCanonicalPlanError(caught);
+    Astro.response.status = error.error.includes("not found") || error.error.includes("Plan not found") ? 404 : 409;
+}
+---
+<WorkspaceLayout
+    title={plan ? `${plan.planName} · RunWield Workspace` : "Plan Detail · RunWield Workspace"}
+    selectedTab={plan ? tabForPlanStatus(plan.status) : "active"}
+    url={Astro.url.href}
+>
+    {error ? (
+        <section class="error-panel">
+            <h2>Plan lookup failed</h2>
+            <p>{error.error}</p>
+            <p>{error.repair}</p>
+        </section>
+    ) : (
+        <PlanDetail plan={plan} url={Astro.url.href} editIntent={editIntent} client:load />
+    )}
+</WorkspaceLayout>

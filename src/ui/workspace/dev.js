@@ -1,6 +1,6 @@
 /**
- * Dev server entry for Vite dev mode with HMR.
- * Exports the Fresh App instance — the Vite plugin handles the dev server.
+ * Dev server entry for Astro/Vite mode with HMR.
+ * Exports the Workspace server wrapper for local development.
  * Token auth is disabled in dev mode (localhost-only, no exposure risk).
  */
 

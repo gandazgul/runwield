@@ -11,12 +11,15 @@
 import { extractYaml, test as hasFrontMatter } from "@std/front-matter";
 import { basename, join, relative, resolve } from "@std/path";
 import { CLI_BIN, PLANS_DIR_NAME } from "./constants.js";
+import { PLAN_FRONT_MATTER_KEY_ORDER, PLAN_FRONT_MATTER_KEYS } from "./plan-front-matter.js";
 import {
     assertSharedPlanWriteAllowed,
     COLLABORATION_FRONT_MATTER_KEYS,
     COLLABORATION_STATE_REMOTE_CANONICAL,
     normalizeCollaborationFrontMatter,
 } from "./shared/collaboration/lock.js";
+
+export { PLAN_FRONT_MATTER_KEY_ORDER, PLAN_FRONT_MATTER_KEYS } from "./plan-front-matter.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────
 
@@ -189,55 +192,6 @@ const DEFAULT_FRONT_MATTER = {
     status: "draft",
     origin: "internal",
 };
-
-export const PLAN_FRONT_MATTER_KEYS = Object.freeze({
-    planId: "planId",
-    classification: "classification",
-    complexity: "complexity",
-    summary: "summary",
-    affectedPaths: "affectedPaths",
-    frontend: "frontend",
-    devServerCommand: "devServerCommand",
-    devServerUrl: "devServerUrl",
-    devServerHmr: "devServerHmr",
-    createdAt: "createdAt",
-    updatedAt: "updatedAt",
-    status: "status",
-    origin: "origin",
-    type: "type",
-    parentPlan: "parentPlan",
-    order: "order",
-    dependencies: "dependencies",
-    failureReason: "failureReason",
-    failedAt: "failedAt",
-    implementedAt: "implementedAt",
-    verifiedAt: "verifiedAt",
-    humanReviewMode: "humanReviewMode",
-    humanReviewDecision: "humanReviewDecision",
-    humanReviewedAt: "humanReviewedAt",
-    epicCompletionMode: "epicCompletionMode",
-    epicDoneEnoughAt: "epicDoneEnoughAt",
-    epicDoneEnoughSummary: "epicDoneEnoughSummary",
-    executionBaselineTree: "executionBaselineTree",
-    worktreeId: "worktreeId",
-    worktreePath: "worktreePath",
-    worktreeBranch: "worktreeBranch",
-    worktreeBaseBranch: "worktreeBaseBranch",
-    worktreeStatus: "worktreeStatus",
-    heldFromStatus: "heldFromStatus",
-    heldAt: "heldAt",
-    holdReason: "holdReason",
-    holdStalenessBaseline: "holdStalenessBaseline",
-    archivedAt: "archivedAt",
-    archiveReason: "archiveReason",
-    archivedFromStatus: "archivedFromStatus",
-    archivedFromPath: "archivedFromPath",
-    restoredAt: "restoredAt",
-    restoredFromPath: "restoredFromPath",
-    ...COLLABORATION_FRONT_MATTER_KEYS,
-});
-
-export const PLAN_FRONT_MATTER_KEY_ORDER = Object.freeze(Object.values(PLAN_FRONT_MATTER_KEYS));
 
 /** @type {Set<string>} */
 const KNOWN_FRONT_MATTER_KEYS = new Set(PLAN_FRONT_MATTER_KEY_ORDER);

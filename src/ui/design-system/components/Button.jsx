@@ -1,3 +1,4 @@
+// @jsxImportSource preact
 /**
  * Shared RunWield action primitive.
  */
@@ -29,7 +30,7 @@ export function Button(
     { variant = "secondary", class: className, className: compatClassName, children, ...buttonProps },
 ) {
     return (
-        <button {...buttonProps} class={classNames([actionClassName(variant), className, compatClassName])}>
+        <button {...buttonProps} className={classNames([actionClassName(variant), className, compatClassName])}>
             {children}
         </button>
     );

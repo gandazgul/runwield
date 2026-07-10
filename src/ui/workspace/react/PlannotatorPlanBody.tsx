@@ -1,4 +1,4 @@
-// @ts-nocheck: this React Vite entry consumes the Workspace JSX markdown helper while repo-wide Deno checks remain Preact/JSDoc-oriented.
+// @ts-nocheck: Workspace is the scoped TSX exception zone and the pinned Plannotator checkout uses TS syntax.
 
 import React from "react";
 import { renderMarkdown } from "../components/MarkdownView.jsx";
