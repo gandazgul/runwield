@@ -2471,6 +2471,16 @@ export async function ensureRootAgentSession(opts) {
         projectStateContext: rootProjectStateContext,
         allowReturnToRouter: opts.allowReturnToRouter ?? true,
     });
+
+    try {
+        hostedSession.assertActive();
+    } catch (error) {
+        try {
+            session.dispose();
+        } catch (_disposeError) { /* ignore */ }
+        throw error;
+    }
+
     const subscriberState = attachUiSubscribersFn(session, agentDef, opts.uiAPI, opts.debugLogPath, hostedSession);
 
     if (existing) {

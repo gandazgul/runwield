@@ -1,4 +1,4 @@
-import { assertEquals, assertStringIncludes } from "@std/assert";
+import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
 import { AGENTS } from "../../constants.js";
 import {
@@ -356,6 +356,46 @@ Deno.test("ensureRootAgentSession scopes root session, metadata, agent name, and
     assertEquals(builds[1].opts.sessionManager, hostedB.getRootSessionManager());
     assertEquals(hostedA.getAgentInfoStack()[0].displayName, "a-router");
     assertEquals(hostedB.getAgentInfoStack()[0].displayName, "b-operator");
+});
+
+Deno.test("ensureRootAgentSession disposes a replacement built after its HostedSession closes", async () => {
+    const hostedSession = makeHostedRuntimeSession("closed-during-build");
+    const replacement = makeRuntimeAgentSession("replacement");
+    let finishBuild = /** @type {(() => void) | undefined} */ (undefined);
+    const buildReady = new Promise((resolve) => {
+        finishBuild = () => resolve(undefined);
+    });
+
+    const build = ensureRootAgentSession({
+        hostedSession,
+        agentName: "operator",
+        _buildAgentSession: async (/** @type {any} */ opts) => {
+            await buildReady;
+            return {
+                session: replacement,
+                agentDef: {
+                    name: opts.agentName,
+                    displayName: "Operator",
+                    model: "",
+                    description: "Test agent",
+                    tools: [],
+                    systemPrompt: "system",
+                },
+                promptState: { text: "system" },
+                tools: [],
+                finalCustomTools: [],
+                resolvedModel: { provider: "test", id: "model", input: ["text"] },
+                resolvedThinkingLevel: "medium",
+            };
+        },
+        _attachUiSubscribers: makeAttachStub(),
+    });
+
+    hostedSession.dispose();
+    finishBuild?.();
+
+    await assertRejects(() => build, Error, 'HostedSession "closed-during-build" is disposed');
+    assertEquals(replacement.disposeCalls, 1);
 });
 
 Deno.test("runRootTurn increments only the target HostedSession root turn metadata", async () => {
