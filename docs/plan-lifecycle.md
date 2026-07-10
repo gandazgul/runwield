@@ -91,7 +91,7 @@ changing the Plan state machine.
 | `implementation_finished`            | `in_progress`                                                                                   | `implemented`                 | Sets `implementedAt` and `worktreeStatus: "completed"`; Workflow Validation still needs to run.                                                                                                                                |
 | `validation_failed`                  | `implemented`                                                                                   | `implemented`                 | Keeps implemented status and sets `worktreeStatus: "validation_failed"` plus `failureReason`.                                                                                                                                  |
 | `worktree_merge_failed`              | `implemented`                                                                                   | `implemented`                 | Validation passed but merge-back failed/refused; sets `worktreeStatus: "merge_conflict"`.                                                                                                                                      |
-| `validation_passed`                  | `implemented`                                                                                   | `verified`                    | Recorded only after validation passes and merge-back succeeds; clears worktree metadata when cleanup is enabled.                                                                                                               |
+| `validation_passed`                  | `implemented`                                                                                   | `verified`                    | Staged in the execution branch after validation passes and made canonical by successful merge-back; clears worktree metadata when cleanup is enabled.                                                                          |
 | `recovery_continue`                  | `in_progress`, `failed`                                                                         | `ready_for_work`              | Records that recovery will continue from the current worktree.                                                                                                                                                                 |
 | `recovery_reset`                     | `in_progress`, `failed`, `implemented`                                                          | `ready_for_work`              | Records that recovery abandoned the current attempt before retrying.                                                                                                                                                           |
 | `review_reopened`                    | `ready_for_decomposition`, `ready_for_work`, `in_progress`, `failed`, `implemented`, `verified` | `feedback`                    | The user chose to revise the Plan instead of continuing execution.                                                                                                                                                             |
@@ -171,8 +171,10 @@ use `Deno.chdir()` for this because concurrent execution may still exist in futu
 
 The primary checkout remains the metadata root for saved plans, settings, `.wld/worktrees.json`, and
 `.wld/worktrees.lock`. This means `wld plans` and `wld load-plan` can see current lifecycle state while implementation
-files are isolated in a linked worktree. The worktree registry and lock files are local runtime state and are ignored by
-Git so execution branches cannot merge stale registry snapshots back into the primary checkout.
+files are isolated in a linked worktree. At successful merge-back, RunWield hands the final Plan file to the execution
+branch so the target receives verified Front Matter through Git rather than a post-merge working-file edit. The worktree
+registry and lock files remain local runtime state and are ignored by Git, so execution branches cannot merge stale
+registry snapshots back into the primary checkout.
 
 ## Workflow Validation and Merge-Back
 
@@ -191,19 +193,32 @@ For worktree-backed plans:
    reruns.
 5. If validation fails, RunWield keeps Plan Status `implemented`, records `worktreeStatus: "validation_failed"`, and
    leaves the worktree for recovery.
-6. If validation passes, RunWield attempts to merge the execution branch into the primary checkout.
-7. Only after that merge succeeds does RunWield record `validation_passed` and set Plan Status `verified`. By default,
-   RunWield removes the execution checkout, deletes its `.wld/worktrees.json` entry, and clears `executionBaselineTree`,
-   `worktreeId`, `worktreePath`, `worktreeBranch`, and `worktreeStatus` from the plan file. If `cleanupMergedWorktrees`
-   is `false`, RunWield keeps the merged checkout, registry entry, and plan pointers for inspection.
-8. If merge-back fails or is refused because the primary checkout has blocking uncommitted changes, RunWield records
-   `worktree_merge_failed`, keeps Plan Status `implemented`, sets `worktreeStatus: "merge_conflict"`, and leaves the
-   worktree intact.
+6. If validation passes, RunWield copies the primary Plan's current implemented Front Matter into the execution worktree
+   and records `validation_passed` there. This branch-local `verified` state is staged for merge and is not yet
+   canonical.
+7. RunWield snapshots the primary Plan's index and working-file state, returns both to the checked-in state, and merges
+   the execution branch. When the target branch is not checked out in the primary checkout, the merge updates that
+   target ref through a detached merge worktree and RunWield restores the primary snapshot; otherwise the successful
+   merge supplies the primary file directly. The staged verified Plan becomes canonical without leaving a post-merge
+   Plan edit. By default, RunWield removes the execution checkout, deletes its `.wld/worktrees.json` entry, and the
+   merged Plan has `executionBaselineTree`, `worktreeId`, `worktreePath`, `worktreeBranch`, and `worktreeStatus`
+   cleared. If `cleanupMergedWorktrees` is `false`, the merged checkout, registry entry, and Plan pointers remain for
+   inspection.
+8. If merge-back fails or is refused, RunWield restores the exact primary Plan snapshot before recording
+   `worktree_merge_failed`. The primary Plan stays `implemented` with `worktreeStatus: "merge_conflict"`, while the
+   execution branch retains its staged verified Plan for an idempotent retry or manual merge recovery. If another file
+   left a merge in progress, retry reapplies the finalized Plan from the execution branch to the pending merge before
+   continuing it, so restoring the primary index cannot replace verified metadata in the eventual merge commit.
 
 Human code review does not add a new primary Plan Status. While human review is pending, returning feedback, or
 canceled, the Plan remains `implemented`. Final `validation_passed` metadata records whether human review was not
-required, skipped, or approved. RunWield clears stale human-review metadata when execution starts again, when recovery
-resets a plan, or when a plan is re-opened for review.
+required, skipped, or approved. Manual recovery and legacy staged worktrees preserve canonical human-review mode,
+decision, and timestamp evidence when no newer review result is supplied. RunWield clears stale human-review metadata
+when execution starts again, when recovery resets a plan, or when a plan is re-opened for review.
+
+After merge-back reports success, merge verification, primary snapshot restoration, registry updates, metrics, and
+cleanup are post-merge bookkeeping. Their failures are reported without recording `worktree_merge_failed` or
+`validation_failed` over the verified Plan. Inconclusive merge verification retains the worktree for inspection.
 
 For PROJECT Epics, child FEATURE Plans run their own Workflow Validation. The Epic can be marked done enough for now,
 but it does not run a validation loop as if it were an implementation diff. For legacy non-Epic PROJECT Plans, the final

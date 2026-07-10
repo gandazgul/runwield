@@ -1,9 +1,23 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
+import { loadPlan, savePlan } from "../../plan-store.js";
+import { createExecutionWorktree } from "../worktree.js";
 import { loadReviewerPrompt, runLocalCI, runMechanicalValidation, runValidationLoop } from "./validation.js";
 import { HostedSession } from "../session/hosted-session.js";
 import { __resetSettingsForTests } from "../settings.js";
 
 const hostedSession = new HostedSession({ id: "validation-test" });
+
+/**
+ * @param {string} cwd
+ * @param {string[]} args
+ * @returns {Promise<string>}
+ */
+async function git(cwd, args) {
+    const output = await new Deno.Command("git", { cwd, args, stdout: "piped", stderr: "piped" }).output();
+    const text = new TextDecoder().decode(output.stdout);
+    if (!output.success) throw new Error(new TextDecoder().decode(output.stderr));
+    return text.trim();
+}
 
 /**
  * @returns {any & { messages: string[], systemCalls: Array<{ message: string, isError: boolean, header: string, style: any }>, promptSelections: string[], busyStates: boolean[], toolCalls: Array<{ id: string, name: string, args: string }>, toolOutputs: string[], toolResults: Array<{ id: string, name: string, result: string, isError: boolean, durationMs: number }> }}
@@ -70,6 +84,26 @@ function makeUi() {
 
 function noOpRecordPlanEvent() {
     return Promise.resolve({});
+}
+
+function noOpWorktreePlanHandoffDeps() {
+    return {
+        stageValidationPassedInExecutionWorktree: () =>
+            Promise.resolve({ attrs: /** @type {any} */ ({ status: "verified" }), planPaths: ["plans/p.md"] }),
+        preparePrimaryPlanPathForMerge: () =>
+            Promise.resolve({
+                projectRoot: "/primary",
+                relativePath: "plans/p.md",
+                absolutePath: "/primary/plans/p.md",
+                existed: true,
+                tracked: true,
+                headTracked: true,
+                indexMode: "100644",
+                indexObjectId: "abc123",
+                content: "implemented",
+            }),
+        restorePrimaryPlanPathAfterMergeFailure: () => Promise.resolve(),
+    };
 }
 
 Deno.test("loadReviewerPrompt returns a bare tool-free prompt", async () => {
@@ -178,6 +212,7 @@ Deno.test("runMechanicalValidation passes local CI without plan-specific work", 
         sessionManager: undefined,
         cwd: "/repo",
         __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: (/** @type {any} */ _uiAPI, /** @type {string | undefined} */ cwd) => {
                 actions.push(`ci:${cwd}`);
                 return Promise.resolve({ exitCode: 0, output: "ok" });
@@ -220,6 +255,7 @@ Deno.test("runMechanicalValidation repairs CI failures through Engineer and then
         sessionManager: /** @type {any} */ ({ id: "session" }),
         cwd: "/repo",
         __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => {
                 ciRuns++;
                 actions.push(`ci:${ciRuns}`);
@@ -266,6 +302,7 @@ Deno.test("runMechanicalValidation ignores stale task_completed from earlier roo
         sessionManager: undefined,
         cwd: "/repo",
         __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 1, output: "boom" }),
             runAgentSession: () =>
                 Promise.resolve(
@@ -321,6 +358,7 @@ Deno.test("runMechanicalValidation detects task_completed when repair returns a 
         sessionManager: undefined,
         cwd: "/repo",
         __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => {
                 ciRuns++;
                 return Promise.resolve(ciRuns === 1 ? { exitCode: 1, output: "boom" } : { exitCode: 0, output: "" });
@@ -350,6 +388,7 @@ Deno.test("runMechanicalValidation stops after three Engineer repair attempts wi
         uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 1, output: "still broken" }),
             runAgentSession: () => {
                 repairCalls++;
@@ -440,6 +479,7 @@ Deno.test("runValidationLoop does not switch active agent unless finalAgentName 
         uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve(""),
             recordPlanEvent: noOpRecordPlanEvent,
@@ -465,6 +505,7 @@ Deno.test("runValidationLoop marks validation progress and success messages with
         uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve(""),
             recordPlanEvent: noOpRecordPlanEvent,
@@ -518,6 +559,7 @@ Deno.test("runValidationLoop restores requested final agent after validation", a
         sessionManager: undefined,
         finalAgentName: "planner",
         __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve(""),
             recordPlanEvent: noOpRecordPlanEvent,
@@ -542,6 +584,7 @@ Deno.test("runValidationLoop fails FEATURE validation when workflow diff is empt
         uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve(""),
             runAgentSession: () => {
@@ -578,6 +621,7 @@ Deno.test("runValidationLoop fails PROJECT validation when workflow diff only ch
         uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () =>
                 Promise.resolve([
@@ -627,6 +671,7 @@ Deno.test("runValidationLoop pauses with Engineer when CI repair does not call t
         uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 1, output: "boom" }),
             runAgentSession: (/** @type {any} */ opts) => {
                 repairCalls++;
@@ -675,6 +720,7 @@ Deno.test("runValidationLoop pauses with Engineer on interrupted semantic repair
         uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff"),
             runAgentSession: () =>
@@ -742,6 +788,7 @@ Deno.test("runValidationLoop reviews the diff scoped to the active workflow base
         uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: (/** @type {string | undefined} */ baselineTree) => {
                 baselineArgs.push(baselineTree);
@@ -802,6 +849,7 @@ Deno.test("runValidationLoop runs validation and reviewer in active execution cw
         uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: (/** @type {any} */ _uiAPI, /** @type {string | undefined} */ cwd) => {
                 ciCwds.push(cwd);
                 return Promise.resolve({ exitCode: 0, output: "" });
@@ -841,7 +889,7 @@ Deno.test("runValidationLoop runs validation and reviewer in active execution cw
     assertEquals(sessionOpts[0].useRootSession, false);
 });
 
-Deno.test("runValidationLoop records validation_passed only after worktree merge succeeds", async () => {
+Deno.test("runValidationLoop stages validation_passed before worktree merge succeeds", async () => {
     const uiAPI = makeUi();
     /** @type {string[]} */
     const actions = [];
@@ -867,6 +915,14 @@ Deno.test("runValidationLoop records validation_passed only after worktree merge
         uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
+            stageValidationPassedInExecutionWorktree: (/** @type {any} */ args) => {
+                actions.push(`stage:${args.projectRoot}:${args.executionCwd}:${args.planName}`);
+                return Promise.resolve({
+                    attrs: /** @type {any} */ ({ status: "verified" }),
+                    planPaths: ["plans/p.md"],
+                });
+            },
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
             runAgentSession: () =>
@@ -888,6 +944,10 @@ Deno.test("runValidationLoop records validation_passed only after worktree merge
                         args.planDescription || ""
                     }`,
                 );
+                return Promise.resolve({ updatedPrimaryCheckout: false });
+            },
+            restorePrimaryPlanPathAfterMergeFailure: () => {
+                actions.push("restore-primary");
                 return Promise.resolve();
             },
             removeExecutionWorktree: (/** @type {{ projectRoot: string, path: string, branch?: string }} */ args) => {
@@ -922,11 +982,12 @@ Deno.test("runValidationLoop records validation_passed only after worktree merge
     });
 
     assertEquals(actions, [
+        "stage:/primary:/worktree:p",
         "merge:/primary:runwield/worktree/p-wt1:feature-base:p:Preserve metadata in merge commits.",
+        "restore-primary",
         "registry:merged",
         "remove:/primary:/worktree:runwield/worktree/p-wt1",
         "registry-remove:/primary:wt1",
-        "event:validation_passed:merged",
     ]);
     assertEquals(
         metrics.some((metric) =>
@@ -937,7 +998,226 @@ Deno.test("runValidationLoop records validation_passed only after worktree merge
     );
 });
 
-Deno.test("runValidationLoop does not delete worktree when merge verification is uncertain", async () => {
+Deno.test("runValidationLoop merges verified Plan metadata in Git and leaves the primary checkout clean", async () => {
+    const projectRoot = await Deno.makeTempDir();
+    const worktreeRoot = await Deno.makeTempDir();
+    const session = new HostedSession({ id: "validation-git-integration" });
+    try {
+        await git(projectRoot, ["init", "-b", "main"]);
+        await git(projectRoot, ["config", "user.email", "tests@example.com"]);
+        await git(projectRoot, ["config", "user.name", "RunWield Tests"]);
+        await Deno.writeTextFile(`${projectRoot}/.gitignore`, ".wld/\n");
+        await savePlan(projectRoot, "git-plan", "# Git Plan", {
+            status: "ready_for_work",
+            classification: "FEATURE",
+            summary: "Verify metadata in history.",
+        });
+        await git(projectRoot, ["add", ".gitignore", "plans/git-plan.md"]);
+        await git(projectRoot, ["commit", "-m", "add plan"]);
+        const baselineTree = await git(projectRoot, ["rev-parse", "HEAD^{tree}"]);
+        const worktree = await createExecutionWorktree({
+            projectRoot,
+            planName: "Git Plan",
+            worktreeRoot,
+        });
+        await savePlan(projectRoot, "git-plan", "# Git Plan", {
+            status: "implemented",
+            classification: "FEATURE",
+            summary: "Verify metadata in history.",
+            worktreeId: worktree.id,
+            worktreePath: worktree.path,
+            worktreeBranch: worktree.branch,
+            worktreeBaseBranch: "main",
+            worktreeStatus: "completed",
+        });
+        await Deno.writeTextFile(`${worktree.path}/implemented.js`, "export const implemented = true;\n");
+        session.setActiveExecutionWorkflow({
+            planName: "git-plan",
+            triageMeta: { classification: "FEATURE", summary: "Verify metadata in history." },
+            baselineTree,
+            projectRoot,
+            executionCwd: worktree.path,
+            worktreeId: worktree.id,
+            worktreeBranch: worktree.branch,
+            worktreeBaseBranch: "main",
+        });
+
+        await runValidationLoop({
+            hostedSession: session,
+            planName: "git-plan",
+            planContent: "plan",
+            triageMeta: { classification: "FEATURE", summary: "Verify metadata in history." },
+            uiAPI: makeUi(),
+            sessionManager: undefined,
+            __deps: /** @type {any} */ ({
+                runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
+                getDiffText: () => Promise.resolve("diff --git a/implemented.js b/implemented.js\n+change\n"),
+                runAgentSession: () =>
+                    Promise.resolve(
+                        /** @type {any} */ ([{
+                            role: "assistant",
+                            content: [{ type: "text", text: "The implementation matches the plan." }],
+                        }, {
+                            role: "toolResult",
+                            toolName: "review_complete",
+                            details: { outcome: "approved", approved: true, feedback: "" },
+                        }]),
+                    ),
+                getCodeReviewMode: () => "none",
+                recordWorkflowMetric: () => Promise.resolve(null),
+                setActiveAgent: () => {},
+            }),
+        });
+
+        assertEquals((await loadPlan(projectRoot, "git-plan"))?.attrs.status, "verified");
+        assertStringIncludes(await git(projectRoot, ["log", "-p", "--", "plans/git-plan.md"]), 'status: "verified"');
+        assertEquals(await git(projectRoot, ["status", "--porcelain"]), "");
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+        await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("runValidationLoop reapplies verified Plan metadata after real merge-conflict rollback", async () => {
+    const projectRoot = await Deno.makeTempDir();
+    const worktreeRoot = await Deno.makeTempDir();
+    const session = new HostedSession({ id: "validation-git-conflict-retry" });
+    try {
+        await git(projectRoot, ["init", "-b", "main"]);
+        await git(projectRoot, ["config", "user.email", "tests@example.com"]);
+        await git(projectRoot, ["config", "user.name", "RunWield Tests"]);
+        await Deno.writeTextFile(`${projectRoot}/.gitignore`, ".wld/\n");
+        await Deno.writeTextFile(`${projectRoot}/conflict.txt`, "base\n");
+        await savePlan(projectRoot, "conflict-plan", "# Conflict Plan", {
+            status: "ready_for_work",
+            classification: "FEATURE",
+        });
+        await git(projectRoot, ["add", ".gitignore", "conflict.txt", "plans/conflict-plan.md"]);
+        await git(projectRoot, ["commit", "-m", "add conflict plan"]);
+        const baselineTree = await git(projectRoot, ["rev-parse", "HEAD^{tree}"]);
+        const worktree = await createExecutionWorktree({ projectRoot, planName: "Conflict Plan", worktreeRoot });
+        await Deno.writeTextFile(`${projectRoot}/conflict.txt`, "target\n");
+        await git(projectRoot, ["add", "conflict.txt"]);
+        await git(projectRoot, ["commit", "-m", "target conflict"]);
+        await savePlan(projectRoot, "conflict-plan", "# Conflict Plan", {
+            status: "implemented",
+            classification: "FEATURE",
+            worktreeId: worktree.id,
+            worktreePath: worktree.path,
+            worktreeBranch: worktree.branch,
+            worktreeBaseBranch: "main",
+            worktreeStatus: "completed",
+        });
+        await Deno.writeTextFile(`${worktree.path}/conflict.txt`, "execution\n");
+        session.setActiveExecutionWorkflow({
+            planName: "conflict-plan",
+            triageMeta: { classification: "FEATURE" },
+            baselineTree,
+            projectRoot,
+            executionCwd: worktree.path,
+            worktreeId: worktree.id,
+            worktreeBranch: worktree.branch,
+            worktreeBaseBranch: "main",
+        });
+
+        await runValidationLoop({
+            hostedSession: session,
+            planName: "conflict-plan",
+            planContent: "plan",
+            triageMeta: { classification: "FEATURE" },
+            uiAPI: makeUi(),
+            sessionManager: undefined,
+            __deps: /** @type {any} */ ({
+                runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
+                getDiffText: () => Promise.resolve("diff --git a/conflict.txt b/conflict.txt\n+execution\n"),
+                runAgentSession: () =>
+                    Promise.resolve(
+                        /** @type {any} */ ([{
+                            role: "assistant",
+                            content: [{ type: "text", text: "The implementation matches the plan." }],
+                        }, {
+                            role: "toolResult",
+                            toolName: "review_complete",
+                            details: { outcome: "approved", approved: true, feedback: "" },
+                        }]),
+                    ),
+                runCompletionGatedRepair: async () => {
+                    await Deno.writeTextFile(`${projectRoot}/conflict.txt`, "resolved\n");
+                    await git(projectRoot, ["add", "conflict.txt"]);
+                    return true;
+                },
+                updateWorktreeRegistryEntry: () => Promise.resolve({}),
+                shouldCleanupMergedWorktrees: () => false,
+                getCodeReviewMode: () => "none",
+                recordWorkflowMetric: () => Promise.resolve(null),
+                setActiveAgent: () => {},
+            }),
+        });
+
+        assertEquals((await loadPlan(projectRoot, "conflict-plan"))?.attrs.status, "verified");
+        assertStringIncludes(
+            await git(projectRoot, ["log", "-1", "-p", "--", "plans/conflict-plan.md"]),
+            'status: "verified"',
+        );
+        assertEquals(await Deno.readTextFile(`${projectRoot}/conflict.txt`), "resolved\n");
+    } finally {
+        await git(projectRoot, ["merge", "--abort"]).catch(() => {});
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+        await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("runValidationLoop does not preserve a nonexistent Plan path for quick-fix worktrees", async () => {
+    const uiAPI = makeUi();
+    /** @type {string[][]} */
+    const preservedPaths = [];
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "quick-fix",
+        triageMeta: { classification: "QUICK_FIX" },
+        baselineTree: "baseline-tree",
+        projectRoot: "/primary",
+        executionCwd: "/worktree",
+        worktreeBranch: "runwield/worktree/quick-fix-wt1",
+        worktreeBaseBranch: "main",
+    });
+
+    await runValidationLoop({
+        hostedSession,
+        planName: "quick-fix",
+        planContent: "fix",
+        triageMeta: { classification: "QUICK_FIX" },
+        uiAPI,
+        sessionManager: undefined,
+        __deps: /** @type {any} */ ({
+            runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
+            getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
+            runAgentSession: () =>
+                Promise.resolve(
+                    /** @type {any} */ ([{
+                        role: "assistant",
+                        content: [{ type: "text", text: "The quick fix is valid." }],
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_complete",
+                        details: { outcome: "approved", approved: true, feedback: "" },
+                    }]),
+                ),
+            mergeExecutionWorktree: (/** @type {{ preservePlanPaths: string[] }} */ args) => {
+                preservedPaths.push(args.preservePlanPaths);
+                return Promise.resolve();
+            },
+            verifyExecutionWorktreeMerged: () => Promise.resolve({ merged: true, message: "merged" }),
+            removeExecutionWorktree: () => Promise.resolve(),
+            getCodeReviewMode: () => "none",
+            recordWorkflowMetric: () => Promise.resolve(null),
+            setActiveAgent: () => {},
+        }),
+    });
+
+    assertEquals(preservedPaths, [[]]);
+});
+
+Deno.test("runValidationLoop preserves merged verification across post-merge verification and registry errors", async () => {
     const uiAPI = makeUi();
     /** @type {string[]} */
     const actions = [];
@@ -961,6 +1241,7 @@ Deno.test("runValidationLoop does not delete worktree when merge verification is
         uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
             runAgentSession: () =>
@@ -986,7 +1267,7 @@ Deno.test("runValidationLoop does not delete worktree when merge verification is
                 /** @type {{ status: string }} */ updates,
             ) => {
                 actions.push(`registry:${updates.status}`);
-                return Promise.resolve({});
+                return Promise.reject(new Error("registry unavailable"));
             },
             removeExecutionWorktree: () => {
                 actions.push("remove");
@@ -1003,14 +1284,16 @@ Deno.test("runValidationLoop does not delete worktree when merge verification is
         }),
     });
 
-    assertEquals(actions, [
-        "merge",
-        "registry:validation_failed",
-        "event:validation_failed:Worktree merge verification failed after merge-back reported success: branch is not contained in target",
-    ]);
+    assertEquals(actions, ["merge", "registry:merged"]);
     assertEquals(
         uiAPI.messages.some((/** @type {string} */ message) =>
-            message.includes("Worktree merge verification failed after merge-back reported success")
+            message.includes("Worktree merged, but post-merge verification was inconclusive")
+        ),
+        true,
+    );
+    assertEquals(
+        uiAPI.messages.some((/** @type {string} */ message) =>
+            message.includes("Worktree merged, but updating its registry status failed: registry unavailable")
         ),
         true,
     );
@@ -1040,6 +1323,7 @@ Deno.test("runValidationLoop runs always human review after semantic approval an
         uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
             runAgentSession: () =>
@@ -1083,7 +1367,6 @@ Deno.test("runValidationLoop runs always human review after semantic approval an
         "human-review:/worktree:true",
         "merge",
         "registry",
-        "event:validation_passed:always:approved",
     ]);
 });
 
@@ -1115,6 +1398,7 @@ Deno.test("runValidationLoop ask mode can skip human review and merge", async ()
         uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
             runAgentSession: () =>
@@ -1150,7 +1434,7 @@ Deno.test("runValidationLoop ask mode can skip human review and merge", async ()
         }),
     });
 
-    assertEquals(actions, ["prompt", "merge", "event:validation_passed:ask:skipped"]);
+    assertEquals(actions, ["prompt", "merge"]);
 });
 
 Deno.test("runValidationLoop ask mode opens human review before merge when approved", async () => {
@@ -1181,6 +1465,7 @@ Deno.test("runValidationLoop ask mode opens human review before merge when appro
         uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
             runAgentSession: () =>
@@ -1217,7 +1502,7 @@ Deno.test("runValidationLoop ask mode opens human review before merge when appro
         }),
     });
 
-    assertEquals(actions, ["prompt", "human-review:/worktree:true", "merge", "event:validation_passed:ask:approved"]);
+    assertEquals(actions, ["prompt", "human-review:/worktree:true", "merge"]);
 });
 
 Deno.test("runValidationLoop sends human feedback to Engineer and continues validation", async () => {
@@ -1236,6 +1521,7 @@ Deno.test("runValidationLoop sends human feedback to Engineer and continues vali
         uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
             runAgentSession: () =>
@@ -1323,6 +1609,7 @@ Deno.test("runValidationLoop treats human review exit as validation failure with
         uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
             runAgentSession: () =>
@@ -1400,6 +1687,7 @@ Deno.test("runValidationLoop keeps merged worktree when cleanup setting is disab
         uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
             runAgentSession: () =>
@@ -1439,7 +1727,7 @@ Deno.test("runValidationLoop keeps merged worktree when cleanup setting is disab
         }),
     });
 
-    assertEquals(actions, ["merge", "registry", "event:validation_passed:false"]);
+    assertEquals(actions, ["merge", "registry"]);
 });
 
 Deno.test("runValidationLoop records worktree_merge_failed when merge-back fails", async () => {
@@ -1468,6 +1756,11 @@ Deno.test("runValidationLoop records worktree_merge_failed when merge-back fails
         uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
+            restorePrimaryPlanPathAfterMergeFailure: () => {
+                actions.push("restore-primary-plan");
+                return Promise.resolve();
+            },
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
             runAgentSession: () =>
@@ -1503,6 +1796,7 @@ Deno.test("runValidationLoop records worktree_merge_failed when merge-back fails
     });
 
     assertEquals(actions, [
+        "restore-primary-plan",
         "registry:merge_conflict",
         "event:worktree_merge_failed:conflict",
         "registry:validation_failed",
@@ -1548,6 +1842,7 @@ Deno.test("runValidationLoop still prompts when merge-conflict metadata updates 
         uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
             runAgentSession: () =>
@@ -1614,6 +1909,7 @@ Deno.test("runValidationLoop warns when using legacy current-checkout merge fall
         uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
             runAgentSession: () =>
@@ -1673,6 +1969,7 @@ Deno.test("runValidationLoop dispatches Engineer merge repair and retries merge-
         uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
             runAgentSession: () =>
@@ -1743,7 +2040,6 @@ Deno.test("runValidationLoop dispatches Engineer merge repair and retries merge-
         "merge:2:/merge-wt",
         "registry:merged",
         "remove",
-        "event:validation_passed:merged",
     ]);
     assertEquals(uiAPI.promptSelections, []);
 });
@@ -1784,6 +2080,7 @@ Deno.test("runValidationLoop records validation_passed after merge repair task_c
         uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
             runAgentSession: (/** @type {{ agentName: string }} */ opts) => {
@@ -1826,7 +2123,7 @@ Deno.test("runValidationLoop records validation_passed after merge repair task_c
         }),
     });
 
-    assertEquals(events, ["worktree_merge_failed", "validation_passed"]);
+    assertEquals(events, ["worktree_merge_failed"]);
     assertEquals(
         uiAPI.messages.some((/** @type {string} */ message) =>
             message.includes("Feature execution and validation complete")
@@ -1864,6 +2161,7 @@ Deno.test("runValidationLoop retries worktree merge after user fixes primary che
         uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
             runAgentSession: () =>
@@ -1914,7 +2212,6 @@ Deno.test("runValidationLoop retries worktree merge after user fixes primary che
         "merge:2",
         "registry:merged",
         "remove",
-        "event:validation_passed:merged",
     ]);
     assertEquals(uiAPI.promptSelections, ["retry"]);
 });
@@ -1943,6 +2240,7 @@ Deno.test("runValidationLoop marks active worktree validation_failed when valida
         uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve(""),
             updateWorktreeRegistryEntry: (
@@ -2211,6 +2509,7 @@ Deno.test("runValidationLoop uses large-diff prompt when diff exceeds inline thr
         uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve(largeDiffText),
             runAgentSession: (/** @type {any} */ opts) => {
@@ -2271,6 +2570,7 @@ Deno.test("runValidationLoop shows retry/cancel menu when reviewer throws an err
         uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
             runAgentSession: () => {
@@ -2312,6 +2612,7 @@ Deno.test("runValidationLoop halts when reviewer returns blank output and user c
         uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
             runAgentSession: () =>
@@ -2357,6 +2658,7 @@ Deno.test("runValidationLoop retries semantic review when user chooses retry", a
         uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
             runAgentSession: () => {

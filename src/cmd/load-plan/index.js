@@ -32,6 +32,7 @@ import {
     isEpicPlan,
     isExecutablePlanStatus,
     recordPlanEvent as recordPlanEventFn,
+    stageValidationPassedInExecutionWorktree as stageValidationPassedInExecutionWorktreeFn,
 } from "../../shared/workflow/plan-lifecycle.js";
 import {
     getWorkflowDiff as getWorkflowDiffFn,
@@ -49,7 +50,9 @@ import {
     getWorktreeStatus as getWorktreeStatusFn,
     inspectExecutionWorktreeMergeRisk as inspectExecutionWorktreeMergeRiskFn,
     mergeExecutionWorktree as mergeExecutionWorktreeFn,
+    preparePrimaryPlanPathForMerge as preparePrimaryPlanPathForMergeFn,
     removeExecutionWorktree as removeExecutionWorktreeFn,
+    restorePrimaryPlanPathAfterMergeFailure as restorePrimaryPlanPathAfterMergeFailureFn,
 } from "../../shared/worktree.js";
 import {
     findById as findWorktreeByIdFn,
@@ -100,6 +103,7 @@ export { getLoadPlanCompletions } from "./getArgumentCompletions.js";
  * @property {typeof findPlansByParentFn} [findPlansByParent]
  * @property {typeof resolveSiblingChildPlanDependenciesFn} [resolveSiblingChildPlanDependencies]
  * @property {typeof recordPlanEventFn} [recordPlanEvent]
+ * @property {typeof stageValidationPassedInExecutionWorktreeFn} [stageValidationPassedInExecutionWorktree]
  * @property {typeof updatePlanFrontMatterFn} [updatePlanFrontMatter]
  * @property {typeof findWorktreeByIdFn} [findWorktreeById]
  * @property {typeof findWorktreeByPlanNameFn} [findWorktreeByPlanName]
@@ -108,6 +112,8 @@ export { getLoadPlanCompletions } from "./getArgumentCompletions.js";
  * @property {typeof createExecutionWorktreeFn} [createExecutionWorktree]
  * @property {typeof inspectExecutionWorktreeMergeRiskFn} [inspectExecutionWorktreeMergeRisk]
  * @property {typeof mergeExecutionWorktreeFn} [mergeExecutionWorktree]
+ * @property {typeof preparePrimaryPlanPathForMergeFn} [preparePrimaryPlanPathForMerge]
+ * @property {typeof restorePrimaryPlanPathAfterMergeFailureFn} [restorePrimaryPlanPathAfterMergeFailure]
  * @property {typeof removeExecutionWorktreeFn} [removeExecutionWorktree]
  * @property {typeof removeWorktreeRegistryEntryFn} [removeWorktreeRegistryEntry]
  * @property {typeof shouldCleanupMergedWorktreesFn} [shouldCleanupMergedWorktrees]
@@ -1442,6 +1448,7 @@ async function confirmRecoveryWorktreeAvailable(planName, worktreeContext, uiAPI
  * @param {typeof listCommitsTouchingPathsSinceFn} opts.listCommitsTouchingPathsSince
  * @param {typeof restoreWorktreeTreeFn} opts.restoreWorktreeTree
  * @param {typeof recordPlanEventFn} opts.recordPlanEvent
+ * @param {typeof stageValidationPassedInExecutionWorktreeFn} opts.stageValidationPassedInExecutionWorktree
  * @param {typeof updatePlanFrontMatterFn} opts.updatePlanFrontMatter
  * @param {typeof findWorktreeByIdFn} opts.findWorktreeById
  * @param {typeof findWorktreeByPlanNameFn} opts.findWorktreeByPlanName
@@ -1449,6 +1456,8 @@ async function confirmRecoveryWorktreeAvailable(planName, worktreeContext, uiAPI
  * @param {typeof getWorktreeStatusFn} opts.getWorktreeStatus
  * @param {typeof createExecutionWorktreeFn} opts.createExecutionWorktree
  * @param {typeof mergeExecutionWorktreeFn} opts.mergeExecutionWorktree
+ * @param {typeof preparePrimaryPlanPathForMergeFn} opts.preparePrimaryPlanPathForMerge
+ * @param {typeof restorePrimaryPlanPathAfterMergeFailureFn} opts.restorePrimaryPlanPathAfterMergeFailure
  * @param {typeof removeExecutionWorktreeFn} opts.removeExecutionWorktree
  * @param {typeof removeWorktreeRegistryEntryFn} opts.removeWorktreeRegistryEntry
  * @param {typeof shouldCleanupMergedWorktreesFn} opts.shouldCleanupMergedWorktrees
@@ -1474,6 +1483,7 @@ async function handlePlanRecovery({
     listCommitsTouchingPathsSince,
     restoreWorktreeTree,
     recordPlanEvent,
+    stageValidationPassedInExecutionWorktree,
     updatePlanFrontMatter,
     findWorktreeById,
     findWorktreeByPlanName,
@@ -1481,6 +1491,8 @@ async function handlePlanRecovery({
     getWorktreeStatus,
     createExecutionWorktree,
     mergeExecutionWorktree,
+    preparePrimaryPlanPathForMerge,
+    restorePrimaryPlanPathAfterMergeFailure,
     removeExecutionWorktree,
     removeWorktreeRegistryEntry,
     shouldCleanupMergedWorktrees,
@@ -1816,12 +1828,33 @@ async function handlePlanRecovery({
             if (!(await confirmRecoveryWorktreeAvailable(plan.planName, worktreeContext, uiAPI, getWorktreeStatus))) {
                 continue;
             }
-            if (!worktreeContext?.branch) {
-                uiAPI.appendSystemMessage("Cannot merge because no worktree branch is recorded.", true, "RunWield");
+            if (!worktreeContext?.branch || !worktreeContext.path) {
+                uiAPI.appendSystemMessage(
+                    "Cannot merge because no worktree branch or path is recorded.",
+                    true,
+                    "RunWield",
+                );
                 continue;
             }
+            /** @type {Awaited<ReturnType<typeof preparePrimaryPlanPathForMergeFn>>[]} */
+            const primaryPlanSnapshots = [];
+            let mergeCompleted = false;
             try {
                 const cleanupMergedWorktrees = shouldCleanupMergedWorktrees();
+                const planPath = `plans/${plan.planName}.md`;
+                const stagingResult = await stageValidationPassedInExecutionWorktree({
+                    projectRoot: CWD,
+                    executionCwd: worktreeContext.path,
+                    planName: plan.planName,
+                    details: {
+                        triageMeta: plan.attrs,
+                        worktreeStatus: "merged",
+                        cleanupMergedWorktrees,
+                    },
+                });
+                for (const relativePath of stagingResult.planPaths) {
+                    primaryPlanSnapshots.push(await preparePrimaryPlanPathForMerge({ projectRoot: CWD, relativePath }));
+                }
                 if (!worktreeContext.baseBranch) {
                     uiAPI.appendSystemMessage(
                         "Recorded worktree target branch is unknown; using legacy current-checkout merge fallback.",
@@ -1834,7 +1867,7 @@ async function handlePlanRecovery({
                         ? `Merging worktree branch ${worktreeContext.branch} into target branch ${worktreeContext.baseBranch}.`
                         : `Merging worktree branch ${worktreeContext.branch} into primary checkout.`,
                 );
-                await mergeExecutionWorktree({
+                const mergeResult = await mergeExecutionWorktree({
                     projectRoot: CWD,
                     branch: worktreeContext.branch,
                     targetBranch: worktreeContext.baseBranch,
@@ -1842,14 +1875,43 @@ async function handlePlanRecovery({
                     planName: plan.planName,
                     planDescription: plan.attrs.summary,
                     allowedDirtyPaths: [
-                        `plans/${plan.planName}.md`,
+                        planPath,
                         ".wld/",
                         ".wld/worktrees.json",
                         ".wld/worktrees.lock",
                     ],
+                    preservePlanPaths: stagingResult.planPaths,
                 });
+                mergeCompleted = true;
+                if (mergeResult?.updatedPrimaryCheckout === false) {
+                    for (const snapshot of primaryPlanSnapshots.toReversed()) {
+                        try {
+                            await restorePrimaryPlanPathAfterMergeFailure(snapshot);
+                        } catch (restoreError) {
+                            const restoreReason = restoreError instanceof Error
+                                ? restoreError.message
+                                : String(restoreError);
+                            uiAPI.appendSystemMessage(
+                                `Worktree merged, but restoring the primary Plan snapshot failed: ${restoreReason}`,
+                                true,
+                                "RunWield",
+                            );
+                        }
+                    }
+                }
                 if (worktreeContext.id) {
-                    await updateWorktreeRegistryEntry(CWD, worktreeContext.id, { status: "merged" });
+                    try {
+                        await updateWorktreeRegistryEntry(CWD, worktreeContext.id, { status: "merged" });
+                    } catch (registryError) {
+                        const registryReason = registryError instanceof Error
+                            ? registryError.message
+                            : String(registryError);
+                        uiAPI.appendSystemMessage(
+                            `Worktree merged, but updating its registry status failed: ${registryReason}`,
+                            true,
+                            "RunWield",
+                        );
+                    }
                 }
                 if (cleanupMergedWorktrees && worktreeContext.path) {
                     try {
@@ -1873,21 +1935,44 @@ async function handlePlanRecovery({
                         );
                     }
                 }
-                await recordPlanEvent({
-                    cwd: CWD,
-                    planName: plan.planName,
-                    event: "validation_passed",
-                    currentStatus: "implemented",
-                    details: { triageMeta: plan.attrs, worktreeStatus: "merged", cleanupMergedWorktrees },
-                });
                 uiAPI.appendSystemMessage("Worktree changes merged and plan marked verified.", false, "RunWield");
-                await recordRecoveryResult("merge", "merged", { cleanupMergedWorktrees });
+                try {
+                    await recordRecoveryResult("merge", "merged", { cleanupMergedWorktrees });
+                } catch (metricError) {
+                    const metricReason = metricError instanceof Error ? metricError.message : String(metricError);
+                    uiAPI.appendSystemMessage(
+                        `Worktree merged, but recording the recovery result failed: ${metricReason}`,
+                        true,
+                        "RunWield",
+                    );
+                }
             } catch (error) {
-                const reason = isGitRepositoryRequiredError(error)
+                if (mergeCompleted) {
+                    const reason = error instanceof Error ? error.message : String(error);
+                    uiAPI.appendSystemMessage(
+                        `Worktree merged, but post-merge processing failed: ${reason}`,
+                        true,
+                        "RunWield",
+                    );
+                    return "handled";
+                }
+                let reason = isGitRepositoryRequiredError(error)
                     ? formatGitRequiredMessage(error)
                     : error instanceof Error
                     ? error.message
                     : String(error);
+                if (primaryPlanSnapshots.length > 0 && !mergeCompleted) {
+                    for (const snapshot of primaryPlanSnapshots.toReversed()) {
+                        try {
+                            await restorePrimaryPlanPathAfterMergeFailure(snapshot);
+                        } catch (restoreError) {
+                            const restoreReason = restoreError instanceof Error
+                                ? restoreError.message
+                                : String(restoreError);
+                            reason += ` Primary Plan rollback also failed: ${restoreReason}`;
+                        }
+                    }
+                }
                 uiAPI.appendSystemMessage(`Worktree merge failed: ${reason}`, true, "RunWield");
                 if (worktreeContext.id) {
                     try {
@@ -2437,6 +2522,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
         findPlansByParent: findPlansByParentDep,
         resolveSiblingChildPlanDependencies: resolveSiblingChildPlanDependenciesDep,
         recordPlanEvent: recordPlanEventDep,
+        stageValidationPassedInExecutionWorktree: stageValidationPassedInExecutionWorktreeDep,
         updatePlanFrontMatter: updatePlanFrontMatterDep,
         findWorktreeById: findWorktreeByIdDep,
         findWorktreeByPlanName: findWorktreeByPlanNameDep,
@@ -2445,6 +2531,8 @@ export async function runLoadPlanCommand(argv, options = {}) {
         createExecutionWorktree: createExecutionWorktreeDep,
         inspectExecutionWorktreeMergeRisk: inspectExecutionWorktreeMergeRiskDep,
         mergeExecutionWorktree: mergeExecutionWorktreeDep,
+        preparePrimaryPlanPathForMerge: preparePrimaryPlanPathForMergeDep,
+        restorePrimaryPlanPathAfterMergeFailure: restorePrimaryPlanPathAfterMergeFailureDep,
         removeExecutionWorktree: removeExecutionWorktreeDep,
         removeWorktreeRegistryEntry: removeWorktreeRegistryEntryDep,
         shouldCleanupMergedWorktrees: shouldCleanupMergedWorktreesDep,
@@ -2499,6 +2587,8 @@ export async function runLoadPlanCommand(argv, options = {}) {
     const resolveSiblingChildPlanDependencies = resolveSiblingChildPlanDependenciesDep ||
         resolveSiblingChildPlanDependenciesFn;
     const recordPlanEvent = recordPlanEventDep || recordPlanEventFn;
+    const stageValidationPassedInExecutionWorktree = stageValidationPassedInExecutionWorktreeDep ||
+        stageValidationPassedInExecutionWorktreeFn;
     const updatePlanFrontMatter = updatePlanFrontMatterDep || updatePlanFrontMatterFn;
     const findWorktreeById = findWorktreeByIdDep || findWorktreeByIdFn;
     const findWorktreeByPlanName = findWorktreeByPlanNameDep || findWorktreeByPlanNameFn;
@@ -2508,6 +2598,9 @@ export async function runLoadPlanCommand(argv, options = {}) {
     const inspectExecutionWorktreeMergeRisk = inspectExecutionWorktreeMergeRiskDep ||
         inspectExecutionWorktreeMergeRiskFn;
     const mergeExecutionWorktree = mergeExecutionWorktreeDep || mergeExecutionWorktreeFn;
+    const preparePrimaryPlanPathForMerge = preparePrimaryPlanPathForMergeDep || preparePrimaryPlanPathForMergeFn;
+    const restorePrimaryPlanPathAfterMergeFailure = restorePrimaryPlanPathAfterMergeFailureDep ||
+        restorePrimaryPlanPathAfterMergeFailureFn;
     const removeExecutionWorktree = removeExecutionWorktreeDep || removeExecutionWorktreeFn;
     const removeWorktreeRegistryEntry = removeWorktreeRegistryEntryDep || removeWorktreeRegistryEntryFn;
     const shouldCleanupMergedWorktrees = shouldCleanupMergedWorktreesDep || shouldCleanupMergedWorktreesFn;
@@ -2688,6 +2781,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                 listCommitsTouchingPathsSince,
                 restoreWorktreeTree,
                 recordPlanEvent,
+                stageValidationPassedInExecutionWorktree,
                 updatePlanFrontMatter,
                 findWorktreeById,
                 findWorktreeByPlanName,
@@ -2695,6 +2789,8 @@ export async function runLoadPlanCommand(argv, options = {}) {
                 getWorktreeStatus,
                 createExecutionWorktree,
                 mergeExecutionWorktree,
+                preparePrimaryPlanPathForMerge,
+                restorePrimaryPlanPathAfterMergeFailure,
                 removeExecutionWorktree,
                 removeWorktreeRegistryEntry,
                 shouldCleanupMergedWorktrees,
