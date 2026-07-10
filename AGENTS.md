@@ -1,5 +1,6 @@
 Language Strictness: Write 100% pure JavaScript (.js). NEVER write .ts files. NEVER use TypeScript syntax (interfaces,
-type aliases) in executable code. ALL typing must be done via JSDoc comments.
+type aliases) in executable code. ALL typing must be done via JSDoc comments. Except in src/ui/workspace/ where
+TypeScript syntax is allowed.
 
 JSDoc Convention: Prefer @typedef for object shapes over inline parameter annotations or inline @type casts. Define
 types once and reference them. This keeps call-sites clean and avoids style drift between agents.

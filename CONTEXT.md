@@ -82,8 +82,9 @@ _Avoid_: Cross-section, code path
 **Plan**: A markdown file in `plans/` with YAML Front Matter that describes the implementation strategy for a User
 Request. _Avoid_: Blueprint, spec, design doc
 
-**Work Record**: A repo-local markdown retrospective planning-memory artifact that distills what verified planned work
-actually produced and what future planning should remember. _Avoid_: Review log, chat transcript, implementation diary
+**Work Record**: A small repo-local markdown retrospective planning-memory artifact that distills what verified planned
+work actually produced and what future planning should remember. _Avoid_: Review log, chat transcript, implementation
+diary, duplicate Plan
 
 **Superseded Work Record**: A Work Record whose planning guidance has been replaced by a newer Work Record. _Avoid_:
 Archived record, deleted record, draft record
@@ -224,6 +225,9 @@ plans under `plans/<epic-name>/`. _Avoid_: Task planner, splitter
 
 **Recorder**: The future Agent that generates Work Records from verified planned work. _Avoid_: Reviewer, summarizer,
 auditor
+
+**Work Record Search Tool**: The future planning tool that lets Ideator, Planner, and Architect retrieve relevant
+non-archived, non-superseded Work Records. _Avoid_: Memory recall, plan search, Engineer context tool
 
 **Engineer**: The execution Agent that implements approved executable Plans and bounded no-plan QUICK_FIX code changes.
 _Avoid_: Coder, implementer, developer
@@ -400,6 +404,7 @@ command definition, prompt command
 - Agent planning retrieval excludes **Superseded Work Records** by default, while human search may show them with a
   prominent replacement notice.
 - An **Archived Work Record** is excluded from default Work Record search and planning retrieval.
+- The **Work Record Search Tool** is available to Ideator, Planner, and Architect by default, not Engineer.
 - A **Failed Plan** must have reached **Ready For Work** before work failed.
 - An **In-Progress Plan** requires recovery because execution may have partially changed the worktree.
 - **Plan Recovery** resolves whether RunWield continues the current worktree state, reports on it, re-opens the Plan, or
