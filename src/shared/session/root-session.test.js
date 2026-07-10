@@ -2,6 +2,7 @@ import { assertEquals, assertRejects } from "@std/assert";
 import {
     getRootSessionBranchEntries,
     getRunWieldSessionDir,
+    getRunWieldSessionMemoryBackupDir,
     listPersistedRootSessions,
     openPersistedRootSession,
 } from "./root-session.js";
@@ -15,6 +16,10 @@ Deno.test("root-session persisted helpers list open and guard cwd paths", async 
         const cwd = `${home}/repo`;
         await Deno.mkdir(cwd, { recursive: true });
         const sessionDir = getRunWieldSessionDir(cwd);
+        assertEquals(
+            getRunWieldSessionMemoryBackupDir(cwd, "persisted-test"),
+            `${sessionDir}/persisted-test_memory-backups`,
+        );
         const manager = SessionManager.create(cwd, sessionDir, { id: "persisted-test" });
         manager.appendMessage(
             /** @type {any} */ ({ role: "user", timestamp: Date.now(), content: [{ type: "text", text: "hello" }] }),

@@ -28,30 +28,28 @@ Memory-count reduction is not a goal. When uncertain whether context remains use
 
 ## Process
 
-1. Export the collection with `mnemosyne export --no-embeddings` to a timestamped backup in the project root, such as
-   `[project name].sleep-backup-[timestamp].jsonl`. Never overwrite the pre-maintenance backup.
-2. Analyze the exported memories and classify proposed changes as one of:
+1. Analyze the pre-maintenance export supplied by RunWield and classify proposed changes as one of:
    - exact duplicate;
    - truly deprecated or contradicted by an identified current authority;
    - explicitly superseded by an identified replacement;
    - lossless consolidation;
    - core-tag promotion or demotion;
    - keep.
-3. Before mutating Mnemosyne, write a timestamped deletion manifest in the project root. For every proposed deletion,
-   record the memory ID, its full content and tags, the classification and reason, and the replacement memory or
-   authoritative source that preserves its context.
-4. If the proposal would delete more than 25 memories or more than 10% of the collection, whichever threshold is reached
-   first, stop before mutation and ask the user to review the backup and manifest. Continue only after explicit
-   approval.
-5. Apply approved changes. Add and verify every consolidation or replacement before deleting its source memories. Move
+2. Before mutating Mnemosyne, write a timestamped deletion manifest in the supplied session artifact directory. For
+   every proposed deletion, record the memory ID, its full content and tags, the classification and reason, and the
+   replacement memory or authoritative source that preserves its context.
+3. If the proposal would delete more than 25 memories or more than 10% of the collection, whichever threshold is reached
+   first, stop before mutation and ask the user to review the immutable backup and manifest. Continue only after
+   explicit approval.
+4. Apply approved changes. Add and verify every consolidation or replacement before deleting its source memories. Move
    memories between core (`--tag core`) and regular storage as needed; core is for critical, frequently accessed context
    only.
-6. Export the post-maintenance collection to a separate file and verify:
+5. Export the post-maintenance collection to a separate file in the supplied session artifact directory and verify:
    - every untouched memory is still present with its original content and tags;
    - every deleted memory appears in the manifest and has a verified replacement or authority;
-   - every consolidation preserves the durable facts, rationale, constraints, and exceptions of its sources;
-   - the original backup can be used to restore deleted memories.
-7. Report counts for kept, promoted, demoted, consolidated, and deleted memories, plus the backup and manifest paths. Do
-   not claim that deleted memories were unnecessary; report the specific reason each category was safe to remove.
+   - every consolidation preserves the durable facts, rationale, constraints, and exceptions of its sources.
+6. Report counts for kept, promoted, demoted, consolidated, and deleted memories, plus the backup, manifest, and
+   post-maintenance export paths. Do not claim that deleted memories were unnecessary; report the specific reason each
+   category was safe to remove.
 
 Delete with `mnemosyne delete [memory id]` and add with `mnemosyne add [memory content] --tag tag1 --tag tag2`.
