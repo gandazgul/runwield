@@ -7,6 +7,7 @@
  * See docs/plan-lifecycle.md for the human-readable workflow.
  */
 
+import { dirname, join } from "@std/path";
 import { findPlansByParent, loadPlan, updatePlanFrontMatter } from "../../plan-store.js";
 import { SHARED_PLAN_LOCK_REPAIR, SharedPlanLockError } from "../collaboration/lock.js";
 
@@ -455,9 +456,9 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
             updates.worktreeStatus = null;
         }
         updates.verifiedAt = now;
-        updates.humanReviewMode = details.humanReviewMode;
-        updates.humanReviewDecision = details.humanReviewDecision;
-        updates.humanReviewedAt = details.humanReviewedAt ?? null;
+        if (Object.hasOwn(details, "humanReviewMode")) updates.humanReviewMode = details.humanReviewMode;
+        if (Object.hasOwn(details, "humanReviewDecision")) updates.humanReviewDecision = details.humanReviewDecision;
+        if (Object.hasOwn(details, "humanReviewedAt")) updates.humanReviewedAt = details.humanReviewedAt ?? null;
         updates.failureReason = null;
         updates.failedAt = null;
     }
@@ -570,6 +571,165 @@ export async function recordPlanEvent({ cwd, planName, event, currentStatus, det
             });
         }
         throw error;
+    }
+}
+
+/**
+ * @typedef {Object} ValidationPassedStagingResult
+ * @property {import('../../plan-store.js').PlanFrontMatter} attrs
+ * @property {string[]} planPaths
+ */
+
+/**
+ * Copy the canonical implemented Plan into its execution worktree and stage the
+ * validation_passed event there. A previously staged verified copy is returned
+ * unchanged so merge retries preserve its original verification evidence.
+ *
+ * @param {Object} opts
+ * @param {string} opts.projectRoot
+ * @param {string} opts.executionCwd
+ * @param {string} opts.planName
+ * @param {PlanEventDetails} [opts.details]
+ * @returns {Promise<ValidationPassedStagingResult>}
+ */
+export async function stageValidationPassedInExecutionWorktree({
+    projectRoot,
+    executionCwd,
+    planName,
+    details = {},
+}) {
+    const canonicalPlan = await loadPlan(projectRoot, planName);
+    if (!canonicalPlan) throw new Error(`Plan not found in primary checkout: ${planName}`);
+    if (canonicalPlan.attrs.status !== "implemented") {
+        throw new Error(
+            `Cannot stage validation_passed for ${planName}: primary Plan status is ` +
+                `"${canonicalPlan.attrs.status}", expected "implemented".`,
+        );
+    }
+
+    const planPath = `plans/${planName}.md`;
+    let executionPlan = await loadPlan(executionCwd, planName);
+    const alreadyVerified = executionPlan?.attrs.status === "verified";
+    if (alreadyVerified && executionPlan) {
+        /** @type {Partial<import('../../plan-store.js').PlanFrontMatter>} */
+        const missingHumanReviewEvidence = {};
+        if (executionPlan.attrs.humanReviewMode == null && canonicalPlan.attrs.humanReviewMode != null) {
+            missingHumanReviewEvidence.humanReviewMode = canonicalPlan.attrs.humanReviewMode;
+        }
+        if (executionPlan.attrs.humanReviewDecision == null && canonicalPlan.attrs.humanReviewDecision != null) {
+            missingHumanReviewEvidence.humanReviewDecision = canonicalPlan.attrs.humanReviewDecision;
+        }
+        if (executionPlan.attrs.humanReviewedAt == null && canonicalPlan.attrs.humanReviewedAt != null) {
+            missingHumanReviewEvidence.humanReviewedAt = canonicalPlan.attrs.humanReviewedAt;
+        }
+        if (Object.keys(missingHumanReviewEvidence).length > 0) {
+            const attrs = await updatePlanFrontMatter(
+                executionCwd,
+                planName,
+                missingHumanReviewEvidence,
+                executionPlan.attrs,
+            );
+            executionPlan = { ...executionPlan, attrs };
+        }
+    }
+    const parentPlanName = typeof canonicalPlan.attrs.parentPlan === "string" ? canonicalPlan.attrs.parentPlan : "";
+    let parentWasAlreadyStaged = false;
+    let stagedParentVerifiedAt;
+    if (alreadyVerified && executionPlan) {
+        const executionParent = parentPlanName ? await loadPlan(executionCwd, parentPlanName) : null;
+        const canonicalParent = parentPlanName ? await loadPlan(projectRoot, parentPlanName) : null;
+        const parentCanAdvance = canonicalParent?.attrs.status === "ready_for_work";
+        if (!parentCanAdvance) {
+            return {
+                attrs: executionPlan.attrs,
+                planPaths: [planPath],
+            };
+        }
+        parentWasAlreadyStaged = executionParent?.attrs.status === "verified";
+        const parentVerifiedAt = executionParent?.attrs.verifiedAt;
+        if (parentWasAlreadyStaged && typeof parentVerifiedAt === "string") {
+            stagedParentVerifiedAt = parentVerifiedAt;
+        }
+    }
+    let canonicalParentStatus;
+    /** @type {Array<{ name: string, path: string, existed: boolean, content: string|null }>} */
+    const temporaryHierarchyFiles = [];
+    let parentAdvanced = false;
+    let staleStagedParentReconciled = false;
+    try {
+        if (parentPlanName) {
+            const canonicalParent = await loadPlan(projectRoot, parentPlanName);
+            if (canonicalParent) {
+                canonicalParentStatus = canonicalParent.attrs.status;
+                const hierarchyPlanNames = [
+                    parentPlanName,
+                    ...(await findPlansByParent(projectRoot, parentPlanName)).map((child) => child.name),
+                ].filter((name) => name !== planName);
+                for (const hierarchyPlanName of hierarchyPlanNames) {
+                    const hierarchyPlan = await loadPlan(projectRoot, hierarchyPlanName);
+                    if (!hierarchyPlan) continue;
+                    const hierarchyPath = join(executionCwd, "plans", `${hierarchyPlanName}.md`);
+                    let originalContent = null;
+                    let existed = true;
+                    try {
+                        originalContent = await Deno.readTextFile(hierarchyPath);
+                    } catch (error) {
+                        if (!(error instanceof Deno.errors.NotFound)) throw error;
+                        existed = false;
+                    }
+                    temporaryHierarchyFiles.push({
+                        name: hierarchyPlanName,
+                        path: hierarchyPath,
+                        existed,
+                        content: originalContent,
+                    });
+                    await Deno.mkdir(dirname(hierarchyPath), { recursive: true });
+                    await Deno.writeTextFile(hierarchyPath, hierarchyPlan.markdown);
+                }
+            }
+        }
+
+        let attrs;
+        if (alreadyVerified && executionPlan) {
+            attrs = executionPlan.attrs;
+            await advanceParentEpicWhenAllChildrenVerified({
+                cwd: executionCwd,
+                planName,
+                event: "validation_passed",
+                updatedAttrs: attrs,
+                details: stagedParentVerifiedAt ? { ...details, now: () => new Date(stagedParentVerifiedAt) } : details,
+            });
+        } else {
+            const executionPlanPath = join(executionCwd, planPath);
+            await Deno.mkdir(dirname(executionPlanPath), { recursive: true });
+            await Deno.writeTextFile(executionPlanPath, canonicalPlan.markdown);
+
+            attrs = await recordPlanEvent({
+                cwd: executionCwd,
+                planName,
+                event: "validation_passed",
+                currentStatus: "implemented",
+                details: { ...details, triageMeta: canonicalPlan.attrs },
+            });
+        }
+        const executionParent = parentPlanName ? await loadPlan(executionCwd, parentPlanName) : null;
+        parentAdvanced = canonicalParentStatus === "ready_for_work" && executionParent?.attrs.status === "verified";
+        staleStagedParentReconciled = parentWasAlreadyStaged && !parentAdvanced;
+        return {
+            attrs,
+            planPaths: [planPath, ...(parentAdvanced ? [`plans/${parentPlanName}.md`] : [])],
+        };
+    } finally {
+        for (const temporaryFile of temporaryHierarchyFiles) {
+            if (temporaryFile.name === parentPlanName && (parentAdvanced || staleStagedParentReconciled)) continue;
+            if (temporaryFile.existed) {
+                await Deno.writeTextFile(temporaryFile.path, temporaryFile.content || "");
+            } else {
+                await Deno.remove(temporaryFile.path).catch((error) => {
+                    if (!(error instanceof Deno.errors.NotFound)) throw error;
+                });
+            }
+        }
     }
 }
 
