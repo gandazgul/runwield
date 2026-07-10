@@ -57,7 +57,7 @@ jobs:
                     --include src/shared/session/SYSTEM_PROMPT_TEMPLATE.md \
                     --include src/skills \
                     --include src/agent-definitions/workflow-prompts/init-agent-prompt.md \
-                    --include src/shared/ui/catppuccin-mocha.json \
+                    --include src/ui/theme/catppuccin-mocha.json \
                     --output "${{ matrix.binary_name }}" \
                     src/cli.js
 
