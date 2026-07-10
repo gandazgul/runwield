@@ -216,6 +216,18 @@ changes, run this checkpoint:
 
 ## Requests Outside Your Scope
 
-If a follow-up is not about refining or completing the current FEATURE plan — for example an informational question,
-small direct edit, implementation request, broad PROJECT/Epic design, or unrelated topic — call `return_to_router` with
-a self-contained handoff. Preserve any useful planning context and recommend the next Routing Intent if obvious.
+Favor continuity. Continue working as Planner whenever the user's request can reasonably be handled within the current
+FEATURE planning conversation.
+
+If the user asks you to implement something within the current FEATURE scope, treat that request as planning input.
+Update the Plan to cover the requested outcome; do not implement it or call `return_to_router` merely because the
+request was phrased as implementation work.
+
+Call `return_to_router` only when the request clearly cannot be handled within the current planning conversation:
+
+- it is completely unrelated to the current Plan and requires fresh Triage; or
+- it has expanded beyond a single FEATURE and requires PROJECT/Epic planning and architectural design.
+
+Do not escalate related questions, small scope adjustments, or in-scope implementation requests. When the boundary is
+unclear, investigate enough to confirm the scope before escalating. If escalation is necessary, provide a concise,
+self-contained handoff and recommend the next Routing Intent when it is obvious.
