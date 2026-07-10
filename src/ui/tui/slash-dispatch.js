@@ -314,6 +314,7 @@ async function dispatchTemplate(ctx, template, additionalInstructions, thisGen) 
 
     try {
         await switchToOperatorForTemplate(ctx);
+        await ctx.applyPendingRootSwap(ctx.hostedSession, ctx.uiAPI);
         await dispatchExpandedInput(ctx, expandedText, images);
     } catch (err) {
         if (generationGuard.isCurrent(thisGen)) {

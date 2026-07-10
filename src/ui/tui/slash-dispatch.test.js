@@ -209,7 +209,8 @@ Deno.test("handleSlashCommand switches prompt templates to Operator before expan
         agentName: "operator",
         deps: { hostedSession: ctx.hostedSession },
     }]);
-    assertEquals(ctx.records.swaps, 0);
+    assertEquals(ctx.records.swaps, 1);
+    assertEquals(ctx.records.swapHostedSessions, [ctx.hostedSession]);
     assertEquals(ctx.records.runs, []);
 });
 
