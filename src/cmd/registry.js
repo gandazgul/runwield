@@ -370,15 +370,16 @@ export const commandRegistry = {
     [COMMAND_NAMES.SLEEP]: {
         name: COMMAND_NAMES.SLEEP,
         displayName: "Sleep",
-        description: "Let the model consolidate context",
-        summary: "Run command-owned memory optimization/cleanup via an isolated operator session.",
+        description: "Safely back up and consolidate memory",
+        summary: "Create a session-scoped memory backup, then optimize memory with Engineer.",
         usage: [
             `${bin("sleep")}`,
             `${bin("sleep --help")}`,
         ],
         notes: [
             "Requires mnemosyne binary in PATH.",
-            "Invokes a built-in sleep prompt via operator.",
+            "Creates a verified backup under ~/.wld/sessions before any memory changes.",
+            "Starts or switches to Engineer and keeps that Agent active for follow-up questions.",
             "You can also run /sleep directly inside the interactive TUI.",
         ],
         execute: runSleepCommand,

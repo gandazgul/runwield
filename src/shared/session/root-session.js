@@ -47,6 +47,17 @@ export function getRunWieldSessionImageDir(cwd, sessionId) {
 }
 
 /**
+ * Resolve the memory-backup artifact directory for a persisted root session.
+ *
+ * @param {string} cwd
+ * @param {string} sessionId
+ * @returns {string}
+ */
+export function getRunWieldSessionMemoryBackupDir(cwd, sessionId) {
+    return join(getRunWieldSessionDir(cwd), `${sessionId}_memory-backups`);
+}
+
+/**
  * Ensure a directory exists.
  *
  * @param {string} dir
