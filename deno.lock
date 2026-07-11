@@ -29,7 +29,7 @@
     "npm:@earendil-works/pi-ai@~0.80.5": "0.80.5_zod@3.25.76",
     "npm:@earendil-works/pi-coding-agent@~0.80.5": "0.80.5_zod@3.25.76",
     "npm:@earendil-works/pi-tui@~0.80.5": "0.80.5",
-    "npm:@gandazgul/plannotator-pi-extension-compiled@0.22": "0.22.0_@earendil-works+pi-agent-core@0.80.5__zod@3.25.76_@earendil-works+pi-ai@0.80.5__zod@3.25.76_@earendil-works+pi-coding-agent@0.80.5__zod@3.25.76_@earendil-works+pi-tui@0.80.5_zod@3.25.76",
+    "npm:@gandazgul/plannotator-pi-extension-compiled@0.23": "0.23.0_@earendil-works+pi-agent-core@0.80.5__zod@3.25.76_@earendil-works+pi-ai@0.80.5__zod@3.25.76_@earendil-works+pi-coding-agent@0.80.5__zod@3.25.76_@earendil-works+pi-tui@0.80.5",
     "npm:@lezer/common@^1.5.2": "1.5.2",
     "npm:@lezer/highlight@^1.2.3": "1.2.3",
     "npm:@pierre/diffs@1.2.8": "1.2.8_react@19.2.7_react-dom@19.2.7__react@19.2.7",
@@ -48,7 +48,7 @@
     "npm:@tanstack/react-table@^8.21.3": "8.21.3_react@19.2.7_react-dom@19.2.7__react@19.2.7",
     "npm:@types/react-dom@^19.2.3": "19.2.3_@types+react@19.2.17",
     "npm:@types/react@^19.2.17": "19.2.17",
-    "npm:@vitejs/plugin-react@^4.7.0": "4.7.0_vite@8.1.3__esbuild@0.28.1",
+    "npm:@vitejs/plugin-react@^4.7.0": "4.7.0_vite@6.4.3",
     "npm:@viz-js/viz@^3.28.0": "3.28.0",
     "npm:@zag-js/dialog@^1.42.0": "1.42.0",
     "npm:@zag-js/preact@^1.42.0": "1.42.0_preact@10.29.7",
@@ -234,7 +234,7 @@
       "dependencies": [
         "@types/react",
         "@types/react-dom",
-        "@vitejs/plugin-react@4.7.0_vite@6.4.3",
+        "@vitejs/plugin-react",
         "react",
         "react-dom",
         "ultrahtml",
@@ -1350,8 +1350,8 @@
     "@floating-ui/utils@0.2.11": {
       "integrity": "sha512-RiB/yIh78pcIxl6lLMG0CgBXAZ2Y0eVHqMPYugu+9U0AeT6YBeiJpf7lbdJNIugFP5SIjwNRgo4DhR1Qxi26Gg=="
     },
-    "@gandazgul/plannotator-pi-extension-compiled@0.22.0_@earendil-works+pi-agent-core@0.80.5__zod@3.25.76_@earendil-works+pi-ai@0.80.5__zod@3.25.76_@earendil-works+pi-coding-agent@0.80.5__zod@3.25.76_@earendil-works+pi-tui@0.80.5_zod@3.25.76": {
-      "integrity": "sha512-T7bRYB8e0R4tROVvd8IqhWw/luS5r7Pq0y+MC7nCy4b6xb7WtdUp9zYW9k++2TQ1fO2o2KOh4qoXwTrwHC4iAQ==",
+    "@gandazgul/plannotator-pi-extension-compiled@0.23.0_@earendil-works+pi-agent-core@0.80.5__zod@3.25.76_@earendil-works+pi-ai@0.80.5__zod@3.25.76_@earendil-works+pi-coding-agent@0.80.5__zod@3.25.76_@earendil-works+pi-tui@0.80.5": {
+      "integrity": "sha512-CpAYQ2AMFDKfB+YGOe3eaut74/TgnrPpDJ7a32KLa2SZXC/UdEezbvnwjvG6tQhCAK9oaNQsQg3XXKBwaIe/mw==",
       "dependencies": [
         "@earendil-works/pi-agent-core",
         "@earendil-works/pi-ai",
@@ -3097,18 +3097,6 @@
         "@types/babel__core",
         "react-refresh",
         "vite@6.4.3"
-      ]
-    },
-    "@vitejs/plugin-react@4.7.0_vite@8.1.3__esbuild@0.28.1": {
-      "integrity": "sha512-gUu9hwfWvvEDBBmgtAowQCojwZmJ5mcLn3aufeCsitijs3+f2NsrPtlAWIR6OPiqljl96GVCUbLe0HyqIpVaoA==",
-      "dependencies": [
-        "@babel/core",
-        "@babel/plugin-transform-react-jsx-self",
-        "@babel/plugin-transform-react-jsx-source",
-        "@rolldown/pluginutils@1.0.0-beta.27",
-        "@types/babel__core",
-        "react-refresh",
-        "vite@8.1.3_esbuild@0.28.1"
       ]
     },
     "@viz-js/viz@3.28.0": {
@@ -6843,7 +6831,7 @@
       "npm:@earendil-works/pi-ai@~0.80.5",
       "npm:@earendil-works/pi-coding-agent@~0.80.5",
       "npm:@earendil-works/pi-tui@~0.80.5",
-      "npm:@gandazgul/plannotator-pi-extension-compiled@0.22",
+      "npm:@gandazgul/plannotator-pi-extension-compiled@0.23",
       "npm:@lezer/common@^1.5.2",
       "npm:@lezer/highlight@^1.2.3",
       "npm:@pierre/diffs@1.2.8",
