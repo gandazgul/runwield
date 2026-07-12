@@ -80,6 +80,12 @@
         "thinkingMedium": "sapphire",
         "thinkingHigh": "mauve",
         "thinkingXhigh": "pink",
+        "routingQuickFix": "teal",
+        "routingFeature": "blue",
+        "routingEpic": "mauve",
+        "complexityLow": "green",
+        "complexityMedium": "yellow",
+        "complexityHigh": "red",
         "bashMode": "green"
     },
     "export": {

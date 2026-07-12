@@ -68,6 +68,49 @@ Deno.test("triage_report execute returns canonical routingIntent details for INQ
     assertEquals(metrics[0].details.routingIntent, "INQUIRY");
 });
 
+Deno.test("triage_report execute records workflow context when a HostedSession is available", async () => {
+    /** @type {Array<{ routingIntent: unknown, complexity: unknown }>} */
+    const recorded = [];
+    const tool = createTriageReportTool({
+        hostedSession: /** @type {any} */ ({
+            setWorkflowTriageContext: (/** @type {{ routingIntent: unknown, complexity: unknown }} */ details) => {
+                recorded.push(details);
+            },
+        }),
+    });
+
+    await /** @type {any} */ (tool.execute)("call-1", {
+        routingIntent: "QUICK_FIX",
+        complexity: "LOW",
+        summary: "fix typo",
+        sessionName: "fix typo",
+        affectedPaths: ["src/foo.js"],
+    });
+
+    assertEquals(recorded, [{ routingIntent: "QUICK_FIX", complexity: "LOW" }]);
+});
+
+Deno.test("triage_report remains fail-open when workflow context recording throws", async () => {
+    const tool = createTriageReportTool({
+        hostedSession: /** @type {any} */ ({
+            setWorkflowTriageContext: () => {
+                throw new Error("persistence failed");
+            },
+        }),
+    });
+
+    const result = await /** @type {any} */ (tool.execute)("call-1", {
+        routingIntent: "FEATURE",
+        complexity: "MEDIUM",
+        summary: "plan feature",
+        sessionName: "plan feature",
+        affectedPaths: [],
+    });
+
+    assertEquals(result.terminate, true);
+    assertEquals(result.details.routingIntent, "FEATURE");
+});
+
 Deno.test("triage_report execute preserves plan classification only for FEATURE and PROJECT", async () => {
     const tool = createTriageReportTool();
 

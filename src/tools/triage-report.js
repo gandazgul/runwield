@@ -85,12 +85,13 @@ function normalizeTriageParams(params) {
  *
  * @param {{
  *   uiAPI?: import('../shared/workflow/workflow.js').UiAPI,
+ *   hostedSession?: import('../shared/session/hosted-session.js').HostedSession | null,
  *   recordWorkflowMetric?: typeof recordWorkflowMetric,
  * }} [opts]
  * @returns {import('@earendil-works/pi-coding-agent').ToolDefinition}
  */
 export function createTriageReportTool(
-    { uiAPI, recordWorkflowMetric: recordWorkflowMetricImpl = recordWorkflowMetric } = {},
+    { uiAPI, hostedSession, recordWorkflowMetric: recordWorkflowMetricImpl = recordWorkflowMetric } = {},
 ) {
     return defineTool({
         name: "triage_report",
@@ -103,6 +104,12 @@ export function createTriageReportTool(
         async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
             const details = normalizeTriageParams(/** @type {Record<string, unknown>} */ (params));
             const { routingIntent, complexity, summary } = details;
+
+            try {
+                hostedSession?.setWorkflowTriageContext?.({ routingIntent, complexity });
+            } catch (_e) {
+                // Footer-context persistence is fail-open and must not block triage.
+            }
 
             uiAPI?.appendSystemMessage(
                 `Routing Intent: ${routingIntent}, Complexity: ${complexity}. Summary: ${summary}`,
