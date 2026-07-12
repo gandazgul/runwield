@@ -34,19 +34,26 @@ Deno.test("SessionRuntime composes SessionHost for create adopt list and close",
     assertEquals(runtime.closeSession("missing"), { ok: true, closed: false });
 });
 
-Deno.test("SessionRuntime promptSession consumes only the target HostedSession handoff", async () => {
+Deno.test("SessionRuntime promptSession consumes only the target HostedSession handoff result", async () => {
     const current = new HostedSession({ id: "current" });
     const other = new HostedSession({ id: "other" });
-    const runtime = new SessionRuntime();
     /** @type {string[]} */
     const seenRequests = [];
     current.setRootSessionManager(/** @type {any} */ ({ id: "current-root" }));
     current.setActiveOnMessage((/** @type {string} */ request) => {
         seenRequests.push(request);
-        if (seenRequests.length === 1) current.setPendingSwitchHandoff({ agentName: "router", reason: "handoff" });
-        return Promise.resolve();
+        if (seenRequests.length === 1) {
+            return Promise.resolve({ kind: "handoff", agentName: "router", userRequest: "handoff" });
+        }
+        return Promise.resolve({ kind: "complete" });
     });
-    other.setPendingSwitchHandoff({ agentName: "router", reason: "other handoff" });
+    const runtime = new SessionRuntime({
+        switchActiveAgent: (session) => {
+            assertStrictEquals(session, current);
+            session.setActiveOnMessage(current.getActiveOnMessage());
+            return Promise.resolve({ ok: true, agentName: "router", changed: true });
+        },
+    });
 
     const result = await runtime.promptSession(current, {
         initialRequest: "first",
@@ -57,8 +64,7 @@ Deno.test("SessionRuntime promptSession consumes only the target HostedSession h
     assertEquals(result.turns, 2);
     assertEquals(result.handoffs, 1);
     assertEquals(seenRequests, ["first", "handoff"]);
-    assertEquals(current.consumePendingSwitchHandoff(), null);
-    assertEquals(other.consumePendingSwitchHandoff()?.reason, "other handoff");
+    assertEquals(other.getRootAgentName(), null);
 });
 
 Deno.test("SessionRuntime keeps the session busy while compatibility UI work is still in flight", async () => {
@@ -98,10 +104,14 @@ Deno.test("SessionRuntime promptSession preserves the chained handoff limit", as
     hostedSession.setRootSessionManager(/** @type {any} */ ({ id: "root" }));
     hostedSession.setActiveOnMessage(() => {
         turnCount++;
-        hostedSession.setPendingSwitchHandoff({ agentName: "router", reason: `handoff ${turnCount}` });
-        return Promise.resolve();
+        return Promise.resolve({ kind: "handoff", agentName: "router", userRequest: `handoff ${turnCount}` });
     });
-    const runtime = new SessionRuntime();
+    const runtime = new SessionRuntime({
+        switchActiveAgent: (session) => {
+            session.setActiveOnMessage(hostedSession.getActiveOnMessage());
+            return Promise.resolve({ ok: true, agentName: "router", changed: true });
+        },
+    });
     runtime.subscribeSessionEvents(hostedSession, (event) => {
         if (event.type === RuntimeEventTypes.SYSTEM_STATUS) messages.push(event.message);
     });
@@ -116,30 +126,17 @@ Deno.test("SessionRuntime promptSession preserves the chained handoff limit", as
     assertEquals(messages.includes(HANDOFF_LIMIT_MESSAGE), true);
 });
 
-Deno.test("SessionRuntime promptSession applies root swaps before turns and drains final swaps", async () => {
-    const hostedSession = new HostedSession({ id: "swaps" });
-    hostedSession.setRootSessionManager(/** @type {any} */ ({ id: "root" }));
-    /** @type {string[]} */
-    const events = [];
-    hostedSession.setActiveOnMessage(() => {
-        events.push("turn");
-        hostedSession.setPendingRootSwap({ agentName: "guide", displayName: "Guide" });
-        return Promise.resolve();
-    });
-    const runtime = new SessionRuntime({
-        applyPendingRootSwap: (session) => {
-            events.push(`swap:${session.getPendingRootSwap()?.agentName || "none"}`);
-            session.setPendingRootSwap(null);
-            return Promise.resolve();
-        },
-    });
+Deno.test("SessionRuntime adapter switch rejects active turns", async () => {
+    const hostedSession = new HostedSession({ id: "switch-busy" });
+    hostedSession.beginTurn("active");
+    const runtime = new SessionRuntime();
 
-    await runtime.promptSession(hostedSession, {
-        initialRequest: "start",
-        initialImages: [],
-    });
+    await assertRejects(
+        () => runtime.switchAgent(hostedSession, { agentName: "guide" }),
+        SessionTurnInProgressError,
+    );
 
-    assertEquals(events, ["swap:none", "turn", "swap:guide"]);
+    hostedSession.endTurn("active");
 });
 
 Deno.test("SessionRuntime cancelSession aborts the target HostedSession and handles missing sessions", () => {
