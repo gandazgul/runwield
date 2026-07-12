@@ -44,5 +44,22 @@
  */
 
 /**
- * @typedef {(userRequest: string, images: ImageAttachment[], uiAPI: import('../types.js').SessionUiPort, sessionManager: SessionManagerLike) => Promise<void>} AgentMessageHandler
+ * @typedef {Object} AgentTurnCompleteResult
+ * @property {"complete"} kind
+ */
+
+/**
+ * @typedef {Object} AgentTurnHandoffResult
+ * @property {"handoff"} kind
+ * @property {string} agentName
+ * @property {string} userRequest
+ * @property {string} [model]
+ */
+
+/**
+ * @typedef {AgentTurnCompleteResult | AgentTurnHandoffResult} AgentTurnResult
+ */
+
+/**
+ * @typedef {(userRequest: string, images: ImageAttachment[], uiAPI: import('../types.js').SessionUiPort, sessionManager: SessionManagerLike) => Promise<AgentTurnResult | void>} AgentMessageHandler
  */

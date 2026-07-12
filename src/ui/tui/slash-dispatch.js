@@ -68,7 +68,8 @@ function maybeUpdateTitleForSlashCommand(command, hostedSession, displayName) {
  * @property {string} chatPromptAgentName
  * @property {(templateModel: string) => ({ ok: true, provider: string, id: string } | { ok: false })} resolveTemplateModel
  * @property {(hostedSession: import('../../shared/session/hosted-session.js').HostedSession | undefined, agentName: string, handler: import('../../shared/session/types.js').AgentMessageHandler, uiAPI: import('./types.js').UiAPI, agentModel?: string) => void} setActiveAgent
- * @property {(hostedSession: import('../../shared/session/hosted-session.js').HostedSession | undefined, uiAPI: import('./types.js').UiAPI) => Promise<void>} applyPendingRootSwap
+ * @property {(hostedSession: import('../../shared/session/hosted-session.js').HostedSession | undefined, options: { agentName: string, model?: string, allowReturnToRouter?: boolean }) => Promise<unknown>} [switchAgent]
+ * @property {(hostedSession: import('../../shared/session/hosted-session.js').HostedSession | undefined, uiAPI?: import('./types.js').UiAPI) => Promise<unknown>} [applyPendingRootSwap]
  * @property {(model: string, provider?: string) => Promise<void> | void} [setActiveModel]
  * @property {(nextSession: import('../../shared/session/hosted-session.js').HostedSession) => void} [replaceHostedSession]
  * @property {(text: string, images: import('../../shared/session/types.js').ImageAttachment[]) => Promise<void>} [dispatchExpandedUserRequest]
@@ -184,7 +185,7 @@ async function dispatchBuiltin(ctx, command, args, commandRegistry, thisGen) {
             originalHandleInput,
             registerOperationCancel,
             setActiveAgent: ctx.setActiveAgent,
-            applyPendingRootSwap: ctx.applyPendingRootSwap,
+            switchActiveAgent: ctx.switchAgent,
             setActiveModel: ctx.setActiveModel,
             replaceHostedSession: ctx.replaceHostedSession,
         });
@@ -196,7 +197,7 @@ async function dispatchBuiltin(ctx, command, args, commandRegistry, thisGen) {
         }
     } finally {
         registerOperationCancel(null);
-        await applyPendingRootSwap(ctx.hostedSession, uiAPI);
+        await applyPendingRootSwap?.(ctx.hostedSession, uiAPI);
     }
 }
 
@@ -263,21 +264,25 @@ async function dispatchSkill(ctx, skill, additionalInstructions, thisGen) {
 }
 
 /**
- * Queue Operator as the target for the next expanded prompt-template turn.
+ * Switch Operator before the next expanded prompt-template turn.
  *
  * @param {SlashContext} ctx
  */
 async function switchToOperatorForTemplate(ctx) {
+    if (ctx.switchAgent) {
+        await ctx.switchAgent(ctx.hostedSession, { agentName: OPERATOR_AGENT });
+        return;
+    }
     const deps = ctx.__deps || {};
     const createAgentHandlerImpl = deps.createAgentHandler ||
         (await import("../../shared/session/agent-handler.js")).createAgentHandler;
-
     ctx.setActiveAgent(
         ctx.hostedSession,
         OPERATOR_AGENT,
         createAgentHandlerImpl(OPERATOR_AGENT, { hostedSession: ctx.hostedSession }),
         ctx.uiAPI,
     );
+    await ctx.applyPendingRootSwap?.(ctx.hostedSession, ctx.uiAPI);
 }
 
 /**
@@ -314,7 +319,6 @@ async function dispatchTemplate(ctx, template, additionalInstructions, thisGen) 
 
     try {
         await switchToOperatorForTemplate(ctx);
-        await ctx.applyPendingRootSwap(ctx.hostedSession, ctx.uiAPI);
         await dispatchExpandedInput(ctx, expandedText, images);
     } catch (err) {
         if (generationGuard.isCurrent(thisGen)) {

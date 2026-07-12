@@ -337,7 +337,6 @@ async function runCompletionGatedRepair({
         cwd,
         useRootSession: true,
     });
-    hostedSession?.consumePendingSwitchHandoff?.();
 
     const returnedRootTranscript = startsWithMessages(messages, previousRootMessages);
     return readTaskCompleted(messages, returnedRootTranscript ? fromIndex : undefined);
@@ -1101,7 +1100,6 @@ export async function runValidationLoop({
                         // fresh in-memory SessionManager.
                         useRootSession: false,
                     });
-                    hostedSession?.consumePendingSwitchHandoff?.();
                 } catch (/** @type {any} */ invocationError) {
                     const errorMsg = invocationError instanceof Error
                         ? invocationError.message
@@ -1199,7 +1197,6 @@ export async function runValidationLoop({
                             // not leak into the next independent audit attempt.
                             useRootSession: false,
                         });
-                        hostedSession?.consumePendingSwitchHandoff?.();
                         const retryOutcome = readLatestReviewOutcome(retryMessages);
                         reviewResponse = retryOutcome?.feedback || "";
                         // Propagate the reviewOutcome up so the approved/rejected check below sees it

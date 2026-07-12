@@ -26,7 +26,7 @@
 import { AGENTS, ROUTING_INTENTS } from "../../constants.js";
 import { ensurePlansDir, loadPlan } from "../../plan-store.js";
 import { hasNonGitExecutionConsent, probeGitRepository, rememberNonGitExecutionConsent } from "../git.js";
-import { applyPendingRootSwap, setActiveAgent } from "../session/agent-switching.js";
+import { setActiveAgent, switchActiveAgent } from "../session/agent-switching.js";
 import { runRootTurn } from "../session/session.js";
 import { getAgentDisplayName } from "../session/agents.js";
 import { sanitizeSessionName } from "../session/session-name.js";
@@ -197,7 +197,7 @@ function applyAutoSessionName(sessionManager, triage, hostedSession, setTitle) {
  * @param {import('./workflow.js').UiAPI} args.uiAPI
  * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined} args.sessionManager
  * @param {{
- *   applyPendingRootSwap?: typeof applyPendingRootSwap,
+ *   switchActiveAgent?: typeof switchActiveAgent,
  *   createAgentHandler?: (agentName: string, deps?: { hostedSession?: import('../session/hosted-session.js').HostedSession }) => import('../session/types.js').AgentMessageHandler,
  *   readLatestTaskCompletedOutcome?: typeof readLatestTaskCompletedOutcome,
  *   decidePostPlanning?: typeof decidePostPlanning,
@@ -211,6 +211,7 @@ function applyAutoSessionName(sessionManager, triage, hostedSession, setTitle) {
  *   runMechanicalValidation?: typeof runMechanicalValidation,
  *   runValidationLoop?: typeof runValidationLoop,
  *   setActiveAgent?: typeof setActiveAgent,
+ *   applyPendingRootSwap?: (hostedSession: import('../session/hosted-session.js').HostedSession, uiAPI?: import('../types.js').SessionUiPort) => Promise<unknown>,
  *   setTerminalTitleForName?: (name: string) => string,
  *   shouldRunWorkflowValidation?: typeof shouldRunWorkflowValidation,
  *   recordWorkflowMetric?: typeof recordWorkflowMetric,
@@ -233,7 +234,7 @@ export async function dispatchPostTriage(
 
     const triageBlock = buildTriageBlock(normalizedTriage);
     const decoratedRequest = ["## User Request", userRequest, "", triageBlock].join("\n");
-    const applyPendingRootSwapImpl = __deps?.applyPendingRootSwap || applyPendingRootSwap;
+    const switchActiveAgentImpl = __deps?.switchActiveAgent || switchActiveAgent;
     const createAgentHandlerSource = __deps?.createAgentHandler ||
         (await import("../session/agent-handler.js")).createAgentHandler;
     /** @param {string} nextAgentName */
@@ -249,6 +250,15 @@ export async function dispatchPostTriage(
     const probeGit = __deps?.probeGitRepository || probeGitRepository;
     const hasConsent = __deps?.hasNonGitExecutionConsent || hasNonGitExecutionConsent;
     const confirmQuickFix = __deps?.confirmNonGitQuickFixExecution || confirmNonGitQuickFixExecution;
+    /** @param {string} agentName */
+    const activateAgent = async (agentName) => {
+        if (__deps?.setActiveAgent) {
+            setActiveAgentImpl(hostedSession, agentName, createAgentHandlerImpl(agentName), uiAPI);
+            await __deps?.applyPendingRootSwap?.(hostedSession, uiAPI);
+            return;
+        }
+        await switchActiveAgentImpl(hostedSession, { agentName }, uiAPI);
+    };
 
     applyAutoSessionName(sessionManager, normalizedTriage, hostedSession, setTerminalTitleForNameImpl);
 
@@ -279,8 +289,7 @@ export async function dispatchPostTriage(
         const agentName = normalizedTriage.routingIntent === "INQUIRY" ? AGENTS.GUIDE : AGENTS.IDEATOR;
         const runRootTurnImpl = __deps?.runRootTurn || runRootTurn;
 
-        setActiveAgentImpl(hostedSession, agentName, createAgentHandlerImpl(agentName), uiAPI);
-        await applyPendingRootSwapImpl(hostedSession, uiAPI);
+        await activateAgent(agentName);
 
         await runRootTurnImpl({
             hostedSession,
@@ -298,8 +307,7 @@ export async function dispatchPostTriage(
         const readLatestTaskCompletedOutcomeImpl = __deps?.readLatestTaskCompletedOutcome ||
             readLatestTaskCompletedOutcome;
 
-        setActiveAgentImpl(hostedSession, AGENTS.OPERATOR, createAgentHandlerImpl(AGENTS.OPERATOR), uiAPI);
-        await applyPendingRootSwapImpl(hostedSession, uiAPI);
+        await activateAgent(AGENTS.OPERATOR);
 
         const messages = await runRootTurnImpl({
             hostedSession,
@@ -349,8 +357,7 @@ export async function dispatchPostTriage(
             return;
         }
 
-        setActiveAgentImpl(hostedSession, AGENTS.ENGINEER, createAgentHandlerImpl(AGENTS.ENGINEER), uiAPI);
-        await applyPendingRootSwapImpl(hostedSession, uiAPI);
+        await activateAgent(AGENTS.ENGINEER);
 
         const messages = await runRootTurnImpl({
             hostedSession,
@@ -413,7 +420,6 @@ export async function dispatchPostTriage(
             sessionManager,
             hostedSession,
         });
-        hostedSession.consumePendingSwitchHandoff(); // Drain any switch requests from planner
 
         const decision = decidePostPlanningImpl(outcome, {
             planningAgentName: agentName,
@@ -505,7 +511,6 @@ export async function dispatchPostTriage(
                 { hostedSession, recordWorkflowMetric: recordWorkflowMetricImpl },
             );
         } catch (error) {
-            hostedSession.consumePendingSwitchHandoff(); // Drain any switch requests from execution sub-agents
             const reason = error instanceof Error ? error.message : String(error);
             await recordWorkflowMetricImpl({
                 category: "execution",
@@ -526,8 +531,8 @@ export async function dispatchPostTriage(
             setActiveAgentImpl(hostedSession, AGENTS.ENGINEER, createAgentHandlerImpl(AGENTS.ENGINEER), uiAPI);
             return;
         }
-        hostedSession.consumePendingSwitchHandoff(); // Drain any switch requests from execution sub-agents
 
+        hostedSession.consumePendingSwitchHandoff?.();
         const executionDecision = decidePostExecutionImpl(executionResult, {
             planName,
             triageMeta: decisionTriageMeta,

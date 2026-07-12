@@ -201,7 +201,7 @@ Deno.test("buildAgentSession auto-wires return_to_router to the target HostedSes
             /** @type {(id: string, params: { reason: string }, signal: AbortSignal, onUpdate: () => void, context: object) => Promise<unknown>} */ (tool
                 .execute);
 
-        await execute(
+        const result = await execute(
             "tool-call-1",
             { reason: "Route this from the target session." },
             new AbortController().signal,
@@ -209,11 +209,12 @@ Deno.test("buildAgentSession auto-wires return_to_router to the target HostedSes
             { hostedSession: otherHostedSession, uiAPI },
         );
 
-        assertEquals(targetHostedSession.consumePendingSwitchHandoff(), {
+        assertEquals(/** @type {{ details?: unknown }} */ (result).details, {
             agentName: AGENTS.ROUTER,
             reason: "Route this from the target session.",
         });
-        assertEquals(targetHostedSession.getPendingRootSwap()?.agentName, AGENTS.ROUTER);
+        assertEquals(targetHostedSession.consumePendingSwitchHandoff(), null);
+        assertEquals(targetHostedSession.getPendingRootSwap(), null);
         assertEquals(otherHostedSession.consumePendingSwitchHandoff(), null);
         assertEquals(otherHostedSession.getPendingRootSwap(), null);
     } finally {

@@ -6,11 +6,7 @@
 import { parseArgs as parseArgsFn } from "@std/cli/parse-args";
 import { basename, dirname, join, resolve } from "@std/path";
 import { AGENTS } from "../../constants.js";
-import { createAgentHandler as createAgentHandlerFn } from "../../shared/session/agent-handler.js";
-import {
-    applyPendingRootSwap as applyPendingRootSwapFn,
-    setActiveAgent as setActiveAgentFn,
-} from "../../shared/session/agent-switching.js";
+import { switchActiveAgent as switchActiveAgentFn } from "../../shared/session/agent-switching.js";
 import { getRunWieldSessionMemoryBackupDir as getRunWieldSessionMemoryBackupDirFn } from "../../shared/session/root-session.js";
 import { runRootTurn as runRootTurnFn } from "../../shared/session/session.js";
 import { ensureMnemosyneBinary as ensureMnemosyneBinaryFn } from "../../shared/runtime-preflight.js";
@@ -139,9 +135,10 @@ export async function exportMnemosyneCollection(collectionName, outputPath, deps
  * @property {typeof printCommandHelpFn} [printCommandHelp]
  * @property {typeof ensureMnemosyneBinaryFn} [ensureMnemosyneBinary]
  * @property {typeof startInteractiveSessionFn} [startInteractiveSession]
- * @property {typeof createAgentHandlerFn} [createAgentHandler]
- * @property {typeof setActiveAgentFn} [setActiveAgent]
- * @property {typeof applyPendingRootSwapFn} [applyPendingRootSwap]
+ * @property {typeof switchActiveAgentFn} [switchActiveAgent]
+ * @property {(hostedSession: unknown, agentName: string, handler: unknown, uiAPI: unknown) => void} [setActiveAgent]
+ * @property {(hostedSession: unknown, uiAPI: unknown) => Promise<void>} [applyPendingRootSwap]
+ * @property {(agentName: string, deps?: unknown) => import('../../shared/session/types.js').AgentMessageHandler} [createAgentHandler]
  * @property {typeof runRootTurnFn} [runRootTurn]
  * @property {typeof exportMnemosyneCollection} [exportMnemosyneCollection]
  * @property {typeof getRunWieldSessionMemoryBackupDirFn} [getRunWieldSessionMemoryBackupDir]
@@ -190,9 +187,11 @@ export async function runSleepCommand(argv, options = {}) {
         getRunWieldSessionMemoryBackupDirFn;
     const now = deps.now || (() => new Date());
     const randomUUID = deps.randomUUID || crypto.randomUUID.bind(crypto);
-    const createAgentHandler = deps.createAgentHandler || createAgentHandlerFn;
-    const setActiveAgent = options.setActiveAgent || deps.setActiveAgent || setActiveAgentFn;
-    const applyPendingRootSwap = options.applyPendingRootSwap || deps.applyPendingRootSwap || applyPendingRootSwapFn;
+    const optionsAny = /** @type {any} */ (options);
+    const switchActiveAgent = options.switchActiveAgent || deps.switchActiveAgent || switchActiveAgentFn;
+    const legacySetActiveAgent = options.setActiveAgent || deps.setActiveAgent;
+    const legacyApplyPendingRootSwap = optionsAny.applyPendingRootSwap || deps.applyPendingRootSwap;
+    const legacyCreateAgentHandler = deps.createAgentHandler;
     const runRootTurn = deps.runRootTurn || runRootTurnFn;
 
     await ensureMnemosyneBinary();
@@ -210,9 +209,17 @@ export async function runSleepCommand(argv, options = {}) {
     await exportCollection(collectionName, backupPath);
     options.uiAPI.appendSystemMessage(`[RunWield] Memory backup created before sleep mode: ${backupPath}`);
 
-    const handler = createAgentHandler(AGENTS.ENGINEER, { hostedSession });
-    setActiveAgent(hostedSession, AGENTS.ENGINEER, handler, options.uiAPI);
-    await applyPendingRootSwap(hostedSession, options.uiAPI);
+    if (legacySetActiveAgent && legacyApplyPendingRootSwap && legacyCreateAgentHandler) {
+        legacySetActiveAgent(
+            hostedSession,
+            AGENTS.ENGINEER,
+            /** @type {any} */ (legacyCreateAgentHandler(AGENTS.ENGINEER, { hostedSession })),
+            options.uiAPI,
+        );
+        await legacyApplyPendingRootSwap(hostedSession, options.uiAPI);
+    } else {
+        await switchActiveAgent(hostedSession, { agentName: AGENTS.ENGINEER }, options.uiAPI);
+    }
 
     const runContext = [
         SLEEP_PROMPT,
