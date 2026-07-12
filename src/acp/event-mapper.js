@@ -120,6 +120,19 @@ export function mapRuntimeEventToAcpUpdate(event) {
                 }),
             };
         }
+        case RuntimeEventTypes.AGENT_CHANGED: {
+            const agentEvent = /** @type {any} */ (event);
+            return {
+                sessionUpdate: "agent_message_chunk",
+                messageId: messageId(event.sessionId, event),
+                content: { type: "text", text: `Active agent: ${agentEvent.agentName}` },
+                _meta: runtimeMeta(event, {
+                    type: event.type,
+                    agentName: agentEvent.agentName,
+                    model: agentEvent.model,
+                }),
+            };
+        }
         case RuntimeEventTypes.SYSTEM_STATUS:
         case RuntimeEventTypes.CANCELLATION:
         case RuntimeEventTypes.TERMINAL_ERROR: {

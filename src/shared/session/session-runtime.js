@@ -6,6 +6,7 @@
 import { AGENTS } from "../../constants.js";
 import { createAgentHandler } from "./agent-handler.js";
 import { resolveResumeAgentName } from "./active-agent-session.js";
+import { switchActiveAgent } from "./agent-switching.js";
 import { abortActiveSession as abortActiveSessionFn, ensureRootAgentSession } from "./session.js";
 import { SessionHost } from "./session-host.js";
 import { createRootSessionManager, getRootSessionBranchEntries, openPersistedRootSession } from "./root-session.js";
@@ -20,12 +21,13 @@ export const HANDOFF_LIMIT_MESSAGE =
 /**
  * @typedef {Object} SessionRuntimeOptions
  * @property {SessionHost} [sessionHost]
- * @property {(hostedSession: import('./hosted-session.js').HostedSession, uiAPI: import('../types.js').SessionUiPort | undefined) => Promise<void> | void} [applyPendingRootSwap]
+ * @property {typeof switchActiveAgent} [switchActiveAgent]
+ * @property {(hostedSession: import('./hosted-session.js').HostedSession, uiAPI?: import('../types.js').SessionUiPort) => Promise<void>} [applyPendingRootSwap]
  * @property {(hostedSession: import('./hosted-session.js').HostedSession) => boolean} [abortActiveSession]
  * @property {(mode: string, cwd: string) => Promise<any>} [createRootSessionManager]
  * @property {(options: import('./root-session.js').ResolvePersistedRootSessionOptions) => Promise<{ sessionManager: any, resolved: import('./root-session.js').ResolvedPersistedRootSession }>} [openPersistedRootSession]
  * @property {(sessionManager: any) => Promise<string>} [resolveResumeAgentName]
- * @property {(agentName: string, deps: any) => Function} [createAgentHandler]
+ * @property {(agentName: string, deps: any) => import('./types.js').AgentMessageHandler} [createAgentHandler]
  * @property {(opts: any) => Promise<any>} [ensureRootAgentSession]
  */
 
@@ -261,7 +263,7 @@ export class SessionRuntime {
     /** @param {SessionRuntimeOptions} [options] */
     constructor(options = {}) {
         this.sessionHost = options.sessionHost || new SessionHost();
-        this.applyPendingRootSwap = options.applyPendingRootSwap || (() => {});
+        this.switchActiveAgent = options.switchActiveAgent || switchActiveAgent;
         this.abortActiveSession = options.abortActiveSession || abortActiveSessionFn;
         this.createRootSessionManager = options.createRootSessionManager || createRootSessionManager;
         this.openPersistedRootSession = options.openPersistedRootSession || openPersistedRootSession;
@@ -611,6 +613,21 @@ export class SessionRuntime {
         return response;
     }
 
+    /**
+     * @param {string | import('./hosted-session.js').HostedSession} sessionOrId
+     * @param {{ agentName: string, model?: string, allowReturnToRouter?: boolean }} options
+     */
+    async switchAgent(sessionOrId, options) {
+        const session = typeof sessionOrId === "string" ? this.sessionHost.getSession(sessionOrId) : sessionOrId;
+        if (!session) return { ok: false, error: "not_found" };
+        if (session.isTurnActive()) throw new SessionTurnInProgressError(session.id);
+        const uiAPI = this.getSessionUiPort(session);
+        return await this.switchActiveAgent(session, options, uiAPI, {
+            ensureRootAgentSession: this.ensureRootAgentSession,
+            createAgentHandler: /** @type {typeof createAgentHandler} */ (this.createAgentHandler),
+        });
+    }
+
     /** @param {string | import('./hosted-session.js').HostedSession} sessionOrId */
     cancelSession(sessionOrId) {
         const session = typeof sessionOrId === "string" ? this.sessionHost.getSession(sessionOrId) : sessionOrId;
@@ -683,8 +700,6 @@ export class SessionRuntime {
             }
 
             for (let turn = 0; turn <= MAX_CHAINED_HANDOFFS; turn++) {
-                await this.applyPendingRootSwap(hostedSession, uiAPI);
-
                 const handler = hostedSession.getActiveOnMessage();
                 if (!handler) {
                     const message = "Error: No active agent handler or session manager.";
@@ -704,12 +719,15 @@ export class SessionRuntime {
                     return result;
                 }
 
-                await handler(request, images, uiAPI, hostedSession.getRootSessionManager() || undefined);
+                const turnResult = await handler(
+                    request,
+                    images,
+                    uiAPI,
+                    hostedSession.getRootSessionManager() || undefined,
+                );
                 turns++;
 
-                const handoff = hostedSession.consumePendingSwitchHandoff();
-                if (!handoff) {
-                    await this.applyPendingRootSwap(hostedSession, uiAPI);
+                if (!turnResult || turnResult.kind !== "handoff") {
                     ok = true;
                     result = { ok: true, turns, handoffs, handoffLimitReached: false };
                     return result;
@@ -728,7 +746,19 @@ export class SessionRuntime {
                 }
 
                 handoffs++;
-                request = handoff.reason;
+                await this.switchActiveAgent(
+                    hostedSession,
+                    {
+                        agentName: turnResult.agentName,
+                        model: turnResult.model,
+                    },
+                    uiAPI,
+                    {
+                        ensureRootAgentSession: this.ensureRootAgentSession,
+                        createAgentHandler: /** @type {typeof createAgentHandler} */ (this.createAgentHandler),
+                    },
+                );
+                request = turnResult.userRequest;
                 images = [];
             }
 

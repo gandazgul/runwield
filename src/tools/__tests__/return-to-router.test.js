@@ -1,21 +1,11 @@
 import { assertEquals, assertMatch } from "@std/assert";
-import { executeReturnToRouter, returnToRouterTool } from "../return-to-router.js";
-import { HostedSession } from "../../shared/session/hosted-session.js";
-import { getAgentDisplayName, loadAgentDef } from "../../shared/session/agents.js";
 import { AGENTS } from "../../constants.js";
+import { HostedSession } from "../../shared/session/hosted-session.js";
+import { getAgentDisplayName } from "../../shared/session/agents.js";
+import { readLatestReturnToRouterOutcome } from "../../shared/workflow/workflow-results.js";
+import { executeReturnToRouter, returnToRouterTool } from "../return-to-router.js";
 
-/**
- * @param {string} id
- */
-function makeHostedSession(id = "return-router-session") {
-    return new HostedSession({ id, cwd: Deno.cwd() });
-}
-
-/**
- * @param {{ execute: unknown }} tool
- * @param {{ reason: string }} params
- * @param {object} [context]
- */
+/** @param {{ execute: unknown }} tool @param {{ reason: string }} params @param {object} [context] */
 async function executeTool(tool, params, context = {}) {
     const execute =
         /** @type {(id: string, params: { reason: string }, signal: AbortSignal, onUpdate: () => void, context: object) => Promise<{ content: Array<{ type: string, text?: string }>, details: unknown, terminate?: boolean }>} */ (tool
@@ -24,18 +14,14 @@ async function executeTool(tool, params, context = {}) {
 }
 
 function makeMockUiAPI() {
-    let systemMessageCount = 0;
-    const uiAPI = /** @type {import('../../shared/types.js').SessionUiPort} */ ({
-        appendSystemMessage: () => {
-            systemMessageCount += 1;
-        },
+    return /** @type {import('../../shared/types.js').SessionUiPort} */ ({
+        appendSystemMessage: () => {},
         requestRender: () => {},
         appendAgentMessageStart: () => ({ appendText: () => {} }),
         promptSelect: () => Promise.resolve(null),
         promptText: () => Promise.resolve(null),
         showModelSelector: () => {},
     });
-    return { uiAPI, getSystemMessageCount: () => systemMessageCount };
 }
 
 Deno.test("returnToRouterTool exposes expected metadata", () => {
@@ -45,8 +31,6 @@ Deno.test("returnToRouterTool exposes expected metadata", () => {
         returnToRouterTool.description,
         new RegExp(`return the conversation to ${getAgentDisplayName(AGENTS.ROUTER)}`, "i"),
     );
-    assertEquals(typeof returnToRouterTool.execute, "function");
-    assertEquals(typeof returnToRouterTool.parameters, "object");
 });
 
 Deno.test("returnToRouterTool returns error when no HostedSession context is active", async () => {
@@ -60,15 +44,13 @@ Deno.test("returnToRouterTool returns error when no HostedSession context is act
     );
 });
 
-Deno.test("returnToRouterTool terminates the calling turn and records a Router handoff on HostedSession", async () => {
-    const { uiAPI, getSystemMessageCount } = makeMockUiAPI();
-    const hostedSession = makeHostedSession();
-    hostedSession.setRootAgentName(AGENTS.PLANNER);
-
+Deno.test("returnToRouterTool terminates with adapter-neutral Router handoff details", async () => {
+    const hostedSession = new HostedSession({ id: "return-router-session", cwd: Deno.cwd() });
     const reason = "The user wants you to review the architecture of the auth module.";
     /** @type {any[]} */
     const metrics = [];
-    const result = await executeReturnToRouter({ reason }, uiAPI, hostedSession, {
+
+    const result = await executeReturnToRouter({ reason }, makeMockUiAPI(), hostedSession, {
         recordWorkflowMetric: (metric) => {
             metrics.push(metric);
             return Promise.resolve(null);
@@ -77,88 +59,29 @@ Deno.test("returnToRouterTool terminates the calling turn and records a Router h
 
     assertEquals(result.terminate, true);
     assertEquals(result.content.length, 0);
-    assertEquals(/** @type {{ agentName: string, reason: string }} */ (result.details).agentName, AGENTS.ROUTER);
-    assertEquals(/** @type {{ agentName: string, reason: string }} */ (result.details).reason, reason);
-    assertEquals(getSystemMessageCount(), 0);
-
-    const handoff = hostedSession.consumePendingSwitchHandoff();
-    assertEquals(handoff?.agentName, AGENTS.ROUTER);
-    assertEquals(handoff?.reason, reason);
-    assertEquals(metrics.length, 1);
-    assertEquals(metrics[0].category, "routing");
+    assertEquals(result.details, { agentName: AGENTS.ROUTER, reason });
+    assertEquals(hostedSession.getActiveOnMessage(), null);
+    assertEquals(hostedSession.getRootAgentName(), null);
     assertEquals(metrics[0].event, "return_to_router");
-    assertEquals(metrics[0].details.hasReason, true);
 });
 
-Deno.test("executeReturnToRouter installs the normal Router agent handler on HostedSession", async () => {
-    const { uiAPI } = makeMockUiAPI();
-    const hostedSession = makeHostedSession();
-    hostedSession.setRootAgentName(AGENTS.PLANNER);
-    const routerHandler = async () => {};
+Deno.test("readLatestReturnToRouterOutcome reads only current-turn Router handoffs", () => {
+    const messages = /** @type {import('@earendil-works/pi-agent-core').AgentMessage[]} */ ([
+        { role: "toolResult", toolName: "return_to_router", details: { agentName: AGENTS.ROUTER, reason: "old" } },
+        { role: "assistant", content: [{ type: "text", text: "later" }] },
+        { role: "toolResult", toolName: "return_to_router", details: { agentName: AGENTS.ROUTER, reason: "new" } },
+    ]);
 
-    await executeReturnToRouter(
-        { reason: "The user wants you to triage this request from scratch." },
-        uiAPI,
-        hostedSession,
-        { createAgentHandler: () => routerHandler },
-    );
-
-    assertEquals(hostedSession.getActiveOnMessage(), routerHandler);
-});
-
-Deno.test("returnToRouterTool queues Router's model on the HostedSession pending root swap", async () => {
-    const { uiAPI } = makeMockUiAPI();
-    const hostedSession = makeHostedSession();
-    hostedSession.setRootAgentName(AGENTS.ENGINEER);
-
-    await executeReturnToRouter(
-        { reason: "The user wants you to triage this request from scratch." },
-        uiAPI,
-        hostedSession,
-    );
-
-    const routerDef = await loadAgentDef(AGENTS.ROUTER);
-    const pending = hostedSession.getPendingRootSwap();
-    assertEquals(pending?.agentName, AGENTS.ROUTER);
-    assertEquals(pending?.model, routerDef.model || undefined);
+    assertEquals(readLatestReturnToRouterOutcome(messages, 1), { agentName: AGENTS.ROUTER, reason: "new" });
+    assertEquals(readLatestReturnToRouterOutcome(messages, 3), null);
 });
 
 Deno.test("returnToRouterTool uses HostedSession and UI from tool context", async () => {
-    const { uiAPI } = makeMockUiAPI();
-    const hostedSession = makeHostedSession();
-    hostedSession.setRootAgentName(AGENTS.ENGINEER);
+    const hostedSession = new HostedSession({ id: "context-session", cwd: Deno.cwd() });
     const reason = "The user wants you to triage this request from scratch.";
 
-    const result = await executeTool(returnToRouterTool, { reason }, { uiAPI, hostedSession });
+    const result = await executeTool(returnToRouterTool, { reason }, { uiAPI: makeMockUiAPI(), hostedSession });
 
     assertEquals(result.terminate, true);
-    assertEquals(hostedSession.consumePendingSwitchHandoff()?.reason, reason);
-    assertEquals(hostedSession.getPendingRootSwap()?.agentName, AGENTS.ROUTER);
-});
-
-Deno.test("executeReturnToRouter mutates only the target HostedSession", async () => {
-    const { uiAPI } = makeMockUiAPI();
-    const target = makeHostedSession("target-return-router-session");
-    const other = makeHostedSession("other-return-router-session");
-    const otherHandler = async () => {};
-    target.setRootAgentName(AGENTS.ENGINEER);
-    other.setRootAgentName(AGENTS.PLANNER);
-    other.setActiveOnMessage(otherHandler);
-    other.setPendingRootSwap({ agentName: AGENTS.PLANNER, displayName: "Planner" });
-    other.setPendingSwitchHandoff({ agentName: AGENTS.PLANNER, reason: "keep this handoff" });
-
-    const targetHandler = async () => {};
-    await executeReturnToRouter(
-        { reason: "The user wants you to triage this in isolation." },
-        uiAPI,
-        target,
-        { createAgentHandler: () => targetHandler },
-    );
-
-    assertEquals(target.getActiveOnMessage(), targetHandler);
-    assertEquals(target.getPendingRootSwap()?.agentName, AGENTS.ROUTER);
-    assertEquals(target.consumePendingSwitchHandoff()?.agentName, AGENTS.ROUTER);
-    assertEquals(other.getActiveOnMessage(), otherHandler);
-    assertEquals(other.getPendingRootSwap()?.agentName, AGENTS.PLANNER);
-    assertEquals(other.consumePendingSwitchHandoff()?.reason, "keep this handoff");
+    assertEquals(result.details, { agentName: AGENTS.ROUTER, reason });
 });

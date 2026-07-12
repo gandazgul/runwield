@@ -1,5 +1,5 @@
 import { assertEquals, assertRejects } from "@std/assert";
-import { applyPendingRootSwap } from "./agent-switching.js";
+import { applyPendingRootSwap, setActiveAgent } from "./agent-switching.js";
 import { HostedSession } from "./hosted-session.js";
 
 function makePendingSession() {
@@ -7,6 +7,25 @@ function makePendingSession() {
     hostedSession.setPendingRootSwap({ agentName: "operator", displayName: "Operator" });
     return hostedSession;
 }
+
+Deno.test("setActiveAgent clears stale pending root swap when target root is already active", () => {
+    const hostedSession = new HostedSession({ id: "clear-stale-root-swap", cwd: Deno.cwd() });
+    const handler = () => {};
+    let renderRequests = 0;
+    hostedSession.setRootAgentName("engineer");
+    hostedSession.setPendingRootSwap({ agentName: "planner", displayName: "Planner" });
+
+    setActiveAgent(
+        hostedSession,
+        "engineer",
+        handler,
+        /** @type {any} */ ({ requestRender: () => renderRequests++ }),
+    );
+
+    assertEquals(hostedSession.getActiveOnMessage(), handler);
+    assertEquals(hostedSession.getPendingRootSwap(), null);
+    assertEquals(renderRequests, 1);
+});
 
 Deno.test("applyPendingRootSwap treats disposal during a root build as shutdown", async () => {
     const hostedSession = makePendingSession();

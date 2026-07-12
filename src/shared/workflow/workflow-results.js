@@ -71,6 +71,43 @@ export function extractAssistantOutput(messages) {
 }
 
 /**
+ * @typedef {Object} ReturnToRouterOutcome
+ * @property {string} agentName
+ * @property {string} reason
+ */
+
+/**
+ * Read the latest return_to_router tool result from a message stream.
+ *
+ * @param {import('@earendil-works/pi-agent-core').AgentMessage[]} messages
+ * @param {number} [fromIndex]
+ * @returns {ReturnToRouterOutcome | null}
+ */
+export function readLatestReturnToRouterOutcome(messages, fromIndex) {
+    const start = fromIndex != null && fromIndex <= messages.length ? fromIndex : 0;
+    for (let i = messages.length - 1; i >= start; i--) {
+        const msg = messages[i];
+        if (
+            msg && "role" in msg && msg.role === "toolResult" &&
+            "toolName" in msg && msg.toolName === "return_to_router"
+        ) {
+            const details = /** @type {{ agentName?: unknown, reason?: unknown }} */ (
+                /** @type {{ details?: unknown }} */ (msg).details || {}
+            );
+            if (typeof details.reason === "string" && details.reason.trim()) {
+                return {
+                    agentName: typeof details.agentName === "string" && details.agentName
+                        ? details.agentName
+                        : "router",
+                    reason: details.reason,
+                };
+            }
+        }
+    }
+    return null;
+}
+
+/**
  * @typedef {"approved" | "feedback"} ReviewOutcome
  */
 

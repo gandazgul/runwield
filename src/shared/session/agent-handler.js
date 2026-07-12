@@ -11,6 +11,7 @@ import {
     readLatestTaskCompletedOutcome as readLatestTaskCompletedOutcomeFn,
     runSlicerAgent as runSlicerAgentFn,
 } from "../workflow/workflow.js";
+import { readLatestReturnToRouterOutcome } from "../workflow/workflow-results.js";
 import {
     dispatchPostTriage as dispatchPostTriageFn,
     readLatestTriageOutcome as readLatestTriageOutcomeFn,
@@ -112,9 +113,8 @@ export function createAgentHandler(agentName, __deps) {
             return recordWorkflowMetricSource(metric, { cwd: projectRoot, ...deps });
         }
 
-        // If the live root is already this agent (the common case after a switch has been
-        // applied), reuse it. Otherwise fall back to a transient invocation — this can happen
-        // before the first applyPendingRootSwap (e.g. mid-turn from a workflow sub-step).
+        // If the live root is already this agent, reuse it. Otherwise fall back
+        // to a transient invocation for workflow sub-steps.
         const useRoot = hostedSession.getRootAgentName() === agentName;
 
         // Capture the pre-turn message count so we only consider plan_written outcomes
@@ -143,6 +143,15 @@ export function createAgentHandler(agentName, __deps) {
                 ...sessionOptions,
             });
 
+        const routerHandoff = readLatestReturnToRouterOutcome(messages, preTurnCount);
+        if (routerHandoff) {
+            return {
+                kind: "handoff",
+                agentName: routerHandoff.agentName,
+                userRequest: routerHandoff.reason,
+            };
+        }
+
         const triage = readLatestTriageOutcome(messages, preTurnCount);
         if (triage) {
             await dispatchPostTriage({
@@ -161,7 +170,7 @@ export function createAgentHandler(agentName, __deps) {
                     recordWorkflowMetric: recordWorkflowMetricImpl,
                 },
             });
-            return;
+            return { kind: "complete" };
         }
 
         // If the agent's plan_written returned approved_execute, dispatch the plan.
@@ -212,7 +221,7 @@ export function createAgentHandler(agentName, __deps) {
                 );
             }
             requestAgentStoppedAttention();
-            return;
+            return { kind: "complete" };
         }
         if (planningDecision.kind === "execute_plan") {
             await recordWorkflowMetricImpl({
@@ -256,10 +265,8 @@ export function createAgentHandler(agentName, __deps) {
                     uiAPI,
                 );
                 requestAgentStoppedAttention();
-                return;
+                return { kind: "complete" };
             }
-
-            hostedSession.consumePendingSwitchHandoff(); // Drain any switch requests from execution sub-agents
 
             let planContent = "";
             try {
@@ -343,7 +350,7 @@ export function createAgentHandler(agentName, __deps) {
                 );
                 requestAgentStoppedAttention();
             }
-            return;
+            return { kind: "complete" };
         }
 
         if (planningDecision.kind === "stay_with_agent" || planningDecision.kind === "save_plan") {
@@ -363,7 +370,7 @@ export function createAgentHandler(agentName, __deps) {
         }
 
         if (outcome) {
-            return;
+            return { kind: "complete" };
         }
 
         // If the agent declared they finished an assigned workflow task
@@ -372,7 +379,7 @@ export function createAgentHandler(agentName, __deps) {
             const workflow = hostedSession.getActiveExecutionWorkflow();
             if (workflow && !canCompleteActiveExecutionWorkflow(agentName)) {
                 requestAgentStoppedAttention();
-                return;
+                return { kind: "complete" };
             }
 
             if (workflow?.triageMeta?.classification === "QUICK_FIX") {
@@ -384,13 +391,13 @@ export function createAgentHandler(agentName, __deps) {
                     cwd: workflow.executionCwd || projectRoot,
                 });
                 requestAgentStoppedAttention();
-                return;
+                return { kind: "complete" };
             }
 
             if (workflow && !shouldRunWorkflowValidation(workflow.triageMeta)) {
                 hostedSession.clearActiveExecutionWorkflow();
                 requestAgentStoppedAttention();
-                return;
+                return { kind: "complete" };
             }
 
             if (workflow) {
@@ -419,7 +426,7 @@ export function createAgentHandler(agentName, __deps) {
                                 "RunWield",
                             );
                             requestAgentStoppedAttention();
-                            return;
+                            return { kind: "complete" };
                         }
                     }
                 }
@@ -439,5 +446,6 @@ export function createAgentHandler(agentName, __deps) {
         }
 
         requestAgentStoppedAttention();
+        return { kind: "complete" };
     };
 }
