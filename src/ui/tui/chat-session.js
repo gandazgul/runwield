@@ -163,6 +163,160 @@ export function shouldShowFooterThinkingLevel(modelStr, thinkingLevel) {
     return Boolean(modelStr) && thinkingLevel !== "off";
 }
 
+const FOOTER_WORKFLOW_EXCLUDED_AGENT_NAMES = new Set([AGENTS.IDEATOR, AGENTS.OPERATOR, AGENTS.GUIDE]);
+const FOOTER_WORKFLOW_EXCLUDED_DISPLAY_NAMES = new Set(["ideator", "operator", "guide"]);
+
+const FOOTER_ROUTING_META = new Map([
+    ["QUICK_FIX", { label: "Quick Fix", token: "routingQuickFix" }],
+    ["FEATURE", { label: "Feature", token: "routingFeature" }],
+    ["PROJECT", { label: "Epic", token: "routingEpic" }],
+]);
+
+const FOOTER_COMPLEXITY_META = new Map([
+    ["LOW", { label: "Low", token: "complexityLow" }],
+    ["MEDIUM", { label: "Medium", token: "complexityMedium" }],
+    ["HIGH", { label: "High", token: "complexityHigh" }],
+]);
+
+/**
+ * @typedef {Object} FooterWorkflowPart
+ * @property {string} text
+ * @property {string} token
+ */
+
+/**
+ * @param {{ displayName?: string, agentName?: string } | null | undefined} agentInfo
+ * @returns {boolean}
+ */
+export function shouldShowFooterWorkflowContext(agentInfo) {
+    const agentName = typeof agentInfo?.agentName === "string" ? agentInfo.agentName.trim().toLowerCase() : "";
+    if (agentName) return !FOOTER_WORKFLOW_EXCLUDED_AGENT_NAMES.has(agentName);
+    const displayName = typeof agentInfo?.displayName === "string" ? agentInfo.displayName.trim().toLowerCase() : "";
+    return !FOOTER_WORKFLOW_EXCLUDED_DISPLAY_NAMES.has(displayName);
+}
+
+/**
+ * @param {FooterWorkflowPart[]} parts
+ * @returns {string}
+ */
+export function getFooterWorkflowLabelText(parts) {
+    return parts.map((part) => part.text).join("");
+}
+
+/**
+ * @param {{ displayName?: string, agentName?: string } | null | undefined} agentInfo
+ * @param {{ routingIntent?: string, complexity?: string, planName?: string } | null | undefined} workflowContext
+ * @param {number} maxWidth
+ * @returns {FooterWorkflowPart[]}
+ */
+export function buildFooterWorkflowLabelParts(agentInfo, workflowContext, maxWidth = Infinity) {
+    const agentName = typeof agentInfo?.displayName === "string" && agentInfo.displayName.trim()
+        ? agentInfo.displayName.trim()
+        : "";
+    const width = Number.isFinite(maxWidth) ? Math.max(0, Math.floor(maxWidth)) : Infinity;
+    if (!agentName || width <= 0) return [];
+
+    const routeMeta = FOOTER_ROUTING_META.get(String(workflowContext?.routingIntent || ""));
+    const complexityMeta = FOOTER_COMPLEXITY_META.get(String(workflowContext?.complexity || ""));
+    const planName = typeof workflowContext?.planName === "string" ? workflowContext.planName.trim() : "";
+    const showContext = shouldShowFooterWorkflowContext(agentInfo);
+    const showRouting = Boolean(showContext && routeMeta && complexityMeta);
+    const showPlan = showContext && Boolean(planName);
+
+    if (!showRouting && !showPlan) {
+        return [{ text: truncateToWidth(agentName, width), token: "accent" }];
+    }
+
+    /**
+     * @param {{ includeComplexity: boolean, includePlan: boolean, planText?: string }} options
+     * @returns {FooterWorkflowPart[]}
+     */
+    function compose(options) {
+        /** @type {FooterWorkflowPart[]} */
+        const parts = [{ text: agentName, token: "accent" }];
+        if (showRouting) {
+            parts.push({ text: " - ", token: "dim" });
+            if (options.includeComplexity) {
+                parts.push({
+                    text: /** @type {{ label: string }} */ (complexityMeta).label,
+                    token: /** @type {{ token: string }} */ (complexityMeta).token,
+                });
+                parts.push({ text: " ", token: "dim" });
+            }
+            parts.push({
+                text: /** @type {{ label: string }} */ (routeMeta).label,
+                token: /** @type {{ token: string }} */ (routeMeta).token,
+            });
+        }
+        if (options.includePlan) {
+            parts.push({ text: " - ", token: "dim" });
+            parts.push({ text: options.planText || planName, token: "dim" });
+        }
+        return parts;
+    }
+
+    let parts = compose({ includeComplexity: true, includePlan: showPlan });
+    if (visibleWidth(getFooterWorkflowLabelText(parts)) <= width) return parts;
+
+    if (showPlan) {
+        const withoutPlan = compose({ includeComplexity: true, includePlan: false });
+        const prefixWidth = visibleWidth(getFooterWorkflowLabelText(withoutPlan)) + visibleWidth(" - ");
+        const planMax = width - prefixWidth;
+        if (planMax > 0) {
+            parts = compose({
+                includeComplexity: true,
+                includePlan: true,
+                planText: truncateToWidth(planName, planMax),
+            });
+            if (visibleWidth(getFooterWorkflowLabelText(parts)) <= width) return parts;
+        }
+        parts = withoutPlan;
+        if (visibleWidth(getFooterWorkflowLabelText(parts)) <= width) return parts;
+    }
+
+    if (showRouting) {
+        parts = compose({ includeComplexity: false, includePlan: false });
+        if (visibleWidth(getFooterWorkflowLabelText(parts)) <= width) return parts;
+    }
+
+    return [{ text: truncateToWidth(getFooterWorkflowLabelText(parts), width), token: "accent" }];
+}
+
+/**
+ * @param {FooterWorkflowPart[]} parts
+ * @param {{ fg?: (token: import('@earendil-works/pi-coding-agent').ThemeColor, text: string) => string }} [themeImpl]
+ * @returns {string}
+ */
+export function renderFooterWorkflowLabelParts(parts, themeImpl = theme) {
+    return parts.map((part) => {
+        const token = /** @type {import('@earendil-works/pi-coding-agent').ThemeColor} */ (part.token);
+        return themeImpl.fg ? themeImpl.fg(token, part.text) : part.text;
+    }).join("");
+}
+
+/**
+ * @param {{ displayName?: string, agentName?: string } | null | undefined} agentInfo
+ * @param {{ routingIntent?: string, complexity?: string, planName?: string } | null | undefined} workflowContext
+ * @param {string} leftRaw
+ * @param {number} width
+ * @returns {{ left: string, rightParts: FooterWorkflowPart[] }}
+ */
+export function buildFooterLine1Parts(agentInfo, workflowContext, leftRaw, width) {
+    const priorityRightParts = buildFooterWorkflowLabelParts(
+        agentInfo,
+        workflowContext ? { ...workflowContext, planName: "" } : workflowContext,
+        Infinity,
+    );
+    const priorityRightWidth = visibleWidth(getFooterWorkflowLabelText(priorityRightParts));
+    const leftMax = Math.max(0, width - priorityRightWidth - 1);
+    const left = truncateToWidth(leftRaw, leftMax);
+    const rightMax = Math.max(0, width - visibleWidth(left) - 1);
+    return {
+        left,
+        rightParts: buildFooterWorkflowLabelParts(agentInfo, workflowContext, rightMax),
+    };
+}
+
 /**
  * @param {any} rootSession
  * @param {Iterable<any>} subAgentSessions
@@ -722,22 +876,34 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
             const modelStr = model
                 ? provider && !model.startsWith(`${provider}/`) ? `${provider}/${model}` : model
                 : "";
-            const activeAgentName = hostedSession.getActiveAgentName() ||
-                (hostedSession.getRootAgentName()
-                    ? getAgentDisplayName(/** @type {string} */ (hostedSession.getRootAgentName()), hostedSession.cwd)
-                    : "");
+            const activeAgentInfo = hostedSession.getActiveAgentInfo?.() || {
+                displayName: hostedSession.getActiveAgentName() ||
+                    (hostedSession.getRootAgentName()
+                        ? getAgentDisplayName(
+                            /** @type {string} */ (hostedSession.getRootAgentName()),
+                            hostedSession.cwd,
+                        )
+                        : ""),
+                agentName: hostedSession.getRootAgentName() || "",
+            };
 
-            // Right block (agent name) is always pinned flush to the right edge.
-            // The left block (cwd/branch) is truncated when it would collide,
-            // so the right segment never gets pushed inward on long content.
-            const line1RightWidth = visibleWidth(activeAgentName);
+            // Right block (agent/workflow label) is always pinned flush to the
+            // right edge. The left block (cwd/branch) is truncated when it would
+            // collide, so the right segment never gets pushed inward on long
+            // content.
             const line1LeftRaw = `${cwd} (${branch})`;
-            const line1LeftMax = Math.max(0, w - line1RightWidth - 1);
-            const line1Left = truncateToWidth(line1LeftRaw, line1LeftMax);
+            const { left: line1Left, rightParts: line1RightParts } = buildFooterLine1Parts(
+                activeAgentInfo,
+                hostedSession.getWorkflowContext?.(),
+                line1LeftRaw,
+                w,
+            );
+            const line1RightText = getFooterWorkflowLabelText(line1RightParts);
+            const line1RightWidth = visibleWidth(line1RightText);
             const line1Pad = Math.max(1, w - visibleWidth(line1Left) - line1RightWidth);
             const line1 = theme.fg("dim", line1Left) +
                 " ".repeat(line1Pad) +
-                theme.fg("accent", activeAgentName);
+                renderFooterWorkflowLabelParts(line1RightParts);
 
             // ── Token consumption data (Pi.dev-style footer) ──
             const sessions = getFooterSessions(
