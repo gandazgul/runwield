@@ -139,7 +139,7 @@ export function createPlanWrittenTool(
             "revise in this same session.",
         parameters: TOOL_PARAMS,
         async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-            const planName = String(params.planName || "").replace(/\.md$/i, "").trim();
+            const planName = String(params.planName || "").trim().replace(/^plans\//i, "").replace(/\.md$/i, "").trim();
 
             if (!planName) {
                 return textResult(
@@ -160,6 +160,12 @@ export function createPlanWrittenTool(
                 return textResult(
                     `plan_written: plans/${planName}.md not found. Write the plan first using the write tool, then call plan_written.`,
                 );
+            }
+
+            try {
+                hostedSession?.setWorkflowPlanName?.(planName);
+            } catch (_e) {
+                // Footer-context persistence is fail-open and must not block Plan review.
             }
 
             const effectiveMeta = await resolveTriageMeta(triageMeta, planName, cwd);

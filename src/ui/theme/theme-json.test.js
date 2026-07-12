@@ -83,6 +83,23 @@ Deno.test("splitFgBgColors separates Pi foreground and background tokens", () =>
     assertEquals(split.bgColors, { selectedBg: "#111111", toolErrorBg: 52 });
 });
 
+Deno.test("embedded theme supplies workflow footer tokens and partial overrides can replace them", async () => {
+    const base = JSON.parse(await Deno.readTextFile(new URL("./catppuccin-mocha.json", import.meta.url)));
+    const merged = mergeThemeJson(base, {
+        name: "custom-workflow",
+        vars: { custom: "#123456" },
+        colors: { routingFeature: "custom" },
+    });
+    const resolved = resolveThemeVars(merged);
+
+    assertEquals(resolved.colors.routingQuickFix, "#94e2d5");
+    assertEquals(resolved.colors.routingFeature, "#123456");
+    assertEquals(resolved.colors.routingEpic, "#cba6f7");
+    assertEquals(resolved.colors.complexityLow, "#a6e3a1");
+    assertEquals(resolved.colors.complexityMedium, "#f9e2af");
+    assertEquals(resolved.colors.complexityHigh, "#f38ba8");
+});
+
 Deno.test("createThemeFromJson constructs a Theme from resolved foreground and background colors", () => {
     class FakeTheme {
         /** @param {Record<string, string | number>} fgColors @param {Record<string, string | number>} bgColors @param {string} colorMode @param {{ name?: string }} options */
