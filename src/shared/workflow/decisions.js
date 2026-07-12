@@ -5,7 +5,7 @@
  */
 
 /**
- * @typedef {"execute_plan"|"save_plan"|"run_validation"|"repair_plan"|"stay_with_agent"|"halt"} WorkflowDecisionKind
+ * @typedef {"execute_plan"|"start_slicer"|"save_plan"|"run_validation"|"repair_plan"|"stay_with_agent"|"halt"} WorkflowDecisionKind
  */
 
 /**
@@ -74,6 +74,19 @@ export function decidePostPlanning(planOutcome, { planningAgentName, fallbackTri
         };
         if (planOutcome.tasks) payload.tasks = planOutcome.tasks;
         return decision("execute_plan", payload);
+    }
+
+    if (outcome === "approved_decompose") {
+        if (!planOutcome?.planName) {
+            return decision("stay_with_agent", {
+                agentName: planningAgentName,
+                reason: "missing_plan_declaration",
+            });
+        }
+        return decision("start_slicer", {
+            planName: planOutcome.planName,
+            triageMeta: planOutcome.triageMeta || fallbackTriageMeta || {},
+        });
     }
 
     if (outcome === "saved") {

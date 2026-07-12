@@ -225,6 +225,30 @@ Deno.test("agent-handler does NOT call executePlan when outcome is saved", async
     assertEquals(executeCount, 0);
 });
 
+Deno.test("agent-handler starts Slicer after Architect returns approved_decompose", async () => {
+    /** @type {any} */
+    let slicerArgs = null;
+    const sessionManager = /** @type {any} */ ({ id: "root-history" });
+    const handler = createAgentHandler("architect", {
+        runAgentSession: () => Promise.resolve(/** @type {any} */ ([])),
+        readLatestPlanOutcome: () => /** @type {any} */ ({
+            outcome: "approved_decompose",
+            planName: "epic-a",
+            triageMeta: { classification: "PROJECT", type: "epic" },
+        }),
+        runSlicerAgent: (/** @type {any} */ args) => {
+            slicerArgs = args;
+            return Promise.resolve({ ok: true });
+        },
+    });
+
+    await handler("req", [], /** @type {any} */ ({}), sessionManager);
+
+    assertEquals(slicerArgs.planName, "epic-a");
+    assertEquals(slicerArgs.triageMeta, { classification: "PROJECT", type: "epic" });
+    assertEquals(slicerArgs.sessionManager, sessionManager);
+});
+
 Deno.test("agent-handler does NOT call executePlan when outcome is feedback", async () => {
     let executeCount = 0;
     const handler = createAgentHandler("architect", {

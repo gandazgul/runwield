@@ -437,6 +437,46 @@ Deno.test("dispatchPostTriage keeps planning agent active on stay/save/halt deci
     }
 });
 
+Deno.test("dispatchPostTriage starts Slicer after PROJECT planning completes", async () => {
+    const uiAPI = makeUi();
+    /** @type {any} */
+    let slicerArgs = null;
+    const sessionManager = /** @type {any} */ ({ id: "root-history" });
+
+    await dispatchPostTriage({
+        hostedSession: makeHostedSession(),
+        triage: {
+            routingIntent: "PROJECT",
+            classification: "PROJECT",
+            complexity: "HIGH",
+            summary: "project",
+            affectedPaths: ["src/project.js"],
+        },
+        userRequest: "Design it",
+        images: [],
+        uiAPI,
+        sessionManager,
+        __deps: /** @type {any} */ ({
+            ensurePlansDir: () => Promise.resolve("/plans"),
+            runPlanningAgent: () => Promise.resolve({ outcome: "approved_decompose", planName: "epic-a" }),
+            decidePostPlanning: () => ({
+                kind: "start_slicer",
+                payload: {
+                    planName: "epic-a",
+                    triageMeta: { routingIntent: "PROJECT", classification: "PROJECT", type: "epic" },
+                },
+            }),
+            runSlicerAgent: (/** @type {any} */ args) => {
+                slicerArgs = args;
+                return Promise.resolve({ ok: true });
+            },
+        }),
+    });
+
+    assertEquals(slicerArgs.planName, "epic-a");
+    assertEquals(slicerArgs.sessionManager, sessionManager);
+});
+
 Deno.test("dispatchPostTriage executes approved FEATURE plans and runs validation", async () => {
     const uiAPI = makeUi();
     /** @type {unknown[]} */

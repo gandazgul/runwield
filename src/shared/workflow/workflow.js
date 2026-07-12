@@ -33,6 +33,7 @@ export {
 } from "./task-scheduling.js";
 // Slicer-facing helpers are re-exported from the workflow facade for callers that should not import submodules.
 export {
+    beginSlicerContextPhase,
     createSlicerFinalizeTool,
     ensureSlicerTasks,
     materializeSlicerDraft,
@@ -62,7 +63,7 @@ export {
  */
 
 /**
- * @typedef {"approved_execute" | "saved" | "feedback" | "canceled" | "repair_required" | "no_call"} PlanOutcome
+ * @typedef {"approved_execute" | "approved_decompose" | "saved" | "feedback" | "canceled" | "repair_required" | "no_call"} PlanOutcome
  */
 
 /**

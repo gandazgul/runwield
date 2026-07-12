@@ -118,7 +118,7 @@ export function readLatestReviewOutcome(messages, fromIndex) {
 }
 
 /**
- * @typedef {"approved_execute" | "saved" | "feedback" | "canceled" | "repair_required" | "no_call"} PlanOutcome
+ * @typedef {"approved_execute" | "approved_decompose" | "saved" | "feedback" | "canceled" | "repair_required" | "no_call"} PlanOutcome
  */
 
 /**

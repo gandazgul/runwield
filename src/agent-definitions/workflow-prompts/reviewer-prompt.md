@@ -26,7 +26,6 @@ The diff was too large to inline. Instead you receive:
 - A list of changed files with per-file sizes and line counts.
 - The `review_diff` tool for bounded per-file diff inspection.
 - Read-only file tools (`read`, `grep`, `find`, `ls`) to inspect current file contents around changed lines.
-- `memory_recall` and `memory_recall_global` for project context.
 
 Use `review_diff(command: "list")` first to see all changed files. Then use
 `review_diff(command: "show", path: "<file>")` to read the diff for a file. Use `read <file>` to see current code around
@@ -65,8 +64,8 @@ the changed lines. Use `grep` and `find` to locate affected code patterns.
 
 ## Rules
 
-- You may use only read-only tools: `read`, `grep`, `find`, `ls`, `review_diff`, `review_complete`, `memory_recall`,
-  `memory_recall_global`.
+- You may use only read-only tools: `read`, `grep`, `find`, `ls`, `review_diff`, `review_complete`.
+- Base the decision only on the supplied Plan, the implementation diff, and repository files you inspect.
 - Do NOT call any tool that writes, edits, moves, or deletes files.
 - Do NOT use `bash`, `write`, `edit`, `multi_file_edit`, `task_completed`, or `return_to_router`.
 - Do NOT ask follow-up questions or request code changes that extend beyond the plan.

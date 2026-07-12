@@ -18,6 +18,64 @@ import { isEpicPlan, recordPlanEvent } from "./plan-lifecycle.js";
 export const __dirname = dirname(fromFileUrl(import.meta.url));
 const WORKFLOW_PROMPTS_DIR = "workflow-prompts";
 const SLICER_PROMPT_FILE = "slicer-prompt.md";
+const SLICER_CONTEXT_BOUNDARY_SUMMARY = [
+    "Slicer phase context boundary.",
+    "Earlier Router, Architect, and other-agent conversation was intentionally omitted.",
+    "Use the next user message as the authoritative Epic handoff, then rely only on repository evidence and subsequent Slicer/user messages.",
+].join(" ");
+
+/** @param {unknown} entry */
+function isActiveSlicerContextBoundary(entry) {
+    if (!entry || typeof entry !== "object" || !("type" in entry) || entry.type !== "compaction") return false;
+    if (!("details" in entry) || !entry.details || typeof entry.details !== "object") return false;
+    return "kind" in entry.details && entry.details.kind === "agent_context_boundary" &&
+        "agentName" in entry.details && entry.details.agentName === AGENTS.SLICER;
+}
+
+/**
+ * Start a persisted Slicer-only model-context phase inside the existing session.
+ * The prior transcript remains stored and renderable, while Pi's compaction-aware
+ * context begins at this boundary for root rebuilds and resumed turns.
+ *
+ * @param {Object} opts
+ * @param {string} opts.planName
+ * @param {import('../session/hosted-session.js').HostedSession} opts.hostedSession
+ * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined} opts.sessionManager
+ * @returns {{ manager: import('@earendil-works/pi-coding-agent').SessionManager, previousLeafId: string | null } | null}
+ */
+export function beginSlicerContextPhase({ planName, hostedSession, sessionManager }) {
+    const manager = sessionManager ||
+        /** @type {import('@earendil-works/pi-coding-agent').SessionManager | null} */ (
+            hostedSession.getRootSessionManager?.() || null
+        );
+    if (!manager || typeof manager.appendCompaction !== "function") return null;
+    const alreadyInSlicerPhase = manager.buildContextEntries?.().some(isActiveSlicerContextBoundary);
+    if (hostedSession.getRootAgentName() === AGENTS.SLICER && alreadyInSlicerPhase) return null;
+    const existingMessages = manager.buildSessionContext?.().messages;
+    if (!Array.isArray(existingMessages) || existingMessages.length === 0) return null;
+
+    const previousLeafId = manager.getLeafId?.() || null;
+    const rootSession = /** @type {any} */ (hostedSession.getRootAgentSession?.());
+    const usage = rootSession?.getContextUsage?.();
+    const tokensBefore = typeof usage?.tokens === "number" ? usage.tokens : 0;
+    manager.appendCompaction(
+        SLICER_CONTEXT_BOUNDARY_SUMMARY,
+        "",
+        tokensBefore,
+        { kind: "agent_context_boundary", agentName: AGENTS.SLICER, planName },
+        false,
+    );
+    return { manager, previousLeafId };
+}
+
+/**
+ * @param {{ manager: import('@earendil-works/pi-coding-agent').SessionManager, previousLeafId: string | null } | null} boundary
+ */
+function restoreFailedSlicerContextPhase(boundary) {
+    if (!boundary) return;
+    if (boundary.previousLeafId) boundary.manager.branch?.(boundary.previousLeafId);
+    else boundary.manager.resetLeaf?.();
+}
 
 const CHILD_DESCRIPTOR_SCHEMA = Type.Object({
     title: Type.String({ description: "Child FEATURE title." }),
@@ -258,6 +316,8 @@ export async function runSlicerAgent({ planName, triageMeta, uiAPI, hostedSessio
     const slicerAgentDef = await loadSlicerAgentDef(__deps);
 
     const slicerDisplay = slicerAgentDef.displayName;
+    const previousAgentName = hostedSession.getRootAgentName();
+    let boundary = null;
 
     try {
         const epic = await loadEpic(projectRoot, planName);
@@ -266,6 +326,7 @@ export async function runSlicerAgent({ planName, triageMeta, uiAPI, hostedSessio
         const children = (await findChildren(projectRoot, planName))
             .filter((child) => child.attrs.classification === "FEATURE")
             .map(summarizeChild);
+        boundary = beginSlicerContextPhase({ planName, hostedSession, sessionManager });
 
         await session({
             hostedSession,
@@ -280,7 +341,7 @@ export async function runSlicerAgent({ planName, triageMeta, uiAPI, hostedSessio
             }),
             triageMeta,
             uiAPI,
-            sessionManager,
+            sessionManager: boundary?.manager || sessionManager,
             _agentDefOverride: slicerAgentDef,
             customTools: createSlicerCustomTools(planName, projectRoot, __deps),
             useRootSession: true,
@@ -301,6 +362,15 @@ export async function runSlicerAgent({ planName, triageMeta, uiAPI, hostedSessio
         );
         return { ok: true };
     } catch (e) {
+        restoreFailedSlicerContextPhase(boundary);
+        if (previousAgentName && hostedSession.getRootAgentName() !== previousAgentName) {
+            setActive(
+                hostedSession,
+                previousAgentName,
+                createAgentHandler(previousAgentName, { hostedSession }),
+                uiAPI,
+            );
+        }
         const error = e instanceof Error ? e.message : String(e);
         uiAPI.appendSystemMessage(`${slicerDisplay} failed: ${error}`, true, "RunWield");
         return { ok: false, error };
