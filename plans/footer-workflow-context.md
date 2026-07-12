@@ -17,13 +17,13 @@ affectedPaths:
     - "src/ui/theme/theme-json.test.js"
     - "src/ui/tui/chat-session.test.js"
 frontend: false
-devServerCommand: null
-devServerUrl: null
-devServerHmr: null
 createdAt: "2026-07-10T10:18:06-04:00"
-updatedAt: "2026-07-10T16:10:09.056Z"
-status: "feedback"
+updatedAt: "2026-07-12T17:21:36.953Z"
+status: "verified"
 origin: "internal"
+verifiedAt: "2026-07-12T17:21:36.953Z"
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
 routingIntent: "FEATURE"
 sessionName: "footer workflow context"
 ---
@@ -72,11 +72,12 @@ invalid declarations from polluting the footer. A later Triage Report replaces t
 clears any stale Plan name; `/new` naturally receives a new `HostedSession` and empty context, while resumed sessions
 recover the latest persisted marker.
 
-Extract pure footer-label helpers from `chat-session.js` so visibility, labels, styling segments, and width behavior can
-be tested without launching a full TUI. Preserve the current right-pinned layout: truncate the Plan-name suffix first on
-narrow terminals, then omit Complexity before Routing Intent if necessary rather than allowing line 1 to overflow or
-pushing the label into the middle. The active Agent and Routing Intent are the highest-priority right-side information;
-if even those cannot fit, truncate the composed label to the render width.
+Extend the `HostedSession` active-agent stack to retain canonical internal Agent names alongside Display Names, then
+extract pure footer-label helpers from `chat-session.js` so role eligibility, labels, styling segments, and width
+behavior can be tested without launching a full TUI. Preserve the current right-pinned layout: truncate the Plan-name
+suffix first on narrow terminals, then omit Complexity before Routing Intent if necessary rather than allowing line 1 to
+overflow or pushing the label into the middle. The active Agent and Routing Intent are the highest-priority right-side
+information; if even those cannot fit, truncate the composed label to the render width.
 
 Use six explicit foreground theme tokens: `routingQuickFix`, `routingFeature`, and `routingEpic` for Routing Intent;
 `complexityLow`, `complexityMedium`, and `complexityHigh` for Complexity. The embedded Catppuccin defaults should be six
@@ -89,8 +90,9 @@ new tokens can customize them; switching themes continues to recolor the footer 
 
 - `src/shared/session/workflow-context-session.js` — add the normalized workflow-context shape plus append-only session
   marker read/write helpers for Triage and Plan-name updates.
-- `src/shared/session/hosted-session.js` — hydrate Session workflow context and expose guarded getters/setters without
-  introducing process-global footer state.
+- `src/shared/session/hosted-session.js` — hydrate Session workflow context, expose guarded getters/setters without
+  introducing process-global footer state, and retain internal Agent names in the active-agent stack for role-aware
+  footer decisions.
 - `src/shared/session/session.js` — pass the active `HostedSession` into the auto-wired Triage-Report Tool, matching the
   existing Plan-Written Tool wiring.
 - `src/tools/triage-report.js` — save normalized Routing Intent/Complexity to the active Session when Triage succeeds.
@@ -136,6 +138,9 @@ Existing functions, modules, or patterns to reuse:
       missing/legacy/malformed entries.
 - [ ] Step 2: Extend `HostedSession` to initialize workflow context from its root Session Manager, return defensive
       copies, replace context on Triage (clearing stale Plan name), and set a Plan name while retaining current Triage.
+      Update active-agent stack records (`resetAgentInfoStack()`/`pushAgentInfo()`) to optionally store the canonical
+      Agent name, and pass it from `ensureRootAgentSession()`/`runAgentSession()` so the footer does not depend on
+      localized or customized Display Names.
 - [ ] Step 3: Pass `targetHostedSession` into `createTriageReportTool()` and update the Triage-Report Tool to record its
       normalized Routing Intent/Complexity before emitting its visible Triage status. Keep headless/test calls without a
       HostedSession backward compatible.
@@ -143,7 +148,7 @@ Existing functions, modules, or patterns to reuse:
       preserve the prior footer value when a call is empty or references a missing/non-file Plan.
 - [ ] Step 5: Add pure helpers in `chat-session.js` that map eligible canonical values to `Quick Fix`, `Feature`, and
       `Epic`, map every eligible Complexity to title case, support a standalone Plan-name suffix, enforce the Agent
-      exclusions, and return separately styled footer segments.
+      exclusions using canonical Agent names when present, and return separately styled footer segments.
 - [ ] Step 6: Integrate the helpers into footer line 1 while retaining the current cwd/branch left side and right-edge
       pinning. Budget visible width without counting ANSI escapes; truncate/omit the Plan name first, omit Complexity
       next, preserve Agent + Routing Intent whenever possible, and cap the final composed label to avoid narrow-width
@@ -200,8 +205,8 @@ Existing functions, modules, or patterns to reuse:
   such as `epic/child-plan`; Feedback, save, cancel, or approval does not erase the declared Plan name.
 - **External themes:** partial themes inherit the embedded token defaults. Custom themes may override the new token
   names; missing tokens must never throw during render.
-- **Role matching:** use canonical/internal Agent identity where available rather than fragile localized Display Name
-  comparisons; if the footer only has Display Name, centralize the exclusion mapping and test custom Agent definitions.
+- **Role matching:** add canonical/internal Agent identity to `HostedSession` agent-info records and use it for footer
+  eligibility. Keep Display Name only as the rendered text/fallback, not as the primary source of role behavior.
 - **Terminal width:** ANSI escape sequences do not count toward visible width. Truncation priority is Plan name, then
   Complexity, then the final composed Agent/Routing Intent label; the implementation must still return a line no wider
   than the render width.
