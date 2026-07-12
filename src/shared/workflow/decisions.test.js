@@ -49,6 +49,20 @@ Deno.test("decidePostPlanning falls back to triage metadata for execute_plan", (
     );
 });
 
+Deno.test("decidePostPlanning maps approved_decompose to a Slicer phase transition", () => {
+    const triageMeta = { classification: /** @type {const} */ ("PROJECT"), type: "epic" };
+    assertEquals(
+        decidePostPlanning(
+            { outcome: "approved_decompose", planName: "epic-a", triageMeta },
+            { planningAgentName: "architect", fallbackTriageMeta },
+        ),
+        {
+            kind: "start_slicer",
+            payload: { planName: "epic-a", triageMeta },
+        },
+    );
+});
+
 Deno.test("decidePostPlanning maps saved to save_plan", () => {
     assertEquals(
         decidePostPlanning(

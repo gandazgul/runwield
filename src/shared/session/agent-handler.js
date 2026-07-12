@@ -9,6 +9,7 @@ import {
     executePlan as executePlanFn,
     readLatestPlanOutcome as readLatestPlanOutcomeFn,
     readLatestTaskCompletedOutcome as readLatestTaskCompletedOutcomeFn,
+    runSlicerAgent as runSlicerAgentFn,
 } from "../workflow/workflow.js";
 import {
     dispatchPostTriage as dispatchPostTriageFn,
@@ -56,6 +57,7 @@ function canCompleteActiveExecutionWorkflow(agentName) {
  *   decidePostPlanning?: typeof decidePostPlanningFn,
  *   decidePostExecution?: typeof decidePostExecutionFn,
  *   executePlan?: typeof executePlanFn,
+ *   runSlicerAgent?: typeof runSlicerAgentFn,
  *   runValidationLoop?: typeof runValidationLoop,
  *   runMechanicalValidation?: typeof runMechanicalValidation,
  *   recordPlanEvent?: typeof recordPlanEventFn,
@@ -80,6 +82,7 @@ export function createAgentHandler(agentName, __deps) {
     const decidePostPlanning = __deps?.decidePostPlanning || decidePostPlanningFn;
     const decidePostExecution = __deps?.decidePostExecution || decidePostExecutionFn;
     const executePlan = __deps?.executePlan || executePlanFn;
+    const runSlicerAgent = __deps?.runSlicerAgent || runSlicerAgentFn;
     const runValidationLoopImpl = __deps?.runValidationLoop || runValidationLoop;
     const runMechanicalValidationImpl = __deps?.runMechanicalValidation || runMechanicalValidation;
     const recordPlanEventImpl = __deps?.recordPlanEvent || recordPlanEventFn;
@@ -178,6 +181,39 @@ export function createAgentHandler(agentName, __deps) {
                 : undefined,
             details: summarizeWorkflowDecision(planningDecision),
         });
+        if (planningDecision.kind === "start_slicer") {
+            const planName = /** @type {string} */ (planningDecision.payload.planName);
+            const triageMeta = /** @type {import('../../tools/plan-written.js').TriageMeta} */ (
+                planningDecision.payload.triageMeta || {}
+            );
+            const slicerResult = await runSlicerAgent({
+                planName,
+                triageMeta,
+                uiAPI,
+                hostedSession,
+                sessionManager,
+            });
+            await recordWorkflowMetricImpl({
+                category: "planning",
+                event: "active_agent_transition",
+                agentName: slicerResult.ok ? AGENTS.SLICER : agentName,
+                planName,
+                details: {
+                    transition: slicerResult.ok ? "start_slicer" : "slicer_start_failed",
+                    decisionKind: planningDecision.kind,
+                },
+            });
+            if (!slicerResult.ok) {
+                setActiveAgent(
+                    hostedSession,
+                    agentName,
+                    createAgentHandler(agentName, { hostedSession }),
+                    uiAPI,
+                );
+            }
+            requestAgentStoppedAttention();
+            return;
+        }
         if (planningDecision.kind === "execute_plan") {
             await recordWorkflowMetricImpl({
                 category: "planning",

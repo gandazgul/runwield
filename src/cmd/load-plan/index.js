@@ -857,6 +857,7 @@ async function validatePostExecutionDecision({
  * @param {typeof executePlanFn} opts.executePlan
  * @param {typeof decidePostExecutionFn} opts.decidePostExecution
  * @param {typeof runValidationLoopFn} opts.runValidationLoop
+ * @param {typeof runSlicerAgentFn} opts.runSlicerAgent
  * @param {typeof loadPlanFn} opts.loadPlan
  * @param {typeof listCommitsTouchingPathsSinceFn} opts.listCommitsTouchingPathsSince
  * @param {import('../../shared/session/hosted-session.js').HostedSession} opts.hostedSession
@@ -869,11 +870,24 @@ async function executePostPlanningDecision({
     executePlan,
     decidePostExecution,
     runValidationLoop,
+    runSlicerAgent,
     loadPlan,
     listCommitsTouchingPathsSince,
     hostedSession,
 }) {
     if (!hostedSession) throw new Error("executePostPlanningDecision: hostedSession is required");
+    if (decision.kind === "start_slicer") {
+        await runSlicerAgent({
+            planName: /** @type {string} */ (decision.payload.planName),
+            triageMeta: /** @type {import('../../plan-store.js').PlanFrontMatter} */ (
+                decision.payload.triageMeta
+            ),
+            uiAPI,
+            hostedSession,
+            sessionManager: /** @type {any} */ (hostedSession.getRootSessionManager?.() || undefined),
+        });
+        return true;
+    }
     if (decision.kind !== "execute_plan") return false;
 
     const planName = /** @type {string} */ (decision.payload.planName);
@@ -912,7 +926,7 @@ async function executePostPlanningDecision({
  * @returns {boolean}
  */
 function shouldKeepPlanningAgentActive(decision) {
-    return decision.kind === "stay_with_agent" || decision.kind === "halt";
+    return decision.kind === "stay_with_agent" || decision.kind === "start_slicer" || decision.kind === "halt";
 }
 
 /**
@@ -3044,6 +3058,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                         executePlan,
                         decidePostExecution,
                         runValidationLoop,
+                        runSlicerAgent,
                         loadPlan,
                         listCommitsTouchingPathsSince,
                         hostedSession,
@@ -3103,6 +3118,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
             executePlan,
             decidePostExecution,
             runValidationLoop,
+            runSlicerAgent,
             loadPlan,
             listCommitsTouchingPathsSince,
             hostedSession,

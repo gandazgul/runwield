@@ -127,10 +127,10 @@ function formatCapturedProcessOutput(stdout, stderr) {
  * advertises skills, memory, and exploration tools. Semantic review is a
  * mechanical plan-vs-diff check, so it intentionally receives none of that by default.
  *
- * For small diffs, the reviewer gets the plan and full diff inline with no tools.
- * For large diffs, the caller augments the returned definition with
- * read-only exploration tools (`read`, `grep`, `find`, `ls`) and attaches a custom
- * `review_diff` tool for bounded per-file diff inspection.
+ * Every review gets the plan, diff context, and read-only repository exploration
+ * tools (`read`, `grep`, `find`, `ls`). Large reviews additionally receive a
+ * custom `review_diff` tool for bounded per-file diff inspection. Reviewer has
+ * no memory tools so its judgment remains grounded in the supplied evidence.
  *
  * @param {(path: string) => Promise<string>} [readTextFile]
  * @param {typeof ensureBundledAgentDefFile} [ensurePromptFile]
@@ -1061,34 +1061,23 @@ export async function runValidationLoop({
                 let reviewerAgentDef = await loadReviewerPromptImpl();
                 /** @type {import('@earendil-works/pi-coding-agent').ToolDefinition[]} */
                 const reviewerCustomTools = [];
-                /** @type {string[]} */
-                let reviewerToolNames = [];
+                const reviewerToolNames = ["read", "grep", "find", "ls", "review_complete"];
 
                 if (isLargeDiff) {
                     reviewPrompt = buildLargeDiffReviewPrompt(reviewerAgentDef, planContent, diffText, diffBytes);
                     // Attach the bounded diff-inspection tool
                     reviewerCustomTools.push(createReviewDiffTool(diffText));
-                    // Enable read-only file + memory exploration + review_complete signal
-                    reviewerToolNames = [
-                        "read",
-                        "grep",
-                        "find",
-                        "ls",
-                        "memory_recall",
-                        "memory_recall_global",
-                        "review_complete",
-                    ];
                     // Create a modified definition that permits these tools
                     reviewerAgentDef = {
                         ...reviewerAgentDef,
                         tools: reviewerToolNames,
                     };
                 } else {
-                    // For small diffs, also provide review_complete so the reviewer can signal
-                    // its decision through the structured tool instead of brittle text output.
+                    // Inline diffs still permit read-only repository investigation when
+                    // the diff alone is insufficient to judge the Plan requirement.
                     reviewerAgentDef = {
                         ...reviewerAgentDef,
-                        tools: ["review_complete"],
+                        tools: reviewerToolNames,
                     };
                     reviewPrompt =
                         `Compare the current implementation diff against the original plan. If the code fully satisfies the plan, call review_complete with approved: true. Otherwise, call review_complete with approved: false and a feedback string listing the missing semantic requirements.\n\n### Original Plan\n${planContent}\n\n### Git Diff\n${diffText}`;
@@ -1102,11 +1091,14 @@ export async function runValidationLoop({
                         agentName: AGENTS.REVIEWER,
                         userRequest: reviewPrompt,
                         uiAPI,
-                        sessionManager,
                         cwd: executionCwd,
                         _agentDefOverride: reviewerAgentDef,
                         customTools: reviewerCustomTools.length > 0 ? reviewerCustomTools : undefined,
                         includeEditFallback: false,
+                        // Reviewer must judge only the supplied plan/diff and its own
+                        // read-only investigation, not the workflow's conversation history.
+                        // Omitting the shared manager gives this transient invocation a
+                        // fresh in-memory SessionManager.
                         useRootSession: false,
                     });
                     hostedSession?.consumePendingSwitchHandoff?.();
@@ -1182,20 +1174,12 @@ export async function runValidationLoop({
                         retryCustomTools.push(createReviewDiffTool(retryDiffText));
                         retryAgentDef = {
                             ...retryAgentDef,
-                            tools: [
-                                "read",
-                                "grep",
-                                "find",
-                                "ls",
-                                "memory_recall",
-                                "memory_recall_global",
-                                "review_complete",
-                            ],
+                            tools: ["read", "grep", "find", "ls", "review_complete"],
                         };
                     } else {
                         retryAgentDef = {
                             ...retryAgentDef,
-                            tools: ["review_complete"],
+                            tools: ["read", "grep", "find", "ls", "review_complete"],
                         };
                         retryPrompt =
                             `Compare the current implementation diff against the original plan. If the code fully satisfies the plan, call review_complete with approved: true. Otherwise, call review_complete with approved: false and a feedback string listing the missing semantic requirements.\n\n### Original Plan\n${planContent}\n\n### Git Diff\n${retryDiffText}`;
@@ -1207,11 +1191,12 @@ export async function runValidationLoop({
                             agentName: AGENTS.REVIEWER,
                             userRequest: retryPrompt,
                             uiAPI,
-                            sessionManager,
                             cwd: executionCwd,
                             _agentDefOverride: retryAgentDef,
                             customTools: retryCustomTools.length > 0 ? retryCustomTools : undefined,
                             includeEditFallback: false,
+                            // Keep retries isolated as well; failed Reviewer context must
+                            // not leak into the next independent audit attempt.
                             useRootSession: false,
                         });
                         hostedSession?.consumePendingSwitchHandoff?.();

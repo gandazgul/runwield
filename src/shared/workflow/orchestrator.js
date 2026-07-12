@@ -33,7 +33,7 @@ import { sanitizeSessionName } from "../session/session-name.js";
 import { RuntimeEventTypes } from "../session/session-runtime-events.js";
 import { decidePostExecution, decidePostPlanning, summarizeWorkflowDecision } from "./decisions.js";
 import { recordWorkflowMetric } from "./metrics.js";
-import { executePlan, readLatestTaskCompletedOutcome, runPlanningAgent } from "./workflow.js";
+import { executePlan, readLatestTaskCompletedOutcome, runPlanningAgent, runSlicerAgent } from "./workflow.js";
 import { runMechanicalValidation, runValidationLoop, shouldRunWorkflowValidation } from "./validation.js";
 
 export { runLocalCI, runMechanicalValidation, runValidationLoop } from "./validation.js";
@@ -206,6 +206,7 @@ function applyAutoSessionName(sessionManager, triage, hostedSession, setTitle) {
  *   executePlan?: typeof executePlan,
  *   loadPlan?: typeof loadPlan,
  *   runPlanningAgent?: typeof runPlanningAgent,
+ *   runSlicerAgent?: typeof runSlicerAgent,
  *   runRootTurn?: typeof runRootTurn,
  *   runMechanicalValidation?: typeof runMechanicalValidation,
  *   runValidationLoop?: typeof runValidationLoop,
@@ -243,6 +244,7 @@ export async function dispatchPostTriage(
     const decidePostExecutionImpl = __deps?.decidePostExecution || decidePostExecution;
     const setActiveAgentImpl = __deps?.setActiveAgent || setActiveAgent;
     const setTerminalTitleForNameImpl = __deps?.setTerminalTitleForName;
+    const runSlicerAgentImpl = __deps?.runSlicerAgent || runSlicerAgent;
     const recordWorkflowMetricImpl = __deps?.recordWorkflowMetric || recordWorkflowMetric;
     const probeGit = __deps?.probeGitRepository || probeGitRepository;
     const hasConsent = __deps?.hasNonGitExecutionConsent || hasNonGitExecutionConsent;
@@ -424,6 +426,34 @@ export async function dispatchPostTriage(
             planName: typeof decision.payload.planName === "string" ? decision.payload.planName : undefined,
             details: summarizeWorkflowDecision(decision),
         });
+
+        if (decision.kind === "start_slicer") {
+            const planName = /** @type {string} */ (decision.payload.planName);
+            const slicerTriageMeta = /** @type {TriageOutcome} */ (
+                normalizeTriageOutcome(decision.payload.triageMeta) || normalizedTriage
+            );
+            const slicerResult = await runSlicerAgentImpl({
+                planName,
+                triageMeta: slicerTriageMeta,
+                uiAPI,
+                hostedSession,
+                sessionManager,
+            });
+            await recordWorkflowMetricImpl({
+                category: "planning",
+                event: "active_agent_transition",
+                agentName: slicerResult.ok ? AGENTS.SLICER : agentName,
+                planName,
+                details: {
+                    transition: slicerResult.ok ? "start_slicer" : "slicer_start_failed",
+                    decisionKind: decision.kind,
+                },
+            });
+            if (!slicerResult.ok) {
+                setActiveAgentImpl(hostedSession, agentName, createAgentHandlerImpl(agentName), uiAPI);
+            }
+            return;
+        }
 
         if (decision.kind === "stay_with_agent" || decision.kind === "save_plan") {
             await recordWorkflowMetricImpl({

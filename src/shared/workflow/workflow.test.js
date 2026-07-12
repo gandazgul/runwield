@@ -1,5 +1,6 @@
 import { assertEquals, assertMatch, assertRejects, assertStringIncludes, assertThrows } from "@std/assert";
 import {
+    beginSlicerContextPhase,
     buildSlicerRequest,
     createSlicerFinalizeTool,
     ensureSlicerTasks,
@@ -17,6 +18,7 @@ import {
     validateProjectTasks,
 } from "./workflow.js";
 import { HostedSession } from "../session/hosted-session.js";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 
 const noopUiAPI = /** @type {any} */ ({ appendSystemMessage: () => {} });
 
@@ -1218,15 +1220,75 @@ Deno.test("buildSlicerRequest omits empty affectedPaths", () => {
 
 // ── runSlicerAgent ─────────────────────────────────────────────────
 
+Deno.test("beginSlicerContextPhase persists a clean model-context boundary", () => {
+    const manager = SessionManager.inMemory(Deno.cwd());
+    manager.appendMessage({
+        role: "user",
+        content: [{ type: "text", text: "architect sausage making" }],
+        timestamp: Date.now(),
+    });
+    manager.appendMessage({
+        role: "assistant",
+        content: [{ type: "text", text: "architecture deliberation" }],
+        api: "test",
+        provider: "test",
+        model: "test",
+        usage: {
+            input: 0,
+            output: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            totalTokens: 0,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+        },
+        stopReason: "stop",
+        timestamp: Date.now(),
+    });
+    const hostedSession = makeHostedSession();
+    hostedSession.setRootAgentName("architect");
+    hostedSession.setRootSessionManager(manager);
+
+    const boundary = beginSlicerContextPhase({ planName: "epic-a", hostedSession, sessionManager: manager });
+    assertEquals(boundary?.manager, manager);
+    const boundaryContext = manager.buildSessionContext().messages;
+    assertEquals(boundaryContext.length, 1);
+    assertEquals(boundaryContext[0].role, "compactionSummary");
+    assertEquals(JSON.stringify(boundaryContext).includes("architect sausage making"), false);
+
+    manager.appendMessage({
+        role: "user",
+        content: [{ type: "text", text: "authoritative Epic handoff" }],
+        timestamp: Date.now(),
+    });
+    const slicerContext = manager.buildSessionContext().messages;
+    assertEquals(slicerContext.length, 2);
+    assertEquals(JSON.stringify(slicerContext).includes("authoritative Epic handoff"), true);
+    assertEquals(JSON.stringify(slicerContext).includes("architecture deliberation"), false);
+
+    hostedSession.setRootAgentName("slicer");
+    assertEquals(beginSlicerContextPhase({ planName: "epic-a", hostedSession, sessionManager: manager }), null);
+    assertEquals(manager.buildContextEntries().filter((entry) => entry.type === "compaction").length, 1);
+});
+
 Deno.test("runSlicerAgent returns ok=true when session resolves", async () => {
     let captured = /** @type {any} */ (null);
     /** @type {string[]} */
     const loadedPaths = [];
+    /** @type {any[]} */
+    const boundaries = [];
+    const sessionManager = /** @type {any} */ ({
+        buildSessionContext: () => ({ messages: [{ role: "user", content: "architect history" }] }),
+        getLeafId: () => "architect-leaf",
+        appendCompaction: (/** @type {any[]} */ ...args) => boundaries.push(args),
+    });
+    const hostedSession = makeHostedSession();
+    hostedSession.setRootAgentName("architect");
+    hostedSession.setRootSessionManager(sessionManager);
     const result = await runSlicerAgent({
         planName: "my-plan",
         triageMeta: { classification: "PROJECT", complexity: "LOW", summary: "x", affectedPaths: [] },
         uiAPI: noopUiAPI,
-        hostedSession: makeHostedSession(),
+        hostedSession,
         __deps: {
             ensureBundledAgentDefFile: (relativePath) =>
                 Promise.resolve(`/tmp/bundled-agent-definitions/${relativePath}`),
@@ -1244,12 +1306,52 @@ Deno.test("runSlicerAgent returns ok=true when session resolves", async () => {
     assertEquals(loadedPaths, ["/tmp/bundled-agent-definitions/workflow-prompts/slicer-prompt.md:slicer"]);
     assertEquals(captured.agentName, "slicer");
     assertEquals(captured.allowReturnToRouter, false);
+    assertEquals(captured.sessionManager, sessionManager);
+    assertEquals(boundaries.length, 1);
+    assertEquals(boundaries[0][1], "");
+    assertEquals(boundaries[0][3], {
+        kind: "agent_context_boundary",
+        agentName: "slicer",
+        planName: "my-plan",
+    });
+    assertStringIncludes(
+        boundaries[0][0],
+        "Earlier Router, Architect, and other-agent conversation was intentionally omitted",
+    );
     /** @param {{ name: string }} tool */
     function getToolName(tool) {
         return tool.name;
     }
     assertEquals(captured.customTools.map(getToolName), ["slicer_finalize_decomposition"]);
     assertStringIncludes(captured.userRequest, "my-plan");
+});
+
+Deno.test("runSlicerAgent restores the prior session leaf when isolated Slicer startup fails", async () => {
+    /** @type {string[]} */
+    const restoredLeaves = [];
+    const sessionManager = /** @type {any} */ ({
+        buildSessionContext: () => ({ messages: [{ role: "user", content: "architect history" }] }),
+        getLeafId: () => "architect-leaf",
+        appendCompaction: () => {},
+        branch: (/** @type {string} */ leafId) => restoredLeaves.push(leafId),
+    });
+    const hostedSession = makeHostedSession();
+    hostedSession.setRootAgentName("architect");
+    hostedSession.setRootSessionManager(sessionManager);
+
+    const result = await runSlicerAgent({
+        planName: "p",
+        uiAPI: noopUiAPI,
+        hostedSession,
+        __deps: {
+            runAgentSession: () => {
+                throw new Error("boom");
+            },
+        },
+    });
+
+    assertEquals(result, { ok: false, error: "boom" });
+    assertEquals(restoredLeaves, ["architect-leaf"]);
 });
 
 Deno.test("runSlicerAgent surfaces session errors as { ok:false, error }", async () => {

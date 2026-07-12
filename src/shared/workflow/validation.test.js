@@ -821,6 +821,7 @@ Deno.test("runValidationLoop reviews the diff scoped to the active workflow base
 
 Deno.test("runValidationLoop runs validation and reviewer in active execution cwd", async () => {
     const uiAPI = makeUi();
+    const rootSessionManager = /** @type {any} */ ({ id: "shared-root-history" });
     /** @type {Array<string | undefined>} */
     const ciCwds = [];
     /** @type {Array<string | undefined>} */
@@ -847,7 +848,7 @@ Deno.test("runValidationLoop runs validation and reviewer in active execution cw
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
         uiAPI,
-        sessionManager: undefined,
+        sessionManager: rootSessionManager,
         __deps: /** @type {any} */ ({
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: (/** @type {any} */ _uiAPI, /** @type {string | undefined} */ cwd) => {
@@ -883,10 +884,15 @@ Deno.test("runValidationLoop runs validation and reviewer in active execution cw
     assertEquals(diffCwds, ["/worktree"]);
     assertEquals(sessionCwds, ["/worktree"]);
     assertEquals(sessionOpts[0].uiAPI, uiAPI);
-    assertEquals(sessionOpts[0]._agentDefOverride.tools, ["review_complete"]);
+    assertEquals(sessionOpts[0]._agentDefOverride.tools, ["read", "grep", "find", "ls", "review_complete"]);
     assertEquals(sessionOpts[0]._agentDefOverride.systemPrompt.includes("{{SKILLS}}"), false);
     assertEquals(sessionOpts[0].includeEditFallback, false);
     assertEquals(sessionOpts[0].useRootSession, false);
+    assertEquals(
+        Object.hasOwn(sessionOpts[0], "sessionManager"),
+        false,
+        "Reviewer must not receive the shared workflow SessionManager",
+    );
 });
 
 Deno.test("runValidationLoop stages validation_passed before worktree merge succeeds", async () => {
@@ -2530,6 +2536,16 @@ Deno.test("runValidationLoop uses large-diff prompt when diff exceeds inline thr
                     true,
                     "large diff reviewer should have grep tool",
                 );
+                assertEquals(
+                    opts._agentDefOverride.tools.includes("memory_recall"),
+                    false,
+                    "Reviewer must not use project memory as review evidence",
+                );
+                assertEquals(
+                    opts._agentDefOverride.tools.includes("memory_recall_global"),
+                    false,
+                    "Reviewer must not use global memory as review evidence",
+                );
                 return Promise.resolve(
                     /** @type {any} */ ([{
                         role: "assistant",
@@ -2644,8 +2660,11 @@ Deno.test("runValidationLoop halts when reviewer returns blank output and user c
 
 Deno.test("runValidationLoop retries semantic review when user chooses retry", async () => {
     const uiAPI = makeUi();
+    const rootSessionManager = /** @type {any} */ ({ id: "shared-root-history" });
     /** @type {number} */
     let reviewCalls = 0;
+    /** @type {any[]} */
+    const reviewOpts = [];
 
     // Override promptSelect to return "retry" so the retry path is exercised
     uiAPI.promptSelect = () => Promise.resolve("retry");
@@ -2656,12 +2675,13 @@ Deno.test("runValidationLoop retries semantic review when user chooses retry", a
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
         uiAPI,
-        sessionManager: undefined,
+        sessionManager: rootSessionManager,
         __deps: /** @type {any} */ ({
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
-            runAgentSession: () => {
+            runAgentSession: (/** @type {any} */ opts) => {
+                reviewOpts.push(opts);
                 reviewCalls++;
                 if (reviewCalls === 1) {
                     throw new Error("Context window exceeded");
@@ -2687,5 +2707,10 @@ Deno.test("runValidationLoop retries semantic review when user chooses retry", a
     });
 
     assertEquals(reviewCalls, 2, "should retry reviewer session");
+    assertEquals(
+        reviewOpts.map((opts) => Object.hasOwn(opts, "sessionManager")),
+        [false, false],
+        "Reviewer retries must each start without the shared workflow SessionManager",
+    );
     assertStringIncludes(uiAPI.messages.join(" "), "retry completed");
 });

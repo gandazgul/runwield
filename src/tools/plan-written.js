@@ -6,7 +6,7 @@
  * createPlanWrittenTool captures TUI context and triage metadata at session-start
  * time. The tool runs review (and optional save-vs-execute prompt) inside execute,
  * but does NOT execute the plan — that's the orchestrator's job after the planning
- * session ends. The outcome (`approved_execute`, `saved`, `feedback`, `canceled`,
+ * session ends. The outcome (`approved_execute`, `approved_decompose`, `saved`, `feedback`, `canceled`,
  * `repair_required`) is returned via `details.outcome` so the orchestrator can
  * dispatch the next agent, while `feedback` and `repair_required` keep the planner
  * in-session to iterate.
@@ -17,7 +17,7 @@ import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { CLI_BIN, CWD, PLANS_DIR_NAME } from "../constants.js";
 import { loadPlan } from "../plan-store.js";
-import { isEpicPlan, recordPlanEvent } from "../shared/workflow/plan-lifecycle.js";
+import { recordPlanEvent } from "../shared/workflow/plan-lifecycle.js";
 import { recordWorkflowMetric } from "../shared/workflow/metrics.js";
 
 /**
@@ -100,11 +100,8 @@ async function resolveTriageMeta(triageMeta, planName, cwd) {
 /**
  * @typedef {Object} PlanWrittenDeps
  * @property {(opts: { cwd: string, planName: string, planPath: string, triageMeta: TriageMeta, uiAPI: any }) => Promise<{ canceled?: boolean, approved?: boolean, feedback?: string }>} [submitPlanForReview]
- * @property {(planName: string, uiAPI: any) => Promise<"proceed" | "save">} [askApprovalWithTasks]
  * @property {(planName: string, uiAPI: any) => Promise<"proceed" | "save">} [askPostApproval]
  * @property {(planName: string, uiAPI: any) => Promise<"proceed" | "save">} [askProjectDecompositionApproval]
- * @property {(opts: { planName: string, planPath: string, triageMeta?: TriageMeta, uiAPI: any }) => Promise<{ ok: true, slicerInvoked: boolean } | { ok: false, error: string, stage: "slicer" | "validation" }>} [ensureSlicerTasks]
- * @property {(opts: { planName: string, triageMeta?: TriageMeta, uiAPI: any, sessionManager?: import('@earendil-works/pi-coding-agent').SessionManager }) => Promise<{ ok: true } | { ok: false, error: string }>} [runSlicerAgent]
  * @property {typeof recordPlanEvent} [recordPlanEvent]
  * @property {typeof recordWorkflowMetric} [recordWorkflowMetric]
  * @property {(opts: import('../cmd/plans/share.js').SharePlanForReviewOptions, deps?: any) => Promise<import('../cmd/plans/share.js').SharedPlanReviewLink>} [sharePlanForReview]
@@ -135,8 +132,8 @@ export function createPlanWrittenTool(
         name: "plan_written",
         label: "Plan Written",
         description: "Declare the plan filename you created in plans/ and submit it for user review. " +
-            "Triggers review and (on approval) a save-vs-execute prompt. Execution itself runs after " +
-            "your turn ends — orchestrator picks it up from this tool's outcome. " +
+            "Triggers review and (on approval) a save-vs-execute/decompose prompt. Execution or Slicer dispatch runs " +
+            "after your turn ends — the workflow dispatcher picks it up from this tool's outcome. " +
             "Call this once after writing the plan; the user reviews it in a browser UI. " +
             "If the user submits feedback instead of approving, the tool result contains that feedback so you can " +
             "revise in this same session.",
@@ -218,8 +215,6 @@ export function createPlanWrittenTool(
             const askPostApproval = deps.askPostApproval || workflow.askPostApproval;
             const askProjectDecompositionApproval = deps.askProjectDecompositionApproval ||
                 workflow.askProjectDecompositionApproval;
-            const ensureSlicerTasks = deps.ensureSlicerTasks || workflow.ensureSlicerTasks;
-            const runSlicerAgent = deps.runSlicerAgent || workflow.runSlicerAgent;
             const recordPlanEventFn = deps.recordPlanEvent || recordPlanEvent;
             const recordWorkflowMetricSource = deps.recordWorkflowMetric || recordWorkflowMetric;
             /** @param {Parameters<typeof recordWorkflowMetricSource>[0]} metric */
@@ -316,107 +311,25 @@ export function createPlanWrittenTool(
                     );
                 }
 
-                // Run the slicer on the root session so its output is part of the single
-                // continuous session file (not a forked / in-memory session).
-                const sessionManager = hostedSession?.getRootSessionManager?.() || undefined;
-
-                if (isEpicPlan(projectMeta)) {
-                    const slicerResult = await runSlicerAgent({
-                        planName,
-                        triageMeta: projectMeta,
-                        uiAPI,
-                        hostedSession,
-                        sessionManager,
-                    });
-                    if (!slicerResult.ok) {
-                        await recordWorkflowMetricFn({
-                            category: "planning",
-                            event: "readiness_outcome",
-                            agentName,
-                            planName,
-                            details: {
-                                outcome: "repair_required",
-                                classification: "PROJECT",
-                                projectAction: "decomposition_failed",
-                                stage: "slicer",
-                            },
-                        });
-                        return textResult(
-                            `plan_written: the slicer agent failed for plans/${planName}.md: ${slicerResult.error}`,
-                            { ...params, outcome: "feedback", feedback: slicerResult.error },
-                        );
-                    }
-                    await recordWorkflowMetricFn({
-                        category: "planning",
-                        event: "review_outcome",
-                        agentName,
-                        planName,
-                        details: {
-                            outcome: "saved",
-                            classification: "PROJECT",
-                            projectAction: "decomposition_started",
-                        },
-                    });
-                    const slicerFeedbackSuffix = reviewResult.feedback
-                        ? `\n\nFeedback/annotations from review: ${reviewResult.feedback}`
-                        : "";
-                    return textResult(
-                        `PROJECT Epic "${planName}" approved and Slicer decomposition started. Your role as ${agentName} is complete. Do not generate any further text.${slicerFeedbackSuffix}`,
-                        { ...params, outcome: "saved", planName, triageMeta: projectMeta },
-                        true,
-                    );
-                }
-
-                const sliceResult = await ensureSlicerTasks({
-                    planName,
-                    planPath,
-                    triageMeta: effectiveMeta,
-                    uiAPI,
-                    hostedSession,
-                    sessionManager,
-                });
-
-                if (!sliceResult.ok) {
-                    await recordWorkflowMetricFn({
-                        category: "planning",
-                        event: "readiness_outcome",
-                        agentName,
-                        planName,
-                        details: {
-                            outcome: "repair_required",
-                            classification: "PROJECT",
-                            projectAction: "decomposition_failed",
-                            stage: sliceResult.stage,
-                        },
-                    });
-                    const intro = sliceResult.stage === "slicer"
-                        ? `plan_written: the slicer agent failed to produce tasks for plans/${planName}.md`
-                        : `plan_written: slicer ran but the resulting Tasks table is not parseable`;
-                    return textResult(
-                        `${intro}: ${sliceResult.error}\n` +
-                            "The plan remains ready for decomposition. Re-invoke plan_written or load the plan to retry the slicer.",
-                        { ...params, outcome: "feedback", feedback: sliceResult.error },
-                    );
-                }
-
-                await recordPlanEventFn({
-                    cwd,
-                    planName,
-                    event: "decomposition_finalized",
-                    currentStatus: "ready_for_decomposition",
-                    details: { triageMeta: effectiveMeta },
-                });
                 await recordWorkflowMetricFn({
                     category: "planning",
-                    event: "readiness_outcome",
+                    event: "review_outcome",
                     agentName,
                     planName,
                     details: {
-                        outcome: "passed",
+                        outcome: "approved_decompose",
                         classification: "PROJECT",
-                        lifecycleEvent: "decomposition_finalized",
+                        projectAction: "decomposition_requested",
                     },
                 });
+                const slicerFeedbackSuffix = reviewResult.feedback
+                    ? `\n\nFeedback/annotations from review: ${reviewResult.feedback}`
+                    : "";
+                return textResult(
+                    `PROJECT Epic "${planName}" approved for Slicer decomposition. Your role as ${agentName} is complete. Do not generate any further text.${slicerFeedbackSuffix}`,
+                    { ...params, outcome: "approved_decompose", planName, triageMeta: projectMeta },
+                    true,
+                );
             } else {
                 await recordPlanEventFn({
                     cwd,
