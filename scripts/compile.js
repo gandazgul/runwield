@@ -4,6 +4,7 @@
 
 const STATIC_INCLUDE_PATHS = [
     "src/ui/workspace/static/",
+    "dist/workspace/",
     "src/agent-definitions",
     "src/prompt-templates",
     "src/shared/session/SYSTEM_PROMPT_TEMPLATE.md",
@@ -117,6 +118,13 @@ export function resolvePlannotatorReviewEditorHtmlPath() {
  */
 export async function main() {
     await runCmd("deno", ["run", "-A", "scripts/write-version.js"]);
+
+    const workspaceBuild = await runCmd("deno", ["task", "workspace:build"]);
+    console.log(workspaceBuild.stdout);
+    if (!workspaceBuild.success) {
+        console.error(workspaceBuild.stderr);
+        Deno.exit(1);
+    }
 
     const compileHelp = await getDenoCompileHelp();
     const staticIncludeFlag = selectStaticIncludeFlag(compileHelp);
