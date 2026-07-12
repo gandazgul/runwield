@@ -555,7 +555,7 @@ Deno.test("Workspace wrapper protects page routes and serves public assets witho
             assertStringIncludes(pageBody, "Workspace Astro build unavailable");
         } else {
             assertEquals(pageResponse.status, 200);
-            assertStringIncludes(pageBody, "Workspace Card");
+            assertStringIncludes(pageBody, "workspace-card");
         }
         const tokensCss = await app(new Request("http://localhost/tokens.css"));
         assertEquals(tokensCss.status, 200);
