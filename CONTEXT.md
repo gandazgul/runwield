@@ -86,6 +86,9 @@ Request. _Avoid_: Blueprint, spec, design doc
 work actually produced and what future planning should remember. _Avoid_: Review log, chat transcript, implementation
 diary, duplicate Plan
 
+**Draft Work Record**: An external, manual, or imported Work Record awaiting human review before default search and
+Agent retrieval. _Avoid_: Approved record, generated internal record, memory
+
 **Superseded Work Record**: A Work Record whose planning guidance has been replaced by a newer Work Record. _Avoid_:
 Archived record, deleted record, draft record
 
@@ -157,8 +160,8 @@ plan
 **Review Loop**: The cycle where a planning agent writes or revises a Plan and the user approves or returns it through
 Plannotator. _Avoid_: Feedback loop, approval cycle
 
-**Plannotator**: The browser-based review UI where users approve, save, deny, or annotate a Plan. _Avoid_: Review UI,
-approval screen
+**Plannotator**: The browser-based artifact review UI where users approve, return feedback, or annotate Plans, Work
+Records, and code-review diffs. _Avoid_: Plan-only review UI, approval screen
 
 **Guided Review**: A Plannotator code-review mode that organizes a PR or local diff into importance-ordered chapters
 with live annotatable diffs and per-section reviewed state. _Avoid_: Guide, review summary, file-order review
@@ -400,6 +403,7 @@ command definition, prompt command
 - A **Work Record** has **Work Record Provenance**.
 - A user-requested QUICK_FIX **Work Record** is an **External Work Record** whose **Work Record Provenance** points to
   code evidence rather than a source Plan.
+- A **Draft Work Record** requires human approval before default search or Agent retrieval.
 - A **Superseded Work Record** is replaced by a newer **Work Record** but is not necessarily archived.
 - Agent planning retrieval excludes **Superseded Work Records** by default, while human search may show them with a
   prominent replacement notice.
