@@ -5,12 +5,16 @@ import {
     __setSettingsManagerForPersistenceTests,
     __setSteeringUiRefsForTests,
     applyPendingRootSwap,
+    buildFooterLine1Parts,
+    buildFooterWorkflowLabelParts,
     collectFooterUsage,
     createSteeringState,
     formatSteeringBlockText,
     getActiveModel,
     getFooterSessions,
+    getFooterWorkflowLabelText,
     persistThinkingLevel,
+    renderFooterWorkflowLabelParts,
     runScopedSubmitHandoffLoop,
     setActiveAgent,
     setActiveModel,
@@ -91,6 +95,116 @@ Deno.test("footer thinking level is hidden until a model is configured", () => {
     assertEquals(shouldShowFooterThinkingLevel("", "medium"), false);
     assertEquals(shouldShowFooterThinkingLevel("test/model", "off"), false);
     assertEquals(shouldShowFooterThinkingLevel("test/model", "medium"), true);
+});
+
+Deno.test("footer workflow label formats eligible routing context and theme tokens", () => {
+    const parts = buildFooterWorkflowLabelParts(
+        { displayName: "Planner", agentName: "planner" },
+        { routingIntent: "FEATURE", complexity: "MEDIUM", planName: "my-awesome-plan" },
+        80,
+    );
+
+    assertEquals(getFooterWorkflowLabelText(parts), "Planner - Medium Feature - my-awesome-plan");
+    assertEquals(parts.map((part) => part.token), [
+        "accent",
+        "dim",
+        "complexityMedium",
+        "dim",
+        "routingFeature",
+        "dim",
+        "dim",
+    ]);
+});
+
+Deno.test("footer workflow label maps quick fix and project wording", () => {
+    assertEquals(
+        getFooterWorkflowLabelText(buildFooterWorkflowLabelParts(
+            { displayName: "Engineer", agentName: "engineer" },
+            { routingIntent: "QUICK_FIX", complexity: "LOW" },
+            80,
+        )),
+        "Engineer - Low Quick Fix",
+    );
+    assertEquals(
+        getFooterWorkflowLabelText(buildFooterWorkflowLabelParts(
+            { displayName: "Architect", agentName: "architect" },
+            { routingIntent: "PROJECT", complexity: "HIGH" },
+            80,
+        )),
+        "Architect - High Epic",
+    );
+});
+
+Deno.test("footer workflow label hides context for excluded agents and unsupported intents", () => {
+    assertEquals(
+        getFooterWorkflowLabelText(buildFooterWorkflowLabelParts(
+            { displayName: "Operator", agentName: "operator" },
+            { routingIntent: "FEATURE", complexity: "MEDIUM", planName: "p" },
+            80,
+        )),
+        "Operator",
+    );
+    assertEquals(
+        getFooterWorkflowLabelText(buildFooterWorkflowLabelParts(
+            { displayName: "Planner", agentName: "planner" },
+            { routingIntent: "IDEATION", complexity: "LOW" },
+            80,
+        )),
+        "Planner",
+    );
+});
+
+Deno.test("footer workflow label supports plan-only context and truncates plan before complexity", () => {
+    assertEquals(
+        getFooterWorkflowLabelText(buildFooterWorkflowLabelParts(
+            { displayName: "Planner", agentName: "planner" },
+            { planName: "standalone-plan" },
+            80,
+        )),
+        "Planner - standalone-plan",
+    );
+
+    const truncated = getFooterWorkflowLabelText(buildFooterWorkflowLabelParts(
+        { displayName: "Planner", agentName: "planner" },
+        { routingIntent: "FEATURE", complexity: "MEDIUM", planName: "very-long-plan-name" },
+        24,
+    ));
+    assertEquals(truncated, "Planner - Medium Feature");
+
+    const noComplexity = getFooterWorkflowLabelText(buildFooterWorkflowLabelParts(
+        { displayName: "LongPlanner", agentName: "planner" },
+        { routingIntent: "FEATURE", complexity: "MEDIUM" },
+        22,
+    ));
+    assertEquals(noComplexity, "LongPlanner - Feature");
+});
+
+Deno.test("footer line 1 budgets long plan names after preserving left side for priority label", () => {
+    const line = buildFooterLine1Parts(
+        { displayName: "Planner", agentName: "planner" },
+        { routingIntent: "FEATURE", complexity: "MEDIUM", planName: "very-long-plan-name-that-should-not-erase-cwd" },
+        "~/project (main)",
+        41,
+    );
+
+    assertEquals(line.left, "~/project (main)");
+    assertEquals(getFooterWorkflowLabelText(line.rightParts), "Planner - Medium Feature");
+});
+
+Deno.test("footer workflow label renderer applies provided theme tokens", () => {
+    const rendered = renderFooterWorkflowLabelParts(
+        buildFooterWorkflowLabelParts(
+            { displayName: "Engineer", agentName: "engineer" },
+            { routingIntent: "QUICK_FIX", complexity: "LOW" },
+            80,
+        ),
+        { fg: (token, text) => `<${token}>${text}</${token}>` },
+    );
+
+    assertEquals(
+        rendered,
+        "<accent>Engineer</accent><dim> - </dim><complexityLow>Low</complexityLow><dim> </dim><routingQuickFix>Quick Fix</routingQuickFix>",
+    );
 });
 
 Deno.test("setActiveModel reports setModel rejection instead of leaving an unhandled crash", async () => {

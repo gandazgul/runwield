@@ -4,6 +4,11 @@
  */
 
 import { CWD } from "../../constants.js";
+import {
+    readPersistedWorkflowContext,
+    recordWorkflowPlanName,
+    recordWorkflowTriageContext,
+} from "./workflow-context-session.js";
 
 /**
  * @typedef {Object} PendingRootSwap
@@ -24,6 +29,7 @@ import { CWD } from "../../constants.js";
  * @property {string} displayName
  * @property {string} model
  * @property {string} provider
+ * @property {string} [agentName]
  */
 
 /**
@@ -55,6 +61,9 @@ import { CWD } from "../../constants.js";
  * @property {() => string} [getCwd]
  * @property {() => string | undefined} [getSessionName]
  * @property {(name: string) => void} [appendSessionInfo]
+ * @property {() => unknown[]} [getBranch]
+ * @property {() => unknown[]} [getEntries]
+ * @property {(customType: string, data: unknown) => void} [appendCustomEntry]
  * @property {() => void | Promise<void>} [dispose]
  */
 
@@ -147,6 +156,10 @@ export class HostedSession {
         /** @type {PendingSwitchHandoff | null} */
         this.pendingSwitchHandoff = null;
         this.projectStateContext = "";
+        /** @type {import('./workflow-context-session.js').WorkflowContext | null} */
+        this.workflowContext = readPersistedWorkflowContext(
+            /** @type {import('@earendil-works/pi-coding-agent').SessionManager | null} */ (this.rootSessionManager),
+        );
         /** @type {ActiveExecutionWorkflow | null} */
         this.activeExecutionWorkflow = null;
         /** @type {string | null} */
@@ -157,10 +170,10 @@ export class HostedSession {
         if (this.disposed) throw new Error(`HostedSession "${this.id}" is disposed`);
     }
 
-    /** @param {string} displayName @param {string} [model] @param {string} [provider] */
-    pushAgentInfo(displayName, model = "", provider = "") {
+    /** @param {string} displayName @param {string} [model] @param {string} [provider] @param {string} [agentName] */
+    pushAgentInfo(displayName, model = "", provider = "", agentName = "") {
         this.assertActive();
-        this.agentInfoStack.push({ displayName, model, provider });
+        this.agentInfoStack.push({ displayName, model, provider, ...(agentName ? { agentName } : {}) });
     }
 
     popAgentInfo() {
@@ -168,19 +181,23 @@ export class HostedSession {
         this.agentInfoStack.pop();
     }
 
-    /** @param {string} displayName @param {string} [model] @param {string} [provider] */
-    resetAgentInfoStack(displayName, model = "", provider = "") {
+    /** @param {string} displayName @param {string} [model] @param {string} [provider] @param {string} [agentName] */
+    resetAgentInfoStack(displayName, model = "", provider = "", agentName = "") {
         this.assertActive();
-        this.agentInfoStack = [{ displayName, model, provider }];
+        this.agentInfoStack = [{ displayName, model, provider, ...(agentName ? { agentName } : {}) }];
     }
 
     getAgentInfoStack() {
         return this.agentInfoStack.map((agentInfo) => ({ ...agentInfo }));
     }
 
+    getActiveAgentInfo() {
+        if (this.agentInfoStack.length === 0) return null;
+        return { ...this.agentInfoStack[this.agentInfoStack.length - 1] };
+    }
+
     getActiveAgentName() {
-        if (this.agentInfoStack.length === 0) return "";
-        return this.agentInfoStack[this.agentInfoStack.length - 1].displayName;
+        return this.getActiveAgentInfo()?.displayName || "";
     }
 
     /** @param {string} model @param {string} [provider] @param {boolean} [isUserOverride] */
@@ -379,6 +396,38 @@ export class HostedSession {
         return this.projectStateContext;
     }
 
+    getWorkflowContext() {
+        return this.workflowContext ? { ...this.workflowContext } : null;
+    }
+
+    /** @param {{ routingIntent: unknown, complexity: unknown }} details */
+    setWorkflowTriageContext(details) {
+        if (this.disposed) return;
+        try {
+            this.workflowContext = recordWorkflowTriageContext(
+                /** @type {import('@earendil-works/pi-coding-agent').SessionManager | null} */ (this
+                    .rootSessionManager),
+                details,
+            );
+        } catch (_e) {
+            // Footer-context persistence is fail-open and must not block triage.
+        }
+    }
+
+    /** @param {unknown} planName */
+    setWorkflowPlanName(planName) {
+        if (this.disposed) return;
+        try {
+            this.workflowContext = recordWorkflowPlanName(
+                /** @type {import('@earendil-works/pi-coding-agent').SessionManager | null} */ (this
+                    .rootSessionManager),
+                planName,
+            );
+        } catch (_e) {
+            // Footer-context persistence is fail-open and must not block planning.
+        }
+    }
+
     /** @param {ActiveExecutionWorkflow | null} workflow */
     setActiveExecutionWorkflow(workflow) {
         this.assertActive();
@@ -445,6 +494,7 @@ export class HostedSession {
         this.pendingRootSwap = null;
         this.pendingSwitchHandoff = null;
         this.projectStateContext = "";
+        this.workflowContext = null;
         this.activeExecutionWorkflow = null;
         this.activeTurnId = null;
         this.disposed = true;

@@ -1417,7 +1417,7 @@ export async function buildAgentSession({
 
     if (tools.includes("triage_report") && !finalCustomTools.find((t) => t.name === "triage_report")) {
         const { createTriageReportTool } = await import("../../tools/triage-report.js");
-        finalCustomTools.push(createTriageReportTool({ uiAPI }));
+        finalCustomTools.push(createTriageReportTool({ uiAPI, hostedSession: targetHostedSession || undefined }));
     }
 
     if (tools.includes("user_interview") && !finalCustomTools.find((t) => t.name === "user_interview")) {
@@ -2491,7 +2491,12 @@ export async function ensureRootAgentSession(opts) {
     }
 
     const finalModelForUi = resolvedModel ? `${resolvedModel.provider}/${resolvedModel.id}` : undefined;
-    hostedSession.resetAgentInfoStack(agentDef.displayName, finalModelForUi, resolvedModel?.provider || "");
+    hostedSession.resetAgentInfoStack(
+        agentDef.displayName,
+        finalModelForUi,
+        resolvedModel?.provider || "",
+        opts.agentName,
+    );
 
     hostedSession.setRootAgentSession(session);
     hostedSession.setRootAgentName(opts.agentName);
@@ -2707,7 +2712,12 @@ export async function runAgentSession(opts) {
     const suppressUI = opts.uiAPI?.isOutputSuppressed?.();
     if (!suppressUI) {
         const finalModelForUi = resolvedModel ? `${resolvedModel.provider}/${resolvedModel.id}` : undefined;
-        hostedSession.pushAgentInfo(agentDef.displayName, finalModelForUi, resolvedModel?.provider || "");
+        hostedSession.pushAgentInfo(
+            agentDef.displayName,
+            finalModelForUi,
+            resolvedModel?.provider || "",
+            opts.agentName,
+        );
         opts.uiAPI?.requestRender?.();
     }
 

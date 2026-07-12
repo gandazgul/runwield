@@ -65,6 +65,62 @@ Deno.test("createPlanWrittenTool returns guidance when plan file is missing", as
     assertMatch(result.content[0]?.text ?? "", /not found/);
 });
 
+Deno.test("valid plan declaration records workflow plan name after validation", async () => {
+    /** @type {string[]} */
+    const recorded = [];
+    const hostedSession = new HostedSession({ id: "plan-workflow" });
+    hostedSession.setWorkflowPlanName = (planName) => {
+        recorded.push(String(planName));
+    };
+
+    const result = await runTool(
+        { planName: "plans/my-plan.md" },
+        {
+            hostedSession,
+            __deps: makeDeps(),
+        },
+    );
+
+    assertEquals(recorded, ["my-plan"]);
+    assertEquals(result.details.outcome, "approved_execute");
+});
+
+Deno.test("valid plan declaration remains fail-open when workflow plan recording throws", async () => {
+    const hostedSession = new HostedSession({ id: "plan-workflow-throws" });
+    hostedSession.setWorkflowPlanName = () => {
+        throw new Error("persistence failed");
+    };
+
+    const result = await runTool(
+        { planName: "my-plan" },
+        {
+            hostedSession,
+            __deps: makeDeps(),
+        },
+    );
+
+    assertEquals(result.details.outcome, "approved_execute");
+});
+
+Deno.test("invalid plan declaration does not replace workflow plan name", async () => {
+    /** @type {string[]} */
+    const recorded = [];
+    const hostedSession = new HostedSession({ id: "invalid-plan-workflow" });
+    hostedSession.setWorkflowPlanName = (planName) => {
+        recorded.push(String(planName));
+    };
+
+    await runTool(
+        { planName: "missing" },
+        {
+            hostedSession,
+            __deps: makeDeps({ stat: () => Promise.reject(new Error("ENOENT")) }),
+        },
+    );
+
+    assertEquals(recorded, []);
+});
+
 Deno.test("returns guidance when plan path exists but is not a file", async () => {
     const result = await runTool(
         { planName: "p" },

@@ -1,14 +1,18 @@
 import { assert, assertEquals, assertStrictEquals, assertThrows } from "@std/assert";
 import { HostedSession } from "./hosted-session.js";
+import { WORKFLOW_CONTEXT_CUSTOM_TYPE } from "./workflow-context-session.js";
 
 /**
  * @param {string} id
- * @returns {{ getSessionId: () => string, getCwd: () => string, dispose: () => void, disposed: boolean }}
+ * @param {Array<Record<string, unknown>>} [entries]
+ * @returns {{ getSessionId: () => string, getCwd: () => string, getBranch: () => Array<Record<string, unknown>>, appendCustomEntry: (customType: string, data: unknown) => void, dispose: () => void, disposed: boolean }}
  */
-function makeSessionManager(id) {
+function makeSessionManager(id, entries = []) {
     return {
         getSessionId: () => id,
         getCwd: () => `/tmp/${id}`,
+        getBranch: () => entries,
+        appendCustomEntry: (customType, data) => entries.push({ type: "custom", customType, data }),
         disposed: false,
         dispose() {
             this.disposed = true;
@@ -178,6 +182,82 @@ Deno.test("two Hosted Sessions do not share session-scoped runtime state", () =>
     assertEquals(beta.getEventSink(), { session: "beta-sink" });
 });
 
+Deno.test("HostedSession hydrates and persists workflow context defensively", () => {
+    /** @type {Array<Record<string, unknown>>} */
+    const entries = [
+        {
+            type: "custom",
+            customType: WORKFLOW_CONTEXT_CUSTOM_TYPE,
+            data: { routingIntent: "FEATURE", complexity: "MEDIUM", planName: "old-plan" },
+        },
+    ];
+    const session = new HostedSession({
+        id: "workflow",
+        cwd: "/work/workflow",
+        sessionManager: makeSessionManager("workflow-manager", entries),
+    });
+
+    assertEquals(session.getWorkflowContext(), {
+        routingIntent: "FEATURE",
+        complexity: "MEDIUM",
+        planName: "old-plan",
+    });
+
+    const context = session.getWorkflowContext();
+    if (context) context.planName = "mutated";
+    assertEquals(session.getWorkflowContext()?.planName, "old-plan");
+
+    session.setWorkflowTriageContext({ routingIntent: "PROJECT", complexity: "HIGH" });
+    assertEquals(session.getWorkflowContext(), { routingIntent: "PROJECT", complexity: "HIGH" });
+    session.setWorkflowPlanName("plans/epic/child.md");
+    assertEquals(session.getWorkflowContext(), {
+        routingIntent: "PROJECT",
+        complexity: "HIGH",
+        planName: "epic/child",
+    });
+});
+
+Deno.test("HostedSession workflow context setters are fail-open after disposal", () => {
+    const session = new HostedSession({ id: "disposed-workflow" });
+    session.dispose();
+
+    session.setWorkflowTriageContext({ routingIntent: "FEATURE", complexity: "LOW" });
+    session.setWorkflowPlanName("plan");
+
+    assertEquals(session.getWorkflowContext(), null);
+});
+
+Deno.test("HostedSession stores internal agent names in active agent stack", () => {
+    const session = new HostedSession({ id: "agent-info" });
+
+    session.resetAgentInfoStack("Planner", "model", "provider", "planner");
+    session.pushAgentInfo("Engineer", "model2", "provider2", "engineer");
+
+    assertEquals(session.getActiveAgentInfo(), {
+        displayName: "Engineer",
+        model: "model2",
+        provider: "provider2",
+        agentName: "engineer",
+    });
+    assertEquals(session.getAgentInfoStack()[0], {
+        displayName: "Planner",
+        model: "model",
+        provider: "provider",
+        agentName: "planner",
+    });
+});
+
+Deno.test("two Hosted Sessions do not share workflow context", () => {
+    const alpha = new HostedSession({ id: "workflow-alpha", sessionManager: makeSessionManager("workflow-alpha") });
+    const beta = new HostedSession({ id: "workflow-beta", sessionManager: makeSessionManager("workflow-beta") });
+
+    alpha.setWorkflowTriageContext({ routingIntent: "FEATURE", complexity: "LOW" });
+    beta.setWorkflowPlanName("beta-plan");
+
+    assertEquals(alpha.getWorkflowContext(), { routingIntent: "FEATURE", complexity: "LOW" });
+    assertEquals(beta.getWorkflowContext(), { planName: "beta-plan" });
+});
+
 Deno.test("HostedSession dispose clears owned runtime references and rejects later mutation", () => {
     const sessionManager = makeSessionManager("disposing-manager");
     const root = makeDisposableSession("root");
@@ -191,6 +271,7 @@ Deno.test("HostedSession dispose clears owned runtime references and rejects lat
     session.setPendingRootSwap({ agentName: "router", displayName: "Router" });
     session.setPendingSwitchHandoff({ agentName: "router", reason: "done" });
     session.setActiveExecutionWorkflow({ planName: "plan", triageMeta: {}, executionCwd: "/exec" });
+    session.setWorkflowPlanName("disposing-plan");
 
     session.dispose();
 
@@ -208,6 +289,7 @@ Deno.test("HostedSession dispose clears owned runtime references and rejects lat
     assertEquals(session.getPendingRootSwap(), null);
     assertEquals(session.consumePendingSwitchHandoff(), null);
     assertEquals(session.getActiveExecutionWorkflow(), null);
+    assertEquals(session.getWorkflowContext(), null);
     assertThrows(
         () => session.setThinkingLevel("medium"),
         Error,
