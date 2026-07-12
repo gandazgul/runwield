@@ -27,6 +27,7 @@ Deno.test("buildCompileArgs uses Deno compile flags and bundled resource include
     assertEquals(args.includes("./bin/wld"), true);
     assertEquals(args.at(-1), "src/cli.js");
 
+    assertStringIncludes(args.join("\n"), "dist/workspace/");
     assertStringIncludes(args.join("\n"), "src/agent-definitions");
     assertStringIncludes(args.join("\n"), "src/prompt-templates");
     assertStringIncludes(args.join("\n"), "src/shared/session/SYSTEM_PROMPT_TEMPLATE.md");
