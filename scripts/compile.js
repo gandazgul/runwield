@@ -4,6 +4,9 @@
 
 const STATIC_INCLUDE_PATHS = [
     "src/ui/workspace/static/",
+    "src/ui/design-system/tokens.css",
+    "src/ui/design-system/components.css",
+    "logo.svg",
     "dist/workspace/",
     "src/agent-definitions",
     "src/prompt-templates",
@@ -64,12 +67,19 @@ export function selectStaticIncludeFlag(compileHelpText) {
  * @returns {string[]}
  */
 export function buildCompileArgs({ staticIncludeFlag, reviewEditorHtmlPath }) {
+    // Do not pass --bundle here. The Workspace server resolves Astro's built
+    // entry and static resources relative to module URLs at runtime; Deno's
+    // compile bundler rewrites import.meta.url to a temporary bundle path,
+    // which makes compiled binaries miss the embedded Workspace build. Keep
+    // the binary self-extracting so those embedded resources exist beside the
+    // preserved source module paths when the compiled app starts.
     const args = [
         "compile",
         "-A",
         "--no-check",
-        "--bundle",
-        "--minify",
+        "--reload",
+        "--exclude-unused-npm",
+        "--self-extracting",
         "--app-name",
         "wld",
     ];
