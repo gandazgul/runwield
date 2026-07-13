@@ -30,7 +30,6 @@ const PLANNOTATOR_REVIEW_EDITOR_RELATIVE_PATH = "../review-editor.html";
 
 /**
  * @typedef {Object} CompileArgsOptions
- * @property {"--include" | "--include-as-is"} staticIncludeFlag
  * @property {string | null | undefined} [reviewEditorHtmlPath]
  */
 
@@ -52,21 +51,10 @@ async function runCmd(cmd, args) {
 }
 
 /**
- * Choose the best passive-resource include flag supported by the active Deno CLI.
- * Deno 2.9 docs advertise `--include-as-is`, but some 2.9.x binaries do not expose it yet.
- *
- * @param {string} compileHelpText
- * @returns {"--include" | "--include-as-is"}
- */
-export function selectStaticIncludeFlag(compileHelpText) {
-    return compileHelpText.includes("--include-as-is") ? "--include-as-is" : "--include";
-}
-
-/**
  * @param {CompileArgsOptions} options
  * @returns {string[]}
  */
-export function buildCompileArgs({ staticIncludeFlag, reviewEditorHtmlPath }) {
+export function buildCompileArgs({ reviewEditorHtmlPath }) {
     // Do not pass --bundle here. The Workspace server resolves Astro's built
     // entry and static resources relative to module URLs at runtime; Deno's
     // compile bundler rewrites import.meta.url to a temporary bundle path,
@@ -75,8 +63,11 @@ export function buildCompileArgs({ staticIncludeFlag, reviewEditorHtmlPath }) {
     // preserved source module paths when the compiled app starts.
     const args = [
         "compile",
+        "--output",
+        "./bin/wld",
         "-A",
         "--no-check",
+        "--unstable-no-legacy-abort",
         "--reload",
         "--exclude-unused-npm",
         "--self-extracting",
@@ -85,31 +76,19 @@ export function buildCompileArgs({ staticIncludeFlag, reviewEditorHtmlPath }) {
     ];
 
     for (const path of STATIC_INCLUDE_PATHS) {
-        args.push(staticIncludeFlag, path);
+        args.push("--include", path);
     }
 
     args.push("--include", PLANNOTATOR_SERVER_INCLUDE);
     args.push("--include", PLANNOTATOR_ASSETS_INCLUDE);
 
     if (reviewEditorHtmlPath) {
-        args.push(staticIncludeFlag, reviewEditorHtmlPath);
+        args.push("--include", reviewEditorHtmlPath);
     }
 
-    args.push(
-        "--output",
-        "./bin/wld",
-        "src/cli.js",
-    );
+    args.push("src/cli.js");
 
     return args;
-}
-
-/**
- * @returns {Promise<string>}
- */
-export async function getDenoCompileHelp() {
-    const result = await runCmd("deno", ["compile", "--help"]);
-    return `${result.stdout}\n${result.stderr}`;
 }
 
 /**
@@ -136,16 +115,8 @@ export async function main() {
         Deno.exit(1);
     }
 
-    const compileHelp = await getDenoCompileHelp();
-    const staticIncludeFlag = selectStaticIncludeFlag(compileHelp);
-    if (staticIncludeFlag === "--include") {
-        console.warn(
-            "[compile] Active Deno does not support --include-as-is; using --include for bundled static resources.",
-        );
-    }
-
     const reviewEditorHtmlPath = resolvePlannotatorReviewEditorHtmlPath();
-    const compile = await runCmd("deno", buildCompileArgs({ staticIncludeFlag, reviewEditorHtmlPath }));
+    const compile = await runCmd("deno", buildCompileArgs({ reviewEditorHtmlPath }));
 
     console.log(compile.stdout);
 

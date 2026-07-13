@@ -1,40 +1,36 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
-import { buildCompileArgs, resolvePlannotatorReviewEditorHtmlPath, selectStaticIncludeFlag } from "./compile.js";
-
-Deno.test("selectStaticIncludeFlag prefers verbatim includes when supported", () => {
-    assertEquals(selectStaticIncludeFlag("deno compile --include-as-is <path>"), "--include-as-is");
-    assertEquals(selectStaticIncludeFlag("deno compile --include <path>"), "--include");
-});
+import { buildCompileArgs, resolvePlannotatorReviewEditorHtmlPath } from "./compile.js";
 
 Deno.test("buildCompileArgs uses Deno compile flags and bundled resource includes", () => {
     const args = buildCompileArgs({
-        staticIncludeFlag: "--include-as-is",
         reviewEditorHtmlPath: "/tmp/plannotator/review-editor.html",
     });
 
-    assertEquals(args.slice(0, 16), [
+    assertEquals(args.slice(0, 17), [
         "compile",
+        "--output",
+        "./bin/wld",
         "-A",
         "--no-check",
+        "--unstable-no-legacy-abort",
         "--reload",
         "--exclude-unused-npm",
         "--self-extracting",
         "--app-name",
         "wld",
-        "--include-as-is",
+        "--include",
         "src/ui/workspace/static/",
-        "--include-as-is",
+        "--include",
         "src/ui/design-system/tokens.css",
-        "--include-as-is",
+        "--include",
         "src/ui/design-system/components.css",
-        "--include-as-is",
-        "logo.svg",
     ]);
     assertEquals(args.includes("--bundle"), false);
     assertEquals(args.includes("--minify"), false);
     assertEquals(args.includes("--output"), true);
     assertEquals(args.includes("./bin/wld"), true);
     assertEquals(args.at(-1), "src/cli.js");
+    assertEquals(args.includes("--include-as-is"), false);
 
     assertStringIncludes(args.join("\n"), "dist/workspace/");
     assertStringIncludes(args.join("\n"), "src/agent-definitions");
@@ -48,14 +44,12 @@ Deno.test("buildCompileArgs uses Deno compile flags and bundled resource include
     assertStringIncludes(args.join("\n"), "/tmp/plannotator/review-editor.html");
 });
 
-Deno.test("buildCompileArgs falls back to regular includes for unsupported Deno versions", () => {
+Deno.test("buildCompileArgs keeps resource includes before the script", () => {
     const args = buildCompileArgs({
-        staticIncludeFlag: "--include",
         reviewEditorHtmlPath: null,
     });
 
-    assertEquals(args.includes("--include-as-is"), false);
-    assertEquals(args.includes("--include"), true);
+    assertEquals(args.at(-1), "src/cli.js");
     assertEquals(args.includes("src/agent-definitions/workflow-prompts"), false);
 });
 
