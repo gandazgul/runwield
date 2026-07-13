@@ -64,6 +64,19 @@ Deno.test("workspace static assets bypass token checks for tokenized pages", asy
     }
 });
 
+Deno.test("review page accepts Unicode Plan payloads", async () => {
+    const token = "review-secret";
+    const app = createReviewWorkspaceApp({
+        cwd: Deno.cwd(),
+        token,
+        reviewPayload: { plan: "# Café 🚀\n", planPath: "plans/café.md" },
+        reviewType: "plan",
+    }).handler();
+
+    const response = await app(new Request(`http://localhost/review/plan?token=${token}`));
+    assertEquals(response.status < 500, true);
+});
+
 Deno.test("review API accepts review token header before workspace app token gate", async () => {
     const token = "review-secret";
     const { promise } = registerReviewDecisionPromise(token);

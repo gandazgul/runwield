@@ -5,7 +5,7 @@ import { PlanReviewSurface } from "../../react/PlanReviewSurface.tsx";
 const payloadHeader = Astro.request.headers.get("x-runwield-review-payload") || "";
 let payload = null;
 try {
-    payload = payloadHeader ? JSON.parse(payloadHeader) : null;
+    payload = payloadHeader ? JSON.parse(decodeURIComponent(payloadHeader)) : null;
 } catch {
     payload = null;
 }

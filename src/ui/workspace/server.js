@@ -226,7 +226,7 @@ async function renderAstroReviewPage(request, cwd, payload) {
     if (!handle) return null;
     const headers = new Headers(request.headers);
     headers.set(WORKSPACE_CWD_HEADER, cwd);
-    headers.set(REVIEW_PAYLOAD_HEADER, JSON.stringify(payload));
+    headers.set(REVIEW_PAYLOAD_HEADER, encodeURIComponent(JSON.stringify(payload)));
     const response = await handle(new Request(request, { headers }));
     return response.status === 404 ? null : response;
 }
@@ -381,8 +381,12 @@ function contentTypeForAsset(path) {
 
 /** @param {string} path @param {string} contentType */
 async function textFileResponse(path, contentType) {
-    const body = await Deno.readTextFile(path);
-    return new Response(body, { headers: { "content-type": contentType } });
+    try {
+        const body = await Deno.readTextFile(path);
+        return new Response(body, { headers: { "content-type": contentType } });
+    } catch {
+        return new Response("Not found", { status: 404 });
+    }
 }
 
 /** @param {string} pathname */
