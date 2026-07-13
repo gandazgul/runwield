@@ -57,7 +57,6 @@ Deno.test("dispatchPostTriage routes INQUIRY to Guide without completion or vali
         uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
-            applyPendingRootSwap: () => Promise.resolve(),
             createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
             readLatestTaskCompletedOutcome: () => {
                 taskCompletedChecked = true;
@@ -76,8 +75,13 @@ Deno.test("dispatchPostTriage routes INQUIRY to Guide without completion or vali
                 metrics.push(metric);
                 return Promise.resolve(null);
             },
-            setActiveAgent: (/** @type {unknown} */ _hostedSession, /** @type {string} */ name) =>
-                activeAgents.push(name),
+            switchActiveAgent: (
+                /** @type {unknown} */ _hostedSession,
+                /** @type {{ agentName: string }} */ options,
+            ) => {
+                activeAgents.push(options.agentName);
+                return Promise.resolve({ ok: true, agentName: options.agentName, changed: true });
+            },
         }),
     });
 
@@ -114,7 +118,6 @@ Deno.test("dispatchPostTriage routes IDEATION to Ideator without completion or v
         uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
-            applyPendingRootSwap: () => Promise.resolve(),
             createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
             runRootTurn: (/** @type {any} */ args) => {
                 rootTurns.push(args.agentName);
@@ -124,8 +127,13 @@ Deno.test("dispatchPostTriage routes IDEATION to Ideator without completion or v
             runValidationLoop: () => {
                 throw new Error("validation should not run");
             },
-            setActiveAgent: (/** @type {unknown} */ _hostedSession, /** @type {string} */ name) =>
-                activeAgents.push(name),
+            switchActiveAgent: (
+                /** @type {unknown} */ _hostedSession,
+                /** @type {{ agentName: string }} */ options,
+            ) => {
+                activeAgents.push(options.agentName);
+                return Promise.resolve({ ok: true, agentName: options.agentName, changed: true });
+            },
         }),
     });
 
@@ -156,7 +164,6 @@ Deno.test("dispatchPostTriage routes OPERATION to Operator without validation", 
         uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
-            applyPendingRootSwap: () => Promise.resolve(),
             createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
             readLatestTaskCompletedOutcome: () => true,
             runRootTurn: (/** @type {any} */ args) => {
@@ -178,8 +185,13 @@ Deno.test("dispatchPostTriage routes OPERATION to Operator without validation", 
                 metrics.push(metric);
                 return Promise.resolve(null);
             },
-            setActiveAgent: (/** @type {unknown} */ _hostedSession, /** @type {string} */ name) =>
-                activeAgents.push(name),
+            switchActiveAgent: (
+                /** @type {unknown} */ _hostedSession,
+                /** @type {{ agentName: string }} */ options,
+            ) => {
+                activeAgents.push(options.agentName);
+                return Promise.resolve({ ok: true, agentName: options.agentName, changed: true });
+            },
         }),
     });
 
@@ -218,7 +230,6 @@ Deno.test("dispatchPostTriage routes QUICK_FIX to Engineer and runs Mechanical V
         uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
-            applyPendingRootSwap: () => Promise.resolve(),
             createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
             readLatestTaskCompletedOutcome: () => true,
             runRootTurn: (/** @type {any} */ args) => {
@@ -243,8 +254,13 @@ Deno.test("dispatchPostTriage routes QUICK_FIX to Engineer and runs Mechanical V
                 metrics.push(metric);
                 return Promise.resolve(null);
             },
-            setActiveAgent: (/** @type {unknown} */ _hostedSession, /** @type {string} */ name) =>
-                activeAgents.push(name),
+            switchActiveAgent: (
+                /** @type {unknown} */ _hostedSession,
+                /** @type {{ agentName: string }} */ options,
+            ) => {
+                activeAgents.push(options.agentName);
+                return Promise.resolve({ ok: true, agentName: options.agentName, changed: true });
+            },
         }),
     });
 
@@ -284,7 +300,6 @@ Deno.test("dispatchPostTriage prompts before QUICK_FIX in non-Git projects", asy
         uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
-            applyPendingRootSwap: () => Promise.resolve(),
             createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
             probeGitRepository: () => Promise.resolve({ ok: false, state: "not_git", cwd: Deno.cwd() }),
             hasNonGitExecutionConsent: () => false,
@@ -299,7 +314,8 @@ Deno.test("dispatchPostTriage prompts before QUICK_FIX in non-Git projects", asy
             },
             runMechanicalValidation: () => Promise.resolve({ passed: true, attempts: 0 }),
             recordWorkflowMetric: () => Promise.resolve(null),
-            setActiveAgent: () => {},
+            switchActiveAgent: (/** @type {unknown} */ _hostedSession, /** @type {{ agentName: string }} */ options) =>
+                Promise.resolve({ ok: true, agentName: options.agentName, changed: true }),
         }),
     });
 
@@ -325,7 +341,6 @@ Deno.test("dispatchPostTriage cancels QUICK_FIX before Engineer when non-Git con
         uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
-            applyPendingRootSwap: () => Promise.resolve(),
             createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
             probeGitRepository: () => Promise.resolve({ ok: false, state: "not_git", cwd: Deno.cwd() }),
             hasNonGitExecutionConsent: () => false,
@@ -339,7 +354,8 @@ Deno.test("dispatchPostTriage cancels QUICK_FIX before Engineer when non-Git con
                 return Promise.resolve({ passed: true, attempts: 0 });
             },
             recordWorkflowMetric: () => Promise.resolve(null),
-            setActiveAgent: () => {},
+            switchActiveAgent: (/** @type {unknown} */ _hostedSession, /** @type {{ agentName: string }} */ options) =>
+                Promise.resolve({ ok: true, agentName: options.agentName, changed: true }),
         }),
     });
 
@@ -365,7 +381,6 @@ Deno.test("dispatchPostTriage warns and skips Mechanical Validation when QUICK_F
         uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
-            applyPendingRootSwap: () => Promise.resolve(),
             createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
             readLatestTaskCompletedOutcome: () => null,
             runRootTurn: () => Promise.resolve([]),
@@ -373,7 +388,8 @@ Deno.test("dispatchPostTriage warns and skips Mechanical Validation when QUICK_F
                 mechanicalValidationCount++;
                 return Promise.resolve({ passed: true, attempts: 0 });
             },
-            setActiveAgent: () => {},
+            switchActiveAgent: (/** @type {unknown} */ _hostedSession, /** @type {{ agentName: string }} */ options) =>
+                Promise.resolve({ ok: true, agentName: options.agentName, changed: true }),
         }),
     });
 
@@ -413,11 +429,15 @@ Deno.test("dispatchPostTriage keeps planning agent active on stay/save/halt deci
             __deps: /** @type {any} */ ({
                 ensurePlansDir: () => Promise.resolve("/plans"),
                 runPlanningAgent: () => Promise.resolve({ outcome: "feedback" }),
-                consumePendingSwitchHandoff: () => null,
                 decidePostPlanning: () => item.decision,
                 createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
-                setActiveAgent: (/** @type {unknown} */ _hostedSession, /** @type {string} */ name) =>
-                    activeAgents.push(name),
+                switchActiveAgent: (
+                    /** @type {unknown} */ _hostedSession,
+                    /** @type {{ agentName: string }} */ options,
+                ) => {
+                    activeAgents.push(options.agentName);
+                    return Promise.resolve({ ok: true, agentName: options.agentName, changed: true });
+                },
                 getConfiguredAgentModel: () => "test/model",
                 pushAgentInfo: () => {},
                 popAgentInfo: () => {
@@ -506,7 +526,6 @@ Deno.test("dispatchPostTriage executes approved FEATURE plans and runs validatio
                 assertEquals(args.triageMeta.classification, "FEATURE");
                 return Promise.resolve({ outcome: "approved_execute", planName: "feature-plan" });
             },
-            consumePendingSwitchHandoff: () => null,
             decidePostPlanning: () => ({
                 kind: "execute_plan",
                 payload: {
@@ -573,7 +592,6 @@ Deno.test("dispatchPostTriage keeps Engineer active after incomplete PROJECT exe
                 assertEquals(args.agentName, "architect");
                 return Promise.resolve({ outcome: "approved_execute", planName: "project-plan" });
             },
-            consumePendingSwitchHandoff: () => null,
             decidePostPlanning: () => ({
                 kind: "execute_plan",
                 payload: {
@@ -587,8 +605,13 @@ Deno.test("dispatchPostTriage keeps Engineer active after incomplete PROJECT exe
                 payload: { agentName: context.executionAgentName, reason: "execution_incomplete" },
             }),
             createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
-            setActiveAgent: (/** @type {unknown} */ _hostedSession, /** @type {string} */ name) =>
-                activeAgents.push(name),
+            switchActiveAgent: (
+                /** @type {unknown} */ _hostedSession,
+                /** @type {{ agentName: string }} */ options,
+            ) => {
+                activeAgents.push(options.agentName);
+                return Promise.resolve({ ok: true, agentName: options.agentName, changed: true });
+            },
         }),
     });
 
@@ -616,7 +639,6 @@ Deno.test("dispatchPostTriage keeps Engineer active after incomplete FEATURE exe
         __deps: /** @type {any} */ ({
             ensurePlansDir: () => Promise.resolve("/plans"),
             runPlanningAgent: () => Promise.resolve({ outcome: "approved_execute", planName: "feature-plan" }),
-            consumePendingSwitchHandoff: () => null,
             decidePostPlanning: () => ({
                 kind: "execute_plan",
                 payload: {
@@ -630,19 +652,24 @@ Deno.test("dispatchPostTriage keeps Engineer active after incomplete FEATURE exe
                 payload: { agentName: context.executionAgentName, reason: "execution_incomplete" },
             }),
             createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
-            setActiveAgent: (/** @type {unknown} */ _hostedSession, /** @type {string} */ name) =>
-                activeAgents.push(name),
+            switchActiveAgent: (
+                /** @type {unknown} */ _hostedSession,
+                /** @type {{ agentName: string }} */ options,
+            ) => {
+                activeAgents.push(options.agentName);
+                return Promise.resolve({ ok: true, agentName: options.agentName, changed: true });
+            },
         }),
     });
 
     assertEquals(activeAgents, ["engineer"]);
 });
 
-Deno.test("dispatchPostTriage drains execution handoffs from the supplied HostedSession", async () => {
+Deno.test("dispatchPostTriage ignores stale execution handoff state by using typed results", async () => {
     const uiAPI = makeUi();
     const target = makeHostedSession("target-execution-drain");
-    const other = makeHostedSession("other-execution-drain");
-    other.setPendingSwitchHandoff({ agentName: "router", reason: "other queued handoff" });
+    /** @type {string[]} */
+    const activeAgents = [];
 
     await dispatchPostTriage({
         hostedSession: target,
@@ -667,21 +694,19 @@ Deno.test("dispatchPostTriage drains execution handoffs from the supplied Hosted
                     triageMeta: { routingIntent: "FEATURE", classification: "FEATURE" },
                 },
             }),
-            executePlan: () => {
-                target.setPendingSwitchHandoff({ agentName: "router", reason: "execution queued handoff" });
-                return Promise.resolve({ executionComplete: false });
-            },
+            executePlan: () => Promise.resolve({ executionComplete: false }),
             decidePostExecution: (/** @type {any} */ _result, /** @type {any} */ context) => ({
                 kind: "stay_with_agent",
                 payload: { agentName: context.executionAgentName, reason: "execution_incomplete" },
             }),
-            createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
-            setActiveAgent: () => {},
+            switchActiveAgent: (/** @type {unknown} */ _hostedSession, /** @type {{agentName:string}} */ options) => {
+                activeAgents.push(options.agentName);
+                return Promise.resolve({ ok: true, agentName: options.agentName, changed: true });
+            },
         }),
     });
 
-    assertEquals(target.consumePendingSwitchHandoff(), null);
-    assertEquals(other.consumePendingSwitchHandoff()?.reason, "other queued handoff");
+    assertEquals(activeAgents, ["engineer"]);
 });
 
 Deno.test("dispatchPostTriage auto-names unnamed sessions and mirrors title", async () => {
@@ -708,10 +733,10 @@ Deno.test("dispatchPostTriage auto-names unnamed sessions and mirrors title", as
             appendSessionInfo: (/** @type {string} */ name) => infos.push(name),
         }),
         __deps: /** @type {any} */ ({
-            applyPendingRootSwap: () => Promise.resolve(),
             createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
             runRootTurn: () => Promise.resolve([]),
-            setActiveAgent: () => {},
+            switchActiveAgent: (/** @type {unknown} */ _hostedSession, /** @type {{ agentName: string }} */ options) =>
+                Promise.resolve({ ok: true, agentName: options.agentName, changed: true }),
             setTerminalTitleForName: (/** @type {string} */ name) => {
                 titles.push(name);
                 return `wld - ${name}`;
@@ -747,10 +772,10 @@ Deno.test("dispatchPostTriage does not overwrite existing session names", async 
             appendSessionInfo: (/** @type {string} */ name) => infos.push(name),
         }),
         __deps: /** @type {any} */ ({
-            applyPendingRootSwap: () => Promise.resolve(),
             createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
             runRootTurn: () => Promise.resolve([]),
-            setActiveAgent: () => {},
+            switchActiveAgent: (/** @type {unknown} */ _hostedSession, /** @type {{ agentName: string }} */ options) =>
+                Promise.resolve({ ok: true, agentName: options.agentName, changed: true }),
             setTerminalTitleForName: (/** @type {string} */ name) => {
                 titles.push(name);
                 return `wld - ${name}`;
@@ -880,12 +905,8 @@ Deno.test("readLatestTriageOutcome ignores tool results without routingIntent or
 Deno.test("dispatchPostTriage switches and runs only the supplied HostedSession", async () => {
     const target = makeHostedSession("target-orchestrator-session");
     const other = makeHostedSession("other-orchestrator-session");
-    other.setPendingRootSwap({ agentName: "engineer", displayName: "Engineer" });
-    other.setPendingSwitchHandoff({ agentName: "router", reason: "other queued handoff" });
     /** @type {unknown[]} */
     const switchedSessions = [];
-    /** @type {unknown[]} */
-    const swapSessions = [];
     /** @type {unknown[]} */
     const rootTurnSessions = [];
 
@@ -902,11 +923,9 @@ Deno.test("dispatchPostTriage switches and runs only the supplied HostedSession"
         uiAPI: makeUi(),
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
-            createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
-            setActiveAgent: (/** @type {unknown} */ hostedSession) => switchedSessions.push(hostedSession),
-            applyPendingRootSwap: (/** @type {unknown} */ hostedSession) => {
-                swapSessions.push(hostedSession);
-                return Promise.resolve();
+            switchActiveAgent: (/** @type {unknown} */ hostedSession, /** @type {{agentName:string}} */ options) => {
+                switchedSessions.push(hostedSession);
+                return Promise.resolve({ ok: true, agentName: options.agentName, changed: true });
             },
             runRootTurn: (/** @type {any} */ args) => {
                 rootTurnSessions.push(args.hostedSession);
@@ -916,8 +935,6 @@ Deno.test("dispatchPostTriage switches and runs only the supplied HostedSession"
     });
 
     assertEquals(switchedSessions, [target]);
-    assertEquals(swapSessions, [target]);
     assertEquals(rootTurnSessions, [target]);
-    assertEquals(other.getPendingRootSwap()?.agentName, "engineer");
-    assertEquals(other.consumePendingSwitchHandoff()?.reason, "other queued handoff");
+    assertEquals(other.getRootAgentName(), null);
 });

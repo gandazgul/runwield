@@ -24,7 +24,7 @@ import {
 import { recordWorkflowMetric } from "../workflow/metrics.js";
 import { runMechanicalValidation, runValidationLoop, shouldRunWorkflowValidation } from "../workflow/validation.js";
 import { recordPlanEvent as recordPlanEventFn } from "../workflow/plan-lifecycle.js";
-import { setActiveAgent as setActiveAgentFn } from "./agent-switching.js";
+import { switchActiveAgent as switchActiveAgentFn } from "./agent-switching.js";
 import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runtime-events.js";
 import { join } from "@std/path";
 import { AGENTS } from "../../constants.js";
@@ -41,7 +41,7 @@ function canCompleteActiveExecutionWorkflow(agentName) {
  * Create an onMessage handler for the active Agent.
  *
  * The returned function matches the `(userRequest, images, uiAPI) => Promise<void>`
- * signature used by `setActiveAgent()` / `startInteractiveSession()`.
+ * signature used by `SessionRuntime prompt handling.
  *
  * After the Agent finishes, the handler checks the message stream for workflow
  * Custom Tool outcomes. The tool outcome, not the Agent name, decides whether
@@ -63,7 +63,7 @@ function canCompleteActiveExecutionWorkflow(agentName) {
  *   runMechanicalValidation?: typeof runMechanicalValidation,
  *   recordPlanEvent?: typeof recordPlanEventFn,
  *   recordWorkflowMetric?: typeof recordWorkflowMetric,
- *   setActiveAgent?: typeof setActiveAgentFn,
+ *   switchActiveAgent?: typeof switchActiveAgentFn,
  *   requestAttention?: (hostedSession: import('./hosted-session.js').HostedSession, reason: "agentStopped", agentName: string) => void,
  *   hostedSession?: import('./hosted-session.js').HostedSession,
  *   _agentDefOverride?: import('./types.js').AgentDefinition,
@@ -88,7 +88,7 @@ export function createAgentHandler(agentName, __deps) {
     const runMechanicalValidationImpl = __deps?.runMechanicalValidation || runMechanicalValidation;
     const recordPlanEventImpl = __deps?.recordPlanEvent || recordPlanEventFn;
     const recordWorkflowMetricSource = __deps?.recordWorkflowMetric || recordWorkflowMetric;
-    const setActiveAgent = __deps?.setActiveAgent || setActiveAgentFn;
+    const switchActiveAgent = __deps?.switchActiveAgent || switchActiveAgentFn;
     const requestAttention = __deps?.requestAttention || ((targetSession, reason, targetAgentName) => {
         emitHostedSessionRuntimeEvent(targetSession, {
             type: RuntimeEventTypes.ATTENTION_REQUESTED,
@@ -213,12 +213,7 @@ export function createAgentHandler(agentName, __deps) {
                 },
             });
             if (!slicerResult.ok) {
-                setActiveAgent(
-                    hostedSession,
-                    agentName,
-                    createAgentHandler(agentName, { hostedSession }),
-                    uiAPI,
-                );
+                await switchActiveAgent(hostedSession, { agentName }, uiAPI);
             }
             requestAgentStoppedAttention();
             return { kind: "complete" };
@@ -258,12 +253,7 @@ export function createAgentHandler(agentName, __deps) {
                     true,
                     "RunWield",
                 );
-                setActiveAgent(
-                    hostedSession,
-                    AGENTS.ENGINEER,
-                    createAgentHandler(AGENTS.ENGINEER, { hostedSession }),
-                    uiAPI,
-                );
+                await switchActiveAgent(hostedSession, { agentName: AGENTS.ENGINEER }, uiAPI);
                 requestAgentStoppedAttention();
                 return { kind: "complete" };
             }
@@ -316,12 +306,7 @@ export function createAgentHandler(agentName, __deps) {
                     planName,
                     details: { transition: "stay_with_agent", decisionKind: executionDecision.kind },
                 });
-                setActiveAgent(
-                    hostedSession,
-                    nextAgentName,
-                    createAgentHandler(nextAgentName, { hostedSession }),
-                    uiAPI,
-                );
+                await switchActiveAgent(hostedSession, { agentName: nextAgentName }, uiAPI);
                 requestAgentStoppedAttention();
             } else {
                 // halt or repair_plan — stay with Engineer for manual recovery
@@ -342,12 +327,7 @@ export function createAgentHandler(agentName, __deps) {
                     true,
                     "RunWield",
                 );
-                setActiveAgent(
-                    hostedSession,
-                    AGENTS.ENGINEER,
-                    createAgentHandler(AGENTS.ENGINEER, { hostedSession }),
-                    uiAPI,
-                );
+                await switchActiveAgent(hostedSession, { agentName: AGENTS.ENGINEER }, uiAPI);
                 requestAgentStoppedAttention();
             }
             return { kind: "complete" };

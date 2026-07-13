@@ -528,19 +528,23 @@ export function getResolvedVisionFallbackModelSetting() {
  * Defaults to true; set `cleanupMergedWorktrees: false` in global or project
  * settings to keep merged worktree checkouts for inspection.
  *
+ * @param {string} projectRoot
  * @returns {boolean}
  */
-export function shouldCleanupMergedWorktrees() {
-    return getMergedCustomSetting("cleanupMergedWorktrees") !== false;
+export function shouldCleanupMergedWorktrees(projectRoot) {
+    if (!projectRoot) throw new Error("shouldCleanupMergedWorktrees: projectRoot is required");
+    return getMergedCustomSetting("cleanupMergedWorktrees", projectRoot) !== false;
 }
 
 /**
  * Resolve the optional human code review gate mode.
  *
+ * @param {string} projectRoot
  * @returns {"none" | "ask" | "always"}
  */
-export function getCodeReviewMode() {
-    const mode = getMergedCustomSetting("codereview");
+export function getCodeReviewMode(projectRoot) {
+    if (!projectRoot) throw new Error("getCodeReviewMode: projectRoot is required");
+    const mode = getMergedCustomSetting("codereview", projectRoot);
     if (typeof mode !== "string") return "none";
 
     const normalized = mode.trim().toLowerCase();

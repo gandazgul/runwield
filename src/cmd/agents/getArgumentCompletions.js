@@ -6,7 +6,7 @@ import { AGENTS } from "../../constants.js";
  * @returns {Promise<import('../registry.js').CommandCompletionItem[]>}
  */
 export async function getAgentCompletions(argumentPrefix) {
-    const agents = await listAvailableAgents();
+    const agents = await listAvailableAgents(Deno.cwd());
     return agents
         .map((agent) => ({
             value: agent.name,

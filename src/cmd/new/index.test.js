@@ -53,6 +53,7 @@ Deno.test("runNewCommand creates and installs a fresh root session", async () =>
                 },
             },
             replaceHostedSession: () => {},
+            switchActiveAgent: () => Promise.resolve({ ok: true, agentName: "router", changed: true }),
             __testDeps: {
                 createRootSessionManager: (
                     /** @type {string} */ mode,
@@ -104,17 +105,14 @@ Deno.test("runNewCommand starts fresh interactive sessions at Router", async () 
                 createSession: () => hostedSession,
             },
             replaceHostedSession: () => {},
-            setActiveAgent: (
+            switchActiveAgent: (
                 /** @type {unknown} */ nextHostedSession,
-                /** @type {string} */ agentName,
-                /** @type {unknown} */ _handler,
+                /** @type {{ agentName: string }} */ options,
                 /** @type {unknown} */ nextUiAPI,
             ) => {
-                activeAgents.push({ hostedSession: nextHostedSession, agentName, uiAPI: nextUiAPI });
-            },
-            applyPendingRootSwap: (/** @type {unknown} */ nextHostedSession, /** @type {unknown} */ nextUiAPI) => {
+                activeAgents.push({ hostedSession: nextHostedSession, agentName: options.agentName, uiAPI: nextUiAPI });
                 swaps.push({ hostedSession: nextHostedSession, uiAPI: nextUiAPI });
-                return Promise.resolve();
+                return Promise.resolve({ ok: true, agentName: options.agentName, changed: true });
             },
             __testDeps: {
                 createRootSessionManager: () => Promise.resolve(manager),
@@ -129,7 +127,7 @@ Deno.test("runNewCommand starts fresh interactive sessions at Router", async () 
 
     assertEquals(activeAgents, [{ hostedSession, agentName: "router", uiAPI }]);
     assertEquals(swaps, [{ hostedSession, uiAPI }]);
-    assertEquals(handlerArgs, [{ agentName: "router", deps: { hostedSession } }]);
+    assertEquals(handlerArgs, []);
 });
 
 Deno.test("runNewCommand updates terminal title for unnamed sessions", async () => {

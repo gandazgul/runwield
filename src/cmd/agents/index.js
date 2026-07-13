@@ -5,10 +5,8 @@
 
 import { basename } from "@std/path";
 import { printCommandHelp as printCommandHelpFn } from "../help/index.js";
-import {
-    setActiveAgent as setActiveAgentFn,
-    startInteractiveSession as startInteractiveSessionFn,
-} from "../../ui/tui/chat-session.js";
+import { startInteractiveSession as startInteractiveSessionFn } from "../../ui/tui/chat-session.js";
+import { switchActiveAgent as switchActiveAgentFn } from "../../shared/session/agent-switching.js";
 import { listAvailableAgents as listAvailableAgentsFn } from "../../shared/session/agents.js";
 import { AGENTS } from "../../constants.js";
 import { COMMAND_NAMES } from "../registry.js";
@@ -21,7 +19,7 @@ export { getAgentCompletions } from "./getArgumentCompletions.js";
  * @typedef {Object} CommandDependencies
  * @property {typeof listAvailableAgentsFn} [listAvailableAgents]
  * @property {typeof createAgentHandlerFn} [createAgentHandler]
- * @property {typeof setActiveAgentFn} [setActiveAgent]
+ * @property {typeof switchActiveAgentFn} [switchActiveAgent]
  * @property {typeof startInteractiveSessionFn} [startInteractiveSession]
  * @property {typeof printCommandHelpFn} [printCommandHelp]
  * @property {typeof Deno.exit} [exit]
@@ -39,20 +37,20 @@ async function runAgentsCommandCli(agentName, rest, deps = {}) {
     const {
         listAvailableAgents: listAvailableAgentsDep,
         createAgentHandler: createAgentHandlerDep,
-        setActiveAgent: setActiveAgentDep,
+        switchActiveAgent: switchActiveAgentDep,
         startInteractiveSession: startInteractiveSessionDep,
         exit: exitDep,
     } = deps;
 
     const listAvailableAgents = listAvailableAgentsDep || listAvailableAgentsFn;
     const createAgentHandler = createAgentHandlerDep || createAgentHandlerFn;
-    const setActiveAgent = setActiveAgentDep || setActiveAgentFn;
+    const switchActiveAgent = switchActiveAgentDep || switchActiveAgentFn;
     const startInteractiveSession = startInteractiveSessionDep || startInteractiveSessionFn;
     void createAgentHandler;
-    void setActiveAgent;
+    void switchActiveAgent;
     const exit = exitDep || Deno.exit;
 
-    const agents = await listAvailableAgents();
+    const agents = await listAvailableAgents(Deno.cwd());
 
     // No agent name: list all and exit
     if (!agentName) {
@@ -93,6 +91,7 @@ async function runAgentsCommandCli(agentName, rest, deps = {}) {
  *   uiAPI: import('../../ui/tui/types.js').UiAPI,
  *   editor: import('../../ui/tui/types.js').EditorAPI,
  *   hostedSession?: import('../../shared/session/hosted-session.js').HostedSession,
+ *   switchActiveAgent?: (hostedSession: import('../../shared/session/hosted-session.js').HostedSession | undefined, options: { agentName: string, model?: string, allowReturnToRouter?: boolean }, uiAPI?: import('../../ui/tui/types.js').UiAPI) => Promise<unknown>,
  * }} options
  * @param {CommandDependencies} [deps]
  * @return {Promise<void>}
@@ -101,15 +100,15 @@ async function runAgentsCommandTUI(agentName, _rest, options, deps = {}) {
     const {
         listAvailableAgents: listAvailableAgentsDep,
         createAgentHandler: createAgentHandlerDep,
-        setActiveAgent: setActiveAgentDep,
+        switchActiveAgent: switchActiveAgentDep,
     } = deps;
 
     const listAvailableAgents = listAvailableAgentsDep || listAvailableAgentsFn;
     const createAgentHandler = createAgentHandlerDep || createAgentHandlerFn;
-    const setActiveAgent = setActiveAgentDep || setActiveAgentFn;
+    const switchActiveAgent = options.switchActiveAgent || switchActiveAgentDep || switchActiveAgentFn;
 
-    const agents = await listAvailableAgents();
     const { tui, uiAPI, editor, hostedSession } = options;
+    const agents = await listAvailableAgents(hostedSession?.cwd);
     editor.setText("");
 
     /** @type {string|null} */
@@ -143,7 +142,8 @@ async function runAgentsCommandTUI(agentName, _rest, options, deps = {}) {
 
     const handler = createAgentHandler(match.name, { hostedSession });
 
-    setActiveAgent(hostedSession, match.name, handler, uiAPI);
+    void handler;
+    if (hostedSession) await switchActiveAgent(hostedSession, { agentName: match.name }, uiAPI);
 
     // Update terminal title with chosen agent name
     const rootSessionManager = /** @type {any} */ (hostedSession?.getRootSessionManager?.());
@@ -189,6 +189,7 @@ export async function runAgentsCommand(argv, options = {}) {
             editor: options.editor,
             tui: options.tui,
             hostedSession: /** @type {any} */ (options).hostedSession,
+            switchActiveAgent: options.switchActiveAgent,
         }, deps);
     }
 

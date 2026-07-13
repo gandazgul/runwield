@@ -194,14 +194,14 @@ Deno.test("agent-handler keeps Engineer active when approved_execute execution i
         runValidationLoop: () => {
             throw new Error("should not validate incomplete execution");
         },
-        setActiveAgent: (
+        switchActiveAgent: (
             /** @type {unknown} */ _hostedSession,
-            /** @type {string} */ name,
-            /** @type {unknown} */ _handler,
+            /** @type {{ agentName: string }} */ options,
             /** @type {any} */ actualUiAPI,
         ) => {
-            restoredAgents.push(name);
+            restoredAgents.push(options.agentName);
             assertEquals(actualUiAPI, uiAPI);
+            return Promise.resolve({ ok: true, agentName: options.agentName, changed: true });
         },
     });
 

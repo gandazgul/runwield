@@ -107,6 +107,7 @@ export async function submitPlanForReview({
 
     // 4. Start the review surface through an adapter seam.
     const server = await startPlanReviewSurfaceImpl({
+        cwd,
         plan: planWithFm,
         planPath,
         htmlContent: __deps?.htmlContent,

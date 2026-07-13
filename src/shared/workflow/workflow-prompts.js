@@ -3,7 +3,6 @@
  * User prompts and agent request text used by workflow execution.
  */
 
-import { CWD } from "../../constants.js";
 import { loadPlan } from "../../plan-store.js";
 import { getAgentDisplayName } from "../session/agents.js";
 import { extractTasks, parseTaskDependencies, validateProjectTasks } from "./task-scheduling.js";
@@ -139,7 +138,8 @@ export async function askProjectDecompositionApproval(planName, uiAPI) {
  * @param {string} [projectRoot]
  * @returns {Promise<"proceed" | "save">}
  */
-export async function askApprovalWithTasks(planName, uiAPI, structuredTasks, projectRoot = CWD) {
+export async function askApprovalWithTasks(planName, uiAPI, structuredTasks, projectRoot) {
+    if (!projectRoot) throw new Error("askApprovalWithTasks: projectRoot is required");
     const plan = await loadPlan(projectRoot, planName);
 
     let tasks = structuredTasks || [];
@@ -208,10 +208,11 @@ export function reportExecutionSummary(result, uiAPI) {
  * @param {{ task: number, description: string }} task
  * @param {string} agentName
  * @param {string | null} outputText
+ * @param {string} [projectRoot]
  * @returns {string}
  */
-export function buildTaskResultDisplay(task, agentName, outputText) {
-    return `Task ${task.task} (${getAgentDisplayName(agentName)}) — ${task.description}\n\n` +
+export function buildTaskResultDisplay(task, agentName, outputText, projectRoot) {
+    return `Task ${task.task} (${getAgentDisplayName(agentName, projectRoot)}) — ${task.description}\n\n` +
         (outputText || "(no output)");
 }
 

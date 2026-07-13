@@ -5,7 +5,6 @@
 
 import { AGENTS } from "../../constants.js";
 import { createRootSessionManager } from "../../shared/session/root-session.js";
-import { createAgentHandler as createAgentHandlerFn } from "../../shared/session/agent-handler.js";
 import { switchActiveAgent as switchActiveAgentFn } from "../../shared/session/agent-switching.js";
 import { disposeRootAgentSessionForNewSession } from "../../shared/session/session.js";
 import { setTerminalTitleForSession } from "../../ui/tui/terminal-title.js";
@@ -24,13 +23,11 @@ export async function runNewCommand(argv, options = {}) {
 
     const deps = /** @type {{
         createRootSessionManager?: typeof createRootSessionManager,
-        createAgentHandler?: typeof createAgentHandlerFn,
         disposeRootAgentSessionForNewSession?: typeof disposeRootAgentSessionForNewSession,
         setTerminalTitleForSession?: typeof setTerminalTitleForSession,
     }} */
         (options.__testDeps || {});
     const createRoot = deps.createRootSessionManager || createRootSessionManager;
-    const createAgentHandler = deps.createAgentHandler || createAgentHandlerFn;
     const disposeRoot = deps.disposeRootAgentSessionForNewSession || disposeRootAgentSessionForNewSession;
     const setTitle = deps.setTerminalTitleForSession || setTerminalTitleForSession;
     const { uiAPI } = options;
@@ -82,22 +79,8 @@ export async function runNewCommand(argv, options = {}) {
     }
 
     if (nextHostedSession) {
-        if (options.switchActiveAgent) {
-            await options.switchActiveAgent(nextHostedSession, { agentName: AGENTS.ROUTER }, uiAPI);
-        } else if (options.setActiveAgent) {
-            options.setActiveAgent(
-                nextHostedSession,
-                AGENTS.ROUTER,
-                createAgentHandler(AGENTS.ROUTER, { hostedSession: nextHostedSession }),
-                uiAPI,
-            );
-            const applyPendingRootSwap = /** @type {any} */ (options).applyPendingRootSwap;
-            if (applyPendingRootSwap) {
-                await applyPendingRootSwap(nextHostedSession, uiAPI);
-            } else {
-                await switchActiveAgentFn(nextHostedSession, { agentName: AGENTS.ROUTER }, uiAPI);
-            }
-        }
+        const switchActiveAgent = options.switchActiveAgent || switchActiveAgentFn;
+        await switchActiveAgent(nextHostedSession, { agentName: AGENTS.ROUTER }, uiAPI);
     }
 
     setTitle(rootSessionManager, Deno.cwd());

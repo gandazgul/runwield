@@ -136,9 +136,6 @@ export async function exportMnemosyneCollection(collectionName, outputPath, deps
  * @property {typeof ensureMnemosyneBinaryFn} [ensureMnemosyneBinary]
  * @property {typeof startInteractiveSessionFn} [startInteractiveSession]
  * @property {typeof switchActiveAgentFn} [switchActiveAgent]
- * @property {(hostedSession: unknown, agentName: string, handler: unknown, uiAPI: unknown) => void} [setActiveAgent]
- * @property {(hostedSession: unknown, uiAPI: unknown) => Promise<void>} [applyPendingRootSwap]
- * @property {(agentName: string, deps?: unknown) => import('../../shared/session/types.js').AgentMessageHandler} [createAgentHandler]
  * @property {typeof runRootTurnFn} [runRootTurn]
  * @property {typeof exportMnemosyneCollection} [exportMnemosyneCollection]
  * @property {typeof getRunWieldSessionMemoryBackupDirFn} [getRunWieldSessionMemoryBackupDir]
@@ -187,11 +184,7 @@ export async function runSleepCommand(argv, options = {}) {
         getRunWieldSessionMemoryBackupDirFn;
     const now = deps.now || (() => new Date());
     const randomUUID = deps.randomUUID || crypto.randomUUID.bind(crypto);
-    const optionsAny = /** @type {any} */ (options);
     const switchActiveAgent = options.switchActiveAgent || deps.switchActiveAgent || switchActiveAgentFn;
-    const legacySetActiveAgent = options.setActiveAgent || deps.setActiveAgent;
-    const legacyApplyPendingRootSwap = optionsAny.applyPendingRootSwap || deps.applyPendingRootSwap;
-    const legacyCreateAgentHandler = deps.createAgentHandler;
     const runRootTurn = deps.runRootTurn || runRootTurnFn;
 
     await ensureMnemosyneBinary();
@@ -209,17 +202,7 @@ export async function runSleepCommand(argv, options = {}) {
     await exportCollection(collectionName, backupPath);
     options.uiAPI.appendSystemMessage(`[RunWield] Memory backup created before sleep mode: ${backupPath}`);
 
-    if (legacySetActiveAgent && legacyApplyPendingRootSwap && legacyCreateAgentHandler) {
-        legacySetActiveAgent(
-            hostedSession,
-            AGENTS.ENGINEER,
-            /** @type {any} */ (legacyCreateAgentHandler(AGENTS.ENGINEER, { hostedSession })),
-            options.uiAPI,
-        );
-        await legacyApplyPendingRootSwap(hostedSession, options.uiAPI);
-    } else {
-        await switchActiveAgent(hostedSession, { agentName: AGENTS.ENGINEER }, options.uiAPI);
-    }
+    await switchActiveAgent(hostedSession, { agentName: AGENTS.ENGINEER }, options.uiAPI);
 
     const runContext = [
         SLEEP_PROMPT,

@@ -22,7 +22,7 @@ import { createEditWithFallbackToolDefinition } from "../../tools/edit-with-fall
 import { createRunWieldGrepToolDefinition } from "../../tools/grep.js";
 import { extractYaml, test as hasFrontMatter } from "@std/front-matter";
 import { dirname, join } from "@std/path";
-import { AGENT_DEFS_DIR, AGENTS, CWD, HOME_DIR, PROMPT_TEMPLATES_DIR, SKILLS_DIR } from "../../constants.js";
+import { AGENT_DEFS_DIR, AGENTS, HOME_DIR, PROMPT_TEMPLATES_DIR, SKILLS_DIR } from "../../constants.js";
 import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runtime-events.js";
 import mnemosyneExtension, {
     memoryDeleteToolDef,
@@ -121,10 +121,10 @@ function sanitizeApiErrorMessage(msg) {
  * @param {string} text
  */
 function appendDebugLog(debugLogPath, text) {
-    const path = debugLogPath || join(Deno.cwd(), "debug.log");
+    if (!debugLogPath) return;
     try {
-        Deno.mkdirSync(dirname(path), { recursive: true });
-        Deno.writeTextFileSync(path, text.endsWith("\n") ? text : `${text}\n`, { append: true });
+        Deno.mkdirSync(dirname(debugLogPath), { recursive: true });
+        Deno.writeTextFileSync(debugLogPath, text.endsWith("\n") ? text : `${text}\n`, { append: true });
     } catch (_e) {
         // Debug logging must never affect agent execution.
     }
@@ -194,9 +194,9 @@ const promptTemplateModelByName = new Map();
  * @param {string} [cwd]
  * @returns {string[]}
  */
-export function getPromptTemplatePaths(cwd = CWD) {
+export function getPromptTemplatePaths(cwd) {
     return [
-        join(cwd, ".wld", "prompts"),
+        ...(cwd ? [join(cwd, ".wld", "prompts")] : []),
         ...(HOME_PROMPTS_DIR ? [HOME_PROMPTS_DIR] : []),
         PROMPT_TEMPLATES_DIR,
     ];
@@ -249,11 +249,11 @@ export async function listPromptTemplates(options = {}) {
     const templates = [];
     promptTemplateModelByName.clear();
     const seen = new Set();
-    const cwd = options.cwd || CWD;
+    const cwd = options.cwd;
 
     /** @type {Array<{dir: string, source: PromptTemplateSource}>} */
     const layers = [
-        { dir: join(cwd, ".wld", "prompts"), source: "local" },
+        ...(cwd ? [{ dir: join(cwd, ".wld", "prompts"), source: /** @type {PromptTemplateSource} */ ("local") }] : []),
         ...(HOME_PROMPTS_DIR ? [{ dir: HOME_PROMPTS_DIR, source: /** @type {PromptTemplateSource} */ ("home") }] : []),
         { dir: PROMPT_TEMPLATES_DIR, source: "bundled" },
     ];
@@ -469,10 +469,12 @@ export async function listSkills(options = {}) {
     const enableExternalSkills = getCustomSetting("enableExternalSkills", "global") ?? true;
 
     const layers = [
-        {
-            dir: join(options.cwd || CWD, ".wld", "skills"),
-            source: /** @type {"local" | "home" | "bundled" | "external"} */ ("local"),
-        },
+        ...(options.cwd
+            ? [{
+                dir: join(options.cwd, ".wld", "skills"),
+                source: /** @type {"local" | "home" | "bundled" | "external"} */ ("local"),
+            }]
+            : []),
         ...(HOME_DIR
             ? [{
                 dir: join(HOME_DIR, ".wld", "skills"),
@@ -573,7 +575,7 @@ export async function readGlobalAgentMd(homeDir, options = {}) {
  * @param {string} [cwd]
  * @returns {Promise<{ path: string, source: "home" | "external" | "local" }[]>}
  */
-export async function listLoadedAgentMdFiles(cwd = CWD) {
+export async function listLoadedAgentMdFiles(cwd) {
     /** @type {{ path: string, source: "home" | "external" | "local" }[]} */
     const results = [];
 
@@ -587,10 +589,12 @@ export async function listLoadedAgentMdFiles(cwd = CWD) {
         }
     }
 
-    for (const projectPath of [join(cwd, "RUNWEILD.md"), join(cwd, "AGENTS.md")]) {
-        if (await fileExists(projectPath)) {
-            results.push({ path: projectPath, source: "local" });
-            break;
+    if (cwd) {
+        for (const projectPath of [join(cwd, "RUNWEILD.md"), join(cwd, "AGENTS.md")]) {
+            if (await fileExists(projectPath)) {
+                results.push({ path: projectPath, source: "local" });
+                break;
+            }
         }
     }
 
@@ -689,9 +693,11 @@ export async function steerRootSessionWithTarget(hostedSession, text, images) {
  * 2. Otherwise, fall back to `agents.<agentName>.model` from base config.
  *
  * @param {string} agentName
+ * @param {string} projectRoot
  * @returns {string | undefined}
  */
-export function getConfiguredAgentModel(agentName, projectRoot = CWD) {
+export function getConfiguredAgentModel(agentName, projectRoot) {
+    if (!projectRoot) throw new Error("getConfiguredAgentModel: projectRoot is required");
     const agents = /** @type {Record<string, { model?: string }> | undefined} */ (
         getMergedCustomSetting("agents", projectRoot)
     );
@@ -723,9 +729,11 @@ export function getConfiguredAgentModel(agentName, projectRoot = CWD) {
  * 2. Otherwise, fall back to `agents.<agentName>.thinkingLevel` from base config.
  *
  * @param {string} agentName
+ * @param {string} projectRoot
  * @returns {string | undefined}
  */
-export function getConfiguredAgentThinkingLevel(agentName, projectRoot = CWD) {
+export function getConfiguredAgentThinkingLevel(agentName, projectRoot) {
+    if (!projectRoot) throw new Error("getConfiguredAgentThinkingLevel: projectRoot is required");
     const agents = /** @type {Record<string, { thinkingLevel?: string }> | undefined} */ (
         getMergedCustomSetting("agents", projectRoot)
     );
@@ -846,9 +854,11 @@ function omitTemperatureOption(options) {
  * 2. Otherwise, fall back to `agents.<agentName>.temperature` from base config.
  *
  * @param {string} agentName
+ * @param {string} projectRoot
  * @returns {number | undefined}
  */
-export function getConfiguredAgentTemperature(agentName, projectRoot = CWD) {
+export function getConfiguredAgentTemperature(agentName, projectRoot) {
+    if (!projectRoot) throw new Error("getConfiguredAgentTemperature: projectRoot is required");
     const agents = /** @type {Record<string, { temperature?: unknown }> | undefined} */ (
         getMergedCustomSetting("agents", projectRoot)
     );
@@ -911,6 +921,7 @@ export function applySessionTemperature(session, temperature) {
  * @param {string} [agentName] - Used to look up settings-based model override.
  * @param {ReturnType<typeof getModelRegistry>} [modelRegistry]
  * @param {import('./hosted-session.js').HostedSession} [hostedSession]
+ * @param {string} [projectRoot]
  *
  * @returns {Promise<any>}
  */
@@ -920,9 +931,10 @@ async function resolveModel(
     agentName,
     modelRegistry = getModelRegistry(),
     hostedSession = undefined,
+    projectRoot = hostedSession?.cwd,
 ) {
     let resolvedModel = null;
-    const projectRoot = hostedSession?.cwd || CWD;
+    if (!projectRoot) throw new Error("resolveModel: projectRoot is required");
     /** @param {Parameters<typeof recordWorkflowMetric>[0]} metric */
     function recordModelMetric(metric) {
         return recordWorkflowMetric(metric, { cwd: projectRoot });
@@ -951,7 +963,7 @@ async function resolveModel(
 
     // Config-driven per-agent model override (agents.<name>.model or active preset)
     if (agentName) {
-        const configuredModel = getConfiguredAgentModel(agentName, hostedSession?.cwd || CWD);
+        const configuredModel = getConfiguredAgentModel(agentName, projectRoot);
         if (configuredModel) {
             candidateModels.push({
                 model: configuredModel,
@@ -962,7 +974,7 @@ async function resolveModel(
     }
 
     // Settings default is still a settings value, so it wins over layered agent definitions.
-    const settingsManager = getSettingsManager(hostedSession?.cwd || CWD);
+    const settingsManager = getSettingsManager(projectRoot);
     const defaultModelId = settingsManager.getDefaultModel();
     const defaultProvider = settingsManager.getDefaultProvider();
     if (defaultModelId) {
@@ -1165,9 +1177,10 @@ export async function assembleFinalSystemPrompt(
     agentDef,
     tools,
     finalCustomTools,
-    cwd = CWD,
+    cwd,
     projectStateContext = "",
 ) {
+    if (!cwd) throw new Error("assembleFinalSystemPrompt: cwd is required");
     const piTools = [
         createBashToolDefinition(cwd),
         createGrepToolDefinition(cwd),
@@ -1361,7 +1374,8 @@ export async function buildAgentSession({
     includeEditFallback,
 }) {
     const targetHostedSession = hostedSession ? requireHostedSession(hostedSession, "buildAgentSession") : null;
-    const sessionCwd = cwd || targetHostedSession?.cwd || CWD;
+    const sessionCwd = cwd || targetHostedSession?.cwd;
+    if (!sessionCwd) throw new Error("buildAgentSession: cwd or hostedSession cwd is required");
     await ensureMnemosyneBinary();
     await ensureCymbalBinary();
     const agentDef = _agentDefOverride || await loadAgentDef(agentName, sessionCwd);
@@ -1373,6 +1387,7 @@ export async function buildAgentSession({
         agentName,
         modelRegistry,
         targetHostedSession || undefined,
+        sessionCwd,
     );
     const activeModelSupportsImages = modelSupportsImageInput(resolvedModel);
     const visionFallback = activeModelSupportsImages ? undefined : await resolveVisionFallbackModel(modelRegistry);
@@ -1411,7 +1426,13 @@ export async function buildAgentSession({
     if (tools.includes("plan_written") && uiAPI && !finalCustomTools.find((t) => t.name === "plan_written")) {
         const { createPlanWrittenTool } = await import("../../tools/plan-written.js");
         finalCustomTools.push(
-            createPlanWrittenTool({ uiAPI, triageMeta, agentName, hostedSession: targetHostedSession }),
+            createPlanWrittenTool({
+                uiAPI,
+                triageMeta,
+                agentName,
+                hostedSession: targetHostedSession || undefined,
+                __deps: { cwd: sessionCwd },
+            }),
         );
     }
 
@@ -2295,7 +2316,7 @@ export async function runPrompt({
             `Model: ${resolvedModel?.id || "(session default)"}`,
             `Model Name: ${resolvedModel?.name || "(not available)"}`,
             `Thinking Level: ${resolvedThinkingLevel || "(default)"}`,
-            `Execution CWD: ${cwd || CWD}`,
+            `Execution CWD: ${cwd}`,
             `System Prompt:`,
             finalSystemPrompt,
             `User Request:`,
@@ -2384,7 +2405,7 @@ export function applyAttentionNudge(agentName, userRequest, rootTurnCount) {
     ].join("\n");
 }
 
-/** @type {WeakMap<import('@earendil-works/pi-coding-agent').AgentSession, { agentDef: import('./types.js').AgentDefinition, promptState: { text: string }, subscriberState: SubscriberState, agentName: string, tools: string[], finalCustomTools: import('@earendil-works/pi-coding-agent').ToolDefinition[], rootTurnCount: number, projectStateContext: string, imageMode?: string, visionFallbackModelRef?: string }>} */
+/** @type {WeakMap<import('@earendil-works/pi-coding-agent').AgentSession, { agentDef: import('./types.js').AgentDefinition, promptState: { text: string }, subscriberState: SubscriberState, agentName: string, tools: string[], finalCustomTools: import('@earendil-works/pi-coding-agent').ToolDefinition[], rootTurnCount: number, projectStateContext: string, allowReturnToRouter: boolean, model?: string, imageMode?: string, visionFallbackModelRef?: string }>} */
 const rootSessionMetadata = new WeakMap();
 
 /**
@@ -2394,6 +2415,22 @@ const rootSessionMetadata = new WeakMap();
  */
 export function __getRootSessionMetadataForTests(session) {
     return rootSessionMetadata.get(session);
+}
+
+/**
+ * @param {import('./hosted-session.js').HostedSession} hostedSession
+ * @returns {{ agentName: string, model?: string, allowReturnToRouter: boolean } | null}
+ */
+export function getRootSessionSwitchState(hostedSession) {
+    const session = /** @type {any} */ (hostedSession?.getRootAgentSession?.());
+    if (!session) return null;
+    const meta = rootSessionMetadata.get(session);
+    if (!meta) return null;
+    return {
+        agentName: meta.agentName,
+        model: meta.model,
+        allowReturnToRouter: meta.allowReturnToRouter,
+    };
 }
 
 /**
@@ -2513,6 +2550,8 @@ export async function ensureRootAgentSession(opts) {
         finalCustomTools,
         rootTurnCount: 0,
         projectStateContext: rootProjectStateContext,
+        allowReturnToRouter: opts.allowReturnToRouter ?? true,
+        model: finalModelForUi,
         imageMode,
         visionFallbackModelRef,
     });
@@ -2791,7 +2830,7 @@ export async function reloadRootAgentSession(hostedSession, uiAPI) {
  * @param {string} [cwd]
  * @returns {Promise<string>} Formatted skill block string
  */
-export async function expandSkillCommand(skillName, additionalInstructions, cwd = CWD) {
+export async function expandSkillCommand(skillName, additionalInstructions, cwd) {
     const skills = await listSkills({ cwd });
     const skill = skills.find((s) => s.name === skillName);
     if (!skill) {
