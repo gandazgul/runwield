@@ -3,26 +3,12 @@
  * Per-conversation runtime state owned by a SessionHost entry.
  */
 
-import { CWD } from "../../constants.js";
+import { isAbsolute } from "@std/path";
 import {
     readPersistedWorkflowContext,
     recordWorkflowPlanName,
     recordWorkflowTriageContext,
 } from "./workflow-context-session.js";
-
-/**
- * @typedef {Object} PendingRootSwap
- * @property {string} agentName
- * @property {string} displayName
- * @property {string} [model]
- * @property {boolean} [allowReturnToRouter]
- */
-
-/**
- * @typedef {Object} PendingSwitchHandoff
- * @property {string} agentName
- * @property {string} reason
- */
 
 /**
  * @typedef {Object} AgentInfo
@@ -102,6 +88,17 @@ function getSessionManagerCwd(value) {
     return typeof cwd === "string" && cwd ? cwd : null;
 }
 
+/**
+ * @param {string | null | undefined} cwd
+ * @param {string} source
+ * @returns {string}
+ */
+function requireAbsoluteProjectRoot(cwd, source) {
+    if (!cwd) throw new Error(`HostedSession requires an absolute project root (${source})`);
+    if (!isAbsolute(cwd)) throw new Error(`HostedSession project root must be absolute: ${cwd}`);
+    return cwd;
+}
+
 /** @param {unknown} value */
 function disposeIfPresent(value) {
     if (!value || typeof value !== "object" || !("dispose" in value) || typeof value.dispose !== "function") return;
@@ -121,7 +118,11 @@ export class HostedSession {
         const id = options?.id || getSessionManagerId(options?.sessionManager);
         if (!id) throw new Error("HostedSession requires an id");
         this.id = id;
-        this.cwd = getSessionManagerCwd(options.sessionManager) || options.cwd || CWD;
+        const sessionManagerCwd = getSessionManagerCwd(options.sessionManager);
+        this.cwd = requireAbsoluteProjectRoot(
+            sessionManagerCwd || options.cwd,
+            sessionManagerCwd ? "sessionManager" : "cwd",
+        );
         this.disposed = false;
 
         /** @type {AgentInfo[]} */
@@ -151,10 +152,6 @@ export class HostedSession {
         this.rootAgentName = null;
         /** @type {Set<DisposableLike>} */
         this.subAgentSessions = new Set();
-        /** @type {PendingRootSwap | null} */
-        this.pendingRootSwap = null;
-        /** @type {PendingSwitchHandoff | null} */
-        this.pendingSwitchHandoff = null;
         this.projectStateContext = "";
         /** @type {import('./workflow-context-session.js').WorkflowContext | null} */
         this.workflowContext = readPersistedWorkflowContext(
@@ -353,29 +350,6 @@ export class HostedSession {
         return new Set(this.subAgentSessions);
     }
 
-    /** @param {PendingRootSwap | null} swap */
-    setPendingRootSwap(swap) {
-        this.assertActive();
-        this.pendingRootSwap = swap;
-    }
-
-    getPendingRootSwap() {
-        return this.pendingRootSwap;
-    }
-
-    /** @param {PendingSwitchHandoff | null} handoff */
-    setPendingSwitchHandoff(handoff) {
-        this.assertActive();
-        this.pendingSwitchHandoff = handoff;
-    }
-
-    /** @returns {PendingSwitchHandoff | null} */
-    consumePendingSwitchHandoff() {
-        const handoff = this.pendingSwitchHandoff;
-        if (!this.disposed) this.pendingSwitchHandoff = null;
-        return handoff;
-    }
-
     getThinkingLevel() {
         return this.activeThinkingLevel;
     }
@@ -491,8 +465,6 @@ export class HostedSession {
         this.rootAgentSession = null;
         this.rootAgentName = null;
         this.subAgentSessions.clear();
-        this.pendingRootSwap = null;
-        this.pendingSwitchHandoff = null;
         this.projectStateContext = "";
         this.workflowContext = null;
         this.activeExecutionWorkflow = null;

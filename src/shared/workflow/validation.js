@@ -5,13 +5,13 @@
 
 import { extractYaml } from "@std/front-matter";
 import { dirname, fromFileUrl, join } from "@std/path";
-import { AGENTS, CWD } from "../../constants.js";
+import { AGENTS } from "../../constants.js";
 import { formatGitRequiredMessage, isGitRepositoryRequiredError } from "../git.js";
 import { getAgentDisplayName } from "../session/agents.js";
 import { ensureBundledAgentDefFile, runAgentSession } from "../session/session.js";
 import { getCodeReviewMode, getCustomSetting, setCustomSetting, shouldCleanupMergedWorktrees } from "../settings.js";
 import { readLatestReviewOutcome, readLatestTaskCompletedOutcome } from "./workflow.js";
-import { setActiveAgent } from "../session/agent-switching.js";
+import { switchActiveAgent } from "../session/agent-switching.js";
 import { getWorkflowDiff } from "./git-snapshot.js";
 import { recordPlanEvent, stageValidationPassedInExecutionWorktree } from "./plan-lifecycle.js";
 import { formatCodeReviewAnnotations, runPlannotatorCodeReview } from "./code-review.js";
@@ -193,7 +193,8 @@ async function getOrAskForValidationCommand(uiAPI, projectRoot) {
  *
  * @returns {Promise<{ exitCode: number, output: string }>}
  */
-export async function runLocalCI(uiAPI, cwd = CWD) {
+export async function runLocalCI(uiAPI, cwd) {
+    if (!cwd) throw new Error("runLocalCI: cwd is required");
     const cmdArgs = await getOrAskForValidationCommand(uiAPI, cwd);
 
     if (!cmdArgs) {
@@ -347,7 +348,8 @@ async function runCompletionGatedRepair({
  * @param {string} [cwd]
  * @returns {Promise<string>}
  */
-async function getGitDiffText(baselineTree, cwd = CWD) {
+async function getGitDiffText(baselineTree, cwd) {
+    if (!cwd) throw new Error("getGitDiffText: cwd is required");
     return await getWorkflowDiff(cwd, baselineTree);
 }
 
@@ -645,14 +647,15 @@ export function shouldRunWorkflowValidation(triageMeta) {
  *   runAgentSession?: typeof runAgentSession,
  *   runCompletionGatedRepair?: typeof runCompletionGatedRepair,
  *   readLatestTaskCompletedOutcome?: typeof readLatestTaskCompletedOutcome,
- *   setActiveAgent?: typeof setActiveAgent,
+ *   switchActiveAgent?: typeof switchActiveAgent,
  *   createAgentHandler?: (agentName: string) => import('../session/types.js').AgentMessageHandler,
  *   recordWorkflowMetric?: typeof recordWorkflowMetric,
  * }} [args.__deps] Test-only injection point.
  * @returns {Promise<{ passed: boolean, attempts: number, reason?: string }>}
  */
 export async function runMechanicalValidation({ uiAPI, sessionManager, hostedSession, cwd, __deps }) {
-    const projectRoot = hostedSession?.cwd || CWD;
+    const projectRoot = hostedSession?.cwd || cwd;
+    if (!projectRoot) throw new Error("runMechanicalValidation: hostedSession or cwd is required");
     const validationCwd = cwd || hostedSession?.getActiveExecutionCwd?.() || projectRoot;
     const runLocalCIImpl = __deps?.runLocalCI || runLocalCI;
     const runAgentSessionImpl = __deps?.runAgentSession || runAgentSession;
@@ -664,9 +667,7 @@ export async function runMechanicalValidation({ uiAPI, sessionManager, hostedSes
                 readLatestTaskCompletedOutcome: __deps?.readLatestTaskCompletedOutcome,
                 hostedSession,
             }));
-    const setActiveAgentImpl = __deps?.setActiveAgent || setActiveAgent;
-    const createAgentHandlerImpl = __deps?.createAgentHandler ||
-        (await import("../session/agent-handler.js")).createAgentHandler;
+    const switchActiveAgentImpl = __deps?.switchActiveAgent || switchActiveAgent;
     const recordWorkflowMetricSource = __deps?.recordWorkflowMetric || recordWorkflowMetric;
     /**
      * @param {Parameters<typeof recordWorkflowMetricSource>[0]} metric
@@ -676,10 +677,9 @@ export async function runMechanicalValidation({ uiAPI, sessionManager, hostedSes
         return recordWorkflowMetricSource(metric, { cwd: projectRoot, ...deps });
     }
     /** @param {string} agentName */
-    const activateAgent = (agentName) => {
+    const activateAgent = async (agentName) => {
         if (!hostedSession) return;
-        const handler = createAgentHandlerImpl(agentName, { hostedSession });
-        setActiveAgentImpl(hostedSession, agentName, handler, uiAPI);
+        await switchActiveAgentImpl(hostedSession, { agentName }, uiAPI);
     };
     const maxRepairAttempts = 3;
     let repairAttempts = 0;
@@ -724,7 +724,7 @@ export async function runMechanicalValidation({ uiAPI, sessionManager, hostedSes
                 planName: "quick-fix",
                 details: { passed: true, attempts: repairAttempts },
             });
-            activateAgent(AGENTS.ENGINEER);
+            await activateAgent(AGENTS.ENGINEER);
             return { passed: true, attempts: repairAttempts };
         }
 
@@ -738,7 +738,7 @@ export async function runMechanicalValidation({ uiAPI, sessionManager, hostedSes
                 planName: "quick-fix",
                 details: { passed: false, attempts: repairAttempts, reason: "max_repair_attempts" },
             });
-            activateAgent(AGENTS.ENGINEER);
+            await activateAgent(AGENTS.ENGINEER);
             return { passed: false, attempts: repairAttempts, reason };
         }
 
@@ -799,7 +799,7 @@ export async function runMechanicalValidation({ uiAPI, sessionManager, hostedSes
                 executionCwd: validationCwd,
                 validationContinuation: true,
             });
-            activateAgent(AGENTS.ENGINEER);
+            await activateAgent(AGENTS.ENGINEER);
             return { passed: false, attempts: repairAttempts, reason };
         }
     }
@@ -830,7 +830,7 @@ export async function runMechanicalValidation({ uiAPI, sessionManager, hostedSes
  *   removeExecutionWorktree?: typeof removeExecutionWorktree,
  *   removeWorktreeRegistryEntry?: typeof removeWorktreeRegistryEntry,
  *   updateWorktreeRegistryEntry?: typeof updateWorktreeRegistryEntry,
- *   setActiveAgent?: typeof setActiveAgent,
+ *   switchActiveAgent?: typeof switchActiveAgent,
  *   createAgentHandler?: (agentName: string) => import('../session/types.js').AgentMessageHandler,
  *   loadReviewerPrompt?: typeof loadReviewerPrompt,
  *   shouldCleanupMergedWorktrees?: typeof shouldCleanupMergedWorktrees,
@@ -879,8 +879,9 @@ export async function runValidationLoop({
     const recordWorkflowMetricSource = __deps?.recordWorkflowMetric || recordWorkflowMetric;
     const activeWorkflow = hostedSession?.getActiveExecutionWorkflow?.() || null;
     const baselineTree = activeWorkflow?.baselineTree;
-    const projectRoot = activeWorkflow?.projectRoot || hostedSession?.cwd || CWD;
-    const executionCwd = activeWorkflow?.executionCwd || hostedSession?.cwd || CWD;
+    const projectRoot = activeWorkflow?.projectRoot || hostedSession?.cwd;
+    if (!projectRoot) throw new Error("runValidationLoop: hostedSession or active workflow projectRoot is required");
+    const executionCwd = activeWorkflow?.executionCwd || hostedSession?.cwd || projectRoot;
     /**
      * @param {Parameters<typeof recordWorkflowMetricSource>[0]} metric
      * @param {Parameters<typeof recordWorkflowMetricSource>[1]} [deps]
@@ -895,7 +896,7 @@ export async function runValidationLoop({
     if (activeWorkflow) {
         hostedSession?.clearActiveExecutionWorkflow();
     }
-    const setActiveAgentImpl = __deps?.setActiveAgent || setActiveAgent;
+    const switchActiveAgentImpl = __deps?.switchActiveAgent || switchActiveAgent;
     /** @param {string} reason */
     const pauseForEngineerContinuation = async (reason) => {
         appendRunWieldSystemMessage(
@@ -914,10 +915,7 @@ export async function runValidationLoop({
                 executionCwd,
                 validationContinuation: true,
             });
-            const createAgentHandler = __deps?.createAgentHandler ||
-                (await import("../session/agent-handler.js")).createAgentHandler;
-            const handler = createAgentHandler(AGENTS.ENGINEER, { hostedSession });
-            setActiveAgentImpl(hostedSession, AGENTS.ENGINEER, handler, uiAPI);
+            await switchActiveAgentImpl(hostedSession, { agentName: AGENTS.ENGINEER }, uiAPI);
         }
     };
     let executionComplete = false;
@@ -977,7 +975,9 @@ export async function runValidationLoop({
             } else {
                 appendRunWieldSystemMessage(
                     uiAPI,
-                    `Build failed. Dispatching ${getAgentDisplayName(AGENTS.ENGINEER)} to fix syntax/types...`,
+                    `Build failed. Dispatching ${
+                        getAgentDisplayName(AGENTS.ENGINEER, projectRoot)
+                    } to fix syntax/types...`,
                     true,
                 );
                 await recordWorkflowMetricImpl({
@@ -1010,7 +1010,9 @@ export async function runValidationLoop({
                 });
                 if (!completed) {
                     await pauseForEngineerContinuation(
-                        `${getAgentDisplayName(AGENTS.ENGINEER)} stopped without task_completed during CI repair.`,
+                        `${
+                            getAgentDisplayName(AGENTS.ENGINEER, projectRoot)
+                        } stopped without task_completed during CI repair.`,
                     );
                     return;
                 }
@@ -1029,7 +1031,7 @@ export async function runValidationLoop({
                 true,
             );
             humanReviewMetadata = {
-                humanReviewMode: getCodeReviewModeImpl(),
+                humanReviewMode: getCodeReviewModeImpl(projectRoot),
                 humanReviewDecision: "skipped",
                 humanReviewedAt: null,
             };
@@ -1272,7 +1274,7 @@ export async function runValidationLoop({
                 SUCCESS_MESSAGE_STYLE,
             );
             humanReviewMetadata = {
-                humanReviewMode: getCodeReviewModeImpl(),
+                humanReviewMode: getCodeReviewModeImpl(projectRoot),
                 humanReviewDecision: "not_required",
                 humanReviewedAt: null,
             };
@@ -1288,7 +1290,7 @@ export async function runValidationLoop({
                 details: { validationCycle: validationCycles, approved: true, hasDiff: Boolean(diffText.trim()) },
             });
             appendRunWieldSystemMessage(uiAPI, "Semantic Code Review Approved.", false, SUCCESS_MESSAGE_STYLE);
-            const codeReviewMode = getCodeReviewModeImpl();
+            const codeReviewMode = getCodeReviewModeImpl(projectRoot);
             if (codeReviewMode === "none") {
                 humanReviewMetadata = {
                     humanReviewMode: "none",
@@ -1381,7 +1383,7 @@ export async function runValidationLoop({
                         appendRunWieldSystemMessage(
                             uiAPI,
                             `User code review returned feedback. Sending feedback back to ${
-                                getAgentDisplayName(AGENTS.ENGINEER)
+                                getAgentDisplayName(AGENTS.ENGINEER, projectRoot)
                             }...\nUser Code Review Feedback:\n${feedbackText}`,
                             true,
                         );
@@ -1427,7 +1429,7 @@ export async function runValidationLoop({
                         if (!completed) {
                             await pauseForEngineerContinuation(
                                 `${
-                                    getAgentDisplayName(AGENTS.ENGINEER)
+                                    getAgentDisplayName(AGENTS.ENGINEER, projectRoot)
                                 } stopped without task_completed during human code review repair.`,
                             );
                             return;
@@ -1448,7 +1450,7 @@ export async function runValidationLoop({
             });
             appendRunWieldSystemMessage(
                 uiAPI,
-                `Review failed. Sending feedback back to ${getAgentDisplayName(AGENTS.ENGINEER)}...`,
+                `Review failed. Sending feedback back to ${getAgentDisplayName(AGENTS.ENGINEER, projectRoot)}...`,
                 true,
             );
             await recordWorkflowMetricImpl({
@@ -1479,7 +1481,9 @@ export async function runValidationLoop({
             });
             if (!completed) {
                 await pauseForEngineerContinuation(
-                    `${getAgentDisplayName(AGENTS.ENGINEER)} stopped without task_completed during semantic repair.`,
+                    `${
+                        getAgentDisplayName(AGENTS.ENGINEER, projectRoot)
+                    } stopped without task_completed during semantic repair.`,
                 );
                 return;
             }
@@ -1519,7 +1523,7 @@ export async function runValidationLoop({
                 let preservedPlanPaths = [];
                 let mergeCompleted = false;
                 try {
-                    cleanupMergedWorktrees = shouldCleanupMergedWorktreesImpl();
+                    cleanupMergedWorktrees = shouldCleanupMergedWorktreesImpl(projectRoot);
                     if (planName && planName !== "quick-fix") {
                         const stagingResult = await stageValidationPassedImpl({
                             projectRoot,
@@ -1743,7 +1747,7 @@ export async function runValidationLoop({
                         appendRunWieldSystemMessage(
                             uiAPI,
                             `Dispatching ${
-                                getAgentDisplayName(AGENTS.ENGINEER)
+                                getAgentDisplayName(AGENTS.ENGINEER, projectRoot)
                             } for merge repair attempt ${mergeRepairAttempts}/${maxMergeRepairAttempts}...`,
                             true,
                         );
@@ -1787,7 +1791,7 @@ export async function runValidationLoop({
                         appendRunWieldSystemMessage(
                             uiAPI,
                             `${
-                                getAgentDisplayName(AGENTS.ENGINEER)
+                                getAgentDisplayName(AGENTS.ENGINEER, projectRoot)
                             } stopped without task_completed during merge repair.`,
                             true,
                         );
@@ -1905,9 +1909,6 @@ export async function runValidationLoop({
     }
 
     if (finalAgentName && hostedSession) {
-        const createAgentHandler = __deps?.createAgentHandler ||
-            (await import("../session/agent-handler.js")).createAgentHandler;
-        const handler = createAgentHandler(finalAgentName, { hostedSession });
-        setActiveAgentImpl(hostedSession, finalAgentName, handler, uiAPI);
+        await switchActiveAgentImpl(hostedSession, { agentName: finalAgentName }, uiAPI);
     }
 }

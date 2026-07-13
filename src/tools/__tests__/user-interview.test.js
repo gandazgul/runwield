@@ -285,7 +285,7 @@ Deno.test("userInterviewTool returns validation_error for invalid yes/no respons
 });
 
 Deno.test("userInterviewTool uses HostedSession interaction broker when available", async () => {
-    const hostedSession = new HostedSession({ id: "brokered-interview" });
+    const hostedSession = new HostedSession({ id: "brokered-interview", cwd: Deno.cwd() });
     /** @type {string[]} */
     const prompts = [];
     hostedSession.setInteractionAdapter({

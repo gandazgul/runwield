@@ -51,7 +51,7 @@ export class SessionHost {
         this.sessions = new Map();
     }
 
-    /** @param {CreateSessionOptions} options */
+    /** @param {CreateSessionOptions} [options] */
     createSession(options = {}) {
         const id = options.id || getSessionManagerId(options.sessionManager) || this.idFactory();
         const hostedSession = new HostedSession({ ...options, id });

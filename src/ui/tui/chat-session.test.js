@@ -4,7 +4,6 @@ import {
     __resetPendingSteeringForTests,
     __setSettingsManagerForPersistenceTests,
     __setSteeringUiRefsForTests,
-    applyPendingRootSwap,
     buildFooterLine1Parts,
     buildFooterWorkflowLabelParts,
     collectFooterUsage,
@@ -16,7 +15,6 @@ import {
     persistThinkingLevel,
     renderFooterWorkflowLabelParts,
     runScopedSubmitHandoffLoop,
-    setActiveAgent,
     setActiveModel,
     shouldShowFooterThinkingLevel,
     trackPendingSteeringMessage,
@@ -29,7 +27,7 @@ import { EMPTY_PROJECT_DIRECTORY_PROMPT_NOTE } from "../../shared/project-state.
 
 /** @param {string} [id] */
 function makeHostedSession(id = "test-session") {
-    return new HostedSession({ id });
+    return new HostedSession({ id, cwd: Deno.cwd() });
 }
 
 /**
@@ -240,64 +238,6 @@ Deno.test("setActiveModel reports setModel rejection instead of leaving an unhan
         if (originalOpenAiKey === undefined) Deno.env.delete("OPENAI_API_KEY");
         else Deno.env.set("OPENAI_API_KEY", originalOpenAiKey);
     }
-});
-
-Deno.test("setActiveAgent updates the active handler and queues a pending root swap for a different agent", () => {
-    const renders = [];
-    const handler = () => Promise.resolve();
-    const uiAPI = /** @type {any} */ ({
-        requestRender: () => renders.push(1),
-    });
-
-    const hostedSession = makeHostedSession();
-    hostedSession.setRootAgentName("router");
-    hostedSession.setPendingRootSwap(null);
-
-    setActiveAgent(hostedSession, "planner", handler, uiAPI, "test/model");
-
-    assertEquals(hostedSession.getActiveOnMessage(), handler);
-    assertEquals(hostedSession.getPendingRootSwap(), {
-        agentName: "planner",
-        displayName: "Planner",
-        model: "test/model",
-    });
-    assertEquals(renders.length, 1);
-});
-
-Deno.test("setActiveAgent only requests render when target already owns the root", () => {
-    const renders = [];
-    const handler = () => Promise.resolve();
-    const uiAPI = /** @type {any} */ ({
-        requestRender: () => renders.push(1),
-    });
-
-    const hostedSession = makeHostedSession();
-    hostedSession.setRootAgentName("router");
-    hostedSession.setPendingRootSwap({ agentName: "planner", displayName: "Planner" });
-
-    setActiveAgent(hostedSession, "router", handler, uiAPI);
-
-    assertEquals(hostedSession.getActiveOnMessage(), handler);
-    assertEquals(hostedSession.getPendingRootSwap(), { agentName: "planner", displayName: "Planner" });
-    assertEquals(renders.length, 1);
-});
-
-Deno.test("applyPendingRootSwap clears no-op swaps without rebuilding", async () => {
-    /** @type {string[]} */
-    const messages = [];
-    const uiAPI = /** @type {any} */ ({
-        appendSystemMessage: (/** @type {string} */ message) => messages.push(message),
-        requestRender: () => {},
-    });
-
-    const hostedSession = makeHostedSession();
-    hostedSession.setRootAgentName("planner");
-    hostedSession.setPendingRootSwap({ agentName: "planner", displayName: "Planner" });
-
-    await applyPendingRootSwap(hostedSession, uiAPI);
-
-    assertEquals(hostedSession.getPendingRootSwap(), null);
-    assertEquals(messages, []);
 });
 
 Deno.test("resolveTemplateModel validates provider/id format, model lookup, and configured auth", () => {
@@ -569,30 +509,33 @@ Deno.test("setActiveModel rebuilds root session tool set when switching between 
 
 Deno.test("submit handoff loop consumes only the current HostedSession handoff", async () => {
     const current = makeHostedSession("current-handoff-session");
-    const other = makeHostedSession("other-handoff-session");
     /** @type {string[]} */
     const seenRequests = [];
     current.setRootSessionManager(/** @type {any} */ ({ id: "current-root" }));
     current.setActiveOnMessage((/** @type {string} */ request) => {
         seenRequests.push(String(request));
         if (seenRequests.length === 1) {
-            current.setPendingSwitchHandoff({ agentName: "router", reason: "current handoff" });
+            return Promise.resolve({
+                kind: "handoff",
+                agentName: "router",
+                userRequest: "current handoff",
+            });
         }
         return Promise.resolve();
     });
-    other.setPendingSwitchHandoff({ agentName: "router", reason: "other handoff" });
 
     await runScopedSubmitHandoffLoop({
         hostedSession: current,
         uiAPI: /** @type {any} */ ({ appendSystemMessage: () => {} }),
         initialRequest: "first request",
         initialImages: [],
-        applyPendingRootSwapImpl: () => Promise.resolve(),
+        switchActiveAgentImpl: (session, { agentName }) => {
+            session.setRootAgentName(agentName);
+            return Promise.resolve({ ok: true, agentName, changed: true });
+        },
     });
 
     assertEquals(seenRequests, ["first request", "current handoff"]);
-    assertEquals(current.consumePendingSwitchHandoff(), null);
-    assertEquals(other.consumePendingSwitchHandoff()?.reason, "other handoff");
 });
 
 Deno.test("submit handoff loop preserves the chained handoff limit", async () => {
@@ -603,8 +546,11 @@ Deno.test("submit handoff loop preserves the chained handoff limit", async () =>
     current.setRootSessionManager(/** @type {any} */ ({ id: "current-root" }));
     current.setActiveOnMessage(() => {
         turnCount++;
-        current.setPendingSwitchHandoff({ agentName: "router", reason: `handoff ${turnCount}` });
-        return Promise.resolve();
+        return Promise.resolve({
+            kind: "handoff",
+            agentName: "router",
+            userRequest: `handoff ${turnCount}`,
+        });
     });
 
     await runScopedSubmitHandoffLoop({
@@ -614,7 +560,10 @@ Deno.test("submit handoff loop preserves the chained handoff limit", async () =>
         }),
         initialRequest: "start",
         initialImages: [],
-        applyPendingRootSwapImpl: () => Promise.resolve(),
+        switchActiveAgentImpl: (session, { agentName }) => {
+            session.setRootAgentName(agentName);
+            return Promise.resolve({ ok: true, agentName, changed: true });
+        },
     });
 
     assertEquals(turnCount, 5);

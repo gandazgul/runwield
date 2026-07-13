@@ -4,7 +4,7 @@
  * router triage flow.
  */
 
-import { AGENTS, CWD } from "../../constants.js";
+import { AGENTS } from "../../constants.js";
 import { loadPlan } from "../../plan-store.js";
 import { hasNonGitExecutionConsent, probeGitRepository, rememberNonGitExecutionConsent } from "../git.js";
 import { getAgentDisplayName } from "../session/agents.js";
@@ -129,6 +129,7 @@ export async function runPlanningAgent(
  *   markActiveWorktreeStatus?: typeof markActiveWorktreeStatus,
  *   recordWorkflowMetric?: typeof recordWorkflowMetric,
  *   hostedSession?: import('../session/hosted-session.js').HostedSession,
+ *   projectRoot?: string,
  * }} [__deps]
  * @returns {Promise<PlanExecutionResult>}
  */
@@ -137,7 +138,9 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
 
     const loadPlanFn = __deps.loadPlan || loadPlan;
     const hostedSession = __deps.hostedSession;
-    const projectRoot = hostedSession?.cwd || CWD;
+    const projectRoot = hostedSession?.cwd || __deps.projectRoot ||
+        (typeof sessionManager?.getCwd === "function" ? sessionManager.getCwd() : undefined);
+    if (!projectRoot) throw new Error("executePlan: hostedSession cwd or sessionManager cwd is required");
     void structuredTasks;
     const executeSingleEngineerPlanFn = __deps.executeSingleEngineerPlan || executeSingleEngineerPlan;
     const recordPlanEventFn = __deps.recordPlanEvent || recordPlanEvent;
@@ -286,6 +289,7 @@ async function executeSingleEngineerPlan(
         sessionManager,
         executionContext.executionCwd,
         hostedSession,
+        executionContext.projectRoot,
     );
     if (!engineerResult.completed) {
         return { repairRequired: false, executionComplete: false, error: engineerResult.error };
@@ -302,9 +306,18 @@ async function executeSingleEngineerPlan(
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [sessionManager]
  * @param {string} [executionCwd]
  * @param {import('../session/hosted-session.js').HostedSession} [hostedSession]
+ * @param {string} [projectRoot]
  * @returns {Promise<{ completed: boolean, messages: import('@earendil-works/pi-agent-core').AgentMessage[], error?: string }>}
  */
-async function runEngineerWithPlan(planName, planBody, uiAPI, sessionManager, executionCwd, hostedSession) {
+async function runEngineerWithPlan(
+    planName,
+    planBody,
+    uiAPI,
+    sessionManager,
+    executionCwd,
+    hostedSession,
+    projectRoot,
+) {
     let messages;
     try {
         messages = await runAgentSession({
@@ -321,7 +334,7 @@ async function runEngineerWithPlan(planName, planBody, uiAPI, sessionManager, ex
         const hostedRootSession = /** @type {any} */ (hostedSession?.getRootAgentSession?.());
         const rootMessages = hostedRootSession?.agent?.state?.messages || [];
         uiAPI.appendSystemMessage(
-            buildEngineerPausedMessage(errorMessage, hostedSession?.cwd),
+            buildEngineerPausedMessage(errorMessage, projectRoot || hostedSession?.cwd),
             true,
             "RunWield",
         );
@@ -331,7 +344,7 @@ async function runEngineerWithPlan(planName, planBody, uiAPI, sessionManager, ex
     const completed = readLatestTaskCompletedOutcome(messages);
     if (!completed) {
         uiAPI.appendSystemMessage(
-            buildEngineerPausedMessage(undefined, hostedSession?.cwd),
+            buildEngineerPausedMessage(undefined, projectRoot || hostedSession?.cwd),
             false,
             "RunWield",
         );
@@ -344,7 +357,7 @@ async function runEngineerWithPlan(planName, planBody, uiAPI, sessionManager, ex
  * @param {string} [reason]
  * @param {string} [projectRoot]
  */
-function buildEngineerPausedMessage(reason, projectRoot = CWD) {
+function buildEngineerPausedMessage(reason, projectRoot) {
     const base = `${
         getAgentDisplayName(AGENTS.ENGINEER, projectRoot)
     } stopped without task_completed; execution is paused. Say "continue" to resume with the Engineer.`;
@@ -542,5 +555,6 @@ export async function startActiveExecutionWorkflow(
 async function markActiveWorktreeStatus(status, opts = {}) {
     const workflow = opts.hostedSession?.getActiveExecutionWorkflow();
     if (!workflow?.worktreeId || !status || status === "none") return;
-    await updateWorktreeRegistryEntry(workflow.projectRoot || CWD, workflow.worktreeId, { status });
+    if (!workflow.projectRoot) throw new Error("markActiveWorktreeStatus: workflow projectRoot is required");
+    await updateWorktreeRegistryEntry(workflow.projectRoot, workflow.worktreeId, { status });
 }

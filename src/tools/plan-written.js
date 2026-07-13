@@ -15,7 +15,7 @@
 import { join } from "@std/path";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import { CLI_BIN, CWD, PLANS_DIR_NAME } from "../constants.js";
+import { CLI_BIN, PLANS_DIR_NAME } from "../constants.js";
 import { loadPlan } from "../plan-store.js";
 import { recordPlanEvent } from "../shared/workflow/plan-lifecycle.js";
 import { recordWorkflowMetric } from "../shared/workflow/metrics.js";
@@ -127,7 +127,7 @@ export function createPlanWrittenTool(
 ) {
     if (!uiAPI) throw new Error("createPlanWrittenTool: uiAPI is required");
     const deps = __deps || {};
-    const cwd = deps.cwd ?? hostedSession?.cwd ?? CWD;
+    const cwd = deps.cwd ?? hostedSession?.cwd;
     return defineTool({
         name: "plan_written",
         label: "Plan Written",
@@ -147,6 +147,7 @@ export function createPlanWrittenTool(
                 );
             }
 
+            if (!cwd) throw new Error("plan_written: cwd or hostedSession cwd is required");
             const planPath = join(cwd, PLANS_DIR_NAME, `${planName}.md`);
             const statFn = deps.stat || Deno.stat.bind(Deno);
             try {

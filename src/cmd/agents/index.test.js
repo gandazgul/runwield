@@ -22,6 +22,14 @@ Deno.test("runAgentsCommand chooses TUI handler when ui deps present", async () 
     let called = false;
     /** @type {string | undefined} */
     let model = "not-set";
+    /** @type {unknown} */
+    let switchedSession;
+    /** @type {string | undefined} */
+    let listedProjectRoot;
+    const hostedSession = /** @type {any} */ ({
+        cwd: "/tmp/runwield-agents-project",
+        getRootSessionManager: () => ({ getSessionName: () => "session" }),
+    });
 
     await runAgentsCommand(
         ["router"],
@@ -32,20 +40,25 @@ Deno.test("runAgentsCommand chooses TUI handler when ui deps present", async () 
             }),
             editor: /** @type {any} */ ({ setText: () => {} }),
             tui: /** @type {any} */ ({ setFocus: () => {} }),
+            hostedSession,
+            switchActiveAgent: (
+                /** @type {unknown} */ session,
+                /** @type {{ agentName: string, model?: string }} */ options,
+            ) => {
+                called = true;
+                switchedSession = session;
+                model = options.model;
+                return Promise.resolve({ ok: true, agentName: options.agentName, changed: true });
+            },
             __testDeps: /** @type {any} */ ({
-                listAvailableAgents: () =>
-                    Promise.resolve([
+                listAvailableAgents: (/** @type {string | undefined} */ projectRoot) => {
+                    listedProjectRoot = projectRoot;
+                    return Promise.resolve([
                         { name: "router", displayName: "RunWield", description: "", model: "" },
-                    ]),
-                setActiveAgent: (
-                    /** @type {unknown} */ _hostedSession,
-                    /** @type {string} */ _name,
-                    /** @type {unknown} */ _handler,
-                    /** @type {unknown} */ _uiAPI,
-                    /** @type {string | undefined} */ agentModel,
-                ) => {
-                    called = true;
-                    model = agentModel;
+                    ]);
+                },
+                switchActiveAgent: () => {
+                    throw new Error("TUI command should prefer runtime switch callback from command context");
                 },
                 createAgentHandler: () => async () => {},
             }),
@@ -53,6 +66,8 @@ Deno.test("runAgentsCommand chooses TUI handler when ui deps present", async () 
     );
 
     assertEquals(called, true);
+    assertEquals(switchedSession, hostedSession);
+    assertEquals(listedProjectRoot, "/tmp/runwield-agents-project");
     assertEquals(model, undefined);
 });
 

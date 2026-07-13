@@ -31,6 +31,19 @@ function makeDisposableSession(id) {
     };
 }
 
+Deno.test("HostedSession requires an absolute project root", () => {
+    assertThrows(
+        () => new HostedSession({ id: "missing-root" }),
+        Error,
+        "requires an absolute project root",
+    );
+    assertThrows(
+        () => new HostedSession({ id: "relative-root", cwd: "relative/project" }),
+        Error,
+        "project root must be absolute",
+    );
+});
+
 Deno.test("HostedSession stores mutable root runtime state per session", () => {
     const sessionManager = makeSessionManager("alpha-manager");
     const uiAPI = { name: "ui-alpha" };
@@ -46,8 +59,6 @@ Deno.test("HostedSession stores mutable root runtime state per session", () => {
     session.setRootAgentName("engineer");
     session.setRootAgentSession(rootAgentSession);
     session.addSubAgentSession(subAgentSession);
-    session.setPendingRootSwap({ agentName: "router", displayName: "Router", allowReturnToRouter: true });
-    session.setPendingSwitchHandoff({ agentName: "router", reason: "go back" });
     session.setThinkingLevel("high");
     session.setProjectStateContext("project note");
     session.setActiveExecutionWorkflow({
@@ -67,11 +78,6 @@ Deno.test("HostedSession stores mutable root runtime state per session", () => {
     assertEquals(session.getRootAgentName(), "engineer");
     assertStrictEquals(session.getRootAgentSession(), rootAgentSession);
     assert(session.getSubAgentSessions().has(subAgentSession));
-    assertEquals(session.getPendingRootSwap(), {
-        agentName: "router",
-        displayName: "Router",
-        allowReturnToRouter: true,
-    });
     assertEquals(session.getThinkingLevel(), "high");
     assertEquals(session.getProjectStateContext(), "project note");
     assertEquals(session.getActiveExecutionWorkflow(), {
@@ -80,8 +86,6 @@ Deno.test("HostedSession stores mutable root runtime state per session", () => {
         executionCwd: "/exec/a",
     });
     assertEquals(session.getActiveExecutionCwd(), "/exec/a");
-    assertEquals(session.consumePendingSwitchHandoff(), { agentName: "router", reason: "go back" });
-    assertEquals(session.consumePendingSwitchHandoff(), null);
 });
 
 Deno.test("HostedSession keeps user model overrides independent from agent model state", () => {
@@ -135,10 +139,6 @@ Deno.test("two Hosted Sessions do not share session-scoped runtime state", () =>
     beta.setRootAgentSession(betaRoot);
     alpha.addSubAgentSession(alphaSub);
     beta.addSubAgentSession(betaSub);
-    alpha.setPendingRootSwap({ agentName: "engineer", displayName: "Engineer" });
-    beta.setPendingRootSwap({ agentName: "tester", displayName: "Tester" });
-    alpha.setPendingSwitchHandoff({ agentName: "router", reason: "alpha" });
-    beta.setPendingSwitchHandoff({ agentName: "router", reason: "beta" });
     alpha.setThinkingLevel("low");
     beta.setThinkingLevel("xhigh");
     alpha.setProjectStateContext("alpha context");
@@ -160,10 +160,6 @@ Deno.test("two Hosted Sessions do not share session-scoped runtime state", () =>
     assertEquals(alpha.getSubAgentSessions().has(betaSub), false);
     assertEquals(beta.getSubAgentSessions().has(betaSub), true);
     assertEquals(beta.getSubAgentSessions().has(alphaSub), false);
-    assertEquals(alpha.getPendingRootSwap(), { agentName: "engineer", displayName: "Engineer" });
-    assertEquals(beta.getPendingRootSwap(), { agentName: "tester", displayName: "Tester" });
-    assertEquals(alpha.consumePendingSwitchHandoff(), { agentName: "router", reason: "alpha" });
-    assertEquals(beta.consumePendingSwitchHandoff(), { agentName: "router", reason: "beta" });
     assertEquals(alpha.getThinkingLevel(), "low");
     assertEquals(beta.getThinkingLevel(), "xhigh");
     assertEquals(alpha.getProjectStateContext(), "alpha context");
@@ -218,7 +214,7 @@ Deno.test("HostedSession hydrates and persists workflow context defensively", ()
 });
 
 Deno.test("HostedSession workflow context setters are fail-open after disposal", () => {
-    const session = new HostedSession({ id: "disposed-workflow" });
+    const session = new HostedSession({ id: "disposed-workflow", cwd: Deno.cwd() });
     session.dispose();
 
     session.setWorkflowTriageContext({ routingIntent: "FEATURE", complexity: "LOW" });
@@ -228,7 +224,7 @@ Deno.test("HostedSession workflow context setters are fail-open after disposal",
 });
 
 Deno.test("HostedSession stores internal agent names in active agent stack", () => {
-    const session = new HostedSession({ id: "agent-info" });
+    const session = new HostedSession({ id: "agent-info", cwd: Deno.cwd() });
 
     session.resetAgentInfoStack("Planner", "model", "provider", "planner");
     session.pushAgentInfo("Engineer", "model2", "provider2", "engineer");
@@ -268,8 +264,6 @@ Deno.test("HostedSession dispose clears owned runtime references and rejects lat
     session.setRootAgentName("engineer");
     session.setRootAgentSession(root);
     session.addSubAgentSession(sub);
-    session.setPendingRootSwap({ agentName: "router", displayName: "Router" });
-    session.setPendingSwitchHandoff({ agentName: "router", reason: "done" });
     session.setActiveExecutionWorkflow({ planName: "plan", triageMeta: {}, executionCwd: "/exec" });
     session.setWorkflowPlanName("disposing-plan");
 
@@ -286,8 +280,6 @@ Deno.test("HostedSession dispose clears owned runtime references and rejects lat
     assertEquals(session.getRootAgentSession(), null);
     assertEquals(session.getRootSessionManager(), null);
     assertEquals(session.getSubAgentSessions().size, 0);
-    assertEquals(session.getPendingRootSwap(), null);
-    assertEquals(session.consumePendingSwitchHandoff(), null);
     assertEquals(session.getActiveExecutionWorkflow(), null);
     assertEquals(session.getWorkflowContext(), null);
     assertThrows(

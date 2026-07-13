@@ -211,17 +211,19 @@ function parseGitPorcelainStatus(text) {
  */
 
 /**
- * @param {{ plan: string, planPath?: string, token?: string, openInDefaultBrowser?: typeof openInDefaultBrowser }} opts
+ * @param {{ cwd: string, plan: string, planPath?: string, token?: string, openInDefaultBrowser?: typeof openInDefaultBrowser }} opts
  * @returns {Promise<PlanReviewSurface>}
  */
 async function startWorkspaceHostedPlanReview({
+    cwd,
     plan,
     planPath,
     token = crypto.randomUUID(),
     openInDefaultBrowser: openInDefaultBrowserImpl = openInDefaultBrowser,
 }) {
+    if (!cwd) throw new Error("startWorkspaceHostedPlanReview: cwd is required");
     const server = startReviewWorkspaceServer({
-        cwd: Deno.cwd(),
+        cwd,
         token,
         reviewPayload: { plan, planPath },
         reviewType: "plan",
@@ -237,6 +239,7 @@ async function startWorkspaceHostedPlanReview({
  * and fallback verification.
  *
  * @param {Object} opts
+ * @param {string} opts.cwd
  * @param {string} opts.plan
  * @param {string} [opts.planPath]
  * @param {string} [opts.htmlContent]
@@ -245,6 +248,7 @@ async function startWorkspaceHostedPlanReview({
  * @returns {Promise<PlanReviewSurface>}
  */
 export async function startPlanReviewSurface({
+    cwd,
     plan,
     planPath,
     htmlContent,
@@ -254,6 +258,7 @@ export async function startPlanReviewSurface({
     if (!startPlanReviewServer) {
         return registerReviewSurface(
             await startWorkspaceHostedPlanReview({
+                cwd,
                 plan,
                 planPath,
                 openInDefaultBrowser: openInDefaultBrowserImpl,
@@ -283,7 +288,8 @@ async function startWorkspaceHostedCodeReview({
     token = crypto.randomUUID(),
     openInDefaultBrowser: openInDefaultBrowserImpl = openInDefaultBrowser,
 }) {
-    const cwd = agentCwd || Deno.cwd();
+    if (!agentCwd) throw new Error("startWorkspaceHostedCodeReview: agentCwd is required");
+    const cwd = agentCwd;
     const reviewStatus = await loadCodeReviewStatus(cwd);
     const server = startReviewWorkspaceServer({
         cwd,

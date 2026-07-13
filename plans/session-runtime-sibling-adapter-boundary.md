@@ -15,12 +15,12 @@ affectedPaths:
     - "src/cmd/resume/"
     - "docs/adr/010-session-runtime-sibling-adapters-and-acp.md"
 frontend: false
-devServerCommand: null
-devServerUrl: null
-devServerHmr: null
 createdAt: "2026-07-09T15:23:25-04:00"
+updatedAt: "2026-07-12T23:55:18.121Z"
 status: "implemented"
 origin: "user"
+failureReason: "Semantic validation did not approve after 3 cycles."
+worktreeStatus: "validation_failed"
 routingIntent: "FEATURE"
 sessionName: "session runtime sibling adapters"
 ---

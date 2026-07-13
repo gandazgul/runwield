@@ -59,7 +59,7 @@ Deno.test("loadAgentDef preserves per-agent protected tools when override narrow
     await Deno.writeTextFile(routerOverridePath, override);
 
     try {
-        const def = await loadAgentDef("router");
+        const def = await loadAgentDef("router", CWD);
 
         const expectedProtected = [
             "memory_recall",
@@ -213,10 +213,6 @@ Deno.test("buildAgentSession auto-wires return_to_router to the target HostedSes
             agentName: AGENTS.ROUTER,
             reason: "Route this from the target session.",
         });
-        assertEquals(targetHostedSession.consumePendingSwitchHandoff(), null);
-        assertEquals(targetHostedSession.getPendingRootSwap(), null);
-        assertEquals(otherHostedSession.consumePendingSwitchHandoff(), null);
-        assertEquals(otherHostedSession.getPendingRootSwap(), null);
     } finally {
         session?.dispose();
         __resetSettingsForTests();
@@ -266,6 +262,7 @@ Deno.test("buildAgentSession wires task_completed with agent displayName", async
         );
 
         const built = await buildAgentSession({
+            cwd: tempHome,
             agentName: "operator",
             modelOverride: "test/model",
             uiAPI,
@@ -341,6 +338,7 @@ Deno.test("buildAgentSession injects see_image only for text-only model with vis
         );
 
         const textBuilt = await buildAgentSession({
+            cwd: tempHome,
             agentName: "operator",
             modelOverride: "test/text",
             _agentDefOverride: {
@@ -360,6 +358,7 @@ Deno.test("buildAgentSession injects see_image only for text-only model with vis
         assert(seeImage.execute, "expected see_image execute");
 
         const visionBuilt = await buildAgentSession({
+            cwd: tempHome,
             agentName: "operator",
             modelOverride: "test/vision",
             _agentDefOverride: {
@@ -395,6 +394,7 @@ Deno.test("buildAgentSession omits see_image for text-only model without fallbac
         await Deno.writeTextFile(join(tempHome, ".wld", "settings.json"), JSON.stringify({}));
 
         const built = await buildAgentSession({
+            cwd: tempHome,
             agentName: "operator",
             modelOverride: "test/text",
             _agentDefOverride: {
@@ -434,6 +434,7 @@ Deno.test("buildAgentSession fails clearly for invalid vision fallback", async (
         await assertRejects(
             () =>
                 buildAgentSession({
+                    cwd: tempHome,
                     agentName: "operator",
                     modelOverride: "test/text",
                     _agentDefOverride: {

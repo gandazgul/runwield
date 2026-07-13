@@ -308,10 +308,10 @@ Deno.test("shouldCleanupMergedWorktrees defaults true and honors false setting",
         Deno.chdir(tempProject);
         __resetSettingsForTests();
 
-        assertEquals(shouldCleanupMergedWorktrees(), true);
+        assertEquals(shouldCleanupMergedWorktrees(tempProject), true);
 
         await setCustomSetting("cleanupMergedWorktrees", false, "project");
-        assertEquals(shouldCleanupMergedWorktrees(), false);
+        assertEquals(shouldCleanupMergedWorktrees(tempProject), false);
     } finally {
         Deno.chdir(originalCwd);
         if (originalHome === undefined) Deno.env.delete("HOME");
@@ -392,16 +392,16 @@ Deno.test("getCodeReviewMode defaults none, honors overrides, and rejects invali
         Deno.chdir(tempProject);
         __resetSettingsForTests();
 
-        assertEquals(getCodeReviewMode(), "none");
+        assertEquals(getCodeReviewMode(tempProject), "none");
 
         await setCustomSetting("codereview", " ALWAYS ", "global");
-        assertEquals(getCodeReviewMode(), "always");
+        assertEquals(getCodeReviewMode(tempProject), "always");
 
         await setCustomSetting("codereview", "ask", "project");
-        assertEquals(getCodeReviewMode(), "ask");
+        assertEquals(getCodeReviewMode(tempProject), "ask");
 
         await setCustomSetting("codereview", "sometimes", "project");
-        assertEquals(getCodeReviewMode(), "none");
+        assertEquals(getCodeReviewMode(tempProject), "none");
     } finally {
         Deno.chdir(originalCwd);
         if (originalHome === undefined) Deno.env.delete("HOME");

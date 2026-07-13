@@ -132,7 +132,6 @@ Deno.test("runSleepCommand backs up before activating persistent Engineer root",
         cwd: "/projects/example",
         getRootSessionManager: () => sessionManager,
     });
-    const handler = () => Promise.resolve();
     let rootRequest = "";
     let backupPath = "";
 
@@ -166,29 +165,14 @@ Deno.test("runSleepCommand backs up before activating persistent Engineer root",
                 backupPath = outputPath;
                 return Promise.resolve();
             },
-            createAgentHandler: (
-                /** @type {string} */ agentName,
-                /** @type {{ hostedSession: unknown }} */ deps,
-            ) => {
-                events.push("handler");
-                assertEquals(agentName, "engineer");
-                assertEquals(deps.hostedSession, hostedSession);
-                return handler;
-            },
-            setActiveAgent: (
+            switchActiveAgent: (
                 /** @type {unknown} */ target,
-                /** @type {string} */ agentName,
-                /** @type {unknown} */ nextHandler,
+                /** @type {{ agentName: string }} */ options,
             ) => {
                 events.push("activate");
                 assertEquals(target, hostedSession);
-                assertEquals(agentName, "engineer");
-                assertEquals(nextHandler, handler);
-            },
-            applyPendingRootSwap: (/** @type {unknown} */ target) => {
-                events.push("swap");
-                assertEquals(target, hostedSession);
-                return Promise.resolve();
+                assertEquals(options.agentName, "engineer");
+                return Promise.resolve({ ok: true, agentName: options.agentName, changed: true });
             },
             runRootTurn: (/** @type {any} */ opts) => {
                 events.push("root-turn");
@@ -200,7 +184,7 @@ Deno.test("runSleepCommand backs up before activating persistent Engineer root",
         }),
     });
 
-    assertEquals(events, ["preflight", "export", "notify", "handler", "activate", "swap", "root-turn"]);
+    assertEquals(events, ["preflight", "export", "notify", "activate", "root-turn"]);
     assertEquals(
         backupPath,
         "/tmp/sessions/session-123_memory-backups/example.sleep-backup-2026-07-10T12-34-56-789Z-backup-id.jsonl",
@@ -233,7 +217,7 @@ Deno.test("runSleepCommand leaves the current Agent untouched when backup fails"
                     ensureMnemosyneBinary: () => Promise.resolve(),
                     getRunWieldSessionMemoryBackupDir: () => "/tmp/session_memory-backups",
                     exportMnemosyneCollection: () => Promise.reject(new Error("export failed")),
-                    setActiveAgent: () => {
+                    switchActiveAgent: () => {
                         activated = true;
                     },
                     runRootTurn: () => {

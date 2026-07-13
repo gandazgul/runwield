@@ -6,6 +6,7 @@ Deno.test("stopActiveReviewSurfaces stops active plan and code review servers", 
     let codeStops = 0;
 
     await startPlanReviewSurface({
+        cwd: Deno.cwd(),
         plan: "# Plan",
         htmlContent: "<html>plan</html>",
         startPlanReviewServer: /** @type {any} */ (() =>
@@ -44,6 +45,7 @@ Deno.test("stopActiveReviewSurfaces stops active plan and code review servers", 
 Deno.test("review surface stop unregisters the server from process-exit cleanup", async () => {
     let stops = 0;
     const server = await startPlanReviewSurface({
+        cwd: Deno.cwd(),
         plan: "# Plan",
         htmlContent: "<html>plan</html>",
         startPlanReviewServer: /** @type {any} */ (() =>
@@ -65,6 +67,7 @@ Deno.test("review surface stop unregisters the server from process-exit cleanup"
 
 Deno.test("stopActiveReviewSurfaces stops Workspace-hosted plan and code review servers", async () => {
     const planServer = await startPlanReviewSurface({
+        cwd: Deno.cwd(),
         plan: "# Plan",
         planPath: "plans/example.md",
         openInDefaultBrowser: () => Promise.resolve(false),

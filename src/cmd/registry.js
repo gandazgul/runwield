@@ -86,9 +86,7 @@ const bin = (...parts) => [CLI_BIN, ...parts].join(" ");
  * @property {(data: string) => void | Promise<void>} [originalHandleInput]
  * @property {"new" | "continue"} [sessionStartMode]
  * @property {(cancel: (() => void) | null) => void} [registerOperationCancel]  Set by the slash dispatcher; lets a long-running command install its own Esc handler.
- * @property {(hostedSession: import('../shared/session/hosted-session.js').HostedSession | undefined, agentName: string, handler: import('../shared/session/types.js').AgentMessageHandler, uiAPI?: import('../ui/tui/types.js').UiAPI, agentModel?: string, options?: { allowReturnToRouter?: boolean }) => void} [setActiveAgent]
  * @property {(hostedSession: import('../shared/session/hosted-session.js').HostedSession | undefined, options: { agentName: string, model?: string, allowReturnToRouter?: boolean }, uiAPI?: import('../ui/tui/types.js').UiAPI) => Promise<unknown>} [switchActiveAgent]
- * @property {(hostedSession: import('../shared/session/hosted-session.js').HostedSession | undefined, uiAPI?: import('../ui/tui/types.js').UiAPI) => Promise<unknown>} [applyPendingRootSwap]
  * @property {(model: string, provider?: string) => Promise<void> | void} [setActiveModel]
  * @property {(nextSession: import('../shared/session/hosted-session.js').HostedSession) => void} [replaceHostedSession]
  * @property {Record<string, unknown>} [__testDeps]

@@ -4,9 +4,11 @@
  */
 
 import { createAgentHandler } from "./agent-handler.js";
-import { getAgentDisplayName } from "./agents.js";
-import { ensureRootAgentSession } from "./session.js";
+import { ensureRootAgentSession, getRootSessionSwitchState, shouldReuseExistingRootSession } from "./session.js";
 import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runtime-events.js";
+
+/** @type {WeakMap<import('./hosted-session.js').HostedSession, { agentName: string, model?: string, allowReturnToRouter?: boolean }>} */
+const switchMetadata = new WeakMap();
 
 /**
  * @typedef {Object} AgentSwitchOptions
@@ -19,6 +21,7 @@ import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runt
  * @typedef {Object} SwitchActiveAgentDependencies
  * @property {typeof ensureRootAgentSession} [ensureRootAgentSession]
  * @property {typeof createAgentHandler} [createAgentHandler]
+ * @property {typeof getRootSessionSwitchState} [getRootSessionSwitchState]
  */
 
 /**
@@ -40,110 +43,64 @@ export async function switchActiveAgent(hostedSession, options, uiAPI, dependenc
 
     const previousAgentName = hostedSession.getRootAgentName();
     const previousHandler = hostedSession.getActiveOnMessage();
+    const previousRootSession = hostedSession.getRootAgentSession();
     const ensureRootAgentSessionImpl = dependencies.ensureRootAgentSession || ensureRootAgentSession;
     const createAgentHandlerImpl = dependencies.createAgentHandler || createAgentHandler;
-
-    await ensureRootAgentSessionImpl({
-        hostedSession,
+    const getRootSessionSwitchStateImpl = dependencies.getRootSessionSwitchState || getRootSessionSwitchState;
+    const activeModelState = hostedSession.getActiveModelState?.() || { model: "" };
+    const rootSwitchState = getRootSessionSwitchStateImpl(hostedSession);
+    const previousSwitch = switchMetadata.get(hostedSession);
+    const effectiveModel = rootSwitchState?.model ?? previousSwitch?.model ?? activeModelState.model;
+    const modelOverride = options.model;
+    const modelChanged = modelOverride !== undefined && modelOverride !== effectiveModel;
+    const allowReturnToRouterProvided = Object.hasOwn(options, "allowReturnToRouter");
+    const effectiveAllowReturnToRouter = rootSwitchState?.allowReturnToRouter ?? previousSwitch?.allowReturnToRouter;
+    const allowReturnToRouterChanged = allowReturnToRouterProvided &&
+        (effectiveAllowReturnToRouter === undefined || options.allowReturnToRouter !== effectiveAllowReturnToRouter);
+    const rootOptions = {
         agentName,
-        modelOverride: options.model,
-        uiAPI,
-        allowReturnToRouter: options.allowReturnToRouter,
-    });
+        modelOverride: modelChanged ? modelOverride : undefined,
+        allowReturnToRouter: allowReturnToRouterChanged ? options.allowReturnToRouter : undefined,
+    };
+    const canReuseRoot = previousRootSession && !modelChanged && !allowReturnToRouterChanged &&
+        shouldReuseExistingRootSession(rootOptions, previousAgentName);
+    const shouldRebuildRoot = !canReuseRoot;
+
+    if (shouldRebuildRoot) {
+        await ensureRootAgentSessionImpl({
+            hostedSession,
+            agentName,
+            modelOverride,
+            uiAPI,
+            allowReturnToRouter: options.allowReturnToRouter,
+        });
+    }
 
     if (hostedSession.disposed) return { ok: true, agentName, model: options.model, changed: false };
+
+    const nextMetadata = {
+        agentName,
+        model: options.model ?? effectiveModel,
+        allowReturnToRouter: allowReturnToRouterProvided ? options.allowReturnToRouter : effectiveAllowReturnToRouter,
+    };
+    switchMetadata.set(hostedSession, nextMetadata);
+
+    if (!shouldRebuildRoot && previousHandler) {
+        return { ok: true, agentName, model: options.model, changed: false };
+    }
+
     const handler = createAgentHandlerImpl(agentName, {
         hostedSession,
         allowReturnToRouter: options.allowReturnToRouter,
     });
     hostedSession.setActiveOnMessage(handler);
-    const changed = previousAgentName !== agentName || previousHandler !== handler;
-    emitHostedSessionRuntimeEvent(hostedSession, {
-        type: RuntimeEventTypes.AGENT_CHANGED,
-        agentName,
-        model: options.model,
-    });
-    uiAPI?.appendSystemMessage?.(`Switched to ${getAgentDisplayName(agentName, hostedSession.cwd)}.`);
-    uiAPI?.requestRender?.();
+    const changed = shouldRebuildRoot || previousAgentName !== agentName || !previousHandler;
+    if (changed) {
+        emitHostedSessionRuntimeEvent(hostedSession, {
+            type: RuntimeEventTypes.AGENT_CHANGED,
+            agentName,
+            model: options.model,
+        });
+    }
     return { ok: true, agentName, model: options.model, changed };
-}
-
-/**
- * Compatibility adapter for older command/test injections. Production code should
- * prefer switchActiveAgent/SessionRuntime.switchAgent.
- *
- * @param {any} hostedSessionOrAgentName
- * @param {any} agentNameOrHandler
- * @param {any} handlerOrUiAPI
- * @param {any} uiAPIOrAgentModel
- * @param {any} agentModelOrOptions
- * @param {any} agentOptions
- */
-export function setActiveAgent(
-    hostedSessionOrAgentName,
-    agentNameOrHandler,
-    handlerOrUiAPI,
-    uiAPIOrAgentModel = undefined,
-    agentModelOrOptions = undefined,
-    agentOptions = undefined,
-) {
-    const hasExplicitSession = hostedSessionOrAgentName && typeof hostedSessionOrAgentName === "object" &&
-        typeof hostedSessionOrAgentName.setActiveOnMessage === "function";
-    if (!hasExplicitSession) {
-        handlerOrUiAPI?.requestRender?.();
-        return;
-    }
-
-    const hostedSession = hostedSessionOrAgentName;
-    const agentName = String(agentNameOrHandler || "").trim();
-    const handler = handlerOrUiAPI;
-    const uiAPI = uiAPIOrAgentModel;
-    const model = typeof agentModelOrOptions === "string" ? agentModelOrOptions : undefined;
-    const options = typeof agentModelOrOptions === "object" ? agentModelOrOptions : agentOptions;
-    hostedSession.setActiveOnMessage(handler);
-    if (agentName && typeof hostedSession.setPendingRootSwap === "function") {
-        if (hostedSession.getRootAgentName?.() === agentName) {
-            hostedSession.setPendingRootSwap(null);
-        } else {
-            hostedSession.setPendingRootSwap({
-                agentName,
-                displayName: getAgentDisplayName(agentName, hostedSession.cwd),
-                ...(model ? { model } : {}),
-                ...(options?.allowReturnToRouter ? { allowReturnToRouter: true } : {}),
-            });
-        }
-    }
-    uiAPI?.requestRender?.();
-}
-
-/**
- * Compatibility bridge for callers/tests that still queue HostedSession root swaps.
- *
- * @param {import('./hosted-session.js').HostedSession} hostedSession
- * @param {import('../types.js').SessionUiPort | undefined} uiAPI
- * @param {SwitchActiveAgentDependencies} [dependencies]
- */
-export async function applyPendingRootSwap(hostedSession, uiAPI, dependencies = {}) {
-    const pending = hostedSession?.getPendingRootSwap?.();
-    if (!pending) return;
-    if (hostedSession.getRootAgentName?.() === pending.agentName) {
-        hostedSession.setPendingRootSwap(null);
-        return;
-    }
-    try {
-        await switchActiveAgent(
-            hostedSession,
-            {
-                agentName: pending.agentName,
-                model: pending.model,
-                allowReturnToRouter: pending.allowReturnToRouter,
-            },
-            uiAPI,
-            dependencies,
-        );
-        hostedSession.setPendingRootSwap(null);
-    } catch (error) {
-        if (hostedSession.disposed) return;
-        throw error;
-    }
 }

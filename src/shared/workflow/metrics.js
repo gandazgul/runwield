@@ -4,7 +4,7 @@
  */
 
 import { dirname, isAbsolute, join } from "@std/path";
-import { CWD, HOME_DIR, RUNWEILD_DIR_NAME } from "../../constants.js";
+import { HOME_DIR, RUNWEILD_DIR_NAME } from "../../constants.js";
 import { encodeCwdForSessionDir } from "../session/root-session.js";
 import { getMergedCustomSetting } from "../settings.js";
 
@@ -54,7 +54,7 @@ const activeToolCalls = new Map();
  * @param {unknown} setting
  * @returns {boolean}
  */
-export function isWorkflowMetricsEnabled(setting = getMergedCustomSetting("workflowMetrics")) {
+export function isWorkflowMetricsEnabled(setting) {
     if (setting === true) return true;
     if (setting === false || setting == null) return false;
     if (typeof setting === "object" && !Array.isArray(setting)) {
@@ -68,7 +68,8 @@ export function isWorkflowMetricsEnabled(setting = getMergedCustomSetting("workf
  * @param {string} [homeDir]
  * @returns {string}
  */
-export function getWorkflowMetricsFilePath(cwd = CWD, homeDir = HOME_DIR || Deno.env.get("HOME") || "~") {
+export function getWorkflowMetricsFilePath(cwd, homeDir = HOME_DIR || Deno.env.get("HOME") || "~") {
+    if (!cwd) throw new Error("getWorkflowMetricsFilePath: cwd is required");
     return join(homeDir, RUNWEILD_DIR_NAME, METRICS_DIR_NAME, encodeCwdForSessionDir(cwd), "metrics.jsonl");
 }
 
@@ -76,7 +77,8 @@ export function getWorkflowMetricsFilePath(cwd = CWD, homeDir = HOME_DIR || Deno
  * @param {string} value
  * @returns {Promise<string>}
  */
-export async function hashMetricCwd(value = CWD) {
+export async function hashMetricCwd(value) {
+    if (!value) throw new Error("hashMetricCwd: value is required");
     const cached = cwdHashCache.get(value);
     if (cached) return cached;
     const bytes = new TextEncoder().encode(value);
@@ -179,7 +181,8 @@ export function sanitizeMetricDetails(details) {
 export async function recordWorkflowMetric(metric, deps = {}) {
     try {
         const setting = deps.settings !== undefined ? deps.settings : deps.getSetting ? deps.getSetting() : undefined;
-        const cwd = deps.cwd || CWD;
+        const cwd = deps.cwd;
+        if (!cwd) throw new Error("recordWorkflowMetric: cwd is required");
         const resolvedSetting = setting !== undefined ? setting : getMergedCustomSetting("workflowMetrics", cwd);
         if (!isWorkflowMetricsEnabled(resolvedSetting)) return null;
 

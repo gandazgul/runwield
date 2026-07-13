@@ -6,9 +6,9 @@
 import { dirname, fromFileUrl, join } from "@std/path";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import { AGENTS, CWD } from "../../constants.js";
+import { AGENTS } from "../../constants.js";
 import { findPlansByParent, loadPlan, parsePlanFrontMatter, saveChildFeaturePlans } from "../../plan-store.js";
-import { ensureBundledAgentDefFile, runAgentSession } from "../session/session.js";
+import { ensureBundledAgentDefFile, ensureRootAgentSession, runAgentSession } from "../session/session.js";
 import { createAgentHandler } from "../session/agent-handler.js";
 import { loadAgentDefFromPath } from "../session/agents.js";
 import { extractTasks, validateProjectTasks } from "./task-scheduling.js";
@@ -140,7 +140,8 @@ function formatToolError(text) {
  * @param {{ loadPlan?: typeof loadPlan, findPlansByParent?: typeof findPlansByParent, recordPlanEvent?: typeof recordPlanEvent, materializeSlicerDraft?: typeof materializeSlicerDraft }} [opts.__deps]
  * @returns {import('@earendil-works/pi-coding-agent').ToolDefinition}
  */
-export function createSlicerFinalizeTool({ planName, cwd = CWD, __deps }) {
+export function createSlicerFinalizeTool({ planName, cwd, __deps }) {
+    if (!cwd) throw new Error("createSlicerFinalizeTool: cwd is required");
     const loadPlanImpl = __deps?.loadPlan || loadPlan;
     const findChildren = __deps?.findPlansByParent || findPlansByParent;
     const recordEvent = __deps?.recordPlanEvent || recordPlanEvent;
@@ -290,7 +291,7 @@ function createSlicerCustomTools(planName, cwd, deps) {
  *   ensureBundledAgentDefFile?: typeof ensureBundledAgentDefFile,
  *   loadPlan?: typeof loadPlan,
  *   findPlansByParent?: typeof findPlansByParent,
- *   setActiveAgent?: typeof import('../session/agent-switching.js').setActiveAgent,
+ *   switchActiveAgent?: typeof import('../session/agent-switching.js').switchActiveAgent,
  *   createSlicerFinalizeTool?: typeof createSlicerFinalizeTool,
  * }} [opts.__deps] - Test-only injection point.
  * @returns {Promise<{ ok: boolean, error?: string }>}
@@ -310,9 +311,7 @@ export async function runSlicerAgent({ planName, triageMeta, uiAPI, hostedSessio
             }))
         : loadPlan);
     const findChildren = __deps?.findPlansByParent || (__deps ? (() => Promise.resolve([])) : findPlansByParent);
-    const setActive = __deps
-        ? (__deps.setActiveAgent || (() => {}))
-        : (await import("../session/agent-switching.js")).setActiveAgent;
+    const switchActive = __deps?.switchActiveAgent || (await import("../session/agent-switching.js")).switchActiveAgent;
     const slicerAgentDef = await loadSlicerAgentDef(__deps);
 
     const slicerDisplay = slicerAgentDef.displayName;
@@ -347,29 +346,31 @@ export async function runSlicerAgent({ planName, triageMeta, uiAPI, hostedSessio
             useRootSession: true,
             allowReturnToRouter: false,
         });
-        setActive(
+        await switchActive(
             hostedSession,
-            AGENTS.SLICER,
-            createAgentHandler(AGENTS.SLICER, {
-                hostedSession,
-                _agentDefOverride: slicerAgentDef,
-                customTools: createSlicerCustomTools(planName, projectRoot, __deps),
-                allowReturnToRouter: false,
-            }),
+            { agentName: AGENTS.SLICER, allowReturnToRouter: false },
             uiAPI,
-            undefined,
-            { allowReturnToRouter: false },
+            {
+                ensureRootAgentSession: (switchOptions) =>
+                    ensureRootAgentSession({
+                        ...switchOptions,
+                        _agentDefOverride: slicerAgentDef,
+                        customTools: createSlicerCustomTools(planName, projectRoot, __deps),
+                    }),
+                createAgentHandler: (nextAgentName, handlerDeps) =>
+                    createAgentHandler(nextAgentName, {
+                        ...handlerDeps,
+                        _agentDefOverride: slicerAgentDef,
+                        customTools: createSlicerCustomTools(planName, projectRoot, __deps),
+                        allowReturnToRouter: false,
+                    }),
+            },
         );
         return { ok: true };
     } catch (e) {
         restoreFailedSlicerContextPhase(boundary);
         if (previousAgentName && hostedSession.getRootAgentName() !== previousAgentName) {
-            setActive(
-                hostedSession,
-                previousAgentName,
-                createAgentHandler(previousAgentName, { hostedSession }),
-                uiAPI,
-            );
+            await switchActive(hostedSession, { agentName: previousAgentName }, uiAPI);
         }
         const error = e instanceof Error ? e.message : String(e);
         uiAPI.appendSystemMessage(`${slicerDisplay} failed: ${error}`, true, "RunWield");
