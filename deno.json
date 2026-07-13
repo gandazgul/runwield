@@ -145,6 +145,7 @@
         ".astro",
         "dist",
         "src/ui/workspace/node_modules",
-        "src/ui/workspace/.astro"
+        "src/ui/workspace/.astro",
+        "compiled-review-*.tmp.js"
     ]
 }
