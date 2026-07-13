@@ -111,13 +111,15 @@ Deno.test("agent-handler calls executePlan when outcome is approved_execute", as
                         planName: "my-plan",
                         triageMeta: { classification: "PROJECT", complexity: "LOW", summary: "x", affectedPaths: [] },
                         tasks: [{ task: 1, assignee: "engineer", dependencies: "none", description: "x" }],
+                        feedback: "Keep the selected command.",
+                        images: [{ base64: "YXBwcm92ZWQ=", mimeType: "image/png" }],
                     },
                 }]),
             ),
         readLatestPlanOutcome: (/** @type {any} */ msgs) => /** @type {any} */ (msgs[0]).details,
         executePlan: /** @type {any} */ ((/** @type {unknown[]} */ ...args) => {
             executeCalls.push(args);
-            return Promise.resolve(undefined);
+            return Promise.resolve({ repairRequired: false, executionComplete: true });
         }),
         runValidationLoop: () => Promise.resolve(),
     });
@@ -125,6 +127,11 @@ Deno.test("agent-handler calls executePlan when outcome is approved_execute", as
     await handler("the request", [], /** @type {any} */ (undefined), /** @type {any} */ (undefined));
     assertEquals(executeCalls.length, 1);
     assertEquals(executeCalls[0][0], "my-plan");
+    assertEquals(/** @type {any} */ (executeCalls[0][5]).reviewFeedback, "Keep the selected command.");
+    assertEquals(/** @type {any} */ (executeCalls[0][5]).reviewImages, [{
+        base64: "YXBwcm92ZWQ=",
+        mimeType: "image/png",
+    }]);
 });
 
 Deno.test("agent-handler validates after approved_execute only when execution completed", async () => {
@@ -235,6 +242,8 @@ Deno.test("agent-handler starts Slicer after Architect returns approved_decompos
             outcome: "approved_decompose",
             planName: "epic-a",
             triageMeta: { classification: "PROJECT", type: "epic" },
+            feedback: "Keep the approved boundary.",
+            images: [{ base64: "YXBwcm92ZWQ=", mimeType: "image/png" }],
         }),
         runSlicerAgent: (/** @type {any} */ args) => {
             slicerArgs = args;
@@ -246,6 +255,8 @@ Deno.test("agent-handler starts Slicer after Architect returns approved_decompos
 
     assertEquals(slicerArgs.planName, "epic-a");
     assertEquals(slicerArgs.triageMeta, { classification: "PROJECT", type: "epic" });
+    assertEquals(slicerArgs.reviewFeedback, "Keep the approved boundary.");
+    assertEquals(slicerArgs.reviewImages, [{ base64: "YXBwcm92ZWQ=", mimeType: "image/png" }]);
     assertEquals(slicerArgs.sessionManager, sessionManager);
 });
 

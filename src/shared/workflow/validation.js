@@ -188,12 +188,25 @@ async function getOrAskForValidationCommand(uiAPI, projectRoot) {
 /**
  * Spawns the local validation step.
  *
+ * @typedef {Object} LocalCIResult
+ * @property {number} exitCode
+ * @property {string} output
+ * @property {boolean} [canceled]
+ */
+
+/**
+ * @typedef {Object} LocalCIOptions
+ * @property {import('../session/hosted-session.js').HostedSession} [hostedSession]
+ */
+
+/**
  * @param {import('./workflow.js').UiAPI} uiAPI
  * @param {string} [cwd]
+ * @param {LocalCIOptions} [options]
  *
- * @returns {Promise<{ exitCode: number, output: string }>}
+ * @returns {Promise<LocalCIResult>}
  */
-export async function runLocalCI(uiAPI, cwd) {
+export async function runLocalCI(uiAPI, cwd, options = {}) {
     if (!cwd) throw new Error("runLocalCI: cwd is required");
     const cmdArgs = await getOrAskForValidationCommand(uiAPI, cwd);
 
@@ -206,6 +219,22 @@ export async function runLocalCI(uiAPI, cwd) {
     }
 
     const toolCallId = `validation-ci-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const interactionId = `validation-ci:${toolCallId}`;
+    const abortController = new AbortController();
+    /** @type {Deno.ChildProcess | null} */
+    let child = null;
+    let canceled = false;
+    const abortValidationProcess = () => {
+        canceled = true;
+        try {
+            child?.kill();
+        } catch (_e) {
+            // Process may have already exited.
+        }
+    };
+    abortController.signal.addEventListener("abort", abortValidationProcess, { once: true });
+    options.hostedSession?.addActiveInteraction?.(interactionId, { abortController });
+
     uiAPI.addToolInvoked?.({
         id: toolCallId,
         name: "bash",
@@ -226,31 +255,35 @@ export async function runLocalCI(uiAPI, cwd) {
             stderr: "piped",
         });
 
-        const child = command.spawn();
+        child = command.spawn();
         const [status, stdout, stderr] = await Promise.all([
             child.status,
             captureProcessStreamTail(child.stdout, VALIDATION_STREAM_OUTPUT_LIMIT_BYTES),
             captureProcessStreamTail(child.stderr, VALIDATION_STREAM_OUTPUT_LIMIT_BYTES),
         ]);
-        const output = formatCapturedProcessOutput(stdout, stderr);
+        const output = canceled
+            ? `${formatCapturedProcessOutput(stdout, stderr)}\nValidation canceled.\n`
+            : formatCapturedProcessOutput(stdout, stderr);
         const durationMs = Date.now() - startTime;
+        const isError = canceled || status.code !== 0;
 
         toolBlock?.appendOutput(output.trim() ? output : "(no output)\n");
-        toolBlock?.endExecution(status.code !== 0, durationMs);
+        toolBlock?.endExecution(isError, durationMs);
         uiAPI.addToolResult?.({
             id: toolCallId,
             name: "bash",
             result: output,
-            isError: status.code !== 0,
+            isError,
             durationMs,
         });
 
         return {
-            exitCode: status.code,
+            exitCode: canceled ? 130 : status.code,
             output,
+            ...(canceled ? { canceled: true } : {}),
         };
     } catch (/** @type {any} */ error) {
-        const output = `Failed to spawn validation process: ${error.message}`;
+        const output = canceled ? "Validation canceled." : `Failed to spawn validation process: ${error.message}`;
         const durationMs = Date.now() - startTime;
         toolBlock?.appendOutput(`${output}\n`);
         toolBlock?.endExecution(true, durationMs);
@@ -262,9 +295,13 @@ export async function runLocalCI(uiAPI, cwd) {
             durationMs,
         });
         return {
-            exitCode: 1,
+            exitCode: canceled ? 130 : 1,
             output,
+            ...(canceled ? { canceled: true } : {}),
         };
+    } finally {
+        abortController.signal.removeEventListener("abort", abortValidationProcess);
+        options.hostedSession?.removeActiveInteraction?.(interactionId);
     }
 }
 
@@ -700,7 +737,7 @@ export async function runMechanicalValidation({ uiAPI, sessionManager, hostedSes
         uiAPI?.setBusy?.(true);
         let ciResult;
         try {
-            ciResult = await runLocalCIImpl(uiAPI, validationCwd);
+            ciResult = await runLocalCIImpl(uiAPI, validationCwd, { hostedSession });
         } finally {
             uiAPI?.setBusy?.(false);
         }
@@ -709,8 +746,25 @@ export async function runMechanicalValidation({ uiAPI, sessionManager, hostedSes
             category: "validation",
             event: "mechanical_ci_attempt",
             planName: "quick-fix",
-            details: { attempt: repairAttempts + 1, exitCode: ciResult.exitCode, passed: ciResult.exitCode === 0 },
+            details: {
+                attempt: repairAttempts + 1,
+                exitCode: ciResult.exitCode,
+                passed: ciResult.exitCode === 0,
+                canceled: ciResult.canceled === true,
+            },
         });
+        if (ciResult.canceled) {
+            const reason = "QUICK_FIX Mechanical Validation canceled. Staying with Engineer so messages can continue.";
+            appendRunWieldSystemMessage(uiAPI, reason, false);
+            await recordWorkflowMetricImpl({
+                category: "validation",
+                event: "mechanical_validation_finished",
+                planName: "quick-fix",
+                details: { passed: false, canceled: true, attempts: repairAttempts },
+            });
+            await activateAgent(AGENTS.ENGINEER);
+            return { passed: false, attempts: repairAttempts, reason: "canceled" };
+        }
         if (ciResult.exitCode === 0) {
             appendRunWieldSystemMessage(
                 uiAPI,
@@ -953,7 +1007,7 @@ export async function runValidationLoop({
             uiAPI?.setBusy?.(true);
             let ciResult;
             try {
-                ciResult = await runLocalCIImpl(uiAPI, executionCwd);
+                ciResult = await runLocalCIImpl(uiAPI, executionCwd, { hostedSession });
             } finally {
                 uiAPI?.setBusy?.(false);
             }
@@ -967,8 +1021,13 @@ export async function runValidationLoop({
                     mechanicalAttempt: mechanicalAttempts,
                     exitCode: ciResult.exitCode,
                     passed: ciResult.exitCode === 0,
+                    canceled: ciResult.canceled === true,
                 },
             });
+            if (ciResult.canceled) {
+                await pauseForEngineerContinuation("CI validation canceled.");
+                return;
+            }
             if (ciResult.exitCode === 0) {
                 buildPasses = true;
                 appendRunWieldSystemMessage(uiAPI, "Build and tests passed.", false, SUCCESS_MESSAGE_STYLE);
