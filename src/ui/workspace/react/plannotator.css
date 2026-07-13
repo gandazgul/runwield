@@ -31,6 +31,16 @@
     overflow: hidden;
 }
 
+.rw-plan-review {
+    height: 100vh;
+    min-height: 100vh;
+}
+
+.rw-plannotator-host.rw-plan-review {
+    border: 0;
+    border-radius: 0;
+}
+
 .rw-plannotator-toolbar {
     display: flex;
     align-items: center;
@@ -41,9 +51,34 @@
     background: var(--plannotator-surface);
 }
 
-.rw-plannotator-toolbar h2,
+.rw-plannotator-toolbar h1,
 .rw-plannotator-toolbar p {
     margin: 0;
+}
+
+.rw-plan-review-heading {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    min-width: 0;
+}
+
+.rw-plan-review-heading img {
+    width: 1.75rem;
+    height: 1.75rem;
+    flex: none;
+}
+
+.rw-plan-review-heading h1 {
+    font-size: 1rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.rw-plan-review-dev-notice {
+    color: var(--destructive, #f87171);
+    font-size: 0.72rem;
+    font-weight: 700;
 }
 
 .rw-plannotator-actions {
@@ -57,12 +92,23 @@
 .rw-plannotator-code-layout {
     display: grid;
     flex: 1;
+    height: 100%;
     min-height: 72vh;
     min-width: 0;
 }
 
+.rw-plan-review .rw-plannotator-plan-layout > aside:not([data-annotation-panel]) {
+    position: relative;
+    top: auto;
+    height: 100%;
+}
+
 .rw-plannotator-plan-layout {
-    grid-template-columns: auto minmax(14rem, 18rem) auto minmax(0, 1fr) minmax(16rem, 22rem);
+    grid-template-columns: 17.5rem 0 minmax(0, 1fr) 20rem;
+}
+
+.rw-plannotator-plan-layout[data-sidebar-open="false"] {
+    grid-template-columns: minmax(0, 1fr) 20rem;
 }
 
 .rw-plannotator-code-layout {
@@ -74,6 +120,26 @@
     min-width: 0;
     min-height: 0;
     overflow: hidden;
+}
+
+.rw-plannotator-main-pane {
+    display: flex;
+    flex-direction: column;
+}
+
+.rw-plan-content-area {
+    position: relative;
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.rw-collapsed-sidebar-tabs {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 60;
 }
 
 .rw-review-dock-host {
@@ -97,11 +163,39 @@
     background: var(--plannotator-surface);
 }
 
-.rw-document-mode-toggle {
+.rw-plan-review-controls {
     display: flex;
-    gap: 0.5rem;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem 1rem;
+    flex-wrap: wrap;
     padding: 0.75rem;
     border-bottom: 1px solid var(--rw-border, #2d3748);
+    background: color-mix(in oklab, var(--plannotator-surface) 92%, transparent);
+}
+
+.rw-document-mode-toggle,
+.rw-editor-save-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.rw-document-mode-toggle button,
+.rw-editor-save-controls button {
+    border: 1px solid transparent;
+    border-radius: 0.375rem;
+    padding: 0.35rem 0.6rem;
+    color: var(--muted-foreground);
+    font-size: 0.75rem;
+    font-weight: 500;
+    transition: border-color 150ms ease, background-color 150ms ease, color 150ms ease;
+}
+
+.rw-document-mode-toggle button:hover,
+.rw-editor-save-controls button:hover:not(:disabled) {
+    background: var(--muted);
+    color: var(--foreground);
 }
 
 .rw-document-mode-toggle button.active {
@@ -109,8 +203,46 @@
     color: var(--plannotator-accent);
 }
 
+.rw-editor-save-controls {
+    color: var(--muted-foreground);
+    font-size: 0.75rem;
+}
+
+.rw-editor-save-controls button {
+    border-color: color-mix(in oklab, var(--plannotator-accent) 55%, var(--border));
+    background: color-mix(in oklab, var(--plannotator-accent) 16%, transparent);
+    color: var(--foreground);
+}
+
+.rw-editor-save-controls button:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+}
+
 .rw-plannotator-scroll-area {
-    height: calc(100% - 3rem);
+    flex: 1;
+    min-height: 0;
+}
+
+.rw-markdown-editor-pane {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    justify-content: center;
+    padding: 1rem;
+}
+
+.rw-plan-document-canvas {
+    display: flex;
+    width: 100%;
+    justify-content: center;
+    box-sizing: border-box;
+    padding: 1rem 0;
+}
+
+.rw-settings-controller {
+    display: none;
 }
 
 .review-toolbar {

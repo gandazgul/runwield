@@ -44,6 +44,7 @@
     "npm:@lezer/common@^1.5.2": "1.5.2",
     "npm:@lezer/highlight@^1.2.3": "1.2.3",
     "npm:@pierre/diffs@1.2.8": "1.2.8_react@19.2.7_react-dom@19.2.7__react@19.2.7",
+    "npm:@plannotator/web-highlighter@~0.8.1": "0.8.1",
     "npm:@preact/signals@^2.9.3": "2.9.3_preact@10.29.7",
     "npm:@radix-ui/react-checkbox@^1.3.3": "1.3.7_@types+react@19.2.17_@types+react-dom@19.2.3__@types+react@19.2.17_react@19.2.7_react-dom@19.2.7__react@19.2.7",
     "npm:@radix-ui/react-collapsible@^1.1.12": "1.1.16_@types+react@19.2.17_@types+react-dom@19.2.3__@types+react@19.2.17_react@19.2.7_react-dom@19.2.7__react@19.2.7",
@@ -1839,6 +1840,9 @@
     },
     "@pierre/theme@1.0.3": {
       "integrity": "sha512-sWHv11TMoqKxKDgTIk5VbhQjdPhs8DCcBxbjh3mRlS3YOM/OcrWoGX6MM8eBGn9cUu3M46Py0JnxsG2nJaFTuA=="
+    },
+    "@plannotator/web-highlighter@0.8.1": {
+      "integrity": "sha512-FlteNOwRj9iNSY/AhFMtqOnVS4FvsACvTw6IiOM1y8iDyhiU/WeZOgjURENvIY+wuUaiS9DDFmg0PrHMyuMR1Q=="
     },
     "@preact/signals-core@1.14.4": {
       "integrity": "sha512-HNB6HYeYKhQbJ1aKl+YRjrS4+QWHLKX6qKoUsfS/m0vqzsVaEBiZiaKbG/e+NKk2ch5ALQr/ihWaMHxiCuuWHA=="
@@ -6885,6 +6889,7 @@
       "npm:@lezer/common@^1.5.2",
       "npm:@lezer/highlight@^1.2.3",
       "npm:@pierre/diffs@1.2.8",
+      "npm:@plannotator/web-highlighter@~0.8.1",
       "npm:@preact/signals@^2.9.3",
       "npm:@radix-ui/react-checkbox@^1.3.3",
       "npm:@radix-ui/react-collapsible@^1.1.12",

@@ -38,7 +38,7 @@
         "@gandazgul/plannotator-pi-extension-compiled/server": "npm:@gandazgul/plannotator-pi-extension-compiled@^0.23.1/server",
         "@gandazgul/plannotator-pi-extension-compiled/assets": "npm:@gandazgul/plannotator-pi-extension-compiled@^0.23.1/assets",
         "dockview-react": "npm:dockview-react@^5.2.0",
-        "@plannotator/web-highlighter": "./src/ui/workspace/react/web-highlighter-shim.js",
+        "@plannotator/web-highlighter": "npm:@plannotator/web-highlighter@^0.8.1",
         "@plannotator/markdown-editor": "./src/ui/workspace/react/markdown-editor-shim.tsx",
         "@plannotator/markdown-editor/themes/plannotator.css": "./src/ui/workspace/react/markdown-editor-shim.css",
         "@plannotator/ui/": "./third_party/plannotator/packages/ui/",

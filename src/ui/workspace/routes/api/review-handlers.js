@@ -61,6 +61,7 @@ export async function reviewDenyApi(ctx) {
     return await resolveFromRequest(ctx, (body) => ({
         approved: false,
         feedback: typeof body.feedback === "string" ? body.feedback : "",
+        annotations: Array.isArray(body.annotations) ? body.annotations : [],
         plan: typeof body.plan === "string" ? body.plan : undefined,
         savedPath: readPlanSavePath(body.planSave),
     }));
