@@ -747,9 +747,13 @@ Deno.test("executePlan still executes ready FEATURE plans", async () => {
                         markdown: "## Feature",
                     }),
                 ),
-            executeSingleEngineerPlan: ({ triageMeta }) => {
+            reviewFeedback: "Keep the selected command.",
+            reviewImages: [{ base64: "YXBwcm92ZWQ=", mimeType: "image/png" }],
+            executeSingleEngineerPlan: ({ triageMeta, reviewFeedback, reviewImages }) => {
                 engineerCalled = true;
                 assertEquals(triageMeta.classification, "FEATURE");
+                assertEquals(reviewFeedback, "Keep the selected command.");
+                assertEquals(reviewImages, [{ base64: "YXBwcm92ZWQ=", mimeType: "image/png" }]);
                 return Promise.resolve({ repairRequired: false, executionComplete: true });
             },
             recordPlanEvent: ({ event }) => {
@@ -1300,6 +1304,8 @@ Deno.test("runSlicerAgent returns ok=true when session resolves", async () => {
     const result = await runSlicerAgent({
         planName: "my-plan",
         triageMeta: { classification: "PROJECT", complexity: "LOW", summary: "x", affectedPaths: [] },
+        reviewFeedback: "Keep the approved boundary.",
+        reviewImages: [{ base64: "YXBwcm92ZWQ=", mimeType: "image/png" }],
         uiAPI: noopUiAPI,
         hostedSession,
         __deps: {
@@ -1322,6 +1328,8 @@ Deno.test("runSlicerAgent returns ok=true when session resolves", async () => {
     assertEquals(captured.agentName, "slicer");
     assertEquals(captured.allowReturnToRouter, false);
     assertEquals(captured.sessionManager, sessionManager);
+    assertEquals(captured.images, [{ base64: "YXBwcm92ZWQ=", mimeType: "image/png" }]);
+    assertStringIncludes(captured.userRequest, "Keep the approved boundary.");
     assertEquals(boundaries.length, 1);
     assertEquals(boundaries[0][1], "");
     assertEquals(boundaries[0][3], {

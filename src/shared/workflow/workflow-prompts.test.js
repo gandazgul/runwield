@@ -38,6 +38,21 @@ Deno.test("buildSlicerRequest includes existing child order and dependencies", (
     assertStringIncludes(request, "- Target branch: feature-base");
 });
 
+Deno.test("approval annotations are included in Engineer and Slicer handoffs", () => {
+    const feedback = "Keep the selected command and highlighted boundary.";
+    const engineerRequest = buildEngineerRequest("feature-plan", "Plan body", feedback);
+    const slicerRequest = buildSlicerRequest({
+        planName: "epic-plan",
+        epicBody: "Epic body",
+        reviewFeedback: feedback,
+    });
+
+    assertStringIncludes(engineerRequest, "Annotations Submitted With Approval");
+    assertStringIncludes(engineerRequest, feedback);
+    assertStringIncludes(slicerRequest, "Annotations Submitted With Approval");
+    assertStringIncludes(slicerRequest, feedback);
+});
+
 Deno.test("buildDependencyOutputsContext includes only successful dependency displays", () => {
     const context = buildDependencyOutputsContext(
         { dependencies: "1, 2, 3" },
