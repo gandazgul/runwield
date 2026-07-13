@@ -556,6 +556,79 @@ Deno.test("runValidationLoop marks validation progress and success messages with
     );
 });
 
+Deno.test("runMechanicalValidation stops on canceled CI and stays with Engineer", async () => {
+    const uiAPI = makeUi();
+    const session = new HostedSession({ id: "mechanical-cancel-test", cwd: Deno.cwd() });
+    /** @type {string[]} */
+    const switchedAgents = [];
+
+    const result = await runMechanicalValidation({
+        hostedSession: session,
+        uiAPI,
+        sessionManager: undefined,
+        __deps: /** @type {any} */ ({
+            runLocalCI: () => Promise.resolve({ exitCode: 130, output: "Validation canceled.", canceled: true }),
+            switchActiveAgent: (
+                /** @type {HostedSession} */ _session,
+                /** @type {{ agentName: string }} */ options,
+            ) => {
+                switchedAgents.push(options.agentName);
+                return Promise.resolve({ ok: true });
+            },
+            recordWorkflowMetric: () => Promise.resolve(),
+        }),
+    });
+
+    assertEquals(result, { passed: false, attempts: 0, reason: "canceled" });
+    assertEquals(switchedAgents, ["engineer"]);
+    assertEquals(
+        uiAPI.messages.some((/** @type {string} */ message) => message.includes("Mechanical Validation canceled")),
+        true,
+    );
+});
+
+Deno.test("runValidationLoop cancels CI without dispatching repair and leaves Engineer active", async () => {
+    const uiAPI = makeUi();
+    const session = new HostedSession({ id: "validation-cancel-test", cwd: Deno.cwd() });
+    /** @type {string[]} */
+    const switchedAgents = [];
+    let repairDispatched = false;
+
+    await runValidationLoop({
+        hostedSession: session,
+        planName: "p",
+        planContent: "",
+        triageMeta: { classification: "FEATURE" },
+        uiAPI,
+        sessionManager: undefined,
+        __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
+            runLocalCI: () => Promise.resolve({ exitCode: 130, output: "Validation canceled.", canceled: true }),
+            runCompletionGatedRepair: () => {
+                repairDispatched = true;
+                return Promise.resolve(false);
+            },
+            recordPlanEvent: noOpRecordPlanEvent,
+            switchActiveAgent: (
+                /** @type {HostedSession} */ _hostedSession,
+                /** @type {{ agentName: string }} */ options,
+            ) => {
+                switchedAgents.push(options.agentName);
+                return Promise.resolve({ ok: true });
+            },
+            recordWorkflowMetric: () => Promise.resolve(),
+        }),
+    });
+
+    assertEquals(repairDispatched, false);
+    assertEquals(switchedAgents, ["engineer"]);
+    assertEquals(session.getActiveExecutionWorkflow()?.validationContinuation, true);
+    assertEquals(
+        uiAPI.messages.some((/** @type {string} */ message) => message.includes("CI validation canceled")),
+        true,
+    );
+});
+
 Deno.test("runValidationLoop restores requested final agent after validation", async () => {
     const uiAPI = makeUi();
     /** @type {string[]} */
