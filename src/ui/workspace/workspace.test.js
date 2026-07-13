@@ -111,6 +111,50 @@ Deno.test("review API accepts review token header before workspace app token gat
     }
 });
 
+Deno.test("Plan review feedback preserves all annotations and the edited Plan", async () => {
+    const token = "plan-feedback-secret";
+    const { promise } = registerReviewDecisionPromise(token);
+    try {
+        const app = createReviewWorkspaceApp({
+            cwd: Deno.cwd(),
+            token,
+            reviewPayload: {},
+            reviewType: "plan",
+        }).handler();
+        const annotations = [
+            { id: "annotation-1", type: "COMMENT", text: "Clarify this section." },
+            { id: "annotation-2", type: "DELETION", text: "Remove this sentence." },
+        ];
+
+        const response = await app(
+            new Request("http://localhost/api/review/deny", {
+                method: "POST",
+                headers: {
+                    "content-type": "application/json",
+                    "x-runwield-review-token": token,
+                },
+                body: JSON.stringify({
+                    feedback: "# Plan Feedback\n\nClarify this section.",
+                    annotations,
+                    plan: "# Edited Plan\n",
+                    planSave: { enabled: true, path: "plans/edited.md" },
+                }),
+            }),
+        );
+
+        assertEquals(response.status, 200);
+        assertEquals(await promise, {
+            approved: false,
+            feedback: "# Plan Feedback\n\nClarify this section.",
+            annotations,
+            plan: "# Edited Plan\n",
+            savedPath: "plans/edited.md",
+        });
+    } finally {
+        unregisterReviewDecision(token);
+    }
+});
+
 Deno.test("review API returns 401 for invalid token and 404 for expired matching token", async () => {
     const app = createReviewWorkspaceApp({
         cwd: Deno.cwd(),

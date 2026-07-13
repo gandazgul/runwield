@@ -50,7 +50,6 @@ export default defineConfig({
         },
         resolve: {
             alias: {
-                "@plannotator/web-highlighter": resolve(WORKSPACE_DIR, "react/web-highlighter-shim.js"),
                 "@pierre/diffs/worker/worker.js?worker&inline": resolve(
                     WORKSPACE_DIR,
                     "react/pierre-diffs-worker-shim.js",
