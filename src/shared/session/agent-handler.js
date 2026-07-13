@@ -195,9 +195,17 @@ export function createAgentHandler(agentName, __deps) {
             const triageMeta = /** @type {import('../../tools/plan-written.js').TriageMeta} */ (
                 planningDecision.payload.triageMeta || {}
             );
+            const reviewFeedback = typeof planningDecision.payload.reviewFeedback === "string"
+                ? planningDecision.payload.reviewFeedback
+                : undefined;
+            const reviewImages = /** @type {Array<{base64: string, mimeType: string}> | undefined} */ (
+                Array.isArray(planningDecision.payload.reviewImages) ? planningDecision.payload.reviewImages : undefined
+            );
             const slicerResult = await runSlicerAgent({
                 planName,
                 triageMeta,
+                reviewFeedback,
+                reviewImages,
                 uiAPI,
                 hostedSession,
                 sessionManager,
@@ -235,6 +243,12 @@ export function createAgentHandler(agentName, __deps) {
             const tasks = /** @type {import('../workflow/workflow.js').PlanOutcomeResult["tasks"]} */ (
                 planningDecision.payload.tasks
             );
+            const reviewFeedback = typeof planningDecision.payload.reviewFeedback === "string"
+                ? planningDecision.payload.reviewFeedback
+                : undefined;
+            const reviewImages = /** @type {Array<{base64: string, mimeType: string}> | undefined} */ (
+                Array.isArray(planningDecision.payload.reviewImages) ? planningDecision.payload.reviewImages : undefined
+            );
             /** @type {import('../workflow/workflow.js').PlanExecutionResult} */
             let executionResult;
             try {
@@ -244,7 +258,12 @@ export function createAgentHandler(agentName, __deps) {
                     uiAPI,
                     tasks,
                     sessionManager,
-                    { hostedSession, recordWorkflowMetric: recordWorkflowMetricImpl },
+                    {
+                        hostedSession,
+                        recordWorkflowMetric: recordWorkflowMetricImpl,
+                        reviewFeedback,
+                        reviewImages,
+                    },
                 );
             } catch (error) {
                 const reason = error instanceof Error ? error.message : String(error);

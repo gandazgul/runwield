@@ -1,4 +1,5 @@
 ---
+planId: "64cd784c-67b2-4ae5-a4cd-186c2d912ee7"
 classification: "FEATURE"
 complexity: "HIGH"
 summary: "Finish the SessionRuntime sibling-adapter refactor so TUI, ACP, and future UIs share one project-isolated engine contract for lifecycle, prompting, events, interactions, and concurrency."

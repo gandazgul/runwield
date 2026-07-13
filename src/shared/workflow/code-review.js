@@ -5,8 +5,6 @@
 
 import { startCodeReviewSurface } from "./review-launcher.js";
 
-export { loadReviewEditorHtml } from "./review-launcher.js";
-
 /**
  * @typedef {Object} CodeReviewAnnotation
  * @property {string} [file]
@@ -87,7 +85,7 @@ export function formatCodeReviewAnnotations(annotations) {
  * @param {{
  *   startCodeReviewSurface?: typeof startCodeReviewSurface,
  *   startReviewServer?: (options: object) => Promise<any>,
- *   loadReviewEditorHtml?: typeof import("./review-launcher.js").loadReviewEditorHtml,
+ *   loadReviewEditorHtml?: () => Promise<string>,
  *   openInDefaultBrowser?: typeof import("./review-launcher.js").openInDefaultBrowser,
  * }} [opts.__deps]
  * @returns {Promise<CodeReviewDecision>}

@@ -164,6 +164,8 @@ export function readLatestReviewOutcome(messages, fromIndex) {
  * @property {string} [planName]
  * @property {Array<{ task: number, assignee: string, dependencies: string, description: string, writeScope?: string }>} [tasks]
  * @property {import('../../tools/plan-written.js').TriageMeta} [triageMeta]
+ * @property {string} [feedback]
+ * @property {Array<{base64: string, mimeType: string}>} [images]
  */
 
 /**
@@ -188,16 +190,35 @@ export function readLatestPlanOutcome(messages, fromIndex) {
             const details = msg.details || {};
             const outcome = details.outcome;
             if (outcome) {
+                const images = readToolResultImages(/** @type {{ content?: unknown }} */ (msg).content);
                 return {
                     outcome,
                     planName: details.planName,
                     tasks: details.tasks,
                     triageMeta: details.triageMeta,
+                    feedback: typeof details.feedback === "string" ? details.feedback : undefined,
+                    ...(images.length > 0 && { images }),
                 };
             }
         }
     }
     return null;
+}
+
+/**
+ * @param {unknown} content
+ * @returns {Array<{base64: string, mimeType: string}>}
+ */
+function readToolResultImages(content) {
+    if (!Array.isArray(content)) return [];
+    return content.flatMap((block) => {
+        if (!block || typeof block !== "object") return [];
+        const image = /** @type {{type?: unknown, data?: unknown, mimeType?: unknown}} */ (block);
+        if (image.type !== "image" || typeof image.data !== "string" || typeof image.mimeType !== "string") {
+            return [];
+        }
+        return [{ base64: image.data, mimeType: image.mimeType }];
+    });
 }
 
 /**

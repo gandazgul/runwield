@@ -3,7 +3,8 @@
  * Shared constants for RunWield CLI orchestration.
  */
 
-import { fromFileUrl } from "@std/path";
+import { join } from "@std/path";
+import { RUNWIELD_SOURCE_ROOT } from "../runtime-root.js";
 
 /** Name of the installed CLI binary shown in user-facing docs/help. */
 export const CLI_BIN = "wld";
@@ -16,15 +17,14 @@ export const CWD = Deno.cwd();
 
 /**
  * Resolve a bundled passive resource for file APIs, not module imports.
- * Assets embedded with `deno compile --include` must be read relative to the
- * current module URL. Deno self-extracting compile strips the `src/` entrypoint
- * prefix, so these paths intentionally stay relative to constants.js.
+ * Assets embedded with `deno compile --include` are rooted under `src/` in
+ * both source runs and the compiled virtual filesystem.
  *
  * @param {...string} parts
  * @returns {string}
  */
 function resolveBundledResourcePath(...parts) {
-    return fromFileUrl(new URL(`./${parts.join("/")}`, import.meta.url));
+    return join(RUNWIELD_SOURCE_ROOT, ...parts);
 }
 
 /** Directory containing bundled default agent definition markdown files. */

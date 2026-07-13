@@ -1,10 +1,5 @@
-import { assertEquals, assertStringIncludes } from "@std/assert";
-import {
-    formatCodeReviewAnnotations,
-    loadReviewEditorHtml,
-    normalizeCodeReviewDecision,
-    runPlannotatorCodeReview,
-} from "./code-review.js";
+import { assertEquals } from "@std/assert";
+import { formatCodeReviewAnnotations, normalizeCodeReviewDecision, runPlannotatorCodeReview } from "./code-review.js";
 
 Deno.test("normalizeCodeReviewDecision handles approvals, feedback, annotations, and exits", () => {
     assertEquals(
@@ -40,12 +35,6 @@ Deno.test("formatCodeReviewAnnotations renders file, line, and text", () => {
         ]),
         "1. src/a.js:12\nRename this.\n\n2. src/b.js\nMissing test.\n\n3. src/c.js:4\nFrom review surface.",
     );
-});
-
-Deno.test("loadReviewEditorHtml reads the package review HTML asset", async () => {
-    const html = await loadReviewEditorHtml();
-
-    assertStringIncludes(html, "<!DOCTYPE html>");
 });
 
 Deno.test("runPlannotatorCodeReview delegates launching through the code review surface seam", async () => {

@@ -26,7 +26,12 @@ import {
     lifecycleActionLabel,
 } from "./islands/PlanLifecycleActions.jsx";
 import { renderRunWieldThemeCss } from "../design-system/theme-bridge.js";
-import { createReviewWorkspaceApp, createWorkspaceApp, hasWorkspaceToken } from "./server.js";
+import {
+    createReviewWorkspaceApp,
+    createWorkspaceApp,
+    hasWorkspaceToken,
+    startReviewWorkspaceServer,
+} from "./server.js";
 import { COLLABORATION_STATE_REMOTE_CANONICAL } from "../../shared/collaboration/lock.js";
 import { hashCapability } from "../../shared/collaboration/capabilities.js";
 import { openRemoteDatabase } from "./server/remote-db.js";
@@ -62,6 +67,45 @@ Deno.test("workspace static assets bypass token checks for tokenized pages", asy
         const response = await app(new Request(`http://localhost${path}`));
         assertEquals(response.status, 200);
     }
+});
+
+Deno.test("review request forwarding does not inherit Deno.serve's legacy abort signal", async () => {
+    const script = `
+        import { rebuildRequestWithHeaders } from "./src/ui/workspace/server.js";
+        const server = Deno.serve({ hostname: "127.0.0.1", port: 0, onListen() {} }, (request) => {
+            rebuildRequestWithHeaders(request, new Headers(request.headers));
+            return new Response("ok");
+        });
+        await fetch(\`http://127.0.0.1:\${server.addr.port}\`);
+        await server.shutdown();
+    `;
+    const output = await new Deno.Command(Deno.execPath(), {
+        args: ["eval", script],
+        cwd: Deno.cwd(),
+        stdout: "piped",
+        stderr: "piped",
+    }).output();
+
+    assertEquals(output.success, true);
+    assertEquals(new TextDecoder().decode(output.stderr), "");
+});
+
+Deno.test("review server reports stdout through its output callback", async () => {
+    /** @type {Array<{ stream: "stdout" | "stderr", text: string }>} */
+    const output = [];
+    const server = startReviewWorkspaceServer({
+        cwd: Deno.cwd(),
+        token: "review-output",
+        reviewPayload: { plan: "# Plan" },
+        reviewType: "plan",
+        onOutput: (entry) => output.push(entry),
+    });
+
+    await server.stop();
+
+    assertEquals(output.length, 1);
+    assertEquals(output[0].stream, "stdout");
+    assertStringIncludes(output[0].text, "Listening on http://127.0.0.1:");
 });
 
 Deno.test("review page accepts Unicode Plan payloads", async () => {
@@ -122,9 +166,15 @@ Deno.test("Plan review feedback preserves all annotations and the edited Plan", 
             reviewType: "plan",
         }).handler();
         const annotations = [
-            { id: "annotation-1", type: "COMMENT", text: "Clarify this section." },
+            {
+                id: "annotation-1",
+                type: "COMMENT",
+                text: "Clarify this section.",
+                images: [{ path: "/tmp/annotated.png", name: "annotated" }],
+            },
             { id: "annotation-2", type: "DELETION", text: "Remove this sentence." },
         ];
+        const globalAttachments = [{ path: "/tmp/reference.png", name: "reference" }];
 
         const response = await app(
             new Request("http://localhost/api/review/deny", {
@@ -136,6 +186,7 @@ Deno.test("Plan review feedback preserves all annotations and the edited Plan", 
                 body: JSON.stringify({
                     feedback: "# Plan Feedback\n\nClarify this section.",
                     annotations,
+                    globalAttachments,
                     plan: "# Edited Plan\n",
                     planSave: { enabled: true, path: "plans/edited.md" },
                 }),
@@ -147,11 +198,105 @@ Deno.test("Plan review feedback preserves all annotations and the edited Plan", 
             approved: false,
             feedback: "# Plan Feedback\n\nClarify this section.",
             annotations,
+            globalAttachments,
+            images: [
+                { path: "/tmp/reference.png", name: "reference" },
+                { path: "/tmp/annotated.png", name: "annotated" },
+            ],
             plan: "# Edited Plan\n",
             savedPath: "plans/edited.md",
         });
     } finally {
         unregisterReviewDecision(token);
+    }
+});
+
+Deno.test("Plan approval preserves annotations, global images, and the edited Plan", async () => {
+    const token = "plan-approval-secret";
+    const { promise } = registerReviewDecisionPromise(token);
+    try {
+        const app = createReviewWorkspaceApp({
+            cwd: Deno.cwd(),
+            token,
+            reviewPayload: {},
+            reviewType: "plan",
+        }).handler();
+        const annotations = [{
+            id: "approval-annotation",
+            type: "COMMENT",
+            text: "Keep the command wording.",
+            images: [{ path: "/tmp/approval-inline.png", name: "approval-inline" }],
+        }];
+        const globalAttachments = [{ path: "/tmp/approval-global.png", name: "approval-global" }];
+
+        const response = await app(
+            new Request("http://localhost/api/review/decision", {
+                method: "POST",
+                headers: {
+                    "content-type": "application/json",
+                    "x-runwield-review-token": token,
+                },
+                body: JSON.stringify({
+                    approved: true,
+                    feedback: "# Approval annotations\n\nKeep the command wording.",
+                    annotations,
+                    globalAttachments,
+                    plan: "# Approved edited Plan\n",
+                    planSave: { enabled: true, path: "plans/approved.md" },
+                }),
+            }),
+        );
+
+        assertEquals(response.status, 200);
+        assertEquals(await promise, {
+            approved: true,
+            feedback: "# Approval annotations\n\nKeep the command wording.",
+            annotations,
+            globalAttachments,
+            images: [
+                { path: "/tmp/approval-global.png", name: "approval-global" },
+                { path: "/tmp/approval-inline.png", name: "approval-inline" },
+            ],
+            plan: "# Approved edited Plan\n",
+            savedPath: "plans/approved.md",
+            agentSwitch: undefined,
+            permissionMode: undefined,
+        });
+    } finally {
+        unregisterReviewDecision(token);
+    }
+});
+
+Deno.test("review image endpoints upload and serve an annotated image", async () => {
+    const token = "review-image-secret";
+    const app = createReviewWorkspaceApp({
+        cwd: Deno.cwd(),
+        token,
+        reviewPayload: {},
+        reviewType: "plan",
+    }).handler();
+    const bytes = new Uint8Array([137, 80, 78, 71]);
+    const formData = new FormData();
+    formData.set("file", new File([bytes], "annotated.png", { type: "image/png" }));
+
+    const upload = await app(
+        new Request(`http://localhost/api/upload?token=${token}`, {
+            method: "POST",
+            body: formData,
+        }),
+    );
+    assertEquals(upload.status, 200);
+    const uploaded = await upload.json();
+
+    try {
+        const image = await app(
+            new Request(`http://localhost/api/image?token=${token}&path=${encodeURIComponent(uploaded.path)}`),
+        );
+        assertEquals(image.status, 200);
+        assertEquals(image.headers.get("content-type"), "image/png");
+        assertEquals(new Uint8Array(await image.arrayBuffer()), bytes);
+    } finally {
+        await Deno.remove(uploaded.path).catch(() => {});
     }
 });
 
@@ -561,6 +706,9 @@ Deno.test("renderRunWieldThemeCss maps agent theme tokens to workspace CSS varia
     assertStringIncludes(css, "--rw-complexity-high: #fedcba;");
     assertStringIncludes(css, "--rw-text: #202122;");
     assertStringIncludes(css, "--rw-text-dim: #505152;");
+    assertStringIncludes(css, ".theme-runwield {");
+    assertStringIncludes(css, "--background: var(--rw-page-bg);");
+    assertStringIncludes(css, "--primary: var(--rw-accent);");
 });
 
 Deno.test("renderRunWieldThemeCss renders bundled Catppuccin Mocha export colors", async () => {

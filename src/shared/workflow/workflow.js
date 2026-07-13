@@ -72,6 +72,8 @@ export {
  * @property {string} [planName]
  * @property {Array<{ task: number, assignee: string, dependencies: string, description: string, writeScope?: string }>} [tasks]
  * @property {import('../../tools/plan-written.js').TriageMeta} [triageMeta]
+ * @property {string} [feedback]
+ * @property {Array<{base64: string, mimeType: string}>} [images]
  */
 
 /**
@@ -130,6 +132,8 @@ export async function runPlanningAgent(
  *   recordWorkflowMetric?: typeof recordWorkflowMetric,
  *   hostedSession?: import('../session/hosted-session.js').HostedSession,
  *   projectRoot?: string,
+ *   reviewFeedback?: string,
+ *   reviewImages?: Array<{base64: string, mimeType: string}>,
  * }} [__deps]
  * @returns {Promise<PlanExecutionResult>}
  */
@@ -204,6 +208,8 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
         sessionManager,
         currentStatus: plan.attrs.status,
         hostedSession,
+        reviewFeedback: __deps.reviewFeedback,
+        reviewImages: __deps.reviewImages,
         __deps: { recordWorkflowMetric: recordWorkflowMetricFn },
     });
     if (!result.executionComplete) {
@@ -260,12 +266,25 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
  *     sessionManager?: import('@earendil-works/pi-coding-agent').SessionManager,
  *     currentStatus: import('./plan-lifecycle.js').PlanStatus,
  *     hostedSession?: import('../session/hosted-session.js').HostedSession,
+ *     reviewFeedback?: string,
+ *     reviewImages?: Array<{base64: string, mimeType: string}>,
  *     __deps?: { recordWorkflowMetric?: typeof recordWorkflowMetric },
  * }} opts
  * @returns {Promise<PlanExecutionResult>}
  */
 async function executeSingleEngineerPlan(
-    { planName, planBody, triageMeta, uiAPI, sessionManager, currentStatus, hostedSession, __deps },
+    {
+        planName,
+        planBody,
+        triageMeta,
+        uiAPI,
+        sessionManager,
+        currentStatus,
+        hostedSession,
+        reviewFeedback,
+        reviewImages,
+        __deps,
+    },
 ) {
     let executionContext;
     try {
@@ -290,6 +309,8 @@ async function executeSingleEngineerPlan(
         executionContext.executionCwd,
         hostedSession,
         executionContext.projectRoot,
+        reviewFeedback,
+        reviewImages,
     );
     if (!engineerResult.completed) {
         return { repairRequired: false, executionComplete: false, error: engineerResult.error };
@@ -307,6 +328,8 @@ async function executeSingleEngineerPlan(
  * @param {string} [executionCwd]
  * @param {import('../session/hosted-session.js').HostedSession} [hostedSession]
  * @param {string} [projectRoot]
+ * @param {string} [reviewFeedback]
+ * @param {Array<{base64: string, mimeType: string}>} [reviewImages]
  * @returns {Promise<{ completed: boolean, messages: import('@earendil-works/pi-agent-core').AgentMessage[], error?: string }>}
  */
 async function runEngineerWithPlan(
@@ -317,13 +340,16 @@ async function runEngineerWithPlan(
     executionCwd,
     hostedSession,
     projectRoot,
+    reviewFeedback,
+    reviewImages,
 ) {
     let messages;
     try {
         messages = await runAgentSession({
             hostedSession,
             agentName: AGENTS.ENGINEER,
-            userRequest: buildEngineerRequest(planName, planBody),
+            userRequest: buildEngineerRequest(planName, planBody, reviewFeedback),
+            images: reviewImages,
             uiAPI,
             sessionManager,
             cwd: executionCwd,

@@ -5,15 +5,20 @@
 
 import { startReviewWorkspaceServer } from "../../review-workspace-server.js";
 
-const PLANNOTATOR_SERVER_MODULE = "@gandazgul/plannotator-pi-extension-compiled/server";
-const PLANNOTATOR_ASSETS_MODULE = "@gandazgul/plannotator-pi-extension-compiled/assets";
-
 /**
  * @typedef {Object} ReviewSurfaceServer
  * @property {string} url
  * @property {() => Promise<any>} waitForDecision
  * @property {() => void | Promise<void>} stop
  */
+
+/**
+ * @typedef {Object} ReviewServerOutput
+ * @property {"stdout" | "stderr"} stream
+ * @property {string} text
+ */
+
+/** @typedef {(output: ReviewServerOutput) => void} ReviewServerOutputListener */
 
 /** @type {Set<ReviewSurfaceServer>} */
 const activeReviewSurfaces = new Set();
@@ -128,23 +133,6 @@ export async function openInDefaultBrowser(url) {
 }
 
 /**
- * @returns {Promise<string>}
- */
-async function loadPlanReviewHtml() {
-    const assetsModule = PLANNOTATOR_ASSETS_MODULE;
-    const assets = await import(assetsModule);
-    return assets.plannotatorHtml;
-}
-
-/**
- * @returns {Promise<string>}
- */
-export async function loadReviewEditorHtml() {
-    const resolvedServerUrl = import.meta.resolve(PLANNOTATOR_SERVER_MODULE);
-    return await Deno.readTextFile(new URL("../review-editor.html", resolvedServerUrl));
-}
-
-/**
  * @param {string} cwd
  * @returns {Promise<{ stagedFiles: string[], unstagedFiles: string[], untrackedFiles: string[] }>}
  */
@@ -211,7 +199,7 @@ function parseGitPorcelainStatus(text) {
  */
 
 /**
- * @param {{ cwd: string, plan: string, planPath?: string, token?: string, openInDefaultBrowser?: typeof openInDefaultBrowser }} opts
+ * @param {{ cwd: string, plan: string, planPath?: string, token?: string, openInDefaultBrowser?: typeof openInDefaultBrowser, onOutput?: ReviewServerOutputListener }} opts
  * @returns {Promise<PlanReviewSurface>}
  */
 async function startWorkspaceHostedPlanReview({
@@ -220,6 +208,7 @@ async function startWorkspaceHostedPlanReview({
     planPath,
     token = crypto.randomUUID(),
     openInDefaultBrowser: openInDefaultBrowserImpl = openInDefaultBrowser,
+    onOutput,
 }) {
     if (!cwd) throw new Error("startWorkspaceHostedPlanReview: cwd is required");
     const server = startReviewWorkspaceServer({
@@ -227,6 +216,7 @@ async function startWorkspaceHostedPlanReview({
         token,
         reviewPayload: { plan, planPath },
         reviewType: "plan",
+        onOutput,
     });
     const url = `${server.url}/review/plan?token=${encodeURIComponent(token)}`;
     const opened = await openInDefaultBrowserImpl(url);
@@ -235,8 +225,7 @@ async function startWorkspaceHostedPlanReview({
 
 /**
  * Start the current Plan Review surface. Workspace-hosted review routes are the
- * default, while the compiled Plannotator server remains injectable for tests
- * and fallback verification.
+ * default, while callers may inject a legacy server with explicit HTML.
  *
  * @param {Object} opts
  * @param {string} opts.cwd
@@ -245,6 +234,7 @@ async function startWorkspaceHostedPlanReview({
  * @param {string} [opts.htmlContent]
  * @param {(options: object) => Promise<any>} [opts.startPlanReviewServer]
  * @param {typeof openInDefaultBrowser} [opts.openInDefaultBrowser]
+ * @param {ReviewServerOutputListener} [opts.onOutput]
  * @returns {Promise<PlanReviewSurface>}
  */
 export async function startPlanReviewSurface({
@@ -254,6 +244,7 @@ export async function startPlanReviewSurface({
     htmlContent,
     startPlanReviewServer,
     openInDefaultBrowser: openInDefaultBrowserImpl = openInDefaultBrowser,
+    onOutput,
 }) {
     if (!startPlanReviewServer) {
         return registerReviewSurface(
@@ -262,15 +253,20 @@ export async function startPlanReviewSurface({
                 plan,
                 planPath,
                 openInDefaultBrowser: openInDefaultBrowserImpl,
+                onOutput,
             }),
         );
+    }
+    if (!htmlContent) {
+        throw new Error("Injected Plan review servers require explicit htmlContent.");
     }
     const server = registerReviewSurface(
         await startPlanReviewServer({
             plan,
             planPath,
-            htmlContent: htmlContent || await loadPlanReviewHtml(),
+            htmlContent,
             origin: "runwield",
+            onOutput,
         }),
     );
     const opened = await openInDefaultBrowserImpl(server.url);
@@ -304,8 +300,8 @@ async function startWorkspaceHostedCodeReview({
 
 /**
  * Start the current code review surface. Workspace-hosted review routes are the
- * default, while the compiled Plannotator server remains injectable for tests
- * and fallback verification.
+ * default, while callers may inject a legacy server with explicit HTML or an
+ * explicit HTML loader.
  *
  * @param {Object} opts
  * @param {string} opts.rawPatch
@@ -313,7 +309,7 @@ async function startWorkspaceHostedCodeReview({
  * @param {string} opts.agentCwd
  * @param {string} [opts.htmlContent]
  * @param {(options: object) => Promise<any>} [opts.startReviewServer]
- * @param {typeof loadReviewEditorHtml} [opts.loadReviewEditorHtml]
+ * @param {() => Promise<string>} [opts.loadReviewEditorHtml]
  * @param {typeof openInDefaultBrowser} [opts.openInDefaultBrowser]
  * @returns {Promise<CodeReviewSurface>}
  */
@@ -323,7 +319,7 @@ export async function startCodeReviewSurface({
     agentCwd,
     htmlContent,
     startReviewServer,
-    loadReviewEditorHtml: loadReviewEditorHtmlImpl = loadReviewEditorHtml,
+    loadReviewEditorHtml: loadReviewEditorHtmlImpl,
     openInDefaultBrowser: openInDefaultBrowserImpl = openInDefaultBrowser,
 }) {
     if (!startReviewServer) {
@@ -336,7 +332,10 @@ export async function startCodeReviewSurface({
             }),
         );
     }
-    const resolvedHtmlContent = htmlContent || await loadReviewEditorHtmlImpl();
+    const resolvedHtmlContent = htmlContent || await loadReviewEditorHtmlImpl?.();
+    if (!resolvedHtmlContent) {
+        throw new Error("Injected code review servers require htmlContent or loadReviewEditorHtml.");
+    }
     const server = registerReviewSurface(
         await startReviewServer({
             rawPatch,

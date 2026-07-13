@@ -118,6 +118,37 @@ export function renderRunWieldThemeCss(themeJson) {
     lines.push("    --rw-plannotator-accent: var(--rw-accent);");
     lines.push("}");
     lines.push("");
+    lines.push(".theme-runwield {");
+    lines.push("    --background: var(--rw-page-bg);");
+    lines.push("    --foreground: var(--rw-text);");
+    lines.push("    --card: var(--rw-surface);");
+    lines.push("    --card-foreground: var(--rw-text);");
+    lines.push("    --popover: var(--rw-surface-raised);");
+    lines.push("    --popover-foreground: var(--rw-text);");
+    lines.push("    --primary: var(--rw-accent);");
+    lines.push("    --primary-foreground: var(--rw-page-bg);");
+    lines.push("    --secondary: var(--rw-accent-strong);");
+    lines.push("    --secondary-foreground: var(--rw-page-bg);");
+    lines.push("    --muted: var(--rw-surface-muted);");
+    lines.push("    --muted-foreground: var(--rw-text-muted);");
+    lines.push("    --accent: var(--rw-accent);");
+    lines.push("    --accent-foreground: var(--rw-page-bg);");
+    lines.push("    --destructive: var(--rw-error);");
+    lines.push("    --destructive-foreground: var(--rw-text-strong);");
+    lines.push("    --success: var(--rw-success);");
+    lines.push("    --success-foreground: var(--rw-page-bg);");
+    lines.push("    --warning: var(--rw-warning);");
+    lines.push("    --warning-foreground: var(--rw-page-bg);");
+    lines.push("    --border: var(--rw-border);");
+    lines.push("    --input: var(--rw-surface-muted);");
+    lines.push("    --ring: var(--rw-accent);");
+    lines.push("    --code-bg: var(--rw-surface-raised);");
+    lines.push("    --focus-highlight: color-mix(in srgb, var(--rw-accent) 28%, transparent);");
+    lines.push("    --font-sans: Inter, ui-sans-serif, system-ui, sans-serif;");
+    lines.push("    --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;");
+    lines.push("    --radius: 0.5rem;");
+    lines.push("}");
+    lines.push("");
     return lines.join("\n");
 }
 

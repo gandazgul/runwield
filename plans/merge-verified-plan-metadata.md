@@ -1,4 +1,5 @@
 ---
+planId: "9e0b3f7b-fd05-40ea-aef2-870f48cce594"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Change worktree-backed plan completion so the validation_passed lifecycle update is written inside the execution worktree before merge-back, causing verified plan metadata to be committed and merged with implementation changes instead of dirtying the primary checkout afterward. Cover both normal validation merge-back and manual merge recovery, including merge-failure/retry ordering and regression tests."

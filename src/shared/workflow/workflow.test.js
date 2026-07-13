@@ -314,11 +314,16 @@ Deno.test("readLatestPlanOutcome returns the latest plan_written outcome", () =>
         /** @type {any} */ ({
             role: "toolResult",
             toolName: "plan_written",
+            content: [
+                { type: "text", text: "approved" },
+                { type: "image", data: "YXBwcm92ZWQ=", mimeType: "image/png" },
+            ],
             details: {
                 planName: "first",
                 outcome: "approved_execute",
                 tasks: [{ task: 1, assignee: "engineer", dependencies: "", description: "X" }],
                 triageMeta: { classification: "FEATURE" },
+                feedback: "Keep the selected command.",
             },
         }),
     ];
@@ -327,6 +332,8 @@ Deno.test("readLatestPlanOutcome returns the latest plan_written outcome", () =>
         planName: "first",
         tasks: [{ task: 1, assignee: "engineer", dependencies: "", description: "X" }],
         triageMeta: { classification: "FEATURE" },
+        feedback: "Keep the selected command.",
+        images: [{ base64: "YXBwcm92ZWQ=", mimeType: "image/png" }],
     });
 });
 
