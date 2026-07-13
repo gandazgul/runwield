@@ -29,6 +29,7 @@
  * @typedef {Object} PlanReviewDecision
  * @property {boolean} approved
  * @property {string} [feedback]
+ * @property {unknown[]} [annotations]
  * @property {string} [plan]
  * @property {string} [savedPath]
  * @property {boolean} [exit]

@@ -7,10 +7,8 @@ import { Viewer } from "@plannotator/ui/components/Viewer.tsx";
 import { MarkdownEditor } from "@plannotator/ui/components/MarkdownEditor.tsx";
 import { AnnotationPanel } from "@plannotator/ui/components/AnnotationPanel.tsx";
 import { AnnotationToolstrip } from "@plannotator/ui/components/AnnotationToolstrip.tsx";
-import { ApproveDropdown } from "@plannotator/ui/components/ApproveDropdown.tsx";
-import { ExitButton, FeedbackButton } from "@plannotator/ui/components/ToolbarButtons.tsx";
+import { ApproveButton, FeedbackButton } from "@plannotator/ui/components/ToolbarButtons.tsx";
 import { CompletionOverlay } from "@plannotator/ui/components/CompletionOverlay.tsx";
-import { CommentPopover } from "@plannotator/ui/components/CommentPopover.tsx";
 import { Settings } from "@plannotator/ui/components/Settings.tsx";
 import {
     ActionMenu,
@@ -23,18 +21,13 @@ import { OverlayScrollArea } from "@plannotator/ui/components/OverlayScrollArea.
 import { ResizeHandle } from "@plannotator/ui/components/ResizeHandle.tsx";
 import { SidebarContainer } from "@plannotator/ui/components/sidebar/SidebarContainer.tsx";
 import { SidebarTabs } from "@plannotator/ui/components/sidebar/SidebarTabs.tsx";
+import { ScrollViewportContext } from "@plannotator/ui/hooks/useScrollViewport.ts";
 import { usePrintMode } from "@plannotator/ui/hooks/usePrintMode.ts";
-import { getAgentSwitchSettings, getEffectiveAgentName } from "@plannotator/ui/utils/agentSwitch.ts";
 import { getPlanSaveSettings } from "@plannotator/ui/utils/planSave.ts";
-import { extractFrontmatter, parseMarkdownToBlocks } from "@plannotator/ui/utils/parser.ts";
+import { exportAnnotations, extractFrontmatter, parseMarkdownToBlocks } from "@plannotator/ui/utils/parser.ts";
 import "./plannotator.css";
 
 const DEFAULT_PLAN_PAYLOAD = { plan: "", token: "", mode: "dev" };
-const REVIEW_AGENTS = [
-    { id: "build", name: "Build" },
-    { id: "engineer", name: "Engineer" },
-    { id: "router", name: "Router" },
-];
 
 export function PlanReviewSurface({ payload }) {
     usePrintMode();
@@ -42,20 +35,23 @@ export function PlanReviewSurface({ payload }) {
         payload,
     ]);
     const [plan, setPlan] = useState(initialPayload.plan || "");
+    const [draftPlan, setDraftPlan] = useState(initialPayload.plan || "");
     const [editorMode, setEditorMode] = useState("view");
+    const [sidebarOpen, setSidebarOpen] = useState(true);
     const [annotationsOpen, setAnnotationsOpen] = useState(true);
     const [settingsOpen, setSettingsOpen] = useState(false);
-    const [feedbackAnchor, setFeedbackAnchor] = useState(null);
-    const [feedbackOpen, setFeedbackOpen] = useState(false);
     const [annotations, setAnnotations] = useState([]);
     const [selectedAnnotationId, setSelectedAnnotationId] = useState(null);
     const [activeSection, setActiveSection] = useState(null);
-    const [feedback, setFeedback] = useState("");
-    const [annotationMode, setAnnotationMode] = useState("comment");
+    const [annotationMode, setAnnotationMode] = useState("selection");
     const [inputMethod, setInputMethod] = useState("drag");
+    const [scrollViewport, setScrollViewport] = useState(null);
+    const [submitting, setSubmitting] = useState(null);
     const [submitted, setSubmitted] = useState(null);
     const [error, setError] = useState("");
     const editorHandleRef = useRef(null);
+    const viewerHandleRef = useRef(null);
+    const editorDirty = draftPlan !== plan;
     const parsed = useMemo(() => {
         const frontmatterResult = extractFrontmatter(plan);
         return {
@@ -65,19 +61,31 @@ export function PlanReviewSurface({ payload }) {
     }, [plan]);
 
     async function submitApprove() {
-        const setting = getAgentSwitchSettings();
-        await submit("decision", {
-            approved: true,
-            feedback: feedback || undefined,
-            agentSwitch: getEffectiveAgentName(setting),
-            ...buildPlanSavePayload(),
-        });
-        setSubmitted("approved");
+        setSubmitting("approve");
+        try {
+            await submit("decision", { approved: true, ...buildPlanSavePayload() });
+            setSubmitted("approved");
+        } catch {
+            // submit() owns the visible error state.
+        } finally {
+            setSubmitting(null);
+        }
     }
 
-    async function submitExit() {
-        await submit("exit", { reviewType: "plan" });
-        setSubmitted("exited");
+    async function submitFeedback() {
+        setSubmitting("feedback");
+        try {
+            await submit("deny", {
+                feedback: exportAnnotations(parsed.blocks, annotations),
+                annotations,
+                ...buildPlanSavePayload(),
+            });
+            setSubmitted("feedback");
+        } catch {
+            // submit() owns the visible error state.
+        } finally {
+            setSubmitting(null);
+        }
     }
 
     function addAnnotation(annotation) {
@@ -92,19 +100,34 @@ export function PlanReviewSurface({ payload }) {
     }
 
     function removeAnnotation(id) {
+        viewerHandleRef.current?.removeHighlight?.(id);
         setAnnotations((items) => items.filter((item) => item.id !== id));
+        setSelectedAnnotationId((selectedId) => selectedId === id ? null : selectedId);
     }
 
     function toggleCheckbox(blockId, checked) {
         const block = parsed.blocks.find((item) => item.id === blockId);
         if (!block || typeof block.startLine !== "number") return;
-        setPlan((current) => toggleMarkdownCheckbox(current, block.startLine, checked));
+        const nextPlan = toggleMarkdownCheckbox(plan, block.startLine, checked);
+        setPlan(nextPlan);
+        if (!editorDirty) setDraftPlan(nextPlan);
+    }
+
+    function saveEditor() {
+        const nextPlan = editorHandleRef.current?.getMarkdown?.() ?? draftPlan;
+        setPlan(nextPlan);
+        setDraftPlan(nextPlan);
+        setEditorMode("view");
+    }
+
+    function currentPlan() {
+        return editorMode === "edit" ? editorHandleRef.current?.getMarkdown?.() ?? draftPlan : plan;
     }
 
     function buildPlanSavePayload() {
         const planSaveSettings = getPlanSaveSettings();
         return {
-            plan,
+            plan: currentPlan(),
             planSave: {
                 enabled: planSaveSettings.enabled,
                 path: initialPayload.planPath,
@@ -118,171 +141,206 @@ export function PlanReviewSurface({ payload }) {
             <TooltipProvider>
                 <div className="rw-plannotator-host rw-plan-review" data-review-mode={initialPayload.mode}>
                     <header className="rw-plannotator-toolbar">
-                        <div>
-                            <p className="eyebrow">RunWield hosted Plannotator surface</p>
-                            <h2>Plan Review</h2>
+                        <div className="rw-plan-review-heading">
+                            <img src="/logo.svg" alt="" aria-hidden="true" />
+                            <h1>Plan Review</h1>
+                            {initialPayload.mode === "dev" && (
+                                <p className="rw-plan-review-dev-notice" role="status">
+                                    DEV MODE — Feedback and approval won’t go anywhere.
+                                </p>
+                            )}
                         </div>
                         <div className="rw-plannotator-actions">
                             <PlanReviewOptionsMenu
                                 onOpenSettings={() => setSettingsOpen(true)}
                                 onPrint={() => globalThis.print?.()}
                             />
-                            <span ref={setFeedbackAnchor}>
-                                <FeedbackButton onClick={() => setFeedbackOpen(true)} />
-                            </span>
-                            <ApproveDropdown onApprove={submitApprove} agents={REVIEW_AGENTS} />
-                            <ExitButton onClick={submitExit} />
+                            <FeedbackButton
+                                onClick={submitFeedback}
+                                disabled={annotations.length === 0 || submitting !== null}
+                                isLoading={submitting === "feedback"}
+                                title={annotations.length === 0
+                                    ? "Add an annotation before sending feedback"
+                                    : "Send all annotations"}
+                            />
+                            <ApproveButton
+                                onClick={submitApprove}
+                                disabled={submitting !== null}
+                                isLoading={submitting === "approve"}
+                            />
                         </div>
                     </header>
                     {error && <p className="rw-review-error" role="alert">{error}</p>}
-                    <div className="rw-plannotator-plan-layout">
-                        <SidebarTabs
-                            activeTab="toc"
-                            onToggleTab={() => {}}
-                            hasDiff={false}
-                            showFilesTab={false}
-                            showVersionsTab={false}
-                            showMessagesTab={false}
-                            showAgentTerminalTab={false}
-                        />
-                        <SidebarContainer
-                            activeTab="toc"
-                            onTabChange={() => {}}
-                            onClose={() => {}}
-                            width={280}
-                            blocks={parsed.blocks}
-                            annotations={annotations}
-                            activeSection={activeSection}
-                            onTocNavigate={setActiveSection}
-                            showFilesTab={false}
-                            showVersionsTab={false}
-                            versionInfo={null}
-                            versions={[]}
-                            selectedBaseVersion={null}
-                            onSelectBaseVersion={() => {}}
-                            isPlanDiffActive={false}
-                            hasPreviousVersion={false}
-                            onActivatePlanDiff={() => {}}
-                            isLoadingVersions={false}
-                            isSelectingVersion={false}
-                            fetchingVersion={null}
-                            onFetchVersions={() => {}}
-                            showArchiveTab={false}
-                            archivePlans={[]}
-                            selectedArchiveFile={null}
-                            onArchiveSelect={() => {}}
-                            isLoadingArchive={false}
-                        />
-                        <ResizeHandle orientation="vertical" />
-                        <main className="rw-plannotator-main-pane">
-                            <div className="rw-document-mode-toggle" role="tablist" aria-label="Plan review mode">
-                                <button
-                                    className={editorMode === "view" ? "active" : ""}
-                                    type="button"
-                                    onClick={() => setEditorMode("view")}
-                                >
-                                    Viewer
-                                </button>
-                                <button
-                                    className={editorMode === "edit" ? "active" : ""}
-                                    type="button"
-                                    onClick={() => setEditorMode("edit")}
-                                >
-                                    MarkdownEditor
-                                </button>
-                            </div>
-                            <OverlayScrollArea className="rw-plannotator-scroll-area">
-                                {editorMode === "view"
-                                    ? (
-                                        <Viewer
-                                            blocks={parsed.blocks}
-                                            markdown={plan}
-                                            frontmatter={parsed.frontmatter}
-                                            annotations={annotations}
-                                            onAddAnnotation={addAnnotation}
-                                            onSelectAnnotation={setSelectedAnnotationId}
-                                            selectedAnnotationId={selectedAnnotationId}
-                                            mode="comment"
-                                            taterMode={false}
-                                            stickyActions
-                                            gridEnabled
-                                            imageBaseDir={initialPayload.imageBaseDir}
-                                            onToggleCheckbox={toggleCheckbox}
-                                        />
-                                    )
-                                    : (
-                                        <MarkdownEditor
-                                            markdown={plan}
-                                            documentId={initialPayload.token || "dev-plan"}
-                                            editorHandleRef={editorHandleRef}
-                                            onMarkdownChange={setPlan}
-                                            gridEnabled
+                    <ScrollViewportContext.Provider value={scrollViewport}>
+                        <div className="rw-plannotator-plan-layout" data-sidebar-open={sidebarOpen}>
+                            {sidebarOpen && (
+                                <SidebarContainer
+                                    activeTab="toc"
+                                    onTabChange={() => setSidebarOpen(false)}
+                                    onClose={() => setSidebarOpen(false)}
+                                    width={280}
+                                    blocks={parsed.blocks}
+                                    annotations={annotations}
+                                    activeSection={activeSection}
+                                    onTocNavigate={setActiveSection}
+                                    showFilesTab={false}
+                                    showVersionsTab={false}
+                                    versionInfo={null}
+                                    versions={[]}
+                                    selectedBaseVersion={null}
+                                    onSelectBaseVersion={() => {}}
+                                    isPlanDiffActive={false}
+                                    hasPreviousVersion={false}
+                                    onActivatePlanDiff={() => {}}
+                                    isLoadingVersions={false}
+                                    isSelectingVersion={false}
+                                    fetchingVersion={null}
+                                    onFetchVersions={() => {}}
+                                    showArchiveTab={false}
+                                    archivePlans={[]}
+                                    selectedArchiveFile={null}
+                                    onArchiveSelect={() => {}}
+                                    isLoadingArchive={false}
+                                />
+                            )}
+                            {sidebarOpen && (
+                                <ResizeHandle
+                                    className="z-[55]"
+                                    side="left"
+                                    onCollapse={() => setSidebarOpen(false)}
+                                />
+                            )}
+                            <main className="rw-plannotator-main-pane">
+                                <div className="rw-plan-review-controls">
+                                    <div
+                                        className="rw-document-mode-toggle"
+                                        role="tablist"
+                                        aria-label="Plan review mode"
+                                    >
+                                        <button
+                                            className={editorMode === "view" ? "active" : ""}
+                                            type="button"
+                                            onClick={() => setEditorMode("view")}
+                                        >
+                                            Viewer
+                                        </button>
+                                        <button
+                                            className={editorMode === "edit" ? "active" : ""}
+                                            type="button"
+                                            onClick={() => setEditorMode("edit")}
+                                        >
+                                            MarkdownEditor
+                                        </button>
+                                    </div>
+                                    {editorMode === "view"
+                                        ? (
+                                            <AnnotationToolstrip
+                                                inputMethod={inputMethod}
+                                                onInputMethodChange={setInputMethod}
+                                                mode={annotationMode}
+                                                onModeChange={setAnnotationMode}
+                                                taterMode={false}
+                                                showHelpLink={false}
+                                            />
+                                        )
+                                        : (
+                                            <div className="rw-editor-save-controls">
+                                                <span role="status">{editorDirty ? "Unsaved changes" : "Saved"}</span>
+                                                <button type="button" disabled={!editorDirty} onClick={saveEditor}>
+                                                    Save
+                                                </button>
+                                            </div>
+                                        )}
+                                </div>
+                                <div className="rw-plan-content-area">
+                                    {!sidebarOpen && (
+                                        <SidebarTabs
+                                            className="rw-collapsed-sidebar-tabs"
+                                            activeTab="toc"
+                                            onToggleTab={() => setSidebarOpen(true)}
+                                            hasDiff={false}
+                                            showFilesTab={false}
+                                            showVersionsTab={false}
+                                            showMessagesTab={false}
+                                            showAgentTerminalTab={false}
                                         />
                                     )}
-                            </OverlayScrollArea>
-                            <AnnotationToolstrip
-                                inputMethod={inputMethod}
-                                onInputMethodChange={setInputMethod}
-                                mode={annotationMode}
-                                onModeChange={setAnnotationMode}
-                                taterMode={false}
-                                compact
+                                    {editorMode === "view"
+                                        ? (
+                                            <OverlayScrollArea
+                                                className="rw-plannotator-scroll-area"
+                                                onViewportReady={setScrollViewport}
+                                            >
+                                                <div className="rw-plan-document-canvas">
+                                                    <Viewer
+                                                        key={plan}
+                                                        ref={viewerHandleRef}
+                                                        blocks={parsed.blocks}
+                                                        markdown={plan}
+                                                        frontmatter={parsed.frontmatter}
+                                                        annotations={annotations}
+                                                        onAddAnnotation={addAnnotation}
+                                                        onSelectAnnotation={setSelectedAnnotationId}
+                                                        selectedAnnotationId={selectedAnnotationId}
+                                                        mode={annotationMode}
+                                                        inputMethod={inputMethod}
+                                                        taterMode={false}
+                                                        stickyActions
+                                                        gridEnabled
+                                                        imageBaseDir={initialPayload.imageBaseDir}
+                                                        onToggleCheckbox={toggleCheckbox}
+                                                    />
+                                                </div>
+                                            </OverlayScrollArea>
+                                        )
+                                        : (
+                                            <div className="rw-markdown-editor-pane">
+                                                <MarkdownEditor
+                                                    markdown={draftPlan}
+                                                    documentId={initialPayload.token || "dev-plan"}
+                                                    editorHandleRef={editorHandleRef}
+                                                    onMarkdownChange={setDraftPlan}
+                                                />
+                                            </div>
+                                        )}
+                                </div>
+                            </main>
+                            <AnnotationPanel
+                                isOpen={annotationsOpen}
+                                annotations={annotations}
+                                blocks={parsed.blocks}
+                                onSelect={setSelectedAnnotationId}
+                                onDelete={removeAnnotation}
+                                onEdit={(id, updates) =>
+                                    setAnnotations((items) =>
+                                        items.map((item) => item.id === id ? { ...item, ...updates } : item)
+                                    )}
+                                selectedId={selectedAnnotationId}
+                                sharingEnabled={false}
+                                width={320}
+                                onClose={() => setAnnotationsOpen(false)}
                             />
-                        </main>
-                        <AnnotationPanel
-                            isOpen={annotationsOpen}
-                            annotations={annotations}
-                            blocks={parsed.blocks}
-                            onSelect={setSelectedAnnotationId}
-                            onDelete={removeAnnotation}
-                            onEdit={(id, updates) =>
-                                setAnnotations((items) =>
-                                    items.map((item) => item.id === id ? { ...item, ...updates } : item)
-                                )}
-                            selectedId={selectedAnnotationId}
-                            sharingEnabled={false}
-                            width={320}
-                            onClose={() => setAnnotationsOpen(false)}
+                            {!annotationsOpen && (
+                                <button
+                                    className="rw-annotation-reopen"
+                                    type="button"
+                                    onClick={() => setAnnotationsOpen(true)}
+                                >
+                                    Annotations
+                                </button>
+                            )}
+                        </div>
+                    </ScrollViewportContext.Provider>
+                    <div className="rw-settings-controller">
+                        <Settings
+                            taterMode={false}
+                            onTaterModeChange={() => {}}
+                            origin="runwield"
+                            mode="plan"
+                            externalOpen={settingsOpen}
+                            onExternalClose={() => setSettingsOpen(false)}
                         />
-                        {!annotationsOpen && (
-                            <button
-                                className="rw-annotation-reopen"
-                                type="button"
-                                onClick={() => setAnnotationsOpen(true)}
-                            >
-                                Annotations
-                            </button>
-                        )}
                     </div>
-                    {feedbackOpen && feedbackAnchor && (
-                        <CommentPopover
-                            anchorEl={feedbackAnchor}
-                            contextText="Plan feedback"
-                            isGlobal
-                            initialText={feedback}
-                            onDraftChange={(text) => setFeedback(text)}
-                            onSubmit={(text) => {
-                                setFeedback(text);
-                                submit("deny", { feedback: text, ...buildPlanSavePayload() }).then(() => {
-                                    setFeedbackOpen(false);
-                                    setSubmitted("feedback");
-                                });
-                            }}
-                            onClose={() => setFeedbackOpen(false)}
-                            draftKey={`plan-feedback:${initialPayload.token || "dev"}`}
-                            allowImages={false}
-                        />
-                    )}
-                    <Settings
-                        taterMode={false}
-                        onTaterModeChange={() => {}}
-                        origin="runwield"
-                        mode="plan"
-                        allowedTabs={["display", "labels", "shortcuts", "general"]}
-                        showIntegrations={false}
-                        externalOpen={settingsOpen}
-                        onExternalClose={() => setSettingsOpen(false)}
-                    />
                     <CompletionOverlay
                         submitted={submitted}
                         title="Review decision sent"

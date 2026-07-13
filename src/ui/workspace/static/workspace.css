@@ -596,11 +596,6 @@
     display: none;
 }
 
-.review-dev-surface {
-    display: grid;
-    gap: 1rem;
-}
-
 .review-dev-card {
     display: grid;
     gap: 1rem;
