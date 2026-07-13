@@ -2,26 +2,6 @@
 
 ## Bugs
 
-P1 critical bug
-
-- [x] Cancelling a repair request after a worktree merge conflict destroys the worktree and all the work is gone. 1st
-      the orchestrator needs to listen for a task_completed signal not just LLM stop, this should eb a golden rule since
-      we have this tool. 2nd the orchestrator needs to ensure the changes are ACTUALLY merged in before deleting the
-      worktree, if unsure then stop and tell the user.
-
-- [x] hittin up arrow when there's a scheduled steering message, fills the input but, doesnt remove the scheduled
-      message.
-- [x] when queing up a steering message with an image the fact that the image is attached is not shown in the steering:
-      block
-- [x] when I use /agent the name of the agent is shown then the system message switched to agent, hide the agent name
-      that replaces the multiselect. ![alt text](image.png)
-- [x] fold the runwield system message plan declared into the tool call block so it doesnt look visually broken
-      ![alt text](image-1.png)
-- [x] The commit message for worktrees is cutting the name of the plans it shouldn't e.g.
-      `* Complete session-host-multi-session-refactor/05-wo`
-- [x] cancelling with esc while waiting on plannotator doesnt allow slash commands to work correctly and hitting esc
-      again outputs the message but doesnt actually restore the TUI. ![alt text](image-2.png)
-
 ## Backlog
 
 ### P1 - Core Workflow UX
