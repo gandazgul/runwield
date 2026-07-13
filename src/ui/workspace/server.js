@@ -7,7 +7,8 @@
  * delegate to the Astro Deno adapter output when it is available.
  */
 
-import { dirname, extname, fromFileUrl, join, toFileUrl } from "@std/path";
+import { extname, join, toFileUrl } from "@std/path";
+import { RUNWIELD_ROOT, RUNWIELD_SOURCE_ROOT } from "../../../runtime-root.js";
 import { PLAN_UI_TOKEN_HEADER, PLAN_UI_TOKEN_QUERY } from "../../constants.js";
 import {
     boardApi,
@@ -28,22 +29,39 @@ import {
 } from "./routes/api/review-handlers.js";
 import { createRemoteWorkspaceAdapter } from "./server/remote-adapter.js";
 import { loadRunWieldThemeCss } from "../design-system/theme-bridge.js";
+import { reviewImageApi, reviewImageUploadApi } from "./routes/api/review-image-handlers.js";
 
-const WORKSPACE_DIR = dirname(fromFileUrl(import.meta.url));
-const ROOT_DIR = join(WORKSPACE_DIR, "..", "..", "..");
+const WORKSPACE_DIR = join(RUNWIELD_SOURCE_ROOT, "ui", "workspace");
+const ROOT_DIR = RUNWIELD_ROOT;
 const DESIGN_SYSTEM_DIR = join(WORKSPACE_DIR, "..", "design-system");
 const STYLES_PATH = join(WORKSPACE_DIR, "static", "styles.css");
 const TOKENS_CSS_PATH = join(DESIGN_SYSTEM_DIR, "tokens.css");
 const COMPONENTS_CSS_PATH = join(DESIGN_SYSTEM_DIR, "components.css");
 const WORKSPACE_CSS_PATH = join(WORKSPACE_DIR, "static", "workspace.css");
 const LOGO_PATH = join(ROOT_DIR, "logo.svg");
-const ASTRO_DIST_DIR = join(ROOT_DIR, "dist", "workspace");
-const ASTRO_ENTRY_PATH = join(ASTRO_DIST_DIR, "server", "entry.mjs");
-const ASTRO_CLIENT_ASSET_DIR = join(ASTRO_DIST_DIR, "client", "_astro");
+const ASTRO_SOURCE_DIST_DIR = join(ROOT_DIR, "dist", "workspace");
+const ASTRO_RUNTIME_DIR = join(ROOT_DIR, "dist", "workspace-runtime");
+const ASTRO_SOURCE_ENTRY_PATH = join(ASTRO_SOURCE_DIST_DIR, "server", "entry.mjs");
+const ASTRO_RUNTIME_ENTRY_PATH = join(ASTRO_RUNTIME_DIR, "server.mjs");
+const ASTRO_SOURCE_CLIENT_ASSET_DIR = join(ASTRO_SOURCE_DIST_DIR, "client", "_astro");
+const ASTRO_RUNTIME_CLIENT_ASSET_DIR = join(ASTRO_RUNTIME_DIR, "client", "_astro");
 const WORKSPACE_CWD_HEADER = "x-runwield-workspace-cwd";
+const WORKSPACE_PLAN_ADAPTER_URL_KEY = Symbol.for("runwield.workspace.plan-adapter-url");
+
+/** @type {any} */ (globalThis)[WORKSPACE_PLAN_ADAPTER_URL_KEY] = toFileUrl(
+    join(WORKSPACE_DIR, "server", "plan-adapter.js"),
+).href;
 
 /** @typedef {{ handler: () => (request: Request) => Promise<Response> }} WorkspaceApp */
 const REVIEW_PAYLOAD_HEADER = "x-runwield-review-payload";
+
+/**
+ * @typedef {Object} ReviewServerOutput
+ * @property {"stdout" | "stderr"} stream
+ * @property {string} text
+ */
+
+/** @typedef {(output: ReviewServerOutput) => void} ReviewServerOutputListener */
 
 /**
  * @param {Request} request
@@ -117,6 +135,18 @@ export function createReviewWorkspaceApp({ cwd, token, reviewPayload, reviewType
             return async (request) => {
                 const url = new URL(request.url);
                 if (isPublicWorkspaceAsset(url.pathname)) return await handleStaticRoute(url.pathname);
+                if (request.method === "POST" && url.pathname === "/api/upload") {
+                    if (!hasReviewAssetToken(request, token)) {
+                        return new Response("Review token required.", { status: 401 });
+                    }
+                    return await reviewImageUploadApi(request);
+                }
+                if (request.method === "GET" && url.pathname === "/api/image") {
+                    if (!hasReviewAssetToken(request, token)) {
+                        return new Response("Review token required.", { status: 401 });
+                    }
+                    return await reviewImageApi(request, { cwd });
+                }
                 if (url.pathname.startsWith("/api/review/") || isLegacyReviewApiPath(url.pathname)) {
                     return await handleReviewApiRequest(request, { cwd, reviewToken: token }, url.pathname);
                 }
@@ -132,6 +162,18 @@ export function createReviewWorkspaceApp({ cwd, token, reviewPayload, reviewType
             };
         },
     };
+}
+
+/** @param {Request} request @param {string} token */
+function hasReviewAssetToken(request, token) {
+    if (hasWorkspaceToken(request, token)) return true;
+    const referer = request.headers.get("referer");
+    if (!referer) return false;
+    try {
+        return new URL(referer).searchParams.get(PLAN_UI_TOKEN_QUERY) === token;
+    } catch {
+        return false;
+    }
 }
 
 /** @param {Request} request @param {{ cwd: string }} state */
@@ -203,13 +245,19 @@ function ctx(req, state, params = {}) {
 }
 
 async function loadAstroHandle() {
-    try {
-        const entryUrl = toFileUrl(ASTRO_ENTRY_PATH).href;
-        const entry = await import(`${entryUrl}?mtime=${Date.now()}`);
-        return typeof entry.handle === "function" ? entry.handle : null;
-    } catch {
-        return null;
+    const entryPaths = Deno.build.standalone
+        ? [ASTRO_RUNTIME_ENTRY_PATH, ASTRO_SOURCE_ENTRY_PATH]
+        : [ASTRO_SOURCE_ENTRY_PATH, ASTRO_RUNTIME_ENTRY_PATH];
+    for (const entryPath of entryPaths) {
+        try {
+            const entryUrl = toFileUrl(entryPath).href;
+            const entry = await import(`${entryUrl}?mtime=${Date.now()}`);
+            if (typeof entry.handle === "function") return entry.handle;
+        } catch {
+            // Try the source build after the opaque runtime build, or vice versa.
+        }
     }
+    return null;
 }
 
 /** @param {Request} request @param {string} cwd */
@@ -227,7 +275,7 @@ async function renderAstroReviewPage(request, cwd, payload) {
     const headers = new Headers(request.headers);
     headers.set(WORKSPACE_CWD_HEADER, cwd);
     headers.set(REVIEW_PAYLOAD_HEADER, encodeURIComponent(JSON.stringify(payload)));
-    const response = await handle(new Request(request, { headers }));
+    const response = await handle(rebuildRequestWithHeaders(request, headers));
     return response.status === 404 ? null : response;
 }
 
@@ -253,7 +301,30 @@ function workspaceBuildUnavailable() {
 function withWorkspaceCwdHeader(request, cwd) {
     const headers = new Headers(request.headers);
     headers.set(WORKSPACE_CWD_HEADER, cwd);
-    return new Request(request, { headers });
+    return rebuildRequestWithHeaders(request, headers);
+}
+
+/**
+ * Rebuild a server request with replacement headers without inheriting its
+ * signal. Cloning a Deno.serve request also clones the runtime's legacy abort
+ * signal, which emits a native stderr warning after every successful response
+ * unless the parent process was started with an unstable flag.
+ *
+ * @param {Request} request
+ * @param {Headers} headers
+ * @returns {Request}
+ */
+export function rebuildRequestWithHeaders(request, headers) {
+    /** @type {RequestInit} */
+    const init = {
+        method: request.method,
+        headers,
+        redirect: request.redirect,
+    };
+    if (request.method !== "GET" && request.method !== "HEAD") {
+        init.body = request.body;
+    }
+    return new Request(request.url, init);
 }
 
 function createWorkspaceRouter() {
@@ -352,18 +423,37 @@ async function handleAstroAsset(pathname) {
         return new Response("Not found", { status: 404 });
     }
 
-    const assetPath = join(ASTRO_CLIENT_ASSET_DIR, assetName);
-    try {
-        const body = await Deno.readFile(assetPath);
-        return new Response(body, {
-            headers: {
-                "content-type": contentTypeForAsset(assetPath),
-                "cache-control": "public, max-age=31536000, immutable",
-            },
-        });
-    } catch {
-        return new Response("Not found", { status: 404 });
+    const runtimeAssetName = getOpaqueWorkspaceAssetName(assetName);
+    const assetPaths = Deno.build.standalone
+        ? [
+            join(ASTRO_RUNTIME_CLIENT_ASSET_DIR, runtimeAssetName),
+            join(ASTRO_SOURCE_CLIENT_ASSET_DIR, assetName),
+        ]
+        : [
+            join(ASTRO_SOURCE_CLIENT_ASSET_DIR, assetName),
+            join(ASTRO_RUNTIME_CLIENT_ASSET_DIR, runtimeAssetName),
+        ];
+    for (const assetPath of assetPaths) {
+        try {
+            const body = await Deno.readFile(assetPath);
+            return new Response(body, {
+                headers: {
+                    "content-type": contentTypeForAsset(assetName),
+                    "cache-control": "public, max-age=31536000, immutable",
+                },
+            });
+        } catch {
+            // Try the source build after the opaque runtime build, or vice versa.
+        }
     }
+    return new Response("Not found", { status: 404 });
+}
+
+/** @param {string} name */
+function getOpaqueWorkspaceAssetName(name) {
+    return [".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts"].includes(extname(name).toLowerCase())
+        ? `${name}.asset`
+        : name;
 }
 
 /** @param {string} path */
@@ -423,14 +513,11 @@ export function startWorkspaceServer(options) {
 }
 
 /**
- * @param {{ cwd?: string, token: string, reviewPayload: Record<string, unknown>, reviewType: "plan" | "code", host?: string, port?: number, signal?: AbortSignal }} options
+ * @param {{ cwd?: string, token: string, reviewPayload: Record<string, unknown>, reviewType: "plan" | "code", host?: string, port?: number, signal?: AbortSignal, onOutput?: ReviewServerOutputListener }} options
  */
 export function startReviewWorkspaceServer(options) {
     const cwd = options.cwd ?? Deno.cwd();
     const host = options.host ?? "127.0.0.1";
-    const controller = new AbortController();
-    const onAbort = () => controller.abort();
-    options.signal?.addEventListener("abort", onAbort, { once: true });
     const { promise } = registerReviewDecisionPromise(options.token);
     const app = createReviewWorkspaceApp({
         cwd,
@@ -438,29 +525,56 @@ export function startReviewWorkspaceServer(options) {
         reviewPayload: options.reviewPayload,
         reviewType: options.reviewType,
     });
-    const server = Deno.serve({
-        hostname: host,
-        port: options.port ?? 0,
-        signal: controller.signal,
-        automaticCompression: true,
-        onListen() {},
-    }, app.handler());
+    let server;
+    try {
+        server = Deno.serve({
+            hostname: host,
+            port: options.port ?? 0,
+            automaticCompression: true,
+            onListen(address) {
+                options.onOutput?.({
+                    stream: "stdout",
+                    text: `Listening on http://${address.hostname}:${address.port}/\n`,
+                });
+            },
+            onError(error) {
+                const text = error instanceof Error ? error.stack || error.message : String(error);
+                options.onOutput?.({ stream: "stderr", text: `${text}\n` });
+                return new Response("Internal Server Error", { status: 500 });
+            },
+        }, app.handler());
+    } catch (error) {
+        const text = error instanceof Error ? error.stack || error.message : String(error);
+        options.onOutput?.({ stream: "stderr", text: `${text}\n` });
+        throw error;
+    }
     const port = server.addr.port;
     const url = `http://${host}:${port}`;
+    /** @type {Promise<void> | null} */
+    let stopPromise = null;
+
+    const stop = () => {
+        options.signal?.removeEventListener("abort", onAbort);
+        const canceledDecision = options.reviewType === "plan"
+            ? { approved: false, feedback: "", exit: true, canceled: true }
+            : { approved: false, feedback: "", annotations: [], exit: true, canceled: true };
+        resolveReviewDecision(options.token, canceledDecision);
+        stopPromise ??= server.shutdown().catch((error) => {
+            const text = error instanceof Error ? error.stack || error.message : String(error);
+            options.onOutput?.({ stream: "stderr", text: `${text}\n` });
+            throw error;
+        });
+        return stopPromise;
+    };
+    const onAbort = () => {
+        void stop().catch(() => {});
+    };
+    options.signal?.addEventListener("abort", onAbort, { once: true });
+    if (options.signal?.aborted) onAbort();
+
     return {
         url,
         waitForDecision: () => promise,
-        stop: () => {
-            options.signal?.removeEventListener("abort", onAbort);
-            const canceledDecision = options.reviewType === "plan"
-                ? { approved: false, feedback: "", exit: true, canceled: true }
-                : { approved: false, feedback: "", annotations: [], exit: true, canceled: true };
-            resolveReviewDecision(options.token, canceledDecision);
-            try {
-                controller.abort();
-            } catch {
-                // Deno can throw BadResource while aborting a server after a completed response.
-            }
-        },
+        stop,
     };
 }

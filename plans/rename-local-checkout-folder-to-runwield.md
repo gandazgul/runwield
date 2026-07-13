@@ -1,4 +1,5 @@
 ---
+planId: "16e5c776-d721-4a70-ae0f-a940b3fb140f"
 classification: "FEATURE"
 complexity: "HIGH"
 summary: "Rename the local RunWield checkout directory from /Users/gandazgul/Documents/web/harns to /Users/gandazgul/Documents/web/runwield without rebranding source or changing the GitHub repository, after current linked-worktree work finishes naturally, while preserving Mnemosyne Memory and resumable RunWield, Claude Code, and Codex sessions plus path-keyed indexes, shell configuration, and IDE state."

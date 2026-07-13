@@ -1,12 +1,10 @@
-import { assertEquals, assertStringIncludes } from "@std/assert";
-import { buildCompileArgs, resolvePlannotatorReviewEditorHtmlPath } from "./compile.js";
+import { assertEquals, assertStringIncludes, assertThrows } from "@std/assert";
+import { assertCompileDenoVersion, buildCompileArgs, DENO_COMPILE_VERSION, parseCompileOptions } from "./compile.js";
 
 Deno.test("buildCompileArgs uses Deno compile flags and bundled resource includes", () => {
-    const args = buildCompileArgs({
-        reviewEditorHtmlPath: "/tmp/plannotator/review-editor.html",
-    });
+    const args = buildCompileArgs();
 
-    assertEquals(args.slice(0, 17), [
+    assertEquals(args.slice(0, 18), [
         "compile",
         "--output",
         "./bin/wld",
@@ -15,7 +13,8 @@ Deno.test("buildCompileArgs uses Deno compile flags and bundled resource include
         "--unstable-no-legacy-abort",
         "--reload",
         "--exclude-unused-npm",
-        "--self-extracting",
+        "--bundle",
+        "--minify",
         "--app-name",
         "wld",
         "--include",
@@ -25,38 +24,55 @@ Deno.test("buildCompileArgs uses Deno compile flags and bundled resource include
         "--include",
         "src/ui/design-system/components.css",
     ]);
-    assertEquals(args.includes("--bundle"), false);
-    assertEquals(args.includes("--minify"), false);
+    assertEquals(args.includes("--bundle"), true);
+    assertEquals(args.includes("--minify"), true);
+    assertEquals(args.includes("--self-extracting"), false);
     assertEquals(args.includes("--output"), true);
     assertEquals(args.includes("./bin/wld"), true);
     assertEquals(args.at(-1), "src/cli.js");
     assertEquals(args.includes("--include-as-is"), false);
 
-    assertStringIncludes(args.join("\n"), "dist/workspace/");
+    assertStringIncludes(args.join("\n"), "dist/workspace-runtime/server.mjs");
+    assertStringIncludes(args.join("\n"), "dist/workspace-runtime/client/");
+    assertStringIncludes(args.join("\n"), "src/ui/workspace/server/plan-adapter.js");
+    assertEquals(args.join("\n").includes("dist/workspace/"), false);
     assertStringIncludes(args.join("\n"), "src/agent-definitions");
     assertStringIncludes(args.join("\n"), "src/prompt-templates");
     assertStringIncludes(args.join("\n"), "src/shared/session/SYSTEM_PROMPT_TEMPLATE.md");
     assertStringIncludes(args.join("\n"), "src/skills");
     assertStringIncludes(args.join("\n"), "src/snip-filters");
     assertStringIncludes(args.join("\n"), "src/ui/theme/catppuccin-mocha.json");
-    assertStringIncludes(args.join("\n"), "npm:@gandazgul/plannotator-pi-extension-compiled@^0.22.0/server");
-    assertStringIncludes(args.join("\n"), "npm:@gandazgul/plannotator-pi-extension-compiled@^0.22.0/assets");
-    assertStringIncludes(args.join("\n"), "/tmp/plannotator/review-editor.html");
+    assertEquals(args.some((arg) => arg.includes("plannotator-pi-extension-compiled")), false);
 });
 
 Deno.test("buildCompileArgs keeps resource includes before the script", () => {
-    const args = buildCompileArgs({
-        reviewEditorHtmlPath: null,
-    });
+    const args = buildCompileArgs();
 
     assertEquals(args.at(-1), "src/cli.js");
     assertEquals(args.includes("src/agent-definitions/workflow-prompts"), false);
 });
 
-Deno.test("Plannotator review editor package asset resolves to a readable HTML file", async () => {
-    const path = resolvePlannotatorReviewEditorHtmlPath();
-    const html = await Deno.readTextFile(path);
+Deno.test("buildCompileArgs accepts release target and output overrides", () => {
+    const args = buildCompileArgs({
+        output: "wld.exe",
+        target: "x86_64-pc-windows-msvc",
+    });
 
-    assertStringIncludes(path, "review-editor.html");
-    assertStringIncludes(html, "<!DOCTYPE html>");
+    assertEquals(args.slice(0, 3), ["compile", "--output", "wld.exe"]);
+    assertEquals(args.includes("x86_64-pc-windows-msvc"), true);
+    assertEquals(args.indexOf("--target") < args.indexOf("--include"), true);
+});
+
+Deno.test("parseCompileOptions supports separated and equals forms", () => {
+    assertEquals(parseCompileOptions(["--output", "wld", "--target=aarch64-apple-darwin"]), {
+        output: "wld",
+        target: "aarch64-apple-darwin",
+    });
+    assertThrows(() => parseCompileOptions(["--target"]), Error, "requires a value");
+    assertThrows(() => parseCompileOptions(["--wat"]), Error, "Unknown compile option");
+});
+
+Deno.test("standalone compiler version is pinned", () => {
+    assertCompileDenoVersion(DENO_COMPILE_VERSION);
+    assertThrows(() => assertCompileDenoVersion("2.8.0"), Error, DENO_COMPILE_VERSION);
 });

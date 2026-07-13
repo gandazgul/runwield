@@ -49,6 +49,8 @@ export async function reviewDecisionApi(ctx) {
     return await resolveFromRequest(ctx, (body) => ({
         approved: true,
         feedback: typeof body.feedback === "string" ? body.feedback : undefined,
+        annotations: Array.isArray(body.annotations) ? body.annotations : [],
+        ...reviewImageDecisionFields(body),
         plan: typeof body.plan === "string" ? body.plan : undefined,
         savedPath: readPlanSavePath(body.planSave),
         agentSwitch: typeof body.agentSwitch === "string" ? body.agentSwitch : undefined,
@@ -62,6 +64,7 @@ export async function reviewDenyApi(ctx) {
         approved: false,
         feedback: typeof body.feedback === "string" ? body.feedback : "",
         annotations: Array.isArray(body.annotations) ? body.annotations : [],
+        ...reviewImageDecisionFields(body),
         plan: typeof body.plan === "string" ? body.plan : undefined,
         savedPath: readPlanSavePath(body.planSave),
     }));
@@ -73,8 +76,49 @@ export async function reviewFeedbackApi(ctx) {
         approved: body.approved === true,
         feedback: typeof body.feedback === "string" ? body.feedback : "",
         annotations: Array.isArray(body.annotations) ? body.annotations : [],
+        ...reviewImageDecisionFields(body),
         agentSwitch: typeof body.agentSwitch === "string" ? body.agentSwitch : undefined,
     }));
+}
+
+/** @param {any} body */
+function reviewImageDecisionFields(body) {
+    const globalAttachments = readImageAttachments(body.globalAttachments);
+    const images = collectImageAttachments(body);
+    return {
+        ...(globalAttachments.length > 0 && { globalAttachments }),
+        ...(images.length > 0 && { images }),
+    };
+}
+
+/** @param {any} body */
+function collectImageAttachments(body) {
+    const candidates = [
+        ...readImageAttachments(body.globalAttachments),
+        ...(Array.isArray(body.annotations) ? body.annotations.flatMap(readAnnotationImageAttachments) : []),
+    ];
+    const seen = new Set();
+    return candidates.filter((image) => {
+        if (seen.has(image.path)) return false;
+        seen.add(image.path);
+        return true;
+    });
+}
+
+/** @param {any} annotation */
+function readAnnotationImageAttachments(annotation) {
+    return readImageAttachments(annotation?.images);
+}
+
+/** @param {any} value */
+function readImageAttachments(value) {
+    if (!Array.isArray(value)) return [];
+    return value.flatMap((image) => {
+        const path = typeof image?.path === "string" ? image.path.trim() : "";
+        if (!path) return [];
+        const name = typeof image?.name === "string" && image.name.trim() ? image.name.trim() : "image";
+        return [{ path, name }];
+    });
 }
 
 /** @param {any} ctx */

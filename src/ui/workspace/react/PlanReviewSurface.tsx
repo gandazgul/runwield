@@ -1,7 +1,7 @@
 // @ts-nocheck: Workspace React islands compile TSX, but this module uses JSDoc-style JavaScript only.
 
 import { useMemo, useRef, useState } from "react";
-import { ThemeProvider, useTheme } from "@plannotator/ui/components/ThemeProvider.tsx";
+import { ThemeProvider } from "@plannotator/ui/components/ThemeProvider.tsx";
 import { TooltipProvider } from "@plannotator/ui/components/Tooltip.tsx";
 import { Viewer } from "@plannotator/ui/components/Viewer.tsx";
 import { MarkdownEditor } from "@plannotator/ui/components/MarkdownEditor.tsx";
@@ -9,22 +9,18 @@ import { AnnotationPanel } from "@plannotator/ui/components/AnnotationPanel.tsx"
 import { AnnotationToolstrip } from "@plannotator/ui/components/AnnotationToolstrip.tsx";
 import { ApproveButton, FeedbackButton } from "@plannotator/ui/components/ToolbarButtons.tsx";
 import { CompletionOverlay } from "@plannotator/ui/components/CompletionOverlay.tsx";
-import { Settings } from "@plannotator/ui/components/Settings.tsx";
-import {
-    ActionMenu,
-    ActionMenuDivider,
-    ActionMenuItem,
-    ActionMenuSectionLabel,
-} from "@plannotator/ui/components/ActionMenu.tsx";
-import { MoonIcon, SunIcon, SystemIcon } from "@plannotator/ui/components/icons/themeIcons.tsx";
+import { ActionMenu, ActionMenuItem } from "@plannotator/ui/components/ActionMenu.tsx";
 import { OverlayScrollArea } from "@plannotator/ui/components/OverlayScrollArea.tsx";
 import { ResizeHandle } from "@plannotator/ui/components/ResizeHandle.tsx";
 import { SidebarContainer } from "@plannotator/ui/components/sidebar/SidebarContainer.tsx";
 import { SidebarTabs } from "@plannotator/ui/components/sidebar/SidebarTabs.tsx";
 import { ScrollViewportContext } from "@plannotator/ui/hooks/useScrollViewport.ts";
 import { usePrintMode } from "@plannotator/ui/hooks/usePrintMode.ts";
+import { useConfigValue } from "@plannotator/ui/config/index.ts";
 import { getPlanSaveSettings } from "@plannotator/ui/utils/planSave.ts";
 import { exportAnnotations, extractFrontmatter, parseMarkdownToBlocks } from "@plannotator/ui/utils/parser.ts";
+import { getUIPreferences, PLAN_WIDTH_OPTIONS } from "@plannotator/ui/utils/uiPreferences.ts";
+import { PlanReviewSettings } from "./PlanReviewSettings.tsx";
 import "./plannotator.css";
 
 const DEFAULT_PLAN_PAYLOAD = { plan: "", token: "", mode: "dev" };
@@ -37,10 +33,12 @@ export function PlanReviewSurface({ payload }) {
     const [plan, setPlan] = useState(initialPayload.plan || "");
     const [draftPlan, setDraftPlan] = useState(initialPayload.plan || "");
     const [editorMode, setEditorMode] = useState("view");
-    const [sidebarOpen, setSidebarOpen] = useState(true);
+    const [uiPreferences, setUiPreferences] = useState(() => getUIPreferences());
+    const [sidebarOpen, setSidebarOpen] = useState(() => getUIPreferences().tocEnabled);
     const [annotationsOpen, setAnnotationsOpen] = useState(true);
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [annotations, setAnnotations] = useState([]);
+    const [globalAttachments, setGlobalAttachments] = useState([]);
     const [selectedAnnotationId, setSelectedAnnotationId] = useState(null);
     const [activeSection, setActiveSection] = useState(null);
     const [annotationMode, setAnnotationMode] = useState("selection");
@@ -51,7 +49,12 @@ export function PlanReviewSurface({ payload }) {
     const [error, setError] = useState("");
     const editorHandleRef = useRef(null);
     const viewerHandleRef = useRef(null);
+    const gridEnabled = useConfigValue("gridEnabled");
     const editorDirty = draftPlan !== plan;
+    const planMaxWidth = useMemo(
+        () => PLAN_WIDTH_OPTIONS.find((option) => option.id === uiPreferences.planWidth)?.px || 832,
+        [uiPreferences.planWidth],
+    );
     const parsed = useMemo(() => {
         const frontmatterResult = extractFrontmatter(plan);
         return {
@@ -63,7 +66,11 @@ export function PlanReviewSurface({ payload }) {
     async function submitApprove() {
         setSubmitting("approve");
         try {
-            await submit("decision", { approved: true, ...buildPlanSavePayload() });
+            await submit("decision", {
+                approved: true,
+                ...buildReviewPayload(),
+                ...buildPlanSavePayload(),
+            });
             setSubmitted("approved");
         } catch {
             // submit() owns the visible error state.
@@ -76,8 +83,7 @@ export function PlanReviewSurface({ payload }) {
         setSubmitting("feedback");
         try {
             await submit("deny", {
-                feedback: exportAnnotations(parsed.blocks, annotations),
-                annotations,
+                ...buildReviewPayload(),
                 ...buildPlanSavePayload(),
             });
             setSubmitted("feedback");
@@ -120,8 +126,26 @@ export function PlanReviewSurface({ payload }) {
         setEditorMode("view");
     }
 
+    function applyUIPreferences(next) {
+        setUiPreferences((current) => {
+            if (current.tocEnabled !== next.tocEnabled) setSidebarOpen(next.tocEnabled);
+            return next;
+        });
+    }
+
     function currentPlan() {
         return editorMode === "edit" ? editorHandleRef.current?.getMarkdown?.() ?? draftPlan : plan;
+    }
+
+    function buildReviewPayload() {
+        const hasAnnotations = annotations.length > 0 || globalAttachments.length > 0;
+        return {
+            ...(hasAnnotations && {
+                feedback: exportAnnotations(parsed.blocks, annotations, globalAttachments),
+            }),
+            annotations,
+            globalAttachments,
+        };
     }
 
     function buildPlanSavePayload() {
@@ -136,8 +160,14 @@ export function PlanReviewSurface({ payload }) {
         };
     }
 
+    // Plannotator supplies behavior; the Workspace bridge owns the active palette.
     return (
-        <ThemeProvider defaultTheme="dark" defaultColorTheme="plannotator">
+        <ThemeProvider
+            defaultTheme="dark"
+            defaultColorTheme="runwield"
+            storageKey="runwield-review-theme-mode"
+            colorThemeStorageKey="runwield-review-color-theme"
+        >
             <TooltipProvider>
                 <div className="rw-plannotator-host rw-plan-review" data-review-mode={initialPayload.mode}>
                     <header className="rw-plannotator-toolbar">
@@ -157,9 +187,10 @@ export function PlanReviewSurface({ payload }) {
                             />
                             <FeedbackButton
                                 onClick={submitFeedback}
-                                disabled={annotations.length === 0 || submitting !== null}
+                                disabled={(annotations.length === 0 && globalAttachments.length === 0) ||
+                                    submitting !== null}
                                 isLoading={submitting === "feedback"}
-                                title={annotations.length === 0
+                                title={annotations.length === 0 && globalAttachments.length === 0
                                     ? "Add an annotation before sending feedback"
                                     : "Send all annotations"}
                             />
@@ -279,14 +310,22 @@ export function PlanReviewSurface({ payload }) {
                                                         markdown={plan}
                                                         frontmatter={parsed.frontmatter}
                                                         annotations={annotations}
+                                                        globalAttachments={globalAttachments}
+                                                        onAddGlobalAttachment={(image) =>
+                                                            setGlobalAttachments((items) => [...items, image])}
+                                                        onRemoveGlobalAttachment={(path) =>
+                                                            setGlobalAttachments((items) =>
+                                                                items.filter((item) => item.path !== path)
+                                                            )}
                                                         onAddAnnotation={addAnnotation}
                                                         onSelectAnnotation={setSelectedAnnotationId}
                                                         selectedAnnotationId={selectedAnnotationId}
                                                         mode={annotationMode}
                                                         inputMethod={inputMethod}
                                                         taterMode={false}
-                                                        stickyActions
-                                                        gridEnabled
+                                                        stickyActions={uiPreferences.stickyActionsEnabled}
+                                                        gridEnabled={gridEnabled}
+                                                        maxWidth={planMaxWidth}
                                                         imageBaseDir={initialPayload.imageBaseDir}
                                                         onToggleCheckbox={toggleCheckbox}
                                                     />
@@ -300,6 +339,8 @@ export function PlanReviewSurface({ payload }) {
                                                     documentId={initialPayload.token || "dev-plan"}
                                                     editorHandleRef={editorHandleRef}
                                                     onMarkdownChange={setDraftPlan}
+                                                    maxWidth={planMaxWidth}
+                                                    gridEnabled={gridEnabled}
                                                 />
                                             </div>
                                         )}
@@ -331,16 +372,11 @@ export function PlanReviewSurface({ payload }) {
                             )}
                         </div>
                     </ScrollViewportContext.Provider>
-                    <div className="rw-settings-controller">
-                        <Settings
-                            taterMode={false}
-                            onTaterModeChange={() => {}}
-                            origin="runwield"
-                            mode="plan"
-                            externalOpen={settingsOpen}
-                            onExternalClose={() => setSettingsOpen(false)}
-                        />
-                    </div>
+                    <PlanReviewSettings
+                        open={settingsOpen}
+                        onClose={() => setSettingsOpen(false)}
+                        onUIPreferencesChange={applyUIPreferences}
+                    />
                     <CompletionOverlay
                         submitted={submitted}
                         title="Review decision sent"
@@ -375,7 +411,6 @@ export function PlanReviewSurface({ payload }) {
 }
 
 function PlanReviewOptionsMenu({ onOpenSettings, onPrint }) {
-    const { theme, setTheme } = useTheme();
     return (
         <ActionMenu
             renderTrigger={({ isOpen, toggleMenu }) => (
@@ -398,30 +433,6 @@ function PlanReviewOptionsMenu({ onOpenSettings, onPrint }) {
         >
             {({ closeMenu }) => (
                 <>
-                    <div className="px-3 py-2 space-y-1.5">
-                        <ActionMenuSectionLabel>Theme</ActionMenuSectionLabel>
-                        <div className="flex items-center gap-1 rounded-lg bg-muted/50 p-0.5">
-                            {["light", "dark", "system"].map((mode) => (
-                                <button
-                                    key={mode}
-                                    type="button"
-                                    onClick={() => {
-                                        closeMenu();
-                                        setTheme(mode);
-                                    }}
-                                    className={`flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
-                                        theme === mode
-                                            ? "bg-background text-foreground shadow-sm"
-                                            : "text-muted-foreground hover:text-foreground"
-                                    }`}
-                                >
-                                    {mode === "light" ? <SunIcon /> : mode === "dark" ? <MoonIcon /> : <SystemIcon />}
-                                    <span className="capitalize">{mode}</span>
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-                    <ActionMenuDivider />
                     <ActionMenuItem
                         onClick={() => {
                             closeMenu();

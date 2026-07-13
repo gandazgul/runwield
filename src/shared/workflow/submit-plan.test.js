@@ -29,7 +29,7 @@ function makeUi() {
 }
 
 /**
- * @param {{ approved?: boolean, feedback?: string, plan?: string, savedPath?: string, openResult?: boolean, pending?: boolean }} opts
+ * @param {{ approved?: boolean, feedback?: string, plan?: string, savedPath?: string, images?: Array<{path: string, name: string}>, openResult?: boolean, pending?: boolean }} opts
  * @returns {{ deps: any, events: any[], stops: () => number, openedUrls: string[] }}
  */
 function makeDeps(opts = {}) {
@@ -44,6 +44,7 @@ function makeDeps(opts = {}) {
                 feedback: opts.feedback,
                 ...(opts.plan && { plan: opts.plan }),
                 ...(opts.savedPath && { savedPath: opts.savedPath }),
+                ...(opts.images && { images: opts.images }),
             }),
         stop: () => {
             stopCount++;
@@ -99,6 +100,8 @@ Deno.test("submitPlanForReview delegates review launching through the review sur
                 openInDefaultBrowser: /** @type {any} */ (() => Promise.reject(new Error("should not open directly"))),
                 startPlanReviewSurface: (options) => {
                     launcherOptions.push(options);
+                    options.onOutput?.({ stream: "stdout", text: "server ready\n" });
+                    options.onOutput?.({ stream: "stderr", text: "server warning\n" });
                     return Promise.resolve({
                         url: "http://127.0.0.1:9999/review",
                         opened: false,
@@ -123,6 +126,19 @@ Deno.test("submitPlanForReview delegates review launching through the review sur
         assertEquals(launcherOptions[0].htmlContent, "<html>review</html>");
         assertEquals(typeof launcherOptions[0].startPlanReviewServer, "function");
         assertEquals(typeof launcherOptions[0].openInDefaultBrowser, "function");
+        assertEquals(typeof launcherOptions[0].onOutput, "function");
+        assertEquals(
+            uiAPI.messages.some((/** @type {string} */ message) =>
+                message === "[RunWield] Review server stdout:\nserver ready"
+            ),
+            true,
+        );
+        assertEquals(
+            uiAPI.messages.some((/** @type {string} */ message) =>
+                message === "[RunWield] Review server stderr:\nserver warning"
+            ),
+            true,
+        );
         assertEquals(
             uiAPI.messages.some((/** @type {string} */ message) => message.includes("Could not auto-open browser")),
             true,
@@ -220,6 +236,80 @@ Deno.test("submitPlanForReview records feedback and reports manual browser fallb
             uiAPI.messages.some((/** @type {string} */ message) => message.includes("Plan returned with feedback")),
             true,
         );
+        assertEquals(harness.stops(), 1);
+    } finally {
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
+Deno.test("submitPlanForReview reads annotated feedback images before stopping the review server", async () => {
+    const { dir, planPath } = await makePlanFile();
+    const imagePath = join(dir, "annotated.png");
+    const imageBytes = new TextEncoder().encode("annotated image bytes");
+    await Deno.writeFile(imagePath, imageBytes);
+    const uiAPI = makeUi();
+    const harness = makeDeps({
+        approved: false,
+        feedback: "See the marked region.",
+        images: [{ path: imagePath, name: "marked-region" }],
+    });
+
+    try {
+        const result = await submitPlanForReview({
+            cwd: dir,
+            planName: "plan",
+            planPath,
+            uiAPI,
+            hostedSession: makeHostedSession("review-feedback-image"),
+            __deps: harness.deps,
+        });
+
+        assertEquals(result, {
+            approved: false,
+            feedback: "See the marked region.",
+            images: [{
+                base64: btoa("annotated image bytes"),
+                mimeType: "image/png",
+                name: "marked-region",
+            }],
+        });
+        assertEquals(harness.stops(), 1);
+    } finally {
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
+Deno.test("submitPlanForReview also reads annotations and images submitted with approval", async () => {
+    const { dir, planPath } = await makePlanFile();
+    const imagePath = join(dir, "approved-annotation.png");
+    await Deno.writeFile(imagePath, new TextEncoder().encode("approved annotation image"));
+    const uiAPI = makeUi();
+    const harness = makeDeps({
+        approved: true,
+        feedback: "Keep the selected command.",
+        images: [{ path: imagePath, name: "approved-command" }],
+    });
+
+    try {
+        const result = await submitPlanForReview({
+            cwd: dir,
+            planName: "plan",
+            planPath,
+            uiAPI,
+            hostedSession: makeHostedSession("review-approval-image"),
+            __deps: harness.deps,
+        });
+
+        assertEquals(result, {
+            approved: true,
+            feedback: "Keep the selected command.",
+            images: [{
+                base64: btoa("approved annotation image"),
+                mimeType: "image/png",
+                name: "approved-command",
+            }],
+        });
+        assertEquals(harness.events[0].event, "review_approved");
         assertEquals(harness.stops(), 1);
     } finally {
         await Deno.remove(dir, { recursive: true });

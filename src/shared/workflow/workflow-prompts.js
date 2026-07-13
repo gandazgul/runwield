@@ -20,12 +20,12 @@ import { extractTasks, parseTaskDependencies, validateProjectTasks } from "./tas
 /**
  * Build the user-request text handed to the interactive Epic Slicer.
  *
- * @param {{ planName?: string, epicMarkdown?: string, epicBody?: string, epicAttrs?: Partial<import('../../plan-store.js').PlanFrontMatter>, triageMeta?: import('../../tools/plan-written.js').TriageMeta, children?: SlicerChildSummary[] } | string} input
+ * @param {{ planName?: string, epicMarkdown?: string, epicBody?: string, epicAttrs?: Partial<import('../../plan-store.js').PlanFrontMatter>, triageMeta?: import('../../tools/plan-written.js').TriageMeta, children?: SlicerChildSummary[], reviewFeedback?: string } | string} input
  * @param {import('../../tools/plan-written.js').TriageMeta | undefined} [legacyTriageMeta]
  * @returns {string}
  */
 export function buildSlicerRequest(input, legacyTriageMeta) {
-    const request = /** @type {{ planName?: string, epicMarkdown?: string, epicBody?: string, epicAttrs?: Partial<import('../../plan-store.js').PlanFrontMatter>, triageMeta?: import('../../tools/plan-written.js').TriageMeta, children?: SlicerChildSummary[] }} */
+    const request = /** @type {{ planName?: string, epicMarkdown?: string, epicBody?: string, epicAttrs?: Partial<import('../../plan-store.js').PlanFrontMatter>, triageMeta?: import('../../tools/plan-written.js').TriageMeta, children?: SlicerChildSummary[], reviewFeedback?: string }} */
         (typeof input === "string" ? { planName: input, triageMeta: legacyTriageMeta } : input);
     const planName = request.planName || "unknown";
     const attrs = request.epicAttrs || {};
@@ -69,6 +69,16 @@ export function buildSlicerRequest(input, legacyTriageMeta) {
             lines.push(`- Affected paths: ${triageMeta.affectedPaths.join(", ")}`);
         }
         lines.push("");
+    }
+
+    if (request.reviewFeedback) {
+        lines.push(
+            "## Annotations Submitted With Approval",
+            "These notes are implementation context carried forward from Plan Review; the Plan remains approved.",
+            "",
+            request.reviewFeedback,
+            "",
+        );
     }
 
     lines.push("## Existing Child FEATURE Plans");
@@ -258,14 +268,25 @@ export function buildTaskAssignmentRequest(planName, planBody, task, results) {
 /**
  * @param {string} planName
  * @param {string} planBody
+ * @param {string} [reviewFeedback]
  * @returns {string}
  */
-export function buildEngineerRequest(planName, planBody) {
-    return [
+export function buildEngineerRequest(planName, planBody, reviewFeedback) {
+    const lines = [
         `## Approved Plan: ${planName}`,
         "",
         "Execute the following plan step by step. This is a FEATURE request. Complete all Implementation Steps and the Verification Plan, then call task_completed with a concise success or failure summary.",
         "",
         planBody,
-    ].join("\n");
+    ];
+    if (reviewFeedback) {
+        lines.push(
+            "",
+            "## Annotations Submitted With Approval",
+            "These notes are implementation context carried forward from Plan Review; the Plan remains approved.",
+            "",
+            reviewFeedback,
+        );
+    }
+    return lines.join("\n");
 }

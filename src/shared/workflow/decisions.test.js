@@ -63,6 +63,30 @@ Deno.test("decidePostPlanning maps approved_decompose to a Slicer phase transiti
     );
 });
 
+Deno.test("decidePostPlanning carries approval annotations and images into the next phase", () => {
+    const reviewImages = [{ base64: "YXBwcm92ZWQ=", mimeType: "image/png" }];
+    assertEquals(
+        decidePostPlanning(
+            {
+                outcome: "approved_execute",
+                planName: "plan-with-notes",
+                feedback: "Keep the selected command.",
+                images: reviewImages,
+            },
+            { planningAgentName: "planner", fallbackTriageMeta },
+        ),
+        {
+            kind: "execute_plan",
+            payload: {
+                planName: "plan-with-notes",
+                triageMeta: fallbackTriageMeta,
+                reviewFeedback: "Keep the selected command.",
+                reviewImages,
+            },
+        },
+    );
+});
+
 Deno.test("decidePostPlanning maps saved to save_plan", () => {
     assertEquals(
         decidePostPlanning(
