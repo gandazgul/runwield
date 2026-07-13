@@ -40,7 +40,7 @@
     "npm:@earendil-works/pi-ai@~0.80.5": "0.80.5_zod@3.25.76",
     "npm:@earendil-works/pi-coding-agent@~0.80.5": "0.80.5_zod@3.25.76",
     "npm:@earendil-works/pi-tui@~0.80.5": "0.80.5",
-    "npm:@gandazgul/plannotator-pi-extension-compiled@0.23": "0.23.0_@earendil-works+pi-agent-core@0.80.5__zod@3.25.76_@earendil-works+pi-ai@0.80.5__zod@3.25.76_@earendil-works+pi-coding-agent@0.80.5__zod@3.25.76_@earendil-works+pi-tui@0.80.5",
+    "npm:@gandazgul/plannotator-pi-extension-compiled@~0.23.1": "0.23.1_@earendil-works+pi-agent-core@0.80.5__zod@3.25.76_@earendil-works+pi-ai@0.80.5__zod@3.25.76_@earendil-works+pi-coding-agent@0.80.5__zod@3.25.76_@earendil-works+pi-tui@0.80.5",
     "npm:@lezer/common@^1.5.2": "1.5.2",
     "npm:@lezer/highlight@^1.2.3": "1.2.3",
     "npm:@pierre/diffs@1.2.8": "1.2.8_react@19.2.7_react-dom@19.2.7__react@19.2.7",
@@ -1400,8 +1400,8 @@
     "@floating-ui/utils@0.2.11": {
       "integrity": "sha512-RiB/yIh78pcIxl6lLMG0CgBXAZ2Y0eVHqMPYugu+9U0AeT6YBeiJpf7lbdJNIugFP5SIjwNRgo4DhR1Qxi26Gg=="
     },
-    "@gandazgul/plannotator-pi-extension-compiled@0.23.0_@earendil-works+pi-agent-core@0.80.5__zod@3.25.76_@earendil-works+pi-ai@0.80.5__zod@3.25.76_@earendil-works+pi-coding-agent@0.80.5__zod@3.25.76_@earendil-works+pi-tui@0.80.5": {
-      "integrity": "sha512-CpAYQ2AMFDKfB+YGOe3eaut74/TgnrPpDJ7a32KLa2SZXC/UdEezbvnwjvG6tQhCAK9oaNQsQg3XXKBwaIe/mw==",
+    "@gandazgul/plannotator-pi-extension-compiled@0.23.1_@earendil-works+pi-agent-core@0.80.5__zod@3.25.76_@earendil-works+pi-ai@0.80.5__zod@3.25.76_@earendil-works+pi-coding-agent@0.80.5__zod@3.25.76_@earendil-works+pi-tui@0.80.5": {
+      "integrity": "sha512-e4u9rbnRYdyXK6kx4w2Q+Sl/Md99NUXaI1hyIEr500cVuRJOoPpG3p58OFHDTxpyXQz/Spk9mcl9TmfuEHdEkw==",
       "dependencies": [
         "@earendil-works/pi-agent-core",
         "@earendil-works/pi-ai",
@@ -6881,7 +6881,7 @@
       "npm:@earendil-works/pi-ai@~0.80.5",
       "npm:@earendil-works/pi-coding-agent@~0.80.5",
       "npm:@earendil-works/pi-tui@~0.80.5",
-      "npm:@gandazgul/plannotator-pi-extension-compiled@0.23",
+      "npm:@gandazgul/plannotator-pi-extension-compiled@~0.23.1",
       "npm:@lezer/common@^1.5.2",
       "npm:@lezer/highlight@^1.2.3",
       "npm:@pierre/diffs@1.2.8",
