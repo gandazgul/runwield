@@ -82,7 +82,7 @@ _Avoid_: Cross-section, code path
 **Plan**: A markdown file in `plans/` with YAML Front Matter that describes the implementation strategy for a User
 Request. _Avoid_: Blueprint, spec, design doc
 
-**Work Record**: A small repo-local markdown retrospective planning-memory artifact that distills what verified planned
+**Work Record**: A small repo-local markdown retrospective planning-memory artifact that distills what completed planned
 work actually produced and what future planning should remember. _Avoid_: Review log, chat transcript, implementation
 diary, duplicate Plan
 
@@ -398,8 +398,8 @@ command definition, prompt command
 - An **Approved Plan** passes through the **Readiness Gate** before becoming **Ready For Work**.
 - A **Plan** can proceed to direct implementation only when its **Plan Status** is **Ready For Work** and it is not an
   **Epic** container.
-- A **Verified Plan** may produce one **Work Record**.
-- A **Recorder** generates **Work Records** from verified planned work.
+- A **Verified Plan** or **Closed Without Verification Plan** may produce one **Work Record**.
+- A **Recorder** generates **Work Records** from completed planned work.
 - A **Work Record** has **Work Record Provenance**.
 - A user-requested QUICK_FIX **Work Record** is an **External Work Record** whose **Work Record Provenance** points to
   code evidence rather than a source Plan.
