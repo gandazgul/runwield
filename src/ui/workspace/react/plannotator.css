@@ -241,10 +241,6 @@
     padding: 1rem 0;
 }
 
-.rw-settings-controller {
-    display: none;
-}
-
 .review-toolbar {
     z-index: 1000;
     border: 1px solid var(--border, var(--rw-border, #334155));

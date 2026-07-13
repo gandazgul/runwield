@@ -257,19 +257,37 @@ prompt_install_snip_filters() {
 INSTALL_DIR="$(resolve_install_dir)"
 VERSION="$(resolve_version)"
 SUFFIX="$(resolve_asset_suffix)"
-ASSET="wld-${VERSION}-${SUFFIX}.tar.gz"
 BASE_URL="https://github.com/${REPO}/releases/download/${VERSION}"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
-echo "[wld installer] Installing ${ASSET} from ${REPO} ..."
+ASSET_BASE="wld-${VERSION}-${SUFFIX}"
+ASSET="${ASSET_BASE}.tar.gz"
+ARCHIVE_FORMAT="gzip"
+if command -v zstd >/dev/null 2>&1; then
+  ASSET="${ASSET_BASE}.tar.zst"
+  ARCHIVE_FORMAT="zstd"
+fi
 
-curl -fL "${BASE_URL}/${ASSET}" -o "${TMP_DIR}/${ASSET}"
+echo "[wld installer] Installing ${ASSET} from ${REPO} ..."
+if ! curl -fL "${BASE_URL}/${ASSET}" -o "${TMP_DIR}/${ASSET}"; then
+  if [[ "$ARCHIVE_FORMAT" != "zstd" ]]; then
+    exit 1
+  fi
+  echo "[wld installer] Zstandard archive unavailable; falling back to gzip."
+  ASSET="${ASSET_BASE}.tar.gz"
+  ARCHIVE_FORMAT="gzip"
+  curl -fL "${BASE_URL}/${ASSET}" -o "${TMP_DIR}/${ASSET}"
+fi
 curl -fL "${BASE_URL}/SHA256SUMS" -o "${TMP_DIR}/SHA256SUMS"
 
 sha_verify "${TMP_DIR}/SHA256SUMS" "$ASSET"
 
-tar -xzf "${TMP_DIR}/${ASSET}" -C "$TMP_DIR"
+if [[ "$ARCHIVE_FORMAT" == "zstd" ]]; then
+  zstd -dc "${TMP_DIR}/${ASSET}" | tar -xf - -C "$TMP_DIR"
+else
+  tar -xzf "${TMP_DIR}/${ASSET}" -C "$TMP_DIR"
+fi
 
 if [[ ! -x "${TMP_DIR}/wld" ]]; then
   echo "[wld installer] Extracted archive does not contain executable 'wld'." >&2

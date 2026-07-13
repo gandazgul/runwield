@@ -39,34 +39,26 @@ jobs:
             - name: Setup Deno
               uses: denoland/setup-deno@v2
               with:
-                  deno-version: v2.x
-
-            - name: Generate version file
-              run: deno run --allow-run --allow-read --allow-write --allow-env=GITHUB_REF_TYPE,GITHUB_REF_NAME,GITHUB_REF scripts/write-version.js
+                  deno-version: v2.9.2
 
             - name: Cache dependencies
-              run: deno cache src/cli.js
+              run: deno cache scripts/compile.js src/cli.js
 
             - name: Compile binary
-              run: |
-                  deno compile \
-                    -A \
-                    --target "${{ matrix.target }}" \
-                    --include src/agent-definitions \
-                    --include src/prompt-templates \
-                    --include src/shared/session/SYSTEM_PROMPT_TEMPLATE.md \
-                    --include src/skills \
-                    --include src/agent-definitions/workflow-prompts/init-agent-prompt.md \
-                    --include src/ui/theme/catppuccin-mocha.json \
-                    --output "${{ matrix.binary_name }}" \
-                    src/cli.js
+              run: deno run -A scripts/compile.js --target "${{ matrix.target }}" --output "${{ matrix.binary_name }}"
+
+            - name: Smoke test native binary
+              if: matrix.target == 'x86_64-unknown-linux-gnu'
+              run: ./wld --version
 
             - name: Package artifact
               run: |
                   VERSION="${GITHUB_REF_NAME}"
-                  ASSET="wld-${VERSION}-${{ matrix.asset_suffix }}.tar.gz"
-                  tar -czf "$ASSET" "${{ matrix.binary_name }}"
-                  sha256sum "$ASSET" > "$ASSET.sha256"
+                  ASSET_BASE="wld-${VERSION}-${{ matrix.asset_suffix }}"
+                  tar -czf "${ASSET_BASE}.tar.gz" "${{ matrix.binary_name }}"
+                  tar -cf - "${{ matrix.binary_name }}" | zstd -10 -T0 -o "${ASSET_BASE}.tar.zst"
+                  sha256sum "${ASSET_BASE}.tar.gz" > "${ASSET_BASE}.tar.gz.sha256"
+                  sha256sum "${ASSET_BASE}.tar.zst" > "${ASSET_BASE}.tar.zst.sha256"
 
             - name: Upload build artifact
               uses: actions/upload-artifact@v4
@@ -74,6 +66,7 @@ jobs:
                   name: wld-${{ matrix.asset_suffix }}
                   path: |
                       *.tar.gz
+                      *.tar.zst
                       *.sha256
 
     release:
@@ -100,5 +93,6 @@ jobs:
               with:
                   files: |
                       release-artifacts/**/*.tar.gz
+                      release-artifacts/**/*.tar.zst
                       release-artifacts/SHA256SUMS
                       config.schema.json

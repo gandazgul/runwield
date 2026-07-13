@@ -65,6 +65,37 @@ Deno.test("review surface stop unregisters the server from process-exit cleanup"
     assertEquals(stops, 1);
 });
 
+Deno.test("plan review surface forwards server output to its caller", async () => {
+    /** @type {Array<{ stream: "stdout" | "stderr", text: string }>} */
+    const output = [];
+    const server = await startPlanReviewSurface({
+        cwd: Deno.cwd(),
+        plan: "# Plan",
+        htmlContent: "<html>plan</html>",
+        startPlanReviewServer: /** @type {any} */ (
+            /** @param {any} options */
+            (options) => {
+                options.onOutput({ stream: "stdout", text: "started\n" });
+                options.onOutput({ stream: "stderr", text: "warning\n" });
+                return Promise.resolve({
+                    url: "http://127.0.0.1:4444/plan-review",
+                    waitForDecision: () => Promise.resolve({ approved: true }),
+                    stop: () => {},
+                });
+            }
+        ),
+        openInDefaultBrowser: () => Promise.resolve(true),
+        onOutput: (entry) => output.push(entry),
+    });
+
+    await server.stop();
+
+    assertEquals(output, [
+        { stream: "stdout", text: "started\n" },
+        { stream: "stderr", text: "warning\n" },
+    ]);
+});
+
 Deno.test("stopActiveReviewSurfaces stops Workspace-hosted plan and code review servers", async () => {
     const planServer = await startPlanReviewSurface({
         cwd: Deno.cwd(),

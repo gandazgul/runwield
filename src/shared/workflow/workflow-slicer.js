@@ -282,6 +282,8 @@ function createSlicerCustomTools(planName, cwd, deps) {
  * @param {Object} opts
  * @param {string} opts.planName
  * @param {import('../../tools/plan-written.js').TriageMeta} [opts.triageMeta]
+ * @param {string} [opts.reviewFeedback]
+ * @param {Array<{base64: string, mimeType: string}>} [opts.reviewImages]
  * @param {import('../types.js').SessionUiPort} opts.uiAPI
  * @param {import('../session/hosted-session.js').HostedSession} opts.hostedSession
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager]
@@ -296,7 +298,16 @@ function createSlicerCustomTools(planName, cwd, deps) {
  * }} [opts.__deps] - Test-only injection point.
  * @returns {Promise<{ ok: boolean, error?: string }>}
  */
-export async function runSlicerAgent({ planName, triageMeta, uiAPI, hostedSession, sessionManager, __deps }) {
+export async function runSlicerAgent({
+    planName,
+    triageMeta,
+    reviewFeedback,
+    reviewImages,
+    uiAPI,
+    hostedSession,
+    sessionManager,
+    __deps,
+}) {
     if (!uiAPI) throw new Error("runSlicerAgent: uiAPI is required");
     if (!hostedSession) throw new Error("runSlicerAgent: hostedSession is required");
     const projectRoot = hostedSession.cwd;
@@ -337,7 +348,9 @@ export async function runSlicerAgent({ planName, triageMeta, uiAPI, hostedSessio
                 epicAttrs: epic.attrs,
                 triageMeta,
                 children,
+                reviewFeedback,
             }),
+            images: reviewImages,
             triageMeta,
             uiAPI,
             sessionManager: boundary?.manager || sessionManager,

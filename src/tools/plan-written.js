@@ -63,16 +63,42 @@ function buildFeedbackRequestText({ round, planName, feedback }) {
  * @param {string} text
  * @param {unknown} [details]
  * @param {boolean} [terminate]
+ * @param {Array<{base64: string, mimeType: string}>} [images]
  * @returns {import('@earendil-works/pi-coding-agent').AgentToolResult<unknown>}
  */
-function textResult(text, details, terminate) {
+function textResult(text, details, terminate, images = []) {
     /** @type {import('@earendil-works/pi-coding-agent').AgentToolResult<unknown>} */
     const result = {
-        content: [{ type: "text", text }],
+        content: [
+            { type: "text", text },
+            ...images.map(toToolImageContent),
+        ],
         details: details ?? null,
     };
     if (terminate) result.terminate = true;
     return result;
+}
+
+/**
+ * @param {{base64: string, mimeType: string}} image
+ * @returns {{type: "image", data: string, mimeType: string}}
+ */
+function toToolImageContent(image) {
+    return { type: "image", data: image.base64, mimeType: image.mimeType };
+}
+
+/**
+ * Preserve review context in both the tool result details used by workflow
+ * dispatch and the content blocks delivered to the planning agent.
+ *
+ * @param {{feedback?: string, images?: Array<{base64: string, mimeType: string}>}} reviewResult
+ * @returns {{feedback?: string, imageCount: number}}
+ */
+function reviewContextDetails(reviewResult) {
+    return {
+        ...(reviewResult.feedback && { feedback: reviewResult.feedback }),
+        imageCount: reviewResult.images?.length || 0,
+    };
 }
 
 /**
@@ -99,7 +125,7 @@ async function resolveTriageMeta(triageMeta, planName, cwd) {
 
 /**
  * @typedef {Object} PlanWrittenDeps
- * @property {(opts: { cwd: string, planName: string, planPath: string, triageMeta: TriageMeta, uiAPI: any }) => Promise<{ canceled?: boolean, approved?: boolean, feedback?: string }>} [submitPlanForReview]
+ * @property {(opts: { cwd: string, planName: string, planPath: string, triageMeta: TriageMeta, uiAPI: any }) => Promise<{ canceled?: boolean, approved?: boolean, feedback?: string, images?: Array<{base64: string, mimeType: string, name?: string}> }>} [submitPlanForReview]
  * @property {(planName: string, uiAPI: any) => Promise<"proceed" | "save">} [askPostApproval]
  * @property {(planName: string, uiAPI: any) => Promise<"proceed" | "save">} [askProjectDecompositionApproval]
  * @property {typeof recordPlanEvent} [recordPlanEvent]
@@ -268,7 +294,13 @@ export function createPlanWrittenTool(
                         planName,
                         feedback: reviewResult.feedback,
                     }),
-                    { ...params, outcome: "feedback", feedback: reviewResult.feedback },
+                    {
+                        ...params,
+                        outcome: "feedback",
+                        ...reviewContextDetails(reviewResult),
+                    },
+                    false,
+                    reviewResult.images,
                 );
             }
 
@@ -313,8 +345,15 @@ export function createPlanWrittenTool(
                         : "";
                     return textResult(
                         `Plan "${planName}" approved and saved for later decomposition. Your role as ${agentName} is complete. Do not generate any further text.${savedFeedbackSuffix}`,
-                        { ...params, outcome: "saved", planName, triageMeta: projectMeta },
+                        {
+                            ...params,
+                            outcome: "saved",
+                            planName,
+                            triageMeta: projectMeta,
+                            ...reviewContextDetails(reviewResult),
+                        },
                         true,
+                        reviewResult.images,
                     );
                 }
 
@@ -334,8 +373,15 @@ export function createPlanWrittenTool(
                     : "";
                 return textResult(
                     `PROJECT Epic "${planName}" approved for Slicer decomposition. Your role as ${agentName} is complete. Do not generate any further text.${slicerFeedbackSuffix}`,
-                    { ...params, outcome: "approved_decompose", planName, triageMeta: projectMeta },
+                    {
+                        ...params,
+                        outcome: "approved_decompose",
+                        planName,
+                        triageMeta: projectMeta,
+                        ...reviewContextDetails(reviewResult),
+                    },
                     true,
+                    reviewResult.images,
                 );
             } else {
                 await recordPlanEventFn({
@@ -378,8 +424,9 @@ export function createPlanWrittenTool(
                     : "";
                 return textResult(
                     `Plan "${planName}" approved and saved for later execution. Your role as ${agentName} is complete. Do not generate any further text.${savedFeedbackSuffix}`,
-                    { ...params, outcome: "saved", planName },
+                    { ...params, outcome: "saved", planName, ...reviewContextDetails(reviewResult) },
                     true,
+                    reviewResult.images,
                 );
             }
 
@@ -395,8 +442,15 @@ export function createPlanWrittenTool(
                 : "";
             return textResult(
                 `Plan "${planName}" approved for execution. Your role as ${agentName} is complete. Do not generate any further text.${execFeedbackSuffix}`,
-                { ...params, outcome: "approved_execute", planName, triageMeta: effectiveMeta },
+                {
+                    ...params,
+                    outcome: "approved_execute",
+                    planName,
+                    triageMeta: effectiveMeta,
+                    ...reviewContextDetails(reviewResult),
+                },
                 true,
+                reviewResult.images,
             );
         },
     });

@@ -130,12 +130,13 @@ Deno.test("createUiApi folds plan_written system messages into the active tool b
     const tool = ui.startToolExecution("plan-tool", "plan_written", "plans/example.md");
     ui.appendSystemMessage("[RunWield] Plan declared: plans/example.md");
     ui.appendSystemMessage("[RunWield] Opening plan review UI for: example");
+    ui.appendSystemMessage("[RunWield] Review server stderr:\nserver warning");
     ui.appendSystemMessage("[RunWield] Waiting for user decision...\n");
 
     assertEquals(messageList.children.length, 2);
     assertEquals(
         tool.bodyText,
-        "[RunWield] Plan declared: plans/example.md\n[RunWield] Opening plan review UI for: example\n[RunWield] Waiting for user decision...\n",
+        "[RunWield] Plan declared: plans/example.md\n[RunWield] Opening plan review UI for: example\n[RunWield] Review server stderr:\nserver warning\n[RunWield] Waiting for user decision...\n",
     );
 
     tool.endExecution(false, 1);

@@ -1,4 +1,5 @@
 ---
+planId: "48114b86-bd6d-430c-a7ce-48e86af1eb19"
 classification: "FEATURE"
 complexity: "HIGH"
 summary: "Remove scheduled root swaps and replace them with an awaited SessionRuntime switch operation plus typed Agent Handler handoff results shared by sibling TUI and ACP adapters."

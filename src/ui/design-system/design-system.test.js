@@ -50,4 +50,7 @@ Deno.test("renderRunWieldThemeCss renders browser theme variables", () => {
     assertStringIncludes(css, "--rw-surface: #111213;");
     assertStringIncludes(css, "--rw-accent-text: #abcdef;");
     assertStringIncludes(css, "--rw-complexity-high: #fedcba;");
+    assertStringIncludes(css, ".theme-runwield {");
+    assertStringIncludes(css, "--card: var(--rw-surface);");
+    assertStringIncludes(css, "--muted-foreground: var(--rw-text-muted);");
 });

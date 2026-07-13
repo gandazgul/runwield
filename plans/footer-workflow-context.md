@@ -1,4 +1,5 @@
 ---
+planId: "83614ade-f5a7-402b-8b22-5872dc422d33"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Show persisted Triage Routing Intent, Complexity, and declared Plan name beside the active Agent in the TUI footer, with theme-driven workflow colors and role-aware visibility."

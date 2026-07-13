@@ -40,7 +40,6 @@
     "npm:@earendil-works/pi-ai@~0.80.5": "0.80.5_zod@3.25.76",
     "npm:@earendil-works/pi-coding-agent@~0.80.5": "0.80.5_zod@3.25.76",
     "npm:@earendil-works/pi-tui@~0.80.5": "0.80.5",
-    "npm:@gandazgul/plannotator-pi-extension-compiled@~0.23.1": "0.23.1_@earendil-works+pi-agent-core@0.80.5__zod@3.25.76_@earendil-works+pi-ai@0.80.5__zod@3.25.76_@earendil-works+pi-coding-agent@0.80.5__zod@3.25.76_@earendil-works+pi-tui@0.80.5",
     "npm:@lezer/common@^1.5.2": "1.5.2",
     "npm:@lezer/highlight@^1.2.3": "1.2.3",
     "npm:@pierre/diffs@1.2.8": "1.2.8_react@19.2.7_react-dom@19.2.7__react@19.2.7",
@@ -1401,17 +1400,6 @@
     "@floating-ui/utils@0.2.11": {
       "integrity": "sha512-RiB/yIh78pcIxl6lLMG0CgBXAZ2Y0eVHqMPYugu+9U0AeT6YBeiJpf7lbdJNIugFP5SIjwNRgo4DhR1Qxi26Gg=="
     },
-    "@gandazgul/plannotator-pi-extension-compiled@0.23.1_@earendil-works+pi-agent-core@0.80.5__zod@3.25.76_@earendil-works+pi-ai@0.80.5__zod@3.25.76_@earendil-works+pi-coding-agent@0.80.5__zod@3.25.76_@earendil-works+pi-tui@0.80.5": {
-      "integrity": "sha512-e4u9rbnRYdyXK6kx4w2Q+Sl/Md99NUXaI1hyIEr500cVuRJOoPpG3p58OFHDTxpyXQz/Spk9mcl9TmfuEHdEkw==",
-      "dependencies": [
-        "@earendil-works/pi-agent-core",
-        "@earendil-works/pi-ai",
-        "@earendil-works/pi-coding-agent",
-        "@earendil-works/pi-tui",
-        "@joplin/turndown-plugin-gfm",
-        "turndown"
-      ]
-    },
     "@google/genai@1.52.0": {
       "integrity": "sha512-gwSvbpiN/17O9TbsqSsE/OzZcpv5Fo4RQjdngGgogtuB9RsyJ8ZHhX5KjHj1bp5N9snN2eK8LDGXSaWW2hof8Q==",
       "dependencies": [
@@ -1593,9 +1581,6 @@
       "integrity": "sha512-+29YMsqY2/9eFEiW93eqWnuLcWcufowXewwSNIT6UwZdUUCrM3oFjMWH/Z6/TMmb4hlFenmfAVbpWeup2jryCw==",
       "os": ["win32"],
       "cpu": ["x64"]
-    },
-    "@joplin/turndown-plugin-gfm@1.0.67": {
-      "integrity": "sha512-FZfW5EZfidhzd1IaY1uxHnIZPTVOxAdleMZ4/1U6Nt5b7+Qj5JThDnaIomuJtetnUBzuRNbe9FWMuqD4B3dlWA=="
     },
     "@jridgewell/gen-mapping@0.3.13": {
       "integrity": "sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==",
@@ -1779,9 +1764,6 @@
       "optionalPeers": [
         "@opentelemetry/api"
       ]
-    },
-    "@mixmark-io/domino@2.2.0": {
-      "integrity": "sha512-Y28PR25bHXUg88kCV7nivXrP2Nj2RueZ3/l/jdx6J9f8J4nsEGcgX0Qe6lt7Pa+J79+kPiJU3LguR6O/6zrLOw=="
     },
     "@modelcontextprotocol/sdk@1.29.0_zod@3.25.76": {
       "integrity": "sha512-zo37mZA9hJWpULgkRpowewez1y6ML5GsXJPY8FI0tBBCd77HEvza4jDqRKOXgHNn867PVGCyTdzqpz0izu5ZjQ==",
@@ -6339,12 +6321,6 @@
     "tslib@2.8.1": {
       "integrity": "sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w=="
     },
-    "turndown@7.2.4": {
-      "integrity": "sha512-I8yFsfRzmzK0WV1pNNOA4A7y4RDfFxPRxb3t+e3ui14qSGOxGtiSP6GjeX+Y6CHb7HYaFj7ECUD7VE5kQMZWGQ==",
-      "dependencies": [
-        "@mixmark-io/domino"
-      ]
-    },
     "type-fest@4.41.0": {
       "integrity": "sha512-TeTSQ6H5YHvpqVwBRcnLDCBnDOHWYu7IvGbHT6N8AOymcr9PJGjc1GTtiWZTYg0NCgYwvnYWEkVChQAr9bjfwA=="
     },
@@ -6885,7 +6861,6 @@
       "npm:@earendil-works/pi-ai@~0.80.5",
       "npm:@earendil-works/pi-coding-agent@~0.80.5",
       "npm:@earendil-works/pi-tui@~0.80.5",
-      "npm:@gandazgul/plannotator-pi-extension-compiled@~0.23.1",
       "npm:@lezer/common@^1.5.2",
       "npm:@lezer/highlight@^1.2.3",
       "npm:@pierre/diffs@1.2.8",

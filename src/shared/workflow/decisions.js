@@ -73,6 +73,8 @@ export function decidePostPlanning(planOutcome, { planningAgentName, fallbackTri
             triageMeta: planOutcome.triageMeta || fallbackTriageMeta || {},
         };
         if (planOutcome.tasks) payload.tasks = planOutcome.tasks;
+        if (planOutcome.feedback) payload.reviewFeedback = planOutcome.feedback;
+        if (planOutcome.images?.length) payload.reviewImages = planOutcome.images;
         return decision("execute_plan", payload);
     }
 
@@ -83,10 +85,14 @@ export function decidePostPlanning(planOutcome, { planningAgentName, fallbackTri
                 reason: "missing_plan_declaration",
             });
         }
-        return decision("start_slicer", {
+        /** @type {Record<string, unknown>} */
+        const payload = {
             planName: planOutcome.planName,
             triageMeta: planOutcome.triageMeta || fallbackTriageMeta || {},
-        });
+        };
+        if (planOutcome.feedback) payload.reviewFeedback = planOutcome.feedback;
+        if (planOutcome.images?.length) payload.reviewImages = planOutcome.images;
+        return decision("start_slicer", payload);
     }
 
     if (outcome === "saved") {

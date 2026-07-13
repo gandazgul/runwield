@@ -158,6 +158,48 @@ Deno.test("returns feedback outcome and revision request when user submits feedb
     assertStringIncludes(result.content[0]?.text ?? "", "rename the foo");
 });
 
+Deno.test("returns annotated feedback images as image content for the planning agent", async () => {
+    const result = await runTool(
+        { planName: "p" },
+        {
+            __deps: makeDeps({
+                submitPlanForReview: () =>
+                    Promise.resolve({
+                        approved: false,
+                        feedback: "Use the marked area.",
+                        images: [{ base64: "aW1hZ2U=", mimeType: "image/png", name: "marked-area" }],
+                    }),
+            }),
+        },
+    );
+
+    assertEquals(result.details.imageCount, 1);
+    assertEquals(result.content[1], { type: "image", data: "aW1hZ2U=", mimeType: "image/png" });
+});
+
+Deno.test("preserves approval annotations and images for workflow dispatch", async () => {
+    const result = await runTool(
+        { planName: "p" },
+        {
+            triageMeta: { classification: "FEATURE", complexity: "LOW", summary: "x", affectedPaths: [] },
+            __deps: makeDeps({
+                submitPlanForReview: () =>
+                    Promise.resolve({
+                        approved: true,
+                        feedback: "Keep the selected command.",
+                        images: [{ base64: "YXBwcm92ZWQ=", mimeType: "image/png", name: "approved-command" }],
+                    }),
+            }),
+        },
+    );
+
+    assertEquals(result.details.outcome, "approved_execute");
+    assertEquals(result.details.feedback, "Keep the selected command.");
+    assertEquals(result.details.imageCount, 1);
+    assertEquals(result.content[1], { type: "image", data: "YXBwcm92ZWQ=", mimeType: "image/png" });
+    assertStringIncludes(result.content[0]?.text ?? "", "Keep the selected command.");
+});
+
 // ── PROJECT readiness ───────────────────────────────────────────
 
 Deno.test("PROJECT Epic asks before opening Slicer and can save ready_for_decomposition for later", async () => {
