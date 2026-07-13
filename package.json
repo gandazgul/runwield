@@ -1,5 +1,8 @@
 {
     "name": "runwield",
     "private": true,
-    "type": "module"
+    "type": "module",
+    "dependencies": {
+        "diff": "8.0.4"
+    }
 }

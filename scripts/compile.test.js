@@ -12,17 +12,26 @@ Deno.test("buildCompileArgs uses Deno compile flags and bundled resource include
         reviewEditorHtmlPath: "/tmp/plannotator/review-editor.html",
     });
 
-    assertEquals(args.slice(0, 9), [
+    assertEquals(args.slice(0, 16), [
         "compile",
         "-A",
         "--no-check",
-        "--bundle",
-        "--minify",
+        "--reload",
+        "--exclude-unused-npm",
+        "--self-extracting",
         "--app-name",
         "wld",
         "--include-as-is",
         "src/ui/workspace/static/",
+        "--include-as-is",
+        "src/ui/design-system/tokens.css",
+        "--include-as-is",
+        "src/ui/design-system/components.css",
+        "--include-as-is",
+        "logo.svg",
     ]);
+    assertEquals(args.includes("--bundle"), false);
+    assertEquals(args.includes("--minify"), false);
     assertEquals(args.includes("--output"), true);
     assertEquals(args.includes("./bin/wld"), true);
     assertEquals(args.at(-1), "src/cli.js");
