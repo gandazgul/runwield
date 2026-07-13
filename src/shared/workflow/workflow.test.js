@@ -655,6 +655,7 @@ Deno.test("executePlan refuses to execute PROJECT Epic containers", async () => 
         undefined,
         undefined,
         {
+            projectRoot: Deno.cwd(),
             loadPlan: () =>
                 Promise.resolve(
                     /** @type {any} */ ({
@@ -691,6 +692,7 @@ Deno.test("executePlan refuses persisted Epic containers even when triage meta o
         undefined,
         undefined,
         {
+            projectRoot: Deno.cwd(),
             loadPlan: () =>
                 Promise.resolve(
                     /** @type {any} */ ({
@@ -729,6 +731,7 @@ Deno.test("executePlan still executes ready FEATURE plans", async () => {
         undefined,
         undefined,
         {
+            projectRoot: Deno.cwd(),
             loadPlan: () =>
                 Promise.resolve(
                     /** @type {any} */ ({
@@ -789,6 +792,7 @@ Deno.test("executePlan treats incomplete Engineer execution as resumable", async
         undefined,
         undefined,
         {
+            projectRoot: Deno.cwd(),
             loadPlan: () =>
                 Promise.resolve(
                     /** @type {any} */ ({
@@ -829,6 +833,7 @@ Deno.test("executePlan uses single-plan execution for child FEATURE plans", asyn
         [{ task: 1, assignee: "engineer", dependencies: "none", description: "legacy task" }],
         undefined,
         {
+            projectRoot: Deno.cwd(),
             loadPlan: () =>
                 Promise.resolve(
                     /** @type {any} */ ({
@@ -870,6 +875,7 @@ Deno.test("executePlan does not parse task tables or dispatch DAG execution for 
         undefined,
         undefined,
         {
+            projectRoot: Deno.cwd(),
             loadPlan: () =>
                 Promise.resolve(
                     /** @type {any} */ ({
@@ -1300,6 +1306,8 @@ Deno.test("runSlicerAgent returns ok=true when session resolves", async () => {
                 captured = opts;
                 return Promise.resolve([]);
             },
+            switchActiveAgent: (/** @type {unknown} */ _hostedSession, /** @type {{ agentName: string }} */ options) =>
+                Promise.resolve({ ok: true, agentName: options.agentName, changed: true }),
         },
     });
     assertEquals(result.ok, true);

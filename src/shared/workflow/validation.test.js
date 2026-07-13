@@ -5,7 +5,7 @@ import { loadReviewerPrompt, runLocalCI, runMechanicalValidation, runValidationL
 import { HostedSession } from "../session/hosted-session.js";
 import { __resetSettingsForTests } from "../settings.js";
 
-const hostedSession = new HostedSession({ id: "validation-test" });
+const hostedSession = new HostedSession({ id: "validation-test", cwd: Deno.cwd() });
 
 /**
  * @param {string} cwd
@@ -220,8 +220,13 @@ Deno.test("runMechanicalValidation passes local CI without plan-specific work", 
             runAgentSession: () => {
                 throw new Error("repair should not run");
             },
-            setActiveAgent: (/** @type {unknown} */ _hostedSession, /** @type {string} */ name) =>
-                actions.push(`active:${name}`),
+            switchActiveAgent: (
+                /** @type {unknown} */ _hostedSession,
+                /** @type {{ agentName: string }} */ options,
+            ) => {
+                actions.push(`active:${options.agentName}`);
+                return Promise.resolve({ ok: true, agentName: options.agentName, changed: true });
+            },
             createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
             recordWorkflowMetric: (/** @type {any} */ metric) => {
                 metrics.push(metric);
@@ -266,8 +271,13 @@ Deno.test("runMechanicalValidation repairs CI failures through Engineer and then
                 return Promise.resolve([]);
             },
             readLatestTaskCompletedOutcome: () => true,
-            setActiveAgent: (/** @type {unknown} */ _hostedSession, /** @type {string} */ name) =>
-                actions.push(`active:${name}`),
+            switchActiveAgent: (
+                /** @type {unknown} */ _hostedSession,
+                /** @type {{ agentName: string }} */ options,
+            ) => {
+                actions.push(`active:${options.agentName}`);
+                return Promise.resolve({ ok: true, agentName: options.agentName, changed: true });
+            },
             createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
         }),
     });
@@ -278,7 +288,7 @@ Deno.test("runMechanicalValidation repairs CI failures through Engineer and then
 
 Deno.test("runMechanicalValidation ignores stale task_completed from earlier root turns", async () => {
     const uiAPI = makeUi();
-    const staleHostedSession = new HostedSession({ id: "stale-task-completed-test" });
+    const staleHostedSession = new HostedSession({ id: "stale-task-completed-test", cwd: Deno.cwd() });
     staleHostedSession.setRootAgentName("engineer");
     staleHostedSession.setRootAgentSession(
         /** @type {any} */ ({
@@ -331,7 +341,7 @@ Deno.test("runMechanicalValidation ignores stale task_completed from earlier roo
 
 Deno.test("runMechanicalValidation detects task_completed when repair returns a fresh root transcript", async () => {
     const uiAPI = makeUi();
-    const rebuiltHostedSession = new HostedSession({ id: "fresh-root-task-completed-test" });
+    const rebuiltHostedSession = new HostedSession({ id: "fresh-root-task-completed-test", cwd: Deno.cwd() });
     rebuiltHostedSession.setRootAgentName("engineer");
     rebuiltHostedSession.setRootAgentSession(
         /** @type {any} */ ({
@@ -417,7 +427,7 @@ Deno.test("runMechanicalValidation stops after three Engineer repair attempts wi
 
 Deno.test("runValidationLoop skips semantic review and merge-back for non-Git in-place execution", async () => {
     const uiAPI = makeUi();
-    const session = new HostedSession({ id: "non-git-validation-test" });
+    const session = new HostedSession({ id: "non-git-validation-test", cwd: Deno.cwd() });
     session.setActiveExecutionWorkflow({
         planName: "p",
         triageMeta: { classification: "FEATURE" },
@@ -564,7 +574,13 @@ Deno.test("runValidationLoop restores requested final agent after validation", a
             getDiffText: () => Promise.resolve(""),
             recordPlanEvent: noOpRecordPlanEvent,
             createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
-            setActiveAgent: (/** @type {unknown} */ _hostedSession, /** @type {string} */ name) => switched.push(name),
+            switchActiveAgent: (
+                /** @type {unknown} */ _hostedSession,
+                /** @type {{ agentName: string }} */ options,
+            ) => {
+                switched.push(options.agentName);
+                return Promise.resolve({ ok: true, agentName: options.agentName, changed: true });
+            },
         }),
     });
 
@@ -660,7 +676,7 @@ Deno.test("runValidationLoop fails PROJECT validation when workflow diff only ch
 
 Deno.test("runValidationLoop pauses with Engineer when CI repair does not call task_completed", async () => {
     const uiAPI = makeUi();
-    const repairHostedSession = new HostedSession({ id: "ci-repair-pause-test" });
+    const repairHostedSession = new HostedSession({ id: "ci-repair-pause-test", cwd: Deno.cwd() });
     let repairCalls = 0;
     let repairAgentName = "";
     await runValidationLoop({
@@ -711,7 +727,7 @@ Deno.test("runValidationLoop pauses with Engineer when CI repair does not call t
 
 Deno.test("runValidationLoop pauses with Engineer on interrupted semantic repair", async () => {
     const uiAPI = makeUi();
-    const repairHostedSession = new HostedSession({ id: "semantic-repair-pause-test" });
+    const repairHostedSession = new HostedSession({ id: "semantic-repair-pause-test", cwd: Deno.cwd() });
     await runValidationLoop({
         hostedSession: repairHostedSession,
         planName: "p",
@@ -1007,7 +1023,7 @@ Deno.test("runValidationLoop stages validation_passed before worktree merge succ
 Deno.test("runValidationLoop merges verified Plan metadata in Git and leaves the primary checkout clean", async () => {
     const projectRoot = await Deno.makeTempDir();
     const worktreeRoot = await Deno.makeTempDir();
-    const session = new HostedSession({ id: "validation-git-integration" });
+    const session = new HostedSession({ id: "validation-git-integration", cwd: Deno.cwd() });
     try {
         await git(projectRoot, ["init", "-b", "main"]);
         await git(projectRoot, ["config", "user.email", "tests@example.com"]);
@@ -1087,7 +1103,7 @@ Deno.test("runValidationLoop merges verified Plan metadata in Git and leaves the
 Deno.test("runValidationLoop reapplies verified Plan metadata after real merge-conflict rollback", async () => {
     const projectRoot = await Deno.makeTempDir();
     const worktreeRoot = await Deno.makeTempDir();
-    const session = new HostedSession({ id: "validation-git-conflict-retry" });
+    const session = new HostedSession({ id: "validation-git-conflict-retry", cwd: Deno.cwd() });
     try {
         await git(projectRoot, ["init", "-b", "main"]);
         await git(projectRoot, ["config", "user.email", "tests@example.com"]);
@@ -2052,7 +2068,7 @@ Deno.test("runValidationLoop dispatches Engineer merge repair and retries merge-
 
 Deno.test("runValidationLoop records validation_passed after merge repair task_completed and retry", async () => {
     const uiAPI = makeUi();
-    const repairHostedSession = new HostedSession({ id: "merge-repair-completion-test" });
+    const repairHostedSession = new HostedSession({ id: "merge-repair-completion-test", cwd: Deno.cwd() });
     repairHostedSession.setRootAgentName("engineer");
     repairHostedSession.setRootAgentSession(
         /** @type {any} */ ({

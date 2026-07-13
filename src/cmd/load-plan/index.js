@@ -6,7 +6,7 @@
  */
 
 import { parseArgs as parseArgsFn } from "@std/cli/parse-args";
-import { AGENTS, CLI_BIN, CWD } from "../../constants.js";
+import { AGENTS, CLI_BIN } from "../../constants.js";
 import {
     compareChildPlansByOrder,
     findPlansByParent as findPlansByParentFn,
@@ -64,10 +64,8 @@ import { runValidationLoop as runValidationLoopFn } from "../../shared/workflow/
 import { runSlicerAgent as runSlicerAgentFn } from "../../shared/workflow/workflow-slicer.js";
 import { submitPlanForReview as submitPlanForReviewFn } from "../../shared/workflow/submit-plan.js";
 import { printCommandHelp as printCommandHelpFn } from "../help/index.js";
-import {
-    setActiveAgent as setActiveAgentFn,
-    startInteractiveSession as startInteractiveSessionFn,
-} from "../../ui/tui/chat-session.js";
+import { startInteractiveSession as startInteractiveSessionFn } from "../../ui/tui/chat-session.js";
+import { switchActiveAgent as switchActiveAgentFn } from "../../shared/session/agent-switching.js";
 import { shouldCleanupMergedWorktrees as shouldCleanupMergedWorktreesFn } from "../../shared/settings.js";
 import { setTerminalTitleForName as setTerminalTitleForNameFn } from "../../ui/tui/terminal-title.js";
 import { resetTuiState as resetTuiStateFn } from "../command-helpers.js";
@@ -95,7 +93,8 @@ export { getLoadPlanCompletions } from "./getArgumentCompletions.js";
  * @property {typeof getWorkflowDiffFn} [getWorkflowDiff]
  * @property {typeof listCommitsTouchingPathsSinceFn} [listCommitsTouchingPathsSince]
  * @property {typeof restoreWorktreeTreeFn} [restoreWorktreeTree]
- * @property {typeof setActiveAgentFn} [setActiveAgent]
+ * @property {(agentName: string, handler: import('../../shared/session/types.js').AgentMessageHandler, uiAPI?: import('../../shared/workflow/workflow.js').UiAPI, agentModel?: string, activeOptions?: { allowReturnToRouter?: boolean }) => void | Promise<void>} [setActiveAgent]
+ * @property {(hostedSession: import('../../shared/session/hosted-session.js').HostedSession | undefined, options: { agentName: string, model?: string, allowReturnToRouter?: boolean }, uiAPI?: import('../../shared/workflow/workflow.js').UiAPI) => Promise<unknown>} [switchActiveAgent]
  * @property {typeof createAgentHandlerFn} [createAgentHandler]
  * @property {typeof resetTuiStateFn} [resetTuiState]
  * @property {() => string | null} [getRootAgentName]
@@ -129,25 +128,27 @@ export { getLoadPlanCompletions } from "./getArgumentCompletions.js";
  * @param {string} agentName
  * @param {import('../../shared/session/hosted-session.js').HostedSession} hostedSession
  * @param {LoadPlanTestDeps} [deps]
+ * @returns {Promise<void>}
  */
-function restorePreviousAgentFlow(uiAPI, agentName, hostedSession, deps = {}) {
+async function restorePreviousAgentFlow(uiAPI, agentName, hostedSession, deps = {}) {
     const {
         resetTuiState: resetTuiStateDep,
         setActiveAgent: setActiveAgentDep,
+        switchActiveAgent: switchActiveAgentDep,
         createAgentHandler: createAgentHandlerDep,
     } = deps;
 
     const resetTuiState = resetTuiStateDep || resetTuiStateFn;
-    const rawSetActiveAgent = setActiveAgentDep || setActiveAgentFn;
+    const switchActiveAgent = switchActiveAgentDep || switchActiveAgentFn;
     const createAgentHandler = createAgentHandlerDep || createAgentHandlerFn;
     const handler = createAgentHandler(agentName, { hostedSession });
 
     resetTuiState(undefined, uiAPI, undefined);
     if (setActiveAgentDep) {
-        setActiveAgentDep(agentName, handler, uiAPI);
-    } else {
-        rawSetActiveAgent(hostedSession, agentName, handler, uiAPI);
+        await setActiveAgentDep(agentName, handler, uiAPI);
+        return;
     }
+    await switchActiveAgent(hostedSession, { agentName }, uiAPI);
 }
 
 /**
@@ -307,6 +308,7 @@ function formatCommitHeadsUp(commits) {
  * before execution starts.
  *
  * @param {Object} opts
+ * @param {string} opts.projectRoot
  * @param {string} opts.planName
  * @param {Partial<import('../../plan-store.js').PlanFrontMatter>} opts.triageMeta
  * @param {import('../../shared/workflow/workflow.js').UiAPI} opts.uiAPI
@@ -314,6 +316,7 @@ function formatCommitHeadsUp(commits) {
  * @returns {Promise<boolean>}
  */
 async function confirmAffectedPathChangesBeforeExecution({
+    projectRoot,
     planName,
     triageMeta,
     uiAPI,
@@ -325,7 +328,7 @@ async function confirmAffectedPathChangesBeforeExecution({
 
     let commits = [];
     try {
-        commits = await listCommitsTouchingPathsSince(CWD, timestamp, affectedPaths);
+        commits = await listCommitsTouchingPathsSince(projectRoot, timestamp, affectedPaths);
     } catch (error) {
         if (isGitRepositoryRequiredError(error)) {
             uiAPI.appendSystemMessage(
@@ -410,20 +413,21 @@ async function confirmHoldWarning(uiAPI, message) {
 
 /**
  * @param {Object} opts
+ * @param {string} opts.projectRoot
  * @param {{ planName: string, attrs: import('../../plan-store.js').PlanFrontMatter }} opts.plan
  * @param {import('../../shared/workflow/workflow.js').UiAPI} opts.uiAPI
  * @param {typeof recordPlanEventFn} opts.recordPlanEvent
  * @param {typeof findPlansByParentFn} opts.findPlansByParent
  * @returns {Promise<boolean>}
  */
-async function putPlanOnHold({ plan, uiAPI, recordPlanEvent, findPlansByParent }) {
+async function putPlanOnHold({ projectRoot, plan, uiAPI, recordPlanEvent, findPlansByParent }) {
     if (!isHoldableStatus(plan.attrs.status)) {
         uiAPI.appendSystemMessage(`Plans with status ${plan.attrs.status} cannot be put on hold.`, true, "RunWield");
         return false;
     }
 
     if (isEpicPlan(plan.attrs)) {
-        const children = await findPlansByParent(CWD, plan.planName);
+        const children = await findPlansByParent(projectRoot, plan.planName);
         const childSummary = children.length > 0 ? `\n\n${formatEpicProgressSummary(children)}` : "";
         const confirmed = await confirmHoldWarning(
             uiAPI,
@@ -444,7 +448,7 @@ async function putPlanOnHold({ plan, uiAPI, recordPlanEvent, findPlansByParent }
     }
 
     const updatedAttrs = await recordPlanEvent({
-        cwd: CWD,
+        cwd: projectRoot,
         planName: plan.planName,
         event: "plan_held",
         currentStatus: plan.attrs.status,
@@ -465,6 +469,7 @@ async function putPlanOnHold({ plan, uiAPI, recordPlanEvent, findPlansByParent }
 
 /**
  * @param {Object} opts
+ * @param {string} opts.projectRoot
  * @param {{ planName: string, attrs: import('../../plan-store.js').PlanFrontMatter }} opts.plan
  * @param {import('../../shared/workflow/workflow.js').UiAPI} opts.uiAPI
  * @param {typeof listCommitsTouchingPathsSinceFn} opts.listCommitsTouchingPathsSince
@@ -475,6 +480,7 @@ async function putPlanOnHold({ plan, uiAPI, recordPlanEvent, findPlansByParent }
  * @returns {Promise<{ status: "pass" | "warn" | "fail", messages: string[] }>}
  */
 async function runResumeCheck({
+    projectRoot,
     plan,
     uiAPI: _uiAPI,
     listCommitsTouchingPathsSince,
@@ -485,7 +491,10 @@ async function runResumeCheck({
 }) {
     const warnings = [];
     const failures = [];
-    const worktreeContext = await resolveRecoveryWorktree(plan, { findWorktreeById, findWorktreeByPlanName });
+    const worktreeContext = await resolveRecoveryWorktree(projectRoot, plan, {
+        findWorktreeById,
+        findWorktreeByPlanName,
+    });
 
     if (hasRecordedWorktreeMetadata(plan.attrs)) {
         if (!worktreeContext?.path) {
@@ -493,7 +502,7 @@ async function runResumeCheck({
         } else {
             try {
                 const status = await getWorktreeStatus({
-                    projectRoot: CWD,
+                    projectRoot: projectRoot,
                     path: worktreeContext.path,
                     branch: worktreeContext.branch,
                     baseTree: plan.attrs.executionBaselineTree || worktreeContext.baseTree,
@@ -522,7 +531,7 @@ async function runResumeCheck({
                     ".wld/worktrees.lock",
                 ];
                 const risk = await inspectExecutionWorktreeMergeRisk({
-                    projectRoot: CWD,
+                    projectRoot: projectRoot,
                     branch: worktreeContext.branch,
                     allowedDirtyPaths,
                 });
@@ -539,7 +548,7 @@ async function runResumeCheck({
     const baseline = plan.attrs.holdStalenessBaseline || plan.attrs.updatedAt || plan.attrs.createdAt;
     if (baseline && affectedPaths.length > 0) {
         try {
-            const commits = await listCommitsTouchingPathsSince(CWD, baseline, affectedPaths);
+            const commits = await listCommitsTouchingPathsSince(projectRoot, baseline, affectedPaths);
             if (commits.length > 0) {
                 warnings.push([
                     `${commits.length} commit(s) touched affected paths since the Resume Check baseline (${baseline}).`,
@@ -559,6 +568,7 @@ async function runResumeCheck({
 
 /**
  * @param {Object} opts
+ * @param {string} opts.projectRoot
  * @param {{ planName: string, attrs: import('../../plan-store.js').PlanFrontMatter }} opts.plan
  * @param {import('../../shared/workflow/workflow.js').UiAPI} opts.uiAPI
  * @param {typeof recordPlanEventFn} opts.recordPlanEvent
@@ -569,6 +579,7 @@ async function runResumeCheck({
  * @returns {Promise<boolean>}
  */
 async function resetHeldPlanToDraft({
+    projectRoot,
     plan,
     uiAPI,
     recordPlanEvent,
@@ -577,7 +588,10 @@ async function resetHeldPlanToDraft({
     updateWorktreeRegistryEntry,
     removeExecutionWorktree,
 }) {
-    const worktreeContext = await resolveRecoveryWorktree(plan, { findWorktreeById, findWorktreeByPlanName });
+    const worktreeContext = await resolveRecoveryWorktree(projectRoot, plan, {
+        findWorktreeById,
+        findWorktreeByPlanName,
+    });
     let action = "reset_keep";
     if (hasWorktreeContext(worktreeContext)) {
         action = String(
@@ -597,14 +611,14 @@ async function resetHeldPlanToDraft({
             if (!confirmed) return false;
             if (worktreeContext?.path) {
                 await removeExecutionWorktree({
-                    projectRoot: CWD,
+                    projectRoot: projectRoot,
                     path: worktreeContext.path,
                     branch: worktreeContext.branch,
                     force: true,
                 });
             }
             if (worktreeContext?.id) {
-                await updateWorktreeRegistryEntry(CWD, worktreeContext.id, { status: "abandoned" });
+                await updateWorktreeRegistryEntry(projectRoot, worktreeContext.id, { status: "abandoned" });
             }
         }
     } else {
@@ -616,7 +630,7 @@ async function resetHeldPlanToDraft({
     }
 
     const updatedAttrs = await recordPlanEvent({
-        cwd: CWD,
+        cwd: projectRoot,
         planName: plan.planName,
         event: "hold_reset_to_draft",
         currentStatus: "on_hold",
@@ -635,6 +649,7 @@ async function resetHeldPlanToDraft({
 
 /**
  * @param {Object} opts
+ * @param {string} opts.projectRoot
  * @param {{ planName: string, attrs: import('../../plan-store.js').PlanFrontMatter, body: string, markdown?: string }} opts.plan
  * @param {import('../../shared/workflow/workflow.js').UiAPI} opts.uiAPI
  * @param {typeof listCommitsTouchingPathsSinceFn} opts.listCommitsTouchingPathsSince
@@ -649,6 +664,7 @@ async function resetHeldPlanToDraft({
  * @returns {Promise<"resume" | "handled">}
  */
 async function handleOnHoldPlan({
+    projectRoot,
     plan,
     uiAPI,
     listCommitsTouchingPathsSince,
@@ -677,6 +693,7 @@ async function handleOnHoldPlan({
 
         if (answer === "reset") {
             const reset = await resetHeldPlanToDraft({
+                projectRoot,
                 plan,
                 uiAPI,
                 recordPlanEvent,
@@ -699,6 +716,7 @@ async function handleOnHoldPlan({
                 continue;
             }
             const check = await runResumeCheck({
+                projectRoot,
                 plan,
                 uiAPI,
                 listCommitsTouchingPathsSince,
@@ -729,7 +747,7 @@ async function handleOnHoldPlan({
             }
             const restoredStatus = plan.attrs.heldFromStatus;
             const updatedAttrs = await recordPlanEvent({
-                cwd: CWD,
+                cwd: projectRoot,
                 planName: plan.planName,
                 event: "hold_resumed",
                 currentStatus: "on_hold",
@@ -738,7 +756,7 @@ async function handleOnHoldPlan({
             plan.attrs = { ...plan.attrs, ...updatedAttrs };
             uiAPI.appendSystemMessage(`Resumed from hold. Restored status: ${plan.attrs.status}.`, false, "RunWield");
             if (isEpicPlan(plan.attrs)) {
-                const children = await findPlansByParent(CWD, plan.planName);
+                const children = await findPlansByParent(projectRoot, plan.planName);
                 if (children.length > 0) {
                     uiAPI.appendSystemMessage(formatEpicProgressSummary(children), false, "RunWield");
                 }
@@ -772,11 +790,12 @@ async function validateCompletedExecution(
     hostedSession,
 ) {
     if (!hostedSession) throw new Error("validateCompletedExecution: hostedSession is required");
+    const projectRoot = hostedSession.cwd;
     if (!(executionResult && typeof executionResult === "object" && "executionComplete" in executionResult)) return;
     if (!/** @type {{ executionComplete?: boolean }} */ (executionResult).executionComplete) return;
     let planContent = fallbackPlanContent;
     try {
-        const latestPlan = await loadPlan(CWD, planName);
+        const latestPlan = await loadPlan(projectRoot, planName);
         planContent = latestPlan?.markdown || latestPlan?.body || fallbackPlanContent;
     } catch {
         // Keep fallback content in tests or if the plan was removed.
@@ -791,7 +810,7 @@ async function validateCompletedExecution(
         const executionCwd = worktreeContext?.path || triageMeta.worktreePath;
         const worktreeId = worktreeContext?.id || triageMeta.worktreeId;
         const worktreeBranch = worktreeContext?.branch || triageMeta.worktreeBranch;
-        if (executionCwd || worktreeId || worktreeBranch) workflow.projectRoot = CWD;
+        if (executionCwd || worktreeId || worktreeBranch) workflow.projectRoot = projectRoot;
         if (executionCwd) workflow.executionCwd = executionCwd;
         if (worktreeId) workflow.worktreeId = worktreeId;
         if (worktreeBranch) workflow.worktreeBranch = worktreeBranch;
@@ -876,6 +895,7 @@ async function executePostPlanningDecision({
     hostedSession,
 }) {
     if (!hostedSession) throw new Error("executePostPlanningDecision: hostedSession is required");
+    const projectRoot = hostedSession.cwd;
     if (decision.kind === "start_slicer") {
         await runSlicerAgent({
             planName: /** @type {string} */ (decision.payload.planName),
@@ -897,6 +917,7 @@ async function executePostPlanningDecision({
     );
 
     const confirmed = await confirmAffectedPathChangesBeforeExecution({
+        projectRoot,
         planName,
         triageMeta,
         uiAPI,
@@ -939,10 +960,19 @@ function shouldKeepPlanningAgentActive(decision) {
  * @param {import('../../shared/session/hosted-session.js').HostedSession} hostedSession
  * @returns {Promise<boolean>}
  */
-async function prepareApprovedPlanForWork(plan, uiAPI, ensureSlicerTasks, recordPlanEvent, hostedSession) {
+/**
+ * @param {string} projectRoot
+ * @param {{ planName: string, path: string, attrs: import('../../plan-store.js').PlanFrontMatter }} plan
+ * @param {import('../../shared/workflow/workflow.js').UiAPI} uiAPI
+ * @param {typeof ensureSlicerTasksFn} ensureSlicerTasks
+ * @param {typeof recordPlanEventFn} recordPlanEvent
+ * @param {import('../../shared/session/hosted-session.js').HostedSession} hostedSession
+ * @returns {Promise<boolean>}
+ */
+async function prepareApprovedPlanForWork(projectRoot, plan, uiAPI, ensureSlicerTasks, recordPlanEvent, hostedSession) {
     if (isEpicPlan(plan.attrs)) {
         await recordPlanEvent({
-            cwd: CWD,
+            cwd: projectRoot,
             planName: plan.planName,
             event: "epic_readiness_passed",
             currentStatus: "approved",
@@ -976,7 +1006,7 @@ async function prepareApprovedPlanForWork(plan, uiAPI, ensureSlicerTasks, record
     }
 
     await recordPlanEvent({
-        cwd: CWD,
+        cwd: projectRoot,
         planName: plan.planName,
         event: "readiness_passed",
         currentStatus: "approved",
@@ -990,6 +1020,7 @@ async function prepareApprovedPlanForWork(plan, uiAPI, ensureSlicerTasks, record
  * Execute a ready Plan and run validation if execution completes.
  *
  * @param {Object} opts
+ * @param {string} opts.projectRoot
  * @param {{ planName: string, markdown?: string, body: string, attrs: import('../../plan-store.js').PlanFrontMatter }} opts.plan
  * @param {string} opts.agentName
  * @param {import('../../shared/workflow/workflow.js').UiAPI} opts.uiAPI
@@ -1000,12 +1031,13 @@ async function prepareApprovedPlanForWork(plan, uiAPI, ensureSlicerTasks, record
  * @param {typeof runValidationLoopFn} opts.runValidationLoop
  * @param {typeof loadPlanFn} opts.loadPlan
  * @param {typeof listCommitsTouchingPathsSinceFn} opts.listCommitsTouchingPathsSince
- * @param {typeof setActiveAgentFn} opts.setActiveAgent
+ * @param {(agentName: string, handler: import('../../shared/session/types.js').AgentMessageHandler, uiAPI?: import('../../shared/workflow/workflow.js').UiAPI, agentModel?: string, activeOptions?: { allowReturnToRouter?: boolean }) => void | Promise<void>} opts.setActiveAgent
  * @param {typeof createAgentHandlerFn} opts.createAgentHandler
  * @param {import('../../shared/session/hosted-session.js').HostedSession} opts.hostedSession
  * @returns {Promise<void>}
  */
 async function executeReadyPlanWithRepair({
+    projectRoot,
     plan,
     agentName,
     uiAPI,
@@ -1029,6 +1061,7 @@ async function executeReadyPlanWithRepair({
     let currentTasks = undefined;
 
     const confirmed = await confirmAffectedPathChangesBeforeExecution({
+        projectRoot,
         planName: currentPlanName,
         triageMeta: currentMeta,
         uiAPI,
@@ -1073,7 +1106,7 @@ async function executeReadyPlanWithRepair({
             false,
             "RunWield",
         );
-        setActiveAgent(agentName, createAgentHandler(agentName, { hostedSession }), uiAPI);
+        await setActiveAgent(agentName, createAgentHandler(agentName, { hostedSession }), uiAPI);
         const repairOutcome = await runPlanningAgent({
             hostedSession,
             agentName,
@@ -1136,10 +1169,16 @@ async function executeReadyPlanWithRepair({
  * @param {typeof findWorktreeByPlanNameFn} deps.findWorktreeByPlanName
  * @returns {Promise<RecoveryWorktreeContext | null>}
  */
-async function resolveRecoveryWorktree(plan, { findWorktreeById, findWorktreeByPlanName }) {
+/**
+ * @param {string} projectRoot
+ * @param {{ planName: string, attrs: import('../../plan-store.js').PlanFrontMatter }} plan
+ * @param {{ findWorktreeById: typeof findWorktreeByIdFn, findWorktreeByPlanName: typeof findWorktreeByPlanNameFn }} deps
+ * @returns {Promise<RecoveryWorktreeContext | null>}
+ */
+async function resolveRecoveryWorktree(projectRoot, plan, { findWorktreeById, findWorktreeByPlanName }) {
     let entry = null;
-    if (plan.attrs.worktreeId) entry = await findWorktreeById(CWD, plan.attrs.worktreeId);
-    if (!entry) entry = await findWorktreeByPlanName(CWD, plan.planName);
+    if (plan.attrs.worktreeId) entry = await findWorktreeById(projectRoot, plan.attrs.worktreeId);
+    if (!entry) entry = await findWorktreeByPlanName(projectRoot, plan.planName);
     const path = plan.attrs.worktreePath || entry?.path;
     const branch = plan.attrs.worktreeBranch || entry?.branch;
     const id = plan.attrs.worktreeId || entry?.id;
@@ -1159,12 +1198,13 @@ async function resolveRecoveryWorktree(plan, { findWorktreeById, findWorktreeByP
 }
 
 /**
+ * @param {string} projectRoot
  * @param {{ planName: string, attrs: import('../../plan-store.js').PlanFrontMatter }} plan
  * @param {RecoveryWorktreeContext | null} context
  * @param {typeof updatePlanFrontMatterFn} updatePlanFrontMatter
  * @returns {Promise<import('../../plan-store.js').PlanFrontMatter>}
  */
-async function persistRecoveredWorktreeMetadata(plan, context, updatePlanFrontMatter) {
+async function persistRecoveredWorktreeMetadata(projectRoot, plan, context, updatePlanFrontMatter) {
     if (!context) return plan.attrs;
     /** @type {Partial<import('../../plan-store.js').PlanFrontMatter>} */
     const updates = {};
@@ -1173,7 +1213,7 @@ async function persistRecoveredWorktreeMetadata(plan, context, updatePlanFrontMa
     if (context.branch && !plan.attrs.worktreeBranch) updates.worktreeBranch = context.branch;
     if (context.baseBranch && !plan.attrs.worktreeBaseBranch) updates.worktreeBaseBranch = context.baseBranch;
     if (!Object.keys(updates).length) return plan.attrs;
-    return await updatePlanFrontMatter(CWD, plan.planName, updates, plan.attrs);
+    return await updatePlanFrontMatter(projectRoot, plan.planName, updates, plan.attrs);
 }
 
 /**
@@ -1215,11 +1255,12 @@ async function pathExists(path) {
 }
 
 /**
+ * @param {string} projectRoot
  * @param {{ planName: string, attrs: import('../../plan-store.js').PlanFrontMatter }} plan
  * @param {RecoveryWorktreeContext | null} context
  * @param {import('../../shared/session/hosted-session.js').HostedSession} hostedSession
  */
-function rehydrateActiveRecoveryWorkflow(plan, context, hostedSession) {
+function rehydrateActiveRecoveryWorkflow(projectRoot, plan, context, hostedSession) {
     if (!hostedSession) throw new Error("rehydrateActiveRecoveryWorkflow: hostedSession is required");
     const baselineTree = plan.attrs.executionBaselineTree || context?.baseTree;
     if (!baselineTree && !hasWorktreeContext(context)) return;
@@ -1228,7 +1269,7 @@ function rehydrateActiveRecoveryWorkflow(plan, context, hostedSession) {
         planName: plan.planName,
         triageMeta: plan.attrs,
         baselineTree,
-        projectRoot: CWD,
+        projectRoot: projectRoot,
     };
     if (context?.path) workflow.executionCwd = context.path;
     if (context?.id) workflow.worktreeId = context.id;
@@ -1240,6 +1281,7 @@ function rehydrateActiveRecoveryWorkflow(plan, context, hostedSession) {
 /**
  * Append recovery context for a partially executed Plan.
  *
+ * @param {string} projectRoot
  * @param {{ planName: string, attrs: import('../../plan-store.js').PlanFrontMatter, body: string, markdown: string }} plan
  * @param {import('../../shared/workflow/workflow.js').UiAPI} uiAPI
  * @param {typeof getWorkflowDiffFn} getWorkflowDiff
@@ -1247,7 +1289,7 @@ function rehydrateActiveRecoveryWorkflow(plan, context, hostedSession) {
  * @param {typeof getWorktreeStatusFn} getWorktreeStatus
  * @returns {Promise<void>}
  */
-async function appendRecoveryReport(plan, uiAPI, getWorkflowDiff, worktreeContext, getWorktreeStatus) {
+async function appendRecoveryReport(projectRoot, plan, uiAPI, getWorkflowDiff, worktreeContext, getWorktreeStatus) {
     const lines = [buildPlanSummary(plan)];
     if (plan.attrs.failureReason) {
         lines.push(`Failure reason:\n${plan.attrs.failureReason}`);
@@ -1265,7 +1307,7 @@ async function appendRecoveryReport(plan, uiAPI, getWorkflowDiff, worktreeContex
         if (worktreeContext?.path) {
             try {
                 const status = await getWorktreeStatus({
-                    projectRoot: CWD,
+                    projectRoot: projectRoot,
                     path: worktreeContext.path,
                     branch: worktreeContext.branch,
                     baseTree: plan.attrs.executionBaselineTree || undefined,
@@ -1292,7 +1334,7 @@ async function appendRecoveryReport(plan, uiAPI, getWorkflowDiff, worktreeContex
     } else if (plan.attrs.executionBaselineTree) {
         lines.push(`Execution baseline tree: ${plan.attrs.executionBaselineTree}`);
         try {
-            const diff = await getWorkflowDiff(CWD, plan.attrs.executionBaselineTree);
+            const diff = await getWorkflowDiff(projectRoot, plan.attrs.executionBaselineTree);
             lines.push(diff.trim() ? `Changes since execution baseline:\n${diff}` : "No changes since baseline.");
         } catch (error) {
             const message = isGitRepositoryRequiredError(error)
@@ -1384,7 +1426,15 @@ async function confirmMissingWorktreeRecreate(planName, worktreeContext, uiAPI) 
  * @param {typeof getWorktreeStatusFn} getWorktreeStatus
  * @returns {Promise<boolean>}
  */
-async function confirmRecoveryWorktreeAvailable(planName, worktreeContext, uiAPI, getWorktreeStatus) {
+/**
+ * @param {string} projectRoot
+ * @param {string} planName
+ * @param {RecoveryWorktreeContext | null} worktreeContext
+ * @param {import('../../shared/workflow/workflow.js').UiAPI} uiAPI
+ * @param {typeof getWorktreeStatusFn} getWorktreeStatus
+ * @returns {Promise<boolean>}
+ */
+async function confirmRecoveryWorktreeAvailable(projectRoot, planName, worktreeContext, uiAPI, getWorktreeStatus) {
     if (!hasWorktreeContext(worktreeContext)) return true;
     if (worktreeContext?.status === "abandoned") {
         uiAPI.appendSystemMessage(
@@ -1412,7 +1462,7 @@ async function confirmRecoveryWorktreeAvailable(planName, worktreeContext, uiAPI
     }
     try {
         const status = await getWorktreeStatus({
-            projectRoot: CWD,
+            projectRoot: projectRoot,
             path: worktreeContext.path,
             branch: worktreeContext.branch,
             baseTree: worktreeContext.baseTree,
@@ -1449,6 +1499,7 @@ async function confirmRecoveryWorktreeAvailable(planName, worktreeContext, uiAPI
  * Handle Plan Recovery menus for in-progress, failed, and implemented plans.
  *
  * @param {Object} opts
+ * @param {string} opts.projectRoot
  * @param {{ planName: string, path: string, markdown: string, body: string, attrs: import('../../plan-store.js').PlanFrontMatter }} opts.plan
  * @param {string} opts.agentName
  * @param {import('../../shared/workflow/workflow.js').UiAPI} opts.uiAPI
@@ -1476,7 +1527,7 @@ async function confirmRecoveryWorktreeAvailable(planName, worktreeContext, uiAPI
  * @param {typeof removeWorktreeRegistryEntryFn} opts.removeWorktreeRegistryEntry
  * @param {typeof shouldCleanupMergedWorktreesFn} opts.shouldCleanupMergedWorktrees
  * @param {typeof recordWorkflowMetric} [opts.recordWorkflowMetric]
- * @param {typeof setActiveAgentFn} opts.setActiveAgent
+ * @param {(agentName: string, handler: import('../../shared/session/types.js').AgentMessageHandler, uiAPI?: import('../../shared/workflow/workflow.js').UiAPI, agentModel?: string, activeOptions?: { allowReturnToRouter?: boolean }) => void | Promise<void>} opts.setActiveAgent
  * @param {typeof createAgentHandlerFn} opts.createAgentHandler
  * @param {typeof findPlansByParentFn} opts.findPlansByParent
  * @param {import('../../shared/session/hosted-session.js').HostedSession} opts.hostedSession
@@ -1484,6 +1535,7 @@ async function confirmRecoveryWorktreeAvailable(planName, worktreeContext, uiAPI
  * @returns {Promise<"handled" | "review">}
  */
 async function handlePlanRecovery({
+    projectRoot,
     plan,
     agentName,
     uiAPI,
@@ -1519,8 +1571,8 @@ async function handlePlanRecovery({
 }) {
     if (!hostedSession) throw new Error("handlePlanRecovery: hostedSession is required");
     const refreshRecoveryWorktree = async () => {
-        const resolved = await resolveRecoveryWorktree(plan, { findWorktreeById, findWorktreeByPlanName });
-        plan.attrs = await persistRecoveredWorktreeMetadata(plan, resolved, updatePlanFrontMatter);
+        const resolved = await resolveRecoveryWorktree(projectRoot, plan, { findWorktreeById, findWorktreeByPlanName });
+        plan.attrs = await persistRecoveredWorktreeMetadata(projectRoot, plan, resolved, updatePlanFrontMatter);
         return resolved;
     };
     let worktreeContext = await refreshRecoveryWorktree();
@@ -1542,7 +1594,7 @@ async function handlePlanRecovery({
     while (true) {
         const hasWorktree = hasWorktreeContext(worktreeContext);
         const canMergeWorktree = canManuallyMergeRecoveredWorktree(worktreeContext);
-        const gitProbe = await probeGitRepository(CWD);
+        const gitProbe = await probeGitRepository(projectRoot);
         const hasGitRecoveryMetadata = hasWorktree || Boolean(plan.attrs.executionBaselineTree);
         const gitRecoveryBlocked = !gitProbe.ok && hasGitRecoveryMetadata;
         const resetLabel = gitRecoveryBlocked
@@ -1593,7 +1645,7 @@ async function handlePlanRecovery({
         }
 
         if (answer === "hold") {
-            await putPlanOnHold({ plan, uiAPI, recordPlanEvent, findPlansByParent });
+            await putPlanOnHold({ projectRoot, plan, uiAPI, recordPlanEvent, findPlansByParent });
             await recordRecoveryResult("hold", "handled");
             return "handled";
         }
@@ -1610,17 +1662,25 @@ async function handlePlanRecovery({
 
         if (answer === "inspect") {
             worktreeContext = await refreshRecoveryWorktree();
-            await appendRecoveryReport(plan, uiAPI, getWorkflowDiff, worktreeContext, getWorktreeStatus);
+            await appendRecoveryReport(projectRoot, plan, uiAPI, getWorkflowDiff, worktreeContext, getWorktreeStatus);
             await recordRecoveryResult("inspect", "reported", { hasWorktree: hasWorktreeContext(worktreeContext) });
             continue;
         }
 
         if (answer === "validate") {
             worktreeContext = await refreshRecoveryWorktree();
-            if (!(await confirmRecoveryWorktreeAvailable(plan.planName, worktreeContext, uiAPI, getWorktreeStatus))) {
+            if (
+                !(await confirmRecoveryWorktreeAvailable(
+                    projectRoot,
+                    plan.planName,
+                    worktreeContext,
+                    uiAPI,
+                    getWorktreeStatus,
+                ))
+            ) {
                 continue;
             }
-            rehydrateActiveRecoveryWorkflow(plan, worktreeContext, hostedSession);
+            rehydrateActiveRecoveryWorkflow(projectRoot, plan, worktreeContext, hostedSession);
             await validateCompletedExecution(
                 { executionComplete: true },
                 plan.planName,
@@ -1638,12 +1698,20 @@ async function handlePlanRecovery({
 
         if (answer === "continue") {
             worktreeContext = await refreshRecoveryWorktree();
-            if (!(await confirmRecoveryWorktreeAvailable(plan.planName, worktreeContext, uiAPI, getWorktreeStatus))) {
+            if (
+                !(await confirmRecoveryWorktreeAvailable(
+                    projectRoot,
+                    plan.planName,
+                    worktreeContext,
+                    uiAPI,
+                    getWorktreeStatus,
+                ))
+            ) {
                 continue;
             }
-            rehydrateActiveRecoveryWorkflow(plan, worktreeContext, hostedSession);
+            rehydrateActiveRecoveryWorkflow(projectRoot, plan, worktreeContext, hostedSession);
             await recordPlanEvent({
-                cwd: CWD,
+                cwd: projectRoot,
                 planName: plan.planName,
                 event: "recovery_continue",
                 currentStatus: plan.attrs.status,
@@ -1651,6 +1719,7 @@ async function handlePlanRecovery({
             });
             plan.attrs.status = "ready_for_work";
             await executeReadyPlanWithRepair({
+                projectRoot,
                 plan,
                 agentName,
                 uiAPI,
@@ -1682,16 +1751,16 @@ async function handlePlanRecovery({
             if (gitRecoveryBlocked) {
                 if (!(await confirmMetadataOnlyRecoveryCleanup(plan.planName, uiAPI))) continue;
                 await recordPlanEvent({
-                    cwd: CWD,
+                    cwd: projectRoot,
                     planName: plan.planName,
                     event: "recovery_reset",
                     currentStatus: plan.attrs.status,
                     details: { triageMeta: plan.attrs },
                 });
                 if (worktreeContext?.id) {
-                    await updateWorktreeRegistryEntry(CWD, worktreeContext.id, { status: "abandoned" });
+                    await updateWorktreeRegistryEntry(projectRoot, worktreeContext.id, { status: "abandoned" });
                 }
-                plan.attrs = await updatePlanFrontMatter(CWD, plan.planName, {
+                plan.attrs = await updatePlanFrontMatter(projectRoot, plan.planName, {
                     executionBaselineTree: null,
                     worktreeId: null,
                     worktreePath: null,
@@ -1726,7 +1795,7 @@ async function handlePlanRecovery({
                 if (worktreeContext?.path) {
                     try {
                         await removeExecutionWorktree({
-                            projectRoot: CWD,
+                            projectRoot: projectRoot,
                             path: worktreeContext.path,
                             branch: worktreeContext.branch,
                             force: true,
@@ -1746,13 +1815,13 @@ async function handlePlanRecovery({
                     }
                 }
                 if (worktreeContext?.id) {
-                    await updateWorktreeRegistryEntry(CWD, worktreeContext.id, { status: "abandoned" });
+                    await updateWorktreeRegistryEntry(projectRoot, worktreeContext.id, { status: "abandoned" });
                 }
                 const recreateBaseBranch = worktreeContext?.baseBranch;
                 let recreated;
                 try {
                     recreated = await createExecutionWorktree({
-                        projectRoot: CWD,
+                        projectRoot: projectRoot,
                         planName: plan.planName,
                         baseRef: recreateBaseRef,
                         baseBranch: recreateBaseBranch,
@@ -1770,7 +1839,7 @@ async function handlePlanRecovery({
                     );
                     continue;
                 }
-                plan.attrs = await updatePlanFrontMatter(CWD, plan.planName, {
+                plan.attrs = await updatePlanFrontMatter(projectRoot, plan.planName, {
                     worktreeId: recreated.id,
                     worktreePath: recreated.path,
                     worktreeBranch: recreated.branch,
@@ -1791,7 +1860,7 @@ async function handlePlanRecovery({
             } else {
                 if (!(await confirmBaselineReset(plan.planName, uiAPI))) continue;
                 try {
-                    await restoreWorktreeTree(CWD, /** @type {string} */ (plan.attrs.executionBaselineTree));
+                    await restoreWorktreeTree(projectRoot, /** @type {string} */ (plan.attrs.executionBaselineTree));
                 } catch (error) {
                     const message = isGitRepositoryRequiredError(error)
                         ? formatGitRequiredMessage(error)
@@ -1803,7 +1872,7 @@ async function handlePlanRecovery({
                 }
             }
             await recordPlanEvent({
-                cwd: CWD,
+                cwd: projectRoot,
                 planName: plan.planName,
                 event: "recovery_reset",
                 currentStatus: plan.attrs.status,
@@ -1811,6 +1880,7 @@ async function handlePlanRecovery({
             });
             plan.attrs.status = "ready_for_work";
             await executeReadyPlanWithRepair({
+                projectRoot,
                 plan,
                 agentName,
                 uiAPI,
@@ -1839,7 +1909,15 @@ async function handlePlanRecovery({
                 );
                 continue;
             }
-            if (!(await confirmRecoveryWorktreeAvailable(plan.planName, worktreeContext, uiAPI, getWorktreeStatus))) {
+            if (
+                !(await confirmRecoveryWorktreeAvailable(
+                    projectRoot,
+                    plan.planName,
+                    worktreeContext,
+                    uiAPI,
+                    getWorktreeStatus,
+                ))
+            ) {
                 continue;
             }
             if (!worktreeContext?.branch || !worktreeContext.path) {
@@ -1854,10 +1932,10 @@ async function handlePlanRecovery({
             const primaryPlanSnapshots = [];
             let mergeCompleted = false;
             try {
-                const cleanupMergedWorktrees = shouldCleanupMergedWorktrees();
+                const cleanupMergedWorktrees = shouldCleanupMergedWorktrees(projectRoot);
                 const planPath = `plans/${plan.planName}.md`;
                 const stagingResult = await stageValidationPassedInExecutionWorktree({
-                    projectRoot: CWD,
+                    projectRoot: projectRoot,
                     executionCwd: worktreeContext.path,
                     planName: plan.planName,
                     details: {
@@ -1867,7 +1945,9 @@ async function handlePlanRecovery({
                     },
                 });
                 for (const relativePath of stagingResult.planPaths) {
-                    primaryPlanSnapshots.push(await preparePrimaryPlanPathForMerge({ projectRoot: CWD, relativePath }));
+                    primaryPlanSnapshots.push(
+                        await preparePrimaryPlanPathForMerge({ projectRoot: projectRoot, relativePath }),
+                    );
                 }
                 if (!worktreeContext.baseBranch) {
                     uiAPI.appendSystemMessage(
@@ -1882,7 +1962,7 @@ async function handlePlanRecovery({
                         : `Merging worktree branch ${worktreeContext.branch} into primary checkout.`,
                 );
                 const mergeResult = await mergeExecutionWorktree({
-                    projectRoot: CWD,
+                    projectRoot: projectRoot,
                     branch: worktreeContext.branch,
                     targetBranch: worktreeContext.baseBranch,
                     worktreePath: worktreeContext.path,
@@ -1915,7 +1995,7 @@ async function handlePlanRecovery({
                 }
                 if (worktreeContext.id) {
                     try {
-                        await updateWorktreeRegistryEntry(CWD, worktreeContext.id, { status: "merged" });
+                        await updateWorktreeRegistryEntry(projectRoot, worktreeContext.id, { status: "merged" });
                     } catch (registryError) {
                         const registryReason = registryError instanceof Error
                             ? registryError.message
@@ -1930,13 +2010,13 @@ async function handlePlanRecovery({
                 if (cleanupMergedWorktrees && worktreeContext.path) {
                     try {
                         await removeExecutionWorktree({
-                            projectRoot: CWD,
+                            projectRoot: projectRoot,
                             path: worktreeContext.path,
                             branch: worktreeContext.branch,
                             force: true,
                         });
                         if (worktreeContext.id) {
-                            await removeWorktreeRegistryEntry(CWD, worktreeContext.id);
+                            await removeWorktreeRegistryEntry(projectRoot, worktreeContext.id);
                         }
                     } catch (cleanupError) {
                         const cleanupReason = cleanupError instanceof Error
@@ -1990,7 +2070,9 @@ async function handlePlanRecovery({
                 uiAPI.appendSystemMessage(`Worktree merge failed: ${reason}`, true, "RunWield");
                 if (worktreeContext.id) {
                     try {
-                        await updateWorktreeRegistryEntry(CWD, worktreeContext.id, { status: "merge_conflict" });
+                        await updateWorktreeRegistryEntry(projectRoot, worktreeContext.id, {
+                            status: "merge_conflict",
+                        });
                     } catch (metadataError) {
                         const metadataReason = metadataError instanceof Error
                             ? metadataError.message
@@ -2004,7 +2086,7 @@ async function handlePlanRecovery({
                 }
                 try {
                     await recordPlanEvent({
-                        cwd: CWD,
+                        cwd: projectRoot,
                         planName: plan.planName,
                         event: "worktree_merge_failed",
                         currentStatus: "implemented",
@@ -2037,7 +2119,7 @@ async function handlePlanRecovery({
             if (worktreeContext?.path) {
                 try {
                     await removeExecutionWorktree({
-                        projectRoot: CWD,
+                        projectRoot: projectRoot,
                         path: worktreeContext.path,
                         branch: worktreeContext.branch,
                         force: true,
@@ -2055,9 +2137,9 @@ async function handlePlanRecovery({
                 }
             }
             if (worktreeContext?.id) {
-                await updateWorktreeRegistryEntry(CWD, worktreeContext.id, { status: "abandoned" });
+                await updateWorktreeRegistryEntry(projectRoot, worktreeContext.id, { status: "abandoned" });
             }
-            plan.attrs = await updatePlanFrontMatter(CWD, plan.planName, {
+            plan.attrs = await updatePlanFrontMatter(projectRoot, plan.planName, {
                 worktreeStatus: "abandoned",
                 worktreeId: null,
                 worktreePath: null,
@@ -2077,12 +2159,12 @@ async function handlePlanRecovery({
 
         if (answer === "review") {
             if (worktreeContext?.id) {
-                await updateWorktreeRegistryEntry(CWD, worktreeContext.id, { status: "abandoned" });
+                await updateWorktreeRegistryEntry(projectRoot, worktreeContext.id, { status: "abandoned" });
             }
             hostedSession.clearActiveExecutionWorkflow();
             await stripTasksFromPlanFile(plan);
             await recordPlanEvent({
-                cwd: CWD,
+                cwd: projectRoot,
                 planName: plan.planName,
                 event: "review_reopened",
                 currentStatus: plan.attrs.status,
@@ -2284,17 +2366,22 @@ function formatDependencyWarning(unmetDependencies) {
 }
 
 /**
+ * @param {string} projectRoot
  * @param {{ planName: string, attrs: import('../../plan-store.js').PlanFrontMatter }} plan
  * @param {import('../../shared/workflow/workflow.js').UiAPI} uiAPI
  * @param {typeof resolveSiblingChildPlanDependenciesFn} resolveSiblingChildPlanDependencies
  * @returns {Promise<boolean>}
  */
-async function confirmChildFeatureDependencies(plan, uiAPI, resolveSiblingChildPlanDependencies) {
+async function confirmChildFeatureDependencies(projectRoot, plan, uiAPI, resolveSiblingChildPlanDependencies) {
     if (plan.attrs.classification !== "FEATURE" || !plan.attrs.parentPlan) return true;
     const dependencies = Array.isArray(plan.attrs.dependencies) ? plan.attrs.dependencies : [];
     if (dependencies.length === 0) return true;
 
-    const dependencyStates = await resolveSiblingChildPlanDependencies(CWD, plan.attrs.parentPlan, dependencies);
+    const dependencyStates = await resolveSiblingChildPlanDependencies(
+        projectRoot,
+        plan.attrs.parentPlan,
+        dependencies,
+    );
     const unmetDependencies = dependencyStates.filter((dependency) => dependency.state !== "verified");
     if (unmetDependencies.length === 0) return true;
 
@@ -2310,6 +2397,7 @@ async function confirmChildFeatureDependencies(plan, uiAPI, resolveSiblingChildP
 
 /**
  * @param {Object} opts
+ * @param {string} opts.projectRoot
  * @param {{ planName: string, body: string, markdown: string, attrs: import('../../plan-store.js').PlanFrontMatter }} opts.plan
  * @param {import('../../shared/workflow/workflow.js').UiAPI} opts.uiAPI
  * @param {typeof findPlansByParentFn} opts.findPlansByParent
@@ -2321,6 +2409,7 @@ async function confirmChildFeatureDependencies(plan, uiAPI, resolveSiblingChildP
  * @returns {Promise<"handled" | "continue">}
  */
 async function handleEpicPlan({
+    projectRoot,
     plan,
     uiAPI,
     findPlansByParent,
@@ -2332,7 +2421,7 @@ async function handleEpicPlan({
 }) {
     if (!isEpicPlan(plan.attrs)) return "continue";
 
-    const children = (await findPlansByParent(CWD, plan.planName)).filter((child) =>
+    const children = (await findPlansByParent(projectRoot, plan.planName)).filter((child) =>
         child.attrs.classification === "FEATURE"
     ).sort(compareChildPlansByOrder);
     const hasChildren = children.length > 0;
@@ -2387,7 +2476,7 @@ async function handleEpicPlan({
         }
 
         if (answer === "hold") {
-            await putPlanOnHold({ plan, uiAPI, recordPlanEvent, findPlansByParent });
+            await putPlanOnHold({ projectRoot, plan, uiAPI, recordPlanEvent, findPlansByParent });
             return "handled";
         }
 
@@ -2421,7 +2510,7 @@ async function handleEpicPlan({
                 continue;
             }
             const updatedAttrs = await recordPlanEvent({
-                cwd: CWD,
+                cwd: projectRoot,
                 planName: plan.planName,
                 event: "epic_done_enough",
                 currentStatus: plan.attrs.status,
@@ -2479,7 +2568,7 @@ async function handleEpicPlan({
 
                     if (childAction === "view") {
                         try {
-                            const childPlan = await resolvePlan(CWD, String(childPlanName));
+                            const childPlan = await resolvePlan(projectRoot, String(childPlanName));
                             uiAPI.appendSystemMessage(
                                 `FEATURE: ${childPlan.planName}\n\n${buildPlanSummary(childPlan)}`,
                                 false,
@@ -2530,6 +2619,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
         listCommitsTouchingPathsSince: listCommitsTouchingPathsSinceDep,
         restoreWorktreeTree: restoreWorktreeTreeDep,
         setActiveAgent: setActiveAgentDep,
+        switchActiveAgent: switchActiveAgentDep,
         createAgentHandler: createAgentHandlerDep,
         getRootAgentName: getRootAgentNameDep,
         listPlans: listPlansDep,
@@ -2573,9 +2663,9 @@ export async function runLoadPlanCommand(argv, options = {}) {
     const getWorkflowDiff = getWorkflowDiffDep || getWorkflowDiffFn;
     const listCommitsTouchingPathsSince = listCommitsTouchingPathsSinceDep || listCommitsTouchingPathsSinceFn;
     const restoreWorktreeTree = restoreWorktreeTreeDep || restoreWorktreeTreeFn;
-    const rawSetActiveAgent = setActiveAgentDep || setActiveAgentFn;
+    const switchActiveAgent = options.switchActiveAgent || switchActiveAgentDep || switchActiveAgentFn;
     const rawCreateAgentHandler = createAgentHandlerDep || createAgentHandlerFn;
-    const hostedSession = options.hostedSession;
+    let hostedSession = options.hostedSession;
     const getRootAgentName = getRootAgentNameDep || (() => hostedSession?.getRootAgentName?.() || null);
     /**
      * @param {string} nextAgentName
@@ -2590,12 +2680,17 @@ export async function runLoadPlanCommand(argv, options = {}) {
      * @param {string} [agentModel]
      * @param {{ allowReturnToRouter?: boolean }} [activeOptions]
      */
-    const setActiveAgent = (agentName, handler, uiAPI, agentModel, activeOptions) => {
+    const switchPlanAgent = async (agentName, handler, uiAPI, agentModel, activeOptions) => {
         if (setActiveAgentDep) {
-            setActiveAgentDep(agentName, handler, uiAPI, agentModel, activeOptions);
+            await setActiveAgentDep(agentName, handler, uiAPI, agentModel, activeOptions);
             return;
         }
-        rawSetActiveAgent(hostedSession, agentName, handler, uiAPI, agentModel, activeOptions);
+        if (!hostedSession) throw new Error("load-plan agent switching requires a HostedSession");
+        await switchActiveAgent(hostedSession, {
+            agentName,
+            model: agentModel,
+            allowReturnToRouter: activeOptions?.allowReturnToRouter,
+        }, uiAPI);
     };
     const findPlansByParent = findPlansByParentDep || findPlansByParentFn;
     const resolveSiblingChildPlanDependencies = resolveSiblingChildPlanDependenciesDep ||
@@ -2632,13 +2727,12 @@ export async function runLoadPlanCommand(argv, options = {}) {
         return;
     }
 
-    if (!hostedSession) throw new Error("runLoadPlanCommand: hostedSession is required");
-
     let [planArg] = parsedArgs._.map(String);
     if (!planArg) {
         if (options.uiAPI && options.editor) {
+            if (!hostedSession) throw new Error("runLoadPlanCommand: hostedSession is required for plan selection");
             const listPlans = listPlansDep || (await import("../../plan-store.js")).listPlans;
-            const plans = await listPlans(Deno.cwd());
+            const plans = await listPlans(hostedSession.cwd);
             if (plans.length === 0) {
                 options.uiAPI.appendSystemMessage(
                     "No plans available, start one by entering a new request",
@@ -2689,17 +2783,24 @@ export async function runLoadPlanCommand(argv, options = {}) {
                 currentUiAPI.appendSystemMessage("Please wait for the plan to load...");
                 return Promise.resolve();
             },
+            {
+                onHostedSessionReady: (nextHostedSession) => {
+                    hostedSession = nextHostedSession;
+                },
+            },
         );
     }
 
     if (!uiAPI) return;
+    if (!hostedSession) throw new Error("runLoadPlanCommand: hostedSession is required");
+    const projectRoot = hostedSession.cwd;
 
     let skipRouterRestore = false;
     const initialAgentName = getRootAgentName() || AGENTS.ROUTER;
     let restoreAgentName = initialAgentName;
 
     try {
-        const plan = await resolvePlan(CWD, planArg);
+        const plan = await resolvePlan(projectRoot, planArg);
         uiAPI.appendSystemMessage(`Plan loaded: ${plan.planName}`, false, "RunWield");
         uiAPI.appendSystemMessage(
             `Classification: ${plan.attrs.classification}, Status: ${plan.attrs.status}`,
@@ -2732,7 +2833,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
 
         if (plan.attrs.parentPlan) {
             try {
-                const parentPlan = await resolvePlan(CWD, plan.attrs.parentPlan);
+                const parentPlan = await resolvePlan(projectRoot, plan.attrs.parentPlan);
                 if (parentPlan.attrs.status === "on_hold") {
                     uiAPI.appendSystemMessage(
                         `Parent Epic "${parentPlan.planName}" is on hold. Resume the parent before working on child FEATURE "${plan.planName}".`,
@@ -2764,6 +2865,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
 
         if (plan.attrs.status === "on_hold") {
             const result = await handleOnHoldPlan({
+                projectRoot,
                 plan,
                 uiAPI,
                 listCommitsTouchingPathsSince,
@@ -2782,6 +2884,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
         if (["in_progress", "failed", "implemented"].includes(plan.attrs.status)) {
             restoreAgentName = planFlowRestoreAgent;
             const result = await handlePlanRecovery({
+                projectRoot,
                 plan,
                 agentName,
                 uiAPI,
@@ -2809,7 +2912,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                 removeWorktreeRegistryEntry,
                 shouldCleanupMergedWorktrees,
                 recordWorkflowMetric: recordWorkflowMetricForLoadPlan,
-                setActiveAgent,
+                setActiveAgent: switchPlanAgent,
                 createAgentHandler,
                 findPlansByParent,
                 hostedSession,
@@ -2819,6 +2922,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
         }
 
         const epicResult = await handleEpicPlan({
+            projectRoot,
             plan,
             uiAPI,
             findPlansByParent,
@@ -2834,6 +2938,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
         }
 
         const dependenciesConfirmed = await confirmChildFeatureDependencies(
+            projectRoot,
             plan,
             uiAPI,
             resolveSiblingChildPlanDependencies,
@@ -2859,7 +2964,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                 // architect → slicer flow regenerates them against any revisions.
                 await stripTasksFromPlanFile(plan);
                 await recordPlanEvent({
-                    cwd: CWD,
+                    cwd: projectRoot,
                     planName: plan.planName,
                     event: "review_reopened",
                     currentStatus: "verified",
@@ -2883,7 +2988,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                 if (!answer || answer === "cancel") return;
 
                 if (answer === "hold") {
-                    await putPlanOnHold({ plan, uiAPI, recordPlanEvent, findPlansByParent });
+                    await putPlanOnHold({ projectRoot, plan, uiAPI, recordPlanEvent, findPlansByParent });
                     return;
                 }
 
@@ -2891,6 +2996,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                     restoreAgentName = planFlowRestoreAgent;
                     if (plan.attrs.status === "approved") {
                         const ready = await prepareApprovedPlanForWork(
+                            projectRoot,
                             plan,
                             uiAPI,
                             ensureSlicerTasks,
@@ -2904,6 +3010,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                     }
 
                     await executeReadyPlanWithRepair({
+                        projectRoot,
                         plan,
                         agentName,
                         uiAPI,
@@ -2914,7 +3021,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                         runValidationLoop,
                         loadPlan,
                         listCommitsTouchingPathsSince,
-                        setActiveAgent,
+                        setActiveAgent: switchPlanAgent,
                         createAgentHandler,
                         hostedSession,
                     });
@@ -2928,7 +3035,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                     await stripTasksFromPlanFile(plan);
                     if (isExecutablePlanStatus(plan.attrs.status)) {
                         await recordPlanEvent({
-                            cwd: CWD,
+                            cwd: projectRoot,
                             planName: plan.planName,
                             event: "review_reopened",
                             currentStatus: plan.attrs.status,
@@ -2937,10 +3044,10 @@ export async function runLoadPlanCommand(argv, options = {}) {
                         plan.attrs.status = "feedback";
                     }
 
-                    setActiveAgent(agentName, createAgentHandler(agentName, { hostedSession }), uiAPI);
+                    await switchPlanAgent(agentName, createAgentHandler(agentName, { hostedSession }), uiAPI);
 
                     const reviewResult = await submitPlanForReview({
-                        cwd: CWD,
+                        cwd: projectRoot,
                         planName: plan.planName,
                         planPath: plan.path,
                         triageMeta: plan.attrs,
@@ -2957,7 +3064,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                     if (reviewResult.approved) {
                         if (isEpicPlan(plan.attrs)) {
                             await recordPlanEvent({
-                                cwd: CWD,
+                                cwd: projectRoot,
                                 planName: plan.planName,
                                 event: "epic_readiness_passed",
                                 currentStatus: "approved",
@@ -2989,6 +3096,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                         }
 
                         const ready = await prepareApprovedPlanForWork(
+                            projectRoot,
                             plan,
                             uiAPI,
                             ensureSlicerTasks,
@@ -3004,6 +3112,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                             : await askPostApproval(plan.planName, uiAPI);
                         if (action === "proceed") {
                             const confirmed = await confirmAffectedPathChangesBeforeExecution({
+                                projectRoot,
                                 planName: plan.planName,
                                 triageMeta: plan.attrs,
                                 uiAPI,
@@ -3089,7 +3198,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                 continue;
             }
             if (answer === "hold") {
-                await putPlanOnHold({ plan, uiAPI, recordPlanEvent, findPlansByParent });
+                await putPlanOnHold({ projectRoot, plan, uiAPI, recordPlanEvent, findPlansByParent });
                 return;
             }
             if (answer === "resume") break;
@@ -3097,7 +3206,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
 
         uiAPI.appendSystemMessage(buildPlanSummary(plan), false, "Plan");
         restoreAgentName = planFlowRestoreAgent;
-        setActiveAgent(agentName, createAgentHandler(agentName, { hostedSession }), uiAPI);
+        await switchPlanAgent(agentName, createAgentHandler(agentName, { hostedSession }), uiAPI);
 
         const outcome = await runPlanningAgent({
             hostedSession,
@@ -3128,7 +3237,11 @@ export async function runLoadPlanCommand(argv, options = {}) {
         }
     } finally {
         if (!skipRouterRestore) {
-            restorePreviousAgentFlow(uiAPI, restoreAgentName, hostedSession, deps);
+            await restorePreviousAgentFlow(uiAPI, restoreAgentName, hostedSession, {
+                ...deps,
+                switchActiveAgent: (session, switchOptions, port) =>
+                    switchActiveAgent(/** @type {any} */ (session), switchOptions, port),
+            });
         }
     }
 }

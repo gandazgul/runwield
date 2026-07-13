@@ -48,19 +48,16 @@ function makeContext(overrides = {}) {
         skills: [],
         chatPromptAgentName: "operator",
         resolveTemplateModel: () => ({ ok: true, provider: "test", id: "model" }),
-        setActiveAgent: (
+        switchAgent: (
             /** @type {unknown} */ targetHostedSession,
-            /** @type {string} */ agentName,
-            /** @type {unknown} */ handler,
-            /** @type {unknown} */ uiAPI,
-            /** @type {string | undefined} */ model,
+            /** @type {{ agentName: string, model?: string }} */ options,
         ) => {
-            records.activeAgents.push({ hostedSession: targetHostedSession, agentName, handler, uiAPI, model });
-        },
-        applyPendingRootSwap: (/** @type {unknown} */ targetHostedSession) => {
-            records.swaps++;
-            records.swapHostedSessions.push(targetHostedSession);
-            return Promise.resolve();
+            records.activeAgents.push({
+                hostedSession: targetHostedSession,
+                agentName: options.agentName,
+                model: options.model,
+            });
+            return Promise.resolve({ ok: true, agentName: options.agentName, changed: true });
         },
         dispatchExpandedUserRequest: (
             /** @type {string} */ text,
@@ -153,7 +150,7 @@ Deno.test("handleSlashCommand dispatches built-in commands and restores cancella
     assertEquals(ctx.records.cancels.length, 2);
     assertEquals(ctx.records.cancels[1], null);
     assertEquals(ctx.records.aborted, [ctx.hostedSession]);
-    assertEquals(ctx.records.swaps, 1);
+    assertEquals(ctx.records.swaps, 0);
 });
 
 Deno.test("handleSlashCommand reports built-in command errors only for current generation", async () => {
@@ -201,16 +198,11 @@ Deno.test("handleSlashCommand switches prompt templates to Operator before expan
     assertEquals(ctx.records.activeAgents, [{
         hostedSession: ctx.hostedSession,
         agentName: "operator",
-        handler: "handler:operator",
-        uiAPI: ctx.uiAPI,
         model: undefined,
     }]);
-    assertEquals(ctx.records.createdHandlers, [{
-        agentName: "operator",
-        deps: { hostedSession: ctx.hostedSession },
-    }]);
-    assertEquals(ctx.records.swaps, 1);
-    assertEquals(ctx.records.swapHostedSessions, [ctx.hostedSession]);
+    assertEquals(ctx.records.createdHandlers, []);
+    assertEquals(ctx.records.swaps, 0);
+    assertEquals(ctx.records.swapHostedSessions, []);
     assertEquals(ctx.records.runs, []);
 });
 

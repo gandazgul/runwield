@@ -68,7 +68,7 @@ Deno.test("createPlanWrittenTool returns guidance when plan file is missing", as
 Deno.test("valid plan declaration records workflow plan name after validation", async () => {
     /** @type {string[]} */
     const recorded = [];
-    const hostedSession = new HostedSession({ id: "plan-workflow" });
+    const hostedSession = new HostedSession({ id: "plan-workflow", cwd: Deno.cwd() });
     hostedSession.setWorkflowPlanName = (planName) => {
         recorded.push(String(planName));
     };
@@ -86,7 +86,7 @@ Deno.test("valid plan declaration records workflow plan name after validation", 
 });
 
 Deno.test("valid plan declaration remains fail-open when workflow plan recording throws", async () => {
-    const hostedSession = new HostedSession({ id: "plan-workflow-throws" });
+    const hostedSession = new HostedSession({ id: "plan-workflow-throws", cwd: Deno.cwd() });
     hostedSession.setWorkflowPlanName = () => {
         throw new Error("persistence failed");
     };
@@ -105,7 +105,7 @@ Deno.test("valid plan declaration remains fail-open when workflow plan recording
 Deno.test("invalid plan declaration does not replace workflow plan name", async () => {
     /** @type {string[]} */
     const recorded = [];
-    const hostedSession = new HostedSession({ id: "invalid-plan-workflow" });
+    const hostedSession = new HostedSession({ id: "invalid-plan-workflow", cwd: Deno.cwd() });
     hostedSession.setWorkflowPlanName = (planName) => {
         recorded.push(String(planName));
     };
@@ -409,7 +409,7 @@ Deno.test("strips trailing .md from planName before processing", async () => {
 });
 
 Deno.test("ACP plan_written shares review link and skips local review lifecycle", async () => {
-    const hostedSession = new HostedSession({ id: "acp-plan" });
+    const hostedSession = new HostedSession({ id: "acp-plan", cwd: Deno.cwd() });
     hostedSession.setInteractionAdapter(null, { kind: "acp", acpSessionId: "acp-1" });
     /** @type {unknown[]} */
     const emitted = [];

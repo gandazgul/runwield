@@ -83,11 +83,12 @@ Deno.test("two project roots keep local catalogs settings and Plans isolated", a
 });
 
 Deno.test("listPromptTemplates gives local templates precedence and parses metadata", async () => {
-    await cleanupLocalCatalogFixtures();
-    await Deno.mkdir(localPromptsDir, { recursive: true });
+    const projectRoot = await Deno.makeTempDir({ prefix: "runwield-prompts-" });
+    const projectPromptsDir = join(projectRoot, ".wld", "prompts");
+    await Deno.mkdir(projectPromptsDir, { recursive: true });
     try {
         await Deno.writeTextFile(
-            join(localPromptsDir, "code-review.md"),
+            join(projectPromptsDir, "code-review.md"),
             [
                 "---",
                 'description: "Local review override"',
@@ -98,11 +99,11 @@ Deno.test("listPromptTemplates gives local templates precedence and parses metad
             ].join("\n"),
         );
         await Deno.writeTextFile(
-            join(localPromptsDir, "coverage-local.md"),
+            join(projectPromptsDir, "coverage-local.md"),
             "Describe local prompt from body.",
         );
 
-        const templates = await listPromptTemplates();
+        const templates = await listPromptTemplates({ cwd: projectRoot });
         const names = templates.map((template) => template.name);
         const codeReview = templates.find((template) => template.name === "code-review");
         const local = templates.find((template) => template.name === "coverage-local");
@@ -114,7 +115,7 @@ Deno.test("listPromptTemplates gives local templates precedence and parses metad
         assertEquals(codeReview?.model, "test/model");
         assertEquals(local?.description, "Describe local prompt from body.");
     } finally {
-        await cleanupLocalCatalogFixtures();
+        await Deno.remove(projectRoot, { recursive: true });
     }
 });
 
@@ -186,7 +187,9 @@ Deno.test("expandPromptTemplate strips front matter and appends user instruction
 
 Deno.test("listSkills and expandSkillCommand read local skill definitions", async () => {
     await cleanupLocalCatalogFixtures();
-    const skillDir = join(localSkillsDir, "coverage-skill");
+    const projectRoot = await Deno.makeTempDir({ prefix: "runwield-local-skill-" });
+    const skillName = `coverage-skill-${crypto.randomUUID()}`;
+    const skillDir = join(projectRoot, ".wld", "skills", skillName);
     const skillPath = join(skillDir, "SKILL.md");
     await Deno.mkdir(skillDir, { recursive: true });
     try {
@@ -194,21 +197,21 @@ Deno.test("listSkills and expandSkillCommand read local skill definitions", asyn
             skillPath,
             [
                 "---",
-                'name: "coverage-skill"',
+                `name: "${skillName}"`,
                 'description: "Exercise local skill loading"',
                 "---",
                 "Use this skill carefully.",
             ].join("\n"),
         );
 
-        const skills = await listSkills();
-        const skill = skills.find((item) => item.name === "coverage-skill");
+        const skills = await listSkills({ cwd: projectRoot });
+        const skill = skills.find((item) => item.name === skillName);
         assertEquals(skill?.source, "local");
         assertEquals(skill?.description, "Exercise local skill loading");
 
-        const expanded = await expandSkillCommand("coverage-skill", "User extra");
-        assertStringIncludes(expanded, 'The user has invoked the "coverage-skill" skill.');
-        assertStringIncludes(expanded, `<skill name="coverage-skill" location="${skillPath}">`);
+        const expanded = await expandSkillCommand(skillName, "User extra", projectRoot);
+        assertStringIncludes(expanded, `The user has invoked the "${skillName}" skill.`);
+        assertStringIncludes(expanded, `<skill name="${skillName}" location="${skillPath}">`);
         assertStringIncludes(expanded, "Use this skill carefully.");
         assertStringIncludes(expanded, "User extra");
 
@@ -218,6 +221,7 @@ Deno.test("listSkills and expandSkillCommand read local skill definitions", asyn
             "Unknown skill: missing-skill",
         );
     } finally {
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
         await cleanupLocalCatalogFixtures();
     }
 });
@@ -248,16 +252,15 @@ Deno.test("bundled agent defs path and loaded instruction files are reported", a
     const bundledPath = await getBundledAgentDefsPath();
     assertEquals(bundledPath.endsWith("agent-definitions") || bundledPath.includes("bundled-agent-definitions"), true);
 
-    const projectHarnessPath = join(Deno.cwd(), "RUNWEILD.md");
-    const originalProjectHarness = await Deno.readTextFile(projectHarnessPath).catch(() => null);
+    const projectRoot = await Deno.makeTempDir({ prefix: "runwield-loaded-agent-md-" });
+    const projectHarnessPath = join(projectRoot, "RUNWEILD.md");
     try {
         await Deno.writeTextFile(projectHarnessPath, "Project instructions for coverage");
-        const files = await listLoadedAgentMdFiles();
+        const files = await listLoadedAgentMdFiles(projectRoot);
         const projectFile = files.find((file) => file.path === projectHarnessPath);
         assertEquals(projectFile, { path: projectHarnessPath, source: "local" });
     } finally {
-        if (originalProjectHarness === null) await Deno.remove(projectHarnessPath).catch(() => {});
-        else await Deno.writeTextFile(projectHarnessPath, originalProjectHarness);
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
     }
 });
 
@@ -286,9 +289,10 @@ Deno.test("assembleFinalSystemPrompt fills tools, instruction files, skills, and
     await cleanupLocalCatalogFixtures();
     const originalHome = Deno.env.get("HOME");
     const tempHome = await Deno.makeTempDir({ prefix: "runwield-assemble-prompt-" });
-    const projectHarnessPath = join(Deno.cwd(), "RUNWEILD.md");
-    const originalProjectHarness = await Deno.readTextFile(projectHarnessPath).catch(() => null);
-    const skillDir = join(localSkillsDir, "coverage-skill");
+    const projectRoot = await Deno.makeTempDir({ prefix: "runwield-assemble-project-" });
+    const projectHarnessPath = join(projectRoot, "RUNWEILD.md");
+    const skillName = `coverage-skill-${crypto.randomUUID()}`;
+    const skillDir = join(projectRoot, ".wld", "skills", skillName);
     const skillPath = join(skillDir, "SKILL.md");
 
     try {
@@ -301,7 +305,7 @@ Deno.test("assembleFinalSystemPrompt fills tools, instruction files, skills, and
             skillPath,
             [
                 "---",
-                'name: "coverage-skill"',
+                `name: "${skillName}"`,
                 'description: "Available for prompt assembly"',
                 "---",
                 "Use this skill carefully.",
@@ -331,6 +335,7 @@ Deno.test("assembleFinalSystemPrompt fills tools, instruction files, skills, and
                 description: "custom description",
                 promptSnippet: "custom snippet",
             }]),
+            projectRoot,
         );
 
         assertStringIncludes(prompt, "- read -");
@@ -338,14 +343,13 @@ Deno.test("assembleFinalSystemPrompt fills tools, instruction files, skills, and
         assertStringIncludes(prompt, "- unknown_tool - Built-in tool");
         assertStringIncludes(prompt, "Global prompt context");
         assertStringIncludes(prompt, "Project prompt context");
-        assertStringIncludes(prompt, `coverage-skill - Available for prompt assembly (read: ${skillPath})`);
+        assertStringIncludes(prompt, `${skillName} - Available for prompt assembly (read: ${skillPath})`);
         assertStringIncludes(prompt, "agent-definitions");
     } finally {
         if (originalHome === undefined) Deno.env.delete("HOME");
         else Deno.env.set("HOME", originalHome);
-        if (originalProjectHarness === null) await Deno.remove(projectHarnessPath).catch(() => {});
-        else await Deno.writeTextFile(projectHarnessPath, originalProjectHarness);
         await Deno.remove(tempHome, { recursive: true }).catch(() => {});
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
         await cleanupLocalCatalogFixtures();
     }
 });

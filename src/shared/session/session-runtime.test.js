@@ -1,4 +1,4 @@
-import { assertEquals, assertRejects, assertStrictEquals } from "@std/assert";
+import { assertEquals, assertRejects, assertStrictEquals, assertThrows } from "@std/assert";
 import { HostedSession } from "./hosted-session.js";
 import { SessionHost } from "./session-host.js";
 import { RuntimeEventTypes } from "./session-runtime-events.js";
@@ -15,6 +15,21 @@ function makeSessionManager(id) {
         },
     };
 }
+
+Deno.test("SessionRuntime createSession requires an absolute project root", () => {
+    const runtime = new SessionRuntime({ sessionHost: new SessionHost() });
+
+    assertThrows(
+        () => runtime.createSession(/** @type {any} */ ({ id: "missing-root" })),
+        Error,
+        "requires an absolute project root",
+    );
+    assertThrows(
+        () => runtime.createSession({ id: "relative-root", cwd: "relative/project", sessionManager: null }),
+        Error,
+        "requires an absolute project root",
+    );
+});
 
 Deno.test("SessionRuntime composes SessionHost for create adopt list and close", () => {
     const host = new SessionHost();
@@ -35,8 +50,8 @@ Deno.test("SessionRuntime composes SessionHost for create adopt list and close",
 });
 
 Deno.test("SessionRuntime promptSession consumes only the target HostedSession handoff result", async () => {
-    const current = new HostedSession({ id: "current" });
-    const other = new HostedSession({ id: "other" });
+    const current = new HostedSession({ id: "current", cwd: Deno.cwd() });
+    const other = new HostedSession({ id: "other", cwd: Deno.cwd() });
     /** @type {string[]} */
     const seenRequests = [];
     current.setRootSessionManager(/** @type {any} */ ({ id: "current-root" }));
@@ -68,7 +83,7 @@ Deno.test("SessionRuntime promptSession consumes only the target HostedSession h
 });
 
 Deno.test("SessionRuntime keeps the session busy while compatibility UI work is still in flight", async () => {
-    const hostedSession = new HostedSession({ id: "busy-owner" });
+    const hostedSession = new HostedSession({ id: "busy-owner", cwd: Deno.cwd() });
     hostedSession.setRootSessionManager(/** @type {any} */ ({ id: "root" }));
     /**
      * @param {string} _request
@@ -97,7 +112,7 @@ Deno.test("SessionRuntime keeps the session busy while compatibility UI work is 
 });
 
 Deno.test("SessionRuntime promptSession preserves the chained handoff limit", async () => {
-    const hostedSession = new HostedSession({ id: "limited" });
+    const hostedSession = new HostedSession({ id: "limited", cwd: Deno.cwd() });
     /** @type {string[]} */
     const messages = [];
     let turnCount = 0;
@@ -127,7 +142,7 @@ Deno.test("SessionRuntime promptSession preserves the chained handoff limit", as
 });
 
 Deno.test("SessionRuntime adapter switch rejects active turns", async () => {
-    const hostedSession = new HostedSession({ id: "switch-busy" });
+    const hostedSession = new HostedSession({ id: "switch-busy", cwd: Deno.cwd() });
     hostedSession.beginTurn("active");
     const runtime = new SessionRuntime();
 
@@ -140,7 +155,7 @@ Deno.test("SessionRuntime adapter switch rejects active turns", async () => {
 });
 
 Deno.test("SessionRuntime cancelSession aborts the target HostedSession and handles missing sessions", () => {
-    const hostedSession = new HostedSession({ id: "cancel-me" });
+    const hostedSession = new HostedSession({ id: "cancel-me", cwd: Deno.cwd() });
     /** @type {string[]} */
     const aborted = [];
     const runtime = new SessionRuntime({
@@ -156,7 +171,7 @@ Deno.test("SessionRuntime cancelSession aborts the target HostedSession and hand
 });
 
 Deno.test("SessionRuntime promptSession reports missing active handler or session manager", async () => {
-    const hostedSession = new HostedSession({ id: "missing-handler" });
+    const hostedSession = new HostedSession({ id: "missing-handler", cwd: Deno.cwd() });
     /** @type {string[]} */
     const events = [];
     const runtime = new SessionRuntime();
@@ -374,7 +389,7 @@ Deno.test("SessionRuntime removes partially initialized sessions when root creat
 });
 
 Deno.test("SessionRuntime promptSession emits user turn and terminal error events", async () => {
-    const hostedSession = new HostedSession({ id: "prompt-events" });
+    const hostedSession = new HostedSession({ id: "prompt-events", cwd: Deno.cwd() });
     hostedSession.setRootSessionManager(/** @type {any} */ ({ id: "root" }));
     hostedSession.setActiveOnMessage(() => {
         throw new Error("boom");
@@ -490,7 +505,7 @@ Deno.test("SessionRuntime permits independent Hosted Sessions to prompt concurre
 });
 
 Deno.test("SessionRuntime cancelSession emits cancellation event", () => {
-    const hostedSession = new HostedSession({ id: "cancel-events" });
+    const hostedSession = new HostedSession({ id: "cancel-events", cwd: Deno.cwd() });
     const runtime = new SessionRuntime({ abortActiveSession: () => true });
     /** @type {unknown[]} */
     const events = [];
@@ -504,7 +519,7 @@ Deno.test("SessionRuntime cancelSession emits cancellation event", () => {
 });
 
 Deno.test("SessionRuntime requestInteraction settles adapter outcomes and emits lifecycle", async () => {
-    const hostedSession = new HostedSession({ id: "interactions" });
+    const hostedSession = new HostedSession({ id: "interactions", cwd: Deno.cwd() });
     const runtime = new SessionRuntime();
     /** @type {string[]} */
     const events = [];
@@ -531,14 +546,14 @@ Deno.test("SessionRuntime requestInteraction settles adapter outcomes and emits 
 });
 
 Deno.test("SessionRuntime requestInteraction returns unsupported without adapter", async () => {
-    const hostedSession = new HostedSession({ id: "unsupported-interactions" });
+    const hostedSession = new HostedSession({ id: "unsupported-interactions", cwd: Deno.cwd() });
     const runtime = new SessionRuntime();
     const response = await runtime.requestInteraction(hostedSession, { type: "text", prompt: "Name?" });
     assertEquals(response.outcome, "unsupported");
 });
 
 Deno.test("SessionRuntime requestInteraction resolves canceled when session cancellation aborts active interaction", async () => {
-    const hostedSession = new HostedSession({ id: "cancel-interactions" });
+    const hostedSession = new HostedSession({ id: "cancel-interactions", cwd: Deno.cwd() });
     const runtime = new SessionRuntime();
     let sawAbortSignal = false;
     hostedSession.setInteractionAdapter({

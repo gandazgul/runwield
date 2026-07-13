@@ -64,10 +64,9 @@ function getTaskDebugLogPath(root, task, agentName) {
  * @returns {string | undefined}
  */
 function resolveTaskDebugRoot(options) {
-    if (options.executionCwd) return options.executionCwd;
     if (options.debugRoot) return options.debugRoot;
-    if (Deno.env.get("DEBUG") === "1") return join(Deno.cwd(), ".wld", "debug");
-    return undefined;
+    if (options.executionCwd && Deno.env.get("DEBUG") === "1") return join(options.executionCwd, ".wld", "debug");
+    return options.executionCwd;
 }
 
 /**
@@ -97,7 +96,7 @@ function formatAgentTranscript(messages) {
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [sessionManager]
  * @param {Map<number, import('./types.js').TaskExecutionResult>} [seedResults]
  * @param {typeof runAgentSession} [agentSessionRunner]
- * @param {{ executionCwd?: string, debugRoot?: string }} [options]
+ * @param {{ projectRoot?: string, executionCwd?: string, debugRoot?: string }} [options]
  */
 export async function executeProjectTasks(
     planName,
@@ -111,6 +110,7 @@ export async function executeProjectTasks(
     agentSessionRunner = runAgentSession,
     options = {},
 ) {
+    const projectRoot = options.projectRoot || options.executionCwd;
     /** @type {Map<number, import('./types.js').TaskExecutionResult>} */
     const results = new Map();
     const retryTaskIds = new Set(seedFailedTasks);
@@ -160,7 +160,9 @@ export async function executeProjectTasks(
             const debugRoot = resolveTaskDebugRoot(options);
             const taskDebugLogPath = debugRoot ? getTaskDebugLogPath(debugRoot, task, agentName) : undefined;
 
-            const taskHeader = `--- Task ${task.task}: ${task.description} (→ ${getAgentDisplayName(agentName)}) ---`;
+            const taskHeader = `--- Task ${task.task}: ${task.description} (→ ${
+                getAgentDisplayName(agentName, projectRoot)
+            }) ---`;
             uiAPI.appendSystemMessage(taskHeader, false, "RunWield");
 
             try {
@@ -173,11 +175,11 @@ export async function executeProjectTasks(
                             `Plan: ${planName}`,
                             `Task: ${task.task}`,
                             `Assignee: ${agentName}`,
-                            `Display Name: ${getAgentDisplayName(agentName)}`,
+                            `Display Name: ${getAgentDisplayName(agentName, projectRoot)}`,
                             `Description: ${task.description}`,
                             `Dependencies: ${task.dependencies || "none"}`,
                             `Write Scope: ${task.writeScope || "unknown"}`,
-                            `Execution CWD: ${options.executionCwd || Deno.cwd()}`,
+                            `Execution CWD: ${options.executionCwd || "(not provided)"}`,
                             "",
                         ].join("\n"),
                     );
@@ -226,7 +228,7 @@ export async function executeProjectTasks(
                 }
 
                 const block = uiAPI.appendAgentMessageStart(
-                    `${getAgentDisplayName(agentName)} (Task ${task.task} Output)`,
+                    `${getAgentDisplayName(agentName, projectRoot)} (Task ${task.task} Output)`,
                 );
                 block.appendText(outputText || "_no output received_");
 
@@ -244,7 +246,7 @@ export async function executeProjectTasks(
                         );
                     }
                     uiAPI.appendSystemMessage(
-                        `Task ${task.task} incomplete (${getAgentDisplayName(agentName)}): ${error}`,
+                        `Task ${task.task} incomplete (${getAgentDisplayName(agentName, projectRoot)}): ${error}`,
                         false,
                         "RunWield",
                     );
@@ -253,9 +255,9 @@ export async function executeProjectTasks(
                     if (sessionManager?.appendCustomMessageEntry) {
                         sessionManager.appendCustomMessageEntry(
                             "task_result",
-                            `Task ${task.task} (${getAgentDisplayName(agentName)}) INCOMPLETE: ${error}\n\n${
-                                outputText || "(no output)"
-                            }`,
+                            `Task ${task.task} (${
+                                getAgentDisplayName(agentName, projectRoot)
+                            }) INCOMPLETE: ${error}\n\n${outputText || "(no output)"}`,
                             true,
                             { taskId: task.task, agentName, status: "failed", error, output: outputText || "" },
                         );
@@ -263,7 +265,7 @@ export async function executeProjectTasks(
                     return;
                 }
 
-                const display = buildTaskResultDisplay(task, agentName, outputText);
+                const display = buildTaskResultDisplay(task, agentName, outputText, projectRoot);
                 results.set(task.task, {
                     status: "success",
                     messages: sessionMessages,
@@ -295,7 +297,7 @@ export async function executeProjectTasks(
                     );
                 }
                 uiAPI.appendSystemMessage(
-                    `❌ Task ${task.task} failed (${getAgentDisplayName(agentName)}): ${error.message}`,
+                    `❌ Task ${task.task} failed (${getAgentDisplayName(agentName, projectRoot)}): ${error.message}`,
                     false,
                     "RunWield",
                 );
@@ -304,7 +306,7 @@ export async function executeProjectTasks(
                 if (sessionManager?.appendCustomMessageEntry) {
                     sessionManager.appendCustomMessageEntry(
                         "task_result",
-                        `Task ${task.task} (${getAgentDisplayName(agentName)}) FAILED: ${error.message}`,
+                        `Task ${task.task} (${getAgentDisplayName(agentName, projectRoot)}) FAILED: ${error.message}`,
                         true,
                         { taskId: task.task, agentName, status: "failed", error: error.message },
                     );

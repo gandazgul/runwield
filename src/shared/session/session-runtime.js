@@ -22,7 +22,6 @@ export const HANDOFF_LIMIT_MESSAGE =
  * @typedef {Object} SessionRuntimeOptions
  * @property {SessionHost} [sessionHost]
  * @property {typeof switchActiveAgent} [switchActiveAgent]
- * @property {(hostedSession: import('./hosted-session.js').HostedSession, uiAPI?: import('../types.js').SessionUiPort) => Promise<void>} [applyPendingRootSwap]
  * @property {(hostedSession: import('./hosted-session.js').HostedSession) => boolean} [abortActiveSession]
  * @property {(mode: string, cwd: string) => Promise<any>} [createRootSessionManager]
  * @property {(options: import('./root-session.js').ResolvePersistedRootSessionOptions) => Promise<{ sessionManager: any, resolved: import('./root-session.js').ResolvedPersistedRootSession }>} [openPersistedRootSession]
@@ -278,8 +277,15 @@ export class SessionRuntime {
         this.turnSettlements = new Map();
     }
 
-    /** @param {import('./session-host.js').CreateSessionOptions} options */
+    /** @param {import('./session-host.js').CreateSessionOptions} [options] */
     createSession(options = {}) {
+        const sessionManagerCwd = typeof options?.sessionManager?.getCwd === "function"
+            ? options.sessionManager.getCwd()
+            : null;
+        const projectRoot = sessionManagerCwd || options?.cwd;
+        if (!projectRoot || !isAbsolute(projectRoot)) {
+            throw new Error("SessionRuntime.createSession requires an absolute project root");
+        }
         return this.sessionHost.createSession(options);
     }
 

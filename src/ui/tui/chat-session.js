@@ -56,7 +56,6 @@ import {
 } from "../../cmd/init/init-state.js";
 import { SessionHost } from "../../shared/session/session-host.js";
 import { SessionRuntime, SessionTurnInProgressError } from "../../shared/session/session-runtime.js";
-import { applyPendingRootSwap, setActiveAgent } from "../../shared/session/agent-switching.js";
 import { resolveTemplateModel } from "../../shared/models/model-validation.js";
 import { createRootSessionManager } from "../../shared/session/root-session.js";
 import { createGenerationGuard } from "./generation-guard.js";
@@ -548,8 +547,6 @@ export function __resetPendingSteeringForTests(steeringState) {
     clearSteeringState(steeringState);
 }
 
-export { applyPendingRootSwap, setActiveAgent };
-
 /**
  * @param {import('../../shared/session/hosted-session.js').HostedSession} hostedSession
  * @param {string} model
@@ -641,24 +638,21 @@ export function getActiveModel(hostedSession) {
 }
 
 /**
- * Testable core of the interactive submit loop. It applies root swaps and
- * follows return_to_router handoffs recorded on the supplied HostedSession only.
+ * Testable core of the interactive submit loop. It follows typed handoff
+ * results produced by the supplied HostedSession's active handler only.
  *
  * @param {Object} args
  * @param {import('../../shared/session/hosted-session.js').HostedSession} args.hostedSession
  * @param {import('./types.js').UiAPI} args.uiAPI
  * @param {string} args.initialRequest
  * @param {import('../../shared/session/types.js').ImageAttachment[]} args.initialImages
- * @param {(uiAPI: import('../../shared/types.js').SessionUiPort) => Promise<void>} args.applyPendingRootSwapImpl
+ * @param {import('../../shared/session/session-runtime.js').SessionRuntimeOptions["switchActiveAgent"]} [args.switchActiveAgentImpl]
  */
 export async function runScopedSubmitHandoffLoop(
-    { hostedSession, uiAPI, initialRequest, initialImages, applyPendingRootSwapImpl },
+    { hostedSession, uiAPI, initialRequest, initialImages, switchActiveAgentImpl },
 ) {
     const runtime = new SessionRuntime({
-        applyPendingRootSwap: (
-            /** @type {import('../../shared/session/hosted-session.js').HostedSession} */ _hostedSession,
-            /** @type {import('../../shared/types.js').SessionUiPort | undefined} */ targetUiAPI,
-        ) => applyPendingRootSwapImpl(/** @type {import('../../shared/types.js').SessionUiPort} */ (targetUiAPI)),
+        switchActiveAgent: switchActiveAgentImpl,
     });
     const adapter = attachTuiRuntimeAdapter({ runtime, hostedSession, uiAPI });
     try {
@@ -672,7 +666,16 @@ export async function runScopedSubmitHandoffLoop(
  * Starts the interactive TUI loop.
  * @param {string | null} initialUserRequest
  * @param {import('../../shared/session/types.js').AgentMessageHandler | null} onMessage - Handler for user submissions
- * @param {{ sessionStartMode?: "new" | "continue", initialAgentName?: string, initialAgentModel?: string }} [options]
+ * @param {{
+ *   sessionStartMode?: "new" | "continue",
+ *   initialAgentName?: string,
+ *   initialAgentModel?: string,
+ *   onHostedSessionReady?: (
+ *     hostedSession: import('../../shared/session/hosted-session.js').HostedSession,
+ *     sessionRuntime: SessionRuntime,
+ *     sessionManager: import('@earendil-works/pi-coding-agent').SessionManager,
+ *   ) => void,
+ * }} [options]
  */
 export async function startInteractiveSession(initialUserRequest, onMessage, options = {}) {
     CHAT_BUILTIN_SLASH_NAMES = new Set(
@@ -686,6 +689,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
     let runtimeUiAPI = sessionRuntime.getSessionUiPort(hostedSession);
     sessionRuntime.attachRuntimeEventSink(hostedSession);
     hostedSession.setActiveUiAPI(runtimeUiAPI);
+    options.onHostedSessionReady?.(hostedSession, sessionRuntime, rootSessionManager);
     initSettings(hostedSession.cwd);
     const sessionStartedAt = rootSessionManager.getHeader()?.timestamp || new Date().toISOString();
 
@@ -1013,48 +1017,21 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
 
     /**
      * @param {import('../../shared/session/hosted-session.js').HostedSession | string | undefined} hostedSessionOrAgentName
-     * @param {string | import('../../shared/session/types.js').AgentMessageHandler} agentNameOrHandler
-     * @param {import('../../shared/session/types.js').AgentMessageHandler | import('./types.js').UiAPI} [handlerOrUiAPI]
-     * @param {import('./types.js').UiAPI | string} [uiAPIOrAgentModel]
-     * @param {string | { allowReturnToRouter?: boolean }} [agentModelOrOptions]
-     * @param {{ allowReturnToRouter?: boolean }} [agentOptions]
+     * @param {{ agentName: string, model?: string, allowReturnToRouter?: boolean } | string} [agentNameOrOptions]
      */
-    const setCurrentActiveAgent = (
+    const switchCurrentActiveAgent = (
         hostedSessionOrAgentName,
-        agentNameOrHandler,
-        handlerOrUiAPI,
-        uiAPIOrAgentModel,
-        agentModelOrOptions,
-        agentOptions,
+        agentNameOrOptions = undefined,
     ) => {
         const hasExplicitSession = hostedSessionOrAgentName && typeof hostedSessionOrAgentName === "object";
         const targetHostedSession = hasExplicitSession
             ? /** @type {import('../../shared/session/hosted-session.js').HostedSession} */ (hostedSessionOrAgentName)
             : hostedSession;
-        const agentName = hasExplicitSession ? agentNameOrHandler : hostedSessionOrAgentName;
-        const handler = hasExplicitSession ? handlerOrUiAPI : agentNameOrHandler;
-        const agentModel = hasExplicitSession ? agentModelOrOptions : uiAPIOrAgentModel;
-        const nextAgentOptions = hasExplicitSession ? agentOptions : agentModelOrOptions;
-        setActiveAgent(
-            targetHostedSession,
-            /** @type {string} */ (agentName),
-            handler,
-            sessionRuntime.getSessionUiPort(targetHostedSession),
-            typeof agentModel === "string" ? agentModel : undefined,
-            typeof nextAgentOptions === "object" ? nextAgentOptions : undefined,
-        );
-    };
-    /**
-     * @param {import('../../shared/session/hosted-session.js').HostedSession | import('./types.js').UiAPI | undefined} hostedSessionOrUiAPI
-     * @param {import('./types.js').UiAPI} [_uiAPIArg]
-     */
-    const applyCurrentPendingRootSwap = (hostedSessionOrUiAPI, _uiAPIArg) => {
-        const hasExplicitSession = hostedSessionOrUiAPI && typeof hostedSessionOrUiAPI === "object" &&
-            typeof /** @type {any} */ (hostedSessionOrUiAPI).getPendingRootSwap === "function";
-        const targetHostedSession = hasExplicitSession
-            ? /** @type {import('../../shared/session/hosted-session.js').HostedSession} */ (hostedSessionOrUiAPI)
-            : hostedSession;
-        return applyPendingRootSwap(targetHostedSession, sessionRuntime.getSessionUiPort(targetHostedSession));
+        const rawOptions = hasExplicitSession ? agentNameOrOptions : { agentName: hostedSessionOrAgentName };
+        const options = typeof rawOptions === "object"
+            ? /** @type {{ agentName: string, model?: string, allowReturnToRouter?: boolean }} */ (rawOptions)
+            : { agentName: String(rawOptions || "") };
+        return sessionRuntime.switchAgent(targetHostedSession, options);
     };
     /** @param {string} model @param {string} [provider] */
     const setCurrentActiveModel = (model, provider) => setActiveModel(hostedSession, model, provider, sessionRuntime);
@@ -1076,8 +1053,6 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         hostedSession.setActiveUiAPI(runtimeUiAPI);
         tuiRuntimeAdapter = attachTuiRuntimeAdapter({ runtime: sessionRuntime, hostedSession, uiAPI });
         hostedSession.setActiveOnMessage(createAgentHandler(AGENTS.ROUTER, { hostedSession }));
-        hostedSession.setPendingRootSwap(null);
-        hostedSession.setPendingSwitchHandoff(null);
         pastedImages.length = 0;
         previewImages.clear();
         submissionQueue.length = 0;
@@ -1121,8 +1096,8 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
 
     // ── Eagerly build the root AgentSession for the initial agent ──
     // The root persists across turns of the same agent so /compact and other long-lived
-    // session operations have something to act on. setActiveAgent rebuilds the root on
-    // an agent switch (applied at turn boundaries via applyPendingRootSwap).
+    // session operations have something to act on. Runtime agent switching rebuilds
+    // roots as one awaited transaction.
     if (!modelWelcomeResult.shown) {
         try {
             await ensureRootAgentSession({
@@ -1542,8 +1517,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
                 skills,
                 chatPromptAgentName: CHAT_PROMPT_AGENT_NAME,
                 resolveTemplateModel,
-                setActiveAgent: setCurrentActiveAgent,
-                applyPendingRootSwap: applyCurrentPendingRootSwap,
+                switchAgent: switchCurrentActiveAgent,
                 dispatchExpandedUserRequest: submitToActiveRoot,
                 setActiveModel: setCurrentActiveModel,
                 replaceHostedSession,
