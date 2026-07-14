@@ -346,6 +346,7 @@ function startsWithMessages(messages, prefix) {
  * @param {Object} args
  * @param {string} args.agentName
  * @param {string} args.userRequest
+ * @param {Array<{base64: string, mimeType: string}>} [args.images]
  * @param {import('./workflow.js').UiAPI} args.uiAPI
  * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined} args.sessionManager
  * @param {string} [args.cwd]
@@ -357,6 +358,7 @@ function startsWithMessages(messages, prefix) {
 async function runCompletionGatedRepair({
     agentName,
     userRequest,
+    images = [],
     uiAPI,
     sessionManager,
     cwd,
@@ -370,6 +372,7 @@ async function runCompletionGatedRepair({
         hostedSession,
         agentName,
         userRequest,
+        images,
         uiAPI,
         sessionManager,
         cwd,
@@ -1400,7 +1403,7 @@ export async function runValidationLoop({
                     });
 
                     const hasHumanFeedback = Boolean(
-                        humanReview.feedback?.trim() || humanReview.annotations?.length,
+                        humanReview.feedback?.trim() || humanReview.annotations?.length || humanReview.images?.length,
                     );
                     if (humanReview.exit || (!humanReview.approved && !hasHumanFeedback)) {
                         const decision = humanReview.canceled ? "canceled" : humanReview.exit ? "exited" : "halted";
@@ -1413,6 +1416,7 @@ export async function runValidationLoop({
                                 decision,
                                 hasFeedback: Boolean(humanReview.feedback?.trim()),
                                 annotationCount: humanReview.annotations?.length || 0,
+                                imageCount: humanReview.images?.length || 0,
                             },
                         });
                         haltReason = "User code review exited without approval or feedback.";
@@ -1430,7 +1434,13 @@ export async function runValidationLoop({
                             category: "validation",
                             event: "human_review_result",
                             planName,
-                            details: { mode: codeReviewMode, decision: "approved" },
+                            details: {
+                                mode: codeReviewMode,
+                                decision: "approved",
+                                hasFeedback: Boolean(humanReview.feedback?.trim()),
+                                annotationCount: humanReview.annotations?.length || 0,
+                                imageCount: humanReview.images?.length || 0,
+                            },
                         });
                         executionComplete = true;
                     } else {
@@ -1455,6 +1465,7 @@ export async function runValidationLoop({
                                 decision: "feedback_requested",
                                 hasFeedback: Boolean(humanReview.feedback?.trim()),
                                 annotationCount: humanReview.annotations?.length || 0,
+                                imageCount: humanReview.images?.length || 0,
                             },
                         });
                         await recordWorkflowMetricImpl({
@@ -1473,6 +1484,9 @@ export async function runValidationLoop({
                             uiAPI,
                             sessionManager,
                             cwd: executionCwd,
+                            images: /** @type {Array<{base64: string, mimeType: string}>} */ (
+                                /** @type {unknown} */ (humanReview.images || [])
+                            ),
                         });
                         await recordWorkflowMetricImpl({
                             category: "validation",

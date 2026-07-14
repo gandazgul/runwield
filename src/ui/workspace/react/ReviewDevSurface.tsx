@@ -108,25 +108,224 @@ Lorem ipsum dolor sit amet, consectetur adipiscing elit. Vestibulum lacinia arcu
 ad litora torquent per conubia nostra per inceptos himenaeos curabitur sodales ligula in libero.
 `;
 
-const CODE_REVIEW_FIXTURE = `diff --git a/src/example.js b/src/example.js
+const CODE_REVIEW_FIXTURE = `diff --git a/src/review/feedback.js b/src/review/feedback.js
 index 1111111..2222222 100644
---- a/src/example.js
-+++ b/src/example.js
-@@ -1,3 +1,5 @@
- export function greet(name) {
-+    if (!name) return "Hello, RunWield";
-     return \`Hello, \${name}\`;
+--- a/src/review/feedback.js
++++ b/src/review/feedback.js
+@@ -1,7 +1,16 @@
+ export function createFeedback(annotations) {
+-    return annotations.map((annotation) => annotation.text).join("\\n");
++    const sections = annotations.map((annotation) => {
++        const location = annotation.filePath
++            ? \`\${annotation.filePath}:\${annotation.lineStart}\`
++            : "Global comment";
++        return \`- \${location}: \${annotation.text}\`;
++    });
++    return sections.join("\\n");
  }
++export function collectImages(annotations) {
++    return annotations.flatMap((annotation) => annotation.images ?? []);
++}
+ // Summary helper.
+export function getReviewSummary(count) {
+     return count === 1 ? "1 annotation" : \`\${count} annotations\`;
+ }
+@@ -18,8 +27,14 @@ export function getReviewSummary(count) {
+-export async function submitFeedback(client, annotations) {
++export async function submitFeedback(client, annotations, approved = false) {
+     const feedback = createFeedback(annotations);
+-    return client.post("/feedback", { feedback });
++    const images = collectImages(annotations);
++    return client.post("/feedback", {
++        annotations,
++        approved,
++        feedback,
++        images,
++    });
+ }
+ // Approval helper.
+-export function canApprove(annotations) {
+-    return annotations.length === 0;
++export function canApprove() {
++    return true;
+ }
+diff --git a/src/review/feedback.test.js b/src/review/feedback.test.js
+index 3333333..4444444 100644
+--- a/src/review/feedback.test.js
++++ b/src/review/feedback.test.js
+@@ -1,8 +1,30 @@
+ import { assertEquals } from "@std/assert";
+-import { createFeedback } from "./feedback.js";
++import { canApprove, collectImages, createFeedback } from "./feedback.js";
+ // Review feedback tests.
+-Deno.test("createFeedback joins comments", () => {
+-    const result = createFeedback([{ text: "Rename this" }, { text: "Add a test" }]);
+-    assertEquals(result, "Rename this\\nAdd a test");
++Deno.test("createFeedback includes inline locations", () => {
++    const result = createFeedback([{
++        filePath: "src/review/feedback.js",
++        lineStart: 12,
++        text: "Rename this",
++    }]);
++    assertEquals(result, "- src/review/feedback.js:12: Rename this");
++});
++
++Deno.test("createFeedback identifies global comments", () => {
++    const result = createFeedback([{ text: "Add a test" }]);
++    assertEquals(result, "- Global comment: Add a test");
++});
++
++Deno.test("collectImages preserves every attachment", () => {
++    const images = collectImages([
++        { images: [{ name: "first.png", path: "/tmp/first.png" }] },
++        { images: [{ name: "second.jpg", path: "/tmp/second.jpg" }] },
++    ]);
++    assertEquals(images.map((image) => image.name), ["first.png", "second.jpg"]);
++});
++
++Deno.test("approval is always available", () => {
++    assertEquals(canApprove(), true);
+ });
+diff --git a/src/review/image-attachments.js b/src/review/image-attachments.js
+new file mode 100644
+index 0000000..5555555
+--- /dev/null
++++ b/src/review/image-attachments.js
+@@ -0,0 +1,16 @@
++const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
++
++export async function loadReviewImage(image) {
++    const bytes = await Deno.readFile(image.path);
++    if (bytes.byteLength > MAX_IMAGE_BYTES) {
++        throw new Error(\`Image exceeds \${MAX_IMAGE_BYTES} bytes\`);
++    }
++
++    return {
++        data: bytes,
++        mimeType: image.mimeType ?? "image/png",
++        name: image.name,
++        path: image.path,
++    };
++}
+diff --git a/src/ui/review.css b/src/ui/review.css
+index 6666666..7777777 100644
+--- a/src/ui/review.css
++++ b/src/ui/review.css
+@@ -1,8 +1,12 @@
+ .review-layout {
+     display: grid;
+-    grid-template-columns: 16rem 1fr 20rem;
+-    gap: 1rem;
++    grid-template-columns: 18rem minmax(0, 1fr) 22rem;
++    gap: 0;
++    min-height: 0;
+ }
+ /* Review toolbar. */
+ .review-toolbar {
++    position: sticky;
++    top: 0;
++    z-index: 10;
+     border-bottom: 1px solid var(--rw-border);
+@@ -18,8 +22,12 @@
+ .review-plan {
+     max-width: 52rem;
+-    margin: 0;
++    margin: 1rem auto 0;
++    padding: 0 1rem 4rem;
+ }
+ /* Right annotations rail. */
+ .review-sidebar {
+-    right: 1rem;
++    align-self: stretch;
++    justify-self: stretch;
++    margin: 0;
++    right: 0;
+ }
+diff --git a/src/review/text-labels.js b/src/review/annotation-labels.js
+similarity index 72%
+rename from src/review/text-labels.js
+rename to src/review/annotation-labels.js
+index 8888888..9999999 100644
+--- a/src/review/text-labels.js
++++ b/src/review/annotation-labels.js
+@@ -1,4 +1,8 @@
+ export const labels = [
+     "comment",
++    "issue",
++    "nitpick",
++    "praise",
++    "question",
+     "suggestion",
+ ];
+diff --git a/src/review/legacy-dialog.js b/src/review/legacy-dialog.js
+deleted file mode 100644
+index aaaaaaa..0000000
+--- a/src/review/legacy-dialog.js
++++ /dev/null
+@@ -1,7 +0,0 @@
+-export function openApprovalDialog() {
+-    return {
+-        requiresComment: true,
+-        showCloseButton: true,
+-        showDecisionDropdown: true,
+-    };
+-}
+diff --git a/docs/code-review-fixture.md b/docs/code-review-fixture.md
+index bbbbbbb..ccccccc 100644
+--- a/docs/code-review-fixture.md
++++ b/docs/code-review-fixture.md
+@@ -1,7 +1,15 @@
+ # Code review fixture
+ <!-- Fixture purpose. -->
+-This fixture covers one modified JavaScript file.
++This fixture covers a representative review across several kinds of changes.
+ <!-- Fixture checklist. -->
+-Use it to confirm that the diff renders.
++Verify the following interactions:
++
++- Browse committed, staged, unstaged, and untracked changes.
++- Switch between the Changes list and Files tree.
++- Add inline comments on additions and deletions.
++- Add a global comment with an annotated image.
++- Change diff display settings.
++- Send every annotation with feedback or approval.
+ <!-- Fixture safety note. -->
+ The fixture never submits to a running agent.
+diff --git a/src/review/fixture-config.js b/src/review/fixture-config.js
+new file mode 100644
+index 0000000..ddddddd
+--- /dev/null
++++ b/src/review/fixture-config.js
+@@ -0,0 +1,12 @@
++export const fixtureConfig = {
++    title: "Fixture Code Review",
++    annotations: ["inline", "global", "image"],
++    decisionActions: ["feedback", "approve"],
++    diffStyles: ["split", "unified"],
++    fileStates: ["committed", "staged", "unstaged", "untracked"],
++    layout: "edge-aligned",
++    settings: ["general", "display", "labels", "shortcuts"],
++    theme: "runwield",
++};
 `;
 
 export function ReviewDevSurface({ surface }) {
     const isPlan = surface === "plan";
     const payload = isPlan ? { plan: PLAN_FIXTURE, token: "dev-plan-review", mode: "dev" } : {
         rawPatch: CODE_REVIEW_FIXTURE,
-        gitRef: "fixture-review",
-        agentCwd: "workspace-dev",
+        gitRef: "Fixture Code Review",
+        agentCwd: "workspace-dev/fixture-code-review",
         token: "dev-code-review",
         mode: "dev",
+        reviewStatus: {
+            stagedFiles: ["src/review/feedback.test.js", "src/review/image-attachments.js"],
+            unstagedFiles: [
+                "docs/code-review-fixture.md",
+                "src/review/feedback.js",
+                "src/ui/review.css",
+            ],
+            untrackedFiles: ["src/review/fixture-config.js"],
+        },
     };
 
     return isPlan
