@@ -106,6 +106,7 @@
  * @property {string} thinkingLevel
  * @property {boolean} busy
  * @property {string | null} activeTurnId
+ * @property {import('./session/session-runtime-events.js').RuntimeQueuedMessage[]} queuedMessages
  * @property {Record<string, unknown> | null} workflow
  * @property {{ kind: string, capabilities: Record<string, unknown> } | null} interactionAdapter
  */

@@ -4,6 +4,7 @@
  */
 
 import { RuntimeEventTypes } from "../../shared/session/session-runtime-events.js";
+import { formatImageAttachmentMarker } from "../../shared/session/image-attachments.js";
 import { createTuiInteractionAdapter } from "./runtime-interaction-adapter.js";
 import { setTerminalTitleForName } from "./terminal-title.js";
 import { notifyRunWieldEventQuietly } from "./system-notifications.js";
@@ -32,6 +33,17 @@ function textValue(value) {
 }
 
 /**
+ * @param {import('../../shared/session/session-runtime-events.js').RuntimeQueuedMessage} message
+ * @returns {string}
+ */
+export function formatQueuedMessageText(message) {
+    if (message.images.length === 0) return message.text;
+    const markers = message.images.map(formatImageAttachmentMarker).join("\n");
+    if (!message.text.trim()) return markers;
+    return `${message.text}\n\n${markers}`;
+}
+
+/**
  * @param {import('./types.js').ToolExecutionBlockApi} block
  * @param {string} text
  */
@@ -39,7 +51,8 @@ function appendToolText(block, text) {
     if (!text) return;
     const current = block.bodyText || "";
     if (text.startsWith(current)) {
-        block.appendOutput(text.slice(current.length));
+        const delta = text.slice(current.length);
+        if (delta) block.appendOutput(delta);
         return;
     }
     block.appendOutput(text);
@@ -61,6 +74,8 @@ export function attachTuiRuntimeAdapter({
     const assistantMessages = new Map();
     /** @type {Map<string, ReturnType<NonNullable<import('./types.js').UiAPI['appendThinkingStart']>>>} */
     const thinkingMessages = new Map();
+    /** @type {Map<string, string>} */
+    const thinkingTextByMessageId = new Map();
 
     runtime.attachRuntimeEventSink(hostedSession);
     runtime.setInteractionAdapter(hostedSession, createTuiInteractionAdapter(uiAPI), { kind: "tui" });
@@ -70,7 +85,20 @@ export function attachTuiRuntimeAdapter({
         switch (event.type) {
             case RuntimeEventTypes.USER_MESSAGE:
                 uiAPI.appendUserMessage?.(textValue(value.text));
+                for (const image of value.images || []) uiAPI.appendImage?.(image.base64, image.mimeType);
                 break;
+            case RuntimeEventTypes.QUEUED_MESSAGE_CHANGED: {
+                const message =
+                    /** @type {import('../../shared/session/session-runtime-events.js').RuntimeQueuedMessage} */ (
+                        value.message
+                    );
+                if (value.status === "queued") {
+                    uiAPI.appendQueuedMessage?.(message.id, formatQueuedMessageText(message));
+                    break;
+                }
+                uiAPI.removeQueuedMessage?.(message.id);
+                break;
+            }
             case RuntimeEventTypes.ASSISTANT_TEXT_DELTA: {
                 if (value._meta?.reviewResult && uiAPI.appendReviewResult) {
                     uiAPI.appendReviewResult(
@@ -92,22 +120,30 @@ export function attachTuiRuntimeAdapter({
             case RuntimeEventTypes.ASSISTANT_THINKING_DELTA: {
                 if (!uiAPI.appendThinkingStart) break;
                 const messageId = value.messageId || event.turnId || `${event.sessionId}:thinking`;
+                const text = textValue(value.delta);
+                const previous = thinkingTextByMessageId.get(messageId) || "";
+                if (text && text === previous) break;
+                const delta = previous && text.startsWith(previous) ? text.slice(previous.length) : text;
+                if (!delta) break;
+                thinkingTextByMessageId.set(messageId, previous && text.startsWith(previous) ? text : previous + text);
                 let appender = thinkingMessages.get(messageId);
                 if (!appender) {
                     appender = uiAPI.appendThinkingStart();
                     thinkingMessages.set(messageId, appender);
                 }
-                appender.appendDelta(textValue(value.delta));
+                appender.appendDelta(delta);
                 break;
             }
             case RuntimeEventTypes.ASSISTANT_THINKING_END: {
                 const messageId = value.messageId || event.turnId || `${event.sessionId}:thinking`;
                 thinkingMessages.get(messageId)?.end();
                 thinkingMessages.delete(messageId);
+                thinkingTextByMessageId.delete(messageId);
                 break;
             }
             case RuntimeEventTypes.TOOL_START: {
                 if (!uiAPI.startToolExecution || HIDDEN_TOOL_BLOCK_NAMES.has(value.toolName)) break;
+                if (uiAPI.getActiveToolBlock?.(value.toolCallId)) break;
                 const displayName = value.toolName === "bash" ? "$" : textValue(value.toolName);
                 const title = textValue(value.title);
                 const prefix = displayName ? `${displayName} ` : "";
@@ -164,6 +200,7 @@ export function attachTuiRuntimeAdapter({
                 assistantMessages.clear();
                 for (const appender of thinkingMessages.values()) appender.end();
                 thinkingMessages.clear();
+                thinkingTextByMessageId.clear();
                 break;
             case RuntimeEventTypes.MODEL_CHANGED:
             case RuntimeEventTypes.THINKING_LEVEL_CHANGED:
@@ -185,6 +222,10 @@ export function attachTuiRuntimeAdapter({
         }
     });
 
+    for (const message of runtime.getSessionSnapshot(hostedSession)?.queuedMessages || []) {
+        uiAPI.appendQueuedMessage?.(message.id, formatQueuedMessageText(message));
+    }
+
     let disposed = false;
     const registration = {
         dispose() {
@@ -193,6 +234,7 @@ export function attachTuiRuntimeAdapter({
             unsubscribe();
             for (const appender of thinkingMessages.values()) appender.end();
             thinkingMessages.clear();
+            thinkingTextByMessageId.clear();
             assistantMessages.clear();
             if (activeAdapters.get(hostedSession) !== registration) return;
             activeAdapters.delete(hostedSession);

@@ -31,6 +31,8 @@
  *   appendAgentMessageStart: (agentName: string) => AgentMessageAppender,
  *   appendUserMessage?: (text: string) => void,
  *   appendImage?: (base64: string, mimeType: string) => void,
+ *   appendQueuedMessage?: (id: string, text: string) => void,
+ *   removeQueuedMessage?: (id: string) => void,
  *   requestRender: () => void,
  *   advanceSpinner?: () => void,
  *   setBusy?: (busy: boolean) => void,

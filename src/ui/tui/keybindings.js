@@ -10,8 +10,8 @@
  *   Backspace    when editor is empty, drop the last pasted image
  *   default      forward to the editor's original handler
  *
- * All shared state (submission queue, pasted-image list, generation guard,
- * cancel callbacks) is passed in by the caller — this module owns no state.
+ * All shared state (pasted-image list, generation guard, cancel callbacks) is
+ * passed in by the caller — this module owns no state.
  */
 
 import { Image, Key, matchesKey } from "@earendil-works/pi-tui";
@@ -58,11 +58,10 @@ function createPastedImagePreview(image) {
  * @property {import('./types.js').UiAPI} uiAPI
  * @property {import('../../shared/session/types.js').ImageAttachment[]} pastedImages
  * @property {import('@earendil-works/pi-tui').Container} previewImages
- * @property {Array<unknown>} submissionQueue
  * @property {import('./generation-guard.js').GenerationGuard} generationGuard
  * @property {() => boolean} cancelActiveOperation
  * @property {() => void} dismissActivePrompt
- * @property {() => boolean} dequeueLastSubmission
+ * @property {() => boolean | Promise<boolean>} dequeueLastSubmission
  * @property {() => void} forceResetUI
  * @property {() => void} markCtrlCPendingExit
  * @property {() => boolean} isCtrlCPendingExit
@@ -72,7 +71,6 @@ function createPastedImagePreview(image) {
  * @property {(hostedSession?: import('../../shared/session/hosted-session.js').HostedSession) => boolean} [abortActiveSession]
  * @property {() => boolean} [cancelActivePlanReview]
  * @property {import('../../shared/session/hosted-session.js').HostedSession} [hostedSession]
- * @property {() => void} [clearPendingSteeringMessages]  Callback to clear pending steering messages on cancel
  */
 
 /**
@@ -89,7 +87,6 @@ export function installKeybindings(ctx) {
         uiAPI,
         pastedImages,
         previewImages,
-        submissionQueue,
         generationGuard,
         cancelActiveOperation,
         dismissActivePrompt,
@@ -100,15 +97,12 @@ export function installKeybindings(ctx) {
         toggleStartupHelp,
         cycleThinkingLevel,
         handleImagePaste,
-        clearPendingSteeringMessages,
     } = ctx;
     const abortActiveSession = ctx.abortActiveSession || abortActiveSessionFn;
     const cancelActivePlanReview = ctx.cancelActivePlanReview || (() => cancelActivePlanReviewFn(ctx.hostedSession));
 
     function cancelEverything() {
         generationGuard.invalidateAll();
-        submissionQueue.length = 0;
-        clearPendingSteeringMessages?.();
         dismissActivePrompt();
         const opCanceled = cancelActiveOperation();
         const sessionAborted = abortActiveSession(ctx.hostedSession);
@@ -211,11 +205,10 @@ export function installKeybindings(ctx) {
         }
 
         // Up arrow on empty editor with a queued message: dequeue it back into the
-        // editor for editing or deletion. Steering messages are tracked outside
-        // submissionQueue, so always ask the dequeue callback before falling
-        // through to the editor's built-in history navigation.
+        // editor for editing or deletion. Core owns queued-message state, so ask
+        // the dequeue callback before falling through to history navigation.
         if (matchesKey(data, Key.up) && isEditorEmpty(editor)) {
-            if (dequeueLastSubmission()) return;
+            if (await dequeueLastSubmission()) return;
         }
 
         originalHandleInput(data);

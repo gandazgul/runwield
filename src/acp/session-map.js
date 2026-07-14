@@ -18,6 +18,7 @@ export function normalizeAcpSessionIdForLoad(sessionId) {
  * @property {boolean} cancelled
  * @property {Promise<{ stopReason: "cancelled" }>} cancellation
  * @property {() => void} resolveCancellation
+ * @property {string} turnId
  * @property {string} [requestId]
  */
 
@@ -96,12 +97,13 @@ export class AcpSessionMap {
 
     /**
      * @param {string} acpSessionId
+     * @param {string} turnId
      * @param {string} [requestId]
      * @returns {AcpPromptRecord | null}
      */
-    beginPrompt(acpSessionId, requestId = undefined) {
+    beginPrompt(acpSessionId, turnId, requestId = undefined) {
         const record = this.getRecord(acpSessionId);
-        if (!record || record.activePrompt) return null;
+        if (!record) return null;
         /** @type {() => void} */
         let resolveCancellation = () => {};
         const cancellation = new Promise((resolve) => {
@@ -111,15 +113,29 @@ export class AcpSessionMap {
             cancelled: false,
             cancellation,
             resolveCancellation,
+            turnId,
             ...(requestId ? { requestId } : {}),
         };
         return record.activePrompt;
     }
 
-    /** @param {string} acpSessionId */
-    endPrompt(acpSessionId) {
+    /**
+     * @param {string} acpSessionId
+     * @param {AcpPromptRecord} prompt
+     */
+    endPrompt(acpSessionId, prompt) {
         const record = this.getRecord(acpSessionId);
-        if (record) record.activePrompt = null;
+        if (!record || record.activePrompt !== prompt) return false;
+        record.activePrompt = null;
+        return true;
+    }
+
+    /**
+     * @param {string} acpSessionId
+     * @param {AcpPromptRecord} prompt
+     */
+    isCurrentPrompt(acpSessionId, prompt) {
+        return this.getRecord(acpSessionId)?.activePrompt === prompt;
     }
 
     /** @param {string} acpSessionId */
@@ -129,21 +145,6 @@ export class AcpSessionMap {
         record.activePrompt.cancelled = true;
         record.activePrompt.resolveCancellation();
         return true;
-    }
-
-    /** @param {string} acpSessionId */
-    getCancellation(acpSessionId) {
-        return this.getRecord(acpSessionId)?.activePrompt?.cancellation || null;
-    }
-
-    /** @param {string} acpSessionId */
-    isPromptCancelled(acpSessionId) {
-        return Boolean(this.getRecord(acpSessionId)?.activePrompt?.cancelled);
-    }
-
-    /** @param {string} acpSessionId */
-    hasActivePrompt(acpSessionId) {
-        return Boolean(this.getRecord(acpSessionId)?.activePrompt);
     }
 
     /** @param {string} acpSessionId */
