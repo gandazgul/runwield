@@ -30,3 +30,43 @@ Deno.test("getLoadPlanCompletions handles missing plans dir", async () => {
     const items = await getLoadPlanCompletions("anything");
     assertEquals(Array.isArray(items), true);
 });
+
+Deno.test("getLoadPlanCompletions sorts loadable plans by workflow priority", async () => {
+    const originalCwd = Deno.cwd();
+    const tempDir = await Deno.makeTempDir({ prefix: "runwield-load-plan-completions-" });
+    try {
+        await Deno.mkdir(`${tempDir}/plans`, { recursive: true });
+        const plans = [
+            ["z-verified", "FEATURE", "verified"],
+            ["b-ready-epic", "PROJECT", "ready_for_work"],
+            ["a-ready-epic", "PROJECT", "ready_for_work"],
+            ["ready-feature", "FEATURE", "ready_for_work"],
+            ["draft-plan", "FEATURE", "draft"],
+            ["implemented-plan", "FEATURE", "implemented"],
+            ["held-plan", "FEATURE", "on_hold"],
+            ["decompose-epic", "PROJECT", "ready_for_decomposition"],
+        ];
+        for (const [name, classification, status] of plans) {
+            await Deno.writeTextFile(
+                `${tempDir}/plans/${name}.md`,
+                `---\nclassification: "${classification}"\nstatus: "${status}"\nsummary: "${name}"\ncreatedAt: "2026-01-01T00:00:00.000Z"\n---\n\n# ${name}\n`,
+            );
+        }
+
+        Deno.chdir(tempDir);
+        const items = await getLoadPlanCompletions("");
+        assertEquals(items.map((item) => item.value), [
+            "decompose-epic",
+            "a-ready-epic",
+            "b-ready-epic",
+            "ready-feature",
+            "draft-plan",
+            "implemented-plan",
+            "z-verified",
+            "held-plan",
+        ]);
+    } finally {
+        Deno.chdir(originalCwd);
+        await Deno.remove(tempDir, { recursive: true });
+    }
+});
