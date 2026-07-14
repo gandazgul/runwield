@@ -92,13 +92,17 @@ Deno.test("startActiveExecutionWorkflow keeps HEAD fallback for untargeted plans
     /** @type {unknown[]} */
     const createCalls = [];
     let prepareCalls = 0;
+    let reuseLookups = 0;
     await startActiveExecutionWorkflow({
         planName: "untargeted-plan",
-        triageMeta: {},
+        triageMeta: { worktreeStatus: "completed" },
         currentStatus: "ready_for_work",
         hostedSession,
         __deps: {
-            findReusableWorktree: () => Promise.resolve(null),
+            findReusableWorktree: () => {
+                reuseLookups++;
+                return Promise.reject(new Error("fresh execution must not reuse by plan name"));
+            },
             prepareTargetBranchRef: () => {
                 prepareCalls++;
                 return Promise.resolve({ baseRef: "refs/heads/nope", baseBranch: "nope" });
@@ -121,8 +125,47 @@ Deno.test("startActiveExecutionWorkflow keeps HEAD fallback for untargeted plans
     });
 
     assertEquals(prepareCalls, 0);
+    assertEquals(reuseLookups, 0);
     assertEquals(/** @type {{ baseRef: string, baseBranch?: string }} */ (createCalls[0]).baseRef, "HEAD");
     assertEquals(/** @type {{ baseRef: string, baseBranch?: string }} */ (createCalls[0]).baseBranch, undefined);
+});
+
+Deno.test("startActiveExecutionWorkflow resolves implicit current branch before reusing a recorded worktree", async () => {
+    const hostedSession = makeHostedSession("implicit-target-reuse-workflow");
+    /** @type {unknown[]} */
+    const reuseCalls = [];
+    let createCalls = 0;
+    const result = await startActiveExecutionWorkflow({
+        planName: "untargeted-plan",
+        triageMeta: { worktreeId: "wt-main" },
+        currentStatus: "ready_for_work",
+        hostedSession,
+        __deps: {
+            findReusableWorktree: (opts) => {
+                reuseCalls.push(opts);
+                return Promise.resolve(
+                    /** @type {any} */ ({
+                        id: "wt-main",
+                        path: "/tmp/wt-main",
+                        branch: "runwield/worktree/untargeted-plan-wt-main",
+                        baseBranch: "main",
+                    }),
+                );
+            },
+            resolveCurrentCheckoutBranch: () => Promise.resolve("main"),
+            createExecutionWorktree: () => {
+                createCalls++;
+                return Promise.reject(new Error("should reuse recorded worktree"));
+            },
+            captureWorktreeTree: () => Promise.resolve("tree-main"),
+            updateWorktreeRegistryEntry: () => Promise.resolve(null),
+            recordPlanEvent: () => Promise.resolve(/** @type {any} */ ({})),
+        },
+    });
+
+    assertEquals(reuseCalls, [{ projectRoot: Deno.cwd(), planName: "untargeted-plan", worktreeId: "wt-main" }]);
+    assertEquals(createCalls, 0);
+    assertEquals(result.worktreeBaseBranch, "main");
 });
 
 Deno.test("startActiveExecutionWorkflow rejects reusable worktree target mismatches", async () => {
@@ -132,7 +175,7 @@ Deno.test("startActiveExecutionWorkflow rejects reusable worktree target mismatc
         () =>
             startActiveExecutionWorkflow({
                 planName: "targeted-plan",
-                triageMeta: { worktreeBaseBranch: "feature-base" },
+                triageMeta: { worktreeId: "wt3", worktreeBaseBranch: "feature-base" },
                 currentStatus: "ready_for_work",
                 hostedSession,
                 __deps: {
@@ -167,7 +210,7 @@ Deno.test("startActiveExecutionWorkflow matches explicit remote target to record
     let prepareCalls = 0;
     const result = await startActiveExecutionWorkflow({
         planName: "targeted-plan",
-        triageMeta: { worktreeBaseBranch: "origin/feature-base" },
+        triageMeta: { worktreeId: "wt4", worktreeBaseBranch: "origin/feature-base" },
         currentStatus: "ready_for_work",
         hostedSession,
         __deps: {
@@ -1417,7 +1460,10 @@ Deno.test("runSlicerAgent handles success via uiAPI when present", async () => {
         planName: "p",
         uiAPI,
         hostedSession: makeHostedSession(),
-        __deps: { runAgentSession: () => Promise.resolve([]) },
+        __deps: {
+            runAgentSession: () => Promise.resolve([]),
+            switchActiveAgent: () => Promise.resolve({ ok: true, agentName: "slicer", changed: true }),
+        },
     });
     assertEquals(result.ok, true);
 });

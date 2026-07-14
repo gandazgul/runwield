@@ -214,6 +214,19 @@ export async function findById(projectRoot, id) {
     return entries.find((entry) => entry.id === id) || null;
 }
 
+/**
+ * @param {Set<string>} paths
+ * @param {string} path
+ */
+async function addWorktreePathVariants(paths, path) {
+    paths.add(path);
+    try {
+        paths.add(await Deno.realPath(path));
+    } catch {
+        // Missing paths are handled by the caller's stat check.
+    }
+}
+
 /** @param {string} projectRoot */
 async function listGitWorktreePaths(projectRoot) {
     const command = new Deno.Command("git", {
@@ -225,12 +238,14 @@ async function listGitWorktreePaths(projectRoot) {
     const { code, stdout } = await command.output();
     if (code !== 0) return null;
     const text = new TextDecoder().decode(stdout);
-    return new Set(
-        text.split("\n")
-            .filter((line) => line.startsWith("worktree "))
-            .map((line) => line.slice("worktree ".length).trim())
-            .filter(Boolean),
-    );
+    const paths = new Set();
+    for (const line of text.split("\n")) {
+        if (!line.startsWith("worktree ")) continue;
+        const path = line.slice("worktree ".length).trim();
+        if (!path) continue;
+        await addWorktreePathVariants(paths, path);
+    }
+    return paths;
 }
 
 /** @param {string} projectRoot */
@@ -243,7 +258,10 @@ export async function pruneStaleEntries(projectRoot) {
         for (const entry of entries) {
             try {
                 const stat = await Deno.stat(entry.path);
-                if (stat.isDirectory && (!gitWorktreePaths || gitWorktreePaths.has(entry.path))) kept.push(entry);
+                const realPath = await Deno.realPath(entry.path);
+                const isRegisteredGitWorktree = !gitWorktreePaths ||
+                    gitWorktreePaths.has(entry.path) || gitWorktreePaths.has(realPath);
+                if (stat.isDirectory && isRegisteredGitWorktree) kept.push(entry);
                 else stale.push(entry);
             } catch {
                 stale.push(entry);
