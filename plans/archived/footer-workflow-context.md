@@ -19,7 +19,6 @@ affectedPaths:
     - "src/ui/tui/chat-session.test.js"
 frontend: false
 createdAt: "2026-07-10T10:18:06-04:00"
-updatedAt: "2026-07-12T17:21:36.953Z"
 status: "verified"
 origin: "internal"
 verifiedAt: "2026-07-12T17:21:36.953Z"
@@ -27,6 +26,10 @@ humanReviewMode: "ask"
 humanReviewDecision: "skipped"
 routingIntent: "FEATURE"
 sessionName: "footer workflow context"
+updatedAt: "2026-07-14T14:19:54.208Z"
+archivedAt: "2026-07-14T14:19:54.208Z"
+archivedFromStatus: "verified"
+archivedFromPath: "plans/footer-workflow-context.md"
 ---
 
 # TUI Footer Workflow Context

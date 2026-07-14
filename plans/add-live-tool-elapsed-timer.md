@@ -1,4 +1,5 @@
 ---
+planId: "7f62057d-bf3d-4786-80a8-4e9970c0a52f"
 classification: "FEATURE"
 complexity: "LOW"
 summary: "Add live elapsed timer behavior to TUI tool execution blocks: show \"Elapsed time:\" after 500ms, update every 100ms, then replace with existing \"Took Xs\" footer on completion."

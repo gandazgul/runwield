@@ -16,7 +16,6 @@ affectedPaths:
     - "src/shared/session/agent-handler.test.js"
 frontend: false
 createdAt: "2026-07-07T02:13:46.228Z"
-updatedAt: "2026-07-07T19:12:38.121Z"
 status: "verified"
 origin: "internal"
 parentPlan: "session-runtime-acp-mvp"
@@ -26,6 +25,11 @@ dependencies:
 verifiedAt: "2026-07-07T19:12:38.121Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
+updatedAt: "2026-07-14T12:18:19.886Z"
+archivedAt: "2026-07-14T12:18:19.886Z"
+archiveReason: "Epic verified and archived"
+archivedFromStatus: "verified"
+archivedFromPath: "plans/session-runtime-acp-mvp/02-sessionruntime-core-for-tui-preserved-prompting.md"
 ---
 
 # SessionRuntime Core for TUI-Preserved Prompting

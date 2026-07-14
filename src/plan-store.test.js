@@ -633,11 +633,13 @@ testWithFs("archivePlan allows terminal closure and requires force for non-termi
     }
 });
 
-testWithFs("archivePlan blocks recoverable worktree states and refuses overwrites", async () => {
+testWithFs("archivePlan requires force for recoverable worktree states and refuses overwrites", async () => {
     const cwd = await Deno.makeTempDir();
     try {
         await savePlan(cwd, "busy", "# Busy", { status: "verified", worktreeStatus: "active" });
-        await assertRejects(() => archivePlan(cwd, "busy", { force: true }), Error, "worktreeStatus active");
+        await assertRejects(() => archivePlan(cwd, "busy"), Error, "worktreeStatus active");
+        await archivePlan(cwd, "busy", { force: true, now: "2026-06-21T00:00:00.000Z" });
+        assertEquals((await loadArchivedPlan(cwd, "busy"))?.attrs.archivedFromStatus, "verified");
 
         await savePlan(cwd, "dup", "# Dup", { status: "verified" });
         await savePlan(cwd, "archived/dup", "# Archived Dup", { status: "verified" });

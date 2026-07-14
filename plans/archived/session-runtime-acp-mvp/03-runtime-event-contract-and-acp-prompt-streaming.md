@@ -16,7 +16,6 @@ affectedPaths:
     - "src/shared/session/session-runtime.test.js"
 frontend: false
 createdAt: "2026-07-07T02:13:46.228Z"
-updatedAt: "2026-07-08T01:24:51.540Z"
 status: "verified"
 origin: "internal"
 parentPlan: "session-runtime-acp-mvp"
@@ -26,6 +25,11 @@ dependencies:
 verifiedAt: "2026-07-08T01:24:51.540Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
+updatedAt: "2026-07-14T12:18:20.337Z"
+archivedAt: "2026-07-14T12:18:20.337Z"
+archiveReason: "Epic verified and archived"
+archivedFromStatus: "verified"
+archivedFromPath: "plans/session-runtime-acp-mvp/03-runtime-event-contract-and-acp-prompt-streaming.md"
 ---
 
 # Runtime Event Contract and ACP Prompt Streaming

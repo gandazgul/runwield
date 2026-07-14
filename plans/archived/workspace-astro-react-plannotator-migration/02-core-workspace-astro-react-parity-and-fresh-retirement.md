@@ -20,7 +20,6 @@ devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://localhost:5173/"
 devServerHmr: true
 createdAt: "2026-07-07T18:01:43.370Z"
-updatedAt: "2026-07-08T13:59:33.606Z"
 status: "verified"
 origin: "internal"
 parentPlan: "workspace-astro-react-plannotator-migration"
@@ -30,6 +29,11 @@ dependencies:
 verifiedAt: "2026-07-08T13:59:33.606Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
+updatedAt: "2026-07-14T12:19:54.202Z"
+archivedAt: "2026-07-14T12:19:54.202Z"
+archiveReason: "Epic verified and archived"
+archivedFromStatus: "verified"
+archivedFromPath: "plans/workspace-astro-react-plannotator-migration/02-core-workspace-astro-react-parity-and-fresh-retirement.md"
 ---
 
 # Core Workspace Astro React Parity and Fresh Retirement

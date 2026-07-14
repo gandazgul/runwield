@@ -1410,9 +1410,9 @@ export async function archivePlan(cwd, planNameOrId, options = {}) {
     }
 
     const worktreeStatus = source.attrs.worktreeStatus;
-    if (worktreeStatus && RECOVERABLE_WORKTREE_STATUSES.has(worktreeStatus)) {
+    if (!options.force && worktreeStatus && RECOVERABLE_WORKTREE_STATUSES.has(worktreeStatus)) {
         throw new Error(
-            `Cannot archive ${source.name}: worktreeStatus ${worktreeStatus} is recoverable. Resolve or abandon the worktree first.`,
+            `Cannot archive ${source.name}: worktreeStatus ${worktreeStatus} is recoverable. Resolve or abandon the worktree first, or use --force.`,
         );
     }
 

@@ -15,7 +15,6 @@ affectedPaths:
     - "src/shared/session/session-runtime.test.js"
 frontend: false
 createdAt: "2026-07-07T02:13:46.229Z"
-updatedAt: "2026-07-09T02:25:30.020Z"
 status: "verified"
 origin: "internal"
 parentPlan: "session-runtime-acp-mvp"
@@ -25,6 +24,11 @@ dependencies:
 verifiedAt: "2026-07-09T02:25:30.020Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
+updatedAt: "2026-07-14T12:18:21.188Z"
+archivedAt: "2026-07-14T12:18:21.188Z"
+archiveReason: "Epic verified and archived"
+archivedFromStatus: "verified"
+archivedFromPath: "plans/session-runtime-acp-mvp/05-acp-session-load-replay-and-lifecycle-hardening.md"
 ---
 
 # ACP Session Load Replay and Lifecycle Hardening

@@ -19,7 +19,6 @@ devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://localhost:5173/"
 devServerHmr: true
 createdAt: "2026-07-07T18:01:43.369Z"
-updatedAt: "2026-07-08T01:32:53.971Z"
 status: "verified"
 origin: "internal"
 parentPlan: "workspace-astro-react-plannotator-migration"
@@ -29,6 +28,11 @@ dependencies:
 verifiedAt: "2026-07-08T01:32:53.971Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
+updatedAt: "2026-07-14T12:19:53.757Z"
+archivedAt: "2026-07-14T12:19:53.757Z"
+archiveReason: "Epic verified and archived"
+archivedFromStatus: "verified"
+archivedFromPath: "plans/workspace-astro-react-plannotator-migration/01-astro-react-workspace-platform-and-review-dev-entrypoints.md"
 ---
 
 # Astro React Workspace Platform and Review Dev Entrypoints
