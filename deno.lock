@@ -72,6 +72,7 @@
     "npm:diff@8.0.4": "8.0.4",
     "npm:diff@^8.0.4": "8.0.4",
     "npm:dockview-react@^5.2.0": "5.2.0_react@19.2.7",
+    "npm:dompurify@*": "3.4.11",
     "npm:dompurify@^3.4.11": "3.4.11",
     "npm:esbuild@~0.28.1": "0.28.1",
     "npm:fuse.js@^7.4.2": "7.4.2",

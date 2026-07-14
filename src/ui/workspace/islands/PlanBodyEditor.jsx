@@ -1,11 +1,25 @@
-import { useEffect, useRef, useState } from "react";
-import { basicSetup, EditorView } from "codemirror";
-import { markdown } from "@codemirror/lang-markdown";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { RunWieldButton } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 import { PLAN_UI_TOKEN_HEADER, PLAN_UI_TOKEN_QUERY } from "../constants.js";
 import { MarkdownView } from "../components/MarkdownView.jsx";
-const planDetailEntryModules = typeof import.meta.glob === "function"
-    ? import.meta.glob("../react/plan-detail-entry.tsx")
-    : { "../react/plan-detail-entry.tsx": () => Promise.resolve() };
+
+/** @type {Record<string, () => Promise<unknown>>} */
+let workspacePlanDocumentModules = {};
+try {
+    workspacePlanDocumentModules = import.meta.glob("../react/WorkspacePlanDocument.tsx");
+} catch {
+    // Deno test runs do not provide Vite's import.meta.glob transform.
+}
+const loadWorkspacePlanDocument = /** @type {() => Promise<{ default: import("react").ComponentType<any> }>} */ (
+    workspacePlanDocumentModules["../react/WorkspacePlanDocument.tsx"] ||
+    (() => Promise.resolve({ default: WorkspacePlanDocumentFallback }))
+);
+const WorkspacePlanDocument = lazy(loadWorkspacePlanDocument);
+
+/** @param {{ markdown?: string }} props */
+function WorkspacePlanDocumentFallback({ markdown = "" }) {
+    return <MarkdownView markdown={markdown} />;
+}
 
 /**
  * @param {string} workspaceKey
@@ -61,6 +75,7 @@ function readDraft(key) {
 /** @param {{ plan: any, initialEdit?: boolean }} props */
 export function PlanBodyEditor({ plan, initialEdit = false }) {
     const canEdit = plan.capabilities?.bodyEditing !== false;
+    const [clientReady, setClientReady] = useState(false);
     const [mode, setMode] = useState("read");
     const [body, setBody] = useState(plan.body || "");
     const [savedBody, setSavedBody] = useState(plan.body || "");
@@ -69,11 +84,11 @@ export function PlanBodyEditor({ plan, initialEdit = false }) {
     const [message, setMessage] = useState("");
     const [draft, setDraft] = useState(/** @type {PlanBodyDraft | null} */ (null));
     const [saving, setSaving] = useState(false);
-    const editorHost = useRef(/** @type {HTMLDivElement | null} */ (null));
-    const readHost = useRef(/** @type {HTMLDivElement | null} */ (null));
-    const editorView = useRef(/** @type {EditorView | null} */ (null));
+    const editorHandleRef = useRef(null);
     const dirty = body !== savedBody;
     const draftKey = planBodyDraftKey(plan.workspaceKey || "unknown", plan.planId);
+
+    useEffect(() => setClientReady(true), []);
 
     useEffect(() => {
         if (!canEdit) return;
@@ -100,48 +115,15 @@ export function PlanBodyEditor({ plan, initialEdit = false }) {
     }, [canEdit, dirty]);
 
     useEffect(() => {
-        if (!canEdit || mode !== "edit" || !editorHost.current) return undefined;
-        const view = new EditorView({
-            doc: body,
-            extensions: [
-                basicSetup,
-                markdown(),
-                EditorView.updateListener.of((update) => {
-                    if (update.docChanged) setBody(update.state.doc.toString());
-                }),
-            ],
-            parent: editorHost.current,
-        });
-        editorView.current = view;
-        return () => {
-            view.destroy();
-            editorView.current = null;
-        };
-    }, [canEdit, mode]);
-
-    useEffect(() => {
-        if (!canEdit || mode !== "edit" || !editorView.current) return;
-        const current = editorView.current.state.doc.toString();
-        if (current === body) return;
-        editorView.current.dispatch({ changes: { from: 0, to: current.length, insert: body } });
-    }, [body, canEdit, mode]);
-
-    useEffect(() => {
-        if (mode !== "read" || !readHost.current) return undefined;
-        const host = readHost.current;
-        const loadPlanDetailEntry = planDetailEntryModules["../react/plan-detail-entry.tsx"];
-        void loadPlanDetailEntry?.().then(() => {
-            host.dispatchEvent(new CustomEvent("runwield:plannotator-plan-body:mount", { bubbles: true }));
-        });
-        return () => {
-            host.dispatchEvent(new CustomEvent("runwield:plannotator-plan-body:unmount"));
-        };
-    }, [mode, savedBody]);
-
-    useEffect(() => {
         if (!canEdit || !dirty) return;
         localStorage.setItem(draftKey, serializeDraft({ body, baseBodyHash: expectedBodyHash }));
     }, [body, canEdit, dirty, draftKey, expectedBodyHash]);
+
+    function startEdit() {
+        if (!canEdit) return;
+        setMessage("");
+        setMode("edit");
+    }
 
     function restoreDraft() {
         if (!draft) return;
@@ -162,11 +144,11 @@ export function PlanBodyEditor({ plan, initialEdit = false }) {
     }
 
     function cancelEdit() {
-        const shouldDiscard = dirty && confirm("Discard unsaved editor changes and local draft?");
+        if (dirty && !confirm("Discard unsaved editor changes and local draft?")) return;
         setBody(savedBody);
         setExpectedBodyHash(bodyHash);
         setMode("read");
-        if (shouldDiscard) discardDraft();
+        if (dirty) discardDraft();
     }
 
     async function saveBody() {
@@ -206,23 +188,44 @@ export function PlanBodyEditor({ plan, initialEdit = false }) {
     }
 
     const recovery = draftRecoveryState(draft, bodyHash);
-    const planBodyJson = JSON.stringify({ body: savedBody }).replace(/</g, "\\u003c");
+    const document = clientReady
+        ? (
+            <Suspense fallback={<MarkdownView markdown={mode === "edit" ? body : savedBody} />}>
+                <WorkspacePlanDocument
+                    mode={mode}
+                    markdown={mode === "edit" ? body : savedBody}
+                    documentId={`${plan.planId}:${bodyHash || "initial"}`}
+                    editorHandleRef={editorHandleRef}
+                    onMarkdownChange={setBody}
+                />
+            </Suspense>
+        )
+        : <MarkdownView markdown={savedBody} />;
 
     return (
-        <section className="plan-body-editor" data-editor-mode={mode}>
-            {mode === "edit"
-                ? (
-                    <div className="editor-toolbar">
-                        <button type="button" className="primary-action" disabled={saving || !dirty} onClick={saveBody}>
-                            {saving ? "Saving…" : "Save"}
-                        </button>
-                        <button type="button" onClick={cancelEdit}>Cancel</button>
-                        <span className={dirty ? "dirty-indicator" : "saved-indicator"}>
-                            {dirty ? "Unsaved changes" : "No changes"}
-                        </span>
-                    </div>
-                )
-                : null}
+        <section className="plan-body-editor" data-editor-mode={mode} data-plannotator-workspace-document>
+            <div className="editor-toolbar">
+                {mode === "edit"
+                    ? (
+                        <>
+                            <RunWieldButton
+                                type="button"
+                                variant="primary"
+                                disabled={saving || !dirty}
+                                onClick={saveBody}
+                            >
+                                {saving ? "Saving…" : "Save"}
+                            </RunWieldButton>
+                            <RunWieldButton type="button" onClick={cancelEdit}>Cancel</RunWieldButton>
+                            <span className={dirty ? "dirty-indicator" : "saved-indicator"}>
+                                {dirty ? "Unsaved changes" : "No changes"}
+                            </span>
+                        </>
+                    )
+                    : canEdit
+                    ? <RunWieldButton type="button" variant="primary" onClick={startEdit}>Edit</RunWieldButton>
+                    : null}
+            </div>
             {message ? <p className="notice editor-notice">{message}</p> : null}
             {canEdit && draft && mode === "read"
                 ? (
@@ -231,31 +234,15 @@ export function PlanBodyEditor({ plan, initialEdit = false }) {
                             ? "A local draft exists, but this Plan changed on disk. Restore only if you want to copy or merge it manually."
                             : "A local unsaved draft is available for this Plan body."}
                         <div className="inline-actions">
-                            <button type="button" onClick={restoreDraft}>Restore draft</button>
-                            <button type="button" onClick={discardDraft}>Discard draft</button>
+                            <RunWieldButton type="button" onClick={restoreDraft}>Restore draft</RunWieldButton>
+                            <RunWieldButton type="button" onClick={discardDraft}>Discard draft</RunWieldButton>
                         </div>
                     </div>
                 )
                 : null}
-            {mode === "edit"
-                ? <div className="codemirror-shell" ref={editorHost} aria-label="Plan body markdown editor" />
-                : (
-                    <div
-                        ref={readHost}
-                        data-plannotator-plan-body
-                        data-plan-id={plan.planId}
-                        data-plannotator-renderer="ssr-fallback"
-                    >
-                        <script
-                            type="application/json"
-                            data-plannotator-plan-body-json
-                            dangerouslySetInnerHTML={{ __html: planBodyJson }}
-                        />
-                        <div data-plannotator-plan-body-root>
-                            <MarkdownView markdown={savedBody} />
-                        </div>
-                    </div>
-                )}
+            <div className={mode === "edit" ? "workspace-plan-document is-editing" : "workspace-plan-document"}>
+                {document}
+            </div>
         </section>
     );
 }

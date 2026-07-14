@@ -1,5 +1,5 @@
-import { PLAN_UI_TOKEN_QUERY } from "../constants.js";
-import { PLAN_SEARCH_QUERY_PARAM } from "../islands/PlanBoardSearch.jsx";
+import { PLAN_SEARCH_QUERY_PARAM, PLAN_UI_TOKEN_QUERY } from "../constants.js";
+import { RunWieldCard } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 
 /**
  * @param {URL | string} url
@@ -75,8 +75,8 @@ export function PlanCard({ plan, url, compact = false, roleLabel = "Plan", dragg
             .join(" ");
     const canDrag = draggableCard && Boolean(allowedTargetStatuses);
     return (
-        <article
-            className={compact ? "plan-card compact clickable-card" : "plan-card clickable-card"}
+        <RunWieldCard
+            className={compact ? "compact clickable-card" : "clickable-card"}
             data-draggable-plan-card={canDrag ? "true" : undefined}
             draggable={canDrag}
             data-plan-id={plan.planId}
@@ -126,6 +126,6 @@ export function PlanCard({ plan, url, compact = false, roleLabel = "Plan", dragg
                 {isChildCard && plan.status === "on_hold" ? <span className="badge muted">Child on hold</span> : null}
                 {isChildCard && plan.status === "failed" ? <span className="badge danger">Failed child</span> : null}
             </div>
-        </article>
+        </RunWieldCard>
     );
 }

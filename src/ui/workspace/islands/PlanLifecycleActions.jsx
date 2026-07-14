@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { RunWieldButton } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 import {
     lifecycleActionApiPath,
     PLAN_LIFECYCLE_ACTIONS,
@@ -178,10 +179,10 @@ export function PlanLifecycleActions({
                     <div className="lifecycle-action-list" aria-label="Plan lifecycle actions">
                         {showStatusMoves
                             ? actions.manualTargetOptions?.map(/** @param {any} target */ (target) => (
-                                <button
+                                <RunWieldButton
                                     key={target.status}
                                     type="button"
-                                    className="secondary-action lifecycle-action"
+                                    className="lifecycle-action"
                                     disabled={disabled}
                                     data-action="move_status"
                                     data-action-target-status={target.status}
@@ -193,26 +194,27 @@ export function PlanLifecycleActions({
                                         }))}
                                 >
                                     Move to {target.label}
-                                </button>
+                                </RunWieldButton>
                             ))
                             : null}
                         {canShowPutOnHold
                             ? (
-                                <button
+                                <RunWieldButton
                                     type="button"
-                                    className="secondary-action lifecycle-action hold-action"
+                                    className="lifecycle-action hold-action"
                                     disabled={disabled}
                                     onClick={hold}
                                 >
                                     {putOnHoldLabel}
-                                </button>
+                                </RunWieldButton>
                             )
                             : null}
                         {canShowCloseWithoutVerification
                             ? (
-                                <button
+                                <RunWieldButton
                                     type="button"
-                                    className="danger-action lifecycle-action"
+                                    variant="danger"
+                                    className="lifecycle-action"
                                     disabled={disabled}
                                     onClick={() =>
                                         confirm(`${closeWithoutVerificationLabel}?`) && submit({
@@ -222,15 +224,15 @@ export function PlanLifecycleActions({
                                         })}
                                 >
                                     {closeWithoutVerificationLabel}
-                                </button>
+                                </RunWieldButton>
                             )
                             : null}
                         {canShowResumeFromHold
                             ? (
-                                <button
+                                <RunWieldButton
                                     type="button"
                                     disabled={disabled}
-                                    className="primary-action"
+                                    variant="primary"
                                     onClick={() =>
                                         submit({
                                             planId: plan.planId,
@@ -239,14 +241,14 @@ export function PlanLifecycleActions({
                                         })}
                                 >
                                     {resumeFromHoldLabel}
-                                </button>
+                                </RunWieldButton>
                             )
                             : null}
                         {canShowResetToDraft
                             ? (
-                                <button
+                                <RunWieldButton
                                     type="button"
-                                    className="secondary-action lifecycle-action"
+                                    className="lifecycle-action"
                                     disabled={disabled}
                                     onClick={() =>
                                         confirm(`${resetToDraftLabel}?`) && submit({
@@ -256,7 +258,7 @@ export function PlanLifecycleActions({
                                         })}
                                 >
                                     {resetToDraftLabel}
-                                </button>
+                                </RunWieldButton>
                             )
                             : null}
                     </div>
@@ -265,9 +267,9 @@ export function PlanLifecycleActions({
             {warningIntent
                 ? (
                     <div className="notice warning resume-warning">
-                        <button type="button" disabled={disabled} onClick={() => submit(warningIntent)}>
+                        <RunWieldButton type="button" disabled={disabled} onClick={() => submit(warningIntent)}>
                             Accept Resume Check warnings and {resumeFromHoldLabel}
-                        </button>
+                        </RunWieldButton>
                     </div>
                 )
                 : null}

@@ -1,6 +1,7 @@
 ---
 import WorkspaceLayout from "../layouts/WorkspaceLayout.astro";
 import { PlanBoard } from "../components/Board.jsx";
+import { PlanBoardToolbar } from "../components/PlanBoardToolbar.jsx";
 import { loadCanonicalBoard, serializeCanonicalPlanError } from "../server/astro-canonical-data.js";
 
 const runtime = globalThis as any;
@@ -15,6 +16,7 @@ try {
 }
 ---
 <WorkspaceLayout title="On-hold Plans · RunWield Workspace" selectedTab="on-hold" url={Astro.url.href}>
+    {board ? <PlanBoardToolbar slot="toolbar" board={board} view="onHold" url={Astro.url.href} client:load /> : null}
     {error ? (
         <section class="error-panel">
             <h2>Plan Board failed to load</h2>

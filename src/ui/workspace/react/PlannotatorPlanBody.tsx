@@ -1,11 +1,10 @@
 // @ts-nocheck: Workspace is the scoped TSX exception zone and the pinned Plannotator checkout uses TS syntax.
 
 import React from "react";
-import { renderMarkdown } from "../components/MarkdownView.jsx";
+import { RenderedMarkdown } from "@plannotator/ui/components/RenderedMarkdown.tsx";
 
 export function PlannotatorPlanBody({ markdown }) {
-    const html = renderMarkdown(markdown || "");
-    if (!html) {
+    if (!markdown) {
         return React.createElement(
             "div",
             { className: "markdown-view plannotator-plan-body", "data-plannotator-renderer": "empty" },
@@ -13,8 +12,8 @@ export function PlannotatorPlanBody({ markdown }) {
         );
     }
 
-    return React.createElement("div", {
-        className: "markdown-view plannotator-plan-body",
-        dangerouslySetInnerHTML: { __html: html },
+    return React.createElement(RenderedMarkdown, {
+        markdown,
+        className: "markdown-view plannotator-plan-body rw-workspace-rendered-markdown",
     });
 }

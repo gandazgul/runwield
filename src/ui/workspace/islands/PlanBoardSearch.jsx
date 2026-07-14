@@ -1,5 +1,6 @@
 import Fuse from "fuse.js";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { PLAN_SEARCH_QUERY_PARAM } from "../constants.js";
 
 /**
  * @typedef {Object} PlanSearchEntry
@@ -16,7 +17,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
  * @property {string} [initialQuery]
  */
 
-export const PLAN_SEARCH_QUERY_PARAM = "q";
+export { PLAN_SEARCH_QUERY_PARAM };
 
 export const PLAN_SEARCH_OPTIONS = Object.freeze({
     keys: [
@@ -130,21 +131,7 @@ export function applyPlanSearchDomState(scope, visiblePlanIds, hasQuery) {
 /** @param {PlanBoardSearchProps} props */
 export function PlanBoardSearch({ boardId, searchIndex, initialQuery = "" }) {
     const [query, setQuery] = useState(normalizePlanSearchQuery(initialQuery));
-    const searchElementRef = useRef(/** @type {HTMLDivElement | null} */ (null));
     const resultIds = useMemo(() => matchingPlanIds(searchIndex, query), [searchIndex, query]);
-
-    useEffect(() => {
-        const searchElement = searchElementRef.current;
-        const searchSlot = document.querySelector("[data-plan-search-slot]");
-        const originalParent = searchElement?.parentElement || null;
-        const nextSibling = searchElement?.nextSibling || null;
-        if (!searchElement || !searchSlot) return undefined;
-        searchSlot.appendChild(searchElement);
-        return () => {
-            if (!originalParent) return;
-            originalParent.insertBefore(searchElement, nextSibling);
-        };
-    }, []);
 
     useEffect(() => {
         const scope = document.querySelector(`[data-plan-search-scope="${boardId}"]`);
@@ -167,7 +154,7 @@ export function PlanBoardSearch({ boardId, searchIndex, initialQuery = "" }) {
     const hasQuery = Boolean(normalizePlanSearchQuery(query));
 
     return (
-        <div ref={searchElementRef} className="plan-search" role="search" aria-label="Filter board Plans">
+        <div className="plan-search" role="search" aria-label="Filter board Plans">
             <div className="plan-search-field">
                 <div className="plan-search-input-row">
                     <input
