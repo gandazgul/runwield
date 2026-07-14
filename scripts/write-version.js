@@ -106,6 +106,18 @@ export async function writeVersionFile(filePath = FILE_PATH, version = resolveBu
 export const VERSION = ${JSON.stringify(version)};
 `;
 
+    let existingContent;
+    try {
+        existingContent = await Deno.readTextFile(filePath);
+    } catch (error) {
+        if (!(error instanceof Deno.errors.NotFound)) throw error;
+    }
+
+    if (existingContent === content) {
+        console.log(`[wld] ${filePath} already has version ${version}`);
+        return;
+    }
+
     await Deno.writeTextFile(filePath, content);
     console.log(`[wld] wrote ${filePath} with version ${version}`);
 }
