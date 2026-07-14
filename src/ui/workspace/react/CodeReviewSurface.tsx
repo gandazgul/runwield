@@ -1,7 +1,6 @@
 // @ts-nocheck: Workspace React islands compile TSX, but this module uses JSDoc-style JavaScript only.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { DockviewReact } from "dockview-react";
 import { ThemeProvider } from "@plannotator/ui/components/ThemeProvider.tsx";
 import { TooltipProvider } from "@plannotator/ui/components/Tooltip.tsx";
 import { ApproveButton, FeedbackButton } from "@plannotator/ui/components/ToolbarButtons.tsx";
@@ -9,8 +8,7 @@ import { CompletionOverlay } from "@plannotator/ui/components/CompletionOverlay.
 import { ActionMenu, ActionMenuItem } from "@plannotator/ui/components/ActionMenu.tsx";
 import { CommentPopover } from "@plannotator/ui/components/CommentPopover.tsx";
 import { useConfigValue } from "@plannotator/ui/config/index.ts";
-import { DiffViewer } from "../../../../third_party/plannotator/packages/review-editor/components/DiffViewer.tsx";
-import { FileHeader } from "../../../../third_party/plannotator/packages/review-editor/components/FileHeader.tsx";
+import { AllFilesCodeView } from "../../../../third_party/plannotator/packages/review-editor/components/AllFilesCodeView.tsx";
 import { FileTree } from "../../../../third_party/plannotator/packages/review-editor/components/FileTree.tsx";
 import { ReviewSidebar } from "../../../../third_party/plannotator/packages/review-editor/components/ReviewSidebar.tsx";
 import { SectionsPanel } from "../../../../third_party/plannotator/packages/review-editor/components/SectionsPanel.tsx";
@@ -41,8 +39,11 @@ export function CodeReviewSurface({ payload }) {
     const [submitted, setSubmitted] = useState(null);
     const [error, setError] = useState("");
     const [viewedFiles, setViewedFiles] = useState(new Set());
-    const [dockApi, setDockApi] = useState(null);
+    const [fileNavigationTarget, setFileNavigationTarget] = useState(null);
+    const [allFilesContentFits, setAllFilesContentFits] = useState(false);
     const globalCommentButtonRef = useRef(null);
+    const allFilesHostRef = useRef(null);
+    const navigationLockRef = useRef(null);
     const diffStyle = useConfigValue("diffStyle") || "split";
     const diffOverflow = useConfigValue("diffOverflow") || "scroll";
     const diffIndicators = useConfigValue("diffIndicators") || "bars";
@@ -63,10 +64,150 @@ export function CodeReviewSurface({ payload }) {
                 .filter(([, entry]) => entry?.staged === true)
                 .map(([filePath]) => filePath),
         ), [sections]);
+    const accordionFiles = useMemo(
+        () => filePanelMode === "changes" ? orderFilesForChanges(files, sections, stagedFiles) : files,
+        [filePanelMode, files, sections, stagedFiles],
+    );
     const feedbackMarkdown = useMemo(
         () => annotations.length > 0 ? exportReviewFeedbackWithImages(annotations) : "",
         [annotations],
     );
+
+    const toggleViewedFile = useCallback((filePath) => {
+        const wasViewed = viewedFiles.has(filePath);
+        setViewedFiles((items) => {
+            const next = new Set(items);
+            if (next.has(filePath)) next.delete(filePath);
+            else next.add(filePath);
+            return next;
+        });
+        if (!wasViewed) return;
+
+        const file = files.find((item) => item.path === filePath);
+        if (!file) return;
+        const scrollport = allFilesHostRef.current?.querySelector(".overflow-y-auto");
+        setFileNavigationTarget({
+            ...buildFileNavigationTarget(file),
+            preserveScroll: true,
+            scrollTop: scrollport?.scrollTop ?? 0,
+        });
+    }, [files, viewedFiles]);
+
+    const navigateToFile = useCallback((index) => {
+        const file = files[index];
+        if (!file) return;
+        navigationLockRef.current = file.path;
+        setActiveFileIndex(index);
+        setPendingSelection(null);
+        setFileNavigationTarget(buildFileNavigationTarget(file));
+    }, [files]);
+
+    const handleVisibleFileChange = useCallback((filePath) => {
+        if (navigationLockRef.current && navigationLockRef.current !== filePath) return;
+        const index = files.findIndex((file) => file.path === filePath);
+        if (index >= 0) setActiveFileIndex(index);
+    }, [files]);
+
+    useEffect(() => {
+        if (!fileNavigationTarget) return;
+
+        if (fileNavigationTarget.preserveScroll) {
+            const scrollport = allFilesHostRef.current?.querySelector(".overflow-y-auto");
+            if (!scrollport) return;
+            const scrollTop = fileNavigationTarget.scrollTop;
+            let frame;
+            let attempts = 0;
+
+            const preservePosition = () => {
+                scrollport.scrollTop = scrollTop;
+                if (attempts++ < 3) {
+                    frame = requestAnimationFrame(preservePosition);
+                    return;
+                }
+                setFileNavigationTarget((target) => target?.id === fileNavigationTarget.id ? null : target);
+            };
+
+            frame = requestAnimationFrame(preservePosition);
+            return () => cancelAnimationFrame(frame);
+        }
+
+        let canceled = false;
+        let timer;
+        let attempts = 0;
+
+        const alignSelectedFile = () => {
+            if (canceled) return;
+            const host = allFilesHostRef.current;
+            const scrollport = host?.querySelector(".overflow-y-auto");
+            const header = Array.from(host?.querySelectorAll("[slot='header-custom']") || [])
+                .find((node) => node.textContent?.includes(fileNavigationTarget.filePath));
+
+            if (!scrollport || !header) {
+                if (attempts++ < 20) timer = globalThis.setTimeout(alignSelectedFile, 25);
+                return;
+            }
+
+            const offset = header.getBoundingClientRect().top - scrollport.getBoundingClientRect().top;
+            if (Math.abs(offset) > 1) scrollport.scrollTop += offset;
+            const index = files.findIndex((file) => file.path === fileNavigationTarget.filePath);
+            if (index >= 0) setActiveFileIndex(index);
+            timer = globalThis.setTimeout(() => {
+                if (navigationLockRef.current === fileNavigationTarget.filePath) {
+                    navigationLockRef.current = null;
+                }
+            }, 150);
+        };
+
+        timer = globalThis.setTimeout(alignSelectedFile, 50);
+        return () => {
+            canceled = true;
+            globalThis.clearTimeout(timer);
+        };
+    }, [fileNavigationTarget, files]);
+
+    useEffect(() => {
+        let canceled = false;
+        let observer;
+        let timer;
+
+        const connect = () => {
+            if (canceled) return;
+            const scrollport = allFilesHostRef.current?.querySelector(".overflow-y-auto");
+            const content = scrollport?.firstElementChild;
+            if (!scrollport || !content) {
+                timer = globalThis.setTimeout(connect, 25);
+                return;
+            }
+
+            const update = () => {
+                const fits = content.getBoundingClientRect().height <= scrollport.clientHeight;
+                setAllFilesContentFits(fits);
+            };
+            observer = new ResizeObserver(update);
+            observer.observe(scrollport);
+            observer.observe(content);
+            update();
+        };
+
+        connect();
+        return () => {
+            canceled = true;
+            globalThis.clearTimeout(timer);
+            observer?.disconnect();
+        };
+    }, [
+        files,
+        filePanelMode,
+        diffStyle,
+        diffOverflow,
+        diffIndicators,
+        diffLineDiffType,
+        diffShowLineNumbers,
+        diffShowBackground,
+        diffExpandUnchanged,
+        diffFontFamily,
+        diffFontSize,
+    ]);
 
     function addAnnotationForFile(
         file,
@@ -76,6 +217,7 @@ export function CodeReviewSurface({ payload }) {
         originalCode,
         conventionalLabel,
         decorations,
+        tokenMeta,
     ) {
         if (!file) return;
         const range = pendingSelection || { start: 1, end: 1, side: "additions" };
@@ -92,10 +234,53 @@ export function CodeReviewSurface({ payload }) {
             originalCode,
             conventionalLabel,
             decorations,
+            ...(tokenMeta && {
+                charStart: tokenMeta.charStart,
+                charEnd: tokenMeta.charEnd,
+                tokenText: tokenMeta.tokenText,
+            }),
             createdAt: Date.now(),
         };
         setAnnotations((items) => [...items, next]);
         setSelectedAnnotationId(next.id);
+        setPendingSelection(null);
+    }
+
+    function addFileComment(filePath, text) {
+        const trimmed = text.trim();
+        if (!trimmed) return;
+        const next = {
+            id: crypto.randomUUID(),
+            type: "comment",
+            scope: "file",
+            filePath,
+            lineStart: 1,
+            lineEnd: 1,
+            side: "new",
+            text: trimmed,
+            createdAt: Date.now(),
+        };
+        setAnnotations((items) => [...items, next]);
+        setSelectedAnnotationId(next.id);
+    }
+
+    function editAnnotation(id, text, suggestedCode, originalCode, conventionalLabel, decorations) {
+        setAnnotations((items) =>
+            items.map((item) =>
+                item.id === id
+                    ? {
+                        ...item,
+                        ...(text !== undefined && { text }),
+                        ...(suggestedCode !== undefined && { suggestedCode }),
+                        ...(originalCode !== undefined && { originalCode }),
+                        ...(conventionalLabel !== undefined && {
+                            conventionalLabel: conventionalLabel ?? undefined,
+                        }),
+                        ...(decorations !== undefined && { decorations }),
+                    }
+                    : item
+            )
+        );
     }
 
     function addGlobalComment(text, images) {
@@ -147,85 +332,6 @@ export function CodeReviewSurface({ payload }) {
             setSubmitting(null);
         }
     }
-
-    const dockComponents = useMemo(() => ({
-        diff: ({ params }) => {
-            const file = files.find((item) => item.path === params?.filePath) || currentFile;
-            if (!file) return <div className="rw-empty-diff">No diff content.</div>;
-            return (
-                <DiffPanel
-                    file={file}
-                    annotations={annotations}
-                    selectedAnnotationId={selectedAnnotationId}
-                    scrollTargetAnnotation={scrollTargetAnnotation}
-                    pendingSelection={pendingSelection}
-                    onLineSelection={setPendingSelection}
-                    onAddAnnotation={(...args) => addAnnotationForFile(file, ...args)}
-                    onSelectAnnotation={setSelectedAnnotationId}
-                    onDeleteAnnotation={(id) => setAnnotations((items) => items.filter((item) => item.id !== id))}
-                    onEditAnnotation={(id, text) =>
-                        setAnnotations((items) => items.map((item) => item.id === id ? { ...item, text } : item))}
-                    isViewed={viewedFiles.has(file.path)}
-                    onToggleViewed={() =>
-                        setViewedFiles((items) => {
-                            const next = new Set(items);
-                            if (next.has(file.path)) next.delete(file.path);
-                            else next.add(file.path);
-                            return next;
-                        })}
-                    diffStyle={diffStyle}
-                    diffOverflow={diffOverflow}
-                    diffIndicators={diffIndicators}
-                    diffLineDiffType={diffLineDiffType}
-                    diffShowLineNumbers={diffShowLineNumbers}
-                    diffShowBackground={diffShowBackground}
-                    diffExpandUnchanged={diffExpandUnchanged}
-                    diffFontFamily={diffFontFamily}
-                    diffFontSize={diffFontSize}
-                />
-            );
-        },
-    }), [
-        files,
-        currentFile,
-        annotations,
-        selectedAnnotationId,
-        scrollTargetAnnotation,
-        pendingSelection,
-        viewedFiles,
-        diffStyle,
-        diffOverflow,
-        diffIndicators,
-        diffLineDiffType,
-        diffShowLineNumbers,
-        diffShowBackground,
-        diffExpandUnchanged,
-        diffFontFamily,
-        diffFontSize,
-    ]);
-    const handleDockReady = useCallback((event) => {
-        setDockApi(event.api);
-        event.api.onDidActivePanelChange((panel) => {
-            const filePath = panel?.params?.filePath;
-            const index = files.findIndex((file) => file.path === filePath);
-            if (index >= 0) setActiveFileIndex(index);
-        });
-        for (const file of files) {
-            event.api.addPanel({
-                id: `diff:${file.path}`,
-                component: "diff",
-                title: file.path,
-                params: { filePath: file.path },
-            });
-        }
-        const initialFile = files[activeFileIndex] ?? files[0];
-        if (initialFile) event.api.getPanel(`diff:${initialFile.path}`)?.api.setActive();
-    }, [files, activeFileIndex]);
-
-    useEffect(() => {
-        if (!dockApi || !currentFile) return;
-        dockApi.getPanel(`diff:${currentFile.path}`)?.api.setActive();
-    }, [dockApi, currentFile]);
 
     return (
         <ThemeProvider
@@ -322,17 +428,12 @@ export function CodeReviewSurface({ payload }) {
                                             <FileTree
                                                 files={files}
                                                 activeFileIndex={activeFileIndex}
-                                                onSelectFile={setActiveFileIndex}
+                                                scrollHighlightIndex={activeFileIndex}
+                                                onSelectFile={navigateToFile}
                                                 annotations={annotations}
                                                 viewedFiles={viewedFiles}
                                                 stagedFiles={stagedFiles}
-                                                onToggleViewed={(filePath) =>
-                                                    setViewedFiles((items) => {
-                                                        const next = new Set(items);
-                                                        if (next.has(filePath)) next.delete(filePath);
-                                                        else next.add(filePath);
-                                                        return next;
-                                                    })}
+                                                onToggleViewed={toggleViewedFile}
                                                 onSelectDiff={() => {}}
                                                 activeDiffType="working"
                                                 onSelectPanelView={() => {}}
@@ -343,22 +444,28 @@ export function CodeReviewSurface({ payload }) {
                                                 files={files}
                                                 sections={sections}
                                                 activeFileIndex={activeFileIndex}
-                                                onSelectFile={setActiveFileIndex}
+                                                scrollHighlightIndex={activeFileIndex}
+                                                onSelectFile={navigateToFile}
                                                 annotations={annotations}
                                                 viewedFiles={viewedFiles}
                                                 stagedFiles={stagedFiles}
+                                                onToggleViewed={toggleViewedFile}
                                                 onSelectPanelView={() => {}}
                                             />
                                         )}
                                 </div>
                             </aside>
                         )}
-                        <main className="rw-review-dock-host" aria-label="Diff panels">
-                            {currentFile
+                        <main
+                            ref={allFilesHostRef}
+                            className="rw-review-all-files-host"
+                            aria-label="All file changes"
+                            data-content-fits={allFilesContentFits}
+                        >
+                            {files.length > 0
                                 ? (
-                                    <DockviewReact
+                                    <AllFilesCodeView
                                         key={[
-                                            ...[...viewedFiles].sort(),
                                             diffStyle,
                                             diffOverflow,
                                             diffIndicators,
@@ -369,10 +476,39 @@ export function CodeReviewSurface({ payload }) {
                                             diffFontFamily,
                                             diffFontSize,
                                         ].join("|")}
-                                        className="rw-dockview dockview-theme-dark"
-                                        components={dockComponents}
-                                        onReady={handleDockReady}
-                                        disableFloatingGroups
+                                        files={accordionFiles}
+                                        diffStyle={diffStyle}
+                                        diffOverflow={diffOverflow}
+                                        diffIndicators={diffIndicators}
+                                        lineDiffType={diffLineDiffType}
+                                        disableLineNumbers={!diffShowLineNumbers}
+                                        disableBackground={!diffShowBackground}
+                                        expandUnchanged={diffExpandUnchanged}
+                                        fontFamily={diffFontFamily}
+                                        fontSize={diffFontSize}
+                                        annotations={annotations}
+                                        selectedAnnotationId={selectedAnnotationId}
+                                        scrollTargetAnnotation={scrollTargetAnnotation}
+                                        pendingSelection={pendingSelection}
+                                        onLineSelection={setPendingSelection}
+                                        onAddAnnotationForFile={(filePath, ...args) =>
+                                            addAnnotationForFile(
+                                                files.find((file) => file.path === filePath),
+                                                ...args,
+                                            )}
+                                        onEditAnnotation={editAnnotation}
+                                        onSelectAnnotation={setSelectedAnnotationId}
+                                        onDeleteAnnotation={(id) =>
+                                            setAnnotations((items) => items.filter((item) => item.id !== id))}
+                                        onAddFileCommentForFile={addFileComment}
+                                        viewedFiles={viewedFiles}
+                                        onToggleViewed={toggleViewedFile}
+                                        stagedFiles={stagedFiles}
+                                        activeSearchMatchId={fileNavigationTarget?.id ?? null}
+                                        activeSearchMatch={fileNavigationTarget}
+                                        onVisibleFileChange={handleVisibleFileChange}
+                                        fileOrder={filePanelMode === "tree" ? "tree" : "list"}
+                                        isActive
                                     />
                                 )
                                 : <div className="rw-empty-diff">No diff content.</div>}
@@ -446,83 +582,19 @@ export function CodeReviewSurface({ payload }) {
     }
 }
 
-function DiffPanel({
-    file,
-    annotations,
-    selectedAnnotationId,
-    scrollTargetAnnotation,
-    pendingSelection,
-    onLineSelection,
-    onAddAnnotation,
-    onSelectAnnotation,
-    onDeleteAnnotation,
-    onEditAnnotation,
-    isViewed,
-    onToggleViewed,
-    diffStyle,
-    diffOverflow,
-    diffIndicators,
-    diffLineDiffType,
-    diffShowLineNumbers,
-    diffShowBackground,
-    diffExpandUnchanged,
-    diffFontFamily,
-    diffFontSize,
-}) {
-    const handleToggleViewed = useCallback((event) => {
-        event?.preventDefault();
-        event?.stopPropagation();
-        onToggleViewed?.();
-    }, [onToggleViewed]);
-
-    return (
-        <section className="rw-plannotator-diff-panel">
-            <FileHeader
-                filePath={file.path}
-                oldPath={file.oldPath}
-                patch={file.patch}
-                status={file.status}
-                isViewed={isViewed}
-                onToggleViewed={handleToggleViewed}
-            />
-            {isViewed
-                ? (
-                    <div className="rw-viewed-diff-collapsed" role="status">
-                        File marked as viewed. Click Viewed to expand it again.
-                    </div>
-                )
-                : (
-                    <DiffViewer
-                        hideHeader
-                        patch={file.patch}
-                        filePath={file.path}
-                        oldPath={file.oldPath}
-                        status={file.status}
-                        diffStyle={diffStyle}
-                        diffOverflow={diffOverflow}
-                        diffIndicators={diffIndicators}
-                        lineDiffType={diffLineDiffType}
-                        disableLineNumbers={!diffShowLineNumbers}
-                        disableBackground={!diffShowBackground}
-                        expandUnchanged={diffExpandUnchanged}
-                        fontFamily={diffFontFamily}
-                        fontSize={diffFontSize}
-                        annotations={annotations}
-                        selectedAnnotationId={selectedAnnotationId}
-                        scrollTargetAnnotation={scrollTargetAnnotation}
-                        pendingSelection={pendingSelection}
-                        onLineSelection={onLineSelection}
-                        onAddAnnotation={onAddAnnotation}
-                        onAddFileComment={(text) => onAddAnnotation("comment", text)}
-                        onEditAnnotation={onEditAnnotation}
-                        onSelectAnnotation={onSelectAnnotation}
-                        onDeleteAnnotation={onDeleteAnnotation}
-                        isViewed={isViewed}
-                        onToggleViewed={onToggleViewed}
-                    />
-                )}
-        </section>
-    );
+function buildFileNavigationTarget(file) {
+    const hunk = file.patch.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/m);
+    const isDeletion = file.status === "deleted";
+    return {
+        id: `file:${file.path}:${crypto.randomUUID()}`,
+        filePath: file.path,
+        side: isDeletion ? "deletion" : "addition",
+        lineNumber: Number(hunk?.[isDeletion ? 1 : 2] || 1),
+        text: "",
+        matchStart: 0,
+        matchEnd: 0,
+        snippet: "",
+    };
 }
 
 function buildReviewSections(files, reviewStatus) {
@@ -540,6 +612,36 @@ function buildReviewSections(files, reviewStatus) {
             return [file.path, { group, staged: isStaged }];
         })),
     };
+}
+
+function orderFilesForChanges(files, sections, stagedFiles) {
+    const grouped = {
+        committed: [],
+        changes: [],
+        untracked: [],
+    };
+
+    files.forEach((file, index) => {
+        const entry = sections.files[file.path];
+        const staged = stagedFiles.has(file.path);
+        let group = entry?.group ?? "committed";
+
+        if (group === "untracked" && staged) {
+            group = "changes";
+        } else if (group === "changes" && entry?.staged && !staged && file.status === "added") {
+            group = "untracked";
+        }
+
+        grouped[group].push({ file, index, staged });
+    });
+
+    grouped.changes.sort((left, right) => Number(right.staged) - Number(left.staged) || left.index - right.index);
+
+    return [
+        ...grouped.committed,
+        ...grouped.changes,
+        ...grouped.untracked,
+    ].map(({ file }) => file);
 }
 
 function toWorkflowAnnotations(annotations) {
