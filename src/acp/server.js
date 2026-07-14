@@ -5,7 +5,7 @@
 
 import { agent, methods, ndJsonStream, PROTOCOL_VERSION, RequestError } from "@agentclientprotocol/sdk";
 import { isAbsolute } from "@std/path";
-import { SessionRuntime } from "../shared/session/session-runtime.js";
+import { SessionRuntime, SessionTurnInProgressError } from "../shared/session/session-runtime.js";
 import { AcpSessionMap, normalizeAcpSessionIdForLoad } from "./session-map.js";
 import { mapRuntimeEventToAcpSessionNotification } from "./event-mapper.js";
 import { createAcpInteractionAdapter } from "./interaction-mapper.js";
@@ -315,72 +315,82 @@ export function createRunWieldAcpServer(options = {}) {
         }
         const hostedSession = sessionMap.getHostedSession(acpSessionId, runtime);
         if (!hostedSession) throwUnknownSession(acpSessionId);
-        if (sessionMap.hasActivePrompt(acpSessionId)) {
-            throw new RequestError(ACP_INVALID_STATE, `ACP session already has an active prompt: ${acpSessionId}`, {
-                sessionId: acpSessionId,
-            });
-        }
         const promptText = convertAcpPromptToText(request.prompt);
-        const activePrompt = sessionMap.beginPrompt(
-            acpSessionId,
-            context.requestId ? String(context.requestId) : undefined,
-        );
-        if (!activePrompt) {
-            throw new RequestError(ACP_INVALID_STATE, `ACP session already has an active prompt: ${acpSessionId}`, {
-                sessionId: acpSessionId,
-            });
-        }
 
         /** @type {Promise<void>[]} */
         const pendingNotifications = [];
+        /** @type {import('./session-map.js').AcpPromptRecord | null} */
+        let activePrompt = null;
+        /** @returns {import('./session-map.js').AcpPromptRecord | null} */
+        const getActivePrompt = () => activePrompt;
         /** @type {() => void} */
         let unsubscribe = () => {};
+        let promptStarted = false;
         let deferCleanupUntilRuntimeSettles = false;
         let cleanupStarted = false;
 
         const cleanupPrompt = () => {
-            if (cleanupStarted) return;
+            if (!promptStarted || cleanupStarted) return;
             cleanupStarted = true;
             try {
                 unsubscribe();
             } finally {
                 try {
-                    runtime.setInteractionAdapter?.(hostedSession, null, null);
+                    if (activePrompt && sessionMap.isCurrentPrompt(acpSessionId, activePrompt)) {
+                        runtime.setInteractionAdapter?.(hostedSession, null, null);
+                    }
                 } finally {
-                    sessionMap.endPrompt(acpSessionId);
+                    if (activePrompt) sessionMap.endPrompt(acpSessionId, activePrompt);
                 }
             }
         };
 
         try {
-            runtime.setInteractionAdapter?.(
-                hostedSession,
-                createAcpInteractionAdapter({
-                    context,
-                    acpSessionId,
-                    clientCapabilities,
-                }),
-                {
-                    kind: "acp",
-                    acpSessionId,
-                    capabilities: /** @type {Record<string, unknown>} */ (clientCapabilities || {}),
-                },
-            );
-            unsubscribe = runtime.subscribeSessionEvents(hostedSession, (event) => {
-                const notification = mapRuntimeEventToAcpSessionNotification(acpSessionId, event);
-                if (!notification) return;
-                const pending = notifyClient(context, methods.client.session.update, notification);
-                pendingNotifications.push(pending);
-                return pending;
-            });
-
             const runtimePrompt = runtime.promptSession(hostedSession, {
                 initialRequest: promptText,
                 initialImages: [],
+                onTurnStarted: ({ turnId }) => {
+                    activePrompt = sessionMap.beginPrompt(
+                        acpSessionId,
+                        turnId,
+                        context.requestId ? String(context.requestId) : undefined,
+                    );
+                    if (!activePrompt) throwUnknownSession(acpSessionId);
+                    promptStarted = true;
+                    try {
+                        runtime.setInteractionAdapter?.(
+                            hostedSession,
+                            createAcpInteractionAdapter({
+                                context,
+                                acpSessionId,
+                                clientCapabilities,
+                            }),
+                            {
+                                kind: "acp",
+                                acpSessionId,
+                                capabilities: /** @type {Record<string, unknown>} */ (clientCapabilities || {}),
+                            },
+                        );
+                        unsubscribe = runtime.subscribeSessionEvents(hostedSession, (event) => {
+                            const notification = mapRuntimeEventToAcpSessionNotification(acpSessionId, event);
+                            if (!notification) return;
+                            const pending = notifyClient(context, methods.client.session.update, notification);
+                            pendingNotifications.push(pending);
+                            return pending;
+                        });
+                    } catch (error) {
+                        cleanupPrompt();
+                        throw error;
+                    }
+                    return cleanupPrompt;
+                },
             });
-            const result = /** @type {any} */ (await Promise.race([runtimePrompt, activePrompt.cancellation]));
+            const startedPrompt = getActivePrompt();
+            const result = /** @type {any} */ (
+                await (startedPrompt ? Promise.race([runtimePrompt, startedPrompt.cancellation]) : runtimePrompt)
+            );
             await Promise.allSettled(pendingNotifications);
-            if (sessionMap.isPromptCancelled(acpSessionId)) {
+            if (getActivePrompt()?.cancelled) {
                 deferCleanupUntilRuntimeSettles = true;
                 void runtimePrompt.then(cleanupPrompt, cleanupPrompt);
                 return { stopReason: "cancelled" };
@@ -390,7 +400,14 @@ export function createRunWieldAcpServer(options = {}) {
             return { stopReason: "end_turn" };
         } catch (error) {
             await Promise.allSettled(pendingNotifications);
-            if (sessionMap.isPromptCancelled(acpSessionId)) return { stopReason: "cancelled" };
+            if (getActivePrompt()?.cancelled) return { stopReason: "cancelled" };
+            if (error instanceof SessionTurnInProgressError) {
+                throw new RequestError(
+                    ACP_INVALID_STATE,
+                    `ACP session already has an active prompt: ${acpSessionId}`,
+                    { sessionId: acpSessionId },
+                );
+            }
             throw error;
         } finally {
             if (!deferCleanupUntilRuntimeSettles) cleanupPrompt();

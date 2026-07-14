@@ -1,7 +1,7 @@
 import { assertEquals } from "@std/assert";
 import { Spacer } from "@earendil-works/pi-tui";
 import { createFooterOnlyUiApi, createSilentUiApi, createUiApi } from "./api.js";
-import { SpinnerBlock, SystemMessageBlock, ThinkingBlock } from "./blocks.js";
+import { SpinnerBlock, SystemMessageBlock, ThinkingBlock, ToolExecutionBlock } from "./blocks.js";
 import stripAnsi from "strip-ansi";
 import { initRunWieldTheme } from "../theme/theme.js";
 
@@ -47,6 +47,8 @@ Deno.test("createSilentUiApi implements the full no-op surface", async () => {
     ui.appendUserMessage("ignored");
     ui.appendAgentMessageStart("Agent").appendText("ignored");
     ui.appendImage("abc", "image/png");
+    ui.appendQueuedMessage("queued-1", "ignored");
+    ui.removeQueuedMessage("queued-1");
     ui.appendSystemMessage("ignored");
     const tool = ui.startToolExecution("1", "bash", "echo hi");
     tool.appendOutput("ignored");
@@ -121,6 +123,36 @@ Deno.test("createUiApi appends visible blocks, merges compatible system messages
     assertEquals(renders() > 0, true);
 
     ui.clearMessages();
+    assertEquals(messageList.children, []);
+});
+
+Deno.test("createUiApi reuses an active tool block when the same tool start is repeated", () => {
+    const { tui, messageList } = makeTuiHarness();
+    const ui = /** @type {any} */ (createUiApi(tui, messageList, new SpinnerBlock()));
+
+    const first = ui.startToolExecution("tool-1", "code_search", "createAgentJobHandler");
+    const second = ui.startToolExecution("tool-1", "code_search", "createAgentJobHandler");
+
+    assertEquals(second, first);
+    assertEquals(
+        messageList.children.filter((/** @type {any} */ child) => child instanceof ToolExecutionBlock).length,
+        1,
+    );
+});
+
+Deno.test("createUiApi adds and removes exact queued-message blocks by runtime id", () => {
+    const { tui, messageList } = makeTuiHarness();
+    const ui = /** @type {any} */ (createUiApi(tui, messageList, new SpinnerBlock()));
+
+    ui.appendQueuedMessage("queued-1", "first");
+    ui.appendQueuedMessage("queued-1", "duplicate ignored");
+    ui.appendQueuedMessage("queued-2", "second");
+
+    assertEquals(messageList.children.length, 4);
+    ui.removeQueuedMessage("queued-2");
+    assertEquals(messageList.children.length, 2);
+    assertEquals(messageList.children[0] instanceof SystemMessageBlock, true);
+    ui.removeQueuedMessage("queued-1");
     assertEquals(messageList.children, []);
 });
 

@@ -26,6 +26,7 @@ export const RuntimeEventTypes = Object.freeze({
     INPUT_STATE_CHANGED: "input_state_changed",
     RUNNING_TASKS_CHANGED: "running_tasks_changed",
     MESSAGES_CLEARED: "messages_cleared",
+    QUEUED_MESSAGE_CHANGED: "queued_message_changed",
     USAGE: "usage",
     CANCELLATION: "cancellation",
     TERMINAL_ERROR: "terminal_error",
@@ -54,7 +55,7 @@ export const RuntimeEventTypes = Object.freeze({
  */
 
 /**
- * @typedef {RuntimeEventBase & { type: "user_message", text: string }} RuntimeUserMessageEvent
+ * @typedef {RuntimeEventBase & { type: "user_message", text: string, messageId?: string, images?: import('./types.js').ImageAttachment[] }} RuntimeUserMessageEvent
  */
 
 /**
@@ -110,6 +111,19 @@ export const RuntimeEventTypes = Object.freeze({
  */
 
 /**
+ * @typedef {Object} RuntimeQueuedMessage
+ * @property {string} id
+ * @property {string} text
+ * @property {import('./types.js').ImageAttachment[]} images
+ * @property {"steer" | "next_turn"} delivery
+ * @property {string} queuedAt
+ */
+
+/**
+ * @typedef {RuntimeEventBase & { type: "queued_message_changed", status: "queued" | "consumed" | "dequeued", message: RuntimeQueuedMessage, reason?: string }} RuntimeQueuedMessageEvent
+ */
+
+/**
  * @typedef {RuntimeEventBase & { type: "usage", used?: number, size?: number, cost?: unknown, raw?: unknown }} RuntimeUsageEvent
  */
 
@@ -134,7 +148,7 @@ export const RuntimeEventTypes = Object.freeze({
  */
 
 /**
- * @typedef {RuntimeSessionLifecycleEvent | RuntimeReplayEvent | RuntimeUserMessageEvent | RuntimeAssistantDeltaEvent | RuntimeAssistantThinkingEndEvent | RuntimeToolStartEvent | RuntimeToolUpdateEvent | RuntimeToolEndEvent | RuntimeSystemStatusEvent | RuntimeTurnEvent | RuntimeBusyChangedEvent | RuntimeAgentChangedEvent | RuntimeModelChangedEvent | RuntimeThinkingLevelChangedEvent | RuntimeSessionRenamedEvent | RuntimePresentationStateEvent | RuntimeUsageEvent | RuntimeCancellationEvent | RuntimeTerminalErrorEvent | RuntimeInteractionLifecycleEvent | RuntimePlanReviewLinkEvent | RuntimeAttentionRequestedEvent} SessionRuntimeEvent
+ * @typedef {RuntimeSessionLifecycleEvent | RuntimeReplayEvent | RuntimeUserMessageEvent | RuntimeAssistantDeltaEvent | RuntimeAssistantThinkingEndEvent | RuntimeToolStartEvent | RuntimeToolUpdateEvent | RuntimeToolEndEvent | RuntimeSystemStatusEvent | RuntimeTurnEvent | RuntimeBusyChangedEvent | RuntimeAgentChangedEvent | RuntimeModelChangedEvent | RuntimeThinkingLevelChangedEvent | RuntimeSessionRenamedEvent | RuntimePresentationStateEvent | RuntimeQueuedMessageEvent | RuntimeUsageEvent | RuntimeCancellationEvent | RuntimeTerminalErrorEvent | RuntimeInteractionLifecycleEvent | RuntimePlanReviewLinkEvent | RuntimeAttentionRequestedEvent} SessionRuntimeEvent
  */
 
 /**

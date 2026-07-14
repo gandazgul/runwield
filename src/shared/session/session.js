@@ -650,8 +650,7 @@ export async function steerRootSession(hostedSession, text, images) {
 }
 
 /**
- * Steer the root session and return the exact AgentSession that accepted the
- * message, so UI callers can track queue consumption on the right session.
+ * Steer the root session and return the AgentSession that accepted the message.
  *
  * @param {import('./hosted-session.js').HostedSession | string} hostedSession
  * @param {string | import('./types.js').ImageAttachment[]} [text]
@@ -662,25 +661,19 @@ export async function steerRootSessionWithTarget(hostedSession, text, images) {
     const targetHostedSession = requireHostedSession(hostedSession, "steerRootSessionWithTarget");
     const session = /** @type {any} */ (targetHostedSession.getRootAgentSession());
     if (!session) return null;
-    // If the session is not actively streaming, queuing a steering message
-    // on the agent would be lost — the agent loop has already exited.
-    // Return null so the caller queues it for the next submission instead.
     if (!session.isStreaming) return null;
     const activeModel = session.model || { input: ["text", "image"] };
     const fallback = images && images.length > 0 && session.model && !modelSupportsImageInput(session.model)
         ? await resolveVisionFallbackModel(session.modelRegistry)
         : undefined;
-    const preparedImages = prepareImagesForModel({
+    const prepared = prepareImagesForModel({
         text: /** @type {string} */ (text),
         images,
         activeModel,
         fallbackModelRef: fallback?.modelRef,
     });
-    if (!preparedImages.ok) throw new Error(preparedImages.message);
-    await session.steer(
-        preparedImages.text,
-        preparedImages.images && preparedImages.images.length > 0 ? preparedImages.images : undefined,
-    );
+    if (!prepared.ok) throw new Error(prepared.message);
+    await session.steer(prepared.text, prepared.images && prepared.images.length > 0 ? prepared.images : undefined);
     return session;
 }
 

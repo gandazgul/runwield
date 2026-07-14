@@ -32,6 +32,8 @@ export function createSilentUiApi() {
         appendUserMessage: () => {},
         appendAgentMessageStart: () => ({ appendText: () => {} }),
         appendImage: () => {},
+        appendQueuedMessage: () => {},
+        removeQueuedMessage: () => {},
         appendReviewResult: () => {},
         appendSystemMessage: () => {},
         startToolExecution: () => ({
@@ -85,6 +87,8 @@ export function createFooterOnlyUiApi(parentUiAPI) {
  */
 export function createUiApi(tui, messageList, spinner) {
     const activeToolBlocks = new Map();
+    /** @type {Map<string, { block: SystemMessageBlock, spacer: Spacer }>} */
+    const queuedMessageBlocks = new Map();
     /** @type {Map<string, ToolElapsedTimerState>} */
     const toolElapsedTimers = new Map();
 
@@ -185,6 +189,27 @@ export function createUiApi(tui, messageList, spinner) {
             tui.requestRender();
         },
 
+        /** @param {string} id @param {string} text */
+        appendQueuedMessage: (id, text) => {
+            if (outputSuppressed || queuedMessageBlocks.has(id)) return;
+            const block = new SystemMessageBlock(text, false, "Steering:");
+            const spacer = new Spacer(1);
+            queuedMessageBlocks.set(id, { block, spacer });
+            messageList.addChild(block);
+            messageList.addChild(spacer);
+            tui.requestRender();
+        },
+
+        /** @param {string} id */
+        removeQueuedMessage: (id) => {
+            const queued = queuedMessageBlocks.get(id);
+            if (!queued) return;
+            messageList.removeChild(queued.block);
+            messageList.removeChild(queued.spacer);
+            queuedMessageBlocks.delete(id);
+            tui.requestRender();
+        },
+
         /** @param {string} agentName */
         appendAgentMessageStart: (agentName) => {
             if (outputSuppressed) {
@@ -274,6 +299,8 @@ export function createUiApi(tui, messageList, spinner) {
                     startTime: Date.now(),
                 };
             }
+            const existingBlock = activeToolBlocks.get(id);
+            if (existingBlock) return existingBlock;
             const block = new ToolExecutionBlock(name, argsStr);
             const originalEndExecution = block.endExecution.bind(block);
             block.endExecution = (isError, durationMs) => {
@@ -442,6 +469,7 @@ export function createUiApi(tui, messageList, spinner) {
 
         clearMessages: () => {
             messageList.clear();
+            queuedMessageBlocks.clear();
             tui.requestRender();
         },
 

@@ -28,13 +28,8 @@ import { VERSION } from "../../shared/version.js";
 import { endBlink, renderBootLogo } from "./boot-logo.js";
 import { createUiApi } from "./api.js";
 import { attachTuiRuntimeAdapter } from "./runtime-adapter.js";
-import { SpinnerBlock, SystemMessageBlock } from "./blocks.js";
-import {
-    ensureRootAgentSession,
-    listPromptTemplates,
-    listSkills,
-    steerRootSessionWithTarget,
-} from "../../shared/session/session.js";
+import { SpinnerBlock } from "./blocks.js";
+import { ensureRootAgentSession, listPromptTemplates, listSkills } from "../../shared/session/session.js";
 import { ensureMnemosyneBinary } from "../../shared/runtime-preflight.js";
 import { commandRegistry, getCommandInvocationNames, getSlashCommandDefinitions } from "../../cmd/registry.js";
 import { AGENTS } from "../../constants.js";
@@ -68,7 +63,6 @@ import { handleSlashCommand } from "./slash-dispatch.js";
 import { installKeybindings } from "./keybindings.js";
 import { cancelActivePlanReview } from "../../shared/workflow/submit-plan.js";
 import {
-    formatImageAttachmentMarker,
     modelSupportsImageInput,
     persistImageAttachment,
     preflightImageAttachments,
@@ -363,49 +357,6 @@ function getMostRecentSessionModelParts(sessions) {
 }
 
 /**
- * @typedef {Object} PendingSteeringEntry
- * @property {import('@earendil-works/pi-coding-agent').AgentSession} session
- * @property {string} text
- * @property {import('../../shared/session/types.js').ImageAttachment[]} images
- * @property {SystemMessageBlock} systemBlock
- * @property {Spacer} spacer
- */
-
-/**
- * @typedef {Object} SteeringState
- * @property {Map<number, PendingSteeringEntry>} pendingMessages
- * @property {Map<import('@earendil-works/pi-coding-agent').AgentSession, () => void>} pendingUnsubs
- * @property {number} nextId
- * @property {import('@earendil-works/pi-tui').Container | undefined} messageList
- * @property {import('@earendil-works/pi-tui').TUI | undefined} tui
- * @property {import('./types.js').UiAPI | undefined} uiAPI
- */
-
-/** @returns {SteeringState} */
-export function createSteeringState() {
-    return {
-        pendingMessages: new Map(),
-        pendingUnsubs: new Map(),
-        nextId: 1,
-        messageList: undefined,
-        tui: undefined,
-        uiAPI: undefined,
-    };
-}
-
-/**
- * @param {string} text
- * @param {import('../../shared/session/types.js').ImageAttachment[]} images
- * @returns {string}
- */
-export function formatSteeringBlockText(text, images) {
-    if (images.length === 0) return text;
-    const markers = images.map(formatImageAttachmentMarker).join("\n");
-    if (!text.trim()) return markers;
-    return `${text}\n\n${markers}`;
-}
-
-/**
  * @param {import('../../shared/session/types.js').ImageAttachment} image
  * @returns {Image}
  */
@@ -415,136 +366,6 @@ function createPastedImagePreview(image) {
         maxWidthCells: 30,
         maxHeightCells: 10,
     });
-}
-
-/**
- * @param {readonly string[] | undefined} steering
- * @returns {Map<string, number>}
- */
-function countQueuedSteeringByText(steering) {
-    /** @type {Map<string, number>} */
-    const counts = new Map();
-    for (const text of steering || []) {
-        counts.set(text, (counts.get(text) || 0) + 1);
-    }
-    return counts;
-}
-
-/**
- * @param {SteeringState} steeringState
- * @param {import('@earendil-works/pi-coding-agent').AgentSession} session
- */
-function cleanupSteeringSubscriptionIfIdle(steeringState, session) {
-    for (const entry of steeringState.pendingMessages.values()) {
-        if (entry.session === session) return;
-    }
-    const unsubscribe = steeringState.pendingUnsubs.get(session);
-    if (unsubscribe) {
-        unsubscribe();
-        steeringState.pendingUnsubs.delete(session);
-    }
-}
-
-/**
- * @param {SteeringState} steeringState
- * @param {number} id
- * @param {PendingSteeringEntry} entry
- */
-function transitionSteeringToUserMessage(steeringState, id, entry) {
-    if (!steeringState.messageList || !steeringState.uiAPI || !steeringState.tui) return;
-    steeringState.messageList.removeChild(entry.systemBlock);
-    steeringState.messageList.removeChild(entry.spacer);
-    steeringState.uiAPI.appendUserMessage?.(entry.text);
-    if (entry.images.length > 0) {
-        for (const img of entry.images) {
-            steeringState.uiAPI.appendImage?.(img.base64, img.mimeType);
-        }
-    }
-    steeringState.pendingMessages.delete(id);
-    cleanupSteeringSubscriptionIfIdle(steeringState, entry.session);
-    steeringState.tui.requestRender();
-}
-
-/**
- * Subscribe to the exact session that accepted a steering message. When the
- * message is consumed by the LLM (no longer in that session's queue_update
- * steering list), transition from "Steering:" to a proper UserPromptBlock.
- *
- * @param {SteeringState} steeringState
- * @param {import('@earendil-works/pi-coding-agent').AgentSession} session
- */
-function setupSteeringConsumedListener(steeringState, session) {
-    if (steeringState.pendingUnsubs.has(session)) return;
-    steeringState.pendingUnsubs.set(
-        session,
-        session.subscribe((event) => {
-            if (event.type !== "queue_update") return;
-            if (!steeringState.messageList || !steeringState.uiAPI || !steeringState.tui) return;
-            const activeSteeringCounts = countQueuedSteeringByText(event.steering);
-            for (const [id, entry] of steeringState.pendingMessages) {
-                if (entry.session !== session) continue;
-                const activeCount = activeSteeringCounts.get(entry.text) || 0;
-                if (activeCount > 0) {
-                    activeSteeringCounts.set(entry.text, activeCount - 1);
-                    continue;
-                }
-                transitionSteeringToUserMessage(steeringState, id, entry);
-            }
-        }),
-    );
-}
-
-/**
- * @param {SteeringState} steeringState
- * @param {import('@earendil-works/pi-coding-agent').AgentSession} session
- * @param {string} text
- * @param {import('../../shared/session/types.js').ImageAttachment[]} images
- * @param {SystemMessageBlock} systemBlock
- * @param {Spacer} spacer
- */
-export function trackPendingSteeringMessage(steeringState, session, text, images, systemBlock, spacer) {
-    setupSteeringConsumedListener(steeringState, session);
-    const id = steeringState.nextId++;
-    steeringState.pendingMessages.set(id, {
-        session,
-        text,
-        images: [...images],
-        systemBlock,
-        spacer,
-    });
-    return id;
-}
-
-/**
- * Test-only hook for exercising steering queue consumption without booting the TUI.
- *
- * @param {SteeringState} steeringState
- * @param {import('@earendil-works/pi-tui').Container} messageList
- * @param {import('./types.js').UiAPI} uiAPI
- * @param {import('@earendil-works/pi-tui').TUI} tui
- */
-export function __setSteeringUiRefsForTests(steeringState, messageList, uiAPI, tui) {
-    steeringState.messageList = messageList;
-    steeringState.uiAPI = uiAPI;
-    steeringState.tui = tui;
-}
-
-/** @param {SteeringState} steeringState */
-export function clearSteeringState(steeringState) {
-    steeringState.pendingMessages.clear();
-    for (const unsubscribe of steeringState.pendingUnsubs.values()) {
-        unsubscribe();
-    }
-    steeringState.pendingUnsubs.clear();
-    steeringState.nextId = 1;
-    steeringState.messageList = undefined;
-    steeringState.uiAPI = undefined;
-    steeringState.tui = undefined;
-}
-
-/** @param {SteeringState} steeringState */
-export function __resetPendingSteeringForTests(steeringState) {
-    clearSteeringState(steeringState);
 }
 
 /**
@@ -1008,10 +829,6 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
 
     // Expose a UI API for agents to append to the message list
     const uiAPI = createUiApi(tui, messageList, runningTasksComponent);
-    const steeringState = createSteeringState();
-    steeringState.messageList = messageList;
-    steeringState.tui = tui;
-    steeringState.uiAPI = uiAPI;
 
     let tuiRuntimeAdapter = attachTuiRuntimeAdapter({ runtime: sessionRuntime, hostedSession, uiAPI });
 
@@ -1055,11 +872,6 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         hostedSession.setActiveOnMessage(createAgentHandler(AGENTS.ROUTER, { hostedSession }));
         pastedImages.length = 0;
         previewImages.clear();
-        submissionQueue.length = 0;
-        clearSteeringState(steeringState);
-        steeringState.messageList = messageList;
-        steeringState.tui = tui;
-        steeringState.uiAPI = uiAPI;
         editor.setText("");
         tui.setFocus(editor);
         tui.requestRender();
@@ -1372,9 +1184,6 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         tui.setFocus(editor);
     }
 
-    // Handle Editor events
-    /** @type {Array<{text: string, images: import('../../shared/session/types.js').ImageAttachment[], block?: SystemMessageBlock, spacer?: Spacer}>} */
-    const submissionQueue = [];
     let isProcessingSubmission = false;
 
     /**
@@ -1393,74 +1202,51 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
     }
 
     /**
-     * Remove a pending steering entry's visual block.
-     *
-     * @param {PendingSteeringEntry} entry
-     */
-    function removePendingSteeringVisual(entry) {
-        messageList.removeChild(entry.systemBlock);
-        messageList.removeChild(entry.spacer);
-    }
-
-    /**
      * Pop the most recent queued submission or pending steering message and
      * restore it into the editor. Returns true if a message was dequeued.
      */
-    function dequeueLastSubmission() {
-        if (submissionQueue.length > 0) {
-            const item = submissionQueue.pop();
-            if (!item) return false;
-            if (item.block) messageList.removeChild(item.block);
-            if (item.spacer) messageList.removeChild(item.spacer);
-            restoreQueuedItemToEditor(item);
-            tui.requestRender();
-            return true;
-        }
-
-        const pendingEntries = Array.from(steeringState.pendingMessages.entries());
-        const selected = pendingEntries[pendingEntries.length - 1];
-        if (!selected) return false;
-
-        const [selectedId, selectedEntry] = selected;
-        try {
-            selectedEntry.session.clearQueue?.();
-        } catch (_e) { /* ignore */ }
-
-        for (const [id, entry] of pendingEntries) {
-            if (entry.session !== selectedEntry.session) continue;
-            removePendingSteeringVisual(entry);
-            steeringState.pendingMessages.delete(id);
-            if (id === selectedId) continue;
-
-            const block = new SystemMessageBlock(
-                formatSteeringBlockText(entry.text, entry.images),
-                false,
-                "Queued message:",
-            );
-            const spacer = new Spacer(1);
-            messageList.addChild(block);
-            messageList.addChild(spacer);
-            submissionQueue.push({ text: entry.text, images: entry.images, block, spacer });
-        }
-        cleanupSteeringSubscriptionIfIdle(steeringState, selectedEntry.session);
-        restoreQueuedItemToEditor(selectedEntry);
+    async function dequeueLastSubmission() {
+        const dequeued = await sessionRuntime.dequeueLastQueuedMessage(hostedSession);
+        if (!dequeued.ok || !dequeued.message) return false;
+        restoreQueuedItemToEditor(dequeued.message);
         tui.requestRender();
         return true;
     }
 
-    async function processSubmissions() {
+    /**
+     * @param {{ text: string, images: import('../../shared/session/types.js').ImageAttachment[] } | null} [initialItem]
+     */
+    async function processSubmissions(initialItem = null) {
         if (isProcessingSubmission) return;
         isProcessingSubmission = true;
-
-        while (submissionQueue.length > 0) {
-            const item = submissionQueue.shift();
-            if (!item) continue;
-            const { text, images: savedImages } = item;
-            await executeUserRequest(text, savedImages);
+        try {
+            let item = initialItem || sessionRuntime.takeNextTurnMessage(hostedSession).message;
+            while (item) {
+                await executeUserRequest(item.text, item.images);
+                item = sessionRuntime.takeNextTurnMessage(hostedSession).message;
+            }
+        } finally {
+            isProcessingSubmission = false;
+            forceResetUI();
         }
+    }
 
-        isProcessingSubmission = false;
-        forceResetUI();
+    /**
+     * @param {string} text
+     * @param {import('../../shared/session/types.js').ImageAttachment[]} images
+     */
+    function queueForNextTurn(text, images) {
+        const result = sessionRuntime.queueNextTurnMessage(hostedSession, text, images);
+        if (!result.queued) {
+            uiAPI.appendSystemMessage(
+                `Unable to queue message: ${result.error || result.reason || "unknown error"}`,
+                true,
+                "RunWield",
+            );
+            return;
+        }
+        if (!isProcessingSubmission) processSubmissions();
+        tui.requestRender();
     }
 
     // Handle Editor events
@@ -1472,9 +1258,6 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         // Generation gating
         const thisGen = generationGuard.bump();
 
-        savedImages.forEach((/** @type {import('../../shared/session/types.js').ImageAttachment} */ img) => {
-            if (uiAPI.appendImage) uiAPI.appendImage(img.base64, img.mimeType);
-        });
         try {
             await sessionRuntime.promptSession(hostedSession, {
                 initialRequest: userRequest,
@@ -1602,52 +1385,18 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
                 return;
             }
 
-            steerRootSessionWithTarget(hostedSession, userRequest, images).then((steeredSession) => {
-                if (steeredSession) {
-                    // Phase 1: Show "Steering:" system block immediately
-                    const block = new SystemMessageBlock(
-                        formatSteeringBlockText(userRequest, images),
-                        false,
-                        "Steering:",
-                    );
-                    const spacer = new Spacer(1);
-                    messageList.addChild(block);
-                    messageList.addChild(spacer);
-                    // Track for phase 2 transition when consumed by LLM
-                    trackPendingSteeringMessage(steeringState, steeredSession, userRequest, images, block, spacer);
-                } else {
-                    // Add the visual block manually (bypassing appendSystemMessage's coalescing)
-                    // so we can remove this exact block if the user dequeues with up-arrow.
-                    const block = new SystemMessageBlock(
-                        formatSteeringBlockText(userRequest, images),
-                        false,
-                        "Queued message:",
-                    );
-                    const spacer = new Spacer(1);
-                    messageList.addChild(block);
-                    messageList.addChild(spacer);
-                    submissionQueue.push({ text: userRequest, images, block, spacer });
-                }
+            sessionRuntime.steerSession(hostedSession, userRequest, images).then((result) => {
+                if (!result.queued) queueForNextTurn(userRequest, images);
                 tui.requestRender();
             }).catch((_err) => {
                 // On error (e.g. extension command rejected by session.steer()),
                 // fall back to queuing for next submission
-                const block = new SystemMessageBlock(
-                    formatSteeringBlockText(userRequest, images),
-                    false,
-                    "Queued message (steer failed):",
-                );
-                const spacer = new Spacer(1);
-                messageList.addChild(block);
-                messageList.addChild(spacer);
-                submissionQueue.push({ text: userRequest, images, block, spacer });
-                tui.requestRender();
+                queueForNextTurn(userRequest, images);
             });
             return;
         }
 
-        submissionQueue.push({ text: userRequest, images });
-        processSubmissions();
+        processSubmissions({ text: userRequest, images });
     };
 
     // Initialize thinking level from settings
@@ -1702,7 +1451,6 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         uiAPI,
         pastedImages,
         previewImages,
-        submissionQueue,
         generationGuard,
         cancelActiveOperation,
         dismissActivePrompt,
@@ -1715,20 +1463,6 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         handleImagePaste,
         abortActiveSession: () => sessionRuntime.cancelSession(hostedSession).aborted,
         cancelActivePlanReview: () => cancelActivePlanReview(hostedSession),
-        clearPendingSteeringMessages: () => {
-            steeringState.pendingMessages.clear();
-            for (const unsubscribe of steeringState.pendingUnsubs.values()) {
-                unsubscribe();
-            }
-            steeringState.pendingUnsubs.clear();
-            // Also flush any stale steering messages from the agent's queue
-            const session = /** @type {any} */ (hostedSession.getRootAgentSession());
-            if (session) {
-                try {
-                    session.clearQueue();
-                } catch (_e) { /* ignore */ }
-            }
-        },
     });
 
     if (!suppressStartupHeader && sessionStartedEmptyProjectDirectory && !initialUserRequest) {

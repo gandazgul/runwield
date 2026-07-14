@@ -16,6 +16,65 @@ function makeSessionManager(id) {
     };
 }
 
+function makeSteeringAgentSession() {
+    /** @type {Set<(event: any) => void>} */
+    const listeners = new Set();
+    /** @type {string[]} */
+    let steering = [];
+    /** @type {string[]} */
+    let followUp = [];
+    let clearQueueCalls = 0;
+
+    const session = /** @type {any} */ ({
+        isStreaming: true,
+        model: { input: ["text", "image"] },
+        /** @param {(event: any) => void} listener */
+        subscribe(listener) {
+            listeners.add(listener);
+            return () => listeners.delete(listener);
+        },
+        /** @param {string} text */
+        steer(text) {
+            steering.push(text);
+            session.emitQueueUpdate();
+            return Promise.resolve();
+        },
+        /** @param {string} text */
+        followUp(text) {
+            followUp.push(text);
+            session.emitQueueUpdate();
+            return Promise.resolve();
+        },
+        clearQueue() {
+            clearQueueCalls++;
+            const cleared = { steering: [...steering], followUp: [...followUp] };
+            steering = [];
+            followUp = [];
+            session.emitQueueUpdate();
+            return cleared;
+        },
+        getSteeringMessages() {
+            return steering;
+        },
+        emitQueueUpdate() {
+            const event = { type: "queue_update", steering: [...steering], followUp: [...followUp] };
+            for (const listener of listeners) listener(event);
+        },
+        consumeNextSteering() {
+            steering.shift();
+            session.emitQueueUpdate();
+        },
+        get queuedSteering() {
+            return [...steering];
+        },
+        get clearQueueCalls() {
+            return clearQueueCalls;
+        },
+        dispose() {},
+    });
+    return session;
+}
+
 Deno.test("SessionRuntime createSession requires an absolute project root", () => {
     const runtime = new SessionRuntime({ sessionHost: new SessionHost() });
 
@@ -218,6 +277,132 @@ Deno.test("SessionRuntime emits scoped events and unsubscribe is deterministic",
     assertEquals(seen.length, 1);
     assertEquals(/** @type {any} */ (seen[0]).sessionId, "events");
     assertEquals(/** @type {any} */ (seen[0]).message, "hello");
+});
+
+Deno.test("SessionRuntime exposes real steering queue state and emits consumption transitions", async () => {
+    const runtime = new SessionRuntime();
+    const hostedSession = runtime.createSession({ id: "queue-state", cwd: "/repo/queue-state" });
+    const agentSession = makeSteeringAgentSession();
+    hostedSession.setRootAgentSession(agentSession);
+    /** @type {any[]} */
+    const queueEvents = [];
+    /** @type {any[]} */
+    const userEvents = [];
+    runtime.subscribeSessionEvents(hostedSession, (event) => {
+        if (event.type === RuntimeEventTypes.QUEUED_MESSAGE_CHANGED) queueEvents.push(event);
+        if (event.type === RuntimeEventTypes.USER_MESSAGE) userEvents.push(event);
+    });
+
+    const result = await runtime.steerSession(hostedSession, "change direction", []);
+
+    assertEquals(result.queued, true);
+    if (!result.message) throw new Error("expected queued message state");
+    assertEquals(queueEvents.map((event) => event.status), ["queued"]);
+    assertEquals(runtime.getSessionSnapshot(hostedSession)?.queuedMessages, [{
+        id: result.message.id,
+        text: "change direction",
+        images: [],
+        delivery: "steer",
+        queuedAt: result.message.queuedAt,
+    }]);
+
+    agentSession.consumeNextSteering();
+
+    assertEquals(queueEvents.map((event) => event.status), ["queued", "consumed"]);
+    assertEquals(queueEvents[1].message.id, result.message.id);
+    assertEquals(
+        userEvents.map((event) => ({
+            messageId: event.messageId,
+            text: event.text,
+            images: event.images,
+        })),
+        [{ messageId: result.message.id, text: "change direction", images: [] }],
+    );
+    assertEquals(runtime.getSessionSnapshot(hostedSession)?.queuedMessages, []);
+});
+
+Deno.test("SessionRuntime owns deferred next-turn queue state, consumption, and recall", async () => {
+    const runtime = new SessionRuntime();
+    const hostedSession = runtime.createSession({ id: "queue-next-turn", cwd: "/repo/queue-next-turn" });
+    /** @type {any[]} */
+    const queueEvents = [];
+    runtime.subscribeSessionEvents(hostedSession, (event) => {
+        if (event.type === RuntimeEventTypes.QUEUED_MESSAGE_CHANGED) queueEvents.push(event);
+    });
+
+    const first = runtime.queueNextTurnMessage(hostedSession, "first later", []);
+    const second = runtime.queueNextTurnMessage(hostedSession, "second later", [{
+        base64: "abc",
+        mimeType: "image/png",
+        ref: "attachment:abc",
+    }]);
+    if (!first.message || !second.message) throw new Error("expected deferred queued messages");
+
+    assertEquals(
+        runtime.getSessionSnapshot(hostedSession)?.queuedMessages.map((message) => ({
+            id: message.id,
+            delivery: message.delivery,
+        })),
+        [
+            { id: first.message.id, delivery: "next_turn" },
+            { id: second.message.id, delivery: "next_turn" },
+        ],
+    );
+
+    const taken = runtime.takeNextTurnMessage(hostedSession);
+    const recalled = await runtime.dequeueLastQueuedMessage(hostedSession);
+
+    assertEquals(taken.message?.id, first.message.id);
+    assertEquals(recalled.message?.id, second.message.id);
+    assertEquals(recalled.message?.images, second.message.images);
+    assertEquals(queueEvents.map((event) => event.status), ["queued", "queued", "consumed", "dequeued"]);
+    assertEquals(runtime.getSessionSnapshot(hostedSession)?.queuedMessages, []);
+});
+
+Deno.test("SessionRuntime dequeues the latest steering message and preserves earlier core queue state", async () => {
+    const runtime = new SessionRuntime();
+    const hostedSession = runtime.createSession({ id: "queue-dequeue", cwd: "/repo/queue-dequeue" });
+    const agentSession = makeSteeringAgentSession();
+    hostedSession.setRootAgentSession(agentSession);
+    /** @type {any[]} */
+    const queueEvents = [];
+    runtime.subscribeSessionEvents(hostedSession, (event) => {
+        if (event.type === RuntimeEventTypes.QUEUED_MESSAGE_CHANGED) queueEvents.push(event);
+    });
+
+    const first = await runtime.steerSession(hostedSession, "first", []);
+    const second = await runtime.steerSession(hostedSession, "second", []);
+    if (!first.message || !second.message) throw new Error("expected queued message states");
+    const result = await runtime.dequeueLastQueuedMessage(hostedSession);
+
+    assertEquals(result.ok, true);
+    assertEquals(result.message?.id, second.message.id);
+    assertEquals(agentSession.clearQueueCalls, 1);
+    assertEquals(agentSession.queuedSteering, ["first"]);
+    assertEquals(queueEvents.map((event) => event.status), ["queued", "queued", "dequeued"]);
+    assertEquals(runtime.getSessionSnapshot(hostedSession)?.queuedMessages.map((message) => message.id), [
+        first.message.id,
+    ]);
+});
+
+Deno.test("SessionRuntime cancellation publishes queued messages as dequeued, not consumed", async () => {
+    const runtime = new SessionRuntime({ abortActiveSession: () => true });
+    const hostedSession = runtime.createSession({ id: "queue-cancel", cwd: "/repo/queue-cancel" });
+    const agentSession = makeSteeringAgentSession();
+    hostedSession.setRootAgentSession(agentSession);
+    /** @type {any[]} */
+    const queueEvents = [];
+    runtime.subscribeSessionEvents(hostedSession, (event) => {
+        if (event.type === RuntimeEventTypes.QUEUED_MESSAGE_CHANGED) queueEvents.push(event);
+    });
+    await runtime.steerSession(hostedSession, "cancel me", []);
+
+    runtime.cancelSession(hostedSession);
+
+    assertEquals(queueEvents.map((event) => event.status), ["queued", "dequeued"]);
+    assertEquals(queueEvents[1].reason, "session_cancel");
+    assertEquals(agentSession.queuedSteering, []);
+    assertEquals(runtime.getSessionSnapshot(hostedSession)?.queuedMessages, []);
 });
 
 Deno.test("SessionRuntime loadSession opens persisted session restores agent and returns replay events", async () => {
@@ -425,10 +610,17 @@ Deno.test("SessionRuntime owns same-session turn exclusion and exposes busy snap
         })
     );
     const runtime = new SessionRuntime();
+    let acceptedTurnSetups = 0;
+    let acceptedTurnCleanups = 0;
+    let rejectedTurnSetups = 0;
 
     const firstPrompt = runtime.promptSession(hostedSession, {
         initialRequest: "first",
         initialImages: [],
+        onTurnStarted: () => {
+            acceptedTurnSetups++;
+            return () => acceptedTurnCleanups++;
+        },
     });
     await Promise.resolve();
 
@@ -436,13 +628,24 @@ Deno.test("SessionRuntime owns same-session turn exclusion and exposes busy snap
     assertEquals(activeSnapshot?.busy, true);
     assertEquals(typeof activeSnapshot?.activeTurnId, "string");
     await assertRejects(
-        () => runtime.promptSession(hostedSession, { initialRequest: "second", initialImages: [] }),
+        () =>
+            runtime.promptSession(hostedSession, {
+                initialRequest: "second",
+                initialImages: [],
+                onTurnStarted: () => {
+                    rejectedTurnSetups++;
+                },
+            }),
         SessionTurnInProgressError,
         "already has an active turn",
     );
+    assertEquals(acceptedTurnSetups, 1);
+    assertEquals(rejectedTurnSetups, 0);
+    assertEquals(acceptedTurnCleanups, 0);
 
     gate.release();
     await firstPrompt;
+    assertEquals(acceptedTurnCleanups, 1);
     const idleSnapshot = runtime.getSessionSnapshot(hostedSession);
     assertEquals(idleSnapshot?.busy, false);
     assertEquals(idleSnapshot?.activeTurnId, null);

@@ -11,6 +11,9 @@ function makeUi() {
     const tools = new Map();
     const uiAPI = /** @type {import('./types.js').UiAPI} */ ({
         appendUserMessage: (text) => transcript.push(`user:${text}`),
+        appendImage: (base64, mimeType) => transcript.push(`image:${mimeType}:${base64}`),
+        appendQueuedMessage: (id, text) => transcript.push(`queue:add:${id}:${text}`),
+        removeQueuedMessage: (id) => transcript.push(`queue:remove:${id}`),
         appendAgentMessageStart: (agentName) => ({
             appendText: (text) => transcript.push(`assistant:${agentName}:${text}`),
         }),
@@ -45,6 +48,33 @@ function makeUi() {
         showModelSelector() {},
     });
     return { transcript, uiAPI };
+}
+
+function makeSteeringSession() {
+    /** @type {Set<(event: any) => void>} */
+    const listeners = new Set();
+    /** @type {string[]} */
+    const steering = [];
+    return /** @type {any} */ ({
+        isStreaming: true,
+        model: { input: ["text", "image"] },
+        /** @param {(event: any) => void} listener */
+        subscribe(listener) {
+            listeners.add(listener);
+            return () => listeners.delete(listener);
+        },
+        /** @param {string} text */
+        steer(text) {
+            steering.push(text);
+            const event = { type: "queue_update", steering: [...steering], followUp: [] };
+            for (const listener of listeners) listener(event);
+            return Promise.resolve();
+        },
+        getSteeringMessages() {
+            return steering;
+        },
+        dispose() {},
+    });
 }
 
 Deno.test("TUI and ACP adapters consume the same semantic runtime transcript", () => {
@@ -115,6 +145,137 @@ Deno.test("TUI and ACP adapters consume the same semantic runtime transcript", (
         "agent_message_chunk",
     ]);
     assertEquals(attentionRequests, [{ reason: "agentStopped", sessionName: undefined, agentName: "Guide" }]);
+});
+
+Deno.test("TUI adapter coalesces repeated thinking deltas and duplicate tool starts", () => {
+    const runtime = new SessionRuntime();
+    const session = runtime.createSession({ id: "adapter-coalesce", cwd: "/repo/coalesce" });
+    const { transcript, uiAPI } = makeUi();
+    const adapter = attachTuiRuntimeAdapter({ runtime, hostedSession: session, uiAPI });
+
+    runtime.emitSessionEvent(session, {
+        type: RuntimeEventTypes.ASSISTANT_THINKING_DELTA,
+        messageId: "thinking-1",
+        delta: "Planning",
+    });
+    runtime.emitSessionEvent(session, {
+        type: RuntimeEventTypes.ASSISTANT_THINKING_DELTA,
+        messageId: "thinking-1",
+        delta: "Planning",
+    });
+    runtime.emitSessionEvent(session, {
+        type: RuntimeEventTypes.ASSISTANT_THINKING_DELTA,
+        messageId: "thinking-1",
+        delta: "Planning more",
+    });
+    runtime.emitSessionEvent(session, {
+        type: RuntimeEventTypes.TOOL_START,
+        toolCallId: "tool-1",
+        toolName: "code_search",
+        title: "code_search createAgentJobHandler",
+    });
+    runtime.emitSessionEvent(session, {
+        type: RuntimeEventTypes.TOOL_START,
+        toolCallId: "tool-1",
+        toolName: "code_search",
+        title: "code_search createAgentJobHandler",
+    });
+    runtime.emitSessionEvent(session, {
+        type: RuntimeEventTypes.TOOL_UPDATE,
+        toolCallId: "tool-1",
+        toolName: "code_search",
+        text: "result",
+    });
+    runtime.emitSessionEvent(session, {
+        type: RuntimeEventTypes.TOOL_END,
+        toolCallId: "tool-1",
+        toolName: "code_search",
+        text: "result",
+        isError: false,
+    });
+    adapter.dispose();
+
+    assertEquals(transcript, [
+        "thinking:Planning",
+        "thinking: more",
+        "tool:start:tool-1:code_search:createAgentJobHandler",
+        "tool:update:tool-1:result",
+        "tool:end:tool-1:ok",
+        "thinking:end",
+    ]);
+});
+
+Deno.test("TUI adapter projects core queued, consumed, and dequeued message transitions", () => {
+    const runtime = new SessionRuntime();
+    const session = runtime.createSession({ id: "adapter-queue", cwd: "/repo/adapter-queue" });
+    const { transcript, uiAPI } = makeUi();
+    const adapter = attachTuiRuntimeAdapter({ runtime, hostedSession: session, uiAPI });
+    const firstMessage = /** @type {import('../../shared/session/session-runtime-events.js').RuntimeQueuedMessage} */ ({
+        id: "queued-1",
+        text: "revise this",
+        images: [{ base64: "abc", mimeType: "image/png", ref: "attachment:abc" }],
+        delivery: "steer",
+        queuedAt: "2026-07-14T00:00:00.000Z",
+    });
+    const secondMessage =
+        /** @type {import('../../shared/session/session-runtime-events.js').RuntimeQueuedMessage} */ ({
+            id: "queued-2",
+            text: "remove this",
+            images: [],
+            delivery: "steer",
+            queuedAt: "2026-07-14T00:00:01.000Z",
+        });
+
+    runtime.emitSessionEvent(session, {
+        type: RuntimeEventTypes.QUEUED_MESSAGE_CHANGED,
+        status: "queued",
+        message: firstMessage,
+    });
+    runtime.emitSessionEvent(session, {
+        type: RuntimeEventTypes.QUEUED_MESSAGE_CHANGED,
+        status: "consumed",
+        message: firstMessage,
+    });
+    runtime.emitSessionEvent(session, {
+        type: RuntimeEventTypes.USER_MESSAGE,
+        messageId: firstMessage.id,
+        text: firstMessage.text,
+        images: firstMessage.images,
+    });
+    runtime.emitSessionEvent(session, {
+        type: RuntimeEventTypes.QUEUED_MESSAGE_CHANGED,
+        status: "queued",
+        message: secondMessage,
+    });
+    runtime.emitSessionEvent(session, {
+        type: RuntimeEventTypes.QUEUED_MESSAGE_CHANGED,
+        status: "dequeued",
+        message: secondMessage,
+    });
+    adapter.dispose();
+
+    assertEquals(transcript, [
+        "queue:add:queued-1:revise this\n\n[Image attached: attachment:abc image/png]",
+        "queue:remove:queued-1",
+        "user:revise this",
+        "image:image/png:abc",
+        "queue:add:queued-2:remove this",
+        "queue:remove:queued-2",
+    ]);
+});
+
+Deno.test("TUI adapter hydrates queued messages from the core session snapshot", async () => {
+    const runtime = new SessionRuntime();
+    const session = runtime.createSession({ id: "adapter-queue-snapshot", cwd: "/repo/adapter-queue-snapshot" });
+    session.setRootAgentSession(makeSteeringSession());
+    const queued = await runtime.steerSession(session, "already queued", []);
+    if (!queued.message) throw new Error("expected queued message state");
+    const { transcript, uiAPI } = makeUi();
+
+    const adapter = attachTuiRuntimeAdapter({ runtime, hostedSession: session, uiAPI });
+    adapter.dispose();
+
+    assertEquals(transcript, [`queue:add:${queued.message.id}:already queued`]);
 });
 
 Deno.test("attaching a replacement TUI adapter does not duplicate session output", () => {
