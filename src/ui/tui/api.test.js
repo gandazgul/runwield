@@ -109,6 +109,7 @@ Deno.test("createUiApi appends visible blocks, merges compatible system messages
 
     const tool = ui.startToolExecution("tool-1", "bash", "echo hi");
     tool.appendOutput("output");
+    tool.endExecution(false, 1);
     assertEquals(ui.getActiveToolBlock("tool-1"), tool);
     ui.toggleToolOutputsExpanded();
     ui.toggleToolOutputsExpanded();
@@ -121,6 +122,30 @@ Deno.test("createUiApi appends visible blocks, merges compatible system messages
 
     ui.clearMessages();
     assertEquals(messageList.children, []);
+});
+
+Deno.test("createUiApi renders live elapsed tool time and stops after completion", async () => {
+    const harness = makeTuiHarness();
+    const timedUi = /** @type {any} */ (createUiApi(harness.tui, harness.messageList, new SpinnerBlock()));
+    const tool = /** @type {import('./blocks.js').ToolExecutionBlock} */ (
+        timedUi.startToolExecution("tool-timer", "bash", "sleep 1")
+    );
+    await new Promise((resolve) => setTimeout(resolve, 650));
+
+    const plain = tool.render(100).map((line) => stripAnsi(line)).join("\n");
+    assertEquals(plain.includes("Elapsed time:"), true);
+    assertEquals(harness.renders() > 1, true);
+
+    const beforeEndRenders = harness.renders();
+    tool.endExecution(false, 700);
+    const afterEndRenders = harness.renders();
+    await new Promise((resolve) => setTimeout(resolve, 250));
+
+    const endedPlain = tool.render(100).map((line) => stripAnsi(line)).join("\n");
+    assertEquals(endedPlain.includes("Elapsed time:"), false);
+    assertEquals(endedPlain.includes("Took 0.7s"), true);
+    assertEquals(afterEndRenders, beforeEndRenders + 1);
+    assertEquals(harness.renders(), afterEndRenders);
 });
 
 Deno.test("createUiApi folds plan_written system messages into the active tool block", () => {
