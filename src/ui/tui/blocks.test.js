@@ -272,6 +272,55 @@ Deno.test("ToolExecutionBlock renders with consistent background (with output)",
     assertBlockBackground(lines, w, "ToolExecutionBlock(output)");
 });
 
+Deno.test("ToolExecutionBlock shows live elapsed time only after it is enabled", () => {
+    const originalNow = Date.now;
+    let now = 1000;
+    Date.now = () => now;
+    try {
+        const w = 100;
+        const block = new ToolExecutionBlock("bash", "sleep 1");
+
+        let plain = block.render(w).map((line) => stripAnsi(line)).join("\n");
+        assertEquals(plain.includes("Elapsed time:"), false);
+
+        now = 1500;
+        block.enableElapsedTime();
+        plain = block.render(w).map((line) => stripAnsi(line)).join("\n");
+        assertEquals(plain.includes("Elapsed time: 0.5s"), true);
+
+        block.endExecution(false, 700);
+        plain = block.render(w).map((line) => stripAnsi(line)).join("\n");
+        assertEquals(plain.includes("Elapsed time:"), false);
+        assertEquals(plain.includes("Took 0.7s"), true);
+    } finally {
+        Date.now = originalNow;
+    }
+});
+
+Deno.test("ToolExecutionBlock keeps elapsed footer with expand hint inside the block", () => {
+    const originalNow = Date.now;
+    let now = 2000;
+    Date.now = () => now;
+    try {
+        const w = 100;
+        const block = new ToolExecutionBlock("bash", "echo lines");
+        for (let i = 0; i < 10; i++) {
+            block.appendOutput(`line ${i}\n`);
+        }
+
+        now = 2600;
+        block.enableElapsedTime();
+        const lines = block.render(w);
+        const plain = lines.map((line) => stripAnsi(line)).join("\n");
+
+        assertBlockBackground(lines, w, "ToolExecutionBlock(elapsed expand hint)");
+        assertEquals(plain.includes("Elapsed time: 0.6s"), true);
+        assertEquals(plain.includes("press ctrl+o to expand"), true);
+    } finally {
+        Date.now = originalNow;
+    }
+});
+
 Deno.test("ToolExecutionBlock keeps multi-line command headers inside the block", () => {
     const w = 120;
     const block = new ToolExecutionBlock(
