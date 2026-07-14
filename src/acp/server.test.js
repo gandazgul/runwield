@@ -3,6 +3,7 @@
  */
 
 import { assert, assertEquals, assertStringIncludes, assertThrows } from "@std/assert";
+import { SessionTurnInProgressError } from "../shared/session/session-runtime.js";
 import { mapRuntimeEventToAcpUpdate } from "./event-mapper.js";
 import { createAcpInteractionAdapter } from "./interaction-mapper.js";
 import { createInitializeResponse, startRunWieldAcpServer, validateNewSessionParams } from "./server.js";
@@ -13,6 +14,17 @@ import { createInitializeResponse, startRunWieldAcpServer, validateNewSessionPar
  * @property {ReadableStreamDefaultReader<Uint8Array>} outputReader
  * @property {import('@agentclientprotocol/sdk').AgentConnection} connection
  * @property {string[]} diagnostics
+ */
+
+/**
+ * @typedef {Object} FakePromptTurnContext
+ * @property {string} turnId
+ */
+
+/**
+ * @typedef {Object} FakePromptOptions
+ * @property {string} initialRequest
+ * @property {(context: FakePromptTurnContext) => void | (() => void)} [onTurnStarted]
  */
 
 const encoder = new TextEncoder();
@@ -251,11 +263,14 @@ function makeFakeRuntime() {
                 listener({ sessionId: session.id, timestamp: new Date().toISOString(), ...event });
             }
         },
-        /** @param {{ id: string }} session @param {{ initialRequest: string }} options */
+        /** @param {{ id: string }} session @param {FakePromptOptions} options */
         promptSession(session, options) {
+            const cleanup = options.onTurnStarted?.({ turnId: "turn-1" });
             this.emit(session, { type: "user_message", text: options.initialRequest, turnId: "turn-1" });
             this.emit(session, { type: "assistant_text_delta", delta: "hello", turnId: "turn-1" });
-            return Promise.resolve({ ok: true, turns: 1, handoffs: 0, handoffLimitReached: false });
+            return Promise.resolve({ ok: true, turns: 1, handoffs: 0, handoffLimitReached: false }).finally(() => {
+                cleanup?.();
+            });
         },
         /** @param {{ id: string }} session */
         cancelSession(session) {
@@ -420,7 +435,15 @@ Deno.test("ACP server ends prompt when interaction adapter setup fails", async (
 
 Deno.test("ACP server ends prompt when interaction adapter cleanup fails", async () => {
     const runtime = makeFakeRuntime();
-    runtime.promptSession = () => Promise.resolve({ ok: true, turns: 1, handoffs: 0, handoffLimitReached: false });
+    runtime.promptSession = (
+        /** @type {{ id: string }} */ _session,
+        /** @type {FakePromptOptions} */ options,
+    ) => {
+        const cleanup = options.onTurnStarted?.({ turnId: "turn-1" });
+        return Promise.resolve({ ok: true, turns: 1, handoffs: 0, handoffLimitReached: false }).finally(() => {
+            cleanup?.();
+        });
+    };
     let cleanupAttempts = 0;
     runtime.setInteractionAdapter = (
         /** @type {unknown} */ _session,
@@ -630,7 +653,11 @@ Deno.test("ACP session/close disposes sessions and rejects later prompts", async
 Deno.test("ACP session/close cancels an active prompt", async () => {
     const runtime = makeFakeRuntime();
     let promptStarted = false;
-    runtime.promptSession = () => {
+    runtime.promptSession = (
+        /** @type {{ id: string }} */ _session,
+        /** @type {FakePromptOptions} */ options,
+    ) => {
+        options.onTurnStarted?.({ turnId: "turn-1" });
         promptStarted = true;
         return new Promise(() => {});
     };
@@ -715,11 +742,26 @@ Deno.test("ACP server creates sessions and streams prompt updates", async () => 
 Deno.test("ACP server rejects invalid new prompt and overlap inputs", async () => {
     const blockingRuntime = makeFakeRuntime();
     let releasePrompt = /** @type {(() => void) | null} */ (null);
-    blockingRuntime.promptSession = (/** @type {{ id: string }} */ session) =>
-        new Promise((resolve) => {
-            releasePrompt = () => resolve({ ok: true, turns: 1, handoffs: 0, handoffLimitReached: false });
+    let promptActive = false;
+    let promptCalls = 0;
+    blockingRuntime.promptSession = (
+        /** @type {{ id: string }} */ session,
+        /** @type {FakePromptOptions} */ options,
+    ) => {
+        promptCalls++;
+        if (promptActive) return Promise.reject(new SessionTurnInProgressError(session.id));
+        promptActive = true;
+        const turnId = `turn-${promptCalls}`;
+        const cleanup = options.onTurnStarted?.({ turnId });
+        return new Promise((resolve) => {
+            releasePrompt = () => {
+                promptActive = false;
+                cleanup?.();
+                resolve({ ok: true, turns: 1, handoffs: 0, handoffLimitReached: false });
+            };
             blockingRuntime.emit(session, { type: "assistant_text_delta", delta: "working", turnId: "turn-1" });
         });
+    };
     const handle = startTestServer({ runtime: blockingRuntime });
     try {
         const relative = await request(handle, {
@@ -765,6 +807,7 @@ Deno.test("ACP server rejects invalid new prompt and overlap inputs", async () =
             params: { sessionId, prompt: [{ type: "text", text: "again" }] },
         });
         assertEquals(overlap.error.code, -32002);
+        assertEquals(promptCalls, 2, "overlapping prompts must be rejected by the runtime");
 
         const invalidOverlap = await request(handle, {
             jsonrpc: "2.0",
@@ -772,7 +815,8 @@ Deno.test("ACP server rejects invalid new prompt and overlap inputs", async () =
             method: "session/prompt",
             params: { sessionId, prompt: [{ type: "image", data: "x", mimeType: "image/png" }] },
         });
-        assertEquals(invalidOverlap.error.code, -32002);
+        assertEquals(invalidOverlap.error.code, -32602);
+        assertEquals(promptCalls, 2, "invalid ACP input must not reach the runtime");
 
         releasePrompt?.();
         const done = await readMessage(handle);
@@ -810,16 +854,17 @@ Deno.test("ACP session/cancel keeps the turn reserved when runtime abort throws"
     /** @type {any} */
     let activeSession = null;
     let promptCount = 0;
+    let promptActive = false;
     runtime.promptSession = (
         /** @type {{ id: string }} */ session,
-        /** @type {{ initialRequest: string }} */ options,
+        /** @type {FakePromptOptions} */ options,
     ) => {
-        activeSession = session;
         promptCount++;
-        if (promptCount === 1) return new Promise(() => {});
-        runtime.emit(session, { type: "user_message", text: options.initialRequest, turnId: "turn-2" });
-        runtime.emit(session, { type: "assistant_text_delta", delta: "next", turnId: "turn-2" });
-        return Promise.resolve({ ok: true, turns: 1, handoffs: 0, handoffLimitReached: false });
+        if (promptActive) return Promise.reject(new SessionTurnInProgressError(session.id));
+        promptActive = true;
+        activeSession = session;
+        options.onTurnStarted?.({ turnId: "turn-1" });
+        return new Promise(() => {});
     };
     runtime.cancelSession = () => {
         throw new Error("abort failed");
@@ -882,6 +927,7 @@ Deno.test("ACP session/cancel keeps the turn reserved when runtime abort throws"
             if (message.id === "after-cancel") afterCancel = message;
         }
         assertEquals(afterCancel?.error.code, -32002);
+        assertEquals(promptCount, 2, "the runtime must retain the turn reservation after failed cancellation");
     } finally {
         await closeTestServer(handle);
     }
@@ -923,10 +969,16 @@ Deno.test("ACP session/cancel makes the in-flight prompt return cancelled", asyn
     /** @type {any} */
     let activeSession = null;
     let resolvePrompt = /** @type {((value: any) => void) | null} */ (null);
-    runtime.promptSession = (/** @type {{ id: string }} */ session) => {
+    runtime.promptSession = (
+        /** @type {{ id: string }} */ session,
+        /** @type {FakePromptOptions} */ options,
+    ) => {
+        const cleanup = options.onTurnStarted?.({ turnId: "turn-1" });
         activeSession = session;
         return new Promise((resolve) => {
             resolvePrompt = resolve;
+        }).finally(() => {
+            cleanup?.();
         });
     };
     runtime.cancelSession = (/** @type {{ id: string }} */ session) => {

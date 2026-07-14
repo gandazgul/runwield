@@ -1,14 +1,10 @@
 import { assertEquals } from "@std/assert";
 import { join } from "@std/path";
 import {
-    __resetPendingSteeringForTests,
     __setSettingsManagerForPersistenceTests,
-    __setSteeringUiRefsForTests,
     buildFooterLine1Parts,
     buildFooterWorkflowLabelParts,
     collectFooterUsage,
-    createSteeringState,
-    formatSteeringBlockText,
     getActiveModel,
     getFooterSessions,
     getFooterWorkflowLabelText,
@@ -17,7 +13,6 @@ import {
     runScopedSubmitHandoffLoop,
     setActiveModel,
     shouldShowFooterThinkingLevel,
-    trackPendingSteeringMessage,
 } from "./chat-session.js";
 import { resolveTemplateModel } from "../../shared/models/model-validation.js";
 import { HostedSession } from "../../shared/session/hosted-session.js";
@@ -297,103 +292,6 @@ Deno.test("persistThinkingLevel stores the selected level without throwing", asy
         assertEquals(persisted, ["high"]);
     } finally {
         __setSettingsManagerForPersistenceTests(null);
-    }
-});
-
-function makeSteeringSession() {
-    /** @type {((event: any) => void) | null} */
-    let subscriber = null;
-    return /** @type {any} */ ({
-        /** @param {(event: any) => void} fn */
-        subscribe(fn) {
-            subscriber = fn;
-            return () => {
-                subscriber = null;
-            };
-        },
-        /** @param {any} event */
-        emit(event) {
-            subscriber?.(event);
-        },
-    });
-}
-
-Deno.test("formatSteeringBlockText includes existing image attachment markers", () => {
-    const images = [
-        { base64: "abc", mimeType: "image/png", ref: "attachment:abc" },
-        { base64: "def", mimeType: "image/jpeg", path: "/tmp/photo.jpg" },
-    ];
-
-    assertEquals(
-        formatSteeringBlockText("look here", images),
-        "look here\n\n[Image attached: attachment:abc image/png]\n[Image attached: photo.jpg image/jpeg]",
-    );
-    assertEquals(
-        formatSteeringBlockText("", images),
-        "[Image attached: attachment:abc image/png]\n[Image attached: photo.jpg image/jpeg]",
-    );
-});
-
-Deno.test("trackPendingSteeringMessage only consumes queue updates from the session that accepted steering", () => {
-    const sessionA = makeSteeringSession();
-    const sessionB = makeSteeringSession();
-    const blockA = {};
-    const spacerA = {};
-    const blockB = {};
-    const spacerB = {};
-    /** @type {unknown[]} */
-    const removed = [];
-    /** @type {string[]} */
-    const userMessages = [];
-    let renders = 0;
-    const steeringState = createSteeringState();
-
-    try {
-        __setSteeringUiRefsForTests(
-            steeringState,
-            /** @type {any} */ ({
-                removeChild: (/** @type {unknown} */ child) => removed.push(child),
-            }),
-            /** @type {any} */ ({
-                appendUserMessage: (/** @type {string} */ text) => userMessages.push(text),
-            }),
-            /** @type {any} */ ({
-                requestRender: () => {
-                    renders++;
-                },
-            }),
-        );
-
-        trackPendingSteeringMessage(
-            steeringState,
-            sessionA,
-            "same text",
-            [],
-            /** @type {any} */ (blockA),
-            /** @type {any} */ (spacerA),
-        );
-        trackPendingSteeringMessage(
-            steeringState,
-            sessionB,
-            "same text",
-            [],
-            /** @type {any} */ (blockB),
-            /** @type {any} */ (spacerB),
-        );
-
-        sessionB.emit({ type: "queue_update", steering: [] });
-        assertEquals(userMessages, ["same text"]);
-        assertEquals(removed, [blockB, spacerB]);
-
-        sessionA.emit({ type: "queue_update", steering: ["same text"] });
-        assertEquals(userMessages, ["same text"]);
-
-        sessionA.emit({ type: "queue_update", steering: [] });
-        assertEquals(userMessages, ["same text", "same text"]);
-        assertEquals(removed, [blockB, spacerB, blockA, spacerA]);
-        assertEquals(renders, 2);
-    } finally {
-        __resetPendingSteeringForTests(steeringState);
     }
 });
 

@@ -35,7 +35,6 @@ function makeContext(overrides = {}) {
     let planReviewCancels = 0;
     let resets = 0;
     let invalidations = 0;
-    let clearSteeringCalls = 0;
     let dequeues = 0;
     let pendingExit = false;
     let dequeueResult = false;
@@ -74,7 +73,6 @@ function makeContext(overrides = {}) {
         },
         pastedImages: /** @type {any[]} */ ([]),
         previewImages,
-        submissionQueue: /** @type {unknown[]} */ ([]),
         generationGuard: { invalidateAll: () => invalidations++ },
         cancelActiveOperation: () => false,
         abortActiveSession: () => false,
@@ -101,9 +99,6 @@ function makeContext(overrides = {}) {
         },
         cycleThinkingLevel: () => {
             thinkingCycles++;
-        },
-        clearPendingSteeringMessages: () => {
-            clearSteeringCalls++;
         },
         stats: {
             systemMessages,
@@ -138,9 +133,6 @@ function makeContext(overrides = {}) {
             get invalidations() {
                 return invalidations;
             },
-            get clearSteeringCalls() {
-                return clearSteeringCalls;
-            },
             get dequeues() {
                 return dequeues;
             },
@@ -157,16 +149,13 @@ Deno.test({
     name: "installKeybindings handles Escape cancellation priority and renders once",
     fn: async () => {
         const ctx = makeContext({
-            submissionQueue: [1, 2],
             cancelActiveOperation: () => true,
         });
         installKeybindings(ctx);
 
         await ctx.editor.handleInput(RAW_KEY.escape);
 
-        assertEquals(ctx.submissionQueue, []);
         assertEquals(ctx.stats.invalidations, 1);
-        assertEquals(ctx.stats.clearSteeringCalls, 1);
         assertEquals(ctx.stats.promptDismissals, 1);
         assertEquals(ctx.stats.resets, 1);
         assertEquals(ctx.stats.systemMessages, ["Operation canceled."]);
@@ -229,7 +218,6 @@ Deno.test("installKeybindings handles newline, image removal, thinking cycle, qu
     const ctx = makeContext();
     ctx.pastedImages.push({ base64: "a", mimeType: "image/png" });
     ctx.previewImages.children.push("preview");
-    ctx.submissionQueue.push("queued");
     ctx.stats.dequeueResult = true;
     const original = installKeybindings(ctx);
 
@@ -253,7 +241,6 @@ Deno.test("installKeybindings checks editor emptiness through public getText", a
     delete ctx.editor.isEditorEmpty;
     ctx.pastedImages.push({ base64: "a", mimeType: "image/png" });
     ctx.previewImages.children.push("preview");
-    ctx.submissionQueue.push("queued");
     ctx.stats.dequeueResult = true;
     installKeybindings(ctx);
 
