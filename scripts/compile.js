@@ -33,6 +33,7 @@ const STATIC_INCLUDE_PATHS = [
  * @typedef {Object} CompileOptions
  * @property {string} [output]
  * @property {string} [target]
+ * @property {boolean} [reload]
  */
 
 /**
@@ -65,7 +66,6 @@ export function buildCompileArgs(options = {}) {
         "-A",
         "--no-check",
         "--unstable-no-legacy-abort",
-        "--reload",
         "--exclude-unused-npm",
         "--bundle",
         "--minify",
@@ -73,6 +73,7 @@ export function buildCompileArgs(options = {}) {
         "wld",
     ];
 
+    if (options.reload) args.push("--reload");
     if (options.target) args.push("--target", options.target);
 
     for (const path of STATIC_INCLUDE_PATHS) {
@@ -93,6 +94,10 @@ export function parseCompileOptions(args) {
     const options = {};
     for (let index = 0; index < args.length; index += 1) {
         const arg = args[index];
+        if (arg === "--reload") {
+            options.reload = true;
+            continue;
+        }
         if (arg === "--output" || arg === "--target") {
             const value = args[index + 1];
             if (!value || value.startsWith("--")) throw new Error(`${arg} requires a value.`);

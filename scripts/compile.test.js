@@ -4,14 +4,13 @@ import { assertCompileDenoVersion, buildCompileArgs, DENO_COMPILE_VERSION, parse
 Deno.test("buildCompileArgs uses Deno compile flags and bundled resource includes", () => {
     const args = buildCompileArgs();
 
-    assertEquals(args.slice(0, 18), [
+    assertEquals(args.slice(0, 17), [
         "compile",
         "--output",
         "./bin/wld",
         "-A",
         "--no-check",
         "--unstable-no-legacy-abort",
-        "--reload",
         "--exclude-unused-npm",
         "--bundle",
         "--minify",
@@ -24,6 +23,7 @@ Deno.test("buildCompileArgs uses Deno compile flags and bundled resource include
         "--include",
         "src/ui/design-system/components.css",
     ]);
+    assertEquals(args.includes("--reload"), false);
     assertEquals(args.includes("--bundle"), true);
     assertEquals(args.includes("--minify"), true);
     assertEquals(args.includes("--self-extracting"), false);
@@ -52,19 +52,22 @@ Deno.test("buildCompileArgs keeps resource includes before the script", () => {
     assertEquals(args.includes("src/agent-definitions/workflow-prompts"), false);
 });
 
-Deno.test("buildCompileArgs accepts release target and output overrides", () => {
+Deno.test("buildCompileArgs accepts release target, output, and reload overrides", () => {
     const args = buildCompileArgs({
         output: "wld.exe",
         target: "x86_64-pc-windows-msvc",
+        reload: true,
     });
 
     assertEquals(args.slice(0, 3), ["compile", "--output", "wld.exe"]);
+    assertEquals(args.includes("--reload"), true);
     assertEquals(args.includes("x86_64-pc-windows-msvc"), true);
     assertEquals(args.indexOf("--target") < args.indexOf("--include"), true);
 });
 
 Deno.test("parseCompileOptions supports separated and equals forms", () => {
-    assertEquals(parseCompileOptions(["--output", "wld", "--target=aarch64-apple-darwin"]), {
+    assertEquals(parseCompileOptions(["--reload", "--output", "wld", "--target=aarch64-apple-darwin"]), {
+        reload: true,
         output: "wld",
         target: "aarch64-apple-darwin",
     });

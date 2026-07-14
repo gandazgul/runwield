@@ -122,6 +122,7 @@
         "workspace:react:check": "deno task workspace:check",
         "workspace:test": "deno test -A src/ui/workspace src/cmd/plans/ui.test.js",
         "compile": "deno run -A ./scripts/compile.js",
+        "compile:watch": "watchexec -e js,jsx,mjs,md,css,ts,tsx,json --ignore node_modules --ignore dist --ignore bin --ignore src/shared/version.js -- deno task compile",
         "prototype:plan-ui": "deno task -c prototypes/fresh-plan-ui/deno.json dev",
         "workspace:dev:plan-review": "deno run -A --env npm:astro dev --config src/ui/workspace/astro.config.mjs --host 127.0.0.1 --port 5173 --open /dev/plan-review",
         "workspace:dev:code-review": "deno run -A --env npm:astro dev --config src/ui/workspace/astro.config.mjs --host 127.0.0.1 --port 5173 --open /dev/code-review",
