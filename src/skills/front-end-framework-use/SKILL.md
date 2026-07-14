@@ -1,6 +1,6 @@
 ---
 name: front-end-framework-use
-description: Convention-first frontend engineering for RunWield agents. Use this skill when implementing, fixing, debugging, or reviewing frontend UI/UX work in JavaScript, HTML, or CSS across frameworks such as React, Vue, Svelte, Next.js, Vite, Astro, or TanStack; especially when source-first code exploration, current framework docs, and real-browser verification should guide the change.
+description: Convention-first frontend engineering for RunWield agents. Use this skill when implementing, fixing, debugging, or reviewing frontend UI/UX work in JavaScript, HTML, or CSS across frameworks such as React, Vue, Svelte, Next.js, Vite, Astro, or TanStack; especially when source-first code exploration, current framework docs, and real-browser verification should guide the change. Don't use for TUI work.
 ---
 
 # Front-End Framework Use

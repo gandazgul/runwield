@@ -1,4 +1,5 @@
 import { detailHref } from "./PlanCard.jsx";
+import { RunWieldCard } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 
 /** @param {any} plan */
 function holdMetadata(plan) {
@@ -23,8 +24,8 @@ export function EpicCard({ epic, url, draggableCard = false }) {
             .join(" ");
     const canDrag = draggableCard && Boolean(allowedTargetStatuses);
     return (
-        <article
-            className="plan-card epic-card clickable-card"
+        <RunWieldCard
+            className="epic-card clickable-card"
             data-draggable-plan-card={canDrag ? "true" : undefined}
             draggable={canDrag}
             data-plan-id={epic.planId}
@@ -71,6 +72,6 @@ export function EpicCard({ epic, url, draggableCard = false }) {
                 {blocked ? <span className="badge warning">{blocked} blocked</span> : null}
                 {missing ? <span className="badge danger">{missing} missing deps</span> : null}
             </div>
-        </article>
+        </RunWieldCard>
     );
 }

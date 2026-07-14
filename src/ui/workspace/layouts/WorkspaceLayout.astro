@@ -1,6 +1,5 @@
 ---
-import { PLAN_UI_TOKEN_QUERY } from "../constants.js";
-import { PLAN_SEARCH_QUERY_PARAM } from "../islands/PlanBoardSearch.jsx";
+import { PLAN_SEARCH_QUERY_PARAM, PLAN_UI_TOKEN_QUERY } from "../constants.js";
 
 const { title = "RunWield Workspace", selectedTab = "active", url = Astro.url.href } = Astro.props;
 const currentUrl = url instanceof URL ? url : new URL(String(url));
@@ -27,7 +26,7 @@ function linkWithToken(path: string) {
         <link rel="stylesheet" href="/workspace.css" />
         <link rel="stylesheet" href="/theme.css" />
     </head>
-    <body>
+    <body class="theme-runwield">
         <div class="workspace-shell" data-selected-tab={selectedTab} data-astro-workspace-shell>
             <header class="topbar">
                 <a class="brand" href={linkWithToken("/")} aria-label="RunWield Planning Workspace home">
@@ -45,7 +44,9 @@ function linkWithToken(path: string) {
                 <a class={selectedTab === "on-hold" ? "active" : ""} data-tab="on-hold" href={linkWithToken("/on-hold")}>
                     On Hold
                 </a>
-                <div class="tab-search-slot" data-plan-search-slot></div>
+                <div class="tab-search-slot" data-plan-search-slot>
+                    <slot name="toolbar" />
+                </div>
             </nav>
             <main>
                 <slot />

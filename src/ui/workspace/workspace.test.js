@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { loadPlanBodyById, savePlan } from "../../plan-store.js";
 import { PLAN_UI_TOKEN_HEADER } from "../../constants.js";
 import {
+    applyWorkspaceLifecycleActionInMemory,
     buildBoardGroups,
     buildWorkspaceBoard,
     loadBoard,
@@ -14,6 +15,7 @@ import {
     workspaceMetadata as _workspaceMetadata,
 } from "./server/plan-adapter.js";
 import { buildPlanBoardSearchIndex, PlanBoard } from "./components/Board.jsx";
+import { PlanBoardToolbar } from "./components/PlanBoardToolbar.jsx";
 import { renderMarkdown } from "./components/MarkdownView.jsx";
 import { PlanDetail } from "./components/PlanDetail.jsx";
 import { detailHref, workspaceHref } from "./components/PlanCard.jsx";
@@ -828,6 +830,9 @@ Deno.test("workspace detail header CSS lets lifecycle actions wrap without squee
         ".tabs a,\n    .tab-search-slot,\n    .plan-search-clear {\n        box-sizing: border-box;",
     );
     assertStringIncludes(workspaceCss, ".detail-grid > * {\n    min-width: 0;");
+    assertStringIncludes(workspaceCss, ".plan-card.drop-rejected {");
+    assertStringIncludes(workspaceCss, "animation: rw-card-return-to-origin 420ms");
+    assertStringIncludes(workspaceCss, ".column-cards,\n.plan-card {");
     assertStringIncludes(componentsCss, ".markdown-view {\n    background:");
     assertStringIncludes(componentsCss, "overflow-wrap: anywhere;");
 });
@@ -888,8 +893,15 @@ Deno.test("PlanBoard SSR renders status column board cards", async () => {
                 staticRender: true,
             }),
         );
-        assertStringIncludes(html, 'aria-label="Search Plans"');
-        assertStringIncludes(html, 'value="workspace"');
+        const toolbarHtml = renderToStaticMarkup(
+            React.createElement(PlanBoardToolbar, {
+                board,
+                view: "active",
+                url: "http://localhost/?token=secret&q=workspace",
+            }),
+        );
+        assertStringIncludes(toolbarHtml, 'aria-label="Search Plans"');
+        assertStringIncludes(toolbarHtml, 'value="workspace"');
         assertEquals(html.includes("matching Plan"), false);
         assertEquals(html.includes("searchable Plan"), false);
         assertStringIncludes(html, 'data-plan-search-card="workspace-card-id"');
@@ -1016,9 +1028,7 @@ Deno.test("Workspace API and detail route return readable editable Plan body met
         assertStringIncludes(html, 'class="detail-close-link"');
         assertStringIncludes(html, 'aria-label="Close plan detail"');
         assertStringIncludes(html, ">X</a>");
-        assertStringIncludes(html, ">Edit</a>");
         assertEquals(html.includes(">Close</a>"), false);
-        assertStringIncludes(html, "edit=body");
         assertEquals(html.includes("Front matter summary"), false);
         assertStringIncludes(html, "Identity");
         assertStringIncludes(html, "Planning");
@@ -1330,6 +1340,34 @@ Deno.test("workspace lifecycle action metadata blocks protected status movement 
         blockedDropMessage({ planName: "p1", targetStatus: "verified", allowedTargetStatuses: allowed }),
         "p1 cannot move to verified. Available columns: feedback, approved, ready_for_work.",
     );
+});
+
+Deno.test("Workspace dev lifecycle projection uses core transitions without mutating its source Plan", () => {
+    const summary = serializePlanSummary({
+        planId: "memory-plan-id",
+        planName: "memory-plan",
+        relativePath: "plans/memory-plan.md",
+        attrs: { planId: "memory-plan-id", status: "draft", classification: "FEATURE" },
+    });
+    const moved = applyWorkspaceLifecycleActionInMemory(summary, {
+        action: "move_status",
+        targetStatus: "approved",
+    });
+
+    assertEquals(summary.status, "draft");
+    assertEquals(moved.plan.status, "approved");
+    assertEquals(moved.plan.attrs.status, "approved");
+    assertEquals(moved.plan.actions.allowedManualTargetStatuses.includes("draft"), true);
+    assertEquals(moved.message, "Plan moved to Approved.");
+});
+
+Deno.test("Workspace Plan document loads Plannotator viewer and published markdown editor", async () => {
+    const documentSource = await Deno.readTextFile(new URL("./react/WorkspacePlanDocument.tsx", import.meta.url));
+    const editorSource = await Deno.readTextFile(new URL("./react/WorkspaceMarkdownEditor.tsx", import.meta.url));
+
+    assertStringIncludes(documentSource, "@plannotator/ui/components/RenderedMarkdown.tsx");
+    assertStringIncludes(editorSource, "node_modules/@plannotator/markdown-editor/dist/index.js");
+    assertEquals(editorSource.includes("markdown-editor-shim"), false);
 });
 
 Deno.test("Workspace lifecycle API mutates through lifecycle events and blocks invalid actions", async () => {

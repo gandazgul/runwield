@@ -484,7 +484,6 @@ function StaticLifecycleActions({ plan }) {
 export function PlanDetail({ plan, url, editIntent = false, staticRender = false }) {
     const isEpic = isEpicDetail(plan);
     const canEditBody = plan.capabilities?.bodyEditing !== false && !isEpic;
-    const editHref = workspaceHref(`/plans/${encodeURIComponent(plan.planId)}?edit=body`, url);
     const closeHref = boardHrefForPlanStatus(plan.status, url);
     return (
         <article className="detail" data-plan-id={plan.planId} data-selected-tab={tabForPlanStatus(plan.status)}>
@@ -524,9 +523,6 @@ export function PlanDetail({ plan, url, editIntent = false, staticRender = false
                 </div>
                 <aside className="detail-sidebar">
                     <div className="detail-sidebar-actions" aria-label="Plan detail actions">
-                        {canEditBody && !editIntent
-                            ? <a className="primary-action detail-sidebar-edit" href={editHref}>Edit</a>
-                            : null}
                         {staticRender
                             ? <StaticLifecycleActions plan={plan} />
                             : <PlanLifecycleActions plan={plan} compact epic={isEpic} />}
