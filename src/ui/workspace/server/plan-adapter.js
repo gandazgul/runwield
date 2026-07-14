@@ -16,6 +16,7 @@ import {
 } from "../../../plan-store.js";
 import {
     ACTIVE_PLAN_STATUSES,
+    buildPlanEventUpdates,
     CLOSED_PLAN_STATUSES,
     getPlanLifecycleActionMetadata,
     ON_HOLD_PLAN_STATUSES,
@@ -548,12 +549,23 @@ export async function loadWorkspaceDetail(cwd, planId) {
     const baseResource = await findPlanById(cwd, planId);
     const resource = isEpicPlan(baseResource.attrs) ? baseResource : await loadPlanBodyById(cwd, planId);
     const summaries = await loadPlanSummaries(cwd);
-    const detail = serializePlanDetail({
+    return projectWorkspaceDetail({
         ...resource,
         workspaceKey: await sha256Hex(cwd),
         capabilities: { bodyEditing: !isEpicPlan(resource.attrs) },
     }, summaries);
-    return detail.isEpic ? serializeEpicDetail(detail, summaries) : serializeNonEpicDetail(detail, summaries);
+}
+
+/**
+ * Project a Plan resource through the same detail shape used by production and
+ * the dev-only in-memory Workspace.
+ *
+ * @param {any} resource
+ * @param {any[]} plans
+ */
+export function projectWorkspaceDetail(resource, plans) {
+    const detail = serializePlanDetail(resource, plans);
+    return detail.isEpic ? serializeEpicDetail(detail, plans) : serializeNonEpicDetail(detail, plans);
 }
 
 /**
@@ -565,12 +577,11 @@ export async function loadWorkspaceDetail(cwd, planId) {
 export async function saveWorkspacePlanBody(cwd, planId, body, expectedBodyHash) {
     const saved = await savePlanBodyById(cwd, planId, body, expectedBodyHash);
     const summaries = await loadPlanSummaries(cwd);
-    const detail = serializePlanDetail({
+    return projectWorkspaceDetail({
         ...saved,
         workspaceKey: await sha256Hex(cwd),
         capabilities: { bodyEditing: true },
     }, summaries);
-    return serializeNonEpicDetail(detail, summaries);
 }
 
 /**
@@ -674,6 +685,78 @@ function validateLifecycleActionPayload(payload) {
         if (!targetStatus || !isKnownStatus(targetStatus)) throw new Error("Unknown or missing targetStatus.");
     }
     return body;
+}
+
+/**
+ * Apply a Workspace lifecycle action to an already-loaded Plan without writing
+ * its markdown file. This is intentionally limited to the Astro dev server;
+ * production continues through recordPlanEvent and the canonical Plan store.
+ *
+ * @param {any} plan
+ * @param {unknown} payload
+ */
+export function applyWorkspaceLifecycleActionInMemory(plan, payload) {
+    const request = validateLifecycleActionPayload(payload);
+    const attrs = { ...safeObject(plan.attrs), ...safeObject(plan.frontMatter) };
+    const currentStatus = /** @type {any} */ (String(attrs.status || plan.status || "draft"));
+    const action = String(request.action);
+    const metadata = getPlanLifecycleActionMetadata(currentStatus, attrs);
+    /** @type {any} */
+    const details = { triageMeta: attrs };
+    /** @type {any} */
+    let event = "manual_status_change";
+    let message = "Plan lifecycle action applied.";
+
+    if (action === PLAN_LIFECYCLE_ACTIONS.MOVE_STATUS) {
+        const targetStatus = String(request.targetStatus);
+        if (!metadata.allowedManualTargetStatuses.includes(/** @type {any} */ (targetStatus))) {
+            throw new Error(metadata.blockedReasons.move_status || `Manual move to ${targetStatus} is blocked.`);
+        }
+        details.manualTargetStatus = targetStatus;
+        message = `Plan moved to ${statusOption(targetStatus).label}.`;
+    } else if (action === PLAN_LIFECYCLE_ACTIONS.CLOSE_WITHOUT_VERIFICATION) {
+        if (!metadata.canCloseWithoutVerification) throw new Error(metadata.blockedReasons.close_without_verification);
+        event = "manual_closed_without_verification";
+        message = "Plan closed without Workflow Validation.";
+    } else if (action === PLAN_LIFECYCLE_ACTIONS.PUT_ON_HOLD) {
+        if (!metadata.canPutOnHold) throw new Error(metadata.blockedReasons.put_on_hold);
+        event = "plan_held";
+        if (typeof request.holdReason === "string") details.holdReason = request.holdReason;
+        details.heldFromStatus = currentStatus;
+        details.holdStalenessBaseline = typeof attrs.executionBaselineTree === "string"
+            ? attrs.executionBaselineTree
+            : undefined;
+        message = attrs.classification === "PROJECT" && attrs.type === "epic"
+            ? "Epic put on hold. Child Plan statuses were not changed."
+            : "Plan put on hold.";
+    } else if (action === PLAN_LIFECYCLE_ACTIONS.RESUME_FROM_HOLD) {
+        if (!metadata.canResumeFromHold) throw new Error(metadata.blockedReasons.resume_from_hold);
+        event = "hold_resumed";
+        details.heldFromStatus = attrs.heldFromStatus;
+        message = `Plan resumed to ${statusOption(String(attrs.heldFromStatus)).label}.`;
+    } else if (action === PLAN_LIFECYCLE_ACTIONS.RESET_TO_DRAFT) {
+        if (!metadata.canResetToDraft) throw new Error(metadata.blockedReasons.reset_to_draft);
+        event = "hold_reset_to_draft";
+        message = "Held Plan reset to draft; worktrees were not deleted.";
+    }
+
+    const nextAttrs = buildPlanEventUpdates(event, currentStatus, details);
+    const nextSummary = serializePlanSummary({
+        planId: plan.planId,
+        planName: plan.planName || plan.name,
+        name: plan.planName || plan.name,
+        relativePath: plan.relativePath,
+        attrs: nextAttrs,
+    });
+    return {
+        plan: {
+            ...plan,
+            ...nextSummary,
+            attrs: nextAttrs,
+            frontMatter: nextAttrs,
+        },
+        message,
+    };
 }
 
 /**
