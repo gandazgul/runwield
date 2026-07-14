@@ -42,7 +42,9 @@ jobs:
                   deno-version: v2.9.2
 
             - name: Cache dependencies
-              run: deno cache scripts/compile.js src/cli.js
+              run: |
+                  deno run -A scripts/write-version.js
+                  deno cache scripts/compile.js src/cli.js
 
             - name: Compile binary
               run: deno run -A scripts/compile.js --target "${{ matrix.target }}" --output "${{ matrix.binary_name }}"
