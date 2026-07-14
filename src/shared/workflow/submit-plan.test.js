@@ -187,6 +187,58 @@ Deno.test("submitPlanForReview approves a plan, records event, and updates front
     }
 });
 
+Deno.test("submitPlanForReview does not resurrect completed worktree metadata after reopening", async () => {
+    const { dir, planPath } = await makePlanFile();
+    const uiAPI = makeUi();
+    const events = /** @type {any[]} */ ([]);
+    /** @type {Partial<import('../../plan-store.js').PlanFrontMatter>} */
+    const staleMeta = {
+        classification: "FEATURE",
+        status: "implemented",
+        worktreeId: "old-worktree",
+        worktreeStatus: "completed",
+    };
+    await Deno.writeTextFile(planPath, injectFrontMatter("# Plan\n", staleMeta));
+
+    try {
+        await submitPlanForReview({
+            cwd: dir,
+            planName: "plan",
+            planPath,
+            triageMeta: staleMeta,
+            uiAPI,
+            hostedSession: makeHostedSession("review-completed-worktree"),
+            __deps: {
+                startPlanReviewSurface: () =>
+                    Promise.resolve({
+                        url: "http://127.0.0.1:9999/review",
+                        opened: true,
+                        waitForDecision: () => Promise.resolve({ approved: true }),
+                        stop: () => {},
+                    }),
+                recordPlanEvent: /** @type {any} */ ((/** @type {any} */ event) => {
+                    events.push(event);
+                    if (event.event === "review_reopened") {
+                        return Promise.resolve({
+                            ...event.details.triageMeta,
+                            status: "feedback",
+                            worktreeId: null,
+                            worktreeStatus: "abandoned",
+                        });
+                    }
+                    return Promise.resolve(event.details.triageMeta);
+                }),
+            },
+        });
+
+        assertEquals(events.map((event) => event.event), ["review_reopened", "review_approved"]);
+        assertEquals(events[1].details.triageMeta.worktreeId, null);
+        assertEquals(events[1].details.triageMeta.worktreeStatus, "abandoned");
+    } finally {
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
 Deno.test("submitPlanForReview writes edited review plan and returns saved path", async () => {
     const { dir, planPath } = await makePlanFile();
     const uiAPI = makeUi();

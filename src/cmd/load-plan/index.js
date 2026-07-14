@@ -1217,6 +1217,51 @@ async function persistRecoveredWorktreeMetadata(projectRoot, plan, context, upda
 }
 
 /**
+ * Detach any prior execution generation before sending a Plan back through
+ * review. The physical worktree is retained for inspection, but it is no
+ * longer eligible for execution reuse.
+ *
+ * @param {Object} opts
+ * @param {string} opts.projectRoot
+ * @param {{ planName: string, path: string, body: string, attrs: import('../../plan-store.js').PlanFrontMatter }} opts.plan
+ * @param {import('../../shared/workflow/plan-lifecycle.js').PlanStatus} opts.currentStatus
+ * @param {RecoveryWorktreeContext | null | undefined} [opts.worktreeContext]
+ * @param {typeof findWorktreeByIdFn} opts.findWorktreeById
+ * @param {typeof findWorktreeByPlanNameFn} opts.findWorktreeByPlanName
+ * @param {typeof updateWorktreeRegistryEntryFn} opts.updateWorktreeRegistryEntry
+ * @param {typeof recordPlanEventFn} opts.recordPlanEvent
+ * @param {import('../../shared/session/hosted-session.js').HostedSession} opts.hostedSession
+ */
+async function reopenPlanForReview({
+    projectRoot,
+    plan,
+    currentStatus,
+    worktreeContext,
+    findWorktreeById,
+    findWorktreeByPlanName,
+    updateWorktreeRegistryEntry,
+    recordPlanEvent,
+    hostedSession,
+}) {
+    const priorWorktree = worktreeContext === undefined
+        ? await resolveRecoveryWorktree(projectRoot, plan, { findWorktreeById, findWorktreeByPlanName })
+        : worktreeContext;
+    if (priorWorktree?.id) {
+        await updateWorktreeRegistryEntry(projectRoot, priorWorktree.id, { status: "abandoned" });
+    }
+    hostedSession.clearActiveExecutionWorkflow();
+    await stripTasksFromPlanFile(plan);
+    const updatedAttrs = await recordPlanEvent({
+        cwd: projectRoot,
+        planName: plan.planName,
+        event: "review_reopened",
+        currentStatus,
+        details: { triageMeta: plan.attrs },
+    });
+    plan.attrs = { ...plan.attrs, ...updatedAttrs };
+}
+
+/**
  * @param {RecoveryWorktreeContext | null} context
  * @returns {boolean}
  */
@@ -2158,19 +2203,17 @@ async function handlePlanRecovery({
         }
 
         if (answer === "review") {
-            if (worktreeContext?.id) {
-                await updateWorktreeRegistryEntry(projectRoot, worktreeContext.id, { status: "abandoned" });
-            }
-            hostedSession.clearActiveExecutionWorkflow();
-            await stripTasksFromPlanFile(plan);
-            await recordPlanEvent({
-                cwd: projectRoot,
-                planName: plan.planName,
-                event: "review_reopened",
+            await reopenPlanForReview({
+                projectRoot,
+                plan,
                 currentStatus: plan.attrs.status,
-                details: { triageMeta: plan.attrs },
+                worktreeContext,
+                findWorktreeById,
+                findWorktreeByPlanName,
+                updateWorktreeRegistryEntry,
+                recordPlanEvent,
+                hostedSession,
             });
-            plan.attrs.status = "feedback";
             await recordRecoveryResult("review", "review");
             return "review";
         }
@@ -2960,17 +3003,16 @@ export async function runLoadPlanCommand(argv, options = {}) {
                     uiAPI.appendSystemMessage(buildPlanSummary(plan), false, "Plan");
                     continue;
                 }
-                // Re-opening for review: discard the slicer's tasks so the
-                // architect → slicer flow regenerates them against any revisions.
-                await stripTasksFromPlanFile(plan);
-                await recordPlanEvent({
-                    cwd: projectRoot,
-                    planName: plan.planName,
-                    event: "review_reopened",
+                await reopenPlanForReview({
+                    projectRoot,
+                    plan,
                     currentStatus: "verified",
-                    details: { triageMeta: plan.attrs },
+                    findWorktreeById,
+                    findWorktreeByPlanName,
+                    updateWorktreeRegistryEntry,
+                    recordPlanEvent,
+                    hostedSession,
                 });
-                plan.attrs.status = "feedback";
                 break;
             }
         }
@@ -3030,18 +3072,21 @@ export async function runLoadPlanCommand(argv, options = {}) {
 
                 if (answer === "review") {
                     restoreAgentName = planFlowRestoreAgent;
-                    // Re-opening for review: discard the slicer's tasks so the
-                    // architect → slicer flow regenerates them against any revisions.
-                    await stripTasksFromPlanFile(plan);
                     if (isExecutablePlanStatus(plan.attrs.status)) {
-                        await recordPlanEvent({
-                            cwd: projectRoot,
-                            planName: plan.planName,
-                            event: "review_reopened",
+                        await reopenPlanForReview({
+                            projectRoot,
+                            plan,
                             currentStatus: plan.attrs.status,
-                            details: { triageMeta: plan.attrs },
+                            findWorktreeById,
+                            findWorktreeByPlanName,
+                            updateWorktreeRegistryEntry,
+                            recordPlanEvent,
+                            hostedSession,
                         });
-                        plan.attrs.status = "feedback";
+                    } else {
+                        // Approved Plans do not have an execution generation yet,
+                        // but their generated task slices still need refreshing.
+                        await stripTasksFromPlanFile(plan);
                     }
 
                     await switchPlanAgent(agentName, createAgentHandler(agentName, { hostedSession }), uiAPI);

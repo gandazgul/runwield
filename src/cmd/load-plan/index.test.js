@@ -1523,6 +1523,84 @@ Deno.test("runLoadPlanCommand approved review approves directly via submitPlanFo
     assertEquals(executed, false);
 });
 
+Deno.test("runLoadPlanCommand reapproval abandons the prior worktree generation", async () => {
+    const { uiAPI, selections } = makeUi();
+    selections.push("review");
+    const registryUpdates = /** @type {any[]} */ ([]);
+    /** @type {any} */
+    let reviewMeta = null;
+
+    await runLoadPlanCommand(["plan-reapproval"], {
+        hostedSession: new HostedSession({ id: "load-plan-reapproval", cwd: Deno.cwd() }),
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: () => ({ help: false, _: ["plan-reapproval"] }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "plan-reapproval",
+                    path: "plans/plan-reapproval.md",
+                    body: "body",
+                    attrs: {
+                        classification: "FEATURE",
+                        complexity: "LOW",
+                        summary: "s",
+                        affectedPaths: [],
+                        status: "ready_for_work",
+                        worktreeStatus: "completed",
+                    },
+                }),
+            findWorktreeByPlanName: () =>
+                Promise.resolve({
+                    id: "old-worktree",
+                    planName: "plan-reapproval",
+                    path: "/tmp/old-worktree",
+                    branch: "runwield/worktree/plan-reapproval-old",
+                    baseBranch: "main",
+                    status: "completed",
+                }),
+            updateWorktreeRegistryEntry: (
+                /** @type {string} */ projectRoot,
+                /** @type {string} */ id,
+                /** @type {any} */ updates,
+            ) => {
+                registryUpdates.push({ projectRoot, id, updates });
+                return Promise.resolve({});
+            },
+            recordPlanEvent: (/** @type {any} */ event) => {
+                if (event.event === "review_reopened") {
+                    return Promise.resolve({
+                        ...event.details.triageMeta,
+                        status: "feedback",
+                        worktreeId: null,
+                        worktreePath: null,
+                        worktreeBranch: null,
+                        worktreeBaseBranch: null,
+                        worktreeStatus: "abandoned",
+                    });
+                }
+                return Promise.resolve({ ...event.details.triageMeta, status: "ready_for_work" });
+            },
+            submitPlanForReview: (/** @type {any} */ opts) => {
+                reviewMeta = opts.triageMeta;
+                return Promise.resolve({ approved: true });
+            },
+            askPostApproval: () => Promise.resolve("save"),
+            createAgentHandler: () => async () => {},
+            resetTuiState: () => {},
+            setActiveAgent: () => {},
+        }),
+    });
+
+    assertEquals(registryUpdates, [{
+        projectRoot: Deno.cwd(),
+        id: "old-worktree",
+        updates: { status: "abandoned" },
+    }]);
+    assertEquals(reviewMeta.worktreeStatus, "abandoned");
+    assertEquals(reviewMeta.worktreeBaseBranch, null);
+});
+
 Deno.test("runLoadPlanCommand approved PROJECT review runs slicer before proceed", async () => {
     const { uiAPI, selections } = makeUi();
     selections.push("review");

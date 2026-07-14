@@ -7,12 +7,14 @@ import { stageValidationPassedInExecutionWorktree } from "./workflow/plan-lifecy
 import { findByPlanName } from "./worktree-registry.js";
 import {
     createExecutionWorktree,
+    findReusableWorktree,
     getWorktreeStatus,
     inspectExecutionWorktreeMergeRisk,
     mergeExecutionWorktree,
     preparePrimaryPlanPathForMerge,
     prepareTargetBranchRef,
     removeExecutionWorktree,
+    resolveCurrentCheckoutBranch,
     resolveWorktreeParent,
     restorePrimaryPlanPathAfterMergeFailure,
 } from "./worktree.js";
@@ -56,6 +58,15 @@ Deno.test("resolveWorktreeParent uses session-style full cwd encoding by default
     assertEquals(resolveWorktreeParent(projectRoot, "/tmp/worktrees"), "/tmp/worktrees");
 });
 
+Deno.test("resolveCurrentCheckoutBranch returns the primary checkout branch", async () => {
+    const projectRoot = await makeRepo();
+    try {
+        assertEquals(await resolveCurrentCheckoutBranch(projectRoot), "main");
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true });
+    }
+});
+
 Deno.test("createExecutionWorktree creates a unique branch/path and registry entry", async () => {
     const projectRoot = await makeRepo();
     const worktreeRoot = await Deno.makeTempDir();
@@ -81,6 +92,36 @@ Deno.test("createExecutionWorktree creates a unique branch/path and registry ent
                 branch: worktree.branch,
                 force: true,
             });
+        }
+        await Deno.remove(projectRoot, { recursive: true });
+        await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("findReusableWorktree selects the recorded execution id when plan names repeat", async () => {
+    const projectRoot = await makeRepo();
+    const worktreeRoot = await Deno.realPath(await Deno.makeTempDir());
+    /** @type {Awaited<ReturnType<typeof createExecutionWorktree>>[]} */
+    const worktrees = [];
+    try {
+        worktrees.push(await createExecutionWorktree({ projectRoot, planName: "Repeated Plan", worktreeRoot }));
+        worktrees.push(await createExecutionWorktree({ projectRoot, planName: "Repeated Plan", worktreeRoot }));
+
+        const reusable = await findReusableWorktree({
+            projectRoot,
+            planName: "Repeated Plan",
+            worktreeId: worktrees[1].id,
+        });
+
+        assertEquals(reusable?.id, worktrees[1].id);
+    } finally {
+        for (const worktree of worktrees.toReversed()) {
+            await removeExecutionWorktree({
+                projectRoot,
+                path: worktree.path,
+                branch: worktree.branch,
+                force: true,
+            }).catch(() => {});
         }
         await Deno.remove(projectRoot, { recursive: true });
         await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
