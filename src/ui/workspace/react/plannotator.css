@@ -1,5 +1,4 @@
 @import "tailwindcss";
-@import "dockview-react/dist/styles/dockview.css";
 @import "@plannotator/ui/theme.css";
 
 @source "./";
@@ -12,12 +11,6 @@
     --plannotator-surface: var(--rw-surface, #111827);
     --plannotator-text: var(--rw-text, #f8fafc);
     --plannotator-accent: var(--rw-accent, #38bdf8);
-}
-
-.rw-dockview {
-    height: 100%;
-    min-height: 0;
-    overflow: hidden;
 }
 
 .rw-plannotator-host {
@@ -131,7 +124,7 @@
 }
 
 .rw-plannotator-main-pane,
-.rw-review-dock-host {
+.rw-review-all-files-host {
     min-width: 0;
     min-height: 0;
     overflow: hidden;
@@ -157,18 +150,25 @@
     z-index: 60;
 }
 
-.rw-review-dock-host {
+.rw-review-all-files-host {
     display: flex;
     flex-direction: column;
     height: 100%;
 }
 
-.rw-plannotator-diff-panel {
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-    min-height: 0;
-    overflow: hidden;
+.rw-review-all-files-host .overflow-y-auto > div {
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+}
+
+/* CodeView centers its sticky render window when the complete accordion is
+   shorter than the viewport. In that state virtualization is unnecessary, and
+   the centering creates empty space above the first file. Keep the override
+   scoped to measured short content so long diffs retain CodeView's scroll model. */
+.rw-review-all-files-host[data-content-fits="true"] .overflow-y-auto > div > div[style*="position: sticky"] {
+    position: relative !important;
+    top: 0 !important;
+    bottom: auto !important;
 }
 
 .rw-review-file-tree {
@@ -212,9 +212,45 @@
 }
 
 .rw-code-file-panel {
+    display: flex;
     min-height: 0;
     flex: 1;
-    overflow: auto;
+    overflow: hidden;
+}
+
+.rw-code-file-panel > aside {
+    width: 100% !important;
+    height: 100%;
+    border-right: 0;
+}
+
+/* Changes / Files is the RunWield-level switch. Plannotator's internal
+   Git status / Tree header describes a broader app state that this focused
+   review surface does not expose, so keep only the file list below it. */
+.rw-code-file-panel > aside > div:first-child {
+    display: none;
+}
+
+.rw-plannotator-code-layout > aside:last-child {
+    width: 100% !important;
+    min-width: 0;
+    height: 100%;
+    overflow: hidden;
+}
+
+.rw-plannotator-code-layout > aside:last-child > div:first-child {
+    min-height: var(--panel-header-h, 2.5rem);
+    height: var(--panel-header-h, 2.5rem) !important;
+    padding: 0.35rem 0.5rem;
+    background: var(--plannotator-surface);
+}
+
+.rw-plannotator-code-layout > aside:last-child > div:first-child h2 {
+    color: var(--foreground);
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: normal;
+    text-transform: none;
 }
 
 .rw-code-review-controls {
@@ -343,17 +379,6 @@
     color: var(--foreground, var(--plannotator-text, #f8fafc));
     box-shadow: 0 18px 45px rgb(0 0 0 / 0.45), 0 0 0 1px rgb(148 163 184 / 0.12);
     padding: 0.5rem;
-}
-
-.rw-viewed-diff-collapsed {
-    flex: 1;
-    min-height: 0;
-    display: grid;
-    place-items: center;
-    padding: 2rem;
-    color: var(--muted-foreground, #94a3b8);
-    background: color-mix(in oklab, var(--plannotator-surface, #111827) 82%, transparent);
-    border-bottom: 1px solid var(--rw-border, #2d3748);
 }
 
 .rw-plain-action {
