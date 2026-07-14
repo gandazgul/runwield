@@ -175,7 +175,7 @@ export function createReviewWorkspaceApp({ cwd, token, reviewPayload, reviewType
                     const payload = { ...reviewPayload, token, mode: "workflow" };
                     const astroResponse = await renderAstroReviewPage(request, cwd, payload);
                     if (astroResponse) return astroResponse;
-                    return workspaceBuildUnavailable();
+                    return renderStaticReviewFallback(reviewType, payload);
                 }
                 return new Response("Not found", { status: 404 });
             };
@@ -314,6 +314,54 @@ function workspaceBuildUnavailable() {
             headers: { "content-type": "text/plain; charset=utf-8" },
         },
     );
+}
+
+/**
+ * @param {"plan" | "code"} reviewType
+ * @param {Record<string, unknown>} payload
+ */
+function renderStaticReviewFallback(reviewType, payload) {
+    const title = reviewType === "plan" ? "Plan Review · RunWield Workspace" : "Code Review · RunWield Workspace";
+    const payloadAttribute = reviewType === "plan" ? "data-review-payload" : "data-code-review-payload";
+    const payloadJson = escapeScriptJson(JSON.stringify(payload));
+    return new Response(
+        `<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>${escapeHtml(title)}</title>
+        <link rel="icon" href="/logo.svg" type="image/svg+xml" />
+        <link rel="stylesheet" href="/tokens.css" />
+        <link rel="stylesheet" href="/components.css" />
+        <link rel="stylesheet" href="/workspace.css" />
+        <link rel="stylesheet" href="/theme.css" />
+    </head>
+    <body>
+        <main class="review-shell" data-astro-review-shell>
+            <script type="application/json" ${payloadAttribute}>${payloadJson}</script>
+            <section class="empty-state">
+                <h1>${escapeHtml(title)}</h1>
+                <p>Workspace review UI assets are unavailable in this environment.</p>
+            </section>
+        </main>
+    </body>
+</html>`,
+        {
+            status: 200,
+            headers: { "content-type": "text/html; charset=utf-8" },
+        },
+    );
+}
+
+/** @param {string} value */
+function escapeScriptJson(value) {
+    return value.replaceAll("<", "\\u003c").replaceAll(">", "\\u003e").replaceAll("&", "\\u0026");
+}
+
+/** @param {string} value */
+function escapeHtml(value) {
+    return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 }
 
 /** @param {Request} request @param {string} cwd */
