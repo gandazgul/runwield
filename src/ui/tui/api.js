@@ -12,6 +12,12 @@ import {
 } from "./blocks.js";
 
 /**
+ * @typedef {Object} ToolElapsedTimerState
+ * @property {ReturnType<typeof setTimeout> | null} startTimer
+ * @property {ReturnType<typeof setInterval> | null} renderTimer
+ */
+
+/**
  * Returns a fully-stubbed UiAPI whose methods all no-op. Use to suppress
  * output for parallel subagents that share the parent UI but should not
  * stream their own thinking/text blocks. Implements every method on the
@@ -79,6 +85,8 @@ export function createFooterOnlyUiApi(parentUiAPI) {
  */
 export function createUiApi(tui, messageList, spinner) {
     const activeToolBlocks = new Map();
+    /** @type {Map<string, ToolElapsedTimerState>} */
+    const toolElapsedTimers = new Map();
 
     let isBusy = false;
     /** @type {ReturnType<typeof setTimeout> | null} */
@@ -99,6 +107,46 @@ export function createUiApi(tui, messageList, spinner) {
         spinner.advance();
         tui.requestRender();
         spinnerTimer = setTimeout(runSpinner, 80);
+    };
+
+    /**
+     * @param {string} id
+     */
+    const clearToolElapsedTimer = (id) => {
+        const timer = toolElapsedTimers.get(id);
+        if (!timer) return;
+        if (timer.startTimer) clearTimeout(timer.startTimer);
+        if (timer.renderTimer) clearInterval(timer.renderTimer);
+        toolElapsedTimers.delete(id);
+    };
+
+    /**
+     * @param {string} id
+     * @param {ToolExecutionBlock} block
+     */
+    const startToolElapsedTimer = (id, block) => {
+        clearToolElapsedTimer(id);
+        const timer = /** @type {ToolElapsedTimerState} */ ({
+            startTimer: null,
+            renderTimer: null,
+        });
+        timer.startTimer = setTimeout(() => {
+            timer.startTimer = null;
+            if (outputSuppressed || block.ended || activeToolBlocks.get(id) !== block) {
+                clearToolElapsedTimer(id);
+                return;
+            }
+            block.enableElapsedTime();
+            tui.requestRender();
+            timer.renderTimer = setInterval(() => {
+                if (outputSuppressed || block.ended || activeToolBlocks.get(id) !== block) {
+                    clearToolElapsedTimer(id);
+                    return;
+                }
+                tui.requestRender();
+            }, 100);
+        }, 500);
+        toolElapsedTimers.set(id, timer);
     };
 
     return {
@@ -227,8 +275,15 @@ export function createUiApi(tui, messageList, spinner) {
                 };
             }
             const block = new ToolExecutionBlock(name, argsStr);
+            const originalEndExecution = block.endExecution.bind(block);
+            block.endExecution = (isError, durationMs) => {
+                clearToolElapsedTimer(id);
+                originalEndExecution(isError, durationMs);
+                if (!outputSuppressed) tui.requestRender();
+            };
             block.setExpanded(toolsExpanded);
             activeToolBlocks.set(id, block);
+            startToolElapsedTimer(id, block);
             messageList.addChild(block);
             messageList.addChild(new Spacer(1));
             tui.requestRender();
@@ -380,6 +435,9 @@ export function createUiApi(tui, messageList, spinner) {
 
         suppressOutput: () => {
             outputSuppressed = true;
+            for (const id of toolElapsedTimers.keys()) {
+                clearToolElapsedTimer(id);
+            }
         },
 
         clearMessages: () => {

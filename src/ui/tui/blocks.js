@@ -406,6 +406,7 @@ export class ToolExecutionBlock {
         this.bodyText = "";
         this.isError = false;
         this.ended = false;
+        this.showElapsedTime = false;
         this.startTime = Date.now();
         this.bgToken = "toolPendingBg";
 
@@ -452,6 +453,20 @@ export class ToolExecutionBlock {
         this.updateBodyText();
     }
 
+    enableElapsedTime() {
+        if (!this.ended) {
+            this.showElapsedTime = true;
+        }
+    }
+
+    /**
+     * @returns {string}
+     * @private
+     */
+    formatElapsedTime() {
+        return `Elapsed time: ${((Date.now() - this.startTime) / 1000).toFixed(1)}s`;
+    }
+
     /**
      * @param {boolean} isError
      * @param {number} durationMs
@@ -459,6 +474,7 @@ export class ToolExecutionBlock {
     endExecution(isError, durationMs) {
         this.isError = isError;
         this.ended = true;
+        this.showElapsedTime = false;
         if (isError) {
             this.bgToken = "toolErrorBg";
         } else {
@@ -522,7 +538,8 @@ export class ToolExecutionBlock {
      */
     renderFooterContent(innerW) {
         const canExpand = this.getOutputLines().length > this.previewLineLimit;
-        const left = this.durationStr ? theme.fg("dim", this.durationStr) : "";
+        const leftText = this.durationStr || (this.showElapsedTime && !this.ended ? this.formatElapsedTime() : "");
+        const left = leftText ? theme.fg("dim", leftText) : "";
         const right = canExpand
             ? theme.fg("dim", this.expanded ? "press ctrl+o to collapse" : "press ctrl+o to expand")
             : "";
