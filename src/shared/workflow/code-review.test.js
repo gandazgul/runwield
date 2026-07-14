@@ -7,6 +7,7 @@ Deno.test("normalizeCodeReviewDecision handles approvals, feedback, annotations,
             approved: true,
             feedback: "ship it",
             annotations: [{ file: "src/a.js", line: 3, text: "nice" }],
+            images: [{ path: "/tmp/review.png", name: "review" }],
         }),
         {
             approved: true,
@@ -14,6 +15,7 @@ Deno.test("normalizeCodeReviewDecision handles approvals, feedback, annotations,
             annotations: [{ file: "src/a.js", line: 3, text: "nice" }],
             exit: false,
             canceled: false,
+            images: [{ path: "/tmp/review.png", name: "review" }],
         },
     );
 
@@ -24,6 +26,43 @@ Deno.test("normalizeCodeReviewDecision handles approvals, feedback, annotations,
         exit: true,
         canceled: true,
     });
+});
+
+Deno.test("runPlannotatorCodeReview loads attached image bytes before closing the review", async () => {
+    const worktree = await Deno.makeTempDir();
+    const imagePath = `${worktree}/review.png`;
+    await Deno.writeFile(imagePath, new Uint8Array([137, 80, 78, 71]));
+    let stopped = false;
+    try {
+        const result = await runPlannotatorCodeReview({
+            planName: "image-review-plan",
+            diffText: "diff --git a/src/a.js b/src/a.js\n+change",
+            executionCwd: worktree,
+            uiAPI: /** @type {any} */ ({ appendSystemMessage: () => {} }),
+            __deps: {
+                startCodeReviewSurface: () =>
+                    Promise.resolve({
+                        url: "http://localhost:2468",
+                        opened: true,
+                        waitForDecision: () =>
+                            Promise.resolve({
+                                approved: false,
+                                feedback: "Use the attached reference.",
+                                annotations: [{ filePath: "src/a.js", lineStart: 1, text: "Match this." }],
+                                images: [{ path: imagePath, name: "review" }],
+                            }),
+                        stop: () => {
+                            stopped = true;
+                        },
+                    }),
+            },
+        });
+
+        assertEquals(result.images, [{ base64: "iVBORw==", mimeType: "image/png", name: "review" }]);
+        assertEquals(stopped, true);
+    } finally {
+        await Deno.remove(worktree, { recursive: true });
+    }
 });
 
 Deno.test("formatCodeReviewAnnotations renders file, line, and text", () => {

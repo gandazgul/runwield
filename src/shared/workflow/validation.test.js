@@ -88,6 +88,10 @@ function noOpRecordPlanEvent() {
 
 function noOpWorktreePlanHandoffDeps() {
     return {
+        switchActiveAgent: (
+            /** @type {unknown} */ _hostedSession,
+            /** @type {{ agentName: string }} */ options,
+        ) => Promise.resolve({ ok: true, agentName: options.agentName, changed: true }),
         stageValidationPassedInExecutionWorktree: () =>
             Promise.resolve({ attrs: /** @type {any} */ ({ status: "verified" }), planPaths: ["plans/p.md"] }),
         preparePrimaryPlanPathForMerge: () =>
@@ -1606,6 +1610,7 @@ Deno.test("runValidationLoop sends human feedback to Engineer and continues vali
     const actions = [];
     /** @type {any[]} */
     const metrics = [];
+    const reviewImages = [{ base64: "aW1hZ2U=", mimeType: "image/png", name: "reference" }];
     let humanReviewCalls = 0;
 
     await runValidationLoop({
@@ -1639,6 +1644,7 @@ Deno.test("runValidationLoop sends human feedback to Engineer and continues vali
                         approved: false,
                         feedback: "Please tighten this.",
                         annotations: [{ file: "src/a.js", line: 7, text: "Needs test." }],
+                        images: reviewImages,
                         exit: false,
                     });
                 }
@@ -1649,7 +1655,11 @@ Deno.test("runValidationLoop sends human feedback to Engineer and continues vali
                 return Promise.resolve(null);
             },
             runCompletionGatedRepair: (/** @type {any} */ opts) => {
-                actions.push(`repair:${opts.agentName}:${opts.userRequest.includes("Needs test.")}`);
+                actions.push(
+                    `repair:${opts.agentName}:${opts.userRequest.includes("Needs test.")}:${
+                        opts.images === reviewImages
+                    }`,
+                );
                 return Promise.resolve(true);
             },
             recordPlanEvent: (/** @type {any} */ event) => {
@@ -1664,7 +1674,7 @@ Deno.test("runValidationLoop sends human feedback to Engineer and continues vali
 
     assertEquals(actions, [
         "human-review:1",
-        "repair:engineer:true",
+        "repair:engineer:true:true",
         "human-review:2",
         "event:validation_passed:always:approved",
     ]);
@@ -1672,7 +1682,8 @@ Deno.test("runValidationLoop sends human feedback to Engineer and continues vali
         metrics.some((metric) =>
             metric.category === "validation" && metric.event === "human_review_result" &&
             metric.details.mode === "always" && metric.details.decision === "feedback_requested" &&
-            metric.details.hasFeedback === true && metric.details.annotationCount === 1
+            metric.details.hasFeedback === true && metric.details.annotationCount === 1 &&
+            metric.details.imageCount === 1
         ),
         true,
     );

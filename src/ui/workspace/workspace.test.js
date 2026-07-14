@@ -155,6 +155,56 @@ Deno.test("review API accepts review token header before workspace app token gat
     }
 });
 
+Deno.test("Code review approval preserves comments and attached images", async () => {
+    const token = "code-approval-secret";
+    const { promise } = registerReviewDecisionPromise(token);
+    try {
+        const app = createReviewWorkspaceApp({
+            cwd: Deno.cwd(),
+            token,
+            reviewPayload: {},
+            reviewType: "code",
+        }).handler();
+        const annotations = [{
+            id: "code-approval-comment",
+            type: "comment",
+            scope: "general",
+            filePath: "",
+            lineStart: 0,
+            lineEnd: 0,
+            side: "new",
+            text: "Keep this implementation detail.",
+            images: [{ path: "/tmp/code-approval.png", name: "code-approval" }],
+        }];
+
+        const response = await app(
+            new Request("http://localhost/api/review/feedback", {
+                method: "POST",
+                headers: {
+                    "content-type": "application/json",
+                    "x-runwield-review-token": token,
+                },
+                body: JSON.stringify({
+                    approved: true,
+                    feedback: "# Code Review Feedback\n\nKeep this implementation detail.",
+                    annotations,
+                }),
+            }),
+        );
+
+        assertEquals(response.status, 200);
+        assertEquals(await promise, {
+            approved: true,
+            feedback: "# Code Review Feedback\n\nKeep this implementation detail.",
+            annotations,
+            images: [{ path: "/tmp/code-approval.png", name: "code-approval" }],
+            agentSwitch: undefined,
+        });
+    } finally {
+        unregisterReviewDecision(token);
+    }
+});
+
 Deno.test("Plan review feedback preserves all annotations and the edited Plan", async () => {
     const token = "plan-feedback-secret";
     const { promise } = registerReviewDecisionPromise(token);
@@ -297,6 +347,46 @@ Deno.test("review image endpoints upload and serve an annotated image", async ()
         assertEquals(new Uint8Array(await image.arrayBuffer()), bytes);
     } finally {
         await Deno.remove(uploaded.path).catch(() => {});
+    }
+});
+
+Deno.test("code review host serves safe file content and disables unsupported open-in actions", async () => {
+    const token = "review-file-secret";
+    const cwd = await Deno.makeTempDir({ prefix: "runwield-review-files-" });
+    await Deno.mkdir(`${cwd}/src`);
+    await Deno.writeTextFile(`${cwd}/src/example.js`, "export const fixture = true;\n");
+    const app = createReviewWorkspaceApp({
+        cwd,
+        token,
+        reviewPayload: {},
+        reviewType: "code",
+    }).handler();
+    const headers = { referer: `http://localhost/review/code?token=${token}` };
+
+    try {
+        const content = await app(
+            new Request("http://localhost/api/file-content?path=src%2Fexample.js", { headers }),
+        );
+        assertEquals(content.status, 200);
+        assertEquals(await content.json(), {
+            oldContent: null,
+            newContent: "export const fixture = true;\n",
+        });
+
+        const traversal = await app(
+            new Request("http://localhost/api/file-content?path=..%2Foutside.js", { headers }),
+        );
+        assertEquals(traversal.status, 403);
+
+        const apps = await app(new Request("http://localhost/api/open-in/apps", { headers }));
+        assertEquals(apps.status, 200);
+        assertEquals(await apps.json(), { available: false, apps: [] });
+
+        const config = await app(new Request("http://localhost/api/config", { method: "POST", headers }));
+        assertEquals(config.status, 200);
+        assertEquals(await config.json(), { ok: true });
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
     }
 });
 

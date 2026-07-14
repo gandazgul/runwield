@@ -51,6 +51,7 @@
  * @property {boolean} approved
  * @property {string} feedback
  * @property {CodeReviewAnnotation[]} annotations
+ * @property {Array<{path: string, name: string}>} [images]
  * @property {boolean} [exit]
  * @property {boolean} [canceled]
  * @property {string} [agentSwitch]

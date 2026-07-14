@@ -30,6 +30,7 @@ import {
 import { createRemoteWorkspaceAdapter } from "./server/remote-adapter.js";
 import { loadRunWieldThemeCss } from "../design-system/theme-bridge.js";
 import { reviewImageApi, reviewImageUploadApi } from "./routes/api/review-image-handlers.js";
+import { reviewFileContentApi, reviewLocalConfigApi, reviewOpenInAppsApi } from "./routes/api/review-file-handlers.js";
 
 const WORKSPACE_DIR = join(RUNWIELD_SOURCE_ROOT, "ui", "workspace");
 const ROOT_DIR = RUNWIELD_ROOT;
@@ -146,6 +147,24 @@ export function createReviewWorkspaceApp({ cwd, token, reviewPayload, reviewType
                         return new Response("Review token required.", { status: 401 });
                     }
                     return await reviewImageApi(request, { cwd });
+                }
+                if (request.method === "GET" && url.pathname === "/api/file-content") {
+                    if (!hasReviewAssetToken(request, token)) {
+                        return new Response("Review token required.", { status: 401 });
+                    }
+                    return await reviewFileContentApi(request, { cwd });
+                }
+                if (request.method === "GET" && url.pathname === "/api/open-in/apps") {
+                    if (!hasReviewAssetToken(request, token)) {
+                        return new Response("Review token required.", { status: 401 });
+                    }
+                    return reviewOpenInAppsApi();
+                }
+                if (request.method === "POST" && url.pathname === "/api/config") {
+                    if (!hasReviewAssetToken(request, token)) {
+                        return new Response("Review token required.", { status: 401 });
+                    }
+                    return reviewLocalConfigApi();
                 }
                 if (url.pathname.startsWith("/api/review/") || isLegacyReviewApiPath(url.pathname)) {
                     return await handleReviewApiRequest(request, { cwd, reviewToken: token }, url.pathname);

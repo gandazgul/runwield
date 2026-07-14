@@ -25,7 +25,38 @@ const SETTINGS_TABS = [
     { id: "shortcuts", label: "Shortcuts" },
 ];
 
-export function PlanReviewSettings({ open, onClose, onUIPreferencesChange }) {
+const CODE_DIFF_STYLE_OPTIONS = [
+    { value: "split", label: "Split" },
+    { value: "unified", label: "Unified" },
+];
+const CODE_OVERFLOW_OPTIONS = [
+    { value: "scroll", label: "Scroll" },
+    { value: "wrap", label: "Wrap" },
+];
+const CODE_INDICATOR_OPTIONS = [
+    { value: "bars", label: "Bars" },
+    { value: "classic", label: "Classic" },
+    { value: "none", label: "None" },
+];
+const CODE_LINE_DIFF_OPTIONS = [
+    { value: "word-alt", label: "Word-Alt" },
+    { value: "word", label: "Word" },
+    { value: "char", label: "Char" },
+    { value: "none", label: "None" },
+];
+const DEFAULT_CODE_LABELS = [
+    { label: "suggestion", display: "suggestion", blocking: true },
+    { label: "nitpick", display: "nit", blocking: false },
+    { label: "question", display: "question", blocking: true },
+    { label: "issue", display: "issue", blocking: true },
+    { label: "praise", display: "praise", blocking: false },
+    { label: "thought", display: "thought", blocking: false },
+    { label: "note", display: "note", blocking: false },
+    { label: "todo", display: "todo", blocking: true },
+    { label: "chore", display: "chore", blocking: true },
+];
+
+export function PlanReviewSettings({ mode = "plan", open, onClose, onUIPreferencesChange }) {
     const [activeTab, setActiveTab] = useState("general");
     const [identity, setIdentity] = useState("");
     const [autoCloseDelay, setAutoCloseDelayState] = useState("off");
@@ -33,7 +64,18 @@ export function PlanReviewSettings({ open, onClose, onUIPreferencesChange }) {
     const [quickLabels, setQuickLabels] = useState(() => getQuickLabels());
     const [editingTipIndex, setEditingTipIndex] = useState(null);
     const [editingTipValue, setEditingTipValue] = useState("");
+    const [codeLabels, setCodeLabels] = useState(() => readCodeLabels(null));
     const gridEnabled = useConfigValue("gridEnabled");
+    const conventionalComments = useConfigValue("conventionalComments");
+    const conventionalLabelsJson = useConfigValue("conventionalLabels");
+    const diffStyle = useConfigValue("diffStyle");
+    const diffOverflow = useConfigValue("diffOverflow");
+    const diffIndicators = useConfigValue("diffIndicators");
+    const diffLineDiffType = useConfigValue("diffLineDiffType");
+    const diffShowLineNumbers = useConfigValue("diffShowLineNumbers");
+    const diffShowBackground = useConfigValue("diffShowBackground");
+    const diffExpandUnchanged = useConfigValue("diffExpandUnchanged");
+    const diffFontSize = useConfigValue("diffFontSize");
 
     useEffect(() => {
         if (!open) return;
@@ -42,8 +84,9 @@ export function PlanReviewSettings({ open, onClose, onUIPreferencesChange }) {
         setAutoCloseDelayState(getAutoCloseDelay());
         setUiPreferences(getUIPreferences());
         setQuickLabels(getQuickLabels());
+        setCodeLabels(readCodeLabels(conventionalLabelsJson));
         setEditingTipIndex(null);
-    }, [open]);
+    }, [open, conventionalLabelsJson]);
 
     useEffect(() => {
         if (!open) return;
@@ -158,54 +201,91 @@ export function PlanReviewSettings({ open, onClose, onUIPreferencesChange }) {
                             )}
 
                             {activeTab === "display" && (
-                                <DisplaySettings
-                                    gridEnabled={gridEnabled}
-                                    onGridEnabledChange={(next) => configStore.set("gridEnabled", next)}
-                                    onUIPreferencesChange={updateUIPreferences}
-                                    uiPreferences={uiPreferences}
-                                />
+                                mode === "code"
+                                    ? (
+                                        <CodeDisplaySettings
+                                            diffExpandUnchanged={diffExpandUnchanged}
+                                            diffFontSize={diffFontSize}
+                                            diffIndicators={diffIndicators}
+                                            diffLineDiffType={diffLineDiffType}
+                                            diffOverflow={diffOverflow}
+                                            diffShowBackground={diffShowBackground}
+                                            diffShowLineNumbers={diffShowLineNumbers}
+                                            diffStyle={diffStyle}
+                                        />
+                                    )
+                                    : (
+                                        <DisplaySettings
+                                            gridEnabled={gridEnabled}
+                                            onGridEnabledChange={(next) => configStore.set("gridEnabled", next)}
+                                            onUIPreferencesChange={updateUIPreferences}
+                                            uiPreferences={uiPreferences}
+                                        />
+                                    )
                             )}
 
                             {activeTab === "labels" && (
-                                <LabelsSettings
-                                    editingTipIndex={editingTipIndex}
-                                    editingTipValue={editingTipValue}
-                                    labels={quickLabels}
-                                    onAdd={() => {
-                                        updateQuickLabels([
-                                            ...quickLabels,
-                                            {
-                                                id: `custom-${Date.now()}`,
-                                                emoji: "📌",
-                                                text: "New label",
-                                                color: "blue",
-                                            },
-                                        ]);
-                                    }}
-                                    onDelete={(index) => {
-                                        updateQuickLabels(quickLabels.filter((_, labelIndex) => labelIndex !== index));
-                                        if (editingTipIndex === index) setEditingTipIndex(null);
-                                    }}
-                                    onEditTip={(index) => {
-                                        if (editingTipIndex === index) {
-                                            setEditingTipIndex(null);
-                                            return;
-                                        }
-                                        setEditingTipIndex(index);
-                                        setEditingTipValue(quickLabels[index].tip || "");
-                                    }}
-                                    onReset={() => {
-                                        resetQuickLabels();
-                                        setQuickLabels(DEFAULT_QUICK_LABELS.map((label) => ({ ...label })));
-                                        setEditingTipIndex(null);
-                                    }}
-                                    onSaveTip={saveTip}
-                                    onTipValueChange={setEditingTipValue}
-                                    onUpdate={updateQuickLabel}
-                                />
+                                mode === "code"
+                                    ? (
+                                        <CodeLabelsSettings
+                                            enabled={conventionalComments}
+                                            labels={codeLabels}
+                                            onEnabledChange={(next) => configStore.set("conventionalComments", next)}
+                                            onLabelsChange={(next) => {
+                                                setCodeLabels(next);
+                                                configStore.set("conventionalLabels", JSON.stringify(next));
+                                            }}
+                                            onReset={() => {
+                                                setCodeLabels(DEFAULT_CODE_LABELS.map((label) => ({ ...label })));
+                                                configStore.set("conventionalLabels", null);
+                                            }}
+                                        />
+                                    )
+                                    : (
+                                        <LabelsSettings
+                                            editingTipIndex={editingTipIndex}
+                                            editingTipValue={editingTipValue}
+                                            labels={quickLabels}
+                                            onAdd={() => {
+                                                updateQuickLabels([
+                                                    ...quickLabels,
+                                                    {
+                                                        id: `custom-${Date.now()}`,
+                                                        emoji: "📌",
+                                                        text: "New label",
+                                                        color: "blue",
+                                                    },
+                                                ]);
+                                            }}
+                                            onDelete={(index) => {
+                                                updateQuickLabels(
+                                                    quickLabels.filter((_, labelIndex) => labelIndex !== index),
+                                                );
+                                                if (editingTipIndex === index) setEditingTipIndex(null);
+                                            }}
+                                            onEditTip={(index) => {
+                                                if (editingTipIndex === index) {
+                                                    setEditingTipIndex(null);
+                                                    return;
+                                                }
+                                                setEditingTipIndex(index);
+                                                setEditingTipValue(quickLabels[index].tip || "");
+                                            }}
+                                            onReset={() => {
+                                                resetQuickLabels();
+                                                setQuickLabels(DEFAULT_QUICK_LABELS.map((label) => ({ ...label })));
+                                                setEditingTipIndex(null);
+                                            }}
+                                            onSaveTip={saveTip}
+                                            onTipValueChange={setEditingTipValue}
+                                            onUpdate={updateQuickLabel}
+                                        />
+                                    )
                             )}
 
-                            {activeTab === "shortcuts" && <KeyboardShortcuts mode="plan" />}
+                            {activeTab === "shortcuts" && (
+                                <KeyboardShortcuts mode={mode === "code" ? "review" : "plan"} />
+                            )}
                         </div>
                     </OverlayScrollArea>
                 </div>
@@ -351,6 +431,133 @@ function DisplaySettings({ gridEnabled, onGridEnabledChange, onUIPreferencesChan
     );
 }
 
+function CodeDisplaySettings({
+    diffExpandUnchanged,
+    diffFontSize,
+    diffIndicators,
+    diffLineDiffType,
+    diffOverflow,
+    diffShowBackground,
+    diffShowLineNumbers,
+    diffStyle,
+}) {
+    return (
+        <>
+            <div className="space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                    <div>
+                        <div className="text-sm font-medium">Code Font Size</div>
+                        <div className="text-xs text-muted-foreground">Font size for diff code lines</div>
+                    </div>
+                    <span className="min-w-[4ch] text-right text-xs tabular-nums text-muted-foreground">
+                        {diffFontSize || "Auto"}
+                    </span>
+                </div>
+                <div className="flex items-center gap-2">
+                    <input
+                        aria-label="Code font size"
+                        className="h-1.5 flex-1 cursor-pointer accent-primary"
+                        max="24"
+                        min="8"
+                        onChange={(event) => configStore.set("diffFontSize", `${event.target.value}px`)}
+                        step="1"
+                        type="range"
+                        value={diffFontSize ? Number.parseInt(diffFontSize, 10) : 13}
+                    />
+                    {diffFontSize && (
+                        <button
+                            className="text-xs text-muted-foreground transition-colors hover:text-foreground"
+                            onClick={() => configStore.set("diffFontSize", "")}
+                            type="button"
+                        >
+                            Reset
+                        </button>
+                    )}
+                </div>
+            </div>
+            <div className="border-t border-border" />
+            <CodeDisplayChoice
+                description="Side-by-side or inline diff view"
+                label="Diff Style"
+                onChange={(value) => configStore.set("diffStyle", value)}
+                options={CODE_DIFF_STYLE_OPTIONS}
+                value={diffStyle}
+            />
+            <div className="border-t border-border" />
+            <CodeDisplayChoice
+                description="How long code lines are displayed"
+                label="Line Overflow"
+                onChange={(value) => configStore.set("diffOverflow", value)}
+                options={CODE_OVERFLOW_OPTIONS}
+                value={diffOverflow}
+            />
+            <div className="border-t border-border" />
+            <CodeDisplayChoice
+                description="Style of change markers in the gutter"
+                label="Change Indicators"
+                onChange={(value) => configStore.set("diffIndicators", value)}
+                options={CODE_INDICATOR_OPTIONS}
+                value={diffIndicators}
+            />
+            <div className="border-t border-border" />
+            <CodeDisplayChoice
+                description="Highlight granularity for inline changes"
+                label="Inline Diff Granularity"
+                onChange={(value) => configStore.set("diffLineDiffType", value)}
+                options={CODE_LINE_DIFF_OPTIONS}
+                value={diffLineDiffType}
+            />
+            <div className="border-t border-border" />
+            <SettingSwitch
+                checked={diffShowLineNumbers}
+                label="Show Line Numbers"
+                onChange={(next) => configStore.set("diffShowLineNumbers", next)}
+            />
+            <div className="border-t border-border" />
+            <SettingSwitch
+                checked={diffShowBackground}
+                description="Colored backgrounds on added and deleted lines"
+                label="Show Diff Background"
+                onChange={(next) => configStore.set("diffShowBackground", next)}
+            />
+            <div className="border-t border-border" />
+            <SettingSwitch
+                checked={diffExpandUnchanged}
+                description="Show full file content around changes"
+                label="Expand Unchanged Regions"
+                onChange={(next) => configStore.set("diffExpandUnchanged", next)}
+            />
+        </>
+    );
+}
+
+function CodeDisplayChoice({ description, label, onChange, options, value }) {
+    return (
+        <div className="space-y-2">
+            <div>
+                <div className="text-sm font-medium">{label}</div>
+                <div className="text-xs text-muted-foreground">{description}</div>
+            </div>
+            <div className="flex items-center gap-1 rounded-lg bg-muted/50 p-0.5">
+                {options.map((option) => (
+                    <button
+                        className={`flex-1 rounded-md px-2 py-1.5 text-xs transition-colors ${
+                            value === option.value
+                                ? "bg-background font-medium text-foreground shadow-sm"
+                                : "text-muted-foreground hover:text-foreground"
+                        }`}
+                        key={option.value}
+                        onClick={() => onChange(option.value)}
+                        type="button"
+                    >
+                        {option.label}
+                    </button>
+                ))}
+            </div>
+        </div>
+    );
+}
+
 function SettingSwitch({ checked, description, label, onChange }) {
     return (
         <div className="flex items-center justify-between gap-4">
@@ -375,6 +582,89 @@ function SettingSwitch({ checked, description, label, onChange }) {
                 />
             </button>
         </div>
+    );
+}
+
+function CodeLabelsSettings({ enabled, labels, onEnabledChange, onLabelsChange, onReset }) {
+    function updateLabel(index, updates) {
+        onLabelsChange(labels.map((label, labelIndex) => labelIndex === index ? { ...label, ...updates } : label));
+    }
+
+    return (
+        <>
+            <SettingSwitch
+                checked={enabled}
+                description="Add structured labels to inline review comments"
+                label="Conventional Comments"
+                onChange={onEnabledChange}
+            />
+            <div className="border-t border-border" />
+            <div className={`space-y-3 ${enabled ? "" : "pointer-events-none opacity-40"}`}>
+                <div className="flex items-center justify-between gap-4">
+                    <div>
+                        <div className="text-sm font-medium">Labels</div>
+                        <div className="text-xs text-muted-foreground">Customize comment intent and severity</div>
+                    </div>
+                    <button
+                        className="text-[10px] text-muted-foreground transition-colors hover:text-foreground"
+                        onClick={onReset}
+                        type="button"
+                    >
+                        Reset to defaults
+                    </button>
+                </div>
+                <div className="space-y-1.5">
+                    {labels.map((label, index) => (
+                        <div
+                            className="flex items-center gap-2 rounded-lg bg-muted/40 p-2"
+                            key={`${label.label}-${index}`}
+                        >
+                            <input
+                                aria-label={`Code review label ${index + 1}`}
+                                className="min-w-0 flex-1 rounded bg-background/80 px-2 py-1 font-mono text-xs focus:outline-none focus:ring-1 focus:ring-primary/50"
+                                onChange={(event) =>
+                                    updateLabel(index, {
+                                        display: event.target.value,
+                                        label: labelId(event.target.value),
+                                    })}
+                                type="text"
+                                value={label.display}
+                            />
+                            <label className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                                <input
+                                    checked={label.blocking}
+                                    className="accent-primary"
+                                    onChange={(event) => updateLabel(index, { blocking: event.target.checked })}
+                                    type="checkbox"
+                                />
+                                Blocking
+                            </label>
+                            <button
+                                aria-label={`Remove ${label.display}`}
+                                className="rounded p-1 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                                onClick={() => onLabelsChange(labels.filter((_, labelIndex) => labelIndex !== index))}
+                                type="button"
+                            >
+                                <CloseIcon />
+                            </button>
+                        </div>
+                    ))}
+                </div>
+                {labels.length < 12 && (
+                    <button
+                        className="w-full rounded-lg border border-dashed border-border py-1.5 text-xs text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground"
+                        onClick={() =>
+                            onLabelsChange([
+                                ...labels,
+                                { label: `custom-${labels.length + 1}`, display: "custom", blocking: false },
+                            ])}
+                        type="button"
+                    >
+                        + Add label
+                    </button>
+                )}
+            </div>
+        </>
     );
 }
 
@@ -512,6 +802,25 @@ function LabelsSettings({
             </div>
         </>
     );
+}
+
+function readCodeLabels(value) {
+    if (!value) return DEFAULT_CODE_LABELS.map((label) => ({ ...label }));
+    try {
+        const parsed = JSON.parse(value);
+        if (!Array.isArray(parsed)) return DEFAULT_CODE_LABELS.map((label) => ({ ...label }));
+        return parsed.map((label) => ({
+            label: typeof label?.label === "string" && label.label ? label.label : "custom",
+            display: typeof label?.display === "string" && label.display
+                ? label.display
+                : typeof label?.label === "string" && label.label
+                ? label.label
+                : "custom",
+            blocking: label?.blocking === true || label?.blocking === "true",
+        }));
+    } catch {
+        return DEFAULT_CODE_LABELS.map((label) => ({ ...label }));
+    }
 }
 
 function labelId(value) {
