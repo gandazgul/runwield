@@ -13,6 +13,7 @@ import {
     createExecutionWorktree,
     findReusableWorktree,
     prepareTargetBranchRef,
+    resolveCurrentCheckoutBranch,
     resolveTargetBranchName,
 } from "../worktree.js";
 import { updateEntry as updateWorktreeRegistryEntry } from "../worktree-registry.js";
@@ -446,6 +447,7 @@ export function assertReusableWorktreeTargetMatches(reusableBaseBranch, targetBr
  *     createExecutionWorktree?: typeof createExecutionWorktree,
  *     findReusableWorktree?: typeof findReusableWorktree,
  *     prepareTargetBranchRef?: typeof prepareTargetBranchRef,
+ *     resolveCurrentCheckoutBranch?: typeof resolveCurrentCheckoutBranch,
  *     resolveTargetBranchName?: typeof resolveTargetBranchName,
  *     captureWorktreeTree?: typeof captureWorktreeTree,
  *     updateWorktreeRegistryEntry?: typeof updateWorktreeRegistryEntry,
@@ -466,6 +468,7 @@ export async function startActiveExecutionWorkflow(
     const createWorktree = __deps?.createExecutionWorktree || createExecutionWorktree;
     const findReusable = __deps?.findReusableWorktree || findReusableWorktree;
     const prepareTarget = __deps?.prepareTargetBranchRef || prepareTargetBranchRef;
+    const resolveCurrentBranch = __deps?.resolveCurrentCheckoutBranch || resolveCurrentCheckoutBranch;
     const resolveTarget = __deps?.resolveTargetBranchName || resolveTargetBranchName;
     const captureTree = __deps?.captureWorktreeTree || captureWorktreeTree;
     const updateRegistry = __deps?.updateWorktreeRegistryEntry || updateWorktreeRegistryEntry;
@@ -505,7 +508,12 @@ export async function startActiveExecutionWorkflow(
         return workflow;
     }
     const targetBranch = normalizeExecutionTargetBranch(triageMeta.worktreeBaseBranch);
-    const existing = hostedSession.getActiveExecutionWorkflow();
+    const hasRecordedWorktree = Boolean(
+        triageMeta.worktreeId || triageMeta.worktreePath || triageMeta.worktreeBranch ||
+            triageMeta.executionBaselineTree,
+    );
+    const startsFresh = triageMeta.worktreeStatus === "abandoned" && !hasRecordedWorktree;
+    const existing = startsFresh ? null : hostedSession.getActiveExecutionWorkflow();
     const reusable =
         existing?.planName === planName && existing.executionCwd && existing.worktreeId && existing.worktreeBranch
             ? {
@@ -514,9 +522,11 @@ export async function startActiveExecutionWorkflow(
                 branch: existing.worktreeBranch,
                 baseBranch: existing.worktreeBaseBranch,
             }
-            : await findReusable({ projectRoot, planName });
-    const resolvedTargetBranch = reusable && targetBranch
-        ? await resolveTarget(projectRoot, targetBranch)
+            : hasRecordedWorktree
+            ? await findReusable({ projectRoot, planName, worktreeId: triageMeta.worktreeId || undefined })
+            : null;
+    const resolvedTargetBranch = reusable
+        ? targetBranch ? await resolveTarget(projectRoot, targetBranch) : await resolveCurrentBranch(projectRoot)
         : targetBranch;
     if (reusable) assertReusableWorktreeTargetMatches(reusable.baseBranch, resolvedTargetBranch);
     const reusedWorktree = Boolean(reusable);

@@ -17,6 +17,10 @@ function createAgentHandler(agentName, deps = {}) {
     const hostedSession =
         /** @type {import('./hosted-session.js').HostedSession} */ (deps.hostedSession || makeHostedSession());
     return createAgentHandlerFn(agentName, {
+        switchActiveAgent: (
+            /** @type {unknown} */ _hostedSession,
+            /** @type {{ agentName: string }} */ options,
+        ) => Promise.resolve({ ok: true, agentName: options.agentName, changed: true }),
         ...deps,
         hostedSession,
     });

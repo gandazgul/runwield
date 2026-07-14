@@ -339,6 +339,19 @@ export async function resolveTargetBranchName(projectRoot, branch) {
 }
 
 /**
+ * Resolve the branch checked out in the primary checkout. A detached checkout
+ * has no implicit merge target, so it returns undefined.
+ *
+ * @param {string} projectRoot
+ * @returns {Promise<string | undefined>}
+ */
+export async function resolveCurrentCheckoutBranch(projectRoot) {
+    await assertGitRepository(projectRoot, "Resolving the current checkout branch");
+    const branch = (await runGit(projectRoot, ["branch", "--show-current"])).trim();
+    return branch || undefined;
+}
+
+/**
  * Prepare an unambiguous local branch ref for a plan-authored execution target.
  *
  * @param {string} projectRoot
@@ -472,7 +485,7 @@ export async function createExecutionWorktree({ projectRoot, planName, baseRef =
     const parent = resolveWorktreeParent(projectRoot, worktreeRoot);
     const path = join(parent, `${repoName}-${WORKTREE_PATH_PREFIX}${slug}-${id}`);
     const now = new Date().toISOString();
-    const resolvedBaseBranch = baseBranch || (await runGit(projectRoot, ["branch", "--show-current"])).trim() || "HEAD";
+    const resolvedBaseBranch = baseBranch || await resolveCurrentCheckoutBranch(projectRoot) || "HEAD";
     const baseCommit = (await runGit(projectRoot, ["rev-parse", baseRef])).trim();
     const baseTree = (await runGit(projectRoot, ["rev-parse", `${baseRef}^{tree}`])).trim();
 
@@ -1031,13 +1044,14 @@ export async function pruneMissingWorktrees({ projectRoot }) {
 }
 
 /**
- * @param {{ projectRoot: string, planName: string }} opts
+ * @param {{ projectRoot: string, planName: string, worktreeId?: string }} opts
  */
-export async function findReusableWorktree({ projectRoot, planName }) {
+export async function findReusableWorktree({ projectRoot, planName, worktreeId }) {
     await pruneStaleEntries(projectRoot);
     const entries = await listEntries(projectRoot);
     for (const entry of entries) {
         if (entry.planName !== planName) continue;
+        if (worktreeId && entry.id !== worktreeId) continue;
         if (["active", "completed", "execution_failed", "validation_failed", "merge_conflict"].includes(entry.status)) {
             if (await pathExists(entry.path)) return entry;
         }

@@ -264,15 +264,18 @@ export async function submitPlanForReview({
             attrs.status === "feedback" ||
             attrs.status === "approved";
 
+        let lifecycleMeta = triageMeta;
         if (!STATUS_ALLOWS_REVIEW) {
             try {
-                await recordPlanEventImpl({
+                const reopenedMeta = await recordPlanEventImpl({
                     cwd,
                     planName,
                     event: "review_reopened",
                     currentStatus: attrs.status,
                     details: { triageMeta },
                 });
+                if (reopenedMeta) lifecycleMeta = reopenedMeta;
+                hostedSession.clearActiveExecutionWorkflow();
             } catch (_reopenErr) {
                 // If review_reopened also fails, fall back to the original status.
                 // The downstream recordPlanEvent will surface its own error.
@@ -288,7 +291,7 @@ export async function submitPlanForReview({
                 planName,
                 event: "review_approved",
                 currentStatus: postReopenStatus,
-                details: { triageMeta },
+                details: { triageMeta: lifecycleMeta },
             });
             uiAPI.appendSystemMessage(`[RunWield] ✅ Plan approved: ${planName}`);
         } else {
@@ -297,7 +300,7 @@ export async function submitPlanForReview({
                 planName,
                 event: "review_feedback",
                 currentStatus: postReopenStatus,
-                details: { triageMeta, failureReason: decision.feedback },
+                details: { triageMeta: lifecycleMeta, failureReason: decision.feedback },
             });
             uiAPI.appendSystemMessage(`[RunWield] Plan returned with feedback: ${planName}`);
         }
