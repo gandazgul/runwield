@@ -29,10 +29,15 @@ affectedPaths:
     - "src/acp/server.test.js"
 frontend: false
 createdAt: "2026-07-06T13:31:28-04:00"
-updatedAt: "2026-07-07T02:13:46.240Z"
-status: "ready_for_work"
+status: "verified"
+verifiedAt: "2026-07-14T12:15:15.000Z"
 origin: "internal"
 type: "epic"
+updatedAt: "2026-07-14T12:18:21.606Z"
+archivedAt: "2026-07-14T12:18:21.606Z"
+archiveReason: "All child FEATURE plans verified"
+archivedFromStatus: "verified"
+archivedFromPath: "plans/session-runtime-acp-mvp.md"
 ---
 
 # SessionRuntime ACP MVP

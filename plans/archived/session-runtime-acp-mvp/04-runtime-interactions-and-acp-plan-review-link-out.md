@@ -21,7 +21,6 @@ affectedPaths:
     - "src/cmd/plans/share.test.js"
 frontend: false
 createdAt: "2026-07-07T02:13:46.229Z"
-updatedAt: "2026-07-08T16:29:00.540Z"
 status: "verified"
 origin: "internal"
 parentPlan: "session-runtime-acp-mvp"
@@ -31,6 +30,11 @@ dependencies:
 verifiedAt: "2026-07-08T16:29:00.540Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
+updatedAt: "2026-07-14T12:18:20.756Z"
+archivedAt: "2026-07-14T12:18:20.756Z"
+archiveReason: "Epic verified and archived"
+archivedFromStatus: "verified"
+archivedFromPath: "plans/session-runtime-acp-mvp/04-runtime-interactions-and-acp-plan-review-link-out.md"
 ---
 
 # Runtime Interactions and ACP Plan Review Link-Out

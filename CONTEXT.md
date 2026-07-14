@@ -89,6 +89,10 @@ diary, duplicate Plan
 **Draft Work Record**: An external, manual, or imported Work Record awaiting human review before default search and
 Agent retrieval. _Avoid_: Approved record, generated internal record, memory
 
+**Pending Verification Work Record**: An internal Work Record generated before Plan verification from Guided Review
+analysis that is not eligible for default search or Agent retrieval until the Plan reaches a terminal completion
+outcome. _Avoid_: Draft Work Record, approved record, review guide
+
 **Superseded Work Record**: A Work Record whose planning guidance has been replaced by a newer Work Record. _Avoid_:
 Archived record, deleted record, draft record
 
@@ -163,11 +167,17 @@ Plannotator. _Avoid_: Feedback loop, approval cycle
 **Plannotator**: The browser-based artifact review UI where users approve, return feedback, or annotate Plans, Work
 Records, and code-review diffs. _Avoid_: Plan-only review UI, approval screen
 
-**Guided Review**: A Plannotator code-review mode that organizes a PR or local diff into importance-ordered chapters
-with live annotatable diffs and per-section reviewed state. _Avoid_: Guide, review summary, file-order review
+**Guided Review**: A Plannotator code-review explainer for a PR or local diff that presents the change in conceptual
+order using prose, callouts, Mermaid diagrams, optional sandboxed visual widgets, and live annotatable diffs. _Avoid_:
+Guide, review summary, file-order review
 
 **Guided Review Policy**: The validation-time setting that decides whether RunWield never, conditionally, or always
 generates a Guided Review for a human code review. _Avoid_: Diff size setting, guide preference
+
+**Guided Review Widget**: An exceptional sandboxed HTML/CSS/JavaScript visual aid embedded in a Guided Review when
+prose, Mermaid diagrams, and live diffs are insufficient to explain highly visual or interactive behavior. Widgets must
+not have external network access; local images/icons/CSS are served only through an explicit local asset allowlist
+rather than broad same-origin access. _Avoid_: Default review block, arbitrary app extension, generated production UI
 
 **Plan Board**: A browser-based local UI over the current checkout's `plans/` directory that displays Plans by Plan
 Status and lets the user inspect or edit Plan files while preserving the local Plan files as the canonical source of
@@ -229,8 +239,9 @@ plans under `plans/<epic-name>/`. _Avoid_: Task planner, splitter
 **Recorder**: The future Agent that generates Work Records from verified planned work. _Avoid_: Reviewer, summarizer,
 auditor
 
-**Work Record Search Tool**: The future planning tool that lets Ideator, Planner, and Architect retrieve relevant
-non-archived, non-superseded Work Records. _Avoid_: Memory recall, plan search, Engineer context tool
+**Work Record Search Tool**: The future tool that lets planning Agents retrieve relevant current Work Records and lets
+Guide answer project-history inquiries across Work Record statuses with prominent status notices. _Avoid_: Memory
+recall, plan search, Engineer context tool
 
 **Engineer**: The execution Agent that implements approved executable Plans and bounded no-plan QUICK_FIX code changes.
 _Avoid_: Coder, implementer, developer
@@ -404,11 +415,12 @@ command definition, prompt command
 - A user-requested QUICK_FIX **Work Record** is an **External Work Record** whose **Work Record Provenance** points to
   code evidence rather than a source Plan.
 - A **Draft Work Record** requires human approval before default search or Agent retrieval.
+- A **Pending Verification Work Record** requires a terminal **Plan Status** before default search or Agent retrieval.
 - A **Superseded Work Record** is replaced by a newer **Work Record** but is not necessarily archived.
 - Agent planning retrieval excludes **Superseded Work Records** by default, while human search may show them with a
   prominent replacement notice.
 - An **Archived Work Record** is excluded from default Work Record search and planning retrieval.
-- The **Work Record Search Tool** is available to Ideator, Planner, and Architect by default, not Engineer.
+- The **Work Record Search Tool** is available to Ideator, Planner, Architect, and Guide by default, not Engineer.
 - A **Failed Plan** must have reached **Ready For Work** before work failed.
 - An **In-Progress Plan** requires recovery because execution may have partially changed the worktree.
 - **Plan Recovery** resolves whether RunWield continues the current worktree state, reports on it, re-opens the Plan, or

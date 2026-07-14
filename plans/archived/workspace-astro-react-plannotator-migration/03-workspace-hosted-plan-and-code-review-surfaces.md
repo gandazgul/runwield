@@ -19,7 +19,6 @@ devServerCommand: "deno task workspace:dev:plan-review"
 devServerUrl: "http://localhost:5173/"
 devServerHmr: true
 createdAt: "2026-07-07T18:01:43.370Z"
-updatedAt: "2026-07-09T02:10:53.577Z"
 status: "verified"
 origin: "internal"
 parentPlan: "workspace-astro-react-plannotator-migration"
@@ -30,6 +29,11 @@ dependencies:
 verifiedAt: "2026-07-09T02:10:53.577Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
+updatedAt: "2026-07-14T12:19:54.662Z"
+archivedAt: "2026-07-14T12:19:54.662Z"
+archiveReason: "Epic verified and archived"
+archivedFromStatus: "verified"
+archivedFromPath: "plans/workspace-astro-react-plannotator-migration/03-workspace-hosted-plan-and-code-review-surfaces.md"
 ---
 
 # Workspace Hosted Plan and Code Review Surfaces

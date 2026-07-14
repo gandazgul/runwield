@@ -14,20 +14,17 @@ affectedPaths:
     - "src/acp/server.test.js"
 frontend: false
 createdAt: "2026-07-07T02:13:46.227Z"
-updatedAt: "2026-07-07T17:51:05.789Z"
 status: "verified"
 origin: "internal"
 parentPlan: "session-runtime-acp-mvp"
 order: 1
 dependencies:
     []
-failureReason: "Primary checkout has uncommitted changes that overlap execution worktree changes; refusing to merge: deno.json, docs/adr/007-local-first-workspace-plan-board.md, src/ui/workspace/islands/PlanBodyEditor.jsx, src/ui/workspace/react/plan-detail-entry.tsx"
-executionBaselineTree: "a1e7e590f59b15918bcae54efc7dceef9c7e8f4f"
-worktreeId: "9c5dc157"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-harns--/harns-runwield-session-runtime-acp-mvp-01-acp-sdk-and-stdio-ent-9c5dc157"
-worktreeBranch: "runwield/worktree/session-runtime-acp-mvp-01-acp-sdk-and-stdio-ent-9c5dc157"
-worktreeBaseBranch: "main"
-worktreeStatus: "merge_conflict"
+updatedAt: "2026-07-14T12:18:19.336Z"
+archivedAt: "2026-07-14T12:18:19.336Z"
+archiveReason: "Epic verified and archived"
+archivedFromStatus: "verified"
+archivedFromPath: "plans/session-runtime-acp-mvp/01-acp-sdk-and-stdio-entrypoint-skeleton.md"
 ---
 
 # ACP SDK and Stdio Entrypoint Skeleton
