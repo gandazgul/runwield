@@ -42,6 +42,11 @@
             "enum": ["none", "ask", "always"],
             "description": "Optional Plannotator human code review gate after local validation and semantic review."
         },
+        "guidedReview": {
+            "type": "string",
+            "enum": ["none", "ask", "auto", "always"],
+            "description": "Guided Review Explainer generation policy inside validation-time human code review. Manual generation remains available when the review surface supports it."
+        },
         "cleanupMergedWorktrees": {
             "type": "boolean",
             "description": "When true, successful merge-back removes the execution checkout and clears plan worktree metadata."
