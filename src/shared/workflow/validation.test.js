@@ -1,7 +1,14 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import { loadPlan, savePlan } from "../../plan-store.js";
 import { createExecutionWorktree } from "../worktree.js";
-import { loadReviewerPrompt, runLocalCI, runMechanicalValidation, runValidationLoop } from "./validation.js";
+import {
+    loadManualQaPrompt,
+    loadReviewerPrompt,
+    runLocalCI,
+    runManualQaChecklistPrompt,
+    runMechanicalValidation,
+    runValidationLoop,
+} from "./validation.js";
 import { HostedSession } from "../session/hosted-session.js";
 import { createSessionRuntimeEvent } from "../session/session-runtime-events.js";
 import { __resetSettingsForTests } from "../settings.js";
@@ -165,8 +172,85 @@ function noOpWorktreePlanHandoffDeps() {
                 content: "implemented",
             }),
         restorePrimaryPlanPathAfterMergeFailure: () => Promise.resolve(),
+        runManualQaChecklistPrompt: () => Promise.resolve([]),
     };
 }
+
+Deno.test("loadManualQaPrompt returns a bare tool-free prompt", async () => {
+    /** @type {string[]} */
+    const readPaths = [];
+    const promptDef = await loadManualQaPrompt(
+        (path) => {
+            readPaths.push(path);
+            return Promise.resolve([
+                "---",
+                "name: Manual QA",
+                'description: "Checklist prompt"',
+                "tools: []",
+                "---",
+                "",
+                "Output only a manual verification checklist.",
+                "",
+            ].join("\n"));
+        },
+        (relativePath) => Promise.resolve(`/tmp/bundled-agent-definitions/${relativePath}`),
+    );
+
+    assertEquals(readPaths, ["/tmp/bundled-agent-definitions/workflow-prompts/manual-qa-prompt.md"]);
+    assertEquals(promptDef.name, "tester");
+    assertEquals(promptDef.displayName, "Manual QA");
+    assertEquals(promptDef.tools, []);
+    assertEquals(promptDef.systemPrompt, "Output only a manual verification checklist.");
+});
+
+Deno.test("bundled Manual QA prompt requires the user checklist shape", async () => {
+    const prompt = await Deno.readTextFile(
+        new URL("../../agent-definitions/workflow-prompts/manual-qa-prompt.md", import.meta.url),
+    );
+
+    assertStringIncludes(prompt, "Manual verification steps for <plan name>");
+    assertStringIncludes(prompt, "- [ ] step 1");
+    assertStringIncludes(prompt, "automated verification has already passed");
+});
+
+Deno.test("runManualQaChecklistPrompt uses isolated Plan context without tools", async () => {
+    /** @type {any} */
+    let invocation;
+    const expectedMessages = /** @type {any} */ ([{ role: "assistant", content: "checklist" }]);
+    const promptDef = /** @type {any} */ ({
+        name: "tester",
+        displayName: "Manual QA",
+        model: "",
+        description: "Checklist prompt",
+        tools: [],
+        systemPrompt: "Output a checklist.",
+    });
+
+    const result = await runManualQaChecklistPrompt({
+        hostedSession,
+        name: "settings-panel",
+        classification: "FEATURE",
+        context: "## Verification Plan\n- Manual: save settings and reload",
+        cwd: "/repo",
+        __deps: {
+            loadManualQaPrompt: () => Promise.resolve(promptDef),
+            runAgentSession: (/** @type {any} */ args) => {
+                invocation = args;
+                return Promise.resolve(expectedMessages);
+            },
+        },
+    });
+
+    assertEquals(result, expectedMessages);
+    assertEquals(invocation.agentName, "tester");
+    assertEquals(invocation.cwd, "/repo");
+    assertEquals(invocation._agentDefOverride, promptDef);
+    assertEquals(invocation.includeEditFallback, false);
+    assertEquals(invocation.useRootSession, false);
+    assertStringIncludes(invocation.userRequest, "Name: settings-panel");
+    assertStringIncludes(invocation.userRequest, "Classification: FEATURE");
+    assertStringIncludes(invocation.userRequest, "save settings and reload");
+});
 
 Deno.test("loadReviewerPrompt returns a bare tool-free prompt", async () => {
     /** @type {string[]} */
@@ -272,6 +356,8 @@ Deno.test("runMechanicalValidation passes local CI without plan-specific work", 
         hostedSession,
         sessionManager: undefined,
         cwd: "/repo",
+        manualQaName: "small-fix",
+        manualQaContext: "Fix the settings save action.",
         __deps: /** @type {any} */ ({
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: (/** @type {{ cwd?: string }} */ { cwd }) => {
@@ -288,7 +374,10 @@ Deno.test("runMechanicalValidation passes local CI without plan-specific work", 
                 actions.push(`active:${options.agentName}`);
                 return Promise.resolve({ ok: true, agentName: options.agentName, changed: true });
             },
-            createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
+            runManualQaChecklistPrompt: (/** @type {any} */ args) => {
+                actions.push(`qa:${args.name}:${args.classification}:${args.context}`);
+                return Promise.resolve([]);
+            },
             recordWorkflowMetric: (/** @type {any} */ metric) => {
                 metrics.push(metric);
                 return Promise.resolve(null);
@@ -297,7 +386,11 @@ Deno.test("runMechanicalValidation passes local CI without plan-specific work", 
     });
 
     assertEquals(result, { passed: true, attempts: 0 });
-    assertEquals(actions, ["ci:/repo", "active:engineer"]);
+    assertEquals(actions, [
+        "ci:/repo",
+        "qa:small-fix:QUICK_FIX:Fix the settings save action.",
+        "active:engineer",
+    ]);
     assertEquals(
         uiAPI.messages.some((/** @type {string} */ m) => m.includes("QUICK_FIX Mechanical Validation passed")),
         true,
@@ -337,7 +430,6 @@ Deno.test("runMechanicalValidation repairs CI failures through Engineer and then
                 actions.push(`active:${options.agentName}`);
                 return Promise.resolve({ ok: true, agentName: options.agentName, changed: true });
             },
-            createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
         }),
     });
 
@@ -386,8 +478,6 @@ Deno.test("runMechanicalValidation ignores stale task_completed from earlier roo
                 fromIndexes.push(fromIndex);
                 return messages.slice(fromIndex).some((message) => message.toolName === "task_completed");
             },
-            setActiveAgent: () => {},
-            createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
         }),
     });
 
@@ -436,8 +526,6 @@ Deno.test("runMechanicalValidation detects task_completed when repair returns a 
                         details: { outcome: "task_completed" },
                     }]),
                 ),
-            setActiveAgent: () => {},
-            createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
         }),
     });
 
@@ -447,6 +535,7 @@ Deno.test("runMechanicalValidation detects task_completed when repair returns a 
 Deno.test("runMechanicalValidation stops after three Engineer repair attempts without Plan side effects", async () => {
     const uiAPI = makeUi();
     let repairCalls = 0;
+    let manualQaCalls = 0;
 
     const result = await runMechanicalValidation({
         hostedSession,
@@ -459,8 +548,10 @@ Deno.test("runMechanicalValidation stops after three Engineer repair attempts wi
                 return Promise.resolve([]);
             },
             readLatestTaskCompletedOutcome: () => true,
-            setActiveAgent: () => {},
-            createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
+            runManualQaChecklistPrompt: () => {
+                manualQaCalls++;
+                return Promise.resolve([]);
+            },
             recordPlanEvent: () => {
                 throw new Error("plan events should not run");
             },
@@ -470,6 +561,7 @@ Deno.test("runMechanicalValidation stops after three Engineer repair attempts wi
     assertEquals(result.passed, false);
     assertEquals(result.attempts, 3);
     assertEquals(repairCalls, 3);
+    assertEquals(manualQaCalls, 0);
     assertEquals(
         uiAPI.messages.some((/** @type {string} */ m) => m.includes("failed after 3 Engineer repair attempts")),
         true,
@@ -483,13 +575,15 @@ Deno.test("runValidationLoop skips semantic review and merge-back for non-Git in
         planName: "p",
         triageMeta: { classification: "FEATURE" },
         projectRoot: Deno.cwd(),
-        executionCwd: Deno.cwd(),
+        executionCwd: "/feature-execution",
         nonGitInPlace: true,
     });
     /** @type {any[]} */
     const events = [];
     let reviewCalls = 0;
     let mergeCalls = 0;
+    /** @type {any} */
+    let manualQaArgs;
 
     await runValidationLoop({
         hostedSession: session,
@@ -506,6 +600,10 @@ Deno.test("runValidationLoop skips semantic review and merge-back for non-Git in
                 reviewCalls++;
                 return Promise.resolve([]);
             },
+            runManualQaChecklistPrompt: (/** @type {any} */ args) => {
+                manualQaArgs = args;
+                return Promise.resolve([]);
+            },
             mergeExecutionWorktree: () => {
                 mergeCalls++;
                 return Promise.resolve();
@@ -520,6 +618,10 @@ Deno.test("runValidationLoop skips semantic review and merge-back for non-Git in
 
     assertEquals(reviewCalls, 0);
     assertEquals(mergeCalls, 0);
+    assertEquals(manualQaArgs.name, "p");
+    assertEquals(manualQaArgs.classification, "FEATURE");
+    assertEquals(manualQaArgs.context, "# Plan");
+    assertEquals(manualQaArgs.cwd, Deno.cwd());
     assertEquals(
         uiAPI.messages.some((/** @type {string} */ message) =>
             message.includes("Semantic Code Review") && message.includes("skipped")
@@ -542,9 +644,6 @@ Deno.test("runValidationLoop does not switch active agent unless finalAgentName 
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve(""),
             recordPlanEvent: noOpRecordPlanEvent,
-            setActiveAgent: () => {
-                throw new Error("should not switch agent");
-            },
         }),
     });
 
@@ -567,7 +666,6 @@ Deno.test("runValidationLoop marks validation progress and success messages with
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve(""),
             recordPlanEvent: noOpRecordPlanEvent,
-            setActiveAgent: () => {},
         }),
     });
 
@@ -690,7 +788,6 @@ Deno.test("runValidationLoop restores requested final agent after validation", a
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve(""),
             recordPlanEvent: noOpRecordPlanEvent,
-            createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
             switchActiveAgent: (
                 /** @type {unknown} */ _hostedSession,
                 /** @type {{ agentName: string }} */ options,
@@ -726,7 +823,6 @@ Deno.test("runValidationLoop fails FEATURE validation when workflow diff is empt
                 events.push(event);
                 return Promise.resolve({});
             },
-            setActiveAgent: () => {},
         }),
     });
 
@@ -770,7 +866,6 @@ Deno.test("runValidationLoop fails PROJECT validation when workflow diff only ch
                 events.push(event);
                 return Promise.resolve({});
             },
-            setActiveAgent: () => {},
         }),
     });
 
@@ -810,7 +905,6 @@ Deno.test("runValidationLoop pauses with Engineer when CI repair does not call t
             },
             readLatestTaskCompletedOutcome: () => false,
             recordPlanEvent: noOpRecordPlanEvent,
-            setActiveAgent: () => {},
         }),
     });
 
@@ -865,7 +959,6 @@ Deno.test("runValidationLoop pauses with Engineer on interrupted semantic repair
                 ),
             runCompletionGatedRepair: () => Promise.resolve(false),
             recordPlanEvent: noOpRecordPlanEvent,
-            setActiveAgent: () => {},
         }),
     });
 
@@ -935,7 +1028,6 @@ Deno.test("runValidationLoop reviews the diff scoped to the active workflow base
                 );
             },
             recordPlanEvent: noOpRecordPlanEvent,
-            setActiveAgent: () => {},
         }),
     });
 
@@ -1001,7 +1093,6 @@ Deno.test("runValidationLoop runs validation and reviewer in active execution cw
             mergeExecutionWorktree: () => Promise.resolve(),
             updateWorktreeRegistryEntry: () => Promise.resolve({}),
             recordPlanEvent: noOpRecordPlanEvent,
-            setActiveAgent: () => {},
         }),
     });
 
@@ -1106,7 +1197,6 @@ Deno.test("runValidationLoop stages validation_passed before worktree merge succ
                 metrics.push(metric);
                 return Promise.resolve(null);
             },
-            setActiveAgent: () => {},
         }),
     });
 
@@ -1193,7 +1283,6 @@ Deno.test("runValidationLoop merges verified Plan metadata in Git and leaves the
                     ),
                 getCodeReviewMode: () => "none",
                 recordWorkflowMetric: () => Promise.resolve(null),
-                setActiveAgent: () => {},
             }),
         });
 
@@ -1277,7 +1366,6 @@ Deno.test("runValidationLoop reapplies verified Plan metadata after real merge-c
                 shouldCleanupMergedWorktrees: () => false,
                 getCodeReviewMode: () => "none",
                 recordWorkflowMetric: () => Promise.resolve(null),
-                setActiveAgent: () => {},
             }),
         });
 
@@ -1335,7 +1423,6 @@ Deno.test("runValidationLoop does not preserve a nonexistent Plan path for quick
             removeExecutionWorktree: () => Promise.resolve(),
             getCodeReviewMode: () => "none",
             recordWorkflowMetric: () => Promise.resolve(null),
-            setActiveAgent: () => {},
         }),
     });
 
@@ -1404,7 +1491,6 @@ Deno.test("runValidationLoop preserves merged verification across post-merge ver
                 );
                 return Promise.resolve({});
             },
-            setActiveAgent: () => {},
         }),
     });
 
@@ -1487,7 +1573,6 @@ Deno.test("runValidationLoop runs always human review after semantic approval an
                 );
                 return Promise.resolve({});
             },
-            setActiveAgent: () => {},
         }),
     });
 
@@ -1559,7 +1644,6 @@ Deno.test("runValidationLoop ask mode can skip human review and merge", async ()
                 );
                 return Promise.resolve({});
             },
-            setActiveAgent: () => {},
         }),
     });
 
@@ -1635,7 +1719,6 @@ Deno.test("runValidationLoop ask mode opens human review before merge when appro
                 );
                 return Promise.resolve({});
             },
-            setActiveAgent: () => {},
         }),
     });
 
@@ -1711,7 +1794,6 @@ Deno.test("runValidationLoop sends human feedback to Engineer and continues vali
                 );
                 return Promise.resolve({});
             },
-            setActiveAgent: () => {},
         }),
     });
 
@@ -1798,7 +1880,6 @@ Deno.test("runValidationLoop treats human review exit as validation failure with
                 metrics.push(metric);
                 return Promise.resolve(null);
             },
-            setActiveAgent: () => {},
         }),
     });
 
@@ -1874,7 +1955,6 @@ Deno.test("runValidationLoop keeps merged worktree when cleanup setting is disab
             },
             getCodeReviewMode: () => "none",
             shouldCleanupMergedWorktrees: () => false,
-            setActiveAgent: () => {},
         }),
     });
 
@@ -1941,7 +2021,6 @@ Deno.test("runValidationLoop records worktree_merge_failed when merge-back fails
                 return Promise.resolve({});
             },
             getCodeReviewMode: () => "none",
-            setActiveAgent: () => {},
         }),
     });
 
@@ -2015,7 +2094,6 @@ Deno.test("runValidationLoop still prompts when merge-conflict metadata updates 
                 return Promise.reject(new Error("front matter conflict markers"));
             },
             getCodeReviewMode: () => "none",
-            setActiveAgent: () => {},
         }),
     });
 
@@ -2079,7 +2157,6 @@ Deno.test("runValidationLoop warns when using legacy current-checkout merge fall
             recordPlanEvent: noOpRecordPlanEvent,
             removeExecutionWorktree: () => Promise.resolve(),
             getCodeReviewMode: () => "none",
-            setActiveAgent: () => {},
         }),
     });
 
@@ -2175,7 +2252,6 @@ Deno.test("runValidationLoop dispatches Engineer merge repair and retries merge-
             },
             verifyExecutionWorktreeMerged: () => Promise.resolve({ merged: true, message: "merged" }),
             getCodeReviewMode: () => "none",
-            setActiveAgent: () => {},
         }),
     });
 
@@ -2265,7 +2341,6 @@ Deno.test("runValidationLoop completes after merge repair task_completed and ret
             removeExecutionWorktree: () => Promise.resolve(),
             verifyExecutionWorktreeMerged: () => Promise.resolve({ merged: true, message: "merged" }),
             getCodeReviewMode: () => "none",
-            setActiveAgent: () => {},
         }),
     });
 
@@ -2346,7 +2421,6 @@ Deno.test("runValidationLoop retries worktree merge after user fixes primary che
             },
             verifyExecutionWorktreeMerged: () => Promise.resolve({ merged: true, message: "merged" }),
             getCodeReviewMode: () => "none",
-            setActiveAgent: () => {},
         }),
     });
 
@@ -2398,7 +2472,6 @@ Deno.test("runValidationLoop marks active worktree validation_failed when valida
                 actions.push(`event:${event.event}:${event.details.failureReason}`);
                 return Promise.resolve({});
             },
-            setActiveAgent: () => {},
         }),
     });
 
@@ -2696,7 +2769,6 @@ Deno.test("runValidationLoop uses large-diff prompt when diff exceeds inline thr
             mergeExecutionWorktree: () => Promise.resolve(),
             updateWorktreeRegistryEntry: () => Promise.resolve({}),
             recordPlanEvent: () => Promise.resolve({}),
-            setActiveAgent: () => {},
         }),
     });
 
@@ -2732,7 +2804,6 @@ Deno.test("runValidationLoop shows retry/cancel menu when reviewer throws an err
                 return Promise.resolve(null);
             },
             recordPlanEvent: () => Promise.resolve({}),
-            setActiveAgent: () => {},
         }),
     });
 
@@ -2776,7 +2847,6 @@ Deno.test("runValidationLoop halts when reviewer returns blank output and user c
                 return Promise.resolve(null);
             },
             recordPlanEvent: () => Promise.resolve({}),
-            setActiveAgent: () => {},
         }),
     });
 
@@ -2834,7 +2904,6 @@ Deno.test("runValidationLoop retries semantic review when user chooses retry", a
             mergeExecutionWorktree: () => Promise.resolve(),
             updateWorktreeRegistryEntry: () => Promise.resolve({}),
             recordPlanEvent: () => Promise.resolve({}),
-            setActiveAgent: () => {},
         }),
     });
 

@@ -38,7 +38,13 @@ import {
 import { requestHostedSessionInteraction, RuntimeInteractionTypes } from "../session/session-runtime-interactions.js";
 import { decidePostExecution, decidePostPlanning, summarizeWorkflowDecision } from "./decisions.js";
 import { recordWorkflowMetric } from "./metrics.js";
-import { executePlan, readLatestTaskCompletedOutcome, runPlanningAgent, runSlicerAgent } from "./workflow.js";
+import {
+    executePlan,
+    extractAssistantOutput,
+    readLatestTaskCompletedOutcome,
+    runPlanningAgent,
+    runSlicerAgent,
+} from "./workflow.js";
 import { runMechanicalValidation, runValidationLoop, shouldRunWorkflowValidation } from "./validation.js";
 
 export { runLocalCI, runMechanicalValidation, runValidationLoop } from "./validation.js";
@@ -363,9 +369,15 @@ export async function dispatchPostTriage(
             return;
         }
 
+        const manualQaSummary = extractAssistantOutput(messages);
         const mechanicalResult = await runMechanicalValidationImpl({
             hostedSession,
             sessionManager,
+            manualQaName: normalizedTriage.sessionName || "quick-fix",
+            manualQaContext: [
+                decoratedRequest,
+                manualQaSummary ? `## Implementation Summary\n${manualQaSummary}` : "",
+            ].filter(Boolean).join("\n\n"),
         });
         await recordWorkflowMetricImpl({
             category: "execution",

@@ -36,6 +36,8 @@ import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runt
  * @property {string} [worktreeBaseBranch]
  * @property {boolean} [nonGitInPlace]
  * @property {boolean} [validationContinuation]
+ * @property {string} [manualQaName]
+ * @property {string} [manualQaContext]
  */
 
 /**

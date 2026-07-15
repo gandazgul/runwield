@@ -40,8 +40,8 @@ function canCompleteActiveExecutionWorkflow(agentName) {
 /**
  * Create an onMessage handler for the active Agent.
  *
- * The returned function matches the `(userRequest, images, sessionManager) => Promise<void>`
- * signature used by `SessionRuntime prompt handling.
+ * The returned function produces the typed turn result consumed by
+ * `SessionRuntime` prompt handling.
  *
  * After the Agent finishes, the handler checks the message stream for workflow
  * Custom Tool outcomes. The tool outcome, not the Agent name, decides whether
@@ -389,6 +389,8 @@ export function createAgentHandler(agentName, __deps) {
                     hostedSession,
                     sessionManager,
                     cwd: workflow.executionCwd || projectRoot,
+                    manualQaName: workflow.manualQaName,
+                    manualQaContext: workflow.manualQaContext,
                 });
                 requestAgentStoppedAttention();
                 return { kind: "complete" };
