@@ -2,6 +2,9 @@
 
 ## Bugs
 
+- [ ] a draft epic should not offer "Open or resume Slicer decomposition" in /load-plan; it should offer "Open or resume
+      Architect decomposition" instead.
+
 Proposed todo before I change code:
 
 1. Change “Reviewer stopped without review_complete” handling
