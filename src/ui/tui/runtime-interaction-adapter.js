@@ -86,7 +86,10 @@ export function createTuiInteractionAdapter(uiAPI, dependencies = {}) {
                 const result = await submitCodeReview({
                     planName: meta.planName,
                     diffText: meta.diffText,
+                    planContent: meta.planContent,
+                    planAttrs: meta.planAttrs,
                     executionCwd: meta.executionCwd,
+                    guidedReview: meta.guidedReview,
                     signal,
                 });
                 return {

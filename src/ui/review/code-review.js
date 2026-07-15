@@ -140,7 +140,10 @@ export function formatCodeReviewAnnotations(annotations) {
  * @param {Object} opts
  * @param {string} opts.planName
  * @param {string} opts.diffText
+ * @param {string} [opts.planContent]
+ * @param {Record<string, unknown>} [opts.planAttrs]
  * @param {string} opts.executionCwd
+ * @param {import('../../shared/workflow/guided-review.js').GuidedReviewPolicy} [opts.guidedReview]
  * @param {AbortSignal} [opts.signal]
  * @param {{
  *   startCodeReviewSurface?: typeof startCodeReviewSurface,
@@ -153,7 +156,10 @@ export function formatCodeReviewAnnotations(annotations) {
 export async function runCodeReview({
     planName,
     diffText,
+    planContent,
+    planAttrs,
     executionCwd,
+    guidedReview,
     signal,
     __deps,
 }) {
@@ -163,6 +169,9 @@ export async function runCodeReview({
         rawPatch: diffText,
         gitRef: `RunWield workflow diff: ${planName}`,
         agentCwd: executionCwd,
+        planContent,
+        planAttrs,
+        guidedReview,
         startReviewServer: __deps?.startReviewServer,
         loadReviewEditorHtml: __deps?.loadReviewEditorHtml,
         openInDefaultBrowser: __deps?.openInDefaultBrowser,

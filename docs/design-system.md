@@ -379,3 +379,22 @@ Workspace platform slice adds Astro dev entrypoints:
 These review routes are HMR development surfaces only until workflow decision transport is implemented behind the
 review-launcher seam. Editable Plan body replacement, built-in Plan Review, built-in code review, and WebTUI chat
 integration require follow-up slices with their own verification.
+
+## Guided Review Explainer blocks
+
+Guided Review Explainers use the same dark RunWield/Plannotator surface language as the code-review UI, but they read as
+one scrollable document rather than a file-tree dashboard. Use a single column with generous section spacing so prose,
+callouts, Mermaid diagrams, optional widgets, and live diff blocks form a continuous explanation.
+
+- **Prose** is the default block and should use normal readable line height.
+- **Callouts** are bordered cards for definitions, edge cases, risks, or reviewer checkpoints. Do not use color alone to
+  communicate severity.
+- **Mermaid diagrams** live in bordered diagram cards with a title and optional description. Rendering failures should
+  show a local error inside the card without breaking the document.
+- **Diff blocks** embed Plannotator's annotatable diff viewer and inherit existing annotation behavior.
+- **Widgets** are exceptional. Render generated HTML/CSS/JavaScript in sandboxed iframes with no external network access
+  and only explicitly allowlisted local assets. Widgets should explain visual or interactive behavior that prose,
+  Mermaid, and diffs cannot explain clearly.
+
+Guided Review generation controls must disclose that generation can use an additional LLM call. When auto-generation
+finishes, show a non-stealing **Guided Review ready** affordance instead of switching the reviewer away from plain Diff.
