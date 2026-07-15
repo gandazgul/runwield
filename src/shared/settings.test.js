@@ -8,6 +8,7 @@ import {
     __resetSettingsForTests,
     getCodeReviewMode,
     getDefaultPlanServerUrl,
+    getGuidedReviewMode,
     getResolvedVisionFallbackModelSetting,
     getSettingsManager,
     migratePiSettingsOnce,
@@ -193,13 +194,14 @@ Deno.test("preserveRunWieldCustomSettingsForWrite keeps visionFallback", () => {
     });
 });
 
-Deno.test("preserveRunWieldCustomSettingsForWrite keeps codereview", () => {
-    const previous = JSON.stringify({ codereview: "always" });
+Deno.test("preserveRunWieldCustomSettingsForWrite keeps codereview and guidedReview", () => {
+    const previous = JSON.stringify({ codereview: "always", guidedReview: "auto" });
     const next = JSON.stringify({ theme: "new-theme" });
 
     assertEquals(JSON.parse(preserveRunWieldCustomSettingsForWrite(previous, next)), {
         theme: "new-theme",
         codereview: "always",
+        guidedReview: "auto",
     });
 });
 
@@ -372,6 +374,39 @@ Deno.test("compaction token setters reject invalid values before writing", async
         }
         assertEquals(message, "Reserve tokens must be a positive integer.");
         assertEquals(getSettingsManager().getCompactionSettings().reserveTokens, 16384);
+    } finally {
+        Deno.chdir(originalCwd);
+        if (originalHome === undefined) Deno.env.delete("HOME");
+        else Deno.env.set("HOME", originalHome);
+        __resetSettingsForTests();
+        await Deno.remove(tempHome, { recursive: true });
+        await Deno.remove(tempProject, { recursive: true });
+    }
+});
+
+Deno.test("getGuidedReviewMode defaults auto, honors overrides, and rejects invalid values", async () => {
+    const originalHome = Deno.env.get("HOME");
+    const originalCwd = Deno.cwd();
+    const tempHome = await Deno.makeTempDir({ prefix: "runwield-guided-review-setting-home-" });
+    const tempProject = await Deno.makeTempDir({ prefix: "runwield-guided-review-setting-project-" });
+    try {
+        Deno.env.set("HOME", tempHome);
+        Deno.chdir(tempProject);
+        __resetSettingsForTests();
+
+        assertEquals(getGuidedReviewMode(tempProject), "auto");
+
+        await setCustomSetting("guidedReview", " ALWAYS ", "global");
+        assertEquals(getGuidedReviewMode(tempProject), "always");
+
+        await setCustomSetting("guidedReview", "ask", "project");
+        assertEquals(getGuidedReviewMode(tempProject), "ask");
+
+        await setCustomSetting("guidedReview", "none", "project");
+        assertEquals(getGuidedReviewMode(tempProject), "none");
+
+        await setCustomSetting("guidedReview", "sometimes", "project");
+        assertEquals(getGuidedReviewMode(tempProject), "none");
     } finally {
         Deno.chdir(originalCwd);
         if (originalHome === undefined) Deno.env.delete("HOME");

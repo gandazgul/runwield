@@ -138,6 +138,60 @@ export function formatChangedFileList(entries) {
 }
 
 /**
+ * @typedef {Object} DiffReviewStats
+ * @property {number} changedFiles
+ * @property {number} changedLines
+ * @property {number} addedLines
+ * @property {number} removedLines
+ * @property {string[]} meaningfulAreas
+ * @property {boolean} lowSignalOnly
+ * @property {string[]} paths
+ */
+
+const LOW_REVIEW_SIGNAL_PATTERNS = [
+    /^docs\//,
+    /^plans\//,
+    /^third_party\//,
+    /(^|\/)deno\.lock$/,
+    /(^|\/)package-lock\.json$/,
+    /(^|\/)pnpm-lock\.yaml$/,
+    /(^|\/)yarn\.lock$/,
+    /(^|\/)dist\//,
+    /(^|\/)generated\//,
+    /\.md$/,
+];
+
+/**
+ * Compute compact review-planning statistics from parsed diff entries.
+ *
+ * @param {DiffFileEntry[]} entries
+ * @returns {DiffReviewStats}
+ */
+export function summarizeDiffForReview(entries) {
+    const paths = entries.map((entry) => entry.path);
+    const lowSignalOnly = entries.length > 0 &&
+        entries.every((entry) => LOW_REVIEW_SIGNAL_PATTERNS.some((pattern) => pattern.test(entry.path)));
+    const meaningfulAreas = [
+        ...new Set(entries.flatMap((entry) => {
+            if (LOW_REVIEW_SIGNAL_PATTERNS.some((pattern) => pattern.test(entry.path))) return [];
+            const [first, second] = entry.path.split("/");
+            return first === "src" && second ? [`src/${second}`] : [first || entry.path];
+        })),
+    ].sort();
+    const addedLines = entries.reduce((sum, entry) => sum + entry.hunkLines.added, 0);
+    const removedLines = entries.reduce((sum, entry) => sum + entry.hunkLines.removed, 0);
+    return {
+        changedFiles: entries.length,
+        changedLines: addedLines + removedLines,
+        addedLines,
+        removedLines,
+        meaningfulAreas,
+        lowSignalOnly,
+        paths,
+    };
+}
+
+/**
  * @param {string} path - The requested file path.
  * @param {DiffFileEntry[]} entries
  * @param {{ offsetBytes?: number, maxBytes?: number }} [options]

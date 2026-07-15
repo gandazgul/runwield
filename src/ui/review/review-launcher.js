@@ -274,13 +274,16 @@ export async function startPlanReviewSurface({
 }
 
 /**
- * @param {{ rawPatch: string, gitRef: string, agentCwd: string, token?: string, openInDefaultBrowser?: typeof openInDefaultBrowser }} opts
+ * @param {{ rawPatch: string, gitRef: string, agentCwd: string, planContent?: string, planAttrs?: Record<string, unknown>, guidedReview?: import("../../shared/workflow/guided-review.js").GuidedReviewPolicy, token?: string, openInDefaultBrowser?: typeof openInDefaultBrowser }} opts
  * @returns {Promise<CodeReviewSurface>}
  */
 async function startWorkspaceHostedCodeReview({
     rawPatch,
     gitRef,
     agentCwd,
+    planContent,
+    planAttrs,
+    guidedReview,
     token = crypto.randomUUID(),
     openInDefaultBrowser: openInDefaultBrowserImpl = openInDefaultBrowser,
 }) {
@@ -290,7 +293,7 @@ async function startWorkspaceHostedCodeReview({
     const server = startReviewWorkspaceServer({
         cwd,
         token,
-        reviewPayload: { rawPatch, gitRef, agentCwd: cwd, reviewStatus },
+        reviewPayload: { rawPatch, gitRef, agentCwd: cwd, reviewStatus, planContent, planAttrs, guidedReview },
         reviewType: "code",
     });
     const url = `${server.url}/review/code?token=${encodeURIComponent(token)}`;
@@ -307,6 +310,9 @@ async function startWorkspaceHostedCodeReview({
  * @param {string} opts.rawPatch
  * @param {string} opts.gitRef
  * @param {string} opts.agentCwd
+ * @param {string} [opts.planContent]
+ * @param {Record<string, unknown>} [opts.planAttrs]
+ * @param {import("../../shared/workflow/guided-review.js").GuidedReviewPolicy} [opts.guidedReview]
  * @param {string} [opts.htmlContent]
  * @param {(options: object) => Promise<any>} [opts.startReviewServer]
  * @param {() => Promise<string>} [opts.loadReviewEditorHtml]
@@ -317,6 +323,9 @@ export async function startCodeReviewSurface({
     rawPatch,
     gitRef,
     agentCwd,
+    planContent,
+    planAttrs,
+    guidedReview,
     htmlContent,
     startReviewServer,
     loadReviewEditorHtml: loadReviewEditorHtmlImpl,
@@ -328,6 +337,9 @@ export async function startCodeReviewSurface({
                 rawPatch,
                 gitRef,
                 agentCwd,
+                planContent,
+                planAttrs,
+                guidedReview,
                 openInDefaultBrowser: openInDefaultBrowserImpl,
             }),
         );
@@ -343,6 +355,9 @@ export async function startCodeReviewSurface({
             htmlContent: resolvedHtmlContent,
             origin: "runwield",
             agentCwd,
+            planContent,
+            planAttrs,
+            guidedReview,
         }),
     );
     const opened = await openInDefaultBrowserImpl(server.url);

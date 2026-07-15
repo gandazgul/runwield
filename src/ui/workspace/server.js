@@ -30,7 +30,9 @@ import {
 import { createRemoteWorkspaceAdapter } from "./server/remote-adapter.js";
 import { loadRunWieldThemeCss } from "../design-system/theme-bridge.js";
 import { reviewImageApi, reviewImageUploadApi } from "./routes/api/review-image-handlers.js";
+import { cleanupReviewAgentState, createReviewAgentState, reviewAgentApi } from "./routes/api/review-agent-handlers.js";
 import { reviewFileContentApi, reviewLocalConfigApi, reviewOpenInAppsApi } from "./routes/api/review-file-handlers.js";
+import { reviewWidgetApi } from "./routes/api/review-widget-handlers.js";
 
 const WORKSPACE_DIR = join(RUNWIELD_SOURCE_ROOT, "ui", "workspace");
 const ROOT_DIR = RUNWIELD_ROOT;
@@ -136,7 +138,9 @@ function createLocalWorkspaceApp({ cwd, token, skipTokenCheck = false }) {
  * @param {{ cwd: string, token: string, reviewPayload: Record<string, unknown>, reviewType: "plan" | "code" }} options
  */
 export function createReviewWorkspaceApp({ cwd, token, reviewPayload, reviewType }) {
+    const reviewAgentState = reviewType === "code" ? createReviewAgentState({ cwd, token, reviewPayload }) : null;
     return {
+        cleanup: () => reviewAgentState ? cleanupReviewAgentState(reviewAgentState) : Promise.resolve(),
         handler() {
             /** @param {Request} request */
             return async (request) => {
@@ -171,6 +175,31 @@ export function createReviewWorkspaceApp({ cwd, token, reviewPayload, reviewType
                         return new Response("Review token required.", { status: 401 });
                     }
                     return reviewLocalConfigApi();
+                }
+                if (
+                    reviewType === "code" &&
+                    (url.pathname.startsWith("/api/agents/") || url.pathname.startsWith("/api/guide/"))
+                ) {
+                    if (
+                        !hasReviewAssetToken(request, token) && request.headers.get("x-runwield-review-token") !== token
+                    ) {
+                        return new Response("Review token required.", { status: 401 });
+                    }
+                    const response = await reviewAgentApi(request, url, reviewAgentState);
+                    if (response) return response;
+                }
+                if (reviewType === "code" && url.pathname.startsWith("/api/review/widgets/")) {
+                    if (
+                        !hasReviewAssetToken(request, token) && request.headers.get("x-runwield-review-token") !== token
+                    ) {
+                        return new Response("Review token required.", { status: 401 });
+                    }
+                    const response = reviewWidgetApi(request, url, {
+                        token,
+                        reviewPayload,
+                        widgets: reviewAgentState.widgets,
+                    });
+                    if (response) return response;
                 }
                 if (url.pathname.startsWith("/api/review/") || isLegacyReviewApiPath(url.pathname)) {
                     return await handleReviewApiRequest(request, { cwd, reviewToken: token }, url.pathname);
@@ -633,7 +662,7 @@ export function startReviewWorkspaceServer(options) {
             ? { approved: false, feedback: "", exit: true, canceled: true }
             : { approved: false, feedback: "", annotations: [], exit: true, canceled: true };
         resolveReviewDecision(options.token, canceledDecision);
-        stopPromise ??= server.shutdown().catch((error) => {
+        stopPromise ??= Promise.resolve(app.cleanup()).then(() => server.shutdown()).catch((error) => {
             const text = error instanceof Error ? error.stack || error.message : String(error);
             options.onOutput?.({ stream: "stderr", text: `${text}\n` });
             throw error;
