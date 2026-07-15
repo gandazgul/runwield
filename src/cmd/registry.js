@@ -340,6 +340,9 @@ export const commandRegistry = {
             `${bin("plans")}`,
             `${bin("plans read <plan-name-or-id>")}`,
             `${bin("plans share <plan-name-or-id> [--plan-server <url>] [--project-secrets]")}`,
+            `${
+                bin("plans pull <maintainer-url-or-plan-name-or-id> [--plan-server <url>] [--project-secrets] [--to <plan-name>]")
+            }`,
             `${bin("plans archive")}`,
             `${bin("plans archive <plan-name-or-id> [--reason <text>] [--force]")}`,
             `${bin("plans archive --all --status <status> [--reason <text>] [--force]")}`,
@@ -353,6 +356,7 @@ export const commandRegistry = {
             "Use plans archive with no target to list archived Plans, and plans read to inspect active or archived markdown.",
             "Use plans share to publish an active saved Plan to a Plan Server; --plan-server overrides planServerUrl for one invocation.",
             "Share output prints secret reviewer and maintainer URLs once; anyone with the maintainer URL can pull, push, close, or unshare.",
+            "Use plans pull with a maintainer URL to import secrets and create/update a locked local Plan; --to chooses the local filename for fresh URL pulls.",
             "Archive moves verified and closed_without_verification Plans by default; other statuses require --force and recoverable worktree states stay blocked.",
             "Use plans archive --all --status verified for best-effort bulk cleanup of active Plans with an exact status match.",
             "The Workspace binds to 127.0.0.1 and a random available port by default.",
