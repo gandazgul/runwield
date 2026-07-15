@@ -33,7 +33,8 @@ export class CollaborationClient {
     constructor(options) {
         this.serverUrl = normalizeServerUrl(options.serverUrl);
         this.bearerCapability = options.bearerCapability;
-        this.fetch = options.fetch ?? fetch;
+        const fetchFn = options.fetch ?? fetch;
+        this.fetch = fetchFn.bind(globalThis);
     }
 
     /**
