@@ -1,29 +1,30 @@
 ---
 planId: "797354ff-94e3-4829-a9a1-7fdeab903f17"
 classification: "PROJECT"
-type: "epic"
 complexity: "HIGH"
-summary: "Add Work Records to RunWield Core as durable repo-local retrospective planning-memory artifacts, with CLI backfill, derived search, agent access, and later extensibility for manual records and Guided Review reuse."
+summary: "Add internal automatic Work Records to RunWield Core as durable repo-local retrospective planning-memory artifacts, with Plan backlinks, backfill, derived search, and planning-agent access."
 affectedPaths:
     - "docs/prd/work-records-prd.md"
-    - "CONTEXT.md"
+    - "src/constants.js"
     - "src/plan-front-matter.js"
     - "src/plan-store.js"
     - "src/shared/workflow/plan-lifecycle.js"
     - "src/shared/workflow/validation.js"
+    - "src/shared/session/session-runtime.js"
+    - "src/shared/session/session.js"
+    - "src/shared/session/tool-event-title.js"
+    - "src/shared/work-records/"
     - "src/cmd/registry.js"
     - "src/cmd/wr/"
-    - "src/shared/work-records/"
     - "src/tools/work-record-search.js"
     - "src/tools/work-record-read.js"
     - "src/tools/registry.js"
-    - "src/shared/session/session.js"
-    - "src/shared/session/session-catalog.js"
     - "src/agent-definitions/guide.md"
     - "src/agent-definitions/ideator.md"
     - "src/agent-definitions/planner.md"
     - "src/agent-definitions/architect.md"
     - "src/agent-definitions/recorder.md"
+    - "src/ui/workspace/server/plan-adapter.js"
     - "src/ui/workspace/"
     - "docs/work-records/"
     - "docs/usage.md"
@@ -33,9 +34,11 @@ frontend: true
 devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://localhost:5173/"
 devServerHmr: true
-createdAt: "2026-07-14T17:04:16-04:00"
-status: "draft"
+createdAt: "2026-07-15T10:40:54-04:00"
+updatedAt: "2026-07-15T21:05:36.864Z"
+status: "ready_for_work"
 origin: "internal"
+type: "epic"
 routingIntent: "PROJECT"
 sessionName: "work records v1"
 ---
@@ -44,139 +47,268 @@ sessionName: "work records v1"
 
 ## Context
 
-RunWield has durable prospective artifacts such as Plans, PRDs, ADRs, Plan lifecycle metadata, validation state, and
-memories, but it does not yet have a concise durable record of what completed work actually produced. Old Plans are
-misleading as future planning context because they describe intent, not the final completion mode, skipped verification,
-done-enough Epic outcome, or later supersession.
+RunWield has durable prospective artifacts — Plans, PRDs, ADRs, Plan lifecycle metadata, validation state, and memory —
+but it lacks a concise, durable record of what completed planned work actually produced. Old Plans are useful evidence,
+but they can be misleading future planning context because they describe intent rather than final outcome, completion
+confidence, done-enough Epic scope, skipped verification, or later supersession.
 
-`docs/prd/work-records-prd.md` is the source product design for this Epic. The Epic should implement Work Records as
-repo-local Markdown artifacts under `docs/work-records/`, with Markdown as the source of truth and Mnemosyne or any
-semantic index treated as rebuildable derived state.
+`docs/prd/work-records-prd.md` is the product design source for the broader Work Records concept. For this Epic, the
+accepted V1 scope is **internal automatic Work Records only**: completed top-level RunWield Plans/Epics can generate
+approved Work Records, existing completed Plans can be backfilled, and planning Agents can search/read approved current
+records. Full manual/external creation, `wld wr create`, Recorder-led interviews for outside work, and Plannotator Work
+Record approval are deferred to a separate feature. Guided Review reuse is also deferred, but the V1 architecture should
+leave a clean seam for a future shared review-intelligence packet and pending-verification records.
 
-Guided Review integration is intentionally deferred. Guided Review v1 can ship independently; a later integration may
-reuse the Guided Review analysis machinery to prefill Work Record material, but the artifacts remain separate.
+Canonical domain language is already present in `CONTEXT.md`: Work Record, Draft Work Record, Pending Verification Work
+Record, Superseded Work Record, Archived Work Record, External Work Record, Work Record Provenance, Recorder, and Work
+Record Search Tool. No context-language change is expected unless implementation discovers a vocabulary mismatch; record
+that as follow-up rather than expanding the scope of this Epic.
 
 ## Objective
 
-Add Work Records to RunWield Core so completed top-level planned work can produce small durable outcome records that
-humans and planning Agents can search and read before future planning.
+Add Work Records to RunWield Core as repo-local Markdown artifacts under `docs/work-records/`, with Markdown as the
+source of truth and Mnemosyne/search state treated as rebuildable derived state.
 
-V1 should support:
+V1 establishes these system capabilities:
 
-- canonical Work Record Markdown storage and validation;
-- a dedicated Work Record Lifecycle module with final-state-only front matter;
-- Plan backlink metadata for generated or failed Work Record attempts;
-- required close-without-verification reasons for new Plan closures;
-- internal Work Record generation for completed top-level Plans/Epics;
-- explicit `wld wr` CLI flows, especially `wld wr backfill`;
-- a derived Work Record search index and `work_record_search` / `work_record_read` tools;
-- default Work Record access for Ideator, Planner, Architect, and Guide, but not Engineer;
-- manual/external Work Record creation and review when feasible within child slices.
+- canonical Work Record parsing, validation, path/slug handling, lifecycle state, and Markdown read/write boundaries;
+- Plan Front Matter extensions for Work Record backlinks and required closed-without-verification reasons;
+- automatic internal generation for completed **top-level** FEATURE Plans and PROJECT Epics only;
+- explicit `wld wr` read/search/backfill flows over canonical records and eligible completed Plans;
+- a derived Work Record search index isolated from normal project memory;
+- `work_record_search` and `work_record_read` tools for Guide, Ideator, Planner, Architect, and Recorder, while keeping
+  Engineer without default Work Record retrieval;
+- best-effort session-boundary generation that never blocks Plan terminal transitions, `/new`, or `/quit`;
+- documentation and settings describing Work Record storage, completion confidence, backfill, indexing, and automatic
+  generation.
+
+The high-level dependency direction should keep Plan storage/lifecycle independent of Work Record generation. Plan
+modules may store neutral backlink metadata and closure reasons, but Work Record modules own eligibility, generation,
+validation, indexing, and search semantics.
+
+```mermaid
+flowchart LR
+    subgraph Plans["Plans: prospective source artifacts"]
+        PS["plan-store.js\nFront Matter round-trip"]
+        PL["Plan Lifecycle\nterminal status + closure reason"]
+        AR["plans/archived"]
+    end
+
+    subgraph WR["Work Records: retrospective source artifacts"]
+        WRS["Work Record Store\nparse/write/validate"]
+        WLG["Work Record Lifecycle\nfinal state only"]
+        GEN["Recorder Generation\ninternal completed work"]
+    end
+
+    subgraph Derived["Derived retrieval"]
+        IDX["Work Record Index\nMnemosyne collection"]
+        CLI["wld wr\nsearch/read/backfill"]
+        TOOLS["work_record_* tools"]
+    end
+
+    PS -- "source Plan attrs + backlink" --> GEN
+    PL -- "completion mode / reason" --> GEN
+    AR -- "explicit backfill scan" --> GEN
+    GEN --> WRS
+    WRS --> WLG
+    WRS -- "sync/rebuild" --> IDX
+    CLI --> WRS
+    CLI --> IDX
+    TOOLS --> IDX
+    TOOLS --> WRS
+```
 
 ## Vertical Slice Findings
 
-- `src/plan-store.js` owns Plan front matter parsing/injection, Plan listing, archived Plan listing, and arbitrary Plan
-  front matter updates through `updatePlanFrontMatter()`.
-- `src/plan-front-matter.js` centralizes Plan front matter key ordering and already includes Epic done-enough fields.
-- `src/shared/workflow/plan-lifecycle.js` owns Plan lifecycle events through `recordPlanEvent()` and already has
-  `manual_closed_without_verification` and `epic_done_enough` events; new close-without-verification reasons should be
-  enforced here or at its API boundary.
-- `src/cmd/registry.js` is the central command registry; adding `wld wr` should follow the existing `plans` command
-  pattern.
-- `src/tools/registry.js` defines protected tool names; `src/shared/session/session.js` auto-wires internal custom tools
-  requested by agent definitions.
-- Guide currently has read-oriented project assistant access. Work Record tools should expand Guide's historical inquiry
-  capability while requiring status/completion warnings.
-- `plans/archived/` is already first-class in Plan storage; `listArchivedPlans()` should be reused for explicit backfill
-  over archived completed Plans.
+The relevant current architecture has clear seams, but the Epic crosses several ownership boundaries:
+
+- `src/plan-store.js` owns Plan Front Matter parsing/injection, Plan listing, archived Plan listing, hierarchy helpers,
+  and arbitrary Plan Front Matter updates through `updatePlanFrontMatter()`. Work Record backlinks and closure reasons
+  should be known Plan Front Matter fields here so active and archived Plans round-trip predictably.
+- `src/plan-front-matter.js` centralizes Plan key ordering. New Plan fields should be ordered with lifecycle/completion
+  metadata rather than falling through as arbitrary unknown keys.
+- `src/shared/workflow/plan-lifecycle.js` owns Plan Events through `recordPlanEvent()` and `buildPlanEventUpdates()`.
+  `manual_closed_without_verification` already exists, but it currently lacks a reason contract. V1 should enforce the
+  non-empty reason at this lifecycle/API boundary and persist it as `closedWithoutVerificationReason`; old
+  already-closed Plans without the field remain valid backfill inputs and use `Reason not specified.`.
+- Workspace lifecycle actions in `src/ui/workspace/server/plan-adapter.js` route manual close-without-verification
+  through the same lifecycle event, including an in-memory preview path. Frontend scope is required so that reason
+  collection, validation errors, and Plan detail/backlink presentation remain coherent in browser surfaces.
+- `src/shared/workflow/validation.js` records successful validation with `validation_passed`; it is the strongest
+  workflow-adjacent seam for marking a Plan terminal without embedding Work Record generation in the validation critical
+  path. Work Record generation should observe terminal outcomes later rather than make validation depend on Recorder or
+  Mnemosyne.
+- `src/shared/session/session-runtime.js`, `/new`, and `/quit` are the current session-boundary control points.
+  `closeSessionWhenIdle()` and `closeAllSessionsWhenIdle()` already protect active turns before disposal. V1 should hook
+  best-effort Work Record scheduling before replacing or closing a session, scoped to top-level Plans/Epics touched by
+  that session, not broad repository scanning.
+- `src/cmd/registry.js` is the central command registry. `wld wr` should follow the `wld plans` command-group pattern:
+  registry metadata, command-specific parsing modules under `src/cmd/wr/`, help output, and tests.
+- Agent tools are declarative in bundled Agent Definition front matter and auto-wired in `buildAgentSession()` when a
+  named internal custom tool is requested. Work Record tools should use this path rather than becoming generic Mnemosyne
+  tools or prompt-only instructions.
+- `src/tools/registry.js` protects core context tools from layered-agent removal when present in bundled definitions.
+  Work Record search/read are planning-context tools; if added to the bundled definitions for Guide/Ideator/Planner/
+  Architect/Recorder, they should be protected for those Agents, while Engineer simply does not list them.
+- `docs/work-records/` does not exist yet as canonical storage. The first implementation should make directory creation
+  and empty-directory behavior explicit without treating any index or cache as canonical.
+
+The critical V1 data flow is:
+
+```mermaid
+sequenceDiagram
+    participant Lifecycle as Plan Lifecycle / Validation
+    participant Session as Session Boundary
+    participant Orchestrator as Work Record Orchestrator
+    participant Recorder as Recorder Generator
+    participant Store as Work Record Markdown Store
+    participant Plan as Source Plan Front Matter
+    participant Index as Derived Work Record Index
+
+    Lifecycle->>Plan: terminal status, timestamps, and closure reason
+    Session->>Orchestrator: request generation for touched top-level Plan or Epic
+    Orchestrator->>Plan: load source Plan and detect backlink or eligibility
+    Orchestrator->>Recorder: generate concise retrospective record
+    Recorder->>Store: write approved internal Work Record Markdown
+    Store-->>Orchestrator: return recordId and path
+    Orchestrator->>Plan: write generated backlink
+    Orchestrator->>Index: sync approved current record
+    Note over Orchestrator: Failures write failed backlink metadata on the Plan. Markdown remains canonical.
+```
 
 ## Files to Modify
 
-- `docs/prd/work-records-prd.md` — keep the PRD aligned if implementation discovers small terminology or scope fixes.
-- `CONTEXT.md` — preserve canonical Work Record vocabulary and relationships.
-- `docs/work-records/` — new canonical Work Record storage directory, likely with a placeholder when empty.
-- `src/shared/work-records/` — new core modules for Work Record parsing, validation, path/slug handling, lifecycle,
-  indexing, search, and generation orchestration.
-- `src/plan-front-matter.js` — add `workRecord` and `closedWithoutVerificationReason` front matter keys with stable
-  ordering.
-- `src/plan-store.js` — type and round-trip new Plan front matter fields; support backlink updates for active and
-  archived source Plans as needed.
-- `src/shared/workflow/plan-lifecycle.js` — require non-empty reasons for new `manual_closed_without_verification`
-  events and store `closedWithoutVerificationReason`; preserve legacy backfill fallback behavior for old Plans without
-  the field.
-- `src/shared/workflow/validation.js` and session boundary commands such as `src/cmd/new/` and `src/cmd/quit/` — hook
-  best-effort session-end generation for top-level Plans/Epics touched in the session.
-- `src/cmd/registry.js` and `src/cmd/wr/` — add the `wld wr` command group with read/search/create/backfill direction.
-- `src/tools/work-record-search.js` and `src/tools/work-record-read.js` — expose planning/history retrieval tools.
-- `src/tools/registry.js` and `src/shared/session/session.js` — register/auto-wire Work Record tools and protect them
-  only where appropriate.
+- `docs/prd/work-records-prd.md` — align V1 acceptance with the resolved scope: internal automatic Work Records are in
+  this Epic; manual/external creation and Guided Review reuse are deferred while their schema/lifecycle seams remain.
+- `src/constants.js` — add any durable constants needed for Work Records, such as a Work Record storage directory name,
+  command label, and Recorder Agent identifier if V1 uses a first-class bundled `recorder.md` Agent Definition.
+- `src/plan-front-matter.js` — add stable Plan Front Matter ordering for `closedWithoutVerificationReason` and
+  `workRecord` backlink metadata.
+- `src/plan-store.js` — parse, normalize, format, and update the new Plan fields for active and archived Plans; preserve
+  unknown existing metadata; keep file path separate from Plan identity and Work Record identity.
+- `src/shared/workflow/plan-lifecycle.js` — enforce non-empty close-without-verification reasons for new manual closure
+  events, persist the reason, and keep legacy closed Plans without reasons compatible for backfill.
+- `src/shared/workflow/validation.js` — keep validation terminal transitions independent from generation, but expose or
+  call a post-terminal/session-boundary hook that can later schedule internal Work Record generation without blocking
+  validation success.
+- `src/shared/session/session-runtime.js` — integrate best-effort session-boundary scheduling before `/new` replacement
+  and `/quit` closure; scope to touched top-level Plans/Epics and respect a project setting to disable automatic
+  generation.
+- `src/shared/session/session.js` — auto-wire `work_record_search` and `work_record_read` custom tools when bundled
+  Agent Definitions request them.
+- `src/shared/session/tool-event-title.js` — classify Work Record search/read tool events as read/search operations so
+  TUI/runtime projections are understandable.
+- `src/shared/work-records/` — introduce the Work Record subsystem: schema constants, parser/formatter, validator,
+  lifecycle state transitions, path/slug helpers, source Plan eligibility, top-level/Epic resolution, generation
+  orchestration, backlink update helpers, index adapter, and search/read services.
+- `src/cmd/registry.js` and `src/cmd/wr/` — register `wld wr` and implement human read/search/backfill flows. V1 should
+  not expose full manual/external `create`; help text can reserve or omit it until the deferred feature exists.
+- `src/tools/work-record-search.js` and `src/tools/work-record-read.js` — expose current-project retrieval tools with
+  default filtering appropriate to each Agent access policy.
+- `src/tools/registry.js` — protect Work Record search/read for bundled Agents that receive them, if the implementation
+  follows the same non-removable context-tool policy used for memory/code search.
 - `src/agent-definitions/guide.md`, `src/agent-definitions/ideator.md`, `src/agent-definitions/planner.md`, and
-  `src/agent-definitions/architect.md` — grant and instruct default Work Record access; keep Engineer without default
-  access.
-- `src/agent-definitions/recorder.md` — add the Recorder Agent if implementation chooses a dedicated Agent definition
-  instead of a narrower internal generation prompt.
-- `src/ui/workspace/` and Plannotator integration points — broaden artifact review only for child slices that implement
-  manual/external draft Work Record review.
-- `docs/usage.md`, `docs/workflows.md`, `docs/settings.md`, and related docs — document `wld wr`, Work Record retrieval,
-  settings, and lifecycle semantics.
+  `src/agent-definitions/architect.md` — grant and instruct Work Record access. Planning Agents should retrieve only
+  approved, non-archived, non-superseded current records by default; Guide may discuss broader statuses only with clear
+  status/completion warnings when explicitly asked.
+- `src/agent-definitions/recorder.md` — add the Recorder boundary for internal Work Record generation, or document in
+  implementation why a workflow-only prompt is a better fit while preserving the same role contract.
+- `src/ui/workspace/server/plan-adapter.js` and related `src/ui/workspace/` components — collect and validate close-
+  without-verification reasons in browser lifecycle actions and surface Work Record backlink/failure state where Plan
+  status is shown. Headed browser verification is required for these lifecycle and display paths.
+- `docs/work-records/` — establish canonical storage for generated Work Records. The directory should contain Work
+  Record Markdown artifacts only, except for any minimal placeholder needed to keep the directory present.
+- `docs/usage.md`, `docs/workflows.md`, `docs/settings.md`, and related docs — document Work Record concepts, `wld wr`,
+  backfill, indexing, automatic generation, closure reason requirements, and the deferred manual/external creation
+  scope.
 
 ## Reuse Opportunities
 
-- `src/plan-store.js` front matter parsing/injection patterns for Work Record Markdown parsing and source Plan backlink
-  updates.
-- `src/shared/workflow/plan-lifecycle.js` state-machine style for a dedicated Work Record Lifecycle module.
-- `src/cmd/plans/` command structure for `wld wr` command parsing, help text, read/list/backfill UX, and tests.
-- `listArchivedPlans()` and active Plan listing helpers for `wld wr backfill` eligibility scanning.
-- Existing Mnemosyne CLI/tool patterns from memory and Sleep flows for derived index rebuild/sync behavior.
-- Existing internal tool auto-wiring in `src/shared/session/session.js` for `work_record_search` and `work_record_read`.
-- Plannotator review-loop patterns for later manual/external Work Record approval.
+Existing functions, modules, or patterns to reuse:
+
+- `src/plan-store.js` — reuse Front Matter parsing/injection, stable key ordering, active/archived Plan resolution,
+  hierarchy grouping, and stale-write protections as the model for Work Record Markdown storage.
+- `src/shared/workflow/plan-lifecycle.js` — reuse the state-machine style for a dedicated Work Record Lifecycle module,
+  but store only final Work Record state in Front Matter for V1.
+- `listPlans()`, `listArchivedPlans()`, `groupPlanHierarchy()`, `isChildFeaturePlan()`, and `isEpicPlan()` — reuse for
+  backfill eligibility and for excluding child FEATURE Plans by default.
+- `src/cmd/plans/` — reuse command-group structure, help registration, read/list output style, archive/backfill-style
+  confirmation patterns, and tests for `src/cmd/wr/`.
+- `src/shared/session/workflow-context-session.js` and `HostedSession` workflow context — reuse current session Plan
+  identity as the basis for session-end generation, resolving child Plans to their parent Epic when applicable.
+- `src/extensions/mnemosyne/index.js` and `src/cmd/sleep/` — reuse command execution/error handling patterns for
+  Mnemosyne integration while keeping Work Record indexing separate from normal memory tools and collections.
+- `src/shared/session/session.js` internal custom-tool auto-wiring — reuse the existing pattern used by workflow tools
+  so Agent Definition front matter remains the declarative capability source.
+- Workspace lifecycle-action patterns in `src/ui/workspace/server/plan-adapter.js` — reuse validation/in-memory preview
+  structure for close-without-verification reason handling.
 
 ## Verification Plan
 
 - Automated:
   - `deno test -A src/plan-store.test.js src/shared/workflow/plan-lifecycle.test.js`
   - `deno test -A src/shared/work-records/**/*.test.js src/cmd/wr/**/*.test.js`
-  - `deno test -A src/shared/session/__tests__/session-tools-policy.test.js`
-  - `deno test -A src/shared/workflow/validation.test.js` for session-end generation hooks when implemented
-  - `deno task workspace:react:check` for any Workspace/Plannotator review-surface child slice
+  - `deno test -A src/shared/session/__tests__/session-tools-policy.test.js src/shared/session/session-runtime.test.js`
+  - `deno test -A src/shared/workflow/validation.test.js` for non-blocking post-terminal/session-boundary hooks
+  - `deno task workspace:react:check` for Workspace lifecycle/backlink display changes
   - `deno task ci`
 - Manual:
-  - Complete or fixture a verified top-level FEATURE Plan and confirm a concise approved Work Record is generated with a
-    Plan backlink.
-  - Close a Plan without Workflow Validation and confirm new flows require `closedWithoutVerificationReason`; confirm
-    old already-closed Plans without the field backfill using `Reason not specified.`.
-  - Run `wld wr backfill`, verify it previews completed top-level Plans/Epics from active and archived locations, skips
-    sources with backlinks, and requires confirmation.
-  - Search/read Work Records as a human and as Guide/Ideator/Planner/Architect; confirm completion mode and status
-    warnings are prominent.
+  - Complete or fixture a verified top-level FEATURE Plan and confirm an approved concise Work Record is generated under
+    `docs/work-records/`, the source Plan receives a `workRecord.status: generated` backlink, and search/read can find
+    it.
+  - Mark a PROJECT Epic `done_enough` and confirm one Epic Work Record is generated for the Epic rather than one record
+    per child FEATURE Plan.
+  - Close a Plan without Workflow Validation through CLI/workflow and Workspace surfaces; confirm new flows require a
+    non-empty reason, persist `closedWithoutVerificationReason`, and include the skipped-verification warning and reason
+    in the Work Record Summary.
+  - Backfill completed active and archived top-level Plans/Epics with `wld wr backfill`; confirm it previews eligible
+    sources, skips sources with existing backlinks, excludes child FEATURE Plans by default, requires confirmation, and
+    records per-Plan success/failure backlinks.
+  - Simulate Recorder or Mnemosyne/index failure; confirm terminal Plan status is not rolled back, canonical Markdown is
+    not corrupted, and Plan Front Matter records concise failure metadata.
+  - Search/read Work Records as a human and as Guide/Ideator/Planner/Architect; confirm completion mode, status,
+    supersession/archive warnings, path, source Plan IDs, and Summary are visible.
   - Confirm Engineer does not receive Work Record tools by default.
+  - For frontend scope, run the Workspace in a headed browser and verify close-without-verification reason UX,
+    validation errors, and any Plan detail Work Record backlink/failure display against the RunWield design system.
+- Expected results for key scenarios:
+  - Markdown under `docs/work-records/` is the only canonical Work Record state; Mnemosyne can be deleted/rebuilt
+    without losing records.
+  - Default human and planning-agent search includes approved, non-archived, non-superseded records only.
+  - Session-boundary generation is best-effort: `/new` and `/quit` proceed even if generation or index sync fails.
+  - Backfill is explicit and maintenance-oriented, so it includes archived completed Plans by default after preview and
+    confirmation.
 
 ## Edge Cases & Considerations
 
-- V1 final-state-only lifecycle: do not add Work Record event logs in front matter or sidecars; richer audit trails wait
-  for the future authorship/ownership model.
+- V1 final-state-only lifecycle: do not add Work Record event logs in Front Matter or sidecars. Rich audit trails should
+  wait for the future authorship/ownership model across Plans, Work Records, PRDs, ADRs, and Plannotator reviews.
 - Completed Plan eligibility means top-level Plans/Epics with `status: verified`, `status: closed_without_verification`,
   or PROJECT Epics with `epicCompletionMode: done_enough`.
-- Child FEATURE Plans under an Epic should not get their own Work Record by default; the top-level Epic Work Record owns
-  useful child outcome detail.
-- File path is not identity; `recordId` is identity. Search/read should tolerate path moves when the ID remains stable.
+- Child FEATURE Plans under an Epic should not get Work Records by default; resolve them to the parent Epic for
+  automatic generation and broad backfill.
+- Full manual/external creation is explicitly deferred. The schema should still understand `origin: external`,
+  `status: draft`, `scope: quick_fix`, and provenance evidence so the later feature does not require a storage
+  migration, but V1 acceptance is internal automatic generation/backfill.
+- Guided Review reuse is explicitly deferred. `pending_verification` may exist in schema/lifecycle for compatibility,
+  but default V1 automatic generation should produce approved internal records only after terminal Plan outcomes.
+- File path is not identity. `recordId` is Work Record identity; `planId` is Plan identity. Search/read should tolerate
+  path moves when IDs remain stable.
 - Empty optional fields should be omitted rather than serialized as nulls or empty arrays.
-- Mnemosyne/index failures must not corrupt canonical Markdown. Markdown remains source of truth and indexes must be
-  rebuildable.
-- Session-end generation is best-effort and must not block `/new`, `/quit`, or Plan terminal transitions.
+- Plan backlink metadata is a convenience and recovery signal, not Work Record identity. If a record exists but backlink
+  metadata is missing or stale, tools should be able to reconcile by `provenance.sourcePlans`.
+- Mnemosyne/index failures must not corrupt canonical Markdown and must not block Plan terminal transitions. Index sync
+  should be retryable/rebuildable from `docs/work-records/`.
+- Session-end generation should be scoped to Plans touched in the current session. Broad repository discovery belongs to
+  explicit `wld wr backfill`.
 - Failed generation should write `workRecord.status: failed`, `lastAttemptAt`, and concise `error` to the source Plan;
-  stderr messages are supplemental only.
-- Human and agent default search should exclude pending, draft, superseded, and archived records unless explicit intent
-  asks for historical or maintenance records.
-- Guide can read all current-project Work Record statuses for inquiries but must not present draft/pending/superseded or
-  closed-without-verification records as settled verified history.
-- Manual/external Work Record creation and Plannotator review may be sliced after internal generation/backfill if
-  needed; external draft records require human approval before default retrieval.
-- Suggested child-feature order for Slicer:
-  1. Core Work Record storage, parser/writer, lifecycle, and Plan front matter fields.
-  2. Close-without-verification reason enforcement and Plan backlink helpers.
-  3. Internal Recorder generation for completed top-level Plans/Epics.
-  4. `wld wr read/search/backfill` over canonical Markdown and completed Plan discovery.
-  5. Derived Mnemosyne index sync and `work_record_search` / `work_record_read` tools with agent access policy.
-  6. Session-end background generation and failure persistence.
-  7. Manual/external Work Record creation and review surface.
+  stderr/status messages are supplemental only.
+- Human and planning-agent default search should exclude pending, draft, superseded, and archived records unless
+  explicit maintenance or historical intent asks for them.
+- Guide can answer project-history inquiries across current-project Work Record statuses only when status and completion
+  confidence are prominent; it must not present draft, pending, superseded, archived, or closed-without-verification
+  records as settled verified history.
+- If `work_record_search`/`work_record_read` become protected tools, protection applies only to Agents whose bundled
+  definitions include them. Do not grant the tools to Engineer by default.
+- The architecture should remain pure JavaScript with JSDoc typedefs outside `src/ui/workspace/`; avoid TypeScript
+  syntax in new core/CLI/tool modules.
