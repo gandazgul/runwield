@@ -2514,10 +2514,14 @@ async function handleEpicPlan({
 
     const canReviewWithArchitect = plan.attrs.status === "draft" || plan.attrs.status === "feedback" ||
         plan.attrs.status === "approved";
+    const canOpenSlicer = plan.attrs.status === "ready_for_decomposition" || plan.attrs.status === "ready_for_work";
 
     if (canReviewWithArchitect) {
+        const action = canOpenSlicer
+            ? "Review it with Architect or resume Slicer decomposition to create child FEATURE plans."
+            : "Review it with Architect to continue planning.";
         uiAPI.appendSystemMessage(
-            "This PROJECT Epic is not executable. Review it with Architect or resume Slicer decomposition to create child FEATURE plans.",
+            `This PROJECT Epic is not executable. ${action}`,
             false,
             "RunWield",
         );
@@ -2528,21 +2532,16 @@ async function handleEpicPlan({
     while (true) {
         /** @type {Array<{ value: string, label: string }>} */
         const epicOptions = [
-            ...(canReviewWithArchitect ? [{ value: "review", label: "Review with Architect" }] : []),
             ...(canPickChild ? [{ value: "pick_child", label: "Pick a child FEATURE plan" }] : []),
-            { value: "slicer", label: "Open or resume Slicer decomposition" },
+            ...(canReviewWithArchitect ? [{ value: "review", label: "Review with Architect" }] : []),
+            ...(canOpenSlicer ? [{ value: "slicer", label: "Open or resume Slicer decomposition" }] : []),
+            ...(hasChildren && plan.attrs.status === "ready_for_work"
+                ? [{ value: "done_enough", label: "Mark Epic done enough for now" }]
+                : []),
+            ...(isHoldableStatus(plan.attrs.status) ? [{ value: "hold", label: "Put Epic on hold" }] : []),
             { value: "view", label: "View Epic details" },
             { value: "cancel", label: "Cancel" },
         ];
-        if (isHoldableStatus(plan.attrs.status)) {
-            epicOptions.splice(epicOptions.length - 1, 0, { value: "hold", label: "Put Epic on hold" });
-        }
-        if (hasChildren && plan.attrs.status === "ready_for_work") {
-            epicOptions.splice(canPickChild ? 2 : 1, 0, {
-                value: "done_enough",
-                label: "Mark Epic done enough for now",
-            });
-        }
 
         const answer = await uiAPI.promptSelect("What would you like to do with this Epic?", epicOptions);
         if (!answer || answer === "cancel") return "handled";
