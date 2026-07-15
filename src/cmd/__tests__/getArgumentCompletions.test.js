@@ -42,6 +42,7 @@ Deno.test("getLoadPlanCompletions sorts loadable plans by workflow priority", as
             ["a-ready-epic", "PROJECT", "ready_for_work"],
             ["ready-feature", "FEATURE", "ready_for_work"],
             ["draft-plan", "FEATURE", "draft"],
+            ["failed-plan", "FEATURE", "failed"],
             ["implemented-plan", "FEATURE", "implemented"],
             ["held-plan", "FEATURE", "on_hold"],
             ["decompose-epic", "PROJECT", "ready_for_decomposition"],
@@ -56,12 +57,13 @@ Deno.test("getLoadPlanCompletions sorts loadable plans by workflow priority", as
         Deno.chdir(tempDir);
         const items = await getLoadPlanCompletions("");
         assertEquals(items.map((item) => item.value), [
-            "decompose-epic",
+            "failed-plan",
+            "implemented-plan",
             "a-ready-epic",
             "b-ready-epic",
             "ready-feature",
+            "decompose-epic",
             "draft-plan",
-            "implemented-plan",
             "z-verified",
             "held-plan",
         ]);

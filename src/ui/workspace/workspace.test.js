@@ -948,6 +948,38 @@ Deno.test("loadPlanSummaries marks top-level, Epic, child, and orphan-child hier
     }
 });
 
+Deno.test("loadPlanSummaries preserves the core plan-list order", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        const plans = [
+            ["held", "held-id", "FEATURE", "on_hold"],
+            ["ready-feature", "ready-feature-id", "FEATURE", "ready_for_work"],
+            ["failed-feature", "failed-feature-id", "FEATURE", "failed"],
+            ["ready-project", "ready-project-id", "PROJECT", "ready_for_work"],
+            ["failed-project", "failed-project-id", "PROJECT", "failed"],
+            ["verified", "verified-id", "FEATURE", "verified"],
+        ];
+        for (const [name, planId, classification, status] of plans) {
+            await savePlan(cwd, name, `# ${name}`, {
+                planId,
+                classification: /** @type {any} */ (classification),
+                status: /** @type {any} */ (status),
+            });
+        }
+
+        assertEquals((await loadPlanSummaries(cwd)).map((plan) => plan.name), [
+            "failed-project",
+            "failed-feature",
+            "ready-project",
+            "ready-feature",
+            "verified",
+            "held",
+        ]);
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
 Deno.test("loadWorkspaceDetail returns Epic detail with children grouped by status", async () => {
     const cwd = await Deno.makeTempDir();
     try {

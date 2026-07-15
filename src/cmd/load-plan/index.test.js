@@ -250,7 +250,6 @@ Deno.test("runLoadPlanCommand no-arg TUI menu excludes child plans and shows top
                     },
                 ]),
             resetTuiState: () => {},
-            setActiveAgent: () => {},
         }),
     });
 
@@ -265,7 +264,7 @@ Deno.test("runLoadPlanCommand no-arg TUI menu excludes child plans and shows top
     );
 });
 
-Deno.test("runLoadPlanCommand no-arg TUI menu sorts by status then name with on_hold last", async () => {
+Deno.test("runLoadPlanCommand no-arg TUI menu preserves core plan order", async () => {
     const { uiAPI, selections, prompts } = makeUi();
     const editor = /** @type {import('../../ui/tui/types.js').EditorAPI} */ ({
         disableSubmit: true,
@@ -283,30 +282,37 @@ Deno.test("runLoadPlanCommand no-arg TUI menu sorts by status then name with on_
             parseArgs: () => ({ help: false, _: [] }),
             listPlans: () =>
                 Promise.resolve([
-                    { name: "z-draft", attrs: { classification: "FEATURE", status: "draft" } },
-                    { name: "b-on-hold", attrs: { classification: "FEATURE", status: "on_hold" } },
+                    { name: "a-failed-project", attrs: { classification: "PROJECT", status: "failed" } },
+                    { name: "z-failed-feature", attrs: { classification: "FEATURE", status: "failed" } },
+                    { name: "a-implemented", attrs: { classification: "FEATURE", status: "implemented" } },
+                    { name: "a-ready", attrs: { classification: "PROJECT", status: "ready_for_work" } },
                     { name: "b-ready", attrs: { classification: "FEATURE", status: "ready_for_work" } },
-                    { name: "a-ready", attrs: { classification: "FEATURE", status: "ready_for_work" } },
                     {
                         name: "c-decompose",
                         attrs: { classification: "PROJECT", type: "epic", status: "ready_for_decomposition" },
                     },
-                    { name: "a-implemented", attrs: { classification: "FEATURE", status: "implemented" } },
                     { name: "a-draft", attrs: { classification: "FEATURE", status: "draft" } },
+                    { name: "z-draft", attrs: { classification: "FEATURE", status: "draft" } },
+                    { name: "a-verified", attrs: { classification: "FEATURE", status: "verified" } },
+                    { name: "a-closed", attrs: { classification: "FEATURE", status: "closed_without_verification" } },
                     { name: "a-on-hold", attrs: { classification: "FEATURE", status: "on_hold" } },
+                    { name: "b-on-hold", attrs: { classification: "FEATURE", status: "on_hold" } },
                 ]),
             resetTuiState: () => {},
-            setActiveAgent: () => {},
         }),
     });
 
     assertEquals(prompts[0].options.map((option) => option.value), [
+        "a-failed-project",
+        "z-failed-feature",
+        "a-implemented",
         "a-ready",
         "b-ready",
         "c-decompose",
-        "a-implemented",
         "a-draft",
         "z-draft",
+        "a-verified",
+        "a-closed",
         "a-on-hold",
         "b-on-hold",
     ]);
@@ -335,7 +341,6 @@ Deno.test("runLoadPlanCommand no-arg TUI reports when only child plans exist", a
                     },
                 ]),
             resetTuiState: () => {},
-            setActiveAgent: () => {},
         }),
     });
 
@@ -362,7 +367,6 @@ Deno.test("runLoadPlanCommand empty plan list in TUI mode", async () => {
             parseArgs: () => ({ help: false, _: [] }),
             listPlans: () => Promise.resolve([]),
             resetTuiState: () => {},
-            setActiveAgent: () => {},
         }),
     });
 
@@ -398,9 +402,7 @@ Deno.test("runLoadPlanCommand approved plan proceed path", async () => {
                 return Promise.resolve(undefined);
             },
             recordPlanEvent: noOpRecordPlanEvent,
-            createAgentHandler: () => () => Promise.resolve(),
             resetTuiState: () => {},
-            setActiveAgent: () => {},
         }),
     });
 
@@ -434,7 +436,6 @@ Deno.test("runLoadPlanCommand draft Epic offers Architect review without Slicer 
                 }),
             findPlansByParent: () => Promise.resolve([]),
             resetTuiState: () => {},
-            setActiveAgent: () => {},
         }),
     });
 
@@ -479,9 +480,7 @@ Deno.test("runLoadPlanCommand ready-for-decomposition Epic offers Slicer first",
                 executed = true;
                 return Promise.resolve(undefined);
             },
-            createAgentHandler: () => () => Promise.resolve(),
             resetTuiState: () => {},
-            setActiveAgent: () => {},
         }),
     });
 
@@ -545,9 +544,7 @@ Deno.test("runLoadPlanCommand Epic with children shows ordered child labels, dep
                         },
                     },
                 ]),
-            createAgentHandler: () => () => Promise.resolve(),
             resetTuiState: () => {},
-            setActiveAgent: () => {},
         }),
     });
 
@@ -616,9 +613,7 @@ Deno.test("runLoadPlanCommand View Epic details includes child FEATURE labels an
                         },
                     },
                 ]),
-            createAgentHandler: () => () => Promise.resolve(),
             resetTuiState: () => {},
-            setActiveAgent: () => {},
         }),
     });
 
@@ -692,9 +687,7 @@ Deno.test("runLoadPlanCommand child FEATURE detail inspection resolves and displ
                 executed = true;
                 return Promise.resolve(undefined);
             },
-            createAgentHandler: () => () => Promise.resolve(),
             resetTuiState: () => {},
-            setActiveAgent: () => {},
         }),
     });
 
@@ -749,9 +742,7 @@ Deno.test("runLoadPlanCommand child FEATURE submenu back returns without loading
                 executed = true;
                 return Promise.resolve(undefined);
             },
-            createAgentHandler: () => () => Promise.resolve(),
             resetTuiState: () => {},
-            setActiveAgent: () => {},
         }),
     });
 
@@ -800,9 +791,7 @@ Deno.test("runLoadPlanCommand Epic done-enough confirm records lifecycle event",
                     epicDoneEnoughSummary: args.details.epicDoneEnoughSummary,
                 });
             },
-            createAgentHandler: () => () => Promise.resolve(),
             resetTuiState: () => {},
-            setActiveAgent: () => {},
         }),
     });
 
@@ -850,9 +839,7 @@ Deno.test("runLoadPlanCommand Epic done-enough can be canceled", async () => {
                 recorded = true;
                 return Promise.resolve({});
             },
-            createAgentHandler: () => () => Promise.resolve(),
             resetTuiState: () => {},
-            setActiveAgent: () => {},
         }),
     });
 
@@ -900,9 +887,7 @@ Deno.test("runLoadPlanCommand verified done-enough Epic remains re-enterable", a
                         attrs: { classification: "FEATURE", status: "draft" },
                     },
                 ]),
-            createAgentHandler: () => () => Promise.resolve(),
             resetTuiState: () => {},
-            setActiveAgent: () => {},
         }),
     });
 
@@ -939,9 +924,7 @@ Deno.test("runLoadPlanCommand verified done-enough Epic shows banner without chi
                     },
                 }),
             findPlansByParent: () => Promise.resolve([]),
-            createAgentHandler: () => () => Promise.resolve(),
             resetTuiState: () => {},
-            setActiveAgent: () => {},
         }),
     });
 
@@ -993,9 +976,7 @@ Deno.test("runLoadPlanCommand Epic child selection can be canceled", async () =>
                 executed = true;
                 return Promise.resolve(undefined);
             },
-            createAgentHandler: () => () => Promise.resolve(),
             resetTuiState: () => {},
-            setActiveAgent: () => {},
         }),
     });
 
@@ -1067,9 +1048,7 @@ Deno.test("runLoadPlanCommand Epic child selection delegates to FEATURE load beh
                 executedPlanName = options.planName;
                 return Promise.resolve(undefined);
             },
-            createAgentHandler: () => () => Promise.resolve(),
             resetTuiState: () => {},
-            setActiveAgent: () => {},
         }),
     });
 
@@ -1152,9 +1131,7 @@ Deno.test("runLoadPlanCommand Epic next shortcut loads first ordered non-verifie
                 executedPlanName = options.planName;
                 return Promise.resolve(undefined);
             },
-            createAgentHandler: () => () => Promise.resolve(),
             resetTuiState: () => {},
-            setActiveAgent: () => {},
         }),
     });
 
@@ -1202,9 +1179,7 @@ Deno.test("runLoadPlanCommand child FEATURE with verified dependencies executes 
                 executed = true;
                 return Promise.resolve(undefined);
             },
-            createAgentHandler: () => () => Promise.resolve(),
             resetTuiState: () => {},
-            setActiveAgent: () => {},
         }),
     });
 
@@ -1252,9 +1227,7 @@ Deno.test("runLoadPlanCommand child FEATURE warns for unverified dependencies an
                 executed = true;
                 return Promise.resolve(undefined);
             },
-            createAgentHandler: () => () => Promise.resolve(),
             resetTuiState: () => {},
-            setActiveAgent: () => {},
         }),
     });
 
@@ -1301,9 +1274,7 @@ Deno.test("runLoadPlanCommand child FEATURE warns for missing dependencies", asy
                 executed = true;
                 return Promise.resolve(undefined);
             },
-            createAgentHandler: () => () => Promise.resolve(),
             resetTuiState: () => {},
-            setActiveAgent: () => {},
         }),
     });
 
@@ -1351,9 +1322,7 @@ Deno.test("runLoadPlanCommand child FEATURE dependency warning can be canceled",
                 executed = true;
                 return Promise.resolve(undefined);
             },
-            createAgentHandler: () => () => Promise.resolve(),
             resetTuiState: () => {},
-            setActiveAgent: () => {},
         }),
     });
 
@@ -1410,9 +1379,7 @@ Deno.test("runLoadPlanCommand warns and cancels execution when affected paths ch
                 executed = true;
                 return Promise.resolve(undefined);
             },
-            createAgentHandler: () => () => Promise.resolve(),
             resetTuiState: () => {},
-            setActiveAgent: () => {},
         }),
     });
 
@@ -1469,9 +1436,7 @@ Deno.test("runLoadPlanCommand proceeds after affected path warning confirmation"
                 executed = true;
                 return Promise.resolve(undefined);
             },
-            createAgentHandler: () => () => Promise.resolve(),
             resetTuiState: () => {},
-            setActiveAgent: () => {},
         }),
     });
 
@@ -1512,9 +1477,7 @@ Deno.test("runLoadPlanCommand validates completed execution against freshly load
                 return Promise.resolve();
             },
             recordPlanEvent: noOpRecordPlanEvent,
-            createAgentHandler: () => async () => {},
             resetTuiState: () => {},
-            setActiveAgent: () => {},
         }),
     });
 
@@ -1549,8 +1512,6 @@ Deno.test("runLoadPlanCommand non-approved plan kicks off planning agent", async
                 lifecycleCalled = true;
                 return Promise.resolve({ outcome: "saved", planName: "plan-b" });
             },
-            createAgentHandler: () => async () => {},
-            setActiveAgent: () => {},
             resetTuiState: () => {},
         }),
     });
@@ -1583,7 +1544,6 @@ Deno.test("runLoadPlanCommand approved plan view then cancel", async () => {
                     },
                 }),
             resetTuiState: () => {},
-            setActiveAgent: () => {},
         }),
     });
 
@@ -1630,9 +1590,7 @@ Deno.test("runLoadPlanCommand approved review uses the Runtime review interactio
                 return Promise.resolve(undefined);
             },
             recordPlanEvent: noOpRecordPlanEvent,
-            createAgentHandler: () => async () => {},
             resetTuiState: () => {},
-            setActiveAgent: () => {},
         }),
     });
 
@@ -1705,9 +1663,7 @@ Deno.test("runLoadPlanCommand reapproval abandons the prior worktree generation"
                 return Promise.resolve({ ...event.details.triageMeta, status: "ready_for_work" });
             },
             askPostApproval: () => Promise.resolve("save"),
-            createAgentHandler: () => async () => {},
             resetTuiState: () => {},
-            setActiveAgent: () => {},
         }),
     });
 
@@ -1768,9 +1724,7 @@ Deno.test("runLoadPlanCommand approved PROJECT review runs slicer before proceed
                 return Promise.resolve();
             },
             recordPlanEvent: noOpRecordPlanEvent,
-            createAgentHandler: () => async () => {},
             resetTuiState: () => {},
-            setActiveAgent: () => {},
         }),
     });
 
@@ -1834,9 +1788,7 @@ Deno.test("runLoadPlanCommand approved PROJECT Epic opens Slicer without executi
                 events.push({ event: args.event, currentStatus: args.currentStatus });
                 return Promise.resolve(/** @type {any} */ ({}));
             },
-            createAgentHandler: () => async () => {},
             resetTuiState: () => {},
-            setActiveAgent: () => {},
         }),
     });
 
@@ -1879,9 +1831,7 @@ Deno.test("runLoadPlanCommand ready_for_decomposition PROJECT Epic does not exec
                 executed = true;
                 return Promise.resolve({ repairRequired: false, executionComplete: true });
             },
-            createAgentHandler: () => async () => {},
             resetTuiState: () => {},
-            setActiveAgent: () => {},
         }),
     });
 
@@ -1921,7 +1871,6 @@ Deno.test("runLoadPlanCommand approved review proceed keeps plan owner without t
             executePlan: () => Promise.resolve({ repairRequired: false, executionComplete: true }),
             runValidationLoop: () => Promise.resolve(),
             recordPlanEvent: noOpRecordPlanEvent,
-            createAgentHandler: () => async () => {},
             resetTuiState: () => {},
         }),
     });
@@ -1963,9 +1912,7 @@ Deno.test("runLoadPlanCommand approved review kicks off planner on denial", asyn
                 plannerCalled = true;
                 return Promise.resolve({ outcome: "saved", planName: "plan-d2" });
             },
-            createAgentHandler: () => async () => {},
             resetTuiState: () => {},
-            setActiveAgent: () => {},
         }),
     });
 
@@ -2005,9 +1952,7 @@ Deno.test("runLoadPlanCommand approved proceed with repair reroutes to planner",
                 repairRequest = opts.initialRequest;
                 return Promise.resolve({ outcome: "executed", planName: "plan-e" });
             },
-            createAgentHandler: () => async () => {},
             resetTuiState: () => {},
-            setActiveAgent: () => {},
         }),
     });
 
@@ -2050,9 +1995,7 @@ Deno.test("runLoadPlanCommand ready_for_work plan proceed path executes", async 
                 executed = true;
                 return Promise.resolve(undefined);
             },
-            createAgentHandler: () => async () => {},
             resetTuiState: () => {},
-            setActiveAgent: () => {},
         }),
     });
 
@@ -2093,9 +2036,7 @@ Deno.test("runLoadPlanCommand skips affected path history in non-Git projects", 
                 executed = true;
                 return Promise.resolve(undefined);
             },
-            createAgentHandler: () => async () => {},
             resetTuiState: () => {},
-            setActiveAgent: () => {},
         }),
     });
 
@@ -2144,9 +2085,7 @@ Deno.test("runLoadPlanCommand in_progress plan can continue from current worktre
                 executed = true;
                 return Promise.resolve(undefined);
             },
-            createAgentHandler: () => async () => {},
             resetTuiState: () => {},
-            setActiveAgent: () => {},
         }),
     });
 
@@ -2191,9 +2130,7 @@ Deno.test("runLoadPlanCommand blocks Git-dependent recovery continue in non-Git 
                 return Promise.resolve(undefined);
             },
             recordWorkflowMetric: () => Promise.resolve(null),
-            createAgentHandler: () => async () => {},
             resetTuiState: () => {},
-            setActiveAgent: () => {},
         }),
     });
 
@@ -2277,9 +2214,7 @@ Deno.test("runLoadPlanCommand performs metadata-only recovery reset in non-Git p
                 return Promise.resolve(/** @type {any} */ ({}));
             },
             recordWorkflowMetric: () => Promise.resolve(null),
-            createAgentHandler: () => async () => {},
             resetTuiState: () => {},
-            setActiveAgent: () => {},
         }),
     });
 
@@ -2341,9 +2276,7 @@ Deno.test("runLoadPlanCommand failed plan can reset baseline and start over", as
                 executed = true;
                 return Promise.resolve(undefined);
             },
-            createAgentHandler: () => async () => {},
             resetTuiState: () => {},
-            setActiveAgent: () => {},
         }),
     });
 
@@ -2393,9 +2326,7 @@ Deno.test("runLoadPlanCommand refuses worktree reset when recorded recreate base
                 recreated = true;
                 return Promise.resolve(/** @type {any} */ ({}));
             },
-            createAgentHandler: () => async () => {},
             resetTuiState: () => {},
-            setActiveAgent: () => {},
         }),
     });
 
@@ -2478,9 +2409,7 @@ Deno.test("runLoadPlanCommand recreates worktree reset from recorded base commit
                 executed = true;
                 return Promise.resolve(undefined);
             },
-            createAgentHandler: () => async () => {},
             resetTuiState: () => {},
-            setActiveAgent: () => {},
         }),
     });
 
@@ -2567,9 +2496,7 @@ Deno.test("runLoadPlanCommand recreates missing worktree reset after warning con
                 executed = true;
                 return Promise.resolve(undefined);
             },
-            createAgentHandler: () => async () => {},
             resetTuiState: () => {},
-            setActiveAgent: () => {},
         }),
     });
 
@@ -2612,9 +2539,7 @@ Deno.test("runLoadPlanCommand in_progress inspect reports failure and baseline d
                 }),
             getWorkflowDiff: (/** @type {string} */ _cwd, /** @type {string} */ baselineTree) =>
                 Promise.resolve(`diff for ${baselineTree}`),
-            createAgentHandler: () => async () => {},
             resetTuiState: () => {},
-            setActiveAgent: () => {},
         }),
     });
 
@@ -2660,9 +2585,7 @@ Deno.test("runLoadPlanCommand implemented plan retries validation", async () => 
                 fixture.runtime.clearActiveExecutionWorkflow(fixture.context.sessionId);
                 return Promise.resolve();
             },
-            createAgentHandler: () => async () => {},
             resetTuiState: () => {},
-            setActiveAgent: () => {},
         }),
     });
 
@@ -2717,9 +2640,7 @@ Deno.test("runLoadPlanCommand only offers manual merge for merge-conflict worktr
                     }),
                 findWorktreeById: () => Promise.resolve(null),
                 findWorktreeByPlanName: () => Promise.resolve(null),
-                createAgentHandler: () => async () => {},
                 resetTuiState: () => {},
-                setActiveAgent: () => {},
             }),
         });
 
@@ -2768,9 +2689,7 @@ Deno.test("runLoadPlanCommand refuses forced manual merge before validation-back
                 events.push(event.event);
                 return Promise.resolve(/** @type {any} */ ({}));
             },
-            createAgentHandler: () => async () => {},
             resetTuiState: () => {},
-            setActiveAgent: () => {},
         }),
     });
 
@@ -2911,9 +2830,7 @@ Deno.test("runLoadPlanCommand keeps a successful manual merge canonical when reg
                     metric.event === "recovery_action_result" && metric.details.result === "merged"
                         ? Promise.reject(new Error("metrics unavailable"))
                         : Promise.resolve(null),
-                createAgentHandler: () => async () => {},
                 resetTuiState: () => {},
-                setActiveAgent: () => {},
             }),
         });
 
@@ -3021,9 +2938,7 @@ Deno.test("runLoadPlanCommand reapplies verified Plan metadata after real manual
             removeWorktreeRegistryEntry: () => Promise.resolve(),
             shouldCleanupMergedWorktrees: () => false,
             recordWorkflowMetric: () => Promise.resolve(null),
-            createAgentHandler: () => async () => {},
             resetTuiState: () => {},
-            setActiveAgent: () => {},
         });
 
         const firstUi = makeUi();
@@ -3150,9 +3065,7 @@ Deno.test("runLoadPlanCommand records recovery metric when manual merge fails", 
                     metrics.push(metric);
                     return Promise.resolve(null);
                 },
-                createAgentHandler: () => async () => {},
                 resetTuiState: () => {},
-                setActiveAgent: () => {},
             }),
         });
 
@@ -3204,9 +3117,7 @@ Deno.test("runLoadPlanCommand verified plan review path records review_reopened"
                 lifecycleCalled = true;
                 return Promise.resolve({ outcome: "saved", planName: "plan-verified-review" });
             },
-            createAgentHandler: () => async () => {},
             resetTuiState: () => {},
-            setActiveAgent: () => {},
         }),
     });
 
@@ -3252,9 +3163,7 @@ Deno.test("runLoadPlanCommand verified plan cancel returns without changes", asy
                 lifecycleCalled = true;
                 return Promise.resolve({ outcome: "saved" });
             },
-            createAgentHandler: () => async () => {},
             resetTuiState: () => {},
-            setActiveAgent: () => {},
         }),
     });
 
@@ -3311,7 +3220,6 @@ Deno.test("runLoadPlanCommand keeps planner active when lifecycle canceled", asy
                     },
                 }),
             runPlanningAgent: () => Promise.resolve({ outcome: "canceled" }),
-            createAgentHandler: () => async () => {},
             resetTuiState: () => {},
         }),
     });
@@ -3345,7 +3253,6 @@ Deno.test("runLoadPlanCommand keeps planner active when agent ends without plan_
                     },
                 }),
             runPlanningAgent: () => Promise.resolve({ outcome: "no_call" }),
-            createAgentHandler: () => async () => {},
             resetTuiState: () => {},
         }),
     });
@@ -3379,7 +3286,6 @@ Deno.test("runLoadPlanCommand keeps planner active after lifecycle saves a plan 
                     },
                 }),
             runPlanningAgent: () => Promise.resolve({ outcome: "saved", planName: "plan-g" }),
-            createAgentHandler: () => async () => {},
             resetTuiState: () => {},
         }),
     });
@@ -3412,7 +3318,6 @@ Deno.test("runLoadPlanCommand restores the initially active agent after lifecycl
                     },
                 }),
             runPlanningAgent: () => Promise.resolve({ outcome: "saved", planName: "plan-j" }),
-            createAgentHandler: () => async () => {},
             resetTuiState: () => {},
         }),
     });
@@ -3450,8 +3355,6 @@ Deno.test("runLoadPlanCommand draft FEATURE can be put on hold", async () => {
                 recorded = args;
                 return Promise.resolve({ status: "on_hold", heldFromStatus: "draft" });
             },
-            createAgentHandler: () => async () => {},
-            setActiveAgent: () => {},
             resetTuiState: () => {},
         }),
     });
@@ -3497,8 +3400,6 @@ Deno.test("runLoadPlanCommand on-hold plan resumes after passing Resume Check", 
                     holdStalenessBaseline: null,
                 });
             },
-            createAgentHandler: () => async () => {},
-            setActiveAgent: () => {},
             resetTuiState: () => {},
         }),
     });
@@ -3537,8 +3438,6 @@ Deno.test("runLoadPlanCommand on-hold plan can reset status to draft", async () 
                 recorded = args;
                 return Promise.resolve({ status: "draft", heldFromStatus: null });
             },
-            createAgentHandler: () => async () => {},
-            setActiveAgent: () => {},
             resetTuiState: () => {},
         }),
     });
@@ -3588,8 +3487,6 @@ Deno.test("runLoadPlanCommand blocks child FEATURE when parent Epic is on hold",
                             },
                         },
                 ),
-            createAgentHandler: () => async () => {},
-            setActiveAgent: () => {},
             resetTuiState: () => {},
         }),
     });
@@ -3635,8 +3532,6 @@ Deno.test("runLoadPlanCommand Epic can be put on hold with warning", async () =>
                 recorded = args;
                 return Promise.resolve({ status: "on_hold", heldFromStatus: "ready_for_work" });
             },
-            createAgentHandler: () => async () => {},
-            setActiveAgent: () => {},
             resetTuiState: () => {},
         }),
     });
@@ -3691,8 +3586,6 @@ Deno.test("runLoadPlanCommand child FEATURE can be put on hold with child-only w
                 recorded = args;
                 return Promise.resolve({ status: "on_hold", heldFromStatus: "draft" });
             },
-            createAgentHandler: () => async () => {},
-            setActiveAgent: () => {},
             resetTuiState: () => {},
         }),
     });
@@ -3732,8 +3625,6 @@ Deno.test("runLoadPlanCommand on-hold resume warning can keep plan on hold", asy
                 recorded = args;
                 return Promise.resolve({ status: "ready_for_work" });
             },
-            createAgentHandler: () => async () => {},
-            setActiveAgent: () => {},
             resetTuiState: () => {},
         }),
     });
@@ -3777,8 +3668,6 @@ Deno.test("runLoadPlanCommand on-hold resume warning can proceed", async () => {
                 recorded = args;
                 return Promise.resolve({ status: "ready_for_work" });
             },
-            createAgentHandler: () => async () => {},
-            setActiveAgent: () => {},
             resetTuiState: () => {},
         }),
     });
@@ -3819,8 +3708,6 @@ Deno.test("runLoadPlanCommand failed Resume Check keeps plan on hold", async () 
                 recorded = args;
                 return Promise.resolve({ status: "implemented" });
             },
-            createAgentHandler: () => async () => {},
-            setActiveAgent: () => {},
             resetTuiState: () => {},
         }),
     });
@@ -3883,8 +3770,6 @@ Deno.test("runLoadPlanCommand on-hold reset can delete recorded worktree", async
                 recorded = args;
                 return Promise.resolve({ status: "draft", heldFromStatus: null });
             },
-            createAgentHandler: () => async () => {},
-            setActiveAgent: () => {},
             resetTuiState: () => {},
         }),
     });
