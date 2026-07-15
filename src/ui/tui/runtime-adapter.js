@@ -1,6 +1,6 @@
 /**
  * @module ui/tui/runtime-adapter
- * Renders one Hosted Session's semantic runtime events into the terminal UI.
+ * Renders one SessionRuntime event stream into the terminal UI.
  */
 
 import { RuntimeEventTypes } from "../../shared/session/session-runtime-events.js";
@@ -16,13 +16,13 @@ const HIDDEN_TOOL_BLOCK_NAMES = new Set(["task_completed", "review_complete", "u
  * @property {() => void} dispose
  */
 
-/** @type {WeakMap<import('../../shared/session/hosted-session.js').HostedSession, TuiRuntimeAdapterRegistration>} */
+/** @type {WeakMap<import('../../shared/session/session-runtime.js').SessionRuntime, Map<string, TuiRuntimeAdapterRegistration>>} */
 const activeAdapters = new WeakMap();
 
 /**
  * @typedef {Object} TuiRuntimeAdapterOptions
  * @property {import('../../shared/session/session-runtime.js').SessionRuntime} runtime
- * @property {import('../../shared/session/hosted-session.js').HostedSession} hostedSession
+ * @property {string} sessionId
  * @property {import('./types.js').UiAPI} uiAPI
  * @property {typeof notifyRunWieldEventQuietly} [notifyRunWieldEvent]
  */
@@ -64,11 +64,18 @@ function appendToolText(block, text) {
  */
 export function attachTuiRuntimeAdapter({
     runtime,
-    hostedSession,
+    sessionId,
     uiAPI,
     notifyRunWieldEvent = notifyRunWieldEventQuietly,
 }) {
-    activeAdapters.get(hostedSession)?.dispose();
+    let registrations = activeAdapters.get(runtime);
+    if (!registrations) {
+        registrations = new Map();
+        activeAdapters.set(runtime, registrations);
+    }
+    if (registrations.has(sessionId)) {
+        throw new Error(`A TUI Runtime adapter is already attached to session ${sessionId}`);
+    }
 
     /** @type {Map<string, import('./types.js').AgentMessageAppender>} */
     const assistantMessages = new Map();
@@ -77,10 +84,9 @@ export function attachTuiRuntimeAdapter({
     /** @type {Map<string, string>} */
     const thinkingTextByMessageId = new Map();
 
-    runtime.attachRuntimeEventSink(hostedSession);
-    runtime.setInteractionAdapter(hostedSession, createTuiInteractionAdapter(uiAPI), { kind: "tui" });
+    runtime.setInteractionAdapter(sessionId, createTuiInteractionAdapter(uiAPI));
 
-    const unsubscribe = runtime.subscribeSessionEvents(hostedSession, (event) => {
+    const unsubscribe = runtime.subscribeSessionEvents(sessionId, (event) => {
         const value = /** @type {any} */ (event);
         switch (event.type) {
             case RuntimeEventTypes.USER_MESSAGE:
@@ -176,9 +182,7 @@ export function attachTuiRuntimeAdapter({
                 uiAPI.appendSystemMessage(textValue(value.message || value.error), true);
                 break;
             case RuntimeEventTypes.CANCELLATION:
-                if (value.reason && value.reason !== "session_cancel") {
-                    uiAPI.appendSystemMessage(textValue(value.reason));
-                }
+                if (value.message) uiAPI.appendSystemMessage(textValue(value.message), false, "RunWield");
                 break;
             case RuntimeEventTypes.BUSY_CHANGED:
                 uiAPI.setBusy?.(Boolean(value.busy));
@@ -212,9 +216,9 @@ export function attachTuiRuntimeAdapter({
                 uiAPI.requestRender();
                 break;
             case RuntimeEventTypes.ATTENTION_REQUESTED: {
-                const sessionManager = hostedSession.getRootSessionManager?.();
+                const snapshot = runtime.getSessionSnapshot(sessionId);
                 notifyRunWieldEvent(value.reason, {
-                    sessionName: sessionManager?.getSessionName?.(),
+                    sessionName: snapshot?.name || undefined,
                     agentName: value.agentName,
                 });
                 break;
@@ -222,7 +226,7 @@ export function attachTuiRuntimeAdapter({
         }
     });
 
-    for (const message of runtime.getSessionSnapshot(hostedSession)?.queuedMessages || []) {
+    for (const message of runtime.getSessionSnapshot(sessionId)?.queuedMessages || []) {
         uiAPI.appendQueuedMessage?.(message.id, formatQueuedMessageText(message));
     }
 
@@ -236,11 +240,11 @@ export function attachTuiRuntimeAdapter({
             thinkingMessages.clear();
             thinkingTextByMessageId.clear();
             assistantMessages.clear();
-            if (activeAdapters.get(hostedSession) !== registration) return;
-            activeAdapters.delete(hostedSession);
-            runtime.setInteractionAdapter(hostedSession, null, null);
+            if (registrations.get(sessionId) !== registration) return;
+            registrations.delete(sessionId);
+            runtime.setInteractionAdapter(sessionId, null);
         },
     };
-    activeAdapters.set(hostedSession, registration);
+    registrations.set(sessionId, registration);
     return registration;
 }

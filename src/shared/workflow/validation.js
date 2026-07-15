@@ -8,13 +8,19 @@ import { dirname, fromFileUrl, join } from "@std/path";
 import { AGENTS } from "../../constants.js";
 import { formatGitRequiredMessage, isGitRepositoryRequiredError } from "../git.js";
 import { getAgentDisplayName } from "../session/agents.js";
-import { ensureBundledAgentDefFile, runAgentSession } from "../session/session.js";
+import { ensureBundledAgentDefFile } from "../session/agent-assets.js";
+import { runAgentSession } from "../session/session.js";
 import { getCodeReviewMode, getCustomSetting, setCustomSetting, shouldCleanupMergedWorktrees } from "../settings.js";
 import { readLatestReviewOutcome, readLatestTaskCompletedOutcome } from "./workflow.js";
 import { switchActiveAgent } from "../session/agent-switching.js";
+import {
+    emitHostedSessionRuntimeEvent,
+    emitSystemStatus,
+    RuntimeEventTypes,
+} from "../session/session-runtime-events.js";
+import { requestHostedSessionInteraction, RuntimeInteractionTypes } from "../session/session-runtime-interactions.js";
 import { getWorkflowDiff } from "./git-snapshot.js";
 import { recordPlanEvent, stageValidationPassedInExecutionWorktree } from "./plan-lifecycle.js";
-import { formatCodeReviewAnnotations, runPlannotatorCodeReview } from "./code-review.js";
 import { recordWorkflowMetric } from "./metrics.js";
 import {
     mergeExecutionWorktree,
@@ -31,7 +37,6 @@ import { buildLargeDiffReviewPrompt, createReviewDiffTool } from "./review-diff-
 export const __dirname = dirname(fromFileUrl(import.meta.url));
 const WORKFLOW_PROMPTS_DIR = "workflow-prompts";
 const REVIEWER_PROMPT_FILE = "reviewer-prompt.md";
-const SUCCESS_MESSAGE_STYLE = { bodyColor: "success" };
 const VALIDATION_STREAM_OUTPUT_LIMIT_BYTES = 1024 * 1024;
 
 /** @type {number} Maximum bytes of workflow diff to include inline in the reviewer prompt. */
@@ -157,22 +162,24 @@ export async function loadReviewerPrompt(
 }
 
 /**
- * @param {import('./workflow.js').UiAPI} uiAPI
+ * @param {import('../session/hosted-session.js').HostedSession} hostedSession
  * @param {string} projectRoot
  *
  * @returns {Promise<string>}
  */
-async function getOrAskForValidationCommand(uiAPI, projectRoot) {
+async function getOrAskForValidationCommand(hostedSession, projectRoot) {
     const existingCommand = getCustomSetting("verification_command", "project", projectRoot);
     if (existingCommand) {
         return /** @type {string} */ (existingCommand);
     }
 
-    uiAPI.appendSystemMessage("No validation command found in project settings.");
-    const userInput = await uiAPI.promptText(
-        "Enter the command to validate this project (e.g., 'deno task ci', 'npm test'): ",
-        { allowEmpty: false },
-    );
+    emitSystemStatus(hostedSession, "No validation command found in project settings.");
+    const response = await requestHostedSessionInteraction(hostedSession, {
+        type: RuntimeInteractionTypes.TEXT,
+        prompt: "Enter the command to validate this project (e.g., 'deno task ci', 'npm test'): ",
+        allowEmpty: false,
+    });
+    const userInput = response.outcome === "text" ? String(response.value || "") : "";
 
     if (!userInput) {
         return "";
@@ -181,7 +188,7 @@ async function getOrAskForValidationCommand(uiAPI, projectRoot) {
     const newCommand = userInput.trim();
     await setCustomSetting("verification_command", newCommand, "project", projectRoot);
 
-    uiAPI.appendSystemMessage(`Saved validation command: '${newCommand}'`);
+    emitSystemStatus(hostedSession, `Saved validation command: '${newCommand}'`);
     return newCommand;
 }
 
@@ -195,20 +202,14 @@ async function getOrAskForValidationCommand(uiAPI, projectRoot) {
  */
 
 /**
- * @typedef {Object} LocalCIOptions
- * @property {import('../session/hosted-session.js').HostedSession} [hostedSession]
- */
-
-/**
- * @param {import('./workflow.js').UiAPI} uiAPI
- * @param {string} [cwd]
- * @param {LocalCIOptions} [options]
+ * @param {{ hostedSession: import('../session/hosted-session.js').HostedSession, cwd: string }} options
  *
  * @returns {Promise<LocalCIResult>}
  */
-export async function runLocalCI(uiAPI, cwd, options = {}) {
+export async function runLocalCI({ hostedSession, cwd }) {
     if (!cwd) throw new Error("runLocalCI: cwd is required");
-    const cmdArgs = await getOrAskForValidationCommand(uiAPI, cwd);
+    if (!hostedSession) throw new Error("runLocalCI: hostedSession is required");
+    const cmdArgs = await getOrAskForValidationCommand(hostedSession, cwd);
 
     if (!cmdArgs) {
         return {
@@ -233,14 +234,15 @@ export async function runLocalCI(uiAPI, cwd, options = {}) {
         }
     };
     abortController.signal.addEventListener("abort", abortValidationProcess, { once: true });
-    options.hostedSession?.addActiveInteraction?.(interactionId, { abortController });
+    hostedSession.addActiveInteraction(interactionId, { abortController });
 
-    uiAPI.addToolInvoked?.({
-        id: toolCallId,
-        name: "bash",
-        input: { command: cmdArgs },
+    emitHostedSessionRuntimeEvent(hostedSession, {
+        type: RuntimeEventTypes.TOOL_START,
+        toolCallId,
+        toolName: "bash",
+        title: `$ ${cmdArgs}`,
+        args: { command: cmdArgs },
     });
-    const toolBlock = uiAPI.startToolExecution?.(toolCallId, "$", cmdArgs);
     const startTime = Date.now();
 
     try {
@@ -267,14 +269,14 @@ export async function runLocalCI(uiAPI, cwd, options = {}) {
         const durationMs = Date.now() - startTime;
         const isError = canceled || status.code !== 0;
 
-        toolBlock?.appendOutput(output.trim() ? output : "(no output)\n");
-        toolBlock?.endExecution(isError, durationMs);
-        uiAPI.addToolResult?.({
-            id: toolCallId,
-            name: "bash",
+        emitHostedSessionRuntimeEvent(hostedSession, {
+            type: RuntimeEventTypes.TOOL_END,
+            toolCallId,
+            toolName: "bash",
+            text: output.trim() ? output : "(no output)\n",
             result: output,
             isError,
-            durationMs,
+            _meta: { durationMs },
         });
 
         return {
@@ -285,14 +287,14 @@ export async function runLocalCI(uiAPI, cwd, options = {}) {
     } catch (/** @type {any} */ error) {
         const output = canceled ? "Validation canceled." : `Failed to spawn validation process: ${error.message}`;
         const durationMs = Date.now() - startTime;
-        toolBlock?.appendOutput(`${output}\n`);
-        toolBlock?.endExecution(true, durationMs);
-        uiAPI.addToolResult?.({
-            id: toolCallId,
-            name: "bash",
+        emitHostedSessionRuntimeEvent(hostedSession, {
+            type: RuntimeEventTypes.TOOL_END,
+            toolCallId,
+            toolName: "bash",
+            text: `${output}\n`,
             result: output,
             isError: true,
-            durationMs,
+            _meta: { durationMs },
         });
         return {
             exitCode: canceled ? 130 : 1,
@@ -301,7 +303,7 @@ export async function runLocalCI(uiAPI, cwd, options = {}) {
         };
     } finally {
         abortController.signal.removeEventListener("abort", abortValidationProcess);
-        options.hostedSession?.removeActiveInteraction?.(interactionId);
+        hostedSession.removeActiveInteraction(interactionId);
     }
 }
 
@@ -347,10 +349,9 @@ function startsWithMessages(messages, prefix) {
  * @param {string} args.agentName
  * @param {string} args.userRequest
  * @param {Array<{base64: string, mimeType: string}>} [args.images]
- * @param {import('./workflow.js').UiAPI} args.uiAPI
  * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined} args.sessionManager
  * @param {string} [args.cwd]
- * @param {import('../session/hosted-session.js').HostedSession} [args.hostedSession]
+ * @param {import('../session/hosted-session.js').HostedSession} args.hostedSession
  * @param {typeof runAgentSession} [args.runAgentSession]
  * @param {typeof readLatestTaskCompletedOutcome} [args.readLatestTaskCompletedOutcome]
  * @returns {Promise<boolean>}
@@ -359,7 +360,6 @@ async function runCompletionGatedRepair({
     agentName,
     userRequest,
     images = [],
-    uiAPI,
     sessionManager,
     cwd,
     hostedSession,
@@ -373,7 +373,6 @@ async function runCompletionGatedRepair({
         agentName,
         userRequest,
         images,
-        uiAPI,
         sessionManager,
         cwd,
         useRootSession: true,
@@ -405,19 +404,21 @@ async function getGitDiffText(baselineTree, cwd) {
  */
 
 /**
- * @param {import('./workflow.js').UiAPI} uiAPI
+ * @param {import('../session/hosted-session.js').HostedSession} hostedSession
  * @param {string} reason
  * @returns {Promise<"retry" | "stop">}
  */
-async function promptForMergeFailureAction(uiAPI, reason) {
-    const choice = await uiAPI.promptSelect?.(
-        `Worktree merge failed:\n${reason}\n\nResolve and stage the conflicts, or run git merge --abort, then retry.`,
-        [
+async function promptForMergeFailureAction(hostedSession, reason) {
+    const response = await requestHostedSessionInteraction(hostedSession, {
+        type: RuntimeInteractionTypes.SELECT,
+        prompt:
+            `Worktree merge failed:\n${reason}\n\nResolve and stage the conflicts, or run git merge --abort, then retry.`,
+        options: [
             { value: "retry", label: "Retry/continue merge" },
             { value: "stop", label: "Stop" },
         ],
-    );
-    return choice === "retry" ? "retry" : "stop";
+    });
+    return response.outcome === "selected" && response.value === "retry" ? "retry" : "stop";
 }
 
 /**
@@ -602,13 +603,28 @@ ${diffContext}`
 }
 
 /**
- * @param {import('./workflow.js').UiAPI | undefined} uiAPI
+ * @param {import('../session/hosted-session.js').HostedSession | undefined} hostedSession
  * @param {string} text
- * @param {boolean} [isError]
- * @param {{ headingColor?: string, bodyColor?: string }} [style]
+ * @param {"info" | "success" | "warning" | "error" | boolean} [level]
  */
-function appendRunWieldSystemMessage(uiAPI, text, isError = false, style = {}) {
-    uiAPI?.appendSystemMessage?.(text, isError, "RunWield", style);
+function emitRunWieldSystemStatus(hostedSession, text, level = "info") {
+    const resolvedLevel = level === true ? "error" : level === false ? "info" : level;
+    emitSystemStatus(hostedSession, text, {
+        level: resolvedLevel,
+        header: "RunWield",
+    });
+}
+
+/**
+ * @param {Array<{file?: string, path?: string, filePath?: string, line?: number, text?: string, comment?: string}>} annotations
+ */
+function formatCodeReviewAnnotations(annotations) {
+    return annotations.map((annotation, index) => {
+        const file = annotation.file || annotation.path || annotation.filePath || "unknown file";
+        const line = typeof annotation.line === "number" ? `:${annotation.line}` : "";
+        const text = annotation.text || annotation.comment || "";
+        return `${index + 1}. ${file}${line}${text ? `\n${text}` : ""}`;
+    }).join("\n\n");
 }
 
 /**
@@ -678,7 +694,6 @@ export function shouldRunWorkflowValidation(triageMeta) {
  * worktree registry updates.
  *
  * @param {Object} args
- * @param {import('./workflow.js').UiAPI} args.uiAPI
  * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined} args.sessionManager
  * @param {import('../session/hosted-session.js').HostedSession} [args.hostedSession]
  * @param {string} [args.cwd]
@@ -693,7 +708,8 @@ export function shouldRunWorkflowValidation(triageMeta) {
  * }} [args.__deps] Test-only injection point.
  * @returns {Promise<{ passed: boolean, attempts: number, reason?: string }>}
  */
-export async function runMechanicalValidation({ uiAPI, sessionManager, hostedSession, cwd, __deps }) {
+export async function runMechanicalValidation({ sessionManager, hostedSession, cwd, __deps }) {
+    if (!hostedSession) throw new Error("runMechanicalValidation: hostedSession is required");
     const projectRoot = hostedSession?.cwd || cwd;
     if (!projectRoot) throw new Error("runMechanicalValidation: hostedSession or cwd is required");
     const validationCwd = cwd || hostedSession?.getActiveExecutionCwd?.() || projectRoot;
@@ -719,7 +735,7 @@ export async function runMechanicalValidation({ uiAPI, sessionManager, hostedSes
     /** @param {string} agentName */
     const activateAgent = async (agentName) => {
         if (!hostedSession) return;
-        await switchActiveAgentImpl(hostedSession, { agentName }, uiAPI);
+        await switchActiveAgentImpl(hostedSession, { agentName });
     };
     const maxRepairAttempts = 3;
     let repairAttempts = 0;
@@ -730,20 +746,14 @@ export async function runMechanicalValidation({ uiAPI, sessionManager, hostedSes
         planName: "quick-fix",
         details: { maxRepairAttempts },
     });
-    appendRunWieldSystemMessage(uiAPI, "Starting QUICK_FIX Mechanical Validation.");
+    emitRunWieldSystemStatus(hostedSession, "Starting QUICK_FIX Mechanical Validation.");
 
     while (true) {
-        appendRunWieldSystemMessage(
-            uiAPI,
+        emitRunWieldSystemStatus(
+            hostedSession,
             `Running QUICK_FIX CI Validation (Repair Attempts ${repairAttempts}/${maxRepairAttempts})...`,
         );
-        uiAPI?.setBusy?.(true);
-        let ciResult;
-        try {
-            ciResult = await runLocalCIImpl(uiAPI, validationCwd, { hostedSession });
-        } finally {
-            uiAPI?.setBusy?.(false);
-        }
+        const ciResult = await runLocalCIImpl({ hostedSession, cwd: validationCwd });
 
         await recordWorkflowMetricImpl({
             category: "validation",
@@ -758,7 +768,7 @@ export async function runMechanicalValidation({ uiAPI, sessionManager, hostedSes
         });
         if (ciResult.canceled) {
             const reason = "QUICK_FIX Mechanical Validation canceled. Staying with Engineer so messages can continue.";
-            appendRunWieldSystemMessage(uiAPI, reason, false);
+            emitRunWieldSystemStatus(hostedSession, reason, false);
             await recordWorkflowMetricImpl({
                 category: "validation",
                 event: "mechanical_validation_finished",
@@ -769,11 +779,10 @@ export async function runMechanicalValidation({ uiAPI, sessionManager, hostedSes
             return { passed: false, attempts: repairAttempts, reason: "canceled" };
         }
         if (ciResult.exitCode === 0) {
-            appendRunWieldSystemMessage(
-                uiAPI,
+            emitRunWieldSystemStatus(
+                hostedSession,
                 "QUICK_FIX Mechanical Validation passed.",
-                false,
-                SUCCESS_MESSAGE_STYLE,
+                "success",
             );
             await recordWorkflowMetricImpl({
                 category: "validation",
@@ -788,7 +797,7 @@ export async function runMechanicalValidation({ uiAPI, sessionManager, hostedSes
         if (repairAttempts >= maxRepairAttempts) {
             const reason =
                 `QUICK_FIX Mechanical Validation failed after ${maxRepairAttempts} Engineer repair attempts.`;
-            appendRunWieldSystemMessage(uiAPI, reason, true);
+            emitRunWieldSystemStatus(hostedSession, reason, true);
             await recordWorkflowMetricImpl({
                 category: "validation",
                 event: "mechanical_validation_finished",
@@ -807,8 +816,8 @@ export async function runMechanicalValidation({ uiAPI, sessionManager, hostedSes
             planName: "quick-fix",
             details: { repairAttempt: repairAttempts },
         });
-        appendRunWieldSystemMessage(
-            uiAPI,
+        emitRunWieldSystemStatus(
+            hostedSession,
             `QUICK_FIX CI failed. Dispatching ${
                 getAgentDisplayName(AGENTS.ENGINEER, projectRoot)
             } for repair attempt ${repairAttempts}/${maxRepairAttempts}...`,
@@ -820,7 +829,6 @@ export async function runMechanicalValidation({ uiAPI, sessionManager, hostedSes
                 "The no-plan QUICK_FIX failed Mechanical Validation. Fix the following CI errors, do not expand scope, " +
                 "run appropriate verification, then call task_completed when the repair is complete:\n\n" +
                 ciResult.output,
-            uiAPI,
             sessionManager,
             cwd: validationCwd,
             hostedSession,
@@ -836,8 +844,8 @@ export async function runMechanicalValidation({ uiAPI, sessionManager, hostedSes
             const reason = `${
                 getAgentDisplayName(AGENTS.ENGINEER, projectRoot)
             } stopped without task_completed during QUICK_FIX repair.`;
-            appendRunWieldSystemMessage(
-                uiAPI,
+            emitRunWieldSystemStatus(
+                hostedSession,
                 `${reason} Staying with ${
                     getAgentDisplayName(AGENTS.ENGINEER, projectRoot)
                 } so the user can continue the session. ` +
@@ -869,9 +877,8 @@ export async function runMechanicalValidation({ uiAPI, sessionManager, hostedSes
  * @param {string} args.planName
  * @param {string} args.planContent
  * @param {import('../../tools/plan-written.js').TriageMeta} args.triageMeta
- * @param {import('./workflow.js').UiAPI} args.uiAPI
  * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined} args.sessionManager
- * @param {import('../session/hosted-session.js').HostedSession} [args.hostedSession]
+ * @param {import('../session/hosted-session.js').HostedSession} args.hostedSession
  * @param {string | undefined} [args.finalAgentName] Agent to restore after router-started or direct workflows.
  * @param {{
  *   runLocalCI?: typeof runLocalCI,
@@ -892,7 +899,7 @@ export async function runMechanicalValidation({ uiAPI, sessionManager, hostedSes
  *   loadReviewerPrompt?: typeof loadReviewerPrompt,
  *   shouldCleanupMergedWorktrees?: typeof shouldCleanupMergedWorktrees,
  *   getCodeReviewMode?: typeof getCodeReviewMode,
- *   runPlannotatorCodeReview?: typeof runPlannotatorCodeReview,
+ *   requestInteraction?: typeof requestHostedSessionInteraction,
  *   verifyExecutionWorktreeMerged?: typeof verifyExecutionWorktreeMerged,
  *   recordWorkflowMetric?: typeof recordWorkflowMetric,
  * }} [args.__deps] Test-only injection point.
@@ -901,12 +908,12 @@ export async function runValidationLoop({
     planName,
     planContent,
     triageMeta,
-    uiAPI,
     sessionManager,
     hostedSession,
     finalAgentName,
     __deps,
 }) {
+    if (!hostedSession) throw new Error("runValidationLoop: hostedSession is required");
     const runLocalCIImpl = __deps?.runLocalCI || runLocalCI;
     const runAgentSessionImpl = __deps?.runAgentSession || runAgentSession;
     const repair = __deps?.runCompletionGatedRepair ||
@@ -931,7 +938,7 @@ export async function runValidationLoop({
     const loadReviewerPromptImpl = __deps?.loadReviewerPrompt || loadReviewerPrompt;
     const shouldCleanupMergedWorktreesImpl = __deps?.shouldCleanupMergedWorktrees || shouldCleanupMergedWorktrees;
     const getCodeReviewModeImpl = __deps?.getCodeReviewMode || getCodeReviewMode;
-    const runPlannotatorCodeReviewImpl = __deps?.runPlannotatorCodeReview || runPlannotatorCodeReview;
+    const requestInteraction = __deps?.requestInteraction || requestHostedSessionInteraction;
     const verifyExecutionWorktreeMergedImpl = __deps?.verifyExecutionWorktreeMerged || verifyExecutionWorktreeMerged;
     const recordWorkflowMetricSource = __deps?.recordWorkflowMetric || recordWorkflowMetric;
     const activeWorkflow = hostedSession?.getActiveExecutionWorkflow?.() || null;
@@ -956,8 +963,8 @@ export async function runValidationLoop({
     const switchActiveAgentImpl = __deps?.switchActiveAgent || switchActiveAgent;
     /** @param {string} reason */
     const pauseForEngineerContinuation = async (reason) => {
-        appendRunWieldSystemMessage(
-            uiAPI,
+        emitRunWieldSystemStatus(
+            hostedSession,
             `${reason} Staying with ${
                 getAgentDisplayName(AGENTS.ENGINEER, projectRoot)
             } so the user can continue the session. ` +
@@ -972,7 +979,7 @@ export async function runValidationLoop({
                 executionCwd,
                 validationContinuation: true,
             });
-            await switchActiveAgentImpl(hostedSession, { agentName: AGENTS.ENGINEER }, uiAPI);
+            await switchActiveAgentImpl(hostedSession, { agentName: AGENTS.ENGINEER });
         }
     };
     let executionComplete = false;
@@ -999,21 +1006,18 @@ export async function runValidationLoop({
             planName,
             details: { validationCycle: validationCycles, maxValidationCycles: MAX_VALIDATION_CYCLES },
         });
-        appendRunWieldSystemMessage(uiAPI, `Starting Validation Cycle ${validationCycles}/${MAX_VALIDATION_CYCLES}`);
+        emitRunWieldSystemStatus(
+            hostedSession,
+            `Starting Validation Cycle ${validationCycles}/${MAX_VALIDATION_CYCLES}`,
+        );
 
         let buildPasses = false;
         let mechanicalAttempts = 0;
 
         while (!buildPasses && mechanicalAttempts < 3) {
             mechanicalAttempts++;
-            appendRunWieldSystemMessage(uiAPI, `Running CI Validation (Attempt ${mechanicalAttempts}/3)...`);
-            uiAPI?.setBusy?.(true);
-            let ciResult;
-            try {
-                ciResult = await runLocalCIImpl(uiAPI, executionCwd, { hostedSession });
-            } finally {
-                uiAPI?.setBusy?.(false);
-            }
+            emitRunWieldSystemStatus(hostedSession, `Running CI Validation (Attempt ${mechanicalAttempts}/3)...`);
+            const ciResult = await runLocalCIImpl({ hostedSession, cwd: executionCwd });
 
             await recordWorkflowMetricImpl({
                 category: "validation",
@@ -1033,10 +1037,10 @@ export async function runValidationLoop({
             }
             if (ciResult.exitCode === 0) {
                 buildPasses = true;
-                appendRunWieldSystemMessage(uiAPI, "Build and tests passed.", false, SUCCESS_MESSAGE_STYLE);
+                emitRunWieldSystemStatus(hostedSession, "Build and tests passed.", "success");
             } else {
-                appendRunWieldSystemMessage(
-                    uiAPI,
+                emitRunWieldSystemStatus(
+                    hostedSession,
                     `Build failed. Dispatching ${
                         getAgentDisplayName(AGENTS.ENGINEER, projectRoot)
                     } to fix syntax/types...`,
@@ -1050,11 +1054,11 @@ export async function runValidationLoop({
                     details: { repairKind: "ci", validationCycle: validationCycles, attempt: mechanicalAttempts },
                 });
                 const completed = await repair({
+                    hostedSession,
                     agentName: AGENTS.ENGINEER,
                     userRequest:
                         "The project failed CI validation. Fix the following build errors, then call task_completed " +
                         `when the repair is complete:\n\n${ciResult.output}`,
-                    uiAPI,
                     sessionManager,
                     cwd: executionCwd,
                 });
@@ -1087,8 +1091,8 @@ export async function runValidationLoop({
         }
 
         if (nonGitInPlace) {
-            appendRunWieldSystemMessage(
-                uiAPI,
+            emitRunWieldSystemStatus(
+                hostedSession,
                 "Git is not available for this project. RunWield cannot compute a Git diff, so automated Semantic Code Review and human diff review are skipped for this in-place execution.",
                 true,
             );
@@ -1101,8 +1105,7 @@ export async function runValidationLoop({
             break;
         }
 
-        appendRunWieldSystemMessage(uiAPI, "Running Semantic Code Review...");
-        uiAPI?.setBusy?.(true);
+        emitRunWieldSystemStatus(hostedSession, "Running Semantic Code Review...");
         let diffText = "";
         let reviewResponse = "";
         let reviewOutcome = null;
@@ -1153,7 +1156,6 @@ export async function runValidationLoop({
                         hostedSession,
                         agentName: AGENTS.REVIEWER,
                         userRequest: reviewPrompt,
-                        uiAPI,
                         cwd: executionCwd,
                         _agentDefOverride: reviewerAgentDef,
                         customTools: reviewerCustomTools.length > 0 ? reviewerCustomTools : undefined,
@@ -1168,8 +1170,8 @@ export async function runValidationLoop({
                     const errorMsg = invocationError instanceof Error
                         ? invocationError.message
                         : String(invocationError);
-                    appendRunWieldSystemMessage(
-                        uiAPI,
+                    emitRunWieldSystemStatus(
+                        hostedSession,
                         `Semantic Reviewer execution failed: ${errorMsg}`,
                         true,
                     );
@@ -1181,8 +1183,8 @@ export async function runValidationLoop({
                 if (!reviewerFailed) {
                     reviewOutcome = readLatestReviewOutcome(sessionMessages);
                     if (!reviewOutcome) {
-                        appendRunWieldSystemMessage(
-                            uiAPI,
+                        emitRunWieldSystemStatus(
+                            hostedSession,
                             "Semantic Reviewer did not call review_complete. Treating as execution failure.",
                             true,
                         );
@@ -1195,31 +1197,31 @@ export async function runValidationLoop({
         } catch (error) {
             if (isGitRepositoryRequiredError(error)) {
                 haltReason = formatGitRequiredMessage(error);
-                appendRunWieldSystemMessage(uiAPI, `Workflow halted: ${haltReason}`, true);
+                emitRunWieldSystemStatus(hostedSession, `Workflow halted: ${haltReason}`, true);
             } else {
                 throw error;
             }
         } finally {
-            uiAPI?.setBusy?.(false);
+            // SessionRuntime owns turn/busy state for the full validation operation.
         }
 
         if (haltReason) break;
 
         // Handle reviewer execution failures with retry/cancel menu
         if (reviewerFailed && diffText.trim()) {
-            const shouldRetry = await uiAPI.promptSelect?.(
-                "Semantic Review failed to complete. What would you like to do?",
-                [
+            const retryResponse = await requestHostedSessionInteraction(hostedSession, {
+                type: RuntimeInteractionTypes.SELECT,
+                prompt: "Semantic Review failed to complete. What would you like to do?",
+                options: [
                     { value: "retry", label: "Retry Semantic Review" },
                     { value: "cancel", label: "Stop/Cancel Validation" },
                 ],
-            );
-            if (shouldRetry === "retry") {
+            });
+            if (retryResponse.outcome === "selected" && retryResponse.value === "retry") {
                 // Reset failure flag before retry; the first failure should not carry over
                 reviewerFailed = false;
                 // Rerun semantic review from the beginning of the cycle
-                appendRunWieldSystemMessage(uiAPI, "Retrying Semantic Code Review...");
-                uiAPI?.setBusy?.(true);
+                emitRunWieldSystemStatus(hostedSession, "Retrying Semantic Code Review...");
                 try {
                     // Rebuild diff and try again
                     const retryDiffText = await getDiffText(baselineTree, executionCwd);
@@ -1252,7 +1254,6 @@ export async function runValidationLoop({
                             hostedSession,
                             agentName: AGENTS.REVIEWER,
                             userRequest: retryPrompt,
-                            uiAPI,
                             cwd: executionCwd,
                             _agentDefOverride: retryAgentDef,
                             customTools: retryCustomTools.length > 0 ? retryCustomTools : undefined,
@@ -1267,23 +1268,22 @@ export async function runValidationLoop({
                         reviewOutcome = retryOutcome;
                     } catch (/** @type {any} */ retryError) {
                         const errorMsg = retryError instanceof Error ? retryError.message : String(retryError);
-                        appendRunWieldSystemMessage(
-                            uiAPI,
+                        emitRunWieldSystemStatus(
+                            hostedSession,
                             `Semantic Reviewer retry also failed: ${errorMsg}`,
                             true,
                         );
                         reviewerFailed = true;
                     }
                 } finally {
-                    uiAPI?.setBusy?.(false);
+                    // SessionRuntime owns turn/busy state for the full validation operation.
                 }
 
                 if (!reviewerFailed && reviewOutcome?.feedback != null) {
-                    appendRunWieldSystemMessage(
-                        uiAPI,
+                    emitRunWieldSystemStatus(
+                        hostedSession,
                         "Semantic Review retry completed.",
-                        false,
-                        SUCCESS_MESSAGE_STYLE,
+                        "success",
                     );
                     // Reset reviewerFailed so normal flow continues below
                     reviewerFailed = false;
@@ -1329,11 +1329,10 @@ export async function runValidationLoop({
         }
 
         if (!diffText.trim()) {
-            appendRunWieldSystemMessage(
-                uiAPI,
+            emitRunWieldSystemStatus(
+                hostedSession,
                 "No changes detected in diff. Assuming approved.",
-                false,
-                SUCCESS_MESSAGE_STYLE,
+                "success",
             );
             humanReviewMetadata = {
                 humanReviewMode: getCodeReviewModeImpl(projectRoot),
@@ -1351,7 +1350,7 @@ export async function runValidationLoop({
                 planName,
                 details: { validationCycle: validationCycles, approved: true, hasDiff: Boolean(diffText.trim()) },
             });
-            appendRunWieldSystemMessage(uiAPI, "Semantic Code Review Approved.", false, SUCCESS_MESSAGE_STYLE);
+            emitRunWieldSystemStatus(hostedSession, "Semantic Code Review Approved.", "success");
             const codeReviewMode = getCodeReviewModeImpl(projectRoot);
             if (codeReviewMode === "none") {
                 humanReviewMetadata = {
@@ -1369,14 +1368,15 @@ export async function runValidationLoop({
             } else {
                 let shouldOpenReview = codeReviewMode === "always";
                 if (codeReviewMode === "ask") {
-                    const choice = await uiAPI.promptSelect?.(
-                        "Semantic review passed. Open Plannotator for code review before merge-back?",
-                        [
+                    const reviewResponse = await requestInteraction(hostedSession, {
+                        type: RuntimeInteractionTypes.SELECT,
+                        prompt: "Semantic review passed. Open code review before merge-back?",
+                        options: [
                             { value: "open", label: "Open code review" },
                             { value: "skip", label: "Skip code review" },
                         ],
-                    );
-                    shouldOpenReview = choice === "open";
+                    });
+                    shouldOpenReview = reviewResponse.outcome === "selected" && reviewResponse.value === "open";
                     if (!shouldOpenReview) {
                         humanReviewMetadata = {
                             humanReviewMode: "ask",
@@ -1394,12 +1394,19 @@ export async function runValidationLoop({
                 }
 
                 if (shouldOpenReview) {
-                    appendRunWieldSystemMessage(uiAPI, "Opening Plannotator Code Review...");
-                    const humanReview = await runPlannotatorCodeReviewImpl({
-                        planName,
-                        diffText,
-                        executionCwd,
-                        uiAPI,
+                    emitRunWieldSystemStatus(hostedSession, "Opening code review...");
+                    const humanReviewResponse = await requestInteraction(hostedSession, {
+                        type: RuntimeInteractionTypes.CODE_REVIEW,
+                        prompt: `Review implementation diff for "${planName}"`,
+                        _meta: { planName, diffText, executionCwd },
+                    });
+                    const humanReview = /** @type {any} */ (humanReviewResponse._meta || {
+                        approved: false,
+                        feedback: humanReviewResponse.message || "",
+                        annotations: [],
+                        images: [],
+                        exit: true,
+                        canceled: humanReviewResponse.outcome === "canceled",
                     });
 
                     const hasHumanFeedback = Boolean(
@@ -1424,7 +1431,11 @@ export async function runValidationLoop({
                     }
 
                     if (humanReview.approved) {
-                        appendRunWieldSystemMessage(uiAPI, "User Code Review Approved.", false, SUCCESS_MESSAGE_STYLE);
+                        emitRunWieldSystemStatus(
+                            hostedSession,
+                            "User Code Review Approved.",
+                            "success",
+                        );
                         humanReviewMetadata = {
                             humanReviewMode: codeReviewMode,
                             humanReviewDecision: "approved",
@@ -1449,8 +1460,8 @@ export async function runValidationLoop({
                             humanReview.feedback || "(no free-text feedback provided)",
                             annotationText ? `Annotations:\n${annotationText}` : "",
                         ].filter(Boolean).join("\n\n");
-                        appendRunWieldSystemMessage(
-                            uiAPI,
+                        emitRunWieldSystemStatus(
+                            hostedSession,
                             `User code review returned feedback. Sending feedback back to ${
                                 getAgentDisplayName(AGENTS.ENGINEER, projectRoot)
                             }...\nUser Code Review Feedback:\n${feedbackText}`,
@@ -1476,12 +1487,12 @@ export async function runValidationLoop({
                             details: { repairKind: "human_review", validationCycle: validationCycles },
                         });
                         const completed = await repair({
+                            hostedSession,
                             agentName: AGENTS.ENGINEER,
                             userRequest:
                                 "The user provided feedback about your implementation during a code review. Please fix them, " +
                                 `do not break existing tests, and call task_completed when finished.\n\n` +
                                 `User Code Review Feedback:\n${feedbackText}`,
-                            uiAPI,
                             sessionManager,
                             cwd: executionCwd,
                             images: /** @type {Array<{base64: string, mimeType: string}>} */ (
@@ -1521,8 +1532,8 @@ export async function runValidationLoop({
                     hasReviewerOutput: Boolean(reviewResponse),
                 },
             });
-            appendRunWieldSystemMessage(
-                uiAPI,
+            emitRunWieldSystemStatus(
+                hostedSession,
                 `Review failed. Sending feedback back to ${getAgentDisplayName(AGENTS.ENGINEER, projectRoot)}...`,
                 true,
             );
@@ -1534,10 +1545,10 @@ export async function runValidationLoop({
                 details: { repairKind: "semantic", validationCycle: validationCycles },
             });
             const completed = await repair({
+                hostedSession,
                 agentName: AGENTS.ENGINEER,
                 userRequest: "The code reviewer found issues with your implementation. Please fix them, do not break " +
                     `existing tests, and call task_completed when finished.\n\nReviewer Feedback:\n${reviewResponse}`,
-                uiAPI,
                 sessionManager,
                 cwd: executionCwd,
             });
@@ -1579,8 +1590,8 @@ export async function runValidationLoop({
         let mergeBackCompleted = false;
 
         if (worktreeBranch && !worktreeBaseBranch) {
-            appendRunWieldSystemMessage(
-                uiAPI,
+            emitRunWieldSystemStatus(
+                hostedSession,
                 "Recorded worktree target branch is unknown; using legacy current-checkout merge fallback. " +
                     "Recover the target from the worktree registry when possible before retrying.",
                 true,
@@ -1614,8 +1625,8 @@ export async function runValidationLoop({
                             primaryPlanSnapshots.push(await preparePrimaryPlanPathImpl({ projectRoot, relativePath }));
                         }
                     }
-                    appendRunWieldSystemMessage(
-                        uiAPI,
+                    emitRunWieldSystemStatus(
+                        hostedSession,
                         worktreeBaseBranch
                             ? `Merging validated worktree branch ${worktreeBranch} into target branch ${worktreeBaseBranch}.`
                             : `Merging validated worktree branch ${worktreeBranch} into primary checkout.`,
@@ -1646,8 +1657,8 @@ export async function runValidationLoop({
                                 const restoreReason = restoreError instanceof Error
                                     ? restoreError.message
                                     : String(restoreError);
-                                appendRunWieldSystemMessage(
-                                    uiAPI,
+                                emitRunWieldSystemStatus(
+                                    hostedSession,
                                     `Worktree merged, but restoring the primary Plan snapshot failed: ${restoreReason}`,
                                     true,
                                 );
@@ -1663,8 +1674,8 @@ export async function runValidationLoop({
                         });
                         if (!mergeVerification.merged) {
                             mergeVerified = false;
-                            appendRunWieldSystemMessage(
-                                uiAPI,
+                            emitRunWieldSystemStatus(
+                                hostedSession,
                                 `Worktree merged, but post-merge verification was inconclusive: ${mergeVerification.message}`,
                                 true,
                             );
@@ -1674,8 +1685,8 @@ export async function runValidationLoop({
                         const verificationReason = verificationError instanceof Error
                             ? verificationError.message
                             : String(verificationError);
-                        appendRunWieldSystemMessage(
-                            uiAPI,
+                        emitRunWieldSystemStatus(
+                            hostedSession,
                             `Worktree merged, but post-merge verification failed: ${verificationReason}`,
                             true,
                         );
@@ -1694,8 +1705,8 @@ export async function runValidationLoop({
                         });
                     } catch (metricError) {
                         const metricReason = metricError instanceof Error ? metricError.message : String(metricError);
-                        appendRunWieldSystemMessage(
-                            uiAPI,
+                        emitRunWieldSystemStatus(
+                            hostedSession,
                             `Worktree merged, but recording the merge result failed: ${metricReason}`,
                             true,
                         );
@@ -1707,8 +1718,8 @@ export async function runValidationLoop({
                             const registryReason = registryError instanceof Error
                                 ? registryError.message
                                 : String(registryError);
-                            appendRunWieldSystemMessage(
-                                uiAPI,
+                            emitRunWieldSystemStatus(
+                                hostedSession,
                                 `Worktree merged, but updating its registry status failed: ${registryReason}`,
                                 true,
                             );
@@ -1729,8 +1740,8 @@ export async function runValidationLoop({
                             const cleanupReason = cleanupError instanceof Error
                                 ? cleanupError.message
                                 : String(cleanupError);
-                            appendRunWieldSystemMessage(
-                                uiAPI,
+                            emitRunWieldSystemStatus(
+                                hostedSession,
                                 `Worktree merged, but cleanup failed: ${cleanupReason}`,
                                 true,
                             );
@@ -1740,8 +1751,8 @@ export async function runValidationLoop({
                 } catch (/** @type {any} */ error) {
                     let reason = error instanceof Error ? error.message : String(error);
                     if (mergeCompleted) {
-                        appendRunWieldSystemMessage(
-                            uiAPI,
+                        emitRunWieldSystemStatus(
+                            hostedSession,
                             `Worktree merged, but post-merge processing failed: ${reason}`,
                             true,
                         );
@@ -1759,7 +1770,7 @@ export async function runValidationLoop({
                             }
                         }
                     }
-                    appendRunWieldSystemMessage(uiAPI, `Worktree merge failed: ${reason}`, true);
+                    emitRunWieldSystemStatus(hostedSession, `Worktree merge failed: ${reason}`, true);
                     if (worktreeId) {
                         try {
                             await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, {
@@ -1769,8 +1780,8 @@ export async function runValidationLoop({
                             const metadataReason = metadataError instanceof Error
                                 ? metadataError.message
                                 : String(metadataError);
-                            appendRunWieldSystemMessage(
-                                uiAPI,
+                            emitRunWieldSystemStatus(
+                                hostedSession,
                                 `Could not update worktree registry while merge conflict is active: ${metadataReason}`,
                                 true,
                             );
@@ -1795,8 +1806,8 @@ export async function runValidationLoop({
                             const metadataReason = metadataError instanceof Error
                                 ? metadataError.message
                                 : String(metadataError);
-                            appendRunWieldSystemMessage(
-                                uiAPI,
+                            emitRunWieldSystemStatus(
+                                hostedSession,
                                 `Could not update plan metadata while merge conflict is active: ${metadataReason}`,
                                 true,
                             );
@@ -1817,8 +1828,8 @@ export async function runValidationLoop({
                         const repairCwd = getMergeRepairCwd(error) || pendingRepairMergeWorktreePath || executionCwd ||
                             projectRoot;
                         const gitStatusContext = await getGitStatusContext(repairCwd);
-                        appendRunWieldSystemMessage(
-                            uiAPI,
+                        emitRunWieldSystemStatus(
+                            hostedSession,
                             `Dispatching ${
                                 getAgentDisplayName(AGENTS.ENGINEER, projectRoot)
                             } for merge repair attempt ${mergeRepairAttempts}/${maxMergeRepairAttempts}...`,
@@ -1832,6 +1843,7 @@ export async function runValidationLoop({
                             details: { repairKind: "merge", repairAttempt: mergeRepairAttempts },
                         });
                         const completed = await repair({
+                            hostedSession,
                             agentName: AGENTS.ENGINEER,
                             userRequest: buildMergeRepairRequest({
                                 planName,
@@ -1845,7 +1857,6 @@ export async function runValidationLoop({
                                 repairCwd,
                                 mergeFailureKind: getMergeFailureKind(error),
                             }),
-                            uiAPI,
                             sessionManager,
                             cwd: repairCwd,
                         });
@@ -1861,8 +1872,8 @@ export async function runValidationLoop({
                             },
                         });
                         if (completed) continue;
-                        appendRunWieldSystemMessage(
-                            uiAPI,
+                        emitRunWieldSystemStatus(
+                            hostedSession,
                             `${
                                 getAgentDisplayName(AGENTS.ENGINEER, projectRoot)
                             } stopped without task_completed during merge repair.`,
@@ -1870,11 +1881,11 @@ export async function runValidationLoop({
                         );
                     }
 
-                    const action = await promptForMergeFailureAction(uiAPI, reason);
+                    const action = await promptForMergeFailureAction(hostedSession, reason);
                     if (action === "retry") {
                         continue;
                     }
-                    appendRunWieldSystemMessage(uiAPI, `Workflow halted: Worktree merge failed: ${reason}`, true);
+                    emitRunWieldSystemStatus(hostedSession, `Workflow halted: Worktree merge failed: ${reason}`, true);
                     executionComplete = false;
                     haltReason = `Worktree merge failed: ${reason}`;
                 }
@@ -1892,17 +1903,16 @@ export async function runValidationLoop({
             } catch (metricError) {
                 if (!mergeBackCompleted) throw metricError;
                 const metricReason = metricError instanceof Error ? metricError.message : String(metricError);
-                appendRunWieldSystemMessage(
-                    uiAPI,
+                emitRunWieldSystemStatus(
+                    hostedSession,
                     `Worktree merged, but recording Workflow Validation completion failed: ${metricReason}`,
                     true,
                 );
             }
-            appendRunWieldSystemMessage(
-                uiAPI,
+            emitRunWieldSystemStatus(
+                hostedSession,
                 `${triageClassificationDisplay} execution and validation complete.`,
-                false,
-                SUCCESS_MESSAGE_STYLE,
+                "success",
             );
             if (planName && planName !== "quick-fix" && !worktreeBranch) {
                 await recordPlanEventImpl({
@@ -1930,8 +1940,8 @@ export async function runValidationLoop({
                     const metadataReason = metadataError instanceof Error
                         ? metadataError.message
                         : String(metadataError);
-                    appendRunWieldSystemMessage(
-                        uiAPI,
+                    emitRunWieldSystemStatus(
+                        hostedSession,
                         `Could not update worktree registry after merge halt: ${metadataReason}`,
                         true,
                     );
@@ -1950,8 +1960,8 @@ export async function runValidationLoop({
                     const metadataReason = metadataError instanceof Error
                         ? metadataError.message
                         : String(metadataError);
-                    appendRunWieldSystemMessage(
-                        uiAPI,
+                    emitRunWieldSystemStatus(
+                        hostedSession,
                         `Could not update plan metadata after merge halt: ${metadataReason}`,
                         true,
                     );
@@ -1966,7 +1976,7 @@ export async function runValidationLoop({
             planName,
             details: { passed: false, validationCycles, reason: "halted" },
         });
-        appendRunWieldSystemMessage(uiAPI, `Workflow halted: ${reason}`, true);
+        emitRunWieldSystemStatus(hostedSession, `Workflow halted: ${reason}`, true);
         if (worktreeId) {
             await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, { status: "validation_failed" });
         }
@@ -1982,6 +1992,6 @@ export async function runValidationLoop({
     }
 
     if (finalAgentName && hostedSession) {
-        await switchActiveAgentImpl(hostedSession, { agentName: finalAgentName }, uiAPI);
+        await switchActiveAgentImpl(hostedSession, { agentName: finalAgentName });
     }
 }

@@ -16,7 +16,7 @@
 
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import { appendReviewResultMessage } from "../shared/session/presentation-messages.js";
+import { emitReviewResultMessage } from "../shared/session/workflow-messages.js";
 import { recordWorkflowMetric } from "../shared/workflow/metrics.js";
 
 const TOOL_PARAMS = Type.Object({
@@ -34,17 +34,17 @@ const TOOL_PARAMS = Type.Object({
  * Create the review_complete custom tool.
  *
  * @param {{
- *   uiAPI: import('../shared/workflow/workflow.js').UiAPI,
+ *   hostedSession: import('../shared/session/hosted-session.js').HostedSession,
  *   agentName?: string,
  *   recordWorkflowMetric?: typeof recordWorkflowMetric,
  * }} opts
  * @returns {import('@earendil-works/pi-coding-agent').ToolDefinition}
  */
 export function createReviewCompletedTool(
-    { uiAPI, agentName = "reviewer", recordWorkflowMetric: recordWorkflowMetricImpl = recordWorkflowMetric } =
+    { hostedSession, agentName = "reviewer", recordWorkflowMetric: recordWorkflowMetricImpl = recordWorkflowMetric } =
         /** @type {any} */ ({}),
 ) {
-    if (!uiAPI) throw new Error("createReviewCompletedTool: uiAPI is required");
+    if (!hostedSession) throw new Error("createReviewCompletedTool: hostedSession is required");
     return defineTool({
         name: "review_complete",
         label: "Review Complete",
@@ -64,7 +64,7 @@ export function createReviewCompletedTool(
                 ? "Semantic review approved — implementation matches the plan."
                 : `Semantic review rejected — issues found:\n${feedback || "(no feedback provided)"}`;
 
-            appendReviewResultMessage(uiAPI, agentName, message, approved);
+            emitReviewResultMessage(hostedSession, agentName, message, approved);
             await recordWorkflowMetricImpl({
                 category: "validation",
                 event: "review_complete",

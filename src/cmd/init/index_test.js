@@ -121,6 +121,8 @@ Deno.test("runInitCommand runs init agent and records completion in CLI mode", a
     const events = [];
     /** @type {unknown} */
     let sessionArgs;
+    /** @type {string[]} */
+    const closed = [];
     const agentDef = { name: "init-agent" };
     const originalLog = console.log;
     console.log = (msg = "") => events.push(String(msg));
@@ -129,7 +131,6 @@ Deno.test("runInitCommand runs init agent and records completion in CLI mode", a
         await runInitCommand(
             [],
             /** @type {any} */ ({
-                sessionManager: { id: "session" },
                 __testDeps: /** @type {any} */ ({
                     isInitDone: () => false,
                     parseArgs: () => ({}),
@@ -146,11 +147,15 @@ Deno.test("runInitCommand runs init agent and records completion in CLI mode", a
                     recordInitOffered: () => {
                         events.push("offered");
                     },
-                    runAgentSession: (/** @type {unknown} */ args) => {
-                        sessionArgs = args;
-                        events.push("ran");
-                        return Promise.resolve();
-                    },
+                    createRuntime: () => ({
+                        createInteractiveSession: () => Promise.resolve({ sessionId: "runtime-init" }),
+                        runIsolatedAgent: (/** @type {string} */ sessionId, /** @type {unknown} */ args) => {
+                            sessionArgs = { sessionId, args };
+                            events.push("ran");
+                            return Promise.resolve();
+                        },
+                        closeSession: (/** @type {string} */ sessionId) => closed.push(sessionId),
+                    }),
                     recordInitDone: () => {
                         events.push("done");
                     },
@@ -168,9 +173,10 @@ Deno.test("runInitCommand runs init agent and records completion in CLI mode", a
         "done",
         "\n[RunWield] ✅ Init complete for /tmp/project.",
     ]);
-    assertEquals(/** @type {any} */ (sessionArgs)._agentDefOverride, agentDef);
-    assertEquals(/** @type {any} */ (sessionArgs).agentName, "init");
-    assertEquals(/** @type {any} */ (sessionArgs).useRootSession, false);
+    assertEquals(/** @type {any} */ (sessionArgs).sessionId, "runtime-init");
+    assertEquals(/** @type {any} */ (sessionArgs).args.agentDef, agentDef);
+    assertEquals(/** @type {any} */ (sessionArgs).args.agentName, "init");
+    assertEquals(closed, ["runtime-init"]);
 });
 
 Deno.test("runInitCommand reports failure and does not record completion", async () => {
@@ -191,7 +197,11 @@ Deno.test("runInitCommand reports failure and does not record completion", async
                             parseArgs: () => ({}),
                             loadAgentDefFromPath: () => Promise.resolve({}),
                             recordInitOffered: () => {},
-                            runAgentSession: () => Promise.reject(new Error("agent stopped")),
+                            createRuntime: () => ({
+                                createInteractiveSession: () => Promise.resolve({ sessionId: "runtime-init" }),
+                                runIsolatedAgent: () => Promise.reject(new Error("agent stopped")),
+                                closeSession: () => ({ ok: true }),
+                            }),
                             recordInitDone: () => {
                                 completed = true;
                             },

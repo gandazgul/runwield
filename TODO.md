@@ -2,28 +2,43 @@
 
 ## Bugs
 
+Proposed todo before I change code:
+
+1. Change “Reviewer stopped without review_complete” handling
+   - Do not mark validation failed/halted immediately.
+   - Leave the active agent/session with Reviewer so user can say “continue”, ask clarifying questions, or steer it.
+
+2. Only advance workflow when review_complete exists
+   - Validation should resume/continue only after a valid review_complete tool result is present.
+   - No semantic approval/rejection decision should be inferred from ordinary Reviewer text.
+
+3. Handle malformed review_complete as recoverable
+   - If the tool call is malformed/invalid, show corrective feedback to Reviewer.
+   - Keep Reviewer active and allow it to re-call review_complete.
+
+4. Differentiate failure reasons in status/metrics
+   - Split:
+     - no_review_complete_yet
+     - malformed_review_complete
+     - actual semantic rejection
+     - invocation/runtime failure
+   - Avoid labeling missing tool call as “Semantic Review failed after retry.”
+
+5. Add/update tests
+   - Reviewer stops without tool → workflow does not halt; stays with Reviewer / returns a waiting state.
+   - Malformed tool result → corrective feedback, no halt.
+   - Valid review_complete approved/rejected → existing workflow behavior continues.
+   - Runtime invocation error can still be treated as actual failure/retry path.
+
+Approve this direction and I’ll implement.
+
+- [ ] /load-plan is not offering architect review for draft epics instead the option is to launch slicer.
+
 ## Backlog
 
 ### P1 - Core Workflow UX
 
-- Workspace recovery UX for in_progress / failed / implemented is not really there. Workspace has lifecycle mutations,
-  but not the richer recovery menu/actions from CLI.
-- Validation reports appear not to be first-class persisted/displayed reports. Current UI mostly exposes failureReason,
-  worktreeStatus, timestamps, and metadata.
-- “What changed since approval?” summaries are not implemented as stated. There is:
-  - affected-path commit warning before execution using updatedAt/createdAt
-  - recovery diff since executionBaselineTree
-  - but not a dedicated “since approval” summary.
-- Re-review flows in Workspace are limited; CLI has the meaningful flow.
-  [docs/plan-lifecycle.md](docs/plan-lifecycle.md).
-- [x] Expose compaction settings and make the current compaction behavior easier to inspect:
-      [docs/prd/compaction-PRD.md](docs/prd/compaction-PRD.md).
-- [x] Add `/reload` to refresh dynamic system-prompt content on the live root `AgentSession` after memory, skill, or
-      `RUNWEILD.md` changes.
-- [ ] Refactor before broad test expansion: `src/shared/interactive/chat-session.js` and
-      `src/shared/session/root-session.js` are the main candidates.
-- [ ] Add more focused tests after the refactor boundaries are clearer.
-
+- [ ] finish work records
 - [ ] Implement Guided Reviews using plannotator
 
 ```markdown

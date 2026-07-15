@@ -20,7 +20,6 @@ import { theme } from "../../ui/theme/theme.js";
 /**
  * @typedef {Object} CommandDependencies
  * @property {() => any} [getSettingsManager]
- * @property {() => any} [getRootAgentSession]
  * @property {(value: number) => Promise<void>} [setCompactionReserveTokens]
  * @property {(value: number) => Promise<void>} [setCompactionKeepRecentTokens]
  * @property {(commandName: string) => boolean} [printCommandHelp]
@@ -157,7 +156,6 @@ async function editTokenSetting(label, currentValue, uiAPI, setter) {
 export async function runSettingsCommand(argv, options = {}) {
     const deps = /** @type {CommandDependencies} */ (options.__testDeps || {});
     const getSettingsManager = deps.getSettingsManager || getSettingsManagerFn;
-    const getRootAgentSession = deps.getRootAgentSession || (() => options.hostedSession?.getRootAgentSession?.());
     const setCompactionReserveTokens = deps.setCompactionReserveTokens || setCompactionReserveTokensFn;
     const setCompactionKeepRecentTokens = deps.setCompactionKeepRecentTokens || setCompactionKeepRecentTokensFn;
 
@@ -173,11 +171,21 @@ export async function runSettingsCommand(argv, options = {}) {
         console.error("The /settings command is only available inside an interactive session.");
         return;
     }
+    if (!options.sessionRuntime || !options.sessionId) {
+        throw new Error("Settings require an active runtime session.");
+    }
 
     const settingsManager = getSettingsManager();
+    const getActiveSession = () => {
+        const info = /** @type {any} */ (options.sessionRuntime?.getSessionInfo(options.sessionId || ""));
+        return {
+            getContextUsage: () => info?.contextUsage || undefined,
+            model: { contextWindow: info?.contextUsage?.contextWindow },
+        };
+    };
 
     while (true) {
-        const session = getRootAgentSession();
+        const session = getActiveSession();
         const settings = getCompactionSettings(settingsManager);
         const selection = await uiAPI.promptSelect("Settings", [
             {
@@ -192,7 +200,7 @@ export async function runSettingsCommand(argv, options = {}) {
 
         if (selection === "compaction") {
             while (true) {
-                const activeSession = getRootAgentSession();
+                const activeSession = getActiveSession();
                 const activeSettings = getCompactionSettings(settingsManager);
                 const compactionChoice = await uiAPI.promptSelect("Compaction Settings", [
                     {
@@ -223,13 +231,11 @@ export async function runSettingsCommand(argv, options = {}) {
                 try {
                     if (compactionChoice === "toggle") {
                         const enabled = !activeSettings.enabled;
-                        if (activeSession?.setAutoCompactionEnabled) {
-                            activeSession.setAutoCompactionEnabled(enabled);
-                            await activeSession.settingsManager?.flush?.();
-                        } else {
-                            settingsManager.setCompactionEnabled(enabled);
-                            await settingsManager.flush?.();
-                        }
+                        const result = await options.sessionRuntime.setSessionAutoCompaction(
+                            options.sessionId,
+                            enabled,
+                        );
+                        if (!result.ok) throw new Error("Active runtime session does not support auto-compaction.");
                         await settingsManager.reload?.();
                         uiAPI.appendSystemMessage(`Auto-compact ${enabled ? "enabled" : "disabled"}.`);
                         uiAPI.requestRender?.();

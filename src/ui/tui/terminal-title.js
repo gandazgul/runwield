@@ -3,8 +3,7 @@
  * Helpers for RunWield terminal tab/window titles.
  */
 
-import { basename } from "@std/path";
-import { formatSessionTerminalTitle, sanitizeSessionName } from "../../shared/session/session-name.js";
+import { formatSessionTerminalTitle } from "../../shared/session/session-name.js";
 import { getTUI } from "./tui.js";
 
 export { sanitizeSessionName } from "../../shared/session/session-name.js";
@@ -38,19 +37,4 @@ export function setTerminalTitleForName(name, deps = {}) {
         // Terminal title updates are cosmetic. Never break the TUI if unavailable.
     }
     return title;
-}
-
-/**
- * Best-effort Terminal Title update for the active session. Uses the persisted
- * Session Name when available, otherwise falls back to the cwd basename.
- *
- * @param {{ getSessionName?: () => string | undefined } | undefined} sessionManager
- * @param {string} cwd
- * @param {{ getTUI?: typeof getTUI }} [deps]
- * @returns {string} The title that was attempted.
- */
-export function setTerminalTitleForSession(sessionManager, cwd, deps = {}) {
-    const sessionName = sanitizeSessionName(sessionManager?.getSessionName?.() || "");
-    const fallbackName = sanitizeSessionName(basename(cwd || Deno.cwd()));
-    return setTerminalTitleForName(sessionName || fallbackName, deps);
 }

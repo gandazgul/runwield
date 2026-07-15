@@ -1,37 +1,19 @@
 /**
- * @module submit-plan
- * RunWield function that submits a plan to the Plannotator review UI.
+ * @module ui/review/plan-review
+ * Browser plan-review consumer used by the terminal runtime adapter.
  *
  * Launches the review UI through review-launcher.js so a future Workspace-hosted
- * Plannotator surface can replace the compiled bridge behind one seam.
+ * The browser surface is isolated here so core only requests a review.
  */
 
 import { injectFrontMatter, parsePlanFrontMatter } from "../../plan-store.js";
 import { isAbsolute, resolve } from "node:path";
-import { assertSharedPlanWriteAllowed } from "../collaboration/lock.js";
-import { mimeTypeForImagePath } from "../session/image-attachments.js";
-import { recordPlanEvent } from "./plan-lifecycle.js";
+import { assertSharedPlanWriteAllowed } from "../../shared/collaboration/lock.js";
+import { mimeTypeForImagePath } from "../../shared/session/image-attachments.js";
+import { recordPlanEvent } from "../../shared/workflow/plan-lifecycle.js";
 import { startPlanReviewSurface } from "./review-launcher.js";
 
 // Browser opening lives in review-launcher.js and is imported here for dependency injection types.
-
-// ─── Cancellation State ───────────────────────────────────────────────
-
-/** @type {WeakMap<import('../session/hosted-session.js').HostedSession, () => void>} */
-const planReviewCancelBySession = new WeakMap();
-
-/**
- * Cancel an in-flight plan review wait for a HostedSession, if any.
- * @param {import('../session/hosted-session.js').HostedSession | undefined} hostedSession
- * @returns {boolean} true if a review was active and cancelled
- */
-export function cancelActivePlanReview(hostedSession) {
-    if (!hostedSession) return false;
-    const cancel = planReviewCancelBySession.get(hostedSession);
-    if (!cancel) return false;
-    cancel();
-    return true;
-}
 
 // ─── Types ────────────────────────────────────────────────────────────
 
@@ -50,20 +32,6 @@ export function cancelActivePlanReview(hostedSession) {
  * @property {string} text
  */
 
-/**
- * Append review-server diagnostics through the session UI so TUI callers keep
- * them inside the active plan_written block instead of painting raw terminal
- * output over the interface.
- *
- * @param {import('../types.js').SessionUiPort} uiAPI
- * @param {ReviewServerOutput} output
- */
-function appendReviewServerOutput(uiAPI, output) {
-    const text = output.text.trimEnd();
-    if (!text) return;
-    uiAPI.appendSystemMessage(`[RunWield] Review server ${output.stream}:\n${text}`);
-}
-
 const MAX_REVIEW_IMAGE_BYTES = 20 * 1024 * 1024;
 
 /**
@@ -73,10 +41,9 @@ const MAX_REVIEW_IMAGE_BYTES = 20 * 1024 * 1024;
  *
  * @param {any} decision
  * @param {string} cwd
- * @param {import('../types.js').SessionUiPort} uiAPI
  * @returns {Promise<Array<{base64: string, mimeType: string, name: string}>>}
  */
-async function loadReviewFeedbackImages(decision, cwd, uiAPI) {
+async function loadReviewFeedbackImages(decision, cwd) {
     const attachments = collectReviewImageAttachments(decision);
     const images = [];
     for (const attachment of attachments) {
@@ -92,9 +59,8 @@ async function loadReviewFeedbackImages(decision, cwd, uiAPI) {
                 mimeType: mimeTypeForImagePath(path),
                 name: attachment.name,
             });
-        } catch (error) {
-            const reason = error instanceof Error ? error.message : String(error);
-            uiAPI.appendSystemMessage(`[RunWield] Could not attach review image "${attachment.name}": ${reason}`);
+        } catch (_error) {
+            // Text feedback remains valid if an uploaded image disappears.
         }
     }
     return images;
@@ -143,15 +109,14 @@ function bytesToBase64(bytes) {
 // ─── Main Function ────────────────────────────────────────────────────
 
 /**
- * Submit a plan for interactive review via the Plannotator browser UI.
+ * Submit a plan for interactive review via the browser review surface.
  *
  * @param {Object} opts
  * @param {string} opts.cwd - Project root
  * @param {string} opts.planName - Plan filename (without .md)
  * @param {string} opts.planPath - Absolute path to the plan .md file
  * @param {Partial<import('../../plan-store.js').PlanFrontMatter>} [opts.triageMeta] - Triage metadata to ensure in front matter
- * @param {import('../types.js').SessionUiPort} opts.uiAPI - Runtime session presentation port
- * @param {import('../session/hosted-session.js').HostedSession} opts.hostedSession
+ * @param {AbortSignal} [opts.signal]
  * @param {{
  *   startPlanReviewSurface?: typeof startPlanReviewSurface,
  *   startPlanReviewServer?: (options: object) => Promise<any>,
@@ -166,12 +131,9 @@ export async function submitPlanForReview({
     planName,
     planPath,
     triageMeta,
-    uiAPI,
-    hostedSession,
+    signal,
     __deps,
 }) {
-    if (!uiAPI) throw new Error("submitPlanForReview: uiAPI is required");
-    if (!hostedSession) throw new Error("submitPlanForReview: hostedSession is required");
     const startPlanReviewSurfaceImpl = __deps?.startPlanReviewSurface || startPlanReviewSurface;
     const recordPlanEventImpl = __deps?.recordPlanEvent || recordPlanEvent;
 
@@ -201,9 +163,6 @@ export async function submitPlanForReview({
     const planWithFm = injectFrontMatter(body, fmOverrides);
     await Deno.writeTextFile(planPath, planWithFm);
 
-    uiAPI.appendSystemMessage(`[RunWield] Opening plan review UI for: ${planName}`);
-    uiAPI.appendSystemMessage(`[RunWield] Plan file: ${planPath}`);
-
     // 4. Start the review surface through an adapter seam.
     const server = await startPlanReviewSurfaceImpl({
         cwd,
@@ -212,40 +171,16 @@ export async function submitPlanForReview({
         htmlContent: __deps?.htmlContent,
         startPlanReviewServer: __deps?.startPlanReviewServer,
         openInDefaultBrowser: __deps?.openInDefaultBrowser,
-        onOutput: (output) => appendReviewServerOutput(uiAPI, output),
     });
-
-    uiAPI.appendSystemMessage(`[RunWield] Review UI available at: ${server.url}`);
-
-    const opened = server.opened;
-    if (opened) {
-        uiAPI.appendSystemMessage(`[RunWield] Opened review UI in your default browser.`);
-    } else {
-        uiAPI.appendSystemMessage(`[RunWield] Could not auto-open browser. Open manually: ${server.url}`);
-    }
-
-    uiAPI.appendSystemMessage(`[RunWield] Waiting for user decision...\n`);
-
-    /** @type {() => void} */
-    let localCancel = () => {};
-    const cancelPromise = new Promise((resolve) => {
-        localCancel = () => resolve({ _cancelled: true });
-    });
-    planReviewCancelBySession.set(hostedSession, localCancel);
 
     try {
-        // 5. Disable input while waiting for review via server
-        if (uiAPI.disableInput) uiAPI.disableInput();
-
-        // Wait for user decide (blocks until approve/deny), but allow Esc cancellation
-        const decision = await Promise.race([
-            server.waitForDecision(),
-            cancelPromise,
-        ]);
+        const canceled = new Promise((resolve) => {
+            signal?.addEventListener("abort", () => resolve({ _cancelled: true }), { once: true });
+        });
+        const decision = await (signal ? Promise.race([server.waitForDecision(), canceled]) : server.waitForDecision());
 
         // Handle cancellation triggered from the TUI
         if (decision && typeof decision === "object" && "_cancelled" in decision) {
-            uiAPI.appendSystemMessage(`[RunWield] ⏸️ Plan review wait cancelled: ${planName}`);
             return {
                 approved: false,
                 canceled: true,
@@ -266,20 +201,14 @@ export async function submitPlanForReview({
 
         let lifecycleMeta = triageMeta;
         if (!STATUS_ALLOWS_REVIEW) {
-            try {
-                const reopenedMeta = await recordPlanEventImpl({
-                    cwd,
-                    planName,
-                    event: "review_reopened",
-                    currentStatus: attrs.status,
-                    details: { triageMeta },
-                });
-                if (reopenedMeta) lifecycleMeta = reopenedMeta;
-                hostedSession.clearActiveExecutionWorkflow();
-            } catch (_reopenErr) {
-                // If review_reopened also fails, fall back to the original status.
-                // The downstream recordPlanEvent will surface its own error.
-            }
+            const reopenedMeta = await recordPlanEventImpl({
+                cwd,
+                planName,
+                event: "review_reopened",
+                currentStatus: attrs.status,
+                details: { triageMeta },
+            });
+            if (reopenedMeta) lifecycleMeta = reopenedMeta;
         }
 
         // Use the reopened status ("feedback") if we reopened, or the original if already reviewable
@@ -293,7 +222,6 @@ export async function submitPlanForReview({
                 currentStatus: postReopenStatus,
                 details: { triageMeta: lifecycleMeta },
             });
-            uiAPI.appendSystemMessage(`[RunWield] ✅ Plan approved: ${planName}`);
         } else {
             await recordPlanEventImpl({
                 cwd,
@@ -302,10 +230,9 @@ export async function submitPlanForReview({
                 currentStatus: postReopenStatus,
                 details: { triageMeta: lifecycleMeta, failureReason: decision.feedback },
             });
-            uiAPI.appendSystemMessage(`[RunWield] Plan returned with feedback: ${planName}`);
         }
 
-        const images = await loadReviewFeedbackImages(decision, cwd, uiAPI);
+        const images = await loadReviewFeedbackImages(decision, cwd);
         return {
             approved: decision.approved,
             feedback: decision.feedback,
@@ -313,8 +240,6 @@ export async function submitPlanForReview({
             ...(images.length > 0 && { images }),
         };
     } finally {
-        planReviewCancelBySession.delete(hostedSession);
-        if (uiAPI.enableInput) uiAPI.enableInput();
         // Ensure server is stopped regardless of outcome
         await server.stop();
     }

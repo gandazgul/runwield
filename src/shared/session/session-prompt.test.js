@@ -112,7 +112,7 @@ Deno.test("applyAttentionNudge only injects scheduled long-lived agent nudges", 
         applyAttentionNudge(AGENTS.IDEATOR, "User asks", 6),
         [
             "<attention_nudge>",
-            "You are still the Ideator. Continue as a thinking partner: clarify one decision at a time, verify external facts when needed, and use `return_to_router` for actionable implementation or planning requests.",
+            "You are still the Ideator. Stay at problem and product altitude: investigate feasibility, surface overlooked consequences, prioritize consequential divergent decisions, infer low-risk solution details, batch minor preferences when input is truly needed, and use `return_to_router` for actionable implementation or planning requests.",
             "</attention_nudge>",
             "",
             "User asks",
@@ -337,13 +337,13 @@ Deno.test("ensureRootAgentSession scopes root session, metadata, agent name, and
         hostedSession: hostedA,
         agentName: "router",
         _buildAgentSession: makeBuildAgentSessionStub("a", builds),
-        _attachUiSubscribers: makeAttachStub(),
+        _attachSessionEventSubscribers: makeAttachStub(),
     });
     const rootB = await ensureRootAgentSession({
         hostedSession: hostedB,
         agentName: "operator",
         _buildAgentSession: makeBuildAgentSessionStub("b", builds),
-        _attachUiSubscribers: makeAttachStub(),
+        _attachSessionEventSubscribers: makeAttachStub(),
     });
 
     assertEquals(hostedA.getRootAgentSession(), rootA);
@@ -388,7 +388,7 @@ Deno.test("ensureRootAgentSession disposes a replacement built after its HostedS
                 resolvedThinkingLevel: "medium",
             };
         },
-        _attachUiSubscribers: makeAttachStub(),
+        _attachSessionEventSubscribers: makeAttachStub(),
     });
 
     hostedSession.dispose();
@@ -412,13 +412,13 @@ Deno.test("runRootTurn increments only the target HostedSession root turn metada
         hostedSession: hostedA,
         agentName: AGENTS.GUIDE,
         _buildAgentSession: makeBuildAgentSessionStub("turn-a", builds),
-        _attachUiSubscribers: makeAttachStub(),
+        _attachSessionEventSubscribers: makeAttachStub(),
     });
     const rootB = await ensureRootAgentSession({
         hostedSession: hostedB,
         agentName: AGENTS.GUIDE,
         _buildAgentSession: makeBuildAgentSessionStub("turn-b", builds),
-        _attachUiSubscribers: makeAttachStub(),
+        _attachSessionEventSubscribers: makeAttachStub(),
     });
 
     await runRootTurn({
@@ -458,7 +458,7 @@ Deno.test("runAgentSession root and transient paths use only the supplied Hosted
         agentName: "router",
         userRequest: "root a",
         _buildAgentSession: makeBuildAgentSessionStub("run-a", builds),
-        _attachUiSubscribers: makeAttachStub(),
+        _attachSessionEventSubscribers: makeAttachStub(),
         _runPrompt: runPromptStub,
     });
     await runAgentSession({
@@ -467,7 +467,7 @@ Deno.test("runAgentSession root and transient paths use only the supplied Hosted
         userRequest: "transient b",
         useRootSession: false,
         _buildAgentSession: makeBuildAgentSessionStub("run-b", builds),
-        _attachUiSubscribers: makeAttachStub(),
+        _attachSessionEventSubscribers: makeAttachStub(),
         _runPrompt: runPromptStub,
     });
 

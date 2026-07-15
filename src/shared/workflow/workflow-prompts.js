@@ -5,6 +5,8 @@
 
 import { loadPlan } from "../../plan-store.js";
 import { getAgentDisplayName } from "../session/agents.js";
+import { emitSystemStatus } from "../session/session-runtime-events.js";
+import { requestHostedSessionInteraction, RuntimeInteractionTypes } from "../session/session-runtime-interactions.js";
 import { extractTasks, parseTaskDependencies, validateProjectTasks } from "./task-scheduling.js";
 
 /**
@@ -109,16 +111,21 @@ export function buildSlicerRequest(input, legacyTriageMeta) {
  * Ask user what to do after plan approval.
  *
  * @param {string} planName
- * @param {import('../types.js').SessionUiPort} uiAPI
+ * @param {import('../session/hosted-session.js').HostedSession} hostedSession
  * @returns {Promise<"proceed" | "save">}
  */
-export async function askPostApproval(planName, uiAPI) {
+export async function askPostApproval(planName, hostedSession) {
     const title = `Plan "${planName}" approved! What next?`;
     const options = [
         { value: "proceed", label: "Proceed with execution" },
         { value: "save", label: "Save for later" },
     ];
-    const choice = await uiAPI.promptSelect(title, options);
+    const response = await requestHostedSessionInteraction(hostedSession, {
+        type: RuntimeInteractionTypes.SELECT,
+        prompt: title,
+        options,
+    });
+    const choice = response.outcome === "selected" ? response.value : null;
     return choice === "proceed" ? "proceed" : "save";
 }
 
@@ -126,16 +133,21 @@ export async function askPostApproval(planName, uiAPI) {
  * Ask user whether to start PROJECT decomposition now or save the ready Epic for later.
  *
  * @param {string} planName
- * @param {import('../types.js').SessionUiPort} uiAPI
+ * @param {import('../session/hosted-session.js').HostedSession} hostedSession
  * @returns {Promise<"proceed" | "save">}
  */
-export async function askProjectDecompositionApproval(planName, uiAPI) {
+export async function askProjectDecompositionApproval(planName, hostedSession) {
     const title = `Project plan "${planName}" approved! What next?`;
     const options = [
         { value: "proceed", label: "Start Slicer decomposition now" },
         { value: "save", label: "Save for later" },
     ];
-    const choice = await uiAPI.promptSelect(title, options);
+    const response = await requestHostedSessionInteraction(hostedSession, {
+        type: RuntimeInteractionTypes.SELECT,
+        prompt: title,
+        options,
+    });
+    const choice = response.outcome === "selected" ? response.value : null;
     return choice === "proceed" ? "proceed" : "save";
 }
 
@@ -143,12 +155,12 @@ export async function askProjectDecompositionApproval(planName, uiAPI) {
  * Project-specific post-approval selection that also prints task list.
  *
  * @param {string} planName
- * @param {import('../types.js').SessionUiPort} uiAPI
+ * @param {import('../session/hosted-session.js').HostedSession} hostedSession
  * @param {Array<{ task: number, assignee: string, dependencies: string, description: string, writeScope?: string }>} [structuredTasks]
  * @param {string} [projectRoot]
  * @returns {Promise<"proceed" | "save">}
  */
-export async function askApprovalWithTasks(planName, uiAPI, structuredTasks, projectRoot) {
+export async function askApprovalWithTasks(planName, hostedSession, structuredTasks, projectRoot) {
     if (!projectRoot) throw new Error("askApprovalWithTasks: projectRoot is required");
     const plan = await loadPlan(projectRoot, planName);
 
@@ -178,29 +190,39 @@ export async function askApprovalWithTasks(planName, uiAPI, structuredTasks, pro
         { value: "save", label: "Save for later" },
     ];
 
-    const choice = await uiAPI.promptSelect(`${title}\nWhat next?`, options);
+    const response = await requestHostedSessionInteraction(hostedSession, {
+        type: RuntimeInteractionTypes.SELECT,
+        prompt: `${title}\nWhat next?`,
+        options,
+    });
+    const choice = response.outcome === "selected" ? response.value : null;
     return choice === "proceed" ? "proceed" : "save";
 }
 
 /**
  * @param {{ failedTasks: number[], results: Map<number, { status: string, error?: string }> }} executionResult
- * @param {import('../types.js').SessionUiPort} uiAPI
+ * @param {import('../session/hosted-session.js').HostedSession} hostedSession
  * @returns {Promise<boolean>}
  */
-export async function askRetryFailedTasks(executionResult, uiAPI) {
+export async function askRetryFailedTasks(executionResult, hostedSession) {
     const { failedTasks } = executionResult;
     const msg = `[RunWield] ${failedTasks.length} task(s) failed. Would you like to retry the failed tasks?`;
-    return await uiAPI.promptSelect(msg, [
-        { value: "yes", label: "Yes, retry failed tasks" },
-        { value: "no", label: "No, finalize execution" },
-    ]) === "yes";
+    const response = await requestHostedSessionInteraction(hostedSession, {
+        type: RuntimeInteractionTypes.SELECT,
+        prompt: msg,
+        options: [
+            { value: "yes", label: "Yes, retry failed tasks" },
+            { value: "no", label: "No, finalize execution" },
+        ],
+    });
+    return response.outcome === "selected" && response.value === "yes";
 }
 
 /**
  * @param {{ results: Map<number, { status: string, error?: string }> }} result
- * @param {import('../types.js').SessionUiPort} uiAPI
+ * @param {import('../session/hosted-session.js').HostedSession} hostedSession
  */
-export function reportExecutionSummary(result, uiAPI) {
+export function reportExecutionSummary(result, hostedSession) {
     const { results } = result;
     let successCount = 0, failedCount = 0, blockedCount = 0;
 
@@ -211,7 +233,7 @@ export function reportExecutionSummary(result, uiAPI) {
     });
 
     const summary = `Execution Summary: ${successCount} success, ${failedCount} failed, ${blockedCount} blocked.`;
-    uiAPI.appendSystemMessage(summary, false, "RunWield");
+    emitSystemStatus(hostedSession, summary, { header: "RunWield" });
 }
 
 /**

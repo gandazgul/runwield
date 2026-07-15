@@ -3,7 +3,7 @@
  * Custom tool for planning agents (Planner/Architect) to declare a plan and
  * run the review-and-approve lifecycle.
  *
- * createPlanWrittenTool captures TUI context and triage metadata at session-start
+ * createPlanWrittenTool captures hosted-session context and triage metadata at session-start
  * time. The tool runs review (and optional save-vs-execute prompt) inside execute,
  * but does NOT execute the plan — that's the orchestrator's job after the planning
  * session ends. The outcome (`approved_execute`, `approved_decompose`, `saved`, `feedback`, `canceled`,
@@ -19,6 +19,16 @@ import { CLI_BIN, PLANS_DIR_NAME } from "../constants.js";
 import { loadPlan } from "../plan-store.js";
 import { recordPlanEvent } from "../shared/workflow/plan-lifecycle.js";
 import { recordWorkflowMetric } from "../shared/workflow/metrics.js";
+import {
+    emitHostedSessionRuntimeEvent,
+    emitSystemStatus,
+    RuntimeEventTypes,
+} from "../shared/session/session-runtime-events.js";
+import {
+    requestHostedSessionInteraction,
+    RuntimeInteractionOutcomes,
+    RuntimeInteractionTypes,
+} from "../shared/session/session-runtime-interactions.js";
 
 /**
  * @typedef {{
@@ -125,13 +135,11 @@ async function resolveTriageMeta(triageMeta, planName, cwd) {
 
 /**
  * @typedef {Object} PlanWrittenDeps
- * @property {(opts: { cwd: string, planName: string, planPath: string, triageMeta: TriageMeta, uiAPI: any }) => Promise<{ canceled?: boolean, approved?: boolean, feedback?: string, images?: Array<{base64: string, mimeType: string, name?: string}> }>} [submitPlanForReview]
- * @property {(planName: string, uiAPI: any) => Promise<"proceed" | "save">} [askPostApproval]
- * @property {(planName: string, uiAPI: any) => Promise<"proceed" | "save">} [askProjectDecompositionApproval]
+ * @property {typeof requestHostedSessionInteraction} [requestPlanReview]
+ * @property {(planName: string, hostedSession: import('../shared/session/hosted-session.js').HostedSession) => Promise<"proceed" | "save">} [askPostApproval]
+ * @property {(planName: string, hostedSession: import('../shared/session/hosted-session.js').HostedSession) => Promise<"proceed" | "save">} [askProjectDecompositionApproval]
  * @property {typeof recordPlanEvent} [recordPlanEvent]
  * @property {typeof recordWorkflowMetric} [recordWorkflowMetric]
- * @property {(opts: import('../cmd/plans/share.js').SharePlanForReviewOptions, deps?: any) => Promise<import('../cmd/plans/share.js').SharedPlanReviewLink>} [sharePlanForReview]
- * @property {(event: Partial<import('../shared/session/session-runtime-events.js').SessionRuntimeEvent> & { type: string }) => void} [emitSessionEvent]
  * @property {(path: string) => Promise<{ isFile: boolean }>} [stat]
  * @property {string} [cwd]
  */
@@ -140,7 +148,6 @@ async function resolveTriageMeta(triageMeta, planName, cwd) {
  * Create the plan_written tool with lifecycle context captured at session start.
  *
  * @param {{
- *   uiAPI: import('../shared/workflow/workflow.js').UiAPI,
  *   triageMeta?: TriageMeta,
  *   agentName?: string,
  *   hostedSession?: import('../shared/session/hosted-session.js').HostedSession,
@@ -149,9 +156,9 @@ async function resolveTriageMeta(triageMeta, planName, cwd) {
  * @returns {import('@earendil-works/pi-coding-agent').ToolDefinition}
  */
 export function createPlanWrittenTool(
-    { uiAPI, triageMeta, agentName = "planner", hostedSession, __deps } = /** @type {any} */ ({}),
+    { triageMeta, agentName = "planner", hostedSession, __deps } = /** @type {any} */ ({}),
 ) {
-    if (!uiAPI) throw new Error("createPlanWrittenTool: uiAPI is required");
+    if (!hostedSession) throw new Error("createPlanWrittenTool: hostedSession is required");
     const deps = __deps || {};
     const cwd = deps.cwd ?? hostedSession?.cwd;
     return defineTool({
@@ -197,53 +204,10 @@ export function createPlanWrittenTool(
 
             const effectiveMeta = await resolveTriageMeta(triageMeta, planName, cwd);
 
-            uiAPI.appendSystemMessage(`[RunWield] Plan declared: plans/${planName}.md`);
-
-            if (hostedSession?.getInteractionAdapterMeta?.()?.kind === "acp") {
-                const sharePlanForReview = deps.sharePlanForReview ||
-                    (await import("../cmd/plans/share.js")).sharePlanForReview;
-                const shared = await sharePlanForReview({
-                    target: planName,
-                    cwd,
-                    allowExisting: true,
-                }, deps);
-                const message = `Plan "${planName}" saved for remote review: ${shared.reviewerUrl}`;
-                const event =
-                    /** @type {Partial<import('../shared/session/session-runtime-events.js').RuntimePlanReviewLinkEvent> & { type: "plan_review_link" }} */ ({
-                        type: "plan_review_link",
-                        planName,
-                        reviewerUrl: shared.reviewerUrl,
-                        spaceId: shared.spaceId,
-                        serverUrl: shared.serverUrl,
-                        revision: shared.revision,
-                        reused: shared.reused,
-                        message,
-                    });
-                const sink = hostedSession?.getEventSink?.();
-                if (sink && typeof sink.emit === "function") sink.emit(event);
-                deps.emitSessionEvent?.(event);
-                uiAPI.appendSystemMessage(message, false, "RunWield");
-                return textResult(
-                    `${message}\n\nYour role as ${agentName} is complete. Do not generate any further text.`,
-                    {
-                        ...params,
-                        outcome: "saved",
-                        planName,
-                        triageMeta: effectiveMeta,
-                        remoteReview: true,
-                        reviewerUrl: shared.reviewerUrl,
-                        spaceId: shared.spaceId,
-                        serverUrl: shared.serverUrl,
-                        revision: shared.revision,
-                        reused: shared.reused,
-                    },
-                    true,
-                );
-            }
+            emitSystemStatus(hostedSession, `[RunWield] Plan declared: plans/${planName}.md`);
 
             // Lazy imports break the circular dep: plan-written → workflow → session → plan-written.
-            const submitPlanForReview = deps.submitPlanForReview ||
-                (await import("../shared/workflow/submit-plan.js")).submitPlanForReview;
+            const requestPlanReview = deps.requestPlanReview || requestHostedSessionInteraction;
             const workflow = await import("../shared/workflow/workflow.js");
             const askPostApproval = deps.askPostApproval || workflow.askPostApproval;
             const askProjectDecompositionApproval = deps.askProjectDecompositionApproval ||
@@ -255,17 +219,52 @@ export function createPlanWrittenTool(
                 return recordWorkflowMetricSource(metric, { cwd });
             }
 
-            const reviewResult = await submitPlanForReview({
-                cwd,
-                planName,
-                planPath,
-                triageMeta: effectiveMeta,
-                uiAPI,
-                hostedSession,
+            const reviewResponse = await requestPlanReview(hostedSession, {
+                type: RuntimeInteractionTypes.PLAN_REVIEW,
+                prompt: `Review plan "${planName}"`,
+                _meta: { cwd, planName, planPath, triageMeta: effectiveMeta },
             });
+            const reviewMeta = /** @type {any} */ (reviewResponse._meta || {});
+            const reviewResult = {
+                canceled: reviewResponse.outcome === RuntimeInteractionOutcomes.CANCELED,
+                approved: reviewMeta.approved === true,
+                feedback: typeof reviewMeta.feedback === "string" ? reviewMeta.feedback : undefined,
+                images: Array.isArray(reviewMeta.images) ? reviewMeta.images : undefined,
+            };
+
+            if (reviewMeta.remoteReview === true) {
+                const message = reviewResponse.message || `Plan "${planName}" saved for remote review.`;
+                if (reviewMeta.reviewerUrl) {
+                    emitHostedSessionRuntimeEvent(hostedSession, {
+                        type: RuntimeEventTypes.PLAN_REVIEW_LINK,
+                        planName,
+                        reviewerUrl: reviewMeta.reviewerUrl,
+                        spaceId: reviewMeta.spaceId,
+                        serverUrl: reviewMeta.serverUrl,
+                        revision: reviewMeta.revision,
+                        reused: reviewMeta.reused,
+                        message,
+                    });
+                }
+                emitSystemStatus(hostedSession, message, { header: "RunWield" });
+                return textResult(
+                    `${message}\n\nYour role as ${agentName} is complete. Do not generate any further text.`,
+                    {
+                        ...params,
+                        outcome: "saved",
+                        planName,
+                        triageMeta: effectiveMeta,
+                        remoteReview: true,
+                        ...reviewMeta,
+                    },
+                    true,
+                );
+            }
 
             if (reviewResult.canceled) {
-                uiAPI.appendSystemMessage("Plan review canceled. Returning control to user.", false, "RunWield");
+                emitSystemStatus(hostedSession, "Plan review canceled. Returning control to user.", {
+                    header: "RunWield",
+                });
                 await recordWorkflowMetricFn({
                     category: "planning",
                     event: "review_outcome",
@@ -320,13 +319,13 @@ export function createPlanWrittenTool(
                     planName,
                     details: { outcome: "passed", classification: "PROJECT", lifecycleEvent: "epic_readiness_passed" },
                 });
-                uiAPI.appendSystemMessage(
+                emitSystemStatus(
+                    hostedSession,
                     `PROJECT plan ready for decomposition or child plan selection: ${planName}`,
-                    false,
-                    "RunWield",
+                    { header: "RunWield" },
                 );
 
-                const action = await askProjectDecompositionApproval(planName, uiAPI);
+                const action = await askProjectDecompositionApproval(planName, hostedSession);
                 if (action !== "proceed") {
                     await recordWorkflowMetricFn({
                         category: "planning",
@@ -335,10 +334,10 @@ export function createPlanWrittenTool(
                         planName,
                         details: { outcome: "saved", classification: "PROJECT", projectAction: action },
                     });
-                    uiAPI.appendSystemMessage(
+                    emitSystemStatus(
+                        hostedSession,
                         `Plan saved. Resume later with: ${CLI_BIN} load-plan ${planName}`,
-                        false,
-                        "RunWield",
+                        { header: "RunWield" },
                     );
                     const savedFeedbackSuffix = reviewResult.feedback
                         ? `\n\nFeedback/annotations from review: ${reviewResult.feedback}`
@@ -404,7 +403,7 @@ export function createPlanWrittenTool(
                 });
             }
 
-            const action = await askPostApproval(planName, uiAPI);
+            const action = await askPostApproval(planName, hostedSession);
 
             if (action !== "proceed") {
                 await recordWorkflowMetricFn({
@@ -414,10 +413,10 @@ export function createPlanWrittenTool(
                     planName,
                     details: { outcome: "saved", classification: effectiveMeta.classification, action },
                 });
-                uiAPI.appendSystemMessage(
+                emitSystemStatus(
+                    hostedSession,
                     `Plan saved. Resume later with: ${CLI_BIN} resume ${planName}`,
-                    false,
-                    "RunWield",
+                    { header: "RunWield" },
                 );
                 const savedFeedbackSuffix = reviewResult.feedback
                     ? `\n\nFeedback/annotations from review: ${reviewResult.feedback}`

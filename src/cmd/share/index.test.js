@@ -34,12 +34,19 @@ Deno.test("runShareCommand checks gh, exports, uploads, and cleans up", async ()
     const removed = [];
     /** @type {string[]} */
     const messages = [];
-    const sessionManager = { getSessionId: () => "abc" };
+    const sessionRuntime = {
+        getSessionSnapshot: () => ({ sessionManagerId: "abc" }),
+        exportSession: (/** @type {string} */ sessionId, /** @type {string} */ outPath) => {
+            exported.push(`${sessionId}:${outPath}`);
+            return Promise.resolve();
+        },
+    };
 
     await runShareCommand(
         [],
         /** @type {any} */ ({
-            sessionManager,
+            sessionId: "runtime-share",
+            sessionRuntime,
             uiAPI: {
                 appendSystemMessage: (/** @type {string} */ msg) => messages.push(msg),
             },
@@ -53,13 +60,6 @@ Deno.test("runShareCommand checks gh, exports, uploads, and cleans up", async ()
                         return Promise.resolve({ success: true, stdout: "https://gist.example/1\n", stderr: "" });
                     }
                     return Promise.resolve({ success: true, stdout: "ok", stderr: "" });
-                },
-                exportRootSessionToHtml: (
-                    /** @type {unknown} */ manager,
-                    /** @type {string} */ outPath,
-                ) => {
-                    exported.push(`${manager === sessionManager}:${outPath}`);
-                    return Promise.resolve();
                 },
                 tmpDir: () => "/tmp/runwield-share",
                 remove: (/** @type {string} */ path) => {
@@ -81,7 +81,7 @@ Deno.test("runShareCommand checks gh, exports, uploads, and cleans up", async ()
         { cmd: "gh", args: ["auth", "status"] },
         { cmd: "gh", args: ["gist", "create", "--public=false", "/tmp/runwield-share/runwield-session-abc.html"] },
     ]);
-    assertEquals(exported, ["true:/tmp/runwield-share/runwield-session-abc.html"]);
+    assertEquals(exported, ["runtime-share:/tmp/runwield-share/runwield-session-abc.html"]);
     assertEquals(removed, ["/tmp/runwield-share/runwield-session-abc.html"]);
     assertEquals(messages, ["Session shared successfully!\nhttps://gist.example/1"]);
 });
@@ -97,7 +97,11 @@ Deno.test("runShareCommand reports gh and gist failures", async () => {
     await runShareCommand(
         [],
         /** @type {any} */ ({
-            sessionManager: {},
+            sessionId: "runtime-share",
+            sessionRuntime: {
+                getSessionSnapshot: () => ({ sessionManagerId: "abc" }),
+                exportSession: () => Promise.resolve(),
+            },
             uiAPI,
             __testDeps: {
                 runCmd: () => Promise.resolve({ success: false, stdout: "", stderr: "missing" }),
@@ -108,7 +112,11 @@ Deno.test("runShareCommand reports gh and gist failures", async () => {
     await runShareCommand(
         [],
         /** @type {any} */ ({
-            sessionManager: {},
+            sessionId: "runtime-share",
+            sessionRuntime: {
+                getSessionSnapshot: () => ({ sessionManagerId: "abc" }),
+                exportSession: () => Promise.resolve(),
+            },
             uiAPI,
             __testDeps: {
                 runCmd: (
@@ -120,7 +128,6 @@ Deno.test("runShareCommand reports gh and gist failures", async () => {
                     }
                     return Promise.resolve({ success: true, stdout: "ok", stderr: "" });
                 },
-                exportRootSessionToHtml: () => Promise.resolve(),
                 tmpDir: () => "/tmp",
                 now: () => 7,
             },

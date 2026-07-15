@@ -1,5 +1,5 @@
 /**
- * @module shared/workflow/review-launcher
+ * @module ui/review/review-launcher
  * Adapter seam for human Plan and code review browser surfaces.
  */
 
@@ -27,7 +27,7 @@ let processExitCleanupInstalled = false;
 let stoppingActiveReviewSurfaces = false;
 
 /**
- * Stop all active Plannotator review servers. This is exported for lifecycle
+ * Stop all active browser review servers. This is exported for lifecycle
  * owners and tests; callers should still prefer per-surface stop in normal flow.
  *
  * @returns {Promise<void>}

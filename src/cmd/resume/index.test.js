@@ -1,325 +1,158 @@
 import { assertEquals } from "@std/assert";
-import { estimateSessionContextTokens, runResumeCommand } from "./index.js";
-import { AGENTS } from "../../constants.js";
-import { HostedSession } from "../../shared/session/hosted-session.js";
+import { runResumeCommand } from "./index.js";
 
-/**
- * @typedef {{ title: string, options: Array<{ value: string, label: string }> }} PromptRecord
- */
+/** @typedef {{ title: string, options: Array<{ value: string, label: string }> }} PromptRecord */
 
-/** @param {string} [id] */
-function makeHostedSession(id = `resume-command-${crypto.randomUUID()}`) {
-    return new HostedSession({ id, cwd: Deno.cwd() });
-}
-
-/**
- * @param {Object} opts
- * @param {string[]} opts.selections
- * @param {PromptRecord[]} opts.prompts
- * @param {string[]} opts.messages
- * @param {number[]} opts.clearCalls
- * @returns {{ uiAPI: import('../../ui/tui/types.js').UiAPI, editor: import('../../ui/tui/types.js').EditorAPI }}
- */
-function makeUi({ selections, prompts, messages, clearCalls }) {
-    const uiAPI = /** @type {import('../../ui/tui/types.js').UiAPI} */ ({
-        appendSystemMessage: (msg) => messages.push(String(msg)),
-        appendAgentMessageStart: () => ({ appendText: () => {} }),
-        requestRender: () => {},
-        promptSelect: (title, options) => {
-            prompts.push({ title, options: /** @type {Array<{ value: string, label: string }>} */ (options) });
-            return Promise.resolve(selections.shift() ?? null);
+/** @param {string[]} selections */
+function makeUi(selections) {
+    const prompts = /** @type {PromptRecord[]} */ ([]);
+    const messages = /** @type {string[]} */ ([]);
+    let clears = 0;
+    return {
+        prompts,
+        messages,
+        get clears() {
+            return clears;
         },
-        promptText: () => Promise.resolve(null),
-        showModelSelector: () => {},
-        clearMessages: () => {
-            clearCalls.push(1);
-        },
-    });
-
-    const editor = /** @type {import('../../ui/tui/types.js').EditorAPI} */ ({
-        disableSubmit: true,
-        setText: () => {},
-        setAutocompleteProvider: () => {},
-        handleInput: () => {},
-    });
-
-    return { uiAPI, editor };
-}
-
-/**
- * @param {{ sessionManager: any, compactSession?: any, estimateTokens?: number }} opts
- */
-function makeDeps({ sessionManager, compactSession, estimateTokens }) {
-    /** @type {any[]} */
-    const ensuredManagers = [];
-    /** @type {string[]} */
-    const agentNames = [];
-    /** @type {Array<string | undefined>} */
-    const modelOverrides = [];
-    let openCount = 0;
-    let hydrated = 0;
-
-    const deps = {
-        SessionManager: {
-            list: () =>
-                Promise.resolve([{
-                    path: "session.jsonl",
-                    id: "session-id",
-                    modified: new Date("2026-06-14T00:00:00.000Z"),
-                    messageCount: 2,
-                    firstMessage: "hello",
-                }]),
-            open: () => {
-                openCount++;
-                return sessionManager;
+        uiAPI: /** @type {any} */ ({
+            appendSystemMessage: (/** @type {string} */ message) => messages.push(message),
+            promptSelect: (/** @type {string} */ title, /** @type {any[]} */ options) => {
+                prompts.push({ title, options });
+                return Promise.resolve(selections.shift() ?? null);
             },
+            clearMessages: () => {
+                clears++;
+            },
+        }),
+        editor: /** @type {any} */ ({ disableSubmit: true, setText: () => {} }),
+    };
+}
+
+/**
+ * @param {{ estimatedTokens?: number, compact?: () => Promise<any> }} [options]
+ */
+function makeRuntime(options = {}) {
+    const calls = {
+        loads: /** @type {any[]} */ ([]),
+        replays: /** @type {string[]} */ ([]),
+    };
+    const runtime = /** @type {any} */ ({
+        getSessionSnapshot: (/** @type {string} */ id) => ({
+            id,
+            cwd: Deno.cwd(),
+            name: id === "loaded-runtime" ? "Resumed Work" : null,
+        }),
+        listResumableSessions: () =>
+            Promise.resolve([{
+                path: "/sessions/session.jsonl",
+                id: "persisted-id",
+                modified: new Date("2026-06-14T00:00:00.000Z"),
+                messageCount: 2,
+                firstMessage: "hello",
+            }]),
+        inspectResumableSession: () =>
+            Promise.resolve({
+                estimatedTokens: options.estimatedTokens ?? 20,
+                messageCount: 2,
+                model: { provider: "test", modelId: "resumed-model" },
+            }),
+        loadSession: (/** @type {any} */ request) => {
+            calls.loads.push(request);
+            return Promise.resolve({
+                sessionId: "loaded-runtime",
+                sessionManagerId: "persisted-id",
+                replayEvents: [],
+            });
         },
-        ensureRootAgentSession: (
-            /** @type {{ hostedSession: HostedSession, agentName: string, sessionManager: any }} */ _opts,
-        ) => {
-            agentNames.push(_opts.agentName);
-            ensuredManagers.push(_opts.sessionManager);
-            modelOverrides.push(/** @type {{ modelOverride?: string }} */ (_opts).modelOverride);
-            if (compactSession) {
-                _opts.hostedSession.setRootAgentSession(compactSession);
-            }
-            return Promise.resolve(compactSession || {});
-        },
-        restorePersistedMessagesToUi: () => {
-            hydrated++;
-        },
-        resolveResumeAgentName: () => Promise.resolve(AGENTS.PLANNER),
+        compactSession: options.compact || (() => Promise.resolve({ tokensBefore: 12345, summary: "summary" })),
+        replaySession: (/** @type {string} */ id) => calls.replays.push(id),
+    });
+    return { runtime, calls };
+}
+
+function testDeps() {
+    return {
         getResumeModelSelection: () => ({ modelOverride: "test/resumed-model", contextWindow: 100 }),
         getCompactThresholdPercent: () => 50,
-        estimateSessionContextTokens: estimateTokens === undefined
-            ? estimateSessionContextTokens
-            : () =>
-                Promise.resolve({
-                    estimatedTokens: estimateTokens,
-                    messageCount: 1,
-                    model: { provider: "test", modelId: "resumed-model" },
-                }),
-    };
-
-    return {
-        deps,
-        get openCount() {
-            return openCount;
-        },
-        get hydrated() {
-            return hydrated;
-        },
-        ensuredManagers,
-        agentNames,
-        modelOverrides,
     };
 }
 
-Deno.test("estimateSessionContextTokens counts hydrated context instead of compaction tokensBefore", async () => {
-    const result = await estimateSessionContextTokens({
-        buildSessionContext: () => ({
-            messages: [
-                { role: "compactionSummary", summary: "abcdefgh" },
-                { role: "user", content: "abcd" },
-            ],
-            model: { provider: "test", modelId: "resumed-model" },
-        }),
+Deno.test("runResumeCommand loads, replaces, and replays through SessionRuntime", async () => {
+    const ui = makeUi(["/sessions/session.jsonl"]);
+    const { runtime, calls } = makeRuntime();
+    const replacements = /** @type {string[]} */ ([]);
+
+    await runResumeCommand([], {
+        uiAPI: ui.uiAPI,
+        editor: ui.editor,
+        sessionId: "current-runtime",
+        sessionRuntime: runtime,
+        replaceRuntimeSession: (id) => replacements.push(id),
+        __testDeps: testDeps(),
     });
 
-    assertEquals(result, {
-        estimatedTokens: 3,
-        messageCount: 2,
-        model: { provider: "test", modelId: "resumed-model" },
-    });
+    assertEquals(ui.prompts.map((prompt) => prompt.title), ["Select a session to resume:"]);
+    assertEquals(calls.loads[0].modelOverride, "test/resumed-model");
+    assertEquals(replacements, ["loaded-runtime"]);
+    assertEquals(calls.replays, ["loaded-runtime"]);
+    assertEquals(ui.clears, 1);
+    assertEquals(ui.messages, ["Resumed session: persisted-id"]);
 });
 
-Deno.test("runResumeCommand does not offer compaction when hydrated context is below threshold", async () => {
-    const hostedSession = makeHostedSession();
-    /** @type {PromptRecord[]} */
-    const prompts = [];
-    /** @type {string[]} */
-    const messages = [];
-    /** @type {number[]} */
-    const clearCalls = [];
-    const { uiAPI, editor } = makeUi({
-        selections: ["session.jsonl"],
-        prompts,
-        messages,
-        clearCalls,
+Deno.test("runResumeCommand offers Runtime compaction for large persisted context", async () => {
+    const ui = makeUi(["/sessions/session.jsonl", "resume"]);
+    const { runtime } = makeRuntime({ estimatedTokens: 60 });
+
+    await runResumeCommand([], {
+        uiAPI: ui.uiAPI,
+        editor: ui.editor,
+        sessionId: "current-runtime",
+        sessionRuntime: runtime,
+        replaceRuntimeSession: () => {},
+        __testDeps: testDeps(),
     });
-    const sessionManager = {
-        getSessionId: () => "session-id",
-        buildSessionContext: () => ({
-            messages: [
-                { role: "compactionSummary", summary: "abcdefgh" },
-                { role: "user", content: "abcd" },
-            ],
-        }),
-    };
-    const harness = makeDeps({ sessionManager });
 
-    try {
-        await runResumeCommand([], {
-            uiAPI,
-            editor,
-            hostedSession,
-            __testDeps: harness.deps,
-        });
-
-        assertEquals(prompts.length, 1);
-        assertEquals(prompts[0].title, "Select a session to resume:");
-        assertEquals(harness.openCount, 1);
-        assertEquals(harness.ensuredManagers, [sessionManager]);
-        assertEquals(harness.agentNames, [AGENTS.PLANNER]);
-        assertEquals(harness.modelOverrides, ["test/resumed-model"]);
-        assertEquals(harness.hydrated, 1);
-        assertEquals(clearCalls.length, 1);
-        assertEquals(messages, ["Resumed session: session-id"]);
-    } finally {
-        hostedSession.dispose();
-    }
+    assertEquals(ui.prompts.map((prompt) => prompt.title), [
+        "Select a session to resume:",
+        "Session is large — how would you like to resume?",
+    ]);
+    assertEquals(ui.prompts[1].options.map((option) => option.value), ["compact", "resume", "cancel"]);
 });
 
-Deno.test("runResumeCommand offers compaction for large context and resumes as-is when selected", async () => {
-    const hostedSession = makeHostedSession();
-    /** @type {PromptRecord[]} */
-    const prompts = [];
-    /** @type {string[]} */
-    const messages = [];
-    /** @type {number[]} */
-    const clearCalls = [];
-    const { uiAPI, editor } = makeUi({
-        selections: ["session.jsonl", "resume"],
-        prompts,
-        messages,
-        clearCalls,
+Deno.test("runResumeCommand compacts through SessionRuntime", async () => {
+    const ui = makeUi(["/sessions/session.jsonl", "compact"]);
+    const { runtime } = makeRuntime({ estimatedTokens: 60 });
+    await runResumeCommand([], {
+        uiAPI: ui.uiAPI,
+        editor: ui.editor,
+        sessionId: "current-runtime",
+        sessionRuntime: runtime,
+        replaceRuntimeSession: () => {},
+        __testDeps: testDeps(),
     });
-    const sessionManager = {
-        getSessionId: () => "session-id",
-        buildSessionContext: () => ({ messages: [] }),
-    };
-    const harness = makeDeps({ sessionManager, estimateTokens: 60 });
 
-    try {
-        await runResumeCommand([], {
-            uiAPI,
-            editor,
-            hostedSession,
-            __testDeps: harness.deps,
-        });
-
-        assertEquals(prompts.length, 2);
-        assertEquals(prompts[1].title, "Session is large — how would you like to resume?");
-        assertEquals(prompts[1].options.map((opt) => opt.value), ["compact", "resume", "cancel"]);
-        assertEquals(harness.openCount, 1);
-        assertEquals(harness.ensuredManagers, [sessionManager]);
-        assertEquals(harness.agentNames, [AGENTS.PLANNER]);
-        assertEquals(harness.modelOverrides, ["test/resumed-model"]);
-        assertEquals(harness.hydrated, 1);
-        assertEquals(clearCalls.length, 1);
-        assertEquals(messages, ["Resumed session: session-id"]);
-    } finally {
-        hostedSession.dispose();
-    }
+    assertEquals(ui.messages, [
+        "Compacting session before resume... (Esc to cancel)",
+        "Compacted. Tokens before: 12,345\nResumed (compacted) session: persisted-id",
+    ]);
 });
 
-Deno.test("runResumeCommand resumes as-is when selected compaction fails", async () => {
-    const hostedSession = makeHostedSession();
-    /** @type {PromptRecord[]} */
-    const prompts = [];
-    /** @type {string[]} */
-    const messages = [];
-    /** @type {number[]} */
-    const clearCalls = [];
-    let registeredCancel = false;
-    const { uiAPI, editor } = makeUi({
-        selections: ["session.jsonl", "compact"],
-        prompts,
-        messages,
-        clearCalls,
-    });
-    const sessionManager = {
-        getSessionId: () => "session-id",
-        buildSessionContext: () => ({ messages: [] }),
-    };
-    const compactSession = {
-        abortCompaction: () => {},
+Deno.test("runResumeCommand reports compaction failure and resumes via Runtime", async () => {
+    const ui = makeUi(["/sessions/session.jsonl", "compact"]);
+    const { runtime, calls } = makeRuntime({
+        estimatedTokens: 60,
         compact: () => Promise.reject(new Error("boom")),
-    };
-    const harness = makeDeps({ sessionManager, compactSession, estimateTokens: 60 });
-
-    try {
-        await runResumeCommand([], {
-            uiAPI,
-            editor,
-            hostedSession,
-            registerOperationCancel: () => {
-                registeredCancel = true;
-            },
-            __testDeps: harness.deps,
-        });
-
-        assertEquals(registeredCancel, true);
-        assertEquals(prompts.length, 2);
-        assertEquals(harness.openCount, 1);
-        assertEquals(harness.ensuredManagers, [sessionManager]);
-        assertEquals(harness.agentNames, [AGENTS.PLANNER]);
-        assertEquals(harness.modelOverrides, ["test/resumed-model"]);
-        assertEquals(harness.hydrated, 1);
-        assertEquals(clearCalls.length, 1);
-        assertEquals(messages, [
-            "Compacting session before resume... (Esc to cancel)",
-            "Compaction failed: boom — resuming as-is...\nResumed session: session-id",
-        ]);
-    } finally {
-        hostedSession.dispose();
-    }
-});
-
-Deno.test("runResumeCommand shows compaction result after compacting and resuming", async () => {
-    const hostedSession = makeHostedSession();
-    /** @type {PromptRecord[]} */
-    const prompts = [];
-    /** @type {string[]} */
-    const messages = [];
-    /** @type {number[]} */
-    const clearCalls = [];
-    const { uiAPI, editor } = makeUi({
-        selections: ["session.jsonl", "compact"],
-        prompts,
-        messages,
-        clearCalls,
     });
-    const sessionManager = {
-        getSessionId: () => "session-id",
-        buildSessionContext: () => ({ messages: [] }),
-    };
-    const compactSession = {
-        abortCompaction: () => {},
-        compact: () => Promise.resolve({ tokensBefore: 12345, summary: "summary" }),
-    };
-    const harness = makeDeps({ sessionManager, compactSession, estimateTokens: 60 });
 
-    try {
-        await runResumeCommand([], {
-            uiAPI,
-            editor,
-            hostedSession,
-            __testDeps: harness.deps,
-        });
+    await runResumeCommand([], {
+        uiAPI: ui.uiAPI,
+        editor: ui.editor,
+        sessionId: "current-runtime",
+        sessionRuntime: runtime,
+        replaceRuntimeSession: () => {},
+        __testDeps: testDeps(),
+    });
 
-        assertEquals(prompts.length, 2);
-        assertEquals(harness.openCount, 1);
-        assertEquals(harness.ensuredManagers, [sessionManager]);
-        assertEquals(harness.agentNames, [AGENTS.PLANNER]);
-        assertEquals(harness.modelOverrides, ["test/resumed-model"]);
-        assertEquals(harness.hydrated, 1);
-        assertEquals(clearCalls.length, 1);
-        assertEquals(messages, [
-            "Compacting session before resume... (Esc to cancel)",
-            "Compacted. Tokens before: 12,345\nResumed (compacted) session: session-id",
-        ]);
-    } finally {
-        hostedSession.dispose();
-    }
+    assertEquals(calls.replays, ["loaded-runtime"]);
+    assertEquals(ui.messages.at(-1), "Compaction failed: boom — resuming as-is...\nResumed session: persisted-id");
 });

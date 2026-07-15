@@ -1,19 +1,52 @@
-import { assertEquals, assertRejects, assertStrictEquals, assertThrows } from "@std/assert";
-import { HostedSession } from "./hosted-session.js";
-import { SessionHost } from "./session-host.js";
+import { assertEquals, assertRejects } from "@std/assert";
 import { RuntimeEventTypes } from "./session-runtime-events.js";
 import { HANDOFF_LIMIT_MESSAGE, SessionRuntime, SessionTurnInProgressError } from "./session-runtime.js";
 
-/** @param {string} id */
-function makeSessionManager(id) {
+/**
+ * @param {string} id
+ * @param {string} cwd
+ * @param {unknown[]} [branch]
+ */
+function makeSessionManager(id, cwd, branch = []) {
     return {
+        messages: /** @type {unknown[]} */ ([]),
         disposed: false,
         getSessionId: () => id,
-        getCwd: () => `/repo/${id}`,
+        getCwd: () => cwd,
+        getHeader: () => ({ timestamp: "2026-07-08T00:00:00.000Z" }),
+        getBranch: () => branch,
+        addMessage(/** @type {unknown} */ message) {
+            this.messages.push(message);
+        },
         dispose() {
             this.disposed = true;
         },
     };
+}
+
+/**
+ * @typedef {Object} RuntimeFixtureOptions
+ * @property {import('./types.js').AgentMessageHandler} [handler]
+ * @property {(session: import('./hosted-session.js').HostedSession) => boolean} [abortActiveSession]
+ * @property {(session: import('./hosted-session.js').HostedSession, options: any) => Promise<any>} [switchActiveAgent]
+ * @property {ReturnType<typeof makeSteeringAgentSession>} [agentSession]
+ */
+
+/** @param {RuntimeFixtureOptions} [options] */
+function makeRuntime(options = {}) {
+    let managerIndex = 0;
+    const handler = options.handler || (() => Promise.resolve({ kind: "complete" }));
+    return new SessionRuntime({
+        createRootSessionManager: (_mode, cwd) => Promise.resolve(makeSessionManager(`manager-${++managerIndex}`, cwd)),
+        createAgentHandler: () => handler,
+        ensureRootAgentSession: (opts) => {
+            opts.hostedSession.setRootAgentName(opts.agentName);
+            opts.hostedSession.setRootAgentSession(options.agentSession || { dispose() {} });
+            return Promise.resolve(opts.hostedSession.getRootAgentSession());
+        },
+        ...(options.abortActiveSession ? { abortActiveSession: options.abortActiveSession } : {}),
+        ...(options.switchActiveAgent ? { switchActiveAgent: options.switchActiveAgent } : {}),
+    });
 }
 
 function makeSteeringAgentSession() {
@@ -21,10 +54,6 @@ function makeSteeringAgentSession() {
     const listeners = new Set();
     /** @type {string[]} */
     let steering = [];
-    /** @type {string[]} */
-    let followUp = [];
-    let clearQueueCalls = 0;
-
     const session = /** @type {any} */ ({
         isStreaming: true,
         model: { input: ["text", "image"] },
@@ -41,740 +70,431 @@ function makeSteeringAgentSession() {
         },
         /** @param {string} text */
         followUp(text) {
-            followUp.push(text);
+            steering.push(text);
             session.emitQueueUpdate();
             return Promise.resolve();
         },
         clearQueue() {
-            clearQueueCalls++;
-            const cleared = { steering: [...steering], followUp: [...followUp] };
+            const cleared = { steering: [...steering], followUp: [] };
             steering = [];
-            followUp = [];
             session.emitQueueUpdate();
             return cleared;
         },
-        getSteeringMessages() {
-            return steering;
-        },
+        getSteeringMessages: () => steering,
         emitQueueUpdate() {
-            const event = { type: "queue_update", steering: [...steering], followUp: [...followUp] };
-            for (const listener of listeners) listener(event);
+            for (const listener of listeners) {
+                listener({ type: "queue_update", steering: [...steering], followUp: [] });
+            }
         },
         consumeNextSteering() {
             steering.shift();
             session.emitQueueUpdate();
-        },
-        get queuedSteering() {
-            return [...steering];
-        },
-        get clearQueueCalls() {
-            return clearQueueCalls;
         },
         dispose() {},
     });
     return session;
 }
 
-Deno.test("SessionRuntime createSession requires an absolute project root", () => {
-    const runtime = new SessionRuntime({ sessionHost: new SessionHost() });
+Deno.test("SessionRuntime exposes opaque ids and snapshots, never HostedSession objects", async () => {
+    const runtime = makeRuntime();
+    const created = await runtime.createInteractiveSession({ cwd: Deno.cwd() });
 
-    assertThrows(
-        () => runtime.createSession(/** @type {any} */ ({ id: "missing-root" })),
-        Error,
-        "requires an absolute project root",
-    );
-    assertThrows(
-        () => runtime.createSession({ id: "relative-root", cwd: "relative/project", sessionManager: null }),
-        Error,
-        "requires an absolute project root",
-    );
+    assertEquals(typeof created.sessionId, "string");
+    assertEquals(created.cwd, Deno.cwd());
+    assertEquals("hostedSession" in created, false);
+    assertEquals("sessionManager" in created, false);
+    assertEquals(Object.hasOwn(runtime, "sessionHost"), false);
+    assertEquals(runtime.listSessions(), [runtime.getSessionSnapshot(created.sessionId)]);
+    assertEquals("getActiveOnMessage" in /** @type {any} */ (runtime.listSessions()[0]), false);
 });
 
-Deno.test("SessionRuntime composes SessionHost for create adopt list and close", () => {
-    const host = new SessionHost();
-    const runtime = new SessionRuntime({ sessionHost: host });
-    const createdManager = makeSessionManager("created");
-    const adopted = new HostedSession({ id: "adopted", cwd: "/repo/adopted" });
-
-    const created = runtime.createSession({ sessionManager: createdManager });
-    const adoptedResult = runtime.adoptSession(adopted);
-
-    assertStrictEquals(created, host.getSession("created"));
-    assertStrictEquals(adoptedResult, adopted);
-    assertEquals(runtime.listSessions().map((session) => session.id), ["created", "adopted"]);
-    assertEquals(runtime.closeSession("created"), { ok: true, closed: true });
-    assertEquals(created.disposed, true);
-    assertEquals(createdManager.disposed, true);
-    assertEquals(runtime.closeSession("missing"), { ok: true, closed: false });
-});
-
-Deno.test("SessionRuntime promptSession consumes only the target HostedSession handoff result", async () => {
-    const current = new HostedSession({ id: "current", cwd: Deno.cwd() });
-    const other = new HostedSession({ id: "other", cwd: Deno.cwd() });
-    /** @type {string[]} */
-    const seenRequests = [];
-    current.setRootSessionManager(/** @type {any} */ ({ id: "current-root" }));
-    current.setActiveOnMessage((/** @type {string} */ request) => {
-        seenRequests.push(request);
-        if (seenRequests.length === 1) {
-            return Promise.resolve({ kind: "handoff", agentName: "router", userRequest: "handoff" });
-        }
-        return Promise.resolve({ kind: "complete" });
-    });
-    const runtime = new SessionRuntime({
-        switchActiveAgent: (session) => {
-            assertStrictEquals(session, current);
-            session.setActiveOnMessage(current.getActiveOnMessage());
-            return Promise.resolve({ ok: true, agentName: "router", changed: true });
-        },
-    });
-
-    const result = await runtime.promptSession(current, {
-        initialRequest: "first",
-        initialImages: [],
-    });
-
-    assertEquals(result.ok, true);
-    assertEquals(result.turns, 2);
-    assertEquals(result.handoffs, 1);
-    assertEquals(seenRequests, ["first", "handoff"]);
-    assertEquals(other.getRootAgentName(), null);
-});
-
-Deno.test("SessionRuntime keeps the session busy while compatibility UI work is still in flight", async () => {
-    const hostedSession = new HostedSession({ id: "busy-owner", cwd: Deno.cwd() });
-    hostedSession.setRootSessionManager(/** @type {any} */ ({ id: "root" }));
-    /**
-     * @param {string} _request
-     * @param {import('./types.js').ImageAttachment[]} _images
-     * @param {import('../types.js').SessionUiPort} uiAPI
-     */
-    const simulateCompatibilityWork = (_request, _images, uiAPI) => {
-        uiAPI.setBusy?.(false);
-        uiAPI.setBusy?.(true);
-        return Promise.resolve();
-    };
-    hostedSession.setActiveOnMessage(simulateCompatibilityWork);
-    const runtime = new SessionRuntime();
-    /** @type {boolean[]} */
-    const busyStates = [];
-    runtime.subscribeSessionEvents(hostedSession, (event) => {
-        if (event.type === RuntimeEventTypes.BUSY_CHANGED) busyStates.push(event.busy);
-    });
-
-    await runtime.promptSession(hostedSession, {
-        initialRequest: "start",
-        initialImages: [],
-    });
-
-    assertEquals(busyStates, [true, false]);
-});
-
-Deno.test("SessionRuntime promptSession preserves the chained handoff limit", async () => {
-    const hostedSession = new HostedSession({ id: "limited", cwd: Deno.cwd() });
-    /** @type {string[]} */
-    const messages = [];
-    let turnCount = 0;
-    hostedSession.setRootSessionManager(/** @type {any} */ ({ id: "root" }));
-    hostedSession.setActiveOnMessage(() => {
-        turnCount++;
-        return Promise.resolve({ kind: "handoff", agentName: "router", userRequest: `handoff ${turnCount}` });
-    });
-    const runtime = new SessionRuntime({
-        switchActiveAgent: (session) => {
-            session.setActiveOnMessage(hostedSession.getActiveOnMessage());
-            return Promise.resolve({ ok: true, agentName: "router", changed: true });
-        },
-    });
-    runtime.subscribeSessionEvents(hostedSession, (event) => {
-        if (event.type === RuntimeEventTypes.SYSTEM_STATUS) messages.push(event.message);
-    });
-
-    const result = await runtime.promptSession(hostedSession, {
-        initialRequest: "start",
-        initialImages: [],
-    });
-
-    assertEquals(turnCount, 5);
-    assertEquals(result.handoffLimitReached, true);
-    assertEquals(messages.includes(HANDOFF_LIMIT_MESSAGE), true);
-});
-
-Deno.test("SessionRuntime adapter switch rejects active turns", async () => {
-    const hostedSession = new HostedSession({ id: "switch-busy", cwd: Deno.cwd() });
-    hostedSession.beginTurn("active");
-    const runtime = new SessionRuntime();
-
+Deno.test("SessionRuntime rejects non-absolute session roots", async () => {
+    const runtime = makeRuntime();
     await assertRejects(
-        () => runtime.switchAgent(hostedSession, { agentName: "guide" }),
-        SessionTurnInProgressError,
+        () => runtime.createInteractiveSession({ cwd: "relative/project" }),
+        Error,
+        "requires an absolute cwd",
     );
-
-    hostedSession.endTurn("active");
+    await assertRejects(
+        () => runtime.loadSession({ cwd: "relative/project", sessionId: "persisted" }),
+        Error,
+        "requires an absolute cwd",
+    );
 });
 
-Deno.test("SessionRuntime cancelSession aborts the target HostedSession and handles missing sessions", () => {
-    const hostedSession = new HostedSession({ id: "cancel-me", cwd: Deno.cwd() });
-    /** @type {string[]} */
-    const aborted = [];
-    const runtime = new SessionRuntime({
-        abortActiveSession: (session) => {
-            aborted.push(session.id);
-            return true;
-        },
-    });
-
-    assertEquals(runtime.cancelSession("missing"), { ok: false, aborted: false, error: "not_found" });
-    assertEquals(runtime.cancelSession(hostedSession), { ok: true, aborted: true });
-    assertEquals(aborted, ["cancel-me"]);
-});
-
-Deno.test("SessionRuntime promptSession reports missing active handler or session manager", async () => {
-    const hostedSession = new HostedSession({ id: "missing-handler", cwd: Deno.cwd() });
-    /** @type {string[]} */
+Deno.test("SessionRuntime emits one ordered lifecycle for one prompt", async () => {
+    const runtime = makeRuntime();
+    const sessionId = await runtime.createPromptReadySession({ cwd: Deno.cwd() });
+    /** @type {any[]} */
     const events = [];
-    const runtime = new SessionRuntime();
-    runtime.subscribeSessionEvents(hostedSession, (event) => {
-        events.push(event.type);
+    runtime.subscribeSessionEvents(sessionId, (event) => {
+        events.push(event);
     });
 
-    const result = await runtime.promptSession(hostedSession, {
-        initialRequest: "hello",
-        initialImages: [],
-    });
+    const result = await runtime.promptSession(sessionId, { initialRequest: "hello", initialImages: [] });
 
-    assertEquals(result, {
-        ok: false,
-        turns: 0,
-        handoffs: 0,
-        handoffLimitReached: false,
-        error: "missing_active_handler_or_session_manager",
-    });
-    assertEquals(events, [
+    assertEquals(result, { ok: true, turns: 1, handoffs: 0, handoffLimitReached: false });
+    assertEquals(events.map((event) => event.type), [
         RuntimeEventTypes.USER_MESSAGE,
         RuntimeEventTypes.TURN_START,
         RuntimeEventTypes.BUSY_CHANGED,
-        RuntimeEventTypes.SYSTEM_STATUS,
+        RuntimeEventTypes.TURN_END,
+        RuntimeEventTypes.BUSY_CHANGED,
+    ]);
+    assertEquals(events.filter((event) => event.type === RuntimeEventTypes.USER_MESSAGE).length, 1);
+    assertEquals(events.every((event) => event.sessionId === sessionId), true);
+});
+
+Deno.test("SessionRuntime event subscriptions unsubscribe deterministically", async () => {
+    const runtime = makeRuntime();
+    const { sessionId } = await runtime.createInteractiveSession({ cwd: Deno.cwd() });
+    /** @type {any[]} */
+    const events = [];
+    const unsubscribe = runtime.subscribeSessionEvents(sessionId, (event) => {
+        events.push(event);
+    });
+
+    runtime.setSessionThinkingLevel(sessionId, "low");
+    unsubscribe();
+    runtime.setSessionThinkingLevel(sessionId, "medium");
+
+    assertEquals(events.map((event) => event.thinkingLevel), ["low"]);
+});
+
+Deno.test("SessionRuntime owns the complete local shell tool lifecycle", async () => {
+    const runtime = makeRuntime();
+    const { sessionId } = await runtime.createInteractiveSession({ cwd: Deno.cwd() });
+    /** @type {any[]} */
+    const events = [];
+    runtime.subscribeSessionEvents(sessionId, (event) => {
+        events.push(event);
+    });
+
+    const result = await runtime.runLocalShellCommand(sessionId, {
+        command: "printf runtime-shell",
+        userRequest: "!printf runtime-shell",
+        persist: true,
+    });
+
+    assertEquals(result.ok, true);
+    assertEquals(result.output, "runtime-shell");
+    assertEquals(events[0].type, RuntimeEventTypes.USER_MESSAGE);
+    assertEquals(events.filter((event) => event.type === RuntimeEventTypes.TOOL_START).length, 1);
+    assertEquals(events.filter((event) => event.type === RuntimeEventTypes.TOOL_END).length, 1);
+    assertEquals(events.find((event) => event.type === RuntimeEventTypes.TOOL_END)?.text, "runtime-shell");
+});
+
+Deno.test("SessionRuntime cancellation terminates an active local shell command", async () => {
+    const runtime = makeRuntime();
+    const { sessionId } = await runtime.createInteractiveSession({ cwd: Deno.cwd() });
+    let resolveStarted = () => {};
+    const started = new Promise((resolve) => {
+        resolveStarted = () => resolve(undefined);
+    });
+    runtime.subscribeSessionEvents(sessionId, (event) => {
+        if (event.type === RuntimeEventTypes.TOOL_START) resolveStarted();
+    });
+
+    const command = runtime.runLocalShellCommand(sessionId, { command: "sleep 5", persist: false });
+    await started;
+    runtime.cancelSession(sessionId);
+    const result = await command;
+
+    assertEquals(result.canceled, true);
+    assertEquals(result.exitCode, 130);
+});
+
+Deno.test("SessionRuntime publishes handler errors and releases the turn", async () => {
+    const runtime = makeRuntime({
+        handler: () => Promise.reject(new Error("boom")),
+    });
+    const sessionId = await runtime.createPromptReadySession({ cwd: Deno.cwd() });
+    /** @type {string[]} */
+    const types = [];
+    runtime.subscribeSessionEvents(sessionId, (event) => {
+        types.push(event.type);
+    });
+
+    await assertRejects(
+        () => runtime.promptSession(sessionId, { initialRequest: "fail", initialImages: [] }),
+        Error,
+        "boom",
+    );
+
+    assertEquals(types, [
+        RuntimeEventTypes.USER_MESSAGE,
+        RuntimeEventTypes.TURN_START,
+        RuntimeEventTypes.BUSY_CHANGED,
         RuntimeEventTypes.TERMINAL_ERROR,
         RuntimeEventTypes.TURN_END,
         RuntimeEventTypes.BUSY_CHANGED,
     ]);
+    assertEquals(runtime.getSessionSnapshot(sessionId)?.busy, false);
 });
 
-Deno.test("SessionRuntime emits scoped events and unsubscribe is deterministic", () => {
-    const runtime = new SessionRuntime();
-    const hostedSession = runtime.createSession({ id: "events", cwd: "/repo/events" });
-    /** @type {unknown[]} */
-    const seen = [];
-    const unsubscribe = runtime.subscribeSessionEvents(hostedSession, (event) => {
-        seen.push(event);
-    });
-
-    runtime.emitSessionEvent(hostedSession, { type: "system_status", message: "hello" });
-    unsubscribe();
-    runtime.emitSessionEvent(hostedSession, { type: "system_status", message: "ignored" });
-
-    assertEquals(seen.length, 1);
-    assertEquals(/** @type {any} */ (seen[0]).sessionId, "events");
-    assertEquals(/** @type {any} */ (seen[0]).message, "hello");
-});
-
-Deno.test("SessionRuntime exposes real steering queue state and emits consumption transitions", async () => {
-    const runtime = new SessionRuntime();
-    const hostedSession = runtime.createSession({ id: "queue-state", cwd: "/repo/queue-state" });
-    const agentSession = makeSteeringAgentSession();
-    hostedSession.setRootAgentSession(agentSession);
-    /** @type {any[]} */
-    const queueEvents = [];
-    /** @type {any[]} */
-    const userEvents = [];
-    runtime.subscribeSessionEvents(hostedSession, (event) => {
-        if (event.type === RuntimeEventTypes.QUEUED_MESSAGE_CHANGED) queueEvents.push(event);
-        if (event.type === RuntimeEventTypes.USER_MESSAGE) userEvents.push(event);
-    });
-
-    const result = await runtime.steerSession(hostedSession, "change direction", []);
-
-    assertEquals(result.queued, true);
-    if (!result.message) throw new Error("expected queued message state");
-    assertEquals(queueEvents.map((event) => event.status), ["queued"]);
-    assertEquals(runtime.getSessionSnapshot(hostedSession)?.queuedMessages, [{
-        id: result.message.id,
-        text: "change direction",
-        images: [],
-        delivery: "steer",
-        queuedAt: result.message.queuedAt,
-    }]);
-
-    agentSession.consumeNextSteering();
-
-    assertEquals(queueEvents.map((event) => event.status), ["queued", "consumed"]);
-    assertEquals(queueEvents[1].message.id, result.message.id);
-    assertEquals(
-        userEvents.map((event) => ({
-            messageId: event.messageId,
-            text: event.text,
-            images: event.images,
-        })),
-        [{ messageId: result.message.id, text: "change direction", images: [] }],
-    );
-    assertEquals(runtime.getSessionSnapshot(hostedSession)?.queuedMessages, []);
-});
-
-Deno.test("SessionRuntime owns deferred next-turn queue state, consumption, and recall", async () => {
-    const runtime = new SessionRuntime();
-    const hostedSession = runtime.createSession({ id: "queue-next-turn", cwd: "/repo/queue-next-turn" });
-    /** @type {any[]} */
-    const queueEvents = [];
-    runtime.subscribeSessionEvents(hostedSession, (event) => {
-        if (event.type === RuntimeEventTypes.QUEUED_MESSAGE_CHANGED) queueEvents.push(event);
-    });
-
-    const first = runtime.queueNextTurnMessage(hostedSession, "first later", []);
-    const second = runtime.queueNextTurnMessage(hostedSession, "second later", [{
-        base64: "abc",
-        mimeType: "image/png",
-        ref: "attachment:abc",
-    }]);
-    if (!first.message || !second.message) throw new Error("expected deferred queued messages");
-
-    assertEquals(
-        runtime.getSessionSnapshot(hostedSession)?.queuedMessages.map((message) => ({
-            id: message.id,
-            delivery: message.delivery,
-        })),
-        [
-            { id: first.message.id, delivery: "next_turn" },
-            { id: second.message.id, delivery: "next_turn" },
-        ],
-    );
-
-    const taken = runtime.takeNextTurnMessage(hostedSession);
-    const recalled = await runtime.dequeueLastQueuedMessage(hostedSession);
-
-    assertEquals(taken.message?.id, first.message.id);
-    assertEquals(recalled.message?.id, second.message.id);
-    assertEquals(recalled.message?.images, second.message.images);
-    assertEquals(queueEvents.map((event) => event.status), ["queued", "queued", "consumed", "dequeued"]);
-    assertEquals(runtime.getSessionSnapshot(hostedSession)?.queuedMessages, []);
-});
-
-Deno.test("SessionRuntime dequeues the latest steering message and preserves earlier core queue state", async () => {
-    const runtime = new SessionRuntime();
-    const hostedSession = runtime.createSession({ id: "queue-dequeue", cwd: "/repo/queue-dequeue" });
-    const agentSession = makeSteeringAgentSession();
-    hostedSession.setRootAgentSession(agentSession);
-    /** @type {any[]} */
-    const queueEvents = [];
-    runtime.subscribeSessionEvents(hostedSession, (event) => {
-        if (event.type === RuntimeEventTypes.QUEUED_MESSAGE_CHANGED) queueEvents.push(event);
-    });
-
-    const first = await runtime.steerSession(hostedSession, "first", []);
-    const second = await runtime.steerSession(hostedSession, "second", []);
-    if (!first.message || !second.message) throw new Error("expected queued message states");
-    const result = await runtime.dequeueLastQueuedMessage(hostedSession);
-
-    assertEquals(result.ok, true);
-    assertEquals(result.message?.id, second.message.id);
-    assertEquals(agentSession.clearQueueCalls, 1);
-    assertEquals(agentSession.queuedSteering, ["first"]);
-    assertEquals(queueEvents.map((event) => event.status), ["queued", "queued", "dequeued"]);
-    assertEquals(runtime.getSessionSnapshot(hostedSession)?.queuedMessages.map((message) => message.id), [
-        first.message.id,
-    ]);
-});
-
-Deno.test("SessionRuntime cancellation publishes queued messages as dequeued, not consumed", async () => {
-    const runtime = new SessionRuntime({ abortActiveSession: () => true });
-    const hostedSession = runtime.createSession({ id: "queue-cancel", cwd: "/repo/queue-cancel" });
-    const agentSession = makeSteeringAgentSession();
-    hostedSession.setRootAgentSession(agentSession);
-    /** @type {any[]} */
-    const queueEvents = [];
-    runtime.subscribeSessionEvents(hostedSession, (event) => {
-        if (event.type === RuntimeEventTypes.QUEUED_MESSAGE_CHANGED) queueEvents.push(event);
-    });
-    await runtime.steerSession(hostedSession, "cancel me", []);
-
-    runtime.cancelSession(hostedSession);
-
-    assertEquals(queueEvents.map((event) => event.status), ["queued", "dequeued"]);
-    assertEquals(queueEvents[1].reason, "session_cancel");
-    assertEquals(agentSession.queuedSteering, []);
-    assertEquals(runtime.getSessionSnapshot(hostedSession)?.queuedMessages, []);
-});
-
-Deno.test("SessionRuntime loadSession opens persisted session restores agent and returns replay events", async () => {
-    const sessionManager = {
-        disposed: false,
-        getSessionId: () => "persisted-1",
-        getCwd: () => "/repo/acp",
-        getBranch: () => [
-            {
-                type: "message",
-                id: "u1",
-                timestamp: "2026-07-08T00:00:00.000Z",
-                message: { role: "user", content: [{ type: "text", text: "hello" }] },
-            },
-            {
-                type: "message",
-                id: "a1",
-                timestamp: "2026-07-08T00:00:01.000Z",
-                message: { role: "assistant", content: [{ type: "text", text: "hi" }] },
-            },
-            {
-                type: "message",
-                id: "t1",
-                timestamp: "2026-07-08T00:00:02.000Z",
-                message: {
-                    role: "assistant",
-                    content: [{ type: "tool_use", id: "tool-1", name: "bash", input: { secret: "x" } }],
-                },
-            },
-            {
-                type: "message",
-                id: "tr1",
-                timestamp: new Date("2026-07-08T00:00:03.000Z"),
-                message: {
-                    role: "user",
-                    content: [{ type: "tool_result", tool_use_id: "tool-1", content: "password=secret" }],
-                },
-            },
-            {
-                type: "future_unknown",
-                id: "unknown-1",
-                timestamp: 1783478404000,
-                payload: { secret: "hidden" },
-            },
-        ],
-        dispose() {
-            this.disposed = true;
-        },
-    };
-    const runtime = new SessionRuntime({
-        openPersistedRootSession: (options) => {
-            assertEquals(options, { cwd: "/repo/acp", sessionId: "persisted-1", sessionPath: undefined });
-            return Promise.resolve({
-                sessionManager,
-                resolved: {
-                    cwd: "/repo/acp",
-                    sessionDir: "/sessions",
-                    sessionId: "persisted-1",
-                    sessionPath: "/sessions/persisted-1.jsonl",
-                    info: null,
-                },
-            });
-        },
-        resolveResumeAgentName: () => Promise.resolve("planner"),
-        createAgentHandler: (agentName) => {
-            assertEquals(agentName, "planner");
-            return () => Promise.resolve();
-        },
-        ensureRootAgentSession: (opts) => {
-            opts.hostedSession.setRootAgentName(opts.agentName);
-            opts.hostedSession.setRootAgentSession({ dispose() {} });
-            return Promise.resolve(/** @type {any} */ (opts.hostedSession.getRootAgentSession()));
-        },
-    });
-
-    const result = await runtime.loadSession({ cwd: "/repo/acp", sessionId: "persisted-1" });
-
-    assertEquals(result.hostedSession.id === "persisted-1", false);
-    assertEquals(result.hostedSession.cwd, "/repo/acp");
-    assertEquals(result.hostedSession.getRootAgentName(), "planner");
-    assertEquals(result.sessionManagerId, "persisted-1");
-    assertEquals(result.sessionPath, "/sessions/persisted-1.jsonl");
-    assertEquals(result.replayEvents.map((event) => event.type), [
-        "user_message",
-        "assistant_text_delta",
-        "tool_start",
-        "tool_end",
-        "system_status",
-    ]);
-    assertEquals(/** @type {any} */ (result.replayEvents[0])._meta.replay, true);
-    assertEquals(result.replayEvents[3].timestamp, "2026-07-08T00:00:03.000Z");
-    assertEquals(result.replayEvents[4].timestamp, "2026-07-08T02:40:04.000Z");
-    assertEquals(/** @type {any} */ (result.replayEvents[3]).text, "[tool result replayed]");
-    assertEquals(
-        /** @type {any} */ (result.replayEvents[4]).message,
-        "Persisted session entry replayed: future_unknown",
-    );
-    assertEquals(JSON.stringify(result.replayEvents).includes("password"), false);
-    assertEquals(JSON.stringify(result.replayEvents).includes("secret"), false);
-});
-
-Deno.test("SessionRuntime closeAllSessions cancels and disposes all hosted sessions", () => {
-    const runtime = new SessionRuntime({ abortActiveSession: () => true });
-    const first = runtime.createSession({ id: "first", cwd: "/repo/first" });
-    const second = runtime.createSession({ id: "second", cwd: "/repo/second" });
-    assertEquals(runtime.closeAllSessions(), { ok: true, closed: 2 });
-    assertEquals(first.disposed, true);
-    assertEquals(second.disposed, true);
-    assertEquals(runtime.listSessions(), []);
-});
-
-Deno.test("SessionRuntime loadSession rejects relative cwd", async () => {
-    const runtime = new SessionRuntime();
-    try {
-        await runtime.loadSession({ cwd: "relative", sessionId: "persisted" });
-        throw new Error("expected loadSession to reject");
-    } catch (error) {
-        assertEquals(error instanceof Error && error.message, "SessionRuntime.loadSession requires an absolute cwd");
-    }
-});
-
-Deno.test("SessionRuntime createPromptReadySession creates Router-backed hosted session", async () => {
-    const runtime = new SessionRuntime({
-        createRootSessionManager: (mode, cwd) => {
-            assertEquals(mode, "new");
-            return Promise.resolve(makeSessionManager(cwd.split("/").pop() || "created"));
-        },
-        createAgentHandler: (agentName) => {
-            assertEquals(agentName, "router");
-            return () => Promise.resolve();
-        },
-        ensureRootAgentSession: (opts) => {
-            opts.hostedSession.setRootAgentName(opts.agentName);
-            opts.hostedSession.setRootAgentSession({ dispose() {} });
-            return Promise.resolve(/** @type {any} */ (opts.hostedSession.getRootAgentSession()));
-        },
-    });
-    /** @type {unknown[]} */
-    const events = [];
-
-    const hostedSession = await runtime.createPromptReadySession({ cwd: "/repo/acp" });
-    runtime.subscribeSessionEvents(hostedSession, (event) => {
-        events.push(event);
-    });
-    runtime.emitSessionEvent(hostedSession, { type: "system_status", message: "ready" });
-
-    assertEquals(hostedSession.id === "acp", false);
-    assertEquals(hostedSession.cwd, "/repo/acp");
-    assertEquals(hostedSession.getRootAgentName(), "router");
-    assertEquals(typeof hostedSession.getActiveOnMessage(), "function");
-    assertEquals(typeof /** @type {any} */ (hostedSession.getEventSink()).emit, "function");
-    assertEquals(/** @type {any} */ (events[0]).message, "ready");
-});
-
-Deno.test("SessionRuntime removes partially initialized sessions when root creation fails", async () => {
-    const manager = makeSessionManager("partial");
-    const runtime = new SessionRuntime({
-        createRootSessionManager: () => Promise.resolve(manager),
-        ensureRootAgentSession: () => Promise.reject(new Error("root failed")),
-    });
-
-    await assertRejects(
-        () => runtime.createPromptReadySession({ cwd: "/repo/partial" }),
-        Error,
-        "root failed",
-    );
-    assertEquals(runtime.listSessions(), []);
-    assertEquals(manager.disposed, true);
-});
-
-Deno.test("SessionRuntime promptSession emits user turn and terminal error events", async () => {
-    const hostedSession = new HostedSession({ id: "prompt-events", cwd: Deno.cwd() });
-    hostedSession.setRootSessionManager(/** @type {any} */ ({ id: "root" }));
-    hostedSession.setActiveOnMessage(() => {
-        throw new Error("boom");
-    });
-    const runtime = new SessionRuntime();
-    /** @type {string[]} */
-    const types = [];
-    runtime.subscribeSessionEvents(hostedSession, (event) => {
-        types.push(event.type);
-    });
-
-    try {
-        await runtime.promptSession(hostedSession, { initialRequest: "hello", initialImages: [] });
-        throw new Error("expected prompt to throw");
-    } catch (error) {
-        assertEquals(error instanceof Error && error.message, "boom");
-    }
-
-    assertEquals(types.includes("user_message"), true);
-    assertEquals(types.includes("turn_start"), true);
-    assertEquals(types.includes("terminal_error"), true);
-    assertEquals(types.at(-1), "busy_changed");
-    assertEquals(hostedSession.isTurnActive(), false);
-});
-
-Deno.test("SessionRuntime owns same-session turn exclusion and exposes busy snapshots", async () => {
-    const hostedSession = new HostedSession({ id: "turn-lock", cwd: "/repo/turn-lock" });
-    hostedSession.setRootSessionManager(/** @type {any} */ ({ id: "root" }));
-    const gate = { release: () => {} };
-    hostedSession.setActiveOnMessage(() =>
-        new Promise((resolve) => {
-            gate.release = () => resolve(undefined);
-        })
-    );
-    const runtime = new SessionRuntime();
-    let acceptedTurnSetups = 0;
-    let acceptedTurnCleanups = 0;
-    let rejectedTurnSetups = 0;
-
-    const firstPrompt = runtime.promptSession(hostedSession, {
-        initialRequest: "first",
-        initialImages: [],
-        onTurnStarted: () => {
-            acceptedTurnSetups++;
-            return () => acceptedTurnCleanups++;
-        },
-    });
-    await Promise.resolve();
-
-    const activeSnapshot = runtime.getSessionSnapshot(hostedSession);
-    assertEquals(activeSnapshot?.busy, true);
-    assertEquals(typeof activeSnapshot?.activeTurnId, "string");
-    await assertRejects(
-        () =>
-            runtime.promptSession(hostedSession, {
-                initialRequest: "second",
-                initialImages: [],
-                onTurnStarted: () => {
-                    rejectedTurnSetups++;
-                },
+Deno.test("SessionRuntime rejects overlapping turns for one id", async () => {
+    /** @type {() => void} */
+    let release = () => {};
+    const runtime = makeRuntime({
+        handler: () =>
+            new Promise((resolve) => {
+                release = () => resolve({ kind: "complete" });
             }),
+    });
+    const sessionId = await runtime.createPromptReadySession({ cwd: Deno.cwd() });
+
+    const first = runtime.promptSession(sessionId, { initialRequest: "first", initialImages: [] });
+    await Promise.resolve();
+    assertEquals(runtime.getSessionSnapshot(sessionId)?.busy, true);
+    await assertRejects(
+        () => runtime.promptSession(sessionId, { initialRequest: "second", initialImages: [] }),
         SessionTurnInProgressError,
         "already has an active turn",
     );
-    assertEquals(acceptedTurnSetups, 1);
-    assertEquals(rejectedTurnSetups, 0);
-    assertEquals(acceptedTurnCleanups, 0);
-
-    gate.release();
-    await firstPrompt;
-    assertEquals(acceptedTurnCleanups, 1);
-    const idleSnapshot = runtime.getSessionSnapshot(hostedSession);
-    assertEquals(idleSnapshot?.busy, false);
-    assertEquals(idleSnapshot?.activeTurnId, null);
-});
-
-Deno.test("SessionRuntime keeps canceled turns reserved and closes only after prompt settlement", async () => {
-    const runtime = new SessionRuntime({ abortActiveSession: () => true });
-    const hostedSession = runtime.createSession({ id: "settled-close", cwd: "/repo/settled-close" });
-    hostedSession.setRootSessionManager(/** @type {any} */ ({ id: "root", dispose() {} }));
-    let release = () => {};
-    hostedSession.setActiveOnMessage(() =>
-        new Promise((resolve) => {
-            release = () => resolve(undefined);
-        })
-    );
-
-    const prompt = runtime.promptSession(hostedSession, { initialRequest: "long turn", initialImages: [] });
-    await Promise.resolve();
-    const close = runtime.closeSessionWhenIdle(hostedSession);
-    await Promise.resolve();
-
-    assertEquals(hostedSession.isTurnActive(), true);
-    assertEquals(hostedSession.disposed, false);
-    await assertRejects(
-        () => runtime.promptSession(hostedSession, { initialRequest: "overlap", initialImages: [] }),
-        SessionTurnInProgressError,
-    );
 
     release();
-    await prompt;
-    assertEquals(await close, { ok: true, closed: true });
-    assertEquals(hostedSession.disposed, true);
+    await first;
+    assertEquals(runtime.getSessionSnapshot(sessionId)?.busy, false);
 });
 
-Deno.test("SessionRuntime permits independent Hosted Sessions to prompt concurrently", async () => {
-    const runtime = new SessionRuntime();
-    const alpha = runtime.createSession({ id: "concurrent-alpha", cwd: "/repo/alpha" });
-    const beta = runtime.createSession({ id: "concurrent-beta", cwd: "/repo/beta" });
-    alpha.setRootSessionManager(/** @type {any} */ ({ id: "alpha-root" }));
-    beta.setRootSessionManager(/** @type {any} */ ({ id: "beta-root" }));
+Deno.test("SessionRuntime allows independent session ids to run concurrently", async () => {
     /** @type {Array<() => void>} */
     const releases = [];
-    for (const session of [alpha, beta]) {
-        session.setActiveOnMessage(() =>
-            new Promise((resolve) => {
-                releases.push(() => resolve(undefined));
-            })
-        );
-    }
+    const runtime = makeRuntime({
+        handler: () => new Promise((resolve) => releases.push(() => resolve({ kind: "complete" }))),
+    });
+    const alpha = await runtime.createPromptReadySession({ cwd: Deno.cwd() });
+    const beta = await runtime.createPromptReadySession({ cwd: Deno.cwd() });
 
     const prompts = [
         runtime.promptSession(alpha, { initialRequest: "alpha", initialImages: [] }),
         runtime.promptSession(beta, { initialRequest: "beta", initialImages: [] }),
     ];
-    for (let i = 0; i < 10 && releases.length < 2; i++) await Promise.resolve();
+    for (let index = 0; index < 10 && releases.length < 2; index++) await Promise.resolve();
     assertEquals(runtime.getSessionSnapshot(alpha)?.busy, true);
     assertEquals(runtime.getSessionSnapshot(beta)?.busy, true);
     for (const release of releases) release();
     assertEquals((await Promise.all(prompts)).map((result) => result.ok), [true, true]);
 });
 
-Deno.test("SessionRuntime cancelSession emits cancellation event", () => {
-    const hostedSession = new HostedSession({ id: "cancel-events", cwd: Deno.cwd() });
-    const runtime = new SessionRuntime({ abortActiveSession: () => true });
-    /** @type {unknown[]} */
+Deno.test("SessionRuntime preserves the chained handoff limit", async () => {
+    let turnCount = 0;
+    /** @type {import('./types.js').AgentMessageHandler} */
+    const handler = () =>
+        Promise.resolve({ kind: "handoff", agentName: "router", userRequest: `handoff ${++turnCount}` });
+    const runtime = makeRuntime({
+        handler,
+        switchActiveAgent: (session) => {
+            session.setActiveOnMessage(handler);
+            return Promise.resolve({ ok: true, agentName: "router", changed: true });
+        },
+    });
+    const sessionId = await runtime.createPromptReadySession({ cwd: Deno.cwd() });
+    /** @type {string[]} */
+    const messages = [];
+    runtime.subscribeSessionEvents(sessionId, (event) => {
+        if (event.type === RuntimeEventTypes.SYSTEM_STATUS) messages.push(event.message);
+    });
+
+    const result = await runtime.promptSession(sessionId, { initialRequest: "start", initialImages: [] });
+
+    assertEquals(turnCount, 5);
+    assertEquals(result.handoffLimitReached, true);
+    assertEquals(messages, [HANDOFF_LIMIT_MESSAGE]);
+});
+
+Deno.test("SessionRuntime owns steering and deferred queue transitions", async () => {
+    const agentSession = makeSteeringAgentSession();
+    const runtime = makeRuntime({ agentSession });
+    const sessionId = await runtime.createPromptReadySession({ cwd: Deno.cwd() });
+    /** @type {string[]} */
+    const statuses = [];
+    runtime.subscribeSessionEvents(sessionId, (event) => {
+        if (event.type === RuntimeEventTypes.QUEUED_MESSAGE_CHANGED) statuses.push(event.status);
+    });
+
+    const steered = await runtime.steerSession(sessionId, "change direction", []);
+    const deferred = runtime.queueNextTurnMessage(sessionId, "later", []);
+    agentSession.consumeNextSteering();
+    const taken = runtime.takeNextTurnMessage(sessionId);
+
+    assertEquals(steered.queued, true);
+    assertEquals(taken.message?.id, deferred.message?.id);
+    assertEquals(statuses, ["queued", "queued", "consumed", "consumed"]);
+    assertEquals(runtime.getQueuedMessages(sessionId), []);
+});
+
+Deno.test("SessionRuntime cancellation emits cancellation and dequeues pending messages", async () => {
+    const agentSession = makeSteeringAgentSession();
+    const runtime = makeRuntime({ agentSession, abortActiveSession: () => true });
+    const sessionId = await runtime.createPromptReadySession({ cwd: Deno.cwd() });
+    /** @type {any[]} */
     const events = [];
-    runtime.subscribeSessionEvents(hostedSession, (event) => {
+    runtime.subscribeSessionEvents(sessionId, (event) => {
+        events.push(event);
+    });
+    await runtime.steerSession(sessionId, "cancel me", []);
+
+    assertEquals(runtime.cancelSession(sessionId), { ok: true, aborted: true });
+    assertEquals(events.filter((event) => event.type === RuntimeEventTypes.CANCELLATION).length, 1);
+    assertEquals(events.find((event) => event.type === RuntimeEventTypes.CANCELLATION)?.message, "Agent run canceled.");
+    assertEquals(
+        events.filter((event) => event.type === RuntimeEventTypes.QUEUED_MESSAGE_CHANGED).map((event) => event.status),
+        ["queued", "dequeued"],
+    );
+});
+
+Deno.test("SessionRuntime cancellation owns active compaction and publishes one operation event", async () => {
+    const agentSession = makeSteeringAgentSession();
+    agentSession.isStreaming = false;
+    agentSession.isCompacting = true;
+    let compactionAborts = 0;
+    agentSession.abortCompaction = () => {
+        compactionAborts++;
+        agentSession.isCompacting = false;
+    };
+    const runtime = makeRuntime({ agentSession, abortActiveSession: () => false });
+    const sessionId = await runtime.createPromptReadySession({ cwd: Deno.cwd() });
+    /** @type {any[]} */
+    const events = [];
+    runtime.subscribeSessionEvents(sessionId, (event) => {
         events.push(event);
     });
 
-    assertEquals(runtime.cancelSession(hostedSession), { ok: true, aborted: true });
-    assertEquals(/** @type {any} */ (events[0]).type, "cancellation");
-    assertEquals(/** @type {any} */ (events[0]).aborted, true);
+    assertEquals(runtime.cancelSession(sessionId), { ok: true, aborted: true });
+    assertEquals(compactionAborts, 1);
+    assertEquals(events.filter((event) => event.type === RuntimeEventTypes.CANCELLATION), [{
+        type: RuntimeEventTypes.CANCELLATION,
+        sessionId,
+        timestamp: events.at(-1).timestamp,
+        aborted: true,
+        reason: "session_cancel",
+        scope: "operation",
+        message: "Operation canceled.",
+    }]);
 });
 
-Deno.test("SessionRuntime requestInteraction settles adapter outcomes and emits lifecycle", async () => {
-    const hostedSession = new HostedSession({ id: "interactions", cwd: Deno.cwd() });
-    const runtime = new SessionRuntime();
+Deno.test("SessionRuntime interaction adapter resolves through semantic lifecycle events", async () => {
+    const runtime = makeRuntime();
+    const { sessionId } = await runtime.createInteractiveSession({ cwd: Deno.cwd() });
     /** @type {string[]} */
-    const events = [];
-    runtime.subscribeSessionEvents(hostedSession, (event) => {
-        events.push(event.type);
+    const types = [];
+    runtime.subscribeSessionEvents(sessionId, (event) => {
+        types.push(event.type);
     });
-    runtime.setInteractionAdapter(hostedSession, {
+    runtime.setInteractionAdapter(sessionId, {
         requestInteraction: (request) => ({
             outcome: "selected",
             value: request.options?.[0]?.value,
-            valueLabel: "First",
+            valueLabel: request.options?.[0]?.label,
         }),
-    }, { kind: "test" });
+    });
 
-    const response = await runtime.requestInteraction(hostedSession, {
+    const response = await runtime.requestInteraction(sessionId, {
         type: "select",
         prompt: "Pick",
         options: [{ value: "a", label: "First" }],
     });
 
     assertEquals(response, { outcome: "selected", value: "a", valueLabel: "First" });
-    assertEquals(hostedSession.getActiveInteractions().size, 0);
-    assertEquals(events, [RuntimeEventTypes.INTERACTION_REQUESTED, RuntimeEventTypes.INTERACTION_RESOLVED]);
+    assertEquals(types, [RuntimeEventTypes.INTERACTION_REQUESTED, RuntimeEventTypes.INTERACTION_RESOLVED]);
 });
 
-Deno.test("SessionRuntime requestInteraction returns unsupported without adapter", async () => {
-    const hostedSession = new HostedSession({ id: "unsupported-interactions", cwd: Deno.cwd() });
-    const runtime = new SessionRuntime();
-    const response = await runtime.requestInteraction(hostedSession, { type: "text", prompt: "Name?" });
-    assertEquals(response.outcome, "unsupported");
+Deno.test("SessionRuntime emits canceled lifecycle for an already-aborted interaction", async () => {
+    const runtime = makeRuntime();
+    const { sessionId } = await runtime.createInteractiveSession({ cwd: Deno.cwd() });
+    /** @type {string[]} */
+    const types = [];
+    runtime.subscribeSessionEvents(sessionId, (event) => {
+        types.push(event.type);
+    });
+    runtime.setInteractionAdapter(sessionId, {
+        requestInteraction: () => new Promise(() => {}),
+    });
+    const controller = new AbortController();
+    controller.abort();
+
+    const response = await runtime.requestInteraction(
+        sessionId,
+        { type: "text", prompt: "Name?" },
+        controller.signal,
+    );
+
+    assertEquals(response.outcome, "canceled");
+    assertEquals(types, [RuntimeEventTypes.INTERACTION_REQUESTED, RuntimeEventTypes.INTERACTION_CANCELED]);
 });
 
-Deno.test("SessionRuntime requestInteraction resolves canceled when session cancellation aborts active interaction", async () => {
-    const hostedSession = new HostedSession({ id: "cancel-interactions", cwd: Deno.cwd() });
-    const runtime = new SessionRuntime();
-    let sawAbortSignal = false;
-    hostedSession.setInteractionAdapter({
-        requestInteraction: (
-            /** @type {unknown} */ _request,
-            /** @type {AbortSignal | undefined} */ signal,
-        ) => {
-            sawAbortSignal = Boolean(signal);
-            return new Promise(() => {});
+Deno.test("SessionRuntime loadSession returns opaque metadata and redacted replay events", async () => {
+    const manager = makeSessionManager("persisted-1", Deno.cwd(), [
+        {
+            type: "message",
+            id: "u1",
+            timestamp: "2026-07-08T00:00:00.000Z",
+            message: { role: "user", content: [{ type: "text", text: "hello" }] },
+        },
+        {
+            type: "message",
+            id: "a1",
+            timestamp: "2026-07-08T00:00:01.000Z",
+            message: { role: "assistant", content: [{ type: "text", text: "hi" }] },
+        },
+        {
+            type: "message",
+            id: "t1",
+            message: { role: "assistant", content: [{ type: "tool_use", id: "tool-1", name: "bash" }] },
+        },
+        {
+            type: "message",
+            id: "tr1",
+            message: {
+                role: "user",
+                content: [{ type: "tool_result", tool_use_id: "tool-1", content: "password=secret" }],
+            },
+        },
+    ]);
+    const runtime = new SessionRuntime({
+        openPersistedRootSession: () =>
+            Promise.resolve({
+                sessionManager: manager,
+                resolved: {
+                    cwd: Deno.cwd(),
+                    sessionDir: "/sessions",
+                    sessionId: "persisted-1",
+                    sessionPath: "/sessions/persisted-1.jsonl",
+                    info: null,
+                },
+            }),
+        resolveResumeAgentName: () => Promise.resolve("planner"),
+        createAgentHandler: () => () => Promise.resolve({ kind: "complete" }),
+        ensureRootAgentSession: (opts) => {
+            opts.hostedSession.setRootAgentName(opts.agentName);
+            opts.hostedSession.setRootAgentSession({ dispose() {} });
+            return Promise.resolve(opts.hostedSession.getRootAgentSession());
         },
     });
 
-    const pending = runtime.requestInteraction(hostedSession, { type: "text", prompt: "Name?" });
-    await Promise.resolve();
-    runtime.cancelSession(hostedSession);
-    const response = await pending;
+    const result = await runtime.loadSession({ cwd: Deno.cwd(), sessionId: "persisted-1" });
 
-    assertEquals(sawAbortSignal, true);
-    assertEquals(response.outcome, "canceled");
-    assertEquals(hostedSession.getActiveInteractions().size, 0);
+    assertEquals("hostedSession" in result, false);
+    assertEquals("sessionManager" in result, false);
+    assertEquals(result.sessionManagerId, "persisted-1");
+    assertEquals(result.replayEvents.map((event) => event.type), [
+        RuntimeEventTypes.USER_MESSAGE,
+        RuntimeEventTypes.ASSISTANT_TEXT_DELTA,
+        RuntimeEventTypes.TOOL_START,
+        RuntimeEventTypes.TOOL_END,
+    ]);
+    assertEquals(JSON.stringify(result.replayEvents).includes("secret"), false);
+});
+
+Deno.test("SessionRuntime close operations dispose sessions by id", async () => {
+    const runtime = makeRuntime({ abortActiveSession: () => true });
+    const first = await runtime.createInteractiveSession({ cwd: Deno.cwd() });
+    const second = await runtime.createInteractiveSession({ cwd: Deno.cwd() });
+
+    assertEquals(runtime.closeSession(first.sessionId), { ok: true, closed: true });
+    assertEquals(runtime.getSessionSnapshot(first.sessionId), null);
+    assertEquals(await runtime.closeAllSessionsWhenIdle(), { ok: true, closed: 1 });
+    assertEquals(runtime.getSessionSnapshot(second.sessionId), null);
+    assertEquals(runtime.listSessions(), []);
 });

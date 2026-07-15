@@ -15,24 +15,16 @@ Deno.test("runNewCommand reports when used outside interactive mode", async () =
     assertEquals(errors, ["The /new command is only available inside an interactive session."]);
 });
 
-Deno.test("runNewCommand creates and installs a fresh root session", async () => {
-    /** @type {string[]} */
-    const messages = [];
-    /** @type {string[]} */
-    const infos = [];
-    let cleared = false;
-    let installed = false;
-    let disposedRoot = false;
-    /** @type {unknown[]} */
+Deno.test("runNewCommand creates, names, and installs a fresh Runtime session", async () => {
+    /** @type {Array<Record<string, unknown>>} */
     const createArgs = [];
     /** @type {string[]} */
+    const renamed = [];
+    /** @type {string[]} */
+    const replaced = [];
+    /** @type {string[]} */
     const titles = [];
-
-    const manager = {
-        appendSessionInfo: (/** @type {string} */ info) => infos.push(info),
-        getSessionName: () => infos.at(-1),
-        getSessionId: () => "session-123",
-    };
+    let cleared = false;
 
     await runNewCommand(
         ["build", "coverage"],
@@ -41,113 +33,80 @@ Deno.test("runNewCommand creates and installs a fresh root session", async () =>
                 clearMessages: () => {
                     cleared = true;
                 },
-                appendSystemMessage: (/** @type {string} */ msg) => messages.push(msg),
             },
-            hostedSession: /** @type {any} */ ({ id: "old-hosted-session" }),
-            sessionHost: {
-                createSession: (
-                    /** @type {{ sessionManager?: unknown, uiAPI?: unknown, eventSink?: unknown }} */ options,
-                ) => {
-                    installed = options.sessionManager === manager && options.uiAPI === options.eventSink;
-                    return { id: "hosted-session-123" };
+            sessionId: "runtime-old",
+            sessionRuntime: {
+                getSessionSnapshot: () => ({ cwd: "/workspace/project" }),
+                createPromptReadySession: (/** @type {Record<string, unknown>} */ options) => {
+                    createArgs.push(options);
+                    return Promise.resolve("runtime-new");
+                },
+                renameSession: (/** @type {string} */ sessionId, /** @type {string} */ name) => {
+                    renamed.push(`${sessionId}:${name}`);
+                    return { ok: true };
                 },
             },
-            replaceHostedSession: () => {},
-            switchActiveAgent: () => Promise.resolve({ ok: true, agentName: "router", changed: true }),
+            replaceRuntimeSession: (/** @type {string} */ sessionId) => replaced.push(sessionId),
             __testDeps: {
-                createRootSessionManager: (
-                    /** @type {string} */ mode,
-                    /** @type {string} */ cwd,
-                ) => {
-                    createArgs.push(mode, cwd);
-                    return Promise.resolve(manager);
-                },
-                disposeRootAgentSessionForNewSession: () => {
-                    disposedRoot = true;
-                },
-                setTerminalTitleForSession: (/** @type {any} */ sessionManager, /** @type {string} */ cwd) => {
-                    titles.push(`${sessionManager.getSessionName?.() || cwd}`);
-                    return "wld - build coverage";
+                setTerminalTitleForName: (/** @type {string} */ name) => {
+                    titles.push(name);
+                    return `wld - ${name}`;
                 },
             },
         }),
     );
 
-    assertEquals(disposedRoot, true);
-    assertEquals(createArgs, ["new", Deno.cwd()]);
-    assertEquals(infos, ["build coverage"]);
-    assertEquals(installed, true);
+    assertEquals(createArgs, [{ cwd: "/workspace/project", agentName: "router" }]);
+    assertEquals(renamed, ["runtime-new:build coverage"]);
+    assertEquals(replaced, ["runtime-new"]);
     assertEquals(titles, ["build coverage"]);
     assertEquals(cleared, true);
-    assertEquals(messages, ["Started new session: session-123"]);
 });
 
-Deno.test("runNewCommand starts fresh interactive sessions at Router", async () => {
-    const manager = {
-        getSessionId: () => "session-router",
-    };
-    const hostedSession = { id: "fresh-hosted-session" };
-    /** @type {Array<{ agentName: string, deps?: unknown }>} */
-    const handlerArgs = [];
-    /** @type {Array<{ hostedSession: unknown, agentName: string, uiAPI: unknown }>} */
-    const activeAgents = [];
-    /** @type {Array<{ hostedSession: unknown, uiAPI: unknown }>} */
-    const swaps = [];
-    const uiAPI = {
-        appendSystemMessage: () => {},
-    };
+Deno.test("runNewCommand starts fresh Runtime sessions at Router", async () => {
+    /** @type {Array<Record<string, unknown>>} */
+    const createArgs = [];
+    /** @type {string[]} */
+    const replaced = [];
 
     await runNewCommand(
         [],
         /** @type {any} */ ({
-            uiAPI,
-            sessionHost: {
-                createSession: () => hostedSession,
-            },
-            replaceHostedSession: () => {},
-            switchActiveAgent: (
-                /** @type {unknown} */ nextHostedSession,
-                /** @type {{ agentName: string }} */ options,
-                /** @type {unknown} */ nextUiAPI,
-            ) => {
-                activeAgents.push({ hostedSession: nextHostedSession, agentName: options.agentName, uiAPI: nextUiAPI });
-                swaps.push({ hostedSession: nextHostedSession, uiAPI: nextUiAPI });
-                return Promise.resolve({ ok: true, agentName: options.agentName, changed: true });
-            },
-            __testDeps: {
-                createRootSessionManager: () => Promise.resolve(manager),
-                createAgentHandler: (/** @type {string} */ agentName, /** @type {unknown} */ deps) => {
-                    handlerArgs.push({ agentName, deps });
-                    return () => Promise.resolve();
+            uiAPI: {},
+            sessionId: "runtime-old",
+            sessionRuntime: {
+                getSessionSnapshot: () => ({ cwd: "/workspace/project" }),
+                createPromptReadySession: (/** @type {Record<string, unknown>} */ options) => {
+                    createArgs.push(options);
+                    return Promise.resolve("runtime-router");
                 },
-                setTerminalTitleForSession: () => "wld - new session",
+            },
+            replaceRuntimeSession: (/** @type {string} */ sessionId) => replaced.push(sessionId),
+            __testDeps: {
+                setTerminalTitleForName: () => "wld - project",
             },
         }),
     );
 
-    assertEquals(activeAgents, [{ hostedSession, agentName: "router", uiAPI }]);
-    assertEquals(swaps, [{ hostedSession, uiAPI }]);
-    assertEquals(handlerArgs, []);
+    assertEquals(createArgs, [{ cwd: "/workspace/project", agentName: "router" }]);
+    assertEquals(replaced, ["runtime-router"]);
 });
 
-Deno.test("runNewCommand updates terminal title for unnamed sessions", async () => {
+Deno.test("runNewCommand uses the project root for an unnamed terminal title", async () => {
     /** @type {string[]} */
     const titles = [];
-    const manager = {
-        getSessionName: () => undefined,
-        getSessionId: () => "session-456",
-    };
 
     await runNewCommand(
         [],
         /** @type {any} */ ({
-            uiAPI: {
-                appendSystemMessage: () => {},
+            uiAPI: {},
+            sessionRuntime: {
+                createPromptReadySession: () => Promise.resolve("runtime-new"),
             },
+            replaceRuntimeSession: () => {},
             __testDeps: {
-                createRootSessionManager: () => Promise.resolve(manager),
-                setTerminalTitleForSession: (/** @type {any} */ _sessionManager, /** @type {string} */ cwd) => {
-                    titles.push(cwd);
+                setTerminalTitleForName: (/** @type {string} */ name) => {
+                    titles.push(name);
                     return "wld - project";
                 },
             },

@@ -5,7 +5,6 @@ import {
     createSlicerFinalizeTool,
     ensureSlicerTasks,
     executePlan,
-    executeProjectTasks,
     extractAssistantOutput,
     extractTasks,
     materializeSlicerDraft,
@@ -19,8 +18,6 @@ import {
 } from "./workflow.js";
 import { HostedSession } from "../session/hosted-session.js";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-
-const noopUiAPI = /** @type {any} */ ({ appendSystemMessage: () => {} });
 
 /** @param {string} [id] */
 function makeHostedSession(id = "workflow-test") {
@@ -292,18 +289,13 @@ Deno.test("startActiveExecutionWorkflow prompts once and uses CWD for non-Git in
         triageMeta: { classification: "FEATURE" },
         currentStatus: "ready_for_work",
         hostedSession,
-        uiAPI: /** @type {any} */ ({
-            promptSelect: (/** @type {string} */ prompt) => {
-                prompts.push(prompt);
-                return Promise.resolve("proceed");
-            },
-        }),
         __deps: {
             probeGitRepository: () => Promise.resolve({ ok: false, state: "not_git", cwd: Deno.cwd() }),
             hasNonGitExecutionConsent: () => false,
-            confirmNonGitFeaturePlanExecution: async (/** @type {any} */ uiAPI) => {
-                await uiAPI.promptSelect("non git prompt", []);
-                return true;
+            confirmNonGitFeaturePlanExecution: (_session, projectRoot) => {
+                const prompt = `non git prompt:${projectRoot}`;
+                prompts.push(prompt);
+                return Promise.resolve(true);
             },
             findReusableWorktree: () => Promise.reject(new Error("should not inspect worktrees")),
             createExecutionWorktree: () => Promise.reject(new Error("should not create worktree")),
@@ -316,7 +308,7 @@ Deno.test("startActiveExecutionWorkflow prompts once and uses CWD for non-Git in
         },
     });
 
-    assertEquals(prompts, ["non git prompt"]);
+    assertEquals(prompts, [`non git prompt:${Deno.cwd()}`]);
     assertEquals(result.executionCwd, Deno.cwd());
     assertEquals(result.nonGitInPlace, true);
     assertEquals(result.worktreeId, undefined);
@@ -333,7 +325,6 @@ Deno.test("startActiveExecutionWorkflow cancels non-Git execution without consen
                 triageMeta: { classification: "FEATURE" },
                 currentStatus: "ready_for_work",
                 hostedSession,
-                uiAPI: /** @type {any} */ ({}),
                 __deps: {
                     probeGitRepository: () => Promise.resolve({ ok: false, state: "not_git", cwd: Deno.cwd() }),
                     hasNonGitExecutionConsent: () => false,
@@ -636,76 +627,20 @@ Deno.test("selectNonConflictingTasks skips ready tasks that overlap running or s
     ]);
 });
 
-function createWorkflowHarness() {
-    /** @type {string[]} */
-    const systemMessages = [];
-    /** @type {string[]} */
-    const agentOutputs = [];
-    /** @type {Array<{ type: string, content: string, metadata?: Record<string, unknown> }>} */
-    const rootEntries = [];
-    /** @type {Array<Array<{ task: number, assignee: string, description: string }>>} */
-    const runningSnapshots = [];
-    const uiAPI = /** @type {any} */ ({
-        appendSystemMessage: (/** @type {string} */ message) => systemMessages.push(String(message)),
-        appendAgentMessageStart: () => ({
-            appendText: (/** @type {string} */ text) => agentOutputs.push(String(text)),
-        }),
-    });
-    const sessionManager = /** @type {any} */ ({
-        appendCustomMessageEntry: (
-            /** @type {string} */ type,
-            /** @type {string} */ content,
-            /** @type {boolean} */ _visible,
-            /** @type {Record<string, unknown>} */ metadata,
-        ) => rootEntries.push({ type, content, metadata }),
-    });
-    const onRunningTasksChange = (
-        /** @type {Array<{ task: number, assignee: string, description: string }>} */ tasks,
-    ) => {
-        runningSnapshots.push(tasks.map((task) => ({ ...task })));
-    };
-    return { agentOutputs, onRunningTasksChange, rootEntries, runningSnapshots, sessionManager, systemMessages, uiAPI };
-}
-
-/**
- * @param {string} text
- * @returns {import('@earendil-works/pi-agent-core').AgentMessage[]}
- */
-function completedTaskMessages(text) {
-    return /** @type {import('@earendil-works/pi-agent-core').AgentMessage[]} */ ([
-        { role: "assistant", content: [{ type: "text", text }] },
-        { role: "toolResult", toolName: "task_completed", details: { outcome: "task_completed" } },
-    ]);
-}
-
-/**
- * @returns {Promise<{ debugRoot: string, cleanup: () => Promise<void> }>}
- */
-async function setupTempDebugRoot() {
-    const debugRoot = await Deno.makeTempDir({ prefix: "runwield-workflow-debug-test-" });
-    return {
-        debugRoot,
-        cleanup: async () => {
-            await Deno.remove(debugRoot, { recursive: true });
-        },
-    };
-}
-
 Deno.test("executePlan refuses to execute PROJECT Epic containers", async () => {
     /** @type {string[]} */
     const messages = [];
+    const hostedSession = makeHostedSession("epic-execution");
+    hostedSession.setEventSink((/** @type {{ message?: string }} */ event) => {
+        if (event.message) messages.push(event.message);
+    });
     let engineerCalled = false;
     let projectCalled = false;
-    const result = await executePlan(
-        "epic-plan",
-        { classification: "PROJECT", type: "epic" },
-        /** @type {any} */ ({
-            appendSystemMessage: (/** @type {string} */ message) => messages.push(String(message)),
-        }),
-        undefined,
-        undefined,
-        {
-            projectRoot: Deno.cwd(),
+    const result = await executePlan({
+        planName: "epic-plan",
+        triageMeta: { classification: "PROJECT", type: "epic" },
+        hostedSession,
+        __deps: {
             loadPlan: () =>
                 Promise.resolve(
                     /** @type {any} */ ({
@@ -723,7 +658,7 @@ Deno.test("executePlan refuses to execute PROJECT Epic containers", async () => 
                 return Promise.resolve({ repairRequired: false, executionComplete: true });
             },
         },
-    );
+    });
 
     assertEquals(result.executionComplete, false);
     assertEquals(engineerCalled, false);
@@ -735,14 +670,11 @@ Deno.test("executePlan refuses to execute PROJECT Epic containers", async () => 
 Deno.test("executePlan refuses persisted Epic containers even when triage meta overrides classification", async () => {
     let engineerCalled = false;
     let projectCalled = false;
-    const result = await executePlan(
-        "epic-plan",
-        { classification: "FEATURE", type: "feature" },
-        noopUiAPI,
-        undefined,
-        undefined,
-        {
-            projectRoot: Deno.cwd(),
+    const result = await executePlan({
+        planName: "epic-plan",
+        triageMeta: { classification: "FEATURE", type: "feature" },
+        hostedSession: makeHostedSession("persisted-epic-execution"),
+        __deps: {
             loadPlan: () =>
                 Promise.resolve(
                     /** @type {any} */ ({
@@ -760,7 +692,7 @@ Deno.test("executePlan refuses persisted Epic containers even when triage meta o
                 return Promise.resolve({ repairRequired: false, executionComplete: true });
             },
         },
-    );
+    });
 
     assertEquals(result.executionComplete, false);
     assertEquals(engineerCalled, false);
@@ -774,14 +706,13 @@ Deno.test("executePlan still executes ready FEATURE plans", async () => {
     const events = [];
     /** @type {any[]} */
     const metrics = [];
-    const result = await executePlan(
-        "feature-plan",
-        { classification: "FEATURE" },
-        /** @type {any} */ ({ appendSystemMessage: () => {} }),
-        undefined,
-        undefined,
-        {
-            projectRoot: Deno.cwd(),
+    const result = await executePlan({
+        planName: "feature-plan",
+        triageMeta: { classification: "FEATURE" },
+        hostedSession: makeHostedSession("feature-execution"),
+        reviewFeedback: "Keep the selected command.",
+        reviewImages: [{ base64: "YXBwcm92ZWQ=", mimeType: "image/png" }],
+        __deps: {
             loadPlan: () =>
                 Promise.resolve(
                     /** @type {any} */ ({
@@ -790,16 +721,14 @@ Deno.test("executePlan still executes ready FEATURE plans", async () => {
                         markdown: "## Feature",
                     }),
                 ),
-            reviewFeedback: "Keep the selected command.",
-            reviewImages: [{ base64: "YXBwcm92ZWQ=", mimeType: "image/png" }],
-            executeSingleEngineerPlan: ({ triageMeta, reviewFeedback, reviewImages }) => {
+            executeSingleEngineerPlan: (/** @type {any} */ { triageMeta, reviewFeedback, reviewImages }) => {
                 engineerCalled = true;
                 assertEquals(triageMeta.classification, "FEATURE");
                 assertEquals(reviewFeedback, "Keep the selected command.");
                 assertEquals(reviewImages, [{ base64: "YXBwcm92ZWQ=", mimeType: "image/png" }]);
                 return Promise.resolve({ repairRequired: false, executionComplete: true });
             },
-            recordPlanEvent: ({ event }) => {
+            recordPlanEvent: (/** @type {any} */ { event }) => {
                 events.push(event);
                 return Promise.resolve(/** @type {any} */ ({}));
             },
@@ -809,7 +738,7 @@ Deno.test("executePlan still executes ready FEATURE plans", async () => {
                 return Promise.resolve(null);
             },
         },
-    );
+    });
 
     assertEquals(result, { repairRequired: false, executionComplete: true });
     assertEquals(engineerCalled, true);
@@ -839,14 +768,11 @@ Deno.test("executePlan treats incomplete Engineer execution as resumable", async
     const events = [];
     /** @type {Array<string | null | undefined>} */
     const worktreeStatuses = [];
-    const result = await executePlan(
-        "feature-plan",
-        { classification: "FEATURE" },
-        /** @type {any} */ ({ appendSystemMessage: () => {} }),
-        undefined,
-        undefined,
-        {
-            projectRoot: Deno.cwd(),
+    const result = await executePlan({
+        planName: "feature-plan",
+        triageMeta: { classification: "FEATURE" },
+        hostedSession: makeHostedSession("incomplete-feature-execution"),
+        __deps: {
             loadPlan: () =>
                 Promise.resolve(
                     /** @type {any} */ ({
@@ -861,16 +787,16 @@ Deno.test("executePlan treats incomplete Engineer execution as resumable", async
                     executionComplete: false,
                     error: "API failed",
                 }),
-            recordPlanEvent: ({ event }) => {
+            recordPlanEvent: (/** @type {any} */ { event }) => {
                 events.push(event);
                 return Promise.resolve(/** @type {any} */ ({}));
             },
-            markActiveWorktreeStatus: (status) => {
+            markActiveWorktreeStatus: (/** @type {any} */ status) => {
                 worktreeStatuses.push(status);
                 return Promise.resolve();
             },
         },
-    );
+    });
 
     assertEquals(result, { repairRequired: false, executionComplete: false, error: "API failed" });
     assertEquals(events, []);
@@ -880,14 +806,12 @@ Deno.test("executePlan treats incomplete Engineer execution as resumable", async
 Deno.test("executePlan uses single-plan execution for child FEATURE plans", async () => {
     let engineerCalled = false;
     let projectDagCalled = false;
-    const result = await executePlan(
-        "epic-a/01-child-feature",
-        { classification: "FEATURE", parentPlan: "epic-a" },
-        /** @type {any} */ ({ appendSystemMessage: () => {} }),
-        [{ task: 1, assignee: "engineer", dependencies: "none", description: "legacy task" }],
-        undefined,
-        {
-            projectRoot: Deno.cwd(),
+    const result = await executePlan({
+        planName: "epic-a/01-child-feature",
+        triageMeta: { classification: "FEATURE", parentPlan: "epic-a" },
+        structuredTasks: [{ task: 1, assignee: "engineer", dependencies: "none", description: "legacy task" }],
+        hostedSession: makeHostedSession("child-feature-execution"),
+        __deps: {
             loadPlan: () =>
                 Promise.resolve(
                     /** @type {any} */ ({
@@ -900,7 +824,7 @@ Deno.test("executePlan uses single-plan execution for child FEATURE plans", asyn
                         markdown: "## Child FEATURE",
                     }),
                 ),
-            executeSingleEngineerPlan: ({ triageMeta }) => {
+            executeSingleEngineerPlan: (/** @type {any} */ { triageMeta }) => {
                 engineerCalled = true;
                 assertEquals(triageMeta.parentPlan, "epic-a");
                 return Promise.resolve({ repairRequired: false, executionComplete: true });
@@ -912,7 +836,7 @@ Deno.test("executePlan uses single-plan execution for child FEATURE plans", asyn
             recordPlanEvent: () => Promise.resolve(/** @type {any} */ ({})),
             markActiveWorktreeStatus: () => Promise.resolve(),
         },
-    );
+    });
 
     assertEquals(result, { repairRequired: false, executionComplete: true });
     assertEquals(engineerCalled, true);
@@ -922,14 +846,11 @@ Deno.test("executePlan uses single-plan execution for child FEATURE plans", asyn
 Deno.test("executePlan does not parse task tables or dispatch DAG execution for PROJECT plans", async () => {
     let engineerCalled = false;
     let projectDagCalled = false;
-    const result = await executePlan(
-        "legacy-project-plan",
-        { classification: "PROJECT" },
-        /** @type {any} */ ({ appendSystemMessage: () => {} }),
-        undefined,
-        undefined,
-        {
-            projectRoot: Deno.cwd(),
+    const result = await executePlan({
+        planName: "legacy-project-plan",
+        triageMeta: { classification: "PROJECT" },
+        hostedSession: makeHostedSession("legacy-project-execution"),
+        __deps: {
             loadPlan: () =>
                 Promise.resolve(
                     /** @type {any} */ ({
@@ -938,7 +859,7 @@ Deno.test("executePlan does not parse task tables or dispatch DAG execution for 
                         markdown: "## Design only\nNo Tasks table.",
                     }),
                 ),
-            executeSingleEngineerPlan: ({ triageMeta }) => {
+            executeSingleEngineerPlan: (/** @type {any} */ { triageMeta }) => {
                 engineerCalled = true;
                 assertEquals(triageMeta.classification, "PROJECT");
                 return Promise.resolve({ repairRequired: false, executionComplete: true });
@@ -950,297 +871,11 @@ Deno.test("executePlan does not parse task tables or dispatch DAG execution for 
             recordPlanEvent: () => Promise.resolve(/** @type {any} */ ({})),
             markActiveWorktreeStatus: () => Promise.resolve(),
         },
-    );
+    });
 
     assertEquals(result, { repairRequired: false, executionComplete: true });
     assertEquals(engineerCalled, true);
     assertEquals(projectDagCalled, false);
-});
-
-Deno.test("executeProjectTasks passes successful dependency output to dependent task request", async () => {
-    const debug = await setupTempDebugRoot();
-    const tasks = [
-        { task: 1, assignee: "engineer", dependencies: "none", writeScope: "src/a.js", description: "Implement alpha" },
-        { task: 2, assignee: "tester", dependencies: "1", writeScope: "none", description: "Verify alpha" },
-    ];
-    /** @type {string[]} */
-    const requests = [];
-    /** @type {boolean[]} */
-    const rootModes = [];
-    /** @type {string[]} */
-    const rootEntries = [];
-    const uiAPI = /** @type {any} */ ({
-        appendSystemMessage: () => {},
-        appendAgentMessageStart: () => ({ appendText: () => {} }),
-    });
-    const sessionManager = /** @type {any} */ ({
-        appendCustomMessageEntry: (
-            /** @type {string} */ _type,
-            /** @type {string} */ content,
-        ) => rootEntries.push(content),
-    });
-
-    try {
-        const result = await executeProjectTasks(
-            "project-plan",
-            "Full plan body",
-            tasks,
-            uiAPI,
-            [],
-            undefined,
-            sessionManager,
-            undefined,
-            /** @type {any} */ ((/** @type {any} */ opts) => {
-                requests.push(opts.userRequest);
-                rootModes.push(opts.useRootSession);
-                return Promise.resolve([
-                    {
-                        role: "assistant",
-                        content: [{
-                            type: "text",
-                            text: opts.agentName === "engineer" ? "Implemented alpha." : "Verified alpha.",
-                        }],
-                    },
-                    { role: "toolResult", toolName: "task_completed", details: { outcome: "task_completed" } },
-                ]);
-            }),
-            { debugRoot: debug.debugRoot },
-        );
-
-        assertEquals(result.failedTasks, []);
-        assertEquals(rootEntries.length, 2);
-        assertEquals(rootModes, [false, false]);
-        assertStringIncludes(requests[1], "### Dependency Outputs");
-        assertStringIncludes(requests[1], rootEntries[0]);
-    } finally {
-        await debug.cleanup();
-    }
-});
-
-Deno.test("executeProjectTasks records incomplete tasks and blocks dependents", async () => {
-    const debug = await setupTempDebugRoot();
-    const tasks = [
-        { task: 1, assignee: "engineer", dependencies: "none", writeScope: "src/a.js", description: "Implement alpha" },
-        { task: 2, assignee: "tester", dependencies: "1", writeScope: "none", description: "Verify alpha" },
-    ];
-    const harness = createWorkflowHarness();
-
-    try {
-        const result = await executeProjectTasks(
-            "project-plan",
-            "Full plan body",
-            tasks,
-            harness.uiAPI,
-            [],
-            harness.onRunningTasksChange,
-            harness.sessionManager,
-            undefined,
-            () =>
-                Promise.resolve(
-                    /** @type {import('@earendil-works/pi-agent-core').AgentMessage[]} */ ([
-                        { role: "assistant", content: [{ type: "text", text: "I stopped early." }] },
-                    ]),
-                ),
-            { debugRoot: debug.debugRoot },
-        );
-
-        assertEquals(result.failedTasks, [1, 2]);
-        assertEquals(result.results.get(1)?.status, "failed");
-        assertEquals(result.results.get(2)?.status, "blocked");
-        assertEquals(harness.rootEntries[0].metadata?.status, "failed");
-        assertStringIncludes(harness.rootEntries[0].content, "INCOMPLETE");
-        assertEquals(harness.runningSnapshots.map((snapshot) => snapshot.map((task) => task.task)), [[1], []]);
-    } finally {
-        await debug.cleanup();
-    }
-});
-
-Deno.test("executeProjectTasks writes per-task logs under explicit temp execution cwd", async () => {
-    const previousDebug = Deno.env.get("DEBUG");
-    const executionCwd = await Deno.makeTempDir({ prefix: "runwield-workflow-log-test-" });
-    Deno.env.delete("DEBUG");
-    try {
-        const tasks = [
-            {
-                task: 1,
-                assignee: "engineer",
-                dependencies: "none",
-                writeScope: "src/a.js",
-                description: "Implement alpha",
-            },
-        ];
-        const harness = createWorkflowHarness();
-        /** @type {string | undefined} */
-        let debugLogPath;
-
-        const result = await executeProjectTasks(
-            "project-plan",
-            "Full plan body",
-            tasks,
-            harness.uiAPI,
-            [],
-            harness.onRunningTasksChange,
-            harness.sessionManager,
-            undefined,
-            (/** @type {{ debugLogPath?: string }} */ opts) => {
-                debugLogPath = opts.debugLogPath;
-                return Promise.resolve(completedTaskMessages("Implemented alpha."));
-            },
-            { executionCwd },
-        );
-
-        assertEquals(result.failedTasks, []);
-        assertEquals(debugLogPath?.startsWith(`${executionCwd}/`), true);
-        assertStringIncludes(debugLogPath || "", "debug-agents/task-1-engineer.log");
-
-        const rootDebug = await Deno.readTextFile(`${executionCwd}/debug.log`);
-        assertStringIncludes(rootDebug, "Event: HEADLESS TASK LOG");
-        assertStringIncludes(rootDebug, debugLogPath || "");
-
-        const taskDebug = await Deno.readTextFile(debugLogPath || "");
-        assertStringIncludes(taskDebug, "Event: HEADLESS TASK START");
-        assertStringIncludes(taskDebug, "Event: HEADLESS TASK RESULT");
-        assertStringIncludes(taskDebug, '"toolName": "task_completed"');
-        assertStringIncludes(taskDebug, "Implemented alpha.");
-    } finally {
-        if (previousDebug === undefined) {
-            Deno.env.delete("DEBUG");
-        } else {
-            Deno.env.set("DEBUG", previousDebug);
-        }
-        await Deno.remove(executionCwd, { recursive: true });
-    }
-});
-
-Deno.test("executeProjectTasks writes DEBUG legacy task logs under explicit debug root", async () => {
-    const previousDebug = Deno.env.get("DEBUG");
-    const debugRoot = await Deno.makeTempDir({ prefix: "runwield-debug-root-test-" });
-    Deno.env.set("DEBUG", "1");
-    try {
-        const tasks = [
-            {
-                task: 1,
-                assignee: "engineer",
-                dependencies: "none",
-                writeScope: "src/a.js",
-                description: "Implement alpha",
-            },
-        ];
-        const harness = createWorkflowHarness();
-        /** @type {string | undefined} */
-        let debugLogPath;
-
-        const result = await executeProjectTasks(
-            "project-plan",
-            "Full plan body",
-            tasks,
-            harness.uiAPI,
-            [],
-            harness.onRunningTasksChange,
-            harness.sessionManager,
-            undefined,
-            (/** @type {{ debugLogPath?: string }} */ opts) => {
-                debugLogPath = opts.debugLogPath;
-                return Promise.resolve(completedTaskMessages("Implemented alpha."));
-            },
-            { debugRoot },
-        );
-
-        assertEquals(result.failedTasks, []);
-        assertEquals(debugLogPath?.startsWith(`${debugRoot}/`), true);
-        assertStringIncludes(debugLogPath || "", "debug-agents/task-1-engineer.log");
-        const rootDebug = await Deno.readTextFile(`${debugRoot}/debug.log`);
-        assertStringIncludes(rootDebug, "Event: HEADLESS TASK LOG");
-    } finally {
-        if (previousDebug === undefined) {
-            Deno.env.delete("DEBUG");
-        } else {
-            Deno.env.set("DEBUG", previousDebug);
-        }
-        await Deno.remove(debugRoot, { recursive: true });
-    }
-});
-
-Deno.test("executeProjectTasks records thrown task errors and blocks dependents", async () => {
-    const debug = await setupTempDebugRoot();
-    const tasks = [
-        { task: 1, assignee: "engineer", dependencies: "none", writeScope: "src/a.js", description: "Implement alpha" },
-        { task: 2, assignee: "tester", dependencies: "1", writeScope: "none", description: "Verify alpha" },
-    ];
-    const harness = createWorkflowHarness();
-
-    try {
-        const result = await executeProjectTasks(
-            "project-plan",
-            "Full plan body",
-            tasks,
-            harness.uiAPI,
-            [],
-            harness.onRunningTasksChange,
-            harness.sessionManager,
-            undefined,
-            () => {
-                throw new Error("agent crashed");
-            },
-            { debugRoot: debug.debugRoot },
-        );
-
-        assertEquals(result.failedTasks, [1, 2]);
-        assertEquals(result.results.get(1)?.error, "agent crashed");
-        assertEquals(result.results.get(2)?.status, "blocked");
-        assertEquals(harness.rootEntries[0].metadata?.error, "agent crashed");
-        assertStringIncludes(harness.systemMessages.join("\n"), "Task 1 failed");
-    } finally {
-        await debug.cleanup();
-    }
-});
-
-Deno.test("executeProjectTasks retries only failed tasks with seeded dependency context", async () => {
-    const debug = await setupTempDebugRoot();
-    const tasks = [
-        { task: 1, assignee: "engineer", dependencies: "none", writeScope: "src/a.js", description: "Implement alpha" },
-        { task: 2, assignee: "tester", dependencies: "1", writeScope: "none", description: "Verify alpha" },
-    ];
-    /** @type {Map<number, import('./types.js').TaskExecutionResult>} */
-    const seedResults = new Map([
-        [1, {
-            status: "success",
-            output: "Implemented alpha.",
-            display: "Task 1 (Engineer) — Implement alpha\n\nImplemented alpha.",
-        }],
-    ]);
-    /** @type {string[]} */
-    const requests = [];
-    const harness = createWorkflowHarness();
-
-    try {
-        const result = await executeProjectTasks(
-            "project-plan",
-            "Full plan body",
-            tasks,
-            harness.uiAPI,
-            [2],
-            harness.onRunningTasksChange,
-            harness.sessionManager,
-            seedResults,
-            (/** @type {{ userRequest: string }} */ opts) => {
-                requests.push(opts.userRequest);
-                return Promise.resolve(completedTaskMessages("Verified alpha."));
-            },
-            { debugRoot: debug.debugRoot },
-        );
-
-        assertEquals(result.failedTasks, []);
-        assertEquals(requests.length, 1);
-        assertStringIncludes(requests[0], "### Dependency Outputs");
-        assertStringIncludes(requests[0], "Implemented alpha.");
-        assertEquals(result.results.get(1)?.status, "success");
-        assertEquals(result.results.get(2)?.status, "success");
-        assertEquals(harness.rootEntries.length, 1);
-        assertEquals(harness.rootEntries[0].metadata?.taskId, 2);
-    } finally {
-        await debug.cleanup();
-    }
 });
 
 // ── buildSlicerRequest ─────────────────────────────────────────────
@@ -1279,6 +914,21 @@ Deno.test("buildSlicerRequest omits empty affectedPaths", () => {
 });
 
 // ── runSlicerAgent ─────────────────────────────────────────────────
+
+/**
+ * @returns {{ loadPlan: () => Promise<any>, findPlansByParent: () => Promise<any[]> }}
+ */
+function slicerPlanDeps() {
+    return {
+        loadPlan: () =>
+            Promise.resolve({
+                attrs: { classification: "PROJECT", type: "epic", status: "approved" },
+                markdown: "# Epic",
+                body: "# Epic",
+            }),
+        findPlansByParent: () => Promise.resolve([]),
+    };
+}
 
 Deno.test("beginSlicerContextPhase persists a clean model-context boundary", () => {
     const manager = SessionManager.inMemory(Deno.cwd());
@@ -1336,6 +986,8 @@ Deno.test("runSlicerAgent returns ok=true when session resolves", async () => {
     const loadedPaths = [];
     /** @type {any[]} */
     const boundaries = [];
+    /** @type {string[]} */
+    const order = [];
     const sessionManager = /** @type {any} */ ({
         buildSessionContext: () => ({ messages: [{ role: "user", content: "architect history" }] }),
         getLeafId: () => "architect-leaf",
@@ -1349,24 +1001,35 @@ Deno.test("runSlicerAgent returns ok=true when session resolves", async () => {
         triageMeta: { classification: "PROJECT", complexity: "LOW", summary: "x", affectedPaths: [] },
         reviewFeedback: "Keep the approved boundary.",
         reviewImages: [{ base64: "YXBwcm92ZWQ=", mimeType: "image/png" }],
-        uiAPI: noopUiAPI,
         hostedSession,
         __deps: {
+            ...slicerPlanDeps(),
             ensureBundledAgentDefFile: (relativePath) =>
                 Promise.resolve(`/tmp/bundled-agent-definitions/${relativePath}`),
             loadAgentDefFromPath: (path, opts) => {
                 loadedPaths.push(`${path}:${opts?.agentName}`);
                 return Promise.resolve(/** @type {any} */ ({ displayName: "Slicer" }));
             },
-            runAgentSession: (opts) => {
+            runRootTurn: (/** @type {any} */ opts) => {
+                order.push("rootTurn");
                 captured = opts;
                 return Promise.resolve([]);
             },
-            switchActiveAgent: (/** @type {unknown} */ _hostedSession, /** @type {{ agentName: string }} */ options) =>
-                Promise.resolve({ ok: true, agentName: options.agentName, changed: true }),
+            switchActiveAgent: (
+                /** @type {HostedSession} */ actualHostedSession,
+                /** @type {{ agentName: string, allowReturnToRouter?: boolean }} */ options,
+                /** @type {{ createAgentHandler?: Function }} */ switchDeps = {},
+            ) => {
+                order.push("switch");
+                assertEquals(options, { agentName: "slicer", allowReturnToRouter: false });
+                actualHostedSession.setRootAgentName(options.agentName);
+                actualHostedSession.setActiveOnMessage(switchDeps.createAgentHandler?.("slicer", {}));
+                return Promise.resolve({ ok: true, agentName: options.agentName, changed: true });
+            },
         },
     });
     assertEquals(result.ok, true);
+    assertEquals(order, ["switch", "rootTurn"]);
     assertEquals(loadedPaths, ["/tmp/bundled-agent-definitions/workflow-prompts/slicer-prompt.md:slicer"]);
     assertEquals(captured.agentName, "slicer");
     assertEquals(captured.allowReturnToRouter, false);
@@ -1407,10 +1070,12 @@ Deno.test("runSlicerAgent restores the prior session leaf when isolated Slicer s
 
     const result = await runSlicerAgent({
         planName: "p",
-        uiAPI: noopUiAPI,
         hostedSession,
         __deps: {
-            runAgentSession: () => {
+            ...slicerPlanDeps(),
+            switchActiveAgent: (/** @type {unknown} */ _hostedSession, /** @type {{ agentName: string }} */ options) =>
+                Promise.resolve({ ok: true, agentName: options.agentName, changed: true }),
+            runRootTurn: () => {
                 throw new Error("boom");
             },
         },
@@ -1423,10 +1088,12 @@ Deno.test("runSlicerAgent restores the prior session leaf when isolated Slicer s
 Deno.test("runSlicerAgent surfaces session errors as { ok:false, error }", async () => {
     const result = await runSlicerAgent({
         planName: "p",
-        uiAPI: noopUiAPI,
         hostedSession: makeHostedSession(),
         __deps: {
-            runAgentSession: () => {
+            ...slicerPlanDeps(),
+            switchActiveAgent: (/** @type {unknown} */ _hostedSession, /** @type {{ agentName: string }} */ options) =>
+                Promise.resolve({ ok: true, agentName: options.agentName, changed: true }),
+            runRootTurn: () => {
                 throw new Error("boom");
             },
         },
@@ -1438,10 +1105,12 @@ Deno.test("runSlicerAgent surfaces session errors as { ok:false, error }", async
 Deno.test("runSlicerAgent surfaces non-Error throws as string", async () => {
     const result = await runSlicerAgent({
         planName: "p",
-        uiAPI: noopUiAPI,
         hostedSession: makeHostedSession(),
         __deps: {
-            runAgentSession: () => {
+            ...slicerPlanDeps(),
+            switchActiveAgent: (/** @type {unknown} */ _hostedSession, /** @type {{ agentName: string }} */ options) =>
+                Promise.resolve({ ok: true, agentName: options.agentName, changed: true }),
+            runRootTurn: () => {
                 throw "string failure";
             },
         },
@@ -1450,36 +1119,34 @@ Deno.test("runSlicerAgent surfaces non-Error throws as string", async () => {
     assertEquals(result.error, "string failure");
 });
 
-Deno.test("runSlicerAgent handles success via uiAPI when present", async () => {
-    /** @type {string[]} */
-    const messages = [];
-    const uiAPI = /** @type {any} */ ({
-        appendSystemMessage: (/** @type {string} */ msg) => messages.push(String(msg)),
-    });
+Deno.test("runSlicerAgent completes through an event-only HostedSession", async () => {
     const result = await runSlicerAgent({
         planName: "p",
-        uiAPI,
         hostedSession: makeHostedSession(),
         __deps: {
-            runAgentSession: () => Promise.resolve([]),
+            ...slicerPlanDeps(),
+            runRootTurn: () => Promise.resolve([]),
             switchActiveAgent: () => Promise.resolve({ ok: true, agentName: "slicer", changed: true }),
         },
     });
     assertEquals(result.ok, true);
 });
 
-Deno.test("runSlicerAgent reports failure via uiAPI when present", async () => {
+Deno.test("runSlicerAgent reports failure through a system-status event", async () => {
     /** @type {string[]} */
     const messages = [];
-    const uiAPI = /** @type {any} */ ({
-        appendSystemMessage: (/** @type {string} */ msg) => messages.push(String(msg)),
+    const target = makeHostedSession();
+    target.setEventSink((/** @type {{ type?: string, message?: string }} */ event) => {
+        if (event.type === "system_status") messages.push(String(event.message || ""));
     });
     await runSlicerAgent({
         planName: "p",
-        uiAPI,
-        hostedSession: makeHostedSession(),
+        hostedSession: target,
         __deps: {
-            runAgentSession: () => {
+            ...slicerPlanDeps(),
+            switchActiveAgent: (/** @type {unknown} */ _hostedSession, /** @type {{ agentName: string }} */ options) =>
+                Promise.resolve({ ok: true, agentName: options.agentName, changed: true }),
+            runRootTurn: () => {
                 throw new Error("kaboom");
             },
         },
@@ -1705,7 +1372,6 @@ Deno.test("ensureSlicerTasks opens Epic decomposition without reading a task tab
         planName: "epic-a",
         planPath: "/tmp/epic-a.md",
         triageMeta: /** @type {any} */ ({ classification: "PROJECT", type: "epic", status: "approved" }),
-        uiAPI: noopUiAPI,
         hostedSession: makeHostedSession(),
         __deps: {
             readTextFile: () => {
@@ -1730,7 +1396,6 @@ Deno.test("ensureSlicerTasks opens decomposition when persisted plan is an Epic"
     const result = await ensureSlicerTasks({
         planName: "epic-a",
         planPath: "/tmp/epic-a.md",
-        uiAPI: noopUiAPI,
         hostedSession: makeHostedSession(),
         __deps: {
             readTextFile: () =>
@@ -1759,7 +1424,6 @@ Deno.test("ensureSlicerTasks returns persisted Epic slicer throws as slicer fail
     const result = await ensureSlicerTasks({
         planName: "epic-a",
         planPath: "/tmp/epic-a.md",
-        uiAPI: noopUiAPI,
         hostedSession: makeHostedSession(),
         __deps: {
             readTextFile: () =>
@@ -1787,7 +1451,6 @@ Deno.test("ensureSlicerTasks skips slicer when Tasks already parseable (resumed 
     const result = await ensureSlicerTasks({
         planName: "p",
         planPath: "/tmp/p.md",
-        uiAPI: noopUiAPI,
         hostedSession: makeHostedSession(),
         __deps: {
             readTextFile: () =>
@@ -1818,7 +1481,6 @@ Deno.test("ensureSlicerTasks invokes epic slicer when plan has type: epic and no
     const result = await ensureSlicerTasks({
         planName: "p",
         planPath: "/tmp/p.md",
-        uiAPI: noopUiAPI,
         hostedSession: makeHostedSession(),
         __deps: {
             readTextFile: () =>
@@ -1845,7 +1507,6 @@ Deno.test("ensureSlicerTasks returns { ok:false, stage:'slicer' } when epic slic
     const result = await ensureSlicerTasks({
         planName: "p",
         planPath: "/tmp/p.md",
-        uiAPI: noopUiAPI,
         hostedSession: makeHostedSession(),
         __deps: {
             readTextFile: () =>
@@ -1869,7 +1530,6 @@ Deno.test("ensureSlicerTasks returns { ok:false, stage:'validation' } when PROJE
     const result = await ensureSlicerTasks({
         planName: "p",
         planPath: "/tmp/p.md",
-        uiAPI: noopUiAPI,
         hostedSession: makeHostedSession(),
         __deps: {
             readTextFile: () =>
@@ -1891,7 +1551,6 @@ Deno.test("ensureSlicerTasks reports slicer failure when error is missing from r
     const result = await ensureSlicerTasks({
         planName: "p",
         planPath: "/tmp/p.md",
-        uiAPI: noopUiAPI,
         hostedSession: makeHostedSession(),
         __deps: {
             readTextFile: () =>

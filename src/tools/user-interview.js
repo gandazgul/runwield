@@ -139,12 +139,9 @@ const interviewParametersSchema = Type.Object({
  */
 
 /**
- * @param {import('../shared/workflow/workflow.js').UiAPI | { uiAPI?: import('../shared/workflow/workflow.js').UiAPI, hostedSession?: import('../shared/session/hosted-session.js').HostedSession } | undefined} opts
+ * @param {{ hostedSession?: import('../shared/session/hosted-session.js').HostedSession }} [opts]
  */
-export function createUserInterviewTool(opts) {
-    const uiAPI = /** @type {import('../shared/workflow/workflow.js').UiAPI | undefined} */ (
-        opts && typeof opts === "object" && "uiAPI" in opts ? opts.uiAPI : opts
-    );
+export function createUserInterviewTool(opts = {}) {
     const hostedSession = /** @type {import('../shared/session/hosted-session.js').HostedSession | undefined} */ (
         opts && typeof opts === "object" && "hostedSession" in opts ? opts.hostedSession : undefined
     );
@@ -193,7 +190,7 @@ export function createUserInterviewTool(opts) {
 
             for (let i = 0; i < questions.length; i++) {
                 const question = questions[i];
-                const answer = /** @type {InterviewAnswer} */ (await askQuestion(question, uiAPI, hostedSession));
+                const answer = /** @type {InterviewAnswer} */ (await askQuestion(question, hostedSession));
 
                 const answerAny = /** @type {any} */ (answer);
                 if (answerAny.canceled) {
@@ -402,7 +399,12 @@ function validateBatch(questions) {
  * @param {import('../shared/session/session-runtime-interactions.js').RuntimeInteractionRequest} request
  */
 async function askBrokered(hostedSession, request) {
-    if (!hostedSession?.getInteractionAdapter?.()) return null;
+    if (!hostedSession) {
+        return {
+            outcome: RuntimeInteractionOutcomes.UNSUPPORTED,
+            message: "No hosted session is available for this interview prompt.",
+        };
+    }
     return await requestHostedSessionInteraction(hostedSession, request);
 }
 
@@ -432,12 +434,11 @@ function brokerFailureToAnswer(response, question) {
 /**
  * @param {InterviewQuestion} question
  * @param {Array<{ value: string, label: string }>} options
- * @param {import('../shared/types.js').SessionUiPort | undefined} uiAPI
  * @param {import('../shared/session/hosted-session.js').HostedSession | undefined} hostedSession
  * @param {{ defaultValue?: string }} [extra]
  * @returns {Promise<InterviewAnswer>}
  */
-async function askSelect(question, options, uiAPI, hostedSession, extra = {}) {
+async function askSelect(question, options, hostedSession, extra = {}) {
     const brokerResponse = await askBrokered(hostedSession, {
         type: RuntimeInteractionTypes.SELECT,
         prompt: question.prompt,
@@ -445,23 +446,9 @@ async function askSelect(question, options, uiAPI, hostedSession, extra = {}) {
         defaultValue: extra.defaultValue,
         _meta: { source: "user_interview", questionType: question.type, questionId: question.id },
     });
-    const brokerFailure = brokerResponse ? brokerFailureToAnswer(brokerResponse, question) : null;
+    const brokerFailure = brokerFailureToAnswer(brokerResponse, question);
     if (brokerFailure) return brokerFailure;
-    /** @type {string | boolean | null | undefined} */
-    let selected = brokerResponse?.value;
-    if (!brokerResponse) {
-        const promptSelect = uiAPI?.promptSelect?.bind(uiAPI);
-        if (!promptSelect) {
-            return {
-                error: {
-                    code: "INTERACTION_UNSUPPORTED",
-                    message: "No interaction adapter is available for this interview prompt.",
-                    questionId: question.id,
-                },
-            };
-        }
-        selected = await promptSelect(question.prompt, options);
-    }
+    const selected = brokerResponse.value;
     if (selected === null || typeof selected === "undefined") return { canceled: true };
     const option = options.find((item) => item.value === selected);
     return { value: String(selected), valueLabel: brokerResponse?.valueLabel || option?.label };
@@ -469,11 +456,10 @@ async function askSelect(question, options, uiAPI, hostedSession, extra = {}) {
 
 /**
  * @param {InterviewQuestion} question
- * @param {import('../shared/types.js').SessionUiPort | undefined} uiAPI
  * @param {import('../shared/session/hosted-session.js').HostedSession | undefined} hostedSession
  * @returns {Promise<InterviewAnswer>}
  */
-async function askOther(question, uiAPI, hostedSession) {
+async function askOther(question, hostedSession) {
     const followUpPrompt = `Please specify your answer for: "${question.prompt}"`;
     const otherResponse = await askBrokered(hostedSession, {
         type: RuntimeInteractionTypes.TEXT,
@@ -481,22 +467,9 @@ async function askOther(question, uiAPI, hostedSession) {
         allowEmpty: false,
         _meta: { source: "user_interview", questionType: question.type, questionId: question.id, other: true },
     });
-    const otherFailure = otherResponse ? brokerFailureToAnswer(otherResponse, question) : null;
+    const otherFailure = brokerFailureToAnswer(otherResponse, question);
     if (otherFailure) return otherFailure;
-    let otherText = otherResponse ? String(otherResponse.value ?? "") : null;
-    if (!otherResponse) {
-        const promptText = uiAPI?.promptText?.bind(uiAPI);
-        if (!promptText) {
-            return {
-                error: {
-                    code: "INTERACTION_UNSUPPORTED",
-                    message: "No interaction adapter is available for this interview prompt.",
-                    questionId: question.id,
-                },
-            };
-        }
-        otherText = await promptText(followUpPrompt, { allowEmpty: false });
-    }
+    const otherText = String(otherResponse.value ?? "");
     if (otherText === null) return { canceled: true };
     const normalized = otherText.trim();
     if (!normalized) {
@@ -513,23 +486,22 @@ async function askOther(question, uiAPI, hostedSession) {
 
 /**
  * @param {InterviewQuestion} question
- * @param {import('../shared/types.js').SessionUiPort | undefined} uiAPI
  * @param {import('../shared/session/hosted-session.js').HostedSession | undefined} hostedSession
  * @returns {Promise<InterviewAnswer>}
  */
-async function askQuestion(question, uiAPI, hostedSession) {
+async function askQuestion(question, hostedSession) {
     if (question.type === "yes_no") {
         const options = [
             { value: "yes", label: question.default === true ? "Yes (recommended)" : "Yes" },
             { value: "no", label: question.default === false ? "No (recommended)" : "No" },
             { value: OTHER_VALUE, label: "Other" },
         ];
-        const selected = await askSelect(question, options, uiAPI, hostedSession, {
+        const selected = await askSelect(question, options, hostedSession, {
             defaultValue: typeof question.default === "boolean" ? (question.default ? "yes" : "no") : undefined,
         });
         const selectedAnswer = /** @type {any} */ (selected);
         if (selectedAnswer.canceled || selectedAnswer.error) return selected;
-        if (selectedAnswer.value === OTHER_VALUE) return await askOther(question, uiAPI, hostedSession);
+        if (selectedAnswer.value === OTHER_VALUE) return await askOther(question, hostedSession);
         if (selectedAnswer.value !== "yes" && selectedAnswer.value !== "no") {
             return {
                 error: {
@@ -552,10 +524,10 @@ async function askQuestion(question, uiAPI, hostedSession) {
             }))
         );
         options.push({ value: OTHER_VALUE, label: "Other" });
-        const selected = await askSelect(question, options, uiAPI, hostedSession, { defaultValue: question.default });
+        const selected = await askSelect(question, options, hostedSession, { defaultValue: question.default });
         const selectedAnswer = /** @type {any} */ (selected);
         if (selectedAnswer.canceled || selectedAnswer.error) return selected;
-        if (selectedAnswer.value === OTHER_VALUE) return await askOther(question, uiAPI, hostedSession);
+        if (selectedAnswer.value === OTHER_VALUE) return await askOther(question, hostedSession);
         const selectedOption = options.find((/** @type {{ value: string }} */ opt) =>
             opt.value === selectedAnswer.value
         );
@@ -580,26 +552,9 @@ async function askQuestion(question, uiAPI, hostedSession) {
         allowEmpty,
         _meta: { source: "user_interview", questionType: question.type, questionId: question.id },
     });
-    const brokerFailure = brokerResponse ? brokerFailureToAnswer(brokerResponse, question) : null;
+    const brokerFailure = brokerFailureToAnswer(brokerResponse, question);
     if (brokerFailure) return brokerFailure;
-    let text = brokerResponse ? String(brokerResponse.value ?? "") : null;
-    if (!brokerResponse) {
-        const promptText = uiAPI?.promptText?.bind(uiAPI);
-        if (!promptText) {
-            return {
-                error: {
-                    code: "INTERACTION_UNSUPPORTED",
-                    message: "No interaction adapter is available for this interview prompt.",
-                    questionId: question.id,
-                },
-            };
-        }
-        text = await promptText(question.prompt, {
-            defaultValue: question.default,
-            placeholder: question.placeholder,
-            allowEmpty,
-        });
-    }
+    const text = String(brokerResponse.value ?? "");
 
     if (text === null) return { canceled: true };
 

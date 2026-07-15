@@ -26,19 +26,18 @@ import { recordWorkflowMetric } from "../shared/workflow/metrics.js";
  *
  * @param {Object} params
  * @param {string} params.reason
- * @param {import('../shared/workflow/workflow.js').UiAPI | null | undefined} uiAPI
  * @param {import('../shared/session/hosted-session.js').HostedSession | null | undefined} hostedSession
  * @param {{ recordWorkflowMetric?: typeof recordWorkflowMetric }} [__deps]
  * @returns {Promise<import('@earendil-works/pi-coding-agent').AgentToolResult<{ agentName: string, reason: string } | null>>}
  */
-export async function executeReturnToRouter(params, uiAPI, hostedSession, __deps) {
+export async function executeReturnToRouter(params, hostedSession, __deps) {
     const { reason } = params;
 
-    if (!uiAPI || !hostedSession) {
+    if (!hostedSession) {
         return {
             content: [{
                 type: "text",
-                text: `Error: This tool requires an active UI session to return to ${
+                text: `Error: This tool requires an active hosted session to return to ${
                     getAgentDisplayName(AGENTS.ROUTER)
                 }. Please ensure you're running in interactive mode.`,
             }],
@@ -95,11 +94,10 @@ export const returnToRouterTool = defineTool({
     }),
     execute(_toolCallId, params, _signal, _onUpdate, context) {
         const toolContext =
-            /** @type {{ uiAPI?: import('../shared/workflow/workflow.js').UiAPI, hostedSession?: import('../shared/session/hosted-session.js').HostedSession }} */ (context ||
+            /** @type {{ hostedSession?: import('../shared/session/hosted-session.js').HostedSession }} */ (context ||
                 {});
         return executeReturnToRouter(
             /** @type {{ reason: string }} */ (params),
-            toolContext.uiAPI,
             toolContext.hostedSession,
         );
     },

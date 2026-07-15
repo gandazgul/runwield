@@ -4,7 +4,6 @@
  */
 
 import { join } from "@std/path";
-import { exportRootSessionToHtml } from "../../shared/session/root-session.js";
 import { theme } from "../../ui/theme/theme.js";
 
 /**
@@ -35,10 +34,9 @@ async function runCmd(cmd, args) {
  * @param {CommandContext} [options]
  */
 export async function runShareCommand(_argv, options = {}) {
-    const { uiAPI, sessionManager } = options || {};
+    const { uiAPI, sessionRuntime, sessionId: runtimeSessionId } = options || {};
     const deps = /** @type {{
         runCmd?: typeof runCmd,
-        exportRootSessionToHtml?: typeof exportRootSessionToHtml,
         tmpDir?: () => string | undefined,
         remove?: typeof Deno.remove,
         now?: () => number,
@@ -50,7 +48,7 @@ export async function runShareCommand(_argv, options = {}) {
         throw new Error("UI API is required for the share command.");
     }
 
-    if (!sessionManager) {
+    if (!sessionRuntime || !runtimeSessionId) {
         uiAPI.appendSystemMessage("Error: No active session found.", true);
         return;
     }
@@ -73,10 +71,10 @@ export async function runShareCommand(_argv, options = {}) {
 
         // 3. Export session to temporary HTML file
         const tmpDir = (deps.tmpDir || (() => Deno.env.get("TMPDIR")))() || "/tmp";
-        const sessionId = /** @type {{ getSessionId?: () => string }} */ (sessionManager).getSessionId?.() ||
+        const sessionId = sessionRuntime.getSessionSnapshot(runtimeSessionId)?.sessionManagerId ||
             String((deps.now || Date.now)());
         const tmpFile = join(tmpDir, `runwield-session-${sessionId}.html`);
-        await (deps.exportRootSessionToHtml || exportRootSessionToHtml)(sessionManager, tmpFile);
+        await sessionRuntime.exportSession(runtimeSessionId, tmpFile);
 
         // 4. Upload to secret Gist
         const ghGist = await runCommand("gh", ["gist", "create", "--public=false", tmpFile]);

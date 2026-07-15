@@ -26,16 +26,15 @@ Deno.test("runSleepCommand standalone starts an interactive Engineer sleep sessi
             parseArgs: () => ({ help: false }),
             startInteractiveSession: (
                 /** @type {string | null} */ initialRequest,
-                /** @type {unknown} */ onMessage,
                 /** @type {object} */ options,
             ) => {
-                invocation = [initialRequest, onMessage, options];
+                invocation = [initialRequest, options];
                 return Promise.resolve();
             },
         }),
     });
 
-    assertEquals(invocation, ["/sleep", null, { initialAgentName: "engineer" }]);
+    assertEquals(invocation, ["/sleep", { initialAgentName: "engineer" }]);
 });
 
 Deno.test("exportMnemosyneCollection creates and verifies an explicit no-embeddings backup", async () => {
@@ -127,17 +126,27 @@ Deno.test("exportMnemosyneCollection rejects success without an output file", as
 Deno.test("runSleepCommand backs up before activating persistent Engineer root", async () => {
     const events = /** @type {string[]} */ ([]);
     const messages = /** @type {string[]} */ ([]);
-    const sessionManager = { getSessionId: () => "session-123" };
-    const hostedSession = /** @type {any} */ ({
-        cwd: "/projects/example",
-        getRootSessionManager: () => sessionManager,
-    });
     let rootRequest = "";
     let backupPath = "";
 
     await runSleepCommand([], {
-        hostedSession,
-        sessionManager: /** @type {any} */ (sessionManager),
+        sessionId: "sleep-runtime",
+        sessionRuntime: /** @type {any} */ ({
+            getSessionSnapshot: () => ({ cwd: "/projects/example", sessionManagerId: "session-123" }),
+            getSessionMemoryBackupDir: () => "/tmp/sessions/session-123_memory-backups",
+            /** @param {string} _id @param {{ agentName: string }} options */
+            switchAgent: (_id, options) => {
+                events.push("activate");
+                assertEquals(options.agentName, "engineer");
+                return Promise.resolve({ ok: true, agentName: options.agentName, changed: true });
+            },
+            /** @param {string} _id @param {{ initialRequest: string }} options */
+            promptSession: (_id, options) => {
+                events.push("root-turn");
+                rootRequest = options.initialRequest;
+                return Promise.resolve({ ok: true });
+            },
+        }),
         uiAPI: /** @type {any} */ ({
             appendSystemMessage: (/** @type {string} */ message) => {
                 messages.push(message);
@@ -150,10 +159,6 @@ Deno.test("runSleepCommand backs up before activating persistent Engineer root",
                 events.push("preflight");
                 return Promise.resolve();
             },
-            getRunWieldSessionMemoryBackupDir: (
-                /** @type {string} */ _cwd,
-                /** @type {string} */ sessionId,
-            ) => `/tmp/sessions/${sessionId}_memory-backups`,
             now: () => new Date("2026-07-10T12:34:56.789Z"),
             randomUUID: () => "backup-id",
             exportMnemosyneCollection: (
@@ -164,22 +169,6 @@ Deno.test("runSleepCommand backs up before activating persistent Engineer root",
                 assertEquals(collectionName, "example");
                 backupPath = outputPath;
                 return Promise.resolve();
-            },
-            switchActiveAgent: (
-                /** @type {unknown} */ target,
-                /** @type {{ agentName: string }} */ options,
-            ) => {
-                events.push("activate");
-                assertEquals(target, hostedSession);
-                assertEquals(options.agentName, "engineer");
-                return Promise.resolve({ ok: true, agentName: options.agentName, changed: true });
-            },
-            runRootTurn: (/** @type {any} */ opts) => {
-                events.push("root-turn");
-                assertEquals(opts.hostedSession, hostedSession);
-                assertEquals(opts.agentName, "engineer");
-                rootRequest = opts.userRequest;
-                return Promise.resolve([]);
             },
         }),
     });
@@ -199,31 +188,28 @@ Deno.test("runSleepCommand leaves the current Agent untouched when backup fails"
     let activated = false;
     let rootTurnRan = false;
     const messages = /** @type {string[]} */ ([]);
-    const sessionManager = { getSessionId: () => "session-123" };
-
     await assertRejects(
         () =>
             runSleepCommand([], {
-                hostedSession: /** @type {any} */ ({
-                    cwd: "/projects/example",
-                    getRootSessionManager: () => sessionManager,
+                sessionId: "sleep-runtime",
+                sessionRuntime: /** @type {any} */ ({
+                    getSessionSnapshot: () => ({ cwd: "/projects/example", sessionManagerId: "session-123" }),
+                    getSessionMemoryBackupDir: () => "/tmp/session_memory-backups",
+                    switchAgent: () => {
+                        activated = true;
+                    },
+                    promptSession: () => {
+                        rootTurnRan = true;
+                        return Promise.resolve({ ok: true });
+                    },
                 }),
-                sessionManager: /** @type {any} */ (sessionManager),
                 uiAPI: /** @type {any} */ ({
                     appendSystemMessage: (/** @type {string} */ message) => messages.push(message),
                 }),
                 __testDeps: /** @type {any} */ ({
                     parseArgs: () => ({ help: false }),
                     ensureMnemosyneBinary: () => Promise.resolve(),
-                    getRunWieldSessionMemoryBackupDir: () => "/tmp/session_memory-backups",
                     exportMnemosyneCollection: () => Promise.reject(new Error("export failed")),
-                    switchActiveAgent: () => {
-                        activated = true;
-                    },
-                    runRootTurn: () => {
-                        rootTurnRan = true;
-                        return Promise.resolve([]);
-                    },
                 }),
             }),
         Error,

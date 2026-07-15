@@ -1,11 +1,11 @@
 /**
- * @module shared/workflow/code-review
- * Launches the Plannotator human code review UI for a completed workflow diff.
+ * @module ui/review/code-review
+ * Launches the browser code-review surface for a completed workflow diff.
  */
 
 import { startCodeReviewSurface } from "./review-launcher.js";
 import { isAbsolute, resolve } from "node:path";
-import { mimeTypeForImagePath } from "../session/image-attachments.js";
+import { mimeTypeForImagePath } from "../../shared/session/image-attachments.js";
 
 const MAX_CODE_REVIEW_IMAGE_BYTES = 20 * 1024 * 1024;
 
@@ -86,10 +86,9 @@ export function normalizeCodeReviewDecision(decision) {
  *
  * @param {Array<{path: string, name: string}>} attachments
  * @param {string} cwd
- * @param {import('../types.js').SessionUiPort} uiAPI
  * @returns {Promise<Array<{base64: string, mimeType: string, name: string}>>}
  */
-async function loadCodeReviewImages(attachments, cwd, uiAPI) {
+async function loadCodeReviewImages(attachments, cwd) {
     const images = [];
     for (const attachment of attachments) {
         try {
@@ -104,9 +103,8 @@ async function loadCodeReviewImages(attachments, cwd, uiAPI) {
                 mimeType: mimeTypeForImagePath(path),
                 name: attachment.name,
             });
-        } catch (error) {
-            const reason = error instanceof Error ? error.message : String(error);
-            uiAPI.appendSystemMessage(`[RunWield] Could not attach code review image "${attachment.name}": ${reason}`);
+        } catch (_error) {
+            // The review decision remains usable when an attachment disappears.
         }
     }
     return images;
@@ -137,13 +135,13 @@ export function formatCodeReviewAnnotations(annotations) {
 }
 
 /**
- * Launch Plannotator code review for the supplied diff.
+ * Launch the browser code-review surface for the supplied diff.
  *
  * @param {Object} opts
  * @param {string} opts.planName
  * @param {string} opts.diffText
  * @param {string} opts.executionCwd
- * @param {import('./workflow.js').UiAPI} opts.uiAPI
+ * @param {AbortSignal} [opts.signal]
  * @param {{
  *   startCodeReviewSurface?: typeof startCodeReviewSurface,
  *   startReviewServer?: (options: object) => Promise<any>,
@@ -152,11 +150,11 @@ export function formatCodeReviewAnnotations(annotations) {
  * }} [opts.__deps]
  * @returns {Promise<CodeReviewDecision>}
  */
-export async function runPlannotatorCodeReview({
+export async function runCodeReview({
     planName,
     diffText,
     executionCwd,
-    uiAPI,
+    signal,
     __deps,
 }) {
     const startCodeReviewSurfaceImpl = __deps?.startCodeReviewSurface || startCodeReviewSurface;
@@ -170,24 +168,20 @@ export async function runPlannotatorCodeReview({
         openInDefaultBrowser: __deps?.openInDefaultBrowser,
     });
 
-    uiAPI.appendSystemMessage(`Code review UI available at: ${server.url}`, false, "RunWield");
-
-    if (!server.opened) {
-        uiAPI.appendSystemMessage(`Could not auto-open browser. Open manually: ${server.url}`, false, "RunWield");
-    }
-
     try {
-        uiAPI.disableInput?.();
-        const decision = normalizeCodeReviewDecision(await server.waitForDecision());
+        const canceled = new Promise((resolve) => {
+            signal?.addEventListener("abort", () => resolve({ canceled: true }), { once: true });
+        });
+        const decision = normalizeCodeReviewDecision(
+            await (signal ? Promise.race([server.waitForDecision(), canceled]) : server.waitForDecision()),
+        );
         if (!decision.images?.length) return decision;
         const images = await loadCodeReviewImages(
             /** @type {Array<{path: string, name: string}>} */ (/** @type {unknown} */ (decision.images)),
             executionCwd,
-            uiAPI,
         );
         return { ...decision, images };
     } finally {
-        uiAPI.enableInput?.();
         await server.stop();
     }
 }

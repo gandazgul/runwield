@@ -1,12 +1,11 @@
 # RunWield Core Architecture
 
-This document describes the current architecture of RunWield Core, with emphasis on the UI-independent session runtime,
-agent construction, workflow orchestration, Plan lifecycle, execution, validation, and persistence systems. The TUI, ACP
-server, Workspace, and browser review surfaces are described only as adapters over those systems.
+This document describes the current architecture of RunWield Core, including the enforced consumer-neutral session
+runtime, agent construction, workflow orchestration, routing ceremonies, Plan lifecycle, execution worktrees, validation
+modes, persistence, and adapter surfaces.
 
-The document is implementation-facing. It describes the source as it exists, including transitional seams that are
-important when evaluating stability and test coverage. It is not a statement that every current boundary is already the
-desired final boundary.
+It is implementation-facing. The live-session consumer boundary is a hard production invariant, while the remaining
+sections preserve the wider domain architecture and its operational seams.
 
 ## Architectural intent
 
@@ -63,7 +62,7 @@ flowchart TB
     ACP <--> Runtime
     Workspace <--> PlanDomain
     Workspace --> Worktrees
-    ReviewUI <--> Workflow
+    ReviewUI <--> TUI
 
     Runtime --> Host
     Host --> Hosted
@@ -109,6 +108,219 @@ Presentation details, terminal widgets, ACP wire types, HTTP routes, Astro/React
 rendering are outside this boundary. They may call core services, subscribe to core events, or implement interaction
 ports, but they should not become the authoritative owners of session or Plan state.
 
+## Non-negotiable invariant
+
+RunWield Core is a consumer-neutral engine.
+
+- `SessionRuntime` is the only public boundary for live sessions.
+- Consumers hold opaque Runtime session IDs, call Runtime methods, subscribe to Runtime events, and install semantic
+  interaction adapters.
+- Core never imports consumer code and contains no terminal, ACP, browser-review, widget, or presentation API
+  vocabulary.
+- Consumers never receive `HostedSession`, `SessionHost`, Pi `AgentSession`, or Pi `SessionManager` objects.
+- Consumers cannot publish Runtime events. Event publication is private to `SessionRuntime` and the event sink it
+  installs on internal sessions.
+- Every engine-originated user message, assistant stream, thinking stream, tool lifecycle, system status, error,
+  cancellation, and review request has one route across the boundary.
+
+If Core were asked what a TUI or ACP server is, it would not know. It knows only commands, snapshots, semantic events,
+and semantic interactions.
+
+## Dependency direction
+
+```mermaid
+flowchart LR
+    TUI["TUI consumer"] -->|"Runtime methods + opaque sessionId"| Runtime["SessionRuntime public API"]
+    ACP["ACP consumer"] -->|"Runtime methods + opaque sessionId"| Runtime
+    Commands["CLI command consumers"] -->|"Runtime methods + opaque sessionId"| Runtime
+
+    Runtime -->|"semantic events"| TUI
+    Runtime -->|"semantic events"| ACP
+    Runtime -->|"interaction requests"| TUI
+    Runtime -->|"interaction requests"| ACP
+
+    Runtime --> Host["private SessionHost"]
+    Host --> Hosted["internal HostedSession"]
+    Hosted --> Pi["Pi AgentSession + SessionManager"]
+    Hosted --> Workflow["workflow + tools + Plan domain"]
+
+    Pi -->|"internal semantic event sink"| Runtime
+    Workflow -->|"internal semantic event sink"| Runtime
+```
+
+Forbidden edges are as important as the shown edges:
+
+- Core must not import `src/ui/` or `src/acp/`.
+- TUI, ACP, and commands must not import session host, hosted session, root-session, agent-handler, agent-switching, or
+  the Pi session implementation.
+- TUI and ACP must not publish events or obtain an internal session object.
+- No compatibility re-export, optional UI argument, object-or-ID overload, or presentation fallback may recreate a
+  forbidden edge.
+
+## Public Runtime boundary
+
+The public boundary lives in `src/shared/session/session-runtime.js`, `src/shared/session/session-runtime-events.js`,
+and `src/shared/session/session-runtime-interactions.js`.
+
+| Surface                 | Consumer-visible contract                                                                      |
+| ----------------------- | ---------------------------------------------------------------------------------------------- |
+| Identity                | Opaque Runtime `sessionId` strings                                                             |
+| State                   | Immutable snapshots from `getSessionSnapshot()` and `listSessions()`                           |
+| Lifecycle               | Create, load, replay, rename, close, resume inspection, and export methods                     |
+| Turns                   | `promptSession()`, steering, deferred queue operations, cancellation, and compaction           |
+| Agent state             | Agent switch, model reconfiguration, thinking level, and project-state context methods         |
+| Workflows               | Planning, slicing, execution, approval, validation, and isolated-agent methods by ID           |
+| Resources               | Prompt-template, skill, context-file, and expansion methods scoped through Runtime             |
+| Local tools             | `runLocalShellCommand()` owns execution, transcript persistence, cancellation, and tool events |
+| Output                  | `subscribeSessionEvents(sessionId, listener)`                                                  |
+| Input requested by Core | `setInteractionAdapter()` and `requestInteraction()`                                           |
+
+`SessionRuntime` keeps its host, dependency implementations, listener maps, turn settlements, and queued-message state
+in JavaScript private fields. The old object APIs (`createSession`, `adoptSession`, `getSession`), event-producer
+escape, and raw handler injection do not exist.
+
+## Single outward event path
+
+```mermaid
+sequenceDiagram
+    participant Consumer as TUI or ACP
+    participant Runtime as SessionRuntime
+    participant Hosted as internal HostedSession
+    participant Pi as Pi AgentSession
+    participant Core as tools and workflows
+
+    Consumer->>Runtime: command(sessionId, semantic input)
+    Runtime->>Hosted: resolve private session
+    Runtime->>Pi: run or steer work
+    Pi-->>Hosted: model/tool lifecycle
+    Core-->>Hosted: workflow/system lifecycle
+    Hosted-->>Runtime: installed internal event sink
+    Runtime-->>Consumer: one normalized SessionRuntimeEvent
+```
+
+The Pi subscriber bridge is `attachSessionEventSubscribers()` in `src/shared/session/session.js`. It translates Pi
+events into the shared vocabulary. `SessionRuntime` installs the hosted-session sink and privately adds identity,
+timestamp, and turn context before fanout. No core producer receives a consumer presentation object.
+
+### Flow map, one path at a time
+
+| Workflow                            | Inbound path                                             | Core path                                                                           | Outbound event or result                                                                         | Consumer action                                                          |
+| ----------------------------------- | -------------------------------------------------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------ |
+| User message                        | `promptSession(id, { initialRequest, initialImages })`   | Runtime owns turn gate and handler dispatch                                         | `user_message`, `turn_start`, `busy_changed`                                                     | TUI appends user content; ACP sends chunks/state                         |
+| Assistant message stream            | Pi message update                                        | `attachSessionEventSubscribers()`                                                   | `assistant_text_delta` keyed by message ID                                                       | TUI appends to one message block; ACP sends `agent_message_chunk`        |
+| Thinking stream                     | Pi thinking update/end                                   | same subscriber bridge                                                              | `assistant_thinking_delta`, `assistant_thinking_end`                                             | TUI owns thinking block; ACP sends `agent_thought_chunk`                 |
+| Agent tool                          | Pi tool start/update/end                                 | same subscriber bridge                                                              | `tool_start`, `tool_update`, `tool_end` keyed by tool-call ID                                    | TUI owns one tool block; ACP sends one protocol tool lifecycle           |
+| Local `!` shell tool                | `runLocalShellCommand(id, options)`                      | Runtime spawns, tracks cancellation, optionally records transcript                  | one `tool_start`/updates/`tool_end`; optional `user_message`                                     | Same listeners as every other tool; TUI does not publish events          |
+| Protected workflow tools            | Pi invokes RunWield tool                                 | tool returns structured details and may emit semantic status/message                | tool lifecycle plus structured message-stream result                                             | Consumers render/map only the events                                     |
+| Synthetic completion/review message | workflow calls helpers in `workflow-messages.js`         | Core emits a complete assistant delta with metadata                                 | `assistant_text_delta`                                                                           | TUI may style review result; ACP sends normal agent message              |
+| System status                       | Core calls `emitSystemStatus()`                          | hosted event sink                                                                   | `system_status` with level and metadata                                                          | TUI shows status; ACP sends a status message chunk                       |
+| Runtime or model error              | subscriber or Runtime catch                              | error normalized inside Core                                                        | `terminal_error`; Runtime still closes turn with `turn_end` and `busy_changed(false)`            | TUI shows error; ACP reports protocol message/update                     |
+| Cancellation                        | `cancelSession(id)`                                      | abort root, sub-agents, compaction, queued input, interactions, and local processes | one `cancellation` event with semantic scope/message; affected tools/interactions also terminate | Consumers render/map the event and clear local presentation state        |
+| Steering                            | `steerSession(id, text, images)`                         | Runtime targets active root or records deferred message                             | `queued_message_changed` transitions                                                             | TUI updates queue display; ACP can ignore unsupported presentation state |
+| Replay/resume                       | `loadSession()` then `replaySession()`                   | Runtime translates persisted entries without exposing manager                       | `replay_entry` or normalized replay events                                                       | Consumer reconstructs its own view                                       |
+| Agent/model/thinking change         | Runtime setter/switch method                             | Core rebuilds or updates owned root state                                           | `agent_changed`, `model_changed`, `thinking_level_changed`                                       | Consumers update labels/protocol metadata                                |
+| Session rename                      | `renameSession()` or workflow auto-name                  | Runtime/persisted manager                                                           | `session_renamed`                                                                                | TUI changes terminal title; ACP maps if supported                        |
+| Plan/code review                    | Core requests `plan_review` or `code_review` interaction | interaction broker tracks request and cancellation                                  | interaction lifecycle events plus normalized response                                            | TUI opens UI review adapter; ACP maps to protocol elicitation            |
+
+### TUI input translation
+
+The TUI owns terminal key decoding. It translates only session-affecting intent into Runtime calls; editing and
+navigation remain consumer-local. Core never receives key names or terminal escape sequences.
+
+| Terminal input                   | Boundary behavior                                                                                                                                                                                         |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Enter with text/images           | TUI calls `promptSession(id, options)`; Runtime publishes the user/turn/stream lifecycle                                                                                                                  |
+| Escape                           | TUI calls `cancelSession(id)`; Runtime cancels interactions, compaction, agent work, queues, and processes and publishes one `cancellation` event; the key handler does not render a cancellation message |
+| First Ctrl+C                     | Same Runtime cancellation call, then TUI clears editor/image preview state                                                                                                                                |
+| Second Ctrl+C in the exit window | TUI-local process exit; no session command is implied                                                                                                                                                     |
+| Up Arrow in an empty editor      | TUI first calls `dequeueLastQueuedMessage(id)` because queued session input is Runtime-owned; if none exists, the editor performs local history navigation                                                |
+| Up/Down in a selector            | TUI-local selection navigation                                                                                                                                                                            |
+| Typing, cursor movement, history | TUI-local editor state                                                                                                                                                                                    |
+
+This prevents a key handler from becoming a second output producer. For example, Escape does not call a local
+`appendSystemMessage()` after cancellation; `SessionRuntime` publishes the semantic cancellation event and the TUI/ACP
+adapters decide how to represent that event.
+
+The TUI adapter registry also enforces one adapter per `(SessionRuntime, sessionId)`. Attaching a second adapter fails;
+session replacement must explicitly dispose the old registration before attaching the next one. It does not silently
+deduplicate or replace subscribers.
+
+### Turn settlement and errors
+
+`HostedSession.beginTurn()` permits at most one active turn per Runtime ID. Different IDs run independently. Every
+successful, failed, or canceled prompt releases the turn in `finally`, publishes `turn_end`, and publishes
+`busy_changed(false)`. Chained `return_to_router` handoffs remain inside the same outer Runtime turn.
+
+Errors are data, not presentation calls. Core emits `terminal_error` or an error-level `system_status`; it never chooses
+a widget, writes an ACP message, or calls a browser surface.
+
+## Interactions and reviews
+
+Interactions are the reverse side of the boundary: Core needs a semantic decision and a consumer supplies it.
+
+```mermaid
+flowchart LR
+    Core["Core workflow"] -->|"select, text, approval, link, plan_review, code_review"| Broker["Runtime interaction broker"]
+    Broker --> Adapter["consumer interaction adapter"]
+    Adapter -->|"selected, text, accepted, canceled, unsupported, blocked"| Broker
+    Broker --> Core
+
+    Adapter --> TuiPrompts["TUI prompts"]
+    Adapter --> Review["src/ui/review browser surfaces"]
+    Adapter --> AcpElicit["ACP elicitation"]
+```
+
+Core review logic lives in workflow modules and knows only the semantic request and response. Browser-aware plan/code
+review implementations live under `src/ui/review/`. The TUI maps interactions in
+`src/ui/tui/runtime-interaction-adapter.js`; ACP maps them in `src/acp/interaction-mapper.js`.
+
+## Root cause of the duplicated TUI blocks
+
+The duplicate was a presentation fanout bug, not duplicate model output and not duplicate persistence.
+
+Historically, one Pi update had two independent routes to the same TUI:
+
+```mermaid
+flowchart LR
+    Pi["one Pi message/thinking/tool update"] --> Direct["attachUiSubscribers direct presentation branch"]
+    Direct --> RawUi["uiAPI appendThinking / appendAgentMessage / startToolExecution"]
+    RawUi --> First["TUI render #1"]
+
+    Pi --> Semantic["HostedSession Runtime event sink"]
+    Semantic --> Runtime["SessionRuntime event fanout"]
+    Runtime --> Adapter["TUI runtime adapter"]
+    Adapter --> Second["TUI render #2"]
+```
+
+The former `attachUiSubscribers()` implementation in `src/shared/session/session.js` subscribed directly to Pi and
+called presentation methods such as `appendThinkingStart()`, `appendAgentMessageStart()`, and `startToolExecution()`. At
+the same time it emitted semantic Runtime events. The TUI had also attached `runtime-adapter.js`, so that adapter
+rendered the same semantic update again.
+
+The former `session-runtime-ui.js` did not remove the second route. It translated legacy presentation calls back into
+Runtime events and used a `_runtimeEventBridge` marker to conditionally suppress direct output. Session construction,
+root replacement, reload, and workflow call sites did not all carry the same presentation object, so the marker was not
+a stable architectural guarantee. A call path that received the raw presentation API re-enabled direct rendering.
+
+Tool starts often looked correct because the TUI adapter deduplicated them by `toolCallId` and active block. Assistant
+and thinking blocks were created independently on the two routes, so they visibly doubled. Pi persisted one assistant
+message, which is why the transcript on disk contained one message while the screen showed two.
+
+The seam kept returning because earlier fixes guarded or deduplicated one branch while retaining both branches and the
+legacy port. The durable fix is the current graph:
+
+```mermaid
+flowchart LR
+    Pi["one Pi update"] --> Subscriber["semantic subscriber bridge"]
+    Subscriber --> Sink["Runtime-installed internal sink"]
+    Sink --> Runtime["SessionRuntime private fanout"]
+    Runtime --> TUI["TUI adapter renders once"]
+    Runtime --> ACP["ACP mapper sends once"]
+```
+
+There is no direct subscriber presentation branch, no core presentation API, no Runtime UI bridge, and no consumer
+event-publisher method.
+
 ## Session runtime
 
 ### Ownership hierarchy
@@ -130,8 +342,7 @@ flowchart TB
     Hosted --> WorkflowState["Active execution workflow"]
     Hosted --> Turn["At most one active turn id"]
     Hosted --> Interactions["Interaction adapter and active cancellations"]
-    Hosted --> Events["Runtime event sink"]
-    Hosted --> CompatUI["Compatibility SessionUiPort"]
+    Hosted --> Events["Runtime-owned semantic event sink"]
 ```
 
 `SessionRuntime` owns application operations and event subscriptions. `SessionHost` is deliberately small: it owns a map
@@ -153,9 +364,9 @@ Several identifiers coexist and must not be treated as interchangeable:
 | ACP session id                  | Protocol-facing handle mapped by `AcpSessionMap`                         | ACP connection/session lifetime  |
 | Plan `planId`                   | Durable project-scoped resource identity for Workspace and collaboration | Stored in Plan front matter      |
 
-The TUI's initial construction normally lets `SessionHost` derive the hosted id from its `SessionManager`. The runtime's
-prompt-ready and load factories currently create a separate random hosted id. ACP adds another mapping on top. Callers
-should therefore use the appropriate lookup rather than infer one identity from another.
+Consumers receive only the opaque Runtime session ID returned by `SessionRuntime`. The private host stores that ID on
+the internal `HostedSession`; persistence retains its own Pi identity. ACP adds a protocol-facing mapping on top.
+Consumers never infer identities or receive the host, hosted session, session manager, or Pi agent object.
 
 ### Persisted and transient state
 
@@ -167,7 +378,7 @@ should therefore use the appropriate lookup rather than infer one identity from 
 | Root `AgentSession` and subscribers               | `HostedSession`                          | Live memory only; rebuilt from persisted context                                               |
 | Active execution workflow                         | `HostedSession`                          | Live memory; recovery evidence is separately stored in Plan front matter and worktree registry |
 | Interaction requests and cancellation controllers | `HostedSession`                          | Live memory only                                                                               |
-| Adapter listeners and runtime UI port             | `SessionRuntime`                         | Live memory only                                                                               |
+| Runtime event listeners                           | `SessionRuntime`                         | Live memory only                                                                               |
 
 Session loading is guarded by both id and project root. A supplied file path must remain inside the encoded session
 directory for that project, and the opened `SessionManager` must report the requested cwd. Replay converts the current
@@ -186,7 +397,7 @@ sequenceDiagram
     participant Workflow as Workflow services
 
     User->>Adapter: Submit request
-    Adapter->>Runtime: promptSession(hostedSession, request)
+    Adapter->>Runtime: promptSession(sessionId, request)
     Runtime->>Hosted: beginTurn(turnId)
     Runtime-->>Adapter: user_message, turn_start, busy_changed
     Runtime->>Handler: active handler(request, images)
@@ -247,17 +458,13 @@ and root-affecting configuration remain active.
 - turn start/end, cancellation, terminal errors, and system status;
 - interaction lifecycle, attention requests, and Plan review links.
 
-Events are fail-open by design: an adapter listener or event sink cannot crash the engine. Event producers currently
-include `SessionRuntime`, the Pi subscriber bridge in `session.js`, workflow modules, and the compatibility runtime UI
-bridge. The vocabulary is centralized, but production is still distributed.
+Core producers write semantic events to the sink installed on the internal hosted session. `SessionRuntime` is the only
+outward publisher: it adds session, timestamp, and turn context, then fans each event out to subscribers. Event
+listeners are failure-isolated so one consumer cannot crash the engine, but there is no second presentation route.
 
-Interactions travel in the opposite direction. Core asks for one of `select`, `text`, `approval`, or `link`; the
-installed adapter returns a normalized semantic outcome such as `selected`, `accepted`, `canceled`, or `unsupported`.
-The broker records each active interaction on the hosted session so cancellation and disposal can abort it.
-
-`SessionUiPort` is a transitional compatibility port. Older workflow code still calls methods such as
-`appendSystemMessage()`, `promptSelect()`, and `startToolExecution()`. `createRuntimeSessionUi()` translates those calls
-into runtime events and interactions so non-TUI clients do not have to implement terminal widgets.
+Interactions travel in the opposite direction. Core asks for a semantic selection, text, approval, link, plan review, or
+code review. The installed consumer adapter returns a normalized outcome. The broker records active interactions on the
+hosted session so cancellation and disposal can abort them.
 
 ## Agent construction and policy
 
@@ -278,7 +485,7 @@ flowchart LR
     Prompt["Final system prompt assembly"]
     Loader["Pi DefaultResourceLoader\nRunWield extensions and resources"]
     Session["createAgentSession"]
-    Subscribers["Runtime event subscribers"]
+    Subscribers["Semantic event bridge"]
 
     Bundled --> Merge
     Home --> Merge
@@ -614,26 +821,27 @@ flowchart LR
     Http --> PlanAdapter
     PlanAdapter <--> PlanCore
     PlanAdapter --> WorktreeCore
-    WorkflowCore <--> ReviewLauncher
+    Runtime <--> WorkflowCore
+    TuiInteractions <--> ReviewLauncher
     ReviewLauncher <--> Http
 ```
 
 ### TUI adapter
 
-The TUI creates one `SessionRuntime` and one `SessionHost`. Its initial boot currently constructs the persisted
-`SessionManager` and hosted session explicitly, then uses `SessionRuntime` for prompt, switch, cancel, load/resume, and
-close operations. `runtime-adapter.js` renders semantic events into terminal blocks, while
-`runtime-interaction-adapter.js` implements selection, text, and approval prompts.
+The TUI creates one `SessionRuntime`, retains opaque Runtime session IDs, and never constructs or receives a
+`SessionHost`, `HostedSession`, Pi `SessionManager`, or Pi `AgentSession`. `runtime-adapter.js` renders semantic events
+into terminal blocks, while `runtime-interaction-adapter.js` implements selection, text, approval, and browser review
+interactions.
 
-Natural-language turns run through `SessionRuntime.promptSession()`. Slash commands use the shared command registry and
-a rich `CommandContext`; some call runtime operations, while others call Plan/configuration services directly. The TUI
-is therefore a runtime client, but the interactive command surface is not yet a pure runtime-command adapter.
+Natural-language turns and live-session slash commands call public `SessionRuntime` methods. Commands that operate on
+non-session application domains may call those public Plan or configuration services directly; they do not reach into
+live-session internals.
 
 ### ACP adapter
 
-The ACP server calls `createPromptReadySession()`, `loadSession()`, `promptSession()`, `cancelSession()`, and
-`closeSessionWhenIdle()` directly. `AcpSessionMap` keeps protocol ids separate from hosted and persisted ids. Runtime
-events become ACP `session/update` notifications, and ACP client elicitation implements the same core interaction port.
+The ACP server calls public `SessionRuntime` methods with Runtime IDs. `AcpSessionMap` maps protocol IDs to opaque
+Runtime IDs and never stores hosted or Pi objects. Runtime events become ACP `session/update` notifications, and ACP
+client elicitation implements the same semantic interaction contract.
 
 ACP currently supports the MVP session methods and rejects unsupported methods explicitly. It contains protocol
 validation and mapping only; it does not own agent, workflow, or persistence state.
@@ -644,38 +852,72 @@ The Workspace is not currently a `SessionRuntime` client. Its server-only Plan a
 and worktree inspection services directly, then projects domain records into board/detail HTTP shapes. Lifecycle writes
 still pass through `recordPlanEvent()`, and body saves use Plan body hashes.
 
-Plan and code review browser servers are launched through `review-launcher.js`. The launcher returns a URL, a decision
-promise, and a stop function. Workflow code owns what a decision means; the browser surface owns rendering and human
-input. These review surfaces are adapter boundaries, not session-runtime state owners.
+Plan and code review browser servers are launched by the consumer interaction implementation under `src/ui/review/`. The
+launcher returns a URL, a decision promise, and a stop function. Core workflow code owns the semantic request and what
+the normalized decision means; the browser surface owns rendering and human input.
 
 ## Current architectural seams
 
-These are factual characteristics of the current implementation to keep visible during robustness and test review:
+These remaining seams are operational characteristics, not exceptions to the session consumer boundary:
 
-1. **The runtime contract is broader than commands and events.** Shared workflow code still depends on the compatibility
-   `SessionUiPort`; `createRuntimeSessionUi()` translates it for adapter-neutral clients.
-2. **Runtime event production is distributed.** The outer runtime, Pi subscriber bridge, workflow modules, and
-   compatibility UI bridge can all emit events. The vocabulary is centralized, but event ordering and single-production
-   guarantees are cross-module properties.
-3. **Session construction has more than one path.** ACP uses prompt-ready/load factories; TUI boot creates the manager
-   and hosted session explicitly before binding the same runtime. Resume replaces the hosted session in place.
-4. **Identity is intentionally mapped, not unified.** Hosted, persisted, and ACP ids can differ. Event routing uses the
-   hosted id; persistence loading uses the Pi id; ACP lookup uses its mapping record.
-5. **Project-root propagation is strong but not universal.** Runtime entry points require absolute roots, and most
-   workflow services accept explicit roots. Some settings, package-resource, extension, Git-consent, and CLI helper APIs
+1. **Project-root propagation is strong but not universal.** Runtime entry points require absolute roots, and most
+   workflow services accept explicit roots. Some settings, package-resource, extension, Git-consent, and CLI helpers
    still default to process cwd.
-6. **Root replacement has a specialized lifetime rule.** Replacement unsubscribes the previous root but does not dispose
-   it; `/new` is the explicit disposal boundary. Tests must distinguish subscriber detachment, prompt cancellation,
-   object disposal, and session-manager disposal.
-7. **Active workflow state is split across memory and durable recovery evidence.** `HostedSession` owns the live
-   execution context; Plan front matter and the worktree registry own enough evidence for later recovery.
-8. **Persistence concurrency differs by store.** Settings and the worktree registry use locks, collaboration secrets use
+2. **Root replacement has a specialized lifetime rule.** Replacement unsubscribes the previous root but does not dispose
+   it; `/new` is the explicit disposal boundary. Tests distinguish subscriber detachment, prompt cancellation, object
+   disposal, and session-manager disposal.
+3. **Active workflow state is split across memory and durable recovery evidence.** `HostedSession` owns live execution
+   context; Plan front matter and the worktree registry retain enough evidence for later recovery.
+4. **Persistence concurrency differs by store.** Settings and the worktree registry use locks, collaboration secrets use
    atomic rename, Workspace Plan body edits use optimistic hashes, and general Plan lifecycle/front-matter writes are
    direct file rewrites.
-9. **Failure policy is deliberately mixed.** Event sinks, metrics, context markers, and cleanup are often fail-open;
-   preflight requirements, Plan transition guards, project-root checks, and worktree safety gates are fail-closed.
-10. **The command registry spans core and UI concerns.** It is shared by CLI help/completion and TUI slash commands, and
-    its `CommandContext` currently includes TUI types alongside runtime/session references.
+5. **Failure policy is deliberately mixed.** Runtime listener isolation, metrics, context markers, and selected cleanup
+   paths fail open; preflight requirements, Plan transition guards, project-root checks, and worktree safety gates fail
+   closed.
+6. **The command registry spans session and non-session domains.** Live-session actions use `SessionRuntime`; Plan,
+   settings, and catalog commands can call their own public application services. Neither path exposes live-session
+   internals.
+
+## Folder organization and enforcement
+
+Moving the TUI to `src/ui/` was directionally correct but could not enforce dependency direction. A file in Core could
+still import a UI type or accept an abstract presentation object, and a file in `src/ui/` could still import internal
+session objects. Folder names express intent; the import graph and public API enforce architecture.
+
+The current layout is:
+
+| Folder                               | Role                                                        | Allowed dependency direction                                  |
+| ------------------------------------ | ----------------------------------------------------------- | ------------------------------------------------------------- |
+| `src/shared/session/`                | Runtime boundary plus private session engine implementation | May depend on other Core modules; never consumers             |
+| `src/shared/workflow/`, `src/tools/` | Consumer-neutral workflow and tool engine                   | May emit through internal session sink; never render          |
+| `src/ui/tui/`                        | TUI event/interaction consumer                              | Runtime public modules and UI code only; no session internals |
+| `src/acp/`                           | ACP event/interaction consumer                              | Runtime public modules and ACP protocol code only             |
+| `src/ui/review/`                     | Browser review interaction implementation                   | UI/review infrastructure; Core does not import it             |
+| `src/cmd/`                           | CLI/TUI command consumers                                   | Runtime public surface; no hosted/root/handler internals      |
+
+`src/shared/session/architecture-boundary.test.js` makes these rules executable in CI. It scans production files and
+fails on consumer vocabulary/imports in Core, internal session imports in consumers, host/object escape hatches,
+consumer event publication, and removed compatibility files returning.
+
+A future physical split into `src/core/` and `src/adapters/` could make the layout even more obvious, but it must be a
+real move with no compatibility re-exports. It is not the enforcement mechanism. The private Runtime surface and the CI
+dependency guard are what prevent this seam from silently returning.
+
+## Verification map
+
+| Invariant                                             | Principal coverage                                                                  |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| Core knows no consumers; consumers use only Runtime   | `src/shared/session/architecture-boundary.test.js`                                  |
+| Opaque IDs and private internals                      | `src/shared/session/session-runtime.test.js`                                        |
+| One ordered turn lifecycle and error settlement       | `src/shared/session/session-runtime.test.js`                                        |
+| One Pi text/thinking/tool translation                 | `src/shared/session/session-subscribers.test.js`                                    |
+| TUI and ACP consume the same transcript               | `src/ui/tui/runtime-adapter.test.js`, `src/acp/event-mapper.test.js`                |
+| Duplicate TUI adapter attachment fails until disposal | `src/ui/tui/runtime-adapter.test.js`                                                |
+| Local shell is Runtime-owned                          | `src/shared/session/session-runtime.test.js`, `src/ui/tui/bash-interceptor.test.js` |
+| Semantic interactions and cancellation                | `src/shared/session/session-runtime.test.js`, adapter interaction tests             |
+| Workflow tools emit messages/events without UI ports  | tool tests under `src/tools/__tests__/`                                             |
+| CI, system status, errors, reviews, repair, merge     | `src/shared/workflow/validation.test.js`                                            |
+| Routing, planning, slicing, execution                 | `src/shared/workflow/orchestrator.test.js`, `src/shared/workflow/workflow.test.js`  |
 
 ## Current automated-test map
 
@@ -683,18 +925,18 @@ This is a location map, not a claim of sufficient coverage. Test counts alone do
 question is whether invariants hold across module boundaries, cancellation/error paths, persistence, and real process or
 Git behavior.
 
-| Core area                  | Principal test suites                                                                                                                 | Existing emphasis                                                                              |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| Hosted state and registry  | `hosted-session.test.js`, `session-host.test.js`                                                                                      | Ownership, isolation, disposal, active turn and interaction state                              |
-| Runtime lifecycle          | `session-runtime.test.js`, `root-session.test.js`, `active-agent-session.test.js`, `workflow-context-session.test.js`                 | Create/load/replay, prompt serialization, handoffs, close/cancel, persisted markers            |
-| Agent/Pi bridge            | `session-prompt.test.js`, `session-subscribers.test.js`, `agent-switching.test.js`, `session-catalog.test.js`                         | Root reuse/rebuild, event translation, prompt assembly, project-root catalog isolation         |
-| Agent workflow handler     | `agent-handler.test.js`, `orchestrator.test.js`, `decisions.test.js`, `workflow-results` coverage inside workflow tests               | Current-turn outcome extraction, routing, dispatch, completion gates, semantic decisions       |
-| Plan persistence and state | `plan-store.test.js`, `plan-lifecycle.test.js`, `submit-plan.test.js`, `plan-written.test.js`                                         | Front matter, hierarchy, identity, locks, transition matrix, readiness and submission outcomes |
-| Execution and validation   | `workflow.test.js`, `validation.test.js`, `git-snapshot.test.js`                                                                      | Worktree setup, completion gate, CI/review/repair/merge paths, lifecycle evidence              |
-| Git worktrees              | `worktree.test.js`, `worktree-registry.test.js`, `git.test.js`                                                                        | Real/temp Git operations, branch targets, merge safety, recovery metadata, non-Git behavior    |
-| Configuration and policy   | `settings.test.js`, `model-registry.test.js`, `model-validation.test.js`, `runtime-preflight.test.js`, `session-tools-policy.test.js` | Layering, migration, locking, model discovery, protected-tool and binary policy                |
-| Collaboration primitives   | Tests under `src/shared/collaboration/`                                                                                               | Crypto, capabilities, protocol normalization, locks, secrets, client behavior                  |
-| Adapter conformance        | `src/acp/server.test.js`, `src/acp/protocol-smoke.test.js`, TUI runtime-adapter tests, Workspace tests                                | Protocol mapping, runtime consumption, interaction mapping, Plan projection                    |
+| Core area                    | Principal test suites                                                                                                                 | Existing emphasis                                                                               |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Hosted state and registry    | `hosted-session.test.js`, `session-host.test.js`                                                                                      | Ownership, isolation, disposal, active turn and interaction state                               |
+| Runtime lifecycle            | `session-runtime.test.js`, `root-session.test.js`, `active-agent-session.test.js`, `workflow-context-session.test.js`                 | Create/load/replay, prompt serialization, handoffs, close/cancel, persisted markers             |
+| Agent/Pi bridge              | `session-prompt.test.js`, `session-subscribers.test.js`, `agent-switching.test.js`, `session-catalog.test.js`                         | Root reuse/rebuild, event translation, prompt assembly, project-root catalog isolation          |
+| Agent workflow handler       | `agent-handler.test.js`, `orchestrator.test.js`, `decisions.test.js`, `workflow-results` coverage inside workflow tests               | Current-turn outcome extraction, routing, dispatch, completion gates, semantic decisions        |
+| Plan persistence and state   | `plan-store.test.js`, `plan-lifecycle.test.js`, `src/ui/review/plan-review.test.js`, `plan-written.test.js`                           | Front matter, hierarchy, identity, locks, transition matrix, readiness and submission outcomes  |
+| Execution and validation     | `workflow.test.js`, `validation.test.js`, `git-snapshot.test.js`                                                                      | Worktree setup, completion gate, CI/review/repair/merge paths, lifecycle evidence               |
+| Git worktrees                | `worktree.test.js`, `worktree-registry.test.js`, `git.test.js`                                                                        | Real/temp Git operations, branch targets, merge safety, recovery metadata, non-Git behavior     |
+| Configuration and policy     | `settings.test.js`, `model-registry.test.js`, `model-validation.test.js`, `runtime-preflight.test.js`, `session-tools-policy.test.js` | Layering, migration, locking, model discovery, protected-tool and binary policy                 |
+| Collaboration primitives     | Tests under `src/shared/collaboration/`                                                                                               | Crypto, capabilities, protocol normalization, locks, secrets, client behavior                   |
+| Adapter/boundary conformance | `src/shared/session/architecture-boundary.test.js`, ACP tests, TUI runtime-adapter tests, Workspace tests                             | Dependency direction, protocol mapping, single event consumption, interactions, Plan projection |
 
 The highest-value cross-boundary paths for later confidence analysis are visible in the diagrams above:
 
@@ -714,7 +956,6 @@ The highest-value cross-boundary paths for later confidence analysis are visible
 | Session registry                          | `src/shared/session/session-host.js`                                          |
 | Runtime event contract                    | `src/shared/session/session-runtime-events.js`                                |
 | Interaction contract                      | `src/shared/session/session-runtime-interactions.js`                          |
-| Compatibility presentation port           | `src/shared/session/session-runtime-ui.js`, `src/shared/types.js`             |
 | Pi session construction and prompt bridge | `src/shared/session/session.js`                                               |
 | Agent definition layering                 | `src/shared/session/agents.js`                                                |
 | Agent switching                           | `src/shared/session/agent-switching.js`                                       |
@@ -731,4 +972,4 @@ The highest-value cross-boundary paths for later confidence analysis are visible
 | TUI adapter                               | `src/ui/tui/chat-session.js`, `src/ui/tui/runtime-adapter.js`                 |
 | ACP adapter                               | `src/acp/server.js`, `src/acp/session-map.js`, mapper modules in `src/acp/`   |
 | Workspace Plan adapter                    | `src/ui/workspace/server/plan-adapter.js`                                     |
-| Review surface seam                       | `src/shared/workflow/review-launcher.js`, `src/review-workspace-server.js`    |
+| Review consumer surface                   | `src/ui/review/review-launcher.js`, `src/review-workspace-server.js`          |

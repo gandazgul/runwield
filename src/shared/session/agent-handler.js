@@ -25,7 +25,7 @@ import { recordWorkflowMetric } from "../workflow/metrics.js";
 import { runMechanicalValidation, runValidationLoop, shouldRunWorkflowValidation } from "../workflow/validation.js";
 import { recordPlanEvent as recordPlanEventFn } from "../workflow/plan-lifecycle.js";
 import { switchActiveAgent as switchActiveAgentFn } from "./agent-switching.js";
-import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runtime-events.js";
+import { emitHostedSessionRuntimeEvent, emitSystemStatus, RuntimeEventTypes } from "./session-runtime-events.js";
 import { join } from "@std/path";
 import { AGENTS } from "../../constants.js";
 
@@ -40,7 +40,7 @@ function canCompleteActiveExecutionWorkflow(agentName) {
 /**
  * Create an onMessage handler for the active Agent.
  *
- * The returned function matches the `(userRequest, images, uiAPI) => Promise<void>`
+ * The returned function matches the `(userRequest, images, sessionManager) => Promise<void>`
  * signature used by `SessionRuntime prompt handling.
  *
  * After the Agent finishes, the handler checks the message stream for workflow
@@ -102,7 +102,7 @@ export function createAgentHandler(agentName, __deps) {
         allowReturnToRouter: __deps?.allowReturnToRouter,
     };
 
-    return async (userRequest, images, uiAPI, sessionManager) => {
+    return async (userRequest, images, sessionManager) => {
         if (!hostedSession) throw new Error("createAgentHandler: hostedSession is required");
         const projectRoot = hostedSession.cwd;
         /**
@@ -113,9 +113,16 @@ export function createAgentHandler(agentName, __deps) {
             return recordWorkflowMetricSource(metric, { cwd: projectRoot, ...deps });
         }
 
-        // If the live root is already this agent, reuse it. Otherwise fall back
-        // to a transient invocation for workflow sub-steps.
-        const useRoot = hostedSession.getRootAgentName() === agentName;
+        // Interactive handlers must match the live root. A mismatched handler
+        // would make the UI's active agent label and the callable tool set
+        // diverge, so fail before any model turn can run.
+        const rootAgentName = hostedSession.getRootAgentName();
+        if (rootAgentName && rootAgentName !== agentName) {
+            throw new Error(
+                `createAgentHandler: active handler "${agentName}" does not match root agent "${rootAgentName}"`,
+            );
+        }
+        const useRoot = rootAgentName === agentName;
 
         // Capture the pre-turn message count so we only consider plan_written outcomes
         // from the current turn. Stale outcomes from earlier turns (e.g. an already-executed
@@ -131,13 +138,12 @@ export function createAgentHandler(agentName, __deps) {
         };
 
         const messages = useRoot
-            ? await runRootTurn({ hostedSession, agentName, userRequest, images, uiAPI, ...sessionOptions })
+            ? await runRootTurn({ hostedSession, agentName, userRequest, images, ...sessionOptions })
             : await runAgentSession({
                 hostedSession,
                 agentName,
                 userRequest,
                 images,
-                uiAPI,
                 sessionManager,
                 useRootSession: false,
                 ...sessionOptions,
@@ -159,7 +165,6 @@ export function createAgentHandler(agentName, __deps) {
                 triage,
                 userRequest,
                 images,
-                uiAPI,
                 sessionManager,
                 __deps: {
                     createAgentHandler: (nextAgentName) =>
@@ -206,7 +211,6 @@ export function createAgentHandler(agentName, __deps) {
                 triageMeta,
                 reviewFeedback,
                 reviewImages,
-                uiAPI,
                 hostedSession,
                 sessionManager,
             });
@@ -221,7 +225,7 @@ export function createAgentHandler(agentName, __deps) {
                 },
             });
             if (!slicerResult.ok) {
-                await switchActiveAgent(hostedSession, { agentName }, uiAPI);
+                await switchActiveAgent(hostedSession, { agentName });
             }
             requestAgentStoppedAttention();
             return { kind: "complete" };
@@ -252,27 +256,26 @@ export function createAgentHandler(agentName, __deps) {
             /** @type {import('../workflow/workflow.js').PlanExecutionResult} */
             let executionResult;
             try {
-                executionResult = await executePlan(
+                executionResult = await executePlan({
                     planName,
                     triageMeta,
-                    uiAPI,
-                    tasks,
+                    structuredTasks: tasks,
                     sessionManager,
-                    {
-                        hostedSession,
+                    hostedSession,
+                    reviewFeedback,
+                    reviewImages,
+                    __deps: {
                         recordWorkflowMetric: recordWorkflowMetricImpl,
-                        reviewFeedback,
-                        reviewImages,
                     },
-                );
+                });
             } catch (error) {
                 const reason = error instanceof Error ? error.message : String(error);
-                uiAPI?.appendSystemMessage?.(
+                emitSystemStatus(
+                    hostedSession,
                     `Plan execution failed: ${reason}. The Engineer may need manual intervention.`,
-                    true,
-                    "RunWield",
+                    { level: "error", header: "RunWield" },
                 );
-                await switchActiveAgent(hostedSession, { agentName: AGENTS.ENGINEER }, uiAPI);
+                await switchActiveAgent(hostedSession, { agentName: AGENTS.ENGINEER });
                 requestAgentStoppedAttention();
                 return { kind: "complete" };
             }
@@ -310,7 +313,6 @@ export function createAgentHandler(agentName, __deps) {
                     planName,
                     planContent,
                     triageMeta,
-                    uiAPI,
                     sessionManager,
                     finalAgentName: agentName,
                     __deps: { recordWorkflowMetric: recordWorkflowMetricImpl },
@@ -325,7 +327,7 @@ export function createAgentHandler(agentName, __deps) {
                     planName,
                     details: { transition: "stay_with_agent", decisionKind: executionDecision.kind },
                 });
-                await switchActiveAgent(hostedSession, { agentName: nextAgentName }, uiAPI);
+                await switchActiveAgent(hostedSession, { agentName: nextAgentName });
                 requestAgentStoppedAttention();
             } else {
                 // halt or repair_plan — stay with Engineer for manual recovery
@@ -341,12 +343,12 @@ export function createAgentHandler(agentName, __deps) {
                         hasReason: Boolean(reason),
                     },
                 });
-                uiAPI?.appendSystemMessage?.(
+                emitSystemStatus(
+                    hostedSession,
                     `Execution stopped: ${reason}. Staying with Engineer for manual intervention.`,
-                    true,
-                    "RunWield",
+                    { level: "error", header: "RunWield" },
                 );
-                await switchActiveAgent(hostedSession, { agentName: AGENTS.ENGINEER }, uiAPI);
+                await switchActiveAgent(hostedSession, { agentName: AGENTS.ENGINEER });
                 requestAgentStoppedAttention();
             }
             return { kind: "complete" };
@@ -385,7 +387,6 @@ export function createAgentHandler(agentName, __deps) {
                 hostedSession.clearActiveExecutionWorkflow();
                 await runMechanicalValidationImpl({
                     hostedSession,
-                    uiAPI,
                     sessionManager,
                     cwd: workflow.executionCwd || projectRoot,
                 });
@@ -419,10 +420,10 @@ export function createAgentHandler(agentName, __deps) {
                             });
                         } catch (error) {
                             const reason = error instanceof Error ? error.message : String(error);
-                            uiAPI?.appendSystemMessage?.(
+                            emitSystemStatus(
+                                hostedSession,
                                 `Workflow halted: Could not record implementation_finished before validation: ${reason}`,
-                                true,
-                                "RunWield",
+                                { level: "error", header: "RunWield" },
                             );
                             requestAgentStoppedAttention();
                             return { kind: "complete" };
@@ -435,7 +436,6 @@ export function createAgentHandler(agentName, __deps) {
                     planName: workflow.planName,
                     planContent,
                     triageMeta: workflow.triageMeta,
-                    uiAPI,
                     sessionManager,
                     finalAgentName: agentName,
                     __deps: { recordWorkflowMetric: recordWorkflowMetricImpl },

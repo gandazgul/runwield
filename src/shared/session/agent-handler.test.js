@@ -1,4 +1,4 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertRejects } from "@std/assert";
 import { createAgentHandler as createAgentHandlerFn } from "./agent-handler.js";
 import { HostedSession } from "./hosted-session.js";
 
@@ -37,7 +37,6 @@ Deno.test("agent-handler dispatches triage_report from any agent", async () => {
     };
     /** @type {unknown} */
     let dispatchArgs = null;
-    const uiAPI = /** @type {any} */ ({});
     const sessionManager = /** @type {any} */ ({});
     const images = [{ base64: "abc", mimeType: "image/png" }];
     /** @type {any} */
@@ -57,14 +56,14 @@ Deno.test("agent-handler dispatches triage_report from any agent", async () => {
         },
     });
 
-    await handler("classify this", images, uiAPI, sessionManager);
+    await handler("classify this", images, sessionManager);
 
     assertEquals(runArgs.useRootSession, false);
     const scopedDispatchArgs = /** @type {any} */ (dispatchArgs);
     assertEquals(scopedDispatchArgs.triage, triage);
     assertEquals(scopedDispatchArgs.userRequest, "classify this");
     assertEquals(scopedDispatchArgs.images, images);
-    assertEquals(scopedDispatchArgs.uiAPI, uiAPI);
+    assertEquals("uiAPI" in scopedDispatchArgs, false);
     assertEquals(scopedDispatchArgs.sessionManager, sessionManager);
     assertEquals(scopedDispatchArgs.hostedSession instanceof HostedSession, true);
     assertEquals(typeof scopedDispatchArgs.__deps.createAgentHandler, "function");
@@ -93,12 +92,41 @@ Deno.test("agent-handler passes agent definition overrides and custom tools to r
         readLatestTaskCompletedOutcome: () => false,
     });
 
-    await handler("write the drafts", [], /** @type {any} */ ({}), /** @type {any} */ ({ id: "root-session" }));
+    await handler("write the drafts", [], /** @type {any} */ ({ id: "root-session" }));
 
     assertEquals(captured.agentName, "slicer");
     assertEquals(captured.allowReturnToRouter, false);
     assertEquals(captured._agentDefOverride, agentDef);
     assertEquals(captured.customTools, customTools);
+});
+
+Deno.test("agent-handler refuses to run when active handler drifts from root agent", async () => {
+    let ranRouter = false;
+    const hostedSession = makeHostedSession();
+    hostedSession.setRootAgentName("planner");
+    hostedSession.setRootAgentSession(
+        /** @type {any} */ ({
+            agent: { state: { messages: [] } },
+        }),
+    );
+    const handler = createAgentHandler("router", {
+        hostedSession,
+        runAgentSession: () => {
+            ranRouter = true;
+            return Promise.resolve([]);
+        },
+        runRootTurn: () => {
+            ranRouter = true;
+            return Promise.resolve([]);
+        },
+    });
+
+    await assertRejects(
+        () => handler("follow-up", [], /** @type {any} */ ({})),
+        Error,
+        'active handler "router" does not match root agent "planner"',
+    );
+    assertEquals(ranRouter, false);
 });
 
 Deno.test("agent-handler calls executePlan when outcome is approved_execute", async () => {
@@ -128,11 +156,12 @@ Deno.test("agent-handler calls executePlan when outcome is approved_execute", as
         runValidationLoop: () => Promise.resolve(),
     });
 
-    await handler("the request", [], /** @type {any} */ (undefined), /** @type {any} */ (undefined));
+    await handler("the request", [], /** @type {any} */ (undefined));
     assertEquals(executeCalls.length, 1);
-    assertEquals(executeCalls[0][0], "my-plan");
-    assertEquals(/** @type {any} */ (executeCalls[0][5]).reviewFeedback, "Keep the selected command.");
-    assertEquals(/** @type {any} */ (executeCalls[0][5]).reviewImages, [{
+    const executionOptions = /** @type {any} */ (executeCalls[0][0]);
+    assertEquals(executionOptions.planName, "my-plan");
+    assertEquals(executionOptions.reviewFeedback, "Keep the selected command.");
+    assertEquals(executionOptions.reviewImages, [{
         base64: "YXBwcm92ZWQ=",
         mimeType: "image/png",
     }]);
@@ -159,7 +188,7 @@ Deno.test("agent-handler validates after approved_execute only when execution co
         },
     });
 
-    await handler("req", [], /** @type {any} */ (undefined), /** @type {any} */ (undefined));
+    await handler("req", [], /** @type {any} */ (undefined));
     assertEquals(validationCount, 1);
     assertEquals(finalAgentName, "planner");
     assertEquals(
@@ -190,14 +219,13 @@ Deno.test("agent-handler skips validation when approved_execute did not complete
         },
     });
 
-    await handler("req", [], /** @type {any} */ (undefined), /** @type {any} */ (undefined));
+    await handler("req", [], /** @type {any} */ (undefined));
     assertEquals(validationCount, 0);
 });
 
 Deno.test("agent-handler keeps Engineer active when approved_execute execution is incomplete", async () => {
     /** @type {string[]} */
     const restoredAgents = [];
-    const uiAPI = /** @type {any} */ ({});
     const handler = createAgentHandler("architect", {
         runAgentSession: () => Promise.resolve(/** @type {any} */ ([])),
         readLatestPlanOutcome: () => /** @type {any} */ ({ outcome: "approved_execute", planName: "p" }),
@@ -208,15 +236,13 @@ Deno.test("agent-handler keeps Engineer active when approved_execute execution i
         switchActiveAgent: (
             /** @type {unknown} */ _hostedSession,
             /** @type {{ agentName: string }} */ options,
-            /** @type {any} */ actualUiAPI,
         ) => {
             restoredAgents.push(options.agentName);
-            assertEquals(actualUiAPI, uiAPI);
             return Promise.resolve({ ok: true, agentName: options.agentName, changed: true });
         },
     });
 
-    await handler("req", [], uiAPI, /** @type {any} */ (undefined));
+    await handler("req", [], /** @type {any} */ (undefined));
     assertEquals(restoredAgents, ["engineer"]);
 });
 
@@ -232,7 +258,7 @@ Deno.test("agent-handler does NOT call executePlan when outcome is saved", async
         runValidationLoop: () => Promise.resolve(),
     });
 
-    await handler("req", [], /** @type {any} */ (undefined), /** @type {any} */ (undefined));
+    await handler("req", [], /** @type {any} */ (undefined));
     assertEquals(executeCount, 0);
 });
 
@@ -255,7 +281,7 @@ Deno.test("agent-handler starts Slicer after Architect returns approved_decompos
         },
     });
 
-    await handler("req", [], /** @type {any} */ ({}), sessionManager);
+    await handler("req", [], sessionManager);
 
     assertEquals(slicerArgs.planName, "epic-a");
     assertEquals(slicerArgs.triageMeta, { classification: "PROJECT", type: "epic" });
@@ -276,7 +302,7 @@ Deno.test("agent-handler does NOT call executePlan when outcome is feedback", as
         runValidationLoop: () => Promise.resolve(),
     });
 
-    await handler("req", [], /** @type {any} */ (undefined), /** @type {any} */ (undefined));
+    await handler("req", [], /** @type {any} */ (undefined));
     assertEquals(executeCount, 0);
 });
 
@@ -292,7 +318,7 @@ Deno.test("agent-handler does NOT call executePlan when no plan_written outcome 
         runValidationLoop: () => Promise.resolve(),
     });
 
-    await handler("req", [], /** @type {any} */ (undefined), /** @type {any} */ (undefined));
+    await handler("req", [], /** @type {any} */ (undefined));
     assertEquals(executeCount, 0);
 });
 
@@ -309,7 +335,7 @@ Deno.test("agent-handler does NOT call executePlan when planName missing on appr
         runValidationLoop: () => Promise.resolve(),
     });
 
-    await handler("req", [], /** @type {any} */ (undefined), /** @type {any} */ (undefined));
+    await handler("req", [], /** @type {any} */ (undefined));
     assertEquals(executeCount, 0);
 });
 
@@ -334,13 +360,14 @@ Deno.test("agent-handler passes triageMeta and tasks through to executePlan", as
         runValidationLoop: () => Promise.resolve(),
     });
 
-    await handler("req", [], /** @type {any} */ (undefined), /** @type {any} */ (undefined));
-    assertEquals(executeCalls[0][0], "p");
-    assertEquals(executeCalls[0][1], triage);
-    assertEquals(executeCalls[0][3], tasks);
+    await handler("req", [], /** @type {any} */ (undefined));
+    const executionOptions = /** @type {any} */ (executeCalls[0][0]);
+    assertEquals(executionOptions.planName, "p");
+    assertEquals(executionOptions.triageMeta, triage);
+    assertEquals(executionOptions.structuredTasks, tasks);
 });
 
-Deno.test("agent-handler falls back to empty triageMeta when outcome lacks one", async () => {
+Deno.test("agent-handler uses empty triageMeta when outcome lacks one", async () => {
     /** @type {Array<unknown[]>} */
     const executeCalls = [];
     const handler = createAgentHandler("planner", {
@@ -353,9 +380,8 @@ Deno.test("agent-handler falls back to empty triageMeta when outcome lacks one",
         runValidationLoop: () => Promise.resolve(),
     });
 
-    await handler("req", [], /** @type {any} */ (undefined), /** @type {any} */ (undefined));
-    // Empty object — not undefined — preserves the executePlan signature.
-    assertEquals(executeCalls[0][1], {});
+    await handler("req", [], /** @type {any} */ (undefined));
+    assertEquals(/** @type {any} */ (executeCalls[0][0]).triageMeta, {});
 });
 
 Deno.test("agent-handler records delayed implementation finish before continuation validation", async () => {
@@ -396,7 +422,7 @@ Deno.test("agent-handler records delayed implementation finish before continuati
         },
     });
 
-    await handler("continue", [], /** @type {any} */ ({}), /** @type {any} */ (undefined));
+    await handler("continue", [], /** @type {any} */ (undefined));
 
     assertEquals(workflowDuringValidation, {
         planName: "p",
@@ -441,7 +467,7 @@ Deno.test("agent-handler resumes validation continuation without recording imple
         },
     });
 
-    await handler("continue", [], /** @type {any} */ ({}), /** @type {any} */ (undefined));
+    await handler("continue", [], /** @type {any} */ (undefined));
 
     assertEquals(recordCount, 0);
     assertEquals(workflowDuringValidation, {
@@ -495,7 +521,7 @@ Deno.test("agent-handler ignores stale task_completed outcomes from earlier root
     });
 
     try {
-        await handler("continue", [], /** @type {any} */ ({}), /** @type {any} */ (undefined));
+        await handler("continue", [], /** @type {any} */ (undefined));
 
         assertEquals(recordCount, 0);
         assertEquals(validationCount, 0);
@@ -541,7 +567,7 @@ Deno.test("agent-handler validates task_completed against hosted workflow", asyn
     });
 
     try {
-        await handler("continue", [], /** @type {any} */ ({}), /** @type {any} */ (undefined));
+        await handler("continue", [], /** @type {any} */ (undefined));
 
         assertEquals(validationWorkflow, {
             planName: "hosted-plan",
@@ -587,7 +613,7 @@ Deno.test("agent-handler resumes QUICK_FIX mechanical validation after repair ta
         },
     });
 
-    await handler("answer", [], /** @type {any} */ ({}), /** @type {any} */ (undefined));
+    await handler("answer", [], /** @type {any} */ (undefined));
 
     assertEquals(mechanicalValidationCount, 1);
     assertEquals(hostedSession.getActiveExecutionWorkflow(), null);
@@ -630,7 +656,7 @@ Deno.test("agent-handler ignores operator task_completed while an Engineer workf
         },
     });
 
-    await handler("commit", [], /** @type {any} */ ({}), /** @type {any} */ (undefined));
+    await handler("commit", [], /** @type {any} */ (undefined));
 
     assertEquals(mechanicalValidationCount, 0);
     assertEquals(planValidationCount, 0);
@@ -663,7 +689,6 @@ Deno.test("agent-handler requests attention when an ordinary turn returns contro
     await handler(
         "answer",
         [],
-        /** @type {any} */ ({}),
         /** @type {any} */ ({ getSessionName: () => "ordinary session" }),
     );
 
@@ -686,7 +711,7 @@ Deno.test("agent-handler does not request agent-stopped attention before triage 
         },
     });
 
-    await handler("route", [], /** @type {any} */ ({}), /** @type {any} */ ({}));
+    await handler("route", [], /** @type {any} */ ({}));
 
     assertEquals(attentionCount, 0);
 });
@@ -721,7 +746,7 @@ Deno.test("agent-handler requests attention after validation completes", async (
         },
     });
 
-    await handler("done", [], /** @type {any} */ ({}), /** @type {any} */ (undefined));
+    await handler("done", [], /** @type {any} */ (undefined));
 
     assertEquals(events, ["validation", "attention"]);
 });
@@ -745,7 +770,7 @@ Deno.test("agent-handler does not request agent-stopped attention after plan_wri
         },
     });
 
-    await handler("plan", [], /** @type {any} */ ({}), /** @type {any} */ (undefined));
+    await handler("plan", [], /** @type {any} */ (undefined));
 
     assertEquals(attentionCount, 0);
 });

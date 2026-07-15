@@ -32,7 +32,7 @@ function makeContext(overrides = {}) {
     let startupToggles = 0;
     let thinkingCycles = 0;
     let promptDismissals = 0;
-    let planReviewCancels = 0;
+    let runtimeCancels = 0;
     let resets = 0;
     let invalidations = 0;
     let dequeues = 0;
@@ -74,10 +74,8 @@ function makeContext(overrides = {}) {
         pastedImages: /** @type {any[]} */ ([]),
         previewImages,
         generationGuard: { invalidateAll: () => invalidations++ },
-        cancelActiveOperation: () => false,
-        abortActiveSession: () => false,
-        cancelActivePlanReview: () => {
-            planReviewCancels++;
+        cancelRuntimeSession: () => {
+            runtimeCancels++;
             return false;
         },
         dismissActivePrompt: () => {
@@ -124,8 +122,8 @@ function makeContext(overrides = {}) {
             get promptDismissals() {
                 return promptDismissals;
             },
-            get planReviewCancels() {
-                return planReviewCancels;
+            get runtimeCancels() {
+                return runtimeCancels;
             },
             get resets() {
                 return resets;
@@ -146,30 +144,12 @@ function makeContext(overrides = {}) {
 }
 
 Deno.test({
-    name: "installKeybindings handles Escape cancellation priority and renders once",
+    name: "installKeybindings translates Escape into Runtime cancellation without rendering directly",
     fn: async () => {
+        let runtimeCancelCalls = 0;
         const ctx = makeContext({
-            cancelActiveOperation: () => true,
-        });
-        installKeybindings(ctx);
-
-        await ctx.editor.handleInput(RAW_KEY.escape);
-
-        assertEquals(ctx.stats.invalidations, 1);
-        assertEquals(ctx.stats.promptDismissals, 1);
-        assertEquals(ctx.stats.resets, 1);
-        assertEquals(ctx.stats.systemMessages, ["Operation canceled."]);
-        assertEquals(ctx.stats.renderCount, 1);
-    },
-});
-
-Deno.test({
-    name: "installKeybindings reports Escape cancellation for active plan review waits",
-    fn: async () => {
-        let planReviewCancelCalls = 0;
-        const ctx = makeContext({
-            cancelActivePlanReview: () => {
-                planReviewCancelCalls++;
+            cancelRuntimeSession: () => {
+                runtimeCancelCalls++;
                 return true;
             },
         });
@@ -178,9 +158,9 @@ Deno.test({
         await ctx.editor.handleInput(RAW_KEY.escape);
 
         assertEquals(ctx.stats.invalidations, 1);
-        assertEquals(planReviewCancelCalls, 1);
+        assertEquals(runtimeCancelCalls, 1);
         assertEquals(ctx.stats.resets, 1);
-        assertEquals(ctx.stats.systemMessages, ["Plan review canceled."]);
+        assertEquals(ctx.stats.systemMessages, []);
         assertEquals(ctx.stats.renderCount, 1);
     },
 });

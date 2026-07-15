@@ -79,7 +79,7 @@ export const RuntimeEventTypes = Object.freeze({
  */
 
 /**
- * @typedef {RuntimeEventBase & { type: "system_status", message: string, level?: "info" | "warning" | "error", raw?: unknown }} RuntimeSystemStatusEvent
+ * @typedef {RuntimeEventBase & { type: "system_status", message: string, level?: "info" | "success" | "warning" | "error", raw?: unknown }} RuntimeSystemStatusEvent
  */
 
 /**
@@ -128,7 +128,7 @@ export const RuntimeEventTypes = Object.freeze({
  */
 
 /**
- * @typedef {RuntimeEventBase & { type: "cancellation", reason?: string, aborted?: boolean }} RuntimeCancellationEvent
+ * @typedef {RuntimeEventBase & { type: "cancellation", reason?: string, aborted?: boolean, message?: string, scope?: "agent" | "operation" | "session" }} RuntimeCancellationEvent
  */
 
 /**
@@ -188,6 +188,49 @@ export function emitHostedSessionRuntimeEvent(hostedSession, event) {
         // Adapter event sinks must not break core execution.
     }
     return false;
+}
+
+/**
+ * Publish a user-visible status without coupling the producer to an adapter.
+ * SessionRuntime owns the installed event sink and fans the event out to its
+ * registered listeners.
+ *
+ * @param {import('./hosted-session.js').HostedSession | undefined} hostedSession
+ * @param {string} message
+ * @param {{ level?: "info" | "success" | "warning" | "error", header?: string, raw?: unknown, meta?: Record<string, unknown> }} [options]
+ * @returns {boolean}
+ */
+export function emitSystemStatus(hostedSession, message, options = {}) {
+    return emitHostedSessionRuntimeEvent(hostedSession, {
+        type: RuntimeEventTypes.SYSTEM_STATUS,
+        message: String(message),
+        level: options.level || "info",
+        ...(options.raw === undefined ? {} : { raw: options.raw }),
+        _meta: {
+            ...(options.header ? { header: options.header } : {}),
+            ...(options.meta || {}),
+        },
+    });
+}
+
+/**
+ * Publish a complete synthetic assistant message as one semantic delta. This
+ * is used for workflow-owned messages such as completion and review results;
+ * adapters decide how to render or encode it.
+ *
+ * @param {import('./hosted-session.js').HostedSession | undefined} hostedSession
+ * @param {string} agentName
+ * @param {string} text
+ * @param {Record<string, unknown>} [meta]
+ * @returns {boolean}
+ */
+export function emitAssistantMessage(hostedSession, agentName, text, meta = {}) {
+    return emitHostedSessionRuntimeEvent(hostedSession, {
+        type: RuntimeEventTypes.ASSISTANT_TEXT_DELTA,
+        messageId: crypto.randomUUID(),
+        delta: String(text),
+        _meta: { agentName, ...meta },
+    });
 }
 
 /**
