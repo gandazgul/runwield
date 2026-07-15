@@ -587,6 +587,8 @@ Deno.test("agent-handler resumes QUICK_FIX mechanical validation after repair ta
         triageMeta: { classification: "QUICK_FIX" },
         executionCwd: "/quick-fix-repair",
         validationContinuation: true,
+        manualQaName: "settings-fix",
+        manualQaContext: "Fix and verify the settings save action.",
     });
 
     const handler = createAgentHandler("engineer", {
@@ -605,6 +607,8 @@ Deno.test("agent-handler resumes QUICK_FIX mechanical validation after repair ta
             mechanicalValidationCount++;
             assertEquals(args.cwd, "/quick-fix-repair");
             assertEquals(args.hostedSession, hostedSession);
+            assertEquals(args.manualQaName, "settings-fix");
+            assertEquals(args.manualQaContext, "Fix and verify the settings save action.");
             assertEquals(hostedSession.getActiveExecutionWorkflow(), null);
             return Promise.resolve({ passed: true, attempts: 0 });
         },

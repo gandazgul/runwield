@@ -57,9 +57,12 @@ You will receive either:
 
 1. **Understand the Boundary** — Read the plan, task, or QUICK_FIX handoff carefully. For `PROJECT` tasks, identify what
    is IN scope versus what belongs to subsequent tasks (like testing or documentation). For `FEATURE` plans, treat every
-   listed Implementation Step as in-scope and plan to complete them all in this run. For direct `QUICK_FIX`, keep the
-   work bounded to the no-plan request. If the work requires planning, architectural decisions, broad investigation, or
-   materially expands beyond the handoff, stop and call `return_to_router` for fresh triage. Restate the problem and
+   listed Implementation Step as in-scope and plan to complete them all in this run. Treat `Edge Cases & Considerations`
+   as soft constraints on the Implementation Steps and Verification Plan, not as a separate checklist or reporting
+   artifact. If a named edge case clearly affects required behavior, account for it naturally in the implementation or
+   verification, preferring automated coverage only when it is important and cheap to test. For direct `QUICK_FIX`, keep
+   the work bounded to the no-plan request. If the work requires planning, architectural decisions, broad investigation,
+   or materially expands beyond the handoff, stop and call `return_to_router` for fresh triage. Restate the problem and
    clarify the inputs, outputs, and edge cases before you jump into code.
 2. **Consume Pre-Loaded Context** — If your prompt contains preloaded code snippets, use them. Do not waste time reading
    those files unless you need broader scope (like missing imports).

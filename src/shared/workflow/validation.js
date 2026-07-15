@@ -46,6 +46,7 @@ import { buildLargeDiffReviewPrompt, createReviewDiffTool } from "./review-diff-
 export const __dirname = dirname(fromFileUrl(import.meta.url));
 const WORKFLOW_PROMPTS_DIR = "workflow-prompts";
 const REVIEWER_PROMPT_FILE = "reviewer-prompt.md";
+const MANUAL_QA_PROMPT_FILE = "manual-qa-prompt.md";
 const VALIDATION_STREAM_OUTPUT_LIMIT_BYTES = 1024 * 1024;
 
 /** @type {number} Maximum bytes of workflow diff to include inline in the reviewer prompt. */
@@ -168,6 +169,106 @@ export async function loadReviewerPrompt(
         tools: [],
         systemPrompt: body.trim(),
     };
+}
+
+/**
+ * Load the post-verification Manual QA generator as a bare, tool-free prompt.
+ *
+ * @param {(path: string) => Promise<string>} [readTextFile]
+ * @param {typeof ensureBundledAgentDefFile} [ensurePromptFile]
+ * @returns {Promise<import('../session/types.js').AgentDefinition>}
+ */
+export async function loadManualQaPrompt(
+    readTextFile = Deno.readTextFile,
+    ensurePromptFile = ensureBundledAgentDefFile,
+) {
+    const promptPath = await ensurePromptFile(join(WORKFLOW_PROMPTS_DIR, MANUAL_QA_PROMPT_FILE));
+    const raw = await readTextFile(promptPath);
+    const { attrs, body } = extractYaml(raw);
+    const displayName = typeof attrs.name === "string" && attrs.name.trim() ? attrs.name.trim() : "Manual QA";
+    const description = typeof attrs.description === "string" ? attrs.description.trim() : "";
+
+    return {
+        name: AGENTS.TESTER,
+        displayName,
+        model: "",
+        description,
+        tools: [],
+        systemPrompt: body.trim(),
+    };
+}
+
+/**
+ * Run a transient, tool-free prompt that presents manual checks to the user
+ * after automated verification succeeds.
+ *
+ * @param {Object} args
+ * @param {import('../session/hosted-session.js').HostedSession} args.hostedSession
+ * @param {string} args.name
+ * @param {"QUICK_FIX"|"FEATURE"} args.classification
+ * @param {string} args.context
+ * @param {string} args.cwd
+ * @param {{
+ *   loadManualQaPrompt?: typeof loadManualQaPrompt,
+ *   runAgentSession?: typeof runAgentSession,
+ * }} [args.__deps]
+ * @returns {Promise<import('@earendil-works/pi-agent-core').AgentMessage[]>}
+ */
+export async function runManualQaChecklistPrompt({
+    hostedSession,
+    name,
+    classification,
+    context,
+    cwd,
+    __deps,
+}) {
+    const loadPrompt = __deps?.loadManualQaPrompt || loadManualQaPrompt;
+    const runAgentSessionImpl = __deps?.runAgentSession || runAgentSession;
+    const agentDef = await loadPrompt();
+    const userRequest = [
+        "Prepare the post-verification checklist from this source material.",
+        `Name: ${name}`,
+        `Classification: ${classification}`,
+        "",
+        "### Source context",
+        context,
+    ].join("\n");
+
+    return await runAgentSessionImpl({
+        hostedSession,
+        agentName: AGENTS.TESTER,
+        userRequest,
+        cwd,
+        _agentDefOverride: agentDef,
+        includeEditFallback: false,
+        useRootSession: false,
+    });
+}
+
+/**
+ * Checklist generation is a post-verification handoff. A model failure should
+ * be visible, but must not retroactively fail successful validation.
+ *
+ * @param {Object} args
+ * @param {import('../session/hosted-session.js').HostedSession} args.hostedSession
+ * @param {string} args.name
+ * @param {"QUICK_FIX"|"FEATURE"} args.classification
+ * @param {string} args.context
+ * @param {string} args.cwd
+ * @param {typeof runManualQaChecklistPrompt} args.runPrompt
+ * @returns {Promise<void>}
+ */
+async function presentManualQaChecklist({ hostedSession, name, classification, context, cwd, runPrompt }) {
+    try {
+        await runPrompt({ hostedSession, name, classification, context, cwd });
+    } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        emitRunWieldSystemStatus(
+            hostedSession,
+            `Automated verification passed, but the manual QA checklist could not be generated: ${reason}`,
+            true,
+        );
+    }
 }
 
 /**
@@ -704,18 +805,27 @@ export function shouldRunWorkflowValidation(triageMeta) {
  * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined} args.sessionManager
  * @param {import('../session/hosted-session.js').HostedSession} [args.hostedSession]
  * @param {string} [args.cwd]
+ * @param {string} [args.manualQaName]
+ * @param {string} [args.manualQaContext]
  * @param {{
  *   runLocalCI?: typeof runLocalCI,
  *   runAgentSession?: typeof runAgentSession,
  *   runCompletionGatedRepair?: typeof runCompletionGatedRepair,
+ *   runManualQaChecklistPrompt?: typeof runManualQaChecklistPrompt,
  *   readLatestTaskCompletedOutcome?: typeof readLatestTaskCompletedOutcome,
  *   switchActiveAgent?: typeof switchActiveAgent,
- *   createAgentHandler?: (agentName: string) => import('../session/types.js').AgentMessageHandler,
  *   recordWorkflowMetric?: typeof recordWorkflowMetric,
  * }} [args.__deps] Test-only injection point.
  * @returns {Promise<{ passed: boolean, attempts: number, reason?: string }>}
  */
-export async function runMechanicalValidation({ sessionManager, hostedSession, cwd, __deps }) {
+export async function runMechanicalValidation({
+    sessionManager,
+    hostedSession,
+    cwd,
+    manualQaName = "quick-fix",
+    manualQaContext = "The QUICK_FIX implementation completed and passed automated verification.",
+    __deps,
+}) {
     if (!hostedSession) throw new Error("runMechanicalValidation: hostedSession is required");
     const projectRoot = hostedSession?.cwd || cwd;
     if (!projectRoot) throw new Error("runMechanicalValidation: hostedSession or cwd is required");
@@ -731,6 +841,7 @@ export async function runMechanicalValidation({ sessionManager, hostedSession, c
                 hostedSession,
             }));
     const switchActiveAgentImpl = __deps?.switchActiveAgent || switchActiveAgent;
+    const runManualQaChecklistPromptImpl = __deps?.runManualQaChecklistPrompt || runManualQaChecklistPrompt;
     const recordWorkflowMetricSource = __deps?.recordWorkflowMetric || recordWorkflowMetric;
     /**
      * @param {Parameters<typeof recordWorkflowMetricSource>[0]} metric
@@ -796,6 +907,14 @@ export async function runMechanicalValidation({ sessionManager, hostedSession, c
                 event: "mechanical_validation_finished",
                 planName: "quick-fix",
                 details: { passed: true, attempts: repairAttempts },
+            });
+            await presentManualQaChecklist({
+                hostedSession,
+                name: manualQaName,
+                classification: "QUICK_FIX",
+                context: manualQaContext,
+                cwd: validationCwd,
+                runPrompt: runManualQaChecklistPromptImpl,
             });
             await activateAgent(AGENTS.ENGINEER);
             return { passed: true, attempts: repairAttempts };
@@ -870,6 +989,8 @@ export async function runMechanicalValidation({ sessionManager, hostedSession, c
                 triageMeta: { classification: "QUICK_FIX" },
                 executionCwd: validationCwd,
                 validationContinuation: true,
+                manualQaName,
+                manualQaContext,
             });
             await activateAgent(AGENTS.ENGINEER);
             return { passed: false, attempts: repairAttempts, reason };
@@ -891,6 +1012,7 @@ export async function runMechanicalValidation({ sessionManager, hostedSession, c
  *   runLocalCI?: typeof runLocalCI,
  *   runAgentSession?: typeof runAgentSession,
  *   runCompletionGatedRepair?: typeof runCompletionGatedRepair,
+ *   runManualQaChecklistPrompt?: typeof runManualQaChecklistPrompt,
  *   readLatestTaskCompletedOutcome?: typeof readLatestTaskCompletedOutcome,
  *   getDiffText?: typeof getGitDiffText,
  *   recordPlanEvent?: typeof recordPlanEvent,
@@ -902,7 +1024,6 @@ export async function runMechanicalValidation({ sessionManager, hostedSession, c
  *   removeWorktreeRegistryEntry?: typeof removeWorktreeRegistryEntry,
  *   updateWorktreeRegistryEntry?: typeof updateWorktreeRegistryEntry,
  *   switchActiveAgent?: typeof switchActiveAgent,
- *   createAgentHandler?: (agentName: string) => import('../session/types.js').AgentMessageHandler,
  *   loadReviewerPrompt?: typeof loadReviewerPrompt,
  *   shouldCleanupMergedWorktrees?: typeof shouldCleanupMergedWorktrees,
  *   getCodeReviewMode?: typeof getCodeReviewMode,
@@ -970,6 +1091,7 @@ export async function runValidationLoop({
         hostedSession?.clearActiveExecutionWorkflow();
     }
     const switchActiveAgentImpl = __deps?.switchActiveAgent || switchActiveAgent;
+    const runManualQaChecklistPromptImpl = __deps?.runManualQaChecklistPrompt || runManualQaChecklistPrompt;
     /** @param {string} reason */
     const pauseForEngineerContinuation = async (reason) => {
         emitRunWieldSystemStatus(
@@ -2000,6 +2122,16 @@ export async function runValidationLoop({
                         triageMeta,
                         ...(humanReviewMetadata || {}),
                     },
+                });
+            }
+            if (triageMeta?.classification === "FEATURE") {
+                await presentManualQaChecklist({
+                    hostedSession,
+                    name: planName,
+                    classification: "FEATURE",
+                    context: planContent,
+                    cwd: projectRoot,
+                    runPrompt: runManualQaChecklistPromptImpl,
                 });
             }
         } else if (haltReason) {

@@ -217,6 +217,8 @@ Deno.test("dispatchPostTriage routes QUICK_FIX to Engineer and runs Mechanical V
     /** @type {string[]} */
     const rootTurns = [];
     let mechanicalValidationCount = 0;
+    /** @type {any} */
+    let mechanicalValidationArgs;
     /** @type {any[]} */
     const metrics = [];
 
@@ -241,12 +243,13 @@ Deno.test("dispatchPostTriage routes QUICK_FIX to Engineer and runs Mechanical V
                     /** @type {any} */ ([{
                         role: "toolResult",
                         toolName: "task_completed",
-                        details: { outcome: "task_completed" },
+                        details: { outcome: "task_completed", message: "Updated the settings save action." },
                     }]),
                 );
             },
-            runMechanicalValidation: () => {
+            runMechanicalValidation: (/** @type {any} */ args) => {
                 mechanicalValidationCount++;
+                mechanicalValidationArgs = args;
                 return Promise.resolve({ passed: true, attempts: 0 });
             },
             runValidationLoop: () => {
@@ -269,6 +272,15 @@ Deno.test("dispatchPostTriage routes QUICK_FIX to Engineer and runs Mechanical V
     assertEquals(activeAgents, ["engineer"]);
     assertEquals(rootTurns, ["engineer"]);
     assertEquals(mechanicalValidationCount, 1);
+    assertEquals(mechanicalValidationArgs.manualQaName, "quick-fix");
+    assertEquals(mechanicalValidationArgs.manualQaContext.includes("## User Request\nFix it"), true);
+    assertEquals(mechanicalValidationArgs.manualQaContext.includes("Routing Intent: QUICK_FIX"), true);
+    assertEquals(
+        mechanicalValidationArgs.manualQaContext.includes(
+            "## Implementation Summary\nUpdated the settings save action.",
+        ),
+        true,
+    );
     assertEquals(
         metrics.some((metric) =>
             metric.category === "execution" && metric.event === "quick_fix_completed_observed" &&
