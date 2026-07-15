@@ -15,6 +15,7 @@ import { PLAN_FRONT_MATTER_KEY_ORDER, PLAN_FRONT_MATTER_KEYS } from "./plan-fron
 import {
     assertSharedPlanWriteAllowed,
     COLLABORATION_FRONT_MATTER_KEYS,
+    COLLABORATION_LOCK_BYPASS,
     COLLABORATION_STATE_REMOTE_CANONICAL,
     normalizeCollaborationFrontMatter,
 } from "./shared/collaboration/lock.js";
@@ -339,6 +340,26 @@ const PLAN_STATUSES = new Set([
     "verified",
     "closed_without_verification",
     "on_hold",
+]);
+
+const PLAN_LIST_STATUS_ORDER = new Map([
+    ["failed", 0],
+    ["implemented", 1],
+    ["ready_for_work", 2],
+    ["ready_for_decomposition", 3],
+    ["draft", 4],
+    ["feedback", 5],
+    ["approved", 6],
+    ["in_progress", 7],
+    ["verified", 8],
+    ["closed_without_verification", 9],
+    ["on_hold", 10],
+]);
+
+const PLAN_LIST_CLASSIFICATION_ORDER = new Map([
+    ["PROJECT", 0],
+    ["FEATURE", 1],
+    ["QUICK_FIX", 2],
 ]);
 
 /**
@@ -1045,6 +1066,33 @@ export async function savePlan(cwd, planName, content, fmOverrides = {}, options
 }
 
 /**
+ * Create a local locked Plan from a decrypted remote collaboration payload.
+ *
+ * @param {string} cwd
+ * @param {{ preferredName?: string, title?: string, body: string, attrs: Partial<PlanFrontMatter> }} options
+ * @returns {Promise<{ planName: string, path: string, attrs: PlanFrontMatter, body: string, markdown: string }>}
+ */
+export async function createPulledCollaborationPlan(cwd, options) {
+    const planId = normalizePlanId(options.attrs.planId);
+    if (!planId) throw new Error("Pulled collaboration Plan requires a planId");
+    const generatedName = slugifyPlanTitle(options.title || "shared-plan") || "shared-plan";
+    const baseName = canonicalizeStoredPlanName(options.preferredName || generatedName).name;
+    const explicitName = Boolean(options.preferredName);
+    let planName = baseName;
+    let suffix = 2;
+    while (await loadPlan(cwd, planName)) {
+        if (explicitName) throw new Error(`Plan already exists: ${planName}`);
+        planName = `${baseName}-${suffix++}`;
+    }
+    const path = await savePlan(cwd, planName, options.body, options.attrs, {
+        collaborationLockBypass: COLLABORATION_LOCK_BYPASS.pull,
+    });
+    const loaded = await loadPlan(cwd, planName);
+    if (!loaded) throw new Error(`Failed to create pulled Plan: ${planName}`);
+    return { planName, path, attrs: loaded.attrs, body: loaded.body, markdown: loaded.markdown };
+}
+
+/**
  * Load a plan by name from the plans directory.
  *
  * @param {string} cwd
@@ -1207,9 +1255,26 @@ export async function updatePlanCollaborationMetadata(cwd, planName, updates, co
     if (!hasControlledBodyWrite) {
         delete collaborationUpdates.collaborationBodyHash;
     }
+    const planMetadataUpdates = pickKnownPlanFrontMatter(updates);
+    for (
+        const key of [
+            "collaborationState",
+            "collaborationServerUrl",
+            "collaborationSpaceId",
+            "collaborationRevision",
+            "collaborationBodyHash",
+            "collaborationSyncedAt",
+        ]
+    ) {
+        delete /** @type {Record<string, unknown>} */ (planMetadataUpdates)[key];
+    }
+    const definedCollaborationUpdates = Object.fromEntries(
+        Object.entries(collaborationUpdates).filter(([, value]) => value !== undefined),
+    );
     const attrs = {
         ...pickKnownPlanFrontMatter(plan.attrs),
-        ...collaborationUpdates,
+        ...planMetadataUpdates,
+        ...definedCollaborationUpdates,
         collaborationSyncedAt: collaborationUpdates.collaborationSyncedAt ?? new Date().toISOString(),
         updatedAt: updates.updatedAt ?? new Date().toISOString(),
     };
@@ -1269,7 +1334,28 @@ async function collectPlans(dir, prefix, results, parseIssues) {
 }
 
 /**
- * List all saved plans in the project's plans directory.
+ * Compare plans in the canonical order exposed to plan-list consumers.
+ *
+ * @template {{ name: string, attrs: PlanFrontMatter }} T
+ * @param {T} a
+ * @param {T} b
+ * @returns {number}
+ */
+export function comparePlansForList(a, b) {
+    const statusDelta = (PLAN_LIST_STATUS_ORDER.get(a.attrs.status) ?? PLAN_LIST_STATUS_ORDER.size) -
+        (PLAN_LIST_STATUS_ORDER.get(b.attrs.status) ?? PLAN_LIST_STATUS_ORDER.size);
+    if (statusDelta !== 0) return statusDelta;
+
+    const classificationDelta =
+        (PLAN_LIST_CLASSIFICATION_ORDER.get(a.attrs.classification) ?? PLAN_LIST_CLASSIFICATION_ORDER.size) -
+        (PLAN_LIST_CLASSIFICATION_ORDER.get(b.attrs.classification) ?? PLAN_LIST_CLASSIFICATION_ORDER.size);
+    if (classificationDelta !== 0) return classificationDelta;
+
+    return a.name.localeCompare(b.name);
+}
+
+/**
+ * List all saved plans in the project's plans directory in canonical UI order.
  *
  * @param {string} cwd
  * @returns {Promise<Array<{ name: string, path: string, attrs: PlanFrontMatter }>>}
@@ -1283,7 +1369,7 @@ export async function listPlans(cwd) {
     } catch {
         // plans dir doesn't exist yet
     }
-    return results.sort((a, b) => a.name.localeCompare(b.name));
+    return results.sort(comparePlansForList);
 }
 
 const ARCHIVED_DIR_NAME = "archived";
@@ -1827,7 +1913,7 @@ export async function listPlanResources(cwd, options = {}) {
         resources.push(resource);
     }
 
-    return resources.sort((a, b) => a.planName.localeCompare(b.planName));
+    return resources;
 }
 
 /**
