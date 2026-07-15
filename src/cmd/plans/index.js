@@ -7,6 +7,7 @@ import { parseArgs as parseArgsFn } from "@std/cli/parse-args";
 import { CWD } from "../../constants.js";
 import { countChildPlanProgress, groupPlanHierarchy, listPlans as listPlansFn } from "../../plan-store.js";
 import { runPlansArchiveCommand as runPlansArchiveCommandFn } from "./archive.js";
+import { runPlansPullCommand as runPlansPullCommandFn } from "./pull.js";
 import { runPlansReadCommand as runPlansReadCommandFn } from "./read.js";
 import { runPlansShareCommand as runPlansShareCommandFn } from "./share.js";
 import { runPlansUiCommand as runPlansUiCommandFn } from "./ui.js";
@@ -24,6 +25,7 @@ import { runPlansUiCommand as runPlansUiCommandFn } from "./ui.js";
  * @property {typeof runPlansArchiveCommandFn} [runPlansArchiveCommand]
  * @property {typeof runPlansReadCommandFn} [runPlansReadCommand]
  * @property {typeof runPlansShareCommandFn} [runPlansShareCommand]
+ * @property {typeof runPlansPullCommandFn} [runPlansPullCommand]
  */
 
 /**
@@ -103,6 +105,7 @@ export async function runPlansCommand(argv, options = {}) {
         runPlansArchiveCommand: runPlansArchiveCommandDep,
         runPlansReadCommand: runPlansReadCommandDep,
         runPlansShareCommand: runPlansShareCommandDep,
+        runPlansPullCommand: runPlansPullCommandDep,
     } = deps;
 
     if (argv[0] === "ui") {
@@ -125,6 +128,11 @@ export async function runPlansCommand(argv, options = {}) {
         await runPlansShareCommand(argv.slice(1), /** @type {any} */ (options));
         return;
     }
+    if (argv[0] === "pull") {
+        const runPlansPullCommand = runPlansPullCommandDep || runPlansPullCommandFn;
+        await runPlansPullCommand(argv.slice(1), /** @type {any} */ (options));
+        return;
+    }
 
     /** @type {typeof parseArgsFn} */
     const parseArgs = parseArgsDep || parseArgsFn;
@@ -137,7 +145,7 @@ export async function runPlansCommand(argv, options = {}) {
     });
 
     if (parsed.help) {
-        const printCommandHelp = printCommandHelpDep || (await import("../help/index.js")).printCommandHelp;
+        const printCommandHelp = printCommandHelpDep || (await import("../help/" + "index.js")).printCommandHelp;
         printCommandHelp("plans");
         return;
     }

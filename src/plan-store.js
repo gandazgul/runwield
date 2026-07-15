@@ -15,6 +15,7 @@ import { PLAN_FRONT_MATTER_KEY_ORDER, PLAN_FRONT_MATTER_KEYS } from "./plan-fron
 import {
     assertSharedPlanWriteAllowed,
     COLLABORATION_FRONT_MATTER_KEYS,
+    COLLABORATION_LOCK_BYPASS,
     COLLABORATION_STATE_REMOTE_CANONICAL,
     normalizeCollaborationFrontMatter,
 } from "./shared/collaboration/lock.js";
@@ -1045,6 +1046,33 @@ export async function savePlan(cwd, planName, content, fmOverrides = {}, options
 }
 
 /**
+ * Create a local locked Plan from a decrypted remote collaboration payload.
+ *
+ * @param {string} cwd
+ * @param {{ preferredName?: string, title?: string, body: string, attrs: Partial<PlanFrontMatter> }} options
+ * @returns {Promise<{ planName: string, path: string, attrs: PlanFrontMatter, body: string, markdown: string }>}
+ */
+export async function createPulledCollaborationPlan(cwd, options) {
+    const planId = normalizePlanId(options.attrs.planId);
+    if (!planId) throw new Error("Pulled collaboration Plan requires a planId");
+    const generatedName = slugifyPlanTitle(options.title || "shared-plan") || "shared-plan";
+    const baseName = canonicalizeStoredPlanName(options.preferredName || generatedName).name;
+    const explicitName = Boolean(options.preferredName);
+    let planName = baseName;
+    let suffix = 2;
+    while (await loadPlan(cwd, planName)) {
+        if (explicitName) throw new Error(`Plan already exists: ${planName}`);
+        planName = `${baseName}-${suffix++}`;
+    }
+    const path = await savePlan(cwd, planName, options.body, options.attrs, {
+        collaborationLockBypass: COLLABORATION_LOCK_BYPASS.pull,
+    });
+    const loaded = await loadPlan(cwd, planName);
+    if (!loaded) throw new Error(`Failed to create pulled Plan: ${planName}`);
+    return { planName, path, attrs: loaded.attrs, body: loaded.body, markdown: loaded.markdown };
+}
+
+/**
  * Load a plan by name from the plans directory.
  *
  * @param {string} cwd
@@ -1207,9 +1235,26 @@ export async function updatePlanCollaborationMetadata(cwd, planName, updates, co
     if (!hasControlledBodyWrite) {
         delete collaborationUpdates.collaborationBodyHash;
     }
+    const planMetadataUpdates = pickKnownPlanFrontMatter(updates);
+    for (
+        const key of [
+            "collaborationState",
+            "collaborationServerUrl",
+            "collaborationSpaceId",
+            "collaborationRevision",
+            "collaborationBodyHash",
+            "collaborationSyncedAt",
+        ]
+    ) {
+        delete /** @type {Record<string, unknown>} */ (planMetadataUpdates)[key];
+    }
+    const definedCollaborationUpdates = Object.fromEntries(
+        Object.entries(collaborationUpdates).filter(([, value]) => value !== undefined),
+    );
     const attrs = {
         ...pickKnownPlanFrontMatter(plan.attrs),
-        ...collaborationUpdates,
+        ...planMetadataUpdates,
+        ...definedCollaborationUpdates,
         collaborationSyncedAt: collaborationUpdates.collaborationSyncedAt ?? new Date().toISOString(),
         updatedAt: updates.updatedAt ?? new Date().toISOString(),
     };

@@ -6,6 +6,7 @@ import {
     normalizeCapabilityRecord,
     normalizeCommentStateChangePayload,
     normalizeCreateSharedSpacePayload,
+    normalizeDecryptedReviewCommentPayload,
     normalizeEncryptedCommentRecord,
     normalizeEncryptedPlanPayload,
     normalizeLocalSecretRecord,
@@ -82,6 +83,50 @@ Deno.test("protocol helpers normalize capability, encrypted plan, encrypted comm
         contentKey: "key",
         updatedAt: "now",
     });
+});
+
+Deno.test("protocol helpers normalize decrypted browser review comment payloads", () => {
+    assertEquals(
+        normalizeDecryptedReviewCommentPayload({
+            schemaVersion: 1,
+            type: "comment",
+            displayName: "Alice",
+            body: "Please clarify.",
+            originalText: "selected text",
+            anchor: { blockId: "b1", startOffset: 0, endOffset: 4 },
+            createdAt: "now",
+        }),
+        {
+            schemaVersion: 1,
+            type: "comment",
+            displayName: "Alice",
+            body: "Please clarify.",
+            originalText: "selected text",
+            anchor: { blockId: "b1", startOffset: 0, endOffset: 4 },
+            createdAt: "now",
+        },
+    );
+    assertEquals(
+        normalizeDecryptedReviewCommentPayload({
+            schemaVersion: 1,
+            type: "global_comment",
+            displayName: "Bob",
+            body: "Global feedback.",
+            originalText: "",
+            anchor: null,
+        }),
+        {
+            schemaVersion: 1,
+            type: "global_comment",
+            displayName: "Bob",
+            body: "Global feedback.",
+            originalText: "",
+        },
+    );
+    assertThrows(() => normalizeDecryptedReviewCommentPayload({ schemaVersion: 2 }));
+    assertThrows(() =>
+        normalizeDecryptedReviewCommentPayload({ schemaVersion: 1, type: "note", displayName: "A", body: "B" })
+    );
 });
 
 Deno.test("protocol helpers normalize comment, lifecycle, and API error payloads", () => {

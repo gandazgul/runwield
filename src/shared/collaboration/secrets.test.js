@@ -1,15 +1,18 @@
 import { assert, assertEquals, assertRejects } from "@std/assert";
 import { join } from "@std/path";
 import {
+    assertCompatiblePullSecretRecord,
     deleteSecretRecord,
     ensureProjectSecretStoreIgnored,
     getGlobalSecretStorePath,
     getProjectSecretStorePath,
     getSecretRecord,
     PROJECT_SECRET_STORE_RELATIVE_PATH,
+    putCompatibleSecretRecord,
     putSecretRecord,
     readSecretStore,
     redactSecretStoreValue,
+    resolvePullSecretRecord,
     SECRET_STORE_SCHEMA_VERSION,
     writeSecretStore,
 } from "./secrets.js";
@@ -50,6 +53,77 @@ Deno.test("secret stores delete records idempotently", async () => {
         await deleteSecretRecord(path, "plan-1:space-1");
         await deleteSecretRecord(path, "plan-1:space-1");
         assertEquals(await getSecretRecord(path, "plan-1:space-1"), undefined);
+    } finally {
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
+Deno.test("pull secret resolution prefers planId-space records across stores", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "runwield-secrets-resolve-" });
+    try {
+        const globalPath = join(dir, "global.json");
+        const projectPath = join(dir, "project.json");
+        await putSecretRecord(globalPath, "plan-1", secretRecord());
+        await putSecretRecord(projectPath, "plan-1:space-1", secretRecord());
+        const resolved = await resolvePullSecretRecord([globalPath, projectPath], "plan-1", "space-1");
+        assertEquals(resolved?.path, projectPath);
+        assertEquals(resolved?.key, "plan-1:space-1");
+        assertEquals(resolved?.record.maintainerCapability, "maintainer-cap");
+    } finally {
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
+Deno.test("pull secret resolution refuses conflicts across stores and legacy records", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "runwield-secrets-resolve-conflict-" });
+    try {
+        const globalPath = join(dir, "global.json");
+        const projectPath = join(dir, "project.json");
+        await putSecretRecord(projectPath, "plan-1:space-1", secretRecord());
+        await putSecretRecord(globalPath, "plan-1", { ...secretRecord(), maintainerCapability: "different-cap" });
+
+        await assertRejects(
+            () => resolvePullSecretRecord([projectPath, globalPath], "plan-1", "space-1"),
+            Error,
+            "Conflicting collaboration secret record for maintainerCapability",
+        );
+    } finally {
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
+Deno.test("URL import compatibility checks all stores before writing target record", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "runwield-secrets-import-conflict-" });
+    try {
+        const globalPath = join(dir, "global.json");
+        const projectPath = join(dir, "project.json");
+        await putSecretRecord(globalPath, "plan-1", { ...secretRecord(), contentKey: "different-key" });
+
+        await assertRejects(
+            () => assertCompatiblePullSecretRecord([projectPath, globalPath], "plan-1", "space-1", secretRecord()),
+            Error,
+            "Conflicting collaboration secret record for contentKey",
+        );
+        assertEquals(await getSecretRecord(projectPath, "plan-1:space-1"), undefined);
+    } finally {
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
+Deno.test("putCompatibleSecretRecord refuses conflicting imported maintainer secrets", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "runwield-secrets-conflict-" });
+    try {
+        const path = join(dir, "store.json");
+        await putCompatibleSecretRecord(path, "plan-1:space-1", secretRecord());
+        await assertRejects(
+            () =>
+                putCompatibleSecretRecord(path, "plan-1:space-1", {
+                    ...secretRecord(),
+                    maintainerCapability: "different-cap",
+                }),
+            Error,
+            "Conflicting collaboration secret record",
+        );
     } finally {
         await Deno.remove(dir, { recursive: true });
     }

@@ -8,6 +8,15 @@ export const SECRET_STORE_SCHEMA_VERSION = 1;
 export const PROJECT_SECRET_STORE_RELATIVE_PATH = ".wld/collaboration-secrets.json";
 
 /**
+ * @param {string} planId
+ * @param {string} spaceId
+ * @returns {string}
+ */
+export function secretRecordKey(planId, spaceId) {
+    return `${planId}:${spaceId}`;
+}
+
+/**
  * @typedef {Object} SecretStoreDocument
  * @property {number} schemaVersion
  * @property {Record<string, import("./protocol.js").LocalSecretRecord>} records
@@ -87,6 +96,107 @@ export async function putSecretRecord(path, key, record) {
  */
 export async function getSecretRecord(path, key) {
     return (await readSecretStore(path)).records[key];
+}
+
+/**
+ * @typedef {Object} PullSecretMatch
+ * @property {string} path
+ * @property {string} key
+ * @property {import("./protocol.js").LocalSecretRecord} record
+ */
+
+/**
+ * @param {PullSecretMatch[]} matches
+ * @param {import("./protocol.js").LocalSecretRecord} [expected]
+ */
+function assertCompatiblePullSecretMatches(matches, expected) {
+    const normalizedExpected = expected ? normalizeLocalSecretRecord(expected) : undefined;
+    const records = normalizedExpected
+        ? [...matches.map((match) => ({ label: `${match.path}:${match.key}`, record: match.record })), {
+            label: "incoming maintainer URL",
+            record: normalizedExpected,
+        }]
+        : matches.map((match) => ({ label: `${match.path}:${match.key}`, record: match.record }));
+    for (const field of ["contentKey", "maintainerCapability"]) {
+        const baseline = records.find((entry) =>
+            /** @type {Record<string, string | undefined>} */ (entry.record)[field]
+        );
+        if (!baseline) continue;
+        const expectedValue = /** @type {Record<string, string | undefined>} */ (baseline.record)[field];
+        for (const entry of records) {
+            const actualValue = /** @type {Record<string, string | undefined>} */ (entry.record)[field];
+            if (expectedValue && actualValue && expectedValue !== actualValue) {
+                throw new Error(
+                    `Conflicting collaboration secret record for ${field}; refusing to choose between ${baseline.label} and ${entry.label}.`,
+                );
+            }
+        }
+    }
+}
+
+/**
+ * @param {string[]} paths
+ * @param {string} planId
+ * @param {string} spaceId
+ * @returns {Promise<PullSecretMatch[]>}
+ */
+async function collectPullSecretMatches(paths, planId, spaceId) {
+    const keys = [secretRecordKey(planId, spaceId), planId];
+    const documents = [];
+    for (const path of paths) {
+        documents.push({ path, document: await readSecretStore(path) });
+    }
+    const matches = /** @type {PullSecretMatch[]} */ ([]);
+    for (const key of keys) {
+        for (const { path, document } of documents) {
+            const record = document.records[key];
+            if (record) matches.push({ path, key, record });
+        }
+    }
+    return matches;
+}
+
+/**
+ * @param {string[]} paths
+ * @param {string} planId
+ * @param {string} spaceId
+ * @param {import("./protocol.js").LocalSecretRecord} expected
+ */
+export async function assertCompatiblePullSecretRecord(paths, planId, spaceId, expected) {
+    const matches = await collectPullSecretMatches(paths, planId, spaceId);
+    assertCompatiblePullSecretMatches(matches, expected);
+}
+
+/**
+ * @param {string[]} paths
+ * @param {string} planId
+ * @param {string} spaceId
+ * @returns {Promise<PullSecretMatch | null>}
+ */
+export async function resolvePullSecretRecord(paths, planId, spaceId) {
+    const matches = await collectPullSecretMatches(paths, planId, spaceId);
+    assertCompatiblePullSecretMatches(matches);
+    return matches[0] || null;
+}
+
+/**
+ * @param {string} path
+ * @param {string} key
+ * @param {import("./protocol.js").LocalSecretRecord} record
+ */
+export async function putCompatibleSecretRecord(path, key, record) {
+    const existing = await getSecretRecord(path, key);
+    const normalized = normalizeLocalSecretRecord(record);
+    if (existing) {
+        for (const field of ["contentKey", "maintainerCapability", "reviewerCapability"]) {
+            const oldValue = /** @type {Record<string, string | undefined>} */ (existing)[field];
+            const newValue = /** @type {Record<string, string | undefined>} */ (normalized)[field];
+            if (oldValue && newValue && oldValue !== newValue) {
+                throw new Error(`Conflicting collaboration secret record for ${key}; refusing to replace ${field}.`);
+            }
+        }
+    }
+    await putSecretRecord(path, key, { ...existing, ...normalized });
 }
 
 /**

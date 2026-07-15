@@ -3,6 +3,7 @@ import {
     archivePlan,
     archivePlansByStatus,
     countChildPlanProgress,
+    createPulledCollaborationPlan,
     ensurePlanIdentity,
     ensurePlansDir,
     findPlanById,
@@ -1600,6 +1601,50 @@ testWithFs("saveChildFeaturePlans rejects overwriting locked child plans", async
     assertStringIncludes(loaded.body, "Original");
 });
 
+testWithFs(
+    "createPulledCollaborationPlan creates locked plan and auto-suffixes generated name collisions",
+    async () => {
+        const cwd = await Deno.makeTempDir();
+        await savePlan(cwd, "remote-title", "## Existing\n\nBody", { planId: "other-plan" });
+        const created = await createPulledCollaborationPlan(cwd, {
+            title: "Remote Title",
+            body: "## Remote\n\nBody",
+            attrs: {
+                planId: "plan-remote",
+                classification: "FEATURE",
+                complexity: "MEDIUM",
+                summary: "Remote Title",
+                status: "draft",
+                collaborationState: COLLABORATION_STATE_REMOTE_CANONICAL,
+                collaborationServerUrl: "https://plans.example",
+                collaborationSpaceId: "space-1",
+                collaborationRevision: 2,
+                collaborationBodyHash: await hashPlanBody("## Remote\n\nBody"),
+            },
+        });
+
+        assertEquals(created.planName, "remote-title-2");
+        assertEquals(created.attrs.planId, "plan-remote");
+        assertEquals(created.attrs.collaborationState, COLLABORATION_STATE_REMOTE_CANONICAL);
+        assertEquals(created.attrs.collaborationRevision, 2);
+    },
+);
+
+testWithFs("createPulledCollaborationPlan rejects explicit destination collisions", async () => {
+    const cwd = await Deno.makeTempDir();
+    await savePlan(cwd, "copy/review", "## Existing\n\nBody", { planId: "other-plan" });
+    await assertRejects(
+        () =>
+            createPulledCollaborationPlan(cwd, {
+                preferredName: "copy/review",
+                body: "## Remote\n\nBody",
+                attrs: { planId: "plan-remote" },
+            }),
+        Error,
+        "Plan already exists",
+    );
+});
+
 testWithFs("updatePlanCollaborationMetadata intentionally refreshes controlled body hash", async () => {
     const cwd = await Deno.makeTempDir();
     await savePlan(cwd, "locked", "## Plan\n\nOriginal", lockedPlanFrontMatter());
@@ -1615,6 +1660,35 @@ testWithFs("updatePlanCollaborationMetadata intentionally refreshes controlled b
     const loaded = await loadPlan(cwd, "locked");
     if (!loaded) throw new Error("Expected locked Plan to exist");
     assertStringIncludes(loaded.body, "Changed");
+});
+
+testWithFs("updatePlanCollaborationMetadata applies decrypted plan front matter", async () => {
+    const cwd = await Deno.makeTempDir();
+    await savePlan(
+        cwd,
+        "locked",
+        "## Plan\n\nOriginal",
+        lockedPlanFrontMatter({ classification: "FEATURE", summary: "Old summary", status: "draft" }),
+    );
+    const attrs = await updatePlanCollaborationMetadata(
+        cwd,
+        "locked",
+        {
+            classification: "PROJECT",
+            summary: "Remote summary",
+            status: "approved",
+            affectedPaths: ["src/remote.js"],
+            collaborationRevision: 8,
+        },
+        COLLABORATION_LOCK_BYPASS.pull,
+        { body: "## Plan\n\nRemote" },
+    );
+
+    assertEquals(attrs.classification, "PROJECT");
+    assertEquals(attrs.summary, "Remote summary");
+    assertEquals(attrs.status, "approved");
+    assertEquals(attrs.affectedPaths, ["src/remote.js"]);
+    assertEquals(attrs.collaborationRevision, 8);
 });
 
 testWithFs("updatePlanCollaborationMetadata preserves body hash without controlled body write", async () => {
