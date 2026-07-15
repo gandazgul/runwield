@@ -72,6 +72,38 @@ async function copyOpaqueAssets(sourceDir, destinationDir) {
 }
 
 /**
+ * Astro can return before all generated server chunks are immediately visible to
+ * a follow-up subprocess on every filesystem. Wait for entrypoint imports before
+ * invoking `deno bundle`, so release builds do not race the server output.
+ *
+ * @param {string} serverEntry
+ * @returns {Promise<void>}
+ */
+async function waitForServerEntryImports(serverEntry) {
+    const entryDir = dirname(serverEntry);
+    const source = await Deno.readTextFile(serverEntry);
+    const importPaths = Array.from(source.matchAll(/(?:from\s+|import\()['"](\.\.?\/[^'"]+)['"]/g), (match) => {
+        return join(entryDir, match[1]);
+    });
+    const deadline = Date.now() + 5000;
+    while (true) {
+        const missing = [];
+        for (const path of importPaths) {
+            const stat = await Deno.stat(path).catch((error) => {
+                if (error instanceof Deno.errors.NotFound) return null;
+                throw error;
+            });
+            if (!stat?.isFile) missing.push(path);
+        }
+        if (missing.length === 0) return;
+        if (Date.now() >= deadline) {
+            throw new Error(`Workspace server imports are missing: ${missing.join(", ")}`);
+        }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+}
+
+/**
  * @param {WorkspaceRuntimeBuildOptions} [options]
  * @returns {Promise<void>}
  */
@@ -87,6 +119,7 @@ export async function buildWorkspaceRuntime(options = {}) {
     });
     await Deno.mkdir(dirname(serverOutput), { recursive: true });
 
+    await waitForServerEntryImports(serverEntry);
     await run("deno", [
         "bundle",
         "--platform",
