@@ -10,7 +10,13 @@ import { formatGitRequiredMessage, isGitRepositoryRequiredError } from "../git.j
 import { getAgentDisplayName } from "../session/agents.js";
 import { ensureBundledAgentDefFile } from "../session/agent-assets.js";
 import { runAgentSession } from "../session/session.js";
-import { getCodeReviewMode, getCustomSetting, setCustomSetting, shouldCleanupMergedWorktrees } from "../settings.js";
+import {
+    getCodeReviewMode,
+    getCustomSetting,
+    getGuidedReviewMode,
+    setCustomSetting,
+    shouldCleanupMergedWorktrees,
+} from "../settings.js";
 import { readLatestReviewOutcome, readLatestTaskCompletedOutcome } from "./workflow.js";
 import { switchActiveAgent } from "../session/agent-switching.js";
 import {
@@ -34,6 +40,7 @@ import {
     removeEntry as removeWorktreeRegistryEntry,
     updateEntry as updateWorktreeRegistryEntry,
 } from "../worktree-registry.js";
+import { buildGuidedReviewPolicy, recommendGuidedReview } from "./guided-review.js";
 import { buildLargeDiffReviewPrompt, createReviewDiffTool } from "./review-diff-tool.js";
 
 export const __dirname = dirname(fromFileUrl(import.meta.url));
@@ -900,6 +907,7 @@ export async function runMechanicalValidation({ sessionManager, hostedSession, c
  *   shouldCleanupMergedWorktrees?: typeof shouldCleanupMergedWorktrees,
  *   getCodeReviewMode?: typeof getCodeReviewMode,
  *   requestInteraction?: typeof requestHostedSessionInteraction,
+ *   getGuidedReviewMode?: typeof getGuidedReviewMode,
  *   verifyExecutionWorktreeMerged?: typeof verifyExecutionWorktreeMerged,
  *   recordWorkflowMetric?: typeof recordWorkflowMetric,
  * }} [args.__deps] Test-only injection point.
@@ -939,6 +947,7 @@ export async function runValidationLoop({
     const shouldCleanupMergedWorktreesImpl = __deps?.shouldCleanupMergedWorktrees || shouldCleanupMergedWorktrees;
     const getCodeReviewModeImpl = __deps?.getCodeReviewMode || getCodeReviewMode;
     const requestInteraction = __deps?.requestInteraction || requestHostedSessionInteraction;
+    const getGuidedReviewModeImpl = __deps?.getGuidedReviewMode || getGuidedReviewMode;
     const verifyExecutionWorktreeMergedImpl = __deps?.verifyExecutionWorktreeMerged || verifyExecutionWorktreeMerged;
     const recordWorkflowMetricSource = __deps?.recordWorkflowMetric || recordWorkflowMetric;
     const activeWorkflow = hostedSession?.getActiveExecutionWorkflow?.() || null;
@@ -1109,6 +1118,7 @@ export async function runValidationLoop({
         let diffText = "";
         let reviewResponse = "";
         let reviewOutcome = null;
+        let semanticUsedLargeDiffPath = false;
         // Track reviewer execution failures (errors, blank output) for retry flow
         /** @type {boolean} */
         let reviewerFailed = false;
@@ -1122,6 +1132,7 @@ export async function runValidationLoop({
             ) {
                 const diffBytes = new TextEncoder().encode(diffText).byteLength;
                 const isLargeDiff = diffBytes > REVIEW_INLINE_DIFF_MAX_BYTES;
+                semanticUsedLargeDiffPath = isLargeDiff;
 
                 let reviewPrompt;
                 let reviewerAgentDef = await loadReviewerPromptImpl();
@@ -1394,11 +1405,76 @@ export async function runValidationLoop({
                 }
 
                 if (shouldOpenReview) {
-                    emitRunWieldSystemStatus(hostedSession, "Opening code review...");
+                    /** @type {Record<string, unknown>} */
+                    let planAttrs = {};
+                    try {
+                        planAttrs = extractYaml(planContent).attrs || {};
+                    } catch {
+                        planAttrs = {};
+                    }
+                    const guidedReviewMode = getGuidedReviewModeImpl(projectRoot);
+                    const guidedRecommendation = recommendGuidedReview({
+                        planAttrs,
+                        planContent,
+                        diffText,
+                        usedLargeDiffPath: semanticUsedLargeDiffPath,
+                    });
+                    let guidedAskAccepted = false;
+                    if (guidedReviewMode === "ask" && guidedRecommendation.recommended) {
+                        const guidedReviewResponse = await requestInteraction(hostedSession, {
+                            type: RuntimeInteractionTypes.SELECT,
+                            prompt:
+                                `Generate a Guided Review Explainer before code review? This uses an additional LLM call. Reasons: ${
+                                    guidedRecommendation.reasons.join(", ") || "policy recommendation"
+                                }.`,
+                            options: [
+                                { value: "generate", label: "Generate guided review" },
+                                { value: "skip", label: "Open plain diff only" },
+                            ],
+                        });
+                        guidedAskAccepted = guidedReviewResponse.outcome === "selected" &&
+                            guidedReviewResponse.value === "generate";
+                    }
+                    const guidedReview = buildGuidedReviewPolicy(
+                        guidedReviewMode,
+                        guidedRecommendation,
+                        guidedAskAccepted,
+                    );
+                    if (guidedReview.autoStart) {
+                        emitRunWieldSystemStatus(
+                            hostedSession,
+                            `Opening code review with Guided Review generation queued (extra LLM call). Reasons: ${
+                                guidedReview.reasons.join(", ") || guidedReview.mode
+                            }...`,
+                        );
+                    } else {
+                        const reasonText = guidedReview.reasons.join(", ") || guidedReview.mode;
+                        const guideState = guidedReview.mode === "none"
+                            ? "automatic generation is disabled"
+                            : guidedRecommendation.recommended
+                            ? "Guided Review was recommended but not queued automatically"
+                            : "automatic generation is not recommended";
+                        emitRunWieldSystemStatus(
+                            hostedSession,
+                            `Opening code review. ${guideState}. Manual Guided Review generation remains available and uses an additional LLM call. Reasons: ${reasonText}.`,
+                        );
+                    }
+                    await recordWorkflowMetricImpl({
+                        category: "validation",
+                        event: "guided_review_policy",
+                        planName,
+                        details: {
+                            mode: guidedReview.mode,
+                            autoStart: guidedReview.autoStart,
+                            score: guidedReview.score,
+                            reasons: guidedReview.reasons,
+                            stats: guidedReview.stats,
+                        },
+                    });
                     const humanReviewResponse = await requestInteraction(hostedSession, {
                         type: RuntimeInteractionTypes.CODE_REVIEW,
                         prompt: `Review implementation diff for "${planName}"`,
-                        _meta: { planName, diffText, executionCwd },
+                        _meta: { planName, planContent, planAttrs, diffText, executionCwd, guidedReview },
                     });
                     const humanReview = /** @type {any} */ (humanReviewResponse._meta || {
                         approved: false,

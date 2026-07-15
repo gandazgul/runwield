@@ -309,14 +309,119 @@ index 0000000..ddddddd
 +};
 `;
 
-export function ReviewDevSurface({ surface }) {
-    const isPlan = surface === "plan";
-    const payload = isPlan ? { plan: PLAN_FIXTURE, token: "dev-plan-review", mode: "dev" } : {
+const GUIDED_REVIEW_FIXTURE = {
+    schemaVersion: "1.0",
+    title: "Review feedback flow explainer",
+    intent:
+        "A single-column Guided Review Explainer that mixes prose, Mermaid, an exceptional widget, and live annotatable diffs.",
+    sections: [
+        {
+            title: "Core implementation",
+            role: "core",
+            blocks: [
+                {
+                    type: "prose",
+                    markdown:
+                        "The feedback path now preserves richer annotation context instead of flattening comments into unstructured text.",
+                },
+                {
+                    type: "callout",
+                    tone: "review",
+                    title: "Review focus",
+                    markdown: "Check that image attachments and approval state survive the feedback handoff.",
+                },
+                {
+                    type: "mermaid",
+                    title: "Feedback data flow",
+                    description: "How annotations move into the review payload.",
+                    source:
+                        "flowchart TD\n    A[Annotations] --> B[createFeedback]\n    A --> C[collectImages]\n    B --> D[submitFeedback payload]\n    C --> D",
+                },
+                {
+                    type: "diff",
+                    file: "src/review/feedback.js",
+                    summary:
+                        "Core payload construction now includes annotations, approval state, feedback text, and images.",
+                },
+            ],
+        },
+        {
+            title: "Consequences and visual check",
+            role: "ui_behavior",
+            blocks: [
+                {
+                    type: "prose",
+                    markdown:
+                        "The review UI layout shifts to a more edge-aligned surface, so a quick visual model helps explain the changed spatial relationship.",
+                },
+                {
+                    type: "widget",
+                    id: "layout-widget",
+                    entry: "index.html",
+                    title: "Toolbar layout sandbox",
+                    reason: "A tiny local-only widget demonstrates why the sticky toolbar needs more breathing room.",
+                    html:
+                        '<!doctype html><link rel="stylesheet" href="widget.css"><section class="demo"><button id="toggle">Toggle cramped state</button><div id="panel">Toolbar has room for review actions.</div></section><script src="widget.js"></script>',
+                    assets: [
+                        {
+                            name: "widget.css",
+                            contentType: "text/css",
+                            content:
+                                ".demo{font:14px system-ui;padding:16px;color:#e2e8f0;background:#0f172a}.demo.cramped #panel{max-width:140px;color:#fecaca}button{border:1px solid #38bdf8;background:#082f49;color:#e0f2fe;border-radius:8px;padding:8px}",
+                        },
+                        {
+                            name: "widget.js",
+                            contentType: "application/javascript",
+                            content:
+                                "document.getElementById('toggle').addEventListener('click',()=>document.querySelector('.demo').classList.toggle('cramped'));",
+                        },
+                    ],
+                },
+                {
+                    type: "diff",
+                    file: "src/ui/review.css",
+                    summary: "Layout columns and sticky toolbar behavior changed.",
+                },
+            ],
+        },
+        {
+            title: "Support tests",
+            role: "support",
+            blocks: [
+                {
+                    type: "reviewCheckpoint",
+                    markdown:
+                        "Confirm tests cover inline locations, global comments, image preservation, and approval availability.",
+                },
+                {
+                    type: "diff",
+                    file: "src/review/feedback.test.js",
+                    summary: "Regression tests for the new feedback payload shape.",
+                },
+            ],
+        },
+    ],
+    everythingElse: [
+        { file: "src/review/image-attachments.js" },
+        { file: "docs/code-review-fixture.md" },
+    ],
+    widgetAssets: [],
+};
+
+const GUIDE_DEV_VARIANTS = [
+    { id: "ready", label: "Ready explainer + widget" },
+    { id: "no-provider", label: "No provider available" },
+    { id: "failed", label: "Failed generation" },
+];
+
+function buildCodeReviewDevPayload(variant) {
+    const base = {
         rawPatch: CODE_REVIEW_FIXTURE,
         gitRef: "Fixture Code Review",
         agentCwd: "workspace-dev/fixture-code-review",
-        token: "dev-code-review",
+        token: `dev-code-review-${variant}`,
         mode: "dev",
+        guidedReview: { mode: "auto", autoStart: false, manualAvailable: true, reasons: ["dev fixture"] },
         reviewStatus: {
             stagedFiles: ["src/review/feedback.test.js", "src/review/image-attachments.js"],
             unstagedFiles: [
@@ -327,8 +432,59 @@ export function ReviewDevSurface({ surface }) {
             untrackedFiles: ["src/review/fixture-config.js"],
         },
     };
+    if (variant === "no-provider") {
+        return {
+            ...base,
+            guidedReview: { ...base.guidedReview, reasons: ["dev fixture: no provider"] },
+            devGuideCapabilities: { available: false, providers: [] },
+        };
+    }
+    if (variant === "failed") {
+        return {
+            ...base,
+            guidedReview: { ...base.guidedReview, reasons: ["dev fixture: failed generation"] },
+            devGuideCapabilities: {
+                available: true,
+                providers: [{ id: "guide", provider: "fixture", model: "failure" }],
+            },
+            devGuideFailure: "Fixture provider failed while generating the Guided Review Explainer.",
+        };
+    }
+    return {
+        ...base,
+        devGuideCapabilities: { available: true, providers: [{ id: "guide", provider: "fixture", model: "ready" }] },
+        guidedReviewFixture: GUIDED_REVIEW_FIXTURE,
+    };
+}
 
-    return isPlan
-        ? React.createElement(PlanReviewSurface, { payload })
-        : React.createElement(CodeReviewSurface, { payload });
+export function ReviewDevSurface({ surface }) {
+    const isPlan = surface === "plan";
+    const [guideVariant, setGuideVariant] = React.useState("ready");
+    const payload = isPlan
+        ? { plan: PLAN_FIXTURE, token: "dev-plan-review", mode: "dev" }
+        : buildCodeReviewDevPayload(guideVariant);
+
+    if (isPlan) return React.createElement(PlanReviewSurface, { payload });
+
+    return React.createElement(
+        React.Fragment,
+        null,
+        React.createElement(
+            "nav",
+            { className: "rw-dev-fixture-switcher", "aria-label": "Guided Review dev fixtures" },
+            GUIDE_DEV_VARIANTS.map((variant) =>
+                React.createElement(
+                    "button",
+                    {
+                        key: variant.id,
+                        type: "button",
+                        className: guideVariant === variant.id ? "active" : "",
+                        onClick: () => setGuideVariant(variant.id),
+                    },
+                    variant.label,
+                )
+            ),
+        ),
+        React.createElement(CodeReviewSurface, { key: guideVariant, payload }),
+    );
 }
