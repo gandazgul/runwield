@@ -57,6 +57,17 @@ import { assertCapabilityScope } from "./capabilities.js";
  */
 
 /**
+ * @typedef {Object} DecryptedReviewCommentPayload
+ * @property {number} schemaVersion
+ * @property {"comment" | "global_comment"} type
+ * @property {string} displayName
+ * @property {string} body
+ * @property {string} [originalText]
+ * @property {Record<string, unknown> | null} [anchor]
+ * @property {string} [createdAt]
+ */
+
+/**
  * @typedef {Object} CapabilityRecord
  * @property {"reviewer" | "maintainer"} scope
  * @property {string} capabilityHash
@@ -234,6 +245,34 @@ export function normalizeEncryptedCommentRecord(value) {
         createdAt: assertNonEmptyString(record.createdAt, "createdAt"),
         resolved: record.resolved,
     };
+}
+
+/**
+ * @param {unknown} value
+ * @returns {DecryptedReviewCommentPayload}
+ */
+export function normalizeDecryptedReviewCommentPayload(value) {
+    const record = assertRecord(value, "Decrypted review comment payload");
+    if (record.schemaVersion !== 1) throw new Error("Review comment schemaVersion must be 1");
+    if (record.type !== "comment" && record.type !== "global_comment") {
+        throw new Error("Review comment type must be comment or global_comment");
+    }
+    /** @type {DecryptedReviewCommentPayload} */
+    const normalized = {
+        schemaVersion: 1,
+        type: record.type,
+        displayName: assertNonEmptyString(record.displayName, "displayName"),
+        body: assertNonEmptyString(record.body, "body"),
+    };
+    if (record.originalText !== undefined) {
+        if (typeof record.originalText !== "string") throw new Error("originalText must be a string");
+        normalized.originalText = record.originalText;
+    }
+    if (record.anchor !== undefined && record.anchor !== null) {
+        normalized.anchor = { ...assertRecord(record.anchor, "anchor") };
+    }
+    if (record.createdAt !== undefined) normalized.createdAt = assertNonEmptyString(record.createdAt, "createdAt");
+    return normalized;
 }
 
 /**

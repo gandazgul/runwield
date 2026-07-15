@@ -85,6 +85,26 @@ Deno.test("runPlansCommand delegates share subcommand before list parsing", asyn
     assertEquals(delegated, true);
 });
 
+Deno.test("runPlansCommand delegates pull subcommand before list parsing", async () => {
+    let delegated = false;
+
+    await runPlansCommand(
+        ["pull", "done", "--plan-server", "https://plans.example"],
+        /** @type {any} */ ({
+            __testDeps: {
+                runPlansPullCommand: (/** @type {string[]} */ argv) => {
+                    delegated = argv.join(" ") === "done --plan-server https://plans.example";
+                },
+                listPlans: () => {
+                    throw new Error("listPlans should not be called");
+                },
+            },
+        }),
+    );
+
+    assertEquals(delegated, true);
+});
+
 Deno.test("runPlansCommand delegates ui subcommand before list parsing", async () => {
     let delegated = false;
 
