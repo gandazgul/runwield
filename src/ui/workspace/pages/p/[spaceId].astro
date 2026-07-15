@@ -1,0 +1,14 @@
+---
+import ReviewLayout from "../../layouts/ReviewLayout.astro";
+import { RemotePlanReview } from "../../react/RemotePlanReview.tsx";
+
+const runtime = globalThis as any;
+if (import.meta.env.DEV && runtime.Deno?.env?.get?.("RUNWIELD_WORKSPACE_MODE") !== "remote") {
+    return new Response("Not found", { status: 404 });
+}
+
+const spaceId = Astro.params.spaceId ?? "";
+---
+<ReviewLayout title="Remote Plan Review · RunWield Workspace">
+    <RemotePlanReview spaceId={spaceId} client:only="react" />
+</ReviewLayout>

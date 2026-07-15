@@ -105,7 +105,13 @@ export function createRemoteWorkspaceApp(options = { mode: "remote" }) {
         return await ctx.next();
     });
     registerRemoteApiRoutes(app);
+    app.get("/p/:spaceId", async (ctx) => {
+        const astroResponse = await renderAstroPage(ctx.req, Deno.cwd());
+        if (astroResponse) return astroResponse;
+        return workspaceBuildUnavailable();
+    });
     app.notFound(() => jsonNotFound());
+    app.adapter = adapter;
     return app;
 }
 
@@ -455,6 +461,7 @@ function registerStaticRoutes(app) {
     app.get("/workspace.css", async () => await handleStaticRoute("/workspace.css"));
     app.get("/theme.css", async () => await handleStaticRoute("/theme.css"));
     app.get("/logo.svg", async () => await handleStaticRoute("/logo.svg"));
+    app.get("/_astro/:asset", async (ctx) => await handleStaticRoute(ctx.url.pathname));
 }
 
 /** @param {string} pathname */
