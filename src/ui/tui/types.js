@@ -8,8 +8,8 @@
 
 /**
  * @typedef {{
- *   appendOutput: (text: string) => void,
- *   endExecution: (isError: boolean, durationMs: number) => void,
+ *   setOutput: (text: string) => void,
+ *   endExecution: (isError: boolean, durationMs: number | null) => void,
  *   bodyText?: string,
  *   startTime: number,
  *   setExpanded?: (expanded: boolean) => void,
@@ -44,7 +44,7 @@
  *   setAgentInfo?: (agentName: string, agentModel?: string) => void,
  *   disableInput?: () => void,
  *   enableInput?: () => void,
- *   startToolExecution?: (id: string, name: string, argsStr: string) => ToolExecutionBlockApi,
+ *   startToolExecution?: (id: string, toolName: string, title: string) => ToolExecutionBlockApi,
  *   appendReviewResult?: (agentName: string, markdown: string, approved: boolean) => void,
  *   getActiveToolBlock?: (id: string) => ToolExecutionBlockApi | undefined,
  *   toggleToolOutputsExpanded?: () => void,

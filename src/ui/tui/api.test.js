@@ -50,8 +50,8 @@ Deno.test("createSilentUiApi implements the full no-op surface", async () => {
     ui.appendQueuedMessage("queued-1", "ignored");
     ui.removeQueuedMessage("queued-1");
     ui.appendSystemMessage("ignored");
-    const tool = ui.startToolExecution("1", "bash", "echo hi");
-    tool.appendOutput("ignored");
+    const tool = ui.startToolExecution("1", "bash", "$ echo hi");
+    tool.setOutput("ignored");
     tool.endExecution(false, 1);
     ui.toggleToolOutputsExpanded();
     ui.requestRender();
@@ -109,8 +109,8 @@ Deno.test("createUiApi appends visible blocks, merges compatible system messages
     ui.appendSystemMessage("one");
     ui.appendSystemMessage("two");
 
-    const tool = ui.startToolExecution("tool-1", "bash", "echo hi");
-    tool.appendOutput("output");
+    const tool = ui.startToolExecution("tool-1", "bash", "$ echo hi");
+    tool.setOutput("output");
     tool.endExecution(false, 1);
     assertEquals(ui.getActiveToolBlock("tool-1"), tool);
     ui.toggleToolOutputsExpanded();
@@ -126,17 +126,17 @@ Deno.test("createUiApi appends visible blocks, merges compatible system messages
     assertEquals(messageList.children, []);
 });
 
-Deno.test("createUiApi reuses an active tool block when the same tool start is repeated", () => {
+Deno.test("createUiApi does not hide duplicate tool-start events", () => {
     const { tui, messageList } = makeTuiHarness();
     const ui = /** @type {any} */ (createUiApi(tui, messageList, new SpinnerBlock()));
 
-    const first = ui.startToolExecution("tool-1", "code_search", "createAgentJobHandler");
-    const second = ui.startToolExecution("tool-1", "code_search", "createAgentJobHandler");
+    const first = ui.startToolExecution("tool-1", "code_search", "code_search createAgentJobHandler");
+    const second = ui.startToolExecution("tool-1", "code_search", "code_search createAgentJobHandler");
 
-    assertEquals(second, first);
+    assertEquals(second === first, false);
     assertEquals(
         messageList.children.filter((/** @type {any} */ child) => child instanceof ToolExecutionBlock).length,
-        1,
+        2,
     );
 });
 
@@ -160,7 +160,7 @@ Deno.test("createUiApi renders live elapsed tool time and stops after completion
     const harness = makeTuiHarness();
     const timedUi = /** @type {any} */ (createUiApi(harness.tui, harness.messageList, new SpinnerBlock()));
     const tool = /** @type {import('./blocks.js').ToolExecutionBlock} */ (
-        timedUi.startToolExecution("tool-timer", "bash", "sleep 1")
+        timedUi.startToolExecution("tool-timer", "bash", "$ sleep 1")
     );
     await new Promise((resolve) => setTimeout(resolve, 650));
 
@@ -180,25 +180,23 @@ Deno.test("createUiApi renders live elapsed tool time and stops after completion
     assertEquals(harness.renders(), afterEndRenders);
 });
 
-Deno.test("createUiApi folds plan_written system messages into the active tool block", () => {
+Deno.test("createUiApi keeps semantic status messages independent from active tool output", () => {
     const { tui, messageList } = makeTuiHarness();
     const ui = /** @type {any} */ (createUiApi(tui, messageList, new SpinnerBlock()));
 
-    const tool = ui.startToolExecution("plan-tool", "plan_written", "plans/example.md");
+    const tool = ui.startToolExecution("plan-tool", "plan_written", "plan_written plans/example.md");
     ui.appendSystemMessage("[RunWield] Plan declared: plans/example.md");
     ui.appendSystemMessage("[RunWield] Opening plan review UI for: example");
     ui.appendSystemMessage("[RunWield] Review server stderr:\nserver warning");
     ui.appendSystemMessage("[RunWield] Waiting for user decision...\n");
 
-    assertEquals(messageList.children.length, 2);
-    assertEquals(
-        tool.bodyText,
-        "[RunWield] Plan declared: plans/example.md\n[RunWield] Opening plan review UI for: example\n[RunWield] Review server stderr:\nserver warning\n[RunWield] Waiting for user decision...\n",
-    );
+    assertEquals(messageList.children.length, 4);
+    assertEquals(tool.bodyText, "");
 
     tool.endExecution(false, 1);
     ui.appendSystemMessage("after completion", false, "RunWield");
 
+    assertEquals(messageList.children.length, 4);
     assertEquals(messageList.children[2] instanceof SystemMessageBlock, true);
 });
 
@@ -291,7 +289,7 @@ Deno.test("createUiApi suppressOutput silences later UI mutations except clearin
     ui.appendUserMessage("hidden");
     ui.appendSystemMessage("hidden");
     ui.appendAgentMessageStart("Agent").appendText("hidden");
-    ui.startToolExecution("hidden", "bash", "");
+    ui.startToolExecution("hidden", "bash", "$");
     ui.requestRender();
     ui.advanceSpinner();
     ui.setBusy(true);

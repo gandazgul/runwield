@@ -1,4 +1,5 @@
 import { assertEquals, assertRejects } from "@std/assert";
+import { SessionHost } from "./session-host.js";
 import { RuntimeEventTypes } from "./session-runtime-events.js";
 import { HANDOFF_LIMIT_MESSAGE, SessionRuntime, SessionTurnInProgressError } from "./session-runtime.js";
 
@@ -15,6 +16,11 @@ function makeSessionManager(id, cwd, branch = []) {
         getCwd: () => cwd,
         getHeader: () => ({ timestamp: "2026-07-08T00:00:00.000Z" }),
         getBranch: () => branch,
+        getEntries: () => branch,
+        /** @param {string} customType @param {unknown} data */
+        appendCustomEntry(customType, data) {
+            branch.push({ type: "custom", customType, data });
+        },
         addMessage(/** @type {unknown} */ message) {
             this.messages.push(message);
         },
@@ -30,6 +36,7 @@ function makeSessionManager(id, cwd, branch = []) {
  * @property {(session: import('./hosted-session.js').HostedSession) => boolean} [abortActiveSession]
  * @property {(session: import('./hosted-session.js').HostedSession, options: any) => Promise<any>} [switchActiveAgent]
  * @property {ReturnType<typeof makeSteeringAgentSession>} [agentSession]
+ * @property {SessionHost} [sessionHost]
  */
 
 /** @param {RuntimeFixtureOptions} [options] */
@@ -37,6 +44,7 @@ function makeRuntime(options = {}) {
     let managerIndex = 0;
     const handler = options.handler || (() => Promise.resolve({ kind: "complete" }));
     return new SessionRuntime({
+        ...(options.sessionHost ? { sessionHost: options.sessionHost } : {}),
         createRootSessionManager: (_mode, cwd) => Promise.resolve(makeSessionManager(`manager-${++managerIndex}`, cwd)),
         createAgentHandler: () => handler,
         ensureRootAgentSession: (opts) => {
@@ -122,6 +130,51 @@ Deno.test("SessionRuntime rejects non-absolute session roots", async () => {
     );
 });
 
+Deno.test("SessionRuntime snapshots and events keep workflow footer context separate from execution state", async () => {
+    const sessionHost = new SessionHost();
+    const runtime = makeRuntime({ sessionHost });
+    const { sessionId } = await runtime.createInteractiveSession({ cwd: Deno.cwd() });
+    const hostedSession = sessionHost.requireSession(sessionId);
+    /** @type {any[]} */
+    const events = [];
+    runtime.subscribeSessionEvents(sessionId, (event) => {
+        events.push(event);
+    });
+
+    hostedSession.setWorkflowTriageContext({ routingIntent: "FEATURE", complexity: "MEDIUM" });
+    hostedSession.setWorkflowPlanName("plans/footer-restoration.md");
+    runtime.setActiveExecutionWorkflow(sessionId, {
+        planName: "execution-plan",
+        triageMeta: { complexity: "HIGH" },
+        executionCwd: Deno.cwd(),
+    });
+
+    const snapshot = runtime.getSessionSnapshot(sessionId);
+    assertEquals(snapshot?.workflowContext, {
+        routingIntent: "FEATURE",
+        complexity: "MEDIUM",
+        planName: "footer-restoration",
+    });
+    assertEquals(snapshot?.activeExecutionWorkflow, {
+        planName: "execution-plan",
+        triageMeta: { complexity: "HIGH" },
+        executionCwd: Deno.cwd(),
+    });
+    assertEquals("workflow" in /** @type {Record<string, unknown>} */ (snapshot || {}), false);
+    assertEquals(
+        events.filter((event) => event.type === RuntimeEventTypes.WORKFLOW_CONTEXT_CHANGED)
+            .map((event) => event.workflowContext),
+        [
+            { routingIntent: "FEATURE", complexity: "MEDIUM" },
+            {
+                routingIntent: "FEATURE",
+                complexity: "MEDIUM",
+                planName: "footer-restoration",
+            },
+        ],
+    );
+});
+
 Deno.test("SessionRuntime emits one ordered lifecycle for one prompt", async () => {
     const runtime = makeRuntime();
     const sessionId = await runtime.createPromptReadySession({ cwd: Deno.cwd() });
@@ -181,7 +234,7 @@ Deno.test("SessionRuntime owns the complete local shell tool lifecycle", async (
     assertEquals(events[0].type, RuntimeEventTypes.USER_MESSAGE);
     assertEquals(events.filter((event) => event.type === RuntimeEventTypes.TOOL_START).length, 1);
     assertEquals(events.filter((event) => event.type === RuntimeEventTypes.TOOL_END).length, 1);
-    assertEquals(events.find((event) => event.type === RuntimeEventTypes.TOOL_END)?.text, "runtime-shell");
+    assertEquals(events.find((event) => event.type === RuntimeEventTypes.TOOL_END)?.output, "runtime-shell");
 });
 
 Deno.test("SessionRuntime cancellation terminates an active local shell command", async () => {
@@ -363,7 +416,10 @@ Deno.test("SessionRuntime cancellation owns active compaction and publishes one 
 
     assertEquals(runtime.cancelSession(sessionId), { ok: true, aborted: true });
     assertEquals(compactionAborts, 1);
-    assertEquals(events.filter((event) => event.type === RuntimeEventTypes.CANCELLATION), [{
+    const cancellationEvents = events.filter((event) => event.type === RuntimeEventTypes.CANCELLATION);
+    assertEquals(typeof cancellationEvents[0].messageId, "string");
+    const { messageId: _messageId, ...cancellation } = cancellationEvents[0];
+    assertEquals(cancellation, {
         type: RuntimeEventTypes.CANCELLATION,
         sessionId,
         timestamp: events.at(-1).timestamp,
@@ -371,7 +427,7 @@ Deno.test("SessionRuntime cancellation owns active compaction and publishes one 
         reason: "session_cancel",
         scope: "operation",
         message: "Operation canceled.",
-    }]);
+    });
 });
 
 Deno.test("SessionRuntime interaction adapter resolves through semantic lifecycle events", async () => {
@@ -433,10 +489,22 @@ Deno.test("SessionRuntime loadSession returns opaque metadata and redacted repla
             message: { role: "user", content: [{ type: "text", text: "hello" }] },
         },
         {
+            type: "custom",
+            id: "marker",
+            customType: "runwield.active_agent",
+            data: { agentName: "Planner" },
+        },
+        {
             type: "message",
             id: "a1",
             timestamp: "2026-07-08T00:00:01.000Z",
-            message: { role: "assistant", content: [{ type: "text", text: "hi" }] },
+            message: {
+                role: "assistant",
+                content: [
+                    { type: "thinking", thinking: "considering" },
+                    { type: "text", text: "hi" },
+                ],
+            },
         },
         {
             type: "message",
@@ -451,6 +519,35 @@ Deno.test("SessionRuntime loadSession returns opaque metadata and redacted repla
                 content: [{ type: "tool_result", tool_use_id: "tool-1", content: "password=secret" }],
             },
         },
+        {
+            type: "message",
+            id: "tc2",
+            timestamp: "2026-07-08T00:00:03.000Z",
+            message: {
+                role: "assistant",
+                content: [
+                    { type: "toolCall", id: "tool-2", name: "read", arguments: { path: "README.md" } },
+                    { type: "unknown_metadata", payload: { internal: true } },
+                ],
+            },
+        },
+        {
+            type: "message",
+            id: "tr2",
+            timestamp: "2026-07-08T00:00:05.000Z",
+            message: {
+                role: "toolResult",
+                toolCallId: "tool-2",
+                toolName: "read",
+                isError: false,
+                content: [{ type: "text", text: "actual tool output" }],
+                details: { fullOutputPath: "/tmp/read-output" },
+            },
+        },
+        { type: "model_change", id: "m1", provider: "test", modelId: "initial" },
+        { type: "thinking_level_change", id: "th1", thinkingLevel: "off" },
+        { type: "model_change", id: "m2", provider: "test", modelId: "later" },
+        { type: "thinking_level_change", id: "th2", thinkingLevel: "medium" },
     ]);
     const runtime = new SessionRuntime({
         openPersistedRootSession: () =>
@@ -480,11 +577,48 @@ Deno.test("SessionRuntime loadSession returns opaque metadata and redacted repla
     assertEquals(result.sessionManagerId, "persisted-1");
     assertEquals(result.replayEvents.map((event) => event.type), [
         RuntimeEventTypes.USER_MESSAGE,
+        RuntimeEventTypes.ASSISTANT_THINKING_DELTA,
+        RuntimeEventTypes.ASSISTANT_THINKING_END,
         RuntimeEventTypes.ASSISTANT_TEXT_DELTA,
         RuntimeEventTypes.TOOL_START,
         RuntimeEventTypes.TOOL_END,
+        RuntimeEventTypes.TOOL_START,
+        RuntimeEventTypes.TOOL_END,
+        RuntimeEventTypes.SYSTEM_STATUS,
+        RuntimeEventTypes.SYSTEM_STATUS,
     ]);
+    assertEquals(
+        result.replayEvents.filter((event) => event.type === RuntimeEventTypes.SYSTEM_STATUS).map((event) =>
+            event.message
+        ),
+        ["Model changed: test/later", "Thinking level changed: medium"],
+    );
+    const modernToolEnd =
+        /** @type {any} */ (result.replayEvents.find((event) =>
+            event.type === RuntimeEventTypes.TOOL_END && event.toolCallId === "tool-2"
+        ));
+    const modernToolStart =
+        /** @type {any} */ (result.replayEvents.find((event) =>
+            event.type === RuntimeEventTypes.TOOL_START && event.toolCallId === "tool-2"
+        ));
+    assertEquals(modernToolStart?.title, "read README.md");
+    assertEquals(modernToolStart?.kind, "read");
+    assertEquals(modernToolEnd?.output, "actual tool output");
+    assertEquals(modernToolEnd?.content, [{ type: "text", text: "actual tool output" }]);
+    assertEquals(modernToolEnd?.details, { fullOutputPath: "/tmp/read-output" });
+    assertEquals(modernToolEnd?.durationMs, 2000);
+    const assistantMessage = /** @type {any} */ (
+        result.replayEvents.find((event) => event.type === RuntimeEventTypes.ASSISTANT_TEXT_DELTA)
+    );
+    assertEquals(assistantMessage?.agentName, "Planner");
+    const replayThinkingEvents = result.replayEvents.filter((event) =>
+        event.type === RuntimeEventTypes.ASSISTANT_THINKING_DELTA ||
+        event.type === RuntimeEventTypes.ASSISTANT_THINKING_END
+    );
+    assertEquals(replayThinkingEvents.map((event) => /** @type {any} */ (event).agentName), ["Planner", "Planner"]);
     assertEquals(JSON.stringify(result.replayEvents).includes("secret"), false);
+    assertEquals(JSON.stringify(result.replayEvents).includes("[object Object]"), false);
+    assertEquals(JSON.stringify(result.replayEvents).includes("runwield.active_agent"), false);
 });
 
 Deno.test("SessionRuntime close operations dispose sessions by id", async () => {

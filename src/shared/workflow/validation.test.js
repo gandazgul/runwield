@@ -3,6 +3,7 @@ import { loadPlan, savePlan } from "../../plan-store.js";
 import { createExecutionWorktree } from "../worktree.js";
 import { loadReviewerPrompt, runLocalCI, runMechanicalValidation, runValidationLoop } from "./validation.js";
 import { HostedSession } from "../session/hosted-session.js";
+import { createSessionRuntimeEvent } from "../session/session-runtime-events.js";
 import { __resetSettingsForTests } from "../settings.js";
 
 const hostedSession = new HostedSession({ id: "validation-test", cwd: Deno.cwd() });
@@ -62,7 +63,7 @@ function makeUi() {
         startToolExecution: (/** @type {string} */ id, /** @type {string} */ name, /** @type {string} */ args) => {
             toolCalls.push({ id, name, args });
             return {
-                appendOutput: (/** @type {string} */ text) => toolOutputs.push(text),
+                setOutput: (/** @type {string} */ text) => toolOutputs.push(text),
                 endExecution: (/** @type {boolean} */ isError, /** @type {number} */ durationMs) => {
                     toolResults.push({ id, name, result: "", isError, durationMs });
                 },
@@ -89,14 +90,15 @@ function makeUi() {
  * @returns {HostedSession}
  */
 function attachRecorder(session, recorder) {
-    session.setEventSink((/** @type {any} */ event) => {
+    session.setEventSink((/** @type {any} */ partialEvent) => {
+        const event = /** @type {any} */ (createSessionRuntimeEvent(session.id, partialEvent));
         if (event.type === "system_status" || event.type === "terminal_error") {
             const message = String(event.message || "");
             recorder.messages.push(message);
             recorder.systemCalls.push({
                 message,
                 isError: event.level === "error" || event.type === "terminal_error",
-                header: event._meta?.header || "",
+                header: event.header || "",
                 level: event.level || (event.type === "terminal_error" ? "error" : "info"),
             });
         } else if (event.type === "busy_changed") {
@@ -104,15 +106,15 @@ function attachRecorder(session, recorder) {
         } else if (event.type === "tool_start") {
             recorder.toolCalls.push({ id: event.toolCallId, name: event.toolName, args: event.args?.command || "" });
         } else if (event.type === "tool_update") {
-            recorder.toolOutputs.push(String(event.delta || event.text || ""));
+            recorder.toolOutputs.push(event.output);
         } else if (event.type === "tool_end") {
-            recorder.toolOutputs.push(String(event.text || event.result || ""));
+            recorder.toolOutputs.push(event.output);
             recorder.toolResults.push({
                 id: event.toolCallId,
                 name: event.toolName,
-                result: event.result || event.text || "",
+                result: event.output,
                 isError: Boolean(event.isError),
-                durationMs: Number(event._meta?.durationMs || 0),
+                durationMs: Number(event.durationMs || 0),
             });
         }
     });

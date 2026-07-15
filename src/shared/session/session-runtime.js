@@ -5,7 +5,7 @@
 
 import { AGENTS } from "../../constants.js";
 import { createAgentHandler } from "./agent-handler.js";
-import { resolveResumeAgentName } from "./active-agent-session.js";
+import { ACTIVE_AGENT_CUSTOM_TYPE, resolveResumeAgentName } from "./active-agent-session.js";
 import { switchActiveAgent } from "./agent-switching.js";
 import {
     abortActiveSession as abortActiveSessionFn,
@@ -29,7 +29,14 @@ import {
     listPersistedRootSessions,
     openPersistedRootSession,
 } from "./root-session.js";
-import { createSessionRuntimeEvent, getRuntimeErrorMessage, RuntimeEventTypes } from "./session-runtime-events.js";
+import {
+    createSessionRuntimeEvent,
+    getRuntimeErrorMessage,
+    normalizeRuntimeToolResult,
+    normalizeRuntimeUsage,
+    RuntimeEventTypes,
+} from "./session-runtime-events.js";
+import { describeRuntimeTool } from "./tool-event-title.js";
 import { requestHostedSessionInteraction } from "./session-runtime-interactions.js";
 import {
     modelSupportsImageInput,
@@ -130,17 +137,6 @@ export class SessionTurnInProgressError extends Error {
     }
 }
 
-/** @param {unknown} value */
-/** @param {any} usage */
-function normalizeRuntimeUsage(usage) {
-    return {
-        input: Number(usage?.input ?? usage?.inputTokens ?? 0) || 0,
-        output: Number(usage?.output ?? usage?.outputTokens ?? 0) || 0,
-        cacheRead: Number(usage?.cacheRead ?? usage?.cacheReadTokens ?? 0) || 0,
-        cacheWrite: Number(usage?.cacheWrite ?? usage?.cacheWriteTokens ?? 0) || 0,
-    };
-}
-
 /**
  * @param {RuntimeQueuedMessageState} message
  * @returns {import('./session-runtime-events.js').RuntimeQueuedMessage}
@@ -159,17 +155,25 @@ function toRuntimeQueuedMessage(message) {
 function toReplayText(value) {
     if (typeof value === "string") return value;
     if (Array.isArray(value)) {
-        return value.map((block) => {
-            if (!block || typeof block !== "object") return "";
-            const typed = /** @type {{ type?: string, text?: string, name?: string }} */ (block);
-            if (typed.type === "text") return typed.text || "";
-            if (typed.type === "tool_result") return "[tool_result replayed]";
-            if (typed.type === "tool_use") return `[tool_use:${typed.name || "unknown"}]`;
-            return "";
-        }).filter(Boolean).join("\n");
+        return value.map(toReplayText).filter(Boolean).join("\n");
     }
     if (value === undefined || value === null) return "";
-    return String(value);
+    if (typeof value !== "object") return String(value);
+
+    const typed = /** @type {any} */ (value);
+    if (typed.type === "tool_result") return "[tool result replayed]";
+    if (typed.type === "tool_use" || typed.type === "toolCall") {
+        return `[tool:${typed.name || "unknown"}]`;
+    }
+    if (typed.type === "text") return toReplayText(typed.text);
+    if (typed.type === "thinking" || typed.type === "reasoning") {
+        return toReplayText(typed.thinking ?? typed.text ?? typed.content);
+    }
+    if ("content" in typed) return toReplayText(typed.content);
+
+    // Persistence metadata is structured data, not display text. In
+    // particular, never coerce an arbitrary object into "[object Object]".
+    return "";
 }
 
 /** @param {unknown} timestamp */
@@ -208,6 +212,26 @@ function entryMessageId(entry, fallback) {
 function createReplayEvents(sessionId, entries) {
     /** @type {Array<Record<string, any> & { type: string }>} */
     const events = [];
+    /** @type {string | null} */
+    let replayModel = null;
+    /** @type {string | null} */
+    let replayThinkingLevel = null;
+    let replayAgentName = "Assistant";
+    /** @type {Map<string, ReturnType<typeof describeRuntimeTool>>} */
+    const replayTools = new Map();
+    /** @type {Map<string, number>} */
+    const replayToolStartedAt = new Map();
+    /**
+     * @param {string} toolCallId
+     * @param {string | undefined} timestamp
+     * @returns {number | null}
+     */
+    const finishReplayTool = (toolCallId, timestamp) => {
+        const startedAt = replayToolStartedAt.get(toolCallId);
+        replayToolStartedAt.delete(toolCallId);
+        const finishedAt = typeof timestamp === "string" ? Date.parse(timestamp) : Number.NaN;
+        return startedAt === undefined || !Number.isFinite(finishedAt) ? null : Math.max(0, finishedAt - startedAt);
+    };
     for (const entry of entries) {
         if (!entry || typeof entry !== "object") continue;
         const value = /** @type {any} */ (entry);
@@ -220,6 +244,24 @@ function createReplayEvents(sessionId, entries) {
         if (value.type === "message") {
             const role = value.message?.role || "unknown";
             const content = value.message?.content;
+            if (role === "toolResult" || role === "tool_result") {
+                const messageId = entryMessageId(value, `${sessionId}:replay-tool-result`);
+                const toolCallId = value.message?.toolCallId || value.message?.tool_call_id || messageId;
+                events.push({
+                    ...common,
+                    type: RuntimeEventTypes.TOOL_END,
+                    messageId,
+                    toolCallId,
+                    ...(replayTools.get(toolCallId) || describeRuntimeTool(
+                        value.message?.toolName || value.message?.tool_name || "tool",
+                        undefined,
+                    )),
+                    ...normalizeRuntimeToolResult(value.message),
+                    isError: Boolean(value.message?.isError || value.message?.is_error),
+                    durationMs: finishReplayTool(toolCallId, common.timestamp),
+                });
+                continue;
+            }
             const blocks = Array.isArray(content) ? content : [{ type: "text", text: toReplayText(content) }];
             let blockIndex = 0;
             for (const block of blocks) {
@@ -233,18 +275,32 @@ function createReplayEvents(sessionId, entries) {
                             type: RuntimeEventTypes.ASSISTANT_THINKING_DELTA,
                             messageId,
                             delta,
+                            agentName: replayAgentName,
+                        });
+                        events.push({
+                            ...common,
+                            type: RuntimeEventTypes.ASSISTANT_THINKING_END,
+                            messageId,
+                            agentName: replayAgentName,
                         });
                     }
                     continue;
                 }
-                if (typed.type === "tool_use") {
+                if (typed.type === "tool_use" || typed.type === "toolCall") {
+                    const toolName = typed.name || "tool";
+                    const args = typed.arguments || typed.input;
+                    const toolCallId = typed.id || messageId;
+                    const runtimeTool = describeRuntimeTool(toolName, args);
+                    replayTools.set(toolCallId, runtimeTool);
+                    const startedAt = typeof common.timestamp === "string" ? Date.parse(common.timestamp) : Number.NaN;
+                    if (Number.isFinite(startedAt)) replayToolStartedAt.set(toolCallId, startedAt);
                     events.push({
                         ...common,
                         type: RuntimeEventTypes.TOOL_START,
                         messageId,
-                        toolCallId: typed.id || messageId,
-                        toolName: typed.name || "tool",
-                        title: typed.name || "tool",
+                        toolCallId,
+                        ...runtimeTool,
+                        args,
                     });
                     continue;
                 }
@@ -255,20 +311,34 @@ function createReplayEvents(sessionId, entries) {
                         type: RuntimeEventTypes.TOOL_END,
                         messageId,
                         toolCallId,
-                        toolName: "tool",
-                        text: "[tool result replayed]",
+                        ...(replayTools.get(toolCallId) || describeRuntimeTool("tool", undefined)),
+                        ...normalizeRuntimeToolResult("[tool result replayed]"),
                         isError: Boolean(typed.is_error || typed.isError),
+                        durationMs: finishReplayTool(toolCallId, common.timestamp),
                     });
                     continue;
                 }
                 const text = toReplayText(typed.type === "text" ? typed.text : typed);
                 if (!text) continue;
                 if (role === "user") {
-                    events.push({ ...common, type: RuntimeEventTypes.USER_MESSAGE, messageId, text });
+                    events.push({ ...common, type: RuntimeEventTypes.USER_MESSAGE, messageId, text, images: [] });
                 } else if (role === "assistant") {
-                    events.push({ ...common, type: RuntimeEventTypes.ASSISTANT_TEXT_DELTA, messageId, delta: text });
+                    events.push({
+                        ...common,
+                        type: RuntimeEventTypes.ASSISTANT_TEXT_DELTA,
+                        messageId,
+                        delta: text,
+                        agentName: replayAgentName,
+                        messageKind: "assistant",
+                    });
                 } else {
-                    events.push({ ...common, type: RuntimeEventTypes.SYSTEM_STATUS, messageId, message: text });
+                    events.push({
+                        ...common,
+                        type: RuntimeEventTypes.SYSTEM_STATUS,
+                        messageId,
+                        message: text,
+                        level: "info",
+                    });
                 }
             }
             if (value.message?.usage) {
@@ -276,7 +346,7 @@ function createReplayEvents(sessionId, entries) {
                     ...common,
                     type: RuntimeEventTypes.USAGE,
                     messageId: `${entryMessageId(value, `${sessionId}:replay`)}:usage`,
-                    raw: value.message.usage,
+                    usage: normalizeRuntimeUsage(value.message.usage),
                 });
             }
             continue;
@@ -289,56 +359,52 @@ function createReplayEvents(sessionId, entries) {
                 type: RuntimeEventTypes.SYSTEM_STATUS,
                 messageId: entryMessageId(value, value.type),
                 message,
-            });
-            continue;
-        }
-
-        if (value.type === "session_info" && value.name) {
-            events.push({
-                ...common,
-                type: RuntimeEventTypes.SYSTEM_STATUS,
-                messageId: entryMessageId(value, value.type),
-                message: `Session name: ${value.name}`,
+                level: "info",
             });
             continue;
         }
 
         if (value.type === "model_change") {
-            events.push({
-                ...common,
-                type: RuntimeEventTypes.SYSTEM_STATUS,
-                messageId: entryMessageId(value, value.type),
-                message: `Model changed: ${[value.provider, value.modelId].filter(Boolean).join("/")}`,
-            });
+            const nextModel = [value.provider, value.modelId].filter(Boolean).join("/");
+            if (replayModel !== null && nextModel && nextModel !== replayModel) {
+                events.push({
+                    ...common,
+                    type: RuntimeEventTypes.SYSTEM_STATUS,
+                    messageId: entryMessageId(value, value.type),
+                    message: `Model changed: ${nextModel}`,
+                    level: "info",
+                });
+            }
+            replayModel = nextModel;
             continue;
         }
 
         if (value.type === "thinking_level_change") {
-            events.push({
-                ...common,
-                type: RuntimeEventTypes.SYSTEM_STATUS,
-                messageId: entryMessageId(value, value.type),
-                message: `Thinking level changed: ${value.thinkingLevel || "unknown"}`,
-            });
+            const nextThinkingLevel = value.thinkingLevel || "unknown";
+            if (
+                replayThinkingLevel !== null && nextThinkingLevel &&
+                nextThinkingLevel !== replayThinkingLevel
+            ) {
+                events.push({
+                    ...common,
+                    type: RuntimeEventTypes.SYSTEM_STATUS,
+                    messageId: entryMessageId(value, value.type),
+                    message: `Thinking level changed: ${nextThinkingLevel}`,
+                    level: "info",
+                });
+            }
+            replayThinkingLevel = nextThinkingLevel;
             continue;
         }
 
-        if (value.type === "custom" && value.customType) {
-            events.push({
-                ...common,
-                type: RuntimeEventTypes.SYSTEM_STATUS,
-                messageId: entryMessageId(value, value.type),
-                message: `RunWield session marker: ${value.customType}`,
-            });
+        if (value.type === "custom" && value.customType === ACTIVE_AGENT_CUSTOM_TYPE) {
+            const agentName = typeof value.data?.agentName === "string" ? value.data.agentName.trim() : "";
+            if (agentName) replayAgentName = agentName;
             continue;
         }
 
-        events.push({
-            ...common,
-            type: RuntimeEventTypes.SYSTEM_STATUS,
-            messageId: entryMessageId(value, value.type || "unknown"),
-            message: `Persisted session entry replayed: ${value.type || "unknown"}`,
-        });
+        // Session metadata and unknown custom entries are internal persistence
+        // details, not transcript content.
     }
     return events;
 }
@@ -406,7 +472,8 @@ export class SessionRuntime {
         const sessionManagerId = typeof rawSessionManagerId === "string" && rawSessionManagerId
             ? rawSessionManagerId
             : null;
-        const workflow = session.getActiveExecutionWorkflow();
+        const workflowContext = session.getWorkflowContext();
+        const activeExecutionWorkflow = session.getActiveExecutionWorkflow();
         return {
             id: session.id,
             cwd: session.cwd,
@@ -420,7 +487,8 @@ export class SessionRuntime {
             busy: session.isTurnActive(),
             activeTurnId: session.getActiveTurnId(),
             queuedMessages: this.getQueuedMessages(session.id),
-            workflow: workflow ? { ...workflow } : null,
+            workflowContext: workflowContext ? { ...workflowContext } : null,
+            activeExecutionWorkflow: activeExecutionWorkflow ? { ...activeExecutionWorkflow } : null,
         };
     }
 
@@ -1012,6 +1080,8 @@ export class SessionRuntime {
         const persist = options.persist !== false && !session.isTurnActive();
         const userRequest = options.userRequest || `!${command}`;
         const toolCallId = `bash-${crypto.randomUUID()}`;
+        const startedAt = Date.now();
+        const runtimeTool = describeRuntimeTool("bash", { command });
         const interactionId = `local-shell:${toolCallId}`;
         const abortController = new AbortController();
         /** @type {Deno.ChildProcess | null} */
@@ -1041,8 +1111,7 @@ export class SessionRuntime {
         this.#emitSessionEvent(sessionId, {
             type: RuntimeEventTypes.TOOL_START,
             toolCallId,
-            toolName: "bash",
-            title: `$ ${command}`,
+            ...runtimeTool,
             args: { command },
         });
 
@@ -1068,8 +1137,8 @@ export class SessionRuntime {
                         this.#emitSessionEvent(sessionId, {
                             type: RuntimeEventTypes.TOOL_UPDATE,
                             toolCallId,
-                            toolName: "bash",
-                            text: output,
+                            ...runtimeTool,
+                            ...normalizeRuntimeToolResult(output),
                         });
                     }
                 } finally {
@@ -1097,10 +1166,10 @@ export class SessionRuntime {
         this.#emitSessionEvent(sessionId, {
             type: RuntimeEventTypes.TOOL_END,
             toolCallId,
-            toolName: "bash",
-            text: finalText,
-            result: output,
+            ...runtimeTool,
+            ...normalizeRuntimeToolResult(finalText),
             isError: canceled || exitCode !== 0,
+            durationMs: Date.now() - startedAt,
         });
         if (canceled) {
             this.#emitSessionEvent(sessionId, {
@@ -1222,10 +1291,10 @@ export class SessionRuntime {
                     ? message.content.filter((/** @type {any} */ block) => block?.type === "tool_use").length
                     : 0;
                 const usage = normalizeRuntimeUsage(message.usage);
-                info.inputTokens += usage.input;
-                info.outputTokens += usage.output;
-                info.cacheReadTokens += usage.cacheRead;
-                info.cacheWriteTokens += usage.cacheWrite;
+                info.inputTokens += usage.inputTokens;
+                info.outputTokens += usage.outputTokens;
+                info.cacheReadTokens += usage.cacheReadTokens;
+                info.cacheWriteTokens += usage.cacheWriteTokens;
             }
         }
         const rootAgentSession = /** @type {any} */ (session.getRootAgentSession());
@@ -1406,7 +1475,11 @@ export class SessionRuntime {
      * @param {Partial<import('./session-runtime-events.js').SessionRuntimeEvent> & { type: string }} event
      */
     #emitSessionEvent(sessionId, event) {
-        const runtimeEvent = createSessionRuntimeEvent(sessionId, event);
+        const sessionName = event.type === RuntimeEventTypes.ATTENTION_REQUESTED && !("sessionName" in event)
+            ? this.#sessionHost.getSession(sessionId)?.getRootSessionManager()?.getSessionName?.() || undefined
+            : undefined;
+        const enrichedEvent = /** @type {any} */ (sessionName ? { ...event, sessionName } : event);
+        const runtimeEvent = createSessionRuntimeEvent(sessionId, enrichedEvent);
         const listeners = this.#eventListeners.get(sessionId);
         if (!listeners) return;
         for (const listener of Array.from(listeners)) {

@@ -42,7 +42,8 @@
  * @property {boolean} busy
  * @property {string | null} activeTurnId
  * @property {import('./session/session-runtime-events.js').RuntimeQueuedMessage[]} queuedMessages
- * @property {Record<string, unknown> | null} workflow
+ * @property {import('./session/workflow-context-session.js').WorkflowContext | null} workflowContext
+ * @property {Record<string, unknown> | null} activeExecutionWorkflow
  */
 
 export {};

@@ -37,7 +37,7 @@ export function createSilentUiApi() {
         appendReviewResult: () => {},
         appendSystemMessage: () => {},
         startToolExecution: () => ({
-            appendOutput: () => {},
+            setOutput: () => {},
             endExecution: () => {},
             bodyText: "",
             startTime: Date.now(),
@@ -260,17 +260,6 @@ export function createUiApi(tui, messageList, spinner) {
             const lastBlock = lastBlockIndex >= 0 ? children[lastBlockIndex] : null;
 
             if (
-                lastBlock instanceof ToolExecutionBlock && lastBlock.toolName === "plan_written" && !lastBlock.ended &&
-                !isError
-            ) {
-                const prefix = header ? `${header} ` : "";
-                const separator = lastBlock.bodyText ? "\n" : "";
-                lastBlock.appendOutput(`${separator}${prefix}${text}`);
-                tui.requestRender();
-                return;
-            }
-
-            if (
                 lastBlock instanceof SystemMessageBlock && lastBlock.isError === isError &&
                 JSON.stringify(lastBlock.style) === JSON.stringify(style)
             ) {
@@ -287,21 +276,19 @@ export function createUiApi(tui, messageList, spinner) {
 
         /**
          * @param {string} id
-         * @param {string} name
-         * @param {string} argsStr
+         * @param {string} toolName
+         * @param {string} title
          */
-        startToolExecution: (id, name, argsStr) => {
+        startToolExecution: (id, toolName, title) => {
             if (outputSuppressed) {
                 return {
-                    appendOutput: () => {},
+                    setOutput: () => {},
                     endExecution: () => {},
                     bodyText: "",
                     startTime: Date.now(),
                 };
             }
-            const existingBlock = activeToolBlocks.get(id);
-            if (existingBlock) return existingBlock;
-            const block = new ToolExecutionBlock(name, argsStr);
+            const block = new ToolExecutionBlock(toolName, title);
             const originalEndExecution = block.endExecution.bind(block);
             block.endExecution = (isError, durationMs) => {
                 clearToolElapsedTimer(id);

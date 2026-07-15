@@ -4,6 +4,7 @@
 
 import { assert, assertEquals, assertStringIncludes, assertThrows } from "@std/assert";
 import { SessionTurnInProgressError } from "../shared/session/session-runtime.js";
+import { createSessionRuntimeEvent } from "../shared/session/session-runtime-events.js";
 import { mapRuntimeEventToAcpUpdate } from "./event-mapper.js";
 import { createAcpInteractionAdapter } from "./interaction-mapper.js";
 import { createInitializeResponse, startRunWieldAcpServer, validateNewSessionParams } from "./server.js";
@@ -260,14 +261,20 @@ function makeFakeRuntime() {
         emit(sessionId, event) {
             const set = listeners.get(sessionId) || new Set();
             for (const listener of set) {
-                listener({ sessionId, timestamp: new Date().toISOString(), ...event });
+                listener(createSessionRuntimeEvent(sessionId, /** @type {any} */ (event)));
             }
         },
         /** @param {string} sessionId @param {FakePromptOptions} options */
         promptSession(sessionId, options) {
             const cleanup = options.onTurnStarted?.({ turnId: "turn-1" });
             this.emit(sessionId, { type: "user_message", text: options.initialRequest, turnId: "turn-1" });
-            this.emit(sessionId, { type: "assistant_text_delta", delta: "hello", turnId: "turn-1" });
+            this.emit(sessionId, {
+                type: "assistant_text_delta",
+                delta: "hello",
+                agentName: "Guide",
+                messageKind: "assistant",
+                turnId: "turn-1",
+            });
             return Promise.resolve({ ok: true, turns: 1, handoffs: 0, handoffLimitReached: false }).finally(() => {
                 cleanup?.();
             });
@@ -308,6 +315,7 @@ function makeFakeRuntime() {
                         timestamp: "2026-07-08T00:00:00.000Z",
                         messageId: "entry-user",
                         text: "loaded user",
+                        images: [],
                         _meta: { replay: true, entryId: "entry-user", entryType: "message", role: "user" },
                     },
                     {
@@ -316,6 +324,8 @@ function makeFakeRuntime() {
                         timestamp: "2026-07-08T00:00:01.000Z",
                         messageId: "entry-assistant",
                         delta: "loaded assistant",
+                        agentName: "Guide",
+                        messageKind: "assistant",
                         _meta: { replay: true, entryId: "entry-assistant", entryType: "message", role: "assistant" },
                     },
                 ],
@@ -762,7 +772,13 @@ Deno.test("ACP server rejects invalid new prompt and overlap inputs", async () =
                 cleanup?.();
                 resolve({ ok: true, turns: 1, handoffs: 0, handoffLimitReached: false });
             };
-            blockingRuntime.emit(sessionId, { type: "assistant_text_delta", delta: "working", turnId: "turn-1" });
+            blockingRuntime.emit(sessionId, {
+                type: "assistant_text_delta",
+                delta: "working",
+                agentName: "Guide",
+                messageKind: "assistant",
+                turnId: "turn-1",
+            });
         });
     };
     const handle = startTestServer({ runtime: blockingRuntime });
@@ -936,13 +952,15 @@ Deno.test("ACP session/cancel keeps the turn reserved when runtime abort throws"
     }
 });
 
-Deno.test("ACP event mapper avoids exposing raw tool arguments and results", () => {
+Deno.test("ACP event mapper forwards the complete canonical Runtime tool descriptor and result", () => {
     const toolStart = mapRuntimeEventToAcpUpdate({
         type: "tool_start",
         sessionId: "session-1",
         timestamp: "now",
         toolCallId: "tool-1",
         toolName: "bash",
+        title: "$ echo safe",
+        kind: "execute",
         args: { token: "secret" },
     });
     const toolUpdate = mapRuntimeEventToAcpUpdate({
@@ -951,7 +969,11 @@ Deno.test("ACP event mapper avoids exposing raw tool arguments and results", () 
         timestamp: "now",
         toolCallId: "tool-1",
         toolName: "bash",
-        partialResult: { password: "secret" },
+        title: "$ echo safe",
+        kind: "execute",
+        content: [{ type: "text", text: "safe output" }],
+        output: "safe output",
+        details: { truncated: false },
     });
     const toolEnd = mapRuntimeEventToAcpUpdate({
         type: "tool_end",
@@ -959,12 +981,25 @@ Deno.test("ACP event mapper avoids exposing raw tool arguments and results", () 
         timestamp: "now",
         toolCallId: "tool-1",
         toolName: "bash",
-        result: { apiKey: "secret" },
+        title: "$ echo safe",
+        kind: "execute",
+        content: [{ type: "text", text: "safe output" }],
+        output: "safe output",
+        details: { truncated: false },
+        isError: false,
+        durationMs: 25,
     });
 
-    assertEquals(/** @type {any} */ (toolStart).rawInput, undefined);
-    assertEquals(/** @type {any} */ (toolUpdate)._meta?.runwield?.partialResult, undefined);
-    assertEquals(/** @type {any} */ (toolEnd).rawOutput, undefined);
+    assertEquals(/** @type {any} */ (toolStart).rawInput, { token: "secret" });
+    assertEquals(/** @type {any} */ (toolStart).kind, "execute");
+    assertEquals(/** @type {any} */ (toolUpdate).content, [
+        { type: "content", content: { type: "text", text: "safe output" } },
+    ]);
+    assertEquals(/** @type {any} */ (toolEnd).rawOutput, {
+        content: [{ type: "text", text: "safe output" }],
+        details: { truncated: false },
+    });
+    assertEquals(/** @type {any} */ (toolEnd)._meta?.runwield?.durationMs, 25);
 });
 
 Deno.test("ACP session/cancel makes the in-flight prompt return cancelled", async () => {
@@ -1165,6 +1200,7 @@ Deno.test("ACP event mapper maps plan review links without maintainer secrets", 
         type: "plan_review_link",
         sessionId: "s1",
         timestamp: "2026-07-07T00:00:00.000Z",
+        messageId: "review-link-1",
         planName: "p",
         reviewerUrl: "https://plans.example/#key=review&cap=reviewer&role=reviewer",
         spaceId: "space-1",

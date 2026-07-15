@@ -23,7 +23,13 @@ import { createRunWieldGrepToolDefinition } from "../../tools/grep.js";
 import { extractYaml, test as hasFrontMatter } from "@std/front-matter";
 import { dirname, join } from "@std/path";
 import { AGENTS, HOME_DIR, PROMPT_TEMPLATES_DIR, SKILLS_DIR } from "../../constants.js";
-import { emitHostedSessionRuntimeEvent, emitSystemStatus, RuntimeEventTypes } from "./session-runtime-events.js";
+import {
+    emitHostedSessionRuntimeEvent,
+    emitSystemStatus,
+    normalizeRuntimeToolResult,
+    normalizeRuntimeUsage,
+    RuntimeEventTypes,
+} from "./session-runtime-events.js";
 import mnemosyneExtension, {
     memoryDeleteToolDef,
     memoryRecallGlobalToolDef,
@@ -66,6 +72,7 @@ import { getBundledAgentDefsPath } from "./agent-assets.js";
 import { getPackagePromptTemplatePaths, resolveInstalledPackagePromptResources } from "../package-resources.js";
 import { getWldExtensionPaths, resolveInstalledWldExtensionResources } from "../extensions/wld-extension-manifest.js";
 import { recordToolCallFinished, recordToolCallStarted, recordWorkflowMetric } from "../workflow/metrics.js";
+import { describeRuntimeTool } from "./tool-event-title.js";
 
 const HOME_PROMPTS_DIR = HOME_DIR ? join(HOME_DIR, ".wld", "prompts") : null;
 
@@ -1640,6 +1647,11 @@ export function attachSessionEventSubscribers(
     let currentAssistantMessageId = null;
     /** @type {string | null} */
     let currentThinkingMessageId = null;
+    /** @type {Map<string, number>} */
+    const toolStartedAt = new Map();
+    /** @type {Map<string, ReturnType<typeof describeRuntimeTool>>} */
+    const runtimeTools = new Map();
+    const runtimeAgentName = agentDef.displayName || agentDef.name;
 
     /** @returns {string} */
     const nextAssistantMessageId = () => `${currentRuntimeTurnId}:assistant:${++assistantMessageSequence}`;
@@ -1655,10 +1667,11 @@ export function attachSessionEventSubscribers(
     };
 
     const endThinking = () => {
-        if (!thinkingActive) return;
+        if (!thinkingActive || !currentThinkingMessageId) return;
         emitRuntimeEvent({
             type: RuntimeEventTypes.ASSISTANT_THINKING_END,
-            ...(currentThinkingMessageId ? { messageId: currentThinkingMessageId } : {}),
+            messageId: currentThinkingMessageId,
+            agentName: runtimeAgentName,
         });
         thinkingActive = false;
     };
@@ -1678,9 +1691,9 @@ export function attachSessionEventSubscribers(
                     );
                 }
                 if (event.message.role === "assistant") {
+                    endThinking();
                     currentAssistantMessageId = /** @type {any} */ (event.message).id || nextAssistantMessageId();
                     currentThinkingMessageId = null;
-                    endThinking();
                 }
                 break;
             }
@@ -1692,6 +1705,7 @@ export function attachSessionEventSubscribers(
                         type: RuntimeEventTypes.ASSISTANT_THINKING_DELTA,
                         messageId: currentThinkingMessageId,
                         delta: event.assistantMessageEvent.delta,
+                        agentName: runtimeAgentName,
                     });
                     if (shouldWriteDebugLog(debugLogPath) && debugLogPath) {
                         appendDebugLog(
@@ -1730,7 +1744,8 @@ export function attachSessionEventSubscribers(
                         type: RuntimeEventTypes.ASSISTANT_TEXT_DELTA,
                         messageId: currentAssistantMessageId,
                         delta: event.assistantMessageEvent.delta,
-                        _meta: { agentName: agentDef.displayName },
+                        agentName: runtimeAgentName,
+                        messageKind: "assistant",
                     });
                     if (shouldWriteDebugLog(debugLogPath) && debugLogPath) {
                         appendDebugLog(
@@ -1772,7 +1787,7 @@ export function attachSessionEventSubscribers(
                 if (endedMessage?.usage) {
                     emitRuntimeEvent({
                         type: RuntimeEventTypes.USAGE,
-                        raw: endedMessage.usage,
+                        usage: normalizeRuntimeUsage(endedMessage.usage),
                     });
                 }
 
@@ -1795,7 +1810,6 @@ export function attachSessionEventSubscribers(
                     type: RuntimeEventTypes.SYSTEM_STATUS,
                     level: "warning",
                     message,
-                    raw: event,
                 });
                 break;
             }
@@ -1808,13 +1822,15 @@ export function attachSessionEventSubscribers(
                         type: RuntimeEventTypes.SYSTEM_STATUS,
                         level: "error",
                         message,
-                        raw: event,
                     });
                 }
                 break;
             }
             case "tool_execution_start": {
                 invokedToolNames.push(event.toolName);
+                toolStartedAt.set(event.toolCallId, Date.now());
+                const runtimeTool = describeRuntimeTool(event.toolName, event.args);
+                runtimeTools.set(event.toolCallId, runtimeTool);
                 recordToolCallStarted(
                     event.toolCallId,
                     event.toolName,
@@ -1846,66 +1862,10 @@ export function attachSessionEventSubscribers(
                     );
                 }
 
-                const filePath = getFilePathForTool(event.toolName, event.args);
-                let headerArgs = "";
-                if (filePath) headerArgs = `${filePath}`;
-                else if (event.toolName === "bash") headerArgs = event.args?.command || "";
-                else if (event.toolName === "grep") {
-                    const path = Array.isArray(event.args?.path) ? event.args.path.join(" ") : event.args?.path || ".";
-                    headerArgs = `${event.args?.pattern} in ${path}`;
-                } else if (event.toolName === "find") {
-                    headerArgs = `${event.args?.pattern} in ${event.args?.path || "."}`;
-                } else if (event.toolName === "ls") {
-                    headerArgs = event.args?.path || ".";
-                } else if (event.toolName === "code_search") {
-                    const q = event.args?.query || "";
-                    headerArgs = event.args?.textSearch ? `${q} (text)` : q;
-                } else if (event.toolName === "code_show") {
-                    headerArgs = event.args?.target || "";
-                } else if (event.toolName === "code_outline") {
-                    headerArgs = event.args?.file || "";
-                } else if (event.toolName === "code_batch") {
-                    headerArgs = formatCodeBatchHeaderArgs(event.args);
-                } else if (
-                    event.toolName === "code_refs" || event.toolName === "code_impact" ||
-                    event.toolName === "code_trace" || event.toolName === "code_investigate" ||
-                    event.toolName === "code_impls"
-                ) {
-                    headerArgs = event.args?.symbol || "";
-                } else if (event.toolName === "code_importers") {
-                    headerArgs = event.args?.target || "";
-                } else if (
-                    event.toolName === "code_structure" || event.toolName === "code_codebase_info"
-                ) {
-                    // no args to show
-                } else if (event.toolName === "plan_written") {
-                    const planName = String(event.args?.planName || "").replace(/\.md$/i, "").trim();
-                    headerArgs = planName ? `plans/${planName}.md` : "";
-                } else if (
-                    event.toolName === "memory_recall" || event.toolName === "memory_recall_global"
-                ) {
-                    headerArgs = event.args?.query || "";
-                } else if (
-                    event.toolName === "memory_store" || event.toolName === "memory_store_global"
-                ) {
-                    const c = event.args?.content || "";
-                    headerArgs = c.length > 80 ? c.slice(0, 77) + "..." : c;
-                } else if (event.toolName === "memory_delete") {
-                    headerArgs = `id: ${event.args?.id}`;
-                } else if (event.toolName === "task_completed") {
-                    const m = event.args?.message || "";
-                    headerArgs = m.length > 60 ? m.slice(0, 57) + "..." : m;
-                } else if (event.toolName === "return_to_router") {
-                    headerArgs = "to router";
-                }
-
                 emitRuntimeEvent({
                     type: RuntimeEventTypes.TOOL_START,
                     toolCallId: event.toolCallId,
-                    toolName: event.toolName,
-                    title: event.toolName === "bash"
-                        ? `$ ${headerArgs}`.trim()
-                        : `${event.toolName} ${headerArgs}`.trim(),
+                    ...runtimeTool,
                     args: event.args,
                 });
 
@@ -1926,17 +1886,11 @@ export function attachSessionEventSubscribers(
                         ].join("\n"),
                     );
                 }
-                const partialText = event.partialResult?.content
-                    ?.map((/** @type {{ text?: string } | null | undefined } */ contentBlock) =>
-                        contentBlock && typeof contentBlock === "object" ? String(contentBlock.text || "") : ""
-                    )
-                    .join("") || "";
                 emitRuntimeEvent({
                     type: RuntimeEventTypes.TOOL_UPDATE,
                     toolCallId: event.toolCallId,
-                    toolName: event.toolName,
-                    partialResult: event.partialResult,
-                    text: partialText,
+                    ...(runtimeTools.get(event.toolCallId) || describeRuntimeTool(event.toolName, event.args)),
+                    ...normalizeRuntimeToolResult(event.partialResult),
                 });
                 break;
             }
@@ -1963,19 +1917,18 @@ export function attachSessionEventSubscribers(
                         ].join("\n"),
                     );
                 }
-                const resultText = event.result?.content
-                    ?.map((/** @type {{ text?: string } | null | undefined } */ contentBlock) =>
-                        contentBlock && typeof contentBlock === "object" ? String(contentBlock.text || "") : ""
-                    )
-                    .join("") || "";
                 emitRuntimeEvent({
                     type: RuntimeEventTypes.TOOL_END,
                     toolCallId: event.toolCallId,
-                    toolName: event.toolName,
-                    isError: event.isError,
-                    result: event.result,
-                    text: resultText,
+                    ...(runtimeTools.get(event.toolCallId) || describeRuntimeTool(event.toolName, undefined)),
+                    isError: Boolean(event.isError),
+                    ...normalizeRuntimeToolResult(event.result),
+                    durationMs: toolStartedAt.has(event.toolCallId)
+                        ? Date.now() - /** @type {number} */ (toolStartedAt.get(event.toolCallId))
+                        : null,
                 });
+                toolStartedAt.delete(event.toolCallId);
+                runtimeTools.delete(event.toolCallId);
                 break;
             }
             case "turn_start": {
@@ -2003,7 +1956,6 @@ export function attachSessionEventSubscribers(
                         type: RuntimeEventTypes.SYSTEM_STATUS,
                         level: "info",
                         message: label,
-                        raw: event,
                     });
                 }
                 break;
@@ -2017,7 +1969,6 @@ export function attachSessionEventSubscribers(
                             type: RuntimeEventTypes.SYSTEM_STATUS,
                             level: "warning",
                             message: "Auto-compaction cancelled.",
-                            raw: event,
                         });
                     } else if (event.result) {
                         const message = `Auto-compacted. Tokens before: ${event.result.tokensBefore.toLocaleString()}`;
@@ -2025,7 +1976,6 @@ export function attachSessionEventSubscribers(
                             type: RuntimeEventTypes.SYSTEM_STATUS,
                             level: "info",
                             message,
-                            raw: event,
                         });
                     } else if (event.errorMessage) {
                         const message = `Auto-compaction failed: ${sanitizeApiErrorMessage(event.errorMessage)}`;
@@ -2033,7 +1983,6 @@ export function attachSessionEventSubscribers(
                             type: RuntimeEventTypes.SYSTEM_STATUS,
                             level: "error",
                             message,
-                            raw: event,
                         });
                     }
                 }
@@ -2671,75 +2620,6 @@ export async function expandPromptTemplate(templatePath, additionalInstructions)
     } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         throw new Error(`Failed to read prompt template at "${templatePath}": ${message}`);
-    }
-}
-
-/**
- * @typedef {Object} CodeBatchOperation
- * @property {string} op
- * @property {string} [target]
- * @property {string} [file]
- */
-
-/**
- * @param {{ operations?: CodeBatchOperation[] } | undefined | null} args
- * @returns {string}
- */
-function formatCodeBatchHeaderArgs(args) {
-    if (!args || !Array.isArray(args.operations)) return "0 operations";
-
-    const operations = args.operations;
-    if (operations.length === 0) return "0 operations";
-
-    const summaries = operations.slice(0, 3).map((operation) => {
-        if (operation.op === "show") return `show ${operation.target || ""}`.trim();
-        if (operation.op === "outline") return `outline ${operation.file || ""}`.trim();
-        return operation.op || "operation";
-    });
-    const remainingCount = operations.length - summaries.length;
-    if (remainingCount > 0) summaries.push(`+${remainingCount} more`);
-    return summaries.join("; ");
-}
-
-/**
- * Extract file path from tool arguments for read/edit/write tools.
- *
- * @param {string} toolName
- * @param {{ path?: string, file_path?: string, edits?: Array<{ path?: string, file_path?: string }> }} args
- * @returns {string | null}
- */
-function getFilePathForTool(toolName, args) {
-    if (!args) return null;
-
-    switch (toolName) {
-        case "read":
-        case "edit":
-        case "write": {
-            const path = typeof args.path === "string"
-                ? args.path
-                : typeof args.file_path === "string"
-                ? args.file_path
-                : null;
-            return path;
-        }
-        case "multi_file_edit": {
-            if (!Array.isArray(args.edits) || args.edits.length === 0) return null;
-            const paths = args.edits
-                .map((edit) =>
-                    typeof edit.path === "string"
-                        ? edit.path
-                        : typeof edit.file_path === "string"
-                        ? edit.file_path
-                        : null
-                )
-                .filter(Boolean);
-            const uniquePaths = [...new Set(paths)];
-            if (uniquePaths.length === 0) return null;
-            if (uniquePaths.length === 1) return uniquePaths[0];
-            return `${uniquePaths[0]} +${uniquePaths.length - 1} files`;
-        }
-        default:
-            return null;
     }
 }
 

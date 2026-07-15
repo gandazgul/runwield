@@ -6,20 +6,14 @@
 import { RuntimeEventTypes } from "../shared/session/session-runtime-events.js";
 
 /** @param {unknown} value */
-function safeString(value) {
-    if (typeof value === "string") return value;
-    if (value === undefined || value === null) return "";
-    try {
-        return JSON.stringify(value);
-    } catch {
-        return String(value);
-    }
-}
-
-/** @param {unknown} value */
 function safeMeta(value) {
     if (value === undefined) return undefined;
-    return { runwield: value };
+    if (!value || typeof value !== "object") return { runwield: value };
+    return {
+        runwield: Object.fromEntries(
+            Object.entries(/** @type {Record<string, unknown>} */ (value)).filter(([, entry]) => entry !== undefined),
+        ),
+    };
 }
 
 /**
@@ -29,14 +23,18 @@ function safeMeta(value) {
 function runtimeMeta(event, extra = {}) {
     const raw = /** @type {{ _meta?: unknown }} */ (event)._meta;
     const base = raw && typeof raw === "object" ? /** @type {Record<string, unknown>} */ (raw) : {};
-    const merged = { ...base, ...extra };
+    const merged = Object.fromEntries(
+        Object.entries({ ...base, ...extra }).filter(([, value]) => value !== undefined),
+    );
     return Object.keys(merged).length > 0 ? safeMeta(merged) : undefined;
 }
 
-/** @param {string} sessionId @param {import('../shared/session/session-runtime-events.js').SessionRuntimeEvent} event */
-function messageId(sessionId, event) {
-    const value = /** @type {any} */ (event);
-    return value.messageId || event.turnId || `${sessionId}:${event.type}`;
+/**
+ * ACP uses the same content-block shapes inside one protocol wrapper.
+ * @param {import('../shared/session/session-runtime-events.js').RuntimeToolContentBlock[]} content
+ */
+function mapToolContent(content) {
+    return content.map((block) => ({ type: "content", content: block }));
 }
 
 /**
@@ -48,102 +46,111 @@ export function mapRuntimeEventToAcpUpdate(event) {
         case RuntimeEventTypes.USER_MESSAGE:
             return {
                 sessionUpdate: "user_message_chunk",
-                messageId: messageId(event.sessionId, event),
-                content: { type: "text", text: event.text || "" },
+                messageId: event.messageId,
+                content: { type: "text", text: event.text },
                 ...(runtimeMeta(event) ? { _meta: runtimeMeta(event) } : {}),
             };
         case RuntimeEventTypes.ASSISTANT_TEXT_DELTA:
             return {
                 sessionUpdate: "agent_message_chunk",
-                messageId: messageId(event.sessionId, event),
-                content: { type: "text", text: event.delta || "" },
-                ...(runtimeMeta(event) ? { _meta: runtimeMeta(event) } : {}),
+                messageId: event.messageId,
+                content: { type: "text", text: event.delta },
+                _meta: runtimeMeta(event, {
+                    agentName: event.agentName,
+                    messageKind: event.messageKind,
+                    workflowMessage: event.workflowMessage,
+                    approved: event.approved,
+                }),
             };
         case RuntimeEventTypes.ASSISTANT_THINKING_DELTA:
             return {
                 sessionUpdate: "agent_thought_chunk",
-                messageId: messageId(event.sessionId, event),
-                content: { type: "text", text: event.delta || "" },
-                ...(runtimeMeta(event) ? { _meta: runtimeMeta(event) } : {}),
+                messageId: event.messageId,
+                content: { type: "text", text: event.delta },
+                _meta: runtimeMeta(event, { agentName: event.agentName }),
             };
         case RuntimeEventTypes.TOOL_START:
             return {
                 sessionUpdate: "tool_call",
                 toolCallId: event.toolCallId,
-                title: event.title || event.toolName,
+                title: event.title,
+                kind: event.kind,
                 status: "in_progress",
+                rawInput: event.args,
                 _meta: runtimeMeta(event, { toolName: event.toolName }),
             };
         case RuntimeEventTypes.TOOL_UPDATE:
             return {
                 sessionUpdate: "tool_call_update",
                 toolCallId: event.toolCallId,
+                title: event.title,
+                kind: event.kind,
                 status: "in_progress",
-                ...(event.text ? { content: [{ type: "content", content: { type: "text", text: event.text } }] } : {}),
+                content: mapToolContent(event.content),
+                rawOutput: { content: event.content, details: event.details },
                 _meta: runtimeMeta(event, { toolName: event.toolName }),
             };
         case RuntimeEventTypes.TOOL_END:
             return {
                 sessionUpdate: "tool_call_update",
                 toolCallId: event.toolCallId,
+                title: event.title,
+                kind: event.kind,
                 status: event.isError ? "failed" : "completed",
-                ...(event.text ? { content: [{ type: "content", content: { type: "text", text: event.text } }] } : {}),
-                _meta: runtimeMeta(event, { toolName: event.toolName }),
+                content: mapToolContent(event.content),
+                rawOutput: { content: event.content, details: event.details },
+                _meta: runtimeMeta(event, { toolName: event.toolName, durationMs: event.durationMs }),
             };
         case RuntimeEventTypes.USAGE: {
-            const raw = /** @type {any} */ (event.raw || {});
-            const used = Number(event.used ?? raw.used ?? raw.tokens ?? raw.inputTokens ?? raw.input ?? 0) || 0;
-            const size = Number(event.size ?? raw.size ?? raw.contextWindow ?? raw.context_window ?? used) || used;
+            const used = event.usage.inputTokens;
+            const size = event.usage.contextWindow || used;
             return {
                 sessionUpdate: "usage_update",
                 used,
                 size,
-                ...(event.cost || raw.cost ? { cost: event.cost || raw.cost } : {}),
+                ...(event.usage.costUsd ? { cost: event.usage.costUsd } : {}),
             };
         }
         case RuntimeEventTypes.PLAN_REVIEW_LINK: {
-            const reviewEvent = /** @type {any} */ (event);
-            const text = reviewEvent.message ||
-                `Plan review link for ${reviewEvent.planName}: ${reviewEvent.reviewerUrl}`;
             return {
                 sessionUpdate: "agent_message_chunk",
-                messageId: messageId(event.sessionId, event),
-                content: { type: "text", text },
+                messageId: event.messageId,
+                content: { type: "text", text: event.message },
                 _meta: safeMeta({
                     type: event.type,
-                    planName: reviewEvent.planName,
-                    reviewerUrl: reviewEvent.reviewerUrl,
-                    spaceId: reviewEvent.spaceId,
-                    serverUrl: reviewEvent.serverUrl,
-                    revision: reviewEvent.revision,
-                    reused: reviewEvent.reused,
+                    planName: event.planName,
+                    reviewerUrl: event.reviewerUrl,
+                    spaceId: event.spaceId,
+                    serverUrl: event.serverUrl,
+                    revision: event.revision,
+                    reused: event.reused,
                 }),
             };
         }
         case RuntimeEventTypes.AGENT_CHANGED: {
-            const agentEvent = /** @type {any} */ (event);
             return {
                 sessionUpdate: "agent_message_chunk",
-                messageId: messageId(event.sessionId, event),
-                content: { type: "text", text: `Active agent: ${agentEvent.agentName}` },
+                messageId: event.messageId,
+                content: { type: "text", text: `Active agent: ${event.agentName}` },
                 _meta: runtimeMeta(event, {
                     type: event.type,
-                    agentName: agentEvent.agentName,
-                    model: agentEvent.model,
+                    agentName: event.agentName,
+                    model: event.model,
                 }),
             };
         }
         case RuntimeEventTypes.SYSTEM_STATUS:
         case RuntimeEventTypes.CANCELLATION:
         case RuntimeEventTypes.TERMINAL_ERROR: {
-            const statusEvent = /** @type {any} */ (event);
-            const text = statusEvent.message || statusEvent.reason || safeString(statusEvent.error);
-            if (!text) return null;
+            if (!event.message) return null;
             return {
                 sessionUpdate: "agent_message_chunk",
-                messageId: messageId(event.sessionId, event),
-                content: { type: "text", text },
-                _meta: runtimeMeta(event, { type: event.type, level: statusEvent.level }),
+                messageId: event.messageId,
+                content: { type: "text", text: event.message },
+                _meta: runtimeMeta(event, {
+                    type: event.type,
+                    level: "level" in event ? event.level : undefined,
+                }),
             };
         }
         default:
