@@ -37,6 +37,7 @@ function makeSessionManager(id, cwd, branch = []) {
  * @property {(session: import('./hosted-session.js').HostedSession, options: any) => Promise<any>} [switchActiveAgent]
  * @property {ReturnType<typeof makeSteeringAgentSession>} [agentSession]
  * @property {SessionHost} [sessionHost]
+ * @property {(agentName: string, deps: any) => import('./types.js').AgentMessageHandler} [createAgentHandler]
  */
 
 /** @param {RuntimeFixtureOptions} [options] */
@@ -46,7 +47,7 @@ function makeRuntime(options = {}) {
     return new SessionRuntime({
         ...(options.sessionHost ? { sessionHost: options.sessionHost } : {}),
         createRootSessionManager: (_mode, cwd) => Promise.resolve(makeSessionManager(`manager-${++managerIndex}`, cwd)),
-        createAgentHandler: () => handler,
+        createAgentHandler: options.createAgentHandler || (() => handler),
         ensureRootAgentSession: (opts) => {
             opts.hostedSession.setRootAgentName(opts.agentName);
             opts.hostedSession.setRootAgentSession(options.agentSession || { dispose() {} });
@@ -130,6 +131,38 @@ Deno.test("SessionRuntime rejects non-absolute session roots", async () => {
     );
 });
 
+Deno.test("SessionRuntime uses one activation transaction for initial readiness and later switches", async () => {
+    const sessionHost = new SessionHost();
+    /** @type {WeakMap<Function, string>} */
+    const handlerAgents = new WeakMap();
+    const runtime = makeRuntime({
+        sessionHost,
+        createAgentHandler: (agentName) => {
+            /** @type {import('./types.js').AgentMessageHandler} */
+            const handler = () => Promise.resolve({ kind: "complete" });
+            handlerAgents.set(handler, agentName);
+            return handler;
+        },
+    });
+    const sessionId = await runtime.createPromptReadySession({ cwd: Deno.cwd(), agentName: "router" });
+    const hostedSession = sessionHost.requireSession(sessionId);
+    const initialHandler = hostedSession.getActiveOnMessage();
+    assertEquals(hostedSession.getRootAgentName(), "router");
+    assertEquals(initialHandler ? handlerAgents.get(initialHandler) : undefined, "router");
+
+    /** @type {string[]} */
+    const changedAgents = [];
+    runtime.subscribeSessionEvents(sessionId, (event) => {
+        if (event.type === RuntimeEventTypes.AGENT_CHANGED) changedAgents.push(event.agentName);
+    });
+    await runtime.switchAgent(sessionId, { agentName: "operator" });
+
+    const switchedHandler = hostedSession.getActiveOnMessage();
+    assertEquals(hostedSession.getRootAgentName(), "operator");
+    assertEquals(switchedHandler ? handlerAgents.get(switchedHandler) : undefined, "operator");
+    assertEquals(changedAgents, ["operator"]);
+});
+
 Deno.test("SessionRuntime snapshots and events keep workflow footer context separate from execution state", async () => {
     const sessionHost = new SessionHost();
     const runtime = makeRuntime({ sessionHost });
@@ -196,6 +229,39 @@ Deno.test("SessionRuntime emits one ordered lifecycle for one prompt", async () 
     ]);
     assertEquals(events.filter((event) => event.type === RuntimeEventTypes.USER_MESSAGE).length, 1);
     assertEquals(events.every((event) => event.sessionId === sessionId), true);
+});
+
+Deno.test("SessionRuntime keeps direct model operations busy until the outermost operation settles", async () => {
+    const agentSession = makeSteeringAgentSession();
+    /** @type {Array<() => void>} */
+    const releases = [];
+    agentSession.compact = () =>
+        new Promise((resolve) => {
+            releases.push(() => resolve({ ok: true }));
+        });
+    const runtime = makeRuntime({ agentSession });
+    const sessionId = await runtime.createPromptReadySession({ cwd: Deno.cwd() });
+    /** @type {boolean[]} */
+    const busyStates = [];
+    runtime.subscribeSessionEvents(sessionId, (event) => {
+        if (event.type === RuntimeEventTypes.BUSY_CHANGED) busyStates.push(event.busy);
+    });
+
+    const first = runtime.compactSession(sessionId);
+    const second = runtime.compactSession(sessionId);
+    assertEquals(releases.length, 2);
+    assertEquals(busyStates, [true]);
+    assertEquals(runtime.getSessionSnapshot(sessionId)?.busy, true);
+
+    releases[0]();
+    await first;
+    assertEquals(busyStates, [true]);
+    assertEquals(runtime.getSessionSnapshot(sessionId)?.busy, true);
+
+    releases[1]();
+    await second;
+    assertEquals(busyStates, [true, false]);
+    assertEquals(runtime.getSessionSnapshot(sessionId)?.busy, false);
 });
 
 Deno.test("SessionRuntime event subscriptions unsubscribe deterministically", async () => {

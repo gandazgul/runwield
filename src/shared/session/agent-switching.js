@@ -68,25 +68,11 @@ export async function switchActiveAgent(hostedSession, options, dependencies = {
         shouldReuseExistingRootSession(rootOptions, previousAgentName);
     const shouldRebuildRoot = !canReuseRoot;
     const createAgentHandlerProvided = Object.hasOwn(dependencies, "createAgentHandler");
-
-    if (shouldRebuildRoot) {
-        await ensureRootAgentSessionImpl({
-            hostedSession,
-            agentName,
-            modelOverride,
-            allowReturnToRouter: options.allowReturnToRouter,
-        });
-    }
-
-    if (hostedSession.disposed) return { ok: true, agentName, model: options.model, changed: false };
-
     const nextMetadata = {
         agentName,
         model: options.model ?? effectiveModel,
         allowReturnToRouter: allowReturnToRouterProvided ? options.allowReturnToRouter : effectiveAllowReturnToRouter,
     };
-    switchMetadata.set(hostedSession, nextMetadata);
-
     const previousHandlerMetadata = typeof previousHandler === "function" ? handlerMetadata.get(previousHandler) : null;
     const canReuseHandler = Boolean(
         previousHandler && previousHandlerMetadata &&
@@ -99,6 +85,9 @@ export async function switchActiveAgent(hostedSession, options, dependencies = {
         return { ok: true, agentName, model: options.model, changed: false };
     }
 
+    // Stage the matching handler before the root builder can commit a
+    // replacement. A handler-factory failure therefore leaves the previous
+    // root/handler pair untouched.
     const handler = createAgentHandlerImpl(agentName, {
         hostedSession,
         allowReturnToRouter: options.allowReturnToRouter,
@@ -108,7 +97,19 @@ export async function switchActiveAgent(hostedSession, options, dependencies = {
         allowReturnToRouter: nextMetadata.allowReturnToRouter,
         usesDefaultFactory: !createAgentHandlerProvided,
     });
+
+    if (shouldRebuildRoot) {
+        await ensureRootAgentSessionImpl({
+            hostedSession,
+            agentName,
+            modelOverride,
+            allowReturnToRouter: options.allowReturnToRouter,
+        });
+    }
+
+    hostedSession.assertActive();
     hostedSession.setActiveOnMessage(handler);
+    switchMetadata.set(hostedSession, nextMetadata);
     const changed = shouldRebuildRoot || previousAgentName !== agentName || !canReuseHandler;
     if (changed) {
         emitHostedSessionRuntimeEvent(hostedSession, {

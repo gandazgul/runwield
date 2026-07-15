@@ -373,18 +373,13 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
         sessionStartedEmptyProjectDirectory ? EMPTY_PROJECT_DIRECTORY_PROMPT_NOTE : "",
     );
 
-    // Pre-warm the display-name cache so any sync getAgentDisplayName call
-    // before the root session is built can resolve from cache instead of
-    // re-reading the frontmatter file. (The footer itself is not set here —
-    // ensureRootAgentSession below will populate it via setAgentInfo once the
-    // session actually exists, so the UI never shows an agent name that has
-    // no live session behind it.)
+    // Pre-warm the display-name cache so the footer's sync fallback can
+    // resolve an internal Agent name without re-reading front matter.
     await listAvailableAgents(getRuntimeSnapshot().cwd);
 
-    // Track which agent the initial root will be built for. Callers (e.g. `wld agent <name>`)
-    // can override via options.initialAgentName.
+    // Callers (for example `wld agent <name>`) may select the initial Agent.
+    // Runtime commits its root and handler together after model setup.
     const initialAgentInternalName = options.initialAgentName || AGENTS.ROUTER;
-    sessionRuntime.setSessionHandler(sessionId, initialAgentInternalName);
     await ensureMnemosyneBinary();
     initRunWieldTheme();
     await applyPersistedTheme();
@@ -688,10 +683,8 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
         tui.requestRender();
     }
 
-    // Install chat-session-specific UiAPI methods (setAgentInfo, enableInput,
-    // showModelSelector, …) BEFORE building the first root session — buildAgentSession
-    // calls uiAPI.setAgentInfo() to seed the footer with the agent's display name
-    // and model, and that setter only exists once the overrides are installed.
+    // Install input, model-selection, and pasted-image behavior before model
+    // onboarding and initial Runtime activation.
     installUiApiOverrides({
         uiAPI,
         tui,
@@ -717,15 +710,13 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
         getSettingsManager: () => getSettingsManager(getRuntimeSnapshot().cwd),
     });
 
-    // ── Eagerly build the root AgentSession for the initial agent ──
-    // The root persists across turns of the same agent so /compact and other long-lived
-    // session operations have something to act on. Runtime agent switching rebuilds
-    // roots as one awaited transaction.
+    // Activate the initial root/handler pair as one Runtime transaction. The
+    // root then persists across turns for compaction and other session work.
     if (!modelWelcomeResult.shown) {
         try {
-            await sessionRuntime.ensureSessionReady(sessionId, {
+            await sessionRuntime.switchAgent(sessionId, {
                 agentName: initialAgentInternalName,
-                modelOverride: options.initialAgentModel,
+                model: options.initialAgentModel,
             });
         } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);

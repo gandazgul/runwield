@@ -34,7 +34,7 @@ function makeHarness(selection, modelCommandSelectsDefault = true) {
     const commands = [];
     let defaultModel = "";
     let defaultProvider = "";
-    let rootBuilt = 0;
+    let agentActivated = 0;
     let renders = 0;
     const editor = { disableSubmit: false, setText: () => {} };
     const tui = {
@@ -83,8 +83,8 @@ function makeHarness(selection, modelCommandSelectsDefault = true) {
             tui: /** @type {any} */ (tui),
             sessionId: "welcome-session",
             sessionRuntime: /** @type {any} */ ({
-                ensureSessionReady: () => {
-                    rootBuilt++;
+                switchAgent: () => {
+                    agentActivated++;
                     return Promise.resolve();
                 },
             }),
@@ -95,7 +95,7 @@ function makeHarness(selection, modelCommandSelectsDefault = true) {
                 getDefaultProvider: () => defaultProvider,
             }),
         },
-        rootBuilt: () => rootBuilt,
+        agentActivated: () => agentActivated,
     };
 }
 
@@ -186,7 +186,7 @@ Deno.test("subscription setup runs login, opens model selection, and builds the 
         { name: COMMAND_NAMES.LOGIN, argv: ["subscription"] },
         { name: COMMAND_NAMES.MODEL, argv: [] },
     ]);
-    assertEquals(harness.rootBuilt(), 1);
+    assertEquals(harness.agentActivated(), 1);
     assertEquals(harness.editor.disableSubmit, false);
 });
 
@@ -197,7 +197,7 @@ Deno.test("root initialization failure returns control to the editor for recover
         ...harness.options,
         getModelRegistry: () => registryWithAvailable(availabilityChecks++ === 0 ? [] : [{ id: "model" }]),
         sessionRuntime: /** @type {any} */ ({
-            ensureSessionReady: () => Promise.reject(new Error("boom")),
+            switchAgent: () => Promise.reject(new Error("boom")),
         }),
     });
 
@@ -227,7 +227,7 @@ Deno.test("failed setup returns control to the editor so recovery slash commands
     assertEquals(result.noModel, true);
     assertEquals(result.suppressBootBanner, true);
     assertEquals(harness.editor.disableSubmit, false);
-    assertEquals(harness.rootBuilt(), 0);
+    assertEquals(harness.agentActivated(), 0);
 });
 
 Deno.test("cancelled model selection does not build the root session without a selected default", async () => {
@@ -241,5 +241,5 @@ Deno.test("cancelled model selection does not build the root session without a s
     assertEquals(result.noModel, true);
     assertEquals(result.setupCompleted, false);
     assertEquals(harness.editor.disableSubmit, false);
-    assertEquals(harness.rootBuilt(), 0);
+    assertEquals(harness.agentActivated(), 0);
 });

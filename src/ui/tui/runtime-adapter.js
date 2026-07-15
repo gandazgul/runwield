@@ -152,7 +152,7 @@ export function attachTuiRuntimeAdapter({
                 uiAPI.setBusy?.(value.busy);
                 break;
             case RuntimeEventTypes.AGENT_CHANGED:
-                uiAPI.setAgentInfo?.(value.agentName, value.model);
+                uiAPI.requestRender();
                 break;
             case RuntimeEventTypes.INPUT_STATE_CHANGED:
                 if (value.enabled) uiAPI.enableInput?.();

@@ -52,7 +52,6 @@ export function createSilentUiApi() {
         promptSelect: () => Promise.resolve(null),
         promptText: () => Promise.resolve(null),
         showModelSelector: () => {},
-        setAgentInfo: () => {},
         disableInput: () => {},
         enableInput: () => {},
         isOutputSuppressed: () => true,
@@ -461,7 +460,6 @@ export function createUiApi(tui, messageList, spinner) {
         },
 
         // Stubs that chat-session sets dynamically
-        setAgentInfo: () => {},
         disableInput: () => {},
         enableInput: () => {},
         showModelSelector: () => {},

@@ -1,4 +1,4 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertNotEquals } from "@std/assert";
 import { Spacer } from "@earendil-works/pi-tui";
 import { createFooterOnlyUiApi, createSilentUiApi, createUiApi } from "./api.js";
 import { SpinnerBlock, SystemMessageBlock, ThinkingBlock, ToolExecutionBlock } from "./blocks.js";
@@ -60,7 +60,6 @@ Deno.test("createSilentUiApi implements the full no-op surface", async () => {
     ui.setRunningTasks([{ task: 1, assignee: "Tester", description: "Check" }]);
     ui.clearMessages();
     ui.showModelSelector();
-    ui.setAgentInfo("Agent", "provider/model");
     ui.disableInput();
     ui.enableInput();
     ui.suppressOutput();
@@ -200,16 +199,23 @@ Deno.test("createUiApi keeps semantic status messages independent from active to
     assertEquals(messageList.children[2] instanceof SystemMessageBlock, true);
 });
 
-Deno.test("createUiApi setBusy starts and stops the spinner loop", () => {
+Deno.test("createUiApi setBusy animates frames until Runtime reports idle", async () => {
     const { tui, messageList, renders } = makeTuiHarness();
     const spinner = new SpinnerBlock();
     const ui = /** @type {any} */ (createUiApi(tui, messageList, spinner));
 
     ui.setBusy(true);
     assertEquals(spinner.isBusy, true);
+    const firstFrame = stripAnsi(spinner.render(80)[0]);
+    await new Promise((resolve) => setTimeout(resolve, 170));
+    const laterFrame = stripAnsi(spinner.render(80)[0]);
+    assertNotEquals(laterFrame, firstFrame);
+
     ui.setBusy(false);
     assertEquals(spinner.isBusy, false);
-    assertEquals(renders() > 0, true);
+    const stoppedRenderCount = renders();
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    assertEquals(renders(), stoppedRenderCount);
 });
 
 Deno.test("createUiApi promptSelect resolves selection, cancellation, and selection-change hook", async () => {
