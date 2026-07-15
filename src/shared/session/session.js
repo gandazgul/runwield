@@ -2341,7 +2341,7 @@ export async function runRootTurn({
     }
     if (targetHostedSession.getRootAgentName() !== agentName) {
         throw new Error(
-            `runRootTurn: root agent is "${targetHostedSession.getRootAgentName()}", not "${agentName}". setActiveAgent must rebuild first.`,
+            `runRootTurn: root agent is "${targetHostedSession.getRootAgentName()}", not "${agentName}". The agent activation transaction must rebuild first.`,
         );
     }
     let meta = rootSessionMetadata.get(session);

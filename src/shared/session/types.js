@@ -61,5 +61,5 @@
  */
 
 /**
- * @typedef {(userRequest: string, images: ImageAttachment[], sessionManager: SessionManagerLike) => Promise<AgentTurnResult | void>} AgentMessageHandler
+ * @typedef {(userRequest: string, images: ImageAttachment[], sessionManager: SessionManagerLike) => Promise<AgentTurnResult>} AgentMessageHandler
  */

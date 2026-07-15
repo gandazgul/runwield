@@ -83,6 +83,8 @@ Deno.test("SessionRuntime does not expose compatibility object APIs", () => {
     assertEquals(methods.includes("emitSessionEvent"), false);
     assertEquals(methods.includes("recordLocalToolExchange"), false);
     assertEquals(methods.includes("cancelSessionCompaction"), false);
+    assertEquals(methods.includes("setSessionHandler"), false);
+    assertEquals(methods.includes("ensureSessionReady"), false);
     const runtime = new SessionRuntime();
     for (
         const internal of [

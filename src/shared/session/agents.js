@@ -78,7 +78,7 @@ export async function resolveAgentDefsDir(projectRoot) {
 /**
  * Sync cache of display names keyed by internal agent name (filename without .md).
  * Populated as a side-effect of every `loadAgentDef*` call so callers that need a
- * display name without awaiting (e.g. `setActiveAgent`) can resolve one cheaply.
+ * display name without awaiting (for example footer rendering) can resolve one cheaply.
  *
  * @type {Map<string, string>}
  */

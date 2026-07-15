@@ -53,6 +53,36 @@ Deno.test("switchActiveAgent preserves previous root and handler when target bui
     assertEquals(hostedSession.getActiveOnMessage(), previousHandler);
 });
 
+Deno.test("switchActiveAgent stages the handler before root installation", async () => {
+    const hostedSession = makeSession();
+    const previousHandler = () => Promise.resolve({ kind: "complete" });
+    const previousRoot = /** @type {any} */ ({ dispose: () => {} });
+    let rootBuildStarted = false;
+    hostedSession.setRootAgentName("router");
+    hostedSession.setRootAgentSession(previousRoot);
+    hostedSession.setActiveOnMessage(previousHandler);
+
+    await assertRejects(
+        () =>
+            switchActiveAgent(hostedSession, { agentName: "operator" }, {
+                createAgentHandler: () => {
+                    throw new Error("handler build failed");
+                },
+                ensureRootAgentSession: /** @type {any} */ (() => {
+                    rootBuildStarted = true;
+                    throw new Error("root build must not start");
+                }),
+            }),
+        Error,
+        "handler build failed",
+    );
+
+    assertEquals(rootBuildStarted, false);
+    assertEquals(hostedSession.getRootAgentName(), "router");
+    assertEquals(hostedSession.getRootAgentSession(), previousRoot);
+    assertEquals(hostedSession.getActiveOnMessage(), previousHandler);
+});
+
 Deno.test("switchActiveAgent treats unchanged same-agent switches as no-ops", async () => {
     const hostedSession = makeSession();
     const previousRoot = /** @type {any} */ ({ dispose: () => {} });

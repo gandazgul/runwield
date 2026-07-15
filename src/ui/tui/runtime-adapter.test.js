@@ -322,7 +322,7 @@ Deno.test("TUI adapter hydrates queued messages from the core session snapshot",
     assertEquals(transcript, [`queue:add:${queued.id}:already queued`]);
 });
 
-Deno.test("TUI adapter rerenders when Runtime workflow footer context changes", () => {
+Deno.test("TUI adapter rerenders when Runtime agent or workflow footer state changes", () => {
     const { runtime, sessionId } = makeRuntimeHarness("adapter-workflow-context");
     const { uiAPI } = makeUi();
     let renders = 0;
@@ -332,12 +332,16 @@ Deno.test("TUI adapter rerenders when Runtime workflow footer context changes", 
     const adapter = attachTuiRuntimeAdapter({ runtime, sessionId, uiAPI });
 
     runtime.emitSessionEvent(sessionId, {
+        type: RuntimeEventTypes.AGENT_CHANGED,
+        agentName: "Engineer",
+    });
+    runtime.emitSessionEvent(sessionId, {
         type: RuntimeEventTypes.WORKFLOW_CONTEXT_CHANGED,
         workflowContext: { routingIntent: "PROJECT", complexity: "HIGH", planName: "large-change" },
     });
     adapter.dispose();
 
-    assertEquals(renders, 1);
+    assertEquals(renders, 2);
 });
 
 Deno.test("a second TUI adapter for one Runtime session fails instead of duplicating output", () => {

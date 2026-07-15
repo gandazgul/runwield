@@ -210,9 +210,9 @@ export async function maybeShowModelWelcome(options) {
     }
 
     try {
-        await options.sessionRuntime.ensureSessionReady(options.sessionId, {
+        await options.sessionRuntime.switchAgent(options.sessionId, {
             agentName: options.initialAgentInternalName,
-            modelOverride: options.initialAgentModel,
+            model: options.initialAgentModel,
         });
         options.editor.disableSubmit = false;
         options.tui.setFocus(options.editor);

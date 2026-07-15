@@ -436,6 +436,8 @@ export class SessionRuntime {
     #queuedMessages;
     /** @type {Map<string, QueueSourceSubscription>} */
     #queueSourceSubscriptions;
+    /** @type {Map<string, number>} */
+    #busyOperationDepths;
 
     /** @param {SessionRuntimeOptions} [options] */
     constructor(options = {}) {
@@ -452,6 +454,7 @@ export class SessionRuntime {
         this.#turnSettlements = new Map();
         this.#queuedMessages = new Map();
         this.#queueSourceSubscriptions = new Map();
+        this.#busyOperationDepths = new Map();
     }
 
     listSessions() {
@@ -484,7 +487,7 @@ export class SessionRuntime {
             activeAgentInfo: session.getActiveAgentInfo(),
             activeModel: session.getActiveModelState(),
             thinkingLevel: session.getThinkingLevel(),
-            busy: session.isTurnActive(),
+            busy: session.isTurnActive() || (this.#busyOperationDepths.get(session.id) || 0) > 0,
             activeTurnId: session.getActiveTurnId(),
             queuedMessages: this.getQueuedMessages(session.id),
             workflowContext: workflowContext ? { ...workflowContext } : null,
@@ -498,6 +501,60 @@ export class SessionRuntime {
      */
     getQueuedMessages(sessionId) {
         return (this.#queuedMessages.get(sessionId) || []).map(toRuntimeQueuedMessage);
+    }
+
+    /**
+     * Runtime busy state is reference-counted because a public workflow action
+     * can nest other Runtime-owned model work. Consumers receive only aggregate
+     * idle/busy transitions, never a premature idle event from an inner action.
+     *
+     * @param {string} sessionId
+     * @param {string} [turnId]
+     */
+    #beginBusyOperation(sessionId, turnId) {
+        const depth = this.#busyOperationDepths.get(sessionId) || 0;
+        this.#busyOperationDepths.set(sessionId, depth + 1);
+        if (depth === 0) {
+            this.#emitSessionEvent(sessionId, {
+                type: RuntimeEventTypes.BUSY_CHANGED,
+                ...(turnId ? { turnId } : {}),
+                busy: true,
+            });
+        }
+    }
+
+    /**
+     * @param {string} sessionId
+     * @param {string} [turnId]
+     */
+    #endBusyOperation(sessionId, turnId) {
+        const depth = this.#busyOperationDepths.get(sessionId) || 0;
+        if (depth <= 0) return;
+        if (depth > 1) {
+            this.#busyOperationDepths.set(sessionId, depth - 1);
+            return;
+        }
+        this.#busyOperationDepths.delete(sessionId);
+        this.#emitSessionEvent(sessionId, {
+            type: RuntimeEventTypes.BUSY_CHANGED,
+            ...(turnId ? { turnId } : {}),
+            busy: false,
+        });
+    }
+
+    /**
+     * @template T
+     * @param {string} sessionId
+     * @param {() => Promise<T>} operation
+     * @returns {Promise<T>}
+     */
+    async #runBusyOperation(sessionId, operation) {
+        this.#beginBusyOperation(sessionId);
+        try {
+            return await operation();
+        } finally {
+            this.#endBusyOperation(sessionId);
+        }
     }
 
     /**
@@ -842,30 +899,6 @@ export class SessionRuntime {
         return { ok: true };
     }
 
-    /** @param {string} sessionId @param {string} agentName */
-    setSessionHandler(sessionId, agentName) {
-        const session = this.#sessionHost.getSession(sessionId);
-        if (!session) return { ok: false, error: "not_found" };
-        session.setActiveOnMessage(this.#createAgentHandler(agentName, { hostedSession: session }));
-        return { ok: true };
-    }
-
-    /**
-     * @param {string} sessionId
-     * @param {{ agentName: string, modelOverride?: string }} options
-     */
-    async ensureSessionReady(sessionId, options) {
-        const session = this.#sessionHost.getSession(sessionId);
-        if (!session) return { ok: false, error: "not_found" };
-        await this.#ensureRootAgentSession({
-            hostedSession: session,
-            agentName: options.agentName,
-            modelOverride: options.modelOverride,
-            sessionManager: /** @type {any} */ (session.getRootSessionManager() || undefined),
-        });
-        return { ok: true };
-    }
-
     /**
      * Run a transient agent inside an existing runtime session. Consumers may
      * select behavior, but the internal HostedSession and Pi manager never
@@ -886,19 +919,20 @@ export class SessionRuntime {
     async runIsolatedAgent(sessionId, options) {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) throw new Error("SessionRuntime.runIsolatedAgent: session not found");
-        return await runAgentSession({
-            hostedSession: session,
-            agentName: options.agentName,
-            userRequest: options.userRequest,
-            images: options.images || [],
-            toolNames: options.toolNames,
-            customTools: options.customTools,
-            modelOverride: options.modelOverride,
-            allowReturnToRouter: options.allowReturnToRouter,
-            sessionManager: /** @type {any} */ (session.getRootSessionManager() || undefined),
-            _agentDefOverride: options.agentDef,
-            useRootSession: false,
-        });
+        return await this.#runBusyOperation(session.id, () =>
+            runAgentSession({
+                hostedSession: session,
+                agentName: options.agentName,
+                userRequest: options.userRequest,
+                images: options.images || [],
+                toolNames: options.toolNames,
+                customTools: options.customTools,
+                modelOverride: options.modelOverride,
+                allowReturnToRouter: options.allowReturnToRouter,
+                sessionManager: /** @type {any} */ (session.getRootSessionManager() || undefined),
+                _agentDefOverride: options.agentDef,
+                useRootSession: false,
+            }));
     }
 
     /** @param {string} sessionId @param {Record<string, any>} workflow */
@@ -921,52 +955,62 @@ export class SessionRuntime {
     async executePlan(sessionId, options) {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) throw new Error("SessionRuntime.executePlan: session not found");
-        const { executePlan } = await import("../workflow/workflow.js");
-        return await executePlan(/** @type {any} */ ({ ...options, hostedSession: session }));
+        return await this.#runBusyOperation(session.id, async () => {
+            const { executePlan } = await import("../workflow/workflow.js");
+            return await executePlan(/** @type {any} */ ({ ...options, hostedSession: session }));
+        });
     }
 
     /** @param {string} sessionId @param {Record<string, any>} options */
     async runPlanningAgent(sessionId, options) {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) throw new Error("SessionRuntime.runPlanningAgent: session not found");
-        const { runPlanningAgent } = await import("../workflow/workflow.js");
-        return await runPlanningAgent(
-            /** @type {any} */ ({
-                ...options,
-                hostedSession: session,
-                sessionManager: /** @type {any} */ (session.getRootSessionManager() || undefined),
-            }),
-        );
+        return await this.#runBusyOperation(session.id, async () => {
+            const { runPlanningAgent } = await import("../workflow/workflow.js");
+            return await runPlanningAgent(
+                /** @type {any} */ ({
+                    ...options,
+                    hostedSession: session,
+                    sessionManager: /** @type {any} */ (session.getRootSessionManager() || undefined),
+                }),
+            );
+        });
     }
 
     /** @param {string} sessionId @param {Record<string, any>} options */
     async runSlicerAgent(sessionId, options) {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) throw new Error("SessionRuntime.runSlicerAgent: session not found");
-        const { runSlicerAgent } = await import("../workflow/workflow-slicer.js");
-        return await runSlicerAgent(
-            /** @type {any} */ ({
-                ...options,
-                hostedSession: session,
-                sessionManager: /** @type {any} */ (session.getRootSessionManager() || undefined),
-            }),
-        );
+        return await this.#runBusyOperation(session.id, async () => {
+            const { runSlicerAgent } = await import("../workflow/workflow-slicer.js");
+            return await runSlicerAgent(
+                /** @type {any} */ ({
+                    ...options,
+                    hostedSession: session,
+                    sessionManager: /** @type {any} */ (session.getRootSessionManager() || undefined),
+                }),
+            );
+        });
     }
 
     /** @param {string} sessionId @param {Record<string, any>} options */
     async ensureSlicerTasks(sessionId, options) {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) throw new Error("SessionRuntime.ensureSlicerTasks: session not found");
-        const { ensureSlicerTasks } = await import("../workflow/workflow-slicer.js");
-        return await ensureSlicerTasks(/** @type {any} */ ({ ...options, hostedSession: session }));
+        return await this.#runBusyOperation(session.id, async () => {
+            const { ensureSlicerTasks } = await import("../workflow/workflow-slicer.js");
+            return await ensureSlicerTasks(/** @type {any} */ ({ ...options, hostedSession: session }));
+        });
     }
 
     /** @param {string} sessionId @param {Record<string, any>} options */
     async runValidation(sessionId, options) {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) throw new Error("SessionRuntime.runValidation: session not found");
-        const { runValidationLoop } = await import("../workflow/validation.js");
-        return await runValidationLoop(/** @type {any} */ ({ ...options, hostedSession: session }));
+        return await this.#runBusyOperation(session.id, async () => {
+            const { runValidationLoop } = await import("../workflow/validation.js");
+            return await runValidationLoop(/** @type {any} */ ({ ...options, hostedSession: session }));
+        });
     }
 
     /** @param {string} sessionId @param {string} planName */
@@ -1221,9 +1265,10 @@ export class SessionRuntime {
     /** @param {string} sessionId @param {string} [instructions] */
     async compactSession(sessionId, instructions = undefined) {
         const session = this.#sessionHost.getSession(sessionId);
-        const rootAgentSession = /** @type {any} */ (session?.getRootAgentSession());
+        if (!session) throw new Error("SessionRuntime.compactSession: session not found");
+        const rootAgentSession = /** @type {any} */ (session.getRootAgentSession());
         if (!rootAgentSession?.compact) throw new Error("Runtime session cannot be compacted.");
-        return await rootAgentSession.compact(instructions);
+        return await this.#runBusyOperation(session.id, () => rootAgentSession.compact(instructions));
     }
 
     /** @param {string} sessionId */
@@ -1410,6 +1455,7 @@ export class SessionRuntime {
             queueSubscription?.unsubscribe();
             this.#queueSourceSubscriptions.delete(id);
             this.#queuedMessages.delete(id);
+            this.#busyOperationDepths.delete(id);
         }
         return { ok: true, closed };
     }
@@ -1508,6 +1554,21 @@ export class SessionRuntime {
     }
 
     /**
+     * Commit one matching root Agent Session and Agent Handler pair.
+     * Initial activation, resume, user switching, and typed handoffs all use
+     * this transaction instead of exposing its internal phases.
+     *
+     * @param {import('./hosted-session.js').HostedSession} hostedSession
+     * @param {{ agentName: string, model?: string, allowReturnToRouter?: boolean }} options
+     */
+    async #activateSessionAgent(hostedSession, options) {
+        return await this.#switchActiveAgent(hostedSession, options, {
+            ensureRootAgentSession: this.#ensureRootAgentSession,
+            createAgentHandler: /** @type {typeof createAgentHandler} */ (this.#createAgentHandler),
+        });
+    }
+
+    /**
      * Create the persistence and internal session state used by an interactive
      * consumer. Only the opaque runtime id and public metadata cross the core
      * boundary.
@@ -1549,13 +1610,9 @@ export class SessionRuntime {
         const created = await this.createInteractiveSession({ cwd: options.cwd, mode: "new" });
         const hostedSession = this.#sessionHost.getSession(created.sessionId);
         if (!hostedSession) throw new Error("SessionRuntime failed to retain the new session");
-        const sessionManager = hostedSession.getRootSessionManager();
         try {
-            hostedSession.setActiveOnMessage(this.#createAgentHandler(agentName, { hostedSession }));
-            await this.#ensureRootAgentSession({
-                hostedSession,
+            await this.#activateSessionAgent(hostedSession, {
                 agentName,
-                sessionManager: /** @type {any} */ (sessionManager || undefined),
             });
             return hostedSession.id;
         } catch (error) {
@@ -1588,12 +1645,9 @@ export class SessionRuntime {
         });
         this.#attachRuntimeEventSink(hostedSession);
         try {
-            hostedSession.setActiveOnMessage(this.#createAgentHandler(agentName, { hostedSession }));
-            await this.#ensureRootAgentSession({
-                hostedSession,
+            await this.#activateSessionAgent(hostedSession, {
                 agentName,
-                modelOverride: options.modelOverride,
-                sessionManager,
+                model: options.modelOverride,
             });
             const replayEvents = createReplayEvents(hostedSession.id, getRootSessionBranchEntries(sessionManager))
                 .map((event) => createSessionRuntimeEvent(hostedSession.id, /** @type {any} */ (event)));
@@ -1645,10 +1699,7 @@ export class SessionRuntime {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) return { ok: false, error: "not_found" };
         if (session.isTurnActive()) throw new SessionTurnInProgressError(session.id);
-        return await this.#switchActiveAgent(session, options, {
-            ensureRootAgentSession: this.#ensureRootAgentSession,
-            createAgentHandler: /** @type {typeof createAgentHandler} */ (this.#createAgentHandler),
-        });
+        return await this.#activateSessionAgent(session, options);
     }
 
     /** @param {string} sessionId */
@@ -1707,6 +1758,7 @@ export class SessionRuntime {
         let turns = 0;
         let handoffs = 0;
         let ok = false;
+        let busyStarted = false;
         let result =
             /** @type {{ ok: boolean, turns: number, handoffs: number, handoffLimitReached: boolean, error?: string } | null} */ (null);
 
@@ -1720,7 +1772,8 @@ export class SessionRuntime {
                 images: images.map((image) => ({ ...image })),
             });
             this.#emitSessionEvent(hostedSession.id, { type: RuntimeEventTypes.TURN_START, turnId });
-            this.#emitSessionEvent(hostedSession.id, { type: RuntimeEventTypes.BUSY_CHANGED, turnId, busy: true });
+            this.#beginBusyOperation(hostedSession.id, turnId);
+            busyStarted = true;
 
             if (!hostedSession.getActiveOnMessage() || !hostedSession.getRootSessionManager()) {
                 const message = "Error: No active agent handler or session manager.";
@@ -1792,17 +1845,10 @@ export class SessionRuntime {
                 }
 
                 handoffs++;
-                await this.#switchActiveAgent(
-                    hostedSession,
-                    {
-                        agentName: turnResult.agentName,
-                        model: turnResult.model,
-                    },
-                    {
-                        ensureRootAgentSession: this.#ensureRootAgentSession,
-                        createAgentHandler: /** @type {typeof createAgentHandler} */ (this.#createAgentHandler),
-                    },
-                );
+                await this.#activateSessionAgent(hostedSession, {
+                    agentName: turnResult.agentName,
+                    model: turnResult.model,
+                });
                 request = turnResult.userRequest;
                 images = [];
             }
@@ -1826,7 +1872,7 @@ export class SessionRuntime {
                 result: result || { turns, handoffs },
             });
             hostedSession.endTurn(turnId);
-            this.#emitSessionEvent(hostedSession.id, { type: RuntimeEventTypes.BUSY_CHANGED, turnId, busy: false });
+            if (busyStarted) this.#endBusyOperation(hostedSession.id, turnId);
             try {
                 cleanupTurn();
             } catch {

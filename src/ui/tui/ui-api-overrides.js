@@ -1,9 +1,9 @@
 /**
  * @module ui/tui/ui-api-overrides
  *
- * Wires chat-session-specific behavior onto the shared UiAPI: keeps the
- * active-agent / model state in sync with TUI renders, swaps the editor for
- * the model-selector overlay, and inlines pasted images into the message list.
+ * Wires chat-session-specific input behavior onto the shared UiAPI: swaps the
+ * editor for the model-selector overlay and inlines pasted images into the
+ * message list. Runtime snapshots remain authoritative for footer state.
  */
 
 import { Image, Spacer } from "@earendil-works/pi-tui";
