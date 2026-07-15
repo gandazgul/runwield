@@ -65,6 +65,46 @@ Deno.test("review surface stop unregisters the server from process-exit cleanup"
     assertEquals(stops, 1);
 });
 
+Deno.test("code review surface forwards guided review payload to injected server", async () => {
+    /** @type {any} */
+    let seen;
+    const server = await startCodeReviewSurface({
+        rawPatch: "diff --git a/a.js b/a.js\n+change",
+        gitRef: "test diff",
+        agentCwd: Deno.cwd(),
+        htmlContent: "<html>code</html>",
+        guidedReview: {
+            mode: "auto",
+            autoStart: true,
+            manualAvailable: true,
+            reasons: ["test"],
+            stats: {
+                changedFiles: 1,
+                changedLines: 1,
+                addedLines: 1,
+                removedLines: 0,
+                meaningfulAreas: ["src"],
+                lowSignalOnly: false,
+                paths: ["a.js"],
+            },
+            score: 4,
+        },
+        startReviewServer: /** @type {any} */ ((/** @type {any} */ options) => {
+            seen = options.guidedReview;
+            return Promise.resolve({
+                url: "http://127.0.0.1:5555/code-review",
+                waitForDecision: () => Promise.resolve({ approved: true }),
+                stop: () => {},
+            });
+        }),
+        openInDefaultBrowser: () => Promise.resolve(true),
+    });
+
+    await server.stop();
+
+    assertEquals(seen?.autoStart, true);
+});
+
 Deno.test("plan review surface forwards server output to its caller", async () => {
     /** @type {Array<{ stream: "stdout" | "stderr", text: string }>} */
     const output = [];

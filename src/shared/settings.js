@@ -14,6 +14,7 @@ const RUNWEILD_CUSTOM_SETTING_KEYS = [
     "compactOnResumeThresholdPercent",
     "verification_command",
     "codereview",
+    "guidedReview",
     "cleanupMergedWorktrees",
     "workflowMetrics",
     "notifications",
@@ -549,5 +550,24 @@ export function getCodeReviewMode(projectRoot) {
 
     const normalized = mode.trim().toLowerCase();
     if (normalized === "ask" || normalized === "always") return normalized;
+    return "none";
+}
+
+/**
+ * Resolve the optional Guided Review generation mode.
+ *
+ * @param {string} projectRoot
+ * @returns {"none" | "ask" | "auto" | "always"}
+ */
+export function getGuidedReviewMode(projectRoot) {
+    if (!projectRoot) throw new Error("getGuidedReviewMode: projectRoot is required");
+    const mode = getMergedCustomSetting("guidedReview", projectRoot);
+    if (mode === undefined) return "auto";
+    if (typeof mode !== "string") return "none";
+
+    const normalized = mode.trim().toLowerCase();
+    if (normalized === "none" || normalized === "ask" || normalized === "auto" || normalized === "always") {
+        return normalized;
+    }
     return "none";
 }

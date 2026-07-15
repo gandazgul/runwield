@@ -17,7 +17,33 @@ import { exportReviewFeedback } from "../../../../third_party/plannotator/packag
 import { PlanReviewSettings } from "./PlanReviewSettings.tsx";
 import "./plannotator.css";
 
-const DEFAULT_CODE_PAYLOAD = { rawPatch: "", gitRef: "", agentCwd: "", token: "", mode: "dev", reviewStatus: null };
+const DEFAULT_CODE_PAYLOAD = {
+    rawPatch: "",
+    gitRef: "",
+    agentCwd: "",
+    token: "",
+    mode: "dev",
+    reviewStatus: null,
+    guidedReview: null,
+};
+
+async function waitForGuideJob(jobId, token, setGuideJob) {
+    const started = Date.now();
+    while (Date.now() - started < 120000) {
+        await new Promise((resolve) => globalThis.setTimeout(resolve, 750));
+        const response = await fetch(`/api/agents/jobs?token=${encodeURIComponent(token)}`, {
+            headers: { "x-runwield-review-token": token },
+        });
+        if (!response.ok) throw new Error(await response.text() || `Guide job status failed: ${response.status}`);
+        const data = await response.json();
+        const job = (data.jobs || []).find((candidate) => candidate.id === jobId);
+        if (job) {
+            setGuideJob(job);
+            if (["done", "failed", "killed"].includes(job.status)) return job;
+        }
+    }
+    throw new Error("Timed out waiting for Guided Review generation.");
+}
 
 export function CodeReviewSurface({ payload }) {
     const initialPayload = useMemo(
@@ -41,6 +67,13 @@ export function CodeReviewSurface({ payload }) {
     const [viewedFiles, setViewedFiles] = useState(new Set());
     const [fileNavigationTarget, setFileNavigationTarget] = useState(null);
     const [allFilesContentFits, setAllFilesContentFits] = useState(false);
+    const [guideOpen, setGuideOpen] = useState(false);
+    const [guideJob, setGuideJob] = useState(null);
+    const [guideCapabilities, setGuideCapabilities] = useState(initialPayload.devGuideCapabilities || null);
+    const [guide, setGuide] = useState(initialPayload.guidedReviewFixture || null);
+    const [guideGenerating, setGuideGenerating] = useState(false);
+    const [guideError, setGuideError] = useState("");
+    const autoGuideStartedRef = useRef(false);
     const globalCommentButtonRef = useRef(null);
     const allFilesHostRef = useRef(null);
     const navigationLockRef = useRef(null);
@@ -72,6 +105,79 @@ export function CodeReviewSurface({ payload }) {
         () => annotations.length > 0 ? exportReviewFeedbackWithImages(annotations) : "",
         [annotations],
     );
+    const guidePolicy = initialPayload.guidedReview ||
+        { mode: "auto", autoStart: false, manualAvailable: true, reasons: [] };
+    const guideReady = Boolean(guide);
+    const guideCapabilitiesKnown = initialPayload.mode === "dev" || guideCapabilities !== null;
+    const guideProviderAvailable = initialPayload.mode === "dev"
+        ? guideCapabilities?.available !== false
+        : Boolean(guideCapabilities?.available);
+
+    useEffect(() => {
+        let canceled = false;
+        if (!initialPayload.token || initialPayload.mode === "dev") return undefined;
+        fetch(`/api/agents/capabilities?token=${encodeURIComponent(initialPayload.token)}`, {
+            headers: { "x-runwield-review-token": initialPayload.token },
+        }).then((response) => response.ok ? response.json() : null).then((capabilities) => {
+            if (!canceled) setGuideCapabilities(capabilities);
+        }).catch(() => {
+            if (!canceled) setGuideCapabilities({ available: false, providers: [] });
+        });
+        return () => {
+            canceled = true;
+        };
+    }, [initialPayload.mode, initialPayload.token]);
+
+    const generateGuide = useCallback(async () => {
+        if (guideGenerating) return;
+        setGuideError("");
+        setGuideGenerating(true);
+        try {
+            if (initialPayload.mode === "dev") {
+                await new Promise((resolve) => globalThis.setTimeout(resolve, 300));
+                if (initialPayload.devGuideFailure) throw new Error(initialPayload.devGuideFailure);
+                if (!initialPayload.guidedReviewFixture) throw new Error("No dev Guided Review fixture is configured.");
+                setGuide(initialPayload.guidedReviewFixture);
+                setGuideJob({ id: "dev-guide", provider: "guide", status: "done", label: "Guided Review Explainer" });
+                return;
+            }
+            const response = await fetch(`/api/agents/jobs?token=${encodeURIComponent(initialPayload.token)}`, {
+                method: "POST",
+                headers: {
+                    "content-type": "application/json",
+                    "x-runwield-review-token": initialPayload.token,
+                },
+                body: JSON.stringify({ provider: "guide", label: "Guided Review Explainer" }),
+            });
+            if (!response.ok) throw new Error(await response.text() || `Guide launch failed: ${response.status}`);
+            const data = await response.json();
+            const job = data.job;
+            setGuideJob(job);
+            const readyJob = await waitForGuideJob(job.id, initialPayload.token, setGuideJob);
+            if (readyJob.status !== "done") throw new Error(readyJob.error || `Guide generation ${readyJob.status}`);
+            const guideResponse = await fetch(
+                `/api/guide/${encodeURIComponent(job.id)}?token=${encodeURIComponent(initialPayload.token)}`,
+                {
+                    headers: { "x-runwield-review-token": initialPayload.token },
+                },
+            );
+            if (!guideResponse.ok) {
+                throw new Error(await guideResponse.text() || `Guide load failed: ${guideResponse.status}`);
+            }
+            setGuide(await guideResponse.json());
+        } catch (err) {
+            setGuideError(err instanceof Error ? err.message : String(err));
+        } finally {
+            setGuideGenerating(false);
+        }
+    }, [guideGenerating, initialPayload]);
+
+    useEffect(() => {
+        if (!guidePolicy.autoStart || autoGuideStartedRef.current || guideReady || !guideCapabilitiesKnown) return;
+        if (!guideProviderAvailable) return;
+        autoGuideStartedRef.current = true;
+        void generateGuide();
+    }, [generateGuide, guideCapabilitiesKnown, guidePolicy.autoStart, guideProviderAvailable, guideReady]);
 
     const toggleViewedFile = useCallback((filePath) => {
         const wasViewed = viewedFiles.has(filePath);
@@ -385,6 +491,24 @@ export function CodeReviewSurface({ payload }) {
                         >
                             {initialPayload.gitRef || "Working diff"}
                         </p>
+                        <div className="rw-guide-actions">
+                            <button
+                                className="rw-code-control-button rw-guide-generate-button"
+                                type="button"
+                                onClick={guideReady ? () => setGuideOpen((open) => !open) : generateGuide}
+                                disabled={guideGenerating || (!guideReady && !guideProviderAvailable)}
+                                title="Guided Review generation uses an additional LLM call when backed by an agent provider."
+                            >
+                                {guideGenerating
+                                    ? "Generating guided review…"
+                                    : guideReady
+                                    ? (guideOpen ? "Back to diff" : "Guided Review ready")
+                                    : "Generate guided review"}
+                            </button>
+                            <span className="rw-guide-cost-note">
+                                {formatGuideStatus(guideJob, guideCapabilities, guidePolicy)}
+                            </span>
+                        </div>
                         <button
                             ref={globalCommentButtonRef}
                             className="rw-code-control-button"
@@ -462,7 +586,40 @@ export function CodeReviewSurface({ payload }) {
                             aria-label="All file changes"
                             data-content-fits={allFilesContentFits}
                         >
-                            {files.length > 0
+                            {guideOpen && guide
+                                ? (
+                                    <GuidedReviewExplainer
+                                        guide={guide}
+                                        files={files}
+                                        token={initialPayload.token}
+                                        jobId={guideJob?.id || "dev-guide"}
+                                        diffProps={{
+                                            diffStyle,
+                                            diffOverflow,
+                                            diffIndicators,
+                                            diffLineDiffType,
+                                            diffShowLineNumbers,
+                                            diffShowBackground,
+                                            diffExpandUnchanged,
+                                            diffFontFamily,
+                                            diffFontSize,
+                                            annotations,
+                                            selectedAnnotationId,
+                                            scrollTargetAnnotation,
+                                            pendingSelection,
+                                            setPendingSelection,
+                                            addAnnotationForFile,
+                                            editAnnotation,
+                                            setSelectedAnnotationId,
+                                            setAnnotations,
+                                            addFileComment,
+                                            viewedFiles,
+                                            toggleViewedFile,
+                                            stagedFiles,
+                                        }}
+                                    />
+                                )
+                                : files.length > 0
                                 ? (
                                     <AllFilesCodeView
                                         key={[
@@ -512,6 +669,7 @@ export function CodeReviewSurface({ payload }) {
                                     />
                                 )
                                 : <div className="rw-empty-diff">No diff content.</div>}
+                            {guideError && <p className="rw-review-error" role="alert">{guideError}</p>}
                         </main>
                         {annotationsOpen && (
                             <ReviewSidebar
@@ -580,6 +738,179 @@ export function CodeReviewSurface({ payload }) {
             throw new Error(message || `Decision failed: ${response.status}`);
         }
     }
+}
+
+function formatGuideStatus(job, capabilities, policy) {
+    if (job) {
+        const elapsed = typeof job.elapsedMs === "number" ? `${(job.elapsedMs / 1000).toFixed(1)}s` : "elapsed pending";
+        const model = [job.providerName || job.engine || job.provider, job.model].filter(Boolean).join("/") ||
+            "provider unknown";
+        const tokens = job.tokens ? `tokens ${JSON.stringify(job.tokens)}` : "tokens unavailable";
+        const cost = job.cost ? `cost ${JSON.stringify(job.cost)}` : "cost unavailable";
+        return `${job.status} · ${model} · ${elapsed} · ${tokens} · ${cost}`;
+    }
+    if (capabilities && !capabilities.available) {
+        return "Guided Review provider unavailable · configure provider to make the extra LLM call";
+    }
+    return `extra LLM call · ${policy.reasons?.join(", ") || policy.mode || "manual"} · cost unavailable until run`;
+}
+
+function GuidedReviewExplainer({ guide, files, token, jobId, diffProps }) {
+    const placed = new Set();
+    return (
+        <article className="rw-guide-explainer" aria-label="Guided Review Explainer">
+            <header className="rw-guide-explainer-header">
+                <p className="rw-guide-kicker">Guided Review Explainer</p>
+                <h2>{guide.title || "Guided Review"}</h2>
+                {guide.intent && <p>{guide.intent}</p>}
+            </header>
+            {(guide.sections || []).map((section, sectionIndex) => (
+                <section className="rw-guide-section" key={`${section.title}:${sectionIndex}`}>
+                    <h3>{section.title}</h3>
+                    {section.role && <p className="rw-guide-section-role">{section.role}</p>}
+                    {(section.blocks || []).map((block, blockIndex) => {
+                        if (block.type === "diff" && block.file) {
+                            placed.add(block.file);
+                        }
+                        return (
+                            <GuideBlock
+                                key={`${block.type}:${blockIndex}:${block.file || block.title || "block"}`}
+                                block={block}
+                                files={files}
+                                token={token}
+                                jobId={jobId}
+                                diffProps={diffProps}
+                            />
+                        );
+                    })}
+                </section>
+            ))}
+            {(guide.everythingElse || []).length > 0 && (
+                <section className="rw-guide-section">
+                    <h3>Everything else</h3>
+                    <p className="rw-guide-section-role">Changed files not placed in the explanatory flow.</p>
+                    {guide.everythingElse.map((ref, index) => (
+                        <GuideBlock
+                            key={`everything:${ref.file}:${index}`}
+                            block={{ type: "diff", file: ref.file, summary: "Additional changed file." }}
+                            files={files}
+                            token={token}
+                            jobId={jobId}
+                            diffProps={diffProps}
+                        />
+                    ))}
+                </section>
+            )}
+        </article>
+    );
+}
+
+function GuideBlock({ block, files, token, jobId: _jobId, diffProps }) {
+    if (block.type === "prose") {
+        return <div className="rw-guide-prose">{renderMarkdownLite(block.markdown || block.text || "")}</div>;
+    }
+    if (block.type === "callout") {
+        return (
+            <aside className={`rw-guide-callout rw-guide-callout-${block.tone || "note"}`}>
+                {block.title && <strong>{block.title}</strong>}
+                <div>{renderMarkdownLite(block.markdown || block.text || "")}</div>
+            </aside>
+        );
+    }
+    if (block.type === "mermaid") return <MermaidBlock block={block} />;
+    if (block.type === "widget") {
+        const id = encodeURIComponent(block.id || block.widgetId || "widget");
+        const entry = encodeURIComponent(block.entry || "index.html");
+        return (
+            <figure className="rw-guide-widget">
+                <figcaption>
+                    <strong>{block.title || "Interactive explainer"}</strong>
+                    {block.reason && <span>{block.reason}</span>}
+                </figcaption>
+                <iframe
+                    title={block.title || "Guided Review widget"}
+                    sandbox="allow-scripts"
+                    src={`/api/review/widgets/${id}/${entry}?token=${encodeURIComponent(token)}`}
+                />
+            </figure>
+        );
+    }
+    if (block.type === "reviewCheckpoint") {
+        return <div className="rw-guide-checkpoint">{renderMarkdownLite(block.markdown || block.text || "")}</div>;
+    }
+    if (block.type === "diff" && block.file) {
+        const file = files.find((item) => item.path === block.file);
+        if (!file) return <p className="rw-guide-missing-diff">Diff no longer available: {block.file}</p>;
+        return (
+            <div className="rw-guide-diff-block">
+                {block.summary && <p>{block.summary}</p>}
+                <AllFilesCodeView
+                    files={[file]}
+                    diffStyle={diffProps.diffStyle}
+                    diffOverflow={diffProps.diffOverflow}
+                    diffIndicators={diffProps.diffIndicators}
+                    lineDiffType={diffProps.diffLineDiffType}
+                    disableLineNumbers={!diffProps.diffShowLineNumbers}
+                    disableBackground={!diffProps.diffShowBackground}
+                    expandUnchanged={diffProps.diffExpandUnchanged}
+                    fontFamily={diffProps.diffFontFamily}
+                    fontSize={diffProps.diffFontSize}
+                    annotations={diffProps.annotations}
+                    selectedAnnotationId={diffProps.selectedAnnotationId}
+                    scrollTargetAnnotation={diffProps.scrollTargetAnnotation}
+                    pendingSelection={diffProps.pendingSelection}
+                    onLineSelection={diffProps.setPendingSelection}
+                    onAddAnnotationForFile={(filePath, ...args) =>
+                        diffProps.addAnnotationForFile(files.find((item) => item.path === filePath), ...args)}
+                    onEditAnnotation={diffProps.editAnnotation}
+                    onSelectAnnotation={diffProps.setSelectedAnnotationId}
+                    onDeleteAnnotation={(id) =>
+                        diffProps.setAnnotations((items) => items.filter((item) => item.id !== id))}
+                    onAddFileCommentForFile={diffProps.addFileComment}
+                    viewedFiles={diffProps.viewedFiles}
+                    onToggleViewed={diffProps.toggleViewedFile}
+                    stagedFiles={diffProps.stagedFiles}
+                    fileOrder="list"
+                    isActive
+                />
+            </div>
+        );
+    }
+    return null;
+}
+
+function MermaidBlock({ block }) {
+    const [svg, setSvg] = useState("");
+    const [error, setError] = useState("");
+    useEffect(() => {
+        let canceled = false;
+        import("mermaid").then(({ default: mermaid }) => {
+            mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: "dark" });
+            return mermaid.render(`guide-${crypto.randomUUID()}`, block.source || "flowchart TD\nA[Empty diagram]");
+        }).then((result) => {
+            if (!canceled) setSvg(result.svg || "");
+        }).catch((err) => {
+            if (!canceled) setError(err instanceof Error ? err.message : String(err));
+        });
+        return () => {
+            canceled = true;
+        };
+    }, [block.source]);
+    return (
+        <figure className="rw-guide-mermaid">
+            {block.title && (
+                <figcaption>
+                    <strong>{block.title}</strong>
+                    {block.description && <span>{block.description}</span>}
+                </figcaption>
+            )}
+            {error ? <pre>{error}</pre> : <div dangerouslySetInnerHTML={{ __html: svg }} />}
+        </figure>
+    );
+}
+
+function renderMarkdownLite(markdown) {
+    return String(markdown).split(/\n{2,}/).map((paragraph, index) => <p key={index}>{paragraph}</p>);
 }
 
 function buildFileNavigationTarget(file) {
