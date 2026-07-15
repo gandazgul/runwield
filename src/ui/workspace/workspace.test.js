@@ -39,6 +39,7 @@ import { hashCapability } from "../../shared/collaboration/capabilities.js";
 import { openRemoteDatabase } from "./server/remote-db.js";
 import { createRemoteWorkspaceAdapter } from "./server/remote-adapter.js";
 import { registerReviewDecisionPromise, unregisterReviewDecision } from "./routes/api/review-handlers.js";
+import { buildRemoteCommentPayload, normalizeRemoteCommentPayload } from "./react/remote-review-payload.js";
 
 /**
  * @param {string} cwd
@@ -1782,5 +1783,75 @@ Deno.test("remote Shared Space API enforces capabilities, ciphertext storage, li
         assertEquals(deletedRead.status, 404);
     } finally {
         adapter.close();
+    }
+});
+
+Deno.test("remote Shared Space review route is isolated to remote mode", async () => {
+    const localApp = createWorkspaceApp({ cwd: Deno.cwd(), token: "secret" }).handler();
+    const localResponse = await localApp(new Request("http://localhost/p/space-1?token=secret"));
+    assertEquals(localResponse.status, 404);
+
+    const remoteApp = createWorkspaceApp({ mode: "remote" }).handler();
+    const remoteResponse = await remoteApp(new Request("http://localhost/p/space-1"));
+    assertEquals(remoteResponse.status === 200 || remoteResponse.status === 503, true);
+});
+
+Deno.test("remote review comment payload helper keeps semantic fields inside encrypted body shape", () => {
+    const payload = buildRemoteCommentPayload({
+        displayName: "Alice",
+        body: "Please clarify this paragraph.",
+        selection: {
+            blockId: "b-2",
+            startOffset: 5,
+            endOffset: 18,
+            originalText: "selected text",
+            prefix: "some ",
+            suffix: " after",
+        },
+    });
+    assertEquals(payload.schemaVersion, 1);
+    assertEquals(payload.type, "comment");
+    assertEquals(payload.displayName, "Alice");
+    assertEquals(payload.originalText, "selected text");
+    assertEquals(payload.anchor?.blockId, "b-2");
+    assertEquals(payload.anchor?.startOffset, 5);
+
+    const normalized = normalizeRemoteCommentPayload(payload);
+    assertEquals(normalized.body, "Please clarify this paragraph.");
+    assertEquals(normalized.anchor?.suffix, " after");
+});
+
+Deno.test("remote review comment payload helper rejects tampered or unsupported payloads", () => {
+    for (
+        const value of [
+            null,
+            { schemaVersion: 2, type: "comment", displayName: "Alice", body: "Body", originalText: "x", anchor: {} },
+            { schemaVersion: 1, type: "comment", displayName: "Alice", body: "Body", originalText: "x", anchor: null },
+            { schemaVersion: 1, type: "global_comment", displayName: "", body: "Body", originalText: "", anchor: null },
+        ]
+    ) {
+        let failed = false;
+        try {
+            normalizeRemoteCommentPayload(value);
+        } catch {
+            failed = true;
+        }
+        assertEquals(failed, true);
+    }
+});
+
+Deno.test("remote Workspace wrapper serves built Astro client assets", async () => {
+    const assetDir = new URL("../../../dist/workspace/client/_astro/", import.meta.url);
+    const assetPath = new URL("remote-review-test.js", assetDir);
+    await Deno.mkdir(assetDir, { recursive: true });
+    await Deno.writeTextFile(assetPath, "console.log('remote review asset');");
+    try {
+        const app = createWorkspaceApp({ mode: "remote" }).handler();
+        const response = await app(new Request("http://localhost/_astro/remote-review-test.js"));
+        assertEquals(response.status, 200);
+        assertEquals(response.headers.get("content-type"), "text/javascript; charset=utf-8");
+        assertEquals(await response.text(), "console.log('remote review asset');");
+    } finally {
+        await Deno.remove(assetPath).catch(() => {});
     }
 });
