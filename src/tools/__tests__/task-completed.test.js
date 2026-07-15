@@ -23,7 +23,9 @@ Deno.test("task_completed emits one semantic assistant message and terminates", 
     assertEquals(result.details, { outcome: "task_completed", message: "Implemented and tested." });
     assertEquals(events.length, 1);
     assertEquals(events[0].type, RuntimeEventTypes.ASSISTANT_TEXT_DELTA);
-    assertEquals(events[0]._meta.agentName, "engineer");
+    assertEquals(events[0].agentName, "engineer");
+    assertEquals(events[0].messageKind, "workflow");
+    assertEquals(events[0].workflowMessage, "task_completed");
     assertEquals(events[0].delta, "**Task completed.**\n\nImplemented and tested.");
     assertEquals(metrics[0].event, "task_completed");
 });

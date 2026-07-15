@@ -74,6 +74,11 @@ export function __setSettingsManagerForPersistenceTests(provider) {
 /** @type {Set<string>} */
 export let CHAT_BUILTIN_SLASH_NAMES = new Set();
 
+/** @param {"new" | "continue" | undefined} sessionStartMode */
+export function shouldReplaySessionHistory(sessionStartMode) {
+    return sessionStartMode === "continue";
+}
+
 /**
  * Format token counts for footer display (same formatting as Pi.dev).
  * @param {number} count
@@ -85,20 +90,6 @@ function formatTokens(count) {
     if (count < 1000000) return `${Math.round(count / 1000)}k`;
     if (count < 10000000) return `${(count / 1000000).toFixed(1)}M`;
     return `${Math.round(count / 1000000)}M`;
-}
-
-/**
- * @param {any} usage
- * @returns {{ input: number, output: number, cacheRead: number, cacheWrite: number, cost: number }}
- */
-function normalizeFooterUsage(usage) {
-    return {
-        input: Number(usage?.input ?? usage?.inputTokens ?? 0) || 0,
-        output: Number(usage?.output ?? usage?.outputTokens ?? 0) || 0,
-        cacheRead: Number(usage?.cacheRead ?? usage?.cacheReadTokens ?? 0) || 0,
-        cacheWrite: Number(usage?.cacheWrite ?? usage?.cacheWriteTokens ?? 0) || 0,
-        cost: Number(usage?.cost?.total ?? usage?.cost ?? 0) || 0,
-    };
 }
 
 /**
@@ -473,12 +464,11 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
         unsubscribeRuntimeTelemetry();
         unsubscribeRuntimeTelemetry = sessionRuntime.subscribeSessionEvents(sessionId, (event) => {
             if (event.type !== RuntimeEventTypes.USAGE) return;
-            const usage = normalizeFooterUsage(/** @type {any} */ (event).raw);
-            runtimeUsage.input += usage.input;
-            runtimeUsage.output += usage.output;
-            runtimeUsage.cacheRead += usage.cacheRead;
-            runtimeUsage.cacheWrite += usage.cacheWrite;
-            runtimeUsage.cost += usage.cost;
+            runtimeUsage.input += event.usage.inputTokens;
+            runtimeUsage.output += event.usage.outputTokens;
+            runtimeUsage.cacheRead += event.usage.cacheReadTokens;
+            runtimeUsage.cacheWrite += event.usage.cacheWriteTokens;
+            runtimeUsage.cost += event.usage.costUsd;
         });
     }
     attachRuntimeTelemetry();
@@ -570,15 +560,10 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
                 : "";
             const snapshot = getRuntimeSnapshot();
             const rootAgentName = snapshot.activeAgent || "";
-            const activeAgentInfo = rootAgentName
-                ? {
-                    displayName: getAgentDisplayName(rootAgentName, getRuntimeSnapshot().cwd),
-                    agentName: rootAgentName,
-                }
-                : {
-                    displayName: snapshot.activeAgentInfo?.displayName || "",
-                    agentName: "",
-                };
+            const activeAgentInfo = snapshot.activeAgentInfo || {
+                displayName: rootAgentName ? getAgentDisplayName(rootAgentName, snapshot.cwd) : "",
+                agentName: rootAgentName,
+            };
 
             // Right block (agent/workflow label) is always pinned flush to the
             // right edge. The left block (cwd/branch) is truncated when it would
@@ -587,7 +572,7 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
             const line1LeftRaw = `${cwd} (${branch})`;
             const { left: line1Left, rightParts: line1RightParts } = buildFooterLine1Parts(
                 activeAgentInfo,
-                snapshot.workflow,
+                snapshot.workflowContext,
                 line1LeftRaw,
                 w,
             );
@@ -1217,9 +1202,11 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
         });
     }
 
-    // Hydrate TUI from persisted root-session history (e.g. --continue)
-    // Keep this after startup system notices so those appear first.
-    sessionRuntime.replaySession(sessionId);
+    // A new session contains initialization metadata but no conversation to
+    // hydrate. Only continuing sessions replay persisted history.
+    if (shouldReplaySessionHistory(options.sessionStartMode)) {
+        sessionRuntime.replaySession(sessionId);
+    }
 
     // Trigger initial user request
     if (initialUserRequest) {

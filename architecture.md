@@ -175,6 +175,10 @@ and `src/shared/session/session-runtime-interactions.js`.
 | Output                  | `subscribeSessionEvents(sessionId, listener)`                                                  |
 | Input requested by Core | `setInteractionAdapter()` and `requestInteraction()`                                           |
 
+Snapshot field names keep two different workflow concepts explicit: `workflowContext` is the persisted
+routing/complexity/declared-Plan context intended for consumers, while `activeExecutionWorkflow` is the live execution
+state. They must not be collapsed into a generic `workflow` property.
+
 `SessionRuntime` keeps its host, dependency implementations, listener maps, turn settlements, and queued-message state
 in JavaScript private fields. The old object APIs (`createSession`, `adoptSession`, `getSession`), event-producer
 escape, and raw handler injection do not exist.
@@ -204,23 +208,24 @@ timestamp, and turn context before fanout. No core producer receives a consumer 
 
 ### Flow map, one path at a time
 
-| Workflow                            | Inbound path                                             | Core path                                                                           | Outbound event or result                                                                         | Consumer action                                                          |
-| ----------------------------------- | -------------------------------------------------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------ |
-| User message                        | `promptSession(id, { initialRequest, initialImages })`   | Runtime owns turn gate and handler dispatch                                         | `user_message`, `turn_start`, `busy_changed`                                                     | TUI appends user content; ACP sends chunks/state                         |
-| Assistant message stream            | Pi message update                                        | `attachSessionEventSubscribers()`                                                   | `assistant_text_delta` keyed by message ID                                                       | TUI appends to one message block; ACP sends `agent_message_chunk`        |
-| Thinking stream                     | Pi thinking update/end                                   | same subscriber bridge                                                              | `assistant_thinking_delta`, `assistant_thinking_end`                                             | TUI owns thinking block; ACP sends `agent_thought_chunk`                 |
-| Agent tool                          | Pi tool start/update/end                                 | same subscriber bridge                                                              | `tool_start`, `tool_update`, `tool_end` keyed by tool-call ID                                    | TUI owns one tool block; ACP sends one protocol tool lifecycle           |
-| Local `!` shell tool                | `runLocalShellCommand(id, options)`                      | Runtime spawns, tracks cancellation, optionally records transcript                  | one `tool_start`/updates/`tool_end`; optional `user_message`                                     | Same listeners as every other tool; TUI does not publish events          |
-| Protected workflow tools            | Pi invokes RunWield tool                                 | tool returns structured details and may emit semantic status/message                | tool lifecycle plus structured message-stream result                                             | Consumers render/map only the events                                     |
-| Synthetic completion/review message | workflow calls helpers in `workflow-messages.js`         | Core emits a complete assistant delta with metadata                                 | `assistant_text_delta`                                                                           | TUI may style review result; ACP sends normal agent message              |
-| System status                       | Core calls `emitSystemStatus()`                          | hosted event sink                                                                   | `system_status` with level and metadata                                                          | TUI shows status; ACP sends a status message chunk                       |
-| Runtime or model error              | subscriber or Runtime catch                              | error normalized inside Core                                                        | `terminal_error`; Runtime still closes turn with `turn_end` and `busy_changed(false)`            | TUI shows error; ACP reports protocol message/update                     |
-| Cancellation                        | `cancelSession(id)`                                      | abort root, sub-agents, compaction, queued input, interactions, and local processes | one `cancellation` event with semantic scope/message; affected tools/interactions also terminate | Consumers render/map the event and clear local presentation state        |
-| Steering                            | `steerSession(id, text, images)`                         | Runtime targets active root or records deferred message                             | `queued_message_changed` transitions                                                             | TUI updates queue display; ACP can ignore unsupported presentation state |
-| Replay/resume                       | `loadSession()` then `replaySession()`                   | Runtime translates persisted entries without exposing manager                       | `replay_entry` or normalized replay events                                                       | Consumer reconstructs its own view                                       |
-| Agent/model/thinking change         | Runtime setter/switch method                             | Core rebuilds or updates owned root state                                           | `agent_changed`, `model_changed`, `thinking_level_changed`                                       | Consumers update labels/protocol metadata                                |
-| Session rename                      | `renameSession()` or workflow auto-name                  | Runtime/persisted manager                                                           | `session_renamed`                                                                                | TUI changes terminal title; ACP maps if supported                        |
-| Plan/code review                    | Core requests `plan_review` or `code_review` interaction | interaction broker tracks request and cancellation                                  | interaction lifecycle events plus normalized response                                            | TUI opens UI review adapter; ACP maps to protocol elicitation            |
+| Workflow                            | Inbound path                                             | Core path                                                                           | Outbound event or result                                                                         | Consumer action                                                                 |
+| ----------------------------------- | -------------------------------------------------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------- |
+| User message                        | `promptSession(id, { initialRequest, initialImages })`   | Runtime owns turn gate and handler dispatch                                         | `user_message`, `turn_start`, `busy_changed`                                                     | TUI appends user content; ACP sends chunks/state                                |
+| Assistant message stream            | Pi message update                                        | `attachSessionEventSubscribers()`                                                   | `assistant_text_delta` keyed by message ID                                                       | TUI appends to one message block; ACP sends `agent_message_chunk`               |
+| Thinking stream                     | Pi thinking update/end                                   | same subscriber bridge                                                              | `assistant_thinking_delta`, `assistant_thinking_end`                                             | TUI owns thinking block; ACP sends `agent_thought_chunk`                        |
+| Agent tool                          | Pi tool start/update/end                                 | same subscriber bridge                                                              | `tool_start`, `tool_update`, `tool_end` keyed by tool-call ID                                    | TUI owns one tool block; ACP sends one protocol tool lifecycle                  |
+| Local `!` shell tool                | `runLocalShellCommand(id, options)`                      | Runtime spawns, tracks cancellation, optionally records transcript                  | one `tool_start`/updates/`tool_end`; optional `user_message`                                     | Same listeners as every other tool; TUI does not publish events                 |
+| Protected workflow tools            | Pi invokes RunWield tool                                 | tool returns structured details and may emit semantic status/message                | tool lifecycle plus structured message-stream result                                             | Consumers render/map only the events                                            |
+| Synthetic completion/review message | workflow calls helpers in `workflow-messages.js`         | Core emits a complete assistant delta with metadata                                 | `assistant_text_delta`                                                                           | TUI may style review result; ACP sends normal agent message                     |
+| System status                       | Core calls `emitSystemStatus()`                          | hosted event sink                                                                   | `system_status` with level and metadata                                                          | TUI shows status; ACP sends a status message chunk                              |
+| Runtime or model error              | subscriber or Runtime catch                              | error normalized inside Core                                                        | `terminal_error`; Runtime still closes turn with `turn_end` and `busy_changed(false)`            | TUI shows error; ACP reports protocol message/update                            |
+| Cancellation                        | `cancelSession(id)`                                      | abort root, sub-agents, compaction, queued input, interactions, and local processes | one `cancellation` event with semantic scope/message; affected tools/interactions also terminate | Consumers render/map the event and clear local presentation state               |
+| Steering                            | `steerSession(id, text, images)`                         | Runtime targets active root or records deferred message                             | `queued_message_changed` transitions                                                             | TUI updates queue display; ACP can ignore unsupported presentation state        |
+| Replay/resume                       | `loadSession()` then `replaySession()`                   | Runtime translates persisted entries without exposing manager                       | the same normalized message, thinking, tool, usage, and status events used live                  | Consumer runs the same event handlers used for live output                      |
+| Agent/model/thinking change         | Runtime setter/switch method                             | Core rebuilds or updates owned root state                                           | `agent_changed`, `model_changed`, `thinking_level_changed`                                       | Consumers update labels/protocol metadata                                       |
+| Workflow footer context             | `triage_report` or `plan_written`                        | Hosted session persists the normalized complete context                             | `workflow_context_changed`; `workflowContext` is also present in the Runtime snapshot            | TUI rerenders its footer; other consumers receive the same ready-to-use context |
+| Session rename                      | `renameSession()` or workflow auto-name                  | Runtime/persisted manager                                                           | `session_renamed`                                                                                | TUI changes terminal title; ACP maps if supported                               |
+| Plan/code review                    | Core requests `plan_review` or `code_review` interaction | interaction broker tracks request and cancellation                                  | interaction lifecycle events plus normalized response                                            | TUI opens UI review adapter; ACP maps to protocol elicitation                   |
 
 ### TUI input translation
 
@@ -461,6 +466,29 @@ and root-affecting configuration remain active.
 Core producers write semantic events to the sink installed on the internal hosted session. `SessionRuntime` is the only
 outward publisher: it adds session, timestamp, and turn context, then fans each event out to subscribers. Event
 listeners are failure-isolated so one consumer cannot crash the engine, but there is no second presentation route.
+
+Runtime events are consumer-ready semantic records, not bags of provider fragments. The boundary supplies stable message
+identity, agent identity, levels, headers, normalized usage, and complete tool descriptors. A consumer may map those
+fields into its own widgets or wire protocol, but it must not infer missing identity, rebuild a title from tool
+arguments, normalize provider usage, correlate metadata hidden in `_meta`, or turn arbitrary objects into display text.
+
+The tool lifecycle is deliberately self-sufficient:
+
+| Event         | Runtime-owned fields                                                                                                                              | Consumer responsibility               |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
+| `tool_start`  | tool-call ID, stable tool name, semantic kind, view-ready title, raw arguments                                                                    | Create exactly one tool presentation  |
+| `tool_update` | the same stable identity, complete structured content snapshot, complete text projection, structured details                                      | Replace the presentation content      |
+| `tool_end`    | the same stable identity and complete result, error state, Runtime-measured duration or explicit `null` when persisted history cannot provide one | Mark that exact presentation complete |
+
+Live Pi tools, local `!` shell commands, validation commands, and replay all use the same descriptor and result
+normalizers before publication. Structured image content and truncation/full-output details survive the boundary; text
+surfaces use the supplied `output` projection without flattening the structured blocks themselves. Replay does not emit
+a generic raw-entry fallback. Initial persisted model/thinking assignments and the internal active-agent marker update
+replay state but do not become status blocks; only later actual setting changes are visible.
+
+`createSessionRuntimeEvent()` validates the contract at publication. Missing tool titles, kinds, complete output,
+durations, message identity, or other required semantic fields fail at the Core boundary. Adapter listener failures are
+isolated after validation; producer contract failures are not mislabeled and swallowed as adapter failures.
 
 Interactions travel in the opposite direction. Core asks for a semantic selection, text, approval, link, plan review, or
 code review. The installed consumer adapter returns a normalized outcome. The broker records active interactions on the
@@ -905,19 +933,21 @@ dependency guard are what prevent this seam from silently returning.
 
 ## Verification map
 
-| Invariant                                             | Principal coverage                                                                  |
-| ----------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| Core knows no consumers; consumers use only Runtime   | `src/shared/session/architecture-boundary.test.js`                                  |
-| Opaque IDs and private internals                      | `src/shared/session/session-runtime.test.js`                                        |
-| One ordered turn lifecycle and error settlement       | `src/shared/session/session-runtime.test.js`                                        |
-| One Pi text/thinking/tool translation                 | `src/shared/session/session-subscribers.test.js`                                    |
-| TUI and ACP consume the same transcript               | `src/ui/tui/runtime-adapter.test.js`, `src/acp/event-mapper.test.js`                |
-| Duplicate TUI adapter attachment fails until disposal | `src/ui/tui/runtime-adapter.test.js`                                                |
-| Local shell is Runtime-owned                          | `src/shared/session/session-runtime.test.js`, `src/ui/tui/bash-interceptor.test.js` |
-| Semantic interactions and cancellation                | `src/shared/session/session-runtime.test.js`, adapter interaction tests             |
-| Workflow tools emit messages/events without UI ports  | tool tests under `src/tools/__tests__/`                                             |
-| CI, system status, errors, reviews, repair, merge     | `src/shared/workflow/validation.test.js`                                            |
-| Routing, planning, slicing, execution                 | `src/shared/workflow/orchestrator.test.js`, `src/shared/workflow/workflow.test.js`  |
+| Invariant                                              | Principal coverage                                                                  |
+| ------------------------------------------------------ | ----------------------------------------------------------------------------------- |
+| Core knows no consumers; consumers use only Runtime    | `src/shared/session/architecture-boundary.test.js`                                  |
+| Opaque IDs and private internals                       | `src/shared/session/session-runtime.test.js`                                        |
+| One ordered turn lifecycle and error settlement        | `src/shared/session/session-runtime.test.js`                                        |
+| One Pi text/thinking/tool translation                  | `src/shared/session/session-subscribers.test.js`                                    |
+| Consumer-ready event identity, usage, and tool data    | `src/shared/session/session-runtime-events.test.js`                                 |
+| One shared tool title and semantic-kind implementation | `src/shared/session/tool-event-title.test.js`                                       |
+| TUI and ACP consume the same transcript                | `src/ui/tui/runtime-adapter.test.js`, `src/acp/event-mapper.test.js`                |
+| Duplicate TUI adapter attachment fails until disposal  | `src/ui/tui/runtime-adapter.test.js`                                                |
+| Local shell is Runtime-owned                           | `src/shared/session/session-runtime.test.js`, `src/ui/tui/bash-interceptor.test.js` |
+| Semantic interactions and cancellation                 | `src/shared/session/session-runtime.test.js`, adapter interaction tests             |
+| Workflow tools emit messages/events without UI ports   | tool tests under `src/tools/__tests__/`                                             |
+| CI, system status, errors, reviews, repair, merge      | `src/shared/workflow/validation.test.js`                                            |
+| Routing, planning, slicing, execution                  | `src/shared/workflow/orchestrator.test.js`, `src/shared/workflow/workflow.test.js`  |
 
 ## Current automated-test map
 

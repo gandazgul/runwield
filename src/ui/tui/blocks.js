@@ -397,9 +397,9 @@ export class SystemMessageBlock {
 export class ToolExecutionBlock {
     /**
      * @param {string} toolName
-     * @param {string} argsStr
+     * @param {string} title
      */
-    constructor(toolName, argsStr) {
+    constructor(toolName, title) {
         this.previewLineLimit = 6;
         this.expanded = false;
         this.durationStr = "";
@@ -410,10 +410,8 @@ export class ToolExecutionBlock {
         this.startTime = Date.now();
         this.bgToken = "toolPendingBg";
 
-        // Header text
         this.toolName = normalizeToolHeaderText(toolName);
-        const commandText = normalizeToolHeaderText(argsStr);
-        this.headerText = commandText ? `${this.toolName} ${commandText}` : this.toolName;
+        this.headerText = normalizeToolHeaderText(title);
 
         // Body text component (rendered inside the block)
         this.bodyTextComponent = new Text("", 0, 0);
@@ -446,6 +444,14 @@ export class ToolExecutionBlock {
     }
 
     /** @param {string} text */
+    setOutput(text) {
+        // Strip ANSI codes from tool output to prevent embedded resets (\x1b[0m)
+        // from breaking the block's background coloring.
+        this.bodyText = stripAnsi(text);
+        this.updateBodyText();
+    }
+
+    /** @param {string} text */
     appendOutput(text) {
         // Strip ANSI codes from tool output to prevent embedded resets (\x1b[0m)
         // from breaking the block's background coloring.
@@ -469,7 +475,7 @@ export class ToolExecutionBlock {
 
     /**
      * @param {boolean} isError
-     * @param {number} durationMs
+     * @param {number | null} durationMs
      */
     endExecution(isError, durationMs) {
         this.isError = isError;
@@ -480,7 +486,7 @@ export class ToolExecutionBlock {
         } else {
             this.bgToken = "toolSuccessBg";
         }
-        this.durationStr = `Took ${(durationMs / 1000).toFixed(1)}s`;
+        this.durationStr = durationMs === null ? "" : `Took ${(durationMs / 1000).toFixed(1)}s`;
         this.updateBodyText();
     }
 

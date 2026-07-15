@@ -39,7 +39,7 @@ export function emitTaskCompletedMessage(hostedSession, agentName, message) {
         hostedSession,
         agentName || "RunWield",
         formatTaskCompletedMarkdown(message),
-        { workflowMessage: "task_completed" },
+        { messageKind: "workflow", workflowMessage: "task_completed" },
     );
 }
 
@@ -52,7 +52,7 @@ export function emitTaskCompletedMessage(hostedSession, agentName, message) {
 export function emitReviewResultMessage(hostedSession, agentName, message, approved) {
     const markdown = typeof message === "string" && message.trim() ? message.trim() : "Review complete.";
     emitAssistantMessage(hostedSession, agentName || "Reviewer", markdown, {
-        reviewResult: true,
+        messageKind: "review_result",
         approved,
         workflowMessage: "review_complete",
     });
