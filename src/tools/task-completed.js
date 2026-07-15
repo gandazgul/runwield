@@ -7,7 +7,7 @@
 
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import { appendTaskCompletedMessage } from "../shared/session/presentation-messages.js";
+import { emitTaskCompletedMessage } from "../shared/session/workflow-messages.js";
 import { recordWorkflowMetric } from "../shared/workflow/metrics.js";
 
 const TOOL_PARAMS = Type.Object({
@@ -20,17 +20,17 @@ const TOOL_PARAMS = Type.Object({
  * Create the task_completed tool.
  *
  * @param {{
- *   uiAPI: import('../shared/workflow/workflow.js').UiAPI,
+ *   hostedSession: import('../shared/session/hosted-session.js').HostedSession,
  *   agentName?: string,
  *   recordWorkflowMetric?: typeof recordWorkflowMetric,
  * }} opts
  * @returns {import('@earendil-works/pi-coding-agent').ToolDefinition}
  */
 export function createTaskCompletedTool(
-    { uiAPI, agentName = "agent", recordWorkflowMetric: recordWorkflowMetricImpl = recordWorkflowMetric } =
+    { hostedSession, agentName = "agent", recordWorkflowMetric: recordWorkflowMetricImpl = recordWorkflowMetric } =
         /** @type {any} */ ({}),
 ) {
-    if (!uiAPI) throw new Error("createTaskCompletedTool: uiAPI is required");
+    if (!hostedSession) throw new Error("createTaskCompletedTool: hostedSession is required");
     return defineTool({
         name: "task_completed",
         label: "Task Completed",
@@ -48,7 +48,7 @@ export function createTaskCompletedTool(
         parameters: TOOL_PARAMS,
         async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
             await Promise.resolve();
-            appendTaskCompletedMessage(uiAPI, agentName, params.message);
+            emitTaskCompletedMessage(hostedSession, agentName, params.message);
             await recordWorkflowMetricImpl({
                 category: "execution",
                 event: "task_completed",

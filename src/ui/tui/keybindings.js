@@ -15,8 +15,6 @@
  */
 
 import { Image, Key, matchesKey } from "@earendil-works/pi-tui";
-import { abortActiveSession as abortActiveSessionFn } from "../../shared/session/session.js";
-import { cancelActivePlanReview as cancelActivePlanReviewFn } from "../../shared/workflow/submit-plan.js";
 import { stopTUI } from "./tui.js";
 import { readClipboardImage } from "./clipboard.js";
 import { imageTheme } from "../theme/theme.js";
@@ -59,7 +57,6 @@ function createPastedImagePreview(image) {
  * @property {import('../../shared/session/types.js').ImageAttachment[]} pastedImages
  * @property {import('@earendil-works/pi-tui').Container} previewImages
  * @property {import('./generation-guard.js').GenerationGuard} generationGuard
- * @property {() => boolean} cancelActiveOperation
  * @property {() => void} dismissActivePrompt
  * @property {() => boolean | Promise<boolean>} dequeueLastSubmission
  * @property {() => void} forceResetUI
@@ -68,9 +65,7 @@ function createPastedImagePreview(image) {
  * @property {() => void} [toggleStartupHelp]
  * @property {() => void} cycleThinkingLevel
  * @property {(image: import('../../shared/session/types.js').ImageAttachment) => Promise<import('../../shared/session/types.js').ImageAttachment | null>} [handleImagePaste]
- * @property {(hostedSession?: import('../../shared/session/hosted-session.js').HostedSession) => boolean} [abortActiveSession]
- * @property {() => boolean} [cancelActivePlanReview]
- * @property {import('../../shared/session/hosted-session.js').HostedSession} [hostedSession]
+ * @property {() => boolean} cancelRuntimeSession
  */
 
 /**
@@ -88,7 +83,6 @@ export function installKeybindings(ctx) {
         pastedImages,
         previewImages,
         generationGuard,
-        cancelActiveOperation,
         dismissActivePrompt,
         dequeueLastSubmission,
         forceResetUI,
@@ -98,17 +92,11 @@ export function installKeybindings(ctx) {
         cycleThinkingLevel,
         handleImagePaste,
     } = ctx;
-    const abortActiveSession = ctx.abortActiveSession || abortActiveSessionFn;
-    const cancelActivePlanReview = ctx.cancelActivePlanReview || (() => cancelActivePlanReviewFn(ctx.hostedSession));
-
     function cancelEverything() {
         generationGuard.invalidateAll();
         dismissActivePrompt();
-        const opCanceled = cancelActiveOperation();
-        const sessionAborted = abortActiveSession(ctx.hostedSession);
-        const planCanceled = cancelActivePlanReview();
+        ctx.cancelRuntimeSession();
         forceResetUI();
-        return { opCanceled, sessionAborted, planCanceled };
     }
 
     const originalHandleInput = editor.handleInput.bind(editor);
@@ -117,15 +105,7 @@ export function installKeybindings(ctx) {
     editor.handleInput = async (data) => {
         // Esc: ALWAYS cancels whatever is going on
         if (matchesKey(data, Key.escape)) {
-            const { opCanceled, sessionAborted, planCanceled } = cancelEverything();
-
-            if (opCanceled) {
-                uiAPI.appendSystemMessage("Operation canceled.", false, "RunWield");
-            } else if (sessionAborted) {
-                uiAPI.appendSystemMessage("Agent run canceled.", false, "RunWield");
-            } else if (planCanceled) {
-                uiAPI.appendSystemMessage("Plan review canceled.", false, "RunWield");
-            }
+            cancelEverything();
             tui.requestRender();
             return;
         }

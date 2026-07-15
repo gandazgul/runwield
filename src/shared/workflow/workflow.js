@@ -8,7 +8,9 @@ import { AGENTS } from "../../constants.js";
 import { loadPlan } from "../../plan-store.js";
 import { hasNonGitExecutionConsent, probeGitRepository, rememberNonGitExecutionConsent } from "../git.js";
 import { getAgentDisplayName } from "../session/agents.js";
-import { runAgentSession } from "../session/session.js";
+import { runAgentSession, runRootTurn } from "../session/session.js";
+import { emitSystemStatus } from "../session/session-runtime-events.js";
+import { requestHostedSessionInteraction, RuntimeInteractionTypes } from "../session/session-runtime-interactions.js";
 import {
     createExecutionWorktree,
     findReusableWorktree,
@@ -23,7 +25,6 @@ import { recordWorkflowMetric } from "./metrics.js";
 import { buildEngineerRequest } from "./workflow-prompts.js";
 import { readLatestPlanOutcome, readLatestTaskCompletedOutcome } from "./workflow-results.js";
 
-export { executeProjectTasks } from "./project-executor.js";
 export {
     extractTasks,
     parseTaskDependencies,
@@ -60,10 +61,6 @@ export {
 } from "./workflow-results.js";
 
 /**
- * @typedef {import('../types.js').SessionUiPort} UiAPI
- */
-
-/**
  * @typedef {"approved_execute" | "approved_decompose" | "saved" | "feedback" | "canceled" | "repair_required" | "no_call"} PlanOutcome
  */
 
@@ -93,23 +90,26 @@ export {
  * @param {string} opts.agentName
  * @param {string} opts.initialRequest
  * @param {import('../../tools/plan-written.js').TriageMeta} [opts.triageMeta]
- * @param {UiAPI} opts.uiAPI
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager]
  * @param {import('../session/hosted-session.js').HostedSession} [opts.hostedSession]
+ * @param {{ switchActiveAgent?: typeof import('../session/agent-switching.js').switchActiveAgent, runRootTurn?: typeof runRootTurn }} [opts.__deps]
  * @returns {Promise<PlanOutcomeResult>}
  */
 export async function runPlanningAgent(
-    { agentName, initialRequest, triageMeta, uiAPI, sessionManager, hostedSession },
+    { agentName, initialRequest, triageMeta: _triageMeta, sessionManager, hostedSession, __deps },
 ) {
-    if (!uiAPI) throw new Error("runPlanningAgent: uiAPI is required");
-    const messages = await runAgentSession({
+    const switchActive = __deps?.switchActiveAgent ||
+        (await import("../session/agent-switching.js")).switchActiveAgent;
+    const rootTurn = __deps?.runRootTurn || runRootTurn;
+    if (!hostedSession) throw new Error("runPlanningAgent: hostedSession is required");
+
+    await switchActive(hostedSession, { agentName, allowReturnToRouter: false });
+    const messages = await rootTurn({
         hostedSession,
         agentName,
         userRequest: initialRequest,
-        triageMeta,
-        uiAPI,
         sessionManager,
-        useRootSession: true,
+        allowReturnToRouter: false,
     });
 
     const result = readLatestPlanOutcome(messages);
@@ -119,33 +119,38 @@ export async function runPlanningAgent(
 /**
  * Execute an approved plan.
  *
- * @param {string} planName
- * @param {Partial<import('../../plan-store.js').PlanFrontMatter>} triageMeta
- * @param {UiAPI} uiAPI
- * @param {Array<{ task: number, assignee: string, dependencies: string, description: string, writeScope?: string }>} [structuredTasks]
- * @param {import('@earendil-works/pi-coding-agent').SessionManager} [sessionManager]
  * @param {{
+ *   planName: string,
+ *   triageMeta: Partial<import('../../plan-store.js').PlanFrontMatter>,
+ *   structuredTasks?: Array<{ task: number, assignee: string, dependencies: string, description: string, writeScope?: string }>,
+ *   sessionManager?: import('@earendil-works/pi-coding-agent').SessionManager,
+ *   hostedSession: import('../session/hosted-session.js').HostedSession,
+ *   reviewFeedback?: string,
+ *   reviewImages?: Array<{base64: string, mimeType: string}>,
+ *   __deps?: {
  *   loadPlan?: typeof loadPlan,
  *   executeStructuredProjectPlan?: () => Promise<PlanExecutionResult>,
  *   executeSingleEngineerPlan?: typeof executeSingleEngineerPlan,
  *   recordPlanEvent?: typeof recordPlanEvent,
  *   markActiveWorktreeStatus?: typeof markActiveWorktreeStatus,
  *   recordWorkflowMetric?: typeof recordWorkflowMetric,
- *   hostedSession?: import('../session/hosted-session.js').HostedSession,
- *   projectRoot?: string,
- *   reviewFeedback?: string,
- *   reviewImages?: Array<{base64: string, mimeType: string}>,
- * }} [__deps]
+ *   }
+ * }} options
  * @returns {Promise<PlanExecutionResult>}
  */
-export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, sessionManager, __deps = {}) {
-    if (!uiAPI) throw new Error("executePlan: uiAPI is required");
-
+export async function executePlan({
+    planName,
+    triageMeta,
+    structuredTasks,
+    sessionManager,
+    hostedSession,
+    reviewFeedback,
+    reviewImages,
+    __deps = {},
+}) {
     const loadPlanFn = __deps.loadPlan || loadPlan;
-    const hostedSession = __deps.hostedSession;
-    const projectRoot = hostedSession?.cwd || __deps.projectRoot ||
-        (typeof sessionManager?.getCwd === "function" ? sessionManager.getCwd() : undefined);
-    if (!projectRoot) throw new Error("executePlan: hostedSession cwd or sessionManager cwd is required");
+    if (!hostedSession) throw new Error("executePlan: hostedSession is required");
+    const projectRoot = hostedSession.cwd;
     void structuredTasks;
     const executeSingleEngineerPlanFn = __deps.executeSingleEngineerPlan || executeSingleEngineerPlan;
     const recordPlanEventFn = __deps.recordPlanEvent || recordPlanEvent;
@@ -160,7 +165,10 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
     }, { cwd: projectRoot });
     const plan = await loadPlanFn(projectRoot, planName);
     if (!plan) {
-        uiAPI.appendSystemMessage(`ERROR: Could not load plan ${planName}`, true, "RunWield");
+        emitSystemStatus(hostedSession, `ERROR: Could not load plan ${planName}`, {
+            level: "error",
+            header: "RunWield",
+        });
         await recordWorkflowMetricFn({
             category: "execution",
             event: "plan_execution_rejected",
@@ -174,7 +182,7 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
 
     if (isEpicPlan(plan.attrs)) {
         const error = `Plan ${planName} is a PROJECT Epic container and cannot be executed directly.`;
-        uiAPI.appendSystemMessage(`ERROR: ${error}`, true, "RunWield");
+        emitSystemStatus(hostedSession, `ERROR: ${error}`, { level: "error", header: "RunWield" });
         await recordWorkflowMetricFn({
             category: "execution",
             event: "plan_execution_rejected",
@@ -186,7 +194,7 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
 
     if (!isExecutablePlanStatus(plan.attrs.status)) {
         const error = `Plan ${planName} is not ready for work (status: ${plan.attrs.status}).`;
-        uiAPI.appendSystemMessage(`ERROR: ${error}`, true, "RunWield");
+        emitSystemStatus(hostedSession, `ERROR: ${error}`, { level: "error", header: "RunWield" });
         await recordWorkflowMetricFn({
             category: "execution",
             event: "plan_execution_rejected",
@@ -196,7 +204,7 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
         return { repairRequired: false, executionComplete: false, error };
     }
 
-    uiAPI.appendSystemMessage(`=== Executing Plan: ${planName} ===`, false, "RunWield");
+    emitSystemStatus(hostedSession, `=== Executing Plan: ${planName} ===`, { header: "RunWield" });
 
     // New Epic-era execution never dispatches PROJECT task DAGs from this facade.
     // Epics are containers handled above; child FEATURE plans and any legacy
@@ -205,12 +213,11 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
         planName,
         planBody: plan.body,
         triageMeta: effectiveMeta,
-        uiAPI,
         sessionManager,
         currentStatus: plan.attrs.status,
         hostedSession,
-        reviewFeedback: __deps.reviewFeedback,
-        reviewImages: __deps.reviewImages,
+        reviewFeedback,
+        reviewImages,
         __deps: { recordWorkflowMetric: recordWorkflowMetricFn },
     });
     if (!result.executionComplete) {
@@ -235,10 +242,10 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
         details: { executionComplete: true, repairRequired: false },
     }, { cwd: projectRoot });
 
-    uiAPI.appendSystemMessage(
+    emitSystemStatus(
+        hostedSession,
         `✅ Plan implementation complete: ${planName}`,
-        false,
-        "RunWield",
+        { header: "RunWield" },
     );
     const activeWorkflow = hostedSession?.getActiveExecutionWorkflow?.();
     await recordPlanEventFn({
@@ -263,7 +270,6 @@ export async function executePlan(planName, triageMeta, uiAPI, structuredTasks, 
  *     planName: string,
  *     planBody: string,
  *     triageMeta: Partial<import('../../plan-store.js').PlanFrontMatter>,
- *     uiAPI: UiAPI,
  *     sessionManager?: import('@earendil-works/pi-coding-agent').SessionManager,
  *     currentStatus: import('./plan-lifecycle.js').PlanStatus,
  *     hostedSession?: import('../session/hosted-session.js').HostedSession,
@@ -278,7 +284,6 @@ async function executeSingleEngineerPlan(
         planName,
         planBody,
         triageMeta,
-        uiAPI,
         sessionManager,
         currentStatus,
         hostedSession,
@@ -294,18 +299,19 @@ async function executeSingleEngineerPlan(
             triageMeta,
             currentStatus,
             hostedSession,
-            uiAPI,
             __deps,
         });
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        uiAPI.appendSystemMessage(`Execution did not start: ${message}`, true, "RunWield");
+        emitSystemStatus(hostedSession, `Execution did not start: ${message}`, {
+            level: "error",
+            header: "RunWield",
+        });
         return { repairRequired: false, executionComplete: false, error: message };
     }
     const engineerResult = await runEngineerWithPlan(
         planName,
         planBody,
-        uiAPI,
         sessionManager,
         executionContext.executionCwd,
         hostedSession,
@@ -324,7 +330,6 @@ async function executeSingleEngineerPlan(
  *
  * @param {string} planName
  * @param {string} planBody
- * @param {UiAPI} uiAPI
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [sessionManager]
  * @param {string} [executionCwd]
  * @param {import('../session/hosted-session.js').HostedSession} [hostedSession]
@@ -336,7 +341,6 @@ async function executeSingleEngineerPlan(
 async function runEngineerWithPlan(
     planName,
     planBody,
-    uiAPI,
     sessionManager,
     executionCwd,
     hostedSession,
@@ -351,7 +355,6 @@ async function runEngineerWithPlan(
             agentName: AGENTS.ENGINEER,
             userRequest: buildEngineerRequest(planName, planBody, reviewFeedback),
             images: reviewImages,
-            uiAPI,
             sessionManager,
             cwd: executionCwd,
             useRootSession: true,
@@ -360,20 +363,20 @@ async function runEngineerWithPlan(
         const errorMessage = error instanceof Error ? error.message : String(error);
         const hostedRootSession = /** @type {any} */ (hostedSession?.getRootAgentSession?.());
         const rootMessages = hostedRootSession?.agent?.state?.messages || [];
-        uiAPI.appendSystemMessage(
+        emitSystemStatus(
+            hostedSession,
             buildEngineerPausedMessage(errorMessage, projectRoot || hostedSession?.cwd),
-            true,
-            "RunWield",
+            { level: "error", header: "RunWield" },
         );
         return { completed: false, messages: rootMessages, error: errorMessage };
     }
 
     const completed = readLatestTaskCompletedOutcome(messages);
     if (!completed) {
-        uiAPI.appendSystemMessage(
+        emitSystemStatus(
+            hostedSession,
             buildEngineerPausedMessage(undefined, projectRoot || hostedSession?.cwd),
-            false,
-            "RunWield",
+            { header: "RunWield" },
         );
     }
 
@@ -402,20 +405,21 @@ export function normalizeExecutionTargetBranch(value) {
 }
 
 /**
- * @param {UiAPI | undefined} uiAPI
+ * @param {import('../session/hosted-session.js').HostedSession} hostedSession
  * @param {string} projectRoot
  * @returns {Promise<boolean>}
  */
-async function confirmNonGitFeaturePlanExecution(uiAPI, projectRoot) {
-    if (!uiAPI?.promptSelect) return false;
-    const answer = await uiAPI.promptSelect(
-        "Git is not available for this project. RunWield recommends using Git so Plan execution can run in an isolated Worktree with diff-based review and merge-back. Proceeding will modify the current files directly and skip Git-only isolation/recovery.",
-        [
+async function confirmNonGitFeaturePlanExecution(hostedSession, projectRoot) {
+    const response = await requestHostedSessionInteraction(hostedSession, {
+        type: RuntimeInteractionTypes.SELECT,
+        prompt:
+            "Git is not available for this project. RunWield recommends using Git so Plan execution can run in an isolated Worktree with diff-based review and merge-back. Proceeding will modify the current files directly and skip Git-only isolation/recovery.",
+        options: [
             { value: "proceed", label: "Proceed in current files and remember for FEATURE/Plan work" },
             { value: "cancel", label: "Cancel execution" },
         ],
-    );
-    if (answer !== "proceed") return false;
+    });
+    if (response.outcome !== "selected" || response.value !== "proceed") return false;
     await rememberNonGitExecutionConsent("featurePlan", projectRoot);
     return true;
 }
@@ -442,7 +446,6 @@ export function assertReusableWorktreeTargetMatches(reusableBaseBranch, targetBr
  *   triageMeta: Partial<import('../../plan-store.js').PlanFrontMatter>,
  *   currentStatus: import('./plan-lifecycle.js').PlanStatus,
  *   hostedSession?: import('../session/hosted-session.js').HostedSession,
- *   uiAPI?: UiAPI,
  *   __deps?: {
  *     createExecutionWorktree?: typeof createExecutionWorktree,
  *     findReusableWorktree?: typeof findReusableWorktree,
@@ -461,7 +464,7 @@ export function assertReusableWorktreeTargetMatches(reusableBaseBranch, targetBr
  * @returns {Promise<{ projectRoot: string, executionCwd: string, baselineTree?: string, worktreeId?: string, worktreeBranch?: string, worktreeBaseBranch?: string, nonGitInPlace?: boolean }>}
  */
 export async function startActiveExecutionWorkflow(
-    { planName, triageMeta, currentStatus, hostedSession, uiAPI, __deps },
+    { planName, triageMeta, currentStatus, hostedSession, __deps },
 ) {
     if (!hostedSession) throw new Error("startActiveExecutionWorkflow: hostedSession is required");
     const projectRoot = hostedSession.cwd;
@@ -479,7 +482,7 @@ export async function startActiveExecutionWorkflow(
     const confirmNonGit = __deps?.confirmNonGitFeaturePlanExecution || confirmNonGitFeaturePlanExecution;
     const gitProbe = await probeGit(projectRoot);
     if (!gitProbe.ok) {
-        if (!hasConsent("featurePlan", projectRoot) && !(await confirmNonGit(uiAPI, projectRoot))) {
+        if (!hasConsent("featurePlan", projectRoot) && !(await confirmNonGit(hostedSession, projectRoot))) {
             throw new Error(
                 "Plan execution canceled because Git is not available and in-place execution was not approved.",
             );

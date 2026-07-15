@@ -1,50 +1,29 @@
 import { assertEquals } from "@std/assert";
+import { HostedSession } from "../../shared/session/hosted-session.js";
+import { RuntimeEventTypes } from "../../shared/session/session-runtime-events.js";
 import { createTaskCompletedTool } from "../task-completed.js";
 
-/**
- * @param {{ execute: unknown }} tool
- * @param {{ message?: string }} params
- */
-async function executeTool(tool, params) {
-    const execute =
-        /** @type {(id: string, params: { message?: string }, signal: AbortSignal, onUpdate: () => void, context: object) => Promise<{ content: Array<{ type: string, text?: string }>, details: unknown, terminate?: boolean }>} */ (tool
-            .execute);
-    return await execute("tool-call-1", params, new AbortController().signal, () => {}, {});
-}
-
-Deno.test("task_completed renders completion message as markdown", async () => {
-    /** @type {Array<{ agentName: string, text: string }>} */
-    const rendered = [];
-    const uiAPI = /** @type {import('../../shared/types.js').SessionUiPort} */ ({
-        appendSystemMessage: () => {},
-        appendAgentMessageStart: (agentName) => ({
-            appendText: (text) => rendered.push({ agentName, text }),
-        }),
-        requestRender: () => {},
-        promptSelect: () => Promise.resolve(null),
-        promptText: () => Promise.resolve(null),
-        showModelSelector: () => {},
-    });
-    /** @type {any[]} */
-    const metrics = [];
+Deno.test("task_completed emits one semantic assistant message and terminates", async () => {
+    const events = /** @type {any[]} */ ([]);
+    const metrics = /** @type {any[]} */ ([]);
+    const hostedSession = new HostedSession({ id: "task-completed", cwd: Deno.cwd() });
+    hostedSession.setEventSink({ emit: (/** @type {any} */ event) => events.push(event) });
     const tool = createTaskCompletedTool({
-        uiAPI,
-        agentName: "Engineer",
+        hostedSession,
+        agentName: "engineer",
         recordWorkflowMetric: (metric) => {
             metrics.push(metric);
-            return Promise.resolve(null);
+            return Promise.resolve(/** @type {any} */ (null));
         },
     });
 
-    const result = await executeTool(tool, { message: "Fixed **CI**." });
+    const result = await /** @type {any} */ (tool.execute)("call", { message: "Implemented and tested." });
 
     assertEquals(result.terminate, true);
-    assertEquals(result.details, { outcome: "task_completed", message: "Fixed **CI**." });
-    assertEquals(rendered, [{ agentName: "Engineer", text: "**Task completed.**\n\nFixed **CI**." }]);
-    assertEquals(metrics, [{
-        category: "execution",
-        event: "task_completed",
-        agentName: "Engineer",
-        details: { hasMessage: true },
-    }]);
+    assertEquals(result.details, { outcome: "task_completed", message: "Implemented and tested." });
+    assertEquals(events.length, 1);
+    assertEquals(events[0].type, RuntimeEventTypes.ASSISTANT_TEXT_DELTA);
+    assertEquals(events[0]._meta.agentName, "engineer");
+    assertEquals(events[0].delta, "**Task completed.**\n\nImplemented and tested.");
+    assertEquals(metrics[0].event, "task_completed");
 });

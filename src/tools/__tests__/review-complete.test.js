@@ -1,80 +1,34 @@
 import { assertEquals } from "@std/assert";
+import { HostedSession } from "../../shared/session/hosted-session.js";
+import { RuntimeEventTypes } from "../../shared/session/session-runtime-events.js";
 import { createReviewCompletedTool } from "../review-complete.js";
 
-/**
- * @param {{ execute: unknown }} tool
- * @param {{ approved: boolean, feedback?: string }} params
- */
-async function executeTool(tool, params) {
-    const execute =
-        /** @type {(id: string, params: { approved: boolean, feedback?: string }, signal: AbortSignal, onUpdate: () => void, context: object) => Promise<{ content: Array<{ type: string, text?: string }>, details: unknown, terminate?: boolean }>} */ (tool
-            .execute);
-    return await execute("tool-call-1", params, new AbortController().signal, () => {}, {});
+for (const approved of [true, false]) {
+    Deno.test(`review_complete emits one semantic result when approved=${approved}`, async () => {
+        const events = /** @type {any[]} */ ([]);
+        const metrics = /** @type {any[]} */ ([]);
+        const hostedSession = new HostedSession({ id: `review-${approved}`, cwd: Deno.cwd() });
+        hostedSession.setEventSink({ emit: (/** @type {any} */ event) => events.push(event) });
+        const tool = createReviewCompletedTool({
+            hostedSession,
+            agentName: "reviewer",
+            recordWorkflowMetric: (metric) => {
+                metrics.push(metric);
+                return Promise.resolve(/** @type {any} */ (null));
+            },
+        });
+
+        const result = await /** @type {any} */ (tool.execute)("call", {
+            approved,
+            feedback: approved ? "ship it" : "fix the boundary",
+        });
+
+        assertEquals(result.terminate, true);
+        assertEquals(result.details.approved, approved);
+        assertEquals(events.length, 1);
+        assertEquals(events[0].type, RuntimeEventTypes.ASSISTANT_TEXT_DELTA);
+        assertEquals(events[0]._meta.reviewResult, true);
+        assertEquals(events[0]._meta.approved, approved);
+        assertEquals(metrics[0].event, "review_complete");
+    });
 }
-
-Deno.test("review_complete renders rejected feedback once as reviewer result markdown", async () => {
-    /** @type {Array<{ agentName: string, markdown: string, approved: boolean }>} */
-    const rendered = [];
-    const uiAPI = /** @type {import('../../shared/types.js').SessionUiPort} */ ({
-        appendSystemMessage: () => {},
-        appendAgentMessageStart: () => ({ appendText: () => {} }),
-        appendReviewResult: (agentName, markdown, approved) => rendered.push({ agentName, markdown, approved }),
-        requestRender: () => {},
-        promptSelect: () => Promise.resolve(null),
-        promptText: () => Promise.resolve(null),
-        showModelSelector: () => {},
-    });
-    /** @type {any[]} */
-    const metrics = [];
-    const tool = createReviewCompletedTool({
-        uiAPI,
-        agentName: "Reviewer",
-        recordWorkflowMetric: (metric) => {
-            metrics.push(metric);
-            return Promise.resolve(null);
-        },
-    });
-
-    const result = await executeTool(tool, { approved: false, feedback: "- missing requirement" });
-
-    assertEquals(result.terminate, true);
-    assertEquals(result.details, { outcome: "feedback", approved: false, feedback: "- missing requirement" });
-    assertEquals(rendered, [{
-        agentName: "Reviewer",
-        markdown: "Semantic review rejected — issues found:\n- missing requirement",
-        approved: false,
-    }]);
-    assertEquals(metrics, [{
-        category: "validation",
-        event: "review_complete",
-        agentName: "Reviewer",
-        details: { outcome: "feedback", approved: false, hasFeedback: true },
-    }]);
-});
-
-Deno.test("review_complete renders approved result with success state", async () => {
-    /** @type {Array<{ agentName: string, markdown: string, approved: boolean }>} */
-    const rendered = [];
-    const uiAPI = /** @type {import('../../shared/types.js').SessionUiPort} */ ({
-        appendSystemMessage: () => {},
-        appendAgentMessageStart: () => ({ appendText: () => {} }),
-        appendReviewResult: (agentName, markdown, approved) => rendered.push({ agentName, markdown, approved }),
-        requestRender: () => {},
-        promptSelect: () => Promise.resolve(null),
-        promptText: () => Promise.resolve(null),
-        showModelSelector: () => {},
-    });
-    const tool = createReviewCompletedTool({
-        uiAPI,
-        agentName: "Reviewer",
-        recordWorkflowMetric: () => Promise.resolve(null),
-    });
-
-    await executeTool(tool, { approved: true });
-
-    assertEquals(rendered, [{
-        agentName: "Reviewer",
-        markdown: "Semantic review approved — implementation matches the plan.",
-        approved: true,
-    }]);
-});

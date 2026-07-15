@@ -169,21 +169,10 @@ Deno.test("buildAgentSession auto-wires return_to_router to the target HostedSes
 
         const targetHostedSession = new HostedSession({ id: "target-session", cwd: CWD });
         const otherHostedSession = new HostedSession({ id: "other-session", cwd: CWD });
-        const uiAPI = /** @type {import('../../types.js').SessionUiPort} */ ({
-            appendSystemMessage: () => {},
-            appendAgentMessageStart: () => ({ appendText: () => {} }),
-            promptSelect: () => Promise.resolve(null),
-            promptText: () => Promise.resolve(null),
-            requestRender: () => {},
-            setAgentInfo: () => {},
-            showModelSelector: () => {},
-        });
-
         const built = await buildAgentSession({
             hostedSession: targetHostedSession,
             agentName: AGENTS.GUIDE,
             modelOverride: "test/model",
-            uiAPI,
             allowReturnToRouter: true,
             _agentDefOverride: {
                 name: AGENTS.GUIDE,
@@ -206,7 +195,7 @@ Deno.test("buildAgentSession auto-wires return_to_router to the target HostedSes
             { reason: "Route this from the target session." },
             new AbortController().signal,
             () => {},
-            { hostedSession: otherHostedSession, uiAPI },
+            { hostedSession: otherHostedSession },
         );
 
         assertEquals(/** @type {{ details?: unknown }} */ (result).details, {
@@ -223,20 +212,10 @@ Deno.test("buildAgentSession auto-wires return_to_router to the target HostedSes
     }
 });
 
-Deno.test("buildAgentSession wires task_completed with agent displayName", async () => {
-    /** @type {Array<{ agentName: string, text: string }>} */
-    const rendered = [];
+Deno.test("buildAgentSession wires task_completed with an event-only HostedSession", async () => {
+    /** @type {any[]} */
+    const events = [];
     const debugLogPath = await Deno.makeTempFile({ prefix: "runwield-session-debug-test-", suffix: ".log" });
-    const uiAPI = /** @type {import('../../types.js').SessionUiPort} */ ({
-        appendSystemMessage: () => {},
-        appendAgentMessageStart: (agentName) => ({
-            appendText: (text) => rendered.push({ agentName, text }),
-        }),
-        requestRender: () => {},
-        promptSelect: () => Promise.resolve(null),
-        promptText: () => Promise.resolve(null),
-        showModelSelector: () => {},
-    });
 
     /** @type {import('@earendil-works/pi-coding-agent').AgentSession | undefined} */
     let session;
@@ -261,11 +240,13 @@ Deno.test("buildAgentSession wires task_completed with agent displayName", async
             }),
         );
 
+        const hostedSession = new HostedSession({ id: "task-completed-policy", cwd: tempHome });
+        hostedSession.setEventSink({ emit: (/** @type {any} */ event) => events.push(event) });
+
         const built = await buildAgentSession({
-            cwd: tempHome,
+            hostedSession,
             agentName: "operator",
             modelOverride: "test/model",
-            uiAPI,
             debugLogPath,
             _agentDefOverride: {
                 name: "operator",
@@ -286,7 +267,9 @@ Deno.test("buildAgentSession wires task_completed with agent displayName", async
 
         await execute("tool-call-1", { message: "Done." }, new AbortController().signal, () => {}, {});
 
-        assertEquals(rendered, [{ agentName: "Operator", text: "**Task completed.**\n\nDone." }]);
+        assertEquals(events.length, 1);
+        assertEquals(events[0].delta, "**Task completed.**\n\nDone.");
+        assertEquals(events[0]._meta.agentName, "Operator");
     } finally {
         session?.dispose();
         __resetSettingsForTests();

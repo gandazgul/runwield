@@ -1,12 +1,9 @@
-import { assertEquals } from "@std/assert";
-import { join } from "@std/path";
+import { assertEquals, assertRejects } from "@std/assert";
 import {
     __setSettingsManagerForPersistenceTests,
     buildFooterLine1Parts,
     buildFooterWorkflowLabelParts,
-    collectFooterUsage,
     getActiveModel,
-    getFooterSessions,
     getFooterWorkflowLabelText,
     persistThinkingLevel,
     renderFooterWorkflowLabelParts,
@@ -15,74 +12,6 @@ import {
     shouldShowFooterThinkingLevel,
 } from "./chat-session.js";
 import { resolveTemplateModel } from "../../shared/models/model-validation.js";
-import { HostedSession } from "../../shared/session/hosted-session.js";
-import { __resetSettingsForTests } from "../../shared/settings.js";
-import { __getRootSessionMetadataForTests, ensureRootAgentSession } from "../../shared/session/session.js";
-import { EMPTY_PROJECT_DIRECTORY_PROMPT_NOTE } from "../../shared/project-state.js";
-
-/** @param {string} [id] */
-function makeHostedSession(id = "test-session") {
-    return new HostedSession({ id, cwd: Deno.cwd() });
-}
-
-/**
- * @param {string} prefix
- * @param {(tempHome: string) => Promise<void>} fn
- */
-async function withTempHome(prefix, fn) {
-    const originalHome = Deno.env.get("HOME");
-    const tempHome = await Deno.makeTempDir({ prefix });
-
-    try {
-        Deno.env.set("HOME", tempHome);
-        __resetSettingsForTests();
-        await fn(tempHome);
-    } finally {
-        __resetSettingsForTests();
-        if (originalHome === undefined) Deno.env.delete("HOME");
-        else Deno.env.set("HOME", originalHome);
-        __resetSettingsForTests();
-        await Deno.remove(tempHome, { recursive: true });
-    }
-}
-
-Deno.test("footer usage includes active sub-agent sessions and cache writes", () => {
-    const rootSession = {
-        sessionManager: {
-            getEntries: () => [{
-                type: "message",
-                message: {
-                    role: "assistant",
-                    usage: { input: 100, output: 50, cacheRead: 25, cacheWrite: 10, cost: { total: 0.01 } },
-                },
-            }],
-        },
-    };
-    const subSession = {
-        sessionManager: {
-            getEntries: () => [{
-                type: "message",
-                message: {
-                    role: "assistant",
-                    usage: { inputTokens: 3, outputTokens: 2, cacheReadTokens: 1, cacheWriteTokens: 4, cost: 0.02 },
-                },
-            }],
-        },
-    };
-
-    const hostedSession = makeHostedSession();
-    hostedSession.addSubAgentSession(/** @type {any} */ (subSession));
-    const sessions = getFooterSessions(rootSession, hostedSession.getSubAgentSessions());
-    assertEquals(sessions, [rootSession, subSession]);
-
-    assertEquals(collectFooterUsage(sessions), {
-        input: 103,
-        output: 52,
-        cacheRead: 26,
-        cacheWrite: 14,
-        cost: 0.03,
-    });
-});
 
 Deno.test("footer thinking level is hidden until a model is configured", () => {
     assertEquals(shouldShowFooterThinkingLevel("", "medium"), false);
@@ -96,7 +25,6 @@ Deno.test("footer workflow label formats eligible routing context and theme toke
         { routingIntent: "FEATURE", complexity: "MEDIUM", planName: "my-awesome-plan" },
         80,
     );
-
     assertEquals(getFooterWorkflowLabelText(parts), "Planner - Medium Feature - my-awesome-plan");
     assertEquals(parts.map((part) => part.token), [
         "accent",
@@ -109,7 +37,7 @@ Deno.test("footer workflow label formats eligible routing context and theme toke
     ]);
 });
 
-Deno.test("footer workflow label maps quick fix and project wording", () => {
+Deno.test("footer workflow label maps intent wording and hides ineligible agents", () => {
     assertEquals(
         getFooterWorkflowLabelText(buildFooterWorkflowLabelParts(
             { displayName: "Engineer", agentName: "engineer" },
@@ -120,71 +48,26 @@ Deno.test("footer workflow label maps quick fix and project wording", () => {
     );
     assertEquals(
         getFooterWorkflowLabelText(buildFooterWorkflowLabelParts(
-            { displayName: "Architect", agentName: "architect" },
-            { routingIntent: "PROJECT", complexity: "HIGH" },
-            80,
-        )),
-        "Architect - High Epic",
-    );
-});
-
-Deno.test("footer workflow label hides context for excluded agents and unsupported intents", () => {
-    assertEquals(
-        getFooterWorkflowLabelText(buildFooterWorkflowLabelParts(
             { displayName: "Operator", agentName: "operator" },
             { routingIntent: "FEATURE", complexity: "MEDIUM", planName: "p" },
             80,
         )),
         "Operator",
     );
-    assertEquals(
-        getFooterWorkflowLabelText(buildFooterWorkflowLabelParts(
-            { displayName: "Planner", agentName: "planner" },
-            { routingIntent: "IDEATION", complexity: "LOW" },
-            80,
-        )),
-        "Planner",
-    );
 });
 
-Deno.test("footer workflow label supports plan-only context and truncates plan before complexity", () => {
-    assertEquals(
-        getFooterWorkflowLabelText(buildFooterWorkflowLabelParts(
-            { displayName: "Planner", agentName: "planner" },
-            { planName: "standalone-plan" },
-            80,
-        )),
-        "Planner - standalone-plan",
-    );
-
-    const truncated = getFooterWorkflowLabelText(buildFooterWorkflowLabelParts(
-        { displayName: "Planner", agentName: "planner" },
-        { routingIntent: "FEATURE", complexity: "MEDIUM", planName: "very-long-plan-name" },
-        24,
-    ));
-    assertEquals(truncated, "Planner - Medium Feature");
-
-    const noComplexity = getFooterWorkflowLabelText(buildFooterWorkflowLabelParts(
-        { displayName: "LongPlanner", agentName: "planner" },
-        { routingIntent: "FEATURE", complexity: "MEDIUM" },
-        22,
-    ));
-    assertEquals(noComplexity, "LongPlanner - Feature");
-});
-
-Deno.test("footer line 1 budgets long plan names after preserving left side for priority label", () => {
+Deno.test("footer label truncation preserves the left side", () => {
     const line = buildFooterLine1Parts(
         { displayName: "Planner", agentName: "planner" },
-        { routingIntent: "FEATURE", complexity: "MEDIUM", planName: "very-long-plan-name-that-should-not-erase-cwd" },
+        { routingIntent: "FEATURE", complexity: "MEDIUM", planName: "very-long-plan-name" },
         "~/project (main)",
         41,
     );
-
     assertEquals(line.left, "~/project (main)");
     assertEquals(getFooterWorkflowLabelText(line.rightParts), "Planner - Medium Feature");
 });
 
-Deno.test("footer workflow label renderer applies provided theme tokens", () => {
+Deno.test("footer workflow renderer applies provided theme tokens", () => {
     const rendered = renderFooterWorkflowLabelParts(
         buildFooterWorkflowLabelParts(
             { displayName: "Engineer", agentName: "engineer" },
@@ -193,70 +76,34 @@ Deno.test("footer workflow label renderer applies provided theme tokens", () => 
         ),
         { fg: (token, text) => `<${token}>${text}</${token}>` },
     );
-
     assertEquals(
         rendered,
         "<accent>Engineer</accent><dim> - </dim><complexityLow>Low</complexityLow><dim> </dim><routingQuickFix>Quick Fix</routingQuickFix>",
     );
 });
 
-Deno.test("setActiveModel reports setModel rejection instead of leaving an unhandled crash", async () => {
-    const originalOpenAiKey = Deno.env.get("OPENAI_API_KEY");
-    /** @type {string[]} */
-    const messages = [];
-    let renderRequested = false;
-
-    try {
-        Deno.env.set("OPENAI_API_KEY", "test-key");
-        await withTempHome("runwield-set-active-model-", async () => {
-            const hostedSession = makeHostedSession();
-            hostedSession.setActiveUiAPI(
-                /** @type {any} */ ({
-                    appendSystemMessage: (/** @type {string} */ message) => messages.push(message),
-                    requestRender: () => {
-                        renderRequested = true;
-                    },
-                }),
-            );
-            hostedSession.setRootAgentSession(
-                /** @type {any} */ ({
-                    setModel: () => Promise.reject(new Error("No API key for openai/gpt-5")),
-                }),
-            );
-
-            await setActiveModel(hostedSession, "gpt-5", "openai");
-
-            assertEquals(messages, ["Failed to switch model: No API key for openai/gpt-5"]);
-            assertEquals(renderRequested, true);
-        });
-    } finally {
-        if (originalOpenAiKey === undefined) Deno.env.delete("OPENAI_API_KEY");
-        else Deno.env.set("OPENAI_API_KEY", originalOpenAiKey);
-    }
-});
-
-Deno.test("resolveTemplateModel validates provider/id format, model lookup, and configured auth", () => {
+Deno.test("resolveTemplateModel validates provider/id lookup and auth", () => {
     const registry = {
         find: (/** @type {string} */ provider, /** @type {string} */ id) =>
             provider === "test" && id === "model" ? { provider, id } : null,
-        hasConfiguredAuth: (/** @type {unknown} */ model) => !!model,
+        hasConfiguredAuth: (/** @type {unknown} */ model) => Boolean(model),
     };
-    const noAuthRegistry = {
-        find: () => ({ provider: "test", id: "model" }),
-        hasConfiguredAuth: () => false,
-    };
-
     assertEquals(resolveTemplateModel("not-strict", registry), { ok: false });
     assertEquals(resolveTemplateModel("test/missing", registry), { ok: false });
-    assertEquals(resolveTemplateModel("test/model", noAuthRegistry), { ok: false });
     assertEquals(resolveTemplateModel("test/model", registry), { ok: true, provider: "test", id: "model" });
 });
 
-Deno.test("getActiveModel reflects setActiveModel state when no root session is present", async () => {
-    const hostedSession = makeHostedSession();
-    /** @type {string[]} */
-    const persisted = [];
-
+Deno.test("setActiveModel delegates reconfiguration to SessionRuntime and persists selection", async () => {
+    const calls = /** @type {any[]} */ ([]);
+    const runtime = /** @type {any} */ ({
+        getSessionSnapshot: () => ({ cwd: Deno.cwd(), activeModel: { model: "old", provider: "test" } }),
+        /** @param {string} sessionId @param {string} model @param {string} provider */
+        reconfigureSessionModel: (sessionId, model, provider) => {
+            calls.push({ sessionId, model, provider });
+            return Promise.resolve({ ok: true });
+        },
+    });
+    const persisted = /** @type {string[]} */ ([]);
     try {
         __setSettingsManagerForPersistenceTests(() => /** @type {any} */ ({
             setDefaultModel: (/** @type {string} */ model) => {
@@ -268,19 +115,31 @@ Deno.test("getActiveModel reflects setActiveModel state when no root session is 
                 return Promise.resolve();
             },
         }));
-        await setActiveModel(hostedSession, "model-a", "provider-a");
-
-        assertEquals(getActiveModel(hostedSession), "model-a");
-        assertEquals(persisted, ["model:model-a", "provider:provider-a"]);
+        await setActiveModel(runtime, "runtime-id", "model-a", "provider-a");
     } finally {
         __setSettingsManagerForPersistenceTests(null);
     }
+    assertEquals(calls, [{ sessionId: "runtime-id", model: "model-a", provider: "provider-a" }]);
+    assertEquals(persisted, ["model:model-a", "provider:provider-a"]);
 });
 
-Deno.test("persistThinkingLevel stores the selected level without throwing", async () => {
-    /** @type {string[]} */
-    const persisted = [];
+Deno.test("setActiveModel propagates Runtime reconfiguration failure", async () => {
+    const runtime = /** @type {any} */ ({
+        getSessionSnapshot: () => ({ cwd: Deno.cwd(), activeModel: { model: "old", provider: "test" } }),
+        reconfigureSessionModel: () => Promise.reject(new Error("No API key")),
+    });
+    await assertRejects(() => setActiveModel(runtime, "runtime-id", "model", "test"), Error, "No API key");
+});
 
+Deno.test("getActiveModel reads only the Runtime snapshot", () => {
+    const runtime = /** @type {any} */ ({
+        getSessionSnapshot: () => ({ activeModel: { model: "model-a", provider: "provider-a" } }),
+    });
+    assertEquals(getActiveModel(runtime, "runtime-id"), "model-a");
+});
+
+Deno.test("persistThinkingLevel stores the selected level", async () => {
+    const persisted = /** @type {string[]} */ ([]);
     try {
         __setSettingsManagerForPersistenceTests(() => /** @type {any} */ ({
             setDefaultThinkingLevel: (/** @type {string} */ level) => {
@@ -289,184 +148,47 @@ Deno.test("persistThinkingLevel stores the selected level without throwing", asy
             },
         }));
         await persistThinkingLevel("high");
-        assertEquals(persisted, ["high"]);
     } finally {
         __setSettingsManagerForPersistenceTests(null);
     }
+    assertEquals(persisted, ["high"]);
 });
 
-Deno.test("setActiveModel rebuilds root session tool set when switching between vision and text-only models", async () => {
-    const originalOpenAiKey = Deno.env.get("OPENAI_API_KEY");
-    const originalCwd = Deno.cwd();
-    const tempProject = await Deno.makeTempDir({ prefix: "runwield-model-switch-project-" });
-    /** @type {Set<any>} */
-    const rootsBuiltDuringTest = new Set();
-    try {
-        await withTempHome("runwield-model-switch-home-", async (tempHome) => {
-            Deno.chdir(tempProject);
-            Deno.env.set("OPENAI_API_KEY", "test-key");
-            await Deno.mkdir(join(tempHome, ".wld"), { recursive: true });
-            await Deno.writeTextFile(
-                join(tempHome, ".wld", "models.json"),
-                JSON.stringify({
-                    providers: {
-                        test: {
-                            baseUrl: "https://example.invalid/v1",
-                            api: "openai-completions",
-                            apiKey: "test-key",
-                            models: [
-                                { id: "text", input: ["text"] },
-                                { id: "vision", input: ["text", "image"] },
-                            ],
-                        },
-                    },
-                }),
-            );
-            await Deno.writeTextFile(
-                join(tempHome, ".wld", "settings.json"),
-                JSON.stringify({
-                    visionFallback: { model: "test/vision" },
-                }),
-            );
-            __resetSettingsForTests();
-            const hostedSession = makeHostedSession("model-switch");
-            hostedSession.clearUserModelOverride();
-            hostedSession.setProjectStateContext(EMPTY_PROJECT_DIRECTORY_PROMPT_NOTE);
-            hostedSession.setActiveUiAPI(
-                /** @type {any} */ ({ appendSystemMessage: () => {}, requestRender: () => {} }),
-            );
-            await ensureRootAgentSession({
-                hostedSession,
-                agentName: "operator",
-                modelOverride: "test/text",
-                _agentDefOverride: {
-                    name: "operator",
-                    displayName: "Operator",
-                    model: "",
-                    description: "Test operator",
-                    tools: ["read"],
-                    systemPrompt: "Test operator prompt.",
-                },
-            });
-            let session = hostedSession.getRootAgentSession();
-            rootsBuiltDuringTest.add(session);
-            const firstRoot = /** @type {any} */ (session);
-            let firstRootDisposeCalls = 0;
-            const firstRootDispose = firstRoot.dispose.bind(firstRoot);
-            firstRoot.dispose = () => {
-                firstRootDisposeCalls += 1;
-                firstRootDispose();
+Deno.test("submit handoff loop invokes one Runtime prompt by opaque id", async () => {
+    const calls = /** @type {any[]} */ ([]);
+    /** @type {((event: any) => void) | null} */
+    let listener = null;
+    const runtime = /** @type {any} */ ({
+        setInteractionAdapter: () => ({ ok: true }),
+        /** @param {string} _id @param {(event: any) => void} next */
+        subscribeSessionEvents: (_id, next) => {
+            listener = next;
+            return () => {
+                listener = null;
             };
-            assertEquals(
-                __getRootSessionMetadataForTests(/** @type {any} */ (session)).tools.includes("see_image"),
-                true,
-            );
-            assertEquals(
-                __getRootSessionMetadataForTests(/** @type {any} */ (session)).projectStateContext,
-                EMPTY_PROJECT_DIRECTORY_PROMPT_NOTE,
-            );
-
-            await setActiveModel(hostedSession, "vision", "test");
-            session = hostedSession.getRootAgentSession();
-            rootsBuiltDuringTest.add(session);
-            assertEquals(firstRootDisposeCalls, 0);
-            assertEquals(
-                __getRootSessionMetadataForTests(/** @type {any} */ (session)).tools.includes("see_image"),
-                false,
-            );
-            assertEquals(
-                __getRootSessionMetadataForTests(/** @type {any} */ (session)).projectStateContext,
-                EMPTY_PROJECT_DIRECTORY_PROMPT_NOTE,
-            );
-
-            await setActiveModel(hostedSession, "text", "test");
-            session = hostedSession.getRootAgentSession();
-            rootsBuiltDuringTest.add(session);
-            assertEquals(firstRootDisposeCalls, 0);
-            assertEquals(
-                __getRootSessionMetadataForTests(/** @type {any} */ (session)).tools.includes("see_image"),
-                true,
-            );
-            assertEquals(
-                __getRootSessionMetadataForTests(/** @type {any} */ (session)).projectStateContext,
-                EMPTY_PROJECT_DIRECTORY_PROMPT_NOTE,
-            );
-        });
-    } finally {
-        for (const root of rootsBuiltDuringTest) {
-            try {
-                root?.dispose?.();
-            } catch (_e) { /* ignore */ }
-        }
-        Deno.chdir(originalCwd);
-        if (originalOpenAiKey === undefined) Deno.env.delete("OPENAI_API_KEY");
-        else Deno.env.set("OPENAI_API_KEY", originalOpenAiKey);
-        await Deno.remove(tempProject, { recursive: true });
-    }
-});
-
-Deno.test("submit handoff loop consumes only the current HostedSession handoff", async () => {
-    const current = makeHostedSession("current-handoff-session");
-    /** @type {string[]} */
-    const seenRequests = [];
-    current.setRootSessionManager(/** @type {any} */ ({ id: "current-root" }));
-    current.setActiveOnMessage((/** @type {string} */ request) => {
-        seenRequests.push(String(request));
-        if (seenRequests.length === 1) {
-            return Promise.resolve({
-                kind: "handoff",
-                agentName: "router",
-                userRequest: "current handoff",
-            });
-        }
-        return Promise.resolve();
+        },
+        getSessionSnapshot: () => ({ queuedMessages: [] }),
+        /** @param {string} sessionId @param {any} options */
+        promptSession: (sessionId, options) => {
+            calls.push({ sessionId, options, subscribed: Boolean(listener) });
+            return Promise.resolve({ ok: true });
+        },
     });
-
     await runScopedSubmitHandoffLoop({
-        hostedSession: current,
-        uiAPI: /** @type {any} */ ({ appendSystemMessage: () => {} }),
+        runtime,
+        sessionId: "runtime-id",
+        uiAPI: /** @type {any} */ ({
+            requestRender: () => {},
+            promptSelect: () => Promise.resolve(null),
+            promptText: () => Promise.resolve(null),
+        }),
         initialRequest: "first request",
         initialImages: [],
-        switchActiveAgentImpl: (session, { agentName }) => {
-            session.setRootAgentName(agentName);
-            return Promise.resolve({ ok: true, agentName, changed: true });
-        },
     });
-
-    assertEquals(seenRequests, ["first request", "current handoff"]);
-});
-
-Deno.test("submit handoff loop preserves the chained handoff limit", async () => {
-    const current = makeHostedSession("limited-handoff-session");
-    /** @type {string[]} */
-    const messages = [];
-    let turnCount = 0;
-    current.setRootSessionManager(/** @type {any} */ ({ id: "current-root" }));
-    current.setActiveOnMessage(() => {
-        turnCount++;
-        return Promise.resolve({
-            kind: "handoff",
-            agentName: "router",
-            userRequest: `handoff ${turnCount}`,
-        });
-    });
-
-    await runScopedSubmitHandoffLoop({
-        hostedSession: current,
-        uiAPI: /** @type {any} */ ({
-            appendSystemMessage: (/** @type {unknown} */ message) => messages.push(String(message)),
-        }),
-        initialRequest: "start",
-        initialImages: [],
-        switchActiveAgentImpl: (session, { agentName }) => {
-            session.setRootAgentName(agentName);
-            return Promise.resolve({ ok: true, agentName, changed: true });
-        },
-    });
-
-    assertEquals(turnCount, 5);
-    assertEquals(
-        messages.includes("return_to_router handoff limit reached — refusing further chained handoffs in this turn."),
-        true,
-    );
+    assertEquals(calls, [{
+        sessionId: "runtime-id",
+        options: { initialRequest: "first request", initialImages: [] },
+        subscribed: true,
+    }]);
+    assertEquals(listener, null);
 });

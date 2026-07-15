@@ -22,8 +22,8 @@ import { createEditWithFallbackToolDefinition } from "../../tools/edit-with-fall
 import { createRunWieldGrepToolDefinition } from "../../tools/grep.js";
 import { extractYaml, test as hasFrontMatter } from "@std/front-matter";
 import { dirname, join } from "@std/path";
-import { AGENT_DEFS_DIR, AGENTS, HOME_DIR, PROMPT_TEMPLATES_DIR, SKILLS_DIR } from "../../constants.js";
-import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runtime-events.js";
+import { AGENTS, HOME_DIR, PROMPT_TEMPLATES_DIR, SKILLS_DIR } from "../../constants.js";
+import { emitHostedSessionRuntimeEvent, emitSystemStatus, RuntimeEventTypes } from "./session-runtime-events.js";
 import mnemosyneExtension, {
     memoryDeleteToolDef,
     memoryRecallGlobalToolDef,
@@ -62,12 +62,12 @@ import {
 import { getCustomSetting, getMergedCustomSetting, getSettingsDir, getSettingsManager } from "../settings.js";
 import { modelSupportsImageInput, prepareImagesForModel, resolveVisionFallbackModel } from "./image-attachments.js";
 import { recordActiveAgent } from "./active-agent-session.js";
+import { getBundledAgentDefsPath } from "./agent-assets.js";
 import { getPackagePromptTemplatePaths, resolveInstalledPackagePromptResources } from "../package-resources.js";
 import { getWldExtensionPaths, resolveInstalledWldExtensionResources } from "../extensions/wld-extension-manifest.js";
 import { recordToolCallFinished, recordToolCallStarted, recordWorkflowMetric } from "../workflow/metrics.js";
 
 const HOME_PROMPTS_DIR = HOME_DIR ? join(HOME_DIR, ".wld", "prompts") : null;
-const HIDDEN_UI_TOOL_BLOCK_NAMES = new Set(["review_complete", "user_interview"]);
 
 /** Regex to detect an HTML body in an error message (e.g. from a 404 page). */
 const HTML_ERROR_RE = /^(.*?\b404\b.*?)(?:<!DOCTYPE|<html|<body)/i;
@@ -324,13 +324,9 @@ export async function listPromptTemplates(options = {}) {
  */
 
 const BUNDLED_SKILLS_CACHE_DIR = HOME_DIR ? join(HOME_DIR, ".wld", "bundled-skills") : null;
-const BUNDLED_AGENT_DEFS_CACHE_DIR = HOME_DIR ? join(HOME_DIR, ".wld", "bundled-agent-definitions") : null;
 
 /** @type {Promise<string | null> | null} */
 let bundledSkillsExtractionPromise = null;
-
-/** @type {Promise<string | null> | null} */
-let bundledAgentDefsExtractionPromise = null;
 
 /**
  * Recursively copy `srcDir` (which may live inside a Deno-compile virtual
@@ -378,79 +374,6 @@ export function extractBundledSkills() {
         }
     })();
     return bundledSkillsExtractionPromise;
-}
-
-/**
- * Extract bundled agent definitions (compiled into the binary) to a real
- * on-disk cache so external read tools can access them. Runs at most once
- * per process. Mirrors the bundled-skills extraction pattern.
- *
- * @returns {Promise<string | null>} Real path to extracted agent defs, or null if unavailable.
- */
-export function extractBundledAgentDefs() {
-    if (bundledAgentDefsExtractionPromise) return bundledAgentDefsExtractionPromise;
-    bundledAgentDefsExtractionPromise = (async () => {
-        if (!BUNDLED_AGENT_DEFS_CACHE_DIR) return null;
-        if (!(await directoryExists(AGENT_DEFS_DIR))) return null;
-        try {
-            await Deno.remove(BUNDLED_AGENT_DEFS_CACHE_DIR, { recursive: true });
-        } catch {
-            // Cache dir may not exist yet — fine.
-        }
-        try {
-            await copyTreeFromBundle(AGENT_DEFS_DIR, BUNDLED_AGENT_DEFS_CACHE_DIR);
-            return BUNDLED_AGENT_DEFS_CACHE_DIR;
-        } catch {
-            return null;
-        }
-    })();
-    return bundledAgentDefsExtractionPromise;
-}
-
-/**
- * Resolve the runtime-readable bundled agent definitions directory.
- * Returns the extracted cache path when available (compiled binary or first-run),
- * falling back to the bundled source directory.
- *
- * @returns {Promise<string>} Absolute path to the agent-defs root.
- */
-export function getBundledAgentDefsPath() {
-    return getBundledAgentDefsPathInner();
-}
-
-/** @type {Promise<string> | null} */
-let bundledAgentDefsPathPromise = null;
-
-function getBundledAgentDefsPathInner() {
-    if (bundledAgentDefsPathPromise) return bundledAgentDefsPathPromise;
-    bundledAgentDefsPathPromise = extractBundledAgentDefs().then((extracted) => extracted ?? AGENT_DEFS_DIR);
-    return bundledAgentDefsPathPromise;
-}
-
-/**
- * Resolve a bundled agent-definition asset to a real readable path. In compiled
- * binaries, the extraction cache can be stale or missing a newly-added nested
- * asset, so this heals the cache from the bundled virtual filesystem when
- * possible instead of letting downstream prompt loads hard-crash.
- *
- * @param {string} relativePath - Path relative to `src/agent-definitions`.
- * @returns {Promise<string>}
- */
-export async function ensureBundledAgentDefFile(relativePath) {
-    const bundledDir = await getBundledAgentDefsPath();
-    const targetPath = join(bundledDir, relativePath);
-    if (await fileExists(targetPath)) return targetPath;
-
-    const sourcePath = join(AGENT_DEFS_DIR, relativePath);
-    try {
-        const bytes = await Deno.readFile(sourcePath);
-        await Deno.mkdir(dirname(targetPath), { recursive: true });
-        await Deno.writeFile(targetPath, bytes);
-        return targetPath;
-    } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        throw new Error(`Bundled agent asset is missing: ${relativePath}. ${message}`);
-    }
 }
 
 /**
@@ -1327,7 +1250,6 @@ export async function assembleFinalSystemPrompt(
  * @param {string[]} [opts.toolNames]
  * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [opts.customTools]
  * @param {string} [opts.modelOverride]
- * @param {import('../workflow/workflow.js').UiAPI} [opts.uiAPI]
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager]
  * @param {import('../../tools/plan-written.js').TriageMeta} [opts.triageMeta]
  * @param {import('./types.js').AgentDefinition} [opts._agentDefOverride]
@@ -1356,7 +1278,6 @@ export async function buildAgentSession({
     toolNames,
     customTools,
     modelOverride,
-    uiAPI,
     sessionManager,
     triageMeta,
     _agentDefOverride,
@@ -1399,28 +1320,28 @@ export async function buildAgentSession({
     // while RunWield runtime injects the concrete tool implementations.
 
     if (tools.includes("return_to_router") && !finalCustomTools.find((t) => t.name === "return_to_router")) {
-        // Root sessions are hosted explicitly; close over the session/UI used to
+        // Root sessions are hosted explicitly; close over the hosted session used to
         // build this AgentSession instead of relying on dynamic tool context or
         // any module-level active session state.
         const returnToRouterHostedSession = targetHostedSession;
-        const returnToRouterUiAPI = uiAPI;
         finalCustomTools.push({
             ...returnToRouterTool,
             execute(_toolCallId, params, _signal, _onUpdate, _context) {
                 return executeReturnToRouter(
                     /** @type {{ reason: string }} */ (params),
-                    returnToRouterUiAPI,
                     returnToRouterHostedSession,
                 );
             },
         });
     }
 
-    if (tools.includes("plan_written") && uiAPI && !finalCustomTools.find((t) => t.name === "plan_written")) {
+    if (
+        tools.includes("plan_written") && targetHostedSession &&
+        !finalCustomTools.find((t) => t.name === "plan_written")
+    ) {
         const { createPlanWrittenTool } = await import("../../tools/plan-written.js");
         finalCustomTools.push(
             createPlanWrittenTool({
-                uiAPI,
                 triageMeta,
                 agentName,
                 hostedSession: targetHostedSession || undefined,
@@ -1431,21 +1352,31 @@ export async function buildAgentSession({
 
     if (tools.includes("triage_report") && !finalCustomTools.find((t) => t.name === "triage_report")) {
         const { createTriageReportTool } = await import("../../tools/triage-report.js");
-        finalCustomTools.push(createTriageReportTool({ uiAPI, hostedSession: targetHostedSession || undefined }));
+        finalCustomTools.push(createTriageReportTool({ hostedSession: targetHostedSession || undefined }));
     }
 
     if (tools.includes("user_interview") && !finalCustomTools.find((t) => t.name === "user_interview")) {
-        finalCustomTools.push(createUserInterviewTool({ uiAPI, hostedSession: targetHostedSession || undefined }));
+        finalCustomTools.push(createUserInterviewTool({ hostedSession: targetHostedSession || undefined }));
     }
 
-    if (tools.includes("task_completed") && uiAPI && !finalCustomTools.find((t) => t.name === "task_completed")) {
+    if (
+        tools.includes("task_completed") && targetHostedSession &&
+        !finalCustomTools.find((t) => t.name === "task_completed")
+    ) {
         const { createTaskCompletedTool } = await import("../../tools/task-completed.js");
-        finalCustomTools.push(createTaskCompletedTool({ uiAPI, agentName: agentDef.displayName }));
+        finalCustomTools.push(
+            createTaskCompletedTool({ hostedSession: targetHostedSession, agentName: agentDef.displayName }),
+        );
     }
 
-    if (tools.includes("review_complete") && uiAPI && !finalCustomTools.find((t) => t.name === "review_complete")) {
+    if (
+        tools.includes("review_complete") && targetHostedSession &&
+        !finalCustomTools.find((t) => t.name === "review_complete")
+    ) {
         const { createReviewCompletedTool } = await import("../../tools/review-complete.js");
-        finalCustomTools.push(createReviewCompletedTool({ uiAPI, agentName: agentDef.displayName }));
+        finalCustomTools.push(
+            createReviewCompletedTool({ hostedSession: targetHostedSession, agentName: agentDef.displayName }),
+        );
     }
 
     // Override the built-in edit tool to return file contents on failure.
@@ -1533,13 +1464,11 @@ export async function buildAgentSession({
     if (extensionsResult?.errors?.length) {
         for (const err of extensionsResult.errors) {
             const msg = `[RunWield] Extension warning (${err.path}): ${err.error}`;
-            if (uiAPI) uiAPI.appendSystemMessage(msg);
-            else console.warn(msg);
+            emitSystemStatus(targetHostedSession || undefined, msg, { level: "warning" });
             if (String(err.error).toLowerCase().includes("mnemosyne")) {
                 const msg2 =
                     "[RunWield] Memory extension issue detected. Install mnemosyne: https://github.com/gandazgul/mnemosyne#quick-start";
-                if (uiAPI) uiAPI.appendSystemMessage(msg2);
-                else console.warn(msg2);
+                emitSystemStatus(targetHostedSession || undefined, msg2, { level: "warning" });
             }
         }
     }
@@ -1684,35 +1613,26 @@ async function compactBeforePromptIfNeeded(session, prepared) {
 }
 
 /**
- * Attach UI event subscribers to an AgentSession. Called once per AgentSession lifetime
+ * Attach semantic event subscribers to an AgentSession. Called once per AgentSession lifetime
  * (whether root or transient). Returns lifecycle handles for the caller to reset turn-scoped
  * state between prompts.
  *
  * @param {import('@earendil-works/pi-coding-agent').AgentSession} session
  * @param {import('./types.js').AgentDefinition} agentDef
- * @param {import('../workflow/workflow.js').UiAPI | undefined} uiAPI
  * @param {string} [debugLogPath]
  * @param {import('./hosted-session.js').HostedSession} [hostedSession]
  *
  * @returns {SubscriberState}
  */
-export function attachUiSubscribers(
+export function attachSessionEventSubscribers(
     session,
     agentDef,
-    uiAPI,
     debugLogPath = undefined,
     hostedSession = undefined,
 ) {
-    /** @type {{ appendText: (delta: string) => void } | null} */
-    let currentMarkdownBlock = null;
-    // Whether the agent-name header has already been rendered this turn. Only
-    // the first assistant block of a turn shows the "Agent:" header; blocks
-    // created after a tool call (the tool-call continuation) must not repeat it.
-    let agentHeaderShown = false;
     /** @type {string[]} */
     let invokedToolNames = [];
-    /** @type {{ appendDelta: (delta: string) => void, end: () => void } | null} */
-    let currentThinkingStream = null;
+    let thinkingActive = false;
     let currentRuntimeTurnId = crypto.randomUUID();
     let assistantMessageSequence = 0;
     let thinkingMessageSequence = 0;
@@ -1734,19 +1654,16 @@ export function attachUiSubscribers(
         return emitHostedSessionRuntimeEvent(hostedSession, eventWithTurnId);
     };
 
-    const hasRuntimeEventSink = () => Boolean(hostedSession?.getEventSink?.());
-
     const endThinking = () => {
-        if (currentThinkingStream) {
-            currentThinkingStream.end();
-            currentThinkingStream = null;
-        }
+        if (!thinkingActive) return;
+        emitRuntimeEvent({
+            type: RuntimeEventTypes.ASSISTANT_THINKING_END,
+            ...(currentThinkingMessageId ? { messageId: currentThinkingMessageId } : {}),
+        });
+        thinkingActive = false;
     };
 
     const unsubscribe = session.subscribe((event) => {
-        const liveUiAPI = /** @type {any} */ (uiAPI || hostedSession?.getActiveUiAPIState?.() || undefined);
-        const renderUiAPI = liveUiAPI?._runtimeEventBridge === true ? null : liveUiAPI;
-
         switch (event.type) {
             case "message_start": {
                 if (shouldWriteDebugLog(debugLogPath) && debugLogPath) {
@@ -1761,11 +1678,6 @@ export function attachUiSubscribers(
                     );
                 }
                 if (event.message.role === "assistant") {
-                    // Start a fresh assistant message context, but do not render a block yet.
-                    // We only create assistant blocks lazily when we receive actual text deltas
-                    // (or when rendering an assistant error on message_end).
-                    currentMarkdownBlock = null;
-                    agentHeaderShown = false;
                     currentAssistantMessageId = /** @type {any} */ (event.message).id || nextAssistantMessageId();
                     currentThinkingMessageId = null;
                     endThinking();
@@ -1775,6 +1687,7 @@ export function attachUiSubscribers(
             case "message_update": {
                 if (event.assistantMessageEvent.type === "thinking_delta") {
                     currentThinkingMessageId = currentThinkingMessageId || nextThinkingMessageId();
+                    thinkingActive = true;
                     emitRuntimeEvent({
                         type: RuntimeEventTypes.ASSISTANT_THINKING_DELTA,
                         messageId: currentThinkingMessageId,
@@ -1792,22 +1705,10 @@ export function attachUiSubscribers(
                             ].join("\n"),
                         );
                     }
-                    if (!currentThinkingStream && renderUiAPI) {
-                        currentThinkingStream = renderUiAPI.appendThinkingStart?.() ?? null;
-                    }
-                    if (currentThinkingStream) {
-                        currentThinkingStream.appendDelta(event.assistantMessageEvent.delta);
-                    } else if (!hasRuntimeEventSink()) {
-                        console.log(event.assistantMessageEvent.delta);
-                    }
                     break;
                 }
 
                 if (event.assistantMessageEvent.type === "thinking_end") {
-                    emitRuntimeEvent({
-                        type: RuntimeEventTypes.ASSISTANT_THINKING_END,
-                        ...(currentThinkingMessageId ? { messageId: currentThinkingMessageId } : {}),
-                    });
                     if (shouldWriteDebugLog(debugLogPath) && debugLogPath) {
                         appendDebugLog(
                             debugLogPath,
@@ -1824,6 +1725,7 @@ export function attachUiSubscribers(
 
                 if (event.assistantMessageEvent.type === "text_delta") {
                     currentAssistantMessageId = currentAssistantMessageId || nextAssistantMessageId();
+                    endThinking();
                     emitRuntimeEvent({
                         type: RuntimeEventTypes.ASSISTANT_TEXT_DELTA,
                         messageId: currentAssistantMessageId,
@@ -1840,20 +1742,6 @@ export function attachUiSubscribers(
                                 event.assistantMessageEvent.delta,
                                 "",
                             ].join("\n"),
-                        );
-                    }
-                    endThinking();
-                    if (renderUiAPI) {
-                        const block = currentMarkdownBlock ?? renderUiAPI.appendAgentMessageStart(
-                            agentHeaderShown ? "" : agentDef.displayName,
-                        );
-                        currentMarkdownBlock = block;
-                        agentHeaderShown = true;
-                        block.appendText(event.assistantMessageEvent.delta);
-                        renderUiAPI.requestRender();
-                    } else if (!hasRuntimeEventSink()) {
-                        Deno.stdout.writeSync(
-                            new TextEncoder().encode(event.assistantMessageEvent.delta),
                         );
                     }
                 }
@@ -1897,31 +1785,6 @@ export function attachUiSubscribers(
                     });
                 }
 
-                if (
-                    event.message.role === "assistant" && event.message.stopReason === "error" &&
-                    renderUiAPI
-                ) {
-                    if (shouldWriteDebugLog(debugLogPath) && debugLogPath) {
-                        appendDebugLog(
-                            debugLogPath,
-                            [
-                                `Event: ASSISTANT MESSAGE ERROR`,
-                                `Timestamp: ${new Date().toISOString()}`,
-                                `Error: ${sanitizeApiErrorMessage(event.message.errorMessage || "Unknown LLM error")}`,
-                                "",
-                            ].join("\n"),
-                        );
-                    }
-                    const block = currentMarkdownBlock ?? renderUiAPI.appendAgentMessageStart(
-                        agentHeaderShown ? "" : agentDef.displayName,
-                    );
-                    currentMarkdownBlock = block;
-                    agentHeaderShown = true;
-                    block.appendText(
-                        `\n\n**Error:** ${sanitizeApiErrorMessage(event.message.errorMessage || "Unknown LLM error")}`,
-                    );
-                    renderUiAPI.requestRender();
-                }
                 break;
             }
             case "auto_retry_start": {
@@ -1934,9 +1797,6 @@ export function attachUiSubscribers(
                     message,
                     raw: event,
                 });
-                if (renderUiAPI) {
-                    renderUiAPI.appendSystemMessage(message);
-                }
                 break;
             }
             case "auto_retry_end": {
@@ -1950,14 +1810,10 @@ export function attachUiSubscribers(
                         message,
                         raw: event,
                     });
-                    if (renderUiAPI) {
-                        renderUiAPI.appendSystemMessage(message, true);
-                    }
                 }
                 break;
             }
             case "tool_execution_start": {
-                currentMarkdownBlock = null;
                 invokedToolNames.push(event.toolName);
                 recordToolCallStarted(
                     event.toolCallId,
@@ -2053,16 +1909,6 @@ export function attachUiSubscribers(
                     args: event.args,
                 });
 
-                if (event.toolName === "task_completed" || HIDDEN_UI_TOOL_BLOCK_NAMES.has(event.toolName)) {
-                    break;
-                }
-
-                if (renderUiAPI && renderUiAPI.startToolExecution) {
-                    const headerName = event.toolName === "bash" ? "$" : event.toolName;
-                    renderUiAPI.startToolExecution(event.toolCallId, headerName, headerArgs);
-                } else if (!hasRuntimeEventSink()) {
-                    console.log(`\n  [Tool] ${event.toolName} ${headerArgs}`);
-                }
                 break;
             }
             case "tool_execution_update": {
@@ -2092,16 +1938,6 @@ export function attachUiSubscribers(
                     partialResult: event.partialResult,
                     text: partialText,
                 });
-                if (renderUiAPI && renderUiAPI.getActiveToolBlock) {
-                    const block = renderUiAPI.getActiveToolBlock(event.toolCallId);
-                    if (block && event.partialResult && event.partialResult.content) {
-                        const newContentText = partialText;
-                        const currentText = block.bodyText || "";
-                        if (newContentText.length > currentText.length) {
-                            block.appendOutput(newContentText.slice(currentText.length));
-                        }
-                    }
-                }
                 break;
             }
             case "tool_execution_end": {
@@ -2140,23 +1976,6 @@ export function attachUiSubscribers(
                     result: event.result,
                     text: resultText,
                 });
-                if (renderUiAPI && renderUiAPI.getActiveToolBlock) {
-                    const block = renderUiAPI.getActiveToolBlock(event.toolCallId);
-                    if (block) {
-                        // Make sure we append any final result text that wasn't streamed
-                        if (event.result && event.result.content) {
-                            const newContentText = resultText;
-                            const currentText = block.bodyText || "";
-                            if (newContentText.length > currentText.length) {
-                                block.appendOutput(newContentText.slice(currentText.length));
-                            }
-                        }
-                        const durationMs = Date.now() - block.startTime;
-                        block.endExecution(event.isError, durationMs);
-                    }
-                } else if (!hasRuntimeEventSink()) {
-                    console.log(`  [Tool] ${event.toolName} — ${event.isError ? "error" : "ok"}`);
-                }
                 break;
             }
             case "turn_start": {
@@ -2166,14 +1985,12 @@ export function attachUiSubscribers(
                 currentAssistantMessageId = null;
                 currentThinkingMessageId = null;
                 emitRuntimeEvent({ type: RuntimeEventTypes.TURN_START, turnId: currentRuntimeTurnId });
-                if (renderUiAPI && renderUiAPI.setBusy) renderUiAPI.setBusy(true);
                 break;
             }
             case "turn_end": {
                 emitRuntimeEvent({ type: RuntimeEventTypes.TURN_END, turnId: currentRuntimeTurnId, ok: true });
                 currentAssistantMessageId = null;
                 currentThinkingMessageId = null;
-                if (renderUiAPI && renderUiAPI.setBusy) renderUiAPI.setBusy(false);
                 break;
             }
             case "compaction_start": {
@@ -2188,7 +2005,6 @@ export function attachUiSubscribers(
                         message: label,
                         raw: event,
                     });
-                    if (renderUiAPI) renderUiAPI.appendSystemMessage(label);
                 }
                 break;
             }
@@ -2203,7 +2019,6 @@ export function attachUiSubscribers(
                             message: "Auto-compaction cancelled.",
                             raw: event,
                         });
-                        if (renderUiAPI) renderUiAPI.appendSystemMessage("Auto-compaction cancelled.");
                     } else if (event.result) {
                         const message = `Auto-compacted. Tokens before: ${event.result.tokensBefore.toLocaleString()}`;
                         emitRuntimeEvent({
@@ -2212,7 +2027,6 @@ export function attachUiSubscribers(
                             message,
                             raw: event,
                         });
-                        if (renderUiAPI) renderUiAPI.appendSystemMessage(message);
                     } else if (event.errorMessage) {
                         const message = `Auto-compaction failed: ${sanitizeApiErrorMessage(event.errorMessage)}`;
                         emitRuntimeEvent({
@@ -2221,7 +2035,6 @@ export function attachUiSubscribers(
                             message,
                             raw: event,
                         });
-                        if (renderUiAPI) renderUiAPI.appendSystemMessage(message);
                     }
                 }
                 break;
@@ -2231,7 +2044,6 @@ export function attachUiSubscribers(
 
     return {
         resetTurn: () => {
-            currentMarkdownBlock = null;
             invokedToolNames = [];
         },
         drainInvokedToolNames: () => {
@@ -2246,7 +2058,7 @@ export function attachUiSubscribers(
 
 /**
  * Run a single prompt() on an already-constructed AgentSession with attached subscribers.
- * Handles debug logging, defensive UI cleanup, and per-turn state reset.
+ * Handles debug logging, defensive stream cleanup, and per-turn state reset.
  *
  * @param {Object} opts
  * @param {import('@earendil-works/pi-coding-agent').AgentSession} opts.session
@@ -2255,7 +2067,6 @@ export function attachUiSubscribers(
  * @param {string} opts.userRequest
  * @param {string} opts.finalSystemPrompt  Used only for debug log.
  * @param {Array<{base64: string, mimeType: string}>} [opts.images]
- * @param {import('../workflow/workflow.js').UiAPI} [opts.uiAPI]
  * @param {SubscriberState} opts.subscriberState
  * @param {any} [opts.resolvedModel]
  * @param {string} [opts.resolvedThinkingLevel]
@@ -2271,7 +2082,6 @@ export async function runPrompt({
     userRequest,
     finalSystemPrompt,
     images,
-    uiAPI,
     subscriberState,
     resolvedModel,
     resolvedThinkingLevel,
@@ -2333,16 +2143,8 @@ export async function runPrompt({
         promptError = error instanceof Error ? error : new Error(String(error));
         throw error;
     } finally {
-        // Defensive cleanup: end any active thinking stream and force idle UI state.
-        // This handles abort/error edge paths where turn_end events may never fire.
+        // Defensive cleanup handles abort/error paths where thinking_end may never fire.
         subscriberState.endThinking();
-        if (uiAPI) {
-            try {
-                if (uiAPI.setBusy) uiAPI.setBusy(false);
-            } catch (_e) {
-                // Ignore UI API errors during cleanup
-            }
-        }
 
         if (debugEnabled) {
             const messages = session.agent.state.messages;
@@ -2464,7 +2266,6 @@ export function disposeRootAgentSessionForNewSession(hostedSession) {
  * @param {string[]} [opts.toolNames]
  * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [opts.customTools]
  * @param {string} [opts.modelOverride]
- * @param {import('../workflow/workflow.js').UiAPI} [opts.uiAPI]
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager]
  * @param {boolean} [opts.allowReturnToRouter]
  * @param {import('./types.js').AgentDefinition} [opts._agentDefOverride]
@@ -2472,7 +2273,7 @@ export function disposeRootAgentSessionForNewSession(hostedSession) {
  * @param {string} [opts.projectStateContext]
  * @param {boolean} [opts.includeEditFallback]
  * @param {Function} [opts._buildAgentSession]
- * @param {Function} [opts._attachUiSubscribers]
+ * @param {Function} [opts._attachSessionEventSubscribers]
  * @param {string} [opts.debugLogPath]
  *
  * @returns {Promise<import('@earendil-works/pi-coding-agent').AgentSession>}
@@ -2483,7 +2284,7 @@ export async function ensureRootAgentSession(opts) {
     const existingMeta = existing ? rootSessionMetadata.get(existing) : undefined;
     const rootProjectStateContext = opts.projectStateContext ?? hostedSession.getProjectStateContext();
     const buildAgentSessionFn = opts._buildAgentSession || buildAgentSession;
-    const attachUiSubscribersFn = opts._attachUiSubscribers || attachUiSubscribers;
+    const attachSessionEventSubscribersFn = opts._attachSessionEventSubscribers || attachSessionEventSubscribers;
     const {
         session,
         agentDef,
@@ -2511,7 +2312,7 @@ export async function ensureRootAgentSession(opts) {
         throw error;
     }
 
-    const subscriberState = attachUiSubscribersFn(session, agentDef, opts.uiAPI, opts.debugLogPath, hostedSession);
+    const subscriberState = attachSessionEventSubscribersFn(session, agentDef, opts.debugLogPath, hostedSession);
 
     if (existing) {
         try {
@@ -2561,13 +2362,12 @@ export async function ensureRootAgentSession(opts) {
  * @param {string} opts.agentName  Internal name used to verify the root matches.
  * @param {string} opts.userRequest
  * @param {Array<{base64: string, mimeType: string}>} [opts.images]
- * @param {import('../workflow/workflow.js').UiAPI} [opts.uiAPI]
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager]
  * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [opts.customTools]
  * @param {import('./types.js').AgentDefinition} [opts._agentDefOverride]
  * @param {boolean} [opts.allowReturnToRouter]
  * @param {Function} [opts._buildAgentSession]
- * @param {Function} [opts._attachUiSubscribers]
+ * @param {Function} [opts._attachSessionEventSubscribers]
  * @param {Function} [opts._runPrompt]
  *
  * @returns {Promise<import('@earendil-works/pi-agent-core').AgentMessage[]>}
@@ -2577,13 +2377,12 @@ export async function runRootTurn({
     agentName,
     userRequest,
     images,
-    uiAPI,
     sessionManager,
     customTools,
     _agentDefOverride,
     allowReturnToRouter,
     _buildAgentSession,
-    _attachUiSubscribers,
+    _attachSessionEventSubscribers,
     _runPrompt,
 }) {
     const targetHostedSession = requireHostedSession(hostedSession, "runRootTurn");
@@ -2610,13 +2409,12 @@ export async function runRootTurn({
         session = await ensureRootAgentSession({
             hostedSession: targetHostedSession,
             agentName,
-            uiAPI,
             sessionManager,
             customTools,
             _agentDefOverride,
             allowReturnToRouter,
             _buildAgentSession,
-            _attachUiSubscribers,
+            _attachSessionEventSubscribers,
             projectStateContext: meta.projectStateContext,
         });
         meta = rootSessionMetadata.get(session);
@@ -2638,7 +2436,6 @@ export async function runRootTurn({
         userRequest: finalRequest,
         finalSystemPrompt: meta.promptState.text,
         images,
-        uiAPI,
         subscriberState: meta.subscriberState,
     });
 }
@@ -2680,7 +2477,6 @@ export function shouldReuseExistingRootSession(opts, rootAgentName) {
  * @param {string} [opts.modelOverride] - Optional explicit model override in provider/id format.
  * @param {string} opts.userRequest - The user-facing request/instruction to send to the agent
  * @param {Array<{base64: string, mimeType: string}>} [opts.images]
- * @param {import('../workflow/workflow.js').UiAPI} [opts.uiAPI]
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager]
  * @param {import('../../tools/plan-written.js').TriageMeta} [opts.triageMeta] - Optional triage metadata threaded into auto-wired plan_written.
  * @param {import('./types.js').AgentDefinition} [opts._agentDefOverride] - Internal: skip loadAgentDef() and use this pre-loaded definition.
@@ -2691,7 +2487,7 @@ export function shouldReuseExistingRootSession(opts, rootAgentName) {
  * @param {boolean} [opts.includeEditFallback] - Internal: whether to register the edit fallback custom tool.
  * @param {boolean} [opts.useRootSession=true] - Set false only for intentional disposable one-off sessions.
  * @param {Function} [opts._buildAgentSession]
- * @param {Function} [opts._attachUiSubscribers]
+ * @param {Function} [opts._attachSessionEventSubscribers]
  * @param {Function} [opts._runPrompt]
  *
  * @returns {Promise<import('@earendil-works/pi-agent-core').AgentMessage[]>}
@@ -2708,7 +2504,6 @@ export async function runAgentSession(opts) {
                 agentName: opts.agentName,
                 userRequest: opts.userRequest,
                 images: opts.images,
-                uiAPI: opts.uiAPI,
                 sessionManager: opts.sessionManager,
             });
         }
@@ -2725,12 +2520,11 @@ export async function runAgentSession(opts) {
             agentName: opts.agentName,
             userRequest: opts.userRequest,
             images: opts.images,
-            uiAPI: opts.uiAPI,
         });
     }
 
     const buildAgentSessionFn = opts._buildAgentSession || buildAgentSession;
-    const attachUiSubscribersFn = opts._attachUiSubscribers || attachUiSubscribers;
+    const attachSessionEventSubscribersFn = opts._attachSessionEventSubscribers || attachSessionEventSubscribers;
     const runPromptFn = opts._runPrompt || runPrompt;
     const { session, agentDef, promptState, resolvedModel, resolvedThinkingLevel } = await buildAgentSessionFn({
         ...opts,
@@ -2738,20 +2532,16 @@ export async function runAgentSession(opts) {
         cwd: opts.cwd || hostedSession.cwd,
         projectStateContext,
     });
-    const subscriberState = attachUiSubscribersFn(session, agentDef, opts.uiAPI, opts.debugLogPath, hostedSession);
+    const subscriberState = attachSessionEventSubscribersFn(session, agentDef, opts.debugLogPath, hostedSession);
     hostedSession.addSubAgentSession(session);
 
-    const suppressUI = opts.uiAPI?.isOutputSuppressed?.();
-    if (!suppressUI) {
-        const finalModelForUi = resolvedModel ? `${resolvedModel.provider}/${resolvedModel.id}` : undefined;
-        hostedSession.pushAgentInfo(
-            agentDef.displayName,
-            finalModelForUi,
-            resolvedModel?.provider || "",
-            opts.agentName,
-        );
-        opts.uiAPI?.requestRender?.();
-    }
+    const finalModel = resolvedModel ? `${resolvedModel.provider}/${resolvedModel.id}` : undefined;
+    hostedSession.pushAgentInfo(
+        agentDef.displayName,
+        finalModel,
+        resolvedModel?.provider || "",
+        opts.agentName,
+    );
 
     try {
         return await runPromptFn({
@@ -2761,7 +2551,6 @@ export async function runAgentSession(opts) {
             userRequest: opts.userRequest,
             finalSystemPrompt: promptState.text,
             images: opts.images,
-            uiAPI: opts.uiAPI,
             subscriberState,
             resolvedModel,
             resolvedThinkingLevel,
@@ -2769,10 +2558,7 @@ export async function runAgentSession(opts) {
             debugLogPath: opts.debugLogPath,
         });
     } finally {
-        if (!suppressUI) {
-            hostedSession.popAgentInfo();
-            opts.uiAPI?.requestRender?.();
-        }
+        hostedSession.popAgentInfo();
         hostedSession.removeSubAgentSession(session);
         try {
             subscriberState.unsubscribe();
@@ -2786,14 +2572,13 @@ export async function runAgentSession(opts) {
 /**
  * Reloads the active root session without destroying it.
  * Re-reads settings.json from disk, refreshes the dynamic system prompt,
- * resource loader, model, and thinking level. TUI theme reload belongs to the
- * TUI command adapter and is intentionally outside shared core.
+ * resource loader, model, and thinking level. Consumer theme reload belongs to
+ * the consuming application and is intentionally outside shared core.
  *
- * @param {import('./hosted-session.js').HostedSession | import('../workflow/workflow.js').UiAPI} [hostedSession]
- * @param {import('../workflow/workflow.js').UiAPI} [uiAPI]
+ * @param {import('./hosted-session.js').HostedSession} hostedSession
  * @returns {Promise<boolean>} True if reloaded successfully, false if no active session
  */
-export async function reloadRootAgentSession(hostedSession, uiAPI) {
+export async function reloadRootAgentSession(hostedSession) {
     const targetHostedSession = requireHostedSession(hostedSession, "reloadRootAgentSession");
     const session = /** @type {any} */ (targetHostedSession.getRootAgentSession());
     if (!session) return false;
@@ -2806,7 +2591,6 @@ export async function reloadRootAgentSession(hostedSession, uiAPI) {
     await ensureRootAgentSession({
         hostedSession: targetHostedSession,
         agentName: meta.agentName,
-        uiAPI: /** @type {any} */ (uiAPI || targetHostedSession.getActiveUiAPIState() || undefined),
         sessionManager: /** @type {any} */ (targetHostedSession.getRootSessionManager() || undefined),
         projectStateContext: meta.projectStateContext,
     });

@@ -17,11 +17,8 @@ import {
     isEmptyProjectDirectory as isEmptyProjectDirectoryFn,
 } from "../../shared/project-state.js";
 import { loadAgentDefFromPath as loadAgentDefFromPathFn } from "../../shared/session/agents.js";
-import {
-    ensureBundledAgentDefFile as ensureBundledAgentDefFileFn,
-    runAgentSession as runAgentSessionFn,
-} from "../../shared/session/session.js";
-import { SessionHost } from "../../shared/session/session-host.js";
+import { ensureBundledAgentDefFile as ensureBundledAgentDefFileFn } from "../../shared/session/agent-assets.js";
+import { SessionRuntime } from "../../shared/session/session-runtime.js";
 import { printCommandHelp as printCommandHelpFn } from "../help/index.js";
 import {
     isInitDone as isInitDoneFn,
@@ -38,7 +35,7 @@ export const __dirname = dirname(fromFileUrl(import.meta.url));
  * @property {typeof isInitDoneFn} [isInitDone]
  * @property {typeof recordInitDoneFn} [recordInitDone]
  * @property {typeof recordInitOfferedFn} [recordInitOffered]
- * @property {typeof runAgentSessionFn} [runAgentSession]
+ * @property {() => SessionRuntime} [createRuntime]
  * @property {typeof loadAgentDefFromPathFn} [loadAgentDefFromPath]
  * @property {typeof ensureBundledAgentDefFileFn} [ensureBundledAgentDefFile]
  * @property {typeof isEmptyProjectDirectoryFn} [isEmptyProjectDirectory]
@@ -59,7 +56,7 @@ export async function runInitCommand(argv, options = {}) {
         isInitDone: isInitDoneDep,
         recordInitDone: recordInitDoneDep,
         recordInitOffered: recordInitOfferedDep,
-        runAgentSession: runAgentSessionDep,
+        createRuntime: createRuntimeDep,
         loadAgentDefFromPath: loadAgentDefFromPathDep,
         ensureBundledAgentDefFile: ensureBundledAgentDefFileDep,
         isEmptyProjectDirectory: isEmptyProjectDirectoryDep,
@@ -71,8 +68,6 @@ export async function runInitCommand(argv, options = {}) {
     const isInitDone = isInitDoneDep || isInitDoneFn;
     const recordInitDone = recordInitDoneDep || recordInitDoneFn;
     const recordInitOffered = recordInitOfferedDep || recordInitOfferedFn;
-
-    const runAgentSession = runAgentSessionDep || runAgentSessionFn;
 
     const cwd = cwdDep || (() => Deno.cwd());
     const loadAgentDefFromPath = loadAgentDefFromPathDep || loadAgentDefFromPathFn;
@@ -116,31 +111,20 @@ export async function runInitCommand(argv, options = {}) {
     // "init" identifier rather than the file's basename ("init-agent-prompt").
     const initAgentPath = await ensureBundledAgentDefFile(join("workflow-prompts", "init-agent-prompt.md"));
     const agentDef = await loadAgentDefFromPath(initAgentPath, { agentName: AGENTS.INIT });
-    const sessionHost = new SessionHost();
-    const hostedSession = options.hostedSession || sessionHost.createSession({
-        id: `init-${crypto.randomUUID()}`,
-        cwd: cwd(),
-        sessionManager: options.sessionManager || null,
-        uiAPI: options.uiAPI,
-        eventSink: options.uiAPI,
-    });
+    const sessionRuntime = options.sessionRuntime || (createRuntimeDep || (() => new SessionRuntime()))();
+    const ownsRuntimeSession = !options.sessionId;
+    const createdSessionId = options.sessionId ||
+        (await sessionRuntime.createInteractiveSession({ cwd: cwd(), mode: "new" })).sessionId;
 
     await recordInitOffered();
 
     // Run the init agent session using its own definition (model, tools, system prompt).
     // We use a dedicated "init" agent name so it's distinct from the operator.
-    // The footer is updated by buildAgentSession via uiAPI.setAgentInfo once the
-    // session is built — no manual footer mutation needed here.
     try {
-        await runAgentSession({
-            hostedSession,
+        await sessionRuntime.runIsolatedAgent(createdSessionId, {
             agentName: AGENTS.INIT,
             userRequest: "Initialize this project for RunWield. Follow the instructions in your system prompt.",
-            uiAPI: options.uiAPI,
-            sessionManager:
-                /** @type {any} */ (options.sessionManager || hostedSession.getRootSessionManager() || undefined),
-            _agentDefOverride: agentDef,
-            useRootSession: false,
+            agentDef,
         });
 
         await recordInitDone();
@@ -161,5 +145,7 @@ export async function runInitCommand(argv, options = {}) {
             console.error(msg);
         }
         throw err;
+    } finally {
+        if (ownsRuntimeSession) sessionRuntime.closeSession(createdSessionId);
     }
 }

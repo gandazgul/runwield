@@ -1,80 +1,42 @@
-import { assertEquals, assertMatch } from "@std/assert";
-import * as path from "@std/path";
-import { existsSync } from "node:fs";
+import { assertEquals } from "@std/assert";
 import { runExportCommand } from "./index.js";
 
-Deno.test("runExportCommand reports error when session export fails", async () => {
-    /** @type {string[]} */
-    const messages = [];
+/** @param {(sessionId: string, outputPath: string) => Promise<string>} exportSession */
+function makeContext(exportSession) {
+    const messages = /** @type {string[]} */ ([]);
+    let cleared = false;
+    return {
+        messages,
+        wasCleared: () => cleared,
+        context: /** @type {any} */ ({
+            sessionId: "export-test",
+            sessionRuntime: { exportSession },
+            uiAPI: { appendSystemMessage: (/** @type {string} */ message) => messages.push(message) },
+            editor: {
+                disableSubmit: true,
+                setText: () => {
+                    cleared = true;
+                },
+            },
+        }),
+    };
+}
 
-    await runExportCommand([], {
-        sessionStartedAt: "2026-05-01T19:44:54.629Z",
-        uiAPI: {
-            appendSystemMessage: (msg) => messages.push(msg),
-            appendAgentMessageStart: () => ({ appendText: () => {} }),
-            requestRender: () => {},
-            promptSelect: () => Promise.resolve(null),
-            promptText: () => Promise.resolve(null),
-            showModelSelector: () => {},
-        },
-        editor: {
-            disableSubmit: false,
-            setText: () => {},
-            setAutocompleteProvider: () => {},
-            handleInput: () => {},
-        },
-        // Intentionally incomplete to trigger export failure path
-        sessionManager: /** @type {any} */ ({}),
-    });
+Deno.test("runExportCommand exports through SessionRuntime", async () => {
+    const fixture = makeContext(
+        /** @param {string} _id @param {string} outputPath */
+        (_id, outputPath) => Promise.resolve(outputPath),
+    );
+    await runExportCommand(["/tmp/session.jsonl"], fixture.context);
 
-    assertEquals(messages.length, 1);
-    assertMatch(messages[0], /Failed to export session:/);
+    assertEquals(fixture.messages, ["Session exported to: /tmp/session.jsonl"]);
+    assertEquals(fixture.wasCleared(), true);
 });
 
-Deno.test("runExportCommand exports jsonl from root session manager", async () => {
-    /** @type {string[]} */
-    const messages = [];
-    const outPath = `${Deno.cwd()}/temp/test-root-session-export-${Date.now()}.jsonl`;
+Deno.test("runExportCommand reports Runtime export errors", async () => {
+    const fixture = makeContext(() => Promise.reject(new Error("export failed")));
+    await runExportCommand([], fixture.context);
 
-    const sessionManager = /** @type {any} */ ({
-        getSessionId: () => "test-session",
-        getCwd: () => Deno.cwd(),
-        getBranch: () => [{
-            type: "custom_message",
-            id: "entry-1",
-            parentId: null,
-            timestamp: new Date().toISOString(),
-            customType: "test",
-            content: "hello export",
-            display: true,
-        }],
-    });
-
-    try {
-        await runExportCommand([outPath], {
-            uiAPI: {
-                appendSystemMessage: (msg) => messages.push(msg),
-                appendAgentMessageStart: () => ({ appendText: () => {} }),
-                requestRender: () => {},
-                promptSelect: () => Promise.resolve(null),
-                promptText: () => Promise.resolve(null),
-                showModelSelector: () => {},
-            },
-            editor: {
-                disableSubmit: false,
-                setText: () => {},
-                setAutocompleteProvider: () => {},
-                handleInput: () => {},
-            },
-            sessionManager,
-        });
-
-        assertEquals(messages.length, 1);
-        assertMatch(messages[0], /Session exported to:/);
-        assertEquals(existsSync(outPath), true);
-    } finally {
-        if (existsSync(outPath)) {
-            await Deno.remove(path.dirname(outPath), { recursive: true });
-        }
-    }
+    assertEquals(fixture.messages, ["Failed to export session: export failed"]);
+    assertEquals(fixture.wasCleared(), true);
 });

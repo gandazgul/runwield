@@ -1,33 +1,20 @@
 import { assertEquals } from "@std/assert";
 import { createUserInterviewTool } from "../../tools/user-interview.js";
+import { HostedSession } from "../../shared/session/hosted-session.js";
 
-class MockUiAPI {
-    /** @param {Array<string | null>} [responses] */
-    constructor(responses = []) {
-        this.responses = responses;
-        this.callCount = 0;
-    }
-
-    /** @type {Array<string | null>} */
-    responses;
-    /** @type {number} */
-    callCount;
-
-    appendSystemMessage() {}
-    appendAgentMessageStart() {
-        return { appendText() {} };
-    }
-    requestRender() {}
-
-    /** @param {string} _prompt @param {Array<{value: string, label?: string}>} _options */
-    promptSelect(_prompt, _options) {
-        return Promise.resolve(this.responses[this.callCount++] ?? null);
-    }
-
-    /** @param {string} _prompt @param {{ defaultValue?: string, placeholder?: string, allowEmpty?: boolean }} [_options] */
-    promptText(_prompt, _options) {
-        return Promise.resolve(this.responses[this.callCount++] ?? null);
-    }
+/** @param {Array<string | null>} [responses] */
+function createInterviewTool(responses = []) {
+    const session = new HostedSession({ id: `interview-${crypto.randomUUID()}`, cwd: Deno.cwd() });
+    let callCount = 0;
+    session.setInteractionAdapter({
+        requestInteraction: (request) => {
+            const value = responses[callCount++] ?? null;
+            if (value === null) return Promise.resolve({ outcome: "canceled" });
+            if (request.type === "text") return Promise.resolve({ outcome: "text", value });
+            return Promise.resolve({ outcome: "selected", value });
+        },
+    });
+    return createUserInterviewTool({ hostedSession: session });
 }
 
 /**
@@ -42,7 +29,7 @@ async function executeTool(tool, params) {
 }
 
 Deno.test("user_interview - Single Yes/No Question (Happy Path)", async () => {
-    const tool = createUserInterviewTool(/** @type {any} */ (new MockUiAPI(["yes"])));
+    const tool = createInterviewTool(["yes"]);
     const result = await executeTool(tool, {
         question: {
             type: "yes_no",
@@ -55,7 +42,7 @@ Deno.test("user_interview - Single Yes/No Question (Happy Path)", async () => {
 });
 
 Deno.test("user_interview - Single Yes/No with Other (Happy Path)", async () => {
-    const tool = createUserInterviewTool(/** @type {any} */ (new MockUiAPI(["other", "I have a custom thought"])));
+    const tool = createInterviewTool(["other", "I have a custom thought"]);
     const result = await executeTool(tool, {
         question: {
             type: "yes_no",
@@ -70,7 +57,7 @@ Deno.test("user_interview - Single Yes/No with Other (Happy Path)", async () => 
 });
 
 Deno.test("user_interview - Multiple Choice (Happy Path)", async () => {
-    const tool = createUserInterviewTool(/** @type {any} */ (new MockUiAPI(["option_b"])));
+    const tool = createInterviewTool(["option_b"]);
     const result = await executeTool(tool, {
         question: {
             type: "multiple_choice",
@@ -87,7 +74,7 @@ Deno.test("user_interview - Multiple Choice (Happy Path)", async () => {
 });
 
 Deno.test("user_interview - Text Question (Happy Path)", async () => {
-    const tool = createUserInterviewTool(/** @type {any} */ (new MockUiAPI(["Hello World"])));
+    const tool = createInterviewTool(["Hello World"]);
     const result = await executeTool(tool, {
         question: {
             type: "text",
@@ -100,7 +87,7 @@ Deno.test("user_interview - Text Question (Happy Path)", async () => {
 });
 
 Deno.test("user_interview - Batch of Questions (Happy Path)", async () => {
-    const tool = createUserInterviewTool(/** @type {any} */ (new MockUiAPI(["yes", "option_a", "My Text"])));
+    const tool = createInterviewTool(["yes", "option_a", "My Text"]);
     const result = await executeTool(tool, {
         questions: [
             { type: "yes_no", prompt: "Q1" },
@@ -117,7 +104,7 @@ Deno.test("user_interview - Batch of Questions (Happy Path)", async () => {
 });
 
 Deno.test("user_interview - Invalid Request (Both question and questions)", async () => {
-    const tool = createUserInterviewTool(/** @type {any} */ (new MockUiAPI()));
+    const tool = createInterviewTool();
     const result = await executeTool(tool, {
         question: { type: "text", prompt: "Q1" },
         questions: [{ type: "text", prompt: "Q2" }],
@@ -128,7 +115,7 @@ Deno.test("user_interview - Invalid Request (Both question and questions)", asyn
 });
 
 Deno.test("user_interview - Validation Error (Empty Prompt)", async () => {
-    const tool = createUserInterviewTool(/** @type {any} */ (new MockUiAPI()));
+    const tool = createInterviewTool();
     const result = await executeTool(tool, {
         question: { type: "text", prompt: "" },
     });
@@ -138,7 +125,7 @@ Deno.test("user_interview - Validation Error (Empty Prompt)", async () => {
 });
 
 Deno.test("user_interview - User Cancelled", async () => {
-    const tool = createUserInterviewTool(/** @type {any} */ (new MockUiAPI([null])));
+    const tool = createInterviewTool([null]);
     const result = await executeTool(tool, {
         question: { type: "text", prompt: "Q1" },
     });
@@ -148,7 +135,7 @@ Deno.test("user_interview - User Cancelled", async () => {
 });
 
 Deno.test("user_interview - Multiple Choice Validation (Too few choices)", async () => {
-    const tool = createUserInterviewTool(/** @type {any} */ (new MockUiAPI()));
+    const tool = createInterviewTool();
     const result = await executeTool(tool, {
         question: {
             type: "multiple_choice",

@@ -2,10 +2,8 @@ import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
 import {
     assembleFinalSystemPrompt,
-    ensureBundledAgentDefFile,
     expandPromptTemplate,
     expandSkillCommand,
-    getBundledAgentDefsPath,
     listLoadedAgentMdFiles,
     listPromptTemplates,
     listSkills,
@@ -13,6 +11,7 @@ import {
     steerRootSession,
     steerRootSessionWithTarget,
 } from "./session.js";
+import { ensureBundledAgentDefFile, getBundledAgentDefsPath } from "./agent-assets.js";
 import { HostedSession } from "./hosted-session.js";
 import { getAgentDisplayName, listAvailableAgents } from "./agents.js";
 import { getCustomSetting } from "../settings.js";

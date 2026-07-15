@@ -10,6 +10,9 @@ import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runt
 /** @type {WeakMap<import('./hosted-session.js').HostedSession, { agentName: string, model?: string, allowReturnToRouter?: boolean }>} */
 const switchMetadata = new WeakMap();
 
+/** @type {WeakMap<Function, { agentName: string, allowReturnToRouter?: boolean, usesDefaultFactory: boolean }>} */
+const handlerMetadata = new WeakMap();
+
 /**
  * @typedef {Object} AgentSwitchOptions
  * @property {string} agentName
@@ -31,11 +34,10 @@ const switchMetadata = new WeakMap();
  *
  * @param {import('./hosted-session.js').HostedSession} hostedSession
  * @param {AgentSwitchOptions} options
- * @param {import('../types.js').SessionUiPort | undefined} uiAPI
  * @param {SwitchActiveAgentDependencies} [dependencies]
  * @returns {Promise<{ ok: true, agentName: string, model?: string, changed: boolean }>}
  */
-export async function switchActiveAgent(hostedSession, options, uiAPI, dependencies = {}) {
+export async function switchActiveAgent(hostedSession, options, dependencies = {}) {
     if (!hostedSession) throw new Error("switchActiveAgent requires a HostedSession");
     hostedSession.assertActive();
     const agentName = String(options?.agentName || "").trim();
@@ -65,13 +67,13 @@ export async function switchActiveAgent(hostedSession, options, uiAPI, dependenc
     const canReuseRoot = previousRootSession && !modelChanged && !allowReturnToRouterChanged &&
         shouldReuseExistingRootSession(rootOptions, previousAgentName);
     const shouldRebuildRoot = !canReuseRoot;
+    const createAgentHandlerProvided = Object.hasOwn(dependencies, "createAgentHandler");
 
     if (shouldRebuildRoot) {
         await ensureRootAgentSessionImpl({
             hostedSession,
             agentName,
             modelOverride,
-            uiAPI,
             allowReturnToRouter: options.allowReturnToRouter,
         });
     }
@@ -85,7 +87,15 @@ export async function switchActiveAgent(hostedSession, options, uiAPI, dependenc
     };
     switchMetadata.set(hostedSession, nextMetadata);
 
-    if (!shouldRebuildRoot && previousHandler) {
+    const previousHandlerMetadata = typeof previousHandler === "function" ? handlerMetadata.get(previousHandler) : null;
+    const canReuseHandler = Boolean(
+        previousHandler && previousHandlerMetadata &&
+            previousHandlerMetadata.agentName === agentName &&
+            previousHandlerMetadata.allowReturnToRouter === nextMetadata.allowReturnToRouter &&
+            previousHandlerMetadata.usesDefaultFactory === !createAgentHandlerProvided,
+    );
+
+    if (!shouldRebuildRoot && canReuseHandler) {
         return { ok: true, agentName, model: options.model, changed: false };
     }
 
@@ -93,8 +103,13 @@ export async function switchActiveAgent(hostedSession, options, uiAPI, dependenc
         hostedSession,
         allowReturnToRouter: options.allowReturnToRouter,
     });
+    handlerMetadata.set(handler, {
+        agentName,
+        allowReturnToRouter: nextMetadata.allowReturnToRouter,
+        usesDefaultFactory: !createAgentHandlerProvided,
+    });
     hostedSession.setActiveOnMessage(handler);
-    const changed = shouldRebuildRoot || previousAgentName !== agentName || !previousHandler;
+    const changed = shouldRebuildRoot || previousAgentName !== agentName || !canReuseHandler;
     if (changed) {
         emitHostedSessionRuntimeEvent(hostedSession, {
             type: RuntimeEventTypes.AGENT_CHANGED,

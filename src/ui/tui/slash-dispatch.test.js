@@ -12,7 +12,6 @@ function makeContext(overrides = {}) {
         images: /** @type {Array<{ base64: string, mimeType: string }>} */ ([]),
         bumps: 0,
         currentChecks: /** @type {number[]} */ ([]),
-        cancels: /** @type {Array<(() => void) | null>} */ ([]),
         swaps: 0,
         swapHostedSessions: /** @type {unknown[]} */ ([]),
         activeAgents: /** @type {any[]} */ ([]),
@@ -20,18 +19,23 @@ function makeContext(overrides = {}) {
         expandedDispatches: /** @type {any[]} */ ([]),
         expandedTemplates: /** @type {any[]} */ ([]),
         expandedSkills: /** @type {any[]} */ ([]),
-        aborted: /** @type {unknown[]} */ ([]),
+        canceledSessionIds: /** @type {string[]} */ ([]),
         createdHandlers: /** @type {Array<{ agentName: string, deps: unknown }>} */ ([]),
     };
-    const hostedSession = {
-        id: "hosted-1",
-        getRootSessionManager: () => ({ id: "hosted-session-manager" }),
+    const sessionId = "runtime-session-1";
+    const sessionRuntime = {
+        getSessionSnapshot: (/** @type {string} */ id) => ({ id, cwd: Deno.cwd(), name: "named session" }),
+        cancelSession: (/** @type {string} */ id) => records.canceledSessionIds.push(id),
+        switchAgent: (/** @type {string} */ id, /** @type {{ agentName: string }} */ options) => {
+            records.activeAgents.push({ sessionId: id, agentName: options.agentName });
+            return Promise.resolve({ ok: true, agentName: options.agentName, changed: true });
+        },
     };
     const ctx = {
         userRequest: "",
         savedImages: [{ base64: "img", mimeType: "image/png" }],
-        hostedSession,
-        sessionHost: { id: "session-host" },
+        sessionId,
+        sessionRuntime,
         uiAPI: {
             appendSystemMessage: (/** @type {string} */ message) => records.systemMessages.push(message),
             appendUserMessage: (/** @type {string} */ message) => records.userMessages.push(message),
@@ -48,17 +52,6 @@ function makeContext(overrides = {}) {
         skills: [],
         chatPromptAgentName: "operator",
         resolveTemplateModel: () => ({ ok: true, provider: "test", id: "model" }),
-        switchAgent: (
-            /** @type {unknown} */ targetHostedSession,
-            /** @type {{ agentName: string, model?: string }} */ options,
-        ) => {
-            records.activeAgents.push({
-                hostedSession: targetHostedSession,
-                agentName: options.agentName,
-                model: options.model,
-            });
-            return Promise.resolve({ ok: true, agentName: options.agentName, changed: true });
-        },
         dispatchExpandedUserRequest: (
             /** @type {string} */ text,
             /** @type {Array<{ base64: string, mimeType: string }>} */ images,
@@ -76,12 +69,7 @@ function makeContext(overrides = {}) {
                 return true;
             },
         },
-        registerOperationCancel: (/** @type {(() => void) | null} */ cancel) => records.cancels.push(cancel),
         __deps: {
-            abortActiveSession: (/** @type {unknown} */ targetHostedSession) => {
-                records.aborted.push(targetHostedSession);
-                return true;
-            },
             commandRegistry: {},
             getSlashCommandDefinition: () => undefined,
             expandPromptTemplate: (
@@ -102,7 +90,6 @@ function makeContext(overrides = {}) {
                 records.createdHandlers.push({ agentName, deps });
                 return `handler:${agentName}`;
             },
-            getRootSessionManager: () => ({ id: "session" }),
         },
         records,
     };
@@ -125,7 +112,7 @@ Deno.test("handleSlashCommand reports unknown slash commands", async () => {
     assertEquals(ctx.records.systemMessages, ["Unknown command: /wat"]);
 });
 
-Deno.test("handleSlashCommand dispatches built-in commands and restores cancellation state", async () => {
+Deno.test("handleSlashCommand dispatches built-in commands through the Runtime context", async () => {
     const ctx = makeContext({ userRequest: "/known alpha beta" });
     ctx.__deps.getSlashCommandDefinition = (/** @type {string} */ name) => name === "known" ? { name } : undefined;
     ctx.__deps.commandRegistry = {
@@ -138,18 +125,13 @@ Deno.test("handleSlashCommand dispatches built-in commands and restores cancella
     };
 
     assertEquals(await handleSlashCommand(ctx), true);
-    ctx.records.cancels[0]?.();
-
     assertEquals(ctx.records.commandArgs, ["alpha", "beta"]);
     assertEquals(ctx.records.commandDeps.uiAPI, ctx.uiAPI);
     assertEquals(ctx.records.commandDeps.editor, ctx.editor);
     assertEquals(ctx.records.commandDeps.tui, ctx.tui);
-    assertEquals(ctx.records.commandDeps.hostedSession, ctx.hostedSession);
-    assertEquals(ctx.records.commandDeps.sessionHost, ctx.sessionHost);
-    assertEquals(ctx.records.commandDeps.sessionManager, { id: "session" });
-    assertEquals(ctx.records.cancels.length, 2);
-    assertEquals(ctx.records.cancels[1], null);
-    assertEquals(ctx.records.aborted, [ctx.hostedSession]);
+    assertEquals(ctx.records.commandDeps.sessionId, ctx.sessionId);
+    assertEquals(ctx.records.commandDeps.sessionRuntime, ctx.sessionRuntime);
+    assertEquals(ctx.records.canceledSessionIds, []);
     assertEquals(ctx.records.swaps, 0);
 });
 
@@ -195,11 +177,7 @@ Deno.test("handleSlashCommand switches prompt templates to Operator before expan
     }]);
     assertEquals(ctx.records.userMessages, []);
     assertEquals(ctx.records.images, []);
-    assertEquals(ctx.records.activeAgents, [{
-        hostedSession: ctx.hostedSession,
-        agentName: "operator",
-        model: undefined,
-    }]);
+    assertEquals(ctx.records.activeAgents, [{ sessionId: ctx.sessionId, agentName: "operator" }]);
     assertEquals(ctx.records.createdHandlers, []);
     assertEquals(ctx.records.swaps, 0);
     assertEquals(ctx.records.swapHostedSessions, []);
@@ -225,13 +203,14 @@ Deno.test("handleSlashCommand ignores template model metadata during macro expan
     assertEquals(ctx.records.runs, []);
 });
 
-Deno.test("handleSlashCommand uses template fallback text when path is missing", async () => {
+Deno.test("handleSlashCommand rejects prompt templates without a source path", async () => {
     const ctx = makeContext({ userRequest: "/tiny extra" });
     ctx.promptTemplateByName.set("tiny", { name: "tiny" });
 
     assertEquals(await handleSlashCommand(ctx), true);
 
-    assertEquals(ctx.records.expandedDispatches[0].text, "/tiny extra");
+    assertEquals(ctx.records.expandedDispatches, []);
+    assertEquals(ctx.records.systemMessages, ['Error expanding template: Prompt template "tiny" has no source path.']);
 });
 
 Deno.test("handleSlashCommand reports template expansion and dispatch errors", async () => {

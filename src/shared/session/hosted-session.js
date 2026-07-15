@@ -64,10 +64,8 @@ import {
  * @property {string} [id]
  * @property {string} [cwd]
  * @property {MinimalSessionManagerLike | null} [sessionManager]
- * @property {unknown} [uiAPI]
  * @property {unknown} [eventSink]
  * @property {import('./session-runtime-interactions.js').RuntimeInteractionAdapter} [interactionAdapter]
- * @property {import('./session-runtime-interactions.js').RuntimeInteractionAdapterMeta} [interactionAdapterMeta]
  */
 
 /** @param {unknown} value */
@@ -137,13 +135,9 @@ export class HostedSession {
         /** @type {MinimalSessionManagerLike | null} */
         this.rootSessionManager = options.sessionManager || null;
         /** @type {unknown} */
-        this.activeUiAPI = options.uiAPI || null;
-        /** @type {unknown} */
         this.eventSink = options.eventSink || null;
         /** @type {import('./session-runtime-interactions.js').RuntimeInteractionAdapter | null} */
         this.interactionAdapter = options.interactionAdapter || null;
-        /** @type {import('./session-runtime-interactions.js').RuntimeInteractionAdapterMeta | null} */
-        this.interactionAdapterMeta = options.interactionAdapterMeta || null;
         /** @type {Map<string, ActiveInteractionRecord>} */
         this.activeInteractions = new Map();
         /** @type {DisposableLike | null} */
@@ -253,16 +247,6 @@ export class HostedSession {
         return this.rootSessionManager;
     }
 
-    /** @param {unknown} uiAPI */
-    setActiveUiAPI(uiAPI) {
-        this.assertActive();
-        this.activeUiAPI = uiAPI;
-    }
-
-    getActiveUiAPIState() {
-        return this.activeUiAPI;
-    }
-
     /** @param {unknown} eventSink */
     setEventSink(eventSink) {
         this.assertActive();
@@ -275,20 +259,14 @@ export class HostedSession {
 
     /**
      * @param {import('./session-runtime-interactions.js').RuntimeInteractionAdapter | null} adapter
-     * @param {import('./session-runtime-interactions.js').RuntimeInteractionAdapterMeta | null} [meta]
      */
-    setInteractionAdapter(adapter, meta = null) {
+    setInteractionAdapter(adapter) {
         this.assertActive();
         this.interactionAdapter = adapter;
-        this.interactionAdapterMeta = meta;
     }
 
     getInteractionAdapter() {
         return this.interactionAdapter;
-    }
-
-    getInteractionAdapterMeta() {
-        return this.interactionAdapterMeta;
     }
 
     /** @param {string} id @param {ActiveInteractionRecord} record */
@@ -307,11 +285,13 @@ export class HostedSession {
     }
 
     cancelActiveInteractions() {
+        const canceled = this.activeInteractions.size > 0;
         for (const record of this.activeInteractions.values()) {
             record.abortController?.abort();
         }
         this.interactionAdapter?.cancelAll?.();
         this.activeInteractions.clear();
+        return canceled;
     }
 
     /** @param {DisposableLike | null} session */
@@ -456,11 +436,9 @@ export class HostedSession {
         this.activeThinkingLevel = "off";
         this.activeOnMessage = null;
         this.rootSessionManager = null;
-        this.activeUiAPI = null;
         this.eventSink = null;
         this.interactionAdapter?.cancelAll?.();
         this.interactionAdapter = null;
-        this.interactionAdapterMeta = null;
         this.activeInteractions.clear();
         this.rootAgentSession = null;
         this.rootAgentName = null;

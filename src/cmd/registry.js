@@ -77,18 +77,14 @@ const bin = (...parts) => [CLI_BIN, ...parts].join(" ");
  * @typedef {Object} CommandContext
  * @property {import('../ui/tui/types.js').UiAPI} [uiAPI]
  * @property {import('../ui/tui/types.js').EditorAPI} [editor]
- * @property {import('../shared/session/hosted-session.js').HostedSession} [hostedSession]
- * @property {import('../shared/session/session-host.js').SessionHost} [sessionHost]
+ * @property {string} [sessionId]
  * @property {import('../shared/session/session-runtime.js').SessionRuntime} [sessionRuntime]
- * @property {import('../shared/session/types.js').SessionManagerLike} [sessionManager]
  * @property {string} [sessionStartedAt]
  * @property {import('../ui/tui/types.js').TuiAPI} [tui]
  * @property {(data: string) => void | Promise<void>} [originalHandleInput]
  * @property {"new" | "continue"} [sessionStartMode]
- * @property {(cancel: (() => void) | null) => void} [registerOperationCancel]  Set by the slash dispatcher; lets a long-running command install its own Esc handler.
- * @property {(hostedSession: import('../shared/session/hosted-session.js').HostedSession | undefined, options: { agentName: string, model?: string, allowReturnToRouter?: boolean }, uiAPI?: import('../ui/tui/types.js').UiAPI) => Promise<unknown>} [switchActiveAgent]
  * @property {(model: string, provider?: string) => Promise<void> | void} [setActiveModel]
- * @property {(nextSession: import('../shared/session/hosted-session.js').HostedSession) => void} [replaceHostedSession]
+ * @property {(nextSessionId: string) => void} [replaceRuntimeSession]
  * @property {Record<string, unknown>} [__testDeps]
  */
 

@@ -15,7 +15,7 @@ import {
     visibleWidth,
 } from "@earendil-works/pi-tui";
 import { initTUI } from "./tui.js";
-import { setTerminalTitleForSession } from "./terminal-title.js";
+import { setTerminalTitleForName } from "./terminal-title.js";
 import {
     applyPersistedTheme,
     getEditorTheme,
@@ -29,7 +29,6 @@ import { endBlink, renderBootLogo } from "./boot-logo.js";
 import { createUiApi } from "./api.js";
 import { attachTuiRuntimeAdapter } from "./runtime-adapter.js";
 import { SpinnerBlock } from "./blocks.js";
-import { ensureRootAgentSession, listPromptTemplates, listSkills } from "../../shared/session/session.js";
 import { ensureMnemosyneBinary } from "../../shared/runtime-preflight.js";
 import { commandRegistry, getCommandInvocationNames, getSlashCommandDefinitions } from "../../cmd/registry.js";
 import { AGENTS } from "../../constants.js";
@@ -41,7 +40,6 @@ import {
 } from "../../shared/project-state.js";
 import { COMMAND_NAMES } from "../../cmd/registry.js";
 import { getAgentDisplayName, listAvailableAgents } from "../../shared/session/agents.js";
-import { createAgentHandler } from "../../shared/session/agent-handler.js";
 import { getModelRegistry } from "../../shared/models/model-registry.js";
 import { getSettingsManager, initSettings } from "../../shared/settings.js";
 import {
@@ -49,26 +47,16 @@ import {
     isInitOffered as isInitOfferedFn,
     recordInitOffered as recordInitOfferedFn,
 } from "../../cmd/init/init-state.js";
-import { SessionHost } from "../../shared/session/session-host.js";
 import { SessionRuntime, SessionTurnInProgressError } from "../../shared/session/session-runtime.js";
+import { RuntimeEventTypes } from "../../shared/session/session-runtime-events.js";
 import { resolveTemplateModel } from "../../shared/models/model-validation.js";
-import { createRootSessionManager } from "../../shared/session/root-session.js";
 import { createGenerationGuard } from "./generation-guard.js";
-import { restorePersistedMessagesToUi } from "./message-hydration.js";
 import { installUiApiOverrides } from "./ui-api-overrides.js";
 import { renderBootBanner } from "./boot-banner.js";
 import { getSelectedDefaultModelAvailability, maybeShowModelWelcome } from "./model-welcome.js";
 import { handleBashCommand } from "./bash-interceptor.js";
 import { handleSlashCommand } from "./slash-dispatch.js";
 import { installKeybindings } from "./keybindings.js";
-import { cancelActivePlanReview } from "../../shared/workflow/submit-plan.js";
-import {
-    modelSupportsImageInput,
-    persistImageAttachment,
-    preflightImageAttachments,
-    resolveVisionFallbackModel,
-} from "../../shared/session/image-attachments.js";
-
 const CHAT_PROMPT_AGENT_NAME = AGENTS.OPERATOR;
 
 /** @type {(projectRoot?: string) => ReturnType<typeof getSettingsManager>} */
@@ -111,40 +99,6 @@ function normalizeFooterUsage(usage) {
         cacheWrite: Number(usage?.cacheWrite ?? usage?.cacheWriteTokens ?? 0) || 0,
         cost: Number(usage?.cost?.total ?? usage?.cost ?? 0) || 0,
     };
-}
-
-/**
- * @param {any} session
- * @returns {Array<any>}
- */
-function getFooterSessionEntries(session) {
-    try {
-        return session?.sessionManager?.getEntries?.() || [];
-    } catch {
-        return [];
-    }
-}
-
-/**
- * @param {Array<any>} sessions
- * @returns {{ input: number, output: number, cacheRead: number, cacheWrite: number, cost: number }}
- */
-export function collectFooterUsage(sessions) {
-    const totals = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
-
-    for (const session of sessions) {
-        for (const entry of getFooterSessionEntries(session)) {
-            if (entry?.type !== "message" || entry?.message?.role !== "assistant") continue;
-            const usage = normalizeFooterUsage(entry.message.usage);
-            totals.input += usage.input;
-            totals.output += usage.output;
-            totals.cacheRead += usage.cacheRead;
-            totals.cacheWrite += usage.cacheWrite;
-            totals.cost += usage.cost;
-        }
-    }
-
-    return totals;
 }
 
 /**
@@ -311,52 +265,6 @@ export function buildFooterLine1Parts(agentInfo, workflowContext, leftRaw, width
 }
 
 /**
- * @param {any} rootSession
- * @param {Iterable<any>} subAgentSessions
- * @returns {Array<any>}
- */
-export function getFooterSessions(rootSession, subAgentSessions) {
-    return [
-        ...(rootSession ? [rootSession] : []),
-        ...Array.from(subAgentSessions || []),
-    ];
-}
-
-/**
- * @param {any} session
- * @returns {{ provider: string, model: string } | null}
- */
-function getSessionModelParts(session) {
-    const model = session?.state?.model;
-    if (!model) return null;
-    if (typeof model === "string") {
-        const slashIndex = model.indexOf("/");
-        if (slashIndex > 0) {
-            return { provider: model.slice(0, slashIndex), model: model.slice(slashIndex + 1) };
-        }
-        return { provider: "", model };
-    }
-    if (typeof model === "object") {
-        const provider = typeof model.provider === "string" ? model.provider : "";
-        const id = typeof model.id === "string" ? model.id : typeof model.model === "string" ? model.model : "";
-        if (id) return { provider, model: id };
-    }
-    return null;
-}
-
-/**
- * @param {Array<any>} sessions
- * @returns {{ provider: string, model: string } | null}
- */
-function getMostRecentSessionModelParts(sessions) {
-    for (let i = sessions.length - 1; i >= 0; i--) {
-        const parts = getSessionModelParts(sessions[i]);
-        if (parts) return parts;
-    }
-    return null;
-}
-
-/**
  * @param {import('../../shared/session/types.js').ImageAttachment} image
  * @returns {Image}
  */
@@ -369,59 +277,23 @@ function createPastedImagePreview(image) {
 }
 
 /**
- * @param {import('../../shared/session/hosted-session.js').HostedSession} hostedSession
+ * @param {SessionRuntime} runtime
+ * @param {string} sessionId
  * @param {string} model
  * @param {string} [provider]
- * @param {SessionRuntime} [runtime]
  */
-export async function setActiveModel(hostedSession, model, provider, runtime) {
-    if (runtime) runtime.setSessionModel(hostedSession, model, provider || "", true);
-    else hostedSession.setActiveModelState(model, provider || "", true);
+export async function setActiveModel(runtime, sessionId, model, provider) {
+    const snapshot = runtime.getSessionSnapshot(sessionId);
+    if (!snapshot) throw new Error("Cannot set model for a missing runtime session.");
+    await runtime.reconfigureSessionModel(sessionId, model, provider || "");
 
     try {
-        const settingsManager = getSettingsManagerForPersistence(hostedSession.cwd);
+        const settingsManager = getSettingsManagerForPersistence(snapshot.cwd);
         await settingsManager.setDefaultModel(model);
         await settingsManager.setDefaultProvider(provider || "");
     } catch (e) {
         console.error(`Failed to persist model selection: ${e}`);
     }
-
-    // Rebuild the root session so image capability changes update the available tool set.
-    const session = /** @type {any} */ (hostedSession.getRootAgentSession());
-    const rootAgentName = hostedSession.getRootAgentName();
-    if (session && rootAgentName) {
-        try {
-            await ensureRootAgentSession({
-                hostedSession,
-                agentName: rootAgentName,
-                modelOverride: provider ? `${provider}/${model}` : model,
-                uiAPI: /** @type {any} */ (hostedSession.getActiveUiAPIState() || undefined),
-                sessionManager: /** @type {any} */ (hostedSession.getRootSessionManager() || undefined),
-            });
-        } catch (error) {
-            const msg = error instanceof Error ? error.message : String(error);
-            (/** @type {any} */ (hostedSession.getActiveUiAPIState()))?.appendSystemMessage?.(
-                `Failed to switch model: ${msg}`,
-                true,
-            );
-        }
-    } else if (session && typeof session.setModel === "function") {
-        const modelRegistry = getModelRegistry();
-        const found = modelRegistry.find(provider || "", model);
-        if (found && modelRegistry.hasConfiguredAuth(found)) {
-            try {
-                await session.setModel(found);
-            } catch (error) {
-                const msg = error instanceof Error ? error.message : String(error);
-                (/** @type {any} */ (hostedSession.getActiveUiAPIState()))?.appendSystemMessage?.(
-                    `Failed to switch model: ${msg}`,
-                    true,
-                );
-            }
-        }
-    }
-
-    if (!runtime) (/** @type {any} */ (hostedSession.getActiveUiAPIState()))?.requestRender();
 }
 
 /**
@@ -438,46 +310,32 @@ export async function persistThinkingLevel(level, projectRoot) {
 }
 
 /**
- * Get the active UI API reference.
- * @returns {import('../../shared/types.js').SessionUiPort | null}
- */
-/**
- * @param {import('../../shared/session/hosted-session.js').HostedSession} [hostedSession]
- * @returns {any}
- */
-export function getActiveUiAPI(hostedSession = undefined) {
-    return hostedSession?.getActiveUiAPIState?.() || null;
-}
-
-/**
  * Get the active model identifier (may include provider prefix).
- * @param {import('../../shared/session/hosted-session.js').HostedSession} hostedSession
+ * @param {SessionRuntime} runtime
+ * @param {string} sessionId
  * @returns {string}
  */
-export function getActiveModel(hostedSession) {
-    return hostedSession.getActiveModelState().model;
+export function getActiveModel(runtime, sessionId) {
+    return runtime.getSessionSnapshot(sessionId)?.activeModel.model || "";
 }
 
 /**
  * Testable core of the interactive submit loop. It follows typed handoff
- * results produced by the supplied HostedSession's active handler only.
+ * results produced by the runtime session's active handler only.
  *
  * @param {Object} args
- * @param {import('../../shared/session/hosted-session.js').HostedSession} args.hostedSession
+ * @param {SessionRuntime} args.runtime
+ * @param {string} args.sessionId
  * @param {import('./types.js').UiAPI} args.uiAPI
  * @param {string} args.initialRequest
  * @param {import('../../shared/session/types.js').ImageAttachment[]} args.initialImages
- * @param {import('../../shared/session/session-runtime.js').SessionRuntimeOptions["switchActiveAgent"]} [args.switchActiveAgentImpl]
  */
 export async function runScopedSubmitHandoffLoop(
-    { hostedSession, uiAPI, initialRequest, initialImages, switchActiveAgentImpl },
+    { runtime, sessionId, uiAPI, initialRequest, initialImages },
 ) {
-    const runtime = new SessionRuntime({
-        switchActiveAgent: switchActiveAgentImpl,
-    });
-    const adapter = attachTuiRuntimeAdapter({ runtime, hostedSession, uiAPI });
+    const adapter = attachTuiRuntimeAdapter({ runtime, sessionId, uiAPI });
     try {
-        await runtime.promptSession(hostedSession, { initialRequest, initialImages });
+        await runtime.promptSession(sessionId, { initialRequest, initialImages });
     } finally {
         adapter.dispose();
     }
@@ -486,33 +344,32 @@ export async function runScopedSubmitHandoffLoop(
 /**
  * Starts the interactive TUI loop.
  * @param {string | null} initialUserRequest
- * @param {import('../../shared/session/types.js').AgentMessageHandler | null} onMessage - Handler for user submissions
  * @param {{
  *   sessionStartMode?: "new" | "continue",
  *   initialAgentName?: string,
  *   initialAgentModel?: string,
- *   onHostedSessionReady?: (
- *     hostedSession: import('../../shared/session/hosted-session.js').HostedSession,
- *     sessionRuntime: SessionRuntime,
- *     sessionManager: import('@earendil-works/pi-coding-agent').SessionManager,
- *   ) => void,
+ *   onSessionReady?: (sessionId: string, sessionRuntime: SessionRuntime) => void,
  * }} [options]
  */
-export async function startInteractiveSession(initialUserRequest, onMessage, options = {}) {
+export async function startInteractiveSession(initialUserRequest, options = {}) {
     CHAT_BUILTIN_SLASH_NAMES = new Set(
         getSlashCommandDefinitions().map((command) => command.name),
     );
 
-    const sessionHost = new SessionHost();
-    const sessionRuntime = new SessionRuntime({ sessionHost });
-    const rootSessionManager = await createRootSessionManager(options.sessionStartMode || "new", Deno.cwd());
-    let hostedSession = sessionRuntime.createSession({ sessionManager: rootSessionManager, cwd: Deno.cwd() });
-    let runtimeUiAPI = sessionRuntime.getSessionUiPort(hostedSession);
-    sessionRuntime.attachRuntimeEventSink(hostedSession);
-    hostedSession.setActiveUiAPI(runtimeUiAPI);
-    options.onHostedSessionReady?.(hostedSession, sessionRuntime, rootSessionManager);
-    initSettings(hostedSession.cwd);
-    const sessionStartedAt = rootSessionManager.getHeader()?.timestamp || new Date().toISOString();
+    const sessionRuntime = new SessionRuntime();
+    const createdSession = await sessionRuntime.createInteractiveSession({
+        cwd: Deno.cwd(),
+        mode: options.sessionStartMode || "new",
+    });
+    let sessionId = createdSession.sessionId;
+    function getRuntimeSnapshot() {
+        const snapshot = sessionRuntime.getSessionSnapshot(sessionId);
+        if (!snapshot) throw new Error("Active runtime session is missing.");
+        return snapshot;
+    }
+    options.onSessionReady?.(sessionId, sessionRuntime);
+    initSettings(getRuntimeSnapshot().cwd);
+    const sessionStartedAt = createdSession.startedAt;
 
     let sessionStartedEmptyProjectDirectory = false;
     try {
@@ -520,7 +377,8 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
     } catch {
         sessionStartedEmptyProjectDirectory = false;
     }
-    hostedSession.setProjectStateContext(
+    sessionRuntime.setProjectStateContext(
+        sessionId,
         sessionStartedEmptyProjectDirectory ? EMPTY_PROJECT_DIRECTORY_PROMPT_NOTE : "",
     );
 
@@ -530,17 +388,17 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
     // ensureRootAgentSession below will populate it via setAgentInfo once the
     // session actually exists, so the UI never shows an agent name that has
     // no live session behind it.)
-    await listAvailableAgents(hostedSession.cwd);
+    await listAvailableAgents(getRuntimeSnapshot().cwd);
 
     // Track which agent the initial root will be built for. Callers (e.g. `wld agent <name>`)
     // can override via options.initialAgentName.
     const initialAgentInternalName = options.initialAgentName || AGENTS.ROUTER;
-    hostedSession.setActiveOnMessage(onMessage || createAgentHandler(initialAgentInternalName, { hostedSession }));
+    sessionRuntime.setSessionHandler(sessionId, initialAgentInternalName);
     await ensureMnemosyneBinary();
     initRunWieldTheme();
     await applyPersistedTheme();
     const tui = initTUI();
-    setTerminalTitleForSession(rootSessionManager, Deno.cwd());
+    setTerminalTitleForName(getRuntimeSnapshot().name || getRuntimeSnapshot().cwd.split("/").at(-1) || "RunWield");
 
     const container = new Container();
     const suppressStartupHeader = options.sessionStartMode === "continue";
@@ -609,6 +467,22 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
     const editor = new Editor(tui, getEditorTheme());
     container.addChild(editor);
 
+    const runtimeUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
+    let unsubscribeRuntimeTelemetry = () => {};
+    function attachRuntimeTelemetry() {
+        unsubscribeRuntimeTelemetry();
+        unsubscribeRuntimeTelemetry = sessionRuntime.subscribeSessionEvents(sessionId, (event) => {
+            if (event.type !== RuntimeEventTypes.USAGE) return;
+            const usage = normalizeFooterUsage(/** @type {any} */ (event).raw);
+            runtimeUsage.input += usage.input;
+            runtimeUsage.output += usage.output;
+            runtimeUsage.cacheRead += usage.cacheRead;
+            runtimeUsage.cacheWrite += usage.cacheWrite;
+            runtimeUsage.cost += usage.cost;
+        });
+    }
+    attachRuntimeTelemetry();
+
     // Footer
     const cwd = Deno.cwd().replace(Deno.env.get("HOME") || "", "~");
     let branch = "main";
@@ -623,14 +497,15 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
     }
 
     const getModelAndProvider = () => {
-        const settingsManager = getSettingsManager(hostedSession.cwd);
+        const snapshot = getRuntimeSnapshot();
+        const settingsManager = getSettingsManager(snapshot.cwd);
         const defaults = {
             model: settingsManager.getDefaultModel() ?? "",
             provider: settingsManager.getDefaultProvider() ?? "",
         };
         let { model, provider } = defaults;
 
-        const activeModel = hostedSession.getActiveModelState();
+        const activeModel = snapshot.activeModel;
         if (activeModel.model) {
             const slashIndex = activeModel.model.indexOf("/");
             if (slashIndex > 0) {
@@ -646,15 +521,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
             provider = activeModel.provider;
         }
 
-        const sessionModel = getMostRecentSessionModelParts(
-            getFooterSessions(hostedSession.getRootAgentSession(), hostedSession.getSubAgentSessions()),
-        );
-        if (!activeModel.model && sessionModel?.model) {
-            model = sessionModel.model;
-            provider = sessionModel.provider || provider;
-        }
-
-        const thinkingLevel = hostedSession.getThinkingLevel();
+        const thinkingLevel = snapshot.thinkingLevel;
 
         return { model, provider, thinkingLevel };
     };
@@ -701,16 +568,17 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
             const modelStr = model
                 ? provider && !model.startsWith(`${provider}/`) ? `${provider}/${model}` : model
                 : "";
-            const activeAgentInfo = hostedSession.getActiveAgentInfo?.() || {
-                displayName: hostedSession.getActiveAgentName() ||
-                    (hostedSession.getRootAgentName()
-                        ? getAgentDisplayName(
-                            /** @type {string} */ (hostedSession.getRootAgentName()),
-                            hostedSession.cwd,
-                        )
-                        : ""),
-                agentName: hostedSession.getRootAgentName() || "",
-            };
+            const snapshot = getRuntimeSnapshot();
+            const rootAgentName = snapshot.activeAgent || "";
+            const activeAgentInfo = rootAgentName
+                ? {
+                    displayName: getAgentDisplayName(rootAgentName, getRuntimeSnapshot().cwd),
+                    agentName: rootAgentName,
+                }
+                : {
+                    displayName: snapshot.activeAgentInfo?.displayName || "",
+                    agentName: "",
+                };
 
             // Right block (agent/workflow label) is always pinned flush to the
             // right edge. The left block (cwd/branch) is truncated when it would
@@ -719,7 +587,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
             const line1LeftRaw = `${cwd} (${branch})`;
             const { left: line1Left, rightParts: line1RightParts } = buildFooterLine1Parts(
                 activeAgentInfo,
-                hostedSession.getWorkflowContext?.(),
+                snapshot.workflow,
                 line1LeftRaw,
                 w,
             );
@@ -731,33 +599,8 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
                 renderFooterWorkflowLabelParts(line1RightParts);
 
             // ── Token consumption data (Pi.dev-style footer) ──
-            const sessions = getFooterSessions(
-                hostedSession.getRootAgentSession(),
-                hostedSession.getSubAgentSessions(),
-            );
-            const activeUsageSession = sessions[sessions.length - 1];
-            const usage = collectFooterUsage(sessions);
-            let contextStr = "";
-
-            if (activeUsageSession) {
-                const contextUsage = activeUsageSession.getContextUsage?.();
-                if (contextUsage) {
-                    const cw = contextUsage.contextWindow ?? 0;
-                    const pct = contextUsage.percent;
-                    const pctDisplay = pct !== null ? `${pct.toFixed(1)}%` : "?";
-                    const cwStr = formatTokens(cw);
-                    const compactionSettings = activeUsageSession?.settingsManager?.getCompactionSettings?.();
-                    const compactEnabled = compactionSettings ? compactionSettings.enabled : true;
-                    const autoIndicator = compactEnabled ? " (Auto-compact)" : "";
-                    const rawContext = `${pctDisplay}/${cwStr}${autoIndicator}`;
-                    const pctValue = pct ?? 0;
-                    contextStr = pctValue > 90
-                        ? theme.fg("error", rawContext)
-                        : pctValue > 70
-                        ? theme.fg("warning", rawContext)
-                        : rawContext;
-                }
-            }
+            const usage = runtimeUsage;
+            const contextStr = "";
 
             const statsParts = [];
             if (usage.input > 0) statsParts.push(`↑${formatTokens(usage.input)}`);
@@ -765,11 +608,8 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
             if (usage.cacheRead > 0) statsParts.push(`R${formatTokens(usage.cacheRead)}`);
             if (usage.cacheWrite > 0) statsParts.push(`W${formatTokens(usage.cacheWrite)}`);
 
-            const usingSubscription = activeUsageSession?.state?.model
-                ? activeUsageSession.modelRegistry?.isUsingOAuth?.(activeUsageSession.state.model)
-                : false;
-            if (usage.cost > 0 || usingSubscription) {
-                statsParts.push(`$${usage.cost.toFixed(3)}${usingSubscription ? " (sub)" : ""}`);
+            if (usage.cost > 0) {
+                statsParts.push(`$${usage.cost.toFixed(3)}`);
             }
 
             if (contextStr) statsParts.push(contextStr);
@@ -822,54 +662,40 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
     }
 
     // Load prompt-template metadata once per interactive session.
-    const promptTemplates = await listPromptTemplates({ cwd: hostedSession.cwd });
+    const promptTemplates = await sessionRuntime.listSessionPromptTemplates(sessionId);
 
     // Load skills metadata once per interactive session.
-    const skills = await listSkills({ cwd: hostedSession.cwd });
+    const skills = await sessionRuntime.listSessionSkills(sessionId);
 
     // Expose a UI API for agents to append to the message list
     const uiAPI = createUiApi(tui, messageList, runningTasksComponent);
 
-    let tuiRuntimeAdapter = attachTuiRuntimeAdapter({ runtime: sessionRuntime, hostedSession, uiAPI });
+    let tuiRuntimeAdapter = attachTuiRuntimeAdapter({ runtime: sessionRuntime, sessionId: sessionId, uiAPI });
 
-    /**
-     * @param {import('../../shared/session/hosted-session.js').HostedSession | string | undefined} hostedSessionOrAgentName
-     * @param {{ agentName: string, model?: string, allowReturnToRouter?: boolean } | string} [agentNameOrOptions]
-     */
-    const switchCurrentActiveAgent = (
-        hostedSessionOrAgentName,
-        agentNameOrOptions = undefined,
-    ) => {
-        const hasExplicitSession = hostedSessionOrAgentName && typeof hostedSessionOrAgentName === "object";
-        const targetHostedSession = hasExplicitSession
-            ? /** @type {import('../../shared/session/hosted-session.js').HostedSession} */ (hostedSessionOrAgentName)
-            : hostedSession;
-        const rawOptions = hasExplicitSession ? agentNameOrOptions : { agentName: hostedSessionOrAgentName };
-        const options = typeof rawOptions === "object"
-            ? /** @type {{ agentName: string, model?: string, allowReturnToRouter?: boolean }} */ (rawOptions)
-            : { agentName: String(rawOptions || "") };
-        return sessionRuntime.switchAgent(targetHostedSession, options);
-    };
     /** @param {string} model @param {string} [provider] */
-    const setCurrentActiveModel = (model, provider) => setActiveModel(hostedSession, model, provider, sessionRuntime);
+    const setCurrentActiveModel = (model, provider) => setActiveModel(sessionRuntime, sessionId, model, provider);
 
     /**
-     * @param {import('../../shared/session/hosted-session.js').HostedSession} nextSession
+     * @param {string} nextSessionId
      */
-    function replaceHostedSession(nextSession) {
-        const previousHostedSession = hostedSession;
-        if (previousHostedSession !== nextSession) {
-            tuiRuntimeAdapter.dispose();
-            if (!sessionRuntime.closeSession(previousHostedSession.id).closed) {
-                previousHostedSession.dispose();
-            }
+    function replaceRuntimeSession(nextSessionId) {
+        const previousSessionId = sessionId;
+        tuiRuntimeAdapter.dispose();
+        if (previousSessionId !== nextSessionId) {
+            sessionRuntime.closeSession(previousSessionId);
         }
-        if (!sessionRuntime.getSession(nextSession.id)) sessionRuntime.adoptSession(nextSession);
-        hostedSession = nextSession;
-        runtimeUiAPI = sessionRuntime.getSessionUiPort(hostedSession);
-        hostedSession.setActiveUiAPI(runtimeUiAPI);
-        tuiRuntimeAdapter = attachTuiRuntimeAdapter({ runtime: sessionRuntime, hostedSession, uiAPI });
-        hostedSession.setActiveOnMessage(createAgentHandler(AGENTS.ROUTER, { hostedSession }));
+        sessionId = nextSessionId;
+        runtimeUsage.input = 0;
+        runtimeUsage.output = 0;
+        runtimeUsage.cacheRead = 0;
+        runtimeUsage.cacheWrite = 0;
+        runtimeUsage.cost = 0;
+        attachRuntimeTelemetry();
+        tuiRuntimeAdapter = attachTuiRuntimeAdapter({
+            runtime: sessionRuntime,
+            sessionId: sessionId,
+            uiAPI,
+        });
         pastedImages.length = 0;
         previewImages.clear();
         editor.setText("");
@@ -888,22 +714,22 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         container,
         messageList,
         setActiveModel: setCurrentActiveModel,
-        getActiveModelState: () => hostedSession.getActiveModelState(),
-        __deps: { getSettingsManager: () => getSettingsManager(hostedSession.cwd) },
+        getActiveModelState: () => getRuntimeSnapshot().activeModel,
+        __deps: { getSettingsManager: () => getSettingsManager(getRuntimeSnapshot().cwd) },
     });
 
     const modelWelcomeResult = await maybeShowModelWelcome({
         uiAPI,
         editor,
         tui,
-        hostedSession,
-        sessionManager: rootSessionManager,
-        ensureRootAgentSession: (opts) => ensureRootAgentSession({ ...opts, uiAPI: runtimeUiAPI }),
+        sessionId,
+        sessionRuntime,
         initialAgentInternalName,
         initialAgentModel: options.initialAgentModel,
+        setActiveModel: setCurrentActiveModel,
         commandRegistry,
         getModelRegistry,
-        getSettingsManager: () => getSettingsManager(hostedSession.cwd),
+        getSettingsManager: () => getSettingsManager(getRuntimeSnapshot().cwd),
     });
 
     // ── Eagerly build the root AgentSession for the initial agent ──
@@ -912,12 +738,9 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
     // roots as one awaited transaction.
     if (!modelWelcomeResult.shown) {
         try {
-            await ensureRootAgentSession({
-                hostedSession,
+            await sessionRuntime.ensureSessionReady(sessionId, {
                 agentName: initialAgentInternalName,
                 modelOverride: options.initialAgentModel,
-                uiAPI: runtimeUiAPI,
-                sessionManager: rootSessionManager,
             });
         } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
@@ -946,7 +769,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         if (!modelSetupRequired) return false;
         const availability = getSelectedDefaultModelAvailability(
             getModelRegistry,
-            () => getSettingsManager(hostedSession.cwd),
+            () => getSettingsManager(getRuntimeSnapshot().cwd),
         );
         if (availability.available) {
             modelSetupRequired = false;
@@ -969,20 +792,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
      * @returns {Promise<{ ok: true, warning?: string } | { ok: false, message: string }>}
      */
     async function preflightCurrentImages(images) {
-        const session = /** @type {any} */ (hostedSession.getRootAgentSession());
-        const activeModel = session?.model;
-        let fallbackModelRef = undefined;
-        if (images.length > 0 && !modelSupportsImageInput(activeModel)) {
-            try {
-                fallbackModelRef = (await resolveVisionFallbackModel(session?.modelRegistry || getModelRegistry()))
-                    ?.modelRef;
-            } catch (error) {
-                return { ok: false, message: error instanceof Error ? error.message : String(error) };
-            }
-        }
-        const result = preflightImageAttachments(images, { activeModel, fallbackModelRef });
-        if (!result.ok) return result;
-        return { ok: true, warning: result.warning };
+        return await sessionRuntime.preflightSessionImages(sessionId, images);
     }
 
     /**
@@ -990,11 +800,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
      * @returns {Promise<import('../../shared/session/types.js').ImageAttachment | null>}
      */
     async function handleImagePaste(image) {
-        const persisted = await persistImageAttachment(
-            image,
-            /** @type {any} */ (hostedSession.getRootSessionManager()),
-            hostedSession.cwd,
-        );
+        const persisted = await sessionRuntime.persistSessionImage(sessionId, image);
         const preflight = await preflightCurrentImages([persisted]);
         if (!preflight.ok) {
             uiAPI.appendSystemMessage(preflight.message);
@@ -1023,9 +829,8 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
                 // User accepted — run init and record success
                 await commandRegistry[COMMAND_NAMES.INIT].execute([], {
                     uiAPI,
-                    hostedSession,
-                    sessionHost,
-                    sessionManager: /** @type {any} */ (hostedSession.getRootSessionManager() || undefined),
+                    sessionId,
+                    sessionRuntime,
                 });
                 // Dynamically hide /init from slash commands for the rest of this session
                 CHAT_BUILTIN_SLASH_NAMES.delete("init");
@@ -1073,7 +878,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
                     description: skill.description,
                 })),
         ],
-        hostedSession.cwd,
+        getRuntimeSnapshot().cwd,
         "fd", // Since pi 0.20 the agent guarantees that fd is available in PATH or it polyfills it so using 'fd' directly as binary path is safe.
     );
     editor.setAutocompleteProvider(autocompleteProvider);
@@ -1107,14 +912,6 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         tui.requestRender();
     });
 
-    // ─── Unified Active-Operation Cancellation State ──────────────────
-
-    /** @type {(() => void) | null} */
-    let activeOperationCancel = null;
-
-    /** @type {{ pid?: number, kill?: () => void } | null} */
-    let activeBashProc = null;
-
     const generationGuard = createGenerationGuard();
     const generationStillCurrent = generationGuard.isCurrent;
 
@@ -1126,28 +923,6 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         if (uiAPI.enableInput) uiAPI.enableInput();
         tui.setFocus(editor);
         tui.requestRender();
-    }
-
-    /** Cancel the currently active operation, if any.
-     *  Returns true if something was actually canceled.
-     */
-    function cancelActiveOperation() {
-        // 1. Kill running bash process
-        if (activeBashProc) {
-            try {
-                if (activeBashProc.kill) activeBashProc.kill();
-            } catch (_e) { /* ignore */ }
-            activeBashProc = null;
-        }
-        // 2. Call registered operation cancel callback
-        if (activeOperationCancel) {
-            try {
-                activeOperationCancel();
-            } catch (_e) { /* ignore */ }
-            activeOperationCancel = null;
-            return true;
-        }
-        return false;
     }
 
     // @ts-ignore: TS doesn't know about pi-tui Editor internals
@@ -1206,7 +981,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
      * restore it into the editor. Returns true if a message was dequeued.
      */
     async function dequeueLastSubmission() {
-        const dequeued = await sessionRuntime.dequeueLastQueuedMessage(hostedSession);
+        const dequeued = await sessionRuntime.dequeueLastQueuedMessage(sessionId);
         if (!dequeued.ok || !dequeued.message) return false;
         restoreQueuedItemToEditor(dequeued.message);
         tui.requestRender();
@@ -1220,10 +995,10 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         if (isProcessingSubmission) return;
         isProcessingSubmission = true;
         try {
-            let item = initialItem || sessionRuntime.takeNextTurnMessage(hostedSession).message;
+            let item = initialItem || sessionRuntime.takeNextTurnMessage(sessionId).message;
             while (item) {
                 await executeUserRequest(item.text, item.images);
-                item = sessionRuntime.takeNextTurnMessage(hostedSession).message;
+                item = sessionRuntime.takeNextTurnMessage(sessionId).message;
             }
         } finally {
             isProcessingSubmission = false;
@@ -1236,7 +1011,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
      * @param {import('../../shared/session/types.js').ImageAttachment[]} images
      */
     function queueForNextTurn(text, images) {
-        const result = sessionRuntime.queueNextTurnMessage(hostedSession, text, images);
+        const result = sessionRuntime.queueNextTurnMessage(sessionId, text, images);
         if (!result.queued) {
             uiAPI.appendSystemMessage(
                 `Unable to queue message: ${result.error || result.reason || "unknown error"}`,
@@ -1259,7 +1034,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         const thisGen = generationGuard.bump();
 
         try {
-            await sessionRuntime.promptSession(hostedSession, {
+            await sessionRuntime.promptSession(sessionId, {
                 initialRequest: userRequest,
                 initialImages: savedImages,
             });
@@ -1287,8 +1062,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
             ? await handleSlashCommand({
                 userRequest,
                 savedImages,
-                hostedSession,
-                sessionHost,
+                sessionId,
                 sessionRuntime,
                 uiAPI,
                 editor,
@@ -1300,14 +1074,10 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
                 skills,
                 chatPromptAgentName: CHAT_PROMPT_AGENT_NAME,
                 resolveTemplateModel,
-                switchAgent: switchCurrentActiveAgent,
                 dispatchExpandedUserRequest: submitToActiveRoot,
                 setActiveModel: setCurrentActiveModel,
-                replaceHostedSession,
+                replaceRuntimeSession,
                 generationGuard,
-                registerOperationCancel: (cancel) => {
-                    activeOperationCancel = cancel;
-                },
             })
             : false;
         if (handledSlash) return;
@@ -1361,17 +1131,10 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         if (userRequest.startsWith("!")) {
             handleBashCommand({
                 userRequest,
-                uiAPI,
-                tui,
-                editor,
-                getSessionManager: () => /** @type {any} */ (hostedSession.getRootSessionManager()),
-                cwd: hostedSession.cwd,
-                generationGuard,
-                registerBashProc: (proc) => {
-                    activeBashProc = proc;
-                },
+                sessionRuntime,
+                sessionId,
                 concurrent: isProcessingSubmission,
-            }).catch(() => {/* swallow — UI already surfaces errors */});
+            }).catch(() => {/* Runtime surfaces shell failures through events. */});
             return;
         }
 
@@ -1385,7 +1148,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
                 return;
             }
 
-            sessionRuntime.steerSession(hostedSession, userRequest, images).then((result) => {
+            sessionRuntime.steerSession(sessionId, userRequest, images).then((result) => {
                 if (!result.queued) queueForNextTurn(userRequest, images);
                 tui.requestRender();
             }).catch((_err) => {
@@ -1400,45 +1163,17 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
     };
 
     // Initialize thinking level from settings
-    const settingsManager = getSettingsManager(hostedSession.cwd);
+    const settingsManager = getSettingsManager(getRuntimeSnapshot().cwd);
     const savedThinkingLevel = settingsManager.getDefaultThinkingLevel();
     if (savedThinkingLevel) {
-        sessionRuntime.setSessionThinkingLevel(hostedSession, savedThinkingLevel);
+        sessionRuntime.setSessionThinkingLevel(sessionId, savedThinkingLevel);
     }
-
-    // Ordered thinking levels for cycling
-    /** @type {("off" | "minimal" | "low" | "medium" | "high" | "xhigh")[]} */
-    const THINKING_LEVELS = [
-        "off",
-        "minimal",
-        "low",
-        "medium",
-        "high",
-        "xhigh",
-    ];
 
     /** Cycle the thinking level and persist to settings */
     async function cycleThinkingLevel() {
-        // If an active agent session exists, delegate to it for model-aware cycling
-        const session = /** @type {any} */ (hostedSession.getRootAgentSession());
-        if (session) {
-            const newLevel = session.cycleThinkingLevel();
-            if (newLevel === undefined) {
-                uiAPI.appendSystemMessage("Current model does not support thinking");
-                return;
-            }
-            sessionRuntime.setSessionThinkingLevel(hostedSession, newLevel);
-            await persistThinkingLevel(newLevel, hostedSession.cwd);
-            tui.requestRender();
-            return;
-        }
-        // No active session: cycle through levels directly and persist
-        const current = hostedSession.getThinkingLevel();
-        const currentIdx = THINKING_LEVELS.indexOf(current);
-        const nextIdx = (currentIdx + 1) % THINKING_LEVELS.length;
-        const nextLevel = THINKING_LEVELS[nextIdx];
-        sessionRuntime.setSessionThinkingLevel(hostedSession, nextLevel);
-        await persistThinkingLevel(nextLevel, hostedSession.cwd);
+        const result = sessionRuntime.cycleSessionThinkingLevel(sessionId);
+        if (!result.ok || !result.thinkingLevel) return;
+        await persistThinkingLevel(result.thinkingLevel, getRuntimeSnapshot().cwd);
         tui.requestRender();
     }
 
@@ -1452,7 +1187,6 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         pastedImages,
         previewImages,
         generationGuard,
-        cancelActiveOperation,
         dismissActivePrompt,
         dequeueLastSubmission,
         forceResetUI,
@@ -1461,8 +1195,7 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
         toggleStartupHelp: () => setHelpExpanded(!helpExpanded),
         cycleThinkingLevel,
         handleImagePaste,
-        abortActiveSession: () => sessionRuntime.cancelSession(hostedSession).aborted,
-        cancelActivePlanReview: () => cancelActivePlanReview(hostedSession),
+        cancelRuntimeSession: () => sessionRuntime.cancelSession(sessionId).aborted,
     });
 
     if (!suppressStartupHeader && sessionStartedEmptyProjectDirectory && !initialUserRequest) {
@@ -1475,16 +1208,18 @@ export async function startInteractiveSession(initialUserRequest, onMessage, opt
     } else if (!suppressStartupHeader && !modelWelcomeResult.suppressBootBanner) {
         await renderBootBanner({
             uiAPI,
+            sessionRuntime,
+            sessionId,
             invokablePromptTemplates,
             blockedPromptTemplates,
             chatPromptAgentName: CHAT_PROMPT_AGENT_NAME,
-            projectRoot: hostedSession.cwd,
+            projectRoot: getRuntimeSnapshot().cwd,
         });
     }
 
     // Hydrate TUI from persisted root-session history (e.g. --continue)
     // Keep this after startup system notices so those appear first.
-    restorePersistedMessagesToUi(/** @type {any} */ (hostedSession.getRootSessionManager()), uiAPI, { hostedSession });
+    sessionRuntime.replaySession(sessionId);
 
     // Trigger initial user request
     if (initialUserRequest) {

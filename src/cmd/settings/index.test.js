@@ -1,6 +1,5 @@
 import { assertEquals } from "@std/assert";
 import { runSettingsCommand } from "./index.js";
-import { HostedSession } from "../../shared/session/hosted-session.js";
 import { initRunWieldTheme } from "../../ui/theme/theme.js";
 
 initRunWieldTheme();
@@ -48,6 +47,21 @@ function makeSettingsManager() {
     };
 }
 
+/** @param {any} [contextUsage] @param {(enabled: boolean) => void} [setEnabled] */
+function makeRuntimeContext(contextUsage, setEnabled) {
+    return {
+        sessionId: "settings-test",
+        sessionRuntime: /** @type {any} */ ({
+            getSessionInfo: () => ({ contextUsage }),
+            /** @param {string} _id @param {boolean} enabled */
+            setSessionAutoCompaction: (_id, enabled) => {
+                setEnabled?.(enabled);
+                return Promise.resolve({ ok: true });
+            },
+        }),
+    };
+}
+
 Deno.test("runSettingsCommand reports missing interactive prompts", async () => {
     /** @type {string[]} */
     const errors = [];
@@ -69,6 +83,7 @@ Deno.test("runSettingsCommand exits quietly when the main menu is cancelled", as
     await runSettingsCommand([], {
         uiAPI: /** @type {any} */ (harness.uiAPI),
         editor: /** @type {any} */ (harness.editor),
+        ...makeRuntimeContext(),
         __testDeps: {
             getSettingsManager: () => manager,
             getRootAgentSession: () => null,
@@ -79,19 +94,12 @@ Deno.test("runSettingsCommand exits quietly when the main menu is cancelled", as
     assertEquals(harness.editor.disableSubmit, false);
 });
 
-Deno.test("runSettingsCommand reads the active session from the supplied HostedSession", async () => {
+Deno.test("runSettingsCommand reads context usage from SessionRuntime", async () => {
     const harness = makeHarness({ selections: ["compaction", "summary", "back", "done"] });
     const { manager } = makeSettingsManager();
-    const hostedSession = new HostedSession({ id: "settings-command-hosted", cwd: Deno.cwd() });
-    hostedSession.setRootAgentSession(
-        /** @type {any} */ ({
-            getContextUsage: () => ({ tokens: 64000, contextWindow: 128000, percent: 50 }),
-        }),
-    );
-
     await runSettingsCommand([], {
         uiAPI: /** @type {any} */ (harness.uiAPI),
-        hostedSession,
+        ...makeRuntimeContext({ tokens: 64000, contextWindow: 128000, percent: 50 }),
         __testDeps: {
             getSettingsManager: () => manager,
         },
@@ -114,6 +122,9 @@ Deno.test("runSettingsCommand toggles auto-compaction on the active session", as
     await runSettingsCommand([], {
         uiAPI: /** @type {any} */ (harness.uiAPI),
         editor: /** @type {any} */ (harness.editor),
+        ...makeRuntimeContext({ tokens: 50000, contextWindow: 128000, percent: 39.0625 }, (enabled) => {
+            settings.enabled = enabled;
+        }),
         __testDeps: {
             getSettingsManager: () => manager,
             getRootAgentSession: () => session,
@@ -135,6 +146,7 @@ Deno.test("runSettingsCommand edits numeric compaction settings", async () => {
     await runSettingsCommand([], {
         uiAPI: /** @type {any} */ (harness.uiAPI),
         editor: /** @type {any} */ (harness.editor),
+        ...makeRuntimeContext(),
         __testDeps: {
             getSettingsManager: () => manager,
             getRootAgentSession: () => null,
@@ -162,6 +174,7 @@ Deno.test("runSettingsCommand rejects invalid numeric input", async () => {
 
     await runSettingsCommand([], {
         uiAPI: /** @type {any} */ (harness.uiAPI),
+        ...makeRuntimeContext(),
         __testDeps: {
             getSettingsManager: () => manager,
             getRootAgentSession: () => null,
@@ -183,6 +196,7 @@ Deno.test("runSettingsCommand prints behavior summary", async () => {
 
     await runSettingsCommand([], {
         uiAPI: /** @type {any} */ (harness.uiAPI),
+        ...makeRuntimeContext({ tokens: 100000, contextWindow: 128000, percent: 78.125 }),
         __testDeps: {
             getSettingsManager: () => manager,
             getRootAgentSession: () => ({

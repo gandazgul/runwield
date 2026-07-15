@@ -11,6 +11,7 @@ import { StringEnum, Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { ROUTING_INTENTS } from "../constants.js";
 import { sanitizeSessionName } from "../shared/session/session-name.js";
+import { emitSystemStatus } from "../shared/session/session-runtime-events.js";
 import { recordWorkflowMetric } from "../shared/workflow/metrics.js";
 
 const PLAN_CLASSIFICATIONS = ["FEATURE", "PROJECT"];
@@ -84,14 +85,13 @@ function normalizeTriageParams(params) {
  * dispatch to the next Agent happens in the active Agent handler.
  *
  * @param {{
- *   uiAPI?: import('../shared/workflow/workflow.js').UiAPI,
  *   hostedSession?: import('../shared/session/hosted-session.js').HostedSession | null,
  *   recordWorkflowMetric?: typeof recordWorkflowMetric,
  * }} [opts]
  * @returns {import('@earendil-works/pi-coding-agent').ToolDefinition}
  */
 export function createTriageReportTool(
-    { uiAPI, hostedSession, recordWorkflowMetric: recordWorkflowMetricImpl = recordWorkflowMetric } = {},
+    { hostedSession, recordWorkflowMetric: recordWorkflowMetricImpl = recordWorkflowMetric } = {},
 ) {
     return defineTool({
         name: "triage_report",
@@ -111,10 +111,10 @@ export function createTriageReportTool(
                 // Footer-context persistence is fail-open and must not block triage.
             }
 
-            uiAPI?.appendSystemMessage(
+            emitSystemStatus(
+                hostedSession || undefined,
                 `Routing Intent: ${routingIntent}, Complexity: ${complexity}. Summary: ${summary}`,
-                false,
-                "Triage",
+                { header: "Triage" },
             );
 
             await recordWorkflowMetricImpl({

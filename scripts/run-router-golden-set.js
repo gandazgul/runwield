@@ -9,8 +9,7 @@ import { parseArgs } from "@std/cli/parse-args";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { AGENTS } from "../src/constants.js";
-import { abortActiveSession } from "../src/shared/session/session.js";
-import { runAgentSession as runAgentSessionFn } from "../src/shared/session/session.js";
+import { SessionRuntime } from "../src/shared/session/session-runtime.js";
 import { readLatestTriageOutcome as readLatestTriageOutcomeFn } from "../src/shared/workflow/orchestrator.js";
 import {
     parseCsv,
@@ -43,6 +42,20 @@ const BENCHMARK_ROUTER_TOOLS = [
     "code_importers",
     "triage_report",
 ];
+
+/**
+ * @typedef {Object} RouterAgentRunOptions
+ * @property {string} agentName
+ * @property {string[]} toolNames
+ * @property {string} userRequest
+ * @property {import('../src/shared/session/types.js').ImageAttachment[]} images
+ * @property {import('@earendil-works/pi-coding-agent').ToolDefinition[]} customTools
+ * @property {string} [modelOverride]
+ * @property {string} [cwd]
+ * @property {boolean} allowReturnToRouter
+ */
+
+/** @typedef {(options: RouterAgentRunOptions) => Promise<any[]>} RouterAgentRunner */
 
 /**
  * @returns {import('@earendil-works/pi-coding-agent').ToolDefinition}
@@ -85,22 +98,6 @@ export function createBenchmarkBashNudgeTool() {
 }
 
 /**
- * @returns {import('../src/shared/workflow/workflow.js').UiAPI}
- */
-function createQuietUiAPI() {
-    return /** @type {import('../src/shared/workflow/workflow.js').UiAPI} */ (/** @type {unknown} */ ({
-        appendSystemMessage: () => {},
-        appendAgentMessageStart: () => ({ appendText: () => {} }),
-        appendThinkingStart: () => ({ appendDelta: () => {}, end: () => {} }),
-        isOutputSuppressed: () => true,
-        promptSelect: () => Promise.resolve(null),
-        promptText: () => Promise.resolve(null),
-        requestRender: () => {},
-        showModelSelector: () => Promise.resolve(null),
-    }));
-}
-
-/**
  * @param {Record<string, string>} row
  * @param {number} index
  * @returns {string}
@@ -113,19 +110,15 @@ function getDecisionId(row, index) {
  * @template T
  * @param {Promise<T>} promise
  * @param {number} timeoutMs
+ * @param {() => void} [onTimeout]
  * @returns {Promise<T>}
  */
-function withAbortTimeout(promise, timeoutMs) {
+function withAbortTimeout(promise, timeoutMs, onTimeout = () => {}) {
     /** @type {ReturnType<typeof setTimeout> | undefined} */
     let timeoutId;
     const timeout = new Promise((_, reject) => {
         timeoutId = setTimeout(() => {
-            try {
-                abortActiveSession();
-            } catch (_error) {
-                // HostedSession scoping for router benchmarks is restored in
-                // 04-routing-and-return-to-router-session-scoping.
-            }
+            onTimeout();
             reject(new Error(`Router golden row timed out after ${timeoutMs}ms.`));
         }, timeoutMs);
     });
@@ -177,33 +170,53 @@ function shouldRunRow(row) {
  *   cwd?: string,
  *   modelOverride?: string,
  *   rowTimeoutMs?: number,
- *   uiAPI?: import('../src/shared/workflow/workflow.js').UiAPI,
- *   runAgentSession?: typeof runAgentSessionFn,
+ *   runAgentSession?: RouterAgentRunner,
  *   readLatestTriageOutcome?: typeof readLatestTriageOutcomeFn,
  *   customTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[],
  * }} [options]
  * @returns {Promise<import('../src/shared/workflow/orchestrator.js').TriageOutcome>}
  */
 export async function runRouterForGoldenRequest(requestText, options = {}) {
-    const runAgentSession = options.runAgentSession || runAgentSessionFn;
     const readLatestTriageOutcome = options.readLatestTriageOutcome || readLatestTriageOutcomeFn;
-    const messagesPromise = runAgentSession({
+    const agentOptions = /** @type {RouterAgentRunOptions} */ ({
         agentName: AGENTS.ROUTER,
         toolNames: BENCHMARK_ROUTER_TOOLS,
         userRequest: requestText,
         images: [],
-        uiAPI: options.uiAPI || createQuietUiAPI(),
         customTools: [createBenchmarkBashNudgeTool(), ...(options.customTools || [])],
         modelOverride: options.modelOverride,
-        cwd: options.cwd,
         allowReturnToRouter: false,
     });
-    const messages = options.rowTimeoutMs
-        ? await withAbortTimeout(messagesPromise, options.rowTimeoutMs)
-        : await messagesPromise;
-    const triage = readLatestTriageOutcome(messages);
-    if (!triage) throw new Error("Router did not call triage_report.");
-    return triage;
+
+    /** @type {() => void} */
+    let cancel = () => {};
+    /** @type {() => Promise<void>} */
+    let close = () => Promise.resolve();
+    let messagesPromise;
+    if (options.runAgentSession) {
+        messagesPromise = options.runAgentSession({ ...agentOptions, cwd: options.cwd });
+    } else {
+        const runtime = new SessionRuntime();
+        const created = await runtime.createInteractiveSession({ cwd: options.cwd || Deno.cwd() });
+        cancel = () => {
+            runtime.cancelSession(created.sessionId);
+        };
+        close = async () => {
+            await runtime.closeSessionWhenIdle(created.sessionId);
+        };
+        messagesPromise = runtime.runIsolatedAgent(created.sessionId, agentOptions);
+    }
+
+    try {
+        const messages = options.rowTimeoutMs
+            ? await withAbortTimeout(messagesPromise, options.rowTimeoutMs, cancel)
+            : await messagesPromise;
+        const triage = readLatestTriageOutcome(messages);
+        if (!triage) throw new Error("Router did not call triage_report.");
+        return triage;
+    } finally {
+        await close();
+    }
 }
 
 /**
@@ -213,7 +226,7 @@ export async function runRouterForGoldenRequest(requestText, options = {}) {
  *   cwd?: string,
  *   modelOverride?: string,
  *   rowTimeoutMs?: number,
- *   runAgentSession?: typeof runAgentSessionFn,
+ *   runAgentSession?: RouterAgentRunner,
  *   readLatestTriageOutcome?: typeof readLatestTriageOutcomeFn,
  *   onProgress?: (message: string) => void,
  *   onRowComplete?: (rows: Array<Record<string, unknown>>) => Promise<void> | void,
@@ -232,7 +245,7 @@ export async function runRouterGoldenSet(rows, options = {}) {
  *   cwd?: string,
  *   modelOverride?: string,
  *   rowTimeoutMs?: number,
- *   runAgentSession?: typeof runAgentSessionFn,
+ *   runAgentSession?: RouterAgentRunner,
  *   readLatestTriageOutcome?: typeof readLatestTriageOutcomeFn,
  *   onProgress?: (message: string) => void,
  *   onRowComplete?: (rows: Array<Record<string, unknown>>) => Promise<void> | void,

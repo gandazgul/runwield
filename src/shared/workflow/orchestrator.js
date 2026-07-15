@@ -30,7 +30,12 @@ import { switchActiveAgent } from "../session/agent-switching.js";
 import { runRootTurn } from "../session/session.js";
 import { getAgentDisplayName } from "../session/agents.js";
 import { sanitizeSessionName } from "../session/session-name.js";
-import { RuntimeEventTypes } from "../session/session-runtime-events.js";
+import {
+    emitHostedSessionRuntimeEvent,
+    emitSystemStatus,
+    RuntimeEventTypes,
+} from "../session/session-runtime-events.js";
+import { requestHostedSessionInteraction, RuntimeInteractionTypes } from "../session/session-runtime-interactions.js";
 import { decidePostExecution, decidePostPlanning, summarizeWorkflowDecision } from "./decisions.js";
 import { recordWorkflowMetric } from "./metrics.js";
 import { executePlan, readLatestTaskCompletedOutcome, runPlanningAgent, runSlicerAgent } from "./workflow.js";
@@ -51,20 +56,21 @@ export { runLocalCI, runMechanicalValidation, runValidationLoop } from "./valida
 const PLAN_ROUTING_INTENTS = ["FEATURE", "PROJECT"];
 
 /**
- * @param {import('./workflow.js').UiAPI} uiAPI
+ * @param {import('../session/hosted-session.js').HostedSession} hostedSession
  * @param {string} projectRoot
  * @returns {Promise<boolean>}
  */
-async function confirmNonGitQuickFixExecution(uiAPI, projectRoot) {
-    if (!uiAPI.promptSelect) return false;
-    const answer = await uiAPI.promptSelect(
-        "Git is not available for this project. RunWield recommends using Git before QUICK_FIX edits so changes can be reviewed and recovered with normal Git tools. Proceeding will modify the current files directly.",
-        [
+async function confirmNonGitQuickFixExecution(hostedSession, projectRoot) {
+    const response = await requestHostedSessionInteraction(hostedSession, {
+        type: RuntimeInteractionTypes.SELECT,
+        prompt:
+            "Git is not available for this project. RunWield recommends using Git before QUICK_FIX edits so changes can be reviewed and recovered with normal Git tools. Proceeding will modify the current files directly.",
+        options: [
             { value: "proceed", label: "Proceed in current files and remember for QUICK_FIX work" },
             { value: "cancel", label: "Cancel QUICK_FIX" },
         ],
-    );
-    if (answer !== "proceed") return false;
+    });
+    if (response.outcome !== "selected" || response.value !== "proceed") return false;
     await rememberNonGitExecutionConsent("quickFix", projectRoot);
     return true;
 }
@@ -162,18 +168,13 @@ function buildTriageBlock(triage) {
  * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined} sessionManager
  * @param {TriageOutcome} triage
  * @param {import('../session/hosted-session.js').HostedSession} hostedSession
- * @param {((name: string) => string) | undefined} [setTitle]
  */
-function applyAutoSessionName(sessionManager, triage, hostedSession, setTitle) {
+function applyAutoSessionName(sessionManager, triage, hostedSession) {
     if (!sessionManager) return;
-    const eventSink = /** @type {{ emit?: (event: Record<string, unknown>) => void } | null} */ (
-        hostedSession.getEventSink?.() || null
-    );
 
     const existingName = sanitizeSessionName(sessionManager.getSessionName?.() || "");
     if (existingName) {
-        setTitle?.(existingName);
-        eventSink?.emit?.({ type: RuntimeEventTypes.SESSION_RENAMED, name: existingName });
+        emitHostedSessionRuntimeEvent(hostedSession, { type: RuntimeEventTypes.SESSION_RENAMED, name: existingName });
         return;
     }
 
@@ -181,8 +182,7 @@ function applyAutoSessionName(sessionManager, triage, hostedSession, setTitle) {
     if (!sessionName) return;
 
     sessionManager.appendSessionInfo?.(sessionName);
-    setTitle?.(sessionName);
-    eventSink?.emit?.({ type: RuntimeEventTypes.SESSION_RENAMED, name: sessionName });
+    emitHostedSessionRuntimeEvent(hostedSession, { type: RuntimeEventTypes.SESSION_RENAMED, name: sessionName });
 }
 
 /**
@@ -194,7 +194,6 @@ function applyAutoSessionName(sessionManager, triage, hostedSession, setTitle) {
  * @param {TriageOutcome} args.triage
  * @param {string} args.userRequest
  * @param {import('../session/types.js').ImageAttachment[] | undefined} args.images
- * @param {import('./workflow.js').UiAPI} args.uiAPI
  * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined} args.sessionManager
  * @param {{
  *   switchActiveAgent?: typeof switchActiveAgent,
@@ -210,7 +209,6 @@ function applyAutoSessionName(sessionManager, triage, hostedSession, setTitle) {
  *   runRootTurn?: typeof runRootTurn,
  *   runMechanicalValidation?: typeof runMechanicalValidation,
  *   runValidationLoop?: typeof runValidationLoop,
- *   setTerminalTitleForName?: (name: string) => string,
  *   shouldRunWorkflowValidation?: typeof shouldRunWorkflowValidation,
  *   recordWorkflowMetric?: typeof recordWorkflowMetric,
  *   probeGitRepository?: typeof probeGitRepository,
@@ -219,9 +217,8 @@ function applyAutoSessionName(sessionManager, triage, hostedSession, setTitle) {
  * }} [args.__deps]
  */
 export async function dispatchPostTriage(
-    { hostedSession, triage, userRequest, images, uiAPI, sessionManager, __deps },
+    { hostedSession, triage, userRequest, images, sessionManager, __deps },
 ) {
-    if (!uiAPI) throw new Error("dispatchPostTriage: uiAPI is required");
     if (!hostedSession || typeof hostedSession.getRootAgentName !== "function") {
         throw new Error("dispatchPostTriage: hostedSession is required");
     }
@@ -237,7 +234,6 @@ export async function dispatchPostTriage(
     const runValidationLoopImpl = __deps?.runValidationLoop || runValidationLoop;
     const decidePostPlanningImpl = __deps?.decidePostPlanning || decidePostPlanning;
     const decidePostExecutionImpl = __deps?.decidePostExecution || decidePostExecution;
-    const setTerminalTitleForNameImpl = __deps?.setTerminalTitleForName;
     const runSlicerAgentImpl = __deps?.runSlicerAgent || runSlicerAgent;
     const recordWorkflowMetricImpl = __deps?.recordWorkflowMetric || recordWorkflowMetric;
     const probeGit = __deps?.probeGitRepository || probeGitRepository;
@@ -245,10 +241,10 @@ export async function dispatchPostTriage(
     const confirmQuickFix = __deps?.confirmNonGitQuickFixExecution || confirmNonGitQuickFixExecution;
     /** @param {string} agentName */
     const activateAgent = async (agentName) => {
-        await switchActiveAgentImpl(hostedSession, { agentName }, uiAPI);
+        await switchActiveAgentImpl(hostedSession, { agentName });
     };
 
-    applyAutoSessionName(sessionManager, normalizedTriage, hostedSession, setTerminalTitleForNameImpl);
+    applyAutoSessionName(sessionManager, normalizedTriage, hostedSession);
 
     const dispatchTarget = normalizedTriage.routingIntent === "INQUIRY"
         ? AGENTS.GUIDE
@@ -284,7 +280,6 @@ export async function dispatchPostTriage(
             agentName,
             userRequest: decoratedRequest,
             images,
-            uiAPI,
         });
         return;
     }
@@ -302,7 +297,6 @@ export async function dispatchPostTriage(
             agentName: AGENTS.OPERATOR,
             userRequest: decoratedRequest,
             images,
-            uiAPI,
         });
         const completed = readLatestTaskCompletedOutcomeImpl(messages);
         await recordWorkflowMetricImpl({
@@ -312,10 +306,10 @@ export async function dispatchPostTriage(
             details: { taskCompletedObserved: Boolean(completed), mechanicalValidationRan: false },
         });
         if (!completed) {
-            uiAPI.appendSystemMessage(
+            emitSystemStatus(
+                hostedSession,
                 `${operatorDisplay} stopped without task_completed; OPERATION may be incomplete.`,
-                false,
-                "RunWield",
+                { header: "RunWield" },
             );
         }
         return;
@@ -329,12 +323,12 @@ export async function dispatchPostTriage(
         const gitProbe = await probeGit(projectRoot);
         if (
             !gitProbe.ok && !hasConsent("quickFix", projectRoot) &&
-            !(await confirmQuickFix(uiAPI, projectRoot))
+            !(await confirmQuickFix(hostedSession, projectRoot))
         ) {
-            uiAPI.appendSystemMessage(
+            emitSystemStatus(
+                hostedSession,
                 "QUICK_FIX canceled because Git is not available and in-place edits were not approved.",
-                false,
-                "RunWield",
+                { header: "RunWield" },
             );
             await recordWorkflowMetricImpl({
                 category: "execution",
@@ -352,7 +346,6 @@ export async function dispatchPostTriage(
             agentName: AGENTS.ENGINEER,
             userRequest: decoratedRequest,
             images,
-            uiAPI,
         });
         const completed = readLatestTaskCompletedOutcomeImpl(messages);
         if (!completed) {
@@ -362,17 +355,16 @@ export async function dispatchPostTriage(
                 agentName: AGENTS.ENGINEER,
                 details: { taskCompletedObserved: false, mechanicalValidationRan: false },
             });
-            uiAPI.appendSystemMessage(
+            emitSystemStatus(
+                hostedSession,
                 `${engineerDisplay} stopped without task_completed; QUICK_FIX may be incomplete and Mechanical Validation will not run.`,
-                false,
-                "RunWield",
+                { header: "RunWield" },
             );
             return;
         }
 
         const mechanicalResult = await runMechanicalValidationImpl({
             hostedSession,
-            uiAPI,
             sessionManager,
         });
         await recordWorkflowMetricImpl({
@@ -404,7 +396,6 @@ export async function dispatchPostTriage(
             agentName,
             initialRequest: decoratedRequest,
             triageMeta: normalizedTriage,
-            uiAPI,
             sessionManager,
             hostedSession,
         });
@@ -429,7 +420,6 @@ export async function dispatchPostTriage(
             const slicerResult = await runSlicerAgentImpl({
                 planName,
                 triageMeta: slicerTriageMeta,
-                uiAPI,
                 hostedSession,
                 sessionManager,
             });
@@ -476,7 +466,7 @@ export async function dispatchPostTriage(
                     decisionKind: decision.kind,
                 },
             });
-            uiAPI.appendSystemMessage(`Workflow halted: ${String(decision.payload.reason || "unknown reason")}`);
+            emitSystemStatus(hostedSession, `Workflow halted: ${String(decision.payload.reason || "unknown reason")}`);
             await activateAgent(agentName);
             return;
         }
@@ -490,14 +480,14 @@ export async function dispatchPostTriage(
         /** @type {import('./workflow.js').PlanExecutionResult} */
         let executionResult;
         try {
-            executionResult = await executePlanImpl(
+            executionResult = await executePlanImpl({
                 planName,
-                decisionTriageMeta,
-                uiAPI,
-                tasks,
+                triageMeta: decisionTriageMeta,
+                structuredTasks: tasks,
                 sessionManager,
-                { hostedSession, recordWorkflowMetric: recordWorkflowMetricImpl },
-            );
+                hostedSession,
+                __deps: { recordWorkflowMetric: recordWorkflowMetricImpl },
+            });
         } catch (error) {
             const reason = error instanceof Error ? error.message : String(error);
             await recordWorkflowMetricImpl({
@@ -511,10 +501,10 @@ export async function dispatchPostTriage(
                     hasError: Boolean(reason),
                 },
             });
-            uiAPI.appendSystemMessage(
+            emitSystemStatus(
+                hostedSession,
                 `Plan execution failed: ${reason}. The Engineer may need manual intervention.`,
-                true,
-                "RunWield",
+                { level: "error", header: "RunWield" },
             );
             await activateAgent(AGENTS.ENGINEER);
             return;
@@ -540,7 +530,6 @@ export async function dispatchPostTriage(
                     planName,
                     planContent: plan?.markdown || "",
                     triageMeta: decisionTriageMeta,
-                    uiAPI,
                     sessionManager,
                     finalAgentName: agentName,
                     __deps: { recordWorkflowMetric: recordWorkflowMetricImpl },
@@ -598,10 +587,10 @@ export async function dispatchPostTriage(
                     hasReason: Boolean(reason),
                 },
             });
-            uiAPI.appendSystemMessage(
+            emitSystemStatus(
+                hostedSession,
                 `Execution stopped: ${reason}. Staying with Engineer for manual intervention.`,
-                true,
-                "RunWield",
+                { level: "error", header: "RunWield" },
             );
             await activateAgent(AGENTS.ENGINEER);
         }

@@ -4,7 +4,7 @@
  * only streaming roots and transient sub-agents owned by the target HostedSession.
  */
 
-import { assert, assertEquals } from "@std/assert";
+import { assertEquals } from "@std/assert";
 import { abortActiveSession } from "./session.js";
 import { HostedSession } from "./hosted-session.js";
 
@@ -108,55 +108,4 @@ Deno.test("abortActiveSession swallows errors thrown by abort() and still report
     hostedSession.setRootAgentSession(root);
 
     assertEquals(abortActiveSession(hostedSession), true);
-});
-
-/**
- * @param {{ opCanceled: boolean, sessionAborted: boolean, planCanceled: boolean }} flags
- * @returns {string | null}
- */
-function pickCancelMessage(flags) {
-    if (flags.opCanceled) return "Operation canceled.";
-    if (flags.sessionAborted) return "Agent run canceled.";
-    if (flags.planCanceled) return "Plan review canceled.";
-    return null;
-}
-
-Deno.test("Esc on a fully idle HostedSession prints no cancellation message", () => {
-    const message = pickCancelMessage({
-        opCanceled: false,
-        sessionAborted: abortActiveSession(makeHostedSession("abort-idle-message")),
-        planCanceled: false,
-    });
-    assertEquals(message, null);
-});
-
-Deno.test("Esc during a streaming target root prints 'Agent run canceled.'", () => {
-    const hostedSession = makeHostedSession("abort-streaming-message");
-    hostedSession.setRootAgentSession(makeFakeSession({ isStreaming: true }));
-    const message = pickCancelMessage({
-        opCanceled: false,
-        sessionAborted: abortActiveSession(hostedSession),
-        planCanceled: false,
-    });
-    assertEquals(message, "Agent run canceled.");
-});
-
-Deno.test("Esc while an operation is active prefers 'Operation canceled.' over session/plan", () => {
-    const hostedSession = makeHostedSession("abort-operation-message");
-    hostedSession.setRootAgentSession(makeFakeSession({ isStreaming: true }));
-    const message = pickCancelMessage({
-        opCanceled: true,
-        sessionAborted: abortActiveSession(hostedSession),
-        planCanceled: true,
-    });
-    assertEquals(message, "Operation canceled.");
-});
-
-Deno.test("Esc with only a plan review pending prints 'Plan review canceled.'", () => {
-    const message = pickCancelMessage({
-        opCanceled: false,
-        sessionAborted: abortActiveSession(makeHostedSession("abort-plan-message")),
-        planCanceled: true,
-    });
-    assert(message === "Plan review canceled.");
 });

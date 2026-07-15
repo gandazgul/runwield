@@ -78,40 +78,6 @@ async function copyToClipboard(text) {
 }
 
 /**
- * Extract the display text from the last assistant message in the session.
- *
- * @param {import('@earendil-works/pi-coding-agent').AgentSession} session
- * @returns {string | null} The extracted text, or null if no assistant message was found.
- */
-function extractLastAssistantText(session) {
-    const messages = session.agent.state.messages;
-    if (!Array.isArray(messages) || messages.length === 0) return null;
-
-    // Walk backwards to find the last assistant message
-    for (let i = messages.length - 1; i >= 0; i--) {
-        const msg = messages[i];
-        if (!msg || msg.role !== "assistant") continue;
-
-        const content = msg.content;
-        if (!Array.isArray(content)) continue;
-
-        /** @type {string[]} */
-        const textParts = [];
-        for (const block of content) {
-            if (block && block.type === "text" && typeof block.text === "string") {
-                textParts.push(block.text);
-            }
-        }
-
-        if (textParts.length === 0) continue;
-
-        return textParts.join("\n").trim();
-    }
-
-    return null;
-}
-
-/**
  * Handle the /copy command.
  *
  * @param {string[]} _argv
@@ -123,14 +89,13 @@ export async function runCopyCommand(_argv, options = {}) {
         return;
     }
 
-    const { uiAPI, hostedSession } = options;
-    const session = /** @type {any} */ (hostedSession?.getRootAgentSession?.());
-    if (!session) {
+    const { uiAPI, sessionRuntime, sessionId } = options;
+    if (!sessionRuntime || !sessionId) {
         uiAPI.appendSystemMessage("Error: No active agent session.");
         return;
     }
 
-    const text = extractLastAssistantText(session);
+    const text = sessionRuntime.getLastAssistantText(sessionId);
     if (!text) {
         uiAPI.appendSystemMessage("Nothing to copy — no assistant message found.");
         return;

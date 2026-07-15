@@ -13,9 +13,8 @@ Deno.test("runRouterCommand prints help when userRequest is help", async () => {
             },
             startInteractiveSession: () => {
                 started = true;
-                return Promise.resolve(/** @type {import('../../shared/workflow/workflow.js').UiAPI} */ ({}));
+                return Promise.resolve(/** @type {import('../../ui/tui/types.js').UiAPI} */ ({}));
             },
-            createHandler: () => async () => {},
         },
     });
 
@@ -34,14 +33,12 @@ Deno.test("runRouterCommand starts session with provided request", async () => {
         __testDeps: {
             startInteractiveSession: (
                 /** @type {string | null} */ userRequest,
-                /** @type {unknown} */ _handler,
                 opts = /** @type {{ sessionStartMode?: "new" | "continue" } | undefined} */ (undefined),
             ) => {
                 initial = userRequest;
                 mode = opts?.sessionStartMode || null;
-                return Promise.resolve(/** @type {import('../../shared/workflow/workflow.js').UiAPI} */ ({}));
+                return Promise.resolve(/** @type {import('../../ui/tui/types.js').UiAPI} */ ({}));
             },
-            createHandler: () => async () => {},
         },
     });
 
@@ -59,9 +56,8 @@ Deno.test("runRouterCommand passes null when no user request", async () => {
                 /** @type {string | null} */ userRequest,
             ) => {
                 initial = userRequest;
-                return Promise.resolve(/** @type {import('../../shared/workflow/workflow.js').UiAPI} */ ({}));
+                return Promise.resolve(/** @type {import('../../ui/tui/types.js').UiAPI} */ ({}));
             },
-            createHandler: () => async () => {},
         },
     });
 
