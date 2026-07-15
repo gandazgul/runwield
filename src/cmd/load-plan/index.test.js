@@ -76,7 +76,7 @@ function makeRuntimeFixture(options = {}) {
                         id,
                         cwd: Deno.cwd(),
                         activeAgent: state.activeAgent,
-                        workflow: state.workflow,
+                        activeExecutionWorkflow: state.workflow,
                     }
                     : null,
             /** @param {string} _id @param {{ agentName: string }} request */
@@ -407,7 +407,7 @@ Deno.test("runLoadPlanCommand approved plan proceed path", async () => {
     assertEquals(executed, true);
 });
 
-Deno.test("runLoadPlanCommand draft Epic offers Architect review before Slicer decomposition", async () => {
+Deno.test("runLoadPlanCommand draft Epic offers Architect review without Slicer decomposition", async () => {
     const { uiAPI, selections, prompts } = makeUi();
     selections.push(null);
 
@@ -439,12 +439,12 @@ Deno.test("runLoadPlanCommand draft Epic offers Architect review before Slicer d
     });
 
     const epicPrompt = prompts.find((prompt) => prompt.prompt === "What would you like to do with this Epic?");
-    assertEquals(epicPrompt?.options.map((option) => option.value), ["review", "slicer", "view", "hold", "cancel"]);
+    assertEquals(epicPrompt?.options.map((option) => option.value), ["review", "hold", "view", "cancel"]);
     assertEquals(epicPrompt?.options[0].label, "Review with Architect");
 });
 
-Deno.test("runLoadPlanCommand Epic with no children opens Slicer", async () => {
-    const { uiAPI, selections, messages } = makeUi();
+Deno.test("runLoadPlanCommand ready-for-decomposition Epic offers Slicer first", async () => {
+    const { uiAPI, selections, messages, prompts } = makeUi();
     selections.push("slicer");
     let slicerPlanName = "";
     let executed = false;
@@ -485,6 +485,8 @@ Deno.test("runLoadPlanCommand Epic with no children opens Slicer", async () => {
         }),
     });
 
+    const epicPrompt = prompts.find((prompt) => prompt.prompt === "What would you like to do with this Epic?");
+    assertEquals(epicPrompt?.options.map((option) => option.value), ["slicer", "hold", "view", "cancel"]);
     assertEquals(messages.some((m) => m.includes("no child FEATURE plans")), true);
     assertEquals(slicerPlanName, "epic-a");
     assertEquals(executed, false);
@@ -553,8 +555,8 @@ Deno.test("runLoadPlanCommand Epic with children shows ordered child labels, dep
         "pick_child",
         "slicer",
         "done_enough",
-        "view",
         "hold",
+        "view",
         "cancel",
     ]);
     assertEquals(prompts[1].options[0].value, "__next_child__");
