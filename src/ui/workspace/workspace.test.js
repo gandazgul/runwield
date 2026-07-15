@@ -35,6 +35,7 @@ import {
     startReviewWorkspaceServer,
 } from "./server.js";
 import { COLLABORATION_STATE_REMOTE_CANONICAL } from "../../shared/collaboration/lock.js";
+import { createReviewAgentState, reviewAgentApi } from "./routes/api/review-agent-handlers.js";
 import { hashCapability } from "../../shared/collaboration/capabilities.js";
 import { openRemoteDatabase } from "./server/remote-db.js";
 import { createRemoteWorkspaceAdapter } from "./server/remote-adapter.js";
@@ -122,6 +123,311 @@ Deno.test("review page accepts Unicode Plan payloads", async () => {
 
     const response = await app(new Request(`http://localhost/review/plan?token=${token}`));
     assertEquals(response.status < 500, true);
+});
+
+Deno.test("Plan review surfaces do not expose Guided Review APIs", async () => {
+    const token = "plan-review-secret";
+    const reviewApp = createReviewWorkspaceApp({
+        cwd: Deno.cwd(),
+        token,
+        reviewPayload: { plan: "# Plan" },
+        reviewType: "plan",
+    });
+    const app = reviewApp.handler();
+
+    const capabilities = await app(
+        new Request(`http://localhost/api/agents/capabilities?token=${token}`, {
+            headers: { "x-runwield-review-token": token },
+        }),
+    );
+    assertEquals(capabilities.status, 404);
+
+    const guide = await app(
+        new Request(`http://localhost/api/guide/job-1?token=${token}`, {
+            headers: { "x-runwield-review-token": token },
+        }),
+    );
+    assertEquals(guide.status, 404);
+
+    const widget = await app(
+        new Request(`http://localhost/api/review/widgets/widget/index.html?token=${token}`, {
+            headers: { "x-runwield-review-token": token },
+        }),
+    );
+    assertEquals(widget.status, 404);
+    await reviewApp.cleanup();
+});
+
+Deno.test("review guide and widget APIs require token and serve explainer state", async () => {
+    const token = "guide-secret";
+    const reviewApp = createReviewWorkspaceApp({
+        cwd: Deno.cwd(),
+        token,
+        reviewType: "code",
+        reviewPayload: {
+            rawPatch:
+                "diff --git a/src/a.js b/src/a.js\n--- a/src/a.js\n+++ b/src/a.js\n@@ -1 +1,2 @@\n export const a = 1;\n+export const b = 2;\n",
+            guidedReviewFixture: {
+                schemaVersion: "1.0",
+                title: "Fixture guide",
+                sections: [{
+                    title: "Fixture",
+                    role: "core",
+                    blocks: [
+                        { type: "diff", file: "src/a.js", summary: "Check the fixture diff." },
+                        {
+                            type: "widget",
+                            id: "fixture",
+                            entry: "index.html",
+                            title: "Fixture",
+                            html:
+                                '<!doctype html><link rel="stylesheet" href="widget.css"><img src="asset.svg" alt="fixture"><script src="widget.js"></script>',
+                            assets: [
+                                {
+                                    name: "asset.svg",
+                                    contentType: "image/svg+xml",
+                                    content: '<svg xmlns="http://www.w3.org/2000/svg"></svg>',
+                                },
+                                {
+                                    name: "widget.css",
+                                    contentType: "text/css",
+                                    content: "img{width:16px}",
+                                },
+                                {
+                                    name: "widget.js",
+                                    contentType: "application/javascript",
+                                    content: "document.body.dataset.ready = 'true';",
+                                },
+                            ],
+                        },
+                    ],
+                }],
+                everythingElse: [],
+            },
+        },
+    });
+    const app = reviewApp.handler();
+
+    const denied = await app(new Request("http://localhost/api/agents/capabilities"));
+    assertEquals(denied.status, 401);
+
+    const launch = await app(
+        new Request("http://localhost/api/agents/jobs", {
+            method: "POST",
+            headers: { "content-type": "application/json", "x-runwield-review-token": token },
+            body: JSON.stringify({ provider: "guide" }),
+        }),
+    );
+    assertEquals(launch.status, 202);
+    const { job } = await launch.json();
+
+    let guide;
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+        guide = await app(
+            new Request(`http://localhost/api/guide/${job.id}`, {
+                headers: { "x-runwield-review-token": token },
+            }),
+        );
+        if (guide.status === 200) break;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    assertEquals(guide.status, 200);
+    const guideJson = await guide.json();
+    assertEquals(guideJson.schemaVersion, "1.0");
+    const widgetId = guideJson.sections[0].blocks.find((/** @type {any} */ block) => block.type === "widget").id;
+
+    const widget = await app(
+        new Request(`http://localhost/api/review/widgets/${widgetId}/index.html`, {
+            headers: { "x-runwield-review-token": token },
+        }),
+    );
+    assertEquals(widget.status, 200);
+    const csp = widget.headers.get("content-security-policy") || "";
+    assertStringIncludes(csp, "connect-src 'none'");
+    assertStringIncludes(csp, "navigate-to 'none'");
+    assertStringIncludes(csp, `http://localhost/api/review/widgets/${widgetId}/widget.css`);
+    assertStringIncludes(csp, `http://localhost/api/review/widgets/${widgetId}/widget.js`);
+    assertEquals(csp.includes("img-src 'self'"), false);
+    const deniedAsset = await app(new Request(`http://localhost/api/review/widgets/${widgetId}/asset.svg`));
+    assertEquals(deniedAsset.status, 401);
+    const asset = await app(
+        new Request(`http://localhost/api/review/widgets/${widgetId}/asset.svg`, {
+            headers: { referer: `http://localhost/api/review/widgets/${widgetId}/index.html?token=${token}` },
+        }),
+    );
+    assertEquals(asset.status, 200);
+    assertEquals(asset.headers.get("content-type"), "image/svg+xml");
+    const css = await app(
+        new Request(`http://localhost/api/review/widgets/${widgetId}/widget.css`, {
+            headers: { referer: `http://localhost/api/review/widgets/${widgetId}/index.html?token=${token}` },
+        }),
+    );
+    assertEquals(css.status, 200);
+    assertEquals(css.headers.get("content-type"), "text/css");
+    const js = await app(
+        new Request(`http://localhost/api/review/widgets/${widgetId}/widget.js`, {
+            headers: { referer: `http://localhost/api/review/widgets/${widgetId}/index.html?token=${token}` },
+        }),
+    );
+    assertEquals(js.status, 200);
+    assertEquals(js.headers.get("content-type"), "application/javascript");
+    await reviewApp.cleanup();
+});
+
+Deno.test("review guide jobs ground provider prompt in Plan payload", async () => {
+    const previousCommand = Deno.env.get("RUNWIELD_GUIDED_REVIEW_COMMAND");
+    Deno.env.set("RUNWIELD_GUIDED_REVIEW_COMMAND", "test-guide-command");
+    try {
+        let capturedPrompt = "";
+        const state = createReviewAgentState({
+            cwd: Deno.cwd(),
+            token: "prompt-token",
+            reviewPayload: {
+                rawPatch:
+                    "diff --git a/src/a.js b/src/a.js\n--- a/src/a.js\n+++ b/src/a.js\n@@ -1 +1,2 @@\n export const a = 1;\n+export const b = 2;\n",
+                gitRef: "review target",
+                planContent: "# Plan\nShip the user-facing explanation.",
+                planAttrs: { classification: "FEATURE", complexity: "HIGH" },
+            },
+            runGuideCommand: (prompt) => {
+                capturedPrompt = prompt;
+                return Promise.resolve({
+                    stdout: JSON.stringify({
+                        schemaVersion: "1.0",
+                        title: "Prompt guide",
+                        sections: [{
+                            title: "Core",
+                            role: "core",
+                            blocks: [{ type: "diff", file: "src/a.js" }],
+                        }],
+                        everythingElse: [],
+                    }),
+                    provider: "test-provider",
+                    model: "test-model",
+                });
+            },
+            recordWorkflowMetric: () => Promise.resolve(null),
+        });
+
+        const launch = await reviewAgentApi(
+            new Request("http://localhost/api/agents/jobs", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ provider: "guide" }),
+            }),
+            new URL("http://localhost/api/agents/jobs"),
+            state,
+        );
+        assertEquals(launch?.status, 202);
+        if (!launch) throw new Error("expected job launch response");
+        const { job } = await launch.json();
+        await state.jobs.get(job.id)?.done;
+
+        assertStringIncludes(capturedPrompt, "# Plan");
+        assertStringIncludes(capturedPrompt, "Ship the user-facing explanation.");
+        assertStringIncludes(capturedPrompt, '"classification": "FEATURE"');
+        await state.widgets.cleanup();
+    } finally {
+        if (previousCommand === undefined) Deno.env.delete("RUNWIELD_GUIDED_REVIEW_COMMAND");
+        else Deno.env.set("RUNWIELD_GUIDED_REVIEW_COMMAND", previousCommand);
+    }
+});
+
+Deno.test("review guide jobs record generation result metrics", async () => {
+    /** @type {unknown[]} */
+    const metrics = [];
+    const state = createReviewAgentState({
+        cwd: Deno.cwd(),
+        token: "metric-token",
+        reviewPayload: {
+            rawPatch:
+                "diff --git a/src/a.js b/src/a.js\n--- a/src/a.js\n+++ b/src/a.js\n@@ -1 +1,2 @@\n export const a = 1;\n+export const b = 2;\n",
+            guidedReviewFixture: {
+                schemaVersion: "1.0",
+                title: "Metric guide",
+                sections: [{
+                    title: "Core",
+                    role: "core",
+                    blocks: [{ type: "diff", file: "src/a.js" }],
+                }],
+                everythingElse: [],
+            },
+        },
+        recordWorkflowMetric: (/** @type {any} */ metric) => {
+            metrics.push(metric);
+            return Promise.resolve(null);
+        },
+    });
+
+    const launch = await reviewAgentApi(
+        new Request("http://localhost/api/agents/jobs", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ provider: "guide" }),
+        }),
+        new URL("http://localhost/api/agents/jobs"),
+        state,
+    );
+    assertEquals(launch?.status, 202);
+    if (!launch) throw new Error("expected job launch response");
+    const { job } = await launch.json();
+    await state.jobs.get(job.id)?.done;
+
+    assertEquals(/** @type {any[]} */ (metrics).length, 1);
+    assertEquals(/** @type {any} */ (metrics[0]).category, "validation");
+    assertEquals(/** @type {any} */ (metrics[0]).event, "guided_review_generation_result");
+    assertEquals(/** @type {any} */ (metrics[0]).details.status, "done");
+    assertEquals(/** @type {any} */ (metrics[0]).details.sectionCount, 1);
+    await state.widgets.cleanup();
+});
+
+Deno.test("review guide failure metrics redact provider error details", async () => {
+    /** @type {unknown[]} */
+    const metrics = [];
+    const state = createReviewAgentState({
+        cwd: Deno.cwd(),
+        token: "metric-token",
+        reviewPayload: {
+            rawPatch:
+                "diff --git a/src/a.js b/src/a.js\n--- a/src/a.js\n+++ b/src/a.js\n@@ -1 +1,2 @@\n export const a = 1;\n+export const b = 2;\n",
+            guidedReviewFixture: {
+                schemaVersion: "1.0",
+                title: "Bad guide",
+                sections: [{
+                    title: "Core",
+                    role: "core",
+                    blocks: [{ type: "diff", file: "/Users/example/secret.js" }],
+                }],
+                everythingElse: [],
+            },
+        },
+        recordWorkflowMetric: (/** @type {any} */ metric) => {
+            metrics.push(metric);
+            return Promise.resolve(null);
+        },
+    });
+
+    const launch = await reviewAgentApi(
+        new Request("http://localhost/api/agents/jobs", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ provider: "guide" }),
+        }),
+        new URL("http://localhost/api/agents/jobs"),
+        state,
+    );
+    assertEquals(launch?.status, 202);
+    if (!launch) throw new Error("expected job launch response");
+    const { job } = await launch.json();
+    await state.jobs.get(job.id)?.done;
+
+    const details = /** @type {any} */ (metrics[0]).details;
+    assertEquals(details.status, "failed");
+    assertEquals(details.hasError, true);
+    assertEquals(details.errorKind, "schema_invalid");
+    assertEquals("error" in details, false);
+    assertEquals(JSON.stringify(details).includes("/Users/example/secret.js"), false);
+    await state.widgets.cleanup();
 });
 
 Deno.test("review API accepts review token header before workspace app token gate", async () => {

@@ -189,8 +189,9 @@ For worktree-backed plans:
 3. Workflow Validation runs local CI, computes the workflow diff, starts semantic reviewer sessions, and starts repair
    sessions in the execution worktree.
 4. If `codereview` is `ask` or `always`, RunWield opens or offers Plannotator human code review after semantic review
-   passes and before merge-back. Human feedback is sent back to the Engineer in the execution worktree, then validation
-   reruns.
+   passes and before merge-back. The optional `guidedReview` setting can generate a Guided Review Explainer inside that
+   already-open human review, but it does not create a Plan Status, Plan Event, or Front Matter field. Human feedback is
+   sent back to the Engineer in the execution worktree, then validation reruns.
 5. If validation fails, RunWield keeps Plan Status `implemented`, records `worktreeStatus: "validation_failed"`, and
    leaves the worktree for recovery.
 6. If validation passes, RunWield copies the primary Plan's current implemented Front Matter into the execution worktree

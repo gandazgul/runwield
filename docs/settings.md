@@ -279,20 +279,21 @@ Temperature resolution:
 
 These keys are read by RunWield outside the upstream Pi `SettingsManager` schema.
 
-| Key                               | Type              | Values / default                        | Scope            | Description                                                                                                                                                                        |
-| --------------------------------- | ----------------- | --------------------------------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `agents`                          | object            | agent-name map                          | global + project | Base per-agent `model`, `thinkingLevel`, and `temperature` overrides.                                                                                                              |
-| `activeModelPreset`               | string            | unset                                   | global + project | Selects a named preset from `modelPresets`.                                                                                                                                        |
-| `modelPresets`                    | object            | preset-name map                         | global + project | Named per-agent override sets.                                                                                                                                                     |
-| `visionFallback`                  | object            | unset                                   | global + project | Vision-capable fallback model used by `see_image` when the active model is text-only.                                                                                              |
-| `compactOnResumeThresholdPercent` | integer           | `1`-`100`, default `50`                 | global + project | `/resume` offers compaction when estimated context reaches this percentage of the selected model context window.                                                                   |
-| `verification_command`            | string            | no default                              | project          | Command used by workflow validation. Saved when RunWield asks for a validation command.                                                                                            |
-| `codereview`                      | string            | `none`, `ask`, `always`; default `none` | global + project | Optional Plannotator human code review gate after local validation and semantic review pass, before merge-back. Invalid values fall back to `none`.                                |
-| `cleanupMergedWorktrees`          | boolean           | default `true`                          | global + project | When true, successful merge-back removes the execution checkout, deletes its registry entry, and clears plan worktree metadata. Set false to keep merged worktrees for inspection. |
-| `notifications`                   | object            | enabled by default                      | global + project | Desktop attention notifications for agent stops, `plan_written`, and `user_interview` prompts when the host platform has a supported notifier.                                     |
-| `workflowMetrics`                 | boolean or object | default disabled                        | global + project | Opt-in local-only JSONL workflow metrics under `~/.wld/workflow-metrics/<encoded-cwd>/metrics.jsonl`. Accepts `true` or `{ "enabled": true }`.                                     |
-| `enableExternalSkills`            | boolean           | default `true`                          | global           | When true, RunWield includes skills from `~/.agents/skills` after local, home, and bundled RunWield skills.                                                                        |
-| `enableExternalGlobalAgentsMd`    | boolean           | default `true`                          | global           | When true, global prompt loading includes `~/.agents/AGENTS.md` after `~/.wld/RUNWEILD.md` and `~/.wld/AGENTS.md`.                                                                 |
+| Key                               | Type              | Values / default                                | Scope            | Description                                                                                                                                                                        |
+| --------------------------------- | ----------------- | ----------------------------------------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `agents`                          | object            | agent-name map                                  | global + project | Base per-agent `model`, `thinkingLevel`, and `temperature` overrides.                                                                                                              |
+| `activeModelPreset`               | string            | unset                                           | global + project | Selects a named preset from `modelPresets`.                                                                                                                                        |
+| `modelPresets`                    | object            | preset-name map                                 | global + project | Named per-agent override sets.                                                                                                                                                     |
+| `visionFallback`                  | object            | unset                                           | global + project | Vision-capable fallback model used by `see_image` when the active model is text-only.                                                                                              |
+| `compactOnResumeThresholdPercent` | integer           | `1`-`100`, default `50`                         | global + project | `/resume` offers compaction when estimated context reaches this percentage of the selected model context window.                                                                   |
+| `verification_command`            | string            | no default                                      | project          | Command used by workflow validation. Saved when RunWield asks for a validation command.                                                                                            |
+| `codereview`                      | string            | `none`, `ask`, `always`; default `none`         | global + project | Optional Plannotator human code review gate after local validation and semantic review pass, before merge-back. Invalid values fall back to `none`.                                |
+| `guidedReview`                    | string            | `none`, `ask`, `auto`, `always`; default `auto` | global + project | Guided Review Explainer generation policy inside human code review. Invalid values fall back to `none`; manual generation remains available when supported.                        |
+| `cleanupMergedWorktrees`          | boolean           | default `true`                                  | global + project | When true, successful merge-back removes the execution checkout, deletes its registry entry, and clears plan worktree metadata. Set false to keep merged worktrees for inspection. |
+| `notifications`                   | object            | enabled by default                              | global + project | Desktop attention notifications for agent stops, `plan_written`, and `user_interview` prompts when the host platform has a supported notifier.                                     |
+| `workflowMetrics`                 | boolean or object | default disabled                                | global + project | Opt-in local-only JSONL workflow metrics under `~/.wld/workflow-metrics/<encoded-cwd>/metrics.jsonl`. Accepts `true` or `{ "enabled": true }`.                                     |
+| `enableExternalSkills`            | boolean           | default `true`                                  | global           | When true, RunWield includes skills from `~/.agents/skills` after local, home, and bundled RunWield skills.                                                                        |
+| `enableExternalGlobalAgentsMd`    | boolean           | default `true`                                  | global           | When true, global prompt loading includes `~/.agents/AGENTS.md` after `~/.wld/RUNWEILD.md` and `~/.wld/AGENTS.md`.                                                                 |
 
 ### `workflowMetrics`
 
@@ -339,6 +340,31 @@ Example:
 ```jsonc
 {
     "codereview": "ask"
+}
+```
+
+### `guidedReview`
+
+`guidedReview` controls whether RunWield generates a Guided Review Explainer inside an already-open human code review.
+It never opens code review by itself; `codereview` remains the authoritative human-review gate.
+
+Values:
+
+- `none`: do not prompt or auto-start generation. The browser can still offer manual **Generate guided review** when a
+  guide-capable provider is available.
+- `ask`: prompt only when deterministic diff/Plan signals recommend an explainer.
+- `auto`: default. Automatically generate only for large, cross-cutting, visual, or conceptually hard reviews.
+- `always`: generate whenever human code review opens.
+
+Guided Review Explainers are ephemeral review-session state. RunWield does not persist guide job IDs, model names,
+tokens, widget files, or guide completion state in Plan Front Matter.
+
+Example:
+
+```jsonc
+{
+    "codereview": "always",
+    "guidedReview": "auto"
 }
 ```
 
