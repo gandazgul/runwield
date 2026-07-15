@@ -43,6 +43,8 @@
     "npm:@lezer/common@^1.5.2": "1.5.2",
     "npm:@lezer/highlight@^1.2.3": "1.2.3",
     "npm:@pierre/diffs@1.2.8": "1.2.8_react@19.2.7_react-dom@19.2.7__react@19.2.7",
+    "npm:@plannotator/atomic-editor@0.5": "0.5.1_@codemirror+autocomplete@6.20.3_@codemirror+commands@6.10.4_@codemirror+lang-javascript@6.2.5_@codemirror+lang-json@6.0.2_@codemirror+lang-markdown@6.5.0_@codemirror+lang-python@6.2.1_@codemirror+lang-yaml@6.1.3_@codemirror+language@6.12.4_@codemirror+legacy-modes@6.5.3_@codemirror+search@6.7.1_@codemirror+state@6.7.1_@codemirror+view@6.43.6_@lezer+common@1.5.2_@lezer+highlight@1.2.3_@lezer+markdown@1.7.1_react@19.2.7_react-dom@19.2.7__react@19.2.7_typescript@5.9.3",
+    "npm:@plannotator/markdown-editor@0.2": "0.2.0_@codemirror+lang-javascript@6.2.5_@codemirror+lang-json@6.0.2_@codemirror+lang-python@6.2.1_@codemirror+lang-yaml@6.1.3_@codemirror+language@6.12.4_@codemirror+legacy-modes@6.5.3_@plannotator+atomic-editor@0.5.1__@codemirror+autocomplete@6.20.3__@codemirror+commands@6.10.4__@codemirror+lang-javascript@6.2.5__@codemirror+lang-json@6.0.2__@codemirror+lang-markdown@6.5.0__@codemirror+lang-python@6.2.1__@codemirror+lang-yaml@6.1.3__@codemirror+language@6.12.4__@codemirror+legacy-modes@6.5.3__@codemirror+search@6.7.1__@codemirror+state@6.7.1__@codemirror+view@6.43.6__@lezer+common@1.5.2__@lezer+highlight@1.2.3__@lezer+markdown@1.7.1__react@19.2.7__react-dom@19.2.7___react@19.2.7__typescript@5.9.3_react@19.2.7_react-dom@19.2.7__react@19.2.7_@codemirror+autocomplete@6.20.3_@codemirror+commands@6.10.4_@codemirror+lang-markdown@6.5.0_@codemirror+search@6.7.1_@codemirror+state@6.7.1_@codemirror+view@6.43.6_@lezer+common@1.5.2_@lezer+highlight@1.2.3_@lezer+markdown@1.7.1_typescript@5.9.3",
     "npm:@plannotator/web-highlighter@~0.8.1": "0.8.1",
     "npm:@preact/signals@^2.9.3": "2.9.3_preact@10.29.7",
     "npm:@radix-ui/react-checkbox@^1.3.3": "1.3.7_@types+react@19.2.17_@types+react-dom@19.2.3__@types+react@19.2.17_react@19.2.7_react-dom@19.2.7__react@19.2.7",
@@ -1657,8 +1659,8 @@
         "@lezer/common"
       ]
     },
-    "@lezer/markdown@1.6.4": {
-      "integrity": "sha512-N0SxazMj4k65DBfaf1azqtMZd6u7MqluP84/NZnB/io8Td9aleFmAhz9hcbvSfsxT5tdYlJ5qgv5aMJGY4zEtA==",
+    "@lezer/markdown@1.7.1": {
+      "integrity": "sha512-MEBZeFSBxgteUjEC3Wxg2Dwld5/JxRKG267L3bMFdibm8KjqSdiJYBeFw1Nt1CM8+zKMpSIEHblY8FD9z38sJQ==",
       "dependencies": [
         "@lezer/common",
         "@lezer/highlight"
@@ -1823,6 +1825,58 @@
     },
     "@pierre/theme@1.0.3": {
       "integrity": "sha512-sWHv11TMoqKxKDgTIk5VbhQjdPhs8DCcBxbjh3mRlS3YOM/OcrWoGX6MM8eBGn9cUu3M46Py0JnxsG2nJaFTuA=="
+    },
+    "@plannotator/atomic-editor@0.5.1_@codemirror+autocomplete@6.20.3_@codemirror+commands@6.10.4_@codemirror+lang-javascript@6.2.5_@codemirror+lang-json@6.0.2_@codemirror+lang-markdown@6.5.0_@codemirror+lang-python@6.2.1_@codemirror+lang-yaml@6.1.3_@codemirror+language@6.12.4_@codemirror+legacy-modes@6.5.3_@codemirror+search@6.7.1_@codemirror+state@6.7.1_@codemirror+view@6.43.6_@lezer+common@1.5.2_@lezer+highlight@1.2.3_@lezer+markdown@1.7.1_react@19.2.7_react-dom@19.2.7__react@19.2.7_typescript@5.9.3": {
+      "integrity": "sha512-iBF9eAoi9Eih63lsi6icAw5rOiik42bZKI0CjEd0tsFmU72wlXVv3E/Y0mHBq5cZkxYx7t5GtyeCojSZFop7Mw==",
+      "dependencies": [
+        "@codemirror/autocomplete",
+        "@codemirror/commands",
+        "@codemirror/lang-javascript",
+        "@codemirror/lang-json",
+        "@codemirror/lang-markdown",
+        "@codemirror/lang-python",
+        "@codemirror/lang-yaml",
+        "@codemirror/language",
+        "@codemirror/legacy-modes",
+        "@codemirror/search",
+        "@codemirror/state",
+        "@codemirror/view",
+        "@lezer/common",
+        "@lezer/highlight",
+        "@lezer/markdown",
+        "react",
+        "react-dom",
+        "typescript"
+      ],
+      "optionalPeers": [
+        "@codemirror/lang-javascript",
+        "@codemirror/lang-json",
+        "@codemirror/lang-python",
+        "@codemirror/lang-yaml",
+        "@codemirror/legacy-modes",
+        "typescript"
+      ]
+    },
+    "@plannotator/markdown-editor@0.2.0_@codemirror+lang-javascript@6.2.5_@codemirror+lang-json@6.0.2_@codemirror+lang-python@6.2.1_@codemirror+lang-yaml@6.1.3_@codemirror+language@6.12.4_@codemirror+legacy-modes@6.5.3_@plannotator+atomic-editor@0.5.1__@codemirror+autocomplete@6.20.3__@codemirror+commands@6.10.4__@codemirror+lang-javascript@6.2.5__@codemirror+lang-json@6.0.2__@codemirror+lang-markdown@6.5.0__@codemirror+lang-python@6.2.1__@codemirror+lang-yaml@6.1.3__@codemirror+language@6.12.4__@codemirror+legacy-modes@6.5.3__@codemirror+search@6.7.1__@codemirror+state@6.7.1__@codemirror+view@6.43.6__@lezer+common@1.5.2__@lezer+highlight@1.2.3__@lezer+markdown@1.7.1__react@19.2.7__react-dom@19.2.7___react@19.2.7__typescript@5.9.3_react@19.2.7_react-dom@19.2.7__react@19.2.7_@codemirror+autocomplete@6.20.3_@codemirror+commands@6.10.4_@codemirror+lang-markdown@6.5.0_@codemirror+search@6.7.1_@codemirror+state@6.7.1_@codemirror+view@6.43.6_@lezer+common@1.5.2_@lezer+highlight@1.2.3_@lezer+markdown@1.7.1_typescript@5.9.3": {
+      "integrity": "sha512-ENy6mMZSJWU6NnEsG/15Ia/oZLMSUfwd0skdmDyJcY4HGFESAZ2CTApHfgO2fGTQAaoOafSQ6Dh28QxWxY9duA==",
+      "dependencies": [
+        "@codemirror/lang-javascript",
+        "@codemirror/lang-json",
+        "@codemirror/lang-python",
+        "@codemirror/lang-yaml",
+        "@codemirror/language",
+        "@codemirror/legacy-modes",
+        "@plannotator/atomic-editor",
+        "react",
+        "react-dom"
+      ],
+      "optionalPeers": [
+        "@codemirror/lang-javascript",
+        "@codemirror/lang-json",
+        "@codemirror/lang-python",
+        "@codemirror/lang-yaml",
+        "@codemirror/legacy-modes"
+      ]
     },
     "@plannotator/web-highlighter@0.8.1": {
       "integrity": "sha512-FlteNOwRj9iNSY/AhFMtqOnVS4FvsACvTw6IiOM1y8iDyhiU/WeZOgjURENvIY+wuUaiS9DDFmg0PrHMyuMR1Q=="
@@ -6865,6 +6919,8 @@
       "npm:@lezer/common@^1.5.2",
       "npm:@lezer/highlight@^1.2.3",
       "npm:@pierre/diffs@1.2.8",
+      "npm:@plannotator/atomic-editor@0.5",
+      "npm:@plannotator/markdown-editor@0.2",
       "npm:@plannotator/web-highlighter@~0.8.1",
       "npm:@preact/signals@^2.9.3",
       "npm:@radix-ui/react-checkbox@^1.3.3",
