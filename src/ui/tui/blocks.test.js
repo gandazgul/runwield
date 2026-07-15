@@ -257,7 +257,7 @@ Deno.test("ReviewResultBlock renders feedback markdown with error background", (
 
 Deno.test("ToolExecutionBlock renders with consistent background (no output)", () => {
     const w = 100;
-    const block = new ToolExecutionBlock("bash", "ls -la");
+    const block = new ToolExecutionBlock("bash", "$ ls -la");
     block.endExecution(false, 150);
     const lines = block.render(w);
     assertBlockBackground(lines, w, "ToolExecutionBlock(empty)");
@@ -265,7 +265,7 @@ Deno.test("ToolExecutionBlock renders with consistent background (no output)", (
 
 Deno.test("ToolExecutionBlock renders with consistent background (with output)", () => {
     const w = 100;
-    const block = new ToolExecutionBlock("bash", "ls -la");
+    const block = new ToolExecutionBlock("bash", "$ ls -la");
     block.appendOutput("file1.txt\nfile2.txt\nfolder/\n");
     block.endExecution(false, 250);
     const lines = block.render(w);
@@ -278,7 +278,7 @@ Deno.test("ToolExecutionBlock shows live elapsed time only after it is enabled",
     Date.now = () => now;
     try {
         const w = 100;
-        const block = new ToolExecutionBlock("bash", "sleep 1");
+        const block = new ToolExecutionBlock("bash", "$ sleep 1");
 
         let plain = block.render(w).map((line) => stripAnsi(line)).join("\n");
         assertEquals(plain.includes("Elapsed time:"), false);
@@ -303,7 +303,7 @@ Deno.test("ToolExecutionBlock keeps elapsed footer with expand hint inside the b
     Date.now = () => now;
     try {
         const w = 100;
-        const block = new ToolExecutionBlock("bash", "echo lines");
+        const block = new ToolExecutionBlock("bash", "$ echo lines");
         for (let i = 0; i < 10; i++) {
             block.appendOutput(`line ${i}\n`);
         }
@@ -324,8 +324,8 @@ Deno.test("ToolExecutionBlock keeps elapsed footer with expand hint inside the b
 Deno.test("ToolExecutionBlock keeps multi-line command headers inside the block", () => {
     const w = 120;
     const block = new ToolExecutionBlock(
-        "$",
-        'cd /Users/gandazgul/Documents/web/runwield && git commit -m "Consolidate formats\n- Move plan formats"',
+        "bash",
+        '$ cd /Users/gandazgul/Documents/web/runwield && git commit -m "Consolidate formats\n- Move plan formats"',
     );
     block.appendOutput("[main abc123] Consolidate formats\n");
     block.endExecution(false, 100);
@@ -344,7 +344,7 @@ Deno.test("ToolExecutionBlock keeps multi-line command headers inside the block"
 
 Deno.test("ToolExecutionBlock error renders with consistent background", () => {
     const w = 100;
-    const block = new ToolExecutionBlock("bash", "bad-command");
+    const block = new ToolExecutionBlock("bash", "$ bad-command");
     block.appendOutput("command not found: bad-command\n");
     block.endExecution(true, 100);
     const lines = block.render(w);
@@ -353,7 +353,7 @@ Deno.test("ToolExecutionBlock error renders with consistent background", () => {
 
 Deno.test("ToolExecutionBlock strips ANSI from tool output", () => {
     const w = 100;
-    const block = new ToolExecutionBlock("bash", "ls --color");
+    const block = new ToolExecutionBlock("bash", "$ ls --color");
     // Simulate colored ls output with full resets
     block.appendOutput("\x1b[35mfile.txt\x1b[0m\n\x1b[34mfolder\x1b[0m\n");
     block.endExecution(false, 50);
@@ -365,7 +365,7 @@ Deno.test("ToolExecutionBlock strips ANSI from tool output", () => {
 
 Deno.test("ToolExecutionBlock expansion and truncation logic", () => {
     const w = 100;
-    const block = new ToolExecutionBlock("bash", "echo lines");
+    const block = new ToolExecutionBlock("bash", "$ echo lines");
 
     // Add more lines than previewLineLimit (6)
     for (let i = 0; i < 10; i++) {

@@ -8,7 +8,9 @@ import {
     readPersistedWorkflowContext,
     recordWorkflowPlanName,
     recordWorkflowTriageContext,
+    workflowContextsEqual,
 } from "./workflow-context-session.js";
+import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runtime-events.js";
 
 /**
  * @typedef {Object} AgentInfo
@@ -357,6 +359,7 @@ export class HostedSession {
     /** @param {{ routingIntent: unknown, complexity: unknown }} details */
     setWorkflowTriageContext(details) {
         if (this.disposed) return;
+        const previous = this.workflowContext;
         try {
             this.workflowContext = recordWorkflowTriageContext(
                 /** @type {import('@earendil-works/pi-coding-agent').SessionManager | null} */ (this
@@ -365,12 +368,19 @@ export class HostedSession {
             );
         } catch (_e) {
             // Footer-context persistence is fail-open and must not block triage.
+            return;
         }
+        if (workflowContextsEqual(previous, this.workflowContext) || !this.workflowContext) return;
+        emitHostedSessionRuntimeEvent(this, {
+            type: RuntimeEventTypes.WORKFLOW_CONTEXT_CHANGED,
+            workflowContext: { ...this.workflowContext },
+        });
     }
 
     /** @param {unknown} planName */
     setWorkflowPlanName(planName) {
         if (this.disposed) return;
+        const previous = this.workflowContext;
         try {
             this.workflowContext = recordWorkflowPlanName(
                 /** @type {import('@earendil-works/pi-coding-agent').SessionManager | null} */ (this
@@ -379,7 +389,13 @@ export class HostedSession {
             );
         } catch (_e) {
             // Footer-context persistence is fail-open and must not block planning.
+            return;
         }
+        if (workflowContextsEqual(previous, this.workflowContext) || !this.workflowContext) return;
+        emitHostedSessionRuntimeEvent(this, {
+            type: RuntimeEventTypes.WORKFLOW_CONTEXT_CHANGED,
+            workflowContext: { ...this.workflowContext },
+        });
     }
 
     /** @param {ActiveExecutionWorkflow | null} workflow */

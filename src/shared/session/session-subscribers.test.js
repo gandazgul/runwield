@@ -1,6 +1,7 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import { HostedSession } from "./hosted-session.js";
 import { attachSessionEventSubscribers } from "./session.js";
+import { createSessionRuntimeEvent } from "./session-runtime-events.js";
 
 /**
  * @returns {{ session: any, emit: (event: any) => void, unsubscribed: () => boolean }}
@@ -33,7 +34,9 @@ function makeRuntimeHarness(id) {
     const hostedSession = new HostedSession({ id, cwd: Deno.cwd() });
     /** @type {any[]} */
     const events = [];
-    hostedSession.setEventSink({ emit: (/** @type {any} */ event) => events.push(event) });
+    hostedSession.setEventSink({
+        emit: (/** @type {any} */ event) => events.push(createSessionRuntimeEvent(id, event)),
+    });
     return { hostedSession, events };
 }
 
@@ -73,7 +76,14 @@ Deno.test("session subscriber emits thinking, message, status, error, usage, and
     assertEquals(events.filter((event) => event.type === "assistant_thinking_end").length, 1);
     assertEquals(text.map((event) => event.delta), ["answer 1", "answer 2"]);
     assertEquals(text.every((event) => event.messageId === "assistant-known"), true);
-    assertEquals(events.filter((event) => event.type === "usage").length, 1);
+    assertEquals(text.every((event) => event.agentName === "Tester" && event.messageKind === "assistant"), true);
+    assertEquals(events.find((event) => event.type === "usage")?.usage, {
+        inputTokens: 12,
+        outputTokens: 4,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        costUsd: 0,
+    });
     assertEquals(events.filter((event) => event.type === "terminal_error").length, 1);
     assertEquals(events.filter((event) => event.type === "system_status").length, 4);
     assertEquals(events.filter((event) => event.type === "turn_start").length, 1);
@@ -114,8 +124,14 @@ Deno.test("session subscriber maps one Pi tool lifecycle to one runtime tool lif
         "tool_start",
     ]);
     assertEquals(toolEvents[0].title, "$ echo hi");
-    assertEquals(toolEvents[1].text, "hi");
-    assertEquals(toolEvents[2].text, "hi\n");
+    assertEquals(toolEvents[0].kind, "execute");
+    assertEquals(toolEvents[1].output, "hi");
+    assertEquals(toolEvents[1].content, [{ type: "text", text: "hi" }]);
+    assertEquals(toolEvents[1].details, null);
+    assertEquals(toolEvents[2].output, "hi\n");
+    assertEquals(toolEvents[2].title, "$ echo hi");
+    assertEquals(toolEvents[2].kind, "execute");
+    assertEquals(typeof toolEvents[2].durationMs, "number");
     assertEquals(
         events.filter((event) => event.type === "attention_requested").map((event) => event.reason),
         ["planWritten", "userInterview"],

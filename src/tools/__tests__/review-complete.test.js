@@ -27,8 +27,9 @@ for (const approved of [true, false]) {
         assertEquals(result.details.approved, approved);
         assertEquals(events.length, 1);
         assertEquals(events[0].type, RuntimeEventTypes.ASSISTANT_TEXT_DELTA);
-        assertEquals(events[0]._meta.reviewResult, true);
-        assertEquals(events[0]._meta.approved, approved);
+        assertEquals(events[0].agentName, "reviewer");
+        assertEquals(events[0].messageKind, "review_result");
+        assertEquals(events[0].approved, approved);
         assertEquals(metrics[0].event, "review_complete");
     });
 }

@@ -269,7 +269,7 @@ Deno.test("buildAgentSession wires task_completed with an event-only HostedSessi
 
         assertEquals(events.length, 1);
         assertEquals(events[0].delta, "**Task completed.**\n\nDone.");
-        assertEquals(events[0]._meta.agentName, "Operator");
+        assertEquals(events[0].agentName, "Operator");
     } finally {
         session?.dispose();
         __resetSettingsForTests();

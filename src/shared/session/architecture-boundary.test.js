@@ -63,6 +63,10 @@ Deno.test("TUI, ACP, commands, and scripts use the public Runtime surface only",
         { label: "Runtime event producer escape", pattern: /\.emitSessionEvent\s*\(/ },
         { label: "Runtime transcript-internal escape", pattern: /\.recordLocalToolExchange\s*\(/ },
         {
+            label: "consumer-side Runtime event normalization",
+            pattern: /normalizeRuntimeToolResult|normalizeRuntimeUsage|describeRuntimeTool|formatToolEventTitle/,
+        },
+        {
             label: "parallel operation-cancellation seam",
             pattern: /registerOperationCancel|cancelSessionCompaction/,
         },

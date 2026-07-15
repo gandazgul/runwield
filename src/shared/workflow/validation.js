@@ -16,8 +16,10 @@ import { switchActiveAgent } from "../session/agent-switching.js";
 import {
     emitHostedSessionRuntimeEvent,
     emitSystemStatus,
+    normalizeRuntimeToolResult,
     RuntimeEventTypes,
 } from "../session/session-runtime-events.js";
+import { describeRuntimeTool } from "../session/tool-event-title.js";
 import { requestHostedSessionInteraction, RuntimeInteractionTypes } from "../session/session-runtime-interactions.js";
 import { getWorkflowDiff } from "./git-snapshot.js";
 import { recordPlanEvent, stageValidationPassedInExecutionWorktree } from "./plan-lifecycle.js";
@@ -235,12 +237,12 @@ export async function runLocalCI({ hostedSession, cwd }) {
     };
     abortController.signal.addEventListener("abort", abortValidationProcess, { once: true });
     hostedSession.addActiveInteraction(interactionId, { abortController });
+    const runtimeTool = describeRuntimeTool("bash", { command: cmdArgs });
 
     emitHostedSessionRuntimeEvent(hostedSession, {
         type: RuntimeEventTypes.TOOL_START,
         toolCallId,
-        toolName: "bash",
-        title: `$ ${cmdArgs}`,
+        ...runtimeTool,
         args: { command: cmdArgs },
     });
     const startTime = Date.now();
@@ -272,11 +274,10 @@ export async function runLocalCI({ hostedSession, cwd }) {
         emitHostedSessionRuntimeEvent(hostedSession, {
             type: RuntimeEventTypes.TOOL_END,
             toolCallId,
-            toolName: "bash",
-            text: output.trim() ? output : "(no output)\n",
-            result: output,
+            ...runtimeTool,
+            ...normalizeRuntimeToolResult(output.trim() ? output : "(no output)\n"),
             isError,
-            _meta: { durationMs },
+            durationMs,
         });
 
         return {
@@ -290,11 +291,10 @@ export async function runLocalCI({ hostedSession, cwd }) {
         emitHostedSessionRuntimeEvent(hostedSession, {
             type: RuntimeEventTypes.TOOL_END,
             toolCallId,
-            toolName: "bash",
-            text: `${output}\n`,
-            result: output,
+            ...runtimeTool,
+            ...normalizeRuntimeToolResult(`${output}\n`),
             isError: true,
-            _meta: { durationMs },
+            durationMs,
         });
         return {
             exitCode: canceled ? 130 : 1,

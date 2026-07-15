@@ -9,6 +9,7 @@ import {
     renderFooterWorkflowLabelParts,
     runScopedSubmitHandoffLoop,
     setActiveModel,
+    shouldReplaySessionHistory,
     shouldShowFooterThinkingLevel,
 } from "./chat-session.js";
 import { resolveTemplateModel } from "../../shared/models/model-validation.js";
@@ -17,6 +18,12 @@ Deno.test("footer thinking level is hidden until a model is configured", () => {
     assertEquals(shouldShowFooterThinkingLevel("", "medium"), false);
     assertEquals(shouldShowFooterThinkingLevel("test/model", "off"), false);
     assertEquals(shouldShowFooterThinkingLevel("test/model", "medium"), true);
+});
+
+Deno.test("startup replays history only when continuing a persisted session", () => {
+    assertEquals(shouldReplaySessionHistory("new"), false);
+    assertEquals(shouldReplaySessionHistory(undefined), false);
+    assertEquals(shouldReplaySessionHistory("continue"), true);
 });
 
 Deno.test("footer workflow label formats eligible routing context and theme tokens", () => {

@@ -146,7 +146,7 @@ function recordWorkflowContext(sessionManager, context) {
  * @param {WorkflowContext | null} right
  * @returns {boolean}
  */
-function workflowContextsEqual(left, right) {
+export function workflowContextsEqual(left, right) {
     return (left?.routingIntent || "") === (right?.routingIntent || "") &&
         (left?.complexity || "") === (right?.complexity || "") &&
         (left?.planName || "") === (right?.planName || "");

@@ -27,11 +27,6 @@ const activeAdapters = new WeakMap();
  * @property {typeof notifyRunWieldEventQuietly} [notifyRunWieldEvent]
  */
 
-/** @param {unknown} value @returns {string} */
-function textValue(value) {
-    return typeof value === "string" ? value : value === undefined || value === null ? "" : String(value);
-}
-
 /**
  * @param {import('../../shared/session/session-runtime-events.js').RuntimeQueuedMessage} message
  * @returns {string}
@@ -41,21 +36,6 @@ export function formatQueuedMessageText(message) {
     const markers = message.images.map(formatImageAttachmentMarker).join("\n");
     if (!message.text.trim()) return markers;
     return `${message.text}\n\n${markers}`;
-}
-
-/**
- * @param {import('./types.js').ToolExecutionBlockApi} block
- * @param {string} text
- */
-function appendToolText(block, text) {
-    if (!text) return;
-    const current = block.bodyText || "";
-    if (text.startsWith(current)) {
-        const delta = text.slice(current.length);
-        if (delta) block.appendOutput(delta);
-        return;
-    }
-    block.appendOutput(text);
 }
 
 /**
@@ -81,17 +61,14 @@ export function attachTuiRuntimeAdapter({
     const assistantMessages = new Map();
     /** @type {Map<string, ReturnType<NonNullable<import('./types.js').UiAPI['appendThinkingStart']>>>} */
     const thinkingMessages = new Map();
-    /** @type {Map<string, string>} */
-    const thinkingTextByMessageId = new Map();
-
     runtime.setInteractionAdapter(sessionId, createTuiInteractionAdapter(uiAPI));
 
     const unsubscribe = runtime.subscribeSessionEvents(sessionId, (event) => {
         const value = /** @type {any} */ (event);
         switch (event.type) {
             case RuntimeEventTypes.USER_MESSAGE:
-                uiAPI.appendUserMessage?.(textValue(value.text));
-                for (const image of value.images || []) uiAPI.appendImage?.(image.base64, image.mimeType);
+                uiAPI.appendUserMessage?.(value.text);
+                for (const image of value.images) uiAPI.appendImage?.(image.base64, image.mimeType);
                 break;
             case RuntimeEventTypes.QUEUED_MESSAGE_CHANGED: {
                 const message =
@@ -106,96 +83,83 @@ export function attachTuiRuntimeAdapter({
                 break;
             }
             case RuntimeEventTypes.ASSISTANT_TEXT_DELTA: {
-                if (value._meta?.reviewResult && uiAPI.appendReviewResult) {
+                if (value.messageKind === "review_result" && uiAPI.appendReviewResult) {
                     uiAPI.appendReviewResult(
-                        textValue(value._meta.agentName),
-                        textValue(value.delta),
-                        Boolean(value._meta.approved),
+                        value.agentName,
+                        value.delta,
+                        value.approved,
                     );
                     break;
                 }
-                const messageId = value.messageId || event.turnId || `${event.sessionId}:assistant`;
+                const messageId = value.messageId;
                 let appender = assistantMessages.get(messageId);
                 if (!appender) {
-                    appender = uiAPI.appendAgentMessageStart(textValue(value._meta?.agentName));
+                    appender = uiAPI.appendAgentMessageStart(value.agentName);
                     assistantMessages.set(messageId, appender);
                 }
-                appender.appendText(textValue(value.delta));
+                appender.appendText(value.delta);
                 break;
             }
             case RuntimeEventTypes.ASSISTANT_THINKING_DELTA: {
                 if (!uiAPI.appendThinkingStart) break;
-                const messageId = value.messageId || event.turnId || `${event.sessionId}:thinking`;
-                const text = textValue(value.delta);
-                const previous = thinkingTextByMessageId.get(messageId) || "";
-                if (text && text === previous) break;
-                const delta = previous && text.startsWith(previous) ? text.slice(previous.length) : text;
-                if (!delta) break;
-                thinkingTextByMessageId.set(messageId, previous && text.startsWith(previous) ? text : previous + text);
+                const messageId = value.messageId;
                 let appender = thinkingMessages.get(messageId);
                 if (!appender) {
                     appender = uiAPI.appendThinkingStart();
                     thinkingMessages.set(messageId, appender);
                 }
-                appender.appendDelta(delta);
+                appender.appendDelta(value.delta);
                 break;
             }
             case RuntimeEventTypes.ASSISTANT_THINKING_END: {
-                const messageId = value.messageId || event.turnId || `${event.sessionId}:thinking`;
+                const messageId = value.messageId;
                 thinkingMessages.get(messageId)?.end();
                 thinkingMessages.delete(messageId);
-                thinkingTextByMessageId.delete(messageId);
                 break;
             }
             case RuntimeEventTypes.TOOL_START: {
                 if (!uiAPI.startToolExecution || HIDDEN_TOOL_BLOCK_NAMES.has(value.toolName)) break;
-                if (uiAPI.getActiveToolBlock?.(value.toolCallId)) break;
-                const displayName = value.toolName === "bash" ? "$" : textValue(value.toolName);
-                const title = textValue(value.title);
-                const prefix = displayName ? `${displayName} ` : "";
-                const args = title === displayName ? "" : title.startsWith(prefix) ? title.slice(prefix.length) : title;
-                uiAPI.startToolExecution(value.toolCallId, displayName, args);
+                uiAPI.startToolExecution(value.toolCallId, value.toolName, value.title);
                 break;
             }
             case RuntimeEventTypes.TOOL_UPDATE: {
                 const block = uiAPI.getActiveToolBlock?.(value.toolCallId);
-                if (block) appendToolText(block, textValue(value.text));
+                block?.setOutput(value.output);
                 break;
             }
             case RuntimeEventTypes.TOOL_END: {
                 const block = uiAPI.getActiveToolBlock?.(value.toolCallId);
                 if (block) {
-                    appendToolText(block, textValue(value.text));
-                    block.endExecution(Boolean(value.isError), Date.now() - block.startTime);
+                    block.setOutput(value.output);
+                    block.endExecution(value.isError, value.durationMs);
                 }
                 break;
             }
             case RuntimeEventTypes.SYSTEM_STATUS:
                 uiAPI.appendSystemMessage(
-                    textValue(value.message),
+                    value.message,
                     value.level === "error",
-                    textValue(value._meta?.header),
-                    value._meta?.style,
+                    value.header,
                 );
                 break;
             case RuntimeEventTypes.TERMINAL_ERROR:
-                uiAPI.appendSystemMessage(textValue(value.message || value.error), true);
+                uiAPI.appendSystemMessage(value.message, true);
                 break;
             case RuntimeEventTypes.CANCELLATION:
-                if (value.message) uiAPI.appendSystemMessage(textValue(value.message), false, "RunWield");
+                if (value.message) uiAPI.appendSystemMessage(value.message, false, "RunWield");
                 break;
             case RuntimeEventTypes.BUSY_CHANGED:
-                uiAPI.setBusy?.(Boolean(value.busy));
+                uiAPI.setBusy?.(value.busy);
                 break;
             case RuntimeEventTypes.AGENT_CHANGED:
-                uiAPI.setAgentInfo?.(textValue(value.agentName), textValue(value.model));
+                uiAPI.setAgentInfo?.(value.agentName, value.model);
                 break;
             case RuntimeEventTypes.INPUT_STATE_CHANGED:
                 if (value.enabled) uiAPI.enableInput?.();
                 else uiAPI.disableInput?.();
                 break;
             case RuntimeEventTypes.RUNNING_TASKS_CHANGED:
-                uiAPI.setRunningTasks?.(value.tasks || []);
+                uiAPI.setRunningTasks?.(value.tasks);
                 break;
             case RuntimeEventTypes.MESSAGES_CLEARED:
                 uiAPI.clearMessages?.();
@@ -204,10 +168,10 @@ export function attachTuiRuntimeAdapter({
                 assistantMessages.clear();
                 for (const appender of thinkingMessages.values()) appender.end();
                 thinkingMessages.clear();
-                thinkingTextByMessageId.clear();
                 break;
             case RuntimeEventTypes.MODEL_CHANGED:
             case RuntimeEventTypes.THINKING_LEVEL_CHANGED:
+            case RuntimeEventTypes.WORKFLOW_CONTEXT_CHANGED:
             case RuntimeEventTypes.USAGE:
                 uiAPI.requestRender();
                 break;
@@ -216,9 +180,8 @@ export function attachTuiRuntimeAdapter({
                 uiAPI.requestRender();
                 break;
             case RuntimeEventTypes.ATTENTION_REQUESTED: {
-                const snapshot = runtime.getSessionSnapshot(sessionId);
                 notifyRunWieldEvent(value.reason, {
-                    sessionName: snapshot?.name || undefined,
+                    sessionName: value.sessionName,
                     agentName: value.agentName,
                 });
                 break;
@@ -238,7 +201,6 @@ export function attachTuiRuntimeAdapter({
             unsubscribe();
             for (const appender of thinkingMessages.values()) appender.end();
             thinkingMessages.clear();
-            thinkingTextByMessageId.clear();
             assistantMessages.clear();
             if (registrations.get(sessionId) !== registration) return;
             registrations.delete(sessionId);

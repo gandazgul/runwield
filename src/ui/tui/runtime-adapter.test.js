@@ -21,13 +21,13 @@ function makeUi() {
             end: () => transcript.push("thinking:end"),
         }),
         appendSystemMessage: (text, isError) => transcript.push(`system:${isError ? "error" : "info"}:${text}`),
-        startToolExecution: (id, name, args) => {
+        startToolExecution: (id, name, title) => {
             const block = {
                 bodyText: "",
                 startTime: Date.now(),
                 /** @param {string} text */
-                appendOutput(text) {
-                    this.bodyText += text;
+                setOutput(text) {
+                    this.bodyText = text;
                     transcript.push(`tool:update:${id}:${text}`);
                 },
                 /** @param {boolean} isError */
@@ -36,7 +36,7 @@ function makeUi() {
                 },
             };
             tools.set(id, block);
-            transcript.push(`tool:start:${id}:${name}:${args}`);
+            transcript.push(`tool:start:${id}:${name}:${title}`);
             return block;
         },
         getActiveToolBlock: (id) => tools.get(id),
@@ -105,16 +105,37 @@ Deno.test("TUI and ACP adapters consume the same semantic runtime transcript", (
                 type: RuntimeEventTypes.ASSISTANT_TEXT_DELTA,
                 messageId: "answer-1",
                 delta: "world",
-                _meta: { agentName: "Guide" },
+                agentName: "Guide",
+                messageKind: "assistant",
             },
-            { type: RuntimeEventTypes.TOOL_START, toolCallId: "tool-1", toolName: "read", title: "read README.md" },
-            { type: RuntimeEventTypes.TOOL_UPDATE, toolCallId: "tool-1", toolName: "read", text: "part" },
+            {
+                type: RuntimeEventTypes.TOOL_START,
+                toolCallId: "tool-1",
+                toolName: "read",
+                title: "read README.md",
+                kind: "read",
+            },
+            {
+                type: RuntimeEventTypes.TOOL_UPDATE,
+                toolCallId: "tool-1",
+                toolName: "read",
+                title: "read README.md",
+                kind: "read",
+                content: [{ type: "text", text: "part" }],
+                output: "part",
+                details: null,
+            },
             {
                 type: RuntimeEventTypes.TOOL_END,
                 toolCallId: "tool-1",
                 toolName: "read",
-                text: "partial",
+                title: "read README.md",
+                kind: "read",
+                content: [{ type: "text", text: "partial" }],
+                output: "partial",
+                details: null,
                 isError: false,
+                durationMs: 40,
             },
             { type: RuntimeEventTypes.SYSTEM_STATUS, level: "warning", message: "notice" },
             { type: RuntimeEventTypes.BUSY_CHANGED, busy: true },
@@ -131,9 +152,9 @@ Deno.test("TUI and ACP adapters consume the same semantic runtime transcript", (
     assertEquals(transcript, [
         "user:hello",
         "assistant:Guide:world",
-        "tool:start:tool-1:read:README.md",
+        "tool:start:tool-1:read:read README.md",
         "tool:update:tool-1:part",
-        "tool:update:tool-1:ial",
+        "tool:update:tool-1:partial",
         "tool:end:tool-1:ok",
         "system:info:notice",
         "busy:true",
@@ -167,7 +188,7 @@ Deno.test("TUI renders Runtime cancellation events instead of key handlers rende
     assertEquals(transcript, ["system:info:Agent run canceled."]);
 });
 
-Deno.test("TUI adapter coalesces repeated thinking deltas and duplicate tool starts", () => {
+Deno.test("TUI adapter renders normalized thinking deltas and one tool start", () => {
     const { runtime, sessionId } = makeRuntimeHarness("adapter-coalesce");
     const { transcript, uiAPI } = makeUi();
     const adapter = attachTuiRuntimeAdapter({ runtime, sessionId, uiAPI });
@@ -176,48 +197,50 @@ Deno.test("TUI adapter coalesces repeated thinking deltas and duplicate tool sta
         type: RuntimeEventTypes.ASSISTANT_THINKING_DELTA,
         messageId: "thinking-1",
         delta: "Planning",
+        agentName: "Guide",
     });
     runtime.emitSessionEvent(sessionId, {
         type: RuntimeEventTypes.ASSISTANT_THINKING_DELTA,
         messageId: "thinking-1",
-        delta: "Planning",
-    });
-    runtime.emitSessionEvent(sessionId, {
-        type: RuntimeEventTypes.ASSISTANT_THINKING_DELTA,
-        messageId: "thinking-1",
-        delta: "Planning more",
+        delta: " more",
+        agentName: "Guide",
     });
     runtime.emitSessionEvent(sessionId, {
         type: RuntimeEventTypes.TOOL_START,
         toolCallId: "tool-1",
         toolName: "code_search",
         title: "code_search createAgentJobHandler",
-    });
-    runtime.emitSessionEvent(sessionId, {
-        type: RuntimeEventTypes.TOOL_START,
-        toolCallId: "tool-1",
-        toolName: "code_search",
-        title: "code_search createAgentJobHandler",
+        kind: "search",
     });
     runtime.emitSessionEvent(sessionId, {
         type: RuntimeEventTypes.TOOL_UPDATE,
         toolCallId: "tool-1",
         toolName: "code_search",
-        text: "result",
+        title: "code_search createAgentJobHandler",
+        kind: "search",
+        content: [{ type: "text", text: "result" }],
+        output: "result",
+        details: null,
     });
     runtime.emitSessionEvent(sessionId, {
         type: RuntimeEventTypes.TOOL_END,
         toolCallId: "tool-1",
         toolName: "code_search",
-        text: "result",
+        title: "code_search createAgentJobHandler",
+        kind: "search",
+        content: [{ type: "text", text: "result" }],
+        output: "result",
+        details: null,
         isError: false,
+        durationMs: 10,
     });
     adapter.dispose();
 
     assertEquals(transcript, [
         "thinking:Planning",
         "thinking: more",
-        "tool:start:tool-1:code_search:createAgentJobHandler",
+        "tool:start:tool-1:code_search:code_search createAgentJobHandler",
+        "tool:update:tool-1:result",
         "tool:update:tool-1:result",
         "tool:end:tool-1:ok",
         "thinking:end",
@@ -299,6 +322,24 @@ Deno.test("TUI adapter hydrates queued messages from the core session snapshot",
     assertEquals(transcript, [`queue:add:${queued.id}:already queued`]);
 });
 
+Deno.test("TUI adapter rerenders when Runtime workflow footer context changes", () => {
+    const { runtime, sessionId } = makeRuntimeHarness("adapter-workflow-context");
+    const { uiAPI } = makeUi();
+    let renders = 0;
+    uiAPI.requestRender = () => {
+        renders++;
+    };
+    const adapter = attachTuiRuntimeAdapter({ runtime, sessionId, uiAPI });
+
+    runtime.emitSessionEvent(sessionId, {
+        type: RuntimeEventTypes.WORKFLOW_CONTEXT_CHANGED,
+        workflowContext: { routingIntent: "PROJECT", complexity: "HIGH", planName: "large-change" },
+    });
+    adapter.dispose();
+
+    assertEquals(renders, 1);
+});
+
 Deno.test("a second TUI adapter for one Runtime session fails instead of duplicating output", () => {
     const { runtime, sessionId } = makeRuntimeHarness("adapter-replacement");
     const { transcript, uiAPI } = makeUi();
@@ -314,24 +355,28 @@ Deno.test("a second TUI adapter for one Runtime session fails instead of duplica
         type: RuntimeEventTypes.ASSISTANT_TEXT_DELTA,
         messageId: "answer-1",
         delta: "once",
-        _meta: { agentName: "Engineer" },
+        agentName: "Engineer",
+        messageKind: "assistant",
     });
     runtime.emitSessionEvent(sessionId, {
         type: RuntimeEventTypes.ASSISTANT_THINKING_DELTA,
         messageId: "thinking-1",
         delta: "once",
+        agentName: "Engineer",
     });
     runtime.emitSessionEvent(sessionId, {
         type: RuntimeEventTypes.TOOL_START,
         toolCallId: "tool-1",
         toolName: "read",
         title: "read README.md",
+        kind: "read",
     });
     runtime.emitSessionEvent(sessionId, {
         type: RuntimeEventTypes.TOOL_START,
         toolCallId: "tool-2",
         toolName: "code_structure",
         title: "code_structure",
+        kind: "search",
     });
 
     previousAdapter.dispose();
@@ -340,15 +385,16 @@ Deno.test("a second TUI adapter for one Runtime session fails instead of duplica
         type: RuntimeEventTypes.ASSISTANT_TEXT_DELTA,
         messageId: "answer-2",
         delta: "still active",
-        _meta: { agentName: "Engineer" },
+        agentName: "Engineer",
+        messageKind: "assistant",
     });
     activeAdapter.dispose();
 
     assertEquals(transcript, [
         "assistant:Engineer:once",
         "thinking:once",
-        "tool:start:tool-1:read:README.md",
-        "tool:start:tool-2:code_structure:",
+        "tool:start:tool-1:read:read README.md",
+        "tool:start:tool-2:code_structure:code_structure",
         "thinking:end",
         "assistant:Engineer:still active",
     ]);
