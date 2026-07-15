@@ -29,17 +29,14 @@ Deno.test("createTriageReportTool instances are independent", () => {
 });
 
 Deno.test("triage_report execute returns canonical routingIntent details for INQUIRY", async () => {
-    /** @type {string[]} */
-    const messages = [];
-    const uiAPI = /** @type {any} */ ({
-        appendSystemMessage: (/** @type {string} */ msg) => {
-            messages.push(msg);
-        },
-    });
+    /** @type {any[]} */
+    const events = [];
     /** @type {any[]} */
     const metrics = [];
     const tool = createTriageReportTool({
-        uiAPI,
+        hostedSession: /** @type {any} */ ({
+            getEventSink: () => ({ emit: (/** @type {any} */ event) => events.push(event) }),
+        }),
         recordWorkflowMetric: (metric) => {
             metrics.push(metric);
             return Promise.resolve(null);
@@ -60,8 +57,8 @@ Deno.test("triage_report execute returns canonical routingIntent details for INQ
     assertEquals(result.details, params);
     assert(!("classification" in result.details));
     assertMatch(result.content[0].text, /Triage complete/);
-    assertEquals(messages.length, 1);
-    assertMatch(messages[0], /Routing Intent: INQUIRY/);
+    assertEquals(events.length, 1);
+    assertMatch(events[0].message, /Routing Intent: INQUIRY/);
     assertEquals(metrics.length, 1);
     assertEquals(metrics[0].category, "routing");
     assertEquals(metrics[0].event, "triage_reported");

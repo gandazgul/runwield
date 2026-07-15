@@ -9,6 +9,7 @@ import {
     RuntimeInteractionOutcomes,
     RuntimeInteractionTypes,
 } from "../shared/session/session-runtime-interactions.js";
+import { sharePlanForReview } from "../cmd/plans/share.js";
 
 /** @param {unknown} capabilities */
 function supportsFormElicitation(capabilities) {
@@ -68,6 +69,19 @@ function buildSchema(interaction) {
 export function createAcpInteractionAdapter({ context, acpSessionId, clientCapabilities }) {
     return {
         async requestInteraction(interaction) {
+            if (interaction.type === RuntimeInteractionTypes.PLAN_REVIEW) {
+                const meta = /** @type {any} */ (interaction._meta || {});
+                const shared = await sharePlanForReview({
+                    target: meta.planName,
+                    cwd: meta.cwd,
+                    allowExisting: true,
+                });
+                return {
+                    outcome: RuntimeInteractionOutcomes.ACCEPTED,
+                    message: `Plan "${shared.planName}" saved for remote review.`,
+                    _meta: { ...shared, approved: false, remoteReview: true },
+                };
+            }
             if (!supportsFormElicitation(clientCapabilities)) {
                 return {
                     outcome: RuntimeInteractionOutcomes.UNSUPPORTED,

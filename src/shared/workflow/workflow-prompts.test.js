@@ -1,4 +1,5 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
+import { HostedSession } from "../session/hosted-session.js";
 import {
     askRetryFailedTasks,
     buildDependencyOutputsContext,
@@ -101,20 +102,24 @@ Deno.test("buildTaskResultDisplay and buildEngineerRequest preserve workflow com
 Deno.test("askRetryFailedTasks maps prompt choice to boolean", async () => {
     /** @type {string[]} */
     const prompts = [];
+    const yesSession = new HostedSession({ id: "retry-yes", cwd: Deno.cwd() });
+    yesSession.setInteractionAdapter({
+        requestInteraction: (request) => {
+            prompts.push(request.prompt);
+            return Promise.resolve({ outcome: "selected", value: "yes" });
+        },
+    });
     const yes = await askRetryFailedTasks(
         { failedTasks: [1, 2], results: new Map() },
-        /** @type {any} */ ({
-            promptSelect: (/** @type {string} */ title) => {
-                prompts.push(title);
-                return Promise.resolve("yes");
-            },
-        }),
+        yesSession,
     );
+    const noSession = new HostedSession({ id: "retry-no", cwd: Deno.cwd() });
+    noSession.setInteractionAdapter({
+        requestInteraction: () => Promise.resolve({ outcome: "selected", value: "no" }),
+    });
     const no = await askRetryFailedTasks(
         { failedTasks: [3], results: new Map() },
-        /** @type {any} */ ({
-            promptSelect: () => Promise.resolve("no"),
-        }),
+        noSession,
     );
 
     assertEquals(yes, true);
@@ -125,6 +130,10 @@ Deno.test("askRetryFailedTasks maps prompt choice to boolean", async () => {
 Deno.test("reportExecutionSummary counts success, failed, and blocked tasks", () => {
     /** @type {string[]} */
     const messages = [];
+    const session = new HostedSession({ id: "execution-summary", cwd: Deno.cwd() });
+    session.setEventSink((/** @type {any} */ event) => {
+        if (event.type === "system_status") messages.push(String(event.message));
+    });
     reportExecutionSummary(
         {
             results: new Map([
@@ -133,9 +142,7 @@ Deno.test("reportExecutionSummary counts success, failed, and blocked tasks", ()
                 [3, { status: "blocked" }],
             ]),
         },
-        /** @type {any} */ ({
-            appendSystemMessage: (/** @type {string} */ message) => messages.push(message),
-        }),
+        session,
     );
 
     assertEquals(messages, ["Execution Summary: 1 success, 1 failed, 1 blocked."]);

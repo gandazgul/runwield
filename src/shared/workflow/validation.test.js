@@ -20,12 +20,12 @@ async function git(cwd, args) {
 }
 
 /**
- * @returns {any & { messages: string[], systemCalls: Array<{ message: string, isError: boolean, header: string, style: any }>, promptSelections: string[], busyStates: boolean[], toolCalls: Array<{ id: string, name: string, args: string }>, toolOutputs: string[], toolResults: Array<{ id: string, name: string, result: string, isError: boolean, durationMs: number }> }}
+ * @returns {any & { messages: string[], systemCalls: Array<{ message: string, isError: boolean, header: string, level: string }>, promptSelections: string[], busyStates: boolean[], toolCalls: Array<{ id: string, name: string, args: string }>, toolOutputs: string[], toolResults: Array<{ id: string, name: string, result: string, isError: boolean, durationMs: number }> }}
  */
 function makeUi() {
     /** @type {string[]} */
     const messages = [];
-    /** @type {Array<{ message: string, isError: boolean, header: string, style: any }>} */
+    /** @type {Array<{ message: string, isError: boolean, header: string, level: string }>} */
     const systemCalls = [];
     /** @type {string[]} */
     const promptSelections = [];
@@ -37,7 +37,7 @@ function makeUi() {
     const toolOutputs = [];
     /** @type {Array<{ id: string, name: string, result: string, isError: boolean, durationMs: number }>} */
     const toolResults = [];
-    return /** @type {any} */ ({
+    const recorder = /** @type {any} */ ({
         messages,
         systemCalls,
         promptSelections,
@@ -49,10 +49,9 @@ function makeUi() {
             /** @type {string} */ msg,
             /** @type {boolean} */ isError = false,
             /** @type {string} */ header = "",
-            /** @type {any} */ style = {},
         ) => {
             messages.push(String(msg));
-            systemCalls.push({ message: String(msg), isError, header, style });
+            systemCalls.push({ message: String(msg), isError, header, level: isError ? "error" : "info" });
         },
         promptSelect: () => {
             promptSelections.push("prompted");
@@ -80,6 +79,63 @@ function makeUi() {
             toolResults.push(event);
         },
     });
+    attachRecorder(hostedSession, recorder);
+    return recorder;
+}
+
+/**
+ * @param {HostedSession} session
+ * @param {ReturnType<typeof makeUi>} recorder
+ * @returns {HostedSession}
+ */
+function attachRecorder(session, recorder) {
+    session.setEventSink((/** @type {any} */ event) => {
+        if (event.type === "system_status" || event.type === "terminal_error") {
+            const message = String(event.message || "");
+            recorder.messages.push(message);
+            recorder.systemCalls.push({
+                message,
+                isError: event.level === "error" || event.type === "terminal_error",
+                header: event._meta?.header || "",
+                level: event.level || (event.type === "terminal_error" ? "error" : "info"),
+            });
+        } else if (event.type === "busy_changed") {
+            recorder.busyStates.push(Boolean(event.busy));
+        } else if (event.type === "tool_start") {
+            recorder.toolCalls.push({ id: event.toolCallId, name: event.toolName, args: event.args?.command || "" });
+        } else if (event.type === "tool_update") {
+            recorder.toolOutputs.push(String(event.delta || event.text || ""));
+        } else if (event.type === "tool_end") {
+            recorder.toolOutputs.push(String(event.text || event.result || ""));
+            recorder.toolResults.push({
+                id: event.toolCallId,
+                name: event.toolName,
+                result: event.result || event.text || "",
+                isError: Boolean(event.isError),
+                durationMs: Number(event._meta?.durationMs || 0),
+            });
+        }
+    });
+    session.setInteractionAdapter({
+        requestInteraction: async (request) => {
+            if (request.type === "text") {
+                const value = await recorder.promptText(request.prompt, request);
+                return value === null ? { outcome: "canceled" } : { outcome: "text", value };
+            }
+            const value = await recorder.promptSelect(request.prompt, request.options || []);
+            return value === null ? { outcome: "canceled" } : { outcome: "selected", value };
+        },
+    });
+    return session;
+}
+
+/**
+ * @param {string} id
+ * @param {ReturnType<typeof makeUi>} recorder
+ * @returns {HostedSession}
+ */
+function makeRecordedSession(id, recorder) {
+    return attachRecorder(new HostedSession({ id, cwd: Deno.cwd() }), recorder);
 }
 
 function noOpRecordPlanEvent() {
@@ -148,7 +204,7 @@ Deno.test("bundled reviewer prompt permits unrelated formatter-only changes", as
     assertStringIncludes(prompt, "Do not fail a review merely because the diff touches files the plan did not mention");
 });
 
-Deno.test("runLocalCI displays validation command as a TUI tool call", async () => {
+Deno.test("runLocalCI emits one semantic validation tool lifecycle", async () => {
     const originalCwd = Deno.cwd();
     const tempDir = await Deno.makeTempDir({ prefix: "runwield-validation-test-" });
     const uiAPI = makeUi();
@@ -158,12 +214,12 @@ Deno.test("runLocalCI displays validation command as a TUI tool call", async () 
         __resetSettingsForTests();
         uiAPI.promptText = () => Promise.resolve("printf validation-output");
 
-        const result = await runLocalCI(uiAPI, tempDir);
+        const result = await runLocalCI({ hostedSession, cwd: tempDir });
 
         assertEquals(result.exitCode, 0);
         assertEquals(
             uiAPI.toolCalls.some((/** @type {{ name: string, args: string }} */ call) =>
-                call.name === "$" && call.args === "printf validation-output"
+                call.name === "bash" && call.args === "printf validation-output"
             ),
             true,
         );
@@ -190,7 +246,7 @@ Deno.test("runLocalCI streams large validation output without failing the proces
         const command = `${Deno.execPath()} eval "console.log('x'.repeat(1200000)); console.error('tail-marker')"`;
         uiAPI.promptText = () => Promise.resolve(command);
 
-        const result = await runLocalCI(uiAPI, tempDir);
+        const result = await runLocalCI({ hostedSession, cwd: tempDir });
 
         assertEquals(result.exitCode, 0);
         assertStringIncludes(result.output, "tail-marker");
@@ -212,12 +268,11 @@ Deno.test("runMechanicalValidation passes local CI without plan-specific work", 
 
     const result = await runMechanicalValidation({
         hostedSession,
-        uiAPI,
         sessionManager: undefined,
         cwd: "/repo",
         __deps: /** @type {any} */ ({
             ...noOpWorktreePlanHandoffDeps(),
-            runLocalCI: (/** @type {any} */ _uiAPI, /** @type {string | undefined} */ cwd) => {
+            runLocalCI: (/** @type {{ cwd?: string }} */ { cwd }) => {
                 actions.push(`ci:${cwd}`);
                 return Promise.resolve({ exitCode: 0, output: "ok" });
             },
@@ -253,14 +308,12 @@ Deno.test("runMechanicalValidation passes local CI without plan-specific work", 
 });
 
 Deno.test("runMechanicalValidation repairs CI failures through Engineer and then passes", async () => {
-    const uiAPI = makeUi();
     /** @type {string[]} */
     const actions = [];
     let ciRuns = 0;
 
     const result = await runMechanicalValidation({
         hostedSession,
-        uiAPI,
         sessionManager: /** @type {any} */ ({ id: "session" }),
         cwd: "/repo",
         __deps: /** @type {any} */ ({
@@ -291,7 +344,6 @@ Deno.test("runMechanicalValidation repairs CI failures through Engineer and then
 });
 
 Deno.test("runMechanicalValidation ignores stale task_completed from earlier root turns", async () => {
-    const uiAPI = makeUi();
     const staleHostedSession = new HostedSession({ id: "stale-task-completed-test", cwd: Deno.cwd() });
     staleHostedSession.setRootAgentName("engineer");
     staleHostedSession.setRootAgentSession(
@@ -312,7 +364,6 @@ Deno.test("runMechanicalValidation ignores stale task_completed from earlier roo
 
     const result = await runMechanicalValidation({
         hostedSession: staleHostedSession,
-        uiAPI,
         sessionManager: undefined,
         cwd: "/repo",
         __deps: /** @type {any} */ ({
@@ -344,7 +395,6 @@ Deno.test("runMechanicalValidation ignores stale task_completed from earlier roo
 });
 
 Deno.test("runMechanicalValidation detects task_completed when repair returns a fresh root transcript", async () => {
-    const uiAPI = makeUi();
     const rebuiltHostedSession = new HostedSession({ id: "fresh-root-task-completed-test", cwd: Deno.cwd() });
     rebuiltHostedSession.setRootAgentName("engineer");
     rebuiltHostedSession.setRootAgentSession(
@@ -368,7 +418,6 @@ Deno.test("runMechanicalValidation detects task_completed when repair returns a 
 
     const result = await runMechanicalValidation({
         hostedSession: rebuiltHostedSession,
-        uiAPI,
         sessionManager: undefined,
         cwd: "/repo",
         __deps: /** @type {any} */ ({
@@ -399,7 +448,6 @@ Deno.test("runMechanicalValidation stops after three Engineer repair attempts wi
 
     const result = await runMechanicalValidation({
         hostedSession,
-        uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
             ...noOpWorktreePlanHandoffDeps(),
@@ -413,9 +461,6 @@ Deno.test("runMechanicalValidation stops after three Engineer repair attempts wi
             createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
             recordPlanEvent: () => {
                 throw new Error("plan events should not run");
-            },
-            runPlannotatorCodeReview: () => {
-                throw new Error("code review should not run");
             },
         }),
     });
@@ -431,7 +476,7 @@ Deno.test("runMechanicalValidation stops after three Engineer repair attempts wi
 
 Deno.test("runValidationLoop skips semantic review and merge-back for non-Git in-place execution", async () => {
     const uiAPI = makeUi();
-    const session = new HostedSession({ id: "non-git-validation-test", cwd: Deno.cwd() });
+    const session = makeRecordedSession("non-git-validation-test", uiAPI);
     session.setActiveExecutionWorkflow({
         planName: "p",
         triageMeta: { classification: "FEATURE" },
@@ -449,7 +494,6 @@ Deno.test("runValidationLoop skips semantic review and merge-back for non-Git in
         planName: "p",
         planContent: "# Plan",
         triageMeta: { classification: "FEATURE" },
-        uiAPI,
         sessionManager: undefined,
         __deps: {
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "ok" }),
@@ -490,7 +534,6 @@ Deno.test("runValidationLoop does not switch active agent unless finalAgentName 
         planName: "p",
         planContent: "",
         triageMeta: { classification: "QUICK_FIX" },
-        uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
             ...noOpWorktreePlanHandoffDeps(),
@@ -516,7 +559,6 @@ Deno.test("runValidationLoop marks validation progress and success messages with
         planName: "p",
         planContent: "",
         triageMeta: { classification: "QUICK_FIX" },
-        uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
             ...noOpWorktreePlanHandoffDeps(),
@@ -551,10 +593,10 @@ Deno.test("runValidationLoop marks validation progress and success messages with
         uiAPI.systemCalls.some((/** @type {{ message: string }} */ call) => call.message.includes("[spinner]")),
         false,
     );
-    assertEquals(uiAPI.busyStates, [true, false, true, false]);
+    assertEquals(uiAPI.busyStates, []);
     assertEquals(
-        uiAPI.systemCalls.some((/** @type {{ message: string, style: any }} */ call) =>
-            call.message === "Build and tests passed." && call.style.bodyColor === "success"
+        uiAPI.systemCalls.some((/** @type {{ message: string, level: string }} */ call) =>
+            call.message === "Build and tests passed." && call.level === "success"
         ),
         true,
     );
@@ -562,13 +604,12 @@ Deno.test("runValidationLoop marks validation progress and success messages with
 
 Deno.test("runMechanicalValidation stops on canceled CI and stays with Engineer", async () => {
     const uiAPI = makeUi();
-    const session = new HostedSession({ id: "mechanical-cancel-test", cwd: Deno.cwd() });
+    const session = makeRecordedSession("mechanical-cancel-test", uiAPI);
     /** @type {string[]} */
     const switchedAgents = [];
 
     const result = await runMechanicalValidation({
         hostedSession: session,
-        uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
             runLocalCI: () => Promise.resolve({ exitCode: 130, output: "Validation canceled.", canceled: true }),
@@ -593,7 +634,7 @@ Deno.test("runMechanicalValidation stops on canceled CI and stays with Engineer"
 
 Deno.test("runValidationLoop cancels CI without dispatching repair and leaves Engineer active", async () => {
     const uiAPI = makeUi();
-    const session = new HostedSession({ id: "validation-cancel-test", cwd: Deno.cwd() });
+    const session = makeRecordedSession("validation-cancel-test", uiAPI);
     /** @type {string[]} */
     const switchedAgents = [];
     let repairDispatched = false;
@@ -603,7 +644,6 @@ Deno.test("runValidationLoop cancels CI without dispatching repair and leaves En
         planName: "p",
         planContent: "",
         triageMeta: { classification: "FEATURE" },
-        uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
             ...noOpWorktreePlanHandoffDeps(),
@@ -634,7 +674,6 @@ Deno.test("runValidationLoop cancels CI without dispatching repair and leaves En
 });
 
 Deno.test("runValidationLoop restores requested final agent after validation", async () => {
-    const uiAPI = makeUi();
     /** @type {string[]} */
     const switched = [];
     await runValidationLoop({
@@ -642,7 +681,6 @@ Deno.test("runValidationLoop restores requested final agent after validation", a
         planName: "p",
         planContent: "",
         triageMeta: { classification: "QUICK_FIX" },
-        uiAPI,
         sessionManager: undefined,
         finalAgentName: "planner",
         __deps: /** @type {any} */ ({
@@ -674,7 +712,6 @@ Deno.test("runValidationLoop fails FEATURE validation when workflow diff is empt
         planName: "p",
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
-        uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
             ...noOpWorktreePlanHandoffDeps(),
@@ -711,7 +748,6 @@ Deno.test("runValidationLoop fails PROJECT validation when workflow diff only ch
         planName: "p",
         planContent: "plan",
         triageMeta: { classification: "PROJECT" },
-        uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
             ...noOpWorktreePlanHandoffDeps(),
@@ -753,7 +789,7 @@ Deno.test("runValidationLoop fails PROJECT validation when workflow diff only ch
 
 Deno.test("runValidationLoop pauses with Engineer when CI repair does not call task_completed", async () => {
     const uiAPI = makeUi();
-    const repairHostedSession = new HostedSession({ id: "ci-repair-pause-test", cwd: Deno.cwd() });
+    const repairHostedSession = makeRecordedSession("ci-repair-pause-test", uiAPI);
     let repairCalls = 0;
     let repairAgentName = "";
     await runValidationLoop({
@@ -761,7 +797,6 @@ Deno.test("runValidationLoop pauses with Engineer when CI repair does not call t
         planName: "p",
         planContent: "",
         triageMeta: { classification: "FEATURE" },
-        uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
             ...noOpWorktreePlanHandoffDeps(),
@@ -804,13 +839,12 @@ Deno.test("runValidationLoop pauses with Engineer when CI repair does not call t
 
 Deno.test("runValidationLoop pauses with Engineer on interrupted semantic repair", async () => {
     const uiAPI = makeUi();
-    const repairHostedSession = new HostedSession({ id: "semantic-repair-pause-test", cwd: Deno.cwd() });
+    const repairHostedSession = makeRecordedSession("semantic-repair-pause-test", uiAPI);
     await runValidationLoop({
         hostedSession: repairHostedSession,
         planName: "p",
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
-        uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
             ...noOpWorktreePlanHandoffDeps(),
@@ -861,7 +895,6 @@ Deno.test("runValidationLoop pauses with Engineer on interrupted semantic repair
 });
 
 Deno.test("runValidationLoop reviews the diff scoped to the active workflow baseline", async () => {
-    const uiAPI = makeUi();
     /** @type {string[]} */
     const reviewPrompts = [];
     /** @type {Array<string | undefined>} */
@@ -878,7 +911,6 @@ Deno.test("runValidationLoop reviews the diff scoped to the active workflow base
         planName: "p",
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
-        uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
             ...noOpWorktreePlanHandoffDeps(),
@@ -913,7 +945,6 @@ Deno.test("runValidationLoop reviews the diff scoped to the active workflow base
 });
 
 Deno.test("runValidationLoop runs validation and reviewer in active execution cwd", async () => {
-    const uiAPI = makeUi();
     const rootSessionManager = /** @type {any} */ ({ id: "shared-root-history" });
     /** @type {Array<string | undefined>} */
     const ciCwds = [];
@@ -940,11 +971,10 @@ Deno.test("runValidationLoop runs validation and reviewer in active execution cw
         planName: "p",
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
-        uiAPI,
         sessionManager: rootSessionManager,
         __deps: /** @type {any} */ ({
             ...noOpWorktreePlanHandoffDeps(),
-            runLocalCI: (/** @type {any} */ _uiAPI, /** @type {string | undefined} */ cwd) => {
+            runLocalCI: (/** @type {{ cwd?: string }} */ { cwd }) => {
                 ciCwds.push(cwd);
                 return Promise.resolve({ exitCode: 0, output: "" });
             },
@@ -976,7 +1006,7 @@ Deno.test("runValidationLoop runs validation and reviewer in active execution cw
     assertEquals(ciCwds, ["/worktree"]);
     assertEquals(diffCwds, ["/worktree"]);
     assertEquals(sessionCwds, ["/worktree"]);
-    assertEquals(sessionOpts[0].uiAPI, uiAPI);
+    assertEquals(Object.hasOwn(sessionOpts[0], "uiAPI"), false);
     assertEquals(sessionOpts[0]._agentDefOverride.tools, ["read", "grep", "find", "ls", "review_complete"]);
     assertEquals(sessionOpts[0]._agentDefOverride.systemPrompt.includes("{{SKILLS}}"), false);
     assertEquals(sessionOpts[0].includeEditFallback, false);
@@ -989,7 +1019,6 @@ Deno.test("runValidationLoop runs validation and reviewer in active execution cw
 });
 
 Deno.test("runValidationLoop stages validation_passed before worktree merge succeeds", async () => {
-    const uiAPI = makeUi();
     /** @type {string[]} */
     const actions = [];
     /** @type {any[]} */
@@ -1011,7 +1040,6 @@ Deno.test("runValidationLoop stages validation_passed before worktree merge succ
         planName: "p",
         planContent: "plan",
         triageMeta: { classification: "FEATURE", summary: "Preserve metadata in merge commits." },
-        uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
             ...noOpWorktreePlanHandoffDeps(),
@@ -1146,7 +1174,6 @@ Deno.test("runValidationLoop merges verified Plan metadata in Git and leaves the
             planName: "git-plan",
             planContent: "plan",
             triageMeta: { classification: "FEATURE", summary: "Verify metadata in history." },
-            uiAPI: makeUi(),
             sessionManager: undefined,
             __deps: /** @type {any} */ ({
                 runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
@@ -1224,7 +1251,6 @@ Deno.test("runValidationLoop reapplies verified Plan metadata after real merge-c
             planName: "conflict-plan",
             planContent: "plan",
             triageMeta: { classification: "FEATURE" },
-            uiAPI: makeUi(),
             sessionManager: undefined,
             __deps: /** @type {any} */ ({
                 runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
@@ -1267,7 +1293,6 @@ Deno.test("runValidationLoop reapplies verified Plan metadata after real merge-c
 });
 
 Deno.test("runValidationLoop does not preserve a nonexistent Plan path for quick-fix worktrees", async () => {
-    const uiAPI = makeUi();
     /** @type {string[][]} */
     const preservedPaths = [];
     hostedSession.setActiveExecutionWorkflow({
@@ -1285,7 +1310,6 @@ Deno.test("runValidationLoop does not preserve a nonexistent Plan path for quick
         planName: "quick-fix",
         planContent: "fix",
         triageMeta: { classification: "QUICK_FIX" },
-        uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
@@ -1337,7 +1361,6 @@ Deno.test("runValidationLoop preserves merged verification across post-merge ver
         planName: "p",
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
-        uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
             ...noOpWorktreePlanHandoffDeps(),
@@ -1354,6 +1377,7 @@ Deno.test("runValidationLoop preserves merged verification across post-merge ver
                         details: { outcome: "approved", approved: true, feedback: "" },
                     }]),
                 ),
+            getCodeReviewMode: () => "none",
             mergeExecutionWorktree: () => {
                 actions.push("merge");
                 return Promise.resolve();
@@ -1378,7 +1402,6 @@ Deno.test("runValidationLoop preserves merged verification across post-merge ver
                 );
                 return Promise.resolve({});
             },
-            getCodeReviewMode: () => "none",
             setActiveAgent: () => {},
         }),
     });
@@ -1399,7 +1422,6 @@ Deno.test("runValidationLoop preserves merged verification across post-merge ver
 });
 
 Deno.test("runValidationLoop runs always human review after semantic approval and before merge", async () => {
-    const uiAPI = makeUi();
     /** @type {string[]} */
     const actions = [];
 
@@ -1419,7 +1441,6 @@ Deno.test("runValidationLoop runs always human review after semantic approval an
         planName: "p",
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
-        uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
             ...noOpWorktreePlanHandoffDeps(),
@@ -1437,9 +1458,15 @@ Deno.test("runValidationLoop runs always human review after semantic approval an
                     }]),
                 ),
             getCodeReviewMode: () => "always",
-            runPlannotatorCodeReview: (/** @type {any} */ opts) => {
-                actions.push(`human-review:${opts.executionCwd}:${opts.diffText.includes("+change")}`);
-                return Promise.resolve({ approved: true, feedback: "", annotations: [], exit: false });
+            requestInteraction: (/** @type {HostedSession} */ _session, /** @type {any} */ request) => {
+                assertEquals(request.type, "code_review");
+                actions.push(
+                    `human-review:${request._meta.executionCwd}:${request._meta.diffText.includes("+change")}`,
+                );
+                return Promise.resolve({
+                    outcome: "accepted",
+                    _meta: { approved: true, feedback: "", annotations: [], exit: false },
+                });
             },
             mergeExecutionWorktree: () => {
                 actions.push("merge");
@@ -1494,7 +1521,6 @@ Deno.test("runValidationLoop ask mode can skip human review and merge", async ()
         planName: "p",
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
-        uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
             ...noOpWorktreePlanHandoffDeps(),
@@ -1512,8 +1538,10 @@ Deno.test("runValidationLoop ask mode can skip human review and merge", async ()
                     }]),
                 ),
             getCodeReviewMode: () => "ask",
-            runPlannotatorCodeReview: () => {
-                throw new Error("review server should not start");
+            requestInteraction: (/** @type {HostedSession} */ _session, /** @type {any} */ request) => {
+                assertEquals(request.type, "select");
+                actions.push("prompt");
+                return Promise.resolve({ outcome: "selected", value: "skip" });
             },
             mergeExecutionWorktree: () => {
                 actions.push("merge");
@@ -1561,7 +1589,6 @@ Deno.test("runValidationLoop ask mode opens human review before merge when appro
         planName: "p",
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
-        uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
             ...noOpWorktreePlanHandoffDeps(),
@@ -1579,9 +1606,18 @@ Deno.test("runValidationLoop ask mode opens human review before merge when appro
                     }]),
                 ),
             getCodeReviewMode: () => "ask",
-            runPlannotatorCodeReview: (/** @type {any} */ opts) => {
-                actions.push(`human-review:${opts.executionCwd}:${opts.diffText.includes("+change")}`);
-                return Promise.resolve({ approved: true, feedback: "", annotations: [], exit: false });
+            requestInteraction: (/** @type {HostedSession} */ _session, /** @type {any} */ request) => {
+                if (request.type === "select") {
+                    actions.push("prompt");
+                    return Promise.resolve({ outcome: "selected", value: "open" });
+                }
+                actions.push(
+                    `human-review:${request._meta.executionCwd}:${request._meta.diffText.includes("+change")}`,
+                );
+                return Promise.resolve({
+                    outcome: "accepted",
+                    _meta: { approved: true, feedback: "", annotations: [], exit: false },
+                });
             },
             mergeExecutionWorktree: () => {
                 actions.push("merge");
@@ -1605,7 +1641,6 @@ Deno.test("runValidationLoop ask mode opens human review before merge when appro
 });
 
 Deno.test("runValidationLoop sends human feedback to Engineer and continues validation", async () => {
-    const uiAPI = makeUi();
     /** @type {string[]} */
     const actions = [];
     /** @type {any[]} */
@@ -1618,7 +1653,6 @@ Deno.test("runValidationLoop sends human feedback to Engineer and continues vali
         planName: "p",
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
-        uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
             ...noOpWorktreePlanHandoffDeps(),
@@ -1636,19 +1670,26 @@ Deno.test("runValidationLoop sends human feedback to Engineer and continues vali
                     }]),
                 ),
             getCodeReviewMode: () => "always",
-            runPlannotatorCodeReview: () => {
+            requestInteraction: (/** @type {HostedSession} */ _session, /** @type {any} */ request) => {
+                assertEquals(request.type, "code_review");
                 humanReviewCalls++;
                 actions.push(`human-review:${humanReviewCalls}`);
                 if (humanReviewCalls === 1) {
                     return Promise.resolve({
-                        approved: false,
-                        feedback: "Please tighten this.",
-                        annotations: [{ file: "src/a.js", line: 7, text: "Needs test." }],
-                        images: reviewImages,
-                        exit: false,
+                        outcome: "accepted",
+                        _meta: {
+                            approved: false,
+                            feedback: "Please tighten this.",
+                            annotations: [{ file: "src/a.js", line: 7, text: "Needs test." }],
+                            images: reviewImages,
+                            exit: false,
+                        },
                     });
                 }
-                return Promise.resolve({ approved: true, feedback: "", annotations: [], exit: false });
+                return Promise.resolve({
+                    outcome: "accepted",
+                    _meta: { approved: true, feedback: "", annotations: [], exit: false },
+                });
             },
             recordWorkflowMetric: (/** @type {any} */ metric) => {
                 metrics.push(metric);
@@ -1690,7 +1731,6 @@ Deno.test("runValidationLoop sends human feedback to Engineer and continues vali
 });
 
 Deno.test("runValidationLoop treats human review exit as validation failure without merge", async () => {
-    const uiAPI = makeUi();
     /** @type {string[]} */
     const actions = [];
     /** @type {any[]} */
@@ -1712,7 +1752,6 @@ Deno.test("runValidationLoop treats human review exit as validation failure with
         planName: "p",
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
-        uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
             ...noOpWorktreePlanHandoffDeps(),
@@ -1730,8 +1769,13 @@ Deno.test("runValidationLoop treats human review exit as validation failure with
                     }]),
                 ),
             getCodeReviewMode: () => "always",
-            runPlannotatorCodeReview: () =>
-                Promise.resolve({ approved: false, feedback: "", annotations: [], exit: true }),
+            requestInteraction: (/** @type {HostedSession} */ _session, /** @type {any} */ request) => {
+                assertEquals(request.type, "code_review");
+                return Promise.resolve({
+                    outcome: "canceled",
+                    _meta: { approved: false, feedback: "", annotations: [], exit: true },
+                });
+            },
             mergeExecutionWorktree: () => {
                 actions.push("merge");
                 return Promise.resolve();
@@ -1770,7 +1814,6 @@ Deno.test("runValidationLoop treats human review exit as validation failure with
 });
 
 Deno.test("runValidationLoop keeps merged worktree when cleanup setting is disabled", async () => {
-    const uiAPI = makeUi();
     /** @type {string[]} */
     const actions = [];
 
@@ -1790,7 +1833,6 @@ Deno.test("runValidationLoop keeps merged worktree when cleanup setting is disab
         planName: "p",
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
-        uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
             ...noOpWorktreePlanHandoffDeps(),
@@ -1828,6 +1870,7 @@ Deno.test("runValidationLoop keeps merged worktree when cleanup setting is disab
                 actions.push(`event:${event.event}:${event.details.cleanupMergedWorktrees}`);
                 return Promise.resolve({});
             },
+            getCodeReviewMode: () => "none",
             shouldCleanupMergedWorktrees: () => false,
             setActiveAgent: () => {},
         }),
@@ -1859,7 +1902,6 @@ Deno.test("runValidationLoop records worktree_merge_failed when merge-back fails
         planName: "p",
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
-        uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
             ...noOpWorktreePlanHandoffDeps(),
@@ -1945,7 +1987,6 @@ Deno.test("runValidationLoop still prompts when merge-conflict metadata updates 
         planName: "p",
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
-        uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
             ...noOpWorktreePlanHandoffDeps(),
@@ -2012,7 +2053,6 @@ Deno.test("runValidationLoop warns when using legacy current-checkout merge fall
         planName: "p",
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
-        uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
             ...noOpWorktreePlanHandoffDeps(),
@@ -2072,7 +2112,6 @@ Deno.test("runValidationLoop dispatches Engineer merge repair and retries merge-
         planName: "p",
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
-        uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
             ...noOpWorktreePlanHandoffDeps(),
@@ -2150,9 +2189,9 @@ Deno.test("runValidationLoop dispatches Engineer merge repair and retries merge-
     assertEquals(uiAPI.promptSelections, []);
 });
 
-Deno.test("runValidationLoop records validation_passed after merge repair task_completed and retry", async () => {
+Deno.test("runValidationLoop completes after merge repair task_completed and retry", async () => {
     const uiAPI = makeUi();
-    const repairHostedSession = new HostedSession({ id: "merge-repair-completion-test", cwd: Deno.cwd() });
+    const repairHostedSession = makeRecordedSession("merge-repair-completion-test", uiAPI);
     repairHostedSession.setRootAgentName("engineer");
     repairHostedSession.setRootAgentSession(
         /** @type {any} */ ({
@@ -2183,7 +2222,6 @@ Deno.test("runValidationLoop records validation_passed after merge repair task_c
         planName: "p",
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
-        uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
             ...noOpWorktreePlanHandoffDeps(),
@@ -2264,7 +2302,6 @@ Deno.test("runValidationLoop retries worktree merge after user fixes primary che
         planName: "p",
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
-        uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
             ...noOpWorktreePlanHandoffDeps(),
@@ -2323,7 +2360,6 @@ Deno.test("runValidationLoop retries worktree merge after user fixes primary che
 });
 
 Deno.test("runValidationLoop marks active worktree validation_failed when validation fails", async () => {
-    const uiAPI = makeUi();
     /** @type {string[]} */
     const actions = [];
 
@@ -2343,7 +2379,6 @@ Deno.test("runValidationLoop marks active worktree validation_failed when valida
         planName: "p",
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
-        uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
             ...noOpWorktreePlanHandoffDeps(),
@@ -2595,7 +2630,6 @@ Deno.test("review_diff tool returns no-files message for empty diff", async () =
 // ─── Large-diff / error-handling integration tests ──────────────────────────
 
 Deno.test("runValidationLoop uses large-diff prompt when diff exceeds inline threshold", async () => {
-    const uiAPI = makeUi();
     /** @type {string[]} */
     const reviewPrompts = [];
 
@@ -2612,7 +2646,6 @@ Deno.test("runValidationLoop uses large-diff prompt when diff exceeds inline thr
         planName: "p",
         planContent: "Add a large feature.",
         triageMeta: { classification: "FEATURE" },
-        uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
             ...noOpWorktreePlanHandoffDeps(),
@@ -2683,7 +2716,6 @@ Deno.test("runValidationLoop shows retry/cancel menu when reviewer throws an err
         planName: "p",
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
-        uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
             ...noOpWorktreePlanHandoffDeps(),
@@ -2725,7 +2757,6 @@ Deno.test("runValidationLoop halts when reviewer returns blank output and user c
         planName: "p",
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
-        uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
             ...noOpWorktreePlanHandoffDeps(),
@@ -2774,7 +2805,6 @@ Deno.test("runValidationLoop retries semantic review when user chooses retry", a
         planName: "p",
         planContent: "plan",
         triageMeta: { classification: "FEATURE" },
-        uiAPI,
         sessionManager: rootSessionManager,
         __deps: /** @type {any} */ ({
             ...noOpWorktreePlanHandoffDeps(),

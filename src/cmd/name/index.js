@@ -23,16 +23,15 @@ export async function runNameCommand(argv, options = {}) {
 
     const deps = /** @type {{ setTerminalTitleForName?: typeof setTerminalTitleForName }} */ (options.__testDeps || {});
     const setTitle = deps.setTerminalTitleForName || setTerminalTitleForName;
-    const { uiAPI, sessionManager } = options;
-
-    if (!sessionManager) {
+    const { uiAPI, sessionRuntime, sessionId } = options;
+    if (!sessionRuntime || !sessionId) {
         uiAPI.appendSystemMessage("Error: No active session.");
         return;
     }
 
     const name = sanitizeSessionName(argv.join(" "));
     if (!name) {
-        const currentName = sanitizeSessionName(sessionManager.getSessionName?.() || "");
+        const currentName = sanitizeSessionName(sessionRuntime.getSessionSnapshot(sessionId)?.name || "");
         if (currentName) {
             uiAPI.appendSystemMessage(theme.fg("dim", `Session name: ${currentName}`));
         } else {
@@ -41,11 +40,7 @@ export async function runNameCommand(argv, options = {}) {
         return;
     }
 
-    if (options.sessionRuntime && options.hostedSession) {
-        options.sessionRuntime.renameSession(options.hostedSession, name);
-    } else {
-        sessionManager.appendSessionInfo?.(name);
-        setTitle(name);
-    }
+    sessionRuntime.renameSession(sessionId, name);
+    setTitle(name);
     uiAPI.appendSystemMessage(theme.fg("dim", `Session name set: ${name}`));
 }

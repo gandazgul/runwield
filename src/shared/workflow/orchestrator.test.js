@@ -10,12 +10,22 @@ import { HostedSession } from "../session/hosted-session.js";
  * @param {string} [id]
  */
 function makeHostedSession(id = `orchestrator-test-${crypto.randomUUID()}`) {
-    return new HostedSession({ id, cwd: Deno.cwd() });
+    const session = new HostedSession({ id, cwd: Deno.cwd() });
+    if (activeMessages) {
+        session.setEventSink((/** @type {{ message?: string }} */ event) => {
+            if (event.message) activeMessages?.push(event.message);
+        });
+    }
+    return session;
 }
+
+/** @type {string[] | null} */
+let activeMessages = null;
 
 function makeUi() {
     /** @type {string[]} */
     const messages = [];
+    activeMessages = messages;
     return /** @type {any} */ ({
         messages,
         appendSystemMessage: (/** @type {string} */ msg) => messages.push(String(msg)),
@@ -34,7 +44,6 @@ Deno.test("dispatchPostTriage keeps Engineer active when FEATURE/PROJECT executi
 });
 
 Deno.test("dispatchPostTriage routes INQUIRY to Guide without completion or validation checks", async () => {
-    const uiAPI = makeUi();
     /** @type {string[]} */
     const activeAgents = [];
     /** @type {string[]} */
@@ -54,7 +63,6 @@ Deno.test("dispatchPostTriage routes INQUIRY to Guide without completion or vali
         },
         userRequest: "Where is model routing configured?",
         images: [],
-        uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
             createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
@@ -99,7 +107,6 @@ Deno.test("dispatchPostTriage routes INQUIRY to Guide without completion or vali
 });
 
 Deno.test("dispatchPostTriage routes IDEATION to Ideator without completion or validation checks", async () => {
-    const uiAPI = makeUi();
     /** @type {string[]} */
     const activeAgents = [];
     /** @type {string[]} */
@@ -115,7 +122,6 @@ Deno.test("dispatchPostTriage routes IDEATION to Ideator without completion or v
         },
         userRequest: "grill me on adding a new provider",
         images: [],
-        uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
             createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
@@ -142,7 +148,6 @@ Deno.test("dispatchPostTriage routes IDEATION to Ideator without completion or v
 });
 
 Deno.test("dispatchPostTriage routes OPERATION to Operator without validation", async () => {
-    const uiAPI = makeUi();
     /** @type {string[]} */
     const activeAgents = [];
     /** @type {string[]} */
@@ -161,7 +166,6 @@ Deno.test("dispatchPostTriage routes OPERATION to Operator without validation", 
         },
         userRequest: "git status",
         images: [],
-        uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
             createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
@@ -208,7 +212,6 @@ Deno.test("dispatchPostTriage routes OPERATION to Operator without validation", 
 });
 
 Deno.test("dispatchPostTriage routes QUICK_FIX to Engineer and runs Mechanical Validation after completion", async () => {
-    const uiAPI = makeUi();
     /** @type {string[]} */
     const activeAgents = [];
     /** @type {string[]} */
@@ -227,7 +230,6 @@ Deno.test("dispatchPostTriage routes QUICK_FIX to Engineer and runs Mechanical V
         },
         userRequest: "Fix it",
         images: [],
-        uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
             createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
@@ -277,18 +279,15 @@ Deno.test("dispatchPostTriage routes QUICK_FIX to Engineer and runs Mechanical V
 });
 
 Deno.test("dispatchPostTriage prompts before QUICK_FIX in non-Git projects", async () => {
-    const uiAPI = makeUi();
+    makeUi();
     /** @type {string[]} */
     const prompts = [];
-    uiAPI.promptSelect = (/** @type {string} */ prompt) => {
-        prompts.push(prompt);
-        return Promise.resolve("proceed");
-    };
     /** @type {string[]} */
     const rootTurns = [];
+    const target = makeHostedSession();
 
     await dispatchPostTriage({
-        hostedSession: makeHostedSession(),
+        hostedSession: target,
         triage: {
             routingIntent: "QUICK_FIX",
             complexity: "LOW",
@@ -297,14 +296,14 @@ Deno.test("dispatchPostTriage prompts before QUICK_FIX in non-Git projects", asy
         },
         userRequest: "Fix it",
         images: [],
-        uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
             createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
             probeGitRepository: () => Promise.resolve({ ok: false, state: "not_git", cwd: Deno.cwd() }),
             hasNonGitExecutionConsent: () => false,
-            confirmNonGitQuickFixExecution: async (/** @type {any} */ ui) => {
-                await ui.promptSelect("quick fix non git prompt", []);
+            confirmNonGitQuickFixExecution: (/** @type {HostedSession} */ session) => {
+                assertEquals(session, target);
+                prompts.push("quick fix non git prompt");
                 return true;
             },
             readLatestTaskCompletedOutcome: () => true,
@@ -338,7 +337,6 @@ Deno.test("dispatchPostTriage cancels QUICK_FIX before Engineer when non-Git con
         },
         userRequest: "Fix it",
         images: [],
-        uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
             createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
@@ -378,7 +376,6 @@ Deno.test("dispatchPostTriage warns and skips Mechanical Validation when QUICK_F
         },
         userRequest: "Fix it",
         images: [],
-        uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
             createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
@@ -424,7 +421,6 @@ Deno.test("dispatchPostTriage keeps planning agent active on stay/save/halt deci
             },
             userRequest: "Build it",
             images: [],
-            uiAPI,
             sessionManager: undefined,
             __deps: /** @type {any} */ ({
                 ensurePlansDir: () => Promise.resolve("/plans"),
@@ -458,7 +454,6 @@ Deno.test("dispatchPostTriage keeps planning agent active on stay/save/halt deci
 });
 
 Deno.test("dispatchPostTriage starts Slicer after PROJECT planning completes", async () => {
-    const uiAPI = makeUi();
     /** @type {any} */
     let slicerArgs = null;
     const sessionManager = /** @type {any} */ ({ id: "root-history" });
@@ -474,7 +469,6 @@ Deno.test("dispatchPostTriage starts Slicer after PROJECT planning completes", a
         },
         userRequest: "Design it",
         images: [],
-        uiAPI,
         sessionManager,
         __deps: /** @type {any} */ ({
             ensurePlansDir: () => Promise.resolve("/plans"),
@@ -498,7 +492,6 @@ Deno.test("dispatchPostTriage starts Slicer after PROJECT planning completes", a
 });
 
 Deno.test("dispatchPostTriage executes approved FEATURE plans and runs validation", async () => {
-    const uiAPI = makeUi();
     /** @type {unknown[]} */
     const executed = [];
     /** @type {unknown[]} */
@@ -517,7 +510,6 @@ Deno.test("dispatchPostTriage executes approved FEATURE plans and runs validatio
         },
         userRequest: "Make feature",
         images: [{ base64: "abc", mimeType: "image/png" }],
-        uiAPI,
         sessionManager: /** @type {any} */ ({ id: "session" }),
         __deps: /** @type {any} */ ({
             ensurePlansDir: () => Promise.resolve("/plans"),
@@ -553,11 +545,14 @@ Deno.test("dispatchPostTriage executes approved FEATURE plans and runs validatio
     });
 
     assertEquals(executed.length, 1);
-    assertEquals(/** @type {any[]} */ (executed[0])[0], "feature-plan");
+    assertEquals(/** @type {any[]} */ (executed[0]).length, 1);
+    const executionArgs = /** @type {any} */ (/** @type {any[]} */ (executed[0])[0]);
+    assertEquals(executionArgs.planName, "feature-plan");
+    assertEquals(executionArgs.hostedSession instanceof HostedSession, true);
     assertEquals(validations.length, 1);
     assertEquals(/** @type {any} */ (validations[0]).planContent, "plan markdown");
     assertEquals(/** @type {any} */ (validations[0]).finalAgentName, "planner");
-    assertEquals(typeof /** @type {any[]} */ (executed[0])[5].recordWorkflowMetric, "function");
+    assertEquals(typeof executionArgs.__deps.recordWorkflowMetric, "function");
     assertEquals(typeof /** @type {any} */ (validations[0]).__deps.recordWorkflowMetric, "function");
     assertEquals(
         metrics.some((metric) =>
@@ -569,7 +564,6 @@ Deno.test("dispatchPostTriage executes approved FEATURE plans and runs validatio
 });
 
 Deno.test("dispatchPostTriage keeps Engineer active after incomplete PROJECT execution", async () => {
-    const uiAPI = makeUi();
     /** @type {string[]} */
     const activeAgents = [];
 
@@ -584,7 +578,6 @@ Deno.test("dispatchPostTriage keeps Engineer active after incomplete PROJECT exe
         },
         userRequest: "Project",
         images: [],
-        uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
             ensurePlansDir: () => Promise.resolve("/plans"),
@@ -619,7 +612,6 @@ Deno.test("dispatchPostTriage keeps Engineer active after incomplete PROJECT exe
 });
 
 Deno.test("dispatchPostTriage keeps Engineer active after incomplete FEATURE execution", async () => {
-    const uiAPI = makeUi();
     /** @type {string[]} */
     const activeAgents = [];
 
@@ -634,7 +626,6 @@ Deno.test("dispatchPostTriage keeps Engineer active after incomplete FEATURE exe
         },
         userRequest: "Feature",
         images: [],
-        uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
             ensurePlansDir: () => Promise.resolve("/plans"),
@@ -666,7 +657,6 @@ Deno.test("dispatchPostTriage keeps Engineer active after incomplete FEATURE exe
 });
 
 Deno.test("dispatchPostTriage ignores stale execution handoff state by using typed results", async () => {
-    const uiAPI = makeUi();
     const target = makeHostedSession("target-execution-drain");
     /** @type {string[]} */
     const activeAgents = [];
@@ -682,7 +672,6 @@ Deno.test("dispatchPostTriage ignores stale execution handoff state by using typ
         },
         userRequest: "Feature",
         images: [],
-        uiAPI,
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
             ensurePlansDir: () => Promise.resolve("/plans"),
@@ -710,14 +699,18 @@ Deno.test("dispatchPostTriage ignores stale execution handoff state by using typ
 });
 
 Deno.test("dispatchPostTriage auto-names unnamed sessions and mirrors title", async () => {
-    const uiAPI = makeUi();
+    makeUi();
     /** @type {string[]} */
     const infos = [];
     /** @type {string[]} */
-    const titles = [];
+    const renamedEvents = [];
+    const target = makeHostedSession();
+    target.setEventSink((/** @type {{ type?: string, name?: string }} */ event) => {
+        if (event.type === "session_renamed") renamedEvents.push(event.name || "");
+    });
 
     await dispatchPostTriage({
-        hostedSession: makeHostedSession(),
+        hostedSession: target,
         triage: {
             routingIntent: "INQUIRY",
             complexity: "LOW",
@@ -727,7 +720,6 @@ Deno.test("dispatchPostTriage auto-names unnamed sessions and mirrors title", as
         },
         userRequest: "How should titles work?",
         images: [],
-        uiAPI,
         sessionManager: /** @type {any} */ ({
             getSessionName: () => undefined,
             appendSessionInfo: (/** @type {string} */ name) => infos.push(name),
@@ -737,26 +729,26 @@ Deno.test("dispatchPostTriage auto-names unnamed sessions and mirrors title", as
             runRootTurn: () => Promise.resolve([]),
             switchActiveAgent: (/** @type {unknown} */ _hostedSession, /** @type {{ agentName: string }} */ options) =>
                 Promise.resolve({ ok: true, agentName: options.agentName, changed: true }),
-            setTerminalTitleForName: (/** @type {string} */ name) => {
-                titles.push(name);
-                return `wld - ${name}`;
-            },
         }),
     });
 
     assertEquals(infos, ["terminal titles"]);
-    assertEquals(titles, ["terminal titles"]);
+    assertEquals(renamedEvents, ["terminal titles"]);
 });
 
-Deno.test("dispatchPostTriage does not overwrite existing session names", async () => {
-    const uiAPI = makeUi();
+Deno.test("dispatchPostTriage preserves and emits existing session names", async () => {
+    makeUi();
     /** @type {string[]} */
     const infos = [];
     /** @type {string[]} */
-    const titles = [];
+    const renamedEvents = [];
+    const target = makeHostedSession();
+    target.setEventSink((/** @type {{ type?: string, name?: string }} */ event) => {
+        if (event.type === "session_renamed") renamedEvents.push(event.name || "");
+    });
 
     await dispatchPostTriage({
-        hostedSession: makeHostedSession(),
+        hostedSession: target,
         triage: {
             routingIntent: "INQUIRY",
             complexity: "LOW",
@@ -766,7 +758,6 @@ Deno.test("dispatchPostTriage does not overwrite existing session names", async 
         },
         userRequest: "How should titles work?",
         images: [],
-        uiAPI,
         sessionManager: /** @type {any} */ ({
             getSessionName: () => "manual name",
             appendSessionInfo: (/** @type {string} */ name) => infos.push(name),
@@ -776,15 +767,11 @@ Deno.test("dispatchPostTriage does not overwrite existing session names", async 
             runRootTurn: () => Promise.resolve([]),
             switchActiveAgent: (/** @type {unknown} */ _hostedSession, /** @type {{ agentName: string }} */ options) =>
                 Promise.resolve({ ok: true, agentName: options.agentName, changed: true }),
-            setTerminalTitleForName: (/** @type {string} */ name) => {
-                titles.push(name);
-                return `wld - ${name}`;
-            },
         }),
     });
 
     assertEquals(infos, []);
-    assertEquals(titles, ["manual name"]);
+    assertEquals(renamedEvents, ["manual name"]);
 });
 
 Deno.test("readLatestTriageOutcome returns the latest triage_report details", () => {
@@ -920,7 +907,6 @@ Deno.test("dispatchPostTriage switches and runs only the supplied HostedSession"
         },
         userRequest: "question",
         images: [],
-        uiAPI: makeUi(),
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
             switchActiveAgent: (/** @type {unknown} */ hostedSession, /** @type {{agentName:string}} */ options) => {

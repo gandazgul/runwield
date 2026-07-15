@@ -3,60 +3,7 @@
  * Command to manually compact the session context.
  */
 
-import { estimateTokens, findCutPoint } from "@earendil-works/pi-coding-agent";
 import { theme } from "../../ui/theme/theme.js";
-
-// Minimum tokens that must fall outside the keep-recent window for compaction to
-// produce a useful summary. Below this, the LLM is handed too little context and
-// returns boilerplate like "No active goal identified due to empty conversation
-// history" — worse than leaving the session uncompacted.
-const MIN_SUMMARIZABLE_TOKENS = 1500;
-
-/**
- * Estimate how many tokens of conversation would be sent to the summarizer if
- * we ran compaction now. Mirrors prepareCompaction()'s slicing in pi-mono so we
- * can short-circuit before generating a misleading summary.
- *
- * @param {import('@earendil-works/pi-coding-agent').AgentSession} session
- * @returns {{ summarizable: number, keepRecent: number, alreadyCompacted: boolean }}
- */
-function estimateSummarizableTokens(session) {
-    const branch = session.sessionManager.getBranch();
-    const settings = session.settingsManager.getCompactionSettings();
-
-    if (branch.length === 0) {
-        return { summarizable: 0, keepRecent: settings.keepRecentTokens, alreadyCompacted: false };
-    }
-
-    if (branch[branch.length - 1].type === "compaction") {
-        return { summarizable: 0, keepRecent: settings.keepRecentTokens, alreadyCompacted: true };
-    }
-
-    // Boundary starts after the most recent compaction (if any), matching
-    // prepareCompaction()'s behavior in pi-mono's compaction.ts.
-    let boundaryStart = 0;
-    for (let i = branch.length - 1; i >= 0; i--) {
-        const entry = branch[i];
-        if (entry.type === "compaction") {
-            const firstKeptIdx = branch.findIndex((e) => e.id === entry.firstKeptEntryId);
-            boundaryStart = firstKeptIdx >= 0 ? firstKeptIdx : i + 1;
-            break;
-        }
-    }
-
-    const cutPoint = findCutPoint(branch, boundaryStart, branch.length, settings.keepRecentTokens);
-    const historyEnd = cutPoint.isSplitTurn ? cutPoint.turnStartIndex : cutPoint.firstKeptEntryIndex;
-
-    let summarizable = 0;
-    for (let i = boundaryStart; i < historyEnd; i++) {
-        const entry = branch[i];
-        if (entry.type === "message") {
-            summarizable += estimateTokens(entry.message);
-        }
-    }
-
-    return { summarizable, keepRecent: settings.keepRecentTokens, alreadyCompacted: false };
-}
 
 /**
  * Handle compact command.
@@ -70,28 +17,9 @@ export async function runCompactCommand(argv, options = {}) {
         return;
     }
 
-    const { uiAPI, registerOperationCancel, hostedSession } = options;
-    const session = /** @type {any} */ (hostedSession?.getRootAgentSession?.());
-    if (!session) {
+    const { uiAPI, sessionRuntime, sessionId } = options;
+    if (!sessionRuntime || !sessionId) {
         uiAPI.appendSystemMessage("Error: No active agent session.");
-        return;
-    }
-
-    if (session.isCompacting) {
-        uiAPI.appendSystemMessage("Compaction is already in progress. Press Escape to cancel.");
-        return;
-    }
-
-    const { summarizable, keepRecent, alreadyCompacted } = estimateSummarizableTokens(session);
-    if (alreadyCompacted) {
-        uiAPI.appendSystemMessage("Already compacted — no new messages since the last compaction.");
-        return;
-    }
-    if (summarizable < MIN_SUMMARIZABLE_TOKENS) {
-        uiAPI.appendSystemMessage(
-            `Nothing meaningful to compact — only ~${summarizable.toLocaleString()} tokens fall outside the ` +
-                `keep-recent window (${keepRecent.toLocaleString()} tokens). Skipping to avoid writing an empty summary.`,
-        );
         return;
     }
 
@@ -100,18 +28,8 @@ export async function runCompactCommand(argv, options = {}) {
 
     uiAPI.appendSystemMessage(`Compacting context... ${theme.fg("dim", "(Esc to cancel)")}${instructionsNote}`);
 
-    // Replace the default operation-cancel handler (which calls abortActiveSession) with one
-    // that cancels just the compaction. Restored automatically when this command returns.
-    if (registerOperationCancel) {
-        registerOperationCancel(() => {
-            try {
-                session.abortCompaction();
-            } catch (_e) { /* ignore */ }
-        });
-    }
-
     try {
-        const result = await session.compact(customInstructions);
+        const result = await sessionRuntime.compactSession(sessionId, customInstructions);
 
         // Pi-style report: print the generated summary plus the pre-compaction token count.
         const headerLines = [

@@ -2,18 +2,21 @@ import { assert, assertEquals, assertMatch } from "@std/assert";
 import { createUserInterviewTool } from "../user-interview.js";
 import { HostedSession } from "../../shared/session/hosted-session.js";
 
-/**
- * @param {Partial<import('../../shared/types.js').SessionUiPort>} overrides
- */
+/** @param {{ promptSelect?: () => Promise<string | null>, promptText?: () => Promise<string | null> }} overrides */
 function makeUi(overrides) {
-    return /** @type {import('../../shared/types.js').SessionUiPort} */ ({
-        appendSystemMessage: () => {},
-        appendAgentMessageStart: () => ({ appendText: () => {} }),
-        requestRender: () => {},
-        promptSelect: () => Promise.resolve(null),
-        promptText: () => Promise.resolve(null),
-        ...overrides,
+    const hostedSession = new HostedSession({ id: crypto.randomUUID(), cwd: Deno.cwd() });
+    hostedSession.setInteractionAdapter({
+        requestInteraction: async (request) => {
+            if (request.type === "text") {
+                const value = await (overrides.promptText?.() ?? Promise.resolve(null));
+                return value === null ? { outcome: "canceled" } : { outcome: "text", value };
+            }
+            const value = await (overrides.promptSelect?.() ?? Promise.resolve(null));
+            const option = request.options?.find((item) => item.value === value);
+            return value === null ? { outcome: "canceled" } : { outcome: "selected", value, valueLabel: option?.label };
+        },
     });
+    return { hostedSession };
 }
 
 /**
@@ -293,8 +296,8 @@ Deno.test("userInterviewTool uses HostedSession interaction broker when availabl
             prompts.push(request.prompt);
             return { outcome: "selected", value: "yes", valueLabel: "Yes" };
         },
-    }, { kind: "test" });
-    const tool = createUserInterviewTool({ uiAPI: makeUi({}), hostedSession });
+    });
+    const tool = createUserInterviewTool({ hostedSession });
 
     const result = await executeTool(tool, {
         question: { type: "yes_no", prompt: "Proceed?" },

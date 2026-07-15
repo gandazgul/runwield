@@ -3,11 +3,15 @@
  * Adapter-neutral interaction broker for HostedSession-bound prompts.
  */
 
+import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runtime-events.js";
+
 export const RuntimeInteractionTypes = Object.freeze({
     SELECT: "select",
     TEXT: "text",
     APPROVAL: "approval",
     LINK: "link",
+    PLAN_REVIEW: "plan_review",
+    CODE_REVIEW: "code_review",
 });
 
 export const RuntimeInteractionOutcomes = Object.freeze({
@@ -30,7 +34,7 @@ export const RuntimeInteractionOutcomes = Object.freeze({
 /**
  * @typedef {Object} RuntimeInteractionRequest
  * @property {string} [id]
- * @property {"select"|"text"|"approval"|"link"} type
+ * @property {"select"|"text"|"approval"|"link"|"plan_review"|"code_review"} type
  * @property {string} prompt
  * @property {RuntimeInteractionOption[]} [options]
  * @property {string} [defaultValue]
@@ -53,13 +57,6 @@ export const RuntimeInteractionOutcomes = Object.freeze({
  * @typedef {Object} RuntimeInteractionAdapter
  * @property {(request: RuntimeInteractionRequest, signal?: AbortSignal) => Promise<RuntimeInteractionResponse>|RuntimeInteractionResponse} requestInteraction
  * @property {() => void} [cancelAll]
- */
-
-/**
- * @typedef {Object} RuntimeInteractionAdapterMeta
- * @property {"tui"|"acp"|string} kind
- * @property {Record<string, unknown>} [capabilities]
- * @property {string} [acpSessionId]
  */
 
 /** @param {unknown} value */
@@ -139,12 +136,25 @@ export function isApprovalAcceptedValue(request, value) {
 export async function requestHostedSessionInteraction(hostedSession, request, signal) {
     const id = request.id || createInteractionId();
     const interaction = { ...request, id };
+    emitHostedSessionRuntimeEvent(hostedSession, {
+        type: RuntimeEventTypes.INTERACTION_REQUESTED,
+        interactionId: id,
+        interactionType: request.type,
+    });
     const adapter = hostedSession.getInteractionAdapter?.();
     if (!adapter || typeof adapter.requestInteraction !== "function") {
-        return {
+        const response = {
             outcome: RuntimeInteractionOutcomes.UNSUPPORTED,
             message: "No interaction adapter is available for this session.",
         };
+        emitHostedSessionRuntimeEvent(hostedSession, {
+            type: RuntimeEventTypes.INTERACTION_RESOLVED,
+            interactionId: id,
+            interactionType: request.type,
+            outcome: response.outcome,
+            message: response.message,
+        });
+        return response;
     }
     const abortController = new AbortController();
     /** @type {(() => void) | null} */
@@ -157,7 +167,15 @@ export async function requestHostedSessionInteraction(hostedSession, request, si
     hostedSession.addActiveInteraction?.(id, { request: interaction, abortController });
     try {
         if (signal?.aborted || abortController.signal.aborted) {
-            return { outcome: RuntimeInteractionOutcomes.CANCELED, message: "Interaction canceled." };
+            const response = { outcome: RuntimeInteractionOutcomes.CANCELED, message: "Interaction canceled." };
+            emitHostedSessionRuntimeEvent(hostedSession, {
+                type: RuntimeEventTypes.INTERACTION_CANCELED,
+                interactionId: id,
+                interactionType: request.type,
+                outcome: response.outcome,
+                message: response.message,
+            });
+            return response;
         }
         const canceled = new Promise((resolve) => {
             abortController.signal.addEventListener(
@@ -166,13 +184,34 @@ export async function requestHostedSessionInteraction(hostedSession, request, si
                 { once: true },
             );
         });
-        const response = await Promise.race([
-            adapter.requestInteraction(interaction, abortController.signal),
-            canceled,
-        ]);
-        return normalizeInteractionResponse(/** @type {Partial<RuntimeInteractionResponse>} */ (response));
+        const response = normalizeInteractionResponse(
+            /** @type {Partial<RuntimeInteractionResponse>} */ (await Promise.race([
+                adapter.requestInteraction(interaction, abortController.signal),
+                canceled,
+            ])),
+        );
+        emitHostedSessionRuntimeEvent(hostedSession, {
+            type: response.outcome === RuntimeInteractionOutcomes.CANCELED
+                ? RuntimeEventTypes.INTERACTION_CANCELED
+                : RuntimeEventTypes.INTERACTION_RESOLVED,
+            interactionId: id,
+            interactionType: request.type,
+            outcome: response.outcome,
+            message: response.message,
+        });
+        return response;
     } catch (error) {
-        return interactionErrorToResponse(error);
+        const response = interactionErrorToResponse(error);
+        emitHostedSessionRuntimeEvent(hostedSession, {
+            type: response.outcome === RuntimeInteractionOutcomes.CANCELED
+                ? RuntimeEventTypes.INTERACTION_CANCELED
+                : RuntimeEventTypes.INTERACTION_RESOLVED,
+            interactionId: id,
+            interactionType: request.type,
+            outcome: response.outcome,
+            message: response.message,
+        });
+        return response;
     } finally {
         removeAbortListener?.();
         hostedSession.removeActiveInteraction?.(id);

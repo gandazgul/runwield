@@ -23,12 +23,20 @@ Deno.test("runAgentsCommand chooses TUI handler when ui deps present", async () 
     /** @type {string | undefined} */
     let model = "not-set";
     /** @type {unknown} */
-    let switchedSession;
+    let switchedSessionId = "";
     /** @type {string | undefined} */
     let listedProjectRoot;
-    const hostedSession = /** @type {any} */ ({
-        cwd: "/tmp/runwield-agents-project",
-        getRootSessionManager: () => ({ getSessionName: () => "session" }),
+    const sessionRuntime = /** @type {any} */ ({
+        getSessionSnapshot: () => ({ cwd: "/tmp/runwield-agents-project", name: "session" }),
+        switchAgent: (
+            /** @type {string} */ sessionId,
+            /** @type {{ agentName: string, model?: string }} */ options,
+        ) => {
+            called = true;
+            switchedSessionId = sessionId;
+            model = options.model;
+            return Promise.resolve({ ok: true, agentName: options.agentName, changed: true });
+        },
     });
 
     await runAgentsCommand(
@@ -40,16 +48,8 @@ Deno.test("runAgentsCommand chooses TUI handler when ui deps present", async () 
             }),
             editor: /** @type {any} */ ({ setText: () => {} }),
             tui: /** @type {any} */ ({ setFocus: () => {} }),
-            hostedSession,
-            switchActiveAgent: (
-                /** @type {unknown} */ session,
-                /** @type {{ agentName: string, model?: string }} */ options,
-            ) => {
-                called = true;
-                switchedSession = session;
-                model = options.model;
-                return Promise.resolve({ ok: true, agentName: options.agentName, changed: true });
-            },
+            sessionId: "runtime-session",
+            sessionRuntime,
             __testDeps: /** @type {any} */ ({
                 listAvailableAgents: (/** @type {string | undefined} */ projectRoot) => {
                     listedProjectRoot = projectRoot;
@@ -57,16 +57,12 @@ Deno.test("runAgentsCommand chooses TUI handler when ui deps present", async () 
                         { name: "router", displayName: "RunWield", description: "", model: "" },
                     ]);
                 },
-                switchActiveAgent: () => {
-                    throw new Error("TUI command should prefer runtime switch callback from command context");
-                },
-                createAgentHandler: () => async () => {},
             }),
         }),
     );
 
     assertEquals(called, true);
-    assertEquals(switchedSession, hostedSession);
+    assertEquals(switchedSessionId, "runtime-session");
     assertEquals(listedProjectRoot, "/tmp/runwield-agents-project");
     assertEquals(model, undefined);
 });
@@ -119,11 +115,8 @@ Deno.test("runAgentsCommand CLI lists agents when no agent name", async () => {
 
 Deno.test("runAgentsCommand CLI valid agent starts session", async () => {
     let startedWith = "";
-    let active = "";
     /** @type {string | undefined} */
-    let activeModel = "not-set";
-    /** @type {string | undefined} */
-    let initialModel = "not-set";
+    let initialAgentName = "not-set";
 
     await runAgentsCommand(
         ["planner", "build", "thing"],
@@ -133,33 +126,20 @@ Deno.test("runAgentsCommand CLI valid agent starts session", async () => {
                     Promise.resolve([
                         { name: "planner", displayName: "Planner", description: "plan", model: "m" },
                     ]),
-                createAgentHandler: () => async () => {},
-                setActiveAgent: (
-                    /** @type {string} */ name,
-                    /** @type {unknown} */ _handler,
-                    /** @type {unknown} */ _uiAPI,
-                    /** @type {string | undefined} */ agentModel,
-                ) => {
-                    active = name;
-                    activeModel = agentModel;
-                },
                 startInteractiveSession: (
                     /** @type {string | null} */ request,
-                    /** @type {unknown} */ _handler,
-                    /** @type {{ initialAgentModel?: string }} */ options,
+                    /** @type {{ initialAgentName?: string }} */ options,
                 ) => {
                     startedWith = String(request);
-                    initialModel = options.initialAgentModel;
+                    initialAgentName = options.initialAgentName;
                     return Promise.resolve(undefined);
                 },
             }),
         }),
     );
 
-    assertEquals(active, "");
-    assertEquals(activeModel, "not-set");
     assertEquals(startedWith, "build thing");
-    assertEquals(initialModel, undefined);
+    assertEquals(initialAgentName, "planner");
 });
 
 Deno.test("runAgentsCommand TUI with missing selected agent shows message", async () => {

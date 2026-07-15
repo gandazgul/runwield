@@ -6,9 +6,6 @@
 import { parseArgs as parseArgsFn } from "@std/cli/parse-args";
 import { basename, dirname, join, resolve } from "@std/path";
 import { AGENTS } from "../../constants.js";
-import { switchActiveAgent as switchActiveAgentFn } from "../../shared/session/agent-switching.js";
-import { getRunWieldSessionMemoryBackupDir as getRunWieldSessionMemoryBackupDirFn } from "../../shared/session/root-session.js";
-import { runRootTurn as runRootTurnFn } from "../../shared/session/session.js";
 import { ensureMnemosyneBinary as ensureMnemosyneBinaryFn } from "../../shared/runtime-preflight.js";
 import { startInteractiveSession as startInteractiveSessionFn } from "../../ui/tui/chat-session.js";
 import { printCommandHelp as printCommandHelpFn } from "../help/index.js";
@@ -135,10 +132,7 @@ export async function exportMnemosyneCollection(collectionName, outputPath, deps
  * @property {typeof printCommandHelpFn} [printCommandHelp]
  * @property {typeof ensureMnemosyneBinaryFn} [ensureMnemosyneBinary]
  * @property {typeof startInteractiveSessionFn} [startInteractiveSession]
- * @property {typeof switchActiveAgentFn} [switchActiveAgent]
- * @property {typeof runRootTurnFn} [runRootTurn]
  * @property {typeof exportMnemosyneCollection} [exportMnemosyneCollection]
- * @property {typeof getRunWieldSessionMemoryBackupDirFn} [getRunWieldSessionMemoryBackupDir]
  * @property {() => Date} [now]
  * @property {() => string} [randomUUID]
  */
@@ -167,32 +161,28 @@ export async function runSleepCommand(argv, options = {}) {
     }
 
     if (!options.uiAPI) {
-        await startInteractiveSession("/sleep", null, { initialAgentName: AGENTS.ENGINEER });
+        await startInteractiveSession("/sleep", { initialAgentName: AGENTS.ENGINEER });
         return;
     }
 
-    const hostedSession = options.hostedSession;
-    if (!hostedSession) throw new Error("Sleep mode requires an active Hosted Session.");
-
-    const sessionManager = options.sessionManager || hostedSession.getRootSessionManager();
-    const sessionId = sessionManager?.getSessionId?.();
-    if (!sessionId) throw new Error("Sleep mode requires a persisted root Session ID.");
+    const sessionRuntime = options.sessionRuntime;
+    const runtimeSessionId = options.sessionId;
+    if (!sessionRuntime || !runtimeSessionId) {
+        throw new Error("Sleep mode requires an active runtime session.");
+    }
+    const snapshot = sessionRuntime.getSessionSnapshot(runtimeSessionId);
+    if (!snapshot?.sessionManagerId) throw new Error("Sleep mode requires a persisted root session id.");
 
     const ensureMnemosyneBinary = deps.ensureMnemosyneBinary || ensureMnemosyneBinaryFn;
     const exportCollection = deps.exportMnemosyneCollection || exportMnemosyneCollection;
-    const getMemoryBackupDir = deps.getRunWieldSessionMemoryBackupDir ||
-        getRunWieldSessionMemoryBackupDirFn;
     const now = deps.now || (() => new Date());
     const randomUUID = deps.randomUUID || crypto.randomUUID.bind(crypto);
-    const switchActiveAgent = options.switchActiveAgent || deps.switchActiveAgent || switchActiveAgentFn;
-    const runRootTurn = deps.runRootTurn || runRootTurnFn;
-
     await ensureMnemosyneBinary();
 
-    const cwd = hostedSession.cwd || Deno.cwd();
+    const cwd = snapshot.cwd;
     const rawCollectionName = basename(cwd) || "default";
     const collectionName = rawCollectionName === "global" ? "default" : rawCollectionName;
-    const artifactDir = resolve(getMemoryBackupDir(cwd, sessionId));
+    const artifactDir = resolve(sessionRuntime.getSessionMemoryBackupDir(runtimeSessionId));
     const timestamp = now().toISOString().replace(/[:.]/g, "-");
     const backupPath = join(
         artifactDir,
@@ -202,7 +192,7 @@ export async function runSleepCommand(argv, options = {}) {
     await exportCollection(collectionName, backupPath);
     options.uiAPI.appendSystemMessage(`[RunWield] Memory backup created before sleep mode: ${backupPath}`);
 
-    await switchActiveAgent(hostedSession, { agentName: AGENTS.ENGINEER }, options.uiAPI);
+    await sessionRuntime.switchAgent(runtimeSessionId, { agentName: AGENTS.ENGINEER });
 
     const runContext = [
         SLEEP_PROMPT,
@@ -215,12 +205,7 @@ export async function runSleepCommand(argv, options = {}) {
         "- Keep the deletion manifest, post-maintenance export, and reports in the session artifact directory.",
     ].join("\n");
 
-    // Sleep remains command-owned so prompt-template overrides cannot weaken its safety rules.
-    await runRootTurn({
-        hostedSession,
-        agentName: AGENTS.ENGINEER,
-        userRequest: runContext,
-        uiAPI: options.uiAPI,
-        sessionManager: /** @type {any} */ (sessionManager),
+    await sessionRuntime.promptSession(runtimeSessionId, {
+        initialRequest: runContext,
     });
 }

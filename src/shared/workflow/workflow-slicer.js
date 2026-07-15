@@ -8,9 +8,11 @@ import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { AGENTS } from "../../constants.js";
 import { findPlansByParent, loadPlan, parsePlanFrontMatter, saveChildFeaturePlans } from "../../plan-store.js";
-import { ensureBundledAgentDefFile, ensureRootAgentSession, runAgentSession } from "../session/session.js";
+import { ensureBundledAgentDefFile } from "../session/agent-assets.js";
+import { ensureRootAgentSession, runRootTurn } from "../session/session.js";
 import { createAgentHandler } from "../session/agent-handler.js";
 import { loadAgentDefFromPath } from "../session/agents.js";
+import { emitSystemStatus } from "../session/session-runtime-events.js";
 import { extractTasks, validateProjectTasks } from "./task-scheduling.js";
 import { buildSlicerRequest } from "./workflow-prompts.js";
 import { isEpicPlan, recordPlanEvent } from "./plan-lifecycle.js";
@@ -284,11 +286,10 @@ function createSlicerCustomTools(planName, cwd, deps) {
  * @param {import('../../tools/plan-written.js').TriageMeta} [opts.triageMeta]
  * @param {string} [opts.reviewFeedback]
  * @param {Array<{base64: string, mimeType: string}>} [opts.reviewImages]
- * @param {import('../types.js').SessionUiPort} opts.uiAPI
  * @param {import('../session/hosted-session.js').HostedSession} opts.hostedSession
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager]
  * @param {{
- *   runAgentSession?: typeof runAgentSession,
+ *   runRootTurn?: typeof runRootTurn,
  *   loadAgentDefFromPath?: typeof loadAgentDefFromPath,
  *   ensureBundledAgentDefFile?: typeof ensureBundledAgentDefFile,
  *   loadPlan?: typeof loadPlan,
@@ -303,25 +304,15 @@ export async function runSlicerAgent({
     triageMeta,
     reviewFeedback,
     reviewImages,
-    uiAPI,
     hostedSession,
     sessionManager,
     __deps,
 }) {
-    if (!uiAPI) throw new Error("runSlicerAgent: uiAPI is required");
     if (!hostedSession) throw new Error("runSlicerAgent: hostedSession is required");
     const projectRoot = hostedSession.cwd;
-    const session = __deps?.runAgentSession || runAgentSession;
-    const loadEpic = __deps?.loadPlan || (__deps
-        ? (() =>
-            Promise.resolve({
-                path: `plans/${planName}.md`,
-                markdown: "# Test Epic",
-                body: "# Test Epic",
-                attrs: { classification: "PROJECT", type: "epic", status: "ready_for_decomposition" },
-            }))
-        : loadPlan);
-    const findChildren = __deps?.findPlansByParent || (__deps ? (() => Promise.resolve([])) : findPlansByParent);
+    const rootTurn = __deps?.runRootTurn || runRootTurn;
+    const loadEpic = __deps?.loadPlan || loadPlan;
+    const findChildren = __deps?.findPlansByParent || findPlansByParent;
     const switchActive = __deps?.switchActiveAgent || (await import("../session/agent-switching.js")).switchActiveAgent;
     const slicerAgentDef = await loadSlicerAgentDef(__deps);
 
@@ -338,55 +329,58 @@ export async function runSlicerAgent({
             .map(summarizeChild);
         boundary = beginSlicerContextPhase({ planName, hostedSession, sessionManager });
 
-        await session({
-            hostedSession,
-            agentName: AGENTS.SLICER,
-            userRequest: buildSlicerRequest({
-                planName,
-                epicMarkdown: epic.markdown,
-                epicBody: epic.body,
-                epicAttrs: epic.attrs,
-                triageMeta,
-                children,
-                reviewFeedback,
-            }),
-            images: reviewImages,
+        const slicerRequest = buildSlicerRequest({
+            planName,
+            epicMarkdown: epic.markdown,
+            epicBody: epic.body,
+            epicAttrs: epic.attrs,
             triageMeta,
-            uiAPI,
-            sessionManager: boundary?.manager || sessionManager,
-            _agentDefOverride: slicerAgentDef,
-            customTools: createSlicerCustomTools(planName, projectRoot, __deps),
-            useRootSession: true,
-            allowReturnToRouter: false,
+            children,
+            reviewFeedback,
         });
+        const slicerSessionManager = boundary?.manager || sessionManager;
+        const slicerCustomTools = createSlicerCustomTools(planName, projectRoot, __deps);
         await switchActive(
             hostedSession,
             { agentName: AGENTS.SLICER, allowReturnToRouter: false },
-            uiAPI,
             {
                 ensureRootAgentSession: (switchOptions) =>
                     ensureRootAgentSession({
                         ...switchOptions,
+                        sessionManager: slicerSessionManager,
                         _agentDefOverride: slicerAgentDef,
-                        customTools: createSlicerCustomTools(planName, projectRoot, __deps),
+                        customTools: slicerCustomTools,
                     }),
                 createAgentHandler: (nextAgentName, handlerDeps) =>
                     createAgentHandler(nextAgentName, {
                         ...handlerDeps,
                         _agentDefOverride: slicerAgentDef,
-                        customTools: createSlicerCustomTools(planName, projectRoot, __deps),
+                        customTools: slicerCustomTools,
                         allowReturnToRouter: false,
                     }),
             },
         );
+        await rootTurn({
+            hostedSession,
+            agentName: AGENTS.SLICER,
+            userRequest: slicerRequest,
+            images: reviewImages,
+            sessionManager: slicerSessionManager,
+            _agentDefOverride: slicerAgentDef,
+            customTools: slicerCustomTools,
+            allowReturnToRouter: false,
+        });
         return { ok: true };
     } catch (e) {
         restoreFailedSlicerContextPhase(boundary);
         if (previousAgentName && hostedSession.getRootAgentName() !== previousAgentName) {
-            await switchActive(hostedSession, { agentName: previousAgentName }, uiAPI);
+            await switchActive(hostedSession, { agentName: previousAgentName });
         }
         const error = e instanceof Error ? e.message : String(e);
-        uiAPI.appendSystemMessage(`${slicerDisplay} failed: ${error}`, true, "RunWield");
+        emitSystemStatus(hostedSession, `${slicerDisplay} failed: ${error}`, {
+            level: "error",
+            header: "RunWield",
+        });
         return { ok: false, error };
     }
 }
@@ -403,7 +397,6 @@ export async function runSlicerAgent({
  * @param {string} opts.planName
  * @param {string} opts.planPath - Absolute path to the plan markdown file.
  * @param {import('../../tools/plan-written.js').TriageMeta} [opts.triageMeta]
- * @param {import('../types.js').SessionUiPort} opts.uiAPI
  * @param {import('../session/hosted-session.js').HostedSession} opts.hostedSession
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager]
  * @param {{
@@ -416,9 +409,8 @@ export async function runSlicerAgent({
  * @returns {Promise<{ ok: true, slicerInvoked: boolean } | { ok: false, error: string, stage: "slicer" | "validation" }>}
  */
 export async function ensureSlicerTasks(
-    { planName, planPath, triageMeta, uiAPI, hostedSession, sessionManager, __deps },
+    { planName, planPath, triageMeta, hostedSession, sessionManager, __deps },
 ) {
-    if (!uiAPI) throw new Error("ensureSlicerTasks: uiAPI is required");
     if (!hostedSession) throw new Error("ensureSlicerTasks: hostedSession is required");
     const slicer = __deps?.runSlicerAgent || runSlicerAgent;
     const readTextFile = __deps?.readTextFile || Deno.readTextFile.bind(Deno);
@@ -432,7 +424,7 @@ export async function ensureSlicerTasks(
      */
     async function invokeSlicer(meta) {
         try {
-            const result = await slicer({ planName, triageMeta: meta, uiAPI, hostedSession, sessionManager });
+            const result = await slicer({ planName, triageMeta: meta, hostedSession, sessionManager });
             if (!result.ok) return { ok: false, error: result.error || "slicer failed" };
             return { ok: true };
         } catch (e) {

@@ -2,147 +2,54 @@ import { assertEquals } from "@std/assert";
 import { handleBashCommand } from "./bash-interceptor.js";
 
 /**
- * @returns {{ ctx: any, records: any }}
+ * @param {string} userRequest
+ * @param {boolean} [concurrent]
  */
-function makeContext() {
-    const records = {
-        messages: /** @type {any[]} */ ([]),
-        userMessages: /** @type {string[]} */ ([]),
-        toolInvoked: /** @type {any[]} */ ([]),
-        toolResults: /** @type {any[]} */ ([]),
-        toolBlocks: /** @type {any[]} */ ([]),
-        systemMessages: /** @type {string[]} */ ([]),
-        renders: 0,
-        bumps: 0,
-        currentChecks: /** @type {number[]} */ ([]),
-        registeredProcs: /** @type {any[]} */ ([]),
-    };
-    const sessionManager = {
-        addMessage: (/** @type {any} */ message) => records.messages.push(message),
-    };
-    const ctx = {
-        userRequest: "",
-        uiAPI: {
-            appendUserMessage: (/** @type {string} */ message) => records.userMessages.push(message),
-            addToolInvoked: (/** @type {any} */ tool) => records.toolInvoked.push(tool),
-            addToolResult: (/** @type {any} */ result) => records.toolResults.push(result),
-            startToolExecution: (/** @type {string} */ id, /** @type {string} */ name, /** @type {string} */ args) => {
-                const block = {
-                    id,
-                    name,
-                    args,
-                    output: "",
-                    ended: false,
-                    isError: false,
-                    durationMs: 0,
-                    /** @param {string} chunk */
-                    appendOutput(chunk) {
-                        this.output += chunk;
-                    },
-                    /**
-                     * @param {boolean} isError
-                     * @param {number} durationMs
-                     */
-                    endExecution(isError, durationMs) {
-                        this.ended = true;
-                        this.isError = isError;
-                        this.durationMs = durationMs;
-                    },
-                };
-                records.toolBlocks.push(block);
-                return block;
+function makeContext(userRequest, concurrent = false) {
+    /** @type {any[]} */
+    const calls = [];
+    const sessionRuntime = /** @type {import('../../shared/session/session-runtime.js').SessionRuntime} */ (
+        /** @type {unknown} */ ({
+            runLocalShellCommand: (/** @type {string} */ sessionId, /** @type {any} */ options) => {
+                calls.push({ sessionId, options });
+                return Promise.resolve({ ok: true, exitCode: 0, output: "" });
             },
-            appendSystemMessage: (/** @type {string} */ message) => records.systemMessages.push(message),
-        },
-        tui: {
-            requestRender: () => records.renders++,
-        },
-        editor: {},
-        getSessionManager: () => sessionManager,
-        generationGuard: {
-            bump: () => {
-                records.bumps++;
-                return 7;
-            },
-            isCurrent: (/** @type {number} */ generation) => {
-                records.currentChecks.push(generation);
-                return true;
-            },
-        },
-        registerBashProc: (/** @type {any} */ proc) => records.registeredProcs.push(proc),
-    };
-    return { ctx, records };
+        })
+    );
+    return { userRequest, concurrent, sessionRuntime, sessionId: "runtime-session", calls };
 }
 
-Deno.test("handleBashCommand ignores non-bang input and swallows empty bang input", async () => {
-    const { ctx, records } = makeContext();
+Deno.test("handleBashCommand ignores non-bang input and swallows an empty bang", async () => {
+    const ordinary = makeContext("hello");
+    const empty = makeContext("!");
 
-    ctx.userRequest = "hello";
-    assertEquals(await handleBashCommand(ctx), false);
-
-    ctx.userRequest = "!";
-    assertEquals(await handleBashCommand(ctx), true);
-    assertEquals(records.toolBlocks, []);
+    assertEquals(await handleBashCommand(ordinary), false);
+    assertEquals(await handleBashCommand(empty), true);
+    assertEquals(ordinary.calls, []);
+    assertEquals(empty.calls, []);
 });
 
-Deno.test("handleBashCommand runs persistent commands and records transcript messages", async () => {
-    const { ctx, records } = makeContext();
-    ctx.userRequest = "!printf persistent";
+Deno.test("handleBashCommand delegates persistent commands to SessionRuntime", async () => {
+    const ctx = makeContext("!printf hello");
 
     assertEquals(await handleBashCommand(ctx), true);
-
-    assertEquals(records.bumps, 1);
-    assertEquals(records.userMessages, ["!printf persistent"]);
-    assertEquals(records.toolInvoked[0].input, { command: "printf persistent" });
-    assertEquals(records.toolBlocks[0].name, "$");
-    assertEquals(records.toolBlocks[0].args, "printf persistent");
-    assertEquals(records.toolBlocks[0].output, "persistent");
-    assertEquals(records.toolBlocks[0].ended, true);
-    assertEquals(records.toolBlocks[0].isError, false);
-    assertEquals(records.toolResults[0].result, "persistent");
-    assertEquals(records.toolResults[0].isError, false);
-    assertEquals(records.messages.map((/** @type {{ role: string }} */ message) => message.role), [
-        "user",
-        "assistant",
-        "user",
-    ]);
+    assertEquals(ctx.calls, [{
+        sessionId: "runtime-session",
+        options: { command: "printf hello", userRequest: "!printf hello", persist: true },
+    }]);
 });
 
-Deno.test("handleBashCommand runs ephemeral commands without persisting to session", async () => {
-    const { ctx, records } = makeContext();
-    ctx.userRequest = "!!printf ephemeral";
+Deno.test("handleBashCommand marks double-bang commands ephemeral", async () => {
+    const ctx = makeContext("!!printf hidden");
 
     assertEquals(await handleBashCommand(ctx), true);
-
-    assertEquals(records.bumps, 1);
-    assertEquals(records.userMessages, []);
-    assertEquals(records.messages, []);
-    assertEquals(records.toolBlocks[0].output, "ephemeral");
-    assertEquals(records.toolResults[0].isError, false);
+    assertEquals(ctx.calls[0].options.persist, false);
+    assertEquals(ctx.calls[0].options.command, "printf hidden");
 });
 
-Deno.test("handleBashCommand keeps concurrent commands out of generation guard and persistence", async () => {
-    const { ctx, records } = makeContext();
-    ctx.userRequest = "!printf concurrent";
-    ctx.concurrent = true;
+Deno.test("handleBashCommand never persists commands submitted during an active turn", async () => {
+    const ctx = makeContext("!printf concurrent", true);
 
     assertEquals(await handleBashCommand(ctx), true);
-
-    assertEquals(records.bumps, 0);
-    assertEquals(records.currentChecks, []);
-    assertEquals(records.messages, []);
-    assertEquals(records.userMessages, []);
-    assertEquals(records.toolBlocks[0].output, "concurrent");
-});
-
-Deno.test("handleBashCommand reports non-zero command status as an errored tool result", async () => {
-    const { ctx, records } = makeContext();
-    ctx.userRequest = "!sh -c 'printf fail >&2; exit 3'";
-
-    assertEquals(await handleBashCommand(ctx), true);
-
-    assertEquals(records.toolBlocks[0].output, "fail");
-    assertEquals(records.toolBlocks[0].isError, true);
-    assertEquals(records.toolResults[0].isError, true);
-    assertEquals(records.messages.at(-1).content[0].is_error, true);
+    assertEquals(ctx.calls[0].options.persist, false);
 });

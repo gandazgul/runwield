@@ -1,6 +1,6 @@
 /**
  * @module acp/session-map
- * ACP session id to HostedSession state mapping.
+ * ACP session id to SessionRuntime session-id mapping.
  */
 
 const ACP_SESSION_PREFIX = "acp-";
@@ -25,7 +25,7 @@ export function normalizeAcpSessionIdForLoad(sessionId) {
 /**
  * @typedef {Object} AcpSessionRecord
  * @property {string} acpSessionId
- * @property {string} hostedSessionId
+ * @property {string} runtimeSessionId
  * @property {string} cwd
  * @property {AcpPromptRecord | null} activePrompt
  * @property {boolean} loaded
@@ -46,28 +46,28 @@ export class AcpSessionMap {
         /** @type {Map<string, AcpSessionRecord>} */
         this.records = new Map();
         /** @type {Map<string, string>} */
-        this.acpIdsByHostedSessionId = new Map();
+        this.acpIdsByRuntimeSessionId = new Map();
     }
 
     /**
-     * @param {import('../shared/session/hosted-session.js').HostedSession} hostedSession
+     * @param {{ sessionId: string, cwd: string }} session
      * @param {CreateAcpSessionRecordOptions} [options]
      * @returns {AcpSessionRecord}
      */
-    createRecord(hostedSession, options = {}) {
-        const acpSessionId = options.acpSessionId || `${ACP_SESSION_PREFIX}${hostedSession.id}`;
+    createRecord(session, options = {}) {
+        const acpSessionId = options.acpSessionId || `${ACP_SESSION_PREFIX}${session.sessionId}`;
         if (this.records.has(acpSessionId)) throw new Error(`ACP session already exists: ${acpSessionId}`);
         const record = {
             acpSessionId,
-            hostedSessionId: hostedSession.id,
-            cwd: hostedSession.cwd,
+            runtimeSessionId: session.sessionId,
+            cwd: session.cwd,
             activePrompt: null,
             loaded: Boolean(options.loaded),
             ...(options.persistedSessionId ? { persistedSessionId: options.persistedSessionId } : {}),
             ...(options.sessionPath ? { sessionPath: options.sessionPath } : {}),
         };
         this.records.set(acpSessionId, record);
-        this.acpIdsByHostedSessionId.set(hostedSession.id, acpSessionId);
+        this.acpIdsByRuntimeSessionId.set(session.sessionId, acpSessionId);
         return record;
     }
 
@@ -80,19 +80,16 @@ export class AcpSessionMap {
         return Array.from(this.records.values());
     }
 
-    /** @param {string} hostedSessionId */
-    getAcpSessionIdForHostedSession(hostedSessionId) {
-        return this.acpIdsByHostedSessionId.get(hostedSessionId) || null;
+    /** @param {string} runtimeSessionId */
+    getAcpSessionIdForRuntimeSession(runtimeSessionId) {
+        return this.acpIdsByRuntimeSessionId.get(runtimeSessionId) || null;
     }
 
     /**
      * @param {string} acpSessionId
-     * @param {import('../shared/session/session-runtime.js').SessionRuntime} runtime
      */
-    getHostedSession(acpSessionId, runtime) {
-        const record = this.getRecord(acpSessionId);
-        if (!record) return null;
-        return runtime.getSession(record.hostedSessionId);
+    getRuntimeSessionId(acpSessionId) {
+        return this.getRecord(acpSessionId)?.runtimeSessionId || null;
     }
 
     /**
@@ -152,7 +149,7 @@ export class AcpSessionMap {
         const record = this.records.get(acpSessionId);
         if (!record) return false;
         this.records.delete(acpSessionId);
-        this.acpIdsByHostedSessionId.delete(record.hostedSessionId);
+        this.acpIdsByRuntimeSessionId.delete(record.runtimeSessionId);
         return true;
     }
 }

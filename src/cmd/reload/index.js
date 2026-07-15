@@ -3,7 +3,6 @@
  * Implementation of the reload command.
  */
 
-import { reloadRootAgentSession } from "../../shared/session/session.js";
 import { discoverAndRegisterThemes, setTheme } from "../../ui/theme/theme.js";
 import { getSettingsManager } from "../../shared/settings.js";
 
@@ -17,11 +16,12 @@ export async function runReloadCommand(_argv, options = {}) {
         console.log("The /reload command is only available in the interactive session.");
         return;
     }
+    if (!options.sessionRuntime || !options.sessionId) throw new Error("/reload requires an active runtime session.");
 
     try {
-        const success = await reloadRootAgentSession(options.hostedSession, options.uiAPI);
-        if (success) {
-            const settings = getSettingsManager(options.hostedSession?.cwd);
+        const result = await options.sessionRuntime.reloadSession(options.sessionId);
+        if (result.ok) {
+            const settings = getSettingsManager(options.sessionRuntime.getSessionSnapshot(options.sessionId)?.cwd);
             await discoverAndRegisterThemes();
             const persistedTheme = settings.getTheme();
             if (persistedTheme) setTheme(persistedTheme);

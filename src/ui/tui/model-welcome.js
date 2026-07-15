@@ -19,11 +19,11 @@ import { theme } from "../theme/theme.js";
  * @property {import('./types.js').UiAPI} uiAPI
  * @property {import('@earendil-works/pi-tui').Editor} editor
  * @property {import('@earendil-works/pi-tui').TUI} tui
- * @property {import('../../shared/session/hosted-session.js').HostedSession} [hostedSession]
- * @property {import('../../shared/session/types.js').SessionManagerLike} sessionManager
- * @property {(opts: { hostedSession?: import('../../shared/session/hosted-session.js').HostedSession, agentName: string, modelOverride?: string, uiAPI: import('../../shared/types.js').SessionUiPort, sessionManager: import('../../shared/session/types.js').SessionManagerLike }) => Promise<unknown>} ensureRootAgentSession
+ * @property {string} sessionId
+ * @property {import('../../shared/session/session-runtime.js').SessionRuntime} sessionRuntime
  * @property {string} initialAgentInternalName
  * @property {string} [initialAgentModel]
+ * @property {(model: string, provider?: string) => Promise<void> | void} [setActiveModel]
  * @property {Record<string, { execute: (argv: string[], options?: import('../../cmd/registry.js').CommandContext) => Promise<void> }>} [commandRegistry]
  * @property {() => { getAvailable?: () => Array<unknown>, find?: (provider: string, id: string) => unknown }} [getModelRegistry]
  * @property {() => { getDefaultModel?: () => string | undefined, getDefaultProvider?: () => string | undefined }} [getSettingsManager]
@@ -146,7 +146,8 @@ export async function maybeShowModelWelcome(options) {
                 uiAPI: options.uiAPI,
                 editor: options.editor,
                 tui: options.tui,
-                sessionManager: options.sessionManager,
+                sessionId: options.sessionId,
+                sessionRuntime: options.sessionRuntime,
             });
         }
         return { shown: true, suppressBootBanner: true, noModel: true, setupCompleted: false };
@@ -157,7 +158,8 @@ export async function maybeShowModelWelcome(options) {
         uiAPI: options.uiAPI,
         editor: options.editor,
         tui: options.tui,
-        sessionManager: options.sessionManager,
+        sessionId: options.sessionId,
+        sessionRuntime: options.sessionRuntime,
     });
 
     const afterLoginAvailability = getConfiguredModelAvailability(getModelRegistry);
@@ -183,8 +185,9 @@ export async function maybeShowModelWelcome(options) {
         uiAPI: options.uiAPI,
         editor: options.editor,
         tui: options.tui,
-        hostedSession: options.hostedSession,
-        sessionManager: options.sessionManager,
+        sessionId: options.sessionId,
+        sessionRuntime: options.sessionRuntime,
+        setActiveModel: options.setActiveModel,
     });
 
     const afterSelectionAvailability = getSelectedDefaultModelAvailability(getModelRegistry, getSettingsManager);
@@ -207,12 +210,9 @@ export async function maybeShowModelWelcome(options) {
     }
 
     try {
-        await options.ensureRootAgentSession({
-            hostedSession: options.hostedSession,
+        await options.sessionRuntime.ensureSessionReady(options.sessionId, {
             agentName: options.initialAgentInternalName,
             modelOverride: options.initialAgentModel,
-            uiAPI: options.uiAPI,
-            sessionManager: options.sessionManager,
         });
         options.editor.disableSubmit = false;
         options.tui.setFocus(options.editor);

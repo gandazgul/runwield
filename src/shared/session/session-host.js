@@ -15,7 +15,6 @@ import { HostedSession } from "./hosted-session.js";
  * @property {string} [id]
  * @property {string} [cwd]
  * @property {import('./hosted-session.js').MinimalSessionManagerLike | null} [sessionManager]
- * @property {unknown} [uiAPI]
  * @property {unknown} [eventSink]
  */
 

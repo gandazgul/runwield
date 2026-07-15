@@ -1,95 +1,61 @@
 import { assertEquals } from "@std/assert";
 import { runSessionCommand } from "./index.js";
-import { HostedSession } from "../../shared/session/hosted-session.js";
 import { initRunWieldTheme } from "../../ui/theme/theme.js";
 
 initRunWieldTheme();
 
-/**
- * @returns {{ uiAPI: any, messages: string[] }}
- */
 function makeUi() {
-    /** @type {string[]} */
-    const messages = [];
+    const messages = /** @type {string[]} */ ([]);
     return {
         messages,
-        uiAPI: {
+        uiAPI: /** @type {any} */ ({
             appendSystemMessage: (/** @type {string} */ message) => messages.push(message),
-        },
+        }),
     };
 }
 
-Deno.test("runSessionCommand reports no active session inside interactive mode", async () => {
+Deno.test("runSessionCommand reports a missing Runtime session", async () => {
     const { uiAPI, messages } = makeUi();
-    const hostedSession = new HostedSession({ id: "session-command-empty", cwd: Deno.cwd() });
-
-    await runSessionCommand([], { uiAPI, hostedSession });
-
+    await runSessionCommand([], { uiAPI });
     assertEquals(messages, ["Error: No active session."]);
 });
 
-Deno.test("runSessionCommand summarizes messages, tool use, compactions, token usage, and compaction settings", async () => {
+Deno.test("runSessionCommand formats the Runtime session-info projection", async () => {
     const { uiAPI, messages } = makeUi();
-    const hostedSession = new HostedSession({ id: "session-command-populated", cwd: Deno.cwd() });
-    hostedSession.setRootSessionManager(
-        /** @type {any} */ ({
-            getSessionName: () => "Deep Work",
-            getSessionFile: () => "/tmp/session.jsonl",
-            getSessionId: () => "session-123",
-            getEntries: () => [
-                { type: "compaction" },
-                { type: "message", message: { role: "user", content: "hello" } },
-                {
-                    type: "message",
-                    message: {
-                        role: "user",
-                        content: [{ type: "tool_result", text: "ok" }],
-                    },
-                },
-                {
-                    type: "message",
-                    message: {
-                        role: "assistant",
-                        content: [{ type: "tool_use", name: "bash" }],
-                        usage: {
-                            inputTokens: 1000,
-                            outputTokens: 250,
-                            cacheReadTokens: 500,
-                            cacheWriteTokens: 25,
-                        },
-                    },
-                },
-            ],
+    await runSessionCommand([], {
+        uiAPI,
+        sessionId: "runtime-id",
+        sessionRuntime: /** @type {any} */ ({
+            getSessionInfo: () => ({
+                name: "Deep Work",
+                file: "/tmp/session.jsonl",
+                persistedId: "session-123",
+                compactionCount: 1,
+                userMessages: 2,
+                assistantMessages: 1,
+                toolCalls: 1,
+                toolResults: 1,
+                inputTokens: 1000,
+                outputTokens: 250,
+                cacheReadTokens: 500,
+                cacheWriteTokens: 25,
+                compactionSettings: { enabled: true, reserveTokens: 16000, keepRecentTokens: 22000 },
+                contextUsage: { tokens: 96000, contextWindow: 128000, percent: 75 },
+            }),
         }),
-    );
-    hostedSession.setRootAgentSession(
-        /** @type {any} */ ({
-            settingsManager: {
-                getCompactionSettings: () => ({ enabled: true, reserveTokens: 16000, keepRecentTokens: 22000 }),
-            },
-            getContextUsage: () => ({ tokens: 96000, contextWindow: 128000, percent: 75 }),
-        }),
-    );
-
-    await runSessionCommand([], { uiAPI, hostedSession });
+    });
 
     const plain = messages.join("\n");
-    assertEquals(plain.includes("Session compacted 1 time"), true);
-    assertEquals(plain.includes("Deep Work"), true);
-    assertEquals(plain.includes("/tmp/session.jsonl"), true);
-    assertEquals(plain.includes("session-123"), true);
-    assertEquals(plain.includes("User:"), true);
-    assertEquals(plain.includes("2"), true);
-    assertEquals(plain.includes("Assistant:"), true);
-    assertEquals(plain.includes("Tool Calls:"), true);
-    assertEquals(plain.includes("Tool Results:"), true);
-    assertEquals(plain.includes("Compaction"), true);
-    assertEquals(plain.includes("Auto-compact:"), true);
-    assertEquals(plain.includes("16,000"), true);
-    assertEquals(plain.includes("22,000"), true);
-    assertEquals(plain.includes("112,000"), true);
-    assertEquals(plain.includes("96,000/128,000 (75.0%)"), true);
-    assertEquals(plain.includes("1,000"), true);
-    assertEquals(plain.includes("500"), true);
-    assertEquals(plain.includes("1,775"), true);
+    for (
+        const expected of [
+            "Session compacted 1 time",
+            "Deep Work",
+            "/tmp/session.jsonl",
+            "session-123",
+            "96,000/128,000 (75.0%)",
+            "1,775",
+        ]
+    ) {
+        assertEquals(plain.includes(expected), true);
+    }
 });

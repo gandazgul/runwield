@@ -18,72 +18,34 @@ export async function runSessionCommand(_argv, options = {}) {
         return;
     }
 
-    const { uiAPI, hostedSession } = options;
-    const sessionManager = /** @type {any} */ (hostedSession?.getRootSessionManager?.());
-    if (!sessionManager) {
+    const { uiAPI, sessionRuntime, sessionId: runtimeSessionId } = options;
+    const info = sessionRuntime && runtimeSessionId ? sessionRuntime.getSessionInfo(runtimeSessionId) : null;
+    if (!info) {
         uiAPI.appendSystemMessage("Error: No active session.");
         return;
     }
 
-    const entries = sessionManager.getEntries() || [];
-    let compactionCount = 0;
-
-    let userMessages = 0;
-    let assistantMessages = 0;
-    let toolCalls = 0;
-    let toolResults = 0;
-
-    let inputTokens = 0;
-    let outputTokens = 0;
-    let cacheReadTokens = 0;
-    let cacheWriteTokens = 0;
-
-    for (const entry of entries) {
-        if (entry.type === "compaction") {
-            compactionCount++;
-        } else if (entry.type === "message") {
-            const msg = entry.message;
-            if (!msg) continue;
-
-            if (msg.role === "user") {
-                userMessages++;
-                if (Array.isArray(msg.content)) {
-                    for (const block of msg.content) {
-                        if (block.type === "tool_result") {
-                            toolResults++;
-                        }
-                    }
-                }
-            } else if (msg.role === "assistant") {
-                assistantMessages++;
-                if (Array.isArray(msg.content)) {
-                    for (const block of msg.content) {
-                        if (block.type === "tool_use") {
-                            toolCalls++;
-                        }
-                    }
-                }
-
-                if (msg.usage) {
-                    inputTokens += msg.usage.inputTokens || 0;
-                    outputTokens += msg.usage.outputTokens || 0;
-                    cacheReadTokens += msg.usage.cacheReadTokens || 0;
-                    cacheWriteTokens += msg.usage.cacheWriteTokens || 0;
-                }
-            }
-        }
-    }
+    const {
+        compactionCount,
+        userMessages,
+        assistantMessages,
+        toolCalls,
+        toolResults,
+        inputTokens,
+        outputTokens,
+        cacheReadTokens,
+        cacheWriteTokens,
+    } = info;
 
     const totalMessages = userMessages + assistantMessages;
     const totalTokens = inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens;
 
-    const sessionName = sessionManager.getSessionName?.() || "";
-    const sessionFile = sessionManager.getSessionFile?.() || "In-memory";
-    const sessionId = sessionManager.getSessionId?.() || "";
-    const rootAgentSession = /** @type {any} */ (hostedSession?.getRootAgentSession?.());
-    const compactionSettings = rootAgentSession?.settingsManager?.getCompactionSettings?.();
-    const contextUsage = rootAgentSession?.getContextUsage?.();
-    const contextWindow = contextUsage?.contextWindow ?? rootAgentSession?.model?.contextWindow;
+    const sessionName = info.name;
+    const sessionFile = info.file;
+    const sessionId = info.persistedId;
+    const compactionSettings = /** @type {any} */ (info.compactionSettings);
+    const contextUsage = /** @type {any} */ (info.contextUsage);
+    const contextWindow = contextUsage?.contextWindow;
     const autoThreshold = compactionSettings && typeof contextWindow === "number" && contextWindow > 0
         ? Math.max(0, contextWindow - compactionSettings.reserveTokens)
         : null;

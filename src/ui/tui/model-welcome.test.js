@@ -81,17 +81,19 @@ function makeHarness(selection, modelCommandSelectsDefault = true) {
             uiAPI: /** @type {any} */ (uiAPI),
             editor: /** @type {any} */ (editor),
             tui: /** @type {any} */ (tui),
-            sessionManager: /** @type {any} */ ({}),
+            sessionId: "welcome-session",
+            sessionRuntime: /** @type {any} */ ({
+                ensureSessionReady: () => {
+                    rootBuilt++;
+                    return Promise.resolve();
+                },
+            }),
             initialAgentInternalName: "router",
             commandRegistry: /** @type {any} */ (commandRegistry),
             getSettingsManager: () => ({
                 getDefaultModel: () => defaultModel,
                 getDefaultProvider: () => defaultProvider,
             }),
-            ensureRootAgentSession: () => {
-                rootBuilt++;
-                return Promise.resolve();
-            },
         },
         rootBuilt: () => rootBuilt,
     };
@@ -194,7 +196,9 @@ Deno.test("root initialization failure returns control to the editor for recover
     const result = await maybeShowModelWelcome({
         ...harness.options,
         getModelRegistry: () => registryWithAvailable(availabilityChecks++ === 0 ? [] : [{ id: "model" }]),
-        ensureRootAgentSession: () => Promise.reject(new Error("boom")),
+        sessionRuntime: /** @type {any} */ ({
+            ensureSessionReady: () => Promise.reject(new Error("boom")),
+        }),
     });
 
     assertEquals(result.noModel, true);

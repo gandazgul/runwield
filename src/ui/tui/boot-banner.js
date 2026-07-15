@@ -9,7 +9,6 @@
 import { CWD, HOME_DIR } from "../../constants.js";
 import { recordSnipMissingWarningShown, shouldShowSnipMissingWarning } from "../../cmd/init/init-state.js";
 import { hasSnipBinary } from "../../shared/runtime-preflight.js";
-import { listLoadedAgentMdFiles, listSkills } from "../../shared/session/session.js";
 
 /**
  * @typedef {{
@@ -54,10 +53,12 @@ function toUserFacingAgentMdPath(file, projectRoot) {
  *   invokablePromptTemplates: PromptTemplate[],
  *   blockedPromptTemplates: PromptTemplate[],
  *   chatPromptAgentName: string,
+ *   sessionRuntime?: import('../../shared/session/session-runtime.js').SessionRuntime,
+ *   sessionId?: string,
  *   projectRoot?: string,
  *   __deps?: {
- *     listSkills?: typeof listSkills,
- *     listLoadedAgentMdFiles?: typeof listLoadedAgentMdFiles,
+ *     listSkills?: (options: { cwd?: string }) => Promise<any[]>,
+ *     listLoadedAgentMdFiles?: (cwd?: string) => Promise<any[]>,
  *     getSettingsManager?: (projectRoot?: string) => { getTheme: () => string | undefined },
  *     hasSnipBinary?: typeof hasSnipBinary,
  *     shouldShowSnipMissingWarning?: typeof shouldShowSnipMissingWarning,
@@ -70,11 +71,19 @@ export async function renderBootBanner({
     invokablePromptTemplates,
     blockedPromptTemplates,
     chatPromptAgentName,
+    sessionRuntime,
+    sessionId,
     projectRoot = CWD,
     __deps,
 }) {
-    const listSkillsImpl = __deps?.listSkills || listSkills;
-    const listLoadedAgentMdFilesImpl = __deps?.listLoadedAgentMdFiles || listLoadedAgentMdFiles;
+    const listSkillsImpl = __deps?.listSkills || (() => {
+        if (!sessionRuntime || !sessionId) throw new Error("Boot banner requires a runtime session");
+        return sessionRuntime.listSessionSkills(sessionId);
+    });
+    const listLoadedAgentMdFilesImpl = __deps?.listLoadedAgentMdFiles || (() => {
+        if (!sessionRuntime || !sessionId) throw new Error("Boot banner requires a runtime session");
+        return sessionRuntime.listSessionContextFiles(sessionId);
+    });
     const hasSnipBinaryImpl = __deps?.hasSnipBinary || hasSnipBinary;
     const shouldShowSnipMissingWarningImpl = __deps?.shouldShowSnipMissingWarning || shouldShowSnipMissingWarning;
     const recordSnipMissingWarningShownImpl = __deps?.recordSnipMissingWarningShown || recordSnipMissingWarningShown;
@@ -95,7 +104,7 @@ export async function renderBootBanner({
 
     const skills = await listSkillsImpl({ cwd: projectRoot });
     if (skills && skills.length > 0) {
-        const skillNames = skills.map((s) => s.name).join(", ");
+        const skillNames = skills.map((/** @type {{ name: string }} */ skill) => skill.name).join(", ");
         uiAPI.appendSystemMessage(skillNames, false, `Skills (${skills.length}):`, headerStyle);
     } else {
         uiAPI.appendSystemMessage("none", false, "Skills:", headerStyle);
@@ -114,7 +123,9 @@ export async function renderBootBanner({
     const agentMdFiles = await listLoadedAgentMdFilesImpl(projectRoot);
     if (agentMdFiles.length > 0) {
         const lines = agentMdFiles
-            .map((file) => `- ${toUserFacingAgentMdPath(file, projectRoot)}`)
+            .map((/** @type {{ path: string, source: "home" | "external" | "local" }} */ file) =>
+                `- ${toUserFacingAgentMdPath(file, projectRoot)}`
+            )
             .join("\n");
         uiAPI.appendSystemMessage(`\n${lines}`, false, "Context:", headerStyle);
     }

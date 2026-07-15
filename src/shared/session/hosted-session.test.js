@@ -46,12 +46,11 @@ Deno.test("HostedSession requires an absolute project root", () => {
 
 Deno.test("HostedSession stores mutable root runtime state per session", () => {
     const sessionManager = makeSessionManager("alpha-manager");
-    const uiAPI = { name: "ui-alpha" };
     const eventSink = { name: "sink-alpha" };
     const activeHandler = () => {};
     const rootAgentSession = makeDisposableSession("root-alpha");
     const subAgentSession = makeDisposableSession("sub-alpha");
-    const session = new HostedSession({ id: "alpha", cwd: "/work/alpha", sessionManager, uiAPI, eventSink });
+    const session = new HostedSession({ id: "alpha", cwd: "/work/alpha", sessionManager, eventSink });
 
     session.pushAgentInfo("Router", "openai/gpt-4.1", "openai");
     session.pushAgentInfo("Engineer", "anthropic/claude", "anthropic");
@@ -70,7 +69,6 @@ Deno.test("HostedSession stores mutable root runtime state per session", () => {
     assertEquals(session.id, "alpha");
     assertEquals(session.cwd, "/tmp/alpha-manager");
     assertStrictEquals(session.getRootSessionManager(), sessionManager);
-    assertStrictEquals(session.getActiveUiAPIState(), uiAPI);
     assertStrictEquals(session.getEventSink(), eventSink);
     assertEquals(session.getActiveAgentName(), "Engineer");
     assertEquals(session.getActiveModelState(), { model: "anthropic/claude", provider: "anthropic" });
@@ -118,14 +116,12 @@ Deno.test("two Hosted Sessions do not share session-scoped runtime state", () =>
         id: "alpha",
         cwd: "/work/alpha",
         sessionManager: makeSessionManager("alpha-manager"),
-        uiAPI: { session: "alpha" },
         eventSink: { session: "alpha-sink" },
     });
     const beta = new HostedSession({
         id: "beta",
         cwd: "/work/beta",
         sessionManager: makeSessionManager("beta-manager"),
-        uiAPI: { session: "beta" },
         eventSink: { session: "beta-sink" },
     });
 
@@ -172,8 +168,6 @@ Deno.test("two Hosted Sessions do not share session-scoped runtime state", () =>
     assertEquals(beta.cwd, "/tmp/beta-manager");
     assertEquals(alpha.getRootSessionManager()?.getSessionId?.(), "alpha-manager");
     assertEquals(beta.getRootSessionManager()?.getSessionId?.(), "beta-manager");
-    assertEquals(alpha.getActiveUiAPIState(), { session: "alpha" });
-    assertEquals(beta.getActiveUiAPIState(), { session: "beta" });
     assertEquals(alpha.getEventSink(), { session: "alpha-sink" });
     assertEquals(beta.getEventSink(), { session: "beta-sink" });
 });

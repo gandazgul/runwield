@@ -1,7 +1,9 @@
 /**
- * @module shared/session/presentation-messages
- * UI-independent formatting helpers that write through the core session port.
+ * @module shared/session/workflow-messages
+ * Semantic messages produced by workflow tools.
  */
+
+import { emitAssistantMessage } from "./session-runtime-events.js";
 
 /**
  * @param {unknown} value
@@ -28,30 +30,30 @@ export function formatTaskCompletedMarkdown(message) {
 }
 
 /**
- * @param {import('../types.js').SessionUiPort} uiAPI
+ * @param {import('./hosted-session.js').HostedSession} hostedSession
  * @param {string} agentName
  * @param {unknown} message
  */
-export function appendTaskCompletedMessage(uiAPI, agentName, message) {
-    const displayName = agentName || "RunWield";
-    const appender = uiAPI.appendAgentMessageStart(displayName);
-    appender.appendText(formatTaskCompletedMarkdown(message));
-    uiAPI.requestRender();
+export function emitTaskCompletedMessage(hostedSession, agentName, message) {
+    emitAssistantMessage(
+        hostedSession,
+        agentName || "RunWield",
+        formatTaskCompletedMarkdown(message),
+        { workflowMessage: "task_completed" },
+    );
 }
 
 /**
- * @param {import('../types.js').SessionUiPort} uiAPI
+ * @param {import('./hosted-session.js').HostedSession} hostedSession
  * @param {string} agentName
  * @param {unknown} message
  * @param {boolean} approved
  */
-export function appendReviewResultMessage(uiAPI, agentName, message, approved) {
-    const displayName = agentName || "Reviewer";
+export function emitReviewResultMessage(hostedSession, agentName, message, approved) {
     const markdown = typeof message === "string" && message.trim() ? message.trim() : "Review complete.";
-    if (uiAPI.appendReviewResult) {
-        uiAPI.appendReviewResult(displayName, markdown, approved);
-    } else {
-        uiAPI.appendAgentMessageStart(displayName).appendText(markdown);
-    }
-    uiAPI.requestRender();
+    emitAssistantMessage(hostedSession, agentName || "Reviewer", markdown, {
+        reviewResult: true,
+        approved,
+        workflowMessage: "review_complete",
+    });
 }

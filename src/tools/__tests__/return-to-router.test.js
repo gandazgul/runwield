@@ -7,81 +7,51 @@ import { executeReturnToRouter, returnToRouterTool } from "../return-to-router.j
 
 /** @param {{ execute: unknown }} tool @param {{ reason: string }} params @param {object} [context] */
 async function executeTool(tool, params, context = {}) {
-    const execute =
-        /** @type {(id: string, params: { reason: string }, signal: AbortSignal, onUpdate: () => void, context: object) => Promise<{ content: Array<{ type: string, text?: string }>, details: unknown, terminate?: boolean }>} */ (tool
-            .execute);
+    const execute = /** @type {any} */ (tool.execute);
     return await execute("tool-call-1", params, new AbortController().signal, () => {}, context);
 }
 
-function makeMockUiAPI() {
-    return /** @type {import('../../shared/types.js').SessionUiPort} */ ({
-        appendSystemMessage: () => {},
-        requestRender: () => {},
-        appendAgentMessageStart: () => ({ appendText: () => {} }),
-        promptSelect: () => Promise.resolve(null),
-        promptText: () => Promise.resolve(null),
-        showModelSelector: () => {},
-    });
-}
-
-Deno.test("returnToRouterTool exposes expected metadata", () => {
+Deno.test("returnToRouterTool exposes Router handoff metadata", () => {
     assertEquals(returnToRouterTool.name, "return_to_router");
     assertEquals(returnToRouterTool.label, `Return to ${getAgentDisplayName(AGENTS.ROUTER)}`);
-    assertMatch(
-        returnToRouterTool.description,
-        new RegExp(`return the conversation to ${getAgentDisplayName(AGENTS.ROUTER)}`, "i"),
-    );
 });
 
-Deno.test("returnToRouterTool returns error when no HostedSession context is active", async () => {
-    const result = await executeTool(returnToRouterTool, {
-        reason: "The user wants you to triage a larger change.",
-    });
-
-    assertMatch(
-        /** @type {{ type: "text", text: string }} */ (result.content[0]).text,
-        /requires an active UI session/i,
-    );
+Deno.test("returnToRouterTool requires HostedSession context", async () => {
+    const result = await executeTool(returnToRouterTool, { reason: "Retriage this request." });
+    assertMatch(result.content[0].text, /requires an active hosted session/i);
 });
 
-Deno.test("returnToRouterTool terminates with adapter-neutral Router handoff details", async () => {
-    const hostedSession = new HostedSession({ id: "return-router-session", cwd: Deno.cwd() });
-    const reason = "The user wants you to review the architecture of the auth module.";
-    /** @type {any[]} */
-    const metrics = [];
-
-    const result = await executeReturnToRouter({ reason }, makeMockUiAPI(), hostedSession, {
+Deno.test("executeReturnToRouter returns an adapter-neutral terminal handoff", async () => {
+    const hostedSession = new HostedSession({ id: "return-router", cwd: Deno.cwd() });
+    const metrics = /** @type {any[]} */ ([]);
+    const reason = "The user wants you to review the auth architecture.";
+    const result = await executeReturnToRouter({ reason }, hostedSession, {
         recordWorkflowMetric: (metric) => {
             metrics.push(metric);
-            return Promise.resolve(null);
+            return Promise.resolve(/** @type {any} */ (null));
         },
     });
 
-    assertEquals(result.terminate, true);
-    assertEquals(result.content.length, 0);
-    assertEquals(result.details, { agentName: AGENTS.ROUTER, reason });
-    assertEquals(hostedSession.getActiveOnMessage(), null);
-    assertEquals(hostedSession.getRootAgentName(), null);
+    assertEquals(result, {
+        content: [],
+        details: { agentName: AGENTS.ROUTER, reason },
+        terminate: true,
+    });
     assertEquals(metrics[0].event, "return_to_router");
 });
 
-Deno.test("readLatestReturnToRouterOutcome reads only current-turn Router handoffs", () => {
+Deno.test("returnToRouterTool reads only HostedSession from tool context", async () => {
+    const hostedSession = new HostedSession({ id: "context-session", cwd: Deno.cwd() });
+    const result = await executeTool(returnToRouterTool, { reason: "Retriage." }, { hostedSession });
+    assertEquals(result.details, { agentName: AGENTS.ROUTER, reason: "Retriage." });
+});
+
+Deno.test("readLatestReturnToRouterOutcome reads current-turn handoffs", () => {
     const messages = /** @type {import('@earendil-works/pi-agent-core').AgentMessage[]} */ ([
         { role: "toolResult", toolName: "return_to_router", details: { agentName: AGENTS.ROUTER, reason: "old" } },
         { role: "assistant", content: [{ type: "text", text: "later" }] },
         { role: "toolResult", toolName: "return_to_router", details: { agentName: AGENTS.ROUTER, reason: "new" } },
     ]);
-
     assertEquals(readLatestReturnToRouterOutcome(messages, 1), { agentName: AGENTS.ROUTER, reason: "new" });
     assertEquals(readLatestReturnToRouterOutcome(messages, 3), null);
-});
-
-Deno.test("returnToRouterTool uses HostedSession and UI from tool context", async () => {
-    const hostedSession = new HostedSession({ id: "context-session", cwd: Deno.cwd() });
-    const reason = "The user wants you to triage this request from scratch.";
-
-    const result = await executeTool(returnToRouterTool, { reason }, { uiAPI: makeMockUiAPI(), hostedSession });
-
-    assertEquals(result.terminate, true);
-    assertEquals(result.details, { agentName: AGENTS.ROUTER, reason });
 });

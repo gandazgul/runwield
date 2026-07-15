@@ -22,7 +22,7 @@ Deno.test("runNameCommand sets session name and terminal title", async () => {
     /** @type {string[]} */
     const messages = [];
     /** @type {string[]} */
-    const infos = [];
+    const renamed = [];
     /** @type {string[]} */
     const titles = [];
 
@@ -32,8 +32,12 @@ Deno.test("runNameCommand sets session name and terminal title", async () => {
             uiAPI: {
                 appendSystemMessage: (/** @type {string} */ message) => messages.push(message),
             },
-            sessionManager: {
-                appendSessionInfo: (/** @type {string} */ name) => infos.push(name),
+            sessionId: "runtime-name",
+            sessionRuntime: {
+                renameSession: (/** @type {string} */ sessionId, /** @type {string} */ name) => {
+                    renamed.push(`${sessionId}:${name}`);
+                    return { ok: true };
+                },
             },
             __testDeps: {
                 setTerminalTitleForName: (/** @type {string} */ name) => {
@@ -44,7 +48,7 @@ Deno.test("runNameCommand sets session name and terminal title", async () => {
         }),
     );
 
-    assertEquals(infos, ["build coverage"]);
+    assertEquals(renamed, ["runtime-name:build coverage"]);
     assertEquals(titles, ["build coverage"]);
     assertEquals(messages.length, 1);
     assertEquals(messages[0].includes("Session name set: build coverage"), true);
@@ -60,8 +64,9 @@ Deno.test("runNameCommand shows current session name", async () => {
             uiAPI: {
                 appendSystemMessage: (/** @type {string} */ message) => messages.push(message),
             },
-            sessionManager: {
-                getSessionName: () => "Deep Work",
+            sessionId: "runtime-name",
+            sessionRuntime: {
+                getSessionSnapshot: () => ({ name: "Deep Work" }),
             },
         }),
     );
@@ -80,8 +85,9 @@ Deno.test("runNameCommand shows usage when unnamed", async () => {
             uiAPI: {
                 appendSystemMessage: (/** @type {string} */ message) => messages.push(message),
             },
-            sessionManager: {
-                getSessionName: () => undefined,
+            sessionId: "runtime-name",
+            sessionRuntime: {
+                getSessionSnapshot: () => ({ name: undefined }),
             },
         }),
     );
