@@ -1,4 +1,5 @@
 ---
+planId: "8d58195f-84d5-4292-ad31-8968b008be38"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Generate approved internal Work Records from completed top-level FEATURE Plans and PROJECT Epics, write Plan backlinks, and add explicit backfill with preview and confirmation. This enables on-demand/backfill creation without session-end automation."

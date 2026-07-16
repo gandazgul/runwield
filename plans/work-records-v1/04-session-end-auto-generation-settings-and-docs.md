@@ -1,4 +1,5 @@
 ---
+planId: "7e2e6038-346c-4397-a09c-a96f8357cbdd"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Hook best-effort Work Record generation into session boundaries, add the auto-generation setting, and document V1 behavior. This completes V1 by generating records automatically on /new and /quit without blocking terminal Plan transitions or session closure."
