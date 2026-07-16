@@ -273,7 +273,7 @@ export function buildTaskAssignmentRequest(planName, planBody, task, results) {
     const dependencyOutputs = buildDependencyOutputsContext(task, results);
     return [
         "## Task Assignment",
-        `You are assigned Task ${task.task} from the plan "${planName}". This is a PROJECT plan; only execute the assigned task, then call task_completed with a concise success or failure summary.`,
+        `You are assigned Task ${task.task} from the plan "${planName}". This is a PROJECT plan; only execute the assigned task, then call task_completed with a concise bullet-point success or failure report.`,
         "### Task Description",
         task.description,
         "### Dependencies",
@@ -297,7 +297,7 @@ export function buildEngineerRequest(planName, planBody, reviewFeedback) {
     const lines = [
         `## Approved Plan: ${planName}`,
         "",
-        "Execute the following plan step by step. This is a FEATURE request. Complete all Implementation Steps and the Verification Plan, then call task_completed with a concise success or failure summary.",
+        "Execute the following plan step by step. This is a FEATURE request. Complete all Implementation Steps and the Verification Plan, then call task_completed with a concise bullet-point success or failure report.",
         "",
         planBody,
     ];

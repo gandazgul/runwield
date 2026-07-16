@@ -189,7 +189,7 @@ export async function loadManualQaPrompt(
     const description = typeof attrs.description === "string" ? attrs.description.trim() : "";
 
     return {
-        name: AGENTS.ROUTER,
+        name: AGENTS.TESTER,
         displayName,
         model: "",
         description,
