@@ -2,6 +2,7 @@ import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import {
     archivePlan,
     archivePlansByStatus,
+    clearPlanCollaborationMetadata,
     countChildPlanProgress,
     createPulledCollaborationPlan,
     ensurePlanIdentity,
@@ -1812,4 +1813,48 @@ testWithFs("updatePlanCollaborationMetadata filters non-front-matter collaborati
     assertEquals(markdown.includes("contentKey"), false);
     assertEquals(markdown.includes("reviewerUrl"), false);
     assertEquals(markdown.includes("secret"), false);
+});
+
+testWithFs("clearPlanCollaborationMetadata removes lock metadata and preserves body and normal metadata", async () => {
+    const cwd = await Deno.makeTempDir();
+    await savePlan(
+        cwd,
+        "locked",
+        "## Plan\n\nOriginal body",
+        lockedPlanFrontMatter({ status: "approved", summary: "Keep me", planId: "plan-1" }),
+    );
+
+    const attrs = await clearPlanCollaborationMetadata(
+        cwd,
+        "locked",
+        COLLABORATION_LOCK_BYPASS.unshare,
+        { updatedAt: "2026-07-04T12:00:00.000Z" },
+    );
+    const loaded = await loadPlan(cwd, "locked");
+    if (!loaded) throw new Error("Expected locked Plan to exist");
+    const markdown = await Deno.readTextFile(loaded.path);
+
+    assertEquals(attrs.planId, "plan-1");
+    assertEquals(attrs.status, "approved");
+    assertEquals(attrs.summary, "Keep me");
+    assertEquals(attrs.updatedAt, "2026-07-04T12:00:00.000Z");
+    assertEquals(attrs.collaborationState, undefined);
+    assertEquals(attrs.collaborationServerUrl, undefined);
+    assertEquals(attrs.collaborationSpaceId, undefined);
+    assertEquals(attrs.collaborationRevision, undefined);
+    assertEquals(attrs.collaborationBodyHash, undefined);
+    assertEquals(attrs.collaborationSyncedAt, undefined);
+    assertStringIncludes(loaded.body, "Original body");
+    assertEquals(markdown.includes("collaborationState"), false);
+});
+
+testWithFs("clearPlanCollaborationMetadata requires exact unshare bypass", async () => {
+    const cwd = await Deno.makeTempDir();
+    await savePlan(cwd, "locked", "## Plan\n\nOriginal", lockedPlanFrontMatter());
+
+    await assertRejects(
+        () => clearPlanCollaborationMetadata(cwd, "locked", COLLABORATION_LOCK_BYPASS.pull),
+        Error,
+        "unshare collaboration lock bypass",
+    );
 });
