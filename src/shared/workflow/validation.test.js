@@ -197,7 +197,7 @@ Deno.test("loadManualQaPrompt returns a bare tool-free prompt", async () => {
     );
 
     assertEquals(readPaths, ["/tmp/bundled-agent-definitions/workflow-prompts/manual-qa-prompt.md"]);
-    assertEquals(promptDef.name, "tester");
+    assertEquals(promptDef.name, "operator");
     assertEquals(promptDef.displayName, "Manual QA");
     assertEquals(promptDef.tools, []);
     assertEquals(promptDef.systemPrompt, "Output only a manual verification checklist.");
@@ -218,7 +218,7 @@ Deno.test("runManualQaChecklistPrompt uses isolated Plan context without tools",
     let invocation;
     const expectedMessages = /** @type {any} */ ([{ role: "assistant", content: "checklist" }]);
     const promptDef = /** @type {any} */ ({
-        name: "tester",
+        name: "operator",
         displayName: "Manual QA",
         model: "",
         description: "Checklist prompt",
@@ -242,7 +242,7 @@ Deno.test("runManualQaChecklistPrompt uses isolated Plan context without tools",
     });
 
     assertEquals(result, expectedMessages);
-    assertEquals(invocation.agentName, "tester");
+    assertEquals(invocation.agentName, "operator");
     assertEquals(invocation.cwd, "/repo");
     assertEquals(invocation._agentDefOverride, promptDef);
     assertEquals(invocation.includeEditFallback, false);
