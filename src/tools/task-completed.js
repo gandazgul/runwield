@@ -36,10 +36,7 @@ function buildToolParams(agentName) {
     });
 }
 
-/**
- * @param {string} agentName
- * @returns {string}
- */
+/** @returns {string} */
 function buildToolDescription() {
     return "Declare that you have finished your assigned execution task, whether it succeeded, failed, " +
         "or is blocked. " +
