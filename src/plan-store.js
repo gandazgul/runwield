@@ -1386,6 +1386,34 @@ export async function updatePlanCollaborationMetadata(cwd, planName, updates, co
 }
 
 /**
+ * Clear local collaboration metadata after an intentional unshare cleanup.
+ *
+ * @param {string} cwd
+ * @param {string} planName
+ * @param {symbol} collaborationLockBypass
+ * @param {{ updatedAt?: string }} [options]
+ * @returns {Promise<PlanFrontMatter>}
+ */
+export async function clearPlanCollaborationMetadata(cwd, planName, collaborationLockBypass, options = {}) {
+    if (collaborationLockBypass !== COLLABORATION_LOCK_BYPASS.unshare) {
+        throw new Error("Clearing collaboration metadata requires the unshare collaboration lock bypass.");
+    }
+    const plan = await loadPlan(cwd, planName);
+    if (!plan) throw new Error(`Plan not found: ${planName}`);
+    assertSharedPlanWriteAllowed(plan.attrs, { collaborationLockBypass });
+    const attrs = {
+        ...pickKnownPlanFrontMatter(plan.attrs),
+        updatedAt: options.updatedAt ?? new Date().toISOString(),
+    };
+    for (const key of Object.values(COLLABORATION_FRONT_MATTER_KEYS)) {
+        delete /** @type {Record<string, unknown>} */ (attrs)[key];
+    }
+    const markdown = injectFrontMatter(plan.body, attrs);
+    await Deno.writeTextFile(plan.path, markdown);
+    return parsePlanFrontMatter(markdown).attrs;
+}
+
+/**
  * @typedef {Object} PlanResourceEntry
  * @property {string} name - Canonical plan name relative to plans/ without .md.
  * @property {string} planName - Alias for name used by resource consumers.

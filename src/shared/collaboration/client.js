@@ -143,6 +143,11 @@ export class CollaborationClient {
             body: payload,
         });
     }
+
+    /** @param {string} spaceId */
+    async deleteSharedSpace(spaceId) {
+        return await this.updateSharedSpaceLifecycle(spaceId, { action: "delete" });
+    }
 }
 
 /** @param {CollaborationClientOptions} options */
