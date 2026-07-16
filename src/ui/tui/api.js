@@ -147,7 +147,7 @@ export function createUiApi(tui, messageList, spinner) {
                     return;
                 }
                 tui.requestRender();
-            }, 100);
+            }, 1000);
         }, 500);
         toolElapsedTimers.set(id, timer);
     };
