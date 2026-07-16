@@ -621,11 +621,18 @@ Use `wld wr` as the CLI command group for Work Records.
 Initial command direction:
 
 ```bash
+wld wr
+wld wr list [--all]
 wld wr search <query>
 wld wr read <recordId>
 wld wr create [optional text]
 wld wr backfill
 ```
+
+The first storage/lifecycle slice may ship only `wld wr` / `wld wr list` over canonical Markdown records. Generation,
+backfill, indexed search/read, and manual create belong to later slices or deferred manual/external Work Record scope.
+Default listing should show current usable records; `--all` is a maintenance view with prominent status, archival,
+supersession, and completion-mode warnings.
 
 `wld wr backfill` should:
 
