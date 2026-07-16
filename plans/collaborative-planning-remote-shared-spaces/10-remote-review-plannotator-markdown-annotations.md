@@ -31,7 +31,7 @@ worktreeId: "129a706d"
 worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-harns--/harns-runwield-collaborative-planning-remote-shared-spaces-10-r-129a706d"
 worktreeBranch: "runwield/worktree/collaborative-planning-remote-shared-spaces-10-r-129a706d"
 worktreeBaseBranch: "main"
-worktreeStatus: "merge_conflict"
+worktreeStatus: "active"
 ---
 
 # Remote Review Plannotator Markdown Annotations
