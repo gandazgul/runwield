@@ -95,7 +95,7 @@ Deno.test("buildTaskResultDisplay and buildEngineerRequest preserve workflow com
 
     const request = buildEngineerRequest("feature-plan", "Plan body");
     assertStringIncludes(request, "Approved Plan: feature-plan");
-    assertStringIncludes(request, "call task_completed with a concise success or failure summary");
+    assertStringIncludes(request, "call task_completed with a concise bullet-point success or failure report");
     assertStringIncludes(request, "Plan body");
 });
 

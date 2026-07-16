@@ -1,4 +1,4 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertStringIncludes } from "@std/assert";
 import { HostedSession } from "../../shared/session/hosted-session.js";
 import { RuntimeEventTypes } from "../../shared/session/session-runtime-events.js";
 import { createTaskCompletedTool } from "../task-completed.js";
@@ -17,15 +17,30 @@ Deno.test("task_completed emits one semantic assistant message and terminates", 
         },
     });
 
-    const result = await /** @type {any} */ (tool.execute)("call", { message: "Implemented and tested." });
+    const result = await /** @type {any} */ (tool.execute)("call", { message: "- Implemented and tested." });
 
     assertEquals(result.terminate, true);
-    assertEquals(result.details, { outcome: "task_completed", message: "Implemented and tested." });
+    assertEquals(result.details, { outcome: "task_completed", message: "- Implemented and tested." });
     assertEquals(events.length, 1);
     assertEquals(events[0].type, RuntimeEventTypes.ASSISTANT_TEXT_DELTA);
     assertEquals(events[0].agentName, "engineer");
     assertEquals(events[0].messageKind, "workflow");
     assertEquals(events[0].workflowMessage, "task_completed");
-    assertEquals(events[0].delta, "**Task completed.**\n\nImplemented and tested.");
+    assertEquals(events[0].delta, "**Task completed.**\n\n- Implemented and tested.");
     assertEquals(metrics[0].event, "task_completed");
+});
+
+Deno.test("task_completed message schema owns Engineer report format and accepts runtime display name", () => {
+    const hostedSession = new HostedSession({ id: "task-completed-schema", cwd: Deno.cwd() });
+    const engineerTool = createTaskCompletedTool({ hostedSession, agentName: "Engineer" });
+    const operatorTool = createTaskCompletedTool({ hostedSession, agentName: "operator" });
+
+    assertStringIncludes(
+        engineerTool.parameters.properties.message.description,
+        "Concise Markdown bullet-point success, failure, or blocked report",
+    );
+    assertEquals(engineerTool.parameters.required, ["message"]);
+    assertEquals(engineerTool.parameters.properties.message.minLength, 1);
+    assertEquals(engineerTool.description.includes("Markdown bullet-point"), false);
+    assertEquals(operatorTool.parameters.properties.message.description.includes("Markdown bullet-point"), false);
 });

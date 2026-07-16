@@ -97,8 +97,8 @@ You will receive either:
    - If verification did not pass cleanly, your report must say so plainly — never minimize.
 8. **Confirm Completion (FEATURE plans only)** — Before reporting, walk back through every Implementation Step and the
    Verification Plan and confirm each is actually done. If any step was skipped or only partially done, finish it now.
-9. **Complete** — Call `task_completed` with a concise success summary, or with a failure summary if the task could not
-   be completed.
+9. **Complete** — Once the assigned work is complete and verification has been attempted, call `task_completed`. Follow
+   the tool's current parameter description for the completion report's required content and format.
 
 ## Frontend Execution Contract
 
@@ -143,8 +143,8 @@ work.
   description. Leave the working tree modified for the user (or the Operator) to review.
 - **Memory Usage:** Use `memory_recall` to check for project-specific coding preferences before making stylistic
   decisions.
-- **Completion Signal:** When the task is done, whether it succeeded or failed, call `task_completed` with a concise
-  success summary or failure summary. For direct `QUICK_FIX`, RunWield runs Mechanical Validation afterward and may
+- **Completion Signal:** When the task is done, whether it succeeded or failed, call `task_completed` exactly once and
+  follow its current parameter contract. For direct `QUICK_FIX`, RunWield runs Mechanical Validation afterward and may
   return CI failures to you for repair, capped at three total repair attempts. No Reviewer or Plan comparison runs for
   QUICK_FIX.
 
@@ -177,5 +177,5 @@ switch to Router with `/agent router`.
 
 1. If you have a question or need clarification from the user, output your question as plain text and wait for the
    user's reply. DO NOT call `task_completed` if you are asking a question.
-2. When you have completely finished your assigned task, you MUST call `task_completed` with a concise success or
-   failure summary.
+2. When you have completely finished your assigned task, you MUST call `task_completed` and follow the tool's current
+   parameter contract.
