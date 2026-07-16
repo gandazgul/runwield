@@ -37,6 +37,7 @@ import { SHARED_PLAN_LOCK_REPAIR, SharedPlanLockError } from "../collaboration/l
  * @property {string} [epicDoneEnoughSummary]
  * @property {PlanStatus} [manualTargetStatus]
  * @property {string} [holdReason]
+ * @property {string} [closedWithoutVerificationReason]
  * @property {string} [holdStalenessBaseline]
  * @property {PlanStatus} [heldFromStatus]
  * @property {() => Date} [now]
@@ -301,7 +302,16 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
                 `Invalid Plan Lifecycle transition: manual_closed_without_verification cannot apply to status "${currentStatus}".`,
             );
         }
+        const reason = typeof details.closedWithoutVerificationReason === "string"
+            ? details.closedWithoutVerificationReason.trim()
+            : "";
+        if (!reason) {
+            throw new Error(
+                "Invalid Plan Lifecycle transition: manual_closed_without_verification requires closedWithoutVerificationReason.",
+            );
+        }
         updates.status = "closed_without_verification";
+        updates.closedWithoutVerificationReason = reason;
     }
 
     if (event === "plan_held") {

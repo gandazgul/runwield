@@ -116,6 +116,8 @@ function getStoredPlanLocation(cwd, planName) {
  * @property {string|null} [failedAt] - ISO timestamp when execution failed
  * @property {string|null} [implementedAt] - ISO timestamp when execution finished
  * @property {string|null} [verifiedAt] - ISO timestamp when validation passed
+ * @property {string|null} [closedWithoutVerificationReason] - Required reason for new manual closed_without_verification transitions
+ * @property {{ status?: "generated"|"failed", recordId?: string, path?: string, lastAttemptAt?: string, error?: string }} [workRecord] - Neutral backlink to canonical Work Record generation state
  * @property {HumanReviewMode} [humanReviewMode] - Human code review mode used for final validation; cleared when execution restarts or review reopens
  * @property {HumanReviewDecision} [humanReviewDecision] - Human code review outcome included in final validation; cleared when execution restarts or review reopens
  * @property {string|null} [humanReviewedAt] - ISO timestamp when human review approved final validation; cleared when execution restarts or review reopens
@@ -232,6 +234,9 @@ function isSupportedYamlValue(value) {
     if (value === null) return true;
     if (["string", "number", "boolean"].includes(typeof value)) return true;
     if (Array.isArray(value)) return value.every(isSupportedYamlValue);
+    if (value && typeof value === "object") {
+        return Object.values(/** @type {Record<string, unknown>} */ (value)).every(isSupportedYamlValue);
+    }
     return false;
 }
 
@@ -241,26 +246,81 @@ function isSupportedYamlValue(value) {
  * @param {unknown} value
  */
 function appendYamlField(lines, key, value) {
+    appendYamlValue(lines, key, value, 0, { emptyArrays: true });
+}
+
+/**
+ * @param {string[]} lines
+ * @param {string} key
+ * @param {unknown} value
+ * @param {number} indent
+ * @param {{ emptyArrays?: boolean }} [options]
+ */
+function appendYamlValue(lines, key, value, indent, options = {}) {
     if (value === undefined) return;
     if (!isSupportedYamlValue(value)) return;
+    const pad = " ".repeat(indent);
 
     if (Array.isArray(value)) {
-        lines.push(`${key}:`);
+        lines.push(`${pad}${key}:`);
         if (value.length === 0) {
-            lines.push(`    []`);
+            if (options.emptyArrays !== false) lines.push(`${pad}    []`);
         } else {
-            for (const item of value) {
-                if (typeof item === "string") lines.push(`    - "${escapeYamlDoubleQuoted(item)}"`);
-                else if (item === null) lines.push("    - null");
-                else lines.push(`    - ${String(item)}`);
-            }
+            for (const item of value) appendYamlListItem(lines, item, indent + 4, options);
         }
         return;
     }
 
-    if (typeof value === "string") lines.push(`${key}: "${escapeYamlDoubleQuoted(value)}"`);
-    else if (value === null) lines.push(`${key}: null`);
-    else lines.push(`${key}: ${String(value)}`);
+    if (value && typeof value === "object") {
+        const entries = Object.entries(/** @type {Record<string, unknown>} */ (value)).filter(([, child]) => {
+            if (child === undefined) return false;
+            if (Array.isArray(child) && child.length === 0 && options.emptyArrays === false) return false;
+            if (child && typeof child === "object" && !Array.isArray(child) && Object.keys(child).length === 0) {
+                return false;
+            }
+            return true;
+        });
+        if (!entries.length) return;
+        lines.push(`${pad}${key}:`);
+        for (const [childKey, childValue] of entries) appendYamlValue(lines, childKey, childValue, indent + 4, options);
+        return;
+    }
+
+    if (typeof value === "string") lines.push(`${pad}${key}: "${escapeYamlDoubleQuoted(value)}"`);
+    else if (value === null) lines.push(`${pad}${key}: null`);
+    else lines.push(`${pad}${key}: ${String(value)}`);
+}
+
+/**
+ * @param {string[]} lines
+ * @param {unknown} value
+ * @param {number} indent
+ * @param {{ emptyArrays?: boolean }} options
+ */
+function appendYamlListItem(lines, value, indent, options) {
+    const pad = " ".repeat(indent);
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+        const entries = Object.entries(/** @type {Record<string, unknown>} */ (value)).filter(([, child]) =>
+            child !== undefined
+        );
+        if (!entries.length) return;
+        const [firstKey, firstValue] = entries[0];
+        if (typeof firstValue === "string") lines.push(`${pad}- ${firstKey}: "${escapeYamlDoubleQuoted(firstValue)}"`);
+        else if (firstValue === null) lines.push(`${pad}- ${firstKey}: null`);
+        else if (["number", "boolean"].includes(typeof firstValue)) {
+            lines.push(`${pad}- ${firstKey}: ${String(firstValue)}`);
+        } else {
+            lines.push(`${pad}- ${firstKey}:`);
+            appendYamlListItem(lines, firstValue, indent + 4, options);
+        }
+        for (const [childKey, childValue] of entries.slice(1)) {
+            appendYamlValue(lines, childKey, childValue, indent + 2, options);
+        }
+        return;
+    }
+    if (typeof value === "string") lines.push(`${pad}- "${escapeYamlDoubleQuoted(value)}"`);
+    else if (value === null) lines.push(`${pad}- null`);
+    else lines.push(`${pad}- ${String(value)}`);
 }
 
 /**
@@ -291,6 +351,8 @@ function formatFrontMatter(fm) {
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.failedAt, fm.failedAt);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.implementedAt, fm.implementedAt);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.verifiedAt, fm.verifiedAt);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.closedWithoutVerificationReason, fm.closedWithoutVerificationReason);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.workRecord, fm.workRecord);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.humanReviewMode, fm.humanReviewMode);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.humanReviewDecision, fm.humanReviewDecision);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.humanReviewedAt, fm.humanReviewedAt);
@@ -508,6 +570,30 @@ function normalizeHumanReviewDecision(decision) {
 }
 
 /**
+ * @param {unknown} value
+ * @returns {PlanFrontMatter["workRecord"]}
+ */
+function normalizeWorkRecordBacklink(value) {
+    if (!value || typeof value !== "object") return undefined;
+    const source = /** @type {Record<string, unknown>} */ (value);
+    const status = source.status === "generated" || source.status === "failed" ? source.status : undefined;
+    const recordId = typeof source.recordId === "string" && source.recordId.trim() ? source.recordId.trim() : undefined;
+    const path = typeof source.path === "string" && source.path.trim() ? source.path.trim() : undefined;
+    const lastAttemptAt = typeof source.lastAttemptAt === "string" && source.lastAttemptAt.trim()
+        ? source.lastAttemptAt.trim()
+        : undefined;
+    const error = typeof source.error === "string" && source.error.trim() ? source.error.trim() : undefined;
+    if (!status && !recordId && !path && !lastAttemptAt && !error) return undefined;
+    return {
+        ...(status ? { status } : {}),
+        ...(recordId ? { recordId } : {}),
+        ...(path ? { path } : {}),
+        ...(lastAttemptAt ? { lastAttemptAt } : {}),
+        ...(error ? { error } : {}),
+    };
+}
+
+/**
  * Inject or update front matter on a plan's markdown content.
  * If front matter already exists, merge with existing values.
  *
@@ -568,6 +654,14 @@ export function injectFrontMatter(markdown, overrides = {}) {
         failedAt: optionalFrontMatterValue(overrides, existingFm, "failedAt"),
         implementedAt: optionalFrontMatterValue(overrides, existingFm, "implementedAt"),
         verifiedAt: optionalFrontMatterValue(overrides, existingFm, "verifiedAt"),
+        closedWithoutVerificationReason: optionalFrontMatterValue(
+            overrides,
+            existingFm,
+            "closedWithoutVerificationReason",
+        ),
+        workRecord: Object.hasOwn(overrides, "workRecord")
+            ? normalizeWorkRecordBacklink(overrides.workRecord)
+            : normalizeWorkRecordBacklink(existingFm.workRecord),
         humanReviewMode: normalizeHumanReviewMode(
             Object.hasOwn(overrides, "humanReviewMode") ? overrides.humanReviewMode : existingFm.humanReviewMode,
         ),
@@ -670,6 +764,10 @@ export function parsePlanFrontMatter(markdown, opts = {}) {
             failedAt: attrs.failedAt,
             implementedAt: attrs.implementedAt,
             verifiedAt: attrs.verifiedAt,
+            closedWithoutVerificationReason: typeof attrs.closedWithoutVerificationReason === "string"
+                ? attrs.closedWithoutVerificationReason
+                : undefined,
+            workRecord: normalizeWorkRecordBacklink(attrs.workRecord),
             humanReviewMode: normalizeHumanReviewMode(attrs.humanReviewMode),
             humanReviewDecision: normalizeHumanReviewDecision(attrs.humanReviewDecision),
             humanReviewedAt: attrs.humanReviewedAt,

@@ -80,6 +80,8 @@ const METADATA_LABELS = Object.freeze({
     [FM.failedAt]: "Failed at",
     [FM.implementedAt]: "Implemented at",
     [FM.verifiedAt]: "Verified at",
+    [FM.closedWithoutVerificationReason]: "Closed without verification reason",
+    [FM.workRecord]: "Work Record",
     [FM.executionBaselineTree]: "Execution baseline tree",
     [FM.worktreeId]: "Worktree ID",
     [FM.worktreeBranch]: "Worktree branch",
@@ -116,7 +118,15 @@ const METADATA_GROUPS = Object.freeze([
     },
     {
         title: "Lifecycle",
-        keys: [FM.status, FM.failureReason, FM.failedAt, FM.implementedAt, FM.verifiedAt],
+        keys: [
+            FM.status,
+            FM.failureReason,
+            FM.failedAt,
+            FM.implementedAt,
+            FM.verifiedAt,
+            FM.closedWithoutVerificationReason,
+            FM.workRecord,
+        ],
     },
     {
         title: "Execution worktree",
@@ -138,7 +148,7 @@ const METADATA_GROUPS = Object.freeze([
 
 /** @param {unknown} value */
 function hasMetadataValue(value) {
-    return value !== undefined && value !== "";
+    return value !== undefined && value !== null && value !== "";
 }
 
 /**
@@ -174,6 +184,11 @@ function planMetadata(plan) {
         [FM.holdReason]: source[FM.holdReason] ?? plan.holdReason,
         [FM.failureReason]: source[FM.failureReason] ?? plan.failureReason,
         [FM.failedAt]: source[FM.failedAt] ?? plan.failedAt,
+        [FM.implementedAt]: source[FM.implementedAt] ?? plan.implementedAt,
+        [FM.verifiedAt]: source[FM.verifiedAt] ?? plan.verifiedAt,
+        [FM.closedWithoutVerificationReason]: source[FM.closedWithoutVerificationReason] ??
+            plan.closedWithoutVerificationReason,
+        [FM.workRecord]: source[FM.workRecord] ?? plan.workRecord,
         [FM.epicCompletionMode]: source[FM.epicCompletionMode] ?? plan.epicCompletionMode,
         [FM.epicDoneEnoughSummary]: source[FM.epicDoneEnoughSummary] ?? plan.epicDoneEnoughSummary,
         [FM.epicDoneEnoughAt]: source[FM.epicDoneEnoughAt] ?? plan.epicDoneEnoughAt,

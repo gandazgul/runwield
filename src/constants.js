@@ -54,6 +54,12 @@ export const COMPLEXITIES = ["LOW", "MEDIUM", "HIGH"];
 /** Directory name where plan markdown files are stored. */
 export const PLANS_DIR_NAME = "plans";
 
+/** Directory name where canonical Work Record markdown files are stored. */
+export const WORK_RECORDS_DIR_NAME = "docs/work-records";
+
+/** User-facing label for the Work Records command group. */
+export const WORK_RECORDS_COMMAND_LABEL = "wr";
+
 /** Default bind host for the local read-only Plans Workspace. */
 export const PLAN_UI_DEFAULT_HOST = "127.0.0.1";
 

@@ -326,13 +326,21 @@ Deno.test("manual board movement blocks protected and terminal shortcuts", () =>
 Deno.test("manual closure is terminal and does not pretend validation passed", () => {
     const updates = buildPlanEventUpdates("manual_closed_without_verification", "implemented", {
         now: () => new Date("2026-01-02T03:04:05.000Z"),
+        closedWithoutVerificationReason: "Verified manually in staging.",
     });
 
     assertEquals(updates.status, "closed_without_verification");
     assertEquals(updates.updatedAt, "2026-01-02T03:04:05.000Z");
+    assertEquals(updates.closedWithoutVerificationReason, "Verified manually in staging.");
     assertEquals(updates.verifiedAt, undefined);
     assertEquals(updates.humanReviewDecision, undefined);
     assertEquals(updates.epicCompletionMode, undefined);
+
+    assertThrows(
+        () => buildPlanEventUpdates("manual_closed_without_verification", "implemented"),
+        Error,
+        "manual_closed_without_verification requires closedWithoutVerificationReason",
+    );
 
     assertThrows(
         () => buildPlanEventUpdates("manual_closed_without_verification", "verified"),
