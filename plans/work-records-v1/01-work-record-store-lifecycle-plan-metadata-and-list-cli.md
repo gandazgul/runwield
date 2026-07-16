@@ -1,5 +1,4 @@
 ---
-planId: "3a924af6-d374-4400-a961-a0caa558929c"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Establish canonical Work Record Markdown storage, state validation, Plan front matter extensions, close-without-verification reason enforcement, Workspace reason UX, and a simple listing CLI. This creates the durable source-of-truth layer without generation or indexing."
