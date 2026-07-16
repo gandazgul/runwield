@@ -1,4 +1,5 @@
 ---
+planId: "d6c115a6-1868-4c09-96b0-d047dfc2d406"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Build the derived Work Record search index, add CLI search, and expose work_record_search/read tools to Guide, Ideator, Planner, Architect, and Recorder while keeping Engineer excluded. This makes canonical records retrievable for future planning without making the index authoritative."

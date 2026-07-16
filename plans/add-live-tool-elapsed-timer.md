@@ -10,15 +10,19 @@ affectedPaths:
     - "src/ui/tui/message-hydration.test.js"
 frontend: false
 createdAt: "2026-07-13T18:37:50-04:00"
-updatedAt: "2026-07-14T01:34:48.561Z"
+updatedAt: "2026-07-16T02:13:51.107Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-07-14T00:05:51.584Z"
 verifiedAt: "2026-07-14T01:34:48.561Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
-routingIntent: "FEATURE"
-sessionName: "tool elapsed timer"
+collaborationState: "remote_canonical"
+collaborationServerUrl: "http://127.0.0.1:5175"
+collaborationSpaceId: "8069db69-b07e-4ead-beb1-fe813376e05b"
+collaborationRevision: 1
+collaborationBodyHash: "fd788fdcc2b7ce093945c07950b4fdae93bedec013f7e8cc591dc997db7a963f"
+collaborationSyncedAt: "2026-07-16T02:13:51.060Z"
 ---
 
 # Add Live Tool Elapsed Timer
