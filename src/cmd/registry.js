@@ -5,6 +5,7 @@
 
 import { CLI_BIN, DEV_CLI_RUN } from "../constants.js";
 import { runPlansCommand } from "./plans/index.js";
+import { runWorkRecordsCommand } from "./wr/index.js";
 import { runRouterCommand } from "./router/index.js";
 import { runSleepCommand } from "./sleep/index.js";
 import { runHelpCommand } from "./help/index.js";
@@ -33,7 +34,7 @@ import { runAcpCommand } from "./acp/index.js";
 import { getAgentDisplayName } from "../shared/session/agents.js";
 
 /** Known CLI / slash command names. Defined alongside the registry so adding a new command only touches one file. */
-/** @type {Readonly<{ROUTER: string, AGENT: string, MODEL: string, LOGIN: string, LOGOUT: string, STATUS: string, EXPORT: string, SHARE: string, LOAD_PLAN: string, RESUME: string, NEW: string, NAME: string, SESSION: string, PLANS: string, SLEEP: string, HELP: string, VERSION: string, QUIT: string, EXIT: string, INIT: string, THEME: string, INSTALL: string, REMOVE: string, COMPACT: string, SETTINGS: string, RELOAD: string, SNIP_FILTERS: string, COPY: string, ACP: string}>} */
+/** @type {Readonly<{ROUTER: string, AGENT: string, MODEL: string, LOGIN: string, LOGOUT: string, STATUS: string, EXPORT: string, SHARE: string, LOAD_PLAN: string, RESUME: string, NEW: string, NAME: string, SESSION: string, PLANS: string, WR: string, SLEEP: string, HELP: string, VERSION: string, QUIT: string, EXIT: string, INIT: string, THEME: string, INSTALL: string, REMOVE: string, COMPACT: string, SETTINGS: string, RELOAD: string, SNIP_FILTERS: string, COPY: string, ACP: string}>} */
 export const COMMAND_NAMES = Object.freeze({
     ROUTER: "router",
     AGENT: "agent",
@@ -49,6 +50,7 @@ export const COMMAND_NAMES = Object.freeze({
     NAME: "name",
     SESSION: "session",
     PLANS: "plans",
+    WR: "wr",
     SLEEP: "sleep",
     HELP: "help",
     VERSION: "version",
@@ -368,6 +370,25 @@ export const commandRegistry = {
             "Workspace HTML and APIs require the per-server token in the launch URL or x-runwield-workspace-token header.",
         ],
         execute: runPlansCommand,
+        surfaces: ["cli"],
+    },
+    [COMMAND_NAMES.WR]: {
+        name: COMMAND_NAMES.WR,
+        displayName: "Work Records",
+        description: "List canonical Work Records",
+        summary: "List repo-local Work Record markdown under docs/work-records/.",
+        usage: [
+            `${bin("wr")}`,
+            `${bin("wr list")}`,
+            `${bin("wr list --all")}`,
+            `${bin("wr --help")}`,
+        ],
+        notes: [
+            "Default behavior lists current usable Work Records only: approved, non-archived records.",
+            "Use wr list --all for maintenance inspection of draft, pending, superseded, or archived records with warnings.",
+            "Generation, backfill, indexed search/read, and manual create are deferred to later Work Records slices.",
+        ],
+        execute: runWorkRecordsCommand,
         surfaces: ["cli"],
     },
     [COMMAND_NAMES.SLEEP]: {
