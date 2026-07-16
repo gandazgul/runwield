@@ -23,6 +23,7 @@ import { draftRecoveryState, planBodyDraftKey, restoredDraftExpectedBodyHash } f
 import { blockedDropMessage, isAllowedDropTarget, parseAllowedTargetStatuses } from "./islands/PlanBoardDragDrop.jsx";
 import { matchingPlanIds, normalizePlanSearchQuery, PLAN_SEARCH_QUERY_PARAM } from "./islands/PlanBoardSearch.jsx";
 import {
+    createCloseWithoutVerificationIntent,
     createMoveStatusIntent,
     createPutOnHoldIntent,
     lifecycleActionLabel,
@@ -1661,6 +1662,13 @@ Deno.test("workspace lifecycle action metadata blocks protected status movement 
         holdReason: "",
     });
     assertEquals(createPutOnHoldIntent({ planId: "p1", fromStatus: "draft", holdReason: null }), null);
+    assertEquals(createCloseWithoutVerificationIntent({ planId: "p1", fromStatus: "draft", reason: " manual " }), {
+        planId: "p1",
+        fromStatus: "draft",
+        action: "close_without_verification",
+        closedWithoutVerificationReason: "manual",
+    });
+    assertEquals(createCloseWithoutVerificationIntent({ planId: "p1", fromStatus: "draft", reason: "" }), null);
 
     const allowed = parseAllowedTargetStatuses("feedback approved ready_for_work");
     assertEquals(
@@ -1786,16 +1794,29 @@ Deno.test("Workspace lifecycle API mutates through lifecycle events and blocks i
         assertEquals(resumed.status, 200);
         assertEquals((await loadWorkspaceDetail(cwd, "held-id")).status, "in_progress");
 
+        const blankClose = await app(
+            new Request("http://localhost/api/plans/feature-id/lifecycle-action", {
+                method: "POST",
+                headers: { [PLAN_UI_TOKEN_HEADER]: "secret", "content-type": "application/json" },
+                body: JSON.stringify({ action: "close_without_verification", closedWithoutVerificationReason: "  " }),
+            }),
+        );
+        assertEquals(blankClose.status, 409);
+
         const closed = await app(
             new Request("http://localhost/api/plans/feature-id/lifecycle-action", {
                 method: "POST",
                 headers: { [PLAN_UI_TOKEN_HEADER]: "secret", "content-type": "application/json" },
-                body: JSON.stringify({ action: "close_without_verification" }),
+                body: JSON.stringify({
+                    action: "close_without_verification",
+                    closedWithoutVerificationReason: "Verified manually in staging.",
+                }),
             }),
         );
         assertEquals(closed.status, 200);
         loaded = await loadWorkspaceDetail(cwd, "feature-id");
         assertEquals(loaded.status, "closed_without_verification");
+        assertEquals(loaded.closedWithoutVerificationReason, "Verified manually in staging.");
         assertEquals(loaded.frontMatter.verifiedAt, undefined);
     } finally {
         await Deno.remove(cwd, { recursive: true });

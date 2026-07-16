@@ -14,6 +14,7 @@ import {
  * @property {string} [fromStatus]
  * @property {string} [targetStatus]
  * @property {string} [holdReason]
+ * @property {string} [closedWithoutVerificationReason]
  * @property {boolean} [acceptResumeWarnings]
  */
 
@@ -29,6 +30,13 @@ import {
  * @property {string} planId
  * @property {string} fromStatus
  * @property {?string} holdReason
+ */
+
+/**
+ * @typedef {Object} CloseWithoutVerificationIntentOptions
+ * @property {string} planId
+ * @property {string} fromStatus
+ * @property {?string} reason
  */
 
 /**
@@ -56,6 +64,22 @@ export function createMoveStatusIntent({ planId, fromStatus, toStatus }) {
 export function createPutOnHoldIntent({ planId, fromStatus, holdReason }) {
     if (holdReason === null) return null;
     return { planId, fromStatus, action: PLAN_LIFECYCLE_ACTIONS.PUT_ON_HOLD, holdReason };
+}
+
+/**
+ * @param {CloseWithoutVerificationIntentOptions} opts
+ * @returns {?PlanLifecycleActionIntent}
+ */
+export function createCloseWithoutVerificationIntent({ planId, fromStatus, reason }) {
+    if (reason === null) return null;
+    const closedWithoutVerificationReason = String(reason || "").trim();
+    if (!closedWithoutVerificationReason) return null;
+    return {
+        planId,
+        fromStatus,
+        action: PLAN_LIFECYCLE_ACTIONS.CLOSE_WITHOUT_VERIFICATION,
+        closedWithoutVerificationReason,
+    };
 }
 
 /**
@@ -147,6 +171,24 @@ export function PlanLifecycleActions({
         if (intent) submit(intent);
     }
 
+    function closeWithoutVerification() {
+        const reason = prompt(
+            "Required reason for closing without RunWield Workflow Validation.",
+            plan.closedWithoutVerificationReason || "",
+        );
+        if (reason === null) return;
+        const intent = createCloseWithoutVerificationIntent({
+            planId: plan.planId,
+            fromStatus: plan.status,
+            reason,
+        });
+        if (!intent) {
+            setMessage("A close-without-verification reason is required.");
+            return;
+        }
+        submit(intent);
+    }
+
     const putOnHoldLabel = lifecycleActionLabel(actions, PLAN_LIFECYCLE_ACTIONS.PUT_ON_HOLD);
     const closeWithoutVerificationLabel = lifecycleActionLabel(
         actions,
@@ -216,12 +258,7 @@ export function PlanLifecycleActions({
                                     variant="danger"
                                     className="lifecycle-action"
                                     disabled={disabled}
-                                    onClick={() =>
-                                        confirm(`${closeWithoutVerificationLabel}?`) && submit({
-                                            planId: plan.planId,
-                                            action: PLAN_LIFECYCLE_ACTIONS.CLOSE_WITHOUT_VERIFICATION,
-                                            fromStatus: plan.status,
-                                        })}
+                                    onClick={closeWithoutVerification}
                                 >
                                     {closeWithoutVerificationLabel}
                                 </RunWieldButton>

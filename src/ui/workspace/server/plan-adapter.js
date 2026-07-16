@@ -274,6 +274,8 @@ export function serializePlanSummary(resource) {
         worktreeStatus: attrs.worktreeStatus || "",
         worktreeBranch: attrs.worktreeBranch || "",
         humanReviewMode: attrs.humanReviewMode || "",
+        closedWithoutVerificationReason: attrs.closedWithoutVerificationReason || "",
+        workRecord: attrs.workRecord || null,
         heldFromStatus: attrs.heldFromStatus || "",
         heldAt: attrs.heldAt || "",
         holdReason: attrs.holdReason || "",
@@ -684,6 +686,13 @@ function validateLifecycleActionPayload(payload) {
         const targetStatus = typeof body.targetStatus === "string" ? body.targetStatus : "";
         if (!targetStatus || !isKnownStatus(targetStatus)) throw new Error("Unknown or missing targetStatus.");
     }
+    if (action === PLAN_LIFECYCLE_ACTIONS.CLOSE_WITHOUT_VERIFICATION) {
+        const reason = typeof body.closedWithoutVerificationReason === "string"
+            ? body.closedWithoutVerificationReason.trim()
+            : "";
+        if (!reason) throw new Error("A close-without-verification reason is required.");
+        body.closedWithoutVerificationReason = reason;
+    }
     return body;
 }
 
@@ -717,6 +726,7 @@ export function applyWorkspaceLifecycleActionInMemory(plan, payload) {
     } else if (action === PLAN_LIFECYCLE_ACTIONS.CLOSE_WITHOUT_VERIFICATION) {
         if (!metadata.canCloseWithoutVerification) throw new Error(metadata.blockedReasons.close_without_verification);
         event = "manual_closed_without_verification";
+        details.closedWithoutVerificationReason = request.closedWithoutVerificationReason;
         message = "Plan closed without Workflow Validation.";
     } else if (action === PLAN_LIFECYCLE_ACTIONS.PUT_ON_HOLD) {
         if (!metadata.canPutOnHold) throw new Error(metadata.blockedReasons.put_on_hold);
@@ -788,6 +798,7 @@ export async function applyWorkspaceLifecycleAction(cwd, planId, payload) {
     } else if (action === PLAN_LIFECYCLE_ACTIONS.CLOSE_WITHOUT_VERIFICATION) {
         if (!metadata.canCloseWithoutVerification) throw new Error(metadata.blockedReasons.close_without_verification);
         event = "manual_closed_without_verification";
+        details.closedWithoutVerificationReason = request.closedWithoutVerificationReason;
         message = "Plan closed without Workflow Validation.";
     } else if (action === PLAN_LIFECYCLE_ACTIONS.PUT_ON_HOLD) {
         if (!metadata.canPutOnHold) throw new Error(metadata.blockedReasons.put_on_hold);
