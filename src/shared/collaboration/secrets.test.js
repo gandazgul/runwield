@@ -2,6 +2,7 @@ import { assert, assertEquals, assertRejects } from "@std/assert";
 import { join } from "@std/path";
 import {
     assertCompatiblePullSecretRecord,
+    deleteCompatibleSecretRecords,
     deleteSecretRecord,
     ensureProjectSecretStoreIgnored,
     getGlobalSecretStorePath,
@@ -12,6 +13,7 @@ import {
     putSecretRecord,
     readSecretStore,
     redactSecretStoreValue,
+    resolveCompatibleSecretRecord,
     resolvePullSecretRecord,
     SECRET_STORE_SCHEMA_VERSION,
     writeSecretStore,
@@ -58,6 +60,57 @@ Deno.test("secret stores delete records idempotently", async () => {
     }
 });
 
+Deno.test("deleteCompatibleSecretRecords clears pair and legacy records across stores", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "runwield-secrets-unshare-" });
+    try {
+        const globalPath = join(dir, "global.json");
+        const projectPath = join(dir, "project.json");
+        await putSecretRecord(globalPath, "plan-1:space-1", secretRecord());
+        await putSecretRecord(globalPath, "plan-1", secretRecord());
+        await putSecretRecord(projectPath, "plan-1", { ...secretRecord(), reviewerCapability: "project-reviewer" });
+        await putSecretRecord(projectPath, "plan-1:other-space", { ...secretRecord(), spaceId: "other-space" });
+
+        const deleted = await deleteCompatibleSecretRecords([globalPath, projectPath], "plan-1", "space-1");
+
+        assertEquals(
+            deleted.map((entry) => `${entry.path}:${entry.key}`).sort(),
+            [
+                `${globalPath}:plan-1`,
+                `${globalPath}:plan-1:space-1`,
+                `${projectPath}:plan-1`,
+            ].sort(),
+        );
+        assertEquals(await getSecretRecord(globalPath, "plan-1"), undefined);
+        assertEquals(await getSecretRecord(globalPath, "plan-1:space-1"), undefined);
+        assertEquals(await getSecretRecord(projectPath, "plan-1"), undefined);
+        assertEquals((await getSecretRecord(projectPath, "plan-1:other-space"))?.spaceId, "other-space");
+    } finally {
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
+Deno.test("deleteCompatibleSecretRecords tolerates missing stores", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "runwield-secrets-unshare-missing-" });
+    try {
+        assertEquals(await deleteCompatibleSecretRecords([join(dir, "missing.json")], "plan-1", "space-1"), []);
+    } finally {
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
+Deno.test("deleteCompatibleSecretRecords preserves unrelated legacy space records", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "runwield-secrets-unshare-preserve-" });
+    try {
+        const path = join(dir, "store.json");
+        await putSecretRecord(path, "plan-1", { ...secretRecord(), spaceId: "other-space" });
+
+        assertEquals(await deleteCompatibleSecretRecords([path], "plan-1", "space-1"), []);
+        assertEquals((await getSecretRecord(path, "plan-1"))?.spaceId, "other-space");
+    } finally {
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
 Deno.test("pull secret resolution prefers planId-space records across stores", async () => {
     const dir = await Deno.makeTempDir({ prefix: "runwield-secrets-resolve-" });
     try {
@@ -69,6 +122,35 @@ Deno.test("pull secret resolution prefers planId-space records across stores", a
         assertEquals(resolved?.path, projectPath);
         assertEquals(resolved?.key, "plan-1:space-1");
         assertEquals(resolved?.record.maintainerCapability, "maintainer-cap");
+    } finally {
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
+Deno.test("compatible secret resolution ignores records bound to other Shared Spaces", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "runwield-secrets-compatible-" });
+    try {
+        const globalPath = join(dir, "global.json");
+        const projectPath = join(dir, "project.json");
+        await putSecretRecord(globalPath, "plan-1", { ...secretRecord(), spaceId: "other-space" });
+        await putSecretRecord(projectPath, "plan-1:space-1", secretRecord());
+
+        const resolved = await resolveCompatibleSecretRecord([globalPath, projectPath], "plan-1", "space-1");
+
+        assertEquals(resolved?.path, projectPath);
+        assertEquals(resolved?.key, "plan-1:space-1");
+    } finally {
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
+Deno.test("compatible secret resolution returns null for only unrelated space records", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "runwield-secrets-compatible-null-" });
+    try {
+        const path = join(dir, "store.json");
+        await putSecretRecord(path, "plan-1", { ...secretRecord(), spaceId: "other-space" });
+
+        assertEquals(await resolveCompatibleSecretRecord([path], "plan-1", "space-1"), null);
     } finally {
         await Deno.remove(dir, { recursive: true });
     }
