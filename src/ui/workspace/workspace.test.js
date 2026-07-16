@@ -2205,6 +2205,9 @@ Deno.test("remote review Plannotator sidebar does not expose delete controls", a
     assertStringIncludes(workspaceCss, '.rw-remote-annotation-panel [title="Delete annotation"]');
     assertEquals(reviewSource.includes("RemoteLegacyAnchors"), false);
     assertEquals(reviewSource.includes("applyLegacyAnchorHighlights"), false);
+    assertEquals(reviewSource.includes("updateSharedSpaceLifecycle"), false);
+    assertEquals(reviewSource.includes('action: "delete"'), false);
+    assertEquals(/unshare/i.test(reviewSource), false);
 });
 
 Deno.test("remote review comment panel renders closed read-only controls and revision-scoped comments", () => {
