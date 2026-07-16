@@ -189,7 +189,7 @@ export async function loadManualQaPrompt(
     const description = typeof attrs.description === "string" ? attrs.description.trim() : "";
 
     return {
-        name: AGENTS.TESTER,
+        name: AGENTS.OPERATOR,
         displayName,
         model: "",
         description,
@@ -236,7 +236,7 @@ export async function runManualQaChecklistPrompt({
 
     return await runAgentSessionImpl({
         hostedSession,
-        agentName: AGENTS.TESTER,
+        agentName: AGENTS.OPERATOR,
         userRequest,
         cwd,
         _agentDefOverride: agentDef,
