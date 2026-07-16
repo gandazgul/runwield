@@ -1,9 +1,17 @@
 /**
  * Helpers for the remote Shared Space browser review payload.
  *
- * Plannotator's pinned source is not available in every Workspace worktree, and its Viewer stack currently imports
- * local review/editor/AI concerns. This remote review MVP therefore copies the narrow annotation concepts into small
- * RunWield-owned helpers while keeping the encrypted payload shape compatible with later pull/push flows.
+ * Remote APIs store this payload only after content-key encryption. The helper
+ * shape intentionally mirrors Plannotator's annotation metadata so the browser
+ * can render/restore annotations while `wld plans pull` still receives the
+ * stable remote review fields it already understands.
+ */
+
+/**
+ * @typedef {Object} RemoteSelectionMeta
+ * @property {string} parentTagName
+ * @property {number} parentIndex
+ * @property {number} textOffset
  */
 
 /**
@@ -13,6 +21,8 @@
  * @property {number} endOffset
  * @property {string} [prefix]
  * @property {string} [suffix]
+ * @property {RemoteSelectionMeta} [startMeta]
+ * @property {RemoteSelectionMeta} [endMeta]
  */
 
 /**
@@ -24,6 +34,20 @@
  * @property {string} originalText
  * @property {RemoteCommentAnchor | null} anchor
  * @property {string} createdAt
+ */
+
+/**
+ * @typedef {Object} RemoteCommentRecord
+ * @property {string} id
+ * @property {boolean} resolved
+ * @property {string} createdAt
+ * @property {boolean} [unreadable]
+ * @property {boolean} [anchorMissing]
+ * @property {"comment" | "global_comment"} type
+ * @property {string} displayName
+ * @property {string} body
+ * @property {string} originalText
+ * @property {RemoteCommentAnchor | null} anchor
  */
 
 /**
@@ -52,10 +76,39 @@ export function normalizeRemoteCommentPayload(value) {
 }
 
 /**
- * @param {{ displayName: string, body: string, selection?: (RemoteCommentAnchor & { originalText: string }) | null }} input
+ * @param {{
+ *   displayName: string,
+ *   body?: string,
+ *   selection?: (RemoteCommentAnchor & { originalText: string }) | null,
+ *   annotation?: Record<string, unknown> | null,
+ * }} input
  * @returns {RemoteCommentPayload}
  */
 export function buildRemoteCommentPayload(input) {
+    const annotation = input.annotation ?? null;
+    if (annotation) {
+        const type = annotation.type === "GLOBAL_COMMENT" ? "global_comment" : "comment";
+        const originalText = typeof annotation.originalText === "string" ? annotation.originalText : "";
+        return normalizeRemoteCommentPayload({
+            schemaVersion: 1,
+            type,
+            displayName: input.displayName,
+            body: typeof input.body === "string" ? input.body : String(annotation.text || ""),
+            originalText,
+            anchor: type === "comment"
+                ? {
+                    blockId: annotation.blockId,
+                    startOffset: annotation.startOffset,
+                    endOffset: annotation.endOffset,
+                    startMeta: annotation.startMeta,
+                    endMeta: annotation.endMeta,
+                }
+                : null,
+            createdAt: new Date(typeof annotation.createdA === "number" ? annotation.createdA : Date.now())
+                .toISOString(),
+        });
+    }
+
     const selection = input.selection ?? null;
     return normalizeRemoteCommentPayload({
         schemaVersion: 1,
@@ -70,10 +123,36 @@ export function buildRemoteCommentPayload(input) {
                 endOffset: selection.endOffset,
                 prefix: selection.prefix,
                 suffix: selection.suffix,
+                startMeta: selection.startMeta,
+                endMeta: selection.endMeta,
             }
             : null,
         createdAt: new Date().toISOString(),
     });
+}
+
+/**
+ * @param {RemoteCommentRecord} comment
+ * @returns {Record<string, unknown>}
+ */
+export function remoteCommentToPlannotatorAnnotation(comment) {
+    const createdA = Date.parse(comment.createdAt || "");
+    const anchor = comment.anchor || null;
+    const legacyInlineAnchor = comment.type === "comment" && anchor && (!anchor.startMeta || !anchor.endMeta);
+    return {
+        id: comment.id,
+        blockId: legacyInlineAnchor ? `__missing_legacy_anchor_${comment.id}` : anchor?.blockId || "",
+        startOffset: legacyInlineAnchor ? 0 : anchor?.startOffset || 0,
+        endOffset: legacyInlineAnchor ? Math.max(1, comment.originalText.length) : anchor?.endOffset ||
+            Math.max(0, comment.originalText.length),
+        type: comment.type === "global_comment" ? "GLOBAL_COMMENT" : "COMMENT",
+        text: comment.unreadable ? "Unreadable encrypted comment." : comment.body,
+        originalText: comment.originalText || "",
+        createdA: Number.isFinite(createdA) ? createdA : Date.now(),
+        author: comment.displayName || (comment.unreadable ? "Unreadable comment" : "Reviewer"),
+        startMeta: legacyInlineAnchor ? undefined : anchor?.startMeta,
+        endMeta: legacyInlineAnchor ? undefined : anchor?.endMeta,
+    };
 }
 
 /**
@@ -92,6 +171,20 @@ function normalizeAnchor(value) {
         endOffset,
         prefix: typeof record.prefix === "string" ? record.prefix : undefined,
         suffix: typeof record.suffix === "string" ? record.suffix : undefined,
+        startMeta: normalizeSelectionMeta(record.startMeta),
+        endMeta: normalizeSelectionMeta(record.endMeta),
+    };
+}
+
+/** @param {unknown} value @returns {RemoteSelectionMeta | undefined} */
+function normalizeSelectionMeta(value) {
+    if (value === undefined || value === null) return undefined;
+    if (typeof value !== "object" || Array.isArray(value)) throw new Error("Selection metadata must be an object.");
+    const record = /** @type {Record<string, unknown>} */ (value);
+    return {
+        parentTagName: nonEmpty(record.parentTagName, "parentTagName"),
+        parentIndex: positiveOffset(record.parentIndex, "parentIndex"),
+        textOffset: positiveOffset(record.textOffset, "textOffset"),
     };
 }
 

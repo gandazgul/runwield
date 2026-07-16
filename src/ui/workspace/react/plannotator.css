@@ -576,3 +576,51 @@
     border-color: var(--rw-accent, #38bdf8);
     background: color-mix(in srgb, var(--rw-accent, #38bdf8) 18%, transparent);
 }
+
+.rw-remote-plannotator-review {
+    border: 0;
+    border-radius: 0;
+    overflow: visible;
+}
+
+.rw-remote-plannotator-grid {
+    align-items: start;
+}
+
+.rw-remote-plannotator-plan-card {
+    display: flex;
+    justify-content: center;
+}
+
+.rw-remote-plannotator-plan-card > .relative,
+.rw-remote-plannotator-plan-card article[data-print-region="article"] {
+    width: 100%;
+}
+
+.rw-remote-toolstrip .inline-flex:nth-of-type(2) button:not(:nth-child(2)) {
+    display: none;
+}
+
+.rw-remote-annotation-panel aside[data-annotation-panel="true"] {
+    width: 100% !important;
+    border-left: 0;
+    min-height: 18rem;
+}
+
+.rw-remote-annotation-panel [title="Delete annotation"] {
+    display: none !important;
+}
+
+.rw-remote-plannotator-review[data-closed="true"] .rw-remote-toolstrip,
+.rw-remote-plannotator-review[data-closed="true"] article[data-print-region="article"] > div[data-sticky-actions] button[title="Add global comment"] {
+    display: none;
+}
+
+.rw-remote-plannotator-review[data-closed="true"] article[data-print-region="article"] {
+    pointer-events: none;
+}
+
+.rw-remote-review-closed .annotation-toolbar,
+.rw-remote-review-closed [data-comment-popover="true"] {
+    display: none !important;
+}
