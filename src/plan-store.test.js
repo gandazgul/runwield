@@ -71,6 +71,32 @@ Deno.test("injectFrontMatter escapes YAML double-quoted values", () => {
     assertEquals(attrs.affectedPaths, ['<|"|src/tools/user-interview.js<|"|']);
 });
 
+Deno.test("Plan Work Record metadata round trips with nested YAML", () => {
+    const markdown = "## Plan\n\nBody";
+    const withFm = injectFrontMatter(markdown, {
+        status: "closed_without_verification",
+        closedWithoutVerificationReason: "Verified manually in staging.",
+        workRecord: {
+            status: "generated",
+            recordId: "11111111-1111-4111-8111-111111111111",
+            path: "docs/work-records/2026-07-14-example.md",
+            lastAttemptAt: "2026-07-14T08:32:00-04:00",
+        },
+    });
+
+    const { attrs } = parsePlanFrontMatter(withFm);
+
+    assertEquals(attrs.closedWithoutVerificationReason, "Verified manually in staging.");
+    assertEquals(attrs.workRecord, {
+        status: "generated",
+        recordId: "11111111-1111-4111-8111-111111111111",
+        path: "docs/work-records/2026-07-14-example.md",
+        lastAttemptAt: "2026-07-14T08:32:00-04:00",
+    });
+    assertStringIncludes(withFm, "closedWithoutVerificationReason:");
+    assertStringIncludes(withFm, "workRecord:\n    status:");
+});
+
 Deno.test("frontend verification front matter round trips", () => {
     const markdown = "## Plan\n\nBody";
     const withFm = injectFrontMatter(markdown, {
