@@ -23,7 +23,7 @@ affectedPaths:
 frontend: false
 createdAt: "2026-07-10T09:36:24-04:00"
 updatedAt: "2026-07-16T14:08:45.056Z"
-status: "draft"
+status: "verfied"
 origin: "internal"
 ---
 
