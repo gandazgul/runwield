@@ -9,6 +9,9 @@ affectedPaths:
     - "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-harns--"
     - ".wld/worktrees.json"
     - "/Users/gandazgul/.zshrc"
+    - "/Users/gandazgul/.local/bin/wld"
+    - "/Users/gandazgul/.wld/init-state.json"
+    - ".claude/settings.local.json"
     - "/Users/gandazgul/Library/Application Support/Code/User"
     - "/Users/gandazgul/Library/Application Support/JetBrains"
     - "/Users/gandazgul/.claude/projects/-Users-gandazgul-Documents-web-harns"
@@ -19,7 +22,7 @@ affectedPaths:
     - "/Users/gandazgul/.codex/archived_sessions"
 frontend: false
 createdAt: "2026-07-10T09:36:24-04:00"
-updatedAt: "2026-07-10T13:55:26.396Z"
+updatedAt: "2026-07-16T14:08:45.056Z"
 status: "draft"
 origin: "internal"
 ---
@@ -33,23 +36,32 @@ the primary checkout still lives at `/Users/gandazgul/Documents/web/harns`. This
 rename only** to `/Users/gandazgul/Documents/web/runwield`; it does not rename source symbols, package metadata, Git
 branches, release assets, or `origin` (`git@github.com:gandazgul/runwield.git`).
 
+A 2026-07-16 refresh confirms the rename is still pending: `/Users/gandazgul/Documents/web/runwield` does not yet exist,
+the old RunWield and Claude path-keyed session directories still exist, Codex and `.zshrc` still contain old-root
+references, and active worktrees still block cutover.
+
 The folder basename and absolute path are operational identities for several tools, not just cosmetic labels:
 
-- Mnemosyne derives the **Project Name** from `basename(cwd)`, so the current `harns` collection (431 documents at
-  discovery time) would otherwise be replaced by a new empty `runwield` collection.
-- RunWield stores Agent Sessions under an encoded absolute-cwd directory. The current namespace contains 540 JSONL files
-  plus image and Memory-backup artifact directories; 523 JSONL session headers currently declare the exact old cwd.
-- RunWield worktree parents are keyed by the encoded primary-project path, and `.wld/worktrees.json` currently records
-  four linked worktrees under the old namespace. Git also has five linked worktrees beyond the primary checkout,
-  including `/private/tmp/runwield-review-demo-worktree`.
-- The active `wld` executable resolves directly to `harns/bin/wld`, and `.zshrc` contributes that old `bin` directory to
-  `PATH`.
+- Mnemosyne derives the **Project Name** from `basename(cwd)`, so the current `harns` collection (522 documents at the
+  2026-07-16 refresh) would otherwise be replaced by a new empty `runwield` collection.
+- RunWield stores Agent Sessions under an encoded absolute-cwd directory. The current namespace contains 547 JSONL files
+  plus image and Memory-backup artifact directories; 535 JSONL session headers currently declare the exact old cwd,
+  while 12 declare `harns_clone` and must not be coerced into the renamed checkout.
+- RunWield worktree parents are keyed by the encoded primary-project path. The 2026-07-16 refresh found three live
+  linked worktrees beyond the primary checkout, all under the old encoded parent; `.wld/worktrees.json` still records
+  those three validation-failed entries plus two stale completed/merged entries whose directories are already gone.
+- The shell contributes `harns/bin` to `PATH`, but the active `wld` currently resolves first to
+  `/Users/gandazgul/.local/bin/wld` and then to `harns/bin/wld`; this conflicts with the user's earlier choice to keep
+  `wld` resolving directly from the renamed repository's `bin/wld`, so the cutover must also remove or reorder the
+  `~/.local/bin` shadowing binary after backing it up if needed.
 - Cymbal, VS Code, JetBrains IDEs, terminals, Git clients, scripts, and recent-project registries may key state by the
   absolute path. VS Code has live folder/workspace identities for the old root, while JetBrains workspace XML contains
   old-root tree/open-file state.
-- Claude Code has a 22 MB path-keyed project-session directory for this checkout. Codex has the old root in its trusted
-  project config and process-manager state, plus historical sessions that record cwd. These are separate from RunWield
-  Agent Sessions; the user selected full resume-preserving migration for both rather than archive-only retention.
+- Claude Code has a 22 MB path-keyed project-session directory for this checkout, currently 22 session JSONL files plus
+  project auto-memory/artifacts and 194 matching global history rows. Codex has the old root in its trusted project
+  config and process-manager state, plus 164 SQLite `threads.cwd` rows and 165 active/archived rollout files with
+  structural `session_meta` old-cwd values. These are separate from RunWield Agent Sessions; the user selected full
+  resume-preserving migration for both rather than archive-only retention.
 
 The user chose to defer the cutover until current Plan work finishes naturally and all linked worktrees are gone, rather
 than abandoning work for the rename or repairing active Git metadata. The cutover must then run from the parent
@@ -100,8 +112,13 @@ Use a drain-backup-migrate-verify sequence rather than a blind `mv` followed by 
   Session namespace and change only each JSONL header's `cwd` field when it exactly equals the old root.
 - Mnemosyne collection `harns` → `runwield` — export the source collection with embeddings, import it under the new
   Project Name, and retain the old collection until post-cutover verification succeeds.
-- `/Users/gandazgul/.zshrc` — replace the old checkout `bin` PATH entry with the renamed repository's `bin` path so
-  `wld` continues to resolve directly from the development checkout.
+- `/Users/gandazgul/.zshrc` — replace the old checkout `bin` PATH entry with the renamed repository's `bin` path and
+  ensure repository `bin/wld` precedes any generic user-bin `wld`.
+- `/Users/gandazgul/.local/bin/wld` — currently shadows the development checkout binary; back it up/remove it or adjust
+  PATH ordering so the selected direct-checkout resolution policy is true after cutover.
+- `/Users/gandazgul/.wld/init-state.json` — update the old-root initialization record to the new root after backup.
+- `.claude/settings.local.json` — project-local Claude permissions contain exact old-root command allowlist entries;
+  update only active permission patterns that should remain valid from the renamed checkout.
 - `/Users/gandazgul/Library/Application Support/Code/User/**` — reopen the renamed folder and let VS Code create a new
   workspace identity; update only live workspace references/settings when needed, not bulk History records.
 - `/Users/gandazgul/Library/Application Support/JetBrains/**` — reopen/import the new path and remove stale recent
@@ -112,7 +129,7 @@ Use a drain-backup-migrate-verify sequence rather than a blind `mv` followed by 
   continue work at the new path.
 - `/Users/gandazgul/.codex/config.toml`, `/Users/gandazgul/.codex/state_5.sqlite`, active/archived rollout JSONL, Codex
   global project state, and live process-manager state — migrate exact structural old-root fields for the currently
-  indexed 134 threads, preserve trusted-project status, and terminate stale old-cwd processes before editing.
+  indexed 164 threads, preserve trusted-project status, and terminate stale old-cwd processes before editing.
 - Any discovered live shell scripts, launchd/cron jobs, MCP/editor allowlists, Git-client bookmarks, or sibling-project
   configs containing the old absolute path or `../harns` — update only after classifying them as operational.
 
@@ -147,26 +164,28 @@ Existing functions, modules, or patterns to reuse:
   - Record the old/new absolute paths and encoded names once and reuse them in commands to avoid typo-based partial
     migrations.
 - [ ] Make the primary checkout recoverable before touching path state:
-  - Review `git status --short`; the current primary checkout has user changes in three Plans plus
-    `src/ui/tui/slash-dispatch.js` and its test. Commit, stash, or explicitly retain them according to the user's normal
-    workflow; the migration must never silently stage or discard them.
+  - Review `git status --short`; the 2026-07-16 refresh found primary-checkout user changes in
+    `plans/collaborative-planning-remote-shared-spaces/10-remote-review-plannotator-markdown-annotations.md` and
+    `src/prompt-templates/release.md`, and this Plan revision itself may be dirty after finalization. Commit, stash, or
+    explicitly retain them according to the user's normal workflow; the migration must never silently stage or discard
+    them.
   - Capture `git rev-parse HEAD`, current branch, `git remote -v`, `git submodule status`,
-    `git worktree list
-    --porcelain`, `.wld/worktrees.json`, Mnemosyne collection counts, and Agent Session
-    file/artifact counts in a timestamped migration log outside the checkout.
+    `git worktree list --porcelain`, `.wld/worktrees.json`, Mnemosyne collection counts, and Agent Session file/artifact
+    counts in a timestamped migration log outside the checkout.
   - Create backups of the `harns` Mnemosyne export, the old Agent Session namespace, `.wld/worktrees.json`, chosen
     Claude/Codex state, and shell/IDE live configuration before edits. Keep backups until the rollback window closes.
-    Budget for at least 226 MB of RunWield Agent Sessions, 22 MB of Claude project state, and roughly 461 MB of Codex
+    Budget for at least 283 MB of RunWield Agent Sessions, 22 MB of Claude project state, and roughly 612 MB of Codex
     active/archived rollout state plus database/WAL backup overhead. The old worktree namespace is 3.6 GB and should
     disappear through normal completed-work cleanup rather than be duplicated wholesale.
 - [ ] Wait for and drain all linked worktrees before renaming:
   - Treat the rename as blocked while current Plan work remains. Let each Plan reach its intended terminal/recovery
     outcome and use normal merge/cleanup afterward; do not select Delete/abandon solely for this folder rename.
-  - Planning found three `validation_failed` registry entries, one `completed` entry, and uncommitted files in the
-    guided-review, merge-verified-metadata, and Workspace Plan Review worktrees. Recheck rather than relying on this
-    snapshot because concurrent Agent Sessions are still changing primary and worktree state.
-  - Separately inspect and remove `/private/tmp/runwield-review-demo-worktree` through `git worktree remove`; do not
-    assume RunWield's registry owns it.
+  - The 2026-07-16 refresh found three live `validation_failed` linked worktrees, two stale registry entries
+    (`completed`/`merged`) whose directories are already gone, a dirty remote-review annotations worktree, and a dirty
+    guided-review worktree; recheck rather than relying on this snapshot because concurrent Agent Sessions are still
+    changing primary and worktree state.
+  - Separately inspect `git worktree list --porcelain` for any non-RunWield linked worktree and remove it through
+    `git worktree remove` only after preserving wanted changes; do not assume RunWield's registry owns every entry.
   - Verify every linked worktree is clean or its changes are preserved before removal. Run `git worktree prune` only
     after removal.
   - Gate the rename on `git worktree list --porcelain` showing only the primary checkout and on no recoverable old-path
@@ -184,7 +203,7 @@ Existing functions, modules, or patterns to reuse:
   - Parse each JSONL file and update only the first `type: "session"` record's `cwd` when it exactly equals
     `/Users/gandazgul/Documents/web/harns`; do not global-replace old paths in messages, tool results, compactions, or
     exported historical content.
-  - Investigate the 17 current JSONL files that did not match the exact old header instead of coercing them. Their
+  - Investigate the 12 current JSONL files that did not match the exact old header instead of coercing them. Their
     headers currently declare `/Users/gandazgul/Documents/web/harns_clone`; preserve or return them to that checkout's
     namespace rather than changing them to `runwield`.
   - Preserve file timestamps/permissions where practical and compare pre/post file and artifact counts.
@@ -206,13 +225,13 @@ Existing functions, modules, or patterns to reuse:
     together with its `-wal`/`-shm` files before any transform.
   - Rename the exact `[projects.'/Users/gandazgul/Documents/web/harns']` table key in `config.toml` to the new root
     while preserving `trust_level = 'trusted'`; update only structural old-root project entries in Codex global state.
-  - For the 134 currently matching active/archived rollout files, parse every record and change only
+  - For the 165 currently matching active/archived rollout files, parse every record and change only
     `type: "session_meta"` → `payload.cwd` values exactly equal to the old root. Multiple `session_meta` records can
-    occur in one rollout (590 matches at discovery), so validate every transformed line while leaving prompts/tool
-    output untouched.
+    occur in one rollout (715 matches at the 2026-07-16 refresh), so validate every transformed line while leaving
+    prompts/tool output untouched.
   - In one SQLite transaction, update `threads.cwd` from old root to new root with an exact predicate and assert the
-    affected-row count matches the preflight count (134 at discovery). Run `PRAGMA integrity_check` afterward. Do not
-    modify unrelated goals, logs, Memory databases, thread IDs, rollout paths, or source metadata.
+    affected-row count matches the preflight count (164 at the 2026-07-16 refresh). Run `PRAGMA integrity_check`
+    afterward. Do not modify unrelated goals, logs, Memory databases, thread IDs, rollout paths, or source metadata.
   - Remove/reconcile closed old-cwd process-manager entries rather than making dead processes appear live. Let Codex
     rebuild disposable ambient-suggestion/cache state unless the current version documents a safe structural migration.
   - Verify both the cwd-filtered `codex resume` picker and `codex resume <SESSION_ID> -C <new-root>`; current Codex help
@@ -222,18 +241,21 @@ Existing functions, modules, or patterns to reuse:
   - Export the `harns` collection with embeddings to a timestamped JSONL backup, initialize/confirm `runwield`, and
     import with `mnemosyne import <backup> --name runwield`.
   - Verify document count, Core Memory presence, representative semantic searches, tags, and no accidental duplicate
-    import. The discovery baseline is 431 documents in `harns`; re-read the live count at execution time.
+    import. The current refresh baseline is 522 documents in `harns`; re-read the live count at execution time.
   - Keep Global Memory unchanged. Do not automatically consolidate the many worktree-basename collections into the main
     project collection; export non-empty old worktree collections for retention and audit them separately.
   - Keep `harns` available as rollback state until the user explicitly approves deletion; then optionally run
     `mnemosyne forget --name harns`.
 - [ ] Restore command and local RunWield path resolution:
-  - Update `.zshrc` line 18 (or its live equivalent at execution time) from `.../harns/bin` to `.../runwield/bin`,
-    preserving the user's choice to run `wld` directly from the renamed repository's `bin/wld`.
-  - Open a new shell or run `rehash`/`hash -r`, then verify `type -a wld`, `wld --version`, and `wld --help` resolve
-    from the intended location.
+  - Update `.zshrc` line 18 (or its live equivalent at execution time) from `.../harns/bin` to `.../runwield/bin`, then
+    resolve the current `~/.local/bin/wld` shadowing binary by backing it up/removing it or reordering PATH so the
+    user's choice to run `wld` directly from the renamed repository's `bin/wld` is actually true.
+  - Open a new shell or run `rehash`/`hash -r`, then verify `type -a wld`, `command -v wld`, `wld --version`, and
+    `wld --help` resolve from the intended repository `bin/wld` location first and have no old-root result.
   - The project-local `.wld/settings.json` moves with the checkout. Recheck any path-valued global settings, external
-    Skill/Agent paths, review launchers, notification hooks, and permissions for old-root references.
+    Skill/Agent paths, review launchers, notification hooks, and permissions for old-root references. Update
+    `.claude/settings.local.json` permission entries only when they are active allowlist patterns, not historical
+    command evidence.
 - [ ] Reconcile RunWield worktree and initialization state:
   - Confirm the moved `.wld/worktrees.json` contains no recoverable old-path worktree. Archive/remove the old
     `~/.wld/worktrees/--Users-gandazgul-Documents-web-harns--` directory only after it is empty and every wanted branch
@@ -249,7 +271,9 @@ Existing functions, modules, or patterns to reuse:
   - Restart language servers, Deno/npm tooling, test watchers, and Workspace dev servers so they bind to the new root.
     Reinstall dependencies only if path-bearing generated links fail; do not delete `node_modules` or Deno caches by
     default.
-  - Recompile `bin/wld` if its development/release workflow expects a fresh artifact at the renamed path.
+  - Rebuild or delete generated `dist/workspace*` artifacts if they still contain old-root build metadata; do not
+    hand-edit generated bundles. Recompile `bin/wld` if its development/release workflow expects a fresh artifact at the
+    renamed path.
 - [ ] Reopen IDEs and external project integrations:
   - Open `/Users/gandazgul/Documents/web/runwield` as a new VS Code/JetBrains project. Confirm source control, Deno,
     launch configurations, tasks, breakpoints, terminals, and indexing use the new root.
@@ -258,7 +282,8 @@ Existing functions, modules, or patterns to reuse:
   - Repoint Git GUI clients, terminal profiles/bookmarks, Finder aliases, tmux/zoxide/autojump entries, local file URLs,
     MCP roots, Claude/Codex project permissions, launchd/cron jobs, and sibling-repository scripts that actively target
     the old path. The planning-time sibling-repository scan found no live source/config references outside this
-    checkout; rerun the scan because local state can change.
+    checkout, while project-local ignored files such as `.idea/workspace.xml`, `.claude/settings.local.json`, and
+    generated `dist/` artifacts do contain old-root references; rerun the scan because local state can change.
   - For Claude/Codex, close live processes first, migrate path identity and structural cwd/project metadata as
     specified, retain the old backups for rollback, and prove both old-session resume and new-session creation from
     `runwield`.
@@ -281,16 +306,17 @@ Existing functions, modules, or patterns to reuse:
   - Representative `mnemosyne search --name runwield ...` queries return known project and Core Memories; Global Memory
     results remain unchanged.
 - Agent Session checks:
-  - RunWield pre/post JSONL file, image-directory, and Memory-backup-directory counts match after accounting for the 17
+  - RunWield pre/post JSONL file, image-directory, and Memory-backup-directory counts match after accounting for the 12
     `harns_clone` outliers. `wld --continue` and `/resume` list old primary-checkout Agent Sessions; open at least one
     recent and one older session, verify transcript/image hydration, then exit without cwd mismatch.
   - Claude's session list/resume under the new directory finds the same 22 project session IDs and loads the migrated
     `memory/` content; resume one recent and one older ID, then verify `--continue` selects the new-root recent session.
-  - Codex's cwd-filtered picker finds the 134 migrated threads, `codex resume --all` still shows them, and direct resume
+  - Codex's cwd-filtered picker finds the 164 migrated threads, `codex resume --all` still shows them, and direct resume
     of one recent plus one archived ID under `-C /Users/gandazgul/Documents/web/runwield` succeeds. SQLite
     `PRAGMA integrity_check` returns `ok` and no `threads.cwd` row remains for the old root.
 - Tool/IDE checks:
-  - `type -a wld` has no old-root result; `wld --version` and `wld --help` work from a new shell.
+  - `command -v wld` resolves to `/Users/gandazgul/Documents/web/runwield/bin/wld`; `type -a wld` has no old-root result
+    and no higher-priority `~/.local/bin/wld` shadow; `wld --version` and `wld --help` work from a new shell.
   - Cymbal symbol search reports files under the new root and does not select the stale old root for current-project
     queries.
   - VS Code and the JetBrains IDE open the tracked project, detect Git/Deno, run the existing launch configuration, and
@@ -308,9 +334,9 @@ Existing functions, modules, or patterns to reuse:
 
 ## Edge Cases & Considerations
 
-- **Current in-flight state:** planning found a dirty primary checkout, four RunWield registry entries, and five linked
-  worktrees. These are hard preconditions, not cleanup suggestions; renaming first would break linked-worktree gitfiles
-  and Plan Recovery paths.
+- **Current in-flight state:** the 2026-07-16 refresh found a dirty primary checkout, five RunWield registry entries,
+  and three live linked worktrees. These are hard preconditions, not cleanup suggestions; renaming first would break
+  linked-worktree gitfiles and Plan Recovery paths.
 - **Current Agent Session:** this Plan's own JSONL file will still be receiving writes until RunWield exits. Session
   migration must happen afterward from a separate shell/process.
 - **RunWield Session header mismatch:** moving the encoded directory alone is insufficient because

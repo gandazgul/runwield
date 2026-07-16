@@ -49,6 +49,8 @@ Generate a changelog and publish a new release for this repository.
      - For GitHub: use the `gh release create` command.
      - For GitLab: use the `glab release create` command.
 
+6. Monitor the CI/CD run for errors and if necesary fix them.
+
 If a required CLI tool is missing, halt and inform the user.
 
 Note: no need to store memories for releases generally, only if there's a significant breaking change that would be
