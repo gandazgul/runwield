@@ -968,10 +968,7 @@
 }
 .rw-remote-review-header,
 .rw-remote-review-toolbar,
-.rw-remote-comments-header,
-.rw-comment-state-row,
-.rw-popover-heading,
-.rw-popover-actions {
+.rw-comment-state-row {
     align-items: center;
     display: flex;
     gap: .75rem;
@@ -1003,8 +1000,7 @@
     max-width: 1440px;
     padding: .85rem;
 }
-.rw-remote-review-toolbar label,
-.rw-remote-comment-popover label {
+.rw-remote-review-toolbar label {
     color: var(--rw-text-muted);
     display: grid;
     font-size: .85rem;
@@ -1012,9 +1008,7 @@
     gap: .35rem;
 }
 .rw-remote-review-toolbar input,
-.rw-remote-review-toolbar select,
-.rw-remote-comment-popover input,
-.rw-remote-comment-popover textarea {
+.rw-remote-review-toolbar select {
     background: var(--rw-background);
     border: 1px solid var(--rw-border);
     border-radius: .7rem;
@@ -1022,9 +1016,9 @@
     min-width: 12rem;
     padding: .58rem .7rem;
 }
-.rw-selection-status {
-    color: var(--rw-text-muted);
-    font-size: .9rem;
+.rw-remote-toolstrip {
+    display: grid;
+    gap: .25rem;
 }
 .rw-remote-review-grid {
     display: grid;
@@ -1034,8 +1028,7 @@
     max-width: 1440px;
 }
 .rw-remote-plan-card,
-.rw-remote-comments,
-.rw-remote-comment-popover {
+.rw-remote-annotation-sidebar {
     background: var(--rw-surface);
     border: 1px solid var(--rw-border);
     border-radius: 1.15rem;
@@ -1052,84 +1045,34 @@
     margin: 0;
     padding: clamp(1rem, 2vw, 2rem);
 }
-.rw-remote-commented-block {
-    background: color-mix(in srgb, var(--rw-accent) 18%, transparent);
-    border-radius: .35rem;
-    box-shadow: inset 3px 0 0 var(--rw-accent);
-    padding-left: .35rem;
-}
-.rw-remote-anchor-chip {
-    border: 1px solid var(--rw-border-strong, var(--rw-border));
-    border-radius: 999px;
-    color: var(--rw-text-muted);
-    display: inline-flex;
-    font-size: .78rem;
-    margin: .5rem .35rem 0 0;
-    padding: .25rem .55rem;
-}
-.rw-remote-anchor-chip.selected {
-    background: color-mix(in srgb, var(--rw-accent) 18%, transparent);
-    color: var(--rw-text-strong);
-}
-.rw-remote-comments {
+.rw-remote-annotation-sidebar {
     align-self: start;
+    display: grid;
+    gap: .75rem;
     max-height: calc(100vh - 8rem);
     overflow: auto;
-    padding: 1rem;
+    padding: .75rem;
     position: sticky;
     top: 1rem;
 }
-.rw-remote-comments-header {
-    justify-content: space-between;
-}
-.rw-remote-comments-header h2 {
-    margin: 0;
-}
-.rw-remote-comment-list {
-    display: grid;
-    gap: .75rem;
-    list-style: none;
-    margin: 1rem 0 0;
-    padding: 0;
-}
-.rw-remote-comment-card {
-    background: var(--rw-background);
+.rw-remote-annotation-panel {
     border: 1px solid var(--rw-border);
     border-radius: .95rem;
-    padding: .8rem;
+    min-height: 18rem;
+    overflow: hidden;
 }
-.rw-remote-comment-card.selected {
-    border-color: var(--rw-accent);
+.rw-remote-annotation-panel [title="Delete annotation"] {
+    display: none;
 }
-.rw-remote-comment-card.resolved {
-    opacity: .78;
+.rw-remote-comment-state-panel {
+    background: color-mix(in srgb, var(--rw-surface) 72%, var(--rw-background));
+    border: 1px solid var(--rw-border);
+    border-radius: .85rem;
+    padding: .7rem;
 }
-.rw-comment-card-select {
-    background: transparent;
-    border: 0;
-    color: inherit;
-    display: grid;
-    gap: .15rem;
-    padding: 0;
-    text-align: left;
-    width: 100%;
-}
-.rw-comment-author {
-    font-weight: 800;
-}
-.rw-comment-meta,
 .help-text {
     color: var(--rw-text-muted);
     font-size: .82rem;
-}
-.rw-comment-context {
-    border-left: 3px solid var(--rw-accent);
-    color: var(--rw-text-muted);
-    margin: .65rem 0;
-    padding-left: .65rem;
-}
-.rw-comment-body {
-    white-space: pre-wrap;
 }
 .rw-comment-error,
 .rw-comment-anchor-missing {
@@ -1137,34 +1080,7 @@
 }
 .rw-comment-state-row {
     justify-content: space-between;
-    margin-top: .75rem;
-}
-.rw-remote-popover-backdrop {
-    background: rgb(0 0 0 / .58);
-    display: grid;
-    inset: 0;
-    padding: 1rem;
-    place-items: center;
-    position: fixed;
-    z-index: 60;
-}
-.rw-remote-comment-popover {
-    display: grid;
-    gap: .85rem;
-    max-width: 34rem;
-    padding: 1rem;
-    width: min(100%, 34rem);
-}
-.rw-remote-comment-popover blockquote {
-    border-left: 3px solid var(--rw-accent);
-    margin: 0;
-    max-height: 8rem;
-    overflow: auto;
-    padding: .5rem .75rem;
-}
-.rw-popover-heading,
-.rw-popover-actions {
-    justify-content: space-between;
+    margin-top: .25rem;
 }
 @media (max-width: 980px) {
     .rw-remote-review-header,
@@ -1175,14 +1091,8 @@
     .rw-remote-review-grid {
         grid-template-columns: 1fr;
     }
-    .rw-remote-comments {
+    .rw-remote-annotation-sidebar {
         max-height: none;
         position: static;
     }
-}
-.rw-remote-inline-highlight {
-    background: color-mix(in srgb, var(--rw-accent) 36%, #facc15 28%);
-    border-radius: .22rem;
-    color: inherit;
-    padding: 0 .12rem;
 }
