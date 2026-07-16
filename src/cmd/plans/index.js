@@ -8,6 +8,7 @@ import { CWD } from "../../constants.js";
 import { countChildPlanProgress, groupPlanHierarchy, listPlans as listPlansFn } from "../../plan-store.js";
 import { runPlansArchiveCommand as runPlansArchiveCommandFn } from "./archive.js";
 import { runPlansPullCommand as runPlansPullCommandFn } from "./pull.js";
+import { runPlansPushCommand as runPlansPushCommandFn } from "./push.js";
 import { runPlansReadCommand as runPlansReadCommandFn } from "./read.js";
 import { runPlansShareCommand as runPlansShareCommandFn } from "./share.js";
 import { runPlansUiCommand as runPlansUiCommandFn } from "./ui.js";
@@ -26,6 +27,7 @@ import { runPlansUiCommand as runPlansUiCommandFn } from "./ui.js";
  * @property {typeof runPlansReadCommandFn} [runPlansReadCommand]
  * @property {typeof runPlansShareCommandFn} [runPlansShareCommand]
  * @property {typeof runPlansPullCommandFn} [runPlansPullCommand]
+ * @property {typeof runPlansPushCommandFn} [runPlansPushCommand]
  */
 
 /**
@@ -106,6 +108,7 @@ export async function runPlansCommand(argv, options = {}) {
         runPlansReadCommand: runPlansReadCommandDep,
         runPlansShareCommand: runPlansShareCommandDep,
         runPlansPullCommand: runPlansPullCommandDep,
+        runPlansPushCommand: runPlansPushCommandDep,
     } = deps;
 
     if (argv[0] === "ui") {
@@ -131,6 +134,11 @@ export async function runPlansCommand(argv, options = {}) {
     if (argv[0] === "pull") {
         const runPlansPullCommand = runPlansPullCommandDep || runPlansPullCommandFn;
         await runPlansPullCommand(argv.slice(1), /** @type {any} */ (options));
+        return;
+    }
+    if (argv[0] === "push") {
+        const runPlansPushCommand = runPlansPushCommandDep || runPlansPushCommandFn;
+        await runPlansPushCommand(argv.slice(1), /** @type {any} */ (options));
         return;
     }
 
