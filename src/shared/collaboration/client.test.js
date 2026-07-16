@@ -122,6 +122,7 @@ Deno.test("client typed methods use Shared Space API paths", async () => {
     await client.appendComment("space 1", 2, { ciphertext: "cipher-comment" });
     await client.setCommentState("space 1", "comment 1", { action: "resolve" });
     await client.updateSharedSpaceLifecycle("space 1", { action: "close" });
+    await client.deleteSharedSpace("space 1");
 
     assertEquals(calls[0].authorization, undefined);
     assertEquals(calls[1].authorization, "Bearer raw-capability");
@@ -134,5 +135,7 @@ Deno.test("client typed methods use Shared Space API paths", async () => {
         "POST /api/spaces/space%201/revisions/2/comments",
         "POST /api/spaces/space%201/comments/comment%201/state",
         "POST /api/spaces/space%201/lifecycle",
+        "POST /api/spaces/space%201/lifecycle",
     ]);
+    assertEquals(JSON.parse(String(calls[8].body)), { action: "delete" });
 });

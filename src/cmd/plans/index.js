@@ -12,6 +12,7 @@ import { runPlansPushCommand as runPlansPushCommandFn } from "./push.js";
 import { runPlansReadCommand as runPlansReadCommandFn } from "./read.js";
 import { runPlansShareCommand as runPlansShareCommandFn } from "./share.js";
 import { runPlansUiCommand as runPlansUiCommandFn } from "./ui.js";
+import { runPlansUnshareCommand as runPlansUnshareCommandFn } from "./unshare.js";
 
 /**
  * @typedef {Awaited<ReturnType<typeof listPlansFn>>[number]} PlanEntry
@@ -28,6 +29,7 @@ import { runPlansUiCommand as runPlansUiCommandFn } from "./ui.js";
  * @property {typeof runPlansShareCommandFn} [runPlansShareCommand]
  * @property {typeof runPlansPullCommandFn} [runPlansPullCommand]
  * @property {typeof runPlansPushCommandFn} [runPlansPushCommand]
+ * @property {typeof runPlansUnshareCommandFn} [runPlansUnshareCommand]
  */
 
 /**
@@ -109,6 +111,7 @@ export async function runPlansCommand(argv, options = {}) {
         runPlansShareCommand: runPlansShareCommandDep,
         runPlansPullCommand: runPlansPullCommandDep,
         runPlansPushCommand: runPlansPushCommandDep,
+        runPlansUnshareCommand: runPlansUnshareCommandDep,
     } = deps;
 
     if (argv[0] === "ui") {
@@ -139,6 +142,11 @@ export async function runPlansCommand(argv, options = {}) {
     if (argv[0] === "push") {
         const runPlansPushCommand = runPlansPushCommandDep || runPlansPushCommandFn;
         await runPlansPushCommand(argv.slice(1), /** @type {any} */ (options));
+        return;
+    }
+    if (argv[0] === "unshare") {
+        const runPlansUnshareCommand = runPlansUnshareCommandDep || runPlansUnshareCommandFn;
+        await runPlansUnshareCommand(argv.slice(1), /** @type {any} */ (options));
         return;
     }
 

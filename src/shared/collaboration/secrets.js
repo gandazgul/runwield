@@ -106,6 +106,19 @@ export async function getSecretRecord(path, key) {
  */
 
 /**
+ * @param {import("./protocol.js").LocalSecretRecord} record
+ * @param {string} planId
+ * @param {string} spaceId
+ * @returns {boolean}
+ */
+function isCompatibleSecretRecord(record, planId, spaceId) {
+    const normalized = normalizeLocalSecretRecord(record);
+    if (normalized.planId && normalized.planId !== planId) return false;
+    if (normalized.spaceId && normalized.spaceId !== spaceId) return false;
+    return true;
+}
+
+/**
  * @param {PullSecretMatch[]} matches
  * @param {import("./protocol.js").LocalSecretRecord} [expected]
  */
@@ -180,6 +193,24 @@ export async function resolvePullSecretRecord(paths, planId, spaceId) {
 }
 
 /**
+ * Resolve only records that are either explicitly bound to the requested Shared
+ * Space or legacy records with no stored spaceId. Records for another Shared
+ * Space are ignored instead of being used for authorization.
+ *
+ * @param {string[]} paths
+ * @param {string} planId
+ * @param {string} spaceId
+ * @returns {Promise<PullSecretMatch | null>}
+ */
+export async function resolveCompatibleSecretRecord(paths, planId, spaceId) {
+    const matches = (await collectPullSecretMatches(paths, planId, spaceId)).filter((match) =>
+        isCompatibleSecretRecord(match.record, planId, spaceId)
+    );
+    assertCompatiblePullSecretMatches(matches);
+    return matches[0] || null;
+}
+
+/**
  * @param {string} path
  * @param {string} key
  * @param {import("./protocol.js").LocalSecretRecord} record
@@ -208,6 +239,40 @@ export async function deleteSecretRecord(path, key) {
     if (!Object.hasOwn(document.records, key)) return;
     delete document.records[key];
     await writeSecretStore(path, document);
+}
+
+/**
+ * @typedef {Object} DeletedSecretRecord
+ * @property {string} path
+ * @property {string} key
+ */
+
+/**
+ * Delete local secret records for the given Plan/Shared Space pair from all
+ * provided stores. Legacy planId-only records are deleted only when they are
+ * not bound to a different Shared Space.
+ *
+ * @param {string[]} paths
+ * @param {string} planId
+ * @param {string} spaceId
+ * @returns {Promise<DeletedSecretRecord[]>}
+ */
+export async function deleteCompatibleSecretRecords(paths, planId, spaceId) {
+    const keys = [secretRecordKey(planId, spaceId), planId];
+    const deleted = /** @type {DeletedSecretRecord[]} */ ([]);
+    for (const path of paths) {
+        const document = await readSecretStore(path);
+        let changed = false;
+        for (const key of keys) {
+            const record = document.records[key];
+            if (!record || !isCompatibleSecretRecord(record, planId, spaceId)) continue;
+            delete document.records[key];
+            deleted.push({ path, key });
+            changed = true;
+        }
+        if (changed) await writeSecretStore(path, document);
+    }
+    return deleted;
 }
 
 /**
