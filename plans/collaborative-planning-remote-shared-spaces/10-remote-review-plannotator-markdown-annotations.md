@@ -17,8 +17,8 @@ devServerCommand: "RUNWIELD_WORKSPACE_MODE=remote RUNWIELD_REMOTE_DB_PATH=.wld/r
 devServerUrl: "http://127.0.0.1:5173"
 devServerHmr: true
 createdAt: "2026-07-15T22:23:41-04:00"
-updatedAt: "2026-07-16T14:29:12.453Z"
-status: "implemented"
+updatedAt: "2026-07-16T14:27:45.389Z"
+status: "verified"
 origin: "internal"
 parentPlan: "collaborative-planning-remote-shared-spaces"
 order: 10
@@ -26,12 +26,9 @@ dependencies:
     - "05-remote-browser-review-mvp"
     - "06-wld-plans-pull-maintainer-revision-flow"
     - "07-wld-plans-push-remote-revision-publish-flow"
-failureReason: "Cannot stage validation_passed for collaborative-planning-remote-shared-spaces/10-remote-review-plannotator-markdown-annotations: primary Plan status is \"in_progress\", expected \"implemented\"."
-worktreeId: "129a706d"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-harns--/harns-runwield-collaborative-planning-remote-shared-spaces-10-r-129a706d"
-worktreeBranch: "runwield/worktree/collaborative-planning-remote-shared-spaces-10-r-129a706d"
-worktreeBaseBranch: "main"
-worktreeStatus: "active"
+verifiedAt: "2026-07-16T14:27:45.389Z"
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
 ---
 
 # Remote Review Plannotator Markdown Annotations
