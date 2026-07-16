@@ -334,8 +334,9 @@ export const commandRegistry = {
     [COMMAND_NAMES.PLANS]: {
         name: COMMAND_NAMES.PLANS,
         displayName: "Plans",
-        description: "List, read, archive, restore, share, or launch the local Plans Workspace",
-        summary: "Manage saved plans, publish Shared Spaces, and start the read-only local browser Workspace.",
+        description: "List, read, archive, restore, share, pull, push, or launch the local Plans Workspace",
+        summary:
+            "Manage saved plans, publish Shared Spaces, sync remote revisions, and start the read-only local browser Workspace.",
         usage: [
             `${bin("plans")}`,
             `${bin("plans read <plan-name-or-id>")}`,
@@ -343,6 +344,7 @@ export const commandRegistry = {
             `${
                 bin("plans pull <maintainer-url-or-plan-name-or-id> [--plan-server <url>] [--project-secrets] [--to <plan-name>]")
             }`,
+            `${bin("plans push <plan-name-or-id> [--plan-server <url>] [--project-secrets]")}`,
             `${bin("plans archive")}`,
             `${bin("plans archive <plan-name-or-id> [--reason <text>] [--force]")}`,
             `${bin("plans archive --all --status <status> [--reason <text>] [--force]")}`,
@@ -357,6 +359,8 @@ export const commandRegistry = {
             "Use plans share to publish an active saved Plan to a Plan Server; --plan-server overrides planServerUrl for one invocation.",
             "Share output prints secret reviewer and maintainer URLs once; anyone with the maintainer URL can pull, push, close, or unshare.",
             "Use plans pull with a maintainer URL to import secrets and create/update a locked local Plan; --to chooses the local filename for fresh URL pulls.",
+            "Use plans push to publish the current local shared Plan as a new encrypted remote Revision; it refuses stale remote state and no-op duplicates.",
+            "Push output never prints maintainer URLs by default; existing reviewer links remain valid across revisions.",
             "Archive moves verified and closed_without_verification Plans by default; other statuses require --force and recoverable worktree states stay blocked.",
             "Use plans archive --all --status verified for best-effort bulk cleanup of active Plans with an exact status match.",
             "The Workspace binds to 127.0.0.1 and a random available port by default.",
