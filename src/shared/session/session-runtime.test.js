@@ -2,6 +2,7 @@ import { assertEquals, assertRejects } from "@std/assert";
 import { SessionHost } from "./session-host.js";
 import { RuntimeEventTypes } from "./session-runtime-events.js";
 import { HANDOFF_LIMIT_MESSAGE, SessionRuntime, SessionTurnInProgressError } from "./session-runtime.js";
+import { switchActiveAgent as switchActiveAgentFn } from "./agent-switching.js";
 
 /**
  * @param {string} id
@@ -44,17 +45,25 @@ function makeSessionManager(id, cwd, branch = []) {
 function makeRuntime(options = {}) {
     let managerIndex = 0;
     const handler = options.handler || (() => Promise.resolve({ kind: "complete" }));
+    const createAgentHandler = options.createAgentHandler || (() => handler);
+    const switchActiveAgent = options.switchActiveAgent ||
+        ((session, activationOptions) =>
+            switchActiveAgentFn(session, activationOptions, {
+                createAgentHandler,
+                ensureRootAgentSession: /** @type {any} */ ((/** @type {any} */ rootOptions) => {
+                    rootOptions.hostedSession.setRootAgentName(rootOptions.agentName);
+                    rootOptions.hostedSession.setRootAgentSession(options.agentSession || { dispose() {} });
+                    if (rootOptions.activeHandler) {
+                        rootOptions.hostedSession.setActiveOnMessage(rootOptions.activeHandler);
+                    }
+                    return Promise.resolve(rootOptions.hostedSession.getRootAgentSession());
+                }),
+            }));
     return new SessionRuntime({
         ...(options.sessionHost ? { sessionHost: options.sessionHost } : {}),
         createRootSessionManager: (_mode, cwd) => Promise.resolve(makeSessionManager(`manager-${++managerIndex}`, cwd)),
-        createAgentHandler: options.createAgentHandler || (() => handler),
-        ensureRootAgentSession: (opts) => {
-            opts.hostedSession.setRootAgentName(opts.agentName);
-            opts.hostedSession.setRootAgentSession(options.agentSession || { dispose() {} });
-            return Promise.resolve(opts.hostedSession.getRootAgentSession());
-        },
+        switchActiveAgent,
         ...(options.abortActiveSession ? { abortActiveSession: options.abortActiveSession } : {}),
-        ...(options.switchActiveAgent ? { switchActiveAgent: options.switchActiveAgent } : {}),
     });
 }
 
@@ -628,11 +637,11 @@ Deno.test("SessionRuntime loadSession returns opaque metadata and redacted repla
                 },
             }),
         resolveResumeAgentName: () => Promise.resolve("planner"),
-        createAgentHandler: () => () => Promise.resolve({ kind: "complete" }),
-        ensureRootAgentSession: (opts) => {
-            opts.hostedSession.setRootAgentName(opts.agentName);
-            opts.hostedSession.setRootAgentSession({ dispose() {} });
-            return Promise.resolve(opts.hostedSession.getRootAgentSession());
+        switchActiveAgent: (session, options) => {
+            session.setRootAgentName(options.agentName);
+            session.setRootAgentSession({ dispose() {} });
+            session.setActiveOnMessage(() => Promise.resolve({ kind: "complete" }));
+            return Promise.resolve({ ok: true, agentName: options.agentName, changed: true });
         },
     });
 

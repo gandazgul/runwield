@@ -4,19 +4,16 @@
  */
 
 import { AGENTS } from "../../constants.js";
-import { createAgentHandler } from "./agent-handler.js";
 import { ACTIVE_AGENT_CUSTOM_TYPE, resolveResumeAgentName } from "./active-agent-session.js";
 import { switchActiveAgent } from "./agent-switching.js";
 import {
     abortActiveSession as abortActiveSessionFn,
-    ensureRootAgentSession,
     expandPromptTemplate,
     expandSkillCommand,
     listLoadedAgentMdFiles,
     listPromptTemplates,
     listSkills,
-    reloadRootAgentSession,
-    runAgentSession,
+    runIsolatedAgentSession,
     steerRootSessionWithTarget,
 } from "./session.js";
 import { SessionHost } from "./session-host.js";
@@ -45,6 +42,7 @@ import {
     resolveVisionFallbackModel,
 } from "./image-attachments.js";
 import { getModelRegistry } from "../models/model-registry.js";
+import { getSettingsManager } from "../settings.js";
 import { isAbsolute } from "@std/path";
 
 export const HANDOFF_LIMIT_MESSAGE =
@@ -58,8 +56,6 @@ export const HANDOFF_LIMIT_MESSAGE =
  * @property {(mode: import('./root-session.js').RootSessionStartMode, cwd: string) => Promise<any>} [createRootSessionManager]
  * @property {(options: import('./root-session.js').ResolvePersistedRootSessionOptions) => Promise<{ sessionManager: any, resolved: import('./root-session.js').ResolvedPersistedRootSession }>} [openPersistedRootSession]
  * @property {(sessionManager: any) => Promise<string>} [resolveResumeAgentName]
- * @property {(agentName: string, deps: any) => import('./types.js').AgentMessageHandler} [createAgentHandler]
- * @property {(opts: any) => Promise<any>} [ensureRootAgentSession]
  * @property {typeof steerRootSessionWithTarget} [steerRootSessionWithTarget]
  */
 
@@ -422,10 +418,6 @@ export class SessionRuntime {
     #openPersistedRootSession;
     /** @type {(sessionManager: any) => Promise<string>} */
     #resolveResumeAgentName;
-    /** @type {(agentName: string, deps: any) => import('./types.js').AgentMessageHandler} */
-    #createAgentHandler;
-    /** @type {(opts: any) => Promise<any>} */
-    #ensureRootAgentSession;
     /** @type {typeof steerRootSessionWithTarget} */
     #steerRootSessionWithTarget;
     /** @type {Map<string, Set<SessionRuntimeEventListener>>} */
@@ -447,8 +439,6 @@ export class SessionRuntime {
         this.#createRootSessionManager = options.createRootSessionManager || createRootSessionManager;
         this.#openPersistedRootSession = options.openPersistedRootSession || openPersistedRootSession;
         this.#resolveResumeAgentName = options.resolveResumeAgentName || resolveResumeAgentName;
-        this.#createAgentHandler = options.createAgentHandler || createAgentHandler;
-        this.#ensureRootAgentSession = options.ensureRootAgentSession || ensureRootAgentSession;
         this.#steerRootSessionWithTarget = options.steerRootSessionWithTarget || steerRootSessionWithTarget;
         this.#eventListeners = new Map();
         this.#turnSettlements = new Map();
@@ -880,11 +870,10 @@ export class SessionRuntime {
         session.setActiveModelState(model, provider, true);
         const agentName = session.getRootAgentName();
         if (agentName) {
-            await this.#ensureRootAgentSession({
-                hostedSession: session,
+            await this.#activateSessionAgent(session, {
                 agentName,
-                modelOverride: provider ? `${provider}/${model}` : model,
-                sessionManager: /** @type {any} */ (session.getRootSessionManager() || undefined),
+                model: provider ? `${provider}/${model}` : model,
+                forceRebuild: true,
             });
         }
         this.#emitSessionEvent(sessionId, { type: RuntimeEventTypes.MODEL_CHANGED, model, provider });
@@ -920,7 +909,7 @@ export class SessionRuntime {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) throw new Error("SessionRuntime.runIsolatedAgent: session not found");
         return await this.#runBusyOperation(session.id, () =>
-            runAgentSession({
+            runIsolatedAgentSession({
                 hostedSession: session,
                 agentName: options.agentName,
                 userRequest: options.userRequest,
@@ -929,9 +918,7 @@ export class SessionRuntime {
                 customTools: options.customTools,
                 modelOverride: options.modelOverride,
                 allowReturnToRouter: options.allowReturnToRouter,
-                sessionManager: /** @type {any} */ (session.getRootSessionManager() || undefined),
                 _agentDefOverride: options.agentDef,
-                useRootSession: false,
             }));
     }
 
@@ -1275,8 +1262,11 @@ export class SessionRuntime {
     async reloadSession(sessionId) {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) return { ok: false, error: "not_found" };
-        const reloaded = await reloadRootAgentSession(session);
-        return { ok: reloaded };
+        const agentName = session.getRootAgentName();
+        if (!agentName) return { ok: false };
+        await getSettingsManager(session.cwd).reload();
+        await this.#activateSessionAgent(session, { agentName, forceRebuild: true });
+        return { ok: true };
     }
 
     /** @param {string} sessionId */
@@ -1559,13 +1549,10 @@ export class SessionRuntime {
      * this transaction instead of exposing its internal phases.
      *
      * @param {import('./hosted-session.js').HostedSession} hostedSession
-     * @param {{ agentName: string, model?: string, allowReturnToRouter?: boolean }} options
+     * @param {import('./agent-switching.js').AgentSwitchOptions} options
      */
     async #activateSessionAgent(hostedSession, options) {
-        return await this.#switchActiveAgent(hostedSession, options, {
-            ensureRootAgentSession: this.#ensureRootAgentSession,
-            createAgentHandler: /** @type {typeof createAgentHandler} */ (this.#createAgentHandler),
-        });
+        return await this.#switchActiveAgent(hostedSession, options);
     }
 
     /**

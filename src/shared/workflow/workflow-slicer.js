@@ -9,8 +9,6 @@ import { defineTool } from "@earendil-works/pi-coding-agent";
 import { AGENTS } from "../../constants.js";
 import { findPlansByParent, loadPlan, parsePlanFrontMatter, saveChildFeaturePlans } from "../../plan-store.js";
 import { ensureBundledAgentDefFile } from "../session/agent-assets.js";
-import { ensureRootAgentSession, runRootTurn } from "../session/session.js";
-import { createAgentHandler } from "../session/agent-handler.js";
 import { loadAgentDefFromPath } from "../session/agents.js";
 import { emitSystemStatus } from "../session/session-runtime-events.js";
 import { extractTasks, validateProjectTasks } from "./task-scheduling.js";
@@ -289,7 +287,7 @@ function createSlicerCustomTools(planName, cwd, deps) {
  * @param {import('../session/hosted-session.js').HostedSession} opts.hostedSession
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager]
  * @param {{
- *   runRootTurn?: typeof runRootTurn,
+ *   runActiveAgentTurn?: typeof import('../session/agent-switching.js').runActiveAgentTurn,
  *   loadAgentDefFromPath?: typeof loadAgentDefFromPath,
  *   ensureBundledAgentDefFile?: typeof ensureBundledAgentDefFile,
  *   loadPlan?: typeof loadPlan,
@@ -310,10 +308,11 @@ export async function runSlicerAgent({
 }) {
     if (!hostedSession) throw new Error("runSlicerAgent: hostedSession is required");
     const projectRoot = hostedSession.cwd;
-    const rootTurn = __deps?.runRootTurn || runRootTurn;
     const loadEpic = __deps?.loadPlan || loadPlan;
     const findChildren = __deps?.findPlansByParent || findPlansByParent;
-    const switchActive = __deps?.switchActiveAgent || (await import("../session/agent-switching.js")).switchActiveAgent;
+    const agentSwitching = await import("../session/agent-switching.js");
+    const runActiveAgentTurn = __deps?.runActiveAgentTurn || agentSwitching.runActiveAgentTurn;
+    const switchActive = __deps?.switchActiveAgent || agentSwitching.switchActiveAgent;
     const slicerAgentDef = await loadSlicerAgentDef(__deps);
 
     const slicerDisplay = slicerAgentDef.displayName;
@@ -340,33 +339,13 @@ export async function runSlicerAgent({
         });
         const slicerSessionManager = boundary?.manager || sessionManager;
         const slicerCustomTools = createSlicerCustomTools(planName, projectRoot, __deps);
-        await switchActive(
-            hostedSession,
-            { agentName: AGENTS.SLICER, allowReturnToRouter: false },
-            {
-                ensureRootAgentSession: (switchOptions) =>
-                    ensureRootAgentSession({
-                        ...switchOptions,
-                        sessionManager: slicerSessionManager,
-                        _agentDefOverride: slicerAgentDef,
-                        customTools: slicerCustomTools,
-                    }),
-                createAgentHandler: (nextAgentName, handlerDeps) =>
-                    createAgentHandler(nextAgentName, {
-                        ...handlerDeps,
-                        _agentDefOverride: slicerAgentDef,
-                        customTools: slicerCustomTools,
-                        allowReturnToRouter: false,
-                    }),
-            },
-        );
-        await rootTurn({
+        await runActiveAgentTurn({
             hostedSession,
             agentName: AGENTS.SLICER,
             userRequest: slicerRequest,
             images: reviewImages,
             sessionManager: slicerSessionManager,
-            _agentDefOverride: slicerAgentDef,
+            agentDef: slicerAgentDef,
             customTools: slicerCustomTools,
             allowReturnToRouter: false,
         });

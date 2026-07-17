@@ -611,6 +611,33 @@ async function alignPlanFilesWithMergeTarget(cwd, targetRef, branch, executionWo
 }
 
 /**
+ * @param {string} cwd
+ * @param {string} branch
+ * @param {string[]} preservePlanPaths
+ * @returns {Promise<boolean>}
+ */
+async function resolvePreservedPlanMergeConflicts(cwd, branch, preservePlanPaths) {
+    if (preservePlanPaths.length === 0 || !await isMergeInProgress(cwd)) return false;
+    const preserved = new Set(preservePlanPaths.map((path) => path.replaceAll("\\", "/")));
+    const unresolvedPaths = parseNameOnlyPaths(await runGit(cwd, ["diff", "--name-only", "--diff-filter=U"]));
+    if (unresolvedPaths.length === 0) return false;
+    const nonPreservedPaths = unresolvedPaths.filter((path) => !preserved.has(path.replaceAll("\\", "/")));
+    if (nonPreservedPaths.length > 0) return false;
+
+    await runGit(cwd, [
+        "restore",
+        "--staged",
+        "--worktree",
+        `--source=${branch}`,
+        "--",
+        ...unresolvedPaths,
+    ]);
+    await runGit(cwd, ["add", "--", ...unresolvedPaths]);
+    await runGit(cwd, ["-c", "core.editor=true", "merge", "--continue"]);
+    return true;
+}
+
+/**
  * @param {string} projectRoot
  * @param {string} branch
  * @param {string} targetBranch
@@ -694,6 +721,12 @@ async function mergeExecutionWorktreeIntoCurrentCheckout(
             await runGit(projectRoot, ["restore", "--worktree", "--source=HEAD", "--", ...preservePlanPaths]);
         }
     } catch (error) {
+        if (await resolvePreservedPlanMergeConflicts(projectRoot, branch, preservePlanPaths)) {
+            if (preservePlanPaths.length > 0) {
+                await runGit(projectRoot, ["restore", "--worktree", "--source=HEAD", "--", ...preservePlanPaths]);
+            }
+            return;
+        }
         throw attachMergeRepairDetails(error, {
             repairCwd: projectRoot,
             mergeFailureKind: "current_checkout_merge_conflict",
@@ -868,12 +901,14 @@ async function mergeExecutionWorktreeIntoTargetBranch({
             try {
                 await runGit(mergeWorktreePath, ["merge", "--no-ff", branch]);
             } catch (mergeError) {
-                preserveMergeWorktree = true;
-                throw attachMergeRepairDetails(mergeError, {
-                    repairCwd: mergeWorktreePath,
-                    mergeWorktreePath,
-                    mergeFailureKind: "detached_merge_conflict",
-                });
+                if (!await resolvePreservedPlanMergeConflicts(mergeWorktreePath, branch, preservePlanPaths)) {
+                    preserveMergeWorktree = true;
+                    throw attachMergeRepairDetails(mergeError, {
+                        repairCwd: mergeWorktreePath,
+                        mergeWorktreePath,
+                        mergeFailureKind: "detached_merge_conflict",
+                    });
+                }
             }
             const mergeCommit = (await runGit(mergeWorktreePath, ["rev-parse", "HEAD"])).trim();
             try {

@@ -74,6 +74,40 @@ Deno.test("TUI, ACP, commands, and scripts use the public Runtime surface only",
     assertEquals(violations, []);
 });
 
+Deno.test("active and isolated Agents have exactly one production lifecycle boundary each", async () => {
+    const files = await productionJavaScriptFiles(join(REPO_ROOT, "src"));
+    const activeMutationModules = new Set([
+        "src/shared/session/hosted-session.js",
+        "src/shared/session/session.js",
+        "src/shared/session/agent-switching.js",
+    ]);
+    const activeTurnModules = new Set([
+        "src/shared/session/session.js",
+        "src/shared/session/agent-handler.js",
+        "src/shared/session/agent-switching.js",
+    ]);
+    const violations = [];
+
+    for (const file of files) {
+        const path = relative(REPO_ROOT, file);
+        const source = await Deno.readTextFile(file);
+        if (/\brunAgentSession\b|\buseRootSession\b/.test(source)) {
+            violations.push(`${path}: legacy mixed root/isolated Agent runner`);
+        }
+        if (
+            !activeMutationModules.has(path) &&
+            /\b(?:setRootAgentSession|setRootAgentName|setActiveOnMessage|ensureRootAgentSession)\b/.test(source)
+        ) {
+            violations.push(`${path}: active Agent state mutation outside activation transaction`);
+        }
+        if (!activeTurnModules.has(path) && /\brunRootTurn\s*\(/.test(source)) {
+            violations.push(`${path}: direct interactive root turn outside active Agent boundary`);
+        }
+    }
+
+    assertEquals(violations, []);
+});
+
 Deno.test("SessionRuntime does not expose compatibility object APIs", () => {
     const methods = Object.getOwnPropertyNames(SessionRuntime.prototype);
     assertEquals(methods.includes("createSession"), false);

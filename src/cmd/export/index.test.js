@@ -29,7 +29,7 @@ Deno.test("runExportCommand exports through SessionRuntime", async () => {
     );
     await runExportCommand(["/tmp/session.jsonl"], fixture.context);
 
-    assertEquals(fixture.messages, ["Session exported to: /tmp/session.jsonl"]);
+    assertEquals(fixture.messages, ["", "Session exported to: /tmp/session.jsonl"]);
     assertEquals(fixture.wasCleared(), true);
 });
 
@@ -37,6 +37,6 @@ Deno.test("runExportCommand reports Runtime export errors", async () => {
     const fixture = makeContext(() => Promise.reject(new Error("export failed")));
     await runExportCommand([], fixture.context);
 
-    assertEquals(fixture.messages, ["Failed to export session: export failed"]);
+    assertEquals(fixture.messages, ["", "Failed to export session: export failed"]);
     assertEquals(fixture.wasCleared(), true);
 });

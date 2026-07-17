@@ -1298,6 +1298,66 @@ Deno.test("verified Plan metadata merges with execution changes without dirtying
     }
 });
 
+Deno.test("verified Plan metadata conflicts are resolved during worktree merge", async () => {
+    const projectRoot = await makeRepo();
+    const worktreeRoot = await Deno.makeTempDir();
+    /** @type {Awaited<ReturnType<typeof createExecutionWorktree>> | undefined} */
+    let worktree;
+    try {
+        await savePlan(projectRoot, "verified-conflict", "# Verified Conflict", { status: "ready_for_work" });
+        await Deno.writeTextFile(`${projectRoot}/.gitignore`, ".wld/\n");
+        await git(projectRoot, ["add", "plans/verified-conflict.md", ".gitignore"]);
+        await git(projectRoot, ["commit", "-m", "add verified conflict plan"]);
+        worktree = await createExecutionWorktree({ projectRoot, planName: "Verified Conflict", worktreeRoot });
+
+        await savePlan(projectRoot, "verified-conflict", "# Verified Conflict", {
+            status: "implemented",
+            implementedAt: "2026-04-01T00:00:00.000Z",
+            worktreeId: worktree.id,
+            worktreePath: worktree.path,
+            worktreeBranch: worktree.branch,
+            worktreeBaseBranch: "main",
+            worktreeStatus: "completed",
+        });
+        await git(projectRoot, ["add", "plans/verified-conflict.md"]);
+        await git(projectRoot, ["commit", "-m", "record implemented plan state"]);
+        await Deno.writeTextFile(`${worktree.path}/verified-conflict.txt`, "validated\n");
+
+        const staged = await stageValidationPassedInExecutionWorktree({
+            projectRoot,
+            executionCwd: worktree.path,
+            planName: "verified-conflict",
+            details: { now: () => new Date("2026-04-02T00:00:00.000Z") },
+        });
+        await mergeExecutionWorktree({
+            projectRoot,
+            branch: worktree.branch,
+            targetBranch: "main",
+            worktreePath: worktree.path,
+            preservePlanPaths: staged.planPaths,
+            planName: "verified-conflict",
+        });
+
+        const plan = await loadPlan(projectRoot, "verified-conflict");
+        assertEquals(plan?.attrs.status, "verified");
+        assertEquals(plan?.attrs.verifiedAt, "2026-04-02T00:00:00.000Z");
+        assertEquals(await Deno.readTextFile(`${projectRoot}/verified-conflict.txt`), "validated\n");
+        assertEquals(await git(projectRoot, ["status", "--porcelain"]), "");
+    } finally {
+        await git(projectRoot, ["merge", "--abort"]).catch(() => {});
+        if (worktree) {
+            await removeExecutionWorktree({
+                projectRoot,
+                path: worktree.path,
+                branch: worktree.branch,
+                force: true,
+            });
+        }
+        await Deno.remove(projectRoot, { recursive: true });
+        await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
+    }
+});
+
 Deno.test("verified child merge ignores independently active sibling Plan metadata", async () => {
     const projectRoot = await makeRepo();
     const worktreeRoot = await Deno.makeTempDir();
