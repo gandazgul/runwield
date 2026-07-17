@@ -1,6 +1,7 @@
 # Collaborative Planning — PRD
 
-**Status:** Draft v1 **Author:** Gandazgul **Last Updated:** 2026-05-08
+**Status:** Draft v1, implementation updated for self-hosted SQLite packaging **Author:** Gandazgul **Last Updated:**
+2026-07-16
 
 ---
 
@@ -25,17 +26,17 @@ with revision tracking solves both problems.
 
 ## 3. Resolved Assumptions
 
-| Decision                                    | Rationale                                                                                                                                                                                                    |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Shared space, not immutable snapshots**   | Single link for the team; comments stay in one place per revision. Reduces friction for non-technical users.                                                                                                 |
-| **Dual deployment: hosted + self-hostable** | Hosted (`plans.wld.dev`) for convenience; Docker container for teams with data residency requirements. Client is backend-agnostic (configurable base URL).                                                   |
-| **Backend: Cloudflare D1 + SQLite**         | D1 provides ACID transactions and SQL for the hosted path; SQLite is the self-hosted equivalent. Identical schema across both.                                                                               |
-| **Encryption: client-side only**            | Plans and comments are encrypted in the browser before upload. The server stores only ciphertext. Encryption key lives in the URL fragment (`#key=...`), never sent to the server.                           |
-| **Auth: free-form display name**            | No accounts, no passwords on the backend. Reviewers type a name when submitting a comment. Trust model: "people who have the link are the right people." Optional HTTP Basic Auth for self-hosted instances. |
-| **Revisions: comments don't carry over**    | Each revision (`rev_1`, `rev_2`, …) is a frozen snapshot with its own comment thread. Devs can view previous revisions and their comments from the web UI.                                                   |
-| **LLM incorporation on sync**               | `wld plan sync <ID>` presents the planner/architect agent with revision + comments and offers to generate a new revision. Privacy implications are deferred to a separate discussion.                        |
-| **No automated notifications v1**           | Dev shares updated URLs manually. Future: gotify or similar push notification integration.                                                                                                                   |
-| **Plans become read-only on close**         | Dev runs `wld plan close`. Backend sets `status = closed`. No further comments accepted. Read-only view remains available at the same URL.                                                                   |
+| Decision                                            | Rationale                                                                                                                                                                                                  |
+| --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Shared Space, not immutable snapshots**           | Single link for the team; comments stay in one place per Revision. Reduces friction for non-technical users.                                                                                               |
+| **Self-hosted SQLite first**                        | The implemented v1 packages the remote Workspace Plan Server as Docker + SQLite. Hosted RunWield Workspace and Cloudflare/D1 remain deferred follow-up work.                                               |
+| **Astro/React remote Workspace**                    | The current browser implementation lives under `src/ui/workspace/` and reuses Plannotator-backed markdown annotation primitives. Older Fresh/Preact wording is stale.                                      |
+| **Encryption: client-side only**                    | Plans and comments are encrypted before upload. The server stores ciphertext for semantic content. The content key lives in the URL fragment and local secret stores, never in normal server request URLs. |
+| **Authorization: bearer capabilities, no accounts** | Reviewer and maintainer links carry bearer capability material. The server stores capability hashes, not raw capabilities. Optional HTTP Basic/Auth proxy can sit in front of a self-hosted instance.      |
+| **Revisions: comments don't carry over**            | Each Revision is a frozen snapshot with its own comments. Reviewers can inspect prior Revisions; current planning should use the latest accepted Revision.                                                 |
+| **Planner/Architect incorporation on pull**         | `wld plans pull` decrypts Revisions/comments locally and launches Planner or Architect with review context.                                                                                                |
+| **No automated notifications v1**                   | Maintainers share updated URLs manually. Future notification integrations remain out of scope.                                                                                                             |
+| **CLI-owned destructive lifecycle**                 | Browser review supports read/comment/resolve/reopen. Push, close, browser body editing, and destructive unshare/delete controls are not exposed in the browser v1; unshare is CLI-only.                    |
 
 ## 4. Technical Approach
 
@@ -44,7 +45,7 @@ with revision tracking solves both problems.
 ```
 ┌─────────────────────────────────────────────────┐
 │  Client (wld CLI)                               │
-│  wld plan share │ wld plan sync │ wld plan push │
+│  wld plans share │ wld plans pull │ wld plans push │
 │  ┌─────────────┐  ┌────────────┐  ┌───────────┐ │
 │  │ encrypt plan │  │ decrypt +  │  │ encrypt + │ │
 │  │ POST → API   │  │ display +  │  │ POST rev  │ │
@@ -74,6 +75,10 @@ with revision tracking solves both problems.
 ```
 
 ### 4.2 API Contract (v1)
+
+Implementation update: the verified remote Workspace API uses `/api/spaces` Shared Space endpoints, encrypted
+`payloadCiphertext`/`ciphertext` blobs, and capability-bearing `Authorization` headers. The older `/api/plans` examples
+below are retained as historical PRD shape only; implementation docs and tests should follow the Shared Space API.
 
 All endpoints return JSON. The client library abstracts these calls; direct API consumers can hit the same endpoints.
 
@@ -160,10 +165,9 @@ Submit a comment on a specific revision.
 }
 ```
 
-> **Open question:** `original_text` should probably also be encrypted client-side for full E2EE. This means the server
-> can't even show "this comment is about the following text" without the decryption key. The client would need to
-> include it in the comment for server-side context, OR the web viewer matches comments to text client-side after
-> decryption. Needs a small design spike.
+> **Implementation update:** selected/original text, display names, comment bodies, and anchor/context metadata are
+> encrypted inside the comment payload. The server stores only comment ciphertext plus routing metadata such as ids,
+> Revision numbers, timestamps, and resolved state.
 
 #### `GET /api/plans/{plan_id}/revisions/{revision_id}/comments`
 
@@ -241,9 +245,9 @@ CREATE INDEX idx_revisions_plan ON revisions(plan_id);
 
 ### 4.4 Web Viewer
 
-- **Static SPA** served from a CDN (no server-side rendering needed — all data fetching is client-side via the API).
-- The URL is `plans.wld.dev/p/<plan_id>#key=<encryption_key>`.
-- On load: fetch the plan blob + all comments for the latest revision, decrypt client-side, render.
+- Remote review page served by the Workspace Plan Server.
+- The URL shape is `https://plans.example.com/p/<space-id>#key=<content-key>&cap=<capability>&role=<role>`.
+- On load: fetch Shared Space metadata, encrypted Revision payloads, and encrypted comments, then decrypt client-side.
 - **UI components:**
   - Markdown viewer (rendered plan)
   - Comment sidebar (global + inline, grouped by revision)
@@ -254,28 +258,26 @@ CREATE INDEX idx_revisions_plan ON revisions(plan_id);
 
 ### 4.5 CLI Commands
 
-| Command                    | Description                                                                                       |
-| -------------------------- | ------------------------------------------------------------------------------------------------- |
-| `wld plan share`           | Encrypt `plan.md`, POST to backend, print shareable URL                                           |
-| `wld plan sync <plan_id>`  | Fetch latest revision + comments, decrypt locally, present to planner/architect for incorporation |
-| `wld plan push <plan_id>`  | Encrypt updated plan, POST as new revision                                                        |
-| `wld plan close <plan_id>` | Set plan status to `closed`                                                                       |
-| `wld plan list`            | List plans the user has shared (by fetching plans they created — needs TODO: author tracking)     |
+| Command                                              | Description                                                                                                                                                                                                         |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `wld plans share <plan-name-or-id>`                  | Encrypt a local Plan, create a remote Shared Space, store local secrets, lock the local Plan, and print reviewer/maintainer URLs once.                                                                              |
+| `wld plans pull <maintainer-url-or-plan-name-or-id>` | Fetch and decrypt the latest Revision/comments, import maintainer secrets when a URL is provided, update/create a locked local Plan, and launch Planner or Architect for incorporation.                             |
+| `wld plans push <plan-name-or-id>`                   | Encrypt the accepted local Plan body and append it as the next remote Revision.                                                                                                                                     |
+| `wld plans unshare <plan-name-or-id>`                | CLI-only destructive delete/recovery command that uses maintainer authorization, clears local matching secrets, and removes local lock metadata only after safe remote delete or confirmed already-deleted cleanup. |
 
 ### 4.6 Deployment Model
 
-**Hosted (`plans.wld.dev`):**
-
-- A single Cloudflare Worker backed by D1.
-- No auth at the instance level (the encryption key in the URL IS the auth).
-- The Worker is stateless and cheap (~$0/month at low volume).
-
 **Self-hosted (Docker):**
 
-- Deno server using Oak or Hono.
-- SQLite file on disk.
-- Optional `BASIC_AUTH=true` env var for HTTP Basic Auth.
+- Deno remote Workspace Plan Server.
+- SQLite file on disk, normally mounted under `/data` in Docker.
+- Optional HTTP Basic/Auth proxy, VPN, or SSO can sit in front of the container.
 - Docker Compose file included in the repo.
+
+**Hosted (`plans.example.com` / Cloudflare/D1 follow-up):**
+
+- Deferred until the self-hosted protocol and product loop are proven.
+- Must preserve the same ciphertext-only semantic content invariant and capability model.
 
 ---
 
@@ -298,8 +300,8 @@ CREATE INDEX idx_revisions_plan ON revisions(plan_id);
 - [ ] **Web UI spec** — Design the viewer, revision switcher, and comment sidebar in detail; hand off to a frontend
       contributor.
 - [ ] **Notification system** — Evaluate gotify or similar for push notifications when a new revision is pushed.
-- [ ] **LLM incorporation pipeline** — Define how `wld plan sync` sends comments + plan to an LLM and what guardrails
-      exist (privacy, cost, token limits).
+- [ ] **Planner/Architect incorporation pipeline** — Continue refining how `wld plans pull` presents decrypted comments
+      and Plan revisions to Planner/Architect, including privacy, cost, and token-limit guardrails.
 - [ ] **`original_text` encryption decision** — Determine whether comment anchor text should be encrypted client-side or
       sent in plaintext for server-side context.
 - [ ] **Author tracking** — Currently `wld plan list` has no way to filter "my plans." Add an `author_id` or similar
