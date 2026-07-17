@@ -1,4 +1,5 @@
 ---
+planId: "1b4a45ba-665c-48e0-9af1-b1b2a29d9df3"
 classification: "FEATURE"
 complexity: "HIGH"
 summary: "Teach workflow readiness that new PROJECT plans with type epic are containers, not directly executable plans."
@@ -10,10 +11,15 @@ affectedPaths:
     - "src/shared/workflow/plan-lifecycle.test.js"
     - "src/tools/__tests__/plan-written.test.js"
 createdAt: "2026-06-16T16:25:04Z"
-updatedAt: "2026-06-16T19:38:06.024Z"
+updatedAt: "2026-07-17T04:43:11.977Z"
 status: "verified"
 origin: "internal"
 verifiedAt: "2026-06-16T19:38:06.024Z"
+workRecord:
+    status: "generated"
+    recordId: "9029558c-c1c9-4b1e-8aff-41c71735da6c"
+    path: "docs/work-records/2026-07-17-represent-project-plans-as-epics.md"
+    lastAttemptAt: "2026-07-17T04:43:06.275Z"
 worktreeStatus: "merged"
 ---
 

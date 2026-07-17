@@ -1,4 +1,5 @@
 ---
+planId: "86abb955-7955-4cae-b41a-b00018166ac6"
 classification: "FEATURE"
 complexity: "HIGH"
 summary: "Replace the silent Slicer task-table mutation with an interactive PM-style decomposition session for Epics."
@@ -9,10 +10,15 @@ affectedPaths:
     - "src/shared/workflow/workflow-prompts.js"
     - "src/shared/workflow/workflow.test.js"
 createdAt: "2026-06-16T16:25:04Z"
-updatedAt: "2026-06-17T14:11:27.819Z"
+updatedAt: "2026-07-17T04:43:28.930Z"
 status: "verified"
 origin: "internal"
 verifiedAt: "2026-06-17T14:11:27.819Z"
+workRecord:
+    status: "generated"
+    recordId: "94036c10-ebdc-49d5-88c1-b3434455a481"
+    path: "docs/work-records/2026-07-17-interactive-slicer-mvp.md"
+    lastAttemptAt: "2026-07-17T04:43:22.982Z"
 ---
 
 # Interactive Slicer MVP

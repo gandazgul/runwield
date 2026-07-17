@@ -12,12 +12,17 @@ affectedPaths:
     - "src/tools/triage-report.js"
 frontend: false
 createdAt: "2026-07-05T01:09:07-04:00"
+updatedAt: "2026-07-17T04:49:53.582Z"
 status: "verified"
 origin: "internal"
 verifiedAt: "2026-07-06T20:53:57.779Z"
+workRecord:
+    status: "generated"
+    recordId: "87480129-bfe6-4cb0-8eef-2e02f81f7baa"
+    path: "docs/work-records/2026-07-17-reorganized-ui-source-tree.md"
+    lastAttemptAt: "2026-07-17T04:49:47.122Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
-updatedAt: "2026-07-08T16:34:21.764Z"
 archivedAt: "2026-07-08T16:34:21.764Z"
 archivedFromStatus: "verified"
 archivedFromPath: "plans/reorganize-ui-source-tree.md"

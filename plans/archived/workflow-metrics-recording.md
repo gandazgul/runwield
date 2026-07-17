@@ -7,12 +7,17 @@ affectedPaths:
     []
 frontend: false
 createdAt: "2026-07-05T00:25:41-04:00"
+updatedAt: "2026-07-17T04:52:54.858Z"
 status: "verified"
 origin: "internal"
 verifiedAt: "2026-07-08T04:32:33.201Z"
+workRecord:
+    status: "generated"
+    recordId: "c628bcfc-c535-441d-aee4-e42a81fe0d5e"
+    path: "docs/work-records/2026-07-17-added-local-workflow-metrics-recording.md"
+    lastAttemptAt: "2026-07-17T04:52:44.556Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
-updatedAt: "2026-07-08T16:34:21.764Z"
 archivedAt: "2026-07-08T16:34:21.764Z"
 archivedFromStatus: "verified"
 archivedFromPath: "plans/workflow-metrics-recording.md"

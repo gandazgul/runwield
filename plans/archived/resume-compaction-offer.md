@@ -1,13 +1,19 @@
 ---
+planId: "a1d46cfe-1b25-4144-bd33-f71e4316e09d"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Modify the `/resume` command to check the token count of a session before loading it. If the session size exceeds a threshold (e.g., 50% of the model's context window), the user should be prompted whether they want to compact the session before proceeding with the resume. This prevents loading oversized contexts that could degrade model performance or exceed limits."
 affectedPaths:
     - "src/cmd/resume/index.js"
 createdAt: "2026-06-13T15:00:00.000Z"
-updatedAt: "2026-06-14T02:27:08.779Z"
-status: "completed"
+updatedAt: "2026-07-17T04:50:07.271Z"
+status: "verified"
 origin: "internal"
+workRecord:
+    status: "generated"
+    recordId: "d72f0c3e-8ab5-460b-97b6-05b8d3506f64"
+    path: "docs/work-records/2026-07-17-offer-session-compaction-before-resume.md"
+    lastAttemptAt: "2026-07-17T04:50:01.896Z"
 ---
 
 # Resume Compaction Offer

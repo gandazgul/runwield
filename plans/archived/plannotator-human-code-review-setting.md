@@ -1,4 +1,5 @@
 ---
+planId: "df6b338e-3c46-45c6-ac6a-4300387be20d"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Implement a new 'codereview' setting with three options (none, ask, always) to integrate with Plannotator's new code review UI as an optional validation gate without adding new primary plan statuses."
@@ -16,10 +17,15 @@ affectedPaths:
     - "src/shared/workflow/plan-lifecycle.test.js"
     - "src/plan-store.test.js"
 createdAt: "2026-06-23T00:39:48-04:00"
-updatedAt: "2026-06-24T02:52:34.395Z"
+updatedAt: "2026-07-17T04:49:30.339Z"
 status: "verified"
 origin: "internal"
 verifiedAt: "2026-06-24T02:52:34.395Z"
+workRecord:
+    status: "generated"
+    recordId: "6ba74768-085e-4261-a50c-418327e2b57a"
+    path: "docs/work-records/2026-07-17-added-optional-plannotator-human-code-review-gate.md"
+    lastAttemptAt: "2026-07-17T04:49:24.255Z"
 humanReviewMode: "ask"
 humanReviewDecision: "approved"
 humanReviewedAt: "2026-06-24T02:52:34.395Z"

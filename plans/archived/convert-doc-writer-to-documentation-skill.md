@@ -1,4 +1,5 @@
 ---
+planId: "4a62e441-8964-4c68-90f7-a40a8e831d7e"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Convert Doc Writer from a standalone Agent to a Documentation Skill. This involves deleting the agent definition, creating the new skill, updating other agents (Engineer/Operator) to use said skill, and cleaning up references in constants, docs, and settings."
@@ -11,11 +12,16 @@ affectedPaths:
     - "docs/index.md"
     - "docs/settings.md"
 createdAt: "2026-06-21T04:27:50Z"
-updatedAt: "2026-06-21T04:50:24.137Z"
+updatedAt: "2026-07-17T04:41:59.980Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-06-21T04:47:50.733Z"
 verifiedAt: "2026-06-21T04:50:24.137Z"
+workRecord:
+    status: "generated"
+    recordId: "5f062008-6c1a-465b-bfe4-f7cca3a8bd15"
+    path: "docs/work-records/2026-07-17-converted-doc-writer-agent-to-documentation-skill.md"
+    lastAttemptAt: "2026-07-17T04:41:52.290Z"
 routingIntent: "FEATURE"
 ---
 

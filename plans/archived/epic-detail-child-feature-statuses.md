@@ -1,14 +1,20 @@
 ---
+planId: "eac387df-4631-4524-a159-34c0a475538a"
 classification: "FEATURE"
 complexity: "LOW"
 summary: "Improve the Epic detailed view in `load-plan` by listing child features and their statuses. Additionally, improve the navigation flow to allow users to view details of a specific child feature before loading it, or simply refine the \"Pick a child FEATURE plan\" flow to provide more context."
 affectedPaths:
     - "src/cmd/load-plan/index.js"
 createdAt: "2026-06-18T00:00:00.000Z"
-updatedAt: "2026-06-18T17:11:42.526Z"
+updatedAt: "2026-07-17T04:42:18.260Z"
 status: "verified"
 origin: "internal"
 verifiedAt: "2026-06-18T17:11:42.526Z"
+workRecord:
+    status: "generated"
+    recordId: "41b3510d-798e-479d-b62a-ca1c1f7002e1"
+    path: "docs/work-records/2026-07-17-improved-epic-details-and-child-feature-navigation.md"
+    lastAttemptAt: "2026-07-17T04:42:13.433Z"
 ---
 
 # Improve Epic Details with Child FEATURE Statuses

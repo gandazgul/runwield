@@ -1,4 +1,5 @@
 ---
+planId: "6ab008c5-ee7a-40e3-9bc9-a441448d5bc5"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Add Guide/Ideator routing intents and route non-materializing conversations away from Operator."
@@ -14,10 +15,15 @@ affectedPaths:
     - "src/shared/workflow/orchestrator.test.js"
     - "src/shared/session/__tests__/session-tools-policy.test.js"
 createdAt: "2026-06-18T00:00:00.000Z"
-updatedAt: "2026-06-19T14:41:31.000Z"
+updatedAt: "2026-07-17T04:50:20.148Z"
 status: "verified"
 origin: "internal"
 verifiedAt: "2026-06-19T14:41:31.000Z"
+workRecord:
+    status: "generated"
+    recordId: "d9042849-7372-4cea-baf8-09644d4a7b90"
+    path: "docs/work-records/2026-07-17-added-guide-and-intent-based-conversation-routing.md"
+    lastAttemptAt: "2026-07-17T04:50:13.149Z"
 ---
 
 # Routing Intent and Guide Agent

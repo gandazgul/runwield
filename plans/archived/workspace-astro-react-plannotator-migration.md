@@ -14,18 +14,23 @@ devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://localhost:5173/"
 devServerHmr: true
 createdAt: "2026-07-07T13:30:52-04:00"
+updatedAt: "2026-07-17T04:53:03.128Z"
 status: "verified"
-worktreeBaseBranch: "workspace-astro-react-plannotator-migration"
-verifiedAt: "2026-07-14T12:19:57.000Z"
 origin: "internal"
 type: "epic"
-routingIntent: "PROJECT"
-sessionName: "workspace react migration"
-updatedAt: "2026-07-14T12:20:06.122Z"
+verifiedAt: "2026-07-14T12:19:57.000Z"
+workRecord:
+    status: "generated"
+    recordId: "6e6b260d-6254-4cbe-bc6d-89ab9131da19"
+    path: "docs/work-records/2026-07-17-migrated-workspace-to-astro-react-and-plannotator.md"
+    lastAttemptAt: "2026-07-17T04:52:54.858Z"
+worktreeBaseBranch: "workspace-astro-react-plannotator-migration"
 archivedAt: "2026-07-14T12:20:06.122Z"
 archiveReason: "All child FEATURE plans verified"
 archivedFromStatus: "verified"
 archivedFromPath: "plans/workspace-astro-react-plannotator-migration.md"
+routingIntent: "PROJECT"
+sessionName: "workspace react migration"
 ---
 
 # Workspace Astro React Plannotator Migration

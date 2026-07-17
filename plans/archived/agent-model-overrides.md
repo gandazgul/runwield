@@ -1,4 +1,5 @@
 ---
+planId: "110786ce-e028-4b3f-98f3-722c25782f5e"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Implement per-agent model overrides in settings.json and support JSONC (comments) for the settings file. 1. Update `resolveModel` in `src/shared/session/session.js` to check for an `agents` object in settings that specifies a model override for the current agent name, inserting it into the priority chain between user-override and agent-definition. 2. Modify `HarnsSettingsStorage` in `src/shared/settings.js` to parse settings using JSONC (or a simple comment-stripping regex) to allow user comments in `settings.json`. 3. Add support for \"model presets\" by allowing the settings override to refer to a predefined set of models or by expanding the `agents` config to support grouped overrides."
@@ -6,9 +7,14 @@ affectedPaths:
     - "src/shared/session/session.js"
     - "src/shared/settings.js"
 createdAt: "2026-06-02T19:31:36.000Z"
-updatedAt: "2026-06-02T19:33:30.876Z"
-status: "completed"
+updatedAt: "2026-07-17T04:41:04.979Z"
+status: "verified"
 origin: "internal"
+workRecord:
+    status: "generated"
+    recordId: "1fed84ad-6da4-4a21-b706-7ce769998120"
+    path: "docs/work-records/2026-07-17-per-agent-model-overrides-presets-and-jsonc-settings.md"
+    lastAttemptAt: "2026-07-17T04:40:58.897Z"
 ---
 
 # Per-Agent Model Overrides + Presets + JSONC Settings

@@ -1,4 +1,5 @@
 ---
+planId: "8e55a30d-5c03-4c84-a362-4e5048f75ec9"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "The Reviewer agent currently relies on text output ('APPROVED') to signal completion, which is brittle and leads to the workflow continuing even when the agent is just talking. I will implement a dedicated `review_complete` tool for the Reviewer to explicitly signal approval or provide feedback, and update `runValidationLoop` to wait for this tool call instead of parsing text. I will also ensure that Esc/interrupts do not prematurely advance the workflow."
@@ -7,18 +8,23 @@ affectedPaths:
     - "src/shared/workflow/workflow-results.js"
 frontend: false
 createdAt: "2026-07-08T14:59:11-04:00"
+updatedAt: "2026-07-17T04:50:13.149Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-07-08T15:17:43.745Z"
 verifiedAt: "2026-07-08T15:58:50.575Z"
+workRecord:
+    status: "generated"
+    recordId: "213e1c4b-53cf-4515-a174-a66626ace1b9"
+    path: "docs/work-records/2026-07-17-structured-reviewer-completion-signal.md"
+    lastAttemptAt: "2026-07-17T04:50:07.271Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
-routingIntent: "FEATURE"
-sessionName: "fix reviewer workflow signal"
-updatedAt: "2026-07-08T16:34:21.764Z"
 archivedAt: "2026-07-08T16:34:21.764Z"
 archivedFromStatus: "verified"
 archivedFromPath: "plans/review-complete-tool.md"
+routingIntent: "FEATURE"
+sessionName: "fix reviewer workflow signal"
 ---
 
 # Review Complete Structured Tool

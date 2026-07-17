@@ -1,4 +1,5 @@
 ---
+planId: "44407264-433c-4ac6-93a3-6a3aa0a46f77"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Allow RunWield to install and load explicitly WLD-compatible Pi-shaped code extension packages after clear user consent, while keeping passive themes and prompts unchanged."
@@ -12,7 +13,14 @@ affectedPaths:
     - "src/cmd/registry.js"
     - "docs/settings.md"
 createdAt: "2026-06-16T16:46:54-04:00"
+updatedAt: "2026-07-17T04:41:20.973Z"
 status: "verified"
+origin: "internal"
+workRecord:
+    status: "generated"
+    recordId: "770c5b8f-23c5-488c-b9ad-c8f718b7c1e1"
+    path: "docs/work-records/2026-07-17-enabled-consent-gated-wld-compatible-pi-extensions.md"
+    lastAttemptAt: "2026-07-17T04:41:11.361Z"
 ---
 
 # Allow WLD-Compatible Pi Extensions

@@ -19,17 +19,22 @@ affectedPaths:
     - "src/ui/tui/chat-session.test.js"
 frontend: false
 createdAt: "2026-07-10T10:18:06-04:00"
+updatedAt: "2026-07-17T04:47:27.336Z"
 status: "verified"
 origin: "internal"
 verifiedAt: "2026-07-12T17:21:36.953Z"
+workRecord:
+    status: "generated"
+    recordId: "10630953-9fce-425a-9b2e-766c65bc1a99"
+    path: "docs/work-records/2026-07-17-added-tui-footer-workflow-context.md"
+    lastAttemptAt: "2026-07-17T04:47:20.649Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
-routingIntent: "FEATURE"
-sessionName: "footer workflow context"
-updatedAt: "2026-07-14T14:19:54.208Z"
 archivedAt: "2026-07-14T14:19:54.208Z"
 archivedFromStatus: "verified"
 archivedFromPath: "plans/footer-workflow-context.md"
+routingIntent: "FEATURE"
+sessionName: "footer workflow context"
 ---
 
 # TUI Footer Workflow Context

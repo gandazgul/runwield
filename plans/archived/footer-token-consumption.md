@@ -1,21 +1,23 @@
 ---
+planId: "89409afa-fe27-4adc-bc77-980ffc17cdd9"
 classification: "FEATURE"
 complexity: "MEDIUM"
-summary: "Add a token consumption data footer to the TUI, mirroring Pi.dev. This involves:
-    1. Tracking token usage (sent, received, cache reads) from the `@earendil-works/pi-coding-agent` session events.
-    2. Calculating the context window percentage using model data from `models.json`.
-    3. (Optional/Investigation) Determining a way to calculate costs based on provider pricing.
-    4. Updating the footer render logic in `chat-session.js` to display this information."
+summary: "Add a token consumption data footer to the TUI, mirroring Pi.dev. This involves: 1. Tracking token usage (sent, received, cache reads) from the `@earendil-works/pi-coding-agent` session events. 2. Calculating the context window percentage using model data from `models.json`. 3. (Optional/Investigation) Determining a way to calculate costs based on provider pricing. 4. Updating the footer render logic in `chat-session.js` to display this information."
 affectedPaths:
     - "src/shared/interactive/chat-session.js"
     - "src/shared/session/session.js"
     - "src/shared/session/session-state.js"
 createdAt: "2026-06-15T13:30:00.000Z"
-updatedAt: "2026-06-15T20:50:56.200Z"
+updatedAt: "2026-07-17T04:47:20.649Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-06-15T20:49:52.804Z"
 verifiedAt: "2026-06-15T20:50:56.200Z"
+workRecord:
+    status: "generated"
+    recordId: "22e87ad7-8ecc-4260-81b7-382c91339fcf"
+    path: "docs/work-records/2026-07-17-added-tui-footer-token-consumption-data.md"
+    lastAttemptAt: "2026-07-17T04:47:11.849Z"
 executionBaselineTree: "138796165d084e98b01e46ade1dc939cd16c17f2"
 ---
 

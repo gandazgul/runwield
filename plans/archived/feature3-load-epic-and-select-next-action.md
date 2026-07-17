@@ -1,4 +1,5 @@
 ---
+planId: "45d43146-1061-4e05-b040-c79080120cae"
 classification: "FEATURE"
 complexity: "HIGH"
 summary: "Make load-plan recognize Epics and offer decomposition or child FEATURE selection instead of direct execution."
@@ -7,11 +8,16 @@ affectedPaths:
     - "src/cmd/load-plan/index.test.js"
     - "src/plan-store.js"
 createdAt: "2026-06-16T16:25:04Z"
-updatedAt: "2026-06-16T20:21:16.807Z"
+updatedAt: "2026-07-17T04:43:17.648Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-06-16T20:16:51.416Z"
 verifiedAt: "2026-06-16T20:21:16.807Z"
+workRecord:
+    status: "generated"
+    recordId: "d92fbb74-e227-4d87-812a-1b13d82b7869"
+    path: "docs/work-records/2026-07-17-epic-aware-load-plan-action-selection.md"
+    lastAttemptAt: "2026-07-17T04:43:11.977Z"
 worktreeStatus: "merged"
 ---
 

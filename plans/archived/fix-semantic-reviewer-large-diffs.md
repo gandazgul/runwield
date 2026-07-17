@@ -1,4 +1,5 @@
 ---
+planId: "e45aedd3-f831-401a-8661-2df652dbb48e"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "The Semantic Reviewer is failing with a context window error when the git diff is too large. I will modify `runValidationLoop` in `src/shared/workflow/validation.js` to avoid sending the entire diff to the Reviewer. Instead, I'll provide a list of changed files and instruct the Reviewer to use exploration tools to inspect the changes, effectively turning the Reviewer from a passive diff-reader into an active explorer."
@@ -6,18 +7,23 @@ affectedPaths:
     - "src/shared/workflow/validation.js"
 frontend: false
 createdAt: "2026-07-08T09:43:25-04:00"
+updatedAt: "2026-07-17T04:46:54.074Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-07-08T14:21:32.797Z"
 verifiedAt: "2026-07-08T14:45:17.003Z"
+workRecord:
+    status: "generated"
+    recordId: "ecf6e199-a29a-4302-a449-c2fb84232372"
+    path: "docs/work-records/2026-07-17-made-semantic-review-context-safe-for-large-diffs.md"
+    lastAttemptAt: "2026-07-17T04:46:00.187Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
-routingIntent: "FEATURE"
-sessionName: "fix reviewer context window"
-updatedAt: "2026-07-08T16:34:21.764Z"
 archivedAt: "2026-07-08T16:34:21.764Z"
 archivedFromStatus: "verified"
 archivedFromPath: "plans/fix-semantic-reviewer-large-diffs.md"
+routingIntent: "FEATURE"
+sessionName: "fix reviewer context window"
 ---
 
 # Fix Semantic Reviewer Large Diffs

@@ -1,4 +1,5 @@
 ---
+planId: "0c7f7798-b7d2-4b32-8ff3-b4c9d7623336"
 classification: "FEATURE"
 complexity: "HIGH"
 summary: "Rename Harns to RunWield with a clean break from hns/.hns/HARNS-era state, while preserving only the Router display name Harns and keeping the CLI binary as wld."
@@ -12,10 +13,15 @@ affectedPaths:
     - "README.md"
     - "install.sh"
 createdAt: "2026-06-22T22:20:48-04:00"
-updatedAt: "2026-06-23T04:55:50.556Z"
+updatedAt: "2026-07-17T04:49:47.122Z"
 status: "verified"
 origin: "internal"
 verifiedAt: "2026-06-23T04:55:50.556Z"
+workRecord:
+    status: "generated"
+    recordId: "cb5116f2-17d6-4457-acba-f661afe45a49"
+    path: "docs/work-records/2026-07-17-rebranded-harns-to-runwield.md"
+    lastAttemptAt: "2026-07-17T04:49:38.334Z"
 routingIntent: "FEATURE"
 ---
 

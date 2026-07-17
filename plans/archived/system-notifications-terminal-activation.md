@@ -9,19 +9,24 @@ affectedPaths:
     - "src/tools/plan-written.js"
 frontend: false
 createdAt: "2026-07-07T15:02:17-04:00"
+updatedAt: "2026-07-17T04:52:24.131Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-07-07T20:07:41.915Z"
 verifiedAt: "2026-07-07T20:19:26.252Z"
+workRecord:
+    status: "generated"
+    recordId: "1e67b377-0802-4889-9ee0-db54bbbf4127"
+    path: "docs/work-records/2026-07-17-added-system-notifications-with-terminal-activation.md"
+    lastAttemptAt: "2026-07-17T04:51:30.256Z"
 humanReviewMode: "ask"
 humanReviewDecision: "approved"
 humanReviewedAt: "2026-07-07T20:19:21.996Z"
-routingIntent: "FEATURE"
-sessionName: "system notifications for agent events"
-updatedAt: "2026-07-08T16:34:21.764Z"
 archivedAt: "2026-07-08T16:34:21.764Z"
 archivedFromStatus: "verified"
 archivedFromPath: "plans/system-notifications-terminal-activation.md"
+routingIntent: "FEATURE"
+sessionName: "system notifications for agent events"
 ---
 
 # System Notifications with Terminal Activation

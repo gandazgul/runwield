@@ -363,7 +363,7 @@ function buildRecorderPrompt(source) {
 export async function generateRecorderSections(cwd, source, options = {}) {
     const prompt = buildRecorderPrompt(source);
     const text = options.runRecorderPrompt ? await options.runRecorderPrompt(prompt) : extractAssistantOutput(
-        await runNonInteractiveAgentPrompt({ cwd, agentName: AGENTS.RECORDER, userRequest: prompt }),
+        await runNonInteractiveAgentPrompt({ cwd, agentName: AGENTS.PLANNER, userRequest: prompt }),
     ) || "";
     return parseRecorderSections(text);
 }

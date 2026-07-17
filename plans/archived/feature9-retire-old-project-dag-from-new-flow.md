@@ -1,4 +1,5 @@
 ---
+planId: "01c43109-3a48-479e-aa1b-6c86e8ca3c14"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Stop new PROJECT/Epic workflows from using the old task-DAG execution path while keeping legacy modules import-safe."
@@ -10,10 +11,15 @@ affectedPaths:
     - "src/shared/workflow/workflow.test.js"
     - "src/shared/workflow/task-scheduling.test.js"
 createdAt: "2026-06-16T16:25:04Z"
-updatedAt: "2026-06-18T04:15:20.442Z"
+updatedAt: "2026-07-17T04:43:58.804Z"
 status: "verified"
 origin: "internal"
 verifiedAt: "2026-06-18T04:15:20.442Z"
+workRecord:
+    status: "generated"
+    recordId: "388d9465-ac3f-45f6-b462-54e425c7d471"
+    path: "docs/work-records/2026-07-17-retired-the-old-project-task-dag-execution-path.md"
+    lastAttemptAt: "2026-07-17T04:43:54.407Z"
 ---
 
 # Retire Old PROJECT DAG from New Flow

@@ -7,18 +7,23 @@ affectedPaths:
     []
 frontend: false
 createdAt: "2026-07-06T16:52:46-04:00"
+updatedAt: "2026-07-17T04:42:05.810Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-07-06T22:57:31.195Z"
 verifiedAt: "2026-07-07T01:20:38.434Z"
+workRecord:
+    status: "generated"
+    recordId: "f7fcd48d-0add-4368-9338-04dcdbe1577f"
+    path: "docs/work-records/2026-07-17-optimized-standalone-deno-binary-compilation.md"
+    lastAttemptAt: "2026-07-17T04:41:59.980Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
-routingIntent: "FEATURE"
-sessionName: "deno compile binary optimization"
-updatedAt: "2026-07-08T16:34:21.764Z"
 archivedAt: "2026-07-08T16:34:21.764Z"
 archivedFromStatus: "verified"
 archivedFromPath: "plans/deno-compile-binary-optimization.md"
+routingIntent: "FEATURE"
+sessionName: "deno compile binary optimization"
 ---
 
 # Deno Compile Binary Optimization

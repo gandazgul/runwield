@@ -1,4 +1,5 @@
 ---
+planId: "affd463b-c841-4409-97e6-9842875936ca"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Update hns plans so Epics and their child FEATURE plans are shown as a hierarchy with concise progress."
@@ -7,9 +8,14 @@ affectedPaths:
     - "src/cmd/plans/index.test.js"
     - "src/plan-store.js"
 createdAt: "2026-06-16T16:25:04Z"
-updatedAt: "2026-06-17T16:05:00.000Z"
+updatedAt: "2026-07-17T04:43:39.596Z"
 status: "verified"
 origin: "internal"
+workRecord:
+    status: "generated"
+    recordId: "34e65816-be73-4b59-ba79-9e446b328dd7"
+    path: "docs/work-records/2026-07-17-show-epic-hierarchy-in-plans-list.md"
+    lastAttemptAt: "2026-07-17T04:43:28.930Z"
 worktreeStatus: "abandoned"
 ---
 

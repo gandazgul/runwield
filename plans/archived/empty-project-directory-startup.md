@@ -15,10 +15,15 @@ affectedPaths:
     - "src/cmd/init/index_test.js"
 frontend: false
 createdAt: "2026-07-02T16:09:00-04:00"
-updatedAt: "2026-07-03T03:28:31.455Z"
+updatedAt: "2026-07-17T04:42:13.432Z"
 status: "verified"
 origin: "internal"
 verifiedAt: "2026-07-03T03:28:31.455Z"
+workRecord:
+    status: "generated"
+    recordId: "9a678b00-6f99-48dc-9242-73ca8ae416e5"
+    path: "docs/work-records/2026-07-17-empty-project-directory-startup-ux.md"
+    lastAttemptAt: "2026-07-17T04:42:05.810Z"
 humanReviewMode: "ask"
 humanReviewDecision: "approved"
 humanReviewedAt: "2026-07-03T03:28:28.706Z"

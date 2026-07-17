@@ -29,11 +29,16 @@ affectedPaths:
     - "src/acp/server.test.js"
 frontend: false
 createdAt: "2026-07-06T13:31:28-04:00"
+updatedAt: "2026-07-17T04:50:38.786Z"
 status: "verified"
-verifiedAt: "2026-07-14T12:15:15.000Z"
 origin: "internal"
 type: "epic"
-updatedAt: "2026-07-14T12:18:21.606Z"
+verifiedAt: "2026-07-14T12:15:15.000Z"
+workRecord:
+    status: "generated"
+    recordId: "7709289b-9d53-4ae7-9c5e-0659eed411bf"
+    path: "docs/work-records/2026-07-17-sessionruntime-and-acp-v1-stdio-mvp.md"
+    lastAttemptAt: "2026-07-17T04:50:26.531Z"
 archivedAt: "2026-07-14T12:18:21.606Z"
 archiveReason: "All child FEATURE plans verified"
 archivedFromStatus: "verified"

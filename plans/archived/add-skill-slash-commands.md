@@ -1,4 +1,5 @@
 ---
+planId: "b473615c-82bd-4b48-a2b5-4df052bc75fc"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Add skill:{name} slash command support. Skills already exist in src/skills/ with SKILL.md files, and listSkills() already loads them. Pi handles skill invocation by wrapping the markdown content in a &lt;skill&gt; XML block and sending it as a regular user message to the LLM (which then follows the skill's instructions). The model sees it as conversation context, not a special tool call. Implementation needs: (1) populate autocomplete with skill:{name} commands using existing listSkills(), (2) add skill expansion in slash-dispatch similar to Pi's _expandSkillCommand that reads the SKILL.md file and formats it as a &lt;skill&gt; block, (3) send the expanded skill content as a user message to the active agent."
@@ -8,9 +9,14 @@ affectedPaths:
     - "src/shared/session/session.js"
     - "src/skills/"
 createdAt: "2026-05-11T00:00:00.000Z"
-updatedAt: "2026-05-15T17:19:33.738Z"
-status: "completed"
+updatedAt: "2026-07-17T04:40:58.897Z"
+status: "verified"
 origin: "internal"
+workRecord:
+    status: "generated"
+    recordId: "e2729721-fe76-4b8f-8016-bf2c0a6661f8"
+    path: "docs/work-records/2026-07-17-add-skill-slash-commands.md"
+    lastAttemptAt: "2026-07-17T04:40:52.144Z"
 ---
 
 # Add /skill:{name} Slash Command Support

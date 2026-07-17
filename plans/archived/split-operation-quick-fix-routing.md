@@ -14,10 +14,15 @@ affectedPaths:
     - "docs/workflows.md"
 frontend: false
 createdAt: "2026-07-02T14:05:13-04:00"
-updatedAt: "2026-07-02T19:34:44.604Z"
+updatedAt: "2026-07-17T04:51:30.256Z"
 status: "verified"
 origin: "internal"
 verifiedAt: "2026-07-02T19:34:44.604Z"
+workRecord:
+    status: "generated"
+    recordId: "f5bfa8dc-752c-4ade-9590-e4079e2df32c"
+    path: "docs/work-records/2026-07-17-split-operation-and-quick-fix-routing.md"
+    lastAttemptAt: "2026-07-17T04:51:20.908Z"
 humanReviewMode: "ask"
 humanReviewDecision: "approved"
 humanReviewedAt: "2026-07-02T19:34:41.792Z"

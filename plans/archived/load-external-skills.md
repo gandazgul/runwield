@@ -1,13 +1,19 @@
 ---
+planId: "efca91ed-f3fc-4ee4-ba95-86fd76cee5aa"
 classification: "FEATURE"
 complexity: "LOW"
 summary: "Add support for loading skills from ~/.agents/skills/ (the Pi-compatible skill directory) in addition to the existing layers (./.hns/skills/, ~/.hns/skills/, bundled). Skills from ~/.agents/sills/ will appear alongside built-in skills in autocomplete, system prompt, and boot banner. Collision resolution: ./.hns/sills/ > ~/.hns/sills/ > built-in > ~/.agents/sills/."
 affectedPaths:
     - "src/shared/session/session.js"
 createdAt: "2026-05-15T17:30:00.000Z"
-updatedAt: "2026-05-15T19:41:38.975Z"
-status: "completed"
+updatedAt: "2026-07-17T04:48:54.976Z"
+status: "verified"
 origin: "internal"
+workRecord:
+    status: "generated"
+    recordId: "7d1b41b6-5dd6-45f9-9c8b-0687676d02ae"
+    path: "docs/work-records/2026-07-17-loaded-pi-compatible-external-skills.md"
+    lastAttemptAt: "2026-07-17T04:48:29.847Z"
 ---
 
 # Load External Skills from ~/.agents/sills/

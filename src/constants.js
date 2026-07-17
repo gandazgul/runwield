@@ -125,7 +125,7 @@ export const HOME_DIR = readOptionalEnv("HOME");
  * `src/agent-definitions/workflow-prompts/reviewer-prompt.md` as a bare
  * prompt, without shared skills or extra tools.
  */
-/** @type {Readonly<{ROUTER: string, GUIDE: string, OPERATOR: string, PLANNER: string, ARCHITECT: string, ENGINEER: string, REVIEWER: string, SLICER: string, TESTER: string, IDEATOR: string, RECORDER: string, INIT: string}>} */
+/** @type {Readonly<{ROUTER: string, GUIDE: string, OPERATOR: string, PLANNER: string, ARCHITECT: string, ENGINEER: string, REVIEWER: string, SLICER: string, IDEATOR: string, INIT: string}>} */
 export const AGENTS = Object.freeze({
     ROUTER: "router",
     GUIDE: "guide",
@@ -135,9 +135,7 @@ export const AGENTS = Object.freeze({
     ENGINEER: "engineer",
     REVIEWER: "reviewer",
     SLICER: "slicer",
-    TESTER: "tester",
     IDEATOR: "ideator",
-    RECORDER: "recorder",
     INIT: "init",
 });
 
