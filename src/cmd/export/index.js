@@ -34,6 +34,8 @@ export async function runExportCommand(argv, options = {}) {
         return;
     }
 
+    uiAPI.appendSystemMessage("");
+
     const requestedPath = argv.join(" ").trim();
 
     const fallbackIso = sessionStartedAt || new Date().toISOString();

@@ -234,7 +234,7 @@ Deno.test("runManualQaChecklistPrompt uses isolated Plan context without tools",
         cwd: "/repo",
         __deps: {
             loadManualQaPrompt: () => Promise.resolve(promptDef),
-            runAgentSession: (/** @type {any} */ args) => {
+            runIsolatedAgentSession: (/** @type {any} */ args) => {
                 invocation = args;
                 return Promise.resolve(expectedMessages);
             },
@@ -246,7 +246,7 @@ Deno.test("runManualQaChecklistPrompt uses isolated Plan context without tools",
     assertEquals(invocation.cwd, "/repo");
     assertEquals(invocation._agentDefOverride, promptDef);
     assertEquals(invocation.includeEditFallback, false);
-    assertEquals(invocation.useRootSession, false);
+    assertEquals(Object.hasOwn(invocation, "useRootSession"), false);
     assertStringIncludes(invocation.userRequest, "Name: settings-panel");
     assertStringIncludes(invocation.userRequest, "Classification: FEATURE");
     assertStringIncludes(invocation.userRequest, "save settings and reload");
@@ -364,7 +364,7 @@ Deno.test("runMechanicalValidation passes local CI without plan-specific work", 
                 actions.push(`ci:${cwd}`);
                 return Promise.resolve({ exitCode: 0, output: "ok" });
             },
-            runAgentSession: () => {
+            runActiveAgentTurn: () => {
                 throw new Error("repair should not run");
             },
             switchActiveAgent: (
@@ -418,7 +418,7 @@ Deno.test("runMechanicalValidation repairs CI failures through Engineer and then
                 actions.push(`ci:${ciRuns}`);
                 return Promise.resolve(ciRuns === 1 ? { exitCode: 1, output: "boom" } : { exitCode: 0, output: "" });
             },
-            runAgentSession: (/** @type {any} */ opts) => {
+            runActiveAgentTurn: (/** @type {any} */ opts) => {
                 actions.push(`repair:${opts.agentName}:${opts.cwd}:${opts.userRequest.includes("boom")}`);
                 return Promise.resolve([]);
             },
@@ -463,7 +463,7 @@ Deno.test("runMechanicalValidation ignores stale task_completed from earlier roo
         __deps: /** @type {any} */ ({
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 1, output: "boom" }),
-            runAgentSession: () =>
+            runActiveAgentTurn: () =>
                 Promise.resolve(
                     /** @type {any} */ ([
                         {
@@ -518,7 +518,7 @@ Deno.test("runMechanicalValidation detects task_completed when repair returns a 
                 ciRuns++;
                 return Promise.resolve(ciRuns === 1 ? { exitCode: 1, output: "boom" } : { exitCode: 0, output: "" });
             },
-            runAgentSession: () =>
+            runActiveAgentTurn: () =>
                 Promise.resolve(
                     /** @type {any} */ ([{
                         role: "toolResult",
@@ -543,7 +543,7 @@ Deno.test("runMechanicalValidation stops after three Engineer repair attempts wi
         __deps: /** @type {any} */ ({
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 1, output: "still broken" }),
-            runAgentSession: () => {
+            runActiveAgentTurn: () => {
                 repairCalls++;
                 return Promise.resolve([]);
             },
@@ -596,7 +596,7 @@ Deno.test("runValidationLoop skips semantic review and merge-back for non-Git in
             getDiffText: () => {
                 throw new Error("should not compute git diff");
             },
-            runAgentSession: () => {
+            runIsolatedAgentSession: () => {
                 reviewCalls++;
                 return Promise.resolve([]);
             },
@@ -816,7 +816,7 @@ Deno.test("runValidationLoop fails FEATURE validation when workflow diff is empt
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve(""),
-            runAgentSession: () => {
+            runIsolatedAgentSession: () => {
                 throw new Error("semantic review should not run");
             },
             recordPlanEvent: (/** @type {any} */ event) => {
@@ -859,7 +859,7 @@ Deno.test("runValidationLoop fails PROJECT validation when workflow diff only ch
                     "-status: implemented",
                     "+status: verified",
                 ].join("\n")),
-            runAgentSession: () => {
+            runIsolatedAgentSession: () => {
                 throw new Error("semantic review should not run");
             },
             recordPlanEvent: (/** @type {any} */ event) => {
@@ -898,9 +898,11 @@ Deno.test("runValidationLoop pauses with Engineer when CI repair does not call t
         __deps: /** @type {any} */ ({
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 1, output: "boom" }),
-            runAgentSession: (/** @type {any} */ opts) => {
+            runActiveAgentTurn: (/** @type {any} */ opts) => {
                 repairCalls++;
                 repairAgentName = opts.agentName;
+                assertEquals(opts.allowReturnToRouter, false);
+                assertEquals(opts.cwd, Deno.cwd());
                 return Promise.resolve([]);
             },
             readLatestTaskCompletedOutcome: () => false,
@@ -946,7 +948,7 @@ Deno.test("runValidationLoop pauses with Engineer on interrupted semantic repair
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff"),
-            runAgentSession: () =>
+            runIsolatedAgentSession: () =>
                 Promise.resolve(
                     /** @type {any} */ ([{
                         role: "assistant",
@@ -1014,7 +1016,7 @@ Deno.test("runValidationLoop reviews the diff scoped to the active workflow base
                 baselineArgs.push(baselineTree);
                 return Promise.resolve("diff --git a/workflow.js b/workflow.js\n+scoped workflow change\n");
             },
-            runAgentSession: (/** @type {any} */ opts) => {
+            runIsolatedAgentSession: (/** @type {any} */ opts) => {
                 reviewPrompts.push(opts.userRequest);
                 return Promise.resolve(
                     /** @type {any} */ ([{
@@ -1076,7 +1078,7 @@ Deno.test("runValidationLoop runs validation and reviewer in active execution cw
                 diffCwds.push(cwd);
                 return Promise.resolve("diff --git a/file.js b/file.js\n+change\n");
             },
-            runAgentSession: (/** @type {any} */ opts) => {
+            runIsolatedAgentSession: (/** @type {any} */ opts) => {
                 sessionCwds.push(opts.cwd);
                 sessionOpts.push(opts);
                 return Promise.resolve(
@@ -1103,7 +1105,7 @@ Deno.test("runValidationLoop runs validation and reviewer in active execution cw
     assertEquals(sessionOpts[0]._agentDefOverride.tools, ["read", "grep", "find", "ls", "review_complete"]);
     assertEquals(sessionOpts[0]._agentDefOverride.systemPrompt.includes("{{SKILLS}}"), false);
     assertEquals(sessionOpts[0].includeEditFallback, false);
-    assertEquals(sessionOpts[0].useRootSession, false);
+    assertEquals(Object.hasOwn(sessionOpts[0], "useRootSession"), false);
     assertEquals(
         Object.hasOwn(sessionOpts[0], "sessionManager"),
         false,
@@ -1145,7 +1147,7 @@ Deno.test("runValidationLoop stages validation_passed before worktree merge succ
             },
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
-            runAgentSession: () =>
+            runIsolatedAgentSession: () =>
                 Promise.resolve(
                     /** @type {any} */ ([{
                         role: "assistant",
@@ -1270,7 +1272,7 @@ Deno.test("runValidationLoop merges verified Plan metadata in Git and leaves the
             __deps: /** @type {any} */ ({
                 runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
                 getDiffText: () => Promise.resolve("diff --git a/implemented.js b/implemented.js\n+change\n"),
-                runAgentSession: () =>
+                runIsolatedAgentSession: () =>
                     Promise.resolve(
                         /** @type {any} */ ([{
                             role: "assistant",
@@ -1346,7 +1348,7 @@ Deno.test("runValidationLoop reapplies verified Plan metadata after real merge-c
             __deps: /** @type {any} */ ({
                 runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
                 getDiffText: () => Promise.resolve("diff --git a/conflict.txt b/conflict.txt\n+execution\n"),
-                runAgentSession: () =>
+                runIsolatedAgentSession: () =>
                     Promise.resolve(
                         /** @type {any} */ ([{
                             role: "assistant",
@@ -1404,7 +1406,7 @@ Deno.test("runValidationLoop does not preserve a nonexistent Plan path for quick
         __deps: /** @type {any} */ ({
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
-            runAgentSession: () =>
+            runIsolatedAgentSession: () =>
                 Promise.resolve(
                     /** @type {any} */ ([{
                         role: "assistant",
@@ -1429,7 +1431,7 @@ Deno.test("runValidationLoop does not preserve a nonexistent Plan path for quick
     assertEquals(preservedPaths, [[]]);
 });
 
-Deno.test("runValidationLoop preserves merged verification across post-merge verification and registry errors", async () => {
+Deno.test("runValidationLoop halts and preserves worktree when post-merge verification fails", async () => {
     const uiAPI = makeUi();
     /** @type {string[]} */
     const actions = [];
@@ -1455,7 +1457,7 @@ Deno.test("runValidationLoop preserves merged verification across post-merge ver
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
-            runAgentSession: () =>
+            runIsolatedAgentSession: () =>
                 Promise.resolve(
                     /** @type {any} */ ([{
                         role: "assistant",
@@ -1494,18 +1496,28 @@ Deno.test("runValidationLoop preserves merged verification across post-merge ver
         }),
     });
 
-    assertEquals(actions, ["merge", "registry:merged"]);
+    assertEquals(actions, [
+        "merge",
+        "registry:merge_conflict",
+        "event:worktree_merge_failed:Post-merge verification failed: branch is not contained in target",
+    ]);
     assertEquals(
         uiAPI.messages.some((/** @type {string} */ message) =>
-            message.includes("Worktree merged, but post-merge verification was inconclusive")
+            message.includes("Worktree merge could not be verified; preserving worktree for recovery")
         ),
         true,
     );
     assertEquals(
         uiAPI.messages.some((/** @type {string} */ message) =>
-            message.includes("Worktree merged, but updating its registry status failed: registry unavailable")
+            message.includes(
+                "Could not update worktree registry after merge verification failure: registry unavailable",
+            )
         ),
         true,
+    );
+    assertEquals(
+        uiAPI.messages.some((/** @type {string} */ message) => message.includes("execution and validation complete")),
+        false,
     );
 });
 
@@ -1534,7 +1546,7 @@ Deno.test("runValidationLoop runs always human review after semantic approval an
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
-            runAgentSession: () =>
+            runIsolatedAgentSession: () =>
                 Promise.resolve(
                     /** @type {any} */ ([{
                         role: "assistant",
@@ -1613,7 +1625,7 @@ Deno.test("runValidationLoop ask mode can skip human review and merge", async ()
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
-            runAgentSession: () =>
+            runIsolatedAgentSession: () =>
                 Promise.resolve(
                     /** @type {any} */ ([{
                         role: "assistant",
@@ -1680,7 +1692,7 @@ Deno.test("runValidationLoop ask mode opens human review before merge when appro
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
-            runAgentSession: () =>
+            runIsolatedAgentSession: () =>
                 Promise.resolve(
                     /** @type {any} */ ([{
                         role: "assistant",
@@ -1743,7 +1755,7 @@ Deno.test("runValidationLoop sends human feedback to Engineer and continues vali
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
-            runAgentSession: () =>
+            runIsolatedAgentSession: () =>
                 Promise.resolve(
                     /** @type {any} */ ([{
                         role: "assistant",
@@ -1841,7 +1853,7 @@ Deno.test("runValidationLoop treats human review exit as validation failure with
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
-            runAgentSession: () =>
+            runIsolatedAgentSession: () =>
                 Promise.resolve(
                     /** @type {any} */ ([{
                         role: "assistant",
@@ -1921,7 +1933,7 @@ Deno.test("runValidationLoop keeps merged worktree when cleanup setting is disab
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
-            runAgentSession: () =>
+            runIsolatedAgentSession: () =>
                 Promise.resolve(
                     /** @type {any} */ ([{
                         role: "assistant",
@@ -1993,7 +2005,7 @@ Deno.test("runValidationLoop records worktree_merge_failed when merge-back fails
             },
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
-            runAgentSession: () =>
+            runIsolatedAgentSession: () =>
                 Promise.resolve(
                     /** @type {any} */ ([{
                         role: "assistant",
@@ -2004,6 +2016,7 @@ Deno.test("runValidationLoop records worktree_merge_failed when merge-back fails
                         details: { outcome: "approved", approved: true, feedback: "" },
                     }]),
                 ),
+            runActiveAgentTurn: () => Promise.resolve([]),
             mergeExecutionWorktree: () => Promise.reject(new Error("conflict")),
             updateWorktreeRegistryEntry: (
                 /** @type {string} */ _projectRoot,
@@ -2073,7 +2086,7 @@ Deno.test("runValidationLoop still prompts when merge-conflict metadata updates 
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
-            runAgentSession: () =>
+            runIsolatedAgentSession: () =>
                 Promise.resolve(
                     /** @type {any} */ ([{
                         role: "assistant",
@@ -2084,6 +2097,7 @@ Deno.test("runValidationLoop still prompts when merge-conflict metadata updates 
                         details: { outcome: "approved", approved: true, feedback: "" },
                     }]),
                 ),
+            runActiveAgentTurn: () => Promise.resolve([]),
             mergeExecutionWorktree: () => Promise.reject(new Error("merge conflict")),
             updateWorktreeRegistryEntry: () => {
                 actions.push("registry-failed");
@@ -2138,7 +2152,7 @@ Deno.test("runValidationLoop warns when using legacy current-checkout merge fall
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
-            runAgentSession: () =>
+            runIsolatedAgentSession: () =>
                 Promise.resolve(
                     /** @type {any} */ ([{
                         role: "assistant",
@@ -2196,7 +2210,7 @@ Deno.test("runValidationLoop dispatches Engineer merge repair and retries merge-
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
-            runAgentSession: () =>
+            runIsolatedAgentSession: () =>
                 Promise.resolve(
                     /** @type {any} */ ([{
                         role: "assistant",
@@ -2305,27 +2319,25 @@ Deno.test("runValidationLoop completes after merge repair task_completed and ret
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
-            runAgentSession: (/** @type {{ agentName: string }} */ opts) => {
-                if (opts.agentName === "reviewer") {
-                    return Promise.resolve(
-                        /** @type {any} */ ([{
-                            role: "assistant",
-                            content: [{ type: "text", text: "The implementation matches the plan." }],
-                        }, {
-                            role: "toolResult",
-                            toolName: "review_complete",
-                            details: { outcome: "approved", approved: true, feedback: "" },
-                        }]),
-                    );
-                }
-                return Promise.resolve(
+            runIsolatedAgentSession: () =>
+                Promise.resolve(
+                    /** @type {any} */ ([{
+                        role: "assistant",
+                        content: [{ type: "text", text: "The implementation matches the plan." }],
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_complete",
+                        details: { outcome: "approved", approved: true, feedback: "" },
+                    }]),
+                ),
+            runActiveAgentTurn: () =>
+                Promise.resolve(
                     /** @type {any} */ ([{
                         role: "toolResult",
                         toolName: "task_completed",
                         details: { outcome: "task_completed" },
                     }]),
-                );
-            },
+                ),
             mergeExecutionWorktree: () => {
                 mergeAttempts++;
                 if (mergeAttempts === 1) {
@@ -2384,7 +2396,7 @@ Deno.test("runValidationLoop retries worktree merge after user fixes primary che
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
-            runAgentSession: () =>
+            runIsolatedAgentSession: () =>
                 Promise.resolve(
                     /** @type {any} */ ([{
                         role: "assistant",
@@ -2395,6 +2407,7 @@ Deno.test("runValidationLoop retries worktree merge after user fixes primary che
                         details: { outcome: "approved", approved: true, feedback: "" },
                     }]),
                 ),
+            runActiveAgentTurn: () => Promise.resolve([]),
             mergeExecutionWorktree: () => {
                 mergeAttempts++;
                 actions.push(`merge:${mergeAttempts}`);
@@ -2726,7 +2739,7 @@ Deno.test("runValidationLoop uses large-diff prompt when diff exceeds inline thr
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve(largeDiffText),
-            runAgentSession: (/** @type {any} */ opts) => {
+            runIsolatedAgentSession: (/** @type {any} */ opts) => {
                 reviewPrompts.push(opts.userRequest);
                 // Verify customTools include review_diff
                 const hasReviewDiff = (opts.customTools || []).some(
@@ -2795,7 +2808,7 @@ Deno.test("runValidationLoop shows retry/cancel menu when reviewer throws an err
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
-            runAgentSession: () => {
+            runIsolatedAgentSession: () => {
                 promptsSeen.push("review-invoked");
                 throw new Error("Context window exceeded");
             },
@@ -2835,7 +2848,7 @@ Deno.test("runValidationLoop halts when reviewer returns blank output and user c
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
-            runAgentSession: () =>
+            runIsolatedAgentSession: () =>
                 Promise.resolve(
                     /** @type {any} */ ([{
                         role: "assistant",
@@ -2882,7 +2895,7 @@ Deno.test("runValidationLoop retries semantic review when user chooses retry", a
             ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
-            runAgentSession: (/** @type {any} */ opts) => {
+            runIsolatedAgentSession: (/** @type {any} */ opts) => {
                 reviewOpts.push(opts);
                 reviewCalls++;
                 if (reviewCalls === 1) {

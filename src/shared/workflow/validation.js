@@ -9,7 +9,7 @@ import { AGENTS } from "../../constants.js";
 import { formatGitRequiredMessage, isGitRepositoryRequiredError } from "../git.js";
 import { getAgentDisplayName } from "../session/agents.js";
 import { ensureBundledAgentDefFile } from "../session/agent-assets.js";
-import { runAgentSession } from "../session/session.js";
+import { runIsolatedAgentSession } from "../session/session.js";
 import {
     getCodeReviewMode,
     getCustomSetting,
@@ -18,7 +18,7 @@ import {
     shouldCleanupMergedWorktrees,
 } from "../settings.js";
 import { readLatestReviewOutcome, readLatestTaskCompletedOutcome } from "./workflow.js";
-import { switchActiveAgent } from "../session/agent-switching.js";
+import { runActiveAgentTurn, switchActiveAgent } from "../session/agent-switching.js";
 import {
     emitHostedSessionRuntimeEvent,
     emitSystemStatus,
@@ -210,7 +210,7 @@ export async function loadManualQaPrompt(
  * @param {string} args.cwd
  * @param {{
  *   loadManualQaPrompt?: typeof loadManualQaPrompt,
- *   runAgentSession?: typeof runAgentSession,
+ *   runIsolatedAgentSession?: typeof runIsolatedAgentSession,
  * }} [args.__deps]
  * @returns {Promise<import('@earendil-works/pi-agent-core').AgentMessage[]>}
  */
@@ -223,7 +223,7 @@ export async function runManualQaChecklistPrompt({
     __deps,
 }) {
     const loadPrompt = __deps?.loadManualQaPrompt || loadManualQaPrompt;
-    const runAgentSessionImpl = __deps?.runAgentSession || runAgentSession;
+    const runIsolatedAgentSessionImpl = __deps?.runIsolatedAgentSession || runIsolatedAgentSession;
     const agentDef = await loadPrompt();
     const userRequest = [
         "Prepare the post-verification checklist from this source material.",
@@ -234,14 +234,13 @@ export async function runManualQaChecklistPrompt({
         context,
     ].join("\n");
 
-    return await runAgentSessionImpl({
+    return await runIsolatedAgentSessionImpl({
         hostedSession,
         agentName: AGENTS.OPERATOR,
         userRequest,
         cwd,
         _agentDefOverride: agentDef,
         includeEditFallback: false,
-        useRootSession: false,
     });
 }
 
@@ -460,7 +459,7 @@ function startsWithMessages(messages, prefix) {
  * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined} args.sessionManager
  * @param {string} [args.cwd]
  * @param {import('../session/hosted-session.js').HostedSession} args.hostedSession
- * @param {typeof runAgentSession} [args.runAgentSession]
+ * @param {typeof runActiveAgentTurn} [args.runActiveAgentTurn]
  * @param {typeof readLatestTaskCompletedOutcome} [args.readLatestTaskCompletedOutcome]
  * @returns {Promise<boolean>}
  */
@@ -471,19 +470,19 @@ async function runCompletionGatedRepair({
     sessionManager,
     cwd,
     hostedSession,
-    runAgentSession: runAgentSessionImpl = runAgentSession,
+    runActiveAgentTurn: runActiveAgentTurnImpl = runActiveAgentTurn,
     readLatestTaskCompletedOutcome: readTaskCompleted = readLatestTaskCompletedOutcome,
 }) {
     const previousRootMessages = getRootMessages(hostedSession, agentName).slice();
     const fromIndex = previousRootMessages.length;
-    const messages = await runAgentSessionImpl({
+    const messages = await runActiveAgentTurnImpl({
         hostedSession,
         agentName,
         userRequest,
         images,
         sessionManager,
         cwd,
-        useRootSession: true,
+        allowReturnToRouter: false,
     });
 
     const returnedRootTranscript = startsWithMessages(messages, previousRootMessages);
@@ -809,7 +808,8 @@ export function shouldRunWorkflowValidation(triageMeta) {
  * @param {string} [args.manualQaContext]
  * @param {{
  *   runLocalCI?: typeof runLocalCI,
- *   runAgentSession?: typeof runAgentSession,
+ *   runIsolatedAgentSession?: typeof runIsolatedAgentSession,
+ *   runActiveAgentTurn?: typeof runActiveAgentTurn,
  *   runCompletionGatedRepair?: typeof runCompletionGatedRepair,
  *   runManualQaChecklistPrompt?: typeof runManualQaChecklistPrompt,
  *   readLatestTaskCompletedOutcome?: typeof readLatestTaskCompletedOutcome,
@@ -831,12 +831,12 @@ export async function runMechanicalValidation({
     if (!projectRoot) throw new Error("runMechanicalValidation: hostedSession or cwd is required");
     const validationCwd = cwd || hostedSession?.getActiveExecutionCwd?.() || projectRoot;
     const runLocalCIImpl = __deps?.runLocalCI || runLocalCI;
-    const runAgentSessionImpl = __deps?.runAgentSession || runAgentSession;
+    const runRepairAgentTurn = __deps?.runActiveAgentTurn || runActiveAgentTurn;
     const repair = __deps?.runCompletionGatedRepair ||
         ((repairArgs) =>
             runCompletionGatedRepair({
                 ...repairArgs,
-                runAgentSession: runAgentSessionImpl,
+                runActiveAgentTurn: runRepairAgentTurn,
                 readLatestTaskCompletedOutcome: __deps?.readLatestTaskCompletedOutcome,
                 hostedSession,
             }));
@@ -1010,7 +1010,8 @@ export async function runMechanicalValidation({
  * @param {string | undefined} [args.finalAgentName] Agent to restore after router-started or direct workflows.
  * @param {{
  *   runLocalCI?: typeof runLocalCI,
- *   runAgentSession?: typeof runAgentSession,
+ *   runIsolatedAgentSession?: typeof runIsolatedAgentSession,
+ *   runActiveAgentTurn?: typeof runActiveAgentTurn,
  *   runCompletionGatedRepair?: typeof runCompletionGatedRepair,
  *   runManualQaChecklistPrompt?: typeof runManualQaChecklistPrompt,
  *   readLatestTaskCompletedOutcome?: typeof readLatestTaskCompletedOutcome,
@@ -1044,12 +1045,13 @@ export async function runValidationLoop({
 }) {
     if (!hostedSession) throw new Error("runValidationLoop: hostedSession is required");
     const runLocalCIImpl = __deps?.runLocalCI || runLocalCI;
-    const runAgentSessionImpl = __deps?.runAgentSession || runAgentSession;
+    const runIsolatedAgentSessionImpl = __deps?.runIsolatedAgentSession || runIsolatedAgentSession;
+    const runRepairAgentTurn = __deps?.runActiveAgentTurn || runActiveAgentTurn;
     const repair = __deps?.runCompletionGatedRepair ||
         ((args) =>
             runCompletionGatedRepair({
                 ...args,
-                runAgentSession: runAgentSessionImpl,
+                runActiveAgentTurn: runRepairAgentTurn,
                 readLatestTaskCompletedOutcome: __deps?.readLatestTaskCompletedOutcome,
                 hostedSession,
             }));
@@ -1285,7 +1287,7 @@ export async function runValidationLoop({
                 /** @type {import('@earendil-works/pi-agent-core').AgentMessage[]} */
                 let sessionMessages;
                 try {
-                    sessionMessages = await runAgentSessionImpl({
+                    sessionMessages = await runIsolatedAgentSessionImpl({
                         hostedSession,
                         agentName: AGENTS.REVIEWER,
                         userRequest: reviewPrompt,
@@ -1297,7 +1299,6 @@ export async function runValidationLoop({
                         // read-only investigation, not the workflow's conversation history.
                         // Omitting the shared manager gives this transient invocation a
                         // fresh in-memory SessionManager.
-                        useRootSession: false,
                     });
                 } catch (/** @type {any} */ invocationError) {
                     const errorMsg = invocationError instanceof Error
@@ -1383,7 +1384,7 @@ export async function runValidationLoop({
                     }
 
                     try {
-                        const retryMessages = await runAgentSessionImpl({
+                        const retryMessages = await runIsolatedAgentSessionImpl({
                             hostedSession,
                             agentName: AGENTS.REVIEWER,
                             userRequest: retryPrompt,
@@ -1393,7 +1394,6 @@ export async function runValidationLoop({
                             includeEditFallback: false,
                             // Keep retries isolated as well; failed Reviewer context must
                             // not leak into the next independent audit attempt.
-                            useRootSession: false,
                         });
                         const retryOutcome = readLatestReviewOutcome(retryMessages);
                         reviewResponse = retryOutcome?.feedback || "";
@@ -1786,6 +1786,7 @@ export async function runValidationLoop({
         /** @type {string | undefined} */
         let pendingRepairMergeWorktreePath;
         let mergeBackCompleted = false;
+        let postMergeVerificationHalted = false;
 
         if (worktreeBranch && !worktreeBaseBranch) {
             emitRunWieldSystemStatus(
@@ -1863,7 +1864,7 @@ export async function runValidationLoop({
                             }
                         }
                     }
-                    let mergeVerified = true;
+                    let mergeVerificationFailure = "";
                     try {
                         const mergeVerification = await verifyExecutionWorktreeMergedImpl({
                             projectRoot,
@@ -1871,23 +1872,76 @@ export async function runValidationLoop({
                             worktreeBaseBranch,
                         });
                         if (!mergeVerification.merged) {
-                            mergeVerified = false;
-                            emitRunWieldSystemStatus(
-                                hostedSession,
-                                `Worktree merged, but post-merge verification was inconclusive: ${mergeVerification.message}`,
-                                true,
-                            );
+                            mergeVerificationFailure = mergeVerification.message;
                         }
                     } catch (verificationError) {
-                        mergeVerified = false;
-                        const verificationReason = verificationError instanceof Error
+                        mergeVerificationFailure = verificationError instanceof Error
                             ? verificationError.message
                             : String(verificationError);
+                    }
+                    if (mergeVerificationFailure) {
+                        const reason = `Post-merge verification failed: ${mergeVerificationFailure}`;
                         emitRunWieldSystemStatus(
                             hostedSession,
-                            `Worktree merged, but post-merge verification failed: ${verificationReason}`,
+                            `Worktree merge could not be verified; preserving worktree for recovery: ${reason}`,
                             true,
                         );
+                        if (worktreeId) {
+                            try {
+                                await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, {
+                                    status: "merge_conflict",
+                                });
+                            } catch (registryError) {
+                                const registryReason = registryError instanceof Error
+                                    ? registryError.message
+                                    : String(registryError);
+                                emitRunWieldSystemStatus(
+                                    hostedSession,
+                                    `Could not update worktree registry after merge verification failure: ${registryReason}`,
+                                    true,
+                                );
+                            }
+                        }
+                        if (planName && planName !== "quick-fix") {
+                            try {
+                                await recordPlanEventImpl({
+                                    cwd: projectRoot,
+                                    planName,
+                                    event: "worktree_merge_failed",
+                                    currentStatus: "implemented",
+                                    details: {
+                                        triageMeta,
+                                        failureReason: reason,
+                                        worktreePath: executionCwd,
+                                        worktreeBranch,
+                                        worktreeBaseBranch,
+                                    },
+                                });
+                            } catch (metadataError) {
+                                const metadataReason = metadataError instanceof Error
+                                    ? metadataError.message
+                                    : String(metadataError);
+                                emitRunWieldSystemStatus(
+                                    hostedSession,
+                                    `Could not update plan metadata after merge verification failure: ${metadataReason}`,
+                                    true,
+                                );
+                            }
+                        }
+                        await recordWorkflowMetricImpl({
+                            category: "validation",
+                            event: "merge_back_result",
+                            planName,
+                            details: {
+                                passed: false,
+                                mergeFailureKind: "post_merge_verification_failed",
+                                verificationFailure: mergeVerificationFailure,
+                            },
+                        });
+                        postMergeVerificationHalted = true;
+                        executionComplete = false;
+                        haltReason = `Worktree merge could not be verified: ${mergeVerificationFailure}`;
+                        break;
                     }
                     pendingRepairMergeWorktreePath = undefined;
                     try {
@@ -1923,7 +1977,7 @@ export async function runValidationLoop({
                             );
                         }
                     }
-                    if (mergeVerified && cleanupMergedWorktrees && executionCwd) {
+                    if (cleanupMergedWorktrees && executionCwd) {
                         try {
                             await removeExecutionWorktreeImpl({
                                 projectRoot,
@@ -2141,7 +2195,7 @@ export async function runValidationLoop({
                 planName,
                 details: { passed: false, validationCycles, reason: "halted_after_merge" },
             });
-            if (worktreeId) {
+            if (!postMergeVerificationHalted && worktreeId) {
                 try {
                     await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, { status: "validation_failed" });
                 } catch (metadataError) {
@@ -2155,7 +2209,7 @@ export async function runValidationLoop({
                     );
                 }
             }
-            if (planName && planName !== "quick-fix") {
+            if (!postMergeVerificationHalted && planName && planName !== "quick-fix") {
                 try {
                     await recordPlanEventImpl({
                         cwd: projectRoot,

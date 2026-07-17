@@ -8,7 +8,7 @@ import {
     ensureRootAgentSession,
     getGlobalAgentMdPaths,
     readGlobalAgentMd,
-    runAgentSession,
+    runIsolatedAgentSession,
     runPrompt,
     runRootTurn,
     shouldReuseExistingRootSession,
@@ -126,7 +126,6 @@ Deno.test("shouldReuseExistingRootSession ignores undefined optional overrides",
             agentName: AGENTS.OPERATOR,
             userRequest: "commit",
             modelOverride: undefined,
-            useRootSession: true,
         }, AGENTS.OPERATOR),
         true,
     );
@@ -136,16 +135,6 @@ Deno.test("shouldReuseExistingRootSession ignores undefined optional overrides",
             agentName: AGENTS.OPERATOR,
             userRequest: "commit",
             modelOverride: "test/model",
-            useRootSession: true,
-        }, AGENTS.OPERATOR),
-        false,
-    );
-
-    assertEquals(
-        shouldReuseExistingRootSession({
-            agentName: AGENTS.OPERATOR,
-            userRequest: "sleep",
-            useRootSession: false,
         }, AGENTS.OPERATOR),
         false,
     );
@@ -439,7 +428,7 @@ Deno.test("runRootTurn increments only the target HostedSession root turn metada
     assertEquals(runPrompts.map((entry) => entry.session), [rootA, rootA]);
 });
 
-Deno.test("runAgentSession root and transient paths use only the supplied HostedSession state", async () => {
+Deno.test("runIsolatedAgentSession keeps disposable agents scoped to their supplied HostedSession", async () => {
     const hostedA = makeHostedRuntimeSession("run-a");
     const hostedB = makeHostedRuntimeSession("run-b");
     hostedA.setActiveModelState("manual-a", "test", true);
@@ -453,25 +442,24 @@ Deno.test("runAgentSession root and transient paths use only the supplied Hosted
         return Promise.resolve([]);
     };
 
-    await runAgentSession({
+    await runIsolatedAgentSession({
         hostedSession: hostedA,
         agentName: "router",
-        userRequest: "root a",
+        userRequest: "isolated a",
         _buildAgentSession: makeBuildAgentSessionStub("run-a", builds),
         _attachSessionEventSubscribers: makeAttachStub(),
         _runPrompt: runPromptStub,
     });
-    await runAgentSession({
+    await runIsolatedAgentSession({
         hostedSession: hostedB,
         agentName: "operator",
         userRequest: "transient b",
-        useRootSession: false,
         _buildAgentSession: makeBuildAgentSessionStub("run-b", builds),
         _attachSessionEventSubscribers: makeAttachStub(),
         _runPrompt: runPromptStub,
     });
 
-    assertEquals(hostedA.getRootAgentName(), "router");
+    assertEquals(hostedA.getRootAgentName(), null);
     assertEquals(hostedB.getRootAgentName(), null);
     assertEquals(hostedB.getSubAgentSessions().size, 0, "transient sub-agent is removed from its own HostedSession");
     assertEquals(hostedA.getSubAgentSessions().size, 0, "transient sub-agent never appears in another HostedSession");

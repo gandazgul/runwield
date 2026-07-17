@@ -4,7 +4,7 @@
  * lets workflow tool outcomes decide whether any follow-up workflow step runs.
  */
 
-import { runAgentSession as runAgentSessionFn, runRootTurn as runRootTurnFn } from "./session.js";
+import { runRootTurn as runRootTurnFn } from "./session.js";
 import {
     executePlan as executePlanFn,
     readLatestPlanOutcome as readLatestPlanOutcomeFn,
@@ -49,7 +49,6 @@ function canCompleteActiveExecutionWorkflow(agentName) {
  *
  * @param {string} agentName - Agent definition name (filename without .md)
  * @param {{
- *   runAgentSession?: typeof runAgentSessionFn,
  *   runRootTurn?: typeof runRootTurnFn,
  *   readLatestTriageOutcome?: typeof readLatestTriageOutcomeFn,
  *   dispatchPostTriage?: typeof dispatchPostTriageFn,
@@ -74,7 +73,6 @@ function canCompleteActiveExecutionWorkflow(agentName) {
  */
 export function createAgentHandler(agentName, __deps) {
     const hostedSession = __deps?.hostedSession;
-    const runAgentSession = __deps?.runAgentSession || runAgentSessionFn;
     const runRootTurn = __deps?.runRootTurn || runRootTurnFn;
     const readLatestTriageOutcome = __deps?.readLatestTriageOutcome || readLatestTriageOutcomeFn;
     const dispatchPostTriage = __deps?.dispatchPostTriage || dispatchPostTriageFn;
@@ -117,37 +115,28 @@ export function createAgentHandler(agentName, __deps) {
         // would make the UI's active agent label and the callable tool set
         // diverge, so fail before any model turn can run.
         const rootAgentName = hostedSession.getRootAgentName();
+        if (!rootAgentName) {
+            throw new Error(`createAgentHandler: active handler "${agentName}" has no root Agent`);
+        }
         if (rootAgentName && rootAgentName !== agentName) {
             throw new Error(
                 `createAgentHandler: active handler "${agentName}" does not match root agent "${rootAgentName}"`,
             );
         }
-        const useRoot = rootAgentName === agentName;
-
         // Capture the pre-turn message count so we only consider plan_written outcomes
         // from the current turn. Stale outcomes from earlier turns (e.g. an already-executed
         // approved_execute) would otherwise trigger duplicate executePlan calls on
         // follow-up questions.
         const rootAgentSession = /** @type {any} */ (hostedSession.getRootAgentSession());
-        const preTurnCount = useRoot ? rootAgentSession?.agent?.state?.messages?.length ?? 0 : 0;
+        const preTurnCount = rootAgentSession?.agent?.state?.messages?.length ?? 0;
         let agentStoppedAttentionRequested = false;
         const requestAgentStoppedAttention = () => {
             if (agentStoppedAttentionRequested) return;
             agentStoppedAttentionRequested = true;
-            requestAttention(hostedSession, "agentStopped", agentName);
+            requestAttention(hostedSession, "agentStopped", hostedSession.getRootAgentName() || agentName);
         };
 
-        const messages = useRoot
-            ? await runRootTurn({ hostedSession, agentName, userRequest, images, ...sessionOptions })
-            : await runAgentSession({
-                hostedSession,
-                agentName,
-                userRequest,
-                images,
-                sessionManager,
-                useRootSession: false,
-                ...sessionOptions,
-            });
+        const messages = await runRootTurn({ hostedSession, agentName, userRequest, images, ...sessionOptions });
 
         const routerHandoff = readLatestReturnToRouterOutcome(messages, preTurnCount);
         if (routerHandoff) {

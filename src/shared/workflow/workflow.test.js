@@ -17,6 +17,7 @@ import {
     validateProjectTasks,
 } from "./workflow.js";
 import { HostedSession } from "../session/hosted-session.js";
+import { runActiveAgentTurn } from "../session/agent-switching.js";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 
 /** @param {string} [id] */
@@ -803,6 +804,70 @@ Deno.test("executePlan treats incomplete Engineer execution as resumable", async
     assertEquals(worktreeStatuses, []);
 });
 
+Deno.test("executePlan keeps Engineer active when the implementation turn is interrupted", async () => {
+    const hostedSession = makeHostedSession("interrupted-feature-execution");
+    const plannerHandler = () => Promise.resolve({ kind: "complete" });
+    const engineerHandler = () => Promise.resolve({ kind: "complete" });
+    const order = /** @type {string[]} */ ([]);
+    hostedSession.setRootAgentName("planner");
+    hostedSession.setRootAgentSession(/** @type {any} */ ({ dispose: () => {} }));
+    hostedSession.setActiveOnMessage(plannerHandler);
+
+    const result = await executePlan({
+        planName: "feature-plan",
+        triageMeta: { classification: "FEATURE" },
+        hostedSession,
+        __deps: /** @type {any} */ ({
+            loadPlan: () =>
+                Promise.resolve(
+                    /** @type {any} */ ({
+                        attrs: { status: "ready_for_work", classification: "FEATURE" },
+                        body: "## Feature",
+                        markdown: "## Feature",
+                    }),
+                ),
+            probeGitRepository: () => Promise.resolve({ ok: false, state: "not_git" }),
+            hasNonGitExecutionConsent: () => true,
+            confirmNonGitFeaturePlanExecution: () => {
+                throw new Error("consent should already be recorded");
+            },
+            recordPlanEvent: () => Promise.resolve({}),
+            recordWorkflowMetric: () => Promise.resolve(null),
+            runActiveAgentTurn: (/** @type {any} */ options) =>
+                runActiveAgentTurn(options, {
+                    switchActiveAgent: /** @type {any} */ ((
+                        /** @type {HostedSession} */ session,
+                        /** @type {any} */ switchOptions,
+                    ) => {
+                        order.push("switch");
+                        assertEquals(switchOptions.agentName, "engineer");
+                        assertEquals(switchOptions.cwd, Deno.cwd());
+                        session.setRootAgentName("engineer");
+                        session.setRootAgentSession(
+                            /** @type {any} */ ({ agent: { state: { messages: [] } }, dispose: () => {} }),
+                        );
+                        session.setActiveOnMessage(engineerHandler);
+                        return Promise.resolve({ ok: true, agentName: "engineer", changed: true });
+                    }),
+                    runRootTurn: /** @type {any} */ (() => {
+                        order.push("turn");
+                        assertEquals(hostedSession.getActiveOnMessage(), engineerHandler);
+                        return Promise.reject(new Error("interrupted by user question"));
+                    }),
+                }),
+        }),
+    });
+
+    assertEquals(result, {
+        repairRequired: false,
+        executionComplete: false,
+        error: "interrupted by user question",
+    });
+    assertEquals(order, ["switch", "turn"]);
+    assertEquals(hostedSession.getRootAgentName(), "engineer");
+    assertEquals(hostedSession.getActiveOnMessage(), engineerHandler);
+});
+
 Deno.test("executePlan uses single-plan execution for child FEATURE plans", async () => {
     let engineerCalled = false;
     let projectDagCalled = false;
@@ -1010,26 +1075,15 @@ Deno.test("runSlicerAgent returns ok=true when session resolves", async () => {
                 loadedPaths.push(`${path}:${opts?.agentName}`);
                 return Promise.resolve(/** @type {any} */ ({ displayName: "Slicer" }));
             },
-            runRootTurn: (/** @type {any} */ opts) => {
-                order.push("rootTurn");
+            runActiveAgentTurn: (/** @type {any} */ opts) => {
+                order.push("activeTurn");
                 captured = opts;
                 return Promise.resolve([]);
-            },
-            switchActiveAgent: (
-                /** @type {HostedSession} */ actualHostedSession,
-                /** @type {{ agentName: string, allowReturnToRouter?: boolean }} */ options,
-                /** @type {{ createAgentHandler?: Function }} */ switchDeps = {},
-            ) => {
-                order.push("switch");
-                assertEquals(options, { agentName: "slicer", allowReturnToRouter: false });
-                actualHostedSession.setRootAgentName(options.agentName);
-                actualHostedSession.setActiveOnMessage(switchDeps.createAgentHandler?.("slicer", {}));
-                return Promise.resolve({ ok: true, agentName: options.agentName, changed: true });
             },
         },
     });
     assertEquals(result.ok, true);
-    assertEquals(order, ["switch", "rootTurn"]);
+    assertEquals(order, ["activeTurn"]);
     assertEquals(loadedPaths, ["/tmp/bundled-agent-definitions/workflow-prompts/slicer-prompt.md:slicer"]);
     assertEquals(captured.agentName, "slicer");
     assertEquals(captured.allowReturnToRouter, false);
@@ -1073,9 +1127,7 @@ Deno.test("runSlicerAgent restores the prior session leaf when isolated Slicer s
         hostedSession,
         __deps: {
             ...slicerPlanDeps(),
-            switchActiveAgent: (/** @type {unknown} */ _hostedSession, /** @type {{ agentName: string }} */ options) =>
-                Promise.resolve({ ok: true, agentName: options.agentName, changed: true }),
-            runRootTurn: () => {
+            runActiveAgentTurn: () => {
                 throw new Error("boom");
             },
         },
@@ -1091,9 +1143,7 @@ Deno.test("runSlicerAgent surfaces session errors as { ok:false, error }", async
         hostedSession: makeHostedSession(),
         __deps: {
             ...slicerPlanDeps(),
-            switchActiveAgent: (/** @type {unknown} */ _hostedSession, /** @type {{ agentName: string }} */ options) =>
-                Promise.resolve({ ok: true, agentName: options.agentName, changed: true }),
-            runRootTurn: () => {
+            runActiveAgentTurn: () => {
                 throw new Error("boom");
             },
         },
@@ -1108,9 +1158,7 @@ Deno.test("runSlicerAgent surfaces non-Error throws as string", async () => {
         hostedSession: makeHostedSession(),
         __deps: {
             ...slicerPlanDeps(),
-            switchActiveAgent: (/** @type {unknown} */ _hostedSession, /** @type {{ agentName: string }} */ options) =>
-                Promise.resolve({ ok: true, agentName: options.agentName, changed: true }),
-            runRootTurn: () => {
+            runActiveAgentTurn: () => {
                 throw "string failure";
             },
         },
@@ -1125,8 +1173,7 @@ Deno.test("runSlicerAgent completes through an event-only HostedSession", async 
         hostedSession: makeHostedSession(),
         __deps: {
             ...slicerPlanDeps(),
-            runRootTurn: () => Promise.resolve([]),
-            switchActiveAgent: () => Promise.resolve({ ok: true, agentName: "slicer", changed: true }),
+            runActiveAgentTurn: () => Promise.resolve([]),
         },
     });
     assertEquals(result.ok, true);
@@ -1144,9 +1191,7 @@ Deno.test("runSlicerAgent reports failure through a system-status event", async 
         hostedSession: target,
         __deps: {
             ...slicerPlanDeps(),
-            switchActiveAgent: (/** @type {unknown} */ _hostedSession, /** @type {{ agentName: string }} */ options) =>
-                Promise.resolve({ ok: true, agentName: options.agentName, changed: true }),
-            runRootTurn: () => {
+            runActiveAgentTurn: () => {
                 throw new Error("kaboom");
             },
         },
