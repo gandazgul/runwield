@@ -1,4 +1,4 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertRejects } from "@std/assert";
 import { runWorkRecordsCommand } from "./index.js";
 
 const current = {
@@ -77,4 +77,92 @@ Deno.test("wld wr --help prints command help", async () => {
     const output = await capture(["--help"]);
 
     assertEquals(output.includes("help"), true);
+});
+
+/** @type {any} */
+const preview = {
+    sources: [],
+    eligible: [
+        {
+            sourceKind: "active",
+            name: "feature",
+            relativePath: "plans/feature.md",
+            path: "/tmp/plans/feature.md",
+            planId: "plan-feature",
+            attrs: { classification: "FEATURE", status: "verified" },
+            body: "# Feature",
+            markdown: "# Feature",
+            scope: "feature",
+            completionMode: "verified",
+        },
+    ],
+    skipped: [],
+};
+
+/**
+ * @param {string[]} argv
+ * @param {{ confirm?: boolean, run?: () => Promise<any> }} [options]
+ */
+async function captureBackfill(argv, options = {}) {
+    /** @type {string[]} */
+    const logs = [];
+    const orig = console.log;
+    let ran = false;
+    console.log = (msg = "") => logs.push(String(msg));
+    try {
+        await runWorkRecordsCommand(argv, {
+            __testDeps: {
+                previewWorkRecordBackfill: () => Promise.resolve(preview),
+                runWorkRecordBackfill: options.run || (() => {
+                    ran = true;
+                    return Promise.resolve({
+                        ...preview,
+                        outcomes: [{
+                            source: preview.eligible[0],
+                            status: "generated",
+                            path: "docs/work-records/feature.md",
+                        }],
+                    });
+                }),
+                confirmBackfill: () => Boolean(options.confirm),
+                printCommandHelp: () => {
+                    logs.push("help");
+                    return true;
+                },
+            },
+        });
+    } finally {
+        console.log = orig;
+    }
+    return { output: logs.join("\n"), ran };
+}
+
+Deno.test("wld wr backfill --dry-run previews without generation", async () => {
+    const result = await captureBackfill(["backfill", "--dry-run"], { confirm: true });
+
+    assertEquals(result.output.includes("Work Record backfill preview"), true);
+    assertEquals(result.output.includes("Dry run only"), true);
+    assertEquals(result.ran, false);
+});
+
+Deno.test("wld wr backfill requires confirmation by default", async () => {
+    const result = await captureBackfill(["backfill"], { confirm: false });
+
+    assertEquals(result.output.includes("Backfill canceled"), true);
+    assertEquals(result.ran, false);
+});
+
+Deno.test("wld wr backfill --yes runs generation", async () => {
+    const result = await captureBackfill(["backfill", "--yes"]);
+
+    assertEquals(result.output.includes("Generated feature"), true);
+    assertEquals(result.ran, true);
+});
+
+Deno.test("wld wr backfill rejects conflicting confirmation flags", async () => {
+    await assertRejects(
+        () => captureBackfill(["backfill", "--yes", "--dry-run"]),
+        Error,
+        "Cannot combine --yes with --dry-run",
+    );
 });
