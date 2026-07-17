@@ -1833,6 +1833,22 @@ export async function loadArchivedPlan(cwd, archivedPlanNameOrId) {
 }
 
 /**
+ * Update front matter for an archived Plan without restoring it.
+ * @param {string} cwd
+ * @param {string} archivedPlanNameOrId
+ * @param {Partial<PlanFrontMatter>} updates
+ * @returns {Promise<PlanFrontMatter>}
+ */
+export async function updateArchivedPlanFrontMatter(cwd, archivedPlanNameOrId, updates) {
+    const plan = await loadArchivedPlan(cwd, archivedPlanNameOrId);
+    if (!plan) throw new Error(`Archived Plan not found: ${archivedPlanNameOrId}`);
+    const attrs = { ...plan.attrs, ...updates, updatedAt: updates.updatedAt ?? new Date().toISOString() };
+    const withFm = injectFrontMatter(plan.body, attrs);
+    await Deno.writeTextFile(plan.path, withFm);
+    return parsePlanFrontMatter(withFm).attrs;
+}
+
+/**
  * Restore an archived Plan back under plans/.
  * @param {string} cwd
  * @param {string} archivedPlanNameOrId
