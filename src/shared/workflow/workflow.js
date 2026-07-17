@@ -8,7 +8,6 @@ import { AGENTS } from "../../constants.js";
 import { loadPlan } from "../../plan-store.js";
 import { hasNonGitExecutionConsent, probeGitRepository, rememberNonGitExecutionConsent } from "../git.js";
 import { getAgentDisplayName } from "../session/agents.js";
-import { runAgentSession, runRootTurn } from "../session/session.js";
 import { emitSystemStatus } from "../session/session-runtime-events.js";
 import { requestHostedSessionInteraction, RuntimeInteractionTypes } from "../session/session-runtime-interactions.js";
 import {
@@ -92,19 +91,17 @@ export {
  * @param {import('../../tools/plan-written.js').TriageMeta} [opts.triageMeta]
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager]
  * @param {import('../session/hosted-session.js').HostedSession} [opts.hostedSession]
- * @param {{ switchActiveAgent?: typeof import('../session/agent-switching.js').switchActiveAgent, runRootTurn?: typeof runRootTurn }} [opts.__deps]
+ * @param {{ runActiveAgentTurn?: typeof import('../session/agent-switching.js').runActiveAgentTurn }} [opts.__deps]
  * @returns {Promise<PlanOutcomeResult>}
  */
 export async function runPlanningAgent(
     { agentName, initialRequest, triageMeta: _triageMeta, sessionManager, hostedSession, __deps },
 ) {
-    const switchActive = __deps?.switchActiveAgent ||
-        (await import("../session/agent-switching.js")).switchActiveAgent;
-    const rootTurn = __deps?.runRootTurn || runRootTurn;
+    const runActiveAgentTurn = __deps?.runActiveAgentTurn ||
+        (await import("../session/agent-switching.js")).runActiveAgentTurn;
     if (!hostedSession) throw new Error("runPlanningAgent: hostedSession is required");
 
-    await switchActive(hostedSession, { agentName, allowReturnToRouter: false });
-    const messages = await rootTurn({
+    const messages = await runActiveAgentTurn({
         hostedSession,
         agentName,
         userRequest: initialRequest,
@@ -134,6 +131,7 @@ export async function runPlanningAgent(
  *   recordPlanEvent?: typeof recordPlanEvent,
  *   markActiveWorktreeStatus?: typeof markActiveWorktreeStatus,
  *   recordWorkflowMetric?: typeof recordWorkflowMetric,
+ *   runActiveAgentTurn?: typeof import('../session/agent-switching.js').runActiveAgentTurn,
  *   }
  * }} options
  * @returns {Promise<PlanExecutionResult>}
@@ -218,7 +216,7 @@ export async function executePlan({
         hostedSession,
         reviewFeedback,
         reviewImages,
-        __deps: { recordWorkflowMetric: recordWorkflowMetricFn },
+        __deps: { ...__deps, recordWorkflowMetric: recordWorkflowMetricFn },
     });
     if (!result.executionComplete) {
         await recordWorkflowMetricFn({
@@ -275,7 +273,10 @@ export async function executePlan({
  *     hostedSession?: import('../session/hosted-session.js').HostedSession,
  *     reviewFeedback?: string,
  *     reviewImages?: Array<{base64: string, mimeType: string}>,
- *     __deps?: { recordWorkflowMetric?: typeof recordWorkflowMetric },
+ *     __deps?: {
+ *       recordWorkflowMetric?: typeof recordWorkflowMetric,
+ *       runActiveAgentTurn?: typeof import('../session/agent-switching.js').runActiveAgentTurn,
+ *     },
  * }} opts
  * @returns {Promise<PlanExecutionResult>}
  */
@@ -318,6 +319,7 @@ async function executeSingleEngineerPlan(
         executionContext.projectRoot,
         reviewFeedback,
         reviewImages,
+        __deps,
     );
     if (!engineerResult.completed) {
         return { repairRequired: false, executionComplete: false, error: engineerResult.error };
@@ -336,6 +338,7 @@ async function executeSingleEngineerPlan(
  * @param {string} [projectRoot]
  * @param {string} [reviewFeedback]
  * @param {Array<{base64: string, mimeType: string}>} [reviewImages]
+ * @param {{ runActiveAgentTurn?: typeof import('../session/agent-switching.js').runActiveAgentTurn }} [__deps]
  * @returns {Promise<{ completed: boolean, messages: import('@earendil-works/pi-agent-core').AgentMessage[], error?: string }>}
  */
 async function runEngineerWithPlan(
@@ -347,17 +350,21 @@ async function runEngineerWithPlan(
     projectRoot,
     reviewFeedback,
     reviewImages,
+    __deps,
 ) {
+    if (!hostedSession) throw new Error("runEngineerWithPlan: hostedSession is required");
+    const runActiveAgentTurn = __deps?.runActiveAgentTurn ||
+        (await import("../session/agent-switching.js")).runActiveAgentTurn;
     let messages;
     try {
-        messages = await runAgentSession({
+        messages = await runActiveAgentTurn({
             hostedSession,
             agentName: AGENTS.ENGINEER,
             userRequest: buildEngineerRequest(planName, planBody, reviewFeedback),
             images: reviewImages,
             sessionManager,
             cwd: executionCwd,
-            useRootSession: true,
+            allowReturnToRouter: false,
         });
     } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);

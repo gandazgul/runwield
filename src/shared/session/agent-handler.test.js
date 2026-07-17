@@ -16,12 +16,19 @@ function makeHostedSession(id = `agent-handler-test-${crypto.randomUUID()}`) {
 function createAgentHandler(agentName, deps = {}) {
     const hostedSession =
         /** @type {import('./hosted-session.js').HostedSession} */ (deps.hostedSession || makeHostedSession());
+    if (!hostedSession.getRootAgentName()) {
+        hostedSession.setRootAgentName(agentName);
+        hostedSession.setRootAgentSession(
+            /** @type {any} */ ({ agent: { state: { messages: [] } }, dispose: () => {} }),
+        );
+    }
     return createAgentHandlerFn(agentName, {
         switchActiveAgent: (
             /** @type {unknown} */ _hostedSession,
             /** @type {{ agentName: string }} */ options,
         ) => Promise.resolve({ ok: true, agentName: options.agentName, changed: true }),
         ...deps,
+        runRootTurn: deps.runRootTurn || (() => Promise.resolve([])),
         hostedSession,
     });
 }
@@ -42,7 +49,7 @@ Deno.test("agent-handler dispatches triage_report from any agent", async () => {
     /** @type {any} */
     let runArgs = null;
     const handler = createAgentHandler("operator", {
-        runAgentSession: (/** @type {any} */ opts) => {
+        runRootTurn: (/** @type {any} */ opts) => {
             runArgs = opts;
             return Promise.resolve(/** @type {any} */ ([]));
         },
@@ -58,7 +65,7 @@ Deno.test("agent-handler dispatches triage_report from any agent", async () => {
 
     await handler("classify this", images, sessionManager);
 
-    assertEquals(runArgs.useRootSession, false);
+    assertEquals(runArgs.agentName, "operator");
     const scopedDispatchArgs = /** @type {any} */ (dispatchArgs);
     assertEquals(scopedDispatchArgs.triage, triage);
     assertEquals(scopedDispatchArgs.userRequest, "classify this");
@@ -111,10 +118,6 @@ Deno.test("agent-handler refuses to run when active handler drifts from root age
     );
     const handler = createAgentHandler("router", {
         hostedSession,
-        runAgentSession: () => {
-            ranRouter = true;
-            return Promise.resolve([]);
-        },
         runRootTurn: () => {
             ranRouter = true;
             return Promise.resolve([]);
@@ -133,7 +136,7 @@ Deno.test("agent-handler calls executePlan when outcome is approved_execute", as
     /** @type {Array<unknown[]>} */
     const executeCalls = [];
     const handler = createAgentHandler("architect", {
-        runAgentSession: () =>
+        runRootTurn: () =>
             Promise.resolve(
                 /** @type {any} */ ([{
                     role: "toolResult",
@@ -174,7 +177,7 @@ Deno.test("agent-handler validates after approved_execute only when execution co
     /** @type {any[]} */
     const metrics = [];
     const handler = createAgentHandler("planner", {
-        runAgentSession: () => Promise.resolve(/** @type {any} */ ([])),
+        runRootTurn: () => Promise.resolve(/** @type {any} */ ([])),
         readLatestPlanOutcome: () => /** @type {any} */ ({ outcome: "approved_execute", planName: "p" }),
         executePlan: /** @type {any} */ (() => Promise.resolve({ repairRequired: false, executionComplete: true })),
         runValidationLoop: (/** @type {any} */ args) => {
@@ -210,7 +213,7 @@ Deno.test("agent-handler validates after approved_execute only when execution co
 Deno.test("agent-handler skips validation when approved_execute did not complete execution", async () => {
     let validationCount = 0;
     const handler = createAgentHandler("planner", {
-        runAgentSession: () => Promise.resolve(/** @type {any} */ ([])),
+        runRootTurn: () => Promise.resolve(/** @type {any} */ ([])),
         readLatestPlanOutcome: () => /** @type {any} */ ({ outcome: "approved_execute", planName: "p" }),
         executePlan: /** @type {any} */ (() => Promise.resolve({ repairRequired: false, executionComplete: false })),
         runValidationLoop: () => {
@@ -226,30 +229,39 @@ Deno.test("agent-handler skips validation when approved_execute did not complete
 Deno.test("agent-handler keeps Engineer active when approved_execute execution is incomplete", async () => {
     /** @type {string[]} */
     const restoredAgents = [];
+    /** @type {string[]} */
+    const attentionAgents = [];
     const handler = createAgentHandler("architect", {
-        runAgentSession: () => Promise.resolve(/** @type {any} */ ([])),
+        runRootTurn: () => Promise.resolve(/** @type {any} */ ([])),
         readLatestPlanOutcome: () => /** @type {any} */ ({ outcome: "approved_execute", planName: "p" }),
         executePlan: /** @type {any} */ (() => Promise.resolve({ repairRequired: false, executionComplete: false })),
         runValidationLoop: () => {
             throw new Error("should not validate incomplete execution");
         },
         switchActiveAgent: (
-            /** @type {unknown} */ _hostedSession,
+            /** @type {HostedSession} */ hostedSession,
             /** @type {{ agentName: string }} */ options,
         ) => {
             restoredAgents.push(options.agentName);
+            hostedSession.setRootAgentName(options.agentName);
             return Promise.resolve({ ok: true, agentName: options.agentName, changed: true });
         },
+        requestAttention: (
+            /** @type {HostedSession} */ _hostedSession,
+            /** @type {string} */ _reason,
+            /** @type {string} */ targetAgentName,
+        ) => attentionAgents.push(targetAgentName),
     });
 
     await handler("req", [], /** @type {any} */ (undefined));
     assertEquals(restoredAgents, ["engineer"]);
+    assertEquals(attentionAgents, ["engineer"]);
 });
 
 Deno.test("agent-handler does NOT call executePlan when outcome is saved", async () => {
     let executeCount = 0;
     const handler = createAgentHandler("planner", {
-        runAgentSession: () => Promise.resolve(/** @type {any} */ ([])),
+        runRootTurn: () => Promise.resolve(/** @type {any} */ ([])),
         readLatestPlanOutcome: () => ({ outcome: "saved", planName: "p" }),
         executePlan: /** @type {any} */ (() => {
             executeCount++;
@@ -267,7 +279,7 @@ Deno.test("agent-handler starts Slicer after Architect returns approved_decompos
     let slicerArgs = null;
     const sessionManager = /** @type {any} */ ({ id: "root-history" });
     const handler = createAgentHandler("architect", {
-        runAgentSession: () => Promise.resolve(/** @type {any} */ ([])),
+        runRootTurn: () => Promise.resolve(/** @type {any} */ ([])),
         readLatestPlanOutcome: () => /** @type {any} */ ({
             outcome: "approved_decompose",
             planName: "epic-a",
@@ -293,7 +305,7 @@ Deno.test("agent-handler starts Slicer after Architect returns approved_decompos
 Deno.test("agent-handler does NOT call executePlan when outcome is feedback", async () => {
     let executeCount = 0;
     const handler = createAgentHandler("architect", {
-        runAgentSession: () => Promise.resolve(/** @type {any} */ ([])),
+        runRootTurn: () => Promise.resolve(/** @type {any} */ ([])),
         readLatestPlanOutcome: () => ({ outcome: "feedback", planName: "p", feedback: "redo" }),
         executePlan: /** @type {any} */ (() => {
             executeCount++;
@@ -309,7 +321,7 @@ Deno.test("agent-handler does NOT call executePlan when outcome is feedback", as
 Deno.test("agent-handler does NOT call executePlan when no plan_written outcome present", async () => {
     let executeCount = 0;
     const handler = createAgentHandler("operator", {
-        runAgentSession: () => Promise.resolve(/** @type {any} */ ([])),
+        runRootTurn: () => Promise.resolve(/** @type {any} */ ([])),
         readLatestPlanOutcome: () => null,
         executePlan: /** @type {any} */ (() => {
             executeCount++;
@@ -326,7 +338,7 @@ Deno.test("agent-handler does NOT call executePlan when planName missing on appr
     // Defensive: even if outcome is approved_execute but planName is absent, don't dispatch.
     let executeCount = 0;
     const handler = createAgentHandler("planner", {
-        runAgentSession: () => Promise.resolve(/** @type {any} */ ([])),
+        runRootTurn: () => Promise.resolve(/** @type {any} */ ([])),
         readLatestPlanOutcome: () => /** @type {any} */ ({ outcome: "approved_execute" }),
         executePlan: /** @type {any} */ (() => {
             executeCount++;
@@ -346,7 +358,7 @@ Deno.test("agent-handler passes triageMeta and tasks through to executePlan", as
     const tasks = [{ task: 1, assignee: "engineer", dependencies: "none", description: "x" }];
 
     const handler = createAgentHandler("planner", {
-        runAgentSession: () => Promise.resolve(/** @type {any} */ ([])),
+        runRootTurn: () => Promise.resolve(/** @type {any} */ ([])),
         readLatestPlanOutcome: () => /** @type {any} */ ({
             outcome: "approved_execute",
             planName: "p",
@@ -371,7 +383,7 @@ Deno.test("agent-handler uses empty triageMeta when outcome lacks one", async ()
     /** @type {Array<unknown[]>} */
     const executeCalls = [];
     const handler = createAgentHandler("planner", {
-        runAgentSession: () => Promise.resolve(/** @type {any} */ ([])),
+        runRootTurn: () => Promise.resolve(/** @type {any} */ ([])),
         readLatestPlanOutcome: () => /** @type {any} */ ({ outcome: "approved_execute", planName: "p" }),
         executePlan: /** @type {any} */ ((/** @type {unknown[]} */ ...args) => {
             executeCalls.push(args);
@@ -398,7 +410,7 @@ Deno.test("agent-handler records delayed implementation finish before continuati
 
     const handler = createAgentHandler("engineer", {
         hostedSession,
-        runAgentSession: () =>
+        runRootTurn: () =>
             Promise.resolve(
                 /** @type {any} */ ([{
                     role: "toolResult",
@@ -446,7 +458,7 @@ Deno.test("agent-handler resumes validation continuation without recording imple
 
     const handler = createAgentHandler("engineer", {
         hostedSession,
-        runAgentSession: () =>
+        runRootTurn: () =>
             Promise.resolve(
                 /** @type {any} */ ([{
                     role: "toolResult",
@@ -548,7 +560,7 @@ Deno.test("agent-handler validates task_completed against hosted workflow", asyn
     });
     const handler = createAgentHandler("engineer", {
         hostedSession,
-        runAgentSession: () =>
+        runRootTurn: () =>
             Promise.resolve(
                 /** @type {any} */ ([{
                     role: "toolResult",
@@ -593,7 +605,7 @@ Deno.test("agent-handler resumes QUICK_FIX mechanical validation after repair ta
 
     const handler = createAgentHandler("engineer", {
         hostedSession,
-        runAgentSession: () =>
+        runRootTurn: () =>
             Promise.resolve(
                 /** @type {any} */ ([{
                     role: "toolResult",
@@ -637,7 +649,7 @@ Deno.test("agent-handler ignores operator task_completed while an Engineer workf
 
     const handler = createAgentHandler("operator", {
         hostedSession,
-        runAgentSession: () =>
+        runRootTurn: () =>
             Promise.resolve(
                 /** @type {any} */ ([{
                     role: "toolResult",
@@ -677,7 +689,7 @@ Deno.test("agent-handler requests attention when an ordinary turn returns contro
     /** @type {Array<{ sessionId: string, reason: string, agentName: string }>} */
     const attentions = [];
     const handler = createAgentHandler("planner", {
-        runAgentSession: () => Promise.resolve(/** @type {any} */ ([])),
+        runRootTurn: () => Promise.resolve(/** @type {any} */ ([])),
         readLatestTriageOutcome: () => null,
         readLatestPlanOutcome: () => null,
         readLatestTaskCompletedOutcome: () => false,
@@ -704,7 +716,7 @@ Deno.test("agent-handler requests attention when an ordinary turn returns contro
 Deno.test("agent-handler does not request agent-stopped attention before triage dispatch", async () => {
     let attentionCount = 0;
     const handler = createAgentHandler("router", {
-        runAgentSession: () => Promise.resolve(/** @type {any} */ ([])),
+        runRootTurn: () => Promise.resolve(/** @type {any} */ ([])),
         readLatestTriageOutcome: () => /** @type {any} */ ({ routingIntent: "INQUIRY" }),
         dispatchPostTriage: () => Promise.resolve(),
         readLatestPlanOutcome: () => {
@@ -731,7 +743,7 @@ Deno.test("agent-handler requests attention after validation completes", async (
     });
     const handler = createAgentHandler("engineer", {
         hostedSession,
-        runAgentSession: () =>
+        runRootTurn: () =>
             Promise.resolve(
                 /** @type {any} */ ([{
                     role: "toolResult",
@@ -758,7 +770,7 @@ Deno.test("agent-handler requests attention after validation completes", async (
 Deno.test("agent-handler does not request agent-stopped attention after plan_written saved outcome", async () => {
     let attentionCount = 0;
     const handler = createAgentHandler("planner", {
-        runAgentSession: () =>
+        runRootTurn: () =>
             Promise.resolve(
                 /** @type {any} */ ([{
                     role: "toolResult",

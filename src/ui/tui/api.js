@@ -62,7 +62,7 @@ export function createSilentUiApi() {
 
 /**
  * Like createSilentUiApi(), but keeps footer-facing session state live by
- * allowing runAgentSession to push agent/model info and by forwarding renders.
+ * allowing isolated Agent sessions to push agent/model info and by forwarding renders.
  *
  * @param {Pick<import('./types.js').UiAPI, 'requestRender'> | undefined} parentUiAPI
  * @returns {import('./types.js').UiAPI}

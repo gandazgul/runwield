@@ -9,7 +9,9 @@ createdAt: 2026-07-14T08:32:00-04:00
 provenance:
     evidence:
         - path: src/shared/session/agent-switching.js
-          note: Implements the atomic switch primitive, staging the matching handler before committing replacement root state.
+          note: Implements the sole active-Agent transaction, including root, handler, model policy, execution CWD, and configured tools.
+        - path: src/shared/session/session.js
+          note: Provides strict turns on an already-active root plus the separate disposable isolated-Agent session path.
         - path: src/shared/session/session-runtime.js
           note: Owns atomic activation plus aggregate busy lifecycles for prompts and direct model or workflow operations.
         - path: src/shared/session/agent-handler.js
@@ -31,6 +33,11 @@ sessions, explicit consumer requests, workflow transitions, and agent-requested 
 Agent Session and Agent Handler before control returns or a completed `agent_changed` event is published. Handler
 construction is staged before root replacement, so construction failures preserve the previous usable pair instead of
 leaving a partially switched session.
+
+Root replacement and handler installation are committed together synchronously, including plan-worktree CWD and custom
+tool configuration. Interactive root turns can no longer rebuild or switch their own root, while disposable sub-agents
+use a separate isolated runner with their own ephemeral session. A source boundary test rejects direct root mutations,
+the removed mixed root/isolated runner, and workflow-level root-turn waterfalls.
 
 The refactor removed scheduled root swaps, pending handoff state, caller-managed apply steps, the public two-phase
 `setSessionHandler`/`ensureSessionReady` seam, and the TUI-specific agent-info setter. Agent Handlers now return

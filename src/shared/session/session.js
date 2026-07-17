@@ -1249,7 +1249,7 @@ export async function assembleFinalSystemPrompt(
  *
  * Used by:
  *  - runRootTurn's initial root construction (via ensureRootAgentSession in chat-session)
- *  - runAgentSession's transient sub-agent path
+ *  - runIsolatedAgentSession's transient sub-agent path
  *
  * @param {Object} opts
  * @param {import('./hosted-session.js').HostedSession} [opts.hostedSession]
@@ -2149,7 +2149,7 @@ export function applyAttentionNudge(agentName, userRequest, rootTurnCount) {
     ].join("\n");
 }
 
-/** @type {WeakMap<import('@earendil-works/pi-coding-agent').AgentSession, { agentDef: import('./types.js').AgentDefinition, promptState: { text: string }, subscriberState: SubscriberState, agentName: string, tools: string[], finalCustomTools: import('@earendil-works/pi-coding-agent').ToolDefinition[], rootTurnCount: number, projectStateContext: string, allowReturnToRouter: boolean, model?: string, imageMode?: string, visionFallbackModelRef?: string }>} */
+/** @type {WeakMap<import('@earendil-works/pi-coding-agent').AgentSession, { agentDef: import('./types.js').AgentDefinition, promptState: { text: string }, subscriberState: SubscriberState, agentName: string, tools: string[], finalCustomTools: import('@earendil-works/pi-coding-agent').ToolDefinition[], rootTurnCount: number, projectStateContext: string, allowReturnToRouter: boolean, cwd: string, model?: string, imageMode?: string, visionFallbackModelRef?: string }>} */
 const rootSessionMetadata = new WeakMap();
 
 /**
@@ -2163,7 +2163,7 @@ export function __getRootSessionMetadataForTests(session) {
 
 /**
  * @param {import('./hosted-session.js').HostedSession} hostedSession
- * @returns {{ agentName: string, model?: string, allowReturnToRouter: boolean } | null}
+ * @returns {{ agentName: string, model?: string, allowReturnToRouter: boolean, cwd?: string } | null}
  */
 export function getRootSessionSwitchState(hostedSession) {
     const session = /** @type {any} */ (hostedSession?.getRootAgentSession?.());
@@ -2174,6 +2174,7 @@ export function getRootSessionSwitchState(hostedSession) {
         agentName: meta.agentName,
         model: meta.model,
         allowReturnToRouter: meta.allowReturnToRouter,
+        cwd: meta.cwd,
     };
 }
 
@@ -2221,6 +2222,7 @@ export function disposeRootAgentSessionForNewSession(hostedSession) {
  * @param {string} [opts.cwd]
  * @param {string} [opts.projectStateContext]
  * @param {boolean} [opts.includeEditFallback]
+ * @param {import('./types.js').AgentMessageHandler} [opts.activeHandler]
  * @param {Function} [opts._buildAgentSession]
  * @param {Function} [opts._attachSessionEventSubscribers]
  * @param {string} [opts.debugLogPath]
@@ -2280,6 +2282,7 @@ export async function ensureRootAgentSession(opts) {
 
     hostedSession.setRootAgentSession(session);
     hostedSession.setRootAgentName(opts.agentName);
+    if (opts.activeHandler) hostedSession.setActiveOnMessage(opts.activeHandler);
     recordActiveAgent(
         /** @type {any} */ (opts.sessionManager || hostedSession.getRootSessionManager() || undefined),
         opts.agentName,
@@ -2294,6 +2297,7 @@ export async function ensureRootAgentSession(opts) {
         rootTurnCount: 0,
         projectStateContext: rootProjectStateContext,
         allowReturnToRouter: opts.allowReturnToRouter ?? true,
+        cwd: opts.cwd || hostedSession.cwd,
         model: finalModelForUi,
         imageMode,
         visionFallbackModelRef,
@@ -2311,12 +2315,7 @@ export async function ensureRootAgentSession(opts) {
  * @param {string} opts.agentName  Internal name used to verify the root matches.
  * @param {string} opts.userRequest
  * @param {Array<{base64: string, mimeType: string}>} [opts.images]
- * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager]
  * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [opts.customTools]
- * @param {import('./types.js').AgentDefinition} [opts._agentDefOverride]
- * @param {boolean} [opts.allowReturnToRouter]
- * @param {Function} [opts._buildAgentSession]
- * @param {Function} [opts._attachSessionEventSubscribers]
  * @param {Function} [opts._runPrompt]
  *
  * @returns {Promise<import('@earendil-works/pi-agent-core').AgentMessage[]>}
@@ -2326,16 +2325,11 @@ export async function runRootTurn({
     agentName,
     userRequest,
     images,
-    sessionManager,
     customTools,
-    _agentDefOverride,
-    allowReturnToRouter,
-    _buildAgentSession,
-    _attachSessionEventSubscribers,
     _runPrompt,
 }) {
     const targetHostedSession = requireHostedSession(hostedSession, "runRootTurn");
-    let session = /** @type {any} */ (targetHostedSession.getRootAgentSession());
+    const session = /** @type {any} */ (targetHostedSession.getRootAgentSession());
     if (!session) {
         throw new Error(`runRootTurn: no root AgentSession (expected agent "${agentName}")`);
     }
@@ -2344,7 +2338,7 @@ export async function runRootTurn({
             `runRootTurn: root agent is "${targetHostedSession.getRootAgentName()}", not "${agentName}". The agent activation transaction must rebuild first.`,
         );
     }
-    let meta = rootSessionMetadata.get(session);
+    const meta = rootSessionMetadata.get(session);
     if (!meta) {
         throw new Error(
             "runRootTurn: root AgentSession is missing metadata (was it built via ensureRootAgentSession?)",
@@ -2355,23 +2349,9 @@ export async function runRootTurn({
     const existingCustomToolNames = meta.finalCustomTools.map((tool) => tool.name);
     const hasRequiredCustomTools = requiredCustomToolNames.every((name) => existingCustomToolNames.includes(name));
     if (!hasRequiredCustomTools && customTools?.length) {
-        session = await ensureRootAgentSession({
-            hostedSession: targetHostedSession,
-            agentName,
-            sessionManager,
-            customTools,
-            _agentDefOverride,
-            allowReturnToRouter,
-            _buildAgentSession,
-            _attachSessionEventSubscribers,
-            projectStateContext: meta.projectStateContext,
-        });
-        meta = rootSessionMetadata.get(session);
-        if (!meta) {
-            throw new Error(
-                "runRootTurn: rebuilt root AgentSession is missing metadata (was it built via ensureRootAgentSession?)",
-            );
-        }
+        throw new Error(
+            "runRootTurn: active root is missing required custom tools. Activate the Agent with its full configuration before running the turn.",
+        );
     }
 
     meta.rootTurnCount += 1;
@@ -2395,7 +2375,6 @@ export async function runRootTurn({
  * @returns {boolean}
  */
 export function shouldReuseExistingRootSession(opts, rootAgentName) {
-    if (opts.useRootSession === false) return false;
     if (!rootAgentName || rootAgentName !== opts.agentName) return false;
 
     const rootChangingKeys = [
@@ -2455,42 +2434,32 @@ export async function runNonInteractiveAgentPrompt({
 }
 
 /**
- * Run a single Agent invocation. By default this uses the root AgentSession so
- * the turn remains in follow-up context; callers that intentionally need a
- * disposable one-off session must pass `useRootSession: false`.
- * @param {any} opts
+ * Run a disposable isolated Agent invocation. Interactive root Agents must be
+ * activated through switchActiveAgent/runActiveAgentTurn instead.
+ *
+ * @param {Object} opts
+ * @param {import('./hosted-session.js').HostedSession} [opts.hostedSession]
+ * @param {string} opts.agentName
+ * @param {string[]} [opts.toolNames] - Optional explicit tool override; defaults to agent frontmatter tools.
+ * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [opts.customTools]
+ * @param {string} [opts.modelOverride] - Optional explicit model override in provider/id format.
+ * @param {string} opts.userRequest - The user-facing request/instruction to send to the agent
+ * @param {Array<{base64: string, mimeType: string}>} [opts.images]
+ * @param {import('../../tools/plan-written.js').TriageMeta} [opts.triageMeta] - Optional triage metadata threaded into auto-wired plan_written.
+ * @param {import('./types.js').AgentDefinition} [opts._agentDefOverride] - Internal: skip loadAgentDef() and use this pre-loaded definition.
+ * @param {boolean} [opts.allowReturnToRouter]
+ * @param {string} [opts.cwd] - Execution cwd for file tools and agent operations.
+ * @param {string} [opts.debugLogPath] - Optional DEBUG log destination for this invocation.
+ * @param {string} [opts.projectStateContext] - Optional session-scoped project state note for the system prompt.
+ * @param {boolean} [opts.includeEditFallback] - Internal: whether to register the edit fallback custom tool.
+ * @param {Function} [opts._buildAgentSession]
+ * @param {Function} [opts._attachSessionEventSubscribers]
+ * @param {Function} [opts._runPrompt]
  * @returns {Promise<import('@earendil-works/pi-agent-core').AgentMessage[]>}
  */
-export async function runAgentSession(opts) {
-    const hostedSession = requireHostedSession(opts.hostedSession, "runAgentSession");
+export async function runIsolatedAgentSession(opts) {
+    const hostedSession = requireHostedSession(opts.hostedSession, "runIsolatedAgentSession");
     const projectStateContext = opts.projectStateContext ?? hostedSession.getProjectStateContext();
-
-    if (opts.useRootSession !== false) {
-        if (shouldReuseExistingRootSession(opts, hostedSession.getRootAgentName())) {
-            return await runRootTurn({
-                ...opts,
-                hostedSession,
-                agentName: opts.agentName,
-                userRequest: opts.userRequest,
-                images: opts.images,
-                sessionManager: opts.sessionManager,
-            });
-        }
-
-        await ensureRootAgentSession({
-            ...opts,
-            hostedSession,
-            projectStateContext,
-            allowReturnToRouter: opts.allowReturnToRouter ?? false,
-        });
-        return await runRootTurn({
-            ...opts,
-            hostedSession,
-            agentName: opts.agentName,
-            userRequest: opts.userRequest,
-            images: opts.images,
-        });
-    }
 
     const buildAgentSessionFn = opts._buildAgentSession || buildAgentSession;
     const attachSessionEventSubscribersFn = opts._attachSessionEventSubscribers || attachSessionEventSubscribers;
@@ -2536,35 +2505,6 @@ export async function runAgentSession(opts) {
             session.dispose();
         } catch (_e) { /* ignore */ }
     }
-}
-
-/**
- * Reloads the active root session without destroying it.
- * Re-reads settings.json from disk, refreshes the dynamic system prompt,
- * resource loader, model, and thinking level. Consumer theme reload belongs to
- * the consuming application and is intentionally outside shared core.
- *
- * @param {import('./hosted-session.js').HostedSession} hostedSession
- * @returns {Promise<boolean>} True if reloaded successfully, false if no active session
- */
-export async function reloadRootAgentSession(hostedSession) {
-    const targetHostedSession = requireHostedSession(hostedSession, "reloadRootAgentSession");
-    const session = /** @type {any} */ (targetHostedSession.getRootAgentSession());
-    if (!session) return false;
-    const meta = rootSessionMetadata.get(session);
-    if (!meta) return false;
-
-    const settings = getSettingsManager(targetHostedSession.cwd);
-    await settings.reload();
-
-    await ensureRootAgentSession({
-        hostedSession: targetHostedSession,
-        agentName: meta.agentName,
-        sessionManager: /** @type {any} */ (targetHostedSession.getRootSessionManager() || undefined),
-        projectStateContext: meta.projectStateContext,
-    });
-
-    return true;
 }
 
 /**
