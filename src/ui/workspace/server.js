@@ -107,6 +107,15 @@ export function createRemoteWorkspaceApp(options = { mode: "remote" }) {
         return await ctx.next();
     });
     registerRemoteApiRoutes(app);
+    app.get("/healthz", () => {
+        return new Response(JSON.stringify({ ok: true, mode: "remote" }), {
+            status: 200,
+            headers: {
+                "content-type": "application/json; charset=utf-8",
+                "cache-control": "no-store",
+            },
+        });
+    });
     app.get("/p/:spaceId", async (ctx) => {
         const astroResponse = await renderAstroPage(ctx.req, Deno.cwd());
         if (astroResponse) return astroResponse;

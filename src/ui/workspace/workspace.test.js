@@ -28,6 +28,7 @@ import {
     createPutOnHoldIntent,
     lifecycleActionLabel,
 } from "./islands/PlanLifecycleActions.jsx";
+import { parsePort, readRemoteServerConfig } from "./remote-server.js";
 import { renderRunWieldThemeCss } from "../design-system/theme-bridge.js";
 import {
     createReviewWorkspaceApp,
@@ -2158,6 +2159,34 @@ Deno.test("remote Shared Space review route is isolated to remote mode", async (
     const remoteApp = createWorkspaceApp({ mode: "remote" }).handler();
     const remoteResponse = await remoteApp(new Request("http://localhost/p/space-1"));
     assertEquals(remoteResponse.status === 200 || remoteResponse.status === 503, true);
+});
+
+Deno.test("remote Workspace health endpoint is remote-only and non-secret", async () => {
+    const localApp = createWorkspaceApp({ cwd: Deno.cwd(), token: "secret" }).handler();
+    const localResponse = await localApp(new Request("http://localhost/healthz?token=secret"));
+    assertEquals(localResponse.status, 404);
+
+    const remoteApp = createWorkspaceApp({ mode: "remote" }).handler();
+    const remoteResponse = await remoteApp(new Request("http://localhost/healthz"));
+    assertEquals(remoteResponse.status, 200);
+    assertEquals(remoteResponse.headers.get("cache-control"), "no-store");
+    assertEquals(await remoteResponse.json(), { ok: true, mode: "remote" });
+});
+
+Deno.test("remote server entry reads env defaults and validates ports", () => {
+    const values = new Map([
+        ["RUNWIELD_REMOTE_HOST", "127.0.0.1"],
+        ["RUNWIELD_REMOTE_PORT", "9001"],
+        ["RUNWIELD_REMOTE_DB_PATH", "/tmp/runwield.sqlite"],
+    ]);
+    const env = { get: (/** @type {string} */ key) => values.get(key) };
+    assertEquals(readRemoteServerConfig(/** @type {Deno.Env} */ (env)), {
+        host: "127.0.0.1",
+        port: 9001,
+        dbPath: "/tmp/runwield.sqlite",
+    });
+    assertEquals(parsePort(undefined), 8080);
+    assertEquals(parsePort("65535"), 65535);
 });
 
 Deno.test("remote Shared Space review route SSR smoke keeps fragments out of rendered shell", async () => {
