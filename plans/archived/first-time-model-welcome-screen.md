@@ -9,10 +9,15 @@ affectedPaths:
     - "src/shared/ui/theme.js"
 frontend: false
 createdAt: "2026-07-02T12:12:21-04:00"
-updatedAt: "2026-07-02T20:02:32.932Z"
+updatedAt: "2026-07-17T04:45:50.231Z"
 status: "verified"
 origin: "internal"
 verifiedAt: "2026-07-02T20:02:32.932Z"
+workRecord:
+    status: "generated"
+    recordId: "539309ec-4d97-4968-9982-aea5d5c7a61c"
+    path: "docs/work-records/2026-07-17-added-no-model-tui-onboarding.md"
+    lastAttemptAt: "2026-07-17T04:43:58.804Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
 routingIntent: "FEATURE"

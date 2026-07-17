@@ -1,4 +1,5 @@
 ---
+planId: "4e2360fb-4fbc-419d-b79f-a7bcf77baa9e"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Replace RTK with Snip for command rewriting. This involves renaming/updating the RTK extension to use Snip, updating tests, updating documentation, and creating a `.snip.yaml` configuration file to handle Deno output cleaning."
@@ -8,11 +9,16 @@ affectedPaths:
     - "README.md"
     - ".snip.yaml"
 createdAt: "2026-06-21T23:58:59-04:00"
-updatedAt: "2026-06-22T05:01:11.046Z"
+updatedAt: "2026-07-17T04:50:01.896Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-06-22T04:50:46.367Z"
 verifiedAt: "2026-06-22T05:01:11.046Z"
+workRecord:
+    status: "generated"
+    recordId: "d19376ea-2d87-4fff-bc8d-49706ebdfef0"
+    path: "docs/work-records/2026-07-17-replaced-rtk-command-rewriting-with-snip.md"
+    lastAttemptAt: "2026-07-17T04:49:53.582Z"
 routingIntent: "FEATURE"
 ---
 

@@ -17,14 +17,19 @@ affectedPaths:
     - "docs/adr/010-session-runtime-sibling-adapters-and-acp.md"
 frontend: false
 createdAt: "2026-07-09T15:23:25-04:00"
-updatedAt: "2026-07-14T21:46:28.049Z"
+updatedAt: "2026-07-17T04:50:48.026Z"
 status: "verified"
 origin: "user"
 verifiedAt: "2026-07-14T21:46:28.049Z"
+workRecord:
+    status: "generated"
+    recordId: "684c71d5-d421-465a-94a5-34db50c2dde6"
+    path: "docs/work-records/2026-07-17-unified-tui-and-acp-behind-sessionruntime.md"
+    lastAttemptAt: "2026-07-17T04:50:38.786Z"
 archivedAt: "2026-07-14T21:46:28.049Z"
+archiveReason: "Verified after moving ACP prompt overlap ownership into SessionRuntime; remaining audit findings deferred."
 archivedFromStatus: "verified"
 archivedFromPath: "plans/session-runtime-sibling-adapter-boundary.md"
-archiveReason: "Verified after moving ACP prompt overlap ownership into SessionRuntime; remaining audit findings deferred."
 routingIntent: "FEATURE"
 sessionName: "session runtime sibling adapters"
 ---

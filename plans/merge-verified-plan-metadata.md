@@ -11,10 +11,15 @@ affectedPaths:
     - "src/shared/workflow/plan-lifecycle.js"
 frontend: false
 createdAt: "2026-07-09T17:11:20-04:00"
-updatedAt: "2026-07-10T14:01:22.696Z"
+updatedAt: "2026-07-17T04:40:41.214Z"
 status: "verified"
 origin: "internal"
 verifiedAt: "2026-07-10T14:01:22.696Z"
+workRecord:
+    status: "generated"
+    recordId: "2844dab0-71fe-42ba-a274-505498384d11"
+    path: "docs/work-records/2026-07-17-merge-verified-plan-metadata-with-worktree-changes.md"
+    lastAttemptAt: "2026-07-17T04:40:29.671Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
 routingIntent: "FEATURE"

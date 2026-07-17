@@ -11,11 +11,16 @@ affectedPaths:
     - "src/cmd/sleep/index.test.js"
 frontend: false
 createdAt: "2026-07-09T23:35:35-04:00"
-updatedAt: "2026-07-10T05:20:16.571Z"
+updatedAt: "2026-07-17T04:40:47.303Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-07-10T05:18:43.971Z"
 verifiedAt: "2026-07-10T05:20:16.571Z"
+workRecord:
+    status: "generated"
+    recordId: "96ed69be-4e16-4727-918e-5c4ad107f089"
+    path: "docs/work-records/2026-07-17-safe-engineer-sleep-mode.md"
+    lastAttemptAt: "2026-07-17T04:40:41.214Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
 routingIntent: "FEATURE"

@@ -2,6 +2,40 @@
 
 ## Bugs
 
+- [ ] this is DUMB bvackfill should backfiill failed ones:
+
+Important retry detail: a failed Work Record generation writes a workRecord: block into the source Plan frontmatter with
+status: failed. Current backfill treats any existing workRecord block as an existing\
+backlink and skips it.
+
+So to retry a failed one, remove the failed workRecord: block from that Plan’s frontmatter, then run backfill again.
+
+- [ ] wrong help output
+
+❯ wld plans unshare --help\
+Usage (plans): wld plans wld plans read <plan-name-or-id> wld plans share <plan-name-or-id> [--plan-server <url>]
+[--project-secrets] wld plans archive wld plans archive <plan-name-or-id> [--reason <text>] [--force] wld plans archive
+--all --status <status> [--reason <text>] [--force] wld plans archive restore <archived-plan-name-or-id> [--to
+<plan-name>] wld plans ui [--bind <host>|--host <host>] [--port <port>] [--no-open] wld plans --help wld plans ui --help
+
+Notes:
+
+- Default behavior lists active Plans only; plaintext archives under plans/archived/ are hidden from this list.
+- Use plans archive with no target to list archived Plans, and plans read to inspect active or archived markdown.
+- Use plans share to publish an active saved Plan to a Plan Server; --plan-server overrides planServerUrl for one
+  invocation.
+- Share output prints secret reviewer and maintainer URLs once; anyone with the maintainer URL can pull, push, close, or
+  unshare.
+- Archive moves verified and closed_without_verification Plans by default; other statuses require --force and
+  recoverable worktree states stay blocked.
+- Use plans archive --all --status verified for best-effort bulk cleanup of active Plans with an exact status match.
+- The Workspace binds to 127.0.0.1 and a random available port by default.
+- Use --bind/--host only for explicit non-loopback exposure; RunWield prints a plaintext Plan-content warning.
+- Workspace HTML and APIs require the per-server token in the launch URL or x-runwield-workspace-token header.
+
+~/Documents/web/runwield main* ❯ wld wr backfill --help\
+[RunWield] Unknown command for help: wr
+
 - [ ] a draft epic should not offer "Open or resume Slicer decomposition" in /load-plan; it should offer "Open or resume
       Architect decomposition" instead.
 

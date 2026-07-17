@@ -8,18 +8,23 @@ affectedPaths:
     - "src/shared/settings.js"
 frontend: false
 createdAt: "2026-07-04T11:03:32-04:00"
+updatedAt: "2026-07-17T04:42:50.954Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-07-04T16:04:55.975Z"
 verifiedAt: "2026-07-04T16:58:36.998Z"
+workRecord:
+    status: "generated"
+    recordId: "37dee1b8-525a-4761-94f2-3013a01ee657"
+    path: "docs/work-records/2026-07-17-expose-compaction-settings-and-session-diagnostics.md"
+    lastAttemptAt: "2026-07-17T04:42:18.260Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
-routingIntent: "FEATURE"
-sessionName: "expose compaction settings"
-updatedAt: "2026-07-05T04:13:26.531Z"
 archivedAt: "2026-07-05T04:13:26.531Z"
 archivedFromStatus: "verified"
 archivedFromPath: "plans/expose-settings-and-compaction-inspection.md"
+routingIntent: "FEATURE"
+sessionName: "expose compaction settings"
 ---
 
 # Add Settings Command and Compaction Inspection

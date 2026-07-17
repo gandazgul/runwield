@@ -12,18 +12,23 @@ affectedPaths:
     - "src/shared/worktree.test.js"
 frontend: false
 createdAt: "2026-07-03T14:03:13-04:00"
+updatedAt: "2026-07-17T04:47:11.849Z"
 status: "verified"
 origin: "internal"
 failureReason: "Engineer stopped without task_completed during semantic repair."
 implementedAt: "2026-07-03T19:12:28.789Z"
 verifiedAt: "2026-07-05T02:27:16.926Z"
-routingIntent: "FEATURE"
-sessionName: "fix worktree branch targeting"
-updatedAt: "2026-07-05T04:17:45.096Z"
+workRecord:
+    status: "generated"
+    recordId: "f9212311-026d-4e30-85a7-a5036e34fa7d"
+    path: "docs/work-records/2026-07-17-fix-worktree-merge-target-branch.md"
+    lastAttemptAt: "2026-07-17T04:47:02.870Z"
 archivedAt: "2026-07-05T04:17:45.096Z"
 archiveReason: "Verified and archived after clearing stale worktree state"
 archivedFromStatus: "verified"
 archivedFromPath: "plans/fix-worktree-merge-target-branch.md"
+routingIntent: "FEATURE"
+sessionName: "fix worktree branch targeting"
 ---
 
 # Fix Worktree Merge Target Branch

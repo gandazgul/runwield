@@ -13,18 +13,23 @@ affectedPaths:
     - "src/shared/workflow/validation.test.js"
 frontend: false
 createdAt: "2026-07-08T16:25:14-04:00"
+updatedAt: "2026-07-17T04:47:35.352Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-07-09T01:54:17.770Z"
 verifiedAt: "2026-07-09T04:02:26.788Z"
+workRecord:
+    status: "generated"
+    recordId: "839a6cf8-b614-4c9d-bbac-00dd1054ff2f"
+    path: "docs/work-records/2026-07-17-graceful-non-git-project-handling.md"
+    lastAttemptAt: "2026-07-17T04:47:27.336Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
-routingIntent: "FEATURE"
-sessionName: "non git graceful failure"
-updatedAt: "2026-07-14T14:20:18.938Z"
 archivedAt: "2026-07-14T14:20:18.938Z"
 archivedFromStatus: "verified"
 archivedFromPath: "plans/graceful-non-git-projects.md"
+routingIntent: "FEATURE"
+sessionName: "non git graceful failure"
 ---
 
 # Graceful Non-Git Project Handling

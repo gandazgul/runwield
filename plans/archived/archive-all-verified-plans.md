@@ -1,4 +1,5 @@
 ---
+planId: "42910b23-b1a5-46f6-9312-0562840f5890"
 classification: "FEATURE"
 complexity: "LOW"
 summary: "Implement a new command or flag to archive all plans with 'verified' status. This involves adding a bulk archival operation in `src/plan-store.js` and exposing it via `src/cmd/plans/archive.js`."
@@ -7,18 +8,23 @@ affectedPaths:
     - "src/plan-store.js"
 frontend: false
 createdAt: "2026-07-04T23:29:50-04:00"
+updatedAt: "2026-07-17T04:41:28.487Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-07-05T04:03:31.628Z"
 verifiedAt: "2026-07-05T04:12:50.650Z"
+workRecord:
+    status: "generated"
+    recordId: "1b9dd2d0-7eb9-4335-a35a-7b36f6ece4d4"
+    path: "docs/work-records/2026-07-17-bulk-archive-verified-plans.md"
+    lastAttemptAt: "2026-07-17T04:41:20.973Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
-routingIntent: "FEATURE"
-sessionName: "archive verified plans"
-updatedAt: "2026-07-05T04:13:26.531Z"
 archivedAt: "2026-07-05T04:13:26.531Z"
 archivedFromStatus: "verified"
 archivedFromPath: "plans/archive-all-verified-plans.md"
+routingIntent: "FEATURE"
+sessionName: "archive verified plans"
 ---
 
 # Archive All Verified Plans

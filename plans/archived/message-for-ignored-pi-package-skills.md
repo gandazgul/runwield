@@ -1,4 +1,5 @@
 ---
+planId: "e80e2eee-d553-47a9-980e-0e45254ce371"
 classification: "FEATURE"
 complexity: "LOW"
 summary: "When Harns installs a Pi package that contains skills, keep ignoring those skills but print guidance to install them with the external npx skills CLI."
@@ -8,7 +9,14 @@ affectedPaths:
     - "src/cmd/registry.js"
     - "docs/settings.md"
 createdAt: "2026-06-16T17:00:46-04:00"
+updatedAt: "2026-07-17T04:49:13.105Z"
 status: "verified"
+origin: "internal"
+workRecord:
+    status: "generated"
+    recordId: "fabbd4dc-66e4-484e-9bc1-81b41e9222ee"
+    path: "docs/work-records/2026-07-17-message-for-ignored-pi-package-skills.md"
+    lastAttemptAt: "2026-07-17T04:49:06.872Z"
 ---
 
 # Message For Ignored Pi Package Skills

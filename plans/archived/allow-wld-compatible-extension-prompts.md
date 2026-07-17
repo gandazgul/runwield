@@ -1,4 +1,5 @@
 ---
+planId: "008736c6-9dde-4d0c-a6b2-ea86adc65398"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Allow installed Pi packages to contribute slash prompt templates without the Harns code-extension compatibility gate while protecting built-in command names by default."
@@ -15,7 +16,14 @@ affectedPaths:
     - "src/cmd/install/index.test.js"
     - "docs/settings.md"
 createdAt: "2026-06-16T16:51:18-04:00"
+updatedAt: "2026-07-17T04:41:11.361Z"
 status: "verified"
+origin: "internal"
+workRecord:
+    status: "generated"
+    recordId: "0997e0f3-2a9d-48a7-bcd4-90048ff232cc"
+    path: "docs/work-records/2026-07-17-allow-wld-compatible-extension-prompts.md"
+    lastAttemptAt: "2026-07-17T04:41:04.980Z"
 ---
 
 # Allow Pi Package Prompts

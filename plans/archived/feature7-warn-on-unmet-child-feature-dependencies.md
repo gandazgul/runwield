@@ -1,4 +1,5 @@
 ---
+planId: "c5a1a29f-5752-4b87-9fab-ecdf13a62c23"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Warn users when loading a child FEATURE whose declared sibling dependencies are not verified."
@@ -7,10 +8,15 @@ affectedPaths:
     - "src/cmd/load-plan/index.test.js"
     - "src/plan-store.js"
 createdAt: "2026-06-16T16:25:04Z"
-updatedAt: "2026-06-17T16:20:59.595Z"
+updatedAt: "2026-07-17T04:43:45.961Z"
 status: "verified"
 origin: "internal"
 verifiedAt: "2026-06-17T16:20:59.595Z"
+workRecord:
+    status: "generated"
+    recordId: "74e569c7-f37a-47b9-9dc2-23ba701a603f"
+    path: "docs/work-records/2026-07-17-warn-on-unmet-child-feature-dependencies.md"
+    lastAttemptAt: "2026-07-17T04:43:39.596Z"
 ---
 
 # Warn on Unmet Child FEATURE Dependencies

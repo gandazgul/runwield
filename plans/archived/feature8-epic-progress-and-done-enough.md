@@ -1,4 +1,5 @@
 ---
+planId: "b0790aa9-b1e5-4eed-b11e-3cc99abe5859"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Add an Epic progress summary and a human-confirmed way to mark an Epic done enough without implementing every child FEATURE."
@@ -10,10 +11,15 @@ affectedPaths:
     - "src/cmd/plans/index.test.js"
     - "src/shared/workflow/plan-lifecycle.test.js"
 createdAt: "2026-06-16T16:25:04Z"
-updatedAt: "2026-06-18T04:03:13.829Z"
+updatedAt: "2026-07-17T04:43:54.406Z"
 status: "verified"
 origin: "internal"
 verifiedAt: "2026-06-18T04:03:13.829Z"
+workRecord:
+    status: "generated"
+    recordId: "e581cd2a-b654-4a53-994e-0eee1a33c8a5"
+    path: "docs/work-records/2026-07-17-epic-progress-and-done-enough-completion.md"
+    lastAttemptAt: "2026-07-17T04:43:45.961Z"
 ---
 
 # Epic Progress and Done Enough

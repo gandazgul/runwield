@@ -1,4 +1,5 @@
 ---
+planId: "78ae72a3-3535-4c8d-af2a-1ea5b0e91787"
 classification: "FEATURE"
 complexity: "LOW"
 summary: "Create a JSON schema for wld settings.json and document how to reference it via GitHub releases. This involves defining the schema based on RUNWEILD_CUSTOM_SETTING_KEYS and existing settings logic in src/shared/settings.js, and updating the README to provide the $schema URL."
@@ -6,10 +7,15 @@ affectedPaths:
     - "config.schema.json"
     - "README.md"
 createdAt: "2026-06-23T21:07:43-04:00"
-updatedAt: "2026-06-24T17:35:15.322Z"
+updatedAt: "2026-07-17T04:51:20.908Z"
 status: "verified"
 origin: "internal"
 verifiedAt: "2026-06-24T17:35:15.322Z"
+workRecord:
+    status: "generated"
+    recordId: "a7ad95e3-43ff-4cbc-999b-5c15646b2e94"
+    path: "docs/work-records/2026-07-17-added-github-hosted-settings-json-schema.md"
+    lastAttemptAt: "2026-07-17T04:50:48.026Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
 ---

@@ -46,3 +46,5 @@ Return only structured JSON with this shape:
   done-enough summary identify useful remaining work.
 - For Epics, mention child FEATURE outcomes only when they clarify the durable result or deferred scope.
 - Prefer stable file-level evidence only when the caller asks for evidence notes; avoid line numbers by default.
+- Whether the human reviewed the code or not is irrelevant; the Work Record should summarize the durable outcome, not
+  the review process.

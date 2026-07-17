@@ -11,11 +11,16 @@ affectedPaths:
     - "docs/prd/runwield-acp-session-host-PRD.md"
 frontend: false
 createdAt: "2026-07-03T01:17:49-04:00"
-updatedAt: "2026-07-06T18:44:35.061Z"
+updatedAt: "2026-07-17T04:50:26.530Z"
 status: "verified"
 origin: "internal"
 type: "epic"
 verifiedAt: "2026-07-06T18:44:35.061Z"
+workRecord:
+    status: "generated"
+    recordId: "30a11604-d90b-4568-be23-1ab9caf53859"
+    path: "docs/work-records/2026-07-17-session-host-multi-session-refactor.md"
+    lastAttemptAt: "2026-07-17T04:50:20.148Z"
 epicCompletionMode: "done_enough"
 epicDoneEnoughAt: "2026-07-06T18:44:35.061Z"
 epicDoneEnoughSummary: "Done enough for now: 6/6 child FEATUREs verified, 0 active/implemented, 0 remaining."

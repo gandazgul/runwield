@@ -1,4 +1,5 @@
 ---
+planId: "6d94f358-093f-45af-8d8a-2ae4f52c38de"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Implement metadata preservation for Epic/FEATURE plans and recursive plan discovery in `src/plan-store.js`. This includes adding support for `type`, `parentPlan`, and `dependencies` in front matter and updating `listPlans` to find nested plans under `plans/`."
@@ -6,11 +7,16 @@ affectedPaths:
     - "src/plan-store.js"
     - "src/plan-store.test.js"
 createdAt: "2026-06-16T16:25:04Z"
-updatedAt: "2026-06-16T19:15:25.996Z"
+updatedAt: "2026-07-17T04:42:58.214Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-06-16T17:37:18.484Z"
 verifiedAt: "2026-06-16T19:15:25.996Z"
+workRecord:
+    status: "generated"
+    recordId: "f4fd907d-f86d-48e4-9b84-a4cfb8240135"
+    path: "docs/work-records/2026-07-17-preserved-epic-and-child-plan-metadata.md"
+    lastAttemptAt: "2026-07-17T04:42:50.954Z"
 executionBaselineTree: "1f1bdaf7cd15c62c13f9688a909f60c9aa7a8ffe"
 worktreeId: "74f8b50f"
 worktreePath: "/Users/gandazgul/Documents/web/harns-harns-project-breakdown-epic-feature1-preserve-epic-an-74f8b50f"

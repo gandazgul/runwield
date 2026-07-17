@@ -13,10 +13,15 @@ affectedPaths:
     - "src/cmd/plans/archive.js"
     - "README.md"
 createdAt: "2026-06-24T14:15:10-04:00"
-updatedAt: "2026-07-01T04:04:49.744Z"
+updatedAt: "2026-07-17T04:48:09.184Z"
 status: "verified"
 origin: "internal"
 verifiedAt: "2026-07-01T04:04:49.744Z"
+workRecord:
+    status: "generated"
+    recordId: "678a0125-9a62-4686-9dc4-3e4b0a10319d"
+    path: "docs/work-records/2026-07-17-implemented-first-class-plan-archival-and-retrieval.md"
+    lastAttemptAt: "2026-07-17T04:47:59.602Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
 ---
