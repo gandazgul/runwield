@@ -248,25 +248,28 @@ The local Workspace is a Core client, not the SaaS product. Broader Workspace an
 
 ## 5. Current Collaborative Planning Surface
 
-Core includes the beginning of encrypted collaborative Plan sharing.
+Core includes encrypted collaborative Plan sharing through self-hosted remote Workspace Shared Spaces.
 
 Current implemented surface:
 
+- self-hosted remote Workspace Plan Server with SQLite storage and Docker Compose packaging
 - `wld plans share <plan-name-or-id>`
+- `wld plans pull <maintainer-url-or-plan-name-or-id>`
+- `wld plans push <plan-name-or-id>`
+- `wld plans unshare <plan-name-or-id>` for CLI-only destructive delete/recovery
 - generated Plan identity when needed
-- encrypted Plan payload
-- reviewer and maintainer bearer capabilities
-- local secret storage
-- remote-canonical collaboration metadata in Plan front matter
+- encrypted Plan and comment payloads
+- reviewer and maintainer bearer capabilities stored server-side only as hashes
+- local secret storage outside Plan Front Matter and normal settings
+- remote-canonical collaboration metadata in Plan Front Matter
 - Shared Plan Lock that blocks normal local Plan writes while the Plan is remote-canonical
+- browser Shared Space review with Plannotator-backed comments, resolve/reopen, and Revision switching
 
-Still incomplete collaboration surface:
+Deferred collaboration surface:
 
-- `wld plans pull`
-- `wld plans push`
-- `wld plans unshare`
-- complete shared-review incorporation loop
-- hosted/self-hosted server hardening beyond the current remote adapter/protocol work
+- hosted RunWield Workspace / Cloudflare D1 deployment
+- browser-side push, close, unshare/delete, or Plan body editing
+- automated notifications
 
 The full collaboration and Workspace story lives in [runwield-workspace-PRD.md](./runwield-workspace-PRD.md).
 

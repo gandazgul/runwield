@@ -94,6 +94,23 @@ unverified sibling dependencies when present.
 
 For the durable state machine, see [Plan Lifecycle](plan-lifecycle.md).
 
+## Remote Shared Spaces
+
+Collaborative planning uses remote-canonical Shared Spaces without replacing the local Plan Lifecycle. A maintainer runs
+`wld plans share <plan>` to encrypt a Plan and publish it to a Plan Server. While shared, the local Plan carries
+non-secret collaboration Front Matter and enters a Shared Plan Lock so normal local mutation is blocked.
+Collaboration-aware commands own the loop:
+
+- `wld plans pull <maintainer-url-or-plan>` fetches and decrypts remote Revisions/comments, then launches Planner or
+  Architect with review context.
+- `wld plans push <plan>` publishes the accepted local revision as the next encrypted remote Revision.
+- `wld plans unshare <plan>` destructively deletes the remote Shared Space with maintainer authorization and clears
+  local collaboration metadata only after safe remote delete or explicit deleted-remote cleanup.
+
+The browser review page is for reading, commenting, resolving, reopening, and switching Revisions. Browser push,
+unshare/delete, and Plan body editing are intentionally deferred. See
+[Self-hosted collaborative planning](collaboration.md).
+
 ## Worktrees and validation
 
 RunWield can execute saved plan work in a linked git worktree. The primary checkout remains the metadata root for plan
