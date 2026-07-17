@@ -105,6 +105,22 @@ execution, validation, and recovery flow.
 
 See [Plans and workflows](workflows.md) and [Plan Lifecycle](plan-lifecycle.md).
 
+## Collaborative Plan review
+
+A self-hosted Plan Server can host encrypted remote-canonical Shared Spaces for browser review:
+
+```bash
+wld plans share <plan-name-or-id>
+wld plans pull <maintainer-url-or-plan-name-or-id>
+wld plans push <plan-name-or-id>
+wld plans unshare <plan-name-or-id>
+```
+
+Configure a non-secret `planServerUrl` in settings or pass `--plan-server <url>` to `share` for one invocation. Reviewer
+and maintainer URLs contain secret fragment/capability material; do not paste them into settings, Plans, issues, or
+logs. See [Self-hosted collaborative planning](collaboration.md) for Docker setup, the privacy model, and recovery
+flows.
+
 ## Slash commands
 
 Type `/` in the editor for completion.
@@ -142,6 +158,10 @@ wld router "request"             # explicit routing
 wld agent [name] [request]       # list or use agents
 wld model <provider>/<model_id>  # switch model
 wld plans                        # list plans
+wld plans share <plan>           # publish an encrypted Shared Space
+wld plans pull <url-or-plan>      # import/pull reviewer feedback as maintainer
+wld plans push <plan>            # publish the next encrypted Revision
+wld plans unshare <plan>         # destructively delete a remote Shared Space
 wld load-plan <name-or-path>     # continue a plan
 wld init                         # initialize project context
 wld sleep                        # memory/context cleanup prompt
