@@ -2414,31 +2414,51 @@ export function shouldReuseExistingRootSession(opts, rootAgentName) {
 }
 
 /**
+ * Run one disposable non-interactive Agent prompt without a HostedSession.
+ * @param {Object} opts
+ * @param {string} opts.cwd
+ * @param {string} opts.agentName
+ * @param {string} opts.userRequest
+ * @param {string} [opts.modelOverride]
+ * @param {string} [opts.debugLogPath]
+ * @param {string} [opts.projectStateContext]
+ * @param {Function} [opts._buildAgentSession]
+ * @returns {Promise<import('@earendil-works/pi-agent-core').AgentMessage[]>}
+ */
+export async function runNonInteractiveAgentPrompt({
+    cwd,
+    agentName,
+    userRequest,
+    modelOverride,
+    debugLogPath,
+    projectStateContext,
+    _buildAgentSession,
+}) {
+    const buildAgentSessionFn = _buildAgentSession || buildAgentSession;
+    const { session } = await buildAgentSessionFn({
+        cwd,
+        agentName,
+        modelOverride,
+        debugLogPath,
+        projectStateContext,
+        includeEditFallback: false,
+    });
+    try {
+        await session.prompt(userRequest);
+        await session.agent.waitForIdle();
+        return session.agent.state.messages;
+    } finally {
+        try {
+            session.dispose();
+        } catch (_e) { /* ignore */ }
+    }
+}
+
+/**
  * Run a single Agent invocation. By default this uses the root AgentSession so
  * the turn remains in follow-up context; callers that intentionally need a
  * disposable one-off session must pass `useRootSession: false`.
- *
- * @param {Object} opts
- * @param {import('./hosted-session.js').HostedSession} [opts.hostedSession]
- * @param {string} opts.agentName
- * @param {string[]} [opts.toolNames] - Optional explicit tool override; defaults to agent frontmatter tools.
- * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [opts.customTools]
- * @param {string} [opts.modelOverride] - Optional explicit model override in provider/id format.
- * @param {string} opts.userRequest - The user-facing request/instruction to send to the agent
- * @param {Array<{base64: string, mimeType: string}>} [opts.images]
- * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager]
- * @param {import('../../tools/plan-written.js').TriageMeta} [opts.triageMeta] - Optional triage metadata threaded into auto-wired plan_written.
- * @param {import('./types.js').AgentDefinition} [opts._agentDefOverride] - Internal: skip loadAgentDef() and use this pre-loaded definition.
- * @param {boolean} [opts.allowReturnToRouter] - Internal: expose return_to_router only for interactive direct/root flows.
- * @param {string} [opts.cwd] - Execution cwd for file tools and agent operations.
- * @param {string} [opts.debugLogPath] - Optional DEBUG log destination for this invocation.
- * @param {string} [opts.projectStateContext] - Optional session-scoped project state note for the system prompt.
- * @param {boolean} [opts.includeEditFallback] - Internal: whether to register the edit fallback custom tool.
- * @param {boolean} [opts.useRootSession=true] - Set false only for intentional disposable one-off sessions.
- * @param {Function} [opts._buildAgentSession]
- * @param {Function} [opts._attachSessionEventSubscribers]
- * @param {Function} [opts._runPrompt]
- *
+ * @param {any} opts
  * @returns {Promise<import('@earendil-works/pi-agent-core').AgentMessage[]>}
  */
 export async function runAgentSession(opts) {

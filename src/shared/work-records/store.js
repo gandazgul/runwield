@@ -70,10 +70,20 @@ export async function readWorkRecord(cwd, fileName) {
 
 /**
  * @param {string} cwd
+ * @param {{ createDir?: boolean }} [options]
  * @returns {Promise<import('./schema.js').WorkRecordResource[]>}
  */
-export async function listWorkRecords(cwd) {
-    const dir = await ensureWorkRecordsDir(cwd);
+export async function listWorkRecords(cwd, options = {}) {
+    const dir = options.createDir === false ? getWorkRecordsDir(cwd) : await ensureWorkRecordsDir(cwd);
+    if (options.createDir === false) {
+        try {
+            const stat = await Deno.stat(dir);
+            if (!stat.isDirectory) return [];
+        } catch (error) {
+            if (error instanceof Deno.errors.NotFound) return [];
+            throw error;
+        }
+    }
     const records = [];
     for await (const entry of Deno.readDir(dir)) {
         if (!entry.isFile || !entry.name.endsWith(".md")) continue;
