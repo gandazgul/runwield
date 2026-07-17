@@ -32,6 +32,7 @@ import {
     savePlan,
     savePlanBodyById,
     splitPlanMarkdownBody,
+    updateArchivedPlanFrontMatter,
     updatePlanCollaborationMetadata,
     updatePlanFrontMatter,
     updatePlanStatus,
@@ -1857,4 +1858,41 @@ testWithFs("clearPlanCollaborationMetadata requires exact unshare bypass", async
         Error,
         "unshare collaboration lock bypass",
     );
+});
+
+testWithFs("updateArchivedPlanFrontMatter preserves archive metadata while adding Work Record backlink", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "archived-link", "# Archived Link\n\n## Plan\n\nBody", {
+            planId: "plan-archived-link",
+            classification: "FEATURE",
+            complexity: "LOW",
+            summary: "Archived link.",
+            affectedPaths: [],
+            createdAt: "2026-07-14T00:00:00.000Z",
+            status: "verified",
+        });
+        await archivePlan(cwd, "archived-link", {
+            now: "2026-07-15T00:00:00.000Z",
+            reason: "complete",
+        });
+
+        const attrs = await updateArchivedPlanFrontMatter(cwd, "archived-link", {
+            workRecord: {
+                status: "generated",
+                recordId: "11111111-1111-4111-8111-111111111111",
+                path: "docs/work-records/archived-link.md",
+                lastAttemptAt: "2026-07-16T00:00:00.000Z",
+            },
+            updatedAt: "2026-07-16T00:00:00.000Z",
+        });
+        const loaded = await loadArchivedPlan(cwd, "archived-link");
+
+        assertEquals(attrs.workRecord?.recordId, "11111111-1111-4111-8111-111111111111");
+        assertEquals(loaded?.attrs.archivedAt, "2026-07-15T00:00:00.000Z");
+        assertEquals(loaded?.attrs.archiveReason, "complete");
+        assertEquals(loaded?.attrs.workRecord?.status, "generated");
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
 });
