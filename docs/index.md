@@ -149,6 +149,8 @@ For editor behavior, message queue behavior, file references, shell commands, an
 - [Quickstart](quickstart.md) - install, authenticate, initialize, and run the first routed request.
 - [Using RunWield](usage.md) - day-to-day commands, routing, agents, plans, and TUI differences from Pi.
 - [Plans and workflows](workflows.md) - triage classes, plan review, execution, validation, and recovery.
+- [Self-hosted collaborative planning](collaboration.md) - run a Shared Space Plan Server and use
+  `wld plans share|pull|push|unshare`.
 - [Sessions](sessions.md) - RunWield session paths, root-agent behavior, resume, and compaction notes.
 - [Providers and models](providers.md) - RunWield credential/config paths and links to Pi provider setup.
 - [Customization](customization.md) - settings, agent overrides, prompts, skills, and themes.

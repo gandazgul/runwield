@@ -247,6 +247,28 @@ treated as vision-capable, so it does not need to appear in `imageInputModels`. 
 (context window, cost, etc.), define it explicitly under `providers.<p>.models[]` with `input: ["text", "image"]`
 instead of relying on discovery.
 
+## Collaboration settings
+
+### `planServerUrl`
+
+Type: string URL.
+
+`planServerUrl` configures the default remote Workspace Plan Server used by `wld plans share`. It is a non-secret base
+URL only:
+
+```jsonc
+{
+    "planServerUrl": "https://plans.example.com"
+}
+```
+
+RunWield normalizes trailing slashes and rejects full share URLs, query strings, and fragments. Do not store reviewer or
+maintainer URLs here; those contain secret `#key=...` and capability material. For one-off local testing, pass
+`--plan-server http://127.0.0.1:8080` instead of editing settings. Pull, push, and unshare use the Plan's stored
+`collaborationServerUrl` and reject overrides that point at a different Plan Server.
+
+See [Self-hosted collaborative planning](collaboration.md) for Docker setup and the collaboration privacy model.
+
 ### Resolution Order
 
 Model resolution for an agent invocation:
