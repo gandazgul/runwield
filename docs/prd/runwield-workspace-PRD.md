@@ -369,7 +369,7 @@ Guardrails:
 
 Shared Plan Spaces must support:
 
-- self-hosted Fresh/Deno server with SQLite
+- self-hosted Astro/React Workspace Deno server with SQLite
 - Docker/Docker Compose deployment
 - optional instance-level Basic Auth or reverse-proxy auth for self-hosted deployments
 - future hosted SaaS deployment using the same protocol concepts
@@ -549,7 +549,7 @@ If added later, it should:
 
 Production UI should live under `src/ui/workspace/`.
 
-The same Fresh/Vite/Preact/UnoCSS app should support:
+The same Astro/React Workspace app should support:
 
 - local Plan Workspace mode
 - self-hosted Shared Space mode
@@ -692,11 +692,11 @@ Scope:
 
 Scope:
 
-- self-hosted Fresh/Deno/SQLite server
+- self-hosted Astro/React Workspace Deno/SQLite server
 - encrypted revisions and comments
 - reviewer and maintainer capability links
 - Shared Plan Lock
-- `wld plans share|pull|push|close|unshare`
+- `wld plans share|pull|push|unshare`, with close/browser destructive lifecycle deferred unless later slices add it
 - Docker Compose and setup docs
 
 This phase proves the collaboration protocol before hosted SaaS deployment.
