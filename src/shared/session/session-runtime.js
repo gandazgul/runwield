@@ -44,6 +44,7 @@ import {
 } from "./image-attachments.js";
 import { getModelRegistry } from "../models/model-registry.js";
 import { getSettingsManager } from "../settings.js";
+import { getSessionKeyboardHelp } from "./session-help.js";
 import { isAbsolute } from "@std/path";
 
 export const HANDOFF_LIMIT_MESSAGE =
@@ -1103,6 +1104,19 @@ export class SessionRuntime {
                 ?.modelRef;
         }
         return preflightImageAttachments(images, { activeModel, fallbackModelRef });
+    }
+
+    /** @param {string} sessionId */
+    requestSessionHelp(sessionId) {
+        const session = this.#sessionHost.getSession(sessionId);
+        if (!session) return { ok: false, error: "not_found" };
+        const help = getSessionKeyboardHelp();
+        this.#emitSessionEvent(sessionId, {
+            type: RuntimeEventTypes.KEYBOARD_HELP,
+            title: help.title,
+            items: help.items,
+        });
+        return { ok: true };
     }
 
     /** @param {string} sessionId */

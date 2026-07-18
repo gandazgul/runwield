@@ -154,6 +154,12 @@ export function attachTuiRuntimeAdapter({
             case RuntimeEventTypes.AGENT_CHANGED:
                 uiAPI.requestRender();
                 break;
+            case RuntimeEventTypes.KEYBOARD_HELP:
+                uiAPI.showKeyboardHelp?.({
+                    title: value.title,
+                    items: value.items,
+                });
+                break;
             case RuntimeEventTypes.INPUT_STATE_CHANGED:
                 if (value.enabled) uiAPI.enableInput?.();
                 else uiAPI.disableInput?.();

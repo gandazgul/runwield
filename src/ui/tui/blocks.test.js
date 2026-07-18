@@ -10,6 +10,7 @@ initRunWieldTheme();
 
 import {
     AgentMessageBlock,
+    KeyboardHelpBlock,
     PromptSelectBlock,
     PromptTextBlock,
     ReviewResultBlock,
@@ -251,6 +252,34 @@ Deno.test("ReviewResultBlock renders feedback markdown with error background", (
     assertEquals(plain.includes("Reviewer:"), true);
     assertEquals(plain.includes("Semantic review rejected:"), true);
     assertEquals(plain.includes("Missing thing"), true);
+});
+
+Deno.test("KeyboardHelpBlock renders ordered shortcuts with responsive wrapping", () => {
+    const block = new KeyboardHelpBlock({
+        title: "Keyboard shortcuts",
+        items: [
+            { key: "esc", description: "to interrupt" },
+            { key: "ctrl+c", description: "to clear input" },
+            { key: "shift+enter", description: "to insert newline" },
+            { key: "?", description: "to show this keyboard help block" },
+            { key: "/", description: "for commands" },
+            { key: "!!", description: "to run bash (no context)" },
+        ],
+    });
+
+    const wide = block.render(100);
+    const widePlain = stripAnsi(wide.join("\n"));
+    assertBlockBackground(wide, 100, "KeyboardHelpBlock wide");
+    assertEquals(widePlain.includes("Keyboard shortcuts"), true);
+    assertEquals(widePlain.includes("esc"), true);
+    assertEquals(widePlain.includes("!!"), true);
+
+    const narrow = block.render(24);
+    assertBlockBackground(narrow, 24, "KeyboardHelpBlock narrow");
+    for (const line of narrow) {
+        assert(visibleLength(line) <= 24);
+    }
+    assertEquals(stripAnsi(narrow.join("\n")).includes("keyboard"), true);
 });
 
 // ─── ToolExecutionBlock ──────────────────────────────────────────────────────

@@ -1,19 +1,17 @@
 import { assertEquals, assertNotEquals } from "@std/assert";
 import { Spacer } from "@earendil-works/pi-tui";
 import { createFooterOnlyUiApi, createSilentUiApi, createUiApi } from "./api.js";
-import { SpinnerBlock, SystemMessageBlock, ThinkingBlock, ToolExecutionBlock } from "./blocks.js";
+import { KeyboardHelpBlock, SpinnerBlock, SystemMessageBlock, ThinkingBlock, ToolExecutionBlock } from "./blocks.js";
 import stripAnsi from "strip-ansi";
 import { initRunWieldTheme } from "../theme/theme.js";
 
 initRunWieldTheme();
 
 /**
- * @returns {{ tui: any, messageList: any, renders: () => number, focus: () => any }}
+ * @returns {{ children: any[], addChild: (child: any) => void, removeChild: (child: any) => void, clear: () => void }}
  */
-function makeTuiHarness() {
-    let renderCount = 0;
-    let focused = /** @type {any} */ (null);
-    const messageList = {
+function makeContainer() {
+    return {
         children: /** @type {any[]} */ ([]),
         /** @param {any} child */
         addChild(child) {
@@ -28,6 +26,15 @@ function makeTuiHarness() {
             this.children = [];
         },
     };
+}
+
+/**
+ * @returns {{ tui: any, messageList: ReturnType<typeof makeContainer>, renders: () => number, focus: () => any }}
+ */
+function makeTuiHarness() {
+    let renderCount = 0;
+    let focused = /** @type {any} */ (null);
+    const messageList = makeContainer();
     const tui = {
         requestRender() {
             renderCount++;
@@ -54,6 +61,8 @@ Deno.test("createSilentUiApi implements the full no-op surface", async () => {
     tool.setOutput("ignored");
     tool.endExecution(false, 1);
     ui.toggleToolOutputsExpanded();
+    ui.showKeyboardHelp({ title: "Keyboard shortcuts", items: [{ key: "?", description: "show help" }] });
+    ui.hideKeyboardHelp();
     ui.requestRender();
     ui.advanceSpinner();
     ui.setBusy(true);
@@ -137,6 +146,28 @@ Deno.test("createUiApi does not hide duplicate tool-start events", () => {
         messageList.children.filter((/** @type {any} */ child) => child instanceof ToolExecutionBlock).length,
         2,
     );
+});
+
+Deno.test("createUiApi toggles one transient keyboard-help block outside the message list", () => {
+    const { tui, messageList, renders } = makeTuiHarness();
+    const inputAccessory = makeContainer();
+    const ui = /** @type {any} */ (createUiApi(tui, messageList, new SpinnerBlock(), inputAccessory));
+    const help = { title: "Keyboard shortcuts", items: [{ key: "?", description: "show help" }] };
+
+    ui.showKeyboardHelp(help);
+    assertEquals(inputAccessory.children.length, 2);
+    assertEquals(inputAccessory.children[0] instanceof KeyboardHelpBlock, true);
+    assertEquals(messageList.children.length, 0);
+
+    ui.showKeyboardHelp(help);
+    assertEquals(inputAccessory.children.length, 0);
+
+    inputAccessory.addChild("unrelated");
+    ui.showKeyboardHelp(help);
+    assertEquals(inputAccessory.children.length, 3);
+    ui.hideKeyboardHelp();
+    assertEquals(inputAccessory.children, ["unrelated"]);
+    assertEquals(renders() > 0, true);
 });
 
 Deno.test("createUiApi adds and removes exact queued-message blocks by runtime id", () => {

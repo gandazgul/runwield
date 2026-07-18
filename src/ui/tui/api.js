@@ -2,6 +2,7 @@ import { Spacer } from "@earendil-works/pi-tui";
 import { getSettingsManager } from "../../shared/settings.js";
 import {
     AgentMessageBlock,
+    KeyboardHelpBlock,
     PromptSelectBlock,
     PromptTextBlock,
     ReviewResultBlock,
@@ -43,6 +44,8 @@ export function createSilentUiApi() {
             startTime: Date.now(),
         }),
         toggleToolOutputsExpanded: () => {},
+        showKeyboardHelp: () => {},
+        hideKeyboardHelp: () => {},
         getActiveToolBlock: () => undefined,
         requestRender: () => {},
         advanceSpinner: () => {},
@@ -79,17 +82,20 @@ export function createFooterOnlyUiApi(parentUiAPI) {
 /**
  * Creates a UiAPI object for RunWield TUI.
  *
- * @param {import('@earendil-works/pi-tui').TUI} tui
- * @param {import('@earendil-works/pi-tui').Container} messageList
+ * @param {{ requestRender: () => void, setFocus: (component: any) => void }} tui
+ * @param {{ addChild: (child: any) => void, removeChild: (child: any) => void, clear: () => void, children: any[] }} messageList
  * @param {import('./blocks.js').SpinnerBlock} spinner
+ * @param {{ addChild: (child: any) => void, removeChild: (child: any) => void, children: any[] }} [inputAccessoryContainer]
  * @returns {import('./types.js').UiAPI}
  */
-export function createUiApi(tui, messageList, spinner) {
+export function createUiApi(tui, messageList, spinner, inputAccessoryContainer) {
     const activeToolBlocks = new Map();
     /** @type {Map<string, { block: SystemMessageBlock, spacer: Spacer }>} */
     const queuedMessageBlocks = new Map();
     /** @type {Map<string, ToolElapsedTimerState>} */
     const toolElapsedTimers = new Map();
+    /** @type {{ block: KeyboardHelpBlock, spacer: Spacer } | null} */
+    let keyboardHelp = null;
 
     let isBusy = false;
     /** @type {ReturnType<typeof setTimeout> | null} */
@@ -308,6 +314,32 @@ export function createUiApi(tui, messageList, spinner) {
             for (const block of activeToolBlocks.values()) {
                 block.setExpanded(toolsExpanded);
             }
+            tui.requestRender();
+        },
+
+        /** @param {import('../../shared/session/session-help.js').SessionHelpPayload} help */
+        showKeyboardHelp: (help) => {
+            if (!inputAccessoryContainer || outputSuppressed) return;
+            if (keyboardHelp) {
+                inputAccessoryContainer.removeChild(keyboardHelp.block);
+                inputAccessoryContainer.removeChild(keyboardHelp.spacer);
+                keyboardHelp = null;
+                tui.requestRender();
+                return;
+            }
+            const block = new KeyboardHelpBlock(help);
+            const spacer = new Spacer(1);
+            keyboardHelp = { block, spacer };
+            inputAccessoryContainer.addChild(block);
+            inputAccessoryContainer.addChild(spacer);
+            tui.requestRender();
+        },
+
+        hideKeyboardHelp: () => {
+            if (!inputAccessoryContainer || !keyboardHelp) return;
+            inputAccessoryContainer.removeChild(keyboardHelp.block);
+            inputAccessoryContainer.removeChild(keyboardHelp.spacer);
+            keyboardHelp = null;
             tui.requestRender();
         },
 

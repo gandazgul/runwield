@@ -6,6 +6,7 @@
  *   Ctrl+C       cancel like Esc + clear input; press again within 1s to exit
  *   Ctrl+V       paste image from system clipboard
  *   Ctrl+O       toggle tool-output expand/collapse
+ *   ?            when the input field is empty, show keyboard help
  *   Shift+Enter  insert literal newline (also Alt+Enter)
  *   Backspace    when editor is empty, drop the last pasted image
  *   default      forward to the editor's original handler
@@ -62,7 +63,8 @@ function createPastedImagePreview(image) {
  * @property {() => void} forceResetUI
  * @property {() => void} markCtrlCPendingExit
  * @property {() => boolean} isCtrlCPendingExit
- * @property {() => void} [toggleStartupHelp]
+ * @property {() => unknown | Promise<unknown>} [requestKeyboardHelp]
+ * @property {() => void} [hideKeyboardHelp]
  * @property {() => void} cycleThinkingLevel
  * @property {(image: import('../../shared/session/types.js').ImageAttachment) => Promise<import('../../shared/session/types.js').ImageAttachment | null>} [handleImagePaste]
  * @property {() => boolean} cancelRuntimeSession
@@ -88,7 +90,8 @@ export function installKeybindings(ctx) {
         forceResetUI,
         markCtrlCPendingExit,
         isCtrlCPendingExit,
-        toggleStartupHelp,
+        requestKeyboardHelp,
+        hideKeyboardHelp,
         cycleThinkingLevel,
         handleImagePaste,
     } = ctx;
@@ -105,6 +108,7 @@ export function installKeybindings(ctx) {
     editor.handleInput = async (data) => {
         // Esc: ALWAYS cancels whatever is going on
         if (matchesKey(data, Key.escape)) {
+            if (hideKeyboardHelp) hideKeyboardHelp();
             cancelEverything();
             tui.requestRender();
             return;
@@ -145,9 +149,8 @@ export function installKeybindings(ctx) {
             return;
         }
 
-        // Ctrl+O: toggle expand/collapse for tool output blocks and the startup help
+        // Ctrl+O: toggle expand/collapse for tool output blocks
         if (matchesKey(data, Key.ctrl("o"))) {
-            if (toggleStartupHelp) toggleStartupHelp();
             if (uiAPI.toggleToolOutputsExpanded) {
                 uiAPI.toggleToolOutputsExpanded();
                 tui.requestRender();
@@ -157,8 +160,15 @@ export function installKeybindings(ctx) {
             return;
         }
 
+        if (data === "?" && isEditorEmpty(editor) && pastedImages.length === 0) {
+            if (requestKeyboardHelp) await requestKeyboardHelp();
+            tui.requestRender();
+            return;
+        }
+
         // Shift+Enter / Alt+Enter: insert newline
         if (matchesKey(data, Key.shift("enter")) || matchesKey(data, Key.alt("enter"))) {
+            if (hideKeyboardHelp) hideKeyboardHelp();
             // @ts-ignore: private pi-tui internals used intentionally
             editor.addNewLine();
             tui.requestRender();
@@ -179,6 +189,7 @@ export function installKeybindings(ctx) {
 
         // Shift+Tab: cycle thinking level
         if (matchesKey(data, Key.shift("tab"))) {
+            if (hideKeyboardHelp) hideKeyboardHelp();
             cycleThinkingLevel();
             tui.requestRender();
             return;
@@ -188,9 +199,13 @@ export function installKeybindings(ctx) {
         // editor for editing or deletion. Core owns queued-message state, so ask
         // the dequeue callback before falling through to history navigation.
         if (matchesKey(data, Key.up) && isEditorEmpty(editor)) {
-            if (await dequeueLastSubmission()) return;
+            if (await dequeueLastSubmission()) {
+                if (hideKeyboardHelp) hideKeyboardHelp();
+                return;
+            }
         }
 
+        if (hideKeyboardHelp) hideKeyboardHelp();
         originalHandleInput(data);
     };
 

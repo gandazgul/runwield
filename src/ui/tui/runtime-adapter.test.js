@@ -21,6 +21,10 @@ function makeUi() {
             end: () => transcript.push("thinking:end"),
         }),
         appendSystemMessage: (text, isError) => transcript.push(`system:${isError ? "error" : "info"}:${text}`),
+        showKeyboardHelp: (help) =>
+            transcript.push(
+                `help:${help.title}:${help.items.map((/** @type {{ key: string }} */ item) => item.key).join(",")}`,
+            ),
         startToolExecution: (id, name, title) => {
             const block = {
                 bodyText: "",
@@ -138,6 +142,11 @@ Deno.test("TUI and ACP adapters consume the same semantic runtime transcript", (
                 durationMs: 40,
             },
             { type: RuntimeEventTypes.SYSTEM_STATUS, level: "warning", message: "notice" },
+            {
+                type: RuntimeEventTypes.KEYBOARD_HELP,
+                title: "Keyboard shortcuts",
+                items: [{ key: "?", description: "show help" }],
+            },
             { type: RuntimeEventTypes.BUSY_CHANGED, busy: true },
             { type: RuntimeEventTypes.BUSY_CHANGED, busy: false },
             { type: RuntimeEventTypes.ATTENTION_REQUESTED, reason: "agentStopped", agentName: "Guide" },
@@ -157,6 +166,7 @@ Deno.test("TUI and ACP adapters consume the same semantic runtime transcript", (
         "tool:update:tool-1:partial",
         "tool:end:tool-1:ok",
         "system:info:notice",
+        "help:Keyboard shortcuts:?",
         "busy:true",
         "busy:false",
     ]);
