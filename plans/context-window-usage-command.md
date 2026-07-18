@@ -16,17 +16,12 @@ affectedPaths:
     - "docs/usage.md"
 frontend: false
 createdAt: "2026-07-17T22:54:51-04:00"
-updatedAt: "2026-07-18T03:01:50.591Z"
-status: "in_progress"
+updatedAt: "2026-07-18T14:13:58.734Z"
+status: "verified"
 origin: "internal"
-humanReviewMode: null
-humanReviewDecision: null
-executionBaselineTree: "c8397e64e4faea3c103e004820c7fcaa4daed7bb"
-worktreeId: "885918b3"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-context-window-usage-command-885918b3"
-worktreeBranch: "runwield/worktree/context-window-usage-command-885918b3"
-worktreeBaseBranch: "main"
-worktreeStatus: "active"
+verifiedAt: "2026-07-18T14:13:58.734Z"
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
 routingIntent: "FEATURE"
 ---
 

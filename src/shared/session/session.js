@@ -73,6 +73,7 @@ import { getPackagePromptTemplatePaths, resolveInstalledPackagePromptResources }
 import { getWldExtensionPaths, resolveInstalledWldExtensionResources } from "../extensions/wld-extension-manifest.js";
 import { recordToolCallFinished, recordToolCallStarted, recordWorkflowMetric } from "../workflow/metrics.js";
 import { describeRuntimeTool } from "./tool-event-title.js";
+import { createSessionContextProjection, estimateContextTextTokens } from "./session-context-report.js";
 
 const HOME_PROMPTS_DIR = HOME_DIR ? join(HOME_DIR, ".wld", "prompts") : null;
 
@@ -1087,16 +1088,131 @@ async function resolveModel(
 }
 
 /**
- * Assemble the final system prompt by resolving placeholders.
+ * @param {string} text
+ * @returns {string}
+ */
+function removePromptPlaceholders(text) {
+    return String(text || "").replace(/{{[A-Z0-9_]+}}/g, "");
+}
+
+/**
+ * @param {string} label
+ * @param {string} text
+ * @param {Partial<import('./session-context-report.js').ContextProjectionItem>} [extra]
+ * @returns {import('./session-context-report.js').ContextProjectionItem | null}
+ */
+function createContextProjectionItem(label, text, extra = {}) {
+    const tokens = estimateContextTextTokens(text);
+    if (tokens <= 0) return null;
+    return { label, tokens, ...extra };
+}
+
+/**
+ * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} toolDefinitions
+ * @returns {Map<string, import('@earendil-works/pi-coding-agent').ToolDefinition>}
+ */
+function mapToolDefinitionsByName(toolDefinitions) {
+    const map = new Map();
+    for (const tool of toolDefinitions) {
+        if (tool?.name) map.set(tool.name, tool);
+    }
+    return map;
+}
+
+/**
+ * Estimate the resident provider tool context for one effective ToolDefinition.
+ * Keep this text local to attribution only: reports expose token counts and tool names,
+ * not schemas or prompt snippets.
+ *
+ * @param {string} name
+ * @param {import('@earendil-works/pi-coding-agent').ToolDefinition | undefined} tool
+ * @param {string} fallbackDescription
+ * @returns {string}
+ */
+function serializeToolContextForProjection(name, tool, fallbackDescription) {
+    const parts = [`Tool: ${name}`];
+    const label = typeof tool?.label === "string" && tool.label ? tool.label : "";
+    if (label && label !== name) parts.push(`Label: ${label}`);
+    const description = typeof tool?.description === "string" && tool.description
+        ? tool.description
+        : fallbackDescription;
+    if (description) parts.push(`Description: ${description}`);
+    if (typeof tool?.promptSnippet === "string" && tool.promptSnippet) {
+        parts.push(`Prompt snippet: ${tool.promptSnippet}`);
+    }
+    if (Array.isArray(tool?.promptGuidelines) && tool.promptGuidelines.length > 0) {
+        parts.push(`Prompt guidelines: ${tool.promptGuidelines.join("\n- ")}`);
+    }
+    const parametersText = stringifyToolParameters(tool?.parameters);
+    if (parametersText) parts.push(`Parameters schema: ${parametersText}`);
+    return parts.join("\n");
+}
+
+/**
+ * @param {unknown} parameters
+ * @returns {string}
+ */
+function stringifyToolParameters(parameters) {
+    if (!parameters) return "";
+    const seen = new WeakSet();
+    try {
+        return JSON.stringify(parameters, (_key, value) => {
+            if (typeof value === "function") return undefined;
+            if (typeof value === "object" && value !== null) {
+                if (seen.has(value)) return "[Circular]";
+                seen.add(value);
+            }
+            return value;
+        });
+    } catch {
+        return "";
+    }
+}
+
+/**
+ * @param {string} cwd
+ * @returns {Promise<{ text: string, path: string, source: "local" } | null>}
+ */
+async function readProjectInstructionFile(cwd) {
+    for (const path of [join(cwd, "RUNWEILD.md"), join(cwd, "AGENTS.md")]) {
+        try {
+            return { text: await Deno.readTextFile(path), path, source: "local" };
+        } catch {
+            // Try next candidate.
+        }
+    }
+    return null;
+}
+
+/**
+ * @param {string} homeDir
+ * @returns {Promise<{ text: string, path: string, source: "home" | "external" } | null>}
+ */
+async function readGlobalInstructionFile(homeDir) {
+    for (const path of getGlobalAgentMdPaths(homeDir)) {
+        try {
+            const source = path === join(homeDir, ".agents", "AGENTS.md")
+                ? /** @type {"external"} */ ("external")
+                : /** @type {"home"} */ ("home");
+            return { text: await Deno.readTextFile(path), path, source };
+        } catch {
+            // Try next candidate.
+        }
+    }
+    return null;
+}
+
+/**
+ * Assemble the final system prompt and resident-context projection by resolving placeholders.
  *
  * @param {import('./types.js').AgentDefinition} agentDef
  * @param {string[]} tools
  * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} finalCustomTools
  * @param {string} [cwd]
  * @param {string} [projectStateContext]
- * @returns {Promise<string>}
+ * @returns {Promise<{ prompt: string, projection: import('./session-context-report.js').SessionContextProjection }>}
  */
-export async function assembleFinalSystemPrompt(
+export async function assembleFinalSystemPromptWithContextProjection(
     agentDef,
     tools,
     finalCustomTools,
@@ -1134,83 +1250,115 @@ export async function assembleFinalSystemPrompt(
     ];
 
     let finalSystemPrompt = agentDef.systemPrompt;
+    const hasGlobalAgentsPlaceholder = finalSystemPrompt.includes("{{GLOBAL_AGENTSMD}}");
+    const hasProjectAgentsPlaceholder = finalSystemPrompt.includes("{{PROJECT_AGENTSMD}}");
+    const hasProjectStatePlaceholder = finalSystemPrompt.includes("{{PROJECT_STATE_CONTEXT}}");
+    const hasMemoriesPlaceholder = finalSystemPrompt.includes("{{MEMORIES}}");
+    const hasSkillsPlaceholder = finalSystemPrompt.includes("{{SKILLS}}");
+    const hasImageAttachmentsPlaceholder = finalSystemPrompt.includes("{{IMAGE_ATTACHMENTS_SECTION}}");
+    const hasBundledAgentDefsPlaceholder = finalSystemPrompt.includes("{{BUNDLED_AGENT_DEFS_DIR}}");
 
+    const effectiveToolMap = mapToolDefinitionsByName([...piTools, ...extensionTools, ...finalCustomTools]);
     const customToolMap = new Map();
-    // 1. Add pi-coding-agent built-in tools.
-    for (const tool of piTools) {
-        customToolMap.set(tool.name, tool.promptSnippet || tool.description);
-    }
-    // 2. Add extension tool descriptions.
-    for (const tool of extensionTools) {
-        customToolMap.set(tool.name, tool.promptSnippet || tool.description);
-    }
-    // 3. Add custom tools last so runtime overrides are reflected in the prompt.
-    for (const tool of finalCustomTools) {
-        customToolMap.set(tool.name, tool.promptSnippet || tool.description);
+    for (const [name, tool] of effectiveToolMap.entries()) {
+        customToolMap.set(name, tool.promptSnippet || tool.description);
     }
 
-    const availableToolsStr = tools.map((t) => {
+    const toolItems = tools.map((t) => {
         const desc = customToolMap.get(t) || "Built-in tool";
-        return `- ${t} - ${desc}`;
-    }).join("\n");
+        const line = `- ${t} - ${desc}`;
+        const schemaText = serializeToolContextForProjection(t, effectiveToolMap.get(t), desc);
+        return { line, item: createContextProjectionItem(t, schemaText, { name: t }) };
+    });
+    const availableToolsStr = toolItems.map((tool) => tool.line).join("\n");
     finalSystemPrompt = finalSystemPrompt?.replace("{{AVAILABLE_TOOLS}}", availableToolsStr);
 
+    /** @type {import('./session-context-report.js').ContextProjectionItem[]} */
+    const instructionItems = [];
     let globalAgentsMd = "";
     const homeDir = Deno.env.get("HOME") || "";
-    if (homeDir) {
-        globalAgentsMd = await readGlobalAgentMd(homeDir);
+    if (hasGlobalAgentsPlaceholder && homeDir) {
+        const globalFile = await readGlobalInstructionFile(homeDir);
+        if (globalFile) {
+            globalAgentsMd = globalFile.text;
+            const item = createContextProjectionItem(globalFile.path, globalFile.text, {
+                path: globalFile.path,
+                source: globalFile.source,
+            });
+            if (item) instructionItems.push(item);
+        }
     }
     finalSystemPrompt = finalSystemPrompt.replace("{{GLOBAL_AGENTSMD}}", globalAgentsMd);
 
     let projectAgentsMd = "";
-    for (const projectPath of [join(cwd, "RUNWEILD.md"), join(cwd, "AGENTS.md")]) {
-        try {
-            projectAgentsMd = await Deno.readTextFile(projectPath);
-            break;
-        } catch {
-            projectAgentsMd = "";
+    if (hasProjectAgentsPlaceholder) {
+        const projectFile = await readProjectInstructionFile(cwd);
+        if (projectFile) {
+            projectAgentsMd = projectFile.text;
+            const item = createContextProjectionItem(projectFile.path, projectFile.text, {
+                path: projectFile.path,
+                source: projectFile.source,
+            });
+            if (item) instructionItems.push(item);
         }
     }
     finalSystemPrompt = finalSystemPrompt.replace("{{PROJECT_AGENTSMD}}", projectAgentsMd);
 
-    const projectStateContextSection = projectStateContext
+    const projectStateContextSection = hasProjectStatePlaceholder && projectStateContext
         ? ["### Project State", "", projectStateContext, ""].join("\n")
         : "";
     finalSystemPrompt = finalSystemPrompt.replace("{{PROJECT_STATE_CONTEXT}}", projectStateContextSection);
 
     let memories = "";
-    try {
-        const command = new Deno.Command("mnemosyne", {
-            args: ["list", "-t", "core", "-f", "plain"],
-            cwd,
-            stdout: "piped",
-            stderr: "piped",
-        });
-        const output = await command.output();
-        if (output.success) {
-            memories = new TextDecoder().decode(output.stdout).trim();
-            if (memories.startsWith("No documents") || memories.startsWith("Error:")) memories = "";
+    if (hasMemoriesPlaceholder) {
+        try {
+            const command = new Deno.Command("mnemosyne", {
+                args: ["list", "-t", "core", "-f", "plain"],
+                cwd,
+                stdout: "piped",
+                stderr: "piped",
+            });
+            const output = await command.output();
+            if (output.success) {
+                memories = new TextDecoder().decode(output.stdout).trim();
+                if (memories.startsWith("No documents") || memories.startsWith("Error:")) memories = "";
+            }
+        } catch {
+            memories = "";
         }
-    } catch {
-        memories = "";
     }
     finalSystemPrompt = finalSystemPrompt.replace("{{MEMORIES}}", memories);
 
     let skillsBlock = "";
-    try {
-        const skills = await listSkills({ cwd });
-        skillsBlock = skills
-            .filter((skill) => skill.name && skill.description && !skill.disableModelInvocation)
-            .map((skill) => `- ${skill.name} - ${skill.description} (read: ${skill.path})`)
-            .join("\n");
-    } catch {
-        skillsBlock = "";
+    /** @type {import('./session-context-report.js').ContextProjectionItem[]} */
+    const skillItems = [];
+    if (hasSkillsPlaceholder) {
+        try {
+            const skills = await listSkills({ cwd });
+            const visibleSkills = skills.filter((skill) =>
+                skill.name && skill.description && !skill.disableModelInvocation
+            );
+            skillsBlock = visibleSkills
+                .map((skill) => {
+                    const line = `- ${skill.name} - ${skill.description} (read: ${skill.path})`;
+                    const item = createContextProjectionItem(skill.name, line, {
+                        name: skill.name,
+                        path: skill.path,
+                        source: skill.source,
+                    });
+                    if (item) skillItems.push(item);
+                    return line;
+                })
+                .join("\n");
+        } catch {
+            skillsBlock = "";
+        }
     }
     finalSystemPrompt = finalSystemPrompt.replace("{{SKILLS}}", skillsBlock);
 
     // Conditionally include the Image Attachments section only when see_image is available
     // (i.e. the active model is text-only with a vision fallback configured).
-    const imageAttachmentsSection = tools.includes("see_image")
+    const imageAttachmentsSection = hasImageAttachmentsPlaceholder && tools.includes("see_image")
         ? [
             "## Image Attachments",
             "",
@@ -1231,7 +1379,7 @@ export async function assembleFinalSystemPrompt(
     finalSystemPrompt = finalSystemPrompt.replace("{{IMAGE_ATTACHMENTS_SECTION}}", imageAttachmentsSection);
 
     // Resolve the bundled agent definitions path (extracted cache or fallback)
-    const bundledAgentDefsPath = await getBundledAgentDefsPath();
+    const bundledAgentDefsPath = hasBundledAgentDefsPlaceholder ? await getBundledAgentDefsPath() : "";
     finalSystemPrompt = finalSystemPrompt.replace("{{BUNDLED_AGENT_DEFS_DIR}}", bundledAgentDefsPath);
 
     // Append timezone so LLMs can reconcile the midnight boundary between the
@@ -1239,9 +1387,90 @@ export async function assembleFinalSystemPrompt(
     // in session data and memories. No duplicated date line — pi-coding-agent's
     // buildSystemPrompt already appends that after this function returns.
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    finalSystemPrompt += `\nTimezone: ${tz}`;
+    const timezoneLine = `Timezone: ${tz}`;
+    finalSystemPrompt += `\n${timezoneLine}`;
 
-    return finalSystemPrompt;
+    const agentText = [
+        removePromptPlaceholders(agentDef.systemPrompt),
+        imageAttachmentsSection,
+        bundledAgentDefsPath,
+        timezoneLine,
+    ].filter(Boolean).join("\n");
+    const agentInstructionsItem = createContextProjectionItem("Agent Definition", agentText, { source: "agent" });
+    const memoriesItem = createContextProjectionItem("Core Memories", memories, { source: "mnemosyne" });
+    const projectStateItem = createContextProjectionItem("Project State", projectStateContextSection, {
+        source: "runtime",
+    });
+
+    const projection = createSessionContextProjection([
+        {
+            id: "agent_instructions",
+            label: "Agent instructions",
+            tokens: agentInstructionsItem?.tokens || 0,
+            items: agentInstructionsItem ? [agentInstructionsItem] : [],
+        },
+        {
+            id: "tools",
+            label: "Tools",
+            tokens: toolItems.reduce((sum, tool) => sum + (tool.item?.tokens || 0), 0),
+            items: /** @type {import('./session-context-report.js').ContextProjectionItem[]} */ (
+                toolItems.map((tool) => tool.item).filter(Boolean)
+            ),
+        },
+        {
+            id: "instruction_files",
+            label: "Instruction files",
+            tokens: instructionItems.reduce((sum, item) => sum + item.tokens, 0),
+            items: instructionItems,
+        },
+        {
+            id: "core_memories",
+            label: "Core Memories",
+            tokens: memoriesItem?.tokens || 0,
+            items: memoriesItem ? [memoriesItem] : [],
+        },
+        {
+            id: "skill_catalog",
+            label: "Skill catalog",
+            tokens: estimateContextTextTokens(skillsBlock),
+            items: skillItems,
+        },
+        {
+            id: "project_state",
+            label: "Project State",
+            tokens: projectStateItem?.tokens || 0,
+            items: projectStateItem ? [projectStateItem] : [],
+        },
+    ]);
+
+    return { prompt: finalSystemPrompt, projection };
+}
+
+/**
+ * Assemble the final system prompt by resolving placeholders.
+ *
+ * @param {import('./types.js').AgentDefinition} agentDef
+ * @param {string[]} tools
+ * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} finalCustomTools
+ * @param {string} [cwd]
+ * @param {string} [projectStateContext]
+ * @returns {Promise<string>}
+ */
+export async function assembleFinalSystemPrompt(
+    agentDef,
+    tools,
+    finalCustomTools,
+    cwd,
+    projectStateContext = "",
+) {
+    const result = await assembleFinalSystemPromptWithContextProjection(
+        agentDef,
+        tools,
+        finalCustomTools,
+        cwd,
+        projectStateContext,
+    );
+    return result.prompt;
 }
 
 /**
@@ -1275,6 +1504,7 @@ export async function assembleFinalSystemPrompt(
  *   resolvedModel: any,
  *   resolvedThinkingLevel: string | undefined,
  *   resolvedTemperature: number | undefined,
+ *   contextProjection: import('./session-context-report.js').SessionContextProjection,
  *   imageMode?: string,
  *   visionFallbackModelRef?: string
  * }>}
@@ -1411,13 +1641,14 @@ export async function buildAgentSession({
     }
 
     // Resolve system prompt placeholders
-    const finalSystemPrompt = await assembleFinalSystemPrompt(
-        agentDef,
-        tools,
-        finalCustomTools,
-        sessionCwd,
-        projectStateContext,
-    );
+    const { prompt: finalSystemPrompt, projection: contextProjection } =
+        await assembleFinalSystemPromptWithContextProjection(
+            agentDef,
+            tools,
+            finalCustomTools,
+            sessionCwd,
+            projectStateContext,
+        );
     const promptState = { text: finalSystemPrompt };
     const packagePromptResources = await resolveInstalledPackagePromptResources({ cwd: sessionCwd }).catch(() => []);
     const packageExtensionResources = await resolveInstalledWldExtensionResources({ cwd: sessionCwd }).catch(() => []);
@@ -1540,6 +1771,7 @@ export async function buildAgentSession({
         resolvedModel,
         resolvedThinkingLevel,
         resolvedTemperature,
+        contextProjection,
         imageMode,
         visionFallbackModelRef: visionFallback?.modelRef,
     };
@@ -2149,7 +2381,7 @@ export function applyAttentionNudge(agentName, userRequest, rootTurnCount) {
     ].join("\n");
 }
 
-/** @type {WeakMap<import('@earendil-works/pi-coding-agent').AgentSession, { agentDef: import('./types.js').AgentDefinition, promptState: { text: string }, subscriberState: SubscriberState, agentName: string, tools: string[], finalCustomTools: import('@earendil-works/pi-coding-agent').ToolDefinition[], rootTurnCount: number, projectStateContext: string, allowReturnToRouter: boolean, cwd: string, model?: string, imageMode?: string, visionFallbackModelRef?: string }>} */
+/** @type {WeakMap<import('@earendil-works/pi-coding-agent').AgentSession, { agentDef: import('./types.js').AgentDefinition, promptState: { text: string }, subscriberState: SubscriberState, agentName: string, tools: string[], finalCustomTools: import('@earendil-works/pi-coding-agent').ToolDefinition[], rootTurnCount: number, projectStateContext: string, allowReturnToRouter: boolean, cwd: string, model?: string, contextProjection?: import('./session-context-report.js').SessionContextProjection, imageMode?: string, visionFallbackModelRef?: string }>} */
 const rootSessionMetadata = new WeakMap();
 
 /**
@@ -2175,6 +2407,30 @@ export function getRootSessionSwitchState(hostedSession) {
         model: meta.model,
         allowReturnToRouter: meta.allowReturnToRouter,
         cwd: meta.cwd,
+    };
+}
+
+/**
+ * @param {import('./hosted-session.js').HostedSession} hostedSession
+ * @returns {{ projection: import('./session-context-report.js').SessionContextProjection, activeMessageTokens: number, agentName: string, agentDisplayName: string, model?: string } | null}
+ */
+export function getRootSessionContextProjection(hostedSession) {
+    const session = /** @type {any} */ (hostedSession?.getRootAgentSession?.());
+    if (!session) return null;
+    const meta = rootSessionMetadata.get(session);
+    if (!meta?.contextProjection) return null;
+    const contextMessages = session.sessionManager?.buildSessionContext?.().messages;
+    const messages = Array.isArray(contextMessages)
+        ? contextMessages
+        : Array.isArray(session.messages)
+        ? session.messages
+        : [];
+    return {
+        projection: meta.contextProjection,
+        activeMessageTokens: estimateAgentMessagesTokens(/** @type {any} */ (messages)),
+        agentName: meta.agentName,
+        agentDisplayName: meta.agentDef.displayName,
+        model: meta.model,
     };
 }
 
@@ -2243,6 +2499,7 @@ export async function ensureRootAgentSession(opts) {
         tools,
         finalCustomTools,
         resolvedModel,
+        contextProjection,
         imageMode,
         visionFallbackModelRef,
     } = await buildAgentSessionFn({
@@ -2299,6 +2556,7 @@ export async function ensureRootAgentSession(opts) {
         allowReturnToRouter: opts.allowReturnToRouter ?? true,
         cwd: opts.cwd || hostedSession.cwd,
         model: finalModelForUi,
+        contextProjection,
         imageMode,
         visionFallbackModelRef,
     });

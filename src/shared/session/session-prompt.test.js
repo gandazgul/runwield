@@ -5,6 +5,7 @@ import {
     __getRootSessionMetadataForTests,
     applyAttentionNudge,
     assembleFinalSystemPrompt,
+    assembleFinalSystemPromptWithContextProjection,
     ensureRootAgentSession,
     getGlobalAgentMdPaths,
     readGlobalAgentMd,
@@ -14,6 +15,7 @@ import {
     shouldReuseExistingRootSession,
 } from "./session.js";
 import { HostedSession } from "./hosted-session.js";
+import { estimateContextTextTokens } from "./session-context-report.js";
 
 Deno.test("assembleFinalSystemPrompt includes project-state context only when provided", async () => {
     const agentDef = {
@@ -31,6 +33,145 @@ Deno.test("assembleFinalSystemPrompt includes project-state context only when pr
 
     assertEquals(withoutContext.includes("### Project State"), false);
     assertStringIncludes(withContext, "### Project State\n\nGreenfield note.");
+});
+
+Deno.test("assembleFinalSystemPromptWithContextProjection attributes resident context", async () => {
+    const originalHome = Deno.env.get("HOME");
+    const tempHome = await Deno.makeTempDir({ prefix: "runwield-context-home-" });
+    const projectRoot = await Deno.makeTempDir({ prefix: "runwield-context-project-" });
+    const localSkillDir = join(projectRoot, ".wld", "skills", "visible-skill");
+    const hiddenSkillDir = join(projectRoot, ".wld", "skills", "hidden-skill");
+    try {
+        Deno.env.set("HOME", tempHome);
+        await Deno.mkdir(join(tempHome, ".wld"), { recursive: true });
+        await Deno.writeTextFile(join(tempHome, ".wld", "RUNWEILD.md"), "Global context instructions");
+        await Deno.writeTextFile(join(projectRoot, "RUNWEILD.md"), "Project context instructions");
+        await Deno.mkdir(localSkillDir, { recursive: true });
+        await Deno.writeTextFile(
+            join(localSkillDir, "SKILL.md"),
+            ["---", "name: visible-skill", "description: Visible skill", "---", "Full skill body"].join("\n"),
+        );
+        await Deno.mkdir(hiddenSkillDir, { recursive: true });
+        await Deno.writeTextFile(
+            join(hiddenSkillDir, "SKILL.md"),
+            [
+                "---",
+                "name: hidden-skill",
+                "description: Hidden skill",
+                "disable-model-invocation: true",
+                "---",
+                "Hidden body",
+            ].join("\n"),
+        );
+
+        const { prompt, projection } = await assembleFinalSystemPromptWithContextProjection(
+            /** @type {any} */ ({
+                name: "test",
+                displayName: "Test",
+                description: "Test agent",
+                systemPrompt:
+                    "Agent instructions {{AVAILABLE_TOOLS}} {{GLOBAL_AGENTSMD}} {{PROJECT_AGENTSMD}} {{MEMORIES}} {{SKILLS}} {{PROJECT_STATE_CONTEXT}} {{IMAGE_ATTACHMENTS_SECTION}} {{BUNDLED_AGENT_DEFS_DIR}}",
+            }),
+            ["read", "custom_tool"],
+            [
+                /** @type {any} */ ({
+                    name: "custom_tool",
+                    label: "Custom Tool",
+                    description: "Custom tool with schema",
+                    promptSnippet: "custom_tool(value): use schema-backed custom tool",
+                    parameters: {
+                        type: "object",
+                        properties: {
+                            value: { type: "string", description: "Important schema-only value details" },
+                        },
+                        required: ["value"],
+                    },
+                }),
+            ],
+            projectRoot,
+            "Runtime project state",
+        );
+
+        assertStringIncludes(prompt, "Global context instructions");
+        assertStringIncludes(prompt, "Project context instructions");
+        assertStringIncludes(prompt, "Runtime project state");
+        assertStringIncludes(prompt, "visible-skill");
+        assertEquals(prompt.includes("hidden-skill"), false);
+        assertEquals(projection.instructionFiles.map((file) => file.source), ["home", "local"]);
+        assertEquals(projection.skills.some((skill) => skill.name === "visible-skill"), true);
+        assertEquals(projection.skills.some((skill) => skill.name === "hidden-skill"), false);
+        const customToolItem = projection.categories.find((category) => category.id === "tools")?.items?.find((item) =>
+            item.name === "custom_tool"
+        );
+        assertEquals(typeof customToolItem?.tokens, "number");
+        assertEquals(
+            (customToolItem?.tokens || 0) >
+                Math.ceil("- custom_tool - custom_tool(value): use schema-backed custom tool".length / 4),
+            true,
+        );
+        assertEquals(
+            projection.categories.some((category) => category.id === "project_state" && category.tokens > 0),
+            true,
+        );
+        assertEquals(projection.categories.some((category) => category.id === "tools" && category.tokens > 0), true);
+    } finally {
+        if (originalHome === undefined) Deno.env.delete("HOME");
+        else Deno.env.set("HOME", originalHome);
+        await Deno.remove(tempHome, { recursive: true }).catch(() => {});
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("assembleFinalSystemPromptWithContextProjection excludes omitted placeholder context", async () => {
+    const originalHome = Deno.env.get("HOME");
+    const tempHome = await Deno.makeTempDir({ prefix: "runwield-context-home-" });
+    const projectRoot = await Deno.makeTempDir({ prefix: "runwield-context-project-" });
+    const localSkillDir = join(projectRoot, ".wld", "skills", "visible-skill");
+    try {
+        Deno.env.set("HOME", tempHome);
+        await Deno.mkdir(join(tempHome, ".wld"), { recursive: true });
+        await Deno.writeTextFile(join(tempHome, ".wld", "RUNWEILD.md"), "Global context instructions");
+        await Deno.writeTextFile(join(projectRoot, "RUNWEILD.md"), "Project context instructions");
+        await Deno.mkdir(localSkillDir, { recursive: true });
+        await Deno.writeTextFile(
+            join(localSkillDir, "SKILL.md"),
+            ["---", "name: visible-skill", "description: Visible skill", "---", "Full skill body"].join("\n"),
+        );
+
+        const { prompt, projection } = await assembleFinalSystemPromptWithContextProjection(
+            /** @type {any} */ ({
+                name: "test",
+                displayName: "Test",
+                description: "Test agent",
+                systemPrompt: "Bare agent instructions.",
+            }),
+            ["see_image"],
+            [],
+            projectRoot,
+            "Runtime project state",
+        );
+
+        assertEquals(prompt.includes("Global context instructions"), false);
+        assertEquals(prompt.includes("Project context instructions"), false);
+        assertEquals(prompt.includes("Runtime project state"), false);
+        assertEquals(prompt.includes("visible-skill"), false);
+        assertEquals(prompt.includes("Image Attachments"), false);
+        assertEquals(projection.instructionFiles, []);
+        assertEquals(projection.skills, []);
+        assertEquals(projection.categories.some((category) => category.id === "project_state"), false);
+        assertEquals(projection.categories.some((category) => category.id === "skill_catalog"), false);
+        const agentItem = projection.categories.find((category) => category.id === "agent_instructions")?.items?.[0];
+        const timezoneLine = `Timezone: ${Intl.DateTimeFormat().resolvedOptions().timeZone}`;
+        assertEquals(
+            agentItem?.tokens,
+            estimateContextTextTokens(["Bare agent instructions.", timezoneLine].join("\n")),
+        );
+    } finally {
+        if (originalHome === undefined) Deno.env.delete("HOME");
+        else Deno.env.set("HOME", originalHome);
+        await Deno.remove(tempHome, { recursive: true }).catch(() => {});
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+    }
 });
 
 Deno.test("readGlobalAgentMd falls back from ~/.wld/RUNWEILD.md to ~/.wld/AGENTS.md", async () => {

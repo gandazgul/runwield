@@ -18,6 +18,7 @@ import { runExportCommand } from "./export/index.js";
 import { runNewCommand } from "./new/index.js";
 import { runNameCommand } from "./name/index.js";
 import { runSessionCommand } from "./session/index.js";
+import { runContextCommand } from "./context/index.js";
 import { runShareCommand } from "./share/index.js";
 import { runResumeCommand } from "./resume/index.js";
 import { runInitCommand } from "./init/index.js";
@@ -34,7 +35,7 @@ import { runAcpCommand } from "./acp/index.js";
 import { getAgentDisplayName } from "../shared/session/agents.js";
 
 /** Known CLI / slash command names. Defined alongside the registry so adding a new command only touches one file. */
-/** @type {Readonly<{ROUTER: string, AGENT: string, MODEL: string, LOGIN: string, LOGOUT: string, STATUS: string, EXPORT: string, SHARE: string, LOAD_PLAN: string, RESUME: string, NEW: string, NAME: string, SESSION: string, PLANS: string, WR: string, SLEEP: string, HELP: string, VERSION: string, QUIT: string, EXIT: string, INIT: string, THEME: string, INSTALL: string, REMOVE: string, COMPACT: string, SETTINGS: string, RELOAD: string, SNIP_FILTERS: string, COPY: string, ACP: string}>} */
+/** @type {Readonly<{ROUTER: string, AGENT: string, MODEL: string, LOGIN: string, LOGOUT: string, STATUS: string, EXPORT: string, SHARE: string, LOAD_PLAN: string, RESUME: string, NEW: string, NAME: string, SESSION: string, PLANS: string, WR: string, SLEEP: string, HELP: string, VERSION: string, QUIT: string, EXIT: string, INIT: string, THEME: string, INSTALL: string, REMOVE: string, COMPACT: string, SETTINGS: string, RELOAD: string, SNIP_FILTERS: string, COPY: string, CONTEXT: string, ACP: string}>} */
 export const COMMAND_NAMES = Object.freeze({
     ROUTER: "router",
     AGENT: "agent",
@@ -65,6 +66,7 @@ export const COMMAND_NAMES = Object.freeze({
     RELOAD: "reload",
     SNIP_FILTERS: "snip-filters",
     COPY: "copy",
+    CONTEXT: "context",
     ACP: "acp",
 });
 
@@ -299,6 +301,21 @@ export const commandRegistry = {
             "Slash command only (interactive session).",
         ],
         execute: runSessionCommand,
+        surfaces: ["slash"],
+    },
+    [COMMAND_NAMES.CONTEXT]: {
+        name: COMMAND_NAMES.CONTEXT,
+        displayName: "Context Usage",
+        description: "Show active Agent Session context-window usage",
+        summary: "Show current context-window usage and estimated resident context categories.",
+        usage: [
+            "/context",
+        ],
+        notes: [
+            "Slash command only (interactive session).",
+            "Reports current resident context, unlike /session's cumulative session statistics.",
+        ],
+        execute: runContextCommand,
         surfaces: ["slash"],
     },
     [COMMAND_NAMES.SHARE]: {

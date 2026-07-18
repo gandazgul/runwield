@@ -3,6 +3,8 @@ import { SessionHost } from "./session-host.js";
 import { RuntimeEventTypes } from "./session-runtime-events.js";
 import { HANDOFF_LIMIT_MESSAGE, SessionRuntime, SessionTurnInProgressError } from "./session-runtime.js";
 import { switchActiveAgent as switchActiveAgentFn } from "./agent-switching.js";
+import { ensureRootAgentSession } from "./session.js";
+import { createSessionContextProjection } from "./session-context-report.js";
 
 /**
  * @param {string} id
@@ -138,6 +140,60 @@ Deno.test("SessionRuntime rejects non-absolute session roots", async () => {
         Error,
         "requires an absolute cwd",
     );
+});
+
+Deno.test("SessionRuntime returns null context report without an active Agent Session", async () => {
+    const runtime = makeRuntime();
+    const { sessionId } = await runtime.createInteractiveSession({ cwd: Deno.cwd() });
+    assertEquals(runtime.getSessionContextReport(sessionId), null);
+});
+
+Deno.test("SessionRuntime projects active Agent Session context without exposing internals", async () => {
+    const sessionHost = new SessionHost();
+    const runtime = makeRuntime({ sessionHost });
+    const { sessionId } = await runtime.createInteractiveSession({ cwd: Deno.cwd() });
+    const hostedSession = sessionHost.requireSession(sessionId);
+    const projection = createSessionContextProjection([
+        { id: "agent_instructions", label: "Agent instructions", tokens: 10, items: [] },
+    ]);
+    const agentSession = /** @type {any} */ ({
+        messages: [{ role: "user", content: "dormant history message that should not be counted" }],
+        sessionManager: {
+            buildSessionContext: () => ({ messages: [{ role: "user", content: "12345678" }] }),
+        },
+        model: { contextWindow: 100 },
+        getContextUsage: () => ({ tokens: 30, contextWindow: 100, percent: 30 }),
+        dispose() {},
+    });
+
+    await ensureRootAgentSession({
+        hostedSession,
+        agentName: "engineer",
+        _buildAgentSession: () =>
+            Promise.resolve({
+                session: agentSession,
+                agentDef: { name: "engineer", displayName: "Engineer" },
+                promptState: { text: "secret prompt" },
+                tools: [],
+                finalCustomTools: [],
+                resolvedModel: { provider: "test", id: "model" },
+                contextProjection: projection,
+            }),
+        _attachSessionEventSubscribers: () => ({
+            resetTurn() {},
+            drainInvokedToolNames: () => [],
+            endThinking() {},
+            unsubscribe() {},
+        }),
+    });
+
+    const report = runtime.getSessionContextReport(sessionId);
+    assertEquals(report?.agentDisplayName, "Engineer");
+    assertEquals(report?.provider, "test");
+    assertEquals(report?.model, "model");
+    assertEquals(report?.usedTokens, 30);
+    assertEquals(report?.activeMessageTokens, 2);
+    assertEquals(JSON.stringify(report).includes("secret prompt"), false);
 });
 
 Deno.test("SessionRuntime uses one activation transaction for initial readiness and later switches", async () => {
