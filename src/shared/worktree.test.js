@@ -98,6 +98,43 @@ Deno.test("createExecutionWorktree creates a unique branch/path and registry ent
     }
 });
 
+Deno.test("createExecutionWorktree initializes submodules", async () => {
+    const projectRoot = await makeRepo();
+    const submoduleRoot = await makeRepo();
+    const worktreeRoot = await Deno.makeTempDir();
+    const previousAllowedProtocols = Deno.env.get("GIT_ALLOW_PROTOCOL");
+    let worktree;
+    try {
+        await Deno.writeTextFile(`${submoduleRoot}/module.css`, "body { color: red; }\n");
+        await git(submoduleRoot, ["add", "."]);
+        await git(submoduleRoot, ["commit", "-m", "add module css"]);
+        Deno.env.set("GIT_ALLOW_PROTOCOL", "file");
+        await git(projectRoot, ["submodule", "add", submoduleRoot, "third_party/demo"]);
+        await git(projectRoot, ["commit", "-m", "add submodule"]);
+
+        worktree = await createExecutionWorktree({ projectRoot, planName: "Submodule Plan", worktreeRoot });
+
+        assertEquals(await Deno.readTextFile(`${worktree.path}/third_party/demo/module.css`), "body { color: red; }\n");
+    } finally {
+        if (previousAllowedProtocols === undefined) {
+            Deno.env.delete("GIT_ALLOW_PROTOCOL");
+        } else {
+            Deno.env.set("GIT_ALLOW_PROTOCOL", previousAllowedProtocols);
+        }
+        if (worktree) {
+            await removeExecutionWorktree({
+                projectRoot,
+                path: worktree.path,
+                branch: worktree.branch,
+                force: true,
+            }).catch(() => {});
+        }
+        await Deno.remove(projectRoot, { recursive: true });
+        await Deno.remove(submoduleRoot, { recursive: true });
+        await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
+    }
+});
+
 Deno.test("findReusableWorktree selects the recorded execution id when plan names repeat", async () => {
     const projectRoot = await makeRepo();
     const worktreeRoot = await Deno.realPath(await Deno.makeTempDir());

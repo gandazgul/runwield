@@ -491,6 +491,9 @@ export async function createExecutionWorktree({ projectRoot, planName, baseRef =
 
     await Deno.mkdir(parent, { recursive: true });
     await runGit(projectRoot, ["worktree", "add", "-b", branch, path, baseRef]);
+    if (await pathExists(join(path, ".gitmodules"))) {
+        await runGit(path, ["submodule", "update", "--init", "--recursive"]);
+    }
 
     /** @type {import('./worktree-registry.js').WorktreeRegistryEntry} */
     const entry = {
