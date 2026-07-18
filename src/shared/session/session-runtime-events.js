@@ -35,6 +35,7 @@ export const RuntimeEventTypes = Object.freeze({
     INTERACTION_CANCELED: "interaction_canceled",
     PLAN_REVIEW_LINK: "plan_review_link",
     ATTENTION_REQUESTED: "attention_requested",
+    KEYBOARD_HELP: "keyboard_help",
 });
 
 /**
@@ -181,7 +182,15 @@ export const RuntimeEventTypes = Object.freeze({
  */
 
 /**
- * @typedef {RuntimeSessionLifecycleEvent | RuntimeUserMessageEvent | RuntimeAssistantTextDeltaEvent | RuntimeAssistantThinkingDeltaEvent | RuntimeAssistantThinkingEndEvent | RuntimeToolStartEvent | RuntimeToolUpdateEvent | RuntimeToolEndEvent | RuntimeSystemStatusEvent | RuntimeTurnEvent | RuntimeBusyChangedEvent | RuntimeAgentChangedEvent | RuntimeModelChangedEvent | RuntimeThinkingLevelChangedEvent | RuntimeWorkflowContextChangedEvent | RuntimeSessionRenamedEvent | RuntimePresentationStateEvent | RuntimeQueuedMessageEvent | RuntimeUsageEvent | RuntimeCancellationEvent | RuntimeTerminalErrorEvent | RuntimeInteractionLifecycleEvent | RuntimePlanReviewLinkEvent | RuntimeAttentionRequestedEvent} SessionRuntimeEvent
+ * @typedef {import('./session-help.js').SessionHelpItem} RuntimeKeyboardHelpItem
+ */
+
+/**
+ * @typedef {RuntimeEventBase & { type: "keyboard_help", title: string, items: RuntimeKeyboardHelpItem[] }} RuntimeKeyboardHelpEvent
+ */
+
+/**
+ * @typedef {RuntimeSessionLifecycleEvent | RuntimeUserMessageEvent | RuntimeAssistantTextDeltaEvent | RuntimeAssistantThinkingDeltaEvent | RuntimeAssistantThinkingEndEvent | RuntimeToolStartEvent | RuntimeToolUpdateEvent | RuntimeToolEndEvent | RuntimeSystemStatusEvent | RuntimeTurnEvent | RuntimeBusyChangedEvent | RuntimeAgentChangedEvent | RuntimeModelChangedEvent | RuntimeThinkingLevelChangedEvent | RuntimeWorkflowContextChangedEvent | RuntimeSessionRenamedEvent | RuntimePresentationStateEvent | RuntimeQueuedMessageEvent | RuntimeUsageEvent | RuntimeCancellationEvent | RuntimeTerminalErrorEvent | RuntimeInteractionLifecycleEvent | RuntimePlanReviewLinkEvent | RuntimeAttentionRequestedEvent | RuntimeKeyboardHelpEvent} SessionRuntimeEvent
  */
 
 /** @type {Set<string>} */
@@ -391,6 +400,27 @@ export function assertSessionRuntimeEvent(event) {
                 event.type,
                 "reason is invalid",
             );
+            break;
+        case RuntimeEventTypes.KEYBOARD_HELP:
+            requireString("title");
+            requireRuntimeEvent(value.title.trim().length > 0, event.type, "title must be non-empty");
+            requireRuntimeEvent(Array.isArray(value.items), event.type, "items must be an array");
+            requireRuntimeEvent(value.items.length > 0, event.type, "items must be non-empty");
+            for (const item of value.items) {
+                requireRuntimeEvent(item && typeof item === "object", event.type, "item must be an object");
+                requireRuntimeEvent(typeof item.key === "string", event.type, "item.key must be a string");
+                requireRuntimeEvent(item.key.trim().length > 0, event.type, "item.key must be non-empty");
+                requireRuntimeEvent(
+                    typeof item.description === "string",
+                    event.type,
+                    "item.description must be a string",
+                );
+                requireRuntimeEvent(
+                    item.description.trim().length > 0,
+                    event.type,
+                    "item.description must be non-empty",
+                );
+            }
             break;
     }
     return event;

@@ -47,6 +47,8 @@
  *   appendReviewResult?: (agentName: string, markdown: string, approved: boolean) => void,
  *   getActiveToolBlock?: (id: string) => ToolExecutionBlockApi | undefined,
  *   toggleToolOutputsExpanded?: () => void,
+ *   showKeyboardHelp?: (help: import('../../shared/session/session-help.js').SessionHelpPayload) => void,
+ *   hideKeyboardHelp?: () => void,
  *   addToolInvoked?: (event: import('@earendil-works/pi-coding-agent').SessionEvent) => void,
  *   addToolResult?: (event: import('@earendil-works/pi-coding-agent').SessionEvent) => void,
  *   isOutputSuppressed?: () => boolean,

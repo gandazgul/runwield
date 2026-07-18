@@ -388,6 +388,81 @@ export class SystemMessageBlock {
     }
 }
 
+export class KeyboardHelpBlock {
+    /** @param {import('../../shared/session/session-help.js').SessionHelpPayload} help */
+    constructor(help) {
+        this.help = {
+            title: help.title,
+            items: help.items.map((item) => ({ ...item })),
+        };
+        this.content = {
+            render: (/** @type {number} */ w) => this.renderContent(w),
+            invalidate: () => {},
+        };
+        this.block = new StyledBlock("customMessageBg", 2, 1, this.content);
+    }
+
+    invalidate() {
+        this.block.invalidate();
+    }
+
+    /**
+     * @param {import('../../shared/session/session-help.js').SessionHelpItem} item
+     * @param {number} keyWidth
+     * @param {number} width
+     * @returns {string[]}
+     */
+    renderItem(item, keyWidth, width) {
+        const key = theme.fg("accent", item.key.padEnd(keyWidth));
+        const prefixWidth = keyWidth + 1;
+        const descriptionWidth = Math.max(1, width - prefixWidth);
+        const descriptionLines = wrapPlainLine(item.description, descriptionWidth);
+        return descriptionLines.map((line, index) => {
+            const currentKey = index === 0 ? key : " ".repeat(keyWidth);
+            return `${currentKey} ${theme.fg("muted", line)}`;
+        });
+    }
+
+    /**
+     * @param {import('../../shared/session/session-help.js').SessionHelpItem[]} items
+     * @param {number} keyWidth
+     * @param {number} columnWidth
+     * @returns {string[]}
+     */
+    renderColumn(items, keyWidth, columnWidth) {
+        return items.flatMap((item) => this.renderItem(item, keyWidth, columnWidth));
+    }
+
+    /** @param {number} w */
+    renderContent(w) {
+        const width = Math.max(1, w);
+        const lines = [theme.fg("accent", theme.bold(this.help.title))];
+        const maxKeyWidth = Math.max(...this.help.items.map((item) => visibleWidth(item.key)), 1);
+        if (width >= 86 && this.help.items.length >= 6) {
+            const gap = 4;
+            const columnWidth = Math.floor((width - gap) / 2);
+            const split = Math.ceil(this.help.items.length / 2);
+            const left = this.renderColumn(this.help.items.slice(0, split), maxKeyWidth, columnWidth);
+            const right = this.renderColumn(this.help.items.slice(split), maxKeyWidth, columnWidth);
+            const rows = Math.max(left.length, right.length);
+            for (let index = 0; index < rows; index++) {
+                const leftLine = left[index] || "";
+                const rightLine = right[index] || "";
+                const pad = " ".repeat(Math.max(gap, columnWidth - visibleWidth(leftLine) + gap));
+                lines.push(rightLine ? `${leftLine}${pad}${rightLine}` : leftLine);
+            }
+            return lines;
+        }
+        lines.push(...this.renderColumn(this.help.items, maxKeyWidth, width));
+        return lines;
+    }
+
+    /** @param {number} w */
+    render(w) {
+        return this.block.render(w);
+    }
+}
+
 // ─── Tool Execution Block ────────────────────────────────────────────────────
 
 /**

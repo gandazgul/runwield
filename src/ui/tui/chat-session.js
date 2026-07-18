@@ -396,33 +396,10 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
 
     const compactHelp = theme.fg(
         "muted",
-        ["esc interrupt", "ctrl+c clear/exit", "/ commands", "! bash", "ctrl+o more"].join(" · "),
-    );
-    const expandedHelp = theme.fg(
-        "muted",
-        [
-            "esc          to interrupt",
-            "ctrl+c       to clear input",
-            "ctrl+c twice to exit",
-            "shift+tab    to cycle thinking level",
-            "ctrl+o       to expand tool outputs / collapse this help",
-            "ctrl+t       to toggle thinking block visibility",
-            "ctrl+g       for external editor (not-implemented)",
-            "ctrl+v       to paste image",
-            "shift+enter  to insert newline",
-            "/            for commands",
-            "!            to run bash",
-            "!!           to run bash (no context)",
-        ].join("\n"),
+        ["? help", "esc interrupt", "ctrl+c clear/exit", "/ commands", "! bash", "ctrl+o tool output"].join(" · "),
     );
 
-    let helpExpanded = false;
     const helpText = new Text(compactHelp, 0, 0);
-    /** @param {boolean} expanded */
-    function setHelpExpanded(expanded) {
-        helpExpanded = expanded;
-        helpText.setText(expanded ? expandedHelp : compactHelp);
-    }
 
     if (!suppressStartupHeader) {
         // Render the logo first
@@ -444,6 +421,9 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
 
     const runningTasksComponent = new SpinnerBlock();
     container.addChild(runningTasksComponent);
+
+    const inputAccessoryContainer = new Container();
+    container.addChild(inputAccessoryContainer);
 
     /** @type {import('../../shared/session/types.js').ImageAttachment[]} */
     const pastedImages = [];
@@ -648,7 +628,7 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
     const skills = await sessionRuntime.listSessionSkills(sessionId);
 
     // Expose a UI API for agents to append to the message list
-    const uiAPI = createUiApi(tui, messageList, runningTasksComponent);
+    const uiAPI = createUiApi(tui, messageList, runningTasksComponent, inputAccessoryContainer);
 
     let tuiRuntimeAdapter = attachTuiRuntimeAdapter({ runtime: sessionRuntime, sessionId: sessionId, uiAPI });
 
@@ -678,6 +658,7 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
         });
         pastedImages.length = 0;
         previewImages.clear();
+        uiAPI.hideKeyboardHelp?.();
         editor.setText("");
         tui.setFocus(editor);
         tui.requestRender();
@@ -1067,6 +1048,7 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
 
         const userRequest = text.trim();
         const images = [...pastedImages];
+        uiAPI.hideKeyboardHelp?.();
         if (!userRequest && images.length === 0) return;
 
         if (shouldBlockForModelSetup() && !(userRequest.startsWith("/") && isModelSetupRecoveryCommand(userRequest))) {
@@ -1168,7 +1150,8 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
         forceResetUI,
         markCtrlCPendingExit,
         isCtrlCPendingExit: () => ctrlCPendingExit,
-        toggleStartupHelp: () => setHelpExpanded(!helpExpanded),
+        requestKeyboardHelp: () => sessionRuntime.requestSessionHelp(sessionId),
+        hideKeyboardHelp: () => uiAPI.hideKeyboardHelp?.(),
         cycleThinkingLevel,
         handleImagePaste,
         cancelRuntimeSession: () => sessionRuntime.cancelSession(sessionId).aborted,

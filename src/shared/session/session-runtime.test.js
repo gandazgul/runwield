@@ -217,6 +217,28 @@ Deno.test("SessionRuntime snapshots and events keep workflow footer context sepa
     );
 });
 
+Deno.test("SessionRuntime emits one keyboard-help event for the requested session", async () => {
+    const runtime = makeRuntime();
+    const sessionId = await runtime.createPromptReadySession({ cwd: Deno.cwd() });
+    /** @type {any[]} */
+    const events = [];
+    runtime.subscribeSessionEvents(sessionId, (event) => {
+        events.push(event);
+    });
+
+    const result = runtime.requestSessionHelp(sessionId);
+    const missing = runtime.requestSessionHelp("missing-session");
+
+    assertEquals(result, { ok: true });
+    assertEquals(missing, { ok: false, error: "not_found" });
+    assertEquals(events.length, 1);
+    assertEquals(events[0].type, RuntimeEventTypes.KEYBOARD_HELP);
+    assertEquals(events[0].sessionId, sessionId);
+    assertEquals(typeof events[0].timestamp, "string");
+    assertEquals(events[0].title, "Keyboard shortcuts");
+    assertEquals(events[0].items[0], { key: "esc", description: "to interrupt" });
+});
+
 Deno.test("SessionRuntime emits one ordered lifecycle for one prompt", async () => {
     const runtime = makeRuntime();
     const sessionId = await runtime.createPromptReadySession({ cwd: Deno.cwd() });

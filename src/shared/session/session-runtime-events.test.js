@@ -72,6 +72,15 @@ Deno.test("Runtime event factory supplies shared identity defaults and rejects p
     });
     assertEquals(workflowContextEvent.type, RuntimeEventTypes.WORKFLOW_CONTEXT_CHANGED);
 
+    const keyboardHelpEvent = createSessionRuntimeEvent("session-1", {
+        type: RuntimeEventTypes.KEYBOARD_HELP,
+        title: "Keyboard shortcuts",
+        items: [{ key: "?", description: "show help" }],
+    });
+    assertEquals(keyboardHelpEvent.type, RuntimeEventTypes.KEYBOARD_HELP);
+    if (keyboardHelpEvent.type !== RuntimeEventTypes.KEYBOARD_HELP) throw new Error("unexpected event type");
+    assertEquals(keyboardHelpEvent.items, [{ key: "?", description: "show help" }]);
+
     assertThrows(
         () =>
             createSessionRuntimeEvent("session-1", {
@@ -91,6 +100,26 @@ Deno.test("Runtime event factory supplies shared identity defaults and rejects p
             }),
         TypeError,
         "routingIntent and complexity must be provided together",
+    );
+    assertThrows(
+        () =>
+            createSessionRuntimeEvent("session-1", {
+                type: RuntimeEventTypes.KEYBOARD_HELP,
+                title: "Keyboard shortcuts",
+                items: [{ key: "", description: "show help" }],
+            }),
+        TypeError,
+        "item.key must be non-empty",
+    );
+    assertThrows(
+        () =>
+            createSessionRuntimeEvent("session-1", {
+                type: RuntimeEventTypes.KEYBOARD_HELP,
+                title: "Keyboard shortcuts",
+                items: [],
+            }),
+        TypeError,
+        "items must be non-empty",
     );
 });
 
