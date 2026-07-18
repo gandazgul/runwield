@@ -35,6 +35,7 @@ const SKIPPED_VERIFICATION_TEXT = "RunWield Workflow Validation was skipped";
  * @property {"feature"|"epic"} [scope]
  * @property {"verified"|"closed_without_verification"|"done_enough"} [completionMode]
  * @property {string} [closureReason]
+ * @property {string} [executionReport]
  * @property {WorkRecordSource[]} [children]
  * @property {string} [skipReason]
  * @property {import('./schema.js').WorkRecordResource} [existingRecord]
@@ -206,7 +207,12 @@ export function evaluateWorkRecordSource(source, existingByPlanId = new Map()) {
     if (!scope) return { ...source, skipReason: "unsupported_plan_type" };
     const completionMode = deriveWorkRecordCompletionMode(source);
     if (!completionMode) return { ...source, skipReason: "not_completed" };
-    const candidate = { ...source, scope, completionMode };
+    const candidate = {
+        ...source,
+        scope,
+        completionMode,
+        executionReport: nonEmptyString(source.attrs.executionReport),
+    };
     const existingRecord = findLinkableExistingRecord(candidate, existingByPlanId);
     return {
         ...candidate,
@@ -331,7 +337,7 @@ function buildRecorderPrompt(source) {
     return JSON.stringify(
         {
             instruction:
-                "Generate a concise Work Record body draft as JSON only: title, summary, optional deviationsFromPlan, optional deferredWork, optional futurePlanningNotes.",
+                "Generate a concise Work Record body draft as JSON only: title, summary, optional deviationsFromPlan, optional deferredWork, optional futurePlanningNotes. Distill executionReport facts into the appropriate sections; RunWield will preserve the raw executionReport separately when present.",
             source: {
                 name: source.name,
                 path: source.relativePath,
@@ -339,6 +345,7 @@ function buildRecorderPrompt(source) {
                 scope: source.scope,
                 completionMode: source.completionMode,
                 closureReason: source.closureReason,
+                executionReport: source.executionReport,
                 attrs: source.attrs,
                 body: source.body,
                 children: (source.children || []).map((child) => ({
@@ -436,6 +443,9 @@ function buildBody(source, sections) {
     }
     if (nonEmptyString(sections.futurePlanningNotes)) {
         lines.push("", "## Future Planning Notes", "", nonEmptyString(sections.futurePlanningNotes));
+    }
+    if (nonEmptyString(source.executionReport)) {
+        lines.push("", "## Execution Report", "", nonEmptyString(source.executionReport));
     }
     return lines.join("\n");
 }

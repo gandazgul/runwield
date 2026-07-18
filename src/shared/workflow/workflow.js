@@ -22,7 +22,11 @@ import { captureWorktreeTree } from "./git-snapshot.js";
 import { isEpicPlan, isExecutablePlanStatus, recordPlanEvent } from "./plan-lifecycle.js";
 import { recordWorkflowMetric } from "./metrics.js";
 import { buildEngineerRequest } from "./workflow-prompts.js";
-import { readLatestPlanOutcome, readLatestTaskCompletedOutcome } from "./workflow-results.js";
+import {
+    readLatestPlanOutcome,
+    readLatestTaskCompletedMessage,
+    readLatestTaskCompletedOutcome,
+} from "./workflow-results.js";
 
 export {
     extractTasks,
@@ -79,6 +83,7 @@ export {
  * @property {boolean} executionComplete
  * @property {string} [error]
  * @property {number[]} [failedTasks]
+ * @property {string} [completionReport]
  */
 
 /**
@@ -251,7 +256,11 @@ export async function executePlan({
         planName,
         event: "implementation_finished",
         currentStatus: "in_progress",
-        details: { triageMeta: effectiveMeta, nonGitInPlace: activeWorkflow?.nonGitInPlace === true },
+        details: {
+            triageMeta: effectiveMeta,
+            nonGitInPlace: activeWorkflow?.nonGitInPlace === true,
+            executionReport: result.completionReport,
+        },
     });
     await recordWorkflowMetricFn({
         category: "execution",
@@ -260,7 +269,11 @@ export async function executePlan({
         details: { classification: effectiveMeta.classification },
     }, { cwd: projectRoot });
     await markActiveWorktreeStatusFn("completed", { hostedSession });
-    return { repairRequired: false, executionComplete: true };
+    return {
+        repairRequired: false,
+        executionComplete: true,
+        ...(result.completionReport ? { completionReport: result.completionReport } : {}),
+    };
 }
 
 /**
@@ -324,7 +337,11 @@ async function executeSingleEngineerPlan(
     if (!engineerResult.completed) {
         return { repairRequired: false, executionComplete: false, error: engineerResult.error };
     }
-    return { repairRequired: false, executionComplete: true };
+    return {
+        repairRequired: false,
+        executionComplete: true,
+        ...(engineerResult.completionReport ? { completionReport: engineerResult.completionReport } : {}),
+    };
 }
 
 /**
@@ -339,7 +356,7 @@ async function executeSingleEngineerPlan(
  * @param {string} [reviewFeedback]
  * @param {Array<{base64: string, mimeType: string}>} [reviewImages]
  * @param {{ runActiveAgentTurn?: typeof import('../session/agent-switching.js').runActiveAgentTurn }} [__deps]
- * @returns {Promise<{ completed: boolean, messages: import('@earendil-works/pi-agent-core').AgentMessage[], error?: string }>}
+ * @returns {Promise<{ completed: boolean, messages: import('@earendil-works/pi-agent-core').AgentMessage[], error?: string, completionReport?: string }>}
  */
 async function runEngineerWithPlan(
     planName,
@@ -379,6 +396,7 @@ async function runEngineerWithPlan(
     }
 
     const completed = readLatestTaskCompletedOutcome(messages);
+    const completionReport = readLatestTaskCompletedMessage(messages) || undefined;
     if (!completed) {
         emitSystemStatus(
             hostedSession,
@@ -387,7 +405,7 @@ async function runEngineerWithPlan(
         );
     }
 
-    return { completed, messages };
+    return { completed, messages, completionReport };
 }
 
 /**

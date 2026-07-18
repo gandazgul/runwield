@@ -17,7 +17,7 @@ import {
     setCustomSetting,
     shouldCleanupMergedWorktrees,
 } from "../settings.js";
-import { readLatestReviewOutcome, readLatestTaskCompletedOutcome } from "./workflow.js";
+import { extractAssistantOutput, readLatestReviewOutcome, readLatestTaskCompletedOutcome } from "./workflow.js";
 import { runActiveAgentTurn, switchActiveAgent } from "../session/agent-switching.js";
 import {
     emitHostedSessionRuntimeEvent,
@@ -27,6 +27,7 @@ import {
 } from "../session/session-runtime-events.js";
 import { describeRuntimeTool } from "../session/tool-event-title.js";
 import { requestHostedSessionInteraction, RuntimeInteractionTypes } from "../session/session-runtime-interactions.js";
+import { recordManualQaChecklistMessage } from "../session/workflow-messages.js";
 import { getWorkflowDiff } from "./git-snapshot.js";
 import { recordPlanEvent, stageValidationPassedInExecutionWorktree } from "./plan-lifecycle.js";
 import { recordWorkflowMetric } from "./metrics.js";
@@ -234,7 +235,7 @@ export async function runManualQaChecklistPrompt({
         context,
     ].join("\n");
 
-    return await runIsolatedAgentSessionImpl({
+    const messages = await runIsolatedAgentSessionImpl({
         hostedSession,
         agentName: AGENTS.OPERATOR,
         userRequest,
@@ -242,6 +243,16 @@ export async function runManualQaChecklistPrompt({
         _agentDefOverride: agentDef,
         includeEditFallback: false,
     });
+    const checklistText = extractAssistantOutput(messages);
+    if (checklistText) {
+        recordManualQaChecklistMessage(
+            /** @type {import('@earendil-works/pi-coding-agent').SessionManager | undefined | null} */ (
+                hostedSession.getRootSessionManager?.()
+            ),
+            { agentName: "Operator", text: checklistText, name, classification },
+        );
+    }
+    return messages;
 }
 
 /**

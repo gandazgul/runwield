@@ -35,6 +35,7 @@ import {
 } from "./session-runtime-events.js";
 import { describeRuntimeTool } from "./tool-event-title.js";
 import { requestHostedSessionInteraction } from "./session-runtime-interactions.js";
+import { formatTaskCompletedMarkdown, readManualQaChecklistMessage } from "./workflow-messages.js";
 import {
     modelSupportsImageInput,
     persistImageAttachment,
@@ -243,19 +244,34 @@ function createReplayEvents(sessionId, entries) {
             if (role === "toolResult" || role === "tool_result") {
                 const messageId = entryMessageId(value, `${sessionId}:replay-tool-result`);
                 const toolCallId = value.message?.toolCallId || value.message?.tool_call_id || messageId;
+                const toolName = value.message?.toolName || value.message?.tool_name || "tool";
+                const toolResult = normalizeRuntimeToolResult(value.message);
                 events.push({
                     ...common,
                     type: RuntimeEventTypes.TOOL_END,
                     messageId,
                     toolCallId,
-                    ...(replayTools.get(toolCallId) || describeRuntimeTool(
-                        value.message?.toolName || value.message?.tool_name || "tool",
-                        undefined,
-                    )),
-                    ...normalizeRuntimeToolResult(value.message),
+                    ...(replayTools.get(toolCallId) || describeRuntimeTool(toolName, undefined)),
+                    ...toolResult,
                     isError: Boolean(value.message?.isError || value.message?.is_error),
                     durationMs: finishReplayTool(toolCallId, common.timestamp),
                 });
+                const taskCompletedMessage = toolName === "task_completed" &&
+                        toolResult.details?.outcome === "task_completed" &&
+                        typeof toolResult.details?.message === "string"
+                    ? toolResult.details.message
+                    : "";
+                if (taskCompletedMessage.trim()) {
+                    events.push({
+                        ...common,
+                        type: RuntimeEventTypes.ASSISTANT_TEXT_DELTA,
+                        messageId: `${messageId}:workflow`,
+                        delta: formatTaskCompletedMarkdown(taskCompletedMessage),
+                        agentName: replayAgentName,
+                        messageKind: "workflow",
+                        workflowMessage: "task_completed",
+                    });
+                }
                 continue;
             }
             const blocks = Array.isArray(content) ? content : [{ type: "text", text: toReplayText(content) }];
@@ -396,6 +412,20 @@ function createReplayEvents(sessionId, entries) {
         if (value.type === "custom" && value.customType === ACTIVE_AGENT_CUSTOM_TYPE) {
             const agentName = typeof value.data?.agentName === "string" ? value.data.agentName.trim() : "";
             if (agentName) replayAgentName = agentName;
+            continue;
+        }
+
+        const manualQaChecklist = readManualQaChecklistMessage(value);
+        if (manualQaChecklist) {
+            events.push({
+                ...common,
+                type: RuntimeEventTypes.ASSISTANT_TEXT_DELTA,
+                messageId: entryMessageId(value, `${sessionId}:manual-qa`),
+                delta: manualQaChecklist.text,
+                agentName: manualQaChecklist.agentName,
+                messageKind: "workflow",
+                workflowMessage: "manual_qa_checklist",
+            });
             continue;
         }
 
