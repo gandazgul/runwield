@@ -1,10 +1,27 @@
 ---
 title: Local-First Plan Management UI
-status: draft
+status: done
 createdAt: "2026-06-24T00:00:00.000Z"
+completedAt: "2026-07-17T04:52:54.858Z"
 ---
 
 # Local-First Plan Management UI PRD
+
+## Completion Status
+
+This PRD is complete and archived. The local-first Plan Board shipped as the RunWield Workspace Plan UI under
+`src/ui/workspace/`, launched by `wld plans ui` through `src/cmd/plans/ui.js`. The implementation now uses Astro SSR,
+React islands, Tailwind 4, Radix-compatible RunWield primitives, and selective Plannotator reuse for document/editor and
+review surfaces. That current implementation supersedes the original Fresh/Preact/UnoCSS prototype direction captured
+earlier in this document.
+
+Verified completion evidence lives in:
+
+- `docs/work-records/2026-07-15-workspace-plan-ui.md`
+- `docs/work-records/2026-07-17-migrated-workspace-to-astro-react-and-plannotator.md`
+
+The binding architecture update is recorded in
+`docs/adr/007-local-first-workspace-plan-board.md#2026-07-amendment-astro-react-radix-and-plannotator-workspace-migration`.
 
 ## Problem Statement
 
@@ -38,11 +55,11 @@ current checkout and opens a browser URL. Production UI code should live under `
 launcher owned by `src/cmd/plans/ui.js`. The Plan UI Server reads and writes the checkout's `plans/` directory; no
 database is required for v1.
 
-The Plan Board should be implemented as the first concrete view inside a Workspace-capable browser shell, not as a
-closed Plan-only interface. In v1, the local Workspace is the checkout from which `wld plans ui` was launched, and the
-shell may expose only Plans. Internally, the Plan Board is a Workspace resource/view. Its navigation, route model,
-editor boundary, and data adapter shape should still allow future resource types such as documentation pages, wiki
-pages, notes, and project files to appear alongside Plans.
+The Plan Board is implemented as the first concrete view inside a Workspace-capable browser shell, not as a closed
+Plan-only interface. In v1, the local Workspace is the checkout from which `wld plans ui` was launched, and the shell
+may expose only Plans. Internally, the Plan Board is a Workspace resource/view. Its navigation, route model, editor
+boundary, and data adapter shape should still allow future resource types such as documentation pages, wiki pages,
+notes, and project files to appear alongside Plans.
 
 Plan URLs should be pretty, durable, and shareable. A Plan, Epic, board view, and relevant filtered state should have
 stable browser URLs that users can paste into Slack, Jira, Notion, GitHub issues, docs, or chat. Local URLs may require
@@ -133,8 +150,8 @@ OctoBase, and y-octo synchronization are out of scope except as future-facing re
     command-line workflows keep working.
 32. As a RunWield user, I want the local Plan Board to avoid a database in v1, so that the feature stays simple and
     deploys with the existing filesystem model.
-33. As a RunWield user, I want the editor technology to be replaceable, so that RunWield can try BlockSuite without
-    betting the Plan Lifecycle on it too early.
+33. As a RunWield user, I want the editor technology to be replaceable, so that RunWield can evolve the Workspace
+    document/editor surface without betting the Plan Lifecycle on one editor implementation.
 34. As a RunWield user, I want markdown round-trip fidelity tested before adopting a rich editor, so that Plans do not
     lose code fences, tables, checklists, headings, links, or other important structure.
 35. As a future collaborator, I want the local Plan Board to leave room for encrypted remote collaboration, so that the
@@ -165,23 +182,26 @@ OctoBase, and y-octo synchronization are out of scope except as future-facing re
 - The v1 Plan Board is local-first. It is launched by a CLI command that starts an ephemeral local Plan UI Server and
   opens a browser URL.
 - The production package boundary is `src/ui/workspace/`. The command boundary is `src/cmd/plans/ui.js`.
+- `src/ui/workspace/` is the scoped exception zone where `.astro`, `.ts`, and `.tsx` are allowed for the Workspace
+  stack; non-Workspace RunWield code remains JavaScript/JSDoc.
 - The local server binds to `127.0.0.1` by default. An explicit `--bind <address>` flag may allow `0.0.0.0` or another
   address when the user knowingly wants LAN/container exposure.
 - The local server should include a random session token in the opened URL and reject state-changing requests without
   that token. It should path-sandbox filesystem access beneath the launched checkout and should not enable permissive
   CORS by default.
-- The v1 local API should be REST/JSON over the Fresh server. gRPC is not a good fit for this phase because the UI is
-  browser-first, Deno-native, JS/JSDoc-only, and should avoid generated TypeScript/client stubs. A future remote service
-  can revisit protocol choices if REST becomes a real constraint.
-- The Plan UI Server and Workspace shell should use Fresh 2 on Deno, pending the normal implementation spike carrying
-  the prototype findings into production code. Fresh keeps routing, API handlers, server rendering, static assets, and
-  Preact islands in one Deno-native stack.
-- The interactive frontend should use Preact islands with signals for local UI state.
-- Styling should use UnoCSS through the Vite pipeline. The prototype proved this with `virtual:uno.css`.
-- Fresh's Vite pipeline should be used rather than a direct `App.listen()` shortcut when client islands are required.
-  Direct `App.listen()` can server-render JSX, but it did not emit the island boot/runtime wiring in the prototype.
-- Deno's Vite/npm compatibility may require a local `nodeModulesDir` setting for the UI package or subproject. The
-  prototype needed `nodeModulesDir: "auto"` for Vite to run reliably.
+- The v1 local API is REST/JSON over the Workspace server. gRPC is not a good fit for this phase because the UI is
+  browser-first and Deno-native, and should avoid generated client stubs. A future remote service can revisit protocol
+  choices if REST becomes a real constraint.
+- The Plan UI Server and Workspace shell now use Astro SSR in `src/ui/workspace/`. This supersedes the original Fresh
+  2/Preact implementation direction.
+- React islands own interactive Workspace surfaces, including drag-and-drop, lifecycle controls, search, body editing,
+  and review-oriented surfaces.
+- Tailwind 4 plus RunWield CSS variables are the current Workspace styling endpoint. This supersedes the original UnoCSS
+  prototype direction.
+- Radix-compatible RunWield primitives and the RunWield browser design system are the current interaction and visual
+  baseline.
+- Selective Plannotator reuse is allowed for document, editor, review, and diff surfaces where it fits RunWield
+  semantics and theme boundaries.
 - The current checkout's `plans/` directory remains the canonical Plan store. The Plan Board must not introduce a
   separate canonical database for v1.
 - The Plan Board should be built as a Plan-focused view inside a Workspace-capable shell. The shell does not need to
@@ -213,10 +233,10 @@ OctoBase, and y-octo synchronization are out of scope except as future-facing re
   - record Plan lifecycle/manual status actions
   - list child FEATURE Plans for an Epic
   - surface worktree and dependency metadata as read-only detail fields
-- This PRD captures intended future behavior. Existing reality docs such as `docs/plan-lifecycle.md` should be updated
-  only after lifecycle support lands in code.
+- This archived PRD captures the completed v1 behavior. Current reality docs and source now reflect the lifecycle
+  support that landed in code.
 - The Plan Board should be custom RunWield UI backed by Plan adapters and lifecycle APIs. It should not be implemented
-  as a BlockSuite/AFFiNE database board, even if BlockSuite is used elsewhere in the Workspace.
+  as an AFFiNE, BlockSuite, Plannotator, or editor-owned database board.
 - The Plan Board should use the same grouping semantics as existing Plan listing behavior: Epics are top-level
   containers, child FEATURE Plans are discovered through `parentPlan`, and orphaned child FEATURE Plans are visible as a
   separate exceptional group.
@@ -246,13 +266,11 @@ OctoBase, and y-octo synchronization are out of scope except as future-facing re
 - Moving a Plan into `implemented` does not automatically prompt for Workflow Validation in v1.
 - The first implementation should not adopt AFFiNE-the-app as the Plan Board. AFFiNE is useful prior art, but it brings
   its own product, account, deployment, and storage assumptions.
-- BlockSuite is the preferred rich editor candidate to spike because it is the editor framework behind AFFiNE and can be
-  embedded without adopting the whole AFFiNE product. Its broader document/canvas model may be useful for Plan bodies,
-  notes, documentation, and future Workspace documents, but it should not own the Plan Board or Plan Lifecycle surface.
-- BlockSuite adoption is promising but not yet proven for production. The throwaway prototype proved Markdown snapshot
-  round-tripping and mounted a real BlockSuite `PageEditor` in the Fresh page, but it did not prove safe canonical Plan
-  save semantics.
-- CodeMirror remains a practical fallback editor if BlockSuite markdown round-tripping is not faithful enough.
+- The production editor path now uses Workspace document/editor surfaces with selective Plannotator reuse, behind the
+  Plan body editing boundary. Rich-editor technology remains replaceable and must not own Plan Board or Plan Lifecycle
+  semantics.
+- The earlier BlockSuite spike remains useful historical research, but BlockSuite was not adopted as the production Plan
+  editor path. Production save semantics are enforced through Plan body APIs and body hashes.
 - y-octo and OctoBase are not v1 dependencies. y-octo is promising for future Yjs-compatible collaboration. OctoBase is
   excluded from v1 because its current license and maturity do not fit RunWield's need to keep distribution controlled.
 - Remote encrypted collaboration remains future work. When revisited, all Plan content and metadata intended for remote
@@ -296,8 +314,8 @@ OctoBase, and y-octo synchronization are out of scope except as future-facing re
 - Editor fidelity tests should reject silent canonical-body rewrites. If an editor adapter injects a synthetic title,
   changes list markers, normalizes whitespace, or otherwise rewrites markdown, the save path must either compensate
   deliberately or fail loudly.
-- If BlockSuite is spiked, it should be tested behind an editor adapter boundary. The tests should prove that replacing
-  BlockSuite with CodeMirror does not affect Plan Board lifecycle, top-level board UI, or persistence behavior.
+- Editor integrations should be tested behind the Plan body/editor boundary. Tests should prove that replacing a
+  document editor does not affect Plan Board lifecycle, top-level board UI, or persistence behavior.
 - No remote encryption, remote API, or database tests are required for this PRD because those are out of scope.
 
 ## Out of Scope
@@ -326,7 +344,7 @@ OctoBase, and y-octo synchronization are out of scope except as future-facing re
 This PRD intentionally separates four concerns that are easy to blur:
 
 - Local Plan management: browser UI over canonical markdown files in the checkout.
-- Rich editing: BlockSuite or another editor embedded behind a replaceable adapter.
+- Rich editing: Workspace document/editor surfaces embedded behind a replaceable Plan body boundary.
 - Remote collaboration: encrypted Plan Spaces from the collaborative planning direction.
 - Broader Workspace: future project knowledge surfaces that can live beside Plans.
 
@@ -344,44 +362,23 @@ The board layer should stay boring and owned by RunWield. Rich document editors 
 Plan bodies, notes, documentation, and future Workspace resources, but Plan status columns and lifecycle transitions are
 product workflow, not document-editor content.
 
-## Prototype Result
+## Prototype and Implementation Result
 
-A throwaway stack proof lives under `prototypes/fresh-plan-ui/`. It uses Fresh 2, Vite, UnoCSS, Preact signals, JS/JSDoc
-files, a real Plan markdown file, server-rendered HTML, a JSON route, and a hydrated client island. The prototype is
-explicitly marked delete-me-later and should be removed or absorbed when the production Plan UI begins.
+The original throwaway Fresh prototype was absorbed and removed. Its useful conclusions were superseded by the
+production Workspace implementation and by the 2026-07 ADR amendment. Current reality is:
 
-Prototype findings:
-
-- Fresh file routing and API routes work with `.js` / `.jsx` files.
-- Server-side markdown rendering from a real Plan works.
-- UnoCSS works through the Vite plugin with `virtual:uno.css`.
-- Preact island hydration works after using the Fresh Vite pipeline.
-- A direct programmatic `App.listen()` shortcut rendered the page but did not hydrate the island, so it is not the right
-  path for this UI.
-- Vite needed a local `nodeModulesDir` for reliable Deno npm resolution in this environment.
-- The current `@blocksuite/affine@0.22.4` package is MIT but exports TypeScript source directly. Deno rejected that path
-  with `ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`, so it is not currently a clean Deno/JSDoc dependency.
-- The older compiled BlockSuite packages around `@blocksuite/blocks@0.19.5` expose JavaScript builds, but they are
-  MPL-2.0 and have transitive dependency drift. `@blocksuite/affine-components@0.19.5` expects a misspelled icon export
-  that exists in `@blocksuite/icons@2.1.75` but not the newer resolved icon package.
-- Mounting the real BlockSuite editor required a Vite alias from `@blocksuite/icons/lit` to the pinned
-  `@blocksuite/icons@2.1.75` compiled `lit.js` file.
-- A narrow import of BlockSuite's compiled Markdown adapter proved Markdown snapshot round-tripping inside the Fresh
-  prototype. The API loaded a real Plan body, converted it into a BlockSuite snapshot, exported Markdown, and wrote a
-  scratch saved file to `/private/tmp/fresh-plan-ui-blocksuite-saved.md`.
-- The BlockSuite snapshot proof produced `affine:surface` and `affine:note` top-level blocks for the sample Plan and a
-  90-block snapshot from the current fixture.
-- The browser proof created a real BlockSuite document with `createEmptyDoc()`, imported the real Plan body into an
-  `affine:note`, mounted a `page-editor` web component, and verified the hydrated DOM reported
-  `Mounted BlockSuite PageEditor with 91 blocks`.
-- BlockSuite's Markdown export normalized the body by prepending `# Untitled` and changing list markers to `*` in the
-  simple save proof. Production save must not write those changes blindly into canonical Plan files.
-- The remaining BlockSuite proof gap is canonical save extraction: production still needs to prove how edited BlockSuite
-  document state becomes a Plan body without front matter corruption, synthetic titles, unexpected markdown
-  normalization, or duplicate Yjs/Lit runtime issues.
-- A follow-up native Kanban spike proved that BlockSuite's `affine:database` Kanban can render plan-like cards, but it
-  is the wrong top-level architecture for RunWield. It makes the board an editor/database artifact and requires mirrored
-  rows instead of directly owning Plan Lifecycle actions. The query-style `affine:data-view` child-doc projection failed
-  in `@blocksuite/data-view@0.19.5` because its `BlockQueryDataSource` did not expose the full data-view manager
-  contract. The resulting decision is to build the top-level Plan Board as custom RunWield UI and keep BlockSuite behind
-  editor/document boundaries.
+- `wld plans ui` launches a token-protected, cwd-scoped local Workspace through `src/cmd/plans/ui.js`.
+- Production Workspace code lives under `src/ui/workspace/`.
+- Astro owns SSR routes and pages.
+- React islands own interactive Plan Board behavior, including search, drag-and-drop, lifecycle actions, body editing,
+  draft recovery, and review-oriented surfaces.
+- Tailwind 4, RunWield CSS variables, Radix-compatible primitives, and the RunWield design system are the current
+  browser UI baseline.
+- Plan files remain canonical markdown. `planId` provides durable Plan identity for shareable Workspace URLs.
+- Plan body editing uses save-only body APIs with body hashes so Front Matter remains protected unless structured
+  lifecycle controls are invoked.
+- The top-level Plan Board remains custom RunWield UI. Plannotator is reused selectively inside document/editor/review
+  boundaries and does not own Plan Lifecycle semantics.
+- `closed_without_verification`, `on_hold`, manual lifecycle events, Plan body save APIs, Plan resource identity, closed
+  and on-hold screens, Epic progress, and detail views are implemented in source.
+- Completion and verification are recorded in the Workspace Plan UI and Astro/React/Plannotator migration work records.
