@@ -252,6 +252,60 @@ Deno.test("runManualQaChecklistPrompt uses isolated Plan context without tools",
     assertStringIncludes(invocation.userRequest, "save settings and reload");
 });
 
+Deno.test("runManualQaChecklistPrompt persists visible checklist for resume replay", async () => {
+    /** @type {Array<Record<string, unknown>>} */
+    const entries = [];
+    const session = new HostedSession({
+        id: "manual-qa-persist",
+        cwd: Deno.cwd(),
+        sessionManager: /** @type {any} */ ({
+            getSessionId: () => "manual-qa-persisted",
+            getCwd: () => Deno.cwd(),
+            getBranch: () => entries,
+            appendCustomEntry: (/** @type {string} */ customType, /** @type {unknown} */ data) => {
+                entries.push({ type: "custom", customType, data });
+            },
+        }),
+    });
+    const promptDef = /** @type {any} */ ({
+        name: "operator",
+        displayName: "Manual QA",
+        model: "",
+        description: "Checklist prompt",
+        tools: [],
+        systemPrompt: "Output a checklist.",
+    });
+
+    await runManualQaChecklistPrompt({
+        hostedSession: session,
+        name: "settings-panel",
+        classification: "FEATURE",
+        context: "context",
+        cwd: Deno.cwd(),
+        __deps: {
+            loadManualQaPrompt: () => Promise.resolve(promptDef),
+            runIsolatedAgentSession: () =>
+                Promise.resolve(
+                    /** @type {any} */ ([{
+                        role: "assistant",
+                        content: [{ type: "text", text: "Manual verification steps for settings-panel" }],
+                    }]),
+                ),
+        },
+    });
+
+    assertEquals(entries, [{
+        type: "custom",
+        customType: "runwield.manual_qa_checklist",
+        data: {
+            agentName: "Operator",
+            text: "Manual verification steps for settings-panel",
+            name: "settings-panel",
+            classification: "FEATURE",
+        },
+    }]);
+});
+
 Deno.test("loadReviewerPrompt returns a bare tool-free prompt", async () => {
     /** @type {string[]} */
     const readPaths = [];

@@ -21,6 +21,7 @@ export const PLAN_FRONT_MATTER_KEYS = Object.freeze({
     implementedAt: "implementedAt",
     verifiedAt: "verifiedAt",
     closedWithoutVerificationReason: "closedWithoutVerificationReason",
+    executionReport: "executionReport",
     workRecord: "workRecord",
     humanReviewMode: "humanReviewMode",
     humanReviewDecision: "humanReviewDecision",

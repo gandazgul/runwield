@@ -31,6 +31,7 @@ import { SHARED_PLAN_LOCK_REPAIR, SharedPlanLockError } from "../collaboration/l
  * @property {import('../../plan-store.js').PlanFrontMatter['worktreeStatus']} [worktreeStatus]
  * @property {boolean} [nonGitInPlace]
  * @property {boolean} [cleanupMergedWorktrees]
+ * @property {string} [executionReport]
  * @property {import('../../plan-store.js').PlanFrontMatter['humanReviewMode']} [humanReviewMode]
  * @property {import('../../plan-store.js').PlanFrontMatter['humanReviewDecision']} [humanReviewDecision]
  * @property {string|null} [humanReviewedAt]
@@ -416,6 +417,7 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         updates.failedAt = null;
         updates.implementedAt = null;
         updates.verifiedAt = null;
+        updates.executionReport = null;
         updates.humanReviewMode = null;
         updates.humanReviewDecision = null;
         updates.humanReviewedAt = null;
@@ -431,6 +433,9 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         if (!details.nonGitInPlace) updates.worktreeStatus = "completed";
         updates.implementedAt = now;
         updates.failedAt = null;
+        updates.executionReport = typeof details.executionReport === "string" && details.executionReport.trim()
+            ? details.executionReport.trim()
+            : undefined;
     }
 
     if (event === "validation_failed") {

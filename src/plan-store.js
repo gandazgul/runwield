@@ -117,6 +117,7 @@ function getStoredPlanLocation(cwd, planName) {
  * @property {string|null} [implementedAt] - ISO timestamp when execution finished
  * @property {string|null} [verifiedAt] - ISO timestamp when validation passed
  * @property {string|null} [closedWithoutVerificationReason] - Required reason for new manual closed_without_verification transitions
+ * @property {string|null} [executionReport] - Latest task_completed Markdown report captured when implementation finished
  * @property {{ status?: "generated"|"failed", recordId?: string, path?: string, lastAttemptAt?: string, error?: string }} [workRecord] - Neutral backlink to canonical Work Record generation state
  * @property {HumanReviewMode} [humanReviewMode] - Human code review mode used for final validation; cleared when execution restarts or review reopens
  * @property {HumanReviewDecision} [humanReviewDecision] - Human code review outcome included in final validation; cleared when execution restarts or review reopens
@@ -223,7 +224,12 @@ const HIDDEN_PLAN_DIRS = new Set(["archived"]);
  * @returns {string}
  */
 function escapeYamlDoubleQuoted(value) {
-    return String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+    return String(value)
+        .replace(/\\/g, "\\\\")
+        .replace(/"/g, '\\"')
+        .replace(/\r/g, "\\r")
+        .replace(/\n/g, "\\n")
+        .replace(/\t/g, "\\t");
 }
 
 /**
@@ -352,6 +358,7 @@ function formatFrontMatter(fm) {
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.implementedAt, fm.implementedAt);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.verifiedAt, fm.verifiedAt);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.closedWithoutVerificationReason, fm.closedWithoutVerificationReason);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.executionReport, fm.executionReport);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.workRecord, fm.workRecord);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.humanReviewMode, fm.humanReviewMode);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.humanReviewDecision, fm.humanReviewDecision);
@@ -659,6 +666,7 @@ export function injectFrontMatter(markdown, overrides = {}) {
             existingFm,
             "closedWithoutVerificationReason",
         ),
+        executionReport: optionalFrontMatterValue(overrides, existingFm, "executionReport"),
         workRecord: Object.hasOwn(overrides, "workRecord")
             ? normalizeWorkRecordBacklink(overrides.workRecord)
             : normalizeWorkRecordBacklink(existingFm.workRecord),
@@ -767,6 +775,7 @@ export function parsePlanFrontMatter(markdown, opts = {}) {
             closedWithoutVerificationReason: typeof attrs.closedWithoutVerificationReason === "string"
                 ? attrs.closedWithoutVerificationReason
                 : undefined,
+            executionReport: typeof attrs.executionReport === "string" ? attrs.executionReport : undefined,
             workRecord: normalizeWorkRecordBacklink(attrs.workRecord),
             humanReviewMode: normalizeHumanReviewMode(attrs.humanReviewMode),
             humanReviewDecision: normalizeHumanReviewDecision(attrs.humanReviewDecision),

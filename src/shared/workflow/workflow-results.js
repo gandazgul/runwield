@@ -33,6 +33,27 @@ function extractTaskCompletedMessage(details) {
 }
 
 /**
+ * Read the latest task_completed report message from a message stream.
+ *
+ * @param {import('@earendil-works/pi-agent-core').AgentMessage[]} messages
+ * @param {number} [fromIndex]
+ * @returns {string | null}
+ */
+export function readLatestTaskCompletedMessage(messages, fromIndex) {
+    const start = fromIndex != null && fromIndex <= messages.length ? fromIndex : 0;
+    for (let i = messages.length - 1; i >= start; i--) {
+        const msg = messages[i];
+        if (
+            msg && "role" in msg && msg.role === "toolResult" &&
+            "toolName" in msg && msg.toolName === "task_completed"
+        ) {
+            return extractTaskCompletedMessage(/** @type {{ details?: unknown }} */ (msg).details);
+        }
+    }
+    return null;
+}
+
+/**
  * Extract the last text output from the agent's assistant messages.
  * Scans messages in reverse, checking all content blocks to handle cases where
  * tool_use blocks appear alongside text.

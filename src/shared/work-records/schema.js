@@ -24,6 +24,7 @@ export const WORK_RECORD_OPTIONAL_SECTION_TITLES = Object.freeze([
     "Deviations from Plan",
     "Deferred Work",
     "Future Planning Notes",
+    "Execution Report",
 ]);
 
 export const WORK_RECORD_FRONT_MATTER_KEYS = Object.freeze({
