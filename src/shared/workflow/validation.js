@@ -540,6 +540,24 @@ async function promptForMergeFailureAction(hostedSession, reason) {
 }
 
 /**
+ * @param {import('../session/hosted-session.js').HostedSession} hostedSession
+ * @param {number} maxValidationCycles
+ * @returns {Promise<"retry" | "stop">}
+ */
+async function promptForSemanticValidationLimitAction(hostedSession, maxValidationCycles) {
+    const response = await requestHostedSessionInteraction(hostedSession, {
+        type: RuntimeInteractionTypes.SELECT,
+        prompt:
+            `Semantic validation did not approve after ${maxValidationCycles} cycles.\n\nRetry validation for another ${maxValidationCycles} cycles, or Stop to end the workflow.`,
+        options: [
+            { value: "retry", label: "Retry validation" },
+            { value: "stop", label: "Stop" },
+        ],
+    });
+    return response.outcome === "selected" && response.value === "retry" ? "retry" : "stop";
+}
+
+/**
  * @param {unknown} error
  * @returns {string | undefined}
  */
@@ -1142,8 +1160,9 @@ export async function runValidationLoop({
         details: { classification: triageMeta?.classification, hasWorktree: Boolean(worktreeBranch) },
     });
 
-    while (!executionComplete && !haltReason && validationCycles < MAX_VALIDATION_CYCLES) {
+    while (!executionComplete && !haltReason) {
         validationCycles++;
+        const validationCycleInBatch = ((validationCycles - 1) % MAX_VALIDATION_CYCLES) + 1;
         await recordWorkflowMetricImpl({
             category: "validation",
             event: "validation_cycle_started",
@@ -1152,7 +1171,7 @@ export async function runValidationLoop({
         });
         emitRunWieldSystemStatus(
             hostedSession,
-            `Starting Validation Cycle ${validationCycles}/${MAX_VALIDATION_CYCLES}`,
+            `Starting Validation Cycle ${validationCycleInBatch}/${MAX_VALIDATION_CYCLES}`,
         );
 
         let buildPasses = false;
@@ -1781,10 +1800,18 @@ export async function runValidationLoop({
                 return;
             }
         }
-    }
 
-    if (!executionComplete && !haltReason && validationCycles >= MAX_VALIDATION_CYCLES) {
-        haltReason = `Semantic validation did not approve after ${MAX_VALIDATION_CYCLES} cycles.`;
+        if (!executionComplete && !haltReason && validationCycleInBatch >= MAX_VALIDATION_CYCLES) {
+            const action = await promptForSemanticValidationLimitAction(hostedSession, MAX_VALIDATION_CYCLES);
+            if (action === "retry") {
+                emitRunWieldSystemStatus(
+                    hostedSession,
+                    `Retrying Semantic Validation for another ${MAX_VALIDATION_CYCLES} cycles...`,
+                );
+                continue;
+            }
+            haltReason = `Semantic validation did not approve after ${MAX_VALIDATION_CYCLES} cycles.`;
+        }
     }
 
     if (executionComplete) {

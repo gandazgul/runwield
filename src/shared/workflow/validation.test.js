@@ -1045,6 +1045,121 @@ Deno.test("runValidationLoop pauses with Engineer on interrupted semantic repair
     );
 });
 
+Deno.test("runValidationLoop asks before stopping after three unapproved semantic cycles", async () => {
+    const uiAPI = makeUi();
+    const session = makeRecordedSession("semantic-cycle-stop-prompt-test", uiAPI);
+    /** @type {string[]} */
+    const events = [];
+    let reviewCalls = 0;
+
+    await runValidationLoop({
+        hostedSession: session,
+        planName: "p",
+        planContent: "plan",
+        triageMeta: { classification: "FEATURE" },
+        sessionManager: undefined,
+        __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
+            runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
+            getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
+            runIsolatedAgentSession: () => {
+                reviewCalls++;
+                return Promise.resolve(
+                    /** @type {any} */ ([{
+                        role: "assistant",
+                        content: [{ type: "text", text: "missing requirement" }],
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_complete",
+                        details: { outcome: "feedback", approved: false, feedback: "missing requirement" },
+                    }]),
+                );
+            },
+            runCompletionGatedRepair: () => Promise.resolve(true),
+            recordPlanEvent: (/** @type {any} */ event) => {
+                events.push(`${event.event}:${event.details.failureReason || ""}`);
+                return Promise.resolve({});
+            },
+            recordWorkflowMetric: () => Promise.resolve(null),
+        }),
+    });
+
+    assertEquals(reviewCalls, 3);
+    assertEquals(uiAPI.promptSelections, ["prompted"]);
+    assertEquals(
+        uiAPI.messages.some((/** @type {string} */ message) =>
+            message.includes("Workflow halted: Semantic validation did not approve after 3 cycles.")
+        ),
+        true,
+    );
+    assertEquals(events, ["validation_failed:Semantic validation did not approve after 3 cycles."]);
+});
+
+Deno.test("runValidationLoop retries another three semantic cycles when requested", async () => {
+    const uiAPI = makeUi();
+    const session = makeRecordedSession("semantic-cycle-retry-prompt-test", uiAPI);
+    /** @type {string[]} */
+    const selections = [];
+    let reviewCalls = 0;
+    uiAPI.promptSelect = () => {
+        const value = selections.length === 0 ? "retry" : "stop";
+        selections.push(value);
+        return Promise.resolve(value);
+    };
+
+    await runValidationLoop({
+        hostedSession: session,
+        planName: "p",
+        planContent: "plan",
+        triageMeta: { classification: "FEATURE" },
+        sessionManager: undefined,
+        __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
+            runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
+            getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
+            runIsolatedAgentSession: () => {
+                reviewCalls++;
+                const approved = reviewCalls === 4;
+                return Promise.resolve(
+                    /** @type {any} */ ([{
+                        role: "assistant",
+                        content: [{ type: "text", text: approved ? "approved" : "missing requirement" }],
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_complete",
+                        details: {
+                            outcome: approved ? "approved" : "feedback",
+                            approved,
+                            feedback: approved ? "" : "missing requirement",
+                        },
+                    }]),
+                );
+            },
+            runCompletionGatedRepair: () => Promise.resolve(true),
+            getCodeReviewMode: () => "none",
+            mergeExecutionWorktree: () => Promise.resolve(),
+            updateWorktreeRegistryEntry: () => Promise.resolve({}),
+            recordPlanEvent: () => Promise.resolve({}),
+            recordWorkflowMetric: () => Promise.resolve(null),
+        }),
+    });
+
+    assertEquals(reviewCalls, 4);
+    assertEquals(selections, ["retry"]);
+    assertEquals(
+        uiAPI.messages.some((/** @type {string} */ message) =>
+            message.includes("Retrying Semantic Validation for another 3 cycles")
+        ),
+        true,
+    );
+    assertEquals(
+        uiAPI.messages.some((/** @type {string} */ message) =>
+            message.includes("Feature execution and validation complete")
+        ),
+        true,
+    );
+});
+
 Deno.test("runValidationLoop reviews the diff scoped to the active workflow baseline", async () => {
     /** @type {string[]} */
     const reviewPrompts = [];
