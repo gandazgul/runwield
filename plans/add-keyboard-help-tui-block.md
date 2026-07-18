@@ -8,17 +8,14 @@ affectedPaths:
     - "src/ui/tui/blocks.js"
 frontend: false
 createdAt: "2026-07-17T22:39:12-04:00"
-updatedAt: "2026-07-18T03:01:53.954Z"
-status: "in_progress"
+updatedAt: "2026-07-18T13:53:01.151Z"
+status: "verified"
 origin: "internal"
-humanReviewMode: null
-humanReviewDecision: null
-executionBaselineTree: "c8397e64e4faea3c103e004820c7fcaa4daed7bb"
-worktreeId: "d21163c6"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-add-keyboard-help-tui-block-d21163c6"
-worktreeBranch: "runwield/worktree/add-keyboard-help-tui-block-d21163c6"
-worktreeBaseBranch: "main"
-worktreeStatus: "active"
+implementedAt: "2026-07-18T03:21:07.444Z"
+verifiedAt: "2026-07-18T13:53:01.151Z"
+humanReviewMode: "ask"
+humanReviewDecision: "approved"
+humanReviewedAt: "2026-07-18T13:53:01.100Z"
 routingIntent: "FEATURE"
 sessionName: "keyboard help TUI block"
 ---

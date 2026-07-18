@@ -29,7 +29,8 @@ function makeContext(overrides = {}) {
     let text = "";
     let newlineCount = 0;
     let toolToggles = 0;
-    let startupToggles = 0;
+    let keyboardHelpRequests = 0;
+    let keyboardHelpHides = 0;
     let thinkingCycles = 0;
     let promptDismissals = 0;
     let runtimeCancels = 0;
@@ -92,8 +93,11 @@ function makeContext(overrides = {}) {
             pendingExit = true;
         },
         isCtrlCPendingExit: () => pendingExit,
-        toggleStartupHelp: () => {
-            startupToggles++;
+        requestKeyboardHelp: () => {
+            keyboardHelpRequests++;
+        },
+        hideKeyboardHelp: () => {
+            keyboardHelpHides++;
         },
         cycleThinkingLevel: () => {
             thinkingCycles++;
@@ -113,8 +117,11 @@ function makeContext(overrides = {}) {
             get toolToggles() {
                 return toolToggles;
             },
-            get startupToggles() {
-                return startupToggles;
+            get keyboardHelpRequests() {
+                return keyboardHelpRequests;
+            },
+            get keyboardHelpHides() {
+                return keyboardHelpHides;
             },
             get thinkingCycles() {
                 return thinkingCycles;
@@ -183,15 +190,44 @@ Deno.test({
     },
 });
 
-Deno.test("installKeybindings toggles tool output and startup help on Ctrl+O", async () => {
+Deno.test("installKeybindings toggles only tool output on Ctrl+O", async () => {
     const ctx = makeContext();
     installKeybindings(ctx);
 
     await ctx.editor.handleInput(RAW_KEY.ctrlO);
 
-    assertEquals(ctx.stats.startupToggles, 1);
+    assertEquals(ctx.stats.keyboardHelpRequests, 0);
     assertEquals(ctx.stats.toolToggles, 1);
     assertEquals(ctx.stats.renderCount, 1);
+});
+
+Deno.test("installKeybindings requests keyboard help only for exact empty-editor question mark", async () => {
+    const ctx = makeContext();
+    installKeybindings(ctx);
+
+    await ctx.editor.handleInput("?");
+    ctx.editor.setText("why");
+    await ctx.editor.handleInput("?");
+    ctx.editor.setText("");
+    ctx.pastedImages.push({ base64: "a", mimeType: "image/png" });
+    await ctx.editor.handleInput("?");
+    ctx.pastedImages.length = 0;
+    await ctx.editor.handleInput("??");
+
+    assertEquals(ctx.stats.keyboardHelpRequests, 1);
+    assertEquals(ctx.stats.originalInputs, ["?", "?", "??"]);
+});
+
+Deno.test("installKeybindings hides keyboard help on Esc and forwarded input", async () => {
+    const ctx = makeContext();
+    installKeybindings(ctx);
+
+    await ctx.editor.handleInput(RAW_KEY.escape);
+    await ctx.editor.handleInput("x");
+
+    assertEquals(ctx.stats.keyboardHelpHides, 2);
+    assertEquals(ctx.stats.originalInputs, ["x"]);
+    assertEquals(ctx.stats.invalidations, 1);
 });
 
 Deno.test("installKeybindings handles newline, image removal, thinking cycle, queue recall, and fallback input", async () => {
