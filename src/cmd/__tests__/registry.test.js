@@ -41,3 +41,13 @@ Deno.test("getSlashCommandDefinition resolves slash aliases", () => {
     const command = getSlashCommandDefinition("models");
     assertEquals(command?.name, "model");
 });
+
+Deno.test("context command is a slash-only built-in", () => {
+    const command = getCommandDefinition("context");
+    assertEquals(command?.name, "context");
+    assertEquals(command ? hasCommandSurface(command, "cli") : true, false);
+    assertEquals(command ? hasCommandSurface(command, "slash") : false, true);
+    assertEquals(getCliCommandDefinitions().some((definition) => definition.name === "context"), false);
+    assertEquals(getSlashCommandDefinition("context")?.name, "context");
+    assertEquals(getSlashCommandDefinitions().some((definition) => definition.name === "context"), true);
+});
