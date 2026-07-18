@@ -10,6 +10,7 @@ import {
     abortActiveSession as abortActiveSessionFn,
     expandPromptTemplate,
     expandSkillCommand,
+    getRootSessionContextProjection,
     listLoadedAgentMdFiles,
     listPromptTemplates,
     listSkills,
@@ -43,6 +44,7 @@ import {
     resolveVisionFallbackModel,
 } from "./image-attachments.js";
 import { getModelRegistry } from "../models/model-registry.js";
+import { buildSessionContextReport } from "./session-context-report.js";
 import { getSettingsManager } from "../settings.js";
 import { isAbsolute } from "@std/path";
 
@@ -1366,6 +1368,25 @@ export class SessionRuntime {
         info.compactionSettings = rootAgentSession?.settingsManager?.getCompactionSettings?.() || null;
         info.contextUsage = rootAgentSession?.getContextUsage?.() || null;
         return info;
+    }
+
+    /** @param {string} sessionId */
+    getSessionContextReport(sessionId) {
+        const session = this.#sessionHost.getSession(sessionId);
+        if (!session) return null;
+        const projection = getRootSessionContextProjection(session);
+        if (!projection) return null;
+        const rootAgentSession = /** @type {any} */ (session.getRootAgentSession());
+        const snapshot = this.getSessionSnapshot(sessionId);
+        return buildSessionContextReport({
+            agentName: projection.agentName,
+            agentDisplayName: projection.agentDisplayName,
+            model: snapshot?.activeModel || undefined,
+            projection: projection.projection,
+            contextUsage: rootAgentSession?.getContextUsage?.() || null,
+            activeMessageTokens: projection.activeMessageTokens,
+            contextWindow: rootAgentSession?.model?.contextWindow,
+        });
     }
 
     /** @param {string} sessionId */
