@@ -43,7 +43,8 @@ Use:
 - `/new` to start a fresh routed session.
 - `/agent router` to send the next message in the same session back through Router.
 - `/resume` to browse recent sessions.
-- `/session` to inspect the active session.
+- `/session` to inspect the active session's history and cumulative token totals.
+- `/context` to inspect the active Agent Session's current context-window usage and resident context estimates.
 
 ### Image attachments with text-only models
 
@@ -125,26 +126,27 @@ flows.
 
 Type `/` in the editor for completion.
 
-| Command          | Description                                                                   |
-| ---------------- | ----------------------------------------------------------------------------- |
-| `/login`         | Configure subscription or API-key credentials.                                |
-| `/logout`        | Remove stored credentials.                                                    |
-| `/status`        | Show configured providers and available models.                               |
-| `/model`         | Switch active model.                                                          |
-| `/agent`         | Switch active agent.                                                          |
-| `/init`          | Initialize the current project.                                               |
-| `/load-plan`     | Continue a saved plan.                                                        |
-| `/resume`        | Browse and resume a recent session.                                           |
-| `/new`           | Start a new root session.                                                     |
-| `/name`          | Set or show the current session name.                                         |
-| `/session`       | Show current session information.                                             |
-| `/sleep`         | Run the bundled sleep prompt for memory/context cleanup.                      |
-| `/compact`       | Compact session context.                                                      |
-| `/theme`         | Pick a theme.                                                                 |
-| `/reload`        | Reload settings, instructions, prompts, skills, models, themes, and memories. |
-| `/export`        | Export the current session to HTML or JSONL.                                  |
-| `/share`         | Export and upload the session as a secret GitHub Gist.                        |
-| `/quit`, `/exit` | Exit.                                                                         |
+| Command          | Description                                                                     |
+| ---------------- | ------------------------------------------------------------------------------- |
+| `/login`         | Configure subscription or API-key credentials.                                  |
+| `/logout`        | Remove stored credentials.                                                      |
+| `/status`        | Show configured providers and available models.                                 |
+| `/model`         | Switch active model.                                                            |
+| `/agent`         | Switch active agent.                                                            |
+| `/init`          | Initialize the current project.                                                 |
+| `/load-plan`     | Continue a saved plan.                                                          |
+| `/resume`        | Browse and resume a recent session.                                             |
+| `/new`           | Start a new root session.                                                       |
+| `/name`          | Set or show the current session name.                                           |
+| `/session`       | Show current session information and cumulative token totals.                   |
+| `/context`       | Show current Agent Session context-window usage and resident context estimates. |
+| `/sleep`         | Run the bundled sleep prompt for memory/context cleanup.                        |
+| `/compact`       | Compact session context.                                                        |
+| `/theme`         | Pick a theme.                                                                   |
+| `/reload`        | Reload settings, instructions, prompts, skills, models, themes, and memories.   |
+| `/export`        | Export the current session to HTML or JSONL.                                    |
+| `/share`         | Export and upload the session as a secret GitHub Gist.                          |
+| `/quit`, `/exit` | Exit.                                                                           |
 
 Prompt templates and skills can also appear as slash commands. See [Customization](customization.md).
 
