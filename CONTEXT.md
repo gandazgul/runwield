@@ -124,14 +124,12 @@ update
 **Approved Plan**: A Plan whose Review Loop ended in user approval but whose pre-execution preparation may still be
 unfinished. _Avoid_: Ready plan, executable plan
 
-**Ready For Work**: The only executable Plan Status for FEATURE Plans and legacy non-Epic PROJECT Plans, meaning the
-Plan is approved and every pre-execution prerequisite is satisfied. For an Epic, Ready For Work means decomposition is
-finalized and child FEATURE Plans can be selected; the Epic itself is still not executed directly. _Avoid_: Approved,
-runnable
+**Ready For Work**: The executable Plan Status for FEATURE Plans, meaning the Plan is approved and every pre-execution
+prerequisite is satisfied; for an Epic it means decomposition is finalized and child FEATURE Plans can be selected,
+while the Epic itself remains non-executable. _Avoid_: Approved, runnable
 
-**Readiness Gate**: The classification-aware lifecycle step after approval. It promotes FEATURE Plans to Ready For Work,
-promotes Epic PROJECT Plans to Ready For Decomposition, and keeps legacy non-Epic PROJECT task-table preparation
-separate. _Avoid_: Slicer phase, execution check
+**Readiness Gate**: The classification-aware lifecycle step after approval that promotes FEATURE Plans to Ready For Work
+and PROJECT Epics to Ready For Decomposition. _Avoid_: Slicer phase, execution check
 
 **Failed Plan**: A Plan that reached Ready For Work but could not complete execution successfully. _Avoid_: Rejected
 plan, invalid plan
@@ -287,29 +285,20 @@ what to do next after interpreting tool outcomes, Agent Session results, or Plan
 directly and carries semantic reason codes rather than user-facing text. _Avoid_: Workflow Outcome, status update,
 lifecycle event
 
-**Epic**: The accepted domain subtype for a PROJECT Plan with `type: epic`. An Epic is a container for design context
-and child FEATURE Plans; it is not an executable implementation Plan. _Avoid_: Initiative, umbrella task
+**Delegated Agent Session**: A disposable context-isolated Agent Session that receives a bounded brief from a parent
+Agent Session and returns only its result. _Avoid_: Context-free session, Task worker, workflow handoff
+
+**Epic**: A PROJECT Plan that contains design and decomposition context for child FEATURE Plans rather than executable
+implementation work. _Avoid_: Initiative, umbrella task, PROJECT subtype
 
 **Child FEATURE Plan**: A FEATURE Plan with a `parentPlan` pointer to an Epic. It follows the normal FEATURE lifecycle
 and is the executable unit produced by decomposition. _Avoid_: Subtask, ticket, DAG node
-
-**Task**: A legacy numbered unit of work inside an older non-Epic PROJECT task table, with an assignee and dependency
-list. Current PROJECT Epics decompose into child FEATURE Plans instead. _Avoid_: Step, child FEATURE, work item
-
-**Assignee**: The Agent role designated to execute a legacy Task. _Avoid_: Owner, handler, responsible
-
-**Task Dispatch**: Legacy execution of non-Epic PROJECT Tasks in dependency order by routing each Task to its Assignee.
-Current PROJECT Epics do not use Task Dispatch. _Avoid_: Decomposition, child FEATURE execution
 
 **Task Completion**: The `task_completed` signal an execution Agent emits when its assigned work is complete. _Avoid_:
 Done message, final response
 
 **Scope Escalation**: An execution-time discovery that active work is larger than the current Routing Intent and must
 return to Router with context before continuing. _Avoid_: Surprise return, silent reroute
-
-**Integration Point**: The final tester-owned Task in a legacy non-Epic PROJECT Task graph that depends on every prior
-Task and checks cross-slice integration before Workflow Validation. _Avoid_: Final verification task, cross-slice
-verification task, acceptance gate
 
 **Workflow Validation**: RunWield's independent validation pass after a completed executable Plan loop. _Avoid_: Agent
 self-check, final summary
@@ -439,10 +428,8 @@ command definition, prompt command
   loading.
 - An on-hold **Child FEATURE Plan** whose parent **Epic** is still active remains displayed under that Epic with
   `on_hold` status instead of moving to a separate held-child list.
-- A legacy **Task** has exactly one **Assignee** and may depend on zero or more other legacy **Tasks**.
-- Legacy **Task Dispatch** sends each ready **Task** to an **Agent Session** for its **Assignee**.
-- A legacy non-Epic `PROJECT` Task graph ends with exactly one **Integration Point** before Workflow Validation can
-  begin.
+- A parent **Agent Session** can invoke zero or more **Delegated Agent Sessions**, none of which inherit the parent's
+  conversation history.
 - A **See-Image Tool** uses **Vision Fallback** only when the active Agent model is text-only; pasted image references
   are scoped to the current **Agent Session** and may be rehydrated when that session is resumed.
 - An execution **Agent Session** must emit **Task Completion** before the workflow can proceed to **Workflow
@@ -494,8 +481,8 @@ command definition, prompt command
 > **Dev:** "What changes for a **PROJECT**?"
 >
 > **Domain expert:** "The **Architect** writes the **Epic** design Plan, the **Slicer** decomposes it into child
-> **FEATURE** Plans, and the user loads those child Plans independently. The old task-DAG path is legacy compatibility,
-> not the default PROJECT workflow."
+> **FEATURE** Plans, and the user loads those child Plans independently. Every PROJECT Plan is an Epic; PROJECT task
+> tables and DAG execution are not part of the model."
 
 ## Flagged ambiguities
 
@@ -512,3 +499,8 @@ command definition, prompt command
   Decision** for ephemeral routing instructions after interpreting runtime results.
 - `QUICK_FIX` previously mixed operational work and small code changes; resolved: use **OPERATION** for direct non-code
   operations and **QUICK_FIX** for bounded no-plan code implementation.
+- "context-free sub-agent" suggested a child with no context; resolved: a **Delegated Agent Session** is
+  context-isolated from its parent but still receives dedicated system instructions, a bounded brief, and repository
+  context.
+- `PROJECT` previously also referred to legacy task-table and DAG execution; resolved: every **PROJECT** Plan is an
+  **Epic** decomposed into **Child FEATURE Plans**.
