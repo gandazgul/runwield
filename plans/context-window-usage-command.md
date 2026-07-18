@@ -1,4 +1,5 @@
 ---
+planId: "e438dbf6-4278-4d74-b7f5-a8c071cc4e00"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Add a TUI-only /context command that reports active Agent Session context-window usage, estimated resident categories, loaded instruction files, and advertised Skills."
@@ -16,10 +17,15 @@ affectedPaths:
     - "docs/usage.md"
 frontend: false
 createdAt: "2026-07-17T22:54:51-04:00"
-updatedAt: "2026-07-18T14:13:58.734Z"
+updatedAt: "2026-07-18T14:34:08.034Z"
 status: "verified"
 origin: "internal"
 verifiedAt: "2026-07-18T14:13:58.734Z"
+workRecord:
+    status: "generated"
+    recordId: "f0d19353-2a32-4cab-bafa-38e65847d001"
+    path: "docs/work-records/2026-07-18-add-tui-context-window-usage-command.md"
+    lastAttemptAt: "2026-07-18T14:34:02.405Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
 routingIntent: "FEATURE"

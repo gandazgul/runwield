@@ -1,4 +1,5 @@
 ---
+planId: "f5a19074-1b92-4bfe-b99f-0e4ec8c6d7c2"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Implement a feature where typing '?' in an empty input field opens a keyboard help TUI block above the input. This involves updating the TUI keybindings to intercept '?', adding a mechanism in the TUI to render a help block, and ensuring the core can provide the help text."
@@ -8,11 +9,16 @@ affectedPaths:
     - "src/ui/tui/blocks.js"
 frontend: false
 createdAt: "2026-07-17T22:39:12-04:00"
-updatedAt: "2026-07-18T13:53:01.151Z"
+updatedAt: "2026-07-18T14:34:02.404Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-07-18T03:21:07.444Z"
 verifiedAt: "2026-07-18T13:53:01.151Z"
+workRecord:
+    status: "generated"
+    recordId: "91e6de99-184d-498d-bcd8-dc25b0d998b2"
+    path: "docs/work-records/2026-07-18-added-keyboard-help-tui-block.md"
+    lastAttemptAt: "2026-07-18T14:33:56.147Z"
 humanReviewMode: "ask"
 humanReviewDecision: "approved"
 humanReviewedAt: "2026-07-18T13:53:01.100Z"
