@@ -244,6 +244,9 @@ recall, plan search, Engineer context tool
 **Engineer**: The execution Agent that implements approved executable Plans and bounded no-plan QUICK_FIX code changes.
 _Avoid_: Coder, implementer, developer
 
+**Frontend Engineer**: The execution Agent for materially visual or interactive frontend implementation, with its own
+browser-first and design-system-aware work policy. _Avoid_: Frontend mode, UI Engineer, Engineer with frontend Skill
+
 **Tester**: The fresh-context verification Agent for behavioral QA, UI QA, PRD conformance testing, and adversarial
 bug-finding. _Avoid_: Unit test writer, test framework specialist
 
@@ -305,6 +308,9 @@ self-check, final summary
 
 **Mechanical Validation**: RunWield's automated local validation command loop without semantic review or Plan status
 transitions. _Avoid_: Workflow Validation, Reviewer review, agent self-check
+
+**Pair Execution**: A user-steered frontend execution style where the Frontend Engineer delivers coherent visible
+increments and blocks at intentional feedback checkpoints. _Avoid_: Live pair-design, frontend mode, Manual QA
 
 **Toolset**: A named bundle of tool names granted to an Agent Session. _Avoid_: Tool list, capabilities
 
@@ -444,6 +450,10 @@ command definition, prompt command
 - `QUICK_FIX` work is owned by the **Engineer** and runs **Mechanical Validation** after **Task Completion**; CI
   failures are sent back to the **Engineer** for up to three total repair attempts, but no **Reviewer** runs because
   there is no **Plan**.
+- The **Frontend Engineer** owns Plans whose primary outcome is materially visual or interactive and may execute them
+  through **Pair Execution** or autonomously.
+- **Pair Execution** is recommended during planning but chosen by the user; it does not replace browser verification or
+  **Workflow Validation**.
 - A **Scope Escalation** should call the **Return-to-Router Tool** with a concise summary and relevant paths for fresh
   **Triage**, relying on the shared session history for detailed prior output rather than repeating full CI logs.
 - Every **Agent Session** loads exactly one **Agent Definition** after bundled, home, and local layers are merged.
@@ -504,3 +514,5 @@ command definition, prompt command
   context.
 - `PROJECT` previously also referred to legacy task-table and DAG execution; resolved: every **PROJECT** Plan is an
   **Epic** decomposed into **Child FEATURE Plans**.
+- `frontend: true` previously conflated touching frontend code, requiring browser verification, and preferring live
+  collaboration; resolved product language separates **Frontend Engineer** ownership from optional **Pair Execution**.
