@@ -131,6 +131,42 @@ Deno.test("userInterviewTool completes a mixed 3-question batch", async () => {
     assertEquals(result.details.answers[2]?.value, "frontend");
 });
 
+Deno.test("userInterviewTool does not duplicate recommended marker when default choice label already includes it", async () => {
+    const hostedSession = new HostedSession({ id: "recommended-label", cwd: Deno.cwd() });
+    /** @type {Array<{ value: string, label: string }>} */
+    let displayedOptions = [];
+    hostedSession.setInteractionAdapter({
+        requestInteraction: (request) => {
+            displayedOptions = [...(request.options || [])];
+            return { outcome: "selected", value: "parallel", valueLabel: displayedOptions[0]?.label };
+        },
+    });
+    const tool = createUserInterviewTool({ hostedSession });
+
+    const result = await executeTool(tool, {
+        question: {
+            id: "reader_delegation",
+            type: "multiple_choice",
+            prompt: "Should v1 keep reader delegation as foreground parallel batches?",
+            default: "parallel",
+            choices: [
+                { value: "parallel", label: "Yes—parallel children, parent waits for the batch (recommended)" },
+                { value: "background", label: "No—add background spawn/wait/cancel semantics" },
+            ],
+        },
+    });
+
+    assertEquals(
+        displayedOptions[0]?.label,
+        "Yes—parallel children, parent waits for the batch (recommended)",
+    );
+    assertEquals(result.details.status, "completed");
+    assertEquals(
+        result.details.answers[0]?.valueLabel,
+        "Yes—parallel children, parent waits for the batch (recommended)",
+    );
+});
+
 Deno.test("userInterviewTool returns invalid_request when both question and questions are provided", async () => {
     const tool = createUserInterviewTool(undefined);
 

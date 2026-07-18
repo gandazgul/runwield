@@ -12,6 +12,7 @@ import {
 } from "../shared/session/session-runtime-interactions.js";
 
 const OTHER_VALUE = "other";
+const RECOMMENDED_SUFFIX_PATTERN = /\s*\(recommended\)\s*$/i;
 
 const questionIdSchema = Type.String({
     minLength: 1,
@@ -409,6 +410,13 @@ async function askBrokered(hostedSession, request) {
 }
 
 /**
+ * @param {string} label
+ */
+function withRecommendedSuffix(label) {
+    return RECOMMENDED_SUFFIX_PATTERN.test(label) ? label.trim() : `${label} (recommended)`;
+}
+
+/**
  * @param {import('../shared/session/session-runtime-interactions.js').RuntimeInteractionResponse} response
  * @param {InterviewQuestion} question
  */
@@ -519,7 +527,7 @@ async function askQuestion(question, hostedSession) {
             question.choices.map((/** @type {{ value: string, label?: string }} */ choice) => ({
                 value: choice.value,
                 label: choice.value === question.default
-                    ? `${choice.label || choice.value} (recommended)`
+                    ? withRecommendedSuffix(choice.label || choice.value)
                     : (choice.label || choice.value),
             }))
         );
