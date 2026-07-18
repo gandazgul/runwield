@@ -108,7 +108,7 @@ export function extractTasks(planContent) {
     return tasks;
 }
 
-const PROJECT_TASK_ASSIGNEES = new Set([AGENTS.ENGINEER]);
+const PROJECT_TASK_ASSIGNEES = new Set([AGENTS.ENGINEER, "tester"]);
 const BROAD_WRITE_SCOPES = new Set(["*", "**", "all", "repo", "repository", "unknown", "tbd", "any"]);
 const NO_WRITE_SCOPES = new Set(["none", "no", "readonly", "read-only", "n/a", "na"]);
 
@@ -268,6 +268,14 @@ export function validateProjectTasks(tasks) {
     }
     for (const task of tasks) visit(task.task);
 
+    const finalTask = tasks[tasks.length - 1];
+    if (finalTask.assignee !== "tester") {
+        throw new Error("The final PROJECT task must be assigned to tester as the Integration Point.");
+    }
+    if (!/integration\s+point/i.test(finalTask.description || "")) {
+        throw new Error("The final PROJECT tester task must identify the task as the Integration Point.");
+    }
+    const finalDependencies = new Set(parseTaskDependencies(finalTask.dependencies));
     const priorTaskIds = tasks.slice(0, -1).map((task) => task.task);
     for (const taskId of priorTaskIds) {
         if (!finalDependencies.has(taskId)) {
