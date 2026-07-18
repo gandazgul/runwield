@@ -301,6 +301,78 @@ Deno.test("Work Record generation writes a record and active Plan backlink", asy
     }
 });
 
+Deno.test("Work Record generation includes the task completion report", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        const executionReport = "- Implemented the settings save action.\n- Verification passed: deno task ci.";
+        await savePlan(cwd, "reported", "# Reported\n\n## Plan\n\nBody", {
+            planId: "plan-reported",
+            classification: "FEATURE",
+            complexity: "LOW",
+            summary: "Built reported feature.",
+            affectedPaths: [],
+            createdAt: "2026-07-14T00:00:00.000Z",
+            status: "verified",
+            executionReport,
+        });
+        const preview = await previewWorkRecordBackfill(cwd);
+        const outcome = await generateWorkRecordForSource(cwd, preview.eligible[0], {
+            idGenerator: () => "77777777-7777-4777-8777-777777777777",
+            now: () => new Date("2026-07-16T00:00:00.000Z"),
+            generateSections: (source) => ({
+                title: "Reported Outcome",
+                summary: `Completed with evidence: ${source.executionReport}`,
+            }),
+        });
+
+        assertEquals(outcome.status, "generated");
+        const record = await findWorkRecordById(cwd, "77777777-7777-4777-8777-777777777777");
+        assertStringIncludes(record?.summary || "", "Completed with evidence");
+        assertStringIncludes(record?.sections["Execution Report"] || "", "Implemented the settings save action.");
+        assertStringIncludes(record?.sections["Execution Report"] || "", "Verification passed: deno task ci.");
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+Deno.test("Work Record recorder prompt includes the task completion report as source material", async () => {
+    /** @type {import('./generation.js').WorkRecordSource} */
+    const source = {
+        sourceKind: "active",
+        name: "reported",
+        relativePath: "plans/reported.md",
+        path: "/tmp/reported.md",
+        planId: "plan-reported",
+        scope: "feature",
+        completionMode: "verified",
+        executionReport: "- Implemented.\n- Verified.",
+        attrs: {
+            planId: "plan-reported",
+            classification: "FEATURE",
+            complexity: "LOW",
+            summary: "Reported feature.",
+            affectedPaths: [],
+            createdAt: "2026-07-14T00:00:00.000Z",
+            status: "verified",
+            executionReport: "- Implemented.\n- Verified.",
+        },
+        body: "# Reported\n\n## Plan\n\nBody",
+        markdown: "# Reported\n\n## Plan\n\nBody",
+    };
+    let prompt = "";
+
+    const sections = await generateRecorderSections(Deno.cwd(), source, {
+        runRecorderPrompt: (value) => {
+            prompt = value;
+            return Promise.resolve(JSON.stringify({ title: "Reported", summary: "Distilled the execution report." }));
+        },
+    });
+
+    assertEquals(sections.summary, "Distilled the execution report.");
+    assertStringIncludes(prompt, '"executionReport": "- Implemented.\\n- Verified."');
+    assertStringIncludes(prompt, "Distill executionReport facts");
+});
+
 Deno.test("Work Record generation discloses skipped verification reason fallback", async () => {
     const cwd = await Deno.makeTempDir();
     try {

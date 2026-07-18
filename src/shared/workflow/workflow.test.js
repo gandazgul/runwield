@@ -706,6 +706,8 @@ Deno.test("executePlan still executes ready FEATURE plans", async () => {
     /** @type {string[]} */
     const events = [];
     /** @type {any[]} */
+    const planEventDetails = [];
+    /** @type {any[]} */
     const metrics = [];
     const result = await executePlan({
         planName: "feature-plan",
@@ -727,10 +729,15 @@ Deno.test("executePlan still executes ready FEATURE plans", async () => {
                 assertEquals(triageMeta.classification, "FEATURE");
                 assertEquals(reviewFeedback, "Keep the selected command.");
                 assertEquals(reviewImages, [{ base64: "YXBwcm92ZWQ=", mimeType: "image/png" }]);
-                return Promise.resolve({ repairRequired: false, executionComplete: true });
+                return Promise.resolve({
+                    repairRequired: false,
+                    executionComplete: true,
+                    completionReport: "- Implemented.\n- Verified.",
+                });
             },
-            recordPlanEvent: (/** @type {any} */ { event }) => {
+            recordPlanEvent: (/** @type {any} */ { event, details }) => {
                 events.push(event);
+                planEventDetails.push(details);
                 return Promise.resolve(/** @type {any} */ ({}));
             },
             markActiveWorktreeStatus: () => Promise.resolve(),
@@ -741,9 +748,14 @@ Deno.test("executePlan still executes ready FEATURE plans", async () => {
         },
     });
 
-    assertEquals(result, { repairRequired: false, executionComplete: true });
+    assertEquals(result, {
+        repairRequired: false,
+        executionComplete: true,
+        completionReport: "- Implemented.\n- Verified.",
+    });
     assertEquals(engineerCalled, true);
     assertEquals(events, ["implementation_finished"]);
+    assertEquals(planEventDetails[0].executionReport, "- Implemented.\n- Verified.");
     assertEquals(
         metrics.some((metric) =>
             metric.category === "execution" && metric.event === "plan_execution_started" &&

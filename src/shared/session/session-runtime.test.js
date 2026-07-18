@@ -696,6 +696,76 @@ Deno.test("SessionRuntime loadSession returns opaque metadata and redacted repla
     assertEquals(JSON.stringify(result.replayEvents).includes("runwield.active_agent"), false);
 });
 
+Deno.test("SessionRuntime replays persisted task_completed summaries and manual QA checklists", async () => {
+    const manager = makeSessionManager("persisted-workflow", Deno.cwd(), [
+        {
+            type: "message",
+            id: "tc-call",
+            timestamp: "2026-07-08T00:00:01.000Z",
+            message: {
+                role: "assistant",
+                content: [{ type: "toolCall", id: "task-tool", name: "task_completed", arguments: {} }],
+            },
+        },
+        {
+            type: "message",
+            id: "tc-result",
+            timestamp: "2026-07-08T00:00:02.000Z",
+            message: {
+                role: "toolResult",
+                toolCallId: "task-tool",
+                toolName: "task_completed",
+                isError: false,
+                content: [],
+                details: { outcome: "task_completed", message: "- Implemented the fix." },
+            },
+        },
+        {
+            type: "custom",
+            id: "qa-checklist",
+            timestamp: "2026-07-08T00:00:03.000Z",
+            customType: "runwield.manual_qa_checklist",
+            data: { agentName: "Operator", text: "Manual verification steps for fix\n- Check resume." },
+        },
+    ]);
+    const runtime = new SessionRuntime({
+        openPersistedRootSession: () =>
+            Promise.resolve({
+                sessionManager: manager,
+                resolved: {
+                    cwd: Deno.cwd(),
+                    sessionDir: "/sessions",
+                    sessionId: "persisted-workflow",
+                    sessionPath: "/sessions/persisted-workflow.jsonl",
+                    info: null,
+                },
+            }),
+        resolveResumeAgentName: () => Promise.resolve("engineer"),
+        switchActiveAgent: (session, options) => {
+            session.setRootAgentName(options.agentName);
+            session.setRootAgentSession({ dispose() {} });
+            session.setActiveOnMessage(() => Promise.resolve({ kind: "complete" }));
+            return Promise.resolve({ ok: true, agentName: options.agentName, changed: true });
+        },
+    });
+
+    const result = await runtime.loadSession({ cwd: Deno.cwd(), sessionId: "persisted-workflow" });
+    const workflowMessages = result.replayEvents.filter((event) =>
+        event.type === RuntimeEventTypes.ASSISTANT_TEXT_DELTA &&
+        /** @type {any} */ (event).messageKind === "workflow"
+    );
+
+    assertEquals(workflowMessages.map((event) => /** @type {any} */ (event).workflowMessage), [
+        "task_completed",
+        "manual_qa_checklist",
+    ]);
+    assertEquals(/** @type {any} */ (workflowMessages[0]).delta, "**Task completed.**\n\n- Implemented the fix.");
+    assertEquals(
+        /** @type {any} */ (workflowMessages[1]).delta,
+        "Manual verification steps for fix\n- Check resume.",
+    );
+});
+
 Deno.test("SessionRuntime close operations dispose sessions by id", async () => {
     const runtime = makeRuntime({ abortActiveSession: () => true });
     const first = await runtime.createInteractiveSession({ cwd: Deno.cwd() });
