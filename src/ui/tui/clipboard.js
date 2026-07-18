@@ -14,18 +14,17 @@ const defaultClipboardDeps = {
 let clipboardDeps = defaultClipboardDeps;
 
 /**
- * Check if the clipboard contains an image, and if so, return it as base64.
+ * Check whether the clipboard currently contains a PNG image.
  * Currently only implemented for macOS via AppleScript.
  *
- * @returns {Promise<{ base64: string, mimeType: string } | null>}
+ * @returns {Promise<boolean>}
  */
-export async function readClipboardImage() {
+export async function hasClipboardImage() {
     if (clipboardDeps.os !== "darwin") {
         // Silently skip on non-macOS platforms for now
-        return null;
+        return false;
     }
 
-    // 1. Check if clipboard has an image
     const checkCmd = new clipboardDeps.Command("osascript", {
         args: [
             "-e",
@@ -41,8 +40,18 @@ export async function readClipboardImage() {
     const checkRes = await checkCmd.output();
     const checkOutput = new TextDecoder().decode(checkRes.stdout).trim();
 
-    if (checkOutput !== "image") {
-        return null; // No image in clipboard
+    return checkOutput === "image";
+}
+
+/**
+ * Check if the clipboard contains an image, and if so, return it as base64.
+ * Currently only implemented for macOS via AppleScript.
+ *
+ * @returns {Promise<{ base64: string, mimeType: string } | null>}
+ */
+export async function readClipboardImage() {
+    if (!await hasClipboardImage()) {
+        return null;
     }
 
     // 2. Extract the image to a temporary file
