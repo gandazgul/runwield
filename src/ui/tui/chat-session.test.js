@@ -6,6 +6,7 @@ import {
     getActiveModel,
     getFooterWorkflowLabelText,
     persistThinkingLevel,
+    renderClipboardImageHintLines,
     renderFooterWorkflowLabelParts,
     runScopedSubmitHandoffLoop,
     setActiveModel,
@@ -61,6 +62,18 @@ Deno.test("footer workflow label maps intent wording and hides ineligible agents
         )),
         "Operator",
     );
+});
+
+Deno.test("clipboard image hint renders above input only until an image is pasted", () => {
+    const themeImpl = {
+        fg: (/** @type {string} */ token, /** @type {string} */ text) => `<${token}>${text}</${token}>`,
+    };
+    assertEquals(
+        renderClipboardImageHintLines(true, 0, 80, themeImpl),
+        ["<dim>Image in clipboard · ctrl+v to paste</dim>"],
+    );
+    assertEquals(renderClipboardImageHintLines(false, 0, 80, themeImpl), []);
+    assertEquals(renderClipboardImageHintLines(true, 1, 80, themeImpl), []);
 });
 
 Deno.test("footer label truncation preserves the left side", () => {

@@ -1,5 +1,5 @@
 import { assertEquals } from "@std/assert";
-import { __setClipboardDepsForTest, readClipboardImage } from "./clipboard.js";
+import { __setClipboardDepsForTest, hasClipboardImage, readClipboardImage } from "./clipboard.js";
 
 const enc = new TextEncoder();
 
@@ -48,6 +48,32 @@ function installClipboardDeps(outputs, removed = []) {
         restore: () => __setClipboardDepsForTest(),
     };
 }
+
+Deno.test("hasClipboardImage returns false outside macOS", async () => {
+    __setClipboardDepsForTest(/** @type {any} */ ({ os: "linux" }));
+    try {
+        assertEquals(await hasClipboardImage(), false);
+    } finally {
+        __setClipboardDepsForTest();
+    }
+});
+
+Deno.test("hasClipboardImage reports whether macOS clipboard contains a png", async () => {
+    const imageDeps = installClipboardDeps([{ success: true, stdout: "image\n" }]);
+    try {
+        assertEquals(await hasClipboardImage(), true);
+        assertEquals(imageDeps.calls.map((call) => call.command), ["osascript"]);
+    } finally {
+        imageDeps.restore();
+    }
+
+    const emptyDeps = installClipboardDeps([{ success: true, stdout: "none\n" }]);
+    try {
+        assertEquals(await hasClipboardImage(), false);
+    } finally {
+        emptyDeps.restore();
+    }
+});
 
 Deno.test("readClipboardImage returns null outside macOS", async () => {
     __setClipboardDepsForTest(/** @type {any} */ ({ os: "linux" }));

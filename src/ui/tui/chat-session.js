@@ -57,6 +57,7 @@ import { getSelectedDefaultModelAvailability, maybeShowModelWelcome } from "./mo
 import { handleBashCommand } from "./bash-interceptor.js";
 import { handleSlashCommand } from "./slash-dispatch.js";
 import { installKeybindings } from "./keybindings.js";
+import { hasClipboardImage } from "./clipboard.js";
 const CHAT_PROMPT_AGENT_NAME = AGENTS.OPERATOR;
 
 /** @type {(projectRoot?: string) => ReturnType<typeof getSettingsManager>} */
@@ -255,6 +256,21 @@ export function buildFooterLine1Parts(agentInfo, workflowContext, leftRaw, width
     };
 }
 
+const CLIPBOARD_IMAGE_HINT_TEXT = "Image in clipboard · ctrl+v to paste";
+
+/**
+ * @param {boolean} clipboardImageAvailable
+ * @param {number} pastedImageCount
+ * @param {number} width
+ * @param {{ fg?: (token: import('@earendil-works/pi-coding-agent').ThemeColor, text: string) => string }} [themeImpl]
+ * @returns {string[]}
+ */
+export function renderClipboardImageHintLines(clipboardImageAvailable, pastedImageCount, width, themeImpl = theme) {
+    if (!clipboardImageAvailable || pastedImageCount > 0 || width <= 0) return [];
+    const text = truncateToWidth(CLIPBOARD_IMAGE_HINT_TEXT, width);
+    return [themeImpl.fg ? themeImpl.fg("dim", text) : text];
+}
+
 /**
  * @param {import('../../shared/session/types.js').ImageAttachment} image
  * @returns {Image}
@@ -447,8 +463,16 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
 
     /** @type {import('../../shared/session/types.js').ImageAttachment[]} */
     const pastedImages = [];
+    let clipboardImageAvailable = false;
     const previewImages = new Container();
     container.addChild(previewImages);
+
+    const clipboardImageHint = {
+        invalidate: () => {},
+        /** @param {number} w */
+        render: (w) => renderClipboardImageHintLines(clipboardImageAvailable, pastedImages.length, w),
+    };
+    container.addChild(clipboardImageHint);
 
     const editor = new Editor(tui, getEditorTheme());
     container.addChild(editor);
@@ -544,6 +568,29 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
         return /** @type {import('@earendil-works/pi-coding-agent').ThemeColor} */ (thinkingLevelTheme.get(level) ||
             "thinkingOff");
     }
+
+    let clipboardCheckInFlight = false;
+    async function refreshClipboardImageHint() {
+        if (clipboardCheckInFlight) return;
+        clipboardCheckInFlight = true;
+        try {
+            const nextClipboardImageAvailable = await hasClipboardImage();
+            if (nextClipboardImageAvailable !== clipboardImageAvailable) {
+                clipboardImageAvailable = nextClipboardImageAvailable;
+                tui.requestRender();
+            }
+        } catch (_err) {
+            if (clipboardImageAvailable) {
+                clipboardImageAvailable = false;
+                tui.requestRender();
+            }
+        } finally {
+            clipboardCheckInFlight = false;
+        }
+    }
+
+    void refreshClipboardImageHint();
+    setInterval(() => void refreshClipboardImageHint(), 1500);
 
     const footer = {
         invalidate: () => {},
