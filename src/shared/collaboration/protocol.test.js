@@ -23,8 +23,46 @@ Deno.test("protocol helpers normalize shared space metadata", () => {
             createdAt: "now",
             updatedAt: "later",
             latestRevision: 1,
-        }).spaceId,
-        "space-1",
+            expiresAt: "2026-01-08T00:00:00.000Z",
+        }),
+        {
+            spaceId: "space-1",
+            planId: "plan-1",
+            createdAt: "now",
+            updatedAt: "later",
+            latestRevision: 1,
+            expiresAt: "2026-01-08T00:00:00.000Z",
+        },
+    );
+    assertEquals(
+        normalizeSharedSpaceMetadata({
+            spaceId: "space-2",
+            planId: "plan-2",
+            createdAt: "now",
+            updatedAt: "later",
+            latestRevision: 1,
+        }).expiresAt,
+        undefined,
+    );
+    assertThrows(() =>
+        normalizeSharedSpaceMetadata({
+            spaceId: "space-1",
+            planId: "plan-1",
+            createdAt: "now",
+            updatedAt: "later",
+            latestRevision: 1,
+            expiresAt: "",
+        })
+    );
+    assertThrows(() =>
+        normalizeSharedSpaceMetadata({
+            spaceId: "space-1",
+            planId: "plan-1",
+            createdAt: "now",
+            updatedAt: "later",
+            latestRevision: 1,
+            expiresAt: "not-a-date",
+        })
     );
 });
 

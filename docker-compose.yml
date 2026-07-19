@@ -9,8 +9,10 @@ services:
             RUNWIELD_REMOTE_HOST: 0.0.0.0
             RUNWIELD_REMOTE_PORT: "8080"
             RUNWIELD_REMOTE_DB_PATH: /data/runwield-shared-spaces.sqlite
+            RUNWIELD_REMOTE_MAX_REQUEST_BYTES: "5242880"
+            # Set RUNWIELD_REMOTE_RETENTION_DAYS=7 for an accountless public instance behind a rate-limiting proxy.
         ports:
-            - "8080:8080"
+            - "127.0.0.1:8080:8080"
         volumes:
             - runwield-plan-server-data:/data
         healthcheck:
@@ -19,7 +21,7 @@ services:
                 - deno
                 - run
                 - --allow-net=127.0.0.1:8080
-                - "data:application/typescript,const%20r%20%3D%20await%20fetch(%22http%3A%2F%2F127.0.0.1%3A8080%2Fhealthz%22)%3B%20if%20(!r.ok)%20Deno.exit(1)%3B"
+                - "data:application/typescript,const%20r%20%3D%20await%20fetch(%22http%3A%2F%2F127.0.0.1%3A8080%2Freadyz%22)%3B%20if%20(!r.ok)%20Deno.exit(1)%3B"
             interval: 10s
             timeout: 5s
             retries: 5

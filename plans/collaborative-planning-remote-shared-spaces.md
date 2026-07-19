@@ -2,7 +2,7 @@
 planId: "3a41af0c-710c-4ec1-b980-8b48649c5004"
 classification: "PROJECT"
 complexity: "HIGH"
-summary: "The user wants to rehash and plan the implementation of the Collaborative Planning PRD. This is a large-scale architectural shift involving a new backend (D1/SQLite), a new Web Viewer (SPA), and new CLI commands for sharing, syncing, and pushing plans with end-to-end encryption. This requires a PROJECT/Epic plan."
+summary: "Implement and harden Collaborative Planning remote Shared Spaces: a self-hosted Astro/React Workspace Plan Server with SQLite, accountless encrypted browser review, CLI share/pull/push/unshare, local Shared Plan Lock, and deferred hosted/D1 follow-up."
 affectedPaths:
     []
 frontend: true
@@ -22,15 +22,16 @@ sessionName: "collaborative planning implementation"
 
 ## Context
 
-RunWield already has local markdown Plans, durable `planId` front matter, Epic/Child FEATURE decomposition, a local
-Fresh Workspace UI under `src/ui/workspace/`, and Plannotator-backed local Review Loops. The Collaborative Planning PRD
-expands this into team review: shared remote Plans with revisions, encrypted comments, reviewer-friendly browser access,
-CLI pull/push flows, and self-hosted deployment.
+RunWield has local markdown Plans, durable `planId` Front Matter, Epic/Child FEATURE decomposition, an Astro/React
+Workspace under `src/ui/workspace/`, and Plannotator-backed local Review Loops. The Collaborative Planning PRD expands
+this into team review: remote-canonical Shared Spaces with Revisions, encrypted comments, reviewer-friendly browser
+access, CLI pull/push flows, and source-built self-hosted deployment.
 
 The rehashed architecture changes the original PRD in four important ways:
 
-- V1 is **self-hosted first**: Docker + Fresh Workspace remote mode + SQLite. Cloudflare/D1 hosted deployment is
-  deferred to a separate follow-up Plan using a placeholder host such as `plans.example.com`.
+- V1 is **self-hosted first**: source-built Docker + Astro/React Workspace remote mode + SQLite. Cloudflare/D1 hosted
+  deployment and published image distribution are deferred to separate follow-up work using placeholder hosts such as
+  `plans.example.com`.
 - A shared Plan is **remote-canonical while shared**. Local markdown is protected by a hard Shared Plan Lock and can
   only be modified through collaboration command flows.
 - The command language is **`wld plans ...`**: `share`, `pull`, `push`, and `unshare`, consistent with existing
@@ -38,8 +39,8 @@ The rehashed architecture changes the original PRD in four important ways:
 - Access is accountless but capability-based: reviewer and maintainer bearer capabilities support team handoff without
   tying ownership to the original creator.
 
-ADR-008 records the core decision: remote-canonical Shared Spaces, Fresh Workspace remote mode, SQLite self-hosting
-first, and separate reviewer/maintainer bearer capabilities.
+ADR-008 records the core decision: remote-canonical Shared Spaces, Astro/React Workspace remote mode, SQLite
+self-hosting first, separate reviewer/maintainer bearer capabilities, and deferred hosted/D1 deployment.
 
 ## Objective
 
@@ -57,9 +58,8 @@ The system must preserve these invariants:
 
 ## Vertical Slice Findings
 
-- `src/ui/workspace/server.js` currently composes one Fresh app around checkout-local Plan routes and a loopback token.
-  This is the right seam for a `local` vs `remote` Workspace mode, but remote mode must not inherit local filesystem
-  authority.
+- `src/ui/workspace/server.js` now composes local and remote Workspace modes around Astro runtime/static serving. Local
+  mode keeps checkout-backed Plan routes and a loopback token; remote mode must not inherit local filesystem authority.
 - `src/cmd/plans/index.js` already supports subcommands via `wld plans ui`, so collaboration commands should extend this
   namespace rather than creating a singular `wld plan` command.
 - Most legitimate Plan writes flow through `src/plan-store.js`, `src/shared/workflow/plan-lifecycle.js`,
@@ -101,11 +101,11 @@ The system must preserve these invariants:
 - `src/shared/session/agent-handler.js` and related session/workflow wiring — support `wld plans pull` launching Planner
   or Architect with decrypted revision/comment context and an explicit instruction to revise through the controlled
   collaboration path.
-- `src/ui/workspace/server.js` — split Fresh app composition into local and remote modes. Local mode keeps current
-  checkout-backed routes/token. Remote mode uses SQLite-backed collaboration adapters and must not set `ctx.state.cwd`
-  as an authority boundary.
-- `src/ui/workspace/routes/**` — add remote Shared Space routes such as `/p/:planId`, revision APIs, comments APIs,
-  resolve APIs, and unshare/delete APIs. Keep local Plan Board routes local-mode only.
+- `src/ui/workspace/server.js` — maintain local and remote Workspace modes. Local mode keeps checkout-backed
+  routes/token. Remote mode uses SQLite-backed collaboration adapters and must not set `ctx.state.cwd` as an authority
+  boundary.
+- `src/ui/workspace/routes/**` — maintain remote Shared Space routes such as `/p/:spaceId`, revision APIs, comments
+  APIs, resolve/reopen APIs, and maintainer lifecycle APIs. Keep local Plan Board routes local-mode only.
 - `src/ui/workspace/server/**` — add SQLite schema/migration/bootstrap code and remote collaboration adapters for Shared
   Spaces, revisions, comments, capabilities, and deletion.
 - `src/ui/workspace/components/PlanDetail.jsx` and related components — reuse existing Plan detail/markdown rendering
@@ -123,8 +123,8 @@ The system must preserve these invariants:
 
 Existing functions, modules, or patterns to reuse:
 
-- `src/ui/workspace/server.js` — Fresh app composition, static assets, theme CSS, and component shell. Extend with a
-  mode seam rather than creating a separate server framework.
+- `src/ui/workspace/server.js` — Workspace server composition, static assets, theme CSS, and Astro runtime bridge.
+  Extend the existing mode seam rather than creating a separate server framework.
 - `src/ui/workspace/components/PlanDetail.jsx` and `src/ui/workspace/components/MarkdownView.jsx` — basic Plan rendering
   for the remote review UI while comment UX matures.
 - `src/cmd/plans/ui.js` — subcommand pattern, browser opening, and local URL construction conventions.
@@ -191,9 +191,12 @@ Existing functions, modules, or patterns to reuse:
 - **Agent pull flow:** `wld plans pull` should launch the correct planning Agent based on Plan classification and remote
   metadata. It should give decrypted comments/revision context, but should not expose bearer capabilities to the Agent
   unless strictly required by the collaboration command wrapper.
-- **Cloudflare/D1:** hosted deployment is deferred. A separate draft Plan should later add a D1/Cloudflare
-  adapter/deployment path after SQLite self-hosting proves the protocol. Use placeholder hostnames such as
+- **Cloudflare/D1:** hosted deployment is deferred. A separate Plan should later add a D1/Cloudflare adapter/deployment
+  path after SQLite self-hosting and hardening prove the protocol. Use placeholder hostnames such as
   `plans.example.com`; do not bake a production domain into this Epic.
+- **Self-hosted hardening:** accountless public creation currently relies on application payload limits, reverse-proxy
+  rate limits, and optional inactivity retention rather than a creation credential. RunWield serves HTTP inside the
+  deployment boundary; operators own public TLS termination and must preserve `Authorization: Bearer`.
 - **No TypeScript:** all new RunWield source files must be `.js`/`.jsx` with JSDoc typedefs, following the project
   language strictness policy.
 - **Slicer guidance:** decompose around architectural seams: protocol/crypto/secret store, SQLite remote Workspace mode,

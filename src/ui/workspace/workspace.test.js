@@ -1,4 +1,5 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
+import { DatabaseSync } from "node:sqlite";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { loadPlanBodyById, savePlan } from "../../plan-store.js";
@@ -28,7 +29,13 @@ import {
     createPutOnHoldIntent,
     lifecycleActionLabel,
 } from "./islands/PlanLifecycleActions.jsx";
-import { parsePort, readRemoteServerConfig } from "./remote-server.js";
+import {
+    main as runRemoteServerMain,
+    parseMaxRequestBytes,
+    parsePort,
+    parseRetentionDays,
+    readRemoteServerConfig,
+} from "./remote-server.js";
 import { renderRunWieldThemeCss } from "../design-system/theme-bridge.js";
 import {
     createReviewWorkspaceApp,
@@ -41,6 +48,7 @@ import { createReviewAgentState, reviewAgentApi } from "./routes/api/review-agen
 import { hashCapability } from "../../shared/collaboration/capabilities.js";
 import { openRemoteDatabase } from "./server/remote-db.js";
 import { createRemoteWorkspaceAdapter } from "./server/remote-adapter.js";
+import { REMOTE_SCHEMA_V1_SQL } from "./server/remote-schema.js";
 import { registerReviewDecisionPromise, unregisterReviewDecision } from "./routes/api/review-handlers.js";
 import {
     buildRemoteCommentPayload,
@@ -2151,6 +2159,268 @@ Deno.test("remote Shared Space API enforces capabilities, ciphertext storage, li
     }
 });
 
+Deno.test("remote requests over configured JSON body limit are rejected before writes", async () => {
+    const database = openRemoteDatabase();
+    const adapter = createRemoteWorkspaceAdapter({ database });
+    const app = createWorkspaceApp({ mode: "remote", adapter, maxRequestBytes: 64 }).handler();
+    try {
+        const response = await app(
+            new Request("http://localhost/api/spaces", {
+                method: "POST",
+                headers: { "content-type": "application/json", "content-length": "65" },
+                body: JSON.stringify({ planId: "too-large" }),
+            }),
+        );
+        assertEquals(response.status, 413);
+        assertEquals((await readJsonResponse(response)).error, "request_too_large");
+        const streamed = await app(
+            new Request("http://localhost/api/spaces", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ planId: "too-large", filler: "x".repeat(128) }),
+            }),
+        );
+        assertEquals(streamed.status, 413);
+        const count = /** @type {{ count: number }} */ (
+            database.handle.prepare("SELECT COUNT(*) AS count FROM shared_spaces").get()
+        );
+        assertEquals(Number(count.count), 0);
+    } finally {
+        adapter.close();
+    }
+});
+
+Deno.test("remote retention refreshes on writes and cleanup hard-deletes expired Shared Spaces", async () => {
+    let now = new Date("2026-01-01T00:00:00.000Z");
+    const database = openRemoteDatabase();
+    const adapter = createRemoteWorkspaceAdapter({ database, retention: { days: 7 }, now: () => now });
+    try {
+        const reviewerCapability = "reviewer-retention";
+        const maintainerCapability = "maintainer-retention";
+        const created = adapter.createSharedSpace({
+            planId: "retention-plan",
+            payloadCiphertext: "cipher:plan",
+            capabilities: [
+                { scope: "reviewer", capabilityHash: await hashCapability(reviewerCapability) },
+                { scope: "maintainer", capabilityHash: await hashCapability(maintainerCapability) },
+            ],
+        });
+        assertEquals(created.expiresAt, "2026-01-08T00:00:00.000Z");
+
+        now = new Date("2026-01-02T00:00:00.000Z");
+        assertEquals(adapter.getSharedSpace(created.spaceId).expiresAt, "2026-01-08T00:00:00.000Z");
+        assertEquals(adapter.listRevisions(created.spaceId).length, 1);
+        assertEquals(adapter.getRevision(created.spaceId, 1).createdAt, "2026-01-01T00:00:00.000Z");
+        assertEquals(adapter.getSharedSpace(created.spaceId).expiresAt, "2026-01-08T00:00:00.000Z");
+
+        adapter.appendRevision(created.spaceId, "cipher:plan-2");
+        assertEquals(adapter.getSharedSpace(created.spaceId).expiresAt, "2026-01-09T00:00:00.000Z");
+
+        now = new Date("2026-01-03T00:00:00.000Z");
+        const comment = adapter.appendComment(created.spaceId, 2, "cipher:comment");
+        assertEquals(adapter.getSharedSpace(created.spaceId).expiresAt, "2026-01-10T00:00:00.000Z");
+
+        now = new Date("2026-01-03T12:00:00.000Z");
+        assertEquals(adapter.listComments(created.spaceId, 2).length, 1);
+        assertEquals(adapter.getSharedSpace(created.spaceId).expiresAt, "2026-01-10T00:00:00.000Z");
+
+        now = new Date("2026-01-04T00:00:00.000Z");
+        adapter.setCommentState(created.spaceId, comment.id, "resolve");
+        assertEquals(adapter.getSharedSpace(created.spaceId).expiresAt, "2026-01-11T00:00:00.000Z");
+
+        now = new Date("2026-01-05T00:00:00.000Z");
+        adapter.setCommentState(created.spaceId, comment.id, "reopen");
+        assertEquals(adapter.getSharedSpace(created.spaceId).expiresAt, "2026-01-12T00:00:00.000Z");
+
+        now = new Date("2026-01-06T00:00:00.000Z");
+        adapter.closeSharedSpace(created.spaceId);
+        assertEquals(adapter.getSharedSpace(created.spaceId).expiresAt, "2026-01-13T00:00:00.000Z");
+
+        now = new Date("2026-01-14T00:00:00.000Z");
+        assertEquals(adapter.cleanupExpiredSharedSpaces(), 1);
+        let failed = false;
+        try {
+            adapter.getSharedSpace(created.spaceId);
+        } catch (error) {
+            failed = error instanceof Error && error.message.includes("not found");
+        }
+        assertEquals(failed, true);
+    } finally {
+        adapter.close();
+    }
+});
+
+Deno.test("remote retention cleanup removes expired Shared Spaces across bounded batches", () => {
+    const now = new Date("2026-01-10T00:00:00.000Z");
+    const database = openRemoteDatabase();
+    const adapter = createRemoteWorkspaceAdapter({ database, retention: { days: 7 }, now: () => now });
+    try {
+        const insertSpace = database.handle.prepare(
+            "INSERT INTO shared_spaces(id, plan_id, status, latest_revision, created_at, updated_at, expires_at) VALUES (?, ?, 'open', 1, ?, ?, ?)",
+        );
+        const insertRevision = database.handle.prepare(
+            "INSERT INTO space_revisions(space_id, revision, payload_ciphertext, created_at) VALUES (?, 1, ?, ?)",
+        );
+        for (let index = 0; index < 205; index += 1) {
+            const spaceId = `expired-${index}`;
+            insertSpace.run(
+                spaceId,
+                `plan-${index}`,
+                "2026-01-01T00:00:00.000Z",
+                "2026-01-01T00:00:00.000Z",
+                "2026-01-08T00:00:00.000Z",
+            );
+            insertRevision.run(spaceId, "cipher:plan", "2026-01-01T00:00:00.000Z");
+        }
+        insertSpace.run(
+            "active-space",
+            "active-plan",
+            "2026-01-10T00:00:00.000Z",
+            "2026-01-10T00:00:00.000Z",
+            "2026-01-17T00:00:00.000Z",
+        );
+        insertRevision.run("active-space", "cipher:plan", "2026-01-10T00:00:00.000Z");
+
+        assertEquals(adapter.cleanupExpiredSharedSpaces(), 205);
+        const count = /** @type {{ count: number }} */ (
+            database.handle.prepare("SELECT COUNT(*) AS count FROM shared_spaces").get()
+        );
+        assertEquals(Number(count.count), 1);
+        assertEquals(adapter.getSharedSpace("active-space").spaceId, "active-space");
+    } finally {
+        adapter.close();
+    }
+});
+
+Deno.test("remote retention reconciliation grants grace and disabling clears expiry", async () => {
+    const now = new Date("2026-02-01T00:00:00.000Z");
+    const database = openRemoteDatabase();
+    const noRetention = createRemoteWorkspaceAdapter({ database, now: () => now });
+    const created = noRetention.createSharedSpace({
+        planId: "grace-plan",
+        payloadCiphertext: "cipher:plan",
+        capabilities: [
+            { scope: "reviewer", capabilityHash: await hashCapability("reviewer-grace") },
+            { scope: "maintainer", capabilityHash: await hashCapability("maintainer-grace") },
+        ],
+    });
+    assertEquals(created.expiresAt, undefined);
+
+    const enabled = createRemoteWorkspaceAdapter({ database, retention: { days: 7 }, now: () => now });
+    enabled.reconcileRetentionPolicy();
+    assertEquals(enabled.getSharedSpace(created.spaceId).expiresAt, "2026-02-08T00:00:00.000Z");
+
+    const disabled = createRemoteWorkspaceAdapter({ database });
+    disabled.reconcileRetentionPolicy();
+    assertEquals(disabled.getSharedSpace(created.spaceId).expiresAt, undefined);
+    disabled.close();
+});
+
+Deno.test("remote schema migration preserves v1 rows and rejects newer schemas", () => {
+    const cwd = Deno.makeTempDirSync();
+    try {
+        const dbPath = `${cwd}/remote.sqlite`;
+        const fixture = new DatabaseSync(dbPath);
+        fixture.exec("PRAGMA foreign_keys = ON");
+        fixture.exec(REMOTE_SCHEMA_V1_SQL);
+        fixture.prepare("INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)").run(
+            1,
+            "2026-01-01T00:00:00.000Z",
+        );
+        fixture.prepare(
+            "INSERT INTO shared_spaces(id, plan_id, status, latest_revision, created_at, updated_at) VALUES (?, ?, 'open', 2, ?, ?)",
+        ).run("space-v1", "plan-v1", "2026-01-01T00:00:00.000Z", "2026-01-02T00:00:00.000Z");
+        fixture.prepare(
+            "INSERT INTO space_revisions(space_id, revision, payload_ciphertext, created_at) VALUES (?, ?, ?, ?)",
+        ).run("space-v1", 1, "cipher:revision-1", "2026-01-01T00:00:00.000Z");
+        fixture.prepare(
+            "INSERT INTO space_revisions(space_id, revision, payload_ciphertext, created_at) VALUES (?, ?, ?, ?)",
+        ).run("space-v1", 2, "cipher:revision-2", "2026-01-02T00:00:00.000Z");
+        fixture.prepare(
+            "INSERT INTO space_comments(id, space_id, revision, ciphertext, resolved, created_at, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?)",
+        ).run(
+            "comment-v1",
+            "space-v1",
+            1,
+            "cipher:comment-v1",
+            "2026-01-01T12:00:00.000Z",
+            "2026-01-01T13:00:00.000Z",
+        );
+        fixture.prepare(
+            "INSERT INTO space_capabilities(space_id, scope, capability_hash, created_at) VALUES (?, ?, ?, ?)",
+        ).run("space-v1", "reviewer", "sha256:reviewer-v1", "2026-01-01T00:00:00.000Z");
+        fixture.prepare(
+            "INSERT INTO space_capabilities(space_id, scope, capability_hash, created_at) VALUES (?, ?, ?, ?)",
+        ).run("space-v1", "maintainer", "sha256:maintainer-v1", "2026-01-01T00:00:00.000Z");
+        fixture.close();
+
+        const migrated = openRemoteDatabase({ dbPath });
+        const row = /** @type {{ expires_at: string | null, latest_revision: number }} */ (
+            migrated.handle.prepare("SELECT expires_at, latest_revision FROM shared_spaces WHERE id = ?").get(
+                "space-v1",
+            )
+        );
+        assertEquals(row.expires_at, null);
+        assertEquals(Number(row.latest_revision), 2);
+        assertEquals(
+            migrated.handle.prepare(
+                "SELECT payload_ciphertext FROM space_revisions WHERE space_id = ? AND revision = 1",
+            ).get("space-v1"),
+            {
+                payload_ciphertext: "cipher:revision-1",
+            },
+        );
+        assertEquals(
+            migrated.handle.prepare(
+                "SELECT payload_ciphertext FROM space_revisions WHERE space_id = ? AND revision = 2",
+            ).get("space-v1"),
+            {
+                payload_ciphertext: "cipher:revision-2",
+            },
+        );
+        assertEquals(
+            migrated.handle.prepare("SELECT ciphertext, resolved FROM space_comments WHERE id = ?").get("comment-v1"),
+            {
+                ciphertext: "cipher:comment-v1",
+                resolved: 1,
+            },
+        );
+        assertEquals(
+            migrated.handle.prepare("SELECT capability_hash FROM space_capabilities WHERE space_id = ? AND scope = ?")
+                .get("space-v1", "reviewer"),
+            {
+                capability_hash: "sha256:reviewer-v1",
+            },
+        );
+        assertEquals(
+            migrated.handle.prepare("SELECT capability_hash FROM space_capabilities WHERE space_id = ? AND scope = ?")
+                .get("space-v1", "maintainer"),
+            {
+                capability_hash: "sha256:maintainer-v1",
+            },
+        );
+        const version = /** @type {{ version: number }} */ (
+            migrated.handle.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()
+        );
+        assertEquals(Number(version.version), 2);
+        migrated.handle.prepare("INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)").run(
+            99,
+            "2026-01-01T00:00:00.000Z",
+        );
+        migrated.close();
+
+        let failed = false;
+        try {
+            openRemoteDatabase({ dbPath });
+        } catch (error) {
+            failed = error instanceof Error && error.message.includes("newer than supported");
+        }
+        assertEquals(failed, true);
+    } finally {
+        Deno.removeSync(cwd, { recursive: true });
+    }
+});
+
 Deno.test("remote Shared Space review route is isolated to remote mode", async () => {
     const localApp = createWorkspaceApp({ cwd: Deno.cwd(), token: "secret" }).handler();
     const localResponse = await localApp(new Request("http://localhost/p/space-1?token=secret"));
@@ -2161,16 +2431,20 @@ Deno.test("remote Shared Space review route is isolated to remote mode", async (
     assertEquals(remoteResponse.status === 200 || remoteResponse.status === 503, true);
 });
 
-Deno.test("remote Workspace health endpoint is remote-only and non-secret", async () => {
+Deno.test("remote Workspace health and readiness endpoints are remote-only and non-secret", async () => {
     const localApp = createWorkspaceApp({ cwd: Deno.cwd(), token: "secret" }).handler();
-    const localResponse = await localApp(new Request("http://localhost/healthz?token=secret"));
-    assertEquals(localResponse.status, 404);
+    assertEquals((await localApp(new Request("http://localhost/healthz?token=secret"))).status, 404);
+    assertEquals((await localApp(new Request("http://localhost/readyz?token=secret"))).status, 404);
 
     const remoteApp = createWorkspaceApp({ mode: "remote" }).handler();
     const remoteResponse = await remoteApp(new Request("http://localhost/healthz"));
     assertEquals(remoteResponse.status, 200);
     assertEquals(remoteResponse.headers.get("cache-control"), "no-store");
     assertEquals(await remoteResponse.json(), { ok: true, mode: "remote" });
+
+    const readyResponse = await remoteApp(new Request("http://localhost/readyz"));
+    assertEquals(readyResponse.status, 200);
+    assertEquals(await readyResponse.json(), { ok: true, mode: "remote" });
 });
 
 Deno.test("remote server entry reads env defaults and validates ports", () => {
@@ -2178,15 +2452,51 @@ Deno.test("remote server entry reads env defaults and validates ports", () => {
         ["RUNWIELD_REMOTE_HOST", "127.0.0.1"],
         ["RUNWIELD_REMOTE_PORT", "9001"],
         ["RUNWIELD_REMOTE_DB_PATH", "/tmp/runwield.sqlite"],
+        ["RUNWIELD_REMOTE_MAX_REQUEST_BYTES", "2048"],
+        ["RUNWIELD_REMOTE_RETENTION_DAYS", "7"],
     ]);
     const env = { get: (/** @type {string} */ key) => values.get(key) };
     assertEquals(readRemoteServerConfig(/** @type {Deno.Env} */ (env)), {
         host: "127.0.0.1",
         port: 9001,
         dbPath: "/tmp/runwield.sqlite",
+        maxRequestBytes: 2048,
+        retentionDays: 7,
     });
     assertEquals(parsePort(undefined), 8080);
     assertEquals(parsePort("65535"), 65535);
+    assertEquals(parseMaxRequestBytes(undefined), 5 * 1024 * 1024);
+    assertEquals(parseRetentionDays("0"), undefined);
+});
+
+Deno.test("remote server entry closes the owned adapter after server completion", async () => {
+    let closed = 0;
+    let startedWithAdapter = false;
+    const env = {
+        get: (/** @type {string} */ key) =>
+            ({
+                RUNWIELD_REMOTE_HOST: "127.0.0.1",
+                RUNWIELD_REMOTE_PORT: "9002",
+                RUNWIELD_REMOTE_DB_PATH: `${Deno.cwd()}/.wld/test-remote-server.sqlite`,
+            })[key],
+    };
+    await runRemoteServerMain({
+        env: /** @type {Deno.Env} */ (env),
+        createRemoteWorkspaceAdapter: () => /** @type {any} */ ({
+            reconcileRetentionPolicy() {},
+            cleanupExpiredSharedSpaces: () => 0,
+            close: () => {
+                closed += 1;
+            },
+        }),
+        startWorkspaceServer: (/** @type {any} */ options) => {
+            startedWithAdapter = Boolean(options.adapter);
+            return /** @type {any} */ ({ addr: { port: 9002 }, finished: Promise.resolve() });
+        },
+        log: () => {},
+    });
+    assertEquals(startedWithAdapter, true);
+    assertEquals(closed, 1);
 });
 
 Deno.test("remote Shared Space review route SSR smoke keeps fragments out of rendered shell", async () => {
@@ -2235,6 +2545,8 @@ Deno.test("remote review Plannotator sidebar does not expose delete controls", a
     assertEquals(reviewSource.includes("RemoteLegacyAnchors"), false);
     assertEquals(reviewSource.includes("applyLegacyAnchorHighlights"), false);
     assertEquals(reviewSource.includes("updateSharedSpaceLifecycle"), false);
+    assertStringIncludes(reviewSource, "const metadata = await client.getSharedSpace(spaceId);");
+    assertStringIncludes(reviewSource, "setSpace(normalizeSpace(metadata));");
     assertEquals(reviewSource.includes('action: "delete"'), false);
     assertEquals(/unshare/i.test(reviewSource), false);
 });

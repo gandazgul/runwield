@@ -387,6 +387,7 @@ export async function pullPlanForRevision(pullOptions, deps = {}) {
         serverUrl: resolved.serverUrl,
         spaceId: resolved.spaceId,
         remoteStatus: space.status || "open",
+        expiresAt: space.expiresAt,
         revision: revision.revision,
         comments: decryptedComments,
         unreadableCommentCount: decryptedComments.filter((comment) => !comment.readable).length,
@@ -470,6 +471,11 @@ export async function runPlansPullCommand(argv, options = {}) {
     }
     if (pulled.remoteStatus === "closed") {
         console.log("[RunWield] Remote Shared Space is closed; pull is readable but future push may be blocked.");
+    }
+    if (pulled.expiresAt) {
+        console.log(
+            `[RunWield] Inactivity retention is enabled; this Shared Space currently expires at ${pulled.expiresAt}.`,
+        );
     }
     console.log(
         `[RunWield] Decrypted ${
