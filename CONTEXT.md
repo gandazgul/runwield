@@ -274,6 +274,18 @@ _Avoid_: Agent name, file name
 **Agent Session**: One invocation of an Agent with merged Agent Definition data, bound tools, extensions, and message
 history. _Avoid_: Run, interaction, conversation
 
+**Model Adaptation Profile**: An explicit Agent/model-preset-bound behavior policy that adjusts model-facing scaffolding
+for an evaluated Agent/model combination without changing workflow ownership or lifecycle semantics. _Avoid_:
+Small-model mode, automatic local-model mode, Agent Definition
+
+**Agent Behavior Evaluation**: A repeatable evaluation of whether an Agent/model configuration fulfills its RunWield
+role contract and reaches the expected workflow outcome. _Avoid_: Generic model benchmark, model leaderboard, unit test
+
+**Research Evidence Set**: An experimental, opt-in Ideator Agent Session artifact containing source references,
+qualified notes, and short supporting excerpts for source-heavy research. It survives compaction and resume but is not
+project Memory or a durable artifact. _Avoid_: Claim ledger, Work Record Provenance, research note, project evidence
+store
+
 **Agent Handler**: The runtime handler for the active Agent that runs one Agent Session turn, applies any explicit Agent
 Definition or workflow-scoped Custom Tools, and interprets workflow Custom Tool outcomes. _Avoid_: Agent-specific
 handler, special agent handler
@@ -416,6 +428,12 @@ command definition, prompt command
   prominent replacement notice.
 - An **Archived Work Record** is excluded from default Work Record search and planning retrieval.
 - The **Work Record Search Tool** is available to Ideator, Planner, Architect, and Guide by default, not Engineer.
+- A **Model Adaptation Profile** is selected explicitly for an evaluated Agent/model combination and cannot replace
+  protected workflow tools, Agent ownership, Plan Lifecycle, or validation semantics.
+- **Agent Behavior Evaluation** determines whether an experimental **Model Adaptation Profile** earns a supported
+  product claim.
+- An enabled **Research Evidence Set** belongs only to its Ideator **Agent Session**, survives compaction and resume
+  with that session, and enters durable project knowledge only through explicit synthesis into an existing artifact.
 - A **Failed Plan** must have reached **Ready For Work** before work failed.
 - An **In-Progress Plan** requires recovery because execution may have partially changed the worktree.
 - **Plan Recovery** resolves whether RunWield continues the current worktree state, reports on it, re-opens the Plan, or
