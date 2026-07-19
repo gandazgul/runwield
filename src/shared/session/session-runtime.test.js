@@ -128,6 +128,40 @@ Deno.test("SessionRuntime exposes opaque ids and snapshots, never HostedSession 
     assertEquals("getActiveOnMessage" in /** @type {any} */ (runtime.listSessions()[0]), false);
 });
 
+Deno.test("SessionRuntime snapshot exposes active context capacity without exposing AgentSession", async () => {
+    const sessionHost = new SessionHost();
+    const agentSession = makeSteeringAgentSession();
+    agentSession.getContextUsage = () => ({ tokens: 48_000, contextWindow: 128_000, percent: 37.5 });
+    agentSession.settingsManager = {
+        getCompactionSettings: () => ({ enabled: true }),
+    };
+    const runtime = makeRuntime({ agentSession, sessionHost });
+    const sessionId = await runtime.createPromptReadySession({ cwd: Deno.cwd() });
+
+    assertEquals(runtime.getSessionSnapshot(sessionId)?.contextUsage, {
+        tokens: 48_000,
+        contextWindow: 128_000,
+        percent: 37.5,
+    });
+    assertEquals(runtime.getSessionSnapshot(sessionId)?.autoCompactionEnabled, true);
+
+    const transientSession = /** @type {any} */ ({
+        getContextUsage: () => ({ tokens: 4_000, contextWindow: 64_000, percent: 6.25 }),
+        settingsManager: { getCompactionSettings: () => ({ enabled: false }) },
+    });
+    const hostedSession = sessionHost.requireSession(sessionId);
+    hostedSession.addSubAgentSession(transientSession);
+    assertEquals(runtime.getSessionSnapshot(sessionId)?.contextUsage, {
+        tokens: 4_000,
+        contextWindow: 64_000,
+        percent: 6.25,
+    });
+    assertEquals(runtime.getSessionSnapshot(sessionId)?.autoCompactionEnabled, false);
+
+    const snapshot = runtime.getSessionSnapshot(sessionId);
+    assertEquals("agentSession" in /** @type {Record<string, unknown>} */ (snapshot || {}), false);
+});
+
 Deno.test("SessionRuntime rejects non-absolute session roots", async () => {
     const runtime = makeRuntime();
     await assertRejects(
