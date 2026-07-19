@@ -371,11 +371,14 @@ Shared Plan Spaces must support:
 
 - self-hosted Astro/React Workspace Deno server with SQLite
 - Docker/Docker Compose deployment
-- optional instance-level Basic Auth or reverse-proxy auth for self-hosted deployments
+- loopback-bound Docker/Docker Compose deployment by default
+- operator-managed reverse proxy for public TLS, request-size limits, rate limits, and bearer-header preservation
+- optional inactivity retention for accountless public trial instances
 - future hosted SaaS deployment using the same protocol concepts
 
-Cloudflare/D1 or other hosted infrastructure is a follow-up after the self-hosted SQLite protocol and Workspace remote
-mode are proven.
+Generic HTTP Basic Auth is not recommended because browser and CLI collaboration requests already use
+`Authorization: Bearer` for reviewer/maintainer capabilities. Cloudflare/D1 or other hosted infrastructure is a
+follow-up after the self-hosted SQLite protocol and Workspace remote mode are proven.
 
 ### 8.2 Encryption and Privacy
 

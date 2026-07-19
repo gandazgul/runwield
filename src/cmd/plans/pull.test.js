@@ -501,3 +501,11 @@ Deno.test("runPlansPullCommand launches planning Agent with redacted decrypted r
     assert(logs.some((line) => line.includes("Selected planning Agent: planner")));
     assert(logs.some((line) => line.includes("wld plans push demo-pull-plan")));
 });
+
+Deno.test("runPlansPullCommand reports remote inactivity expiry without adding it to Agent context", async () => {
+    const { deps, calls } = fakePullDeps({ space: { expiresAt: "2026-07-11T12:00:00.000Z" } });
+    const logs = await captureLogs(() => runPlansPullCommand([MAINTAINER_URL], { __testDeps: deps }));
+
+    assert(logs.some((line) => line.includes("expires at 2026-07-11T12:00:00.000Z")));
+    assert(!calls.planning.initialRequest.includes("2026-07-11T12:00:00.000Z"));
+});

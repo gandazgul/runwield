@@ -1,331 +1,132 @@
 # Collaborative Planning — PRD
 
-**Status:** Draft v1, implementation updated for self-hosted SQLite packaging **Author:** Gandazgul **Last Updated:**
-2026-07-16
+**Status:** Current self-hosted SQLite implementation with hardening follow-up **Author:** Gandazgul **Last Updated:**
+2026-07-18
 
 ---
 
 ## 1. Objective
 
-Enable RunWield users to share plans with their team (technical and non-technical), collect structured feedback in a
-shared space, and iteratively refine plans through revision cycles — all with end-to-end encryption so the server
-(including any self-hosted instance) never sees plaintext plan content.
+Enable RunWield users to share Plans with teammates and stakeholders, collect structured encrypted feedback in a Shared
+Space, and iteratively refine Plans through Revision cycles without requiring accounts, GitHub, or local tooling for
+reviewers.
 
 ## 2. Problem Statement
 
-RunWield is currently a single-user planning tool. Users generate plans locally but have no mechanism to:
+RunWield is local-first. Users can create durable markdown Plans locally, but team review needs:
 
-- Share a plan with non-technical stakeholders (PMs, designers, clients) in a readable format.
-- Collect and organize feedback tied to specific parts of the plan.
-- Iterate on the plan with the team's input without losing context or creating link fragmentation.
-- Do any of this without requiring every participant to have a GitHub account or install tooling.
+- readable browser access for technical and non-technical stakeholders;
+- comments attached to specific Plan text or to the whole Revision;
+- one stable link that survives Revision updates;
+- maintainer handoff without accounts; and
+- server-side privacy where semantic Plan/comment content remains ciphertext.
 
-Chat-based solutions (Slack, Discord, Telegram) are structurally unsuited for long-form document review. Immutable
-snapshot models (Plannotator's current approach) fragment discussion across multiple links. A **shared space** model
-with revision tracking solves both problems.
+Chat-based feedback fragments long-form review. Immutable snapshot links fragment discussion across multiple URLs. A
+remote-canonical Shared Space with explicit local Shared Plan Lock keeps one collaboration surface while preserving
+local Plan lifecycle semantics.
 
-## 3. Resolved Assumptions
+## 3. Resolved Decisions
 
-| Decision                                            | Rationale                                                                                                                                                                                                  |
-| --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Shared Space, not immutable snapshots**           | Single link for the team; comments stay in one place per Revision. Reduces friction for non-technical users.                                                                                               |
-| **Self-hosted SQLite first**                        | The implemented v1 packages the remote Workspace Plan Server as Docker + SQLite. Hosted RunWield Workspace and Cloudflare/D1 remain deferred follow-up work.                                               |
-| **Astro/React remote Workspace**                    | The current browser implementation lives under `src/ui/workspace/` and reuses Plannotator-backed markdown annotation primitives. Older Fresh/Preact wording is stale.                                      |
-| **Encryption: client-side only**                    | Plans and comments are encrypted before upload. The server stores ciphertext for semantic content. The content key lives in the URL fragment and local secret stores, never in normal server request URLs. |
-| **Authorization: bearer capabilities, no accounts** | Reviewer and maintainer links carry bearer capability material. The server stores capability hashes, not raw capabilities. Optional HTTP Basic/Auth proxy can sit in front of a self-hosted instance.      |
-| **Revisions: comments don't carry over**            | Each Revision is a frozen snapshot with its own comments. Reviewers can inspect prior Revisions; current planning should use the latest accepted Revision.                                                 |
-| **Planner/Architect incorporation on pull**         | `wld plans pull` decrypts Revisions/comments locally and launches Planner or Architect with review context.                                                                                                |
-| **No automated notifications v1**                   | Maintainers share updated URLs manually. Future notification integrations remain out of scope.                                                                                                             |
-| **CLI-owned destructive lifecycle**                 | Browser review supports read/comment/resolve/reopen. Push, close, browser body editing, and destructive unshare/delete controls are not exposed in the browser v1; unshare is CLI-only.                    |
+| Decision                                                        | Current product reality                                                                                                                                                                                         |
+| --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Shared Space, not immutable snapshots**                       | One Shared Space contains Revisions and per-Revision comments. Comments do not carry over to new Revisions.                                                                                                     |
+| **Self-hosted SQLite first**                                    | V1 is a source-built Deno/Astro/React Workspace Plan Server with SQLite, Dockerfile, and Docker Compose. Published images, Cloudflare/D1, and hosted RunWield Workspace are deferred.                           |
+| **Remote-canonical while shared**                               | Local Plans carry non-secret collaboration Front Matter and enter a hard Shared Plan Lock. Pull/push/unshare are the controlled mutation paths.                                                                 |
+| **Encryption: client-side only**                                | Plan bodies, comment bodies, display names, selected/original text, and annotation metadata are encrypted before upload. Content keys live in URL fragments and local secret stores.                            |
+| **Authorization: bearer capabilities, no accounts**             | Reviewer and maintainer links carry capability material. The server stores only capability hashes. Reverse proxies must preserve `Authorization: Bearer`; generic Basic Auth is not recommended.                |
+| **Accountless public operation is bounded, not solved by auth** | Public self-hosting may be placed behind Nginx/equivalent rate limits and optional inactivity retention. A separate creation credential is deferred until its CLI storage/rotation UX is designed.              |
+| **CLI-owned destructive lifecycle**                             | Browser review supports read/comment/resolve/reopen/revision switching. Push, close, browser Plan body editing, and destructive unshare/delete controls are not exposed in the browser v1; unshare is CLI-only. |
+| **Planner/Architect incorporation on pull**                     | `wld plans pull` decrypts Revisions/comments locally and launches the appropriate planning Agent with review context.                                                                                           |
 
-## 4. Technical Approach
+## 4. Architecture Overview
 
-### 4.1 Architecture Overview
-
-```
-┌─────────────────────────────────────────────────┐
-│  Client (wld CLI)                               │
-│  wld plans share │ wld plans pull │ wld plans push │
-│  ┌─────────────┐  ┌────────────┐  ┌───────────┐ │
-│  │ encrypt plan │  │ decrypt +  │  │ encrypt + │ │
-│  │ POST → API   │  │ display +  │  │ POST rev  │ │
-│  │              │  │ LLM offer  │  │           │ │
-│  └─────────────┘  └────────────┘  └───────────┘ │
-└────────────────┬────────────────────────────────┘
-                 │ REST API (backend-agnostic)
-                 ▼
-┌─────────────────────────────────────────────────┐
-│  Backend                                        │
-│  ┌──────────┐  ┌────────────┐  ┌──────────────┐ │
-│  │ D1 / SQL │  │ Encrypted  │  │ Append-only  │ │
-│  │ plans    │  │ blobs only │  │ comment feed │ │
-│  │ revisions│  │            │  │              │ │
-│  └──────────┘  └────────────┘  └──────────────┘ │
-└─────────────────────────────────────────────────┘
-                 ▲
-                 │ Rendered plan + comment UI
-┌─────────────────────────────────────────────────┐
-│  Web Viewer (static client-side JS)              │
-│  • Decrypt plan from URL hash or paste fetch     │
-│  • Render markdown                               │
-│  • Plannotator-style inline + global comments    │
-│  • Revision switcher (sidebar)                   │
-│  • Submit encrypted comments via API             │
-└─────────────────────────────────────────────────┘
+```text
+wld CLI                         Plan Server                         Browser reviewer
+share/pull/push/unshare  <-->   /api/spaces + SQLite ciphertext  <--> /p/<space-id>#key=...&cap=...
 ```
 
-### 4.2 API Contract (v1)
+- The Plan Server serves HTTP inside the deployment boundary. Operators own TLS termination through Nginx or an
+  equivalent reverse proxy.
+- Docker Compose binds the container to host loopback by default. Public exposure is intentional proxy configuration.
+- SQLite is file-backed under `/data`, uses WAL, and is intended for a single active Plan Server container.
+- `/healthz` is liveness; `/readyz` checks SQLite readiness.
+- `RUNWIELD_REMOTE_MAX_REQUEST_BYTES` defaults to 5 MiB for complete JSON request bodies.
+- Optional `RUNWIELD_REMOTE_RETENTION_DAYS` adds visible inactivity expiry. Writes refresh expiry; reads do not; cleanup
+  hard-deletes expired ciphertext and capability hashes.
 
-Implementation update: the verified remote Workspace API uses `/api/spaces` Shared Space endpoints, encrypted
-`payloadCiphertext`/`ciphertext` blobs, and capability-bearing `Authorization` headers. The older `/api/plans` examples
-below are retained as historical PRD shape only; implementation docs and tests should follow the Shared Space API.
+## 5. Implemented Shared Space API Contract
 
-All endpoints return JSON. The client library abstracts these calls; direct API consumers can hit the same endpoints.
+All semantic payloads are ciphertext. API errors are structured JSON with `error`, `message`, and `status`.
 
-#### `POST /api/plans`
+| Endpoint                                                 | Authorization                 | Purpose                                                                                  |
+| -------------------------------------------------------- | ----------------------------- | ---------------------------------------------------------------------------------------- |
+| `POST /api/spaces`                                       | none in v1                    | Create a Shared Space from capability hashes and an encrypted initial Revision.          |
+| `GET /api/spaces/:spaceId`                               | reviewer or maintainer bearer | Read Shared Space metadata, status, latest Revision, optional expiry, and Revision list. |
+| `GET /api/spaces/:spaceId/revisions/:revision`           | reviewer or maintainer bearer | Read one encrypted Revision payload.                                                     |
+| `POST /api/spaces/:spaceId/revisions`                    | maintainer bearer             | Append the next encrypted Revision.                                                      |
+| `GET /api/spaces/:spaceId/revisions/:revision/comments`  | reviewer or maintainer bearer | List encrypted comments scoped to one Revision.                                          |
+| `POST /api/spaces/:spaceId/revisions/:revision/comments` | reviewer or maintainer bearer | Append one encrypted comment.                                                            |
+| `POST /api/spaces/:spaceId/comments/:commentId/state`    | reviewer or maintainer bearer | Resolve or reopen a comment.                                                             |
+| `POST /api/spaces/:spaceId/lifecycle`                    | maintainer bearer             | Close or destructively delete the Shared Space.                                          |
 
-Create a new plan (first revision).
+Plaintext server metadata is limited to ids, `planId`, status, Revision numbers, timestamps, resolved flags, optional
+`expiresAt`, and capability hashes. Deleted and expired Shared Spaces use not-found/deleted semantics so local Plans
+remain locked until explicit maintainer recovery.
 
-```json
-// Request body
-{
-  "encrypted_plan": "<base64 ciphertext>",
-  "key_hash": "<SHA-256 of encryption key>"
-}
+## 6. CLI Commands
 
-// Response 201
-{
-  "plan_id": "p_8xK3mQ2",
-  "revision_id": 1
-}
-```
+| Command                                              | Description                                                                                                                                                                                     |
+| ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `wld plans share <plan-name-or-id>`                  | Encrypt a local Plan, create a remote Shared Space, store local secrets, lock the local Plan, and print reviewer/maintainer URLs once. Reports expiry when retention is enabled.                |
+| `wld plans pull <maintainer-url-or-plan-name-or-id>` | Fetch and decrypt latest Revision/comments, import maintainer secrets when a URL is provided, update/create a locked local Plan, report expiry when present, and launch Planner/Architect.      |
+| `wld plans push <plan-name-or-id>`                   | Encrypt the accepted local Plan body and append it as the next remote Revision.                                                                                                                 |
+| `wld plans unshare <plan-name-or-id>`                | CLI-only destructive delete/recovery command using maintainer authorization; clears local matching secrets and lock metadata only after safe remote delete or confirmed deleted-remote cleanup. |
 
-#### `POST /api/plans/{plan_id}/revisions`
+## 7. Deployment Model
 
-Push a new revision (plan update).
-
-```json
-{
-  "encrypted_plan": "<base64 ciphertext>",
-  "created_by": "Ganda"
-}
-
-// Response 201
-{
-  "revision_id": 2
-}
-```
-
-#### `GET /api/plans/{plan_id}`
-
-Get plan metadata + latest revision info.
-
-```json
-// Response 200
-{
-    "plan_id": "p_8xK3mQ2",
-    "status": "review_open",
-    "current_revision": 2,
-    "revisions": [
-        { "revision_id": 1, "created_at": "...", "created_by": "Ganda" },
-        { "revision_id": 2, "created_at": "...", "created_by": "Ganda" }
-    ]
-}
-```
-
-#### `GET /api/plans/{plan_id}/revisions/{revision_id}`
-
-Get a specific revision's encrypted blob.
-
-```json
-// Response 200
-{
-    "revision_id": 2,
-    "encrypted_plan": "<base64 ciphertext>",
-    "created_at": "...",
-    "created_by": "Ganda"
-}
-```
-
-#### `POST /api/plans/{plan_id}/revisions/{revision_id}/comments`
-
-Submit a comment on a specific revision.
-
-```json
-{
-  "encrypted_body": "<base64 ciphertext>",
-  "author_name": "Alice",
-  "block_id": "",            // empty = global comment
-  "original_text": "..."     // the plaintext anchor text (encrypted by client? or sent as-is?)
-}
-
-// Response 201
-{
-  "comment_id": 42
-}
-```
-
-> **Implementation update:** selected/original text, display names, comment bodies, and anchor/context metadata are
-> encrypted inside the comment payload. The server stores only comment ciphertext plus routing metadata such as ids,
-> Revision numbers, timestamps, and resolved state.
-
-#### `GET /api/plans/{plan_id}/revisions/{revision_id}/comments`
-
-List all comments on a revision (ordered by creation time).
-
-```json
-// Response 200
-{
-    "comments": [
-        {
-            "comment_id": 42,
-            "encrypted_body": "<base64>",
-            "author_name": "Alice",
-            "block_id": "",
-            "created_at": "..."
-        }
-    ]
-}
-```
-
-#### `PATCH /api/plans/{plan_id}/revisions/{revision_id}/comments/{comment_id}/resolve`
-
-Mark a comment as resolved. (`POST` could also work.)
-
-```json
-{ "resolved": true }
-```
-
-#### `PATCH /api/plans/{plan_id}`
-
-Update plan status.
-
-```json
-{ "status": "closed" }
-```
-
-### 4.3 Database Schema (D1 + SQLite)
-
-```sql
-CREATE TABLE plans (
-  id              TEXT PRIMARY KEY,
-  encryption_key_hash TEXT NOT NULL,
-  current_rev     INTEGER DEFAULT NULL,
-  status          TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'review_open', 'closed')),
-  created_at      TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE TABLE revisions (
-  id              INTEGER PRIMARY KEY AUTOINCREMENT,
-  plan_id         TEXT NOT NULL REFERENCES plans(id) ON DELETE CASCADE,
-  revision_number INTEGER NOT NULL,
-  encrypted_plan  TEXT NOT NULL,
-  created_by      TEXT NOT NULL,
-  created_at      TEXT NOT NULL DEFAULT (datetime('now')),
-  UNIQUE(plan_id, revision_number)
-);
-
-CREATE TABLE comments (
-  id              INTEGER PRIMARY KEY AUTOINCREMENT,
-  revision_id     INTEGER NOT NULL REFERENCES revisions(id) ON DELETE CASCADE,
-  encrypted_body  TEXT NOT NULL,
-  author_name     TEXT NOT NULL,
-  block_id        TEXT NOT NULL DEFAULT '',
-  original_text   TEXT,
-  resolved        BOOLEAN NOT NULL DEFAULT 0,
-  created_at      TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE INDEX idx_comments_revision ON comments(revision_id);
-CREATE INDEX idx_revisions_plan ON revisions(plan_id);
-```
-
-> **SQLite note:** For the Docker container, use WAL journal mode for concurrent reads during sync. The `.db` file is a
-> single volume mount.
-
-### 4.4 Web Viewer
-
-- Remote review page served by the Workspace Plan Server.
-- The URL shape is `https://plans.example.com/p/<space-id>#key=<content-key>&cap=<capability>&role=<role>`.
-- On load: fetch Shared Space metadata, encrypted Revision payloads, and encrypted comments, then decrypt client-side.
-- **UI components:**
-  - Markdown viewer (rendered plan)
-  - Comment sidebar (global + inline, grouped by revision)
-  - Revision switcher (dropdown or sidebar timeline)
-  - "Add comment" button → opens inline/highlight mode or global comment box
-  - "Resolved" toggle on each comment (for plan author)
-- Plannotator's existing `SharePayload` type can be reused for the client-side encryption/decryption pipeline.
-
-### 4.5 CLI Commands
-
-| Command                                              | Description                                                                                                                                                                                                         |
-| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `wld plans share <plan-name-or-id>`                  | Encrypt a local Plan, create a remote Shared Space, store local secrets, lock the local Plan, and print reviewer/maintainer URLs once.                                                                              |
-| `wld plans pull <maintainer-url-or-plan-name-or-id>` | Fetch and decrypt the latest Revision/comments, import maintainer secrets when a URL is provided, update/create a locked local Plan, and launch Planner or Architect for incorporation.                             |
-| `wld plans push <plan-name-or-id>`                   | Encrypt the accepted local Plan body and append it as the next remote Revision.                                                                                                                                     |
-| `wld plans unshare <plan-name-or-id>`                | CLI-only destructive delete/recovery command that uses maintainer authorization, clears local matching secrets, and removes local lock metadata only after safe remote delete or confirmed already-deleted cleanup. |
-
-### 4.6 Deployment Model
-
-**Self-hosted (Docker):**
+### Self-hosted source-built package
 
 - Deno remote Workspace Plan Server.
-- SQLite file on disk, normally mounted under `/data` in Docker.
-- Optional HTTP Basic/Auth proxy, VPN, or SSO can sit in front of the container.
-- Docker Compose file included in the repo.
+- Astro/React remote review UI reusing Plannotator annotation primitives.
+- SQLite under a persistent `/data` volume.
+- Dockerfile and Docker Compose in the repository.
+- Loopback-only host port by default.
+- Nginx example for public TLS termination, bearer-header preservation, request-size limits, and rate limits.
+- Backup/restore/upgrade guidance based on stopped-service SQLite volume copies.
 
-**Hosted (`plans.example.com` / Cloudflare/D1 follow-up):**
+### Hosted / Cloudflare follow-up
 
-- Deferred until the self-hosted protocol and product loop are proven.
-- Must preserve the same ciphertext-only semantic content invariant and capability model.
+Cloudflare/D1 and hosted RunWield Workspace remain deferred. They must preserve the ciphertext-only semantic-content
+invariant, capability model, and remote-canonical local lock behavior.
 
----
+## 8. Out of Scope for Current V1
 
-## 5. Out of Scope (v1)
+- User accounts or full role-based access control.
+- Built-in public-instance creation authentication.
+- RunWield-managed TLS or certificate renewal.
+- Real-time collaborative editing or browser Plan body editing.
+- Browser-side push, close, or destructive unshare/delete controls.
+- Notifications.
+- Attachments in comments.
+- Diff view between Revisions.
+- Hosted SaaS or Cloudflare/D1 deployment.
+- Published signed/versioned multi-architecture container images.
 
-- [ ] User accounts / authentication system
-- [ ] Role-based access control (viewer vs. commenter vs. editor)
-- [ ] Real-time collaborative editing (like Google Docs)
-- [ ] Automated notification system (gotify, email, Slack webhooks) — manual URL sharing only
-- [ ] File/image attachments in comments
-- [ ] Diff viewer in the web UI (show what changed between revisions)
-- [ ] LLM-assisted comment incorporation (offered during sync, but actual LLM call is a separate discussion)
-- [ ] Audit log / activity feed
-- [ ] Plan templates or branching
+## 9. Success Metrics
 
----
+- A maintainer can self-host the source-built Plan Server, share a Plan, receive comments from at least two reviewers,
+  pull comments locally, revise through Planner/Architect, push a new Revision, and unshare safely.
+- A network capture and SQLite inspection show only ciphertext for Plan/comment semantic content.
+- A public trial deployment can be placed behind a reverse proxy with request/rate limits and optional seven-day
+  inactivity retention without RunWield owning TLS or adding accounts.
+- Backup/restore instructions recover Revisions/comments/capability hashes from the SQLite volume and `/readyz` confirms
+  the restored server.
 
-## 6. TODO Items (Future Iterations)
+## 10. Future Work
 
-- [ ] **Web UI spec** — Design the viewer, revision switcher, and comment sidebar in detail; hand off to a frontend
-      contributor.
-- [ ] **Notification system** — Evaluate gotify or similar for push notifications when a new revision is pushed.
-- [ ] **Planner/Architect incorporation pipeline** — Continue refining how `wld plans pull` presents decrypted comments
-      and Plan revisions to Planner/Architect, including privacy, cost, and token-limit guardrails.
-- [ ] **`original_text` encryption decision** — Determine whether comment anchor text should be encrypted client-side or
-      sent in plaintext for server-side context.
-- [ ] **Author tracking** — Currently `wld plan list` has no way to filter "my plans." Add an `author_id` or similar
-      field if needed.
-- [ ] **Diff viewer** — Show a visual diff between revisions in the web UI.
-- [ ] **Smoothen "closed plan" DX** — Add a summary view, export to PDF, etc.
-- [ ] **Rate limiting and abuse prevention** — Needed if the hosted instance is public.
-- [ ] **Docker Compose + self-hosted setup docs** — Write deployment guide for self-hosted users.
-
----
-
-## 7. Success Metrics (v1)
-
-- A user can create a plan, share a URL, receive comments from at least 2 reviewers, and sync those comments locally.
-- The hosted instance runs within the free tier of Cloudflare D1.
-- A self-hosted Docker container can be stood up in under 5 minutes following the README.
-- End-to-end encryption is verifiable: a network traffic capture shows only ciphertext leaving the client.
-
----
-
-## 8. References
-
-- Plannotator codebase: `@/../plannotator/` — sharing pipeline, encryption utilities, `SharePayload` type
-- RunWield project memory: `[139] Agent tool policy`, `[104] Agent definitions`, `[103] Monorepo structure`
-- Plannotator D1 + SQLite precedent: `@/../chores-app/` uses Deno + SQLite in production
-- Relevant RunWield files: `packages/ui/utils/sharing.ts`, `packages/ui/utils/planDiffEngine.ts`,
-  `packages/shared/crypto.ts`
+- Creation credentials or another abuse-resistant public creation model with CLI storage, rotation, and recovery UX.
+- Hosted RunWield Workspace and Cloudflare/D1 deployment.
+- Published signed container images and release provenance.
+- Notifications and activity/audit feeds.
+- Browser diff view between Revisions.
+- Optional export/summary view for closed Shared Spaces.

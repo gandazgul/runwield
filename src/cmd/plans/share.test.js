@@ -76,6 +76,7 @@ function fakeShareDeps(overrides = {}) {
                     status: "open",
                     createdAt: "2026-07-04T12:00:00.000Z",
                     updatedAt: "2026-07-04T12:00:00.000Z",
+                    ...(overrides.expiresAt ? { expiresAt: overrides.expiresAt } : {}),
                 });
             },
             updateSharedSpaceLifecycle: (
@@ -201,6 +202,13 @@ Deno.test("runPlansShareCommand resolves active Plan by name and sends encrypted
     assert(logs.some((message) => message.includes("#key=exported-crypto-key&cap=reviewer-raw-cap&role=reviewer")));
     assert(logs.some((message) => message.includes("#key=exported-crypto-key&cap=maintainer-raw-cap&role=maintainer")));
     assert(logs.some((message) => message.includes("maintainer URL can pull, push, close, or unshare")));
+});
+
+Deno.test("runPlansShareCommand prints inactivity expiry when the Plan Server reports retention", async () => {
+    const { deps } = fakeShareDeps({ expiresAt: "2026-07-11T12:00:00.000Z" });
+    const { logs } = await captureLogs(() => runPlansShareCommand(["demo-plan"], { __testDeps: deps }));
+    assert(logs.some((message) => message.includes("expires at 2026-07-11T12:00:00.000Z")));
+    assert(logs.some((message) => message.includes("viewing alone does not")));
 });
 
 Deno.test("runPlansShareCommand resolves active Plan by planId when name is missing", async () => {

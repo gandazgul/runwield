@@ -11,6 +11,7 @@ import { assertCapabilityScope } from "./capabilities.js";
  * @property {number} latestRevision
  * @property {"open" | "closed"} [status]
  * @property {string} [closedAt]
+ * @property {string} [expiresAt]
  */
 
 /**
@@ -126,6 +127,18 @@ export function assertPositiveInteger(value, name) {
 
 /**
  * @param {unknown} value
+ * @param {string} name
+ */
+export function assertIsoDateTimeString(value, name) {
+    const text = assertNonEmptyString(value, name);
+    if (!/^\d{4}-\d{2}-\d{2}T/.test(text) || Number.isNaN(Date.parse(text))) {
+        throw new Error(`${name} must be an ISO-8601 date-time string`);
+    }
+    return text;
+}
+
+/**
+ * @param {unknown} value
  * @returns {SharedSpaceMetadata}
  */
 export function normalizeSharedSpaceMetadata(value) {
@@ -143,6 +156,7 @@ export function normalizeSharedSpaceMetadata(value) {
         normalized.status = record.status;
     }
     if (record.closedAt !== undefined) normalized.closedAt = assertNonEmptyString(record.closedAt, "closedAt");
+    if (record.expiresAt !== undefined) normalized.expiresAt = assertIsoDateTimeString(record.expiresAt, "expiresAt");
     return normalized;
 }
 
