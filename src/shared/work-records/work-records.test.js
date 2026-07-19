@@ -428,6 +428,42 @@ Deno.test("Work Record backfill updates archived Plan backlinks", async () => {
     }
 });
 
+Deno.test("Work Record backfill retries failed Plan backlinks", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "retry", "# Retry\n\n## Plan\n\nBody", {
+            planId: "plan-retry",
+            classification: "FEATURE",
+            complexity: "LOW",
+            summary: "Retry failed Work Record generation.",
+            affectedPaths: [],
+            createdAt: "2026-07-14T00:00:00.000Z",
+            status: "verified",
+            workRecord: {
+                status: "failed",
+                lastAttemptAt: "2026-07-15T00:00:00.000Z",
+                error: "Recorder exploded",
+            },
+        });
+
+        const preview = await previewWorkRecordBackfill(cwd);
+        assertEquals(preview.eligible.map((source) => source.name), ["retry"]);
+        const result = await runWorkRecordBackfill(cwd, {
+            idGenerator: () => "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            now: () => new Date("2026-07-16T00:00:00.000Z"),
+            generateSections: () => ({ title: "Retry Outcome", summary: "Retry succeeded." }),
+        });
+
+        assertEquals(result.outcomes[0].status, "generated");
+        const plan = await loadPlan(cwd, "retry");
+        assertEquals(plan?.attrs.workRecord?.status, "generated");
+        assertEquals(plan?.attrs.workRecord?.recordId, "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
+        assertEquals(plan?.attrs.workRecord?.error, undefined);
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
 Deno.test("Work Record generation rejects empty structured sections and records failure backlink", async () => {
     const cwd = await Deno.makeTempDir();
     try {
