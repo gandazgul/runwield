@@ -2,8 +2,11 @@ import { assertEquals, assertRejects, assertStringIncludes, assertThrows } from 
 import {
     archiveWorkRecord,
     buildWorkRecordFileName,
+    buildWorkRecordIndexDocument,
+    buildWorkRecordIndexTags,
     filterWorkRecordsForList,
     findWorkRecordById,
+    formatHydratedWorkRecord,
     formatWorkRecordList,
     formatWorkRecordMarkdown,
     generateRecorderSections,
@@ -11,9 +14,13 @@ import {
     parseRecorderSections,
     parseWorkRecordMarkdown,
     previewWorkRecordBackfill,
+    readWorkRecordById,
+    rebuildWorkRecordIndex,
     restoreWorkRecord,
     runWorkRecordBackfill,
+    searchWorkRecords,
     supersedeWorkRecord,
+    syncWorkRecordToIndex,
     writeWorkRecord,
 } from "./index.js";
 import { archivePlan, loadArchivedPlan, loadPlan, savePlan } from "../../plan-store.js";
@@ -32,6 +39,11 @@ const INTERNAL_ATTRS = {
 
 const BODY =
     `# Example Work\n\n## Summary\n\nBuilt the durable store.\n\n## Future Planning Notes\n\nReuse this pattern.`;
+
+/** @param {string} stdout */
+function ok(stdout) {
+    return { success: true, code: 0, stdout: new TextEncoder().encode(stdout), stderr: new Uint8Array() };
+}
 
 Deno.test("Work Record markdown parses nested provenance and body sections", () => {
     const markdown = formatWorkRecordMarkdown({
@@ -591,4 +603,222 @@ Deno.test("Work Record backfill ignores non-linkable existing records and genera
     } finally {
         await Deno.remove(cwd, { recursive: true });
     }
+});
+
+Deno.test("Work Record index document uses compact summary metadata and tags only", () => {
+    const record = parseWorkRecordMarkdown(formatWorkRecordMarkdown(INTERNAL_ATTRS, BODY), {
+        relativePath: "docs/work-records/example.md",
+    });
+
+    const document = buildWorkRecordIndexDocument(record);
+    const tags = buildWorkRecordIndexTags(record);
+
+    assertStringIncludes(document, "## Summary");
+    assertStringIncludes(document, "Built the durable store.");
+    assertEquals(document.includes("## Future Planning Notes"), false);
+    assertEquals(document.includes("Reuse this pattern."), false);
+    assertEquals(tags.includes(`work-record:${INTERNAL_ATTRS.recordId}`), true);
+    assertEquals(tags.includes("status:approved"), true);
+    assertEquals(tags.includes("scope:feature"), true);
+    assertEquals(tags.includes("origin:internal"), true);
+    assertEquals(tags.includes("completion:verified"), true);
+    assertEquals(tags.includes("archived:false"), true);
+    assertEquals(tags.includes("superseded:false"), true);
+});
+
+Deno.test("Work Record index sync adds absent records and strictly updates existing records", async () => {
+    const record = parseWorkRecordMarkdown(formatWorkRecordMarkdown(INTERNAL_ATTRS, BODY), {
+        relativePath: "docs/work-records/example.md",
+    });
+    /** @type {string[][]} */
+    const calls = [];
+    let listCalls = 0;
+    const commandOutput = (/** @type {string} */ _command, /** @type {string[]} */ args) => {
+        calls.push(args);
+        if (args[0] === "update" && args[1] === "--help") {
+            return Promise.resolve(ok("Usage: mnemosyne update <id> [text] --replace-tags"));
+        }
+        if (args[0] === "init") return Promise.resolve(ok(""));
+        if (args[0] === "list") {
+            listCalls += 1;
+            return Promise.resolve(ok(listCalls === 1 ? "" : "[42] 2026-07-19 - old"));
+        }
+        if (args[0] === "add" || args[0] === "update") return Promise.resolve(ok(""));
+        throw new Error(`unexpected ${args.join(" ")}`);
+    };
+
+    await syncWorkRecordToIndex("/tmp/project", record, { commandOutput });
+    await syncWorkRecordToIndex("/tmp/project", record, { commandOutput });
+
+    assertEquals(
+        calls.some((args) => args[0] === "add" && args.includes(`work-record:${INTERNAL_ATTRS.recordId}`)),
+        true,
+    );
+    const updateCall = calls.find((args) => args[0] === "update" && args[1] !== "--help");
+    assertEquals(updateCall?.[1], "42");
+    assertEquals(updateCall?.includes("--replace-tags"), true);
+    assertEquals(updateCall?.includes(`work-record:${INTERNAL_ATTRS.recordId}`), true);
+});
+
+Deno.test("Work Record index sync rejects duplicate locator matches with rebuild guidance", async () => {
+    const record = parseWorkRecordMarkdown(formatWorkRecordMarkdown(INTERNAL_ATTRS, BODY), {
+        relativePath: "docs/work-records/example.md",
+    });
+    await assertRejects(
+        () =>
+            syncWorkRecordToIndex("/tmp/project", record, {
+                commandOutput: (/** @type {string} */ _command, /** @type {string[]} */ args) => {
+                    if (args[0] === "update" && args[1] === "--help") {
+                        return Promise.resolve(ok("Usage: mnemosyne update <id> [text] --replace-tags"));
+                    }
+                    if (args[0] === "init") return Promise.resolve(ok(""));
+                    if (args[0] === "list") return Promise.resolve(ok("[1] old\n[2] duplicate"));
+                    return Promise.resolve(ok(""));
+                },
+            }),
+        Error,
+        "wld wr index rebuild",
+    );
+});
+
+Deno.test("Work Record search rejects duplicate indexed locator candidates", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await writeWorkRecord(cwd, INTERNAL_ATTRS, BODY, { fileName: "2026-07-14-example.md" });
+        await assertRejects(
+            () =>
+                searchWorkRecords(cwd, "durable", {
+                    commandOutput: (/** @type {string} */ _command, /** @type {string[]} */ args) => {
+                        if (args[0] === "list") return Promise.resolve(ok("[1] indexed"));
+                        if (args[0] === "search") {
+                            return Promise.resolve(ok(JSON.stringify({
+                                results: [
+                                    { document_id: 1, metadata: { tags: [`work-record:${INTERNAL_ATTRS.recordId}`] } },
+                                    { document_id: 2, metadata: { tags: [`work-record:${INTERNAL_ATTRS.recordId}`] } },
+                                ],
+                            })));
+                        }
+                        return Promise.resolve(ok(""));
+                    },
+                }),
+            Error,
+            "wld wr index rebuild",
+        );
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+Deno.test("Work Record search bootstraps empty index, filters current records, and omits body from results", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        const currentRecord = await writeWorkRecord(cwd, INTERNAL_ATTRS, BODY, { fileName: "2026-07-14-example.md" });
+        const draftAttrs = { ...INTERNAL_ATTRS, recordId: "33333333-3333-4333-8333-333333333333", status: "draft" };
+        const draftRecord = await writeWorkRecord(
+            cwd,
+            /** @type {any} */ (draftAttrs),
+            BODY.replace("Example", "Draft"),
+            {
+                fileName: "2026-07-15-draft.md",
+            },
+        );
+        /** @type {string[][]} */
+        const calls = [];
+        const commandOutput = (/** @type {string} */ _command, /** @type {string[]} */ args) => {
+            calls.push(args);
+            if (args[0] === "update" && args[1] === "--help") {
+                return Promise.resolve(ok("Usage: mnemosyne update <id> [text] --replace-tags"));
+            }
+            if (args[0] === "list") return Promise.resolve(ok(""));
+            if (["forget", "init", "add"].includes(args[0])) return Promise.resolve(ok(""));
+            if (args[0] === "search") {
+                return Promise.resolve(ok(JSON.stringify({
+                    results: [
+                        { document_id: 1, metadata: { tags: [`work-record:${currentRecord.attrs.recordId}`] } },
+                        { document_id: 2, metadata: { tags: [`work-record:${draftRecord.attrs.recordId}`] } },
+                    ],
+                })));
+            }
+            return Promise.resolve(ok(""));
+        };
+
+        const result = await searchWorkRecords(cwd, "durable", { commandOutput });
+
+        assertEquals(result.bootstrapped, true);
+        assertEquals(calls.some((args) => args[0] === "add"), true);
+        assertEquals(result.records.map((record) => record.recordId), [currentRecord.attrs.recordId]);
+        assertEquals(Object.hasOwn(/** @type {any} */ (result.records[0]), "record"), false);
+        assertEquals(Object.hasOwn(/** @type {any} */ (formatHydratedWorkRecord(currentRecord)), "body"), false);
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+Deno.test("Work Record read current-only rejects non-current body while all mode returns it", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        const draftAttrs = { ...INTERNAL_ATTRS, recordId: "44444444-4444-4444-8444-444444444444", status: "draft" };
+        const draft = await writeWorkRecord(cwd, /** @type {any} */ (draftAttrs), BODY, {
+            fileName: "2026-07-15-draft.md",
+        });
+        await assertRejects(
+            () => readWorkRecordById(cwd, draft.attrs.recordId, { accessMode: "current" }),
+            Error,
+            "current-only mode",
+        );
+        const result = await readWorkRecordById(cwd, draft.attrs.recordId, { accessMode: "all" });
+        assertStringIncludes(result.body, "## Summary");
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+Deno.test("Work Record index rebuild forgets only the dedicated collection and reports partial failures", async () => {
+    const record = parseWorkRecordMarkdown(formatWorkRecordMarkdown(INTERNAL_ATTRS, BODY), {
+        relativePath: "docs/work-records/example.md",
+    });
+    /** @type {string[][]} */
+    const calls = [];
+    const result = await rebuildWorkRecordIndex("/tmp/project", {
+        listWorkRecords: () => Promise.resolve([record]),
+        commandOutput: (/** @type {string} */ _command, /** @type {string[]} */ args) => {
+            calls.push(args);
+            if (args[0] === "update" && args[1] === "--help") {
+                return Promise.resolve(ok("Usage: mnemosyne update <id> [text] --replace-tags"));
+            }
+            if (args[0] === "forget" || args[0] === "init" || args[0] === "add") return Promise.resolve(ok(""));
+            return Promise.resolve(ok(""));
+        },
+    });
+
+    assertEquals(calls.some((args) => args[0] === "forget" && args.includes("project:work-records")), true);
+    assertEquals(calls.some((args) => args[0] === "forget" && !args.includes("project:work-records")), false);
+    assertEquals(result.added, 1);
+    assertEquals(result.failed, 0);
+});
+
+Deno.test("Work Record index sync rejects locator listing without numeric document ID", async () => {
+    const record = parseWorkRecordMarkdown(formatWorkRecordMarkdown(INTERNAL_ATTRS, BODY), {
+        relativePath: "docs/work-records/example.md",
+    });
+    /** @type {string[][]} */
+    const calls = [];
+    await assertRejects(
+        () =>
+            syncWorkRecordToIndex("/tmp/project", record, {
+                commandOutput: (/** @type {string} */ _command, /** @type {string[]} */ args) => {
+                    calls.push(args);
+                    if (args[0] === "update" && args[1] === "--help") {
+                        return Promise.resolve(ok("Usage: mnemosyne update <id> [text] --replace-tags"));
+                    }
+                    if (args[0] === "init") return Promise.resolve(ok(""));
+                    if (args[0] === "list") return Promise.resolve(ok("work-record row missing numeric id"));
+                    if (args[0] === "add") throw new Error("must not add duplicate");
+                    return Promise.resolve(ok(""));
+                },
+            }),
+        Error,
+        "parseable Mnemosyne numeric document ID",
+    );
+    assertEquals(calls.some((args) => args[0] === "add"), false);
 });

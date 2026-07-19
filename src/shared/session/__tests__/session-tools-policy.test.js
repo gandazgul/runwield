@@ -449,3 +449,118 @@ Deno.test("resolveModel candidate metrics include enum failed reasons for skippe
     assertEquals(source.includes('event: "selection_resolved"'), true);
     assertEquals(source.includes("discovered"), true);
 });
+
+Deno.test("bundled Work Record tools are protected for planning roles and excluded from Engineer", async () => {
+    const plannerOverridePath = join(localAgentsDir, "planner.md");
+    const previous = await readFileIfExists(plannerOverridePath);
+    await Deno.mkdir(localAgentsDir, { recursive: true });
+    await Deno.writeTextFile(
+        plannerOverridePath,
+        [
+            "---",
+            "name: Planner",
+            "tools:",
+            "  - read",
+            "---",
+            "Local planner override.",
+        ].join("\n"),
+    );
+    try {
+        const planner = await loadAgentDef(AGENTS.PLANNER, CWD);
+        assert(planner.tools.includes("work_record_search"));
+        assert(planner.tools.includes("work_record_read"));
+        const guide = await loadAgentDef(AGENTS.GUIDE, CWD);
+        const recorder = await loadAgentDef(AGENTS.RECORDER, CWD);
+        const ideator = await loadAgentDef(AGENTS.IDEATOR, CWD);
+        const architect = await loadAgentDef(AGENTS.ARCHITECT, CWD);
+        for (const def of [guide, recorder, ideator, architect]) {
+            assert(def.tools.includes("work_record_search"));
+            assert(def.tools.includes("work_record_read"));
+        }
+        const engineer = await loadAgentDef(AGENTS.ENGINEER, CWD);
+        assertEquals(engineer.tools.includes("work_record_search"), false);
+        assertEquals(engineer.tools.includes("work_record_read"), false);
+    } finally {
+        await restoreFile(plannerOverridePath, previous);
+    }
+});
+
+Deno.test("buildAgentSession auto-wires Work Record tools with role access modes", async () => {
+    const originalHome = Deno.env.get("HOME");
+    const tempHome = await Deno.makeTempDir({ prefix: "runwield-work-record-tool-wiring-" });
+    /** @type {import('@earendil-works/pi-coding-agent').AgentSession[]} */
+    const sessions = [];
+    try {
+        Deno.env.set("HOME", tempHome);
+        __resetSettingsForTests();
+        await Deno.mkdir(join(tempHome, ".wld"), { recursive: true });
+        await Deno.writeTextFile(
+            join(tempHome, ".wld", "models.json"),
+            JSON.stringify({
+                providers: {
+                    test: {
+                        baseUrl: "https://example.invalid/v1",
+                        api: "openai-completions",
+                        apiKey: "test-key",
+                        models: [{ id: "model" }],
+                    },
+                },
+            }),
+        );
+
+        /** @param {string} agentName */
+        const build = async (agentName) => {
+            const built = await buildAgentSession({
+                cwd: tempHome,
+                agentName,
+                modelOverride: "test/model",
+                _agentDefOverride: {
+                    name: agentName,
+                    displayName: agentName,
+                    model: "",
+                    description: "Test Work Record tools",
+                    tools: ["work_record_search", "work_record_read"],
+                    systemPrompt: "Test prompt.",
+                },
+            });
+            sessions.push(built.session);
+            return built;
+        };
+
+        const guideBuilt = await build(AGENTS.GUIDE);
+        const plannerBuilt = await build(AGENTS.PLANNER);
+        const customBuilt = await build("custom-agent");
+        for (const built of [guideBuilt, plannerBuilt, customBuilt]) {
+            assert(built.finalCustomTools.find((tool) => tool.name === "work_record_search"));
+            assert(built.finalCustomTools.find((tool) => tool.name === "work_record_read"));
+        }
+
+        const guideSearch = /** @type {any} */ (guideBuilt.finalCustomTools.find((tool) =>
+            tool.name === "work_record_search"
+        ));
+        const plannerSearch = /** @type {any} */ (plannerBuilt.finalCustomTools.find((tool) =>
+            tool.name === "work_record_search"
+        ));
+        const customRead =
+            /** @type {any} */ (customBuilt.finalCustomTools.find((tool) => tool.name === "work_record_read"));
+        assertEquals(
+            (await guideSearch.execute("1", { query: "" }, undefined, undefined, {})).details.accessMode,
+            "all",
+        );
+        assertEquals(
+            (await plannerSearch.execute("1", { query: "" }, undefined, undefined, {})).details.accessMode,
+            "current",
+        );
+        assertEquals(
+            (await customRead.execute("1", { recordId: "" }, undefined, undefined, {})).details.accessMode,
+            "current",
+        );
+    } finally {
+        for (const session of sessions) session.dispose();
+        __resetSettingsForTests();
+        if (originalHome === undefined) Deno.env.delete("HOME");
+        else Deno.env.set("HOME", originalHome);
+        __resetSettingsForTests();
+        await Deno.remove(tempHome, { recursive: true });
+    }
+});
