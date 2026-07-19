@@ -18,6 +18,7 @@ import {
 import { runNonInteractiveAgentPrompt } from "../session/session.js";
 import { extractAssistantOutput } from "../workflow/workflow-results.js";
 import { listWorkRecords, writeWorkRecord } from "./store.js";
+import { syncWorkRecordToIndex } from "./index-adapter.js";
 
 const DEFAULT_CLOSURE_REASON = "Reason not specified.";
 const SKIPPED_VERIFICATION_TEXT = "RunWield Workflow Validation was skipped";
@@ -56,6 +57,8 @@ const SKIPPED_VERIFICATION_TEXT = "RunWield Workflow Validation was skipped";
  * @property {() => Date} [now]
  * @property {(source: WorkRecordSource) => Promise<GeneratedWorkRecordSections>|GeneratedWorkRecordSections} [generateSections]
  * @property {(prompt: string) => Promise<string>} [runRecorderPrompt]
+ * @property {typeof syncWorkRecordToIndex} [syncWorkRecordToIndex]
+ * @property {import('./index-adapter.js').WorkRecordIndexDeps['commandOutput']} [commandOutput]
  */
 
 /**
@@ -63,7 +66,7 @@ const SKIPPED_VERIFICATION_TEXT = "RunWield Workflow Validation was skipped";
  * @property {WorkRecordSource[]} sources
  * @property {WorkRecordSource[]} eligible
  * @property {WorkRecordSource[]} skipped
- * @property {Array<{ source: WorkRecordSource, status: "generated"|"linked"|"failed", recordId?: string, path?: string, error?: string }>} outcomes
+ * @property {Array<{ source: WorkRecordSource, status: "generated"|"linked"|"failed", recordId?: string, path?: string, error?: string, indexWarning?: string }>} outcomes
  */
 
 /** @param {Date} date */
@@ -372,7 +375,7 @@ function buildRecorderPrompt(source) {
 export async function generateRecorderSections(cwd, source, options = {}) {
     const prompt = buildRecorderPrompt(source);
     const text = options.runRecorderPrompt ? await options.runRecorderPrompt(prompt) : extractAssistantOutput(
-        await runNonInteractiveAgentPrompt({ cwd, agentName: AGENTS.PLANNER, userRequest: prompt }),
+        await runNonInteractiveAgentPrompt({ cwd, agentName: AGENTS.RECORDER, userRequest: prompt }),
     ) || "";
     return parseRecorderSections(text);
 }
@@ -471,6 +474,23 @@ async function linkSourceToRecord(cwd, source, record, now) {
 
 /**
  * @param {string} cwd
+ * @param {import('./schema.js').WorkRecordResource} record
+ * @param {GenerationOptions} options
+ */
+async function bestEffortSyncGeneratedRecord(cwd, record, options) {
+    try {
+        const sync = options.syncWorkRecordToIndex || syncWorkRecordToIndex;
+        await sync(cwd, record, { commandOutput: options.commandOutput });
+        return "";
+    } catch (error) {
+        return `Work Record index sync failed for ${record.attrs.recordId}: ${
+            conciseError(error)
+        } Run wld wr index rebuild.`;
+    }
+}
+
+/**
+ * @param {string} cwd
  * @param {WorkRecordSource} source
  * @param {Date} now
  * @param {unknown} error
@@ -506,11 +526,13 @@ export async function generateWorkRecordForSource(cwd, inputSource, options = {}
         }
         if (source.existingRecord) {
             await linkSourceToRecord(cwd, source, source.existingRecord, now);
+            const indexWarning = await bestEffortSyncGeneratedRecord(cwd, source.existingRecord, options);
             return {
                 source,
                 status: "linked",
                 recordId: source.existingRecord.attrs.recordId,
                 path: source.existingRecord.relativePath,
+                ...(indexWarning ? { indexWarning } : {}),
             };
         }
         const generateSections = options.generateSections ||
@@ -530,7 +552,14 @@ export async function generateWorkRecordForSource(cwd, inputSource, options = {}
         };
         const record = await writeWorkRecord(cwd, attrs, buildBody(source, sections));
         await linkSourceToRecord(cwd, source, record, now);
-        return { source, status: "generated", recordId: record.attrs.recordId, path: record.relativePath };
+        const indexWarning = await bestEffortSyncGeneratedRecord(cwd, record, options);
+        return {
+            source,
+            status: "generated",
+            recordId: record.attrs.recordId,
+            path: record.relativePath,
+            ...(indexWarning ? { indexWarning } : {}),
+        };
     } catch (error) {
         await recordGenerationFailure(cwd, source, now, error);
         return { source, status: "failed", error: conciseError(error) };
@@ -600,6 +629,7 @@ export function formatWorkRecordBackfillOutcomes(outcomes) {
             lines.push(
                 `  ${outcome.status === "linked" ? "Linked" : "Generated"} ${outcome.source.name}: ${outcome.path}`,
             );
+            if (outcome.indexWarning) lines.push(`    WARNING: ${outcome.indexWarning}`);
         }
     }
     const failed = outcomes.filter((outcome) => outcome.status === "failed").length;

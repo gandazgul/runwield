@@ -25,6 +25,9 @@ export function workRecordNotices(record) {
     if (record.attrs.completionMode === "closed_without_verification") {
         notices.push("WARNING: RunWield verification was skipped.");
     }
+    if (record.attrs.completionMode === "done_enough") {
+        notices.push("NOTICE: PROJECT Epic was closed as done enough; deferred scope may remain.");
+    }
     if (record.attrs.status !== "approved") notices.push(`WARNING: status is ${record.attrs.status}.`);
     if (record.attrs.archivedAt) notices.push(`WARNING: archived at ${record.attrs.archivedAt}.`);
     if (record.attrs.status === "superseded" || record.attrs.supersededBy) {

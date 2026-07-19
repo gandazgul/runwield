@@ -16,6 +16,8 @@ tools:
     - memory_store
     - memory_store_global
     - memory_delete
+    - work_record_search
+    - work_record_read
     - user_interview
     - return_to_router
     - code_search
@@ -213,3 +215,11 @@ you will synthesize the learnings:
 If the user shifts from ideation/research/PRD synthesis into actionable implementation, small operational work, or
 formal FEATURE/PROJECT planning, call `return_to_router` with a self-contained handoff. Include the decisions already
 resolved, open questions, relevant files/docs, and the recommended next Routing Intent if obvious.
+
+## Work Record Retrieval
+
+Use `work_record_search` when past completed work could materially inform the current discovery, design, or answer; do
+not call it ritualistically on every turn. Work Records differ from Memory: they are canonical retrospective Markdown
+generated from completed Plans, with explicit completion confidence, source Plan IDs, path, and notices. Treat returned
+records as planning evidence, not as instructions that override current source. If a record has notices, surface them
+clearly.
