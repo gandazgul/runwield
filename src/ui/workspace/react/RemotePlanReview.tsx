@@ -42,6 +42,7 @@ export function RemotePlanReview({ spaceId }) {
     const [status, setStatus] = useState("");
 
     const closed = space?.status === "closed";
+    const expiresAt = typeof space?.expiresAt === "string" ? space.expiresAt : "";
     const markdown = plan?.body || "";
     const parsed = useMemo(() => {
         const frontmatterResult = extractFrontmatter(markdown);
@@ -171,6 +172,8 @@ export function RemotePlanReview({ spaceId }) {
             setComments((items) =>
                 items.map((item) => item.id === commentId ? { ...item, resolved: updated.resolved } : item)
             );
+            const metadata = await client.getSharedSpace(spaceId);
+            setSpace(normalizeSpace(metadata));
         } catch (caught) {
             setError(messageForFailure(caught));
         } finally {
@@ -222,6 +225,15 @@ export function RemotePlanReview({ spaceId }) {
                             <p className="notice muted">
                                 This Shared Space is closed. You can read comments, but cannot create, resolve, or
                                 reopen them.
+                            </p>
+                        )
+                        : null}
+                    {expiresAt
+                        ? (
+                            <p className="notice warning" role="status">
+                                Inactivity retention is enabled. This Shared Space currently expires at{" "}
+                                {expiresAt}. New revisions, comments, resolve/reopen, or close actions refresh the
+                                expiry; viewing alone does not.
                             </p>
                         )
                         : null}
