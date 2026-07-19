@@ -48,6 +48,13 @@ function makeReport(overrides = {}) {
                 tokens: 20,
             },
             {
+                label: "agent-browser-use",
+                name: "agent-browser-use",
+                source: "bundled",
+                path: "/skills/agent-browser-use/SKILL.md",
+                tokens: 15,
+            },
+            {
                 label: "local-skill",
                 name: "local-skill",
                 source: "local",
@@ -89,11 +96,15 @@ Deno.test("formatContextReport renders active model, categories, files, and sour
             "/tmp/RUNWEILD.md [local]: ~10 tokens",
             "local:",
             "bundled:",
+            "agent-browser-use: ~15 tokens",
             "write-tests: ~20 tokens",
         ]
     ) {
         assertEquals(plain.includes(expected), true, expected);
     }
+
+    assertEquals(plain.indexOf("local:") < plain.indexOf("bundled:"), true);
+    assertEquals(plain.indexOf("agent-browser-use") < plain.indexOf("write-tests"), true);
 });
 
 Deno.test("formatContextReport makes unavailable and unknown states explicit", () => {

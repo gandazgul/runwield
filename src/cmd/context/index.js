@@ -118,11 +118,15 @@ export function formatContextReport(report) {
  * @returns {Array<[string, import('../../shared/session/session-context-report.js').ContextProjectionItem[]]>}
  */
 function groupItemsBySource(items) {
+    /** @type {Map<string, import('../../shared/session/session-context-report.js').ContextProjectionItem[]>} */
     const groups = new Map();
     for (const item of items) {
         const source = item.source || "other";
         if (!groups.has(source)) groups.set(source, []);
-        groups.get(source).push(item);
+        groups.get(source)?.push(item);
+    }
+    for (const groupItems of groups.values()) {
+        groupItems.sort((a, b) => (a.name || a.label).localeCompare(b.name || b.label));
     }
     return [...groups.entries()].sort(([a], [b]) => {
         const ai = SOURCE_ORDER.indexOf(a);
