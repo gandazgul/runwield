@@ -106,7 +106,7 @@ Publishes an active saved Plan to a remote Plan Server and prints secret reviewe
 
 /**
  * @param {unknown} value
- * @returns {{ spaceId: string, latestRevision: number }}
+ * @returns {{ spaceId: string, latestRevision: number, expiresAt?: string }}
  */
 function normalizeCreateResponse(value) {
     if (value && typeof value === "object" && !Array.isArray(value) && "space" in value) {
@@ -114,7 +114,7 @@ function normalizeCreateResponse(value) {
     }
     const metadata = normalizeSharedSpaceMetadata(value);
     if (metadata.latestRevision !== 1) throw new Error("Plan Server create response must report latestRevision 1.");
-    return { spaceId: metadata.spaceId, latestRevision: metadata.latestRevision };
+    return { spaceId: metadata.spaceId, latestRevision: metadata.latestRevision, expiresAt: metadata.expiresAt };
 }
 
 /**
@@ -227,6 +227,7 @@ async function cleanupRemoteSpace(deps, serverUrl, spaceId, maintainerCapability
  * @property {string} serverUrl
  * @property {string} spaceId
  * @property {number} revision
+ * @property {string} [expiresAt]
  * @property {boolean} reused
  */
 
@@ -444,6 +445,7 @@ export async function sharePlanForReview(shareOptions, deps = {}) {
         serverUrl,
         spaceId: created.spaceId,
         revision: 1,
+        expiresAt: created.expiresAt,
         reused: false,
     };
 }
@@ -474,6 +476,11 @@ export async function runPlansShareCommand(argv, options = {}) {
     console.log(shared.reviewerUrl);
     console.log("\nMaintainer URL (powerful secret):");
     console.log(shared.maintainerUrl);
+    if (shared.expiresAt) {
+        console.log(
+            `\nInactivity retention: this Shared Space expires at ${shared.expiresAt}. New revisions, comments, resolve/reopen, or close actions refresh the expiry; viewing alone does not.`,
+        );
+    }
     console.log(
         "\nWarning: anyone with the maintainer URL can pull, push, close, or unshare this Shared Space. Store these URLs securely; RunWield will not print them again.",
     );
