@@ -40,7 +40,7 @@
     "npm:@earendil-works/pi-agent-core@~0.80.5": "0.80.5_zod@3.25.76",
     "npm:@earendil-works/pi-ai@~0.80.5": "0.80.5_zod@3.25.76",
     "npm:@earendil-works/pi-coding-agent@~0.80.5": "0.80.5_zod@3.25.76",
-    "npm:@earendil-works/pi-tui@~0.80.5": "0.80.5",
+    "npm:@earendil-works/pi-tui@~0.80.10": "0.80.10",
     "npm:@lezer/common@^1.5.2": "1.5.2",
     "npm:@lezer/highlight@^1.2.3": "1.2.3",
     "npm:@pierre/diffs@1.2.8": "1.2.8_react@19.2.7_react-dom@19.2.7__react@19.2.7",
@@ -72,7 +72,6 @@
     "npm:class-variance-authority@~0.7.1": "0.7.1",
     "npm:clsx@^2.1.1": "2.1.1",
     "npm:codemirror@^6.0.2": "6.0.2",
-    "npm:diff@8.0.4": "8.0.4",
     "npm:diff@^8.0.4": "8.0.4",
     "npm:dockview-react@^5.2.0": "5.2.0_react@19.2.7",
     "npm:dompurify@*": "3.4.11",
@@ -930,8 +929,8 @@
       ],
       "bin": true
     },
-    "@earendil-works/pi-tui@0.80.5": {
-      "integrity": "sha512-raxEUD2CvCDNJuOWEAI+xD7vmxCrGH0NYb31+GQDdL1q9WXn5+uNLgP1vkJfOsTvf9k5zU5sNFA06oBIcWSYtQ==",
+    "@earendil-works/pi-tui@0.80.10": {
+      "integrity": "sha512-c2JO29PbhKPEQ6fgHQKAl0WhwuFqzWfzspMmP+8B5tpDuP+0mvarRbKKg8gq4b+pQx/QX+6aVS4ko7deoyjQjg==",
       "dependencies": [
         "get-east-asian-width",
         "marked@18.0.5"
@@ -6916,7 +6915,7 @@
       "npm:@earendil-works/pi-agent-core@~0.80.5",
       "npm:@earendil-works/pi-ai@~0.80.5",
       "npm:@earendil-works/pi-coding-agent@~0.80.5",
-      "npm:@earendil-works/pi-tui@~0.80.5",
+      "npm:@earendil-works/pi-tui@~0.80.10",
       "npm:@lezer/common@^1.5.2",
       "npm:@lezer/highlight@^1.2.3",
       "npm:@pierre/diffs@1.2.8",
@@ -6971,11 +6970,6 @@
       "npm:typescript@^5.9.3",
       "npm:unique-username-generator@^1.5.1",
       "npm:vite@^8.1.3"
-    ],
-    "packageJson": {
-      "dependencies": [
-        "npm:diff@8.0.4"
-      ]
-    }
+    ]
   }
 }
