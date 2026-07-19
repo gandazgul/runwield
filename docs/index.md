@@ -162,6 +162,8 @@ For editor behavior, message queue behavior, file references, shell commands, an
 - [Themes](themes.md) - RunWield theme package behavior and theme files.
 - [Design System](design-system.md) - browser UI tokens, patterns, and Plannotator port guidance.
 - [Plan Lifecycle](plan-lifecycle.md) - durable plan and worktree state machine.
+- [ACP Implementation Details and Gaps](acp-implementation-details.md) - current ACP v1 MVP behavior, conformance gaps,
+  and optional protocol coverage.
 - [Router Model Selection](router-model-selection.md) - evaluation findings for the Router model choice.
 - [Session Compaction](prd/done/compaction-PRD.md) - Pi compaction behavior and RunWield integration background.
 
