@@ -8,6 +8,8 @@ import {
 } from "../../../shared/collaboration/capabilities.js";
 import { openRemoteDatabase } from "./remote-db.js";
 
+const EXPIRED_SPACE_CLEANUP_BATCH_SIZE = 100;
+
 export class RemoteWorkspaceError extends Error {
     /** @param {string} code @param {string} message @param {number} status */
     constructor(code, message, status) {
@@ -17,6 +19,11 @@ export class RemoteWorkspaceError extends Error {
         this.status = status;
     }
 }
+
+/**
+ * @typedef {Object} RemoteRetentionPolicy
+ * @property {number} [days]
+ */
 
 /**
  * @typedef {Object} RemoteWorkspaceAdapter
@@ -32,42 +39,97 @@ export class RemoteWorkspaceError extends Error {
  * @property {(spaceId: string, commentId: string, action: "resolve" | "reopen") => any} setCommentState
  * @property {(spaceId: string) => any} closeSharedSpace
  * @property {(spaceId: string) => void} deleteSharedSpace
+ * @property {() => { ok: true, mode: "remote" }} ready
+ * @property {() => number} cleanupExpiredSharedSpaces
+ * @property {() => void} reconcileRetentionPolicy
  * @property {() => void} close
  */
 
-/** @param {{ dbPath?: string, database?: import("./remote-db.js").RemoteDatabase }} [options] @returns {RemoteWorkspaceAdapter} */
+/**
+ * @param {{ dbPath?: string, database?: import("./remote-db.js").RemoteDatabase, retention?: RemoteRetentionPolicy, now?: () => Date }} [options]
+ * @returns {RemoteWorkspaceAdapter}
+ */
 export function createRemoteWorkspaceAdapter(options = {}) {
     const database = options.database ?? openRemoteDatabase({ dbPath: options.dbPath });
     const db = database.handle;
+    const retentionDays = options.retention?.days;
+    const now = options.now ?? (() => new Date());
+    let closed = false;
+
+    /** @param {string} timestamp */
+    const expiryFor = (timestamp) => retentionDays ? addDaysIso(new Date(timestamp), retentionDays) : null;
+    const currentIso = () => now().toISOString();
 
     return {
         database,
-        close: database.close,
+        close() {
+            if (closed) return;
+            closed = true;
+            database.close();
+        },
+        reconcileRetentionPolicy() {
+            database.transaction(() => {
+                if (!retentionDays) {
+                    db.prepare("UPDATE shared_spaces SET expires_at = NULL WHERE expires_at IS NOT NULL").run();
+                    return;
+                }
+                const expiry = expiryFor(currentIso());
+                db.prepare("UPDATE shared_spaces SET expires_at = ? WHERE expires_at IS NULL").run(expiry);
+            });
+        },
+        ready() {
+            db.prepare("SELECT 1").get();
+            return { ok: true, mode: "remote" };
+        },
+        cleanupExpiredSharedSpaces() {
+            if (!retentionDays) return 0;
+            let deleted = 0;
+            while (true) {
+                const cutoff = currentIso();
+                const changes = database.transaction(() => {
+                    const result = db.prepare(
+                        `DELETE FROM shared_spaces
+                         WHERE id IN (
+                             SELECT id FROM shared_spaces
+                             WHERE expires_at IS NOT NULL AND expires_at <= ?
+                             ORDER BY expires_at, id
+                             LIMIT ?
+                         )`,
+                    ).run(cutoff, EXPIRED_SPACE_CLEANUP_BATCH_SIZE);
+                    return Number(result.changes ?? 0);
+                });
+                deleted += changes;
+                if (changes < EXPIRED_SPACE_CLEANUP_BATCH_SIZE) return deleted;
+            }
+        },
         createSharedSpace(input) {
             const spaceId = crypto.randomUUID();
-            const now = nowIso();
+            const nowIso = currentIso();
+            const expiresAt = expiryFor(nowIso);
             return database.transaction(() => {
                 db.prepare(
-                    "INSERT INTO shared_spaces(id, plan_id, status, latest_revision, created_at, updated_at) VALUES (?, ?, 'open', 1, ?, ?)",
-                ).run(spaceId, input.planId, now, now);
+                    "INSERT INTO shared_spaces(id, plan_id, status, latest_revision, created_at, updated_at, expires_at) VALUES (?, ?, 'open', 1, ?, ?, ?)",
+                ).run(spaceId, input.planId, nowIso, nowIso, expiresAt);
                 db.prepare(
                     "INSERT INTO space_revisions(space_id, revision, payload_ciphertext, created_at) VALUES (?, 1, ?, ?)",
-                ).run(spaceId, input.payloadCiphertext, now);
+                ).run(spaceId, input.payloadCiphertext, nowIso);
                 const insertCapability = db.prepare(
                     "INSERT INTO space_capabilities(space_id, scope, capability_hash, created_at) VALUES (?, ?, ?, ?)",
                 );
                 for (const capability of input.capabilities) {
-                    insertCapability.run(spaceId, capability.scope, capability.capabilityHash, now);
+                    insertCapability.run(spaceId, capability.scope, capability.capabilityHash, nowIso);
                 }
-                return {
+                /** @type {any} */
+                const space = {
                     spaceId,
                     planId: input.planId,
                     status: "open",
                     latestRevision: 1,
-                    createdAt: now,
-                    updatedAt: now,
-                    revisions: [{ spaceId, revision: 1, createdAt: now }],
+                    createdAt: nowIso,
+                    updatedAt: nowIso,
                 };
+                if (expiresAt) space.expiresAt = expiresAt;
+                return withRevisions(space, [{ spaceId, revision: 1, createdAt: nowIso }]);
             });
         },
         async verifyCapability(spaceId, capability, requiredScope) {
@@ -97,16 +159,12 @@ export function createRemoteWorkspaceAdapter(options = {}) {
                 if (expectedRevision !== undefined && expectedRevision !== nextRevision) {
                     throw conflict("Revision conflict.");
                 }
-                const now = nowIso();
+                const nowIso = currentIso();
                 db.prepare(
                     "INSERT INTO space_revisions(space_id, revision, payload_ciphertext, created_at) VALUES (?, ?, ?, ?)",
-                ).run(spaceId, nextRevision, payloadCiphertext, now);
-                db.prepare("UPDATE shared_spaces SET latest_revision = ?, updated_at = ? WHERE id = ?").run(
-                    nextRevision,
-                    now,
-                    spaceId,
-                );
-                return { spaceId, revision: nextRevision, payloadCiphertext, createdAt: now };
+                ).run(spaceId, nextRevision, payloadCiphertext, nowIso);
+                touchSpace(db, spaceId, nowIso, expiryFor(nowIso), "latest_revision = ?", [nextRevision]);
+                return { spaceId, revision: nextRevision, payloadCiphertext, createdAt: nowIso };
             });
         },
         listComments(spaceId, revision) {
@@ -121,11 +179,12 @@ export function createRemoteWorkspaceAdapter(options = {}) {
                 assertOpen(space);
                 getRevisionRow(db, spaceId, revision);
                 const id = crypto.randomUUID();
-                const now = nowIso();
+                const nowIso = currentIso();
                 db.prepare(
                     "INSERT INTO space_comments(id, space_id, revision, ciphertext, resolved, created_at, updated_at) VALUES (?, ?, ?, ?, 0, ?, ?)",
-                ).run(id, spaceId, revision, ciphertext, now, now);
-                return { id, spaceId, revision, ciphertext, resolved: false, createdAt: now, updatedAt: now };
+                ).run(id, spaceId, revision, ciphertext, nowIso, nowIso);
+                touchSpace(db, spaceId, nowIso, expiryFor(nowIso));
+                return { id, spaceId, revision, ciphertext, resolved: false, createdAt: nowIso, updatedAt: nowIso };
             });
         },
         setCommentState(spaceId, commentId, action) {
@@ -137,28 +196,36 @@ export function createRemoteWorkspaceAdapter(options = {}) {
                 ).get(spaceId, commentId);
                 if (!row) throw notFound("Comment not found.");
                 const resolved = action === "resolve" ? 1 : 0;
-                const now = nowIso();
+                const nowIso = currentIso();
                 db.prepare("UPDATE space_comments SET resolved = ?, updated_at = ? WHERE space_id = ? AND id = ?").run(
                     resolved,
-                    now,
+                    nowIso,
                     spaceId,
                     commentId,
                 );
-                return mapComment({ ...row, resolved, updated_at: now });
+                touchSpace(db, spaceId, nowIso, expiryFor(nowIso));
+                return mapComment({ ...row, resolved, updated_at: nowIso });
             });
         },
         closeSharedSpace(spaceId) {
             return database.transaction(() => {
                 const space = getSpaceRow(db, spaceId);
-                if (space.status === "closed") return mapSpace(space);
-                const now = nowIso();
-                db.prepare("UPDATE shared_spaces SET status = 'closed', updated_at = ?, closed_at = ? WHERE id = ?")
-                    .run(
-                        now,
-                        now,
-                        spaceId,
-                    );
-                return mapSpace({ ...space, status: "closed", updated_at: now, closed_at: now });
+                const nowIso = currentIso();
+                const expiresAt = expiryFor(nowIso);
+                if (space.status === "closed") {
+                    touchSpace(db, spaceId, nowIso, expiresAt);
+                    return mapSpace({ ...space, updated_at: nowIso, expires_at: expiresAt });
+                }
+                db.prepare(
+                    "UPDATE shared_spaces SET status = 'closed', updated_at = ?, closed_at = ?, expires_at = ? WHERE id = ?",
+                ).run(nowIso, nowIso, expiresAt, spaceId);
+                return mapSpace({
+                    ...space,
+                    status: "closed",
+                    updated_at: nowIso,
+                    closed_at: nowIso,
+                    expires_at: expiresAt,
+                });
             });
         },
         deleteSharedSpace(spaceId) {
@@ -187,7 +254,7 @@ async function verifyCapability(db, spaceId, capability, requiredScope) {
 /** @param {import("node:sqlite").DatabaseSync} db @param {string} spaceId */
 function getSpaceRow(db, spaceId) {
     const row = db.prepare(
-        "SELECT id, plan_id, status, latest_revision, created_at, updated_at, closed_at FROM shared_spaces WHERE id = ?",
+        "SELECT id, plan_id, status, latest_revision, created_at, updated_at, closed_at, expires_at FROM shared_spaces WHERE id = ?",
     ).get(spaceId);
     if (!row) throw notFound("Shared Space not found or deleted.");
     return row;
@@ -209,6 +276,29 @@ function listRevisionMetadata(db, spaceId) {
     ).all(spaceId).map((row) => mapRevision(row, false));
 }
 
+/**
+ * @param {import("node:sqlite").DatabaseSync} db
+ * @param {string} spaceId
+ * @param {string} updatedAt
+ * @param {string | null} expiresAt
+ * @param {string} [extraSet]
+ * @param {any[]} [extraValues]
+ */
+function touchSpace(db, spaceId, updatedAt, expiresAt, extraSet = "", extraValues = []) {
+    const prefix = extraSet ? `${extraSet}, ` : "";
+    db.prepare(`UPDATE shared_spaces SET ${prefix}updated_at = ?, expires_at = ? WHERE id = ?`).run(
+        ...extraValues,
+        updatedAt,
+        expiresAt,
+        spaceId,
+    );
+}
+
+/** @param {any} space @param {any[]} revisions */
+function withRevisions(space, revisions) {
+    return { ...space, revisions };
+}
+
 /** @param {any} row */
 function mapSpace(row) {
     /** @type {any} */
@@ -221,6 +311,7 @@ function mapSpace(row) {
         updatedAt: String(row.updated_at),
     };
     if (row.closed_at) space.closedAt = String(row.closed_at);
+    if (row.expires_at) space.expiresAt = String(row.expires_at);
     return space;
 }
 
@@ -254,6 +345,11 @@ function assertOpen(space) {
     if (space.status === "closed") throw conflict("Shared Space is closed.");
 }
 
+/** @param {Date} start @param {number} days */
+function addDaysIso(start, days) {
+    return new Date(start.getTime() + days * 24 * 60 * 60 * 1000).toISOString();
+}
+
 /** @param {string} message */
 function notFound(message) {
     return new RemoteWorkspaceError("not_found", message, 404);
@@ -262,8 +358,4 @@ function notFound(message) {
 /** @param {string} message */
 function conflict(message) {
     return new RemoteWorkspaceError("conflict", message, 409);
-}
-
-function nowIso() {
-    return new Date().toISOString();
 }
