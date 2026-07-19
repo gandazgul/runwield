@@ -894,6 +894,20 @@ async function resolveModel(
                 source: `settings model for agent "${agentName}"`,
                 strict: true,
             });
+        } else if (candidateModels.length === 0 && agentName.toLowerCase() !== "engineer") {
+            const engineerModel = getConfiguredAgentModel("engineer", projectRoot);
+            if (engineerModel) {
+                emitSystemStatus(
+                    hostedSession || undefined,
+                    `[RunWield] No model configured for agent "${agentName}"; falling back to Engineer model: ${engineerModel}`,
+                    { level: "warning" },
+                );
+                candidateModels.push({
+                    model: engineerModel,
+                    source: `Engineer fallback model for agent "${agentName}"`,
+                    strict: true,
+                });
+            }
         }
     }
 

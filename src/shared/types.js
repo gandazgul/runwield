@@ -29,6 +29,13 @@
  */
 
 /**
+ * @typedef {Object} ContextUsageSnapshot
+ * @property {number | null} tokens
+ * @property {number} contextWindow
+ * @property {number | null} percent
+ */
+
+/**
  * @typedef {Object} SessionSnapshot
  * @property {string} id
  * @property {string} cwd
@@ -44,6 +51,8 @@
  * @property {import('./session/session-runtime-events.js').RuntimeQueuedMessage[]} queuedMessages
  * @property {import('./session/workflow-context-session.js').WorkflowContext | null} workflowContext
  * @property {Record<string, unknown> | null} activeExecutionWorkflow
+ * @property {ContextUsageSnapshot | null} contextUsage
+ * @property {boolean | null} autoCompactionEnabled
  */
 
 export {};
