@@ -4,3 +4,5 @@ export * from "./store.js";
 export * from "./lifecycle.js";
 export * from "./list.js";
 export * from "./generation.js";
+export * from "./index-adapter.js";
+export * from "./search.js";

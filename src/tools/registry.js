@@ -34,4 +34,6 @@ export const PROTECTED_TOOL_NAMES = Object.freeze([
     "task_completed",
     "return_to_router",
     "user_interview",
+    "work_record_search",
+    "work_record_read",
 ]);
