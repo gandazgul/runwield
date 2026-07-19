@@ -94,6 +94,40 @@ function formatTokens(count) {
 }
 
 /**
+ * @typedef {Object} FooterContextUsage
+ * @property {number} [contextWindow]
+ * @property {number | null} [percent]
+ */
+
+/**
+ * @typedef {Object} FooterContextStat
+ * @property {string} text
+ * @property {"dim" | "warning" | "error"} token
+ */
+
+/**
+ * Format the active Agent's context-window capacity for the footer.
+ *
+ * @param {FooterContextUsage | null | undefined} contextUsage
+ * @param {boolean | null | undefined} autoCompactionEnabled
+ * @returns {FooterContextStat | null}
+ */
+export function buildFooterContextStat(contextUsage, autoCompactionEnabled) {
+    const contextWindow = Number(contextUsage?.contextWindow ?? 0) || 0;
+    if (contextWindow <= 0) return null;
+
+    const percent = typeof contextUsage?.percent === "number" ? contextUsage.percent : null;
+    const percentText = percent === null ? "?" : `${percent.toFixed(1)}%`;
+    const autoCompactText = autoCompactionEnabled === false ? "" : " (Auto-compact)";
+    const token = percent !== null && percent > 90 ? "error" : percent !== null && percent > 70 ? "warning" : "dim";
+
+    return {
+        text: `${percentText}/${formatTokens(contextWindow)}${autoCompactText}`,
+        token,
+    };
+}
+
+/**
  * @param {string} modelStr
  * @param {string} thinkingLevel
  * @returns {boolean}
@@ -268,7 +302,9 @@ const CLIPBOARD_IMAGE_HINT_TEXT = "Image in clipboard · ctrl+v to paste";
 export function renderClipboardImageHintLines(clipboardImageAvailable, pastedImageCount, width, themeImpl = theme) {
     if (!clipboardImageAvailable || pastedImageCount > 0 || width <= 0) return [];
     const text = truncateToWidth(CLIPBOARD_IMAGE_HINT_TEXT, width);
-    return [themeImpl.fg ? themeImpl.fg("dim", text) : text];
+    const padding = " ".repeat(Math.max(0, width - visibleWidth(text)));
+    const styledText = themeImpl.fg ? themeImpl.fg("dim", text) : text;
+    return [padding + styledText];
 }
 
 /**
@@ -607,7 +643,8 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
 
             // ── Token consumption data (Pi.dev-style footer) ──
             const usage = runtimeUsage;
-            const contextStr = "";
+            const contextStat = buildFooterContextStat(snapshot.contextUsage, snapshot.autoCompactionEnabled);
+            const contextStr = contextStat ? theme.fg(contextStat.token, contextStat.text) : "";
 
             const statsParts = [];
             if (usage.input > 0) statsParts.push(`↑${formatTokens(usage.input)}`);

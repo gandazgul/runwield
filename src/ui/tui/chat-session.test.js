@@ -1,6 +1,7 @@
 import { assertEquals, assertRejects } from "@std/assert";
 import {
     __setSettingsManagerForPersistenceTests,
+    buildFooterContextStat,
     buildFooterLine1Parts,
     buildFooterWorkflowLabelParts,
     getActiveModel,
@@ -19,6 +20,26 @@ Deno.test("footer thinking level is hidden until a model is configured", () => {
     assertEquals(shouldShowFooterThinkingLevel("", "medium"), false);
     assertEquals(shouldShowFooterThinkingLevel("test/model", "off"), false);
     assertEquals(shouldShowFooterThinkingLevel("test/model", "medium"), true);
+});
+
+Deno.test("footer context stat shows percentage, total capacity, and auto-compaction", () => {
+    assertEquals(
+        buildFooterContextStat({ contextWindow: 1_000_000, percent: 48.65 }, true),
+        { text: "48.6%/1.0M (Auto-compact)", token: "dim" },
+    );
+    assertEquals(
+        buildFooterContextStat({ contextWindow: 128_000, percent: 75 }, false),
+        { text: "75.0%/128k", token: "warning" },
+    );
+    assertEquals(
+        buildFooterContextStat({ contextWindow: 200_000, percent: 95 }, true),
+        { text: "95.0%/200k (Auto-compact)", token: "error" },
+    );
+    assertEquals(
+        buildFooterContextStat({ contextWindow: 128_000, percent: null }, true),
+        { text: "?/128k (Auto-compact)", token: "dim" },
+    );
+    assertEquals(buildFooterContextStat(null, true), null);
 });
 
 Deno.test("startup replays history only when continuing a persisted session", () => {
@@ -70,7 +91,7 @@ Deno.test("clipboard image hint renders above input only until an image is paste
     };
     assertEquals(
         renderClipboardImageHintLines(true, 0, 80, themeImpl),
-        ["<dim>Image in clipboard · ctrl+v to paste</dim>"],
+        [`${" ".repeat(44)}<dim>Image in clipboard · ctrl+v to paste</dim>`],
     );
     assertEquals(renderClipboardImageHintLines(false, 0, 80, themeImpl), []);
     assertEquals(renderClipboardImageHintLines(true, 1, 80, themeImpl), []);
