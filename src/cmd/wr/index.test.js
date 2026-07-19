@@ -166,3 +166,174 @@ Deno.test("wld wr backfill rejects conflicting confirmation flags", async () => 
         "Cannot combine --yes with --dry-run",
     );
 });
+
+Deno.test("wld wr search prints hydrated current-only results", async () => {
+    /** @type {string[]} */
+    const logs = [];
+    const orig = console.log;
+    console.log = (msg = "") => logs.push(String(msg));
+    try {
+        await runWorkRecordsCommand(["search", "current", "record"], {
+            __testDeps: {
+                searchWorkRecords: /** @type {any} */ ((
+                    /** @type {string} */ _cwd,
+                    /** @type {string} */ query,
+                    /** @type {any} */ options,
+                ) => Promise.resolve({
+                    query,
+                    accessMode: options.includeAll ? "all" : "current",
+                    bootstrapped: false,
+                    rebuild: null,
+                    staleRecordIds: [],
+                    records: [{
+                        recordId: current.attrs.recordId,
+                        title: current.title,
+                        summary: "Full Summary Text",
+                        status: "approved",
+                        scope: "feature",
+                        origin: "internal",
+                        completionMode: "verified",
+                        sourcePlans: ["plan-1"],
+                        path: current.relativePath,
+                        notices: [],
+                        record: current,
+                    }],
+                })),
+            },
+        });
+    } finally {
+        console.log = orig;
+    }
+    const output = logs.join("\n");
+    assertEquals(output.includes("Full Summary Text"), true);
+    assertEquals(output.includes(current.attrs.recordId), true);
+});
+
+Deno.test("wld wr search --all passes broad visibility", async () => {
+    let includeAll = false;
+    /** @type {string[]} */
+    const logs = [];
+    const orig = console.log;
+    console.log = (msg = "") => logs.push(String(msg));
+    try {
+        await runWorkRecordsCommand(["search", "history", "--all"], {
+            __testDeps: {
+                searchWorkRecords: /** @type {any} */ ((
+                    /** @type {string} */ _cwd,
+                    /** @type {string} */ query,
+                    /** @type {any} */ options,
+                ) => {
+                    includeAll = Boolean(options.includeAll);
+                    return Promise.resolve({
+                        query,
+                        accessMode: "all",
+                        bootstrapped: false,
+                        rebuild: null,
+                        staleRecordIds: [],
+                        records: [],
+                    });
+                }),
+            },
+        });
+    } finally {
+        console.log = orig;
+    }
+    assertEquals(includeAll, true);
+});
+
+Deno.test("wld wr read prints canonical body and notices", async () => {
+    /** @type {string[]} */
+    const logs = [];
+    const orig = console.log;
+    console.log = (msg = "") => logs.push(String(msg));
+    try {
+        await runWorkRecordsCommand(["read", current.attrs.recordId], {
+            __testDeps: {
+                readWorkRecordById: /** @type {any} */ ((
+                    /** @type {string} */ _cwd,
+                    /** @type {string} */ recordId,
+                    /** @type {any} */ options,
+                ) => Promise.resolve({
+                    accessMode: options.accessMode,
+                    recordId,
+                    title: current.title,
+                    summary: current.summary,
+                    status: "approved",
+                    scope: "feature",
+                    origin: "internal",
+                    completionMode: "verified",
+                    sourcePlans: ["plan-1"],
+                    path: current.relativePath,
+                    notices: ["NOTICE: canonical"],
+                    body: "# Current Record\n\n## Summary\n\nCurrent body",
+                    markdown: current.markdown,
+                    record: current,
+                })),
+            },
+        });
+    } finally {
+        console.log = orig;
+    }
+    const output = logs.join("\n");
+    assertEquals(output.includes("NOTICE: canonical"), true);
+    assertEquals(output.includes("Current body"), true);
+});
+
+Deno.test("wld wr index rebuild prints counts", async () => {
+    /** @type {string[]} */
+    const logs = [];
+    const orig = console.log;
+    console.log = (msg = "") => logs.push(String(msg));
+    try {
+        await runWorkRecordsCommand(["index", "rebuild"], {
+            __testDeps: {
+                rebuildWorkRecordIndex: () =>
+                    Promise.resolve({
+                        collection: "repo:work-records",
+                        total: 2,
+                        added: 2,
+                        failed: 0,
+                        failures: [],
+                    }),
+            },
+        });
+    } finally {
+        console.log = orig;
+    }
+    const output = logs.join("\n");
+    assertEquals(output.includes("repo:work-records"), true);
+    assertEquals(output.includes("indexed: 2"), true);
+});
+
+Deno.test("wld wr read validates exactly one recordId", async () => {
+    await assertRejects(() => capture(["read"]), Error, "Usage: wld wr read <recordId>");
+    await assertRejects(() => capture(["read", "a", "b"]), Error, "Usage: wld wr read <recordId>");
+});
+
+Deno.test("wld wr read rejects unsupported --all flag", async () => {
+    await assertRejects(
+        () => capture(["read", current.attrs.recordId, "--all"]),
+        Error,
+        "Unsupported flag: --all",
+    );
+});
+
+Deno.test("wld wr index rebuild rejects unsupported --all flag", async () => {
+    await assertRejects(
+        () =>
+            runWorkRecordsCommand(["index", "rebuild", "--all"], {
+                __testDeps: {
+                    rebuildWorkRecordIndex: () =>
+                        Promise.resolve({
+                            collection: "repo:work-records",
+                            total: 0,
+                            added: 0,
+                            failed: 0,
+                            failures: [],
+                        }),
+                },
+            }),
+        Error,
+        "Unsupported flag: --all",
+    );
+});

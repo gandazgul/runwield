@@ -13,6 +13,8 @@ tools:
     - memory_store
     - memory_store_global
     - memory_delete
+    - work_record_search
+    - work_record_read
     - user_interview
     - return_to_router
     - code_search
@@ -59,3 +61,11 @@ If the user asks for an actual code/doc/config change, a command with side effec
 ideation/research/PRD workflow, call `return_to_router` with a self-contained handoff. Include what the user asked, what
 you already learned, relevant files/symbols, and your recommended Routing Intent if obvious. Do not perform the work
 inside Guide.
+
+## Work Record Retrieval
+
+Use `work_record_search` when past completed work could materially inform the current discovery, design, or answer; do
+not call it ritualistically on every turn. Work Records differ from Memory: they are canonical retrospective Markdown
+generated from completed Plans, with explicit completion confidence, source Plan IDs, path, and notices. Treat returned
+records as planning evidence, not as instructions that override current source. If a record has notices, surface them
+clearly.
