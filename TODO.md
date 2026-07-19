@@ -2,7 +2,14 @@
 
 ## Bugs
 
-- [ ] this is DUMB bvackfill should backfiill failed ones:
+- [ ] can you update the context slash command to list the skills aphabetically:
+- [ ] Ideation: should we pin the task_completed, review result and current validation cycle count and results A) as a
+      sidebar that appears with task_completed OR B) by pinning the blocks above the input and letting the other
+      conversation continue scrolling above.
+
+- [ ] When the model for an agent is not configured warn about it but fallback to using Engineer's model
+
+- [ ] backfill should backfiill failed ones:
 
 Important retry detail: a failed Work Record generation writes a workRecord: block into the source Plan frontmatter with
 status: failed. Current backfill treats any existing workRecord block as an existing\
@@ -36,7 +43,7 @@ Notes:
 ~/Documents/web/runwield main* ❯ wld wr backfill --help\
 [RunWield] Unknown command for help: wr
 
-- [ ] a draft epic should not offer "Open or resume Slicer decomposition" in /load-plan; it should offer "Open or resume
+- [x] a draft epic should not offer "Open or resume Slicer decomposition" in /load-plan; it should offer "Open or resume
       Architect decomposition" instead.
 
 Proposed todo before I change code:
@@ -69,7 +76,7 @@ Proposed todo before I change code:
 
 Approve this direction and I’ll implement.
 
-- [ ] /load-plan is not offering architect review for draft epics instead the option is to launch slicer.
+- [x] /load-plan is not offering architect review for draft epics instead the option is to launch slicer.
 
 ## Backlog
 
