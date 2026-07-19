@@ -1610,6 +1610,16 @@ export async function buildAgentSession({
         finalCustomTools.push(createUserInterviewTool({ hostedSession: targetHostedSession || undefined }));
     }
 
+    const workRecordAccessMode = [AGENTS.GUIDE, AGENTS.RECORDER].includes(agentName) ? "all" : "current";
+    if (tools.includes("work_record_search") && !finalCustomTools.find((t) => t.name === "work_record_search")) {
+        const { createWorkRecordSearchTool } = await import("../../tools/work-record-search.js");
+        finalCustomTools.push(createWorkRecordSearchTool({ cwd: sessionCwd, accessMode: workRecordAccessMode }));
+    }
+    if (tools.includes("work_record_read") && !finalCustomTools.find((t) => t.name === "work_record_read")) {
+        const { createWorkRecordReadTool } = await import("../../tools/work-record-read.js");
+        finalCustomTools.push(createWorkRecordReadTool({ cwd: sessionCwd, accessMode: workRecordAccessMode }));
+    }
+
     if (
         tools.includes("task_completed") && targetHostedSession &&
         !finalCustomTools.find((t) => t.name === "task_completed")
