@@ -64,6 +64,34 @@ export const HANDOFF_LIMIT_MESSAGE =
  */
 
 /**
+ * @typedef {Object} RuntimeContextAgentSession
+ * @property {() => import('../types.js').ContextUsageSnapshot | null} [getContextUsage]
+ * @property {RuntimeContextModel} [model]
+ * @property {RuntimeContextSettingsManager} [settingsManager]
+ */
+
+/**
+ * @typedef {Object} RuntimeContextModel
+ * @property {number} [contextWindow]
+ */
+
+/**
+ * @typedef {Object} RuntimeCompactionSettings
+ * @property {boolean} [enabled]
+ */
+
+/**
+ * @typedef {Object} RuntimeContextSettingsManager
+ * @property {() => RuntimeCompactionSettings | null} [getCompactionSettings]
+ */
+
+/**
+ * @typedef {Object} RuntimeContextCapacity
+ * @property {import('../types.js').ContextUsageSnapshot | null} contextUsage
+ * @property {boolean | null} autoCompactionEnabled
+ */
+
+/**
  * @typedef {Object} PromptReadySessionOptions
  * @property {string} cwd
  * @property {string} [agentName]
@@ -148,6 +176,37 @@ function toRuntimeQueuedMessage(message) {
         images: message.images.map((image) => ({ ...image })),
         delivery: message.delivery,
         queuedAt: message.queuedAt,
+    };
+}
+
+/**
+ * Project the context-capacity state of the Agent currently represented by the
+ * Runtime. Transient Agents take precedence while they are active, matching the
+ * active-agent information exposed in the footer without leaking AgentSession
+ * objects across the Runtime boundary.
+ *
+ * @param {import('./hosted-session.js').HostedSession} session
+ * @returns {RuntimeContextCapacity}
+ */
+function getRuntimeContextCapacity(session) {
+    const sessions = [session.getRootAgentSession(), ...session.getSubAgentSessions()].filter(Boolean);
+    const activeSession = /** @type {RuntimeContextAgentSession | undefined} */ (sessions.at(-1));
+    if (!activeSession) return { contextUsage: null, autoCompactionEnabled: null };
+
+    const rawUsage = activeSession.getContextUsage?.();
+    const contextWindow = Number(rawUsage?.contextWindow ?? activeSession.model?.contextWindow ?? 0) || 0;
+    const contextUsage = rawUsage
+        ? {
+            tokens: typeof rawUsage.tokens === "number" ? rawUsage.tokens : null,
+            contextWindow,
+            percent: typeof rawUsage.percent === "number" ? rawUsage.percent : null,
+        }
+        : null;
+    const compactionSettings = activeSession.settingsManager?.getCompactionSettings?.();
+
+    return {
+        contextUsage,
+        autoCompactionEnabled: compactionSettings?.enabled !== false,
     };
 }
 
@@ -500,6 +559,7 @@ export class SessionRuntime {
             : null;
         const workflowContext = session.getWorkflowContext();
         const activeExecutionWorkflow = session.getActiveExecutionWorkflow();
+        const contextCapacity = getRuntimeContextCapacity(session);
         return {
             id: session.id,
             cwd: session.cwd,
@@ -515,6 +575,7 @@ export class SessionRuntime {
             queuedMessages: this.getQueuedMessages(session.id),
             workflowContext: workflowContext ? { ...workflowContext } : null,
             activeExecutionWorkflow: activeExecutionWorkflow ? { ...activeExecutionWorkflow } : null,
+            ...contextCapacity,
         };
     }
 
