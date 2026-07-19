@@ -31,14 +31,19 @@ devServerCommand: "RUNWIELD_WORKSPACE_MODE=remote RUNWIELD_REMOTE_DB_PATH=.wld/r
 devServerUrl: "http://127.0.0.1:5173"
 devServerHmr: true
 createdAt: "2026-07-18T22:15:51-04:00"
-updatedAt: "2026-07-19T02:18:51.547Z"
-status: "draft"
+updatedAt: "2026-07-19T03:52:29.003Z"
+status: "verified"
 origin: "internal"
 parentPlan: "collaborative-planning-remote-shared-spaces"
 order: 11
 dependencies:
     - "09-self-hosted-packaging-and-collaboration-docs"
     - "10-remote-review-plannotator-markdown-annotations"
+implementedAt: "2026-07-19T02:58:25.833Z"
+verifiedAt: "2026-07-19T03:52:29.003Z"
+humanReviewMode: "ask"
+humanReviewDecision: "approved"
+humanReviewedAt: "2026-07-19T03:52:28.915Z"
 ---
 
 # Self-Hosted Plan Server Hardening, Retention, and Operations

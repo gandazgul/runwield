@@ -89,6 +89,8 @@ export function hasWorkspaceToken(request, expectedToken) {
  * @property {"remote"} mode
  * @property {string} [dbPath]
  * @property {import("./server/remote-adapter.js").RemoteWorkspaceAdapter} [adapter]
+ * @property {number} [maxRequestBytes]
+ * @property {number} [retentionDays]
  */
 
 /** @param {LocalWorkspaceAppOptions | RemoteWorkspaceAppOptions} options */
@@ -100,21 +102,22 @@ export function createWorkspaceApp(options) {
 /** @param {RemoteWorkspaceAppOptions} options */
 export function createRemoteWorkspaceApp(options = { mode: "remote" }) {
     const app = createWorkspaceRouter();
-    const adapter = options.adapter ?? createRemoteWorkspaceAdapter({ dbPath: options.dbPath });
+    const adapter = options.adapter ??
+        createRemoteWorkspaceAdapter({ dbPath: options.dbPath, retention: { days: options.retentionDays } });
     registerStaticRoutes(app);
     app.use(async (ctx) => {
         ctx.state.collaboration = adapter;
+        ctx.state.maxRequestBytes = options.maxRequestBytes;
         return await ctx.next();
     });
     registerRemoteApiRoutes(app);
-    app.get("/healthz", () => {
-        return new Response(JSON.stringify({ ok: true, mode: "remote" }), {
-            status: 200,
-            headers: {
-                "content-type": "application/json; charset=utf-8",
-                "cache-control": "no-store",
-            },
-        });
+    app.get("/healthz", () => remoteJson({ ok: true, mode: "remote" }));
+    app.get("/readyz", () => {
+        try {
+            return remoteJson(adapter.ready());
+        } catch {
+            return remoteJson({ ok: false, mode: "remote" }, 503);
+        }
     });
     app.get("/p/:spaceId", async (ctx) => {
         const astroResponse = await renderAstroPage(ctx.req, Deno.cwd());
@@ -609,12 +612,26 @@ function jsonNotFound() {
     });
 }
 
+/** @param {unknown} data @param {number} [status] */
+function remoteJson(data, status = 200) {
+    return Response.json(data, {
+        status,
+        headers: { "cache-control": "no-store" },
+    });
+}
+
 /**
- * @param {{ mode?: "local" | "remote", cwd?: string, host: string, port: number, token?: string, dbPath?: string, signal?: AbortSignal }} options
+ * @param {{ mode?: "local" | "remote", cwd?: string, host: string, port: number, token?: string, dbPath?: string, signal?: AbortSignal, adapter?: import("./server/remote-adapter.js").RemoteWorkspaceAdapter, maxRequestBytes?: number, retentionDays?: number }} options
  */
 export function startWorkspaceServer(options) {
     const app = options.mode === "remote"
-        ? createWorkspaceApp({ mode: "remote", dbPath: options.dbPath })
+        ? createWorkspaceApp({
+            mode: "remote",
+            dbPath: options.dbPath,
+            adapter: options.adapter,
+            maxRequestBytes: options.maxRequestBytes,
+            retentionDays: options.retentionDays,
+        })
         : createWorkspaceApp({ cwd: options.cwd ?? Deno.cwd(), token: options.token ?? "" });
     return Deno.serve({
         hostname: options.host,

@@ -17,7 +17,8 @@ WORKDIR /app
 
 ENV RUNWIELD_REMOTE_HOST=0.0.0.0 \
     RUNWIELD_REMOTE_PORT=8080 \
-    RUNWIELD_REMOTE_DB_PATH=/data/runwield-shared-spaces.sqlite
+    RUNWIELD_REMOTE_DB_PATH=/data/runwield-shared-spaces.sqlite \
+    RUNWIELD_REMOTE_MAX_REQUEST_BYTES=5242880
 
 COPY --from=builder --chown=deno:deno /deno-dir /deno-dir
 COPY --from=builder --chown=deno:deno /app/deno.json /app/deno.lock /app/runtime-root.js ./
