@@ -163,7 +163,18 @@ For editor behavior, message queue behavior, file references, shell commands, an
 - [Design System](design-system.md) - browser UI tokens, patterns, and Plannotator port guidance.
 - [Plan Lifecycle](plan-lifecycle.md) - durable plan and worktree state machine.
 - [Router Model Selection](router-model-selection.md) - evaluation findings for the Router model choice.
-- [Compaction Research](compaction-research.md) - research notes for context compaction behavior.
+- [Session Compaction](prd/done/compaction-PRD.md) - Pi compaction behavior and RunWield integration background.
+
+### Active product direction
+
+- [Session Context Resilience](prd/session-context-resilience-prd.md) - mid-run context monitoring, safe continuation,
+  and ineffective-compaction recovery.
+- [Agent Behavior Evaluation](prd/agent-behavior-evaluation-prd.md) - Agent contract scorecards, support policy, and
+  evaluation interpretation.
+- [End-to-End Benchmark Harness](prd/end-to-end-benchmark-harness-prd.md) - WLD-native workflow runners, ACP black-box
+  evaluation, and external benchmark adapters.
+- [Selective Execution Model Adaptation](prd/selective-execution-model-adaptation-prd.md) - evaluated Engineer/Operator
+  profiles for selected local or smaller models.
 
 ### RunWield vision
 
@@ -171,6 +182,8 @@ For editor behavior, message queue behavior, file references, shell commands, an
   harnesses, using RunWield as the software engineering example.
 - [RunWield SE Harness Opportunities](vision/runwield-se-harness-opportunities.md) - capability opportunities for
   expanding RunWield as a software engineering domain harness.
+- [Research Evidence Set](vision/research-evidence-set-prd.md) - experimental Ideator session evidence for source-heavy
+  research.
 
 ### Pi docs that mostly apply unchanged
 
