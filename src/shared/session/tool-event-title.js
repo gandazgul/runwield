@@ -115,6 +115,10 @@ function formatToolEventTitle(toolName, args) {
         headerArgs = content.length > 80 ? content.slice(0, 77) + "..." : content;
     } else if (toolName === "memory_delete") {
         headerArgs = `id: ${args?.id}`;
+    } else if (toolName === "work_record_search") {
+        headerArgs = args?.query || "";
+    } else if (toolName === "work_record_read") {
+        headerArgs = args?.recordId || "";
     } else if (toolName === "task_completed") {
         const message = args?.message || "";
         headerArgs = message.length > 60 ? message.slice(0, 57) + "..." : message;
@@ -144,8 +148,9 @@ export function describeRuntimeTool(toolName, args) {
         toolName === "grep" || toolName === "find" || toolName === "code_search" || toolName === "code_refs" ||
         toolName === "code_impact" || toolName === "code_trace" || toolName === "code_impls" ||
         toolName === "code_importers" || toolName === "code_structure" || toolName === "code_codebase_info" ||
-        toolName === "memory_recall" || toolName === "memory_recall_global"
+        toolName === "memory_recall" || toolName === "memory_recall_global" || toolName === "work_record_search"
     ) kind = "search";
+    else if (toolName === "work_record_read") kind = "read";
     else if (toolName === "bash") kind = "execute";
     else if (toolName === "code_investigate") kind = "think";
     else if (toolName === "return_to_router") kind = "switch_mode";
