@@ -201,7 +201,9 @@ function findLinkableExistingRecord(source, existingByPlanId) {
  * @returns {WorkRecordSource}
  */
 export function evaluateWorkRecordSource(source, existingByPlanId = new Map()) {
-    if (source.attrs.workRecord) return { ...source, skipReason: "existing_backlink" };
+    if (source.attrs.workRecord && source.attrs.workRecord.status !== "failed") {
+        return { ...source, skipReason: "existing_backlink" };
+    }
     if (isChildFeaturePlan(source)) return { ...source, skipReason: "child_feature" };
     const scope = deriveWorkRecordScope(source);
     if (!scope) return { ...source, skipReason: "unsupported_plan_type" };
