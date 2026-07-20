@@ -352,9 +352,9 @@ Slash-command skill invocation injects full Skill instructions only when needed.
 
 ### 7.4 Future / Open
 
-The older "Forge" idea remains aspirational. Current Core supports customization and Skill loading; it does not yet
-provide a first-class product flow where Agents build and install their own specializations. Future work should either
-define that flow concretely or remove "self-evolution" from the Core product language.
+No additional requirements are currently tracked in this section. Existing customization remains covered by Agent
+definition and Skill layering above; any new specialization product should be introduced through a separate PRD before
+returning to Core requirements.
 
 ## 8. Models and Providers
 
