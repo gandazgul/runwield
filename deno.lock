@@ -92,7 +92,7 @@
     "npm:react@^19.2.7": "19.2.7",
     "npm:strip-ansi@^7.2.0": "7.2.0",
     "npm:tailwind-merge@^3.6.0": "3.6.0",
-    "npm:tailwindcss@^4.3.2": "4.3.2",
+    "npm:tailwindcss@^4.3.3": "4.3.3",
     "npm:tidewave@0.7": "0.7.0_typescript@5.9.3",
     "npm:typescript@^5.9.3": "5.9.3",
     "npm:unique-username-generator@^1.5.1": "1.5.1",
@@ -2814,7 +2814,7 @@
         "lightningcss",
         "magic-string",
         "source-map-js",
-        "tailwindcss"
+        "tailwindcss@4.3.2"
       ]
     },
     "@tailwindcss/oxide-android-arm64@4.3.2": {
@@ -2898,7 +2898,7 @@
       "dependencies": [
         "@tailwindcss/node",
         "@tailwindcss/oxide",
-        "tailwindcss",
+        "tailwindcss@4.3.2",
         "vite@8.1.3_esbuild@0.28.1"
       ]
     },
@@ -6320,6 +6320,9 @@
     "tailwindcss@4.3.2": {
       "integrity": "sha512-WtctNNSH8A9jlMIqxzuYumOHU5uGZyRv0Q5svQl+oEPy5w84YpBxdb7MdqyiSPQge5jTJ6zFQLq0PFygdccSBA=="
     },
+    "tailwindcss@4.3.3": {
+      "integrity": "sha512-gOhV3P7ufE62QDGg1zVaTgCR+EtPv92k2nIhVcVKcLmxT1sUBsQGhnZj175j+MqRt4zLF7ic+sCYjfhxMxj7YQ=="
+    },
     "tapable@2.3.3": {
       "integrity": "sha512-uxc/zpqFg6x7C8vOE7lh6Lbda8eEL9zmVm/PLeTPBRhh1xCgdWaQ+J1CUieGpIfm2HdtsUpRv+HshiasBMcc6A=="
     },
@@ -6965,7 +6968,7 @@
       "npm:react@^19.2.7",
       "npm:strip-ansi@^7.2.0",
       "npm:tailwind-merge@^3.6.0",
-      "npm:tailwindcss@^4.3.2",
+      "npm:tailwindcss@^4.3.3",
       "npm:tidewave@0.7",
       "npm:typescript@^5.9.3",
       "npm:unique-username-generator@^1.5.1",
