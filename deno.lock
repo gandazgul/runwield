@@ -62,7 +62,7 @@
     "npm:@tanstack/react-table@^8.21.3": "8.21.3_react@19.2.7_react-dom@19.2.7__react@19.2.7",
     "npm:@types/react-dom@^19.2.3": "19.2.3_@types+react@19.2.17",
     "npm:@types/react@^19.2.17": "19.2.17",
-    "npm:@vitejs/plugin-react@^4.7.0": "4.7.0_vite@6.4.3",
+    "npm:@vitejs/plugin-react@^6.0.3": "6.0.3_vite@8.1.3__esbuild@0.28.1",
     "npm:@viz-js/viz@^3.28.0": "3.28.0",
     "npm:@zag-js/dialog@^1.42.0": "1.42.0",
     "npm:@zag-js/preact@^1.42.0": "1.42.0_preact@10.29.7",
@@ -375,7 +375,7 @@
       "dependencies": [
         "@types/react",
         "@types/react-dom",
-        "@vitejs/plugin-react",
+        "@vitejs/plugin-react@4.7.0_vite@6.4.3",
         "react",
         "react-dom",
         "ultrahtml",
@@ -3408,6 +3408,13 @@
         "@types/babel__core",
         "react-refresh",
         "vite@6.4.3"
+      ]
+    },
+    "@vitejs/plugin-react@6.0.3_vite@8.1.3__esbuild@0.28.1": {
+      "integrity": "sha512-vmFvco5/QuC2f9Oj+wTk0+9XeDFkHxSamwZKYc7MxYwKICfvUvlMhqKI0VuICPltGqh1neqBKDvO4kes1ya8vg==",
+      "dependencies": [
+        "@rolldown/pluginutils@1.0.1",
+        "vite@8.1.3_esbuild@0.28.1"
       ]
     },
     "@viz-js/viz@3.28.0": {
@@ -7330,7 +7337,7 @@
       "npm:@tanstack/react-table@^8.21.3",
       "npm:@types/react-dom@^19.2.3",
       "npm:@types/react@^19.2.17",
-      "npm:@vitejs/plugin-react@^4.7.0",
+      "npm:@vitejs/plugin-react@^6.0.3",
       "npm:@viz-js/viz@^3.28.0",
       "npm:@zag-js/dialog@^1.42.0",
       "npm:@zag-js/preact@^1.42.0",
