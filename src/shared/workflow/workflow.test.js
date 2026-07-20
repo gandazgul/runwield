@@ -1,20 +1,15 @@
-import { assertEquals, assertMatch, assertRejects, assertStringIncludes, assertThrows } from "@std/assert";
+import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import {
     beginSlicerContextPhase,
     buildSlicerRequest,
     createSlicerFinalizeTool,
-    ensureSlicerTasks,
     executePlan,
     extractAssistantOutput,
-    extractTasks,
     materializeSlicerDraft,
-    parseTaskWriteScope,
+    openSlicerDecomposition,
     readLatestPlanOutcome,
     runSlicerAgent,
-    selectNonConflictingTasks,
     startActiveExecutionWorkflow,
-    taskWriteScopesOverlap,
-    validateProjectTasks,
 } from "./workflow.js";
 import { HostedSession } from "../session/hosted-session.js";
 import { runActiveAgentTurn } from "../session/agent-switching.js";
@@ -356,7 +351,6 @@ Deno.test("readLatestPlanOutcome returns the latest plan_written outcome", () =>
             details: {
                 planName: "first",
                 outcome: "approved_execute",
-                tasks: [{ task: 1, assignee: "engineer", dependencies: "", description: "X" }],
                 triageMeta: { classification: "FEATURE" },
                 feedback: "Keep the selected command.",
             },
@@ -365,7 +359,6 @@ Deno.test("readLatestPlanOutcome returns the latest plan_written outcome", () =>
     assertEquals(readLatestPlanOutcome(messages), {
         outcome: "approved_execute",
         planName: "first",
-        tasks: [{ task: 1, assignee: "engineer", dependencies: "", description: "X" }],
         triageMeta: { classification: "FEATURE" },
         feedback: "Keep the selected command.",
         images: [{ base64: "YXBwcm92ZWQ=", mimeType: "image/png" }],
@@ -414,220 +407,6 @@ Deno.test("extractAssistantOutput handles legacy assistant text shapes", () => {
     );
 });
 
-Deno.test("extractTasks parses valid markdown table", () => {
-    const content = `
-## Tasks
-| Task | Assignee | Dependencies | Description |
-|---|---|---|---|
-| 1 | engineer | None | Implement X |
-| 2 | tester | 1 | Test X |
-`;
-    const tasks = extractTasks(content);
-    assertEquals(tasks.length, 2);
-    assertEquals(tasks[0], {
-        task: 1,
-        assignee: "engineer",
-        dependencies: "None",
-        writeScope: "unknown",
-        description: "Implement X",
-    });
-    assertEquals(tasks[1], {
-        task: 2,
-        assignee: "tester",
-        dependencies: "1",
-        writeScope: "unknown",
-        description: "Test X",
-    });
-});
-
-Deno.test("extractTasks parses write scope column when present", () => {
-    const content = `
-## Tasks
-| Task | Assignee | Dependencies | Write Scope | Description |
-|---|---|---|---|---|
-| 1 | engineer | None | src/shared/workflow | Implement workflow scheduling |
-| 2 | tester | 1 | none | Integration Point: run validation |
-`;
-    const tasks = extractTasks(content);
-    assertEquals(tasks[0], {
-        task: 1,
-        assignee: "engineer",
-        dependencies: "None",
-        writeScope: "src/shared/workflow",
-        description: "Implement workflow scheduling",
-    });
-    assertEquals(tasks[1], {
-        task: 2,
-        assignee: "tester",
-        dependencies: "1",
-        writeScope: "none",
-        description: "Integration Point: run validation",
-    });
-});
-
-Deno.test("extractTasks parses markdown table with minor deviations", () => {
-    const content = `
-## Tasks
-| Task | Assignee | Dependencies | Description |
-|---|---|---|---|
-| 1 | engineer | None | Implement X (no trailing pipe)
-| 2 | tester | 1 | Test X |
-`;
-    const tasks = extractTasks(content);
-    assertEquals(tasks.length, 2);
-    assertEquals(tasks[0].description, "Implement X (no trailing pipe)");
-});
-
-Deno.test("extractTasks parses markdown table with extra whitespace", () => {
-    const content = `
-## Tasks
-| Task | Assignee | Dependencies | Description |
-|---|---|---|---|
-| 1   |  engineer  |  None  |  Implement X  |
-| 2|tester|1|Test X|
-`;
-    const tasks = extractTasks(content);
-    assertEquals(tasks.length, 2);
-    assertEquals(tasks[0], {
-        task: 1,
-        assignee: "engineer",
-        dependencies: "None",
-        writeScope: "unknown",
-        description: "Implement X",
-    });
-    assertEquals(tasks[1], {
-        task: 2,
-        assignee: "tester",
-        dependencies: "1",
-        writeScope: "unknown",
-        description: "Test X",
-    });
-});
-
-Deno.test("extractTasks throws error when section missing", () => {
-    const content = `## Plan\nNo tasks here.`;
-    assertThrows(() => extractTasks(content), Error, "Tasks section not found");
-});
-
-Deno.test("extractTasks throws error when table is empty", () => {
-    const content = `
-## Tasks
-| Task | Assignee | Dependencies | Description |
-|---|---|---|---|
-`;
-    assertThrows(() => extractTasks(content), Error, "Tasks table found but contains no valid task rows");
-});
-
-// ── validateProjectTasks ──────────────────────────────────────────
-
-Deno.test("validateProjectTasks accepts a valid PROJECT task DAG with final Integration Point", () => {
-    validateProjectTasks([
-        { task: 1, assignee: "engineer", dependencies: "none", description: "Implement slice and docs" },
-        { task: 2, assignee: "tester", dependencies: "1", description: "Integration Point: run validation" },
-    ]);
-});
-
-Deno.test("validateProjectTasks rejects missing final tester Integration Point", () => {
-    assertThrows(
-        () =>
-            validateProjectTasks([
-                { task: 1, assignee: "engineer", dependencies: "none", description: "Implement slice" },
-            ]),
-        Error,
-        "final PROJECT task must be assigned to tester as the Integration Point",
-    );
-});
-
-Deno.test("validateProjectTasks rejects final tester task that is not labeled Integration Point", () => {
-    assertThrows(
-        () =>
-            validateProjectTasks([
-                { task: 1, assignee: "engineer", dependencies: "none", description: "Implement slice" },
-                { task: 2, assignee: "tester", dependencies: "1", description: "Run validation" },
-            ]),
-        Error,
-        "identify the task as the Integration Point",
-    );
-});
-
-Deno.test("validateProjectTasks rejects invalid assignees", () => {
-    assertThrows(
-        () =>
-            validateProjectTasks([
-                { task: 1, assignee: "planner", dependencies: "none", description: "Implement slice" },
-                { task: 2, assignee: "tester", dependencies: "1", description: "Integration Point: run validation" },
-            ]),
-        Error,
-        "invalid assignee",
-    );
-
-    assertThrows(
-        () =>
-            validateProjectTasks([
-                { task: 1, assignee: "doc-writer", dependencies: "none", description: "Document behavior" },
-                { task: 2, assignee: "tester", dependencies: "1", description: "Integration Point: run validation" },
-            ]),
-        Error,
-        "invalid assignee",
-    );
-});
-
-Deno.test("validateProjectTasks rejects cyclic dependencies", () => {
-    assertThrows(
-        () =>
-            validateProjectTasks([
-                { task: 1, assignee: "engineer", dependencies: "2", description: "Implement slice" },
-                { task: 2, assignee: "tester", dependencies: "1", description: "Integration Point: run validation" },
-            ]),
-        Error,
-        "cycle",
-    );
-});
-
-// ── write scope scheduling ───────────────────────────────────────
-
-Deno.test("parseTaskWriteScope treats missing and unknown scopes as broad", () => {
-    assertEquals(parseTaskWriteScope(undefined), { broad: true, paths: [] });
-    assertEquals(parseTaskWriteScope("unknown"), { broad: true, paths: [] });
-    assertEquals(parseTaskWriteScope("src/**"), { broad: true, paths: [] });
-});
-
-Deno.test("parseTaskWriteScope treats none as read-only", () => {
-    assertEquals(parseTaskWriteScope("none"), { broad: false, paths: [] });
-});
-
-Deno.test("taskWriteScopesOverlap detects exact and parent path overlaps", () => {
-    assertEquals(
-        taskWriteScopesOverlap({ writeScope: "src/shared/workflow" }, {
-            writeScope: "src/shared/workflow/workflow.js",
-        }),
-        true,
-    );
-    assertEquals(
-        taskWriteScopesOverlap({ writeScope: "src/shared/workflow" }, { writeScope: "docs/plan-lifecycle.md" }),
-        false,
-    );
-});
-
-Deno.test("taskWriteScopesOverlap serializes broad scopes but not read-only scopes", () => {
-    assertEquals(taskWriteScopesOverlap({ writeScope: "unknown" }, { writeScope: "src/foo.js" }), true);
-    assertEquals(taskWriteScopesOverlap({ writeScope: "none" }, { writeScope: "src/foo.js" }), false);
-});
-
-Deno.test("selectNonConflictingTasks skips ready tasks that overlap running or selected tasks", () => {
-    const ready = [
-        { task: 1, writeScope: "src/a.js" },
-        { task: 2, writeScope: "src/b.js" },
-        { task: 3, writeScope: "src/a.js" },
-        { task: 4, writeScope: "unknown" },
-    ];
-    const running = [{ task: 9, writeScope: "docs" }];
-    assertEquals(selectNonConflictingTasks(ready, running, 4), [
-        { task: 1, writeScope: "src/a.js" },
-        { task: 2, writeScope: "src/b.js" },
-    ]);
-});
-
 Deno.test("executePlan refuses to execute PROJECT Epic containers", async () => {
     /** @type {string[]} */
     const messages = [];
@@ -636,16 +415,15 @@ Deno.test("executePlan refuses to execute PROJECT Epic containers", async () => 
         if (event.message) messages.push(event.message);
     });
     let engineerCalled = false;
-    let projectCalled = false;
     const result = await executePlan({
         planName: "epic-plan",
-        triageMeta: { classification: "PROJECT", type: "epic" },
+        triageMeta: { classification: "PROJECT" },
         hostedSession,
         __deps: {
             loadPlan: () =>
                 Promise.resolve(
                     /** @type {any} */ ({
-                        attrs: { status: "ready_for_work", classification: "PROJECT", type: "epic" },
+                        attrs: { status: "ready_for_work", classification: "PROJECT" },
                         body: "## Epic",
                         markdown: "## Epic",
                     }),
@@ -654,32 +432,26 @@ Deno.test("executePlan refuses to execute PROJECT Epic containers", async () => 
                 engineerCalled = true;
                 return Promise.resolve({ repairRequired: false, executionComplete: true });
             },
-            executeStructuredProjectPlan: () => {
-                projectCalled = true;
-                return Promise.resolve({ repairRequired: false, executionComplete: true });
-            },
         },
     });
 
     assertEquals(result.executionComplete, false);
     assertEquals(engineerCalled, false);
-    assertEquals(projectCalled, false);
     assertStringIncludes(result.error || "", "PROJECT Epic container");
     assertEquals(messages.some((message) => message.includes("cannot be executed directly")), true);
 });
 
 Deno.test("executePlan refuses persisted Epic containers even when triage meta overrides classification", async () => {
     let engineerCalled = false;
-    let projectCalled = false;
     const result = await executePlan({
         planName: "epic-plan",
-        triageMeta: { classification: "FEATURE", type: "feature" },
+        triageMeta: { classification: "FEATURE" },
         hostedSession: makeHostedSession("persisted-epic-execution"),
         __deps: {
             loadPlan: () =>
                 Promise.resolve(
                     /** @type {any} */ ({
-                        attrs: { status: "ready_for_work", classification: "PROJECT", type: "epic" },
+                        attrs: { status: "ready_for_work", classification: "PROJECT" },
                         body: "## Epic",
                         markdown: "## Epic",
                     }),
@@ -688,16 +460,11 @@ Deno.test("executePlan refuses persisted Epic containers even when triage meta o
                 engineerCalled = true;
                 return Promise.resolve({ repairRequired: false, executionComplete: true });
             },
-            executeStructuredProjectPlan: () => {
-                projectCalled = true;
-                return Promise.resolve({ repairRequired: false, executionComplete: true });
-            },
         },
     });
 
     assertEquals(result.executionComplete, false);
     assertEquals(engineerCalled, false);
-    assertEquals(projectCalled, false);
     assertStringIncludes(result.error || "", "PROJECT Epic container");
 });
 
@@ -882,11 +649,9 @@ Deno.test("executePlan keeps Engineer active when the implementation turn is int
 
 Deno.test("executePlan uses single-plan execution for child FEATURE plans", async () => {
     let engineerCalled = false;
-    let projectDagCalled = false;
     const result = await executePlan({
         planName: "epic-a/01-child-feature",
         triageMeta: { classification: "FEATURE", parentPlan: "epic-a" },
-        structuredTasks: [{ task: 1, assignee: "engineer", dependencies: "none", description: "legacy task" }],
         hostedSession: makeHostedSession("child-feature-execution"),
         __deps: {
             loadPlan: () =>
@@ -906,10 +671,6 @@ Deno.test("executePlan uses single-plan execution for child FEATURE plans", asyn
                 assertEquals(triageMeta.parentPlan, "epic-a");
                 return Promise.resolve({ repairRequired: false, executionComplete: true });
             },
-            executeStructuredProjectPlan: () => {
-                projectDagCalled = true;
-                return Promise.resolve({ repairRequired: false, executionComplete: true });
-            },
             recordPlanEvent: () => Promise.resolve(/** @type {any} */ ({})),
             markActiveWorktreeStatus: () => Promise.resolve(),
         },
@@ -917,45 +678,7 @@ Deno.test("executePlan uses single-plan execution for child FEATURE plans", asyn
 
     assertEquals(result, { repairRequired: false, executionComplete: true });
     assertEquals(engineerCalled, true);
-    assertEquals(projectDagCalled, false);
 });
-
-Deno.test("executePlan does not parse task tables or dispatch DAG execution for PROJECT plans", async () => {
-    let engineerCalled = false;
-    let projectDagCalled = false;
-    const result = await executePlan({
-        planName: "legacy-project-plan",
-        triageMeta: { classification: "PROJECT" },
-        hostedSession: makeHostedSession("legacy-project-execution"),
-        __deps: {
-            loadPlan: () =>
-                Promise.resolve(
-                    /** @type {any} */ ({
-                        attrs: { status: "ready_for_work", classification: "PROJECT" },
-                        body: "## Design only\nNo Tasks table.",
-                        markdown: "## Design only\nNo Tasks table.",
-                    }),
-                ),
-            executeSingleEngineerPlan: (/** @type {any} */ { triageMeta }) => {
-                engineerCalled = true;
-                assertEquals(triageMeta.classification, "PROJECT");
-                return Promise.resolve({ repairRequired: false, executionComplete: true });
-            },
-            executeStructuredProjectPlan: () => {
-                projectDagCalled = true;
-                return Promise.resolve({ repairRequired: false, executionComplete: true });
-            },
-            recordPlanEvent: () => Promise.resolve(/** @type {any} */ ({})),
-            markActiveWorktreeStatus: () => Promise.resolve(),
-        },
-    });
-
-    assertEquals(result, { repairRequired: false, executionComplete: true });
-    assertEquals(engineerCalled, true);
-    assertEquals(projectDagCalled, false);
-});
-
-// ── buildSlicerRequest ─────────────────────────────────────────────
 
 Deno.test("buildSlicerRequest includes plan name and base instructions", () => {
     const text = buildSlicerRequest("my-plan", undefined);
@@ -999,7 +722,7 @@ function slicerPlanDeps() {
     return {
         loadPlan: () =>
             Promise.resolve({
-                attrs: { classification: "PROJECT", type: "epic", status: "approved" },
+                attrs: { classification: "PROJECT", status: "approved" },
                 markdown: "# Epic",
                 body: "# Epic",
             }),
@@ -1241,7 +964,6 @@ Deno.test("createSlicerFinalizeTool writes draft child FEATURE plans before fina
                     /** @type {any} */ ({
                         attrs: {
                             classification: "PROJECT",
-                            type: "epic",
                             status: "approved",
                             worktreeBaseBranch: "feature-base",
                         },
@@ -1299,7 +1021,7 @@ Deno.test("createSlicerFinalizeTool can finalize existing child FEATURE plans wi
             loadPlan: () =>
                 Promise.resolve(
                     /** @type {any} */ ({
-                        attrs: { classification: "PROJECT", type: "epic", status: "ready_for_decomposition" },
+                        attrs: { classification: "PROJECT", status: "ready_for_decomposition" },
                     }),
                 ),
             findPlansByParent: () =>
@@ -1342,7 +1064,7 @@ Deno.test("createSlicerFinalizeTool leaves already finalized Epics ready without
             loadPlan: () =>
                 Promise.resolve(
                     /** @type {any} */ ({
-                        attrs: { classification: "PROJECT", type: "epic", status: "ready_for_work" },
+                        attrs: { classification: "PROJECT", status: "ready_for_work" },
                     }),
                 ),
             findPlansByParent: () =>
@@ -1420,37 +1142,11 @@ Deno.test("materializeSlicerDraft delegates child FEATURE draft writes", async (
     assertEquals(result[0].name, "epic-a/01-draft-child");
 });
 
-// ── ensureSlicerTasks ──────────────────────────────────────────────
+// ── openSlicerDecomposition ──────────────────────────────────────────────
 
-Deno.test("ensureSlicerTasks opens Epic decomposition without reading a task table", async () => {
+Deno.test("openSlicerDecomposition opens decomposition when persisted plan is an Epic", async () => {
     let slicerCalls = 0;
-    let readCalls = 0;
-    const result = await ensureSlicerTasks({
-        planName: "epic-a",
-        planPath: "/tmp/epic-a.md",
-        triageMeta: /** @type {any} */ ({ classification: "PROJECT", type: "epic", status: "approved" }),
-        hostedSession: makeHostedSession(),
-        __deps: {
-            readTextFile: () => {
-                readCalls++;
-                return Promise.resolve("# Epic");
-            },
-            runSlicerAgent: (opts) => {
-                slicerCalls++;
-                assertEquals(opts.planName, "epic-a");
-                return Promise.resolve({ ok: true });
-            },
-        },
-    });
-
-    assertEquals(result, { ok: true, slicerInvoked: true });
-    assertEquals(readCalls, 0);
-    assertEquals(slicerCalls, 1);
-});
-
-Deno.test("ensureSlicerTasks opens decomposition when persisted plan is an Epic", async () => {
-    let slicerCalls = 0;
-    const result = await ensureSlicerTasks({
+    const result = await openSlicerDecomposition({
         planName: "epic-a",
         planPath: "/tmp/epic-a.md",
         hostedSession: makeHostedSession(),
@@ -1459,14 +1155,13 @@ Deno.test("ensureSlicerTasks opens decomposition when persisted plan is an Epic"
                 Promise.resolve([
                     "---",
                     "classification: PROJECT",
-                    "type: epic",
                     "status: approved",
                     "---",
                     "# Epic",
                 ].join("\n")),
             runSlicerAgent: (opts) => {
                 slicerCalls++;
-                assertEquals(opts.triageMeta?.type, "epic");
+                assertEquals(opts.triageMeta?.classification, "PROJECT");
                 return Promise.resolve({ ok: true });
             },
         },
@@ -1476,9 +1171,9 @@ Deno.test("ensureSlicerTasks opens decomposition when persisted plan is an Epic"
     assertEquals(slicerCalls, 1);
 });
 
-Deno.test("ensureSlicerTasks returns persisted Epic slicer throws as slicer failure", async () => {
+Deno.test("openSlicerDecomposition returns persisted Epic slicer throws as slicer failure", async () => {
     let slicerCalls = 0;
-    const result = await ensureSlicerTasks({
+    const result = await openSlicerDecomposition({
         planName: "epic-a",
         planPath: "/tmp/epic-a.md",
         hostedSession: makeHostedSession(),
@@ -1487,7 +1182,6 @@ Deno.test("ensureSlicerTasks returns persisted Epic slicer throws as slicer fail
                 Promise.resolve([
                     "---",
                     "classification: PROJECT",
-                    "type: epic",
                     "status: approved",
                     "---",
                     "# Epic",
@@ -1503,39 +1197,8 @@ Deno.test("ensureSlicerTasks returns persisted Epic slicer throws as slicer fail
     assertEquals(slicerCalls, 1);
 });
 
-Deno.test("ensureSlicerTasks skips slicer when Tasks already parseable (resumed plan)", async () => {
-    let slicerCalls = 0;
-    const result = await ensureSlicerTasks({
-        planName: "p",
-        planPath: "/tmp/p.md",
-        hostedSession: makeHostedSession(),
-        __deps: {
-            readTextFile: () =>
-                Promise.resolve("## Tasks\n| Task | A | B | C |\n|-|-|-|-|\n| 1 | engineer | none | x |"),
-            extractTasks: () => [
-                { task: 1, assignee: "engineer", dependencies: "none", writeScope: "src/x.js", description: "x" },
-                {
-                    task: 2,
-                    assignee: "tester",
-                    dependencies: "1",
-                    writeScope: "none",
-                    description: "Integration Point: run validation",
-                },
-            ],
-            runSlicerAgent: () => {
-                slicerCalls++;
-                return Promise.resolve({ ok: true });
-            },
-        },
-    });
-    assertEquals(result.ok, true);
-    assertEquals(/** @type {any} */ (result).slicerInvoked, false);
-    assertEquals(slicerCalls, 0);
-});
-
-Deno.test("ensureSlicerTasks invokes epic slicer when plan has type: epic and no tasks", async () => {
-    let slicerCalls = 0;
-    const result = await ensureSlicerTasks({
+Deno.test("openSlicerDecomposition returns { ok:false, stage:'slicer' } when epic slicer fails", async () => {
+    const result = await openSlicerDecomposition({
         planName: "p",
         planPath: "/tmp/p.md",
         hostedSession: makeHostedSession(),
@@ -1544,33 +1207,6 @@ Deno.test("ensureSlicerTasks invokes epic slicer when plan has type: epic and no
                 Promise.resolve([
                     "---",
                     "classification: PROJECT",
-                    "type: epic",
-                    "status: approved",
-                    "---",
-                    "# Epic only, no tasks",
-                ].join("\n")),
-            runSlicerAgent: () => {
-                slicerCalls++;
-                return Promise.resolve({ ok: true });
-            },
-        },
-    });
-    assertEquals(result.ok, true);
-    assertEquals(/** @type {any} */ (result).slicerInvoked, true);
-    assertEquals(slicerCalls, 1);
-});
-
-Deno.test("ensureSlicerTasks returns { ok:false, stage:'slicer' } when epic slicer fails", async () => {
-    const result = await ensureSlicerTasks({
-        planName: "p",
-        planPath: "/tmp/p.md",
-        hostedSession: makeHostedSession(),
-        __deps: {
-            readTextFile: () =>
-                Promise.resolve([
-                    "---",
-                    "classification: PROJECT",
-                    "type: epic",
                     "status: approved",
                     "---",
                     "# Epic",
@@ -1583,8 +1219,8 @@ Deno.test("ensureSlicerTasks returns { ok:false, stage:'slicer' } when epic slic
     assertEquals(/** @type {any} */ (result).error, "model timeout");
 });
 
-Deno.test("ensureSlicerTasks returns { ok:false, stage:'validation' } when PROJECT plan is not an Epic", async () => {
-    const result = await ensureSlicerTasks({
+Deno.test("openSlicerDecomposition reports slicer failure when error is missing from result", async () => {
+    const result = await openSlicerDecomposition({
         planName: "p",
         planPath: "/tmp/p.md",
         hostedSession: makeHostedSession(),
@@ -1593,28 +1229,6 @@ Deno.test("ensureSlicerTasks returns { ok:false, stage:'validation' } when PROJE
                 Promise.resolve([
                     "---",
                     "classification: PROJECT",
-                    "status: approved",
-                    "---",
-                    "# Not an Epic",
-                ].join("\n")),
-        },
-    });
-    assertEquals(result.ok, false);
-    assertEquals(/** @type {any} */ (result).stage, "validation");
-    assertMatch(/** @type {any} */ (result).error, /type.*epic/);
-});
-
-Deno.test("ensureSlicerTasks reports slicer failure when error is missing from result", async () => {
-    const result = await ensureSlicerTasks({
-        planName: "p",
-        planPath: "/tmp/p.md",
-        hostedSession: makeHostedSession(),
-        __deps: {
-            readTextFile: () =>
-                Promise.resolve([
-                    "---",
-                    "classification: PROJECT",
-                    "type: epic",
                     "status: approved",
                     "---",
                     "# Epic",

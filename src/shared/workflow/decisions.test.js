@@ -10,15 +10,12 @@ const fallbackTriageMeta = {
 };
 
 Deno.test("decidePostPlanning returns execute_plan with normalized payload", () => {
-    const tasks = [{ task: 1, assignee: "engineer", dependencies: "none", description: "Implement" }];
-
     assertEquals(
         decidePostPlanning(
             {
                 outcome: "approved_execute",
                 planName: "plan-a",
                 triageMeta: { classification: "PROJECT", complexity: "HIGH", summary: "project", affectedPaths: [] },
-                tasks,
             },
             { planningAgentName: "architect", fallbackTriageMeta },
         ),
@@ -27,7 +24,6 @@ Deno.test("decidePostPlanning returns execute_plan with normalized payload", () 
             payload: {
                 planName: "plan-a",
                 triageMeta: { classification: "PROJECT", complexity: "HIGH", summary: "project", affectedPaths: [] },
-                tasks,
             },
         },
     );
@@ -50,7 +46,7 @@ Deno.test("decidePostPlanning falls back to triage metadata for execute_plan", (
 });
 
 Deno.test("decidePostPlanning maps approved_decompose to a Slicer phase transition", () => {
-    const triageMeta = { classification: /** @type {const} */ ("PROJECT"), type: "epic" };
+    const triageMeta = { classification: /** @type {const} */ ("PROJECT") };
     assertEquals(
         decidePostPlanning(
             { outcome: "approved_decompose", planName: "epic-a", triageMeta },
@@ -134,13 +130,13 @@ Deno.test("decidePostPlanning maps no_call and missing planName to missing decla
     );
 });
 
-Deno.test("decidePostPlanning maps repair_required to semantic stay_with_agent reason", () => {
+Deno.test("decidePostPlanning maps repair_required to plan feedback iteration", () => {
     assertEquals(
         decidePostPlanning(
             { outcome: "repair_required" },
             { planningAgentName: "architect", fallbackTriageMeta },
         ),
-        { kind: "stay_with_agent", payload: { agentName: "architect", reason: "plan_repair_required" } },
+        { kind: "stay_with_agent", payload: { agentName: "architect", reason: "plan_feedback" } },
     );
 });
 
@@ -164,28 +160,10 @@ Deno.test("decidePostExecution returns run_validation when execution completed",
     );
 });
 
-Deno.test("decidePostExecution returns repair_plan when task table repair is required", () => {
-    assertEquals(
-        decidePostExecution(
-            { repairRequired: true, executionComplete: false, error: "bad tasks" },
-            { planName: "plan-b", triageMeta: fallbackTriageMeta, executionAgentName: "engineer" },
-        ),
-        {
-            kind: "repair_plan",
-            payload: {
-                planName: "plan-b",
-                triageMeta: fallbackTriageMeta,
-                reason: "task_table_invalid",
-                error: "bad tasks",
-            },
-        },
-    );
-});
-
 Deno.test("decidePostExecution returns stay_with_agent when execution is incomplete", () => {
     assertEquals(
         decidePostExecution(
-            { repairRequired: false, executionComplete: false, failedTasks: [2, 3] },
+            { repairRequired: false, executionComplete: false },
             { planName: "plan-c", triageMeta: fallbackTriageMeta, executionAgentName: "architect" },
         ),
         {
@@ -194,7 +172,6 @@ Deno.test("decidePostExecution returns stay_with_agent when execution is incompl
                 agentName: "architect",
                 reason: "execution_incomplete",
                 error: undefined,
-                failedTasks: [2, 3],
             },
         },
     );

@@ -6,9 +6,9 @@ import {
     summarizePullPlanningOutcome,
 } from "./collaboration-pull.js";
 
-Deno.test("selectPullPlanningAgent routes PROJECT Epics to Architect and FEATURE Plans to Planner", () => {
+Deno.test("selectPullPlanningAgent routes PROJECT Plans to Architect and FEATURE Plans to Planner", () => {
     assertEquals(selectPullPlanningAgent({ classification: "PROJECT" }), "architect");
-    assertEquals(selectPullPlanningAgent({ type: "epic" }), "architect");
+    assertEquals(selectPullPlanningAgent({ type: "epic" }), "planner");
     assertEquals(selectPullPlanningAgent({ classification: "FEATURE" }), "planner");
 });
 

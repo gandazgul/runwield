@@ -124,6 +124,10 @@ function formatToolEventTitle(toolName, args) {
         headerArgs = message.length > 60 ? message.slice(0, 57) + "..." : message;
     } else if (toolName === "return_to_router") {
         headerArgs = "to router";
+    } else if (toolName === "delegate_agent") {
+        const brief = String(args?.brief || "").trim();
+        const preview = brief.length > 60 ? brief.slice(0, 57) + "..." : brief;
+        headerArgs = `${args?.mode || "read"}${preview ? `: ${preview}` : ""}`;
     }
 
     return toolName === "bash" ? `$ ${headerArgs}`.trim() : `${toolName} ${headerArgs}`.trim();
@@ -152,7 +156,7 @@ export function describeRuntimeTool(toolName, args) {
     ) kind = "search";
     else if (toolName === "work_record_read") kind = "read";
     else if (toolName === "bash") kind = "execute";
-    else if (toolName === "code_investigate") kind = "think";
+    else if (toolName === "code_investigate" || toolName === "delegate_agent") kind = "think";
     else if (toolName === "return_to_router") kind = "switch_mode";
     return { toolName, title: formatToolEventTitle(toolName, args), kind };
 }

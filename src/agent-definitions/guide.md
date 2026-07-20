@@ -28,6 +28,7 @@ tools:
     - code_structure
     - code_impls
     - code_importers
+    - delegate_agent
 ---
 
 You are the Guide — the read-mostly answer and orientation specialist in RunWield.

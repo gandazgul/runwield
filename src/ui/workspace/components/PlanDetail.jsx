@@ -39,7 +39,7 @@ function holdMetadata(plan) {
 
 /** @param {any} plan */
 function isEpicDetail(plan) {
-    return Boolean(plan.isEpic || plan.detailKind === "epic" || plan.type === "epic");
+    return Boolean(plan.isEpic || plan.classification === "PROJECT");
 }
 
 /** @param {any} entry */
@@ -64,7 +64,6 @@ const METADATA_LABELS = Object.freeze({
     [FM.planId]: "Plan ID",
     [RESOURCE_METADATA_KEYS.relativePath]: "Path",
     [FM.origin]: "Origin",
-    [FM.type]: "Type",
     [FM.classification]: "Classification",
     [FM.complexity]: "Complexity",
     [FM.summary]: "Summary",
@@ -101,7 +100,7 @@ const METADATA_LABELS = Object.freeze({
 const METADATA_GROUPS = Object.freeze([
     {
         title: "Identity",
-        keys: [FM.planId, RESOURCE_METADATA_KEYS.relativePath, FM.origin, FM.type],
+        keys: [FM.planId, RESOURCE_METADATA_KEYS.relativePath, FM.origin],
     },
     {
         title: "Planning",

@@ -124,8 +124,12 @@ export const HOME_DIR = readOptionalEnv("HOME");
  * `REVIEWER` is also workflow-only and is loaded from
  * `src/agent-definitions/workflow-prompts/reviewer-prompt.md` as a bare
  * prompt, without shared skills or extra tools.
+ *
+ * `DELEGATED` is workflow-only and is loaded from
+ * `src/agent-definitions/workflow-prompts/delegated-agent-prompt.md` as a bare
+ * prompt by the `delegate_agent` tool.
  */
-/** @type {Readonly<{ROUTER: string, GUIDE: string, OPERATOR: string, PLANNER: string, ARCHITECT: string, ENGINEER: string, RECORDER: string, REVIEWER: string, SLICER: string, IDEATOR: string, INIT: string}>} */
+/** @type {Readonly<{ROUTER: string, GUIDE: string, OPERATOR: string, PLANNER: string, ARCHITECT: string, ENGINEER: string, RECORDER: string, REVIEWER: string, SLICER: string, IDEATOR: string, INIT: string, DELEGATED: string}>} */
 export const AGENTS = Object.freeze({
     ROUTER: "router",
     GUIDE: "guide",
@@ -138,7 +142,8 @@ export const AGENTS = Object.freeze({
     SLICER: "slicer",
     IDEATOR: "ideator",
     INIT: "init",
+    DELEGATED: "delegated",
 });
 
-/** Max concurrent agent tasks for PROJECT execution. */
-export const MAX_PARALLEL_TASKS = 4;
+/** Max concurrent read-only Delegated Agent Sessions per HostedSession. */
+export const MAX_DELEGATED_READERS = 3;

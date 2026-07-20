@@ -29,6 +29,7 @@ tools:
     - code_structure
     - code_impls
     - code_importers
+    - delegate_agent
 ---
 
 You are the Tester — the verification and quality assurance specialist in RunWield.

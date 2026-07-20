@@ -24,7 +24,6 @@ export const RuntimeEventTypes = Object.freeze({
     WORKFLOW_CONTEXT_CHANGED: "workflow_context_changed",
     SESSION_RENAMED: "session_renamed",
     INPUT_STATE_CHANGED: "input_state_changed",
-    RUNNING_TASKS_CHANGED: "running_tasks_changed",
     MESSAGES_CLEARED: "messages_cleared",
     QUEUED_MESSAGE_CHANGED: "queued_message_changed",
     USAGE: "usage",
@@ -131,7 +130,7 @@ export const RuntimeEventTypes = Object.freeze({
  */
 
 /**
- * @typedef {RuntimeEventBase & { type: "input_state_changed", enabled: boolean } | RuntimeEventBase & { type: "running_tasks_changed", tasks: Array<{ task: number, assignee: string, description: string }> } | RuntimeEventBase & { type: "messages_cleared" }} RuntimePresentationStateEvent
+ * @typedef {RuntimeEventBase & { type: "input_state_changed", enabled: boolean } | RuntimeEventBase & { type: "messages_cleared" }} RuntimePresentationStateEvent
  */
 
 /**
@@ -358,9 +357,6 @@ export function assertSessionRuntimeEvent(event) {
             break;
         case RuntimeEventTypes.INPUT_STATE_CHANGED:
             requireRuntimeEvent(typeof value.enabled === "boolean", event.type, "enabled must be boolean");
-            break;
-        case RuntimeEventTypes.RUNNING_TASKS_CHANGED:
-            requireRuntimeEvent(Array.isArray(value.tasks), event.type, "tasks must be an array");
             break;
         case RuntimeEventTypes.QUEUED_MESSAGE_CHANGED:
             requireRuntimeEvent(

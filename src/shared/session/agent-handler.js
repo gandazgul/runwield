@@ -233,9 +233,6 @@ export function createAgentHandler(agentName, __deps) {
             const triageMeta = /** @type {import('../../tools/plan-written.js').TriageMeta} */ (
                 planningDecision.payload.triageMeta || {}
             );
-            const tasks = /** @type {import('../workflow/workflow.js').PlanOutcomeResult["tasks"]} */ (
-                planningDecision.payload.tasks
-            );
             const reviewFeedback = typeof planningDecision.payload.reviewFeedback === "string"
                 ? planningDecision.payload.reviewFeedback
                 : undefined;
@@ -248,7 +245,6 @@ export function createAgentHandler(agentName, __deps) {
                 executionResult = await executePlan({
                     planName,
                     triageMeta,
-                    structuredTasks: tasks,
                     sessionManager,
                     hostedSession,
                     reviewFeedback,
@@ -319,7 +315,7 @@ export function createAgentHandler(agentName, __deps) {
                 await switchActiveAgent(hostedSession, { agentName: nextAgentName });
                 requestAgentStoppedAttention();
             } else {
-                // halt or repair_plan — stay with Engineer for manual recovery
+                // halt — stay with Engineer for manual recovery
                 const reason = executionDecision.payload?.reason || "unknown";
                 await recordWorkflowMetricImpl({
                     category: "execution",

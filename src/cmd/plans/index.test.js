@@ -215,7 +215,6 @@ Deno.test("runPlansCommand prints one Epic with child FEATURE hierarchy and veri
             attrs: {
                 status: "ready_for_work",
                 classification: "PROJECT",
-                type: "epic",
                 complexity: "HIGH",
                 summary: "Large project",
                 createdAt: "now",
@@ -264,7 +263,6 @@ Deno.test("runPlansCommand marks done-enough Epic while keeping remaining child 
             attrs: {
                 status: "verified",
                 classification: "PROJECT",
-                type: "epic",
                 complexity: "HIGH",
                 summary: "Large project",
                 createdAt: "now",
@@ -365,7 +363,6 @@ Deno.test("runPlansCommand groups held top-level plans at bottom and keeps held 
             attrs: {
                 status: "ready_for_work",
                 classification: "PROJECT",
-                type: "epic",
                 complexity: "HIGH",
                 summary: "Active epic",
                 createdAt: "now",
@@ -393,7 +390,6 @@ Deno.test("runPlansCommand groups held top-level plans at bottom and keeps held 
                 heldFromStatus: "ready_for_work",
                 holdReason: "priority shifted",
                 classification: "PROJECT",
-                type: "epic",
                 complexity: "HIGH",
                 summary: "Held epic",
                 createdAt: "now",

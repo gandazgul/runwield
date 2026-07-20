@@ -245,8 +245,8 @@ Plans are markdown files with YAML front matter in `plans/`. RunWield records:
 - status: `draft`, `feedback`, `approved`, `ready_for_decomposition`, `ready_for_work`, `in_progress`, `failed`,
   `implemented`, `verified`, `closed_without_verification`, or `on_hold`
 - origin: `internal` or `external`
-- Epic metadata: `type: epic` on PROJECT Epic containers, plus `parentPlan` and optional `dependencies` on child FEATURE
-  plans
+- Epic metadata: `classification: PROJECT` on parent Epic containers, plus `parentPlan` and optional `dependencies` on
+  child FEATURE plans
 
 PROJECT plans are Epics by default: the parent PROJECT plan is a container for design and decomposition state, not an
 implementation unit. The interactive Slicer helps choose vertical child FEATURE boundaries, writes draft children under
@@ -254,8 +254,10 @@ implementation unit. The interactive Slicer helps choose vertical child FEATURE 
 normal FEATURE lifecycle with its own review, execution, validation, and merge history.
 
 Use `wld plans` to list active saved plans. Epic children are grouped under their parent, and orphaned child plans are
-shown separately. Physical archives are not a Plan status: archived Plans stay as plaintext markdown under
-`plans/archived/` and keep their last durable status plus archive metadata.
+shown separately. Agents can also use foreground Delegated Agent Sessions through `delegate_agent` for bounded read-only
+investigation or one exclusive write task without sharing parent conversation history. Physical archives are not a Plan
+status: archived Plans stay as plaintext markdown under `plans/archived/` and keep their last durable status plus
+archive metadata.
 
 Archive commands are explicit and reversible:
 

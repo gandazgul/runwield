@@ -233,7 +233,6 @@ Deno.test("Work Record backfill previews eligible sources, child skips, and exis
         await savePlan(cwd, "epic", "# Epic\n\n## Plan\n\nBody", {
             planId: "plan-epic",
             classification: "PROJECT",
-            type: "epic",
             complexity: "MEDIUM",
             summary: "Epic complete enough.",
             affectedPaths: [],

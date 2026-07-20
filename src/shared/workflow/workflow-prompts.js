@@ -3,11 +3,7 @@
  * User prompts and agent request text used by workflow execution.
  */
 
-import { loadPlan } from "../../plan-store.js";
-import { getAgentDisplayName } from "../session/agents.js";
-import { emitSystemStatus } from "../session/session-runtime-events.js";
 import { requestHostedSessionInteraction, RuntimeInteractionTypes } from "../session/session-runtime-interactions.js";
-import { extractTasks, parseTaskDependencies, validateProjectTasks } from "./task-scheduling.js";
 
 /**
  * @typedef {Object} SlicerChildSummary
@@ -46,7 +42,6 @@ export function buildSlicerRequest(input, legacyTriageMeta) {
         "## Epic Lifecycle State",
         `- Plan: plans/${planName}.md`,
         `- Classification: ${attrs.classification || "unknown"}`,
-        `- Type: ${attrs.type || "unknown"}`,
         `- Status: ${attrs.status || "unknown"}`,
     ];
 
@@ -149,142 +144,6 @@ export async function askProjectDecompositionApproval(planName, hostedSession) {
     });
     const choice = response.outcome === "selected" ? response.value : null;
     return choice === "proceed" ? "proceed" : "save";
-}
-
-/**
- * Project-specific post-approval selection that also prints task list.
- *
- * @param {string} planName
- * @param {import('../session/hosted-session.js').HostedSession} hostedSession
- * @param {Array<{ task: number, assignee: string, dependencies: string, description: string, writeScope?: string }>} [structuredTasks]
- * @param {string} [projectRoot]
- * @returns {Promise<"proceed" | "save">}
- */
-export async function askApprovalWithTasks(planName, hostedSession, structuredTasks, projectRoot) {
-    if (!projectRoot) throw new Error("askApprovalWithTasks: projectRoot is required");
-    const plan = await loadPlan(projectRoot, planName);
-
-    let tasks = structuredTasks || [];
-    if (tasks.length === 0 && plan) {
-        try {
-            tasks = extractTasks(plan.markdown);
-            validateProjectTasks(tasks);
-        } catch {
-            // Proceed with 0 tasks; execution will report repair needed if markdown also fails.
-        }
-    }
-
-    let title = `Project plan "${planName}" approved!`;
-    if (tasks.length > 0) {
-        title += `\nTasks:\n` +
-            tasks.map((t) => `  ${t.task}. [${t.assignee}] ${t.description}`).join(
-                "\n",
-            );
-    }
-
-    const options = [
-        {
-            value: "proceed",
-            label: "Proceed with execution (tasks run in dependency order)",
-        },
-        { value: "save", label: "Save for later" },
-    ];
-
-    const response = await requestHostedSessionInteraction(hostedSession, {
-        type: RuntimeInteractionTypes.SELECT,
-        prompt: `${title}\nWhat next?`,
-        options,
-    });
-    const choice = response.outcome === "selected" ? response.value : null;
-    return choice === "proceed" ? "proceed" : "save";
-}
-
-/**
- * @param {{ failedTasks: number[], results: Map<number, { status: string, error?: string }> }} executionResult
- * @param {import('../session/hosted-session.js').HostedSession} hostedSession
- * @returns {Promise<boolean>}
- */
-export async function askRetryFailedTasks(executionResult, hostedSession) {
-    const { failedTasks } = executionResult;
-    const msg = `[RunWield] ${failedTasks.length} task(s) failed. Would you like to retry the failed tasks?`;
-    const response = await requestHostedSessionInteraction(hostedSession, {
-        type: RuntimeInteractionTypes.SELECT,
-        prompt: msg,
-        options: [
-            { value: "yes", label: "Yes, retry failed tasks" },
-            { value: "no", label: "No, finalize execution" },
-        ],
-    });
-    return response.outcome === "selected" && response.value === "yes";
-}
-
-/**
- * @param {{ results: Map<number, { status: string, error?: string }> }} result
- * @param {import('../session/hosted-session.js').HostedSession} hostedSession
- */
-export function reportExecutionSummary(result, hostedSession) {
-    const { results } = result;
-    let successCount = 0, failedCount = 0, blockedCount = 0;
-
-    results.forEach((taskResult) => {
-        if (taskResult.status === "success") successCount++;
-        else if (taskResult.status === "failed") failedCount++;
-        else if (taskResult.status === "blocked") blockedCount++;
-    });
-
-    const summary = `Execution Summary: ${successCount} success, ${failedCount} failed, ${blockedCount} blocked.`;
-    emitSystemStatus(hostedSession, summary, { header: "RunWield" });
-}
-
-/**
- * @param {{ task: number, description: string }} task
- * @param {string} agentName
- * @param {string | null} outputText
- * @param {string} [projectRoot]
- * @returns {string}
- */
-export function buildTaskResultDisplay(task, agentName, outputText, projectRoot) {
-    return `Task ${task.task} (${getAgentDisplayName(agentName, projectRoot)}) — ${task.description}\n\n` +
-        (outputText || "(no output)");
-}
-
-/**
- * @param {{ dependencies: string }} task
- * @param {Map<number, import('./types.js').TaskExecutionResult>} results
- * @returns {string}
- */
-export function buildDependencyOutputsContext(task, results) {
-    const outputs = parseTaskDependencies(task.dependencies)
-        .map((dependencyId) => results.get(dependencyId))
-        .filter((result) => result?.status === "success" && result.display)
-        .map((result) => result?.display || "");
-
-    return outputs.join("\n\n---\n\n");
-}
-
-/**
- * @param {string} planName
- * @param {string} planBody
- * @param {{ task: number, dependencies: string, description: string, writeScope?: string }} task
- * @param {Map<number, import('./types.js').TaskExecutionResult>} results
- * @returns {string}
- */
-export function buildTaskAssignmentRequest(planName, planBody, task, results) {
-    const dependencyOutputs = buildDependencyOutputsContext(task, results);
-    return [
-        "## Task Assignment",
-        `You are assigned Task ${task.task} from the plan "${planName}". This is a PROJECT plan; only execute the assigned task, then call task_completed with a concise bullet-point success or failure report.`,
-        "### Task Description",
-        task.description,
-        "### Dependencies",
-        task.dependencies || "None",
-        dependencyOutputs ? "### Dependency Outputs" : "",
-        dependencyOutputs,
-        "### Write Scope",
-        task.writeScope || "unknown",
-        "### Full Plan Context",
-        planBody,
-    ].filter(Boolean).join("\n\n");
 }
 
 /**

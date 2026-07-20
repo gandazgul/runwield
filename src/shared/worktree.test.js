@@ -1409,7 +1409,6 @@ Deno.test("verified child merge ignores independently active sibling Plan metada
             /** @type {any} */ ({
                 status: "ready_for_work",
                 classification: "PROJECT",
-                type: "epic",
             }),
         );
         for (const name of ["child-a", "child-b"]) {
@@ -1481,7 +1480,6 @@ Deno.test("parent Epic verification survives stale-worktree target alignment", a
         const epicAttrs = /** @type {any} */ ({
             status: "ready_for_work",
             classification: "PROJECT",
-            type: "epic",
         });
         await Deno.writeTextFile(`${projectRoot}/.gitignore`, ".wld/\n");
         await savePlan(projectRoot, "epic", "# Epic", epicAttrs);

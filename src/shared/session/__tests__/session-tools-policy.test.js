@@ -106,6 +106,44 @@ Deno.test("loadAgentDef loads Guide with read-only tools and return_to_router", 
     assert(!def.tools.includes("triage_report"));
 });
 
+Deno.test("layered Agent Definition overrides can remove delegate_agent", async () => {
+    const projectRoot = await Deno.makeTempDir({ prefix: "runwield-delegate-override-" });
+    const overrideDir = join(projectRoot, ".wld", "agents");
+    try {
+        await Deno.mkdir(overrideDir, { recursive: true });
+        await Deno.writeTextFile(
+            join(overrideDir, `${AGENTS.GUIDE}.md`),
+            [
+                "---",
+                "name: Guide",
+                'description: "Project-local Guide"',
+                "tools:",
+                "  - read",
+                "---",
+                "",
+                "Local Guide instructions.",
+                "",
+            ].join("\n"),
+        );
+
+        const def = await loadAgentDef(AGENTS.GUIDE, projectRoot);
+        assertEquals(def.tools.includes("read"), true);
+        assertEquals(def.tools.includes("delegate_agent"), false);
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true });
+    }
+});
+
+Deno.test("Router and Recorder do not expose delegate_agent by default", async () => {
+    const [router, recorder] = await Promise.all([
+        loadAgentDef(AGENTS.ROUTER, CWD),
+        loadAgentDef("recorder", CWD),
+    ]);
+
+    assertEquals(router.tools.includes("delegate_agent"), false);
+    assertEquals(recorder.tools.includes("delegate_agent"), false);
+});
+
 Deno.test("resolveSessionToolNames blocks runtime toolNames from re-enabling removed non-protected tools", () => {
     const agentTools = ["read", "memory_recall", "triage_report"];
     const resolved = resolveSessionToolNames(agentTools, ["read", "bash", "triage_report"], []);
@@ -303,6 +341,101 @@ async function writeVisionModelConfig(tempHome) {
         }),
     );
 }
+
+Deno.test("buildAgentSession applies invocation thinking override before settings and agent defaults", async () => {
+    const originalHome = Deno.env.get("HOME");
+    const tempHome = await Deno.makeTempDir();
+    try {
+        Deno.env.set("HOME", tempHome);
+        __resetSettingsForTests();
+        await writeVisionModelConfig(tempHome);
+        await Deno.writeTextFile(
+            join(tempHome, ".wld", "settings.json"),
+            JSON.stringify({ defaultThinkingLevel: "low" }),
+        );
+
+        const hostedSession = new HostedSession({ id: "thinking-override", cwd: tempHome });
+        const built = await buildAgentSession({
+            hostedSession,
+            agentName: "delegated",
+            modelOverride: "test/text",
+            thinkingLevelOverride: "high",
+            _agentDefOverride: {
+                name: "delegated",
+                displayName: "Delegated Agent",
+                model: "",
+                description: "Test delegated agent",
+                tools: ["read"],
+                systemPrompt: "Prompt.",
+                thinkingLevel: "minimal",
+            },
+        });
+
+        assertEquals(built.resolvedThinkingLevel, "high");
+        assertEquals(hostedSession.getThinkingLevel(), "high");
+        built.session.dispose();
+    } finally {
+        __resetSettingsForTests();
+        if (originalHome === undefined) Deno.env.delete("HOME");
+        else Deno.env.set("HOME", originalHome);
+        __resetSettingsForTests();
+        await Deno.remove(tempHome, { recursive: true });
+    }
+});
+
+Deno.test("buildAgentSession auto-wires delegate_agent only when retained by effective Agent policy", async () => {
+    const originalHome = Deno.env.get("HOME");
+    const tempHome = await Deno.makeTempDir({ prefix: "runwield-delegate-wiring-" });
+    /** @type {import('@earendil-works/pi-coding-agent').AgentSession[]} */
+    const sessions = [];
+    try {
+        Deno.env.set("HOME", tempHome);
+        __resetSettingsForTests();
+        await writeVisionModelConfig(tempHome);
+
+        const hostedSession = new HostedSession({ id: "delegate-wiring", cwd: tempHome });
+        const enabled = await buildAgentSession({
+            hostedSession,
+            cwd: tempHome,
+            agentName: AGENTS.GUIDE,
+            modelOverride: "test/vision",
+            _agentDefOverride: {
+                name: AGENTS.GUIDE,
+                displayName: "Guide",
+                model: "",
+                description: "Guide with delegation",
+                tools: ["read", "delegate_agent"],
+                systemPrompt: "Prompt.",
+            },
+        });
+        sessions.push(enabled.session);
+        assert(enabled.finalCustomTools.some((tool) => tool.name === "delegate_agent"));
+
+        const disabled = await buildAgentSession({
+            hostedSession,
+            cwd: tempHome,
+            agentName: AGENTS.GUIDE,
+            modelOverride: "test/vision",
+            _agentDefOverride: {
+                name: AGENTS.GUIDE,
+                displayName: "Guide",
+                model: "",
+                description: "Guide without delegation",
+                tools: ["read"],
+                systemPrompt: "Prompt.",
+            },
+        });
+        sessions.push(disabled.session);
+        assertEquals(disabled.finalCustomTools.some((tool) => tool.name === "delegate_agent"), false);
+    } finally {
+        for (const session of sessions) session.dispose();
+        __resetSettingsForTests();
+        if (originalHome === undefined) Deno.env.delete("HOME");
+        else Deno.env.set("HOME", originalHome);
+        __resetSettingsForTests();
+        await Deno.remove(tempHome, { recursive: true });
+    }
+});
 
 Deno.test("buildAgentSession injects see_image only for text-only model with vision fallback", async () => {
     const originalHome = Deno.env.get("HOME");

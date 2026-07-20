@@ -174,7 +174,7 @@ Deno.test("buildPlanEventUpdates records continue recovery as ready_for_work", (
 
 Deno.test("buildPlanEventUpdates marks Epics done enough as verified with metadata", () => {
     const updates = buildPlanEventUpdates("epic_done_enough", "ready_for_work", {
-        triageMeta: { classification: "PROJECT", type: "epic" },
+        triageMeta: { classification: "PROJECT" },
         now: () => new Date("2026-06-17T00:00:00.000Z"),
         epicDoneEnoughSummary: "Done enough: 1/2 verified.",
     });
@@ -271,7 +271,7 @@ Deno.test("manual board movement allows ready_for_decomposition only for Epic pl
     assertEquals(
         buildPlanEventUpdates("manual_status_change", "approved", {
             manualTargetStatus: "ready_for_decomposition",
-            triageMeta: { classification: "PROJECT", type: "epic" },
+            triageMeta: { classification: "PROJECT" },
         }).status,
         "ready_for_decomposition",
     );
@@ -416,7 +416,7 @@ Deno.test("manual board helper exports expose lifecycle-owned rules", () => {
         "in_progress",
         "implemented",
     ]);
-    assertEquals(getAllowedManualPlanStatuses("approved", { classification: "PROJECT", type: "epic" }), [
+    assertEquals(getAllowedManualPlanStatuses("approved", { classification: "PROJECT" }), [
         "draft",
         "feedback",
         "approved",
@@ -431,7 +431,6 @@ Deno.test("manual board helper exports expose lifecycle-owned rules", () => {
     assertEquals(
         isManualBoardStatusChangeAllowed("approved", "ready_for_decomposition", {
             classification: "PROJECT",
-            type: "epic",
         }),
         true,
     );
@@ -452,7 +451,6 @@ Deno.test("recordPlanEvent mutates only the selected held plan file", async () =
                 "  []",
                 'createdAt: "2026-01-01T00:00:00.000Z"',
                 'status: "ready_for_work"',
-                'type: "epic"',
                 "---",
                 "# Epic",
             ].join("\n"),
@@ -498,7 +496,6 @@ Deno.test("recordPlanEvent verifies parent Epic when the final child feature is 
             summary: "Epic",
             affectedPaths: [],
             status: "ready_for_work",
-            type: "epic",
         });
         await savePlan(cwd, "epic/01-first", "# First", {
             classification: "FEATURE",
@@ -551,7 +548,6 @@ Deno.test("recordPlanEvent keeps parent Epic open while child features remain un
             summary: "Epic",
             affectedPaths: [],
             status: "ready_for_work",
-            type: "epic",
         });
         await savePlan(cwd, "epic/01-first", "# First", {
             classification: "FEATURE",
@@ -619,10 +615,10 @@ Deno.test("isExecutablePlanStatus only accepts ready_for_work", () => {
     assertEquals(isExecutablePlanStatus("implemented"), false);
 });
 
-Deno.test("isEpicPlan detects PROJECT plans with epic type", () => {
-    assertEquals(isEpicPlan({ classification: "PROJECT", type: "epic" }), true);
-    assertEquals(isEpicPlan({ classification: "PROJECT" }), false);
-    assertEquals(isEpicPlan({ classification: "FEATURE", type: "epic" }), false);
+Deno.test("isEpicPlan detects PROJECT plans by classification", () => {
+    assertEquals(isEpicPlan({ classification: "PROJECT" }), true);
+    assertEquals(isEpicPlan({ type: "epic" }), false);
+    assertEquals(isEpicPlan({ classification: "FEATURE" }), false);
     assertEquals(isEpicPlan(undefined), false);
 });
 
@@ -741,7 +737,6 @@ Deno.test("stageValidationPassedInExecutionWorktree synchronizes siblings and ad
         const epicAttrs = /** @type {any} */ ({
             status: "ready_for_work",
             classification: "PROJECT",
-            type: "epic",
         });
         await savePlan(projectRoot, "epic", "# Epic", epicAttrs);
         await savePlan(projectRoot, "child-a", "# Child A", {
@@ -801,7 +796,6 @@ Deno.test("stageValidationPassedInExecutionWorktree reevaluates parent advanceme
         const epicAttrs = /** @type {any} */ ({
             status: "ready_for_work",
             classification: "PROJECT",
-            type: "epic",
         });
         await savePlan(projectRoot, "epic", "# Epic", epicAttrs);
         await savePlan(projectRoot, "child-a", "# Child A", {
@@ -859,7 +853,6 @@ Deno.test("stageValidationPassedInExecutionWorktree drops a staged parent when a
         const epicAttrs = /** @type {any} */ ({
             status: "ready_for_work",
             classification: "PROJECT",
-            type: "epic",
         });
         await savePlan(projectRoot, "epic", "# Epic", epicAttrs);
         await savePlan(projectRoot, "child-a", "# Child A", {
@@ -917,7 +910,6 @@ Deno.test("stageValidationPassedInExecutionWorktree does not preserve a stale st
         const epicAttrs = /** @type {any} */ ({
             status: "ready_for_work",
             classification: "PROJECT",
-            type: "epic",
         });
         await savePlan(projectRoot, "epic", "# Epic", epicAttrs);
         await savePlan(projectRoot, "child-a", "# Child A", {
