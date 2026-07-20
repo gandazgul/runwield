@@ -4,6 +4,7 @@
  */
 
 import { isAbsolute } from "@std/path";
+import { MAX_DELEGATED_READERS } from "../../constants.js";
 import {
     readPersistedWorkflowContext,
     recordWorkflowPlanName,
@@ -18,6 +19,10 @@ import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runt
  * @property {string} model
  * @property {string} provider
  * @property {string} [agentName]
+ */
+
+/**
+ * @typedef {AgentInfo & { sessionInfoId: string }} AgentInfoRecord
  */
 
 /**
@@ -127,8 +132,9 @@ export class HostedSession {
         );
         this.disposed = false;
 
-        /** @type {AgentInfo[]} */
+        /** @type {AgentInfoRecord[]} */
         this.agentInfoStack = [];
+        this.agentInfoSequence = 0;
         this.userModelOverrideId = "";
         this.userModelOverrideProvider = "";
         this.userModelOverride = false;
@@ -150,6 +156,8 @@ export class HostedSession {
         this.rootAgentName = null;
         /** @type {Set<DisposableLike>} */
         this.subAgentSessions = new Set();
+        this.delegatedReaderCount = 0;
+        this.delegatedWriterActive = false;
         this.projectStateContext = "";
         /** @type {import('./workflow-context-session.js').WorkflowContext | null} */
         this.workflowContext = readPersistedWorkflowContext(
@@ -165,30 +173,46 @@ export class HostedSession {
         if (this.disposed) throw new Error(`HostedSession "${this.id}" is disposed`);
     }
 
-    /** @param {string} displayName @param {string} [model] @param {string} [provider] @param {string} [agentName] */
+    /**
+     * @param {string} displayName
+     * @param {string} [model]
+     * @param {string} [provider]
+     * @param {string} [agentName]
+     * @returns {string}
+     */
     pushAgentInfo(displayName, model = "", provider = "", agentName = "") {
         this.assertActive();
-        this.agentInfoStack.push({ displayName, model, provider, ...(agentName ? { agentName } : {}) });
+        const sessionInfoId = `agent-info-${++this.agentInfoSequence}`;
+        this.agentInfoStack.push({ sessionInfoId, displayName, model, provider, ...(agentName ? { agentName } : {}) });
+        return sessionInfoId;
     }
 
-    popAgentInfo() {
+    /** @param {string} [sessionInfoId] */
+    popAgentInfo(sessionInfoId = "") {
         this.assertActive();
-        this.agentInfoStack.pop();
+        if (!sessionInfoId) {
+            this.agentInfoStack.pop();
+            return;
+        }
+        const index = this.agentInfoStack.findIndex((agentInfo) => agentInfo.sessionInfoId === sessionInfoId);
+        if (index >= 0) this.agentInfoStack.splice(index, 1);
     }
 
     /** @param {string} displayName @param {string} [model] @param {string} [provider] @param {string} [agentName] */
     resetAgentInfoStack(displayName, model = "", provider = "", agentName = "") {
         this.assertActive();
-        this.agentInfoStack = [{ displayName, model, provider, ...(agentName ? { agentName } : {}) }];
+        const sessionInfoId = `agent-info-${++this.agentInfoSequence}`;
+        this.agentInfoStack = [{ sessionInfoId, displayName, model, provider, ...(agentName ? { agentName } : {}) }];
     }
 
     getAgentInfoStack() {
-        return this.agentInfoStack.map((agentInfo) => ({ ...agentInfo }));
+        return this.agentInfoStack.map(({ sessionInfoId: _sessionInfoId, ...agentInfo }) => ({ ...agentInfo }));
     }
 
     getActiveAgentInfo() {
         if (this.agentInfoStack.length === 0) return null;
-        return { ...this.agentInfoStack[this.agentInfoStack.length - 1] };
+        const { sessionInfoId: _sessionInfoId, ...agentInfo } = this.agentInfoStack[this.agentInfoStack.length - 1];
+        return { ...agentInfo };
     }
 
     getActiveAgentName() {
@@ -334,6 +358,46 @@ export class HostedSession {
         return new Set(this.subAgentSessions);
     }
 
+    /**
+     * @param {"read" | "write"} mode
+     * @returns {() => void}
+     */
+    acquireDelegatedAgentLease(mode) {
+        this.assertActive();
+        if (mode === "read") {
+            if (this.delegatedWriterActive) {
+                throw new Error("A delegated writer is already running; read delegations must wait.");
+            }
+            if (this.delegatedReaderCount >= MAX_DELEGATED_READERS) {
+                throw new Error(`Too many delegated readers are running; maximum is ${MAX_DELEGATED_READERS}.`);
+            }
+            this.delegatedReaderCount++;
+            let released = false;
+            return () => {
+                if (released) return;
+                released = true;
+                this.delegatedReaderCount = Math.max(0, this.delegatedReaderCount - 1);
+            };
+        }
+
+        if (this.delegatedWriterActive || this.delegatedReaderCount > 0) {
+            throw new Error(
+                "A delegated reader or writer is already running; write delegation requires exclusive access.",
+            );
+        }
+        this.delegatedWriterActive = true;
+        let released = false;
+        return () => {
+            if (released) return;
+            released = true;
+            this.delegatedWriterActive = false;
+        };
+    }
+
+    getDelegatedAgentLeaseState() {
+        return { readers: this.delegatedReaderCount, writer: this.delegatedWriterActive };
+    }
+
     getThinkingLevel() {
         return this.activeThinkingLevel;
     }
@@ -461,6 +525,8 @@ export class HostedSession {
         this.rootAgentSession = null;
         this.rootAgentName = null;
         this.subAgentSessions.clear();
+        this.delegatedReaderCount = 0;
+        this.delegatedWriterActive = false;
         this.projectStateContext = "";
         this.workflowContext = null;
         this.activeExecutionWorkflow = null;

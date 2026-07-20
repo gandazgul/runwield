@@ -108,7 +108,6 @@ function getStoredPlanLocation(cwd, planName) {
  * @property {string} [planId] - Durable project-scoped resource identity for Workspace URLs
  * @property {"draft"|"feedback"|"approved"|"ready_for_decomposition"|"ready_for_work"|"in_progress"|"failed"|"implemented"|"verified"|"closed_without_verification"|"on_hold"} status
  * @property {"internal"|"external"} [origin] - "internal" = created by a RunWield agent; "external" = a pre-existing markdown file loaded from an arbitrary path and resumed with RunWield
- * @property {string} [type] - Optional plan subtype, e.g. "epic" for PROJECT Epic containers
  * @property {string} [parentPlan] - Canonical parent plan name for child FEATURE plans
  * @property {number} [order] - Epic child FEATURE execution order.
  * @property {string[]} [dependencies] - Sibling FEATURE plan identifiers that should be completed first
@@ -148,6 +147,8 @@ function getStoredPlanLocation(cwd, planName) {
  * @property {string} [collaborationBodyHash] - SHA-256 hash of the last controlled synced Plan body
  * @property {string} [collaborationSyncedAt] - ISO timestamp of the last controlled collaboration metadata write
  */
+
+/** @typedef {Partial<PlanFrontMatter> & Record<string, unknown>} PlanFrontMatterInput */
 
 /**
  * Descriptor for a draft child FEATURE plan produced by the Slicer.
@@ -349,7 +350,6 @@ function formatFrontMatter(fm) {
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.updatedAt, fm.updatedAt);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.status, fm.status);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.origin, fm.origin);
-    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.type, fm.type);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.parentPlan, fm.parentPlan);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.order, fm.order);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.dependencies, fm.dependencies);
@@ -649,7 +649,6 @@ export function injectFrontMatter(markdown, overrides = {}) {
         updatedAt: overrides.updatedAt ?? existingFm.updatedAt ?? new Date().toISOString(),
         status: normalizePlanStatus(overrides.status ?? existingFm.status),
         origin: overrides.origin ?? existingFm.origin ?? "internal",
-        type: optionalStringValue(overrides, existingFm, "type"),
         parentPlan: optionalStringValue(overrides, existingFm, "parentPlan"),
         order: Object.hasOwn(overrides, "order")
             ? normalizeNonNegativeInteger(overrides.order)
@@ -764,7 +763,6 @@ export function parsePlanFrontMatter(markdown, opts = {}) {
             updatedAt: attrs.updatedAt,
             status: normalizePlanStatus(attrs.status),
             origin: attrs.origin || missingOrigin,
-            type: typeof attrs.type === "string" ? attrs.type : undefined,
             parentPlan: typeof attrs.parentPlan === "string" ? attrs.parentPlan : undefined,
             order: normalizeNonNegativeInteger(attrs.order),
             dependencies: normalizeStringList(attrs.dependencies),
@@ -1150,7 +1148,7 @@ export async function saveChildFeaturePlans(cwd, epicPlanName, children, options
  * @param {string} cwd - Project root
  * @param {string} planName - Filename without .md (e.g., "add-dark-mode-toggle")
  * @param {string} content - Plan markdown content
- * @param {Partial<PlanFrontMatter>} [fmOverrides] - Front matter fields
+ * @param {PlanFrontMatterInput} [fmOverrides] - Front matter fields, including preserved unknown metadata
  * @param {PlanWriteOptions} [options]
  * @returns {Promise<string>} The full path where the plan was saved
  */
@@ -2267,11 +2265,11 @@ export function isChildFeaturePlan(plan) {
 /**
  * Same Epic rule used by the Plan Lifecycle module, kept here cycle-free.
  *
- * @param {Partial<PlanFrontMatter> | undefined} attrs
+ * @param {PlanFrontMatterInput | undefined} attrs
  * @returns {boolean}
  */
 export function isEpicPlan(attrs) {
-    return attrs?.classification === "PROJECT" && attrs?.type === "epic";
+    return attrs?.classification === "PROJECT";
 }
 
 /**

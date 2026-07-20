@@ -28,33 +28,19 @@ import {
     readLatestTaskCompletedOutcome,
 } from "./workflow-results.js";
 
-export {
-    extractTasks,
-    parseTaskDependencies,
-    parseTaskWriteScope,
-    selectNonConflictingTasks,
-    taskWriteScopesOverlap,
-    validateProjectTasks,
-} from "./task-scheduling.js";
 // Slicer-facing helpers are re-exported from the workflow facade for callers that should not import submodules.
 export {
     beginSlicerContextPhase,
     createSlicerFinalizeTool,
-    ensureSlicerTasks,
     materializeSlicerDraft,
+    openSlicerDecomposition,
     runSlicerAgent,
 } from "./workflow-slicer.js";
 export {
-    askApprovalWithTasks,
     askPostApproval,
     askProjectDecompositionApproval,
-    askRetryFailedTasks,
-    buildDependencyOutputsContext,
     buildEngineerRequest,
     buildSlicerRequest,
-    buildTaskAssignmentRequest,
-    buildTaskResultDisplay,
-    reportExecutionSummary,
 } from "./workflow-prompts.js";
 export {
     extractAssistantOutput,
@@ -71,7 +57,6 @@ export {
  * @typedef {Object} PlanOutcomeResult
  * @property {PlanOutcome} outcome
  * @property {string} [planName]
- * @property {Array<{ task: number, assignee: string, dependencies: string, description: string, writeScope?: string }>} [tasks]
  * @property {import('../../tools/plan-written.js').TriageMeta} [triageMeta]
  * @property {string} [feedback]
  * @property {Array<{base64: string, mimeType: string}>} [images]
@@ -82,7 +67,6 @@ export {
  * @property {boolean} repairRequired
  * @property {boolean} executionComplete
  * @property {string} [error]
- * @property {number[]} [failedTasks]
  * @property {string} [completionReport]
  */
 
@@ -124,14 +108,12 @@ export async function runPlanningAgent(
  * @param {{
  *   planName: string,
  *   triageMeta: Partial<import('../../plan-store.js').PlanFrontMatter>,
- *   structuredTasks?: Array<{ task: number, assignee: string, dependencies: string, description: string, writeScope?: string }>,
  *   sessionManager?: import('@earendil-works/pi-coding-agent').SessionManager,
  *   hostedSession: import('../session/hosted-session.js').HostedSession,
  *   reviewFeedback?: string,
  *   reviewImages?: Array<{base64: string, mimeType: string}>,
  *   __deps?: {
  *   loadPlan?: typeof loadPlan,
- *   executeStructuredProjectPlan?: () => Promise<PlanExecutionResult>,
  *   executeSingleEngineerPlan?: typeof executeSingleEngineerPlan,
  *   recordPlanEvent?: typeof recordPlanEvent,
  *   markActiveWorktreeStatus?: typeof markActiveWorktreeStatus,
@@ -144,7 +126,6 @@ export async function runPlanningAgent(
 export async function executePlan({
     planName,
     triageMeta,
-    structuredTasks,
     sessionManager,
     hostedSession,
     reviewFeedback,
@@ -154,7 +135,6 @@ export async function executePlan({
     const loadPlanFn = __deps.loadPlan || loadPlan;
     if (!hostedSession) throw new Error("executePlan: hostedSession is required");
     const projectRoot = hostedSession.cwd;
-    void structuredTasks;
     const executeSingleEngineerPlanFn = __deps.executeSingleEngineerPlan || executeSingleEngineerPlan;
     const recordPlanEventFn = __deps.recordPlanEvent || recordPlanEvent;
     const markActiveWorktreeStatusFn = __deps.markActiveWorktreeStatus || markActiveWorktreeStatus;
@@ -209,9 +189,7 @@ export async function executePlan({
 
     emitSystemStatus(hostedSession, `=== Executing Plan: ${planName} ===`, { header: "RunWield" });
 
-    // New Epic-era execution never dispatches PROJECT task DAGs from this facade.
-    // Epics are containers handled above; child FEATURE plans and any legacy
-    // non-Epic plan that reaches this path use the normal single-plan execution path.
+    // PROJECT Epics are containers handled above; executable child FEATURE plans use the normal single-plan execution path.
     const result = await executeSingleEngineerPlanFn({
         planName,
         planBody: plan.body,
@@ -231,7 +209,6 @@ export async function executePlan({
             details: {
                 executionComplete: false,
                 repairRequired: result.repairRequired,
-                failedTaskCount: Array.isArray(result.failedTasks) ? result.failedTasks.length : undefined,
                 hasError: Boolean(result.error),
             },
         }, { cwd: projectRoot });

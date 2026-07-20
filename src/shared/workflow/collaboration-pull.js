@@ -19,7 +19,7 @@ import { redactSecrets } from "../collaboration/capabilities.js";
 
 /** @param {Record<string, unknown>} attrs */
 export function selectPullPlanningAgent(attrs = {}) {
-    return attrs.classification === "PROJECT" || attrs.type === "epic" ? AGENTS.ARCHITECT : AGENTS.PLANNER;
+    return attrs.classification === "PROJECT" ? AGENTS.ARCHITECT : AGENTS.PLANNER;
 }
 
 /**

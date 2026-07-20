@@ -56,7 +56,7 @@ import { executeReturnToRouter, returnToRouterTool } from "../../tools/return-to
 import { createUserInterviewTool } from "../../tools/user-interview.js";
 import { createSeeImageTool } from "../../tools/see-image.js";
 import { discoverProviderModel, getModelRegistry } from "../models/model-registry.js";
-import { parseProviderModel } from "../models/model-validation.js";
+import { formatProviderModelReference, parseProviderModel } from "../models/model-validation.js";
 import { directoryExists, fileExists } from "../helpers.js";
 import {
     _AGENT_ATTENTION_NUDGES,
@@ -873,9 +873,7 @@ async function resolveModel(
     const activeModelState = hostedSession?.getActiveModelState?.() || { model: "", provider: "" };
     if (activeModelState.model && hostedSession?.isUserModelOverride?.()) {
         candidateModels.push({
-            model: activeModelState.provider
-                ? `${activeModelState.provider}/${activeModelState.model}`
-                : activeModelState.model,
+            model: formatProviderModelReference(activeModelState),
             source: "manual /model override",
             strict: true,
         });
@@ -1500,6 +1498,7 @@ export async function assembleFinalSystemPrompt(
  * @param {string[]} [opts.toolNames]
  * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [opts.customTools]
  * @param {string} [opts.modelOverride]
+ * @param {"off"|"minimal"|"low"|"medium"|"high"|"xhigh"} [opts.thinkingLevelOverride]
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager]
  * @param {import('../../tools/plan-written.js').TriageMeta} [opts.triageMeta]
  * @param {import('./types.js').AgentDefinition} [opts._agentDefOverride]
@@ -1529,6 +1528,7 @@ export async function buildAgentSession({
     toolNames,
     customTools,
     modelOverride,
+    thinkingLevelOverride,
     sessionManager,
     triageMeta,
     _agentDefOverride,
@@ -1559,6 +1559,9 @@ export async function buildAgentSession({
     const effectiveSessionManager = sessionManager || SessionManager.inMemory(sessionCwd);
 
     const customToolNames = (customTools || []).map((t) => t.name);
+    const parentDelegableTools = resolveEffectiveSessionToolNames(agentDef.tools, toolNames, [], {
+        allowReturnToRouter,
+    });
     let tools = resolveEffectiveSessionToolNames(agentDef.tools, toolNames, customToolNames, { allowReturnToRouter });
 
     const finalCustomTools = [...(customTools || [])];
@@ -1638,6 +1641,19 @@ export async function buildAgentSession({
         finalCustomTools.push(
             createReviewCompletedTool({ hostedSession: targetHostedSession, agentName: agentDef.displayName }),
         );
+    }
+
+    if (
+        tools.includes("delegate_agent") && targetHostedSession &&
+        !finalCustomTools.find((t) => t.name === "delegate_agent")
+    ) {
+        const { createDelegateAgentTool } = await import("../../tools/delegate-agent.js");
+        finalCustomTools.push(createDelegateAgentTool({
+            hostedSession: targetHostedSession,
+            cwd: sessionCwd,
+            parentTools: parentDelegableTools,
+            runIsolatedAgentSession,
+        }));
     }
 
     // Override the built-in edit tool to return file contents on failure.
@@ -1735,11 +1751,18 @@ export async function buildAgentSession({
         }
     }
 
-    // Apply thinking level — settings values take priority over layered frontmatter.
+    // Apply thinking level — invocation overrides take priority for isolated delegated sessions.
     let thinkingLevelSource = undefined;
-    let resolvedThinkingLevel = agentName ? getConfiguredAgentThinkingLevel(agentName, sessionCwd) : undefined;
+    /** @type {string | undefined} */
+    let resolvedThinkingLevel = thinkingLevelOverride;
     if (resolvedThinkingLevel) {
-        thinkingLevelSource = "settings agent thinking level";
+        thinkingLevelSource = "invocation thinking level override";
+    }
+    if (!resolvedThinkingLevel) {
+        resolvedThinkingLevel = agentName ? getConfiguredAgentThinkingLevel(agentName, sessionCwd) : undefined;
+        if (resolvedThinkingLevel) {
+            thinkingLevelSource = "settings agent thinking level";
+        }
     }
     if (!resolvedThinkingLevel) {
         resolvedThinkingLevel = getSettingsManager(sessionCwd).getDefaultThinkingLevel();
@@ -2496,6 +2519,7 @@ export function disposeRootAgentSessionForNewSession(hostedSession) {
  * @param {string[]} [opts.toolNames]
  * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [opts.customTools]
  * @param {string} [opts.modelOverride]
+ * @param {"off"|"minimal"|"low"|"medium"|"high"|"xhigh"} [opts.thinkingLevelOverride]
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager]
  * @param {boolean} [opts.allowReturnToRouter]
  * @param {import('./types.js').AgentDefinition} [opts._agentDefOverride]
@@ -2681,6 +2705,7 @@ export function shouldReuseExistingRootSession(opts, rootAgentName) {
  * @param {string} opts.agentName
  * @param {string} opts.userRequest
  * @param {string} [opts.modelOverride]
+ * @param {"off"|"minimal"|"low"|"medium"|"high"|"xhigh"} [opts.thinkingLevelOverride]
  * @param {string} [opts.debugLogPath]
  * @param {string} [opts.projectStateContext]
  * @param {Function} [opts._buildAgentSession]
@@ -2691,6 +2716,7 @@ export async function runNonInteractiveAgentPrompt({
     agentName,
     userRequest,
     modelOverride,
+    thinkingLevelOverride,
     debugLogPath,
     projectStateContext,
     _buildAgentSession,
@@ -2700,6 +2726,7 @@ export async function runNonInteractiveAgentPrompt({
         cwd,
         agentName,
         modelOverride,
+        thinkingLevelOverride,
         debugLogPath,
         projectStateContext,
         includeEditFallback: false,
@@ -2725,6 +2752,7 @@ export async function runNonInteractiveAgentPrompt({
  * @param {string[]} [opts.toolNames] - Optional explicit tool override; defaults to agent frontmatter tools.
  * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [opts.customTools]
  * @param {string} [opts.modelOverride] - Optional explicit model override in provider/id format.
+ * @param {"off"|"minimal"|"low"|"medium"|"high"|"xhigh"} [opts.thinkingLevelOverride]
  * @param {string} opts.userRequest - The user-facing request/instruction to send to the agent
  * @param {Array<{base64: string, mimeType: string}>} [opts.images]
  * @param {import('../../tools/plan-written.js').TriageMeta} [opts.triageMeta] - Optional triage metadata threaded into auto-wired plan_written.
@@ -2734,6 +2762,7 @@ export async function runNonInteractiveAgentPrompt({
  * @param {string} [opts.debugLogPath] - Optional DEBUG log destination for this invocation.
  * @param {string} [opts.projectStateContext] - Optional session-scoped project state note for the system prompt.
  * @param {boolean} [opts.includeEditFallback] - Internal: whether to register the edit fallback custom tool.
+ * @param {AbortSignal} [opts.signal] - Optional cancellation signal for transient delegated sessions.
  * @param {Function} [opts._buildAgentSession]
  * @param {Function} [opts._attachSessionEventSubscribers]
  * @param {Function} [opts._runPrompt]
@@ -2752,18 +2781,31 @@ export async function runIsolatedAgentSession(opts) {
         cwd: opts.cwd || hostedSession.cwd,
         projectStateContext,
     });
-    const subscriberState = attachSessionEventSubscribersFn(session, agentDef, opts.debugLogPath, hostedSession);
-    hostedSession.addSubAgentSession(session);
-
-    const finalModel = resolvedModel ? `${resolvedModel.provider}/${resolvedModel.id}` : undefined;
-    hostedSession.pushAgentInfo(
-        agentDef.displayName,
-        finalModel,
-        resolvedModel?.provider || "",
-        opts.agentName,
-    );
+    /** @type {SubscriberState | undefined} */
+    let subscriberState;
+    let agentInfoId = "";
+    let registeredSubAgent = false;
+    const abortChild = () => {
+        try {
+            session.abort();
+        } catch (_e) { /* ignore */ }
+    };
 
     try {
+        opts.signal?.throwIfAborted();
+        subscriberState = attachSessionEventSubscribersFn(session, agentDef, opts.debugLogPath, hostedSession);
+        hostedSession.addSubAgentSession(session);
+        registeredSubAgent = true;
+
+        const finalModel = resolvedModel ? `${resolvedModel.provider}/${resolvedModel.id}` : undefined;
+        agentInfoId = hostedSession.pushAgentInfo(
+            agentDef.displayName,
+            finalModel,
+            resolvedModel?.provider || "",
+            opts.agentName,
+        );
+        opts.signal?.addEventListener("abort", abortChild, { once: true });
+        opts.signal?.throwIfAborted();
         return await runPromptFn({
             session,
             agentDef,
@@ -2778,10 +2820,19 @@ export async function runIsolatedAgentSession(opts) {
             debugLogPath: opts.debugLogPath,
         });
     } finally {
-        hostedSession.popAgentInfo();
-        hostedSession.removeSubAgentSession(session);
+        opts.signal?.removeEventListener("abort", abortChild);
+        if (agentInfoId) {
+            try {
+                hostedSession.popAgentInfo(agentInfoId);
+            } catch (_e) { /* ignore */ }
+        }
+        if (registeredSubAgent) {
+            try {
+                hostedSession.removeSubAgentSession(session);
+            } catch (_e) { /* ignore */ }
+        }
         try {
-            subscriberState.unsubscribe();
+            subscriberState?.unsubscribe();
         } catch (_e) { /* ignore */ }
         try {
             session.dispose();

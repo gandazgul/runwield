@@ -60,7 +60,7 @@ executable implementation unit. RunWield uses this when the work is too large or
 
 Typical flow:
 
-1. Architect writes the high-level Epic design plan with `classification: PROJECT` and `type: epic`.
+1. Architect writes the high-level Epic design plan with `classification: PROJECT`.
 2. The user reviews and approves the design in Plannotator.
 3. RunWield moves the Epic to `ready_for_decomposition`.
 4. Slicer opens as an interactive PM/lead-engineer session. It discusses vertical slice boundaries, sequencing,
@@ -74,6 +74,17 @@ carry their own lifecycle, worktree, review, validation, and merge history. The 
 enough for now" without pretending it produced an implementation diff.
 
 Project decomposition is described in [Project Decomposition PRD](prd/project-decomposition-PRD.md).
+
+## Delegated Agent Sessions
+
+Agents may use `delegate_agent` for bounded foreground assistance without sharing their conversation or tool history. A
+read delegation can inspect with the parent's available read-only tools; up to three read delegations may run at once. A
+write delegation receives the parent's available write tools, runs synchronously and exclusively in the current
+worktree, and preserves any partial edits if it fails so the parent can inspect and report them.
+
+Delegated children receive only the brief plus project/repository context. They cannot route workflows, complete parent
+workflow phases, mutate memory, interview the user, recursively delegate, commit changes, or exceed the parent's tool
+permissions.
 
 ## Plan files
 

@@ -155,7 +155,7 @@ function isKnownPlanStatus(status) {
 
 /**
  * @param {PlanStatus} status
- * @param {Partial<import('../../plan-store.js').PlanFrontMatter> | undefined} attrs
+ * @param {import('../../plan-store.js').PlanFrontMatterInput | undefined} attrs
  * @returns {boolean}
  */
 function isManualBoardStatus(status, attrs) {
@@ -749,11 +749,11 @@ export async function stageValidationPassedInExecutionWorktree({
 }
 
 /**
- * @param {Partial<import('../../plan-store.js').PlanFrontMatter> | undefined} attrs
+ * @param {import('../../plan-store.js').PlanFrontMatterInput | undefined} attrs
  * @returns {boolean}
  */
 export function isEpicPlan(attrs) {
-    return attrs?.classification === "PROJECT" && attrs?.type === "epic";
+    return attrs?.classification === "PROJECT";
 }
 
 /**

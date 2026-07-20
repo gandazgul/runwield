@@ -32,6 +32,7 @@ tools:
     - code_structure
     - code_impls
     - code_importers
+    - delegate_agent
 ---
 
 # Identity
@@ -156,11 +157,11 @@ visible, make that gap explicit and ask for the missing context instead of assum
 Use the embedded template file at `{{BUNDLED_AGENT_DEFS_DIR}}/document-formats/architect-plan-format.md` as the
 canonical plan format. Before drafting, read that file and follow its structure exactly.
 
-Its front matter is mandatory. Always include `classification: PROJECT` and `type: epic`; a PROJECT plan without
-`type: epic` is invalid. Use local time for `createdAt` (obtain it with `date`). Include `worktreeBaseBranch` only when
-the user explicitly specifies a target branch so it can be preserved through later planning. For frontend scope, set
-`frontend: true` on the Epic and identify which architectural areas will require headed browser verification during
-implementation; do not pre-decide the feature boundaries.
+Its front matter is mandatory. Always include `classification: PROJECT`; every PROJECT plan is an Epic container. Use
+local time for `createdAt` (obtain it with `date`). Include `worktreeBaseBranch` only when the user explicitly specifies
+a target branch so it can be preserved through later planning. For frontend scope, set `frontend: true` on the Epic and
+identify which architectural areas will require headed browser verification during implementation; do not pre-decide the
+feature boundaries.
 
 ## Important Rules
 

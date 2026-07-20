@@ -237,6 +237,24 @@ Deno.test("HostedSession stores internal agent names in active agent stack", () 
     });
 });
 
+Deno.test("HostedSession removes delegated agent display entries by id when completion order differs", () => {
+    const session = new HostedSession({ id: "agent-info-concurrent", cwd: Deno.cwd() });
+
+    session.resetAgentInfoStack("Router", "model", "provider", "router");
+    const readerA = session.pushAgentInfo("Reader A", "model-a", "provider", "reader");
+    const readerB = session.pushAgentInfo("Reader B", "model-b", "provider", "reader");
+
+    session.popAgentInfo(readerA);
+
+    assertEquals(session.getAgentInfoStack().map((agentInfo) => agentInfo.displayName), ["Router", "Reader B"]);
+    assertEquals(session.getActiveAgentName(), "Reader B");
+
+    session.popAgentInfo(readerB);
+
+    assertEquals(session.getAgentInfoStack().map((agentInfo) => agentInfo.displayName), ["Router"]);
+    assertEquals(session.getActiveAgentName(), "Router");
+});
+
 Deno.test("two Hosted Sessions do not share workflow context", () => {
     const alpha = new HostedSession({ id: "workflow-alpha", sessionManager: makeSessionManager("workflow-alpha") });
     const beta = new HostedSession({ id: "workflow-beta", sessionManager: makeSessionManager("workflow-beta") });
@@ -281,4 +299,40 @@ Deno.test("HostedSession dispose clears owned runtime references and rejects lat
         Error,
         'HostedSession "disposing" is disposed',
     );
+});
+
+Deno.test("HostedSession delegated-agent leases allow three readers and reject a fourth", () => {
+    const session = new HostedSession({ id: "delegated-readers", cwd: "/tmp/delegated-readers" });
+    const releaseA = session.acquireDelegatedAgentLease("read");
+    const releaseB = session.acquireDelegatedAgentLease("read");
+    const releaseC = session.acquireDelegatedAgentLease("read");
+    assertEquals(session.getDelegatedAgentLeaseState(), { readers: 3, writer: false });
+    assertThrows(() => session.acquireDelegatedAgentLease("read"), Error, "Too many delegated readers");
+    releaseA();
+    releaseB();
+    releaseC();
+    assertEquals(session.getDelegatedAgentLeaseState(), { readers: 0, writer: false });
+});
+
+Deno.test("HostedSession delegated-agent leases enforce writer exclusivity", () => {
+    const session = new HostedSession({ id: "delegated-writer", cwd: "/tmp/delegated-writer" });
+    const releaseReader = session.acquireDelegatedAgentLease("read");
+    assertThrows(() => session.acquireDelegatedAgentLease("write"), Error, "exclusive access");
+    releaseReader();
+    const releaseWriter = session.acquireDelegatedAgentLease("write");
+    assertEquals(session.getDelegatedAgentLeaseState(), { readers: 0, writer: true });
+    assertThrows(() => session.acquireDelegatedAgentLease("read"), Error, "writer is already running");
+    releaseWriter();
+    assertEquals(session.getDelegatedAgentLeaseState(), { readers: 0, writer: false });
+});
+
+Deno.test("HostedSession delegated-agent leases are scoped per session and cleared on dispose", () => {
+    const sessionA = new HostedSession({ id: "delegated-a", cwd: "/tmp/delegated-a" });
+    const sessionB = new HostedSession({ id: "delegated-b", cwd: "/tmp/delegated-b" });
+    sessionA.acquireDelegatedAgentLease("write");
+    const releaseB = sessionB.acquireDelegatedAgentLease("read");
+    assertEquals(sessionA.getDelegatedAgentLeaseState(), { readers: 0, writer: true });
+    assertEquals(sessionB.getDelegatedAgentLeaseState(), { readers: 1, writer: false });
+    releaseB();
+    sessionA.dispose();
 });

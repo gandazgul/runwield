@@ -125,7 +125,7 @@ Deno.test("plan_written project approval returns decomposition outcome", async (
     const result = await execute(tool, "runtime-epic");
 
     assertEquals(result.details.outcome, "approved_decompose");
-    assertEquals(result.details.triageMeta.type, "epic");
+    assertEquals(result.details.triageMeta.classification, "PROJECT");
     assertEquals(lifecycle.map((event) => event.event), ["epic_readiness_passed"]);
 });
 

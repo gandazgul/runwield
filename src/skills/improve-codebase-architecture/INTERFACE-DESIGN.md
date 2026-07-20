@@ -19,19 +19,20 @@ Before spawning sub-agents, write a user-facing explanation of the problem space
 Show this to the user, then immediately proceed to Step 2. The user reads and thinks while the sub-agents work in
 parallel.
 
-### 2. Spawn sub-agents
+### 2. Spawn sub-agents for parallel interface sketches
 
-Spawn 3+ sub-agents in parallel using the Agent tool. Each must produce a **radically different** interface for the
-deepened module.
+Spawn up to 3 read-mode Delegated Agent Sessions in parallel with `delegate_agent`. Each must produce a **radically
+different** interface for the deepened module. Issue every call together in one assistant response so the children run
+concurrently; the parent waits for the entire batch before comparing their handoffs.
 
 Prompt each sub-agent with a separate technical brief (file paths, coupling details, dependency category from
 [DEEPENING.md](DEEPENING.md), what sits behind the seam). The brief is independent of the user-facing problem-space
-explanation in Step 1. Give each agent a different design constraint:
+explanation in Step 1. Give each of the three agents a different design constraint:
 
 - Agent 1: "Minimize the interface — aim for 1–3 entry points max. Maximise leverage per entry point."
 - Agent 2: "Maximise flexibility — support many use cases and extension."
-- Agent 3: "Optimise for the most common caller — make the default case trivial."
-- Agent 4 (if applicable): "Design around ports & adapters for cross-seam dependencies."
+- Agent 3: "Optimise for the most common caller — make the default case trivial, while considering ports & adapters when
+  cross-seam dependencies matter."
 
 Include both [LANGUAGE.md](LANGUAGE.md) vocabulary and CONTEXT.md vocabulary in the brief so each sub-agent names things
 consistently with the architecture language and the project's domain language.

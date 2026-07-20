@@ -164,9 +164,6 @@ export function attachTuiRuntimeAdapter({
                 if (value.enabled) uiAPI.enableInput?.();
                 else uiAPI.disableInput?.();
                 break;
-            case RuntimeEventTypes.RUNNING_TASKS_CHANGED:
-                uiAPI.setRunningTasks?.(value.tasks);
-                break;
             case RuntimeEventTypes.MESSAGES_CLEARED:
                 uiAPI.clearMessages?.();
                 break;

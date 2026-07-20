@@ -170,6 +170,7 @@ function safeObject(value) {
 function workspaceSafeFrontMatter(value) {
     const frontMatter = { ...safeObject(value) };
     delete frontMatter.worktreePath;
+    delete frontMatter.type;
     return frontMatter;
 }
 
@@ -261,7 +262,6 @@ export function serializePlanSummary(resource) {
         statusLabel: statusOption(status).label,
         actions: lifecycleActionsForAttrs(attrs),
         classification: attrs.classification || "FEATURE",
-        type: attrs.type || "",
         title: attrs.title || resource.planName || resource.name,
         summary: attrs.summary || "",
         complexity: attrs.complexity || "",
@@ -736,7 +736,7 @@ export function applyWorkspaceLifecycleActionInMemory(plan, payload) {
         details.holdStalenessBaseline = typeof attrs.executionBaselineTree === "string"
             ? attrs.executionBaselineTree
             : undefined;
-        message = attrs.classification === "PROJECT" && attrs.type === "epic"
+        message = attrs.classification === "PROJECT"
             ? "Epic put on hold. Child Plan statuses were not changed."
             : "Plan put on hold.";
     } else if (action === PLAN_LIFECYCLE_ACTIONS.RESUME_FROM_HOLD) {
@@ -808,7 +808,7 @@ export async function applyWorkspaceLifecycleAction(cwd, planId, payload) {
         details.holdStalenessBaseline = typeof attrs.executionBaselineTree === "string"
             ? attrs.executionBaselineTree
             : undefined;
-        message = attrs.classification === "PROJECT" && attrs.type === "epic"
+        message = attrs.classification === "PROJECT"
             ? "Epic put on hold. Child Plan statuses were not changed."
             : "Plan put on hold.";
     } else if (action === PLAN_LIFECYCLE_ACTIONS.RESUME_FROM_HOLD) {

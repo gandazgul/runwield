@@ -1075,16 +1075,6 @@ export class SessionRuntime {
     }
 
     /** @param {string} sessionId @param {Record<string, any>} options */
-    async ensureSlicerTasks(sessionId, options) {
-        const session = this.#sessionHost.getSession(sessionId);
-        if (!session) throw new Error("SessionRuntime.ensureSlicerTasks: session not found");
-        return await this.#runBusyOperation(session.id, async () => {
-            const { ensureSlicerTasks } = await import("../workflow/workflow-slicer.js");
-            return await ensureSlicerTasks(/** @type {any} */ ({ ...options, hostedSession: session }));
-        });
-    }
-
-    /** @param {string} sessionId @param {Record<string, any>} options */
     async runValidation(sessionId, options) {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) throw new Error("SessionRuntime.runValidation: session not found");
@@ -1100,14 +1090,6 @@ export class SessionRuntime {
         if (!session) throw new Error("SessionRuntime.askPostApproval: session not found");
         const { askPostApproval } = await import("../workflow/workflow-prompts.js");
         return await askPostApproval(planName, session);
-    }
-
-    /** @param {string} sessionId @param {string} planName @param {string} [cwd] */
-    async askApprovalWithTasks(sessionId, planName, cwd) {
-        const session = this.#sessionHost.getSession(sessionId);
-        if (!session) throw new Error("SessionRuntime.askApprovalWithTasks: session not found");
-        const { askApprovalWithTasks } = await import("../workflow/workflow-prompts.js");
-        return await askApprovalWithTasks(planName, session, undefined, cwd || session.cwd);
     }
 
     /** @param {string} sessionId @param {string} planName */

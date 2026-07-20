@@ -1,6 +1,5 @@
 ---
 classification: "PROJECT"
-type: "epic"
 complexity: "LOW|MEDIUM|HIGH"
 summary: "<Brief summary of the project-level change>"
 affectedPaths:

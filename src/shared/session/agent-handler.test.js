@@ -145,7 +145,6 @@ Deno.test("agent-handler calls executePlan when outcome is approved_execute", as
                         outcome: "approved_execute",
                         planName: "my-plan",
                         triageMeta: { classification: "PROJECT", complexity: "LOW", summary: "x", affectedPaths: [] },
-                        tasks: [{ task: 1, assignee: "engineer", dependencies: "none", description: "x" }],
                         feedback: "Keep the selected command.",
                         images: [{ base64: "YXBwcm92ZWQ=", mimeType: "image/png" }],
                     },
@@ -283,7 +282,7 @@ Deno.test("agent-handler starts Slicer after Architect returns approved_decompos
         readLatestPlanOutcome: () => /** @type {any} */ ({
             outcome: "approved_decompose",
             planName: "epic-a",
-            triageMeta: { classification: "PROJECT", type: "epic" },
+            triageMeta: { classification: "PROJECT" },
             feedback: "Keep the approved boundary.",
             images: [{ base64: "YXBwcm92ZWQ=", mimeType: "image/png" }],
         }),
@@ -296,7 +295,7 @@ Deno.test("agent-handler starts Slicer after Architect returns approved_decompos
     await handler("req", [], sessionManager);
 
     assertEquals(slicerArgs.planName, "epic-a");
-    assertEquals(slicerArgs.triageMeta, { classification: "PROJECT", type: "epic" });
+    assertEquals(slicerArgs.triageMeta, { classification: "PROJECT" });
     assertEquals(slicerArgs.reviewFeedback, "Keep the approved boundary.");
     assertEquals(slicerArgs.reviewImages, [{ base64: "YXBwcm92ZWQ=", mimeType: "image/png" }]);
     assertEquals(slicerArgs.sessionManager, sessionManager);
@@ -351,19 +350,16 @@ Deno.test("agent-handler does NOT call executePlan when planName missing on appr
     assertEquals(executeCount, 0);
 });
 
-Deno.test("agent-handler passes triageMeta and tasks through to executePlan", async () => {
+Deno.test("agent-handler passes triageMeta through to executePlan", async () => {
     /** @type {Array<unknown[]>} */
     const executeCalls = [];
     const triage = { classification: "FEATURE", complexity: "MEDIUM", summary: "y", affectedPaths: ["a"] };
-    const tasks = [{ task: 1, assignee: "engineer", dependencies: "none", description: "x" }];
-
     const handler = createAgentHandler("planner", {
         runRootTurn: () => Promise.resolve(/** @type {any} */ ([])),
         readLatestPlanOutcome: () => /** @type {any} */ ({
             outcome: "approved_execute",
             planName: "p",
             triageMeta: triage,
-            tasks,
         }),
         executePlan: /** @type {any} */ ((/** @type {unknown[]} */ ...args) => {
             executeCalls.push(args);
@@ -376,7 +372,6 @@ Deno.test("agent-handler passes triageMeta and tasks through to executePlan", as
     const executionOptions = /** @type {any} */ (executeCalls[0][0]);
     assertEquals(executionOptions.planName, "p");
     assertEquals(executionOptions.triageMeta, triage);
-    assertEquals(executionOptions.structuredTasks, tasks);
 });
 
 Deno.test("agent-handler uses empty triageMeta when outcome lacks one", async () => {

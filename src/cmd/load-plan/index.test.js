@@ -11,6 +11,23 @@ import {
 } from "../../shared/worktree.js";
 
 /**
+ * @typedef {Object} SlicerTriageMeta
+ * @property {string} [status]
+ */
+
+/**
+ * @typedef {Object} SlicerRunArgs
+ * @property {string} planName
+ * @property {SlicerTriageMeta} triageMeta
+ */
+
+/**
+ * @typedef {Object} RecordedPlanEvent
+ * @property {string} event
+ * @property {string} currentStatus
+ */
+
+/**
  * @param {string} cwd
  * @param {string[]} args
  * @returns {Promise<string>}
@@ -89,7 +106,6 @@ function makeRuntimeFixture(options = {}) {
             runPlanningAgent: () => Promise.resolve({ outcome: "canceled" }),
             runValidation: () => Promise.resolve(undefined),
             runSlicerAgent: () => Promise.resolve(undefined),
-            ensureSlicerTasks: () => Promise.resolve(undefined),
             /** @param {string} _id @param {Record<string, any>} workflow */
             setActiveExecutionWorkflow: (_id, workflow) => {
                 state.workflow = workflow;
@@ -101,7 +117,6 @@ function makeRuntimeFixture(options = {}) {
             },
             askPostApproval: () => Promise.resolve("cancel"),
             askProjectDecompositionApproval: () => Promise.resolve("cancel"),
-            askApprovalWithTasks: () => Promise.resolve("cancel"),
             /** @param {string} _id @param {any} request */
             requestInteraction: (_id, request) =>
                 Promise.resolve(
@@ -140,7 +155,6 @@ Deno.test("resolveSiblingChildPlanDependencies supports sibling segments and can
             summary: "Epic",
             affectedPaths: [],
             status: "ready_for_work",
-            type: "epic",
         });
         await savePlan(cwd, "epic-i/01-first", "first", {
             classification: "FEATURE",
@@ -235,7 +249,6 @@ Deno.test("runLoadPlanCommand no-arg TUI menu excludes child plans and shows top
                         name: "epic-a",
                         attrs: {
                             classification: "PROJECT",
-                            type: "epic",
                             status: "ready_for_work",
                             summary: "Top Epic summary",
                         },
@@ -289,7 +302,7 @@ Deno.test("runLoadPlanCommand no-arg TUI menu preserves core plan order", async 
                     { name: "b-ready", attrs: { classification: "FEATURE", status: "ready_for_work" } },
                     {
                         name: "c-decompose",
-                        attrs: { classification: "PROJECT", type: "epic", status: "ready_for_decomposition" },
+                        attrs: { classification: "PROJECT", status: "ready_for_decomposition" },
                     },
                     { name: "a-draft", attrs: { classification: "FEATURE", status: "draft" } },
                     { name: "z-draft", attrs: { classification: "FEATURE", status: "draft" } },
@@ -427,7 +440,6 @@ Deno.test("runLoadPlanCommand draft Epic offers Architect review without Slicer 
                     markdown: "## Context\nEpic context",
                     attrs: {
                         classification: "PROJECT",
-                        type: "epic",
                         complexity: "HIGH",
                         summary: "Epic summary",
                         affectedPaths: [],
@@ -464,7 +476,6 @@ Deno.test("runLoadPlanCommand ready-for-decomposition Epic offers Slicer first",
                     markdown: "## Context\nEpic context",
                     attrs: {
                         classification: "PROJECT",
-                        type: "epic",
                         complexity: "HIGH",
                         summary: "Epic summary",
                         affectedPaths: [],
@@ -509,7 +520,6 @@ Deno.test("runLoadPlanCommand Epic with children shows ordered child labels, dep
                     markdown: "body",
                     attrs: {
                         classification: "PROJECT",
-                        type: "epic",
                         complexity: "HIGH",
                         summary: "Epic summary",
                         affectedPaths: [],
@@ -581,7 +591,6 @@ Deno.test("runLoadPlanCommand View Epic details includes child FEATURE labels an
                     markdown: "## Context\nEpic context\n\n## Objective\nEpic objective",
                     attrs: {
                         classification: "PROJECT",
-                        type: "epic",
                         complexity: "HIGH",
                         summary: "Epic summary",
                         affectedPaths: [],
@@ -661,7 +670,6 @@ Deno.test("runLoadPlanCommand child FEATURE detail inspection resolves and displ
                     markdown: "epic body",
                     attrs: {
                         classification: "PROJECT",
-                        type: "epic",
                         complexity: "HIGH",
                         summary: "Epic summary",
                         affectedPaths: [],
@@ -717,7 +725,6 @@ Deno.test("runLoadPlanCommand child FEATURE submenu back returns without loading
                     markdown: "body",
                     attrs: {
                         classification: "PROJECT",
-                        type: "epic",
                         complexity: "HIGH",
                         summary: "Epic summary",
                         affectedPaths: [],
@@ -771,7 +778,6 @@ Deno.test("runLoadPlanCommand Epic done-enough confirm records lifecycle event",
                     markdown: "body",
                     attrs: {
                         classification: "PROJECT",
-                        type: "epic",
                         complexity: "HIGH",
                         summary: "Epic summary",
                         affectedPaths: [],
@@ -820,7 +826,6 @@ Deno.test("runLoadPlanCommand Epic done-enough can be canceled", async () => {
                     markdown: "body",
                     attrs: {
                         classification: "PROJECT",
-                        type: "epic",
                         complexity: "HIGH",
                         summary: "Epic summary",
                         affectedPaths: [],
@@ -865,7 +870,6 @@ Deno.test("runLoadPlanCommand verified done-enough Epic remains re-enterable", a
                     markdown: "body",
                     attrs: {
                         classification: "PROJECT",
-                        type: "epic",
                         complexity: "HIGH",
                         summary: "Epic summary",
                         affectedPaths: [],
@@ -914,7 +918,6 @@ Deno.test("runLoadPlanCommand verified done-enough Epic shows banner without chi
                     markdown: "body",
                     attrs: {
                         classification: "PROJECT",
-                        type: "epic",
                         complexity: "HIGH",
                         summary: "Epic summary",
                         affectedPaths: [],
@@ -951,7 +954,6 @@ Deno.test("runLoadPlanCommand Epic child selection can be canceled", async () =>
                     markdown: "body",
                     attrs: {
                         classification: "PROJECT",
-                        type: "epic",
                         complexity: "HIGH",
                         summary: "Epic summary",
                         affectedPaths: [],
@@ -1022,7 +1024,6 @@ Deno.test("runLoadPlanCommand Epic child selection delegates to FEATURE load beh
                     markdown: "epic body",
                     attrs: {
                         classification: "PROJECT",
-                        type: "epic",
                         complexity: "HIGH",
                         summary: "Epic summary",
                         affectedPaths: [],
@@ -1096,7 +1097,6 @@ Deno.test("runLoadPlanCommand Epic next shortcut loads first ordered non-verifie
                     markdown: "epic body",
                     attrs: {
                         classification: "PROJECT",
-                        type: "epic",
                         complexity: "HIGH",
                         summary: "Epic summary",
                         affectedPaths: [],
@@ -1676,73 +1676,14 @@ Deno.test("runLoadPlanCommand reapproval abandons the prior worktree generation"
     assertEquals(reviewMeta.worktreeBaseBranch, null);
 });
 
-Deno.test("runLoadPlanCommand approved PROJECT review runs slicer before proceed", async () => {
-    const { uiAPI, selections } = makeUi();
-    selections.push("review");
-    let sliced = false;
-    let askedWithTasks = false;
-    let executed = false;
-    let validated = false;
-    const fixture = makeRuntimeFixture({
-        requestInteraction: () => ({ outcome: "accepted", _meta: { approved: true } }),
-    });
-
-    await runLoadPlanCommand(["plan-project-review"], {
-        ...fixture.context,
-        uiAPI,
-        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
-        __testDeps: /** @type {any} */ ({
-            parseArgs: () => ({ help: false, _: ["plan-project-review"] }),
-            resolvePlan: () =>
-                Promise.resolve({
-                    planName: "plan-project-review",
-                    path: "plans/plan-project-review.md",
-                    body: "body",
-                    markdown: "markdown",
-                    attrs: {
-                        classification: "PROJECT",
-                        complexity: "HIGH",
-                        summary: "s",
-                        affectedPaths: [],
-                        status: "approved",
-                    },
-                }),
-            ensureSlicerTasks: () => {
-                sliced = true;
-                return Promise.resolve({ ok: true, slicerInvoked: true });
-            },
-            askApprovalWithTasks: () => {
-                askedWithTasks = true;
-                return Promise.resolve("proceed");
-            },
-            executePlan: () => {
-                executed = true;
-                return Promise.resolve({ repairRequired: false, executionComplete: true });
-            },
-            runValidationLoop: () => {
-                validated = true;
-                return Promise.resolve();
-            },
-            recordPlanEvent: noOpRecordPlanEvent,
-            resetTuiState: () => {},
-        }),
-    });
-
-    assertEquals(sliced, true);
-    assertEquals(askedWithTasks, true);
-    assertEquals(executed, true);
-    assertEquals(validated, true);
-});
-
 Deno.test("runLoadPlanCommand approved PROJECT Epic opens Slicer without executing", async () => {
     const { uiAPI, selections, messages } = makeUi();
     selections.push("slicer");
     let slicerOpened = false;
-    /** @type {any} */
-    let slicerArgs = null;
-    let askedWithTasks = false;
+    /** @type {SlicerRunArgs[]} */
+    const slicerCalls = [];
     let executed = false;
-    /** @type {Array<{ event: string, currentStatus: string }>} */
+    /** @type {RecordedPlanEvent[]} */
     const events = [];
 
     await runLoadPlanCommand(["epic-review"], {
@@ -1759,7 +1700,6 @@ Deno.test("runLoadPlanCommand approved PROJECT Epic opens Slicer without executi
                     markdown: "markdown",
                     attrs: {
                         classification: "PROJECT",
-                        type: "epic",
                         complexity: "HIGH",
                         summary: "s",
                         affectedPaths: [],
@@ -1767,38 +1707,75 @@ Deno.test("runLoadPlanCommand approved PROJECT Epic opens Slicer without executi
                     },
                 }),
             findPlansByParent: () => Promise.resolve([]),
-            runSlicerAgent: (/** @type {any} */ args) => {
+            runSlicerAgent: (/** @type {SlicerRunArgs} */ args) => {
                 slicerOpened = true;
-                slicerArgs = args;
+                slicerCalls.push(args);
                 return Promise.resolve({ ok: true });
             },
             submitPlanForReview: () => Promise.resolve({ approved: true }),
-            ensureSlicerTasks: () => {
-                throw new Error("Legacy task slicer should not run for Epics");
-            },
-            askApprovalWithTasks: () => {
-                askedWithTasks = true;
-                return Promise.resolve("proceed");
-            },
             executePlan: () => {
                 executed = true;
                 return Promise.resolve({ repairRequired: false, executionComplete: true });
             },
-            recordPlanEvent: (/** @type {{ event: string, currentStatus: string }} */ args) => {
+            recordPlanEvent: (/** @type {RecordedPlanEvent} */ args) => {
                 events.push({ event: args.event, currentStatus: args.currentStatus });
-                return Promise.resolve(/** @type {any} */ ({}));
+                return Promise.resolve({ status: "ready_for_decomposition" });
             },
             resetTuiState: () => {},
         }),
     });
 
     assertEquals(slicerOpened, true);
-    assertEquals(slicerArgs.planName, "epic-review");
-    assertEquals(slicerArgs.triageMeta.type, "epic");
-    assertEquals(askedWithTasks, false);
+    assertEquals(slicerCalls[0].planName, "epic-review");
+    assertEquals(slicerCalls[0].triageMeta.status, "ready_for_decomposition");
     assertEquals(executed, false);
-    assertEquals(events, []);
+    assertEquals(events, [{ event: "epic_readiness_passed", currentStatus: "approved" }]);
     assertEquals(messages.some((message) => message.includes("not executable")), true);
+});
+
+Deno.test("runLoadPlanCommand legacy in-progress PROJECT Epic opens Slicer instead of recovery", async () => {
+    const { uiAPI, selections, prompts } = makeUi();
+    selections.push("slicer");
+    let slicerOpened = false;
+    let executed = false;
+
+    await runLoadPlanCommand(["epic-in-progress"], {
+        ...makeRuntimeContext(),
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: () => ({ help: false, _: ["epic-in-progress"] }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "epic-in-progress",
+                    path: "plans/epic-in-progress.md",
+                    body: "body",
+                    markdown: "markdown",
+                    attrs: {
+                        classification: "PROJECT",
+                        complexity: "HIGH",
+                        summary: "s",
+                        affectedPaths: [],
+                        status: "in_progress",
+                    },
+                }),
+            findPlansByParent: () => Promise.resolve([]),
+            runSlicerAgent: () => {
+                slicerOpened = true;
+                return Promise.resolve({ ok: true });
+            },
+            executePlan: () => {
+                executed = true;
+                return Promise.resolve({ repairRequired: false, executionComplete: true });
+            },
+            resetTuiState: () => {},
+        }),
+    });
+
+    const epicPrompt = prompts.find((prompt) => prompt.prompt === "What would you like to do with this Epic?");
+    assertEquals(epicPrompt?.options.map((option) => option.value), ["slicer", "hold", "view", "cancel"]);
+    assertEquals(slicerOpened, true);
+    assertEquals(executed, false);
 });
 
 Deno.test("runLoadPlanCommand ready_for_decomposition PROJECT Epic does not execute", async () => {
@@ -1819,7 +1796,6 @@ Deno.test("runLoadPlanCommand ready_for_decomposition PROJECT Epic does not exec
                     markdown: "markdown",
                     attrs: {
                         classification: "PROJECT",
-                        type: "epic",
                         complexity: "HIGH",
                         summary: "s",
                         affectedPaths: [],
@@ -1866,8 +1842,6 @@ Deno.test("runLoadPlanCommand approved review proceed keeps plan owner without t
                         status: "approved",
                     },
                 }),
-            ensureSlicerTasks: () => Promise.resolve({ ok: true, slicerInvoked: true }),
-            askApprovalWithTasks: () => Promise.resolve("proceed"),
             executePlan: () => Promise.resolve({ repairRequired: false, executionComplete: true }),
             runValidationLoop: () => Promise.resolve(),
             recordPlanEvent: noOpRecordPlanEvent,
@@ -1875,7 +1849,7 @@ Deno.test("runLoadPlanCommand approved review proceed keeps plan owner without t
         }),
     });
 
-    assertEquals(fixture.state.agentHistory, [AGENTS.ARCHITECT, AGENTS.ARCHITECT]);
+    assertEquals(fixture.state.agentHistory, [AGENTS.ARCHITECT]);
 });
 
 Deno.test("runLoadPlanCommand approved review kicks off planner on denial", async () => {
@@ -1917,54 +1891,6 @@ Deno.test("runLoadPlanCommand approved review kicks off planner on denial", asyn
     });
 
     assertEquals(plannerCalled, true);
-});
-
-Deno.test("runLoadPlanCommand approved proceed with repair reroutes to planner", async () => {
-    const { uiAPI, selections, messages } = makeUi();
-    selections.push("proceed");
-    let plannerCalled = false;
-    let repairRequest = "";
-
-    await runLoadPlanCommand(["plan-e"], {
-        ...makeRuntimeContext(),
-        uiAPI,
-        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
-        __testDeps: /** @type {any} */ ({
-            parseArgs: () => ({ help: false, _: ["plan-e"] }),
-            resolvePlan: () =>
-                Promise.resolve({
-                    planName: "plan-e",
-                    path: "plans/plan-e.md",
-                    body: "body",
-                    attrs: {
-                        classification: "PROJECT",
-                        complexity: "HIGH",
-                        summary: "s",
-                        affectedPaths: [],
-                        status: "approved",
-                    },
-                }),
-            ensureSlicerTasks: () => Promise.resolve({ ok: true, slicerInvoked: false }),
-            executePlan: () => Promise.resolve({ repairRequired: true, error: "bad tasks" }),
-            recordPlanEvent: noOpRecordPlanEvent,
-            runPlanningAgent: (/** @type {{ initialRequest: string }} */ opts) => {
-                plannerCalled = true;
-                repairRequest = opts.initialRequest;
-                return Promise.resolve({ outcome: "executed", planName: "plan-e" });
-            },
-            resetTuiState: () => {},
-        }),
-    });
-
-    assertEquals(plannerCalled, true);
-    assertEquals(repairRequest.includes("| Task | Assignee | Dependencies | Write Scope | Description |"), true);
-    assertEquals(repairRequest.includes("corrected tasks array"), false);
-    assertEquals(
-        messages.some((m) =>
-            m.includes("Rerouting to architect for repair") || m.includes("Rerouting to planner for repair")
-        ),
-        true,
-    );
 });
 
 Deno.test("runLoadPlanCommand ready_for_work plan proceed path executes", async () => {
@@ -3465,7 +3391,6 @@ Deno.test("runLoadPlanCommand blocks child FEATURE when parent Epic is on hold",
                             body: "epic body",
                             attrs: {
                                 classification: "PROJECT",
-                                type: "epic",
                                 complexity: "HIGH",
                                 summary: "epic",
                                 affectedPaths: [],
@@ -3512,7 +3437,6 @@ Deno.test("runLoadPlanCommand Epic can be put on hold with warning", async () =>
                     body: "epic body",
                     attrs: {
                         classification: "PROJECT",
-                        type: "epic",
                         complexity: "HIGH",
                         summary: "epic",
                         affectedPaths: [],
@@ -3561,7 +3485,6 @@ Deno.test("runLoadPlanCommand child FEATURE can be put on hold with child-only w
                             body: "epic body",
                             attrs: {
                                 classification: "PROJECT",
-                                type: "epic",
                                 complexity: "HIGH",
                                 summary: "epic",
                                 affectedPaths: [],

@@ -489,7 +489,7 @@ Deno.test("dispatchPostTriage starts Slicer after PROJECT planning completes", a
                 kind: "start_slicer",
                 payload: {
                     planName: "epic-a",
-                    triageMeta: { routingIntent: "PROJECT", classification: "PROJECT", type: "epic" },
+                    triageMeta: { routingIntent: "PROJECT", classification: "PROJECT" },
                 },
             }),
             runSlicerAgent: (/** @type {any} */ args) => {

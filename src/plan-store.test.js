@@ -374,7 +374,7 @@ testWithFs("body-only save rejects stale hashes duplicate IDs and archived plans
 
 Deno.test("groupPlanHierarchy groups Epics, nested children, standalone, and orphaned children", () => {
     const plans = [
-        { name: "epic", path: "plans/epic.md", attrs: { classification: "PROJECT", type: "epic", status: "draft" } },
+        { name: "epic", path: "plans/epic.md", attrs: { classification: "PROJECT", status: "draft" } },
         {
             name: "epic/child",
             path: "plans/epic/child.md",
@@ -591,7 +591,6 @@ testWithFs("plan-store preserves Epic and nested child metadata", async () => {
             summary: "Break down projects",
             affectedPaths: ["src/plan-store.js"],
             status: "ready_for_work",
-            type: "epic",
             createdAt: "2026-06-16T00:00:00.000Z",
         });
 
@@ -608,7 +607,6 @@ testWithFs("plan-store preserves Epic and nested child metadata", async () => {
 
         const epic = await loadPlan(cwd, "project-breakdown-epic");
         assertEquals(epic?.attrs.classification, "PROJECT");
-        assertEquals(epic?.attrs.type, "epic");
 
         const child = await loadPlan(cwd, "project-breakdown-epic/feature1");
         assertEquals(child?.attrs.parentPlan, "project-breakdown-epic");
@@ -730,7 +728,6 @@ testWithFs("archivePlansByStatus archives matching parents with all children and
     try {
         await savePlan(cwd, "epic", "# Epic", {
             classification: "PROJECT",
-            type: "epic",
             status: "verified",
             summary: "Done",
         });
@@ -773,7 +770,6 @@ testWithFs("archivePlansByStatus ignores children when parent status does not ma
     try {
         await savePlan(cwd, "epic", "# Epic", {
             classification: "PROJECT",
-            type: "epic",
             status: "draft",
         });
         await savePlan(cwd, "epic/01-child", "# Child", { parentPlan: "epic", status: "verified" });
@@ -991,7 +987,6 @@ testWithFs("findPlansByParent sorts child plans by order before name", async () 
     try {
         await savePlan(cwd, "epic-sort", "# Epic", {
             classification: "PROJECT",
-            type: "epic",
             status: "ready_for_work",
         });
         await savePlan(cwd, "epic-sort/03-third", "# Third", { parentPlan: "epic-sort", order: 3 });
@@ -1493,7 +1488,7 @@ testWithFs("findPlanById resolves non-archived resources and reports unknown IDs
 
 Deno.test("shared hierarchy helpers match Epic, child, orphan, standalone, and progress semantics", () => {
     const plans = /** @type {any[]} */ ([
-        { name: "epic", attrs: { classification: "PROJECT", type: "epic", status: "ready_for_work" } },
+        { name: "epic", attrs: { classification: "PROJECT", status: "ready_for_work" } },
         { name: "epic/01-done", attrs: { classification: "FEATURE", parentPlan: "epic", status: "verified" } },
         { name: "epic/02-active", attrs: { classification: "FEATURE", parentPlan: "epic", status: "implemented" } },
         { name: "epic/03-failed", attrs: { classification: "FEATURE", parentPlan: "epic", status: "failed" } },
