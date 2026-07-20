@@ -2,143 +2,106 @@
 
 ## Bugs
 
-- [ ] can you update the context slash command to list the skills aphabetically:
-- [ ] Ideation: should we pin the task_completed, review result and current validation cycle count and results A) as a
-      sidebar that appears with task_completed OR B) by pinning the blocks above the input and letting the other
-      conversation continue scrolling above.
-
-- [ ] When the model for an agent is not configured warn about it but fallback to using Engineer's model
-
-- [ ] backfill should backfiill failed ones:
-
-Important retry detail: a failed Work Record generation writes a workRecord: block into the source Plan frontmatter with
-status: failed. Current backfill treats any existing workRecord block as an existing\
-backlink and skips it.
-
-So to retry a failed one, remove the failed workRecord: block from that Plan’s frontmatter, then run backfill again.
-
-- [ ] wrong help output
-
-❯ wld plans unshare --help\
-Usage (plans): wld plans wld plans read <plan-name-or-id> wld plans share <plan-name-or-id> [--plan-server <url>]
-[--project-secrets] wld plans archive wld plans archive <plan-name-or-id> [--reason <text>] [--force] wld plans archive
---all --status <status> [--reason <text>] [--force] wld plans archive restore <archived-plan-name-or-id> [--to
-<plan-name>] wld plans ui [--bind <host>|--host <host>] [--port <port>] [--no-open] wld plans --help wld plans ui --help
-
-Notes:
-
-- Default behavior lists active Plans only; plaintext archives under plans/archived/ are hidden from this list.
-- Use plans archive with no target to list archived Plans, and plans read to inspect active or archived markdown.
-- Use plans share to publish an active saved Plan to a Plan Server; --plan-server overrides planServerUrl for one
-  invocation.
-- Share output prints secret reviewer and maintainer URLs once; anyone with the maintainer URL can pull, push, close, or
-  unshare.
-- Archive moves verified and closed_without_verification Plans by default; other statuses require --force and
-  recoverable worktree states stay blocked.
-- Use plans archive --all --status verified for best-effort bulk cleanup of active Plans with an exact status match.
-- The Workspace binds to 127.0.0.1 and a random available port by default.
-- Use --bind/--host only for explicit non-loopback exposure; RunWield prints a plaintext Plan-content warning.
-- Workspace HTML and APIs require the per-server token in the launch URL or x-runwield-workspace-token header.
-
-~/Documents/web/runwield main* ❯ wld wr backfill --help\
-[RunWield] Unknown command for help: wr
-
-- [x] a draft epic should not offer "Open or resume Slicer decomposition" in /load-plan; it should offer "Open or resume
-      Architect decomposition" instead.
-
-Proposed todo before I change code:
-
-1. Change “Reviewer stopped without review_complete” handling
-   - Do not mark validation failed/halted immediately.
-   - Leave the active agent/session with Reviewer so user can say “continue”, ask clarifying questions, or steer it.
-
-2. Only advance workflow when review_complete exists
-   - Validation should resume/continue only after a valid review_complete tool result is present.
-   - No semantic approval/rejection decision should be inferred from ordinary Reviewer text.
-
-3. Handle malformed review_complete as recoverable
-   - If the tool call is malformed/invalid, show corrective feedback to Reviewer.
-   - Keep Reviewer active and allow it to re-call review_complete.
-
-4. Differentiate failure reasons in status/metrics
-   - Split:
-     - no_review_complete_yet
-     - malformed_review_complete
-     - actual semantic rejection
-     - invocation/runtime failure
-   - Avoid labeling missing tool call as “Semantic Review failed after retry.”
-
-5. Add/update tests
-   - Reviewer stops without tool → workflow does not halt; stays with Reviewer / returns a waiting state.
-   - Malformed tool result → corrective feedback, no halt.
-   - Valid review_complete approved/rejected → existing workflow behavior continues.
-   - Runtime invocation error can still be treated as actual failure/retry path.
-
-Approve this direction and I’ll implement.
-
-- [x] /load-plan is not offering architect review for draft epics instead the option is to launch slicer.
+- [ ] Guided review tries to use claude code???? it should use WLD instead. "failed · claude/claude-cli · 3.2s · tokens
+      unavailable · cost unavailable"
 
 ## Backlog
 
-runwield.dev for now - inspiration: https://itayinbarr.github.io/little-coder/
+### P0 - Current Plan Hygiene
 
-### P1 - Core Workflow UX
+- [ ] Verify/archive implemented or verified Plans that are no longer active.
+- [ ] Remove or archive test Plans: `plans/testing_resume.md`, `plans/testing_slicer_epic.md`.
+- [ ] Decide whether `TODO.md` is the canonical lightweight backlog or just a scratchpad; keep full specs in `plans/`
+      and `docs/prd/`.
 
-- [ ] finish work records
-- [ ] Implement Guided Reviews using plannotator
+### P1 - Close the Local Planning Loop
 
-```markdown
-Large changesets are hard to review top-to-bottom in file order. A Guided Review has an agent organize the current
-changeset — any PR or local diff — into importance-ordered chapters: the heart of the change first, its consequences
-next, glue last. Each section pairs a prose overview and per-file summaries with the live diffs it covers, and those
-diffs are the real diff viewer — annotations made inside a guide land in the same review state and export in the same
-feedback as everywhere else.
+- [ ] Finish Work Records V1: [docs/prd/work-records-prd.md](docs/prd/work-records-prd.md),
+      [plans/work-records-v1.md](plans/work-records-v1.md).
+  - Current V1 focus: internal automatic Work Records only.
+  - Later/deferred: manual/external creation, richer Workspace review, cross-project retrieval.
 
-Open it with the Guide button in the review header or Mod+Shift+G, pick an engine and model, and generate. Sections
-track their own reviewed state so you can work through a big change across sittings. Guides run on Claude or Codex
-natively, and on Cursor, OpenCode, Pi, or GitHub Copilot CLI when installed. Every changed file is validated against the
-real diff server-side, so a guide can never invent files or drop them silently.
+- [ ] Implement Guided Reviews using Plannotator:
+      [plans/guided-review-validation-code-reviews.md](plans/guided-review-validation-code-reviews.md).
+  - Keep Guided Review v1 independent from Work Records.
+  - Later: share review-analysis machinery with Recorder.
 
-A one-time intro dialog announces the feature on first open, and the Guide button carries a subtle hint until the first
-time you use it.
-```
+### P2 - Frontend Execution UX
 
-### P2 - Extension and Package Ecosystem
+- [ ] Build Frontend Engineer + Pair Execution:
+      [docs/prd/frontend-engineer-pair-execution-prd.md](docs/prd/frontend-engineer-pair-execution-prd.md),
+      [plans/frontend-engineer-pair-execution.md](plans/frontend-engineer-pair-execution.md).
+  - Goal: route visual/interactive frontend FEATURE Plans to Frontend Engineer.
+  - Include headed browser loop, user checkpoints, and switch-to-AFK.
 
-- [ ] Build the optional Colgrep semantic search extension:
+### P3 - Session and Runtime Reliability
+
+- [ ] Improve Session Context Resilience:
+      [docs/prd/session-context-resilience-prd.md](docs/prd/session-context-resilience-prd.md).
+  - Universal Core reliability; independent of model adaptation.
+  - Detect context pressure during autonomous turns, compact safely, and continue intent-preserving work.
+
+- [ ] Finish/verify Session Host + ACP external-client work:
+      [docs/prd/runwield-acp-session-host-PRD.md](docs/prd/runwield-acp-session-host-PRD.md).
+  - Current memory says SessionRuntime/ACP event contract is largely consumer-ready; backlog should now focus on
+    remaining external UX/integration gaps, not redoing completed runtime boundaries.
+
+### P4 - Evaluation, Metrics, and Model Capability
+
+- [ ] Build End-to-End Benchmark Harness:
+      [docs/prd/end-to-end-benchmark-harness-prd.md](docs/prd/end-to-end-benchmark-harness-prd.md).
+  - Sequence says this should come before serious Agent Behavior Evaluation graduation.
+
+- [ ] Build Agent Behavior Evaluation:
+      [docs/prd/agent-behavior-evaluation-prd.md](docs/prd/agent-behavior-evaluation-prd.md).
+  - Covers Router, Engineer, Operator, runtime reliability, and future planning-role rubrics.
+
+- [ ] Explore Selective Execution Model Adaptation:
+      [docs/prd/selective-execution-model-adaptation-prd.md](docs/prd/selective-execution-model-adaptation-prd.md).
+  - Depends on Agent Behavior Evaluation before any profile “graduates.”
+  - Keep profiles explicit/experimental until measured.
+
+- [ ] Add a resolved capability viewer showing each Agent's effective tools, prompt source layers, runtime narrowing,
+      protected-tool reinjection, custom-tool additions, model, thinking level, and temperature source.
+
+### P5 - Collaboration and Workspace
+
+- [ ] Continue self-hosted Shared Plan Spaces / collaboration:
+      [docs/prd/collaborative-planning-PRD.md](docs/prd/collaborative-planning-PRD.md),
+      [docs/prd/runwield-workspace-PRD.md](docs/prd/runwield-workspace-PRD.md),
+      [plans/collaborative-planning-remote-shared-spaces.md](plans/collaborative-planning-remote-shared-spaces.md).
+  - Current Core already has share/pull/push/unshare direction; next grooming should identify remaining Phase 2 gaps:
+    docs, hardening, retention, closed-plan UX, diff viewer, notifications, hosted follow-up.
+
+- [ ] Build runwield.dev landing/docs site. Inspiration: https://itayinbarr.github.io/little-coder/
+
+### P6 - Search, Memory, and Source Intelligence
+
+- [ ] Decide RunWield-owned indexing direction: [docs/prd/runwield-core-prd.md](docs/prd/runwield-core-prd.md),
+      [plans/unified-semantic-indexer.md](plans/unified-semantic-indexer.md).
+  - Decide whether to keep Cymbal as primary, add local structural index, add semantic index, or retire old LanceDB /
+    Tree-sitter language from Core PRDs.
+
+- [ ] Build optional Colgrep semantic search extension:
       [plans/colgrep-semantic-search-extension.md](plans/colgrep-semantic-search-extension.md).
 
-### P3 - Search, Memory, and Metrics
+- [ ] Add refresh path for core project memories beyond `/sleep`, while keeping Mnemosyne core memories as source of the
+      compressed project brief.
 
-- [ ] Record local-only workflow metrics for routing, planning, execution, validation, recovery, and model-selection
-      decisions.
-- [ ] Use those metrics to evaluate Router accuracy, plan stall points, Slicer outcomes, auto-sleep triggers, worktree
-      recovery rates, and model behavior.
-- [ ] Define auto-sleep trigger policy around session end, memory churn, session age, context size, and plan completion.
-- [ ] Add a refresh path for core project memories beyond `/sleep`, while keeping Mnemosyne core memories as the source
-      of the compressed project brief.
+### P7 - Architecture / Codebase Shape
 
-### P4 - Model Reliability and Capability Transparency
+- [ ] Revisit deep semantic source modules:
+      [plans/deep-semantic-source-modules.md](plans/deep-semantic-source-modules.md).
+  - Decide whether this is still worth doing now, or defer until after Work Records / Frontend Engineer / Workspace
+    surfaces stabilize.
 
-- [x] Add a clear model fallback policy for unavailable configured models/auth.
-- [x] Build Router classification fixtures to evaluate routing quality across models.
-- [ ] Define Planner/Architect plan-quality evaluation rubrics.
-- [ ] Explore repo-local execution harnesses for Engineer/Operator model evaluation.
-- [ ] Add a resolved capability viewer showing each agent's effective tools, prompt source layers, runtime narrowing,
-      protected-tool reinjection, and custom-tool additions.
+### P8 - Security and Hardening
 
-### P5 - Collaboration
+- [ ] Decide future Core guardrails: [docs/prd/runwield-core-prd.md](docs/prd/runwield-core-prd.md).
+  - Clean-primary-checkout policy?
+  - Dangerous shell policy in RunWield vs Pi vs user/project instructions?
+  - Governance/Security Reviewer as workflow gate vs Skill/policy?
 
-- [ ] Revisit collaborative planning when local lifecycle/plan hygiene is stable:
-      [docs/prd/collaborative-planning-PRD.md](docs/prd/collaborative-planning-PRD.md).
-
-### P6 - Security and Hardening
-
-- [ ] Add Security Reviewer as an optional planning/review gate for production-oriented FEATURE and PROJECT workflows.
+- [ ] Add Security Reviewer as optional planning/review gate for production-oriented FEATURE and PROJECT workflows.
 - [ ] Make security review mode-aware so prototypes and one-off builds can bypass it.
-- [ ] Investigate running restricted agents' bash commands under a read-only OS user for stronger write barriers.
-
-### Lower Priority / Someday
-
-- [ ] Consider making this theme the default:
-      <https://github.com/ifiokjr/oh-pi/blob/main/packages/themes/themes/oh-p-dark.json>.
+- [ ] Investigate running restricted Agents' bash commands under a read-only OS user for stronger write barriers.

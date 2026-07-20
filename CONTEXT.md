@@ -162,6 +162,16 @@ plan
 **Review Loop**: The cycle where a planning agent writes or revises a Plan and the user approves or returns it through
 Plannotator. _Avoid_: Feedback loop, approval cycle
 
+**Review Issue Ledger**: The temporary Workflow Validation record of Semantic Code Review requirement coverage, blocking
+Review Issues, Engineer repair claims, and Reviewer re-verification for one implementation attempt. _Avoid_: Review log,
+durable Plan history, Work Record
+
+**Review Issue**: A blocking Semantic Code Review finding that shows the implementation fails an unambiguous approved
+Plan requirement and must be repaired before approval. _Avoid_: Review Advisory, style note, suggestion
+
+**Review Advisory**: A non-blocking Semantic Code Review finding that explains an ambiguity in the approved Plan without
+preventing implementation approval. _Avoid_: Review Issue, warning, waived defect
+
 **Plannotator**: The browser-based artifact review UI where users approve, return feedback, or annotate Plans, Work
 Records, and code-review diffs. _Avoid_: Plan-only review UI, approval screen
 
@@ -442,6 +452,12 @@ command definition, prompt command
 - An **Implemented Plan** still requires **Workflow Validation**.
 - An **Implemented Plan** may include **Failure Detail** when Workflow Validation fails.
 - A **Verified Plan** must have passed **Workflow Validation**.
+- A **Review Issue Ledger** exists only during one implementation attempt and contains zero or more blocking **Review
+  Issues** plus requirement coverage and repair evidence.
+- A **Review Issue** prevents Semantic Code Review approval until the **Engineer** repairs it and the Reviewer verifies
+  the repair.
+- A **Review Advisory** does not prevent approval and may be appended to the Verified Plan as generated post-validation
+  context that is not part of the approved requirements.
 - A denied **Plan** produces **Feedback**, and each **Feedback** response triggers one **Revision**.
 - The **RunWield Design System** governs browser UI surfaces including **Workspace**, **Plan Board**, and
   **Plannotator**.
