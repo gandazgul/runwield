@@ -104,7 +104,7 @@
         "@deno/astro-adapter": "npm:@deno/astro-adapter@^0.3.2",
         "@astrojs/react": "npm:@astrojs/react@^4.3.1",
         "@astrojs/check": "npm:@astrojs/check@^0.9.9",
-        "astro": "npm:astro@^5.13.11",
+        "astro": "npm:astro@^7.1.1",
         "typescript": "npm:typescript@^5.9.3",
         "@vitejs/plugin-react": "npm:@vitejs/plugin-react@^4.7.0",
         "react/jsx-runtime": "npm:react@^19.2.7/jsx-runtime",
