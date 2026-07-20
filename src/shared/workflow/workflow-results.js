@@ -183,7 +183,6 @@ export function readLatestReviewOutcome(messages, fromIndex) {
  * @typedef {Object} PlanOutcomeResult
  * @property {PlanOutcome} outcome
  * @property {string} [planName]
- * @property {Array<{ task: number, assignee: string, dependencies: string, description: string, writeScope?: string }>} [tasks]
  * @property {import('../../tools/plan-written.js').TriageMeta} [triageMeta]
  * @property {string} [feedback]
  * @property {Array<{base64: string, mimeType: string}>} [images]
@@ -215,7 +214,6 @@ export function readLatestPlanOutcome(messages, fromIndex) {
                 return {
                     outcome,
                     planName: details.planName,
-                    tasks: details.tasks,
                     triageMeta: details.triageMeta,
                     feedback: typeof details.feedback === "string" ? details.feedback : undefined,
                     ...(images.length > 0 && { images }),

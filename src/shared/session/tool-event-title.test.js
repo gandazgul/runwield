@@ -32,4 +32,9 @@ Deno.test("Runtime provides one stable tool descriptor for live, replay, TUI, AC
         title: "work_record_read 11111111-1111-4111-8111-111111111111",
         kind: "read",
     });
+    assertEquals(describeRuntimeTool("delegate_agent", { mode: "write", brief: "Repair the execution worktree" }), {
+        toolName: "delegate_agent",
+        title: "delegate_agent write: Repair the execution worktree",
+        kind: "think",
+    });
 });

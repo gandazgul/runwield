@@ -10,12 +10,19 @@ import {
     getGlobalAgentMdPaths,
     readGlobalAgentMd,
     runIsolatedAgentSession,
+    runNonInteractiveAgentPrompt,
     runPrompt,
     runRootTurn,
     shouldReuseExistingRootSession,
 } from "./session.js";
 import { HostedSession } from "./hosted-session.js";
 import { estimateContextTextTokens } from "./session-context-report.js";
+
+/**
+ * @typedef {Object} TestAgentSessionOptions
+ * @property {string} agentName
+ * @property {"off"|"minimal"|"low"|"medium"|"high"|"xhigh"} [thinkingLevelOverride]
+ */
 
 Deno.test("assembleFinalSystemPrompt includes project-state context only when provided", async () => {
     const agentDef = {
@@ -611,4 +618,134 @@ Deno.test("runIsolatedAgentSession keeps disposable agents scoped to their suppl
     assertEquals(hostedA.getThinkingLevel(), "low");
     assertEquals(hostedB.getThinkingLevel(), "high");
     assertEquals(prompts.length, 2);
+});
+
+Deno.test("runIsolatedAgentSession removes its own display entry when concurrent children finish out of order", async () => {
+    const hostedSession = makeHostedRuntimeSession("run-concurrent");
+    hostedSession.resetAgentInfoStack("Router", "test/root", "test", "router");
+    /** @type {Record<string, () => void>} */
+    const releasePrompt = {};
+    const buildAgentSessionStub = (/** @type {TestAgentSessionOptions} */ opts) =>
+        Promise.resolve({
+            session: makeRuntimeAgentSession(opts.agentName),
+            agentDef: {
+                name: opts.agentName,
+                displayName: opts.agentName,
+                model: "",
+                description: "Test agent",
+                tools: [],
+                systemPrompt: "system",
+            },
+            promptState: { text: "system" },
+            resolvedModel: { provider: "test", id: opts.agentName, input: ["text"] },
+            resolvedThinkingLevel: "medium",
+        });
+    const runPromptStub = (/** @type {TestAgentSessionOptions} */ opts) =>
+        new Promise((resolve) => {
+            releasePrompt[opts.agentName] = () => resolve([]);
+        });
+
+    const readerA = runIsolatedAgentSession({
+        hostedSession,
+        agentName: "Reader A",
+        userRequest: "read a",
+        _buildAgentSession: buildAgentSessionStub,
+        _attachSessionEventSubscribers: makeAttachStub(),
+        _runPrompt: runPromptStub,
+    });
+    await Promise.resolve();
+    const readerB = runIsolatedAgentSession({
+        hostedSession,
+        agentName: "Reader B",
+        userRequest: "read b",
+        _buildAgentSession: buildAgentSessionStub,
+        _attachSessionEventSubscribers: makeAttachStub(),
+        _runPrompt: runPromptStub,
+    });
+    await Promise.resolve();
+
+    assertEquals(hostedSession.getAgentInfoStack().map((agentInfo) => agentInfo.displayName), [
+        "Router",
+        "Reader A",
+        "Reader B",
+    ]);
+
+    releasePrompt["Reader A"]();
+    await readerA;
+
+    assertEquals(hostedSession.getAgentInfoStack().map((agentInfo) => agentInfo.displayName), ["Router", "Reader B"]);
+    assertEquals(hostedSession.getActiveAgentName(), "Reader B");
+
+    releasePrompt["Reader B"]();
+    await readerB;
+
+    assertEquals(hostedSession.getAgentInfoStack().map((agentInfo) => agentInfo.displayName), ["Router"]);
+});
+
+Deno.test("runNonInteractiveAgentPrompt forwards an explicit thinking-level override", async () => {
+    const childSession = makeRuntimeAgentSession("non-interactive-thinking");
+    /** @type {TestAgentSessionOptions | undefined} */
+    let buildOptions;
+
+    await runNonInteractiveAgentPrompt({
+        cwd: Deno.cwd(),
+        agentName: "delegated",
+        userRequest: "inspect",
+        thinkingLevelOverride: "high",
+        _buildAgentSession: (/** @type {TestAgentSessionOptions} */ opts) => {
+            buildOptions = opts;
+            return Promise.resolve({ session: childSession });
+        },
+    });
+
+    assertEquals(buildOptions?.thinkingLevelOverride, "high");
+    assertEquals(childSession.disposeCalls, 1);
+});
+
+Deno.test("runIsolatedAgentSession does not start a child canceled during session construction", async () => {
+    const hostedSession = makeHostedRuntimeSession("run-cancel-build");
+    const controller = new AbortController();
+    const childSession = makeRuntimeAgentSession("canceled-child");
+    let finishBuild = /** @type {(() => void) | undefined} */ (undefined);
+    const buildReady = new Promise((resolve) => {
+        finishBuild = () => resolve(undefined);
+    });
+    let promptCalls = 0;
+
+    const pending = runIsolatedAgentSession({
+        hostedSession,
+        agentName: "delegated",
+        userRequest: "cancel before construction finishes",
+        signal: controller.signal,
+        _buildAgentSession: async () => {
+            await buildReady;
+            return {
+                session: childSession,
+                agentDef: {
+                    name: "delegated",
+                    displayName: "Delegated Agent",
+                    model: "",
+                    description: "Test agent",
+                    tools: [],
+                    systemPrompt: "system",
+                },
+                promptState: { text: "system" },
+                resolvedModel: { provider: "test", id: "model", input: ["text"] },
+                resolvedThinkingLevel: "medium",
+            };
+        },
+        _attachSessionEventSubscribers: makeAttachStub(),
+        _runPrompt: () => {
+            promptCalls++;
+            return Promise.resolve([]);
+        },
+    });
+
+    controller.abort(new Error("cancel during build"));
+    finishBuild?.();
+
+    await assertRejects(() => pending, Error, "cancel during build");
+    assertEquals(promptCalls, 0);
+    assertEquals(childSession.disposeCalls, 1);
+    assertEquals(hostedSession.getSubAgentSessions().size, 0);
 });

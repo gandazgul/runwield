@@ -11,7 +11,6 @@ import { findPlansByParent, loadPlan, parsePlanFrontMatter, saveChildFeaturePlan
 import { ensureBundledAgentDefFile } from "../session/agent-assets.js";
 import { loadAgentDefFromPath } from "../session/agents.js";
 import { emitSystemStatus } from "../session/session-runtime-events.js";
-import { extractTasks, validateProjectTasks } from "./task-scheduling.js";
 import { buildSlicerRequest } from "./workflow-prompts.js";
 import { isEpicPlan, recordPlanEvent } from "./plan-lifecycle.js";
 
@@ -365,12 +364,10 @@ export async function runSlicerAgent({
 }
 
 /**
- * Ensure a PROJECT plan is ready after approval.
+ * Ensure a PROJECT plan enters interactive decomposition after approval.
  *
- * PROJECT Epic plans use interactive decomposition. Non-Epic PROJECT plans
- * with valid inline task tables are accepted without slicing. All other
- * PROJECT plans are invalid — the architect must add `type: "epic"` to the
- * front matter or embed valid Tasks sections.
+ * Every PROJECT plan is an Epic container; no inline task-table compatibility
+ * path remains.
  *
  * @param {Object} opts
  * @param {string} opts.planName
@@ -382,20 +379,16 @@ export async function runSlicerAgent({
  *   runSlicerAgent?: typeof runSlicerAgent,
  *   readTextFile?: (path: string) => Promise<string>,
  *   parsePlanFrontMatter?: typeof parsePlanFrontMatter,
- *   extractTasks?: typeof extractTasks,
- *   validateProjectTasks?: typeof validateProjectTasks,
  * }} [opts.__deps] - Test-only injection point.
  * @returns {Promise<{ ok: true, slicerInvoked: boolean } | { ok: false, error: string, stage: "slicer" | "validation" }>}
  */
-export async function ensureSlicerTasks(
+export async function openSlicerDecomposition(
     { planName, planPath, triageMeta, hostedSession, sessionManager, __deps },
 ) {
-    if (!hostedSession) throw new Error("ensureSlicerTasks: hostedSession is required");
+    if (!hostedSession) throw new Error("openSlicerDecomposition: hostedSession is required");
     const slicer = __deps?.runSlicerAgent || runSlicerAgent;
     const readTextFile = __deps?.readTextFile || Deno.readTextFile.bind(Deno);
     const parsePlan = __deps?.parsePlanFrontMatter || parsePlanFrontMatter;
-    const parseTasks = __deps?.extractTasks || extractTasks;
-    const validateTasks = __deps?.validateProjectTasks || validateProjectTasks;
 
     /**
      * @param {import('../../tools/plan-written.js').TriageMeta | undefined} meta
@@ -436,17 +429,7 @@ export async function ensureSlicerTasks(
         return { ok: true, slicerInvoked: true };
     }
 
-    // Non-Epic PROJECT plan — valid inline task tables accepted, otherwise error
-    try {
-        validateTasks(parseTasks(currentMd));
-        return { ok: true, slicerInvoked: false };
-    } catch {
-        return {
-            ok: false,
-            error:
-                `Plan "${planName}" has classification PROJECT but is not an Epic (missing type: "epic") and has no valid inline Tasks section. ` +
-                "Add `type: epic` to the front matter to use interactive decomposition, or embed a valid Tasks section.",
-            stage: "validation",
-        };
-    }
+    const result = await invokeSlicer(triageMeta || currentPlan?.attrs);
+    if (!result.ok) return { ok: false, error: result.error, stage: "slicer" };
+    return { ok: true, slicerInvoked: true };
 }

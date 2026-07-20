@@ -22,8 +22,8 @@ decisions the skill should not re-litigate.
 Read the project's `CONTEXT.md` if it exists and any ADRs in the area you're touching first. Then read
 [codebase-design](../codebase-design/SKILL.md) and its [DEEPENING.md](../codebase-design/DEEPENING.md) reference.
 
-Then use the Agent tool with `subagent_type=Explore` to walk the codebase. Don't follow rigid heuristics — explore
-organically and note where you experience friction:
+Then use `delegate_agent` with `mode: "read"` to walk the codebase in a bounded Delegated Agent Session. Don't follow
+rigid heuristics — explore organically and note where you experience friction:
 
 - Where does understanding one concept require bouncing between many small modules?
 - Where are modules **shallow** — interface nearly as complex as the implementation?

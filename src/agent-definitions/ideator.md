@@ -31,6 +31,7 @@ tools:
     - code_structure
     - code_impls
     - code_importers
+    - delegate_agent
 ---
 
 # Identity

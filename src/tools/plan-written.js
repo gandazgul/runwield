@@ -35,8 +35,7 @@ import {
  *   classification?: "QUICK_FIX" | "FEATURE" | "PROJECT",
  *   complexity?: "LOW" | "MEDIUM" | "HIGH",
  *   summary?: string,
- *   affectedPaths?: string[],
- *   type?: string
+ *   affectedPaths?: string[]
  * }} TriageMeta
  */
 
@@ -304,7 +303,7 @@ export function createPlanWrittenTool(
             }
 
             if (effectiveMeta.classification === "PROJECT") {
-                const projectMeta = { ...effectiveMeta, type: effectiveMeta.type || "epic" };
+                const projectMeta = { ...effectiveMeta };
                 await recordPlanEventFn({
                     cwd,
                     planName,

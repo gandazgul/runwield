@@ -11,7 +11,7 @@
  * OPERATION → Operator
  * QUICK_FIX → Engineer → on `task_completed`, runs no-plan Mechanical Validation
  * FEATURE   → Planner  → on `approved_execute`, runs `executePlan`
- * PROJECT   → Architect → on `approved_execute`, runs `executePlan` (parallel tasks)
+ * PROJECT   → Architect → on `approved_decompose`, starts Slicer decomposition
  *
  * After dispatch, the specialist remains the active root agent so follow-up
  * messages can continue the same topic with useful context. Users can start a
@@ -487,15 +487,12 @@ export async function dispatchPostTriage(
         const decisionTriageMeta = /** @type {TriageOutcome} */ (
             normalizeTriageOutcome(decision.payload.triageMeta) || normalizedTriage
         );
-        const tasks = /** @type {import('./workflow.js').PlanOutcomeResult["tasks"]} */ (decision.payload.tasks);
-
         /** @type {import('./workflow.js').PlanExecutionResult} */
         let executionResult;
         try {
             executionResult = await executePlanImpl({
                 planName,
                 triageMeta: decisionTriageMeta,
-                structuredTasks: tasks,
                 sessionManager,
                 hostedSession,
                 __deps: { recordWorkflowMetric: recordWorkflowMetricImpl },
@@ -585,7 +582,7 @@ export async function dispatchPostTriage(
             });
             await activateAgent(nextAgentName);
         } else {
-            // halt or repair_plan — stay with Engineer for manual recovery
+            // halt — stay with Engineer for manual recovery
             const reason = executionDecision.payload?.reason || "unknown";
             await recordWorkflowMetricImpl({
                 category: "execution",

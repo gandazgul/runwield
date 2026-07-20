@@ -5,11 +5,11 @@
  */
 
 /**
- * @typedef {"execute_plan"|"start_slicer"|"save_plan"|"run_validation"|"repair_plan"|"stay_with_agent"|"halt"} WorkflowDecisionKind
+ * @typedef {"execute_plan"|"start_slicer"|"save_plan"|"run_validation"|"stay_with_agent"|"halt"} WorkflowDecisionKind
  */
 
 /**
- * @typedef {"plan_feedback"|"plan_review_canceled"|"missing_plan_declaration"|"plan_repair_required"|"execution_incomplete"|"task_table_invalid"|"missing_execution_result"|"unknown_plan_outcome"} WorkflowDecisionReason
+ * @typedef {"plan_feedback"|"plan_review_canceled"|"missing_plan_declaration"|"execution_incomplete"|"missing_execution_result"|"unknown_plan_outcome"} WorkflowDecisionReason
  */
 
 /**
@@ -40,8 +40,6 @@ export function summarizeWorkflowDecision(workflowDecision) {
         reason: payload.reason,
         planName: payload.planName,
         classification: /** @type {{ classification?: unknown }} */ (payload.triageMeta || {}).classification,
-        hasTasks: Array.isArray(payload.tasks) ? payload.tasks.length > 0 : undefined,
-        failedTaskCount: Array.isArray(payload.failedTasks) ? payload.failedTasks.length : undefined,
         nextAgent: payload.agentName,
     };
 }
@@ -72,7 +70,6 @@ export function decidePostPlanning(planOutcome, { planningAgentName, fallbackTri
             planName: planOutcome.planName,
             triageMeta: planOutcome.triageMeta || fallbackTriageMeta || {},
         };
-        if (planOutcome.tasks) payload.tasks = planOutcome.tasks;
         if (planOutcome.feedback) payload.reviewFeedback = planOutcome.feedback;
         if (planOutcome.images?.length) payload.reviewImages = planOutcome.images;
         return decision("execute_plan", payload);
@@ -116,7 +113,7 @@ export function decidePostPlanning(planOutcome, { planningAgentName, fallbackTri
     if (outcome === "repair_required") {
         return decision("stay_with_agent", {
             agentName: planningAgentName,
-            reason: "plan_repair_required",
+            reason: "plan_feedback",
         });
     }
 
@@ -146,15 +143,6 @@ export function decidePostExecution(executionResult, { planName, triageMeta, exe
         return decision("halt", { reason: "missing_execution_result" });
     }
 
-    if (executionResult.repairRequired) {
-        return decision("repair_plan", {
-            planName,
-            triageMeta,
-            reason: "task_table_invalid",
-            error: executionResult.error,
-        });
-    }
-
     if (executionResult.executionComplete) {
         return decision("run_validation", { planName, triageMeta });
     }
@@ -163,6 +151,5 @@ export function decidePostExecution(executionResult, { planName, triageMeta, exe
         agentName: executionAgentName,
         reason: "execution_incomplete",
         error: executionResult.error,
-        failedTasks: executionResult.failedTasks,
     });
 }

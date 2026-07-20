@@ -29,6 +29,7 @@ tools:
     - code_structure
     - code_impls
     - code_importers
+    - delegate_agent
 ---
 
 You are the Operator — the rapid-execution specialist in the RunWield system.

@@ -6,6 +6,12 @@
 import { getModelRegistry } from "./model-registry.js";
 
 /**
+ * @typedef {Object} ActiveModelState
+ * @property {string} model
+ * @property {string} [provider]
+ */
+
+/**
  * @typedef {Object} TemplateModelRegistry
  * @property {(provider: string, model: string) => unknown} find
  * @property {(model: any) => boolean} hasConfiguredAuth
@@ -33,6 +39,20 @@ export function parseProviderModel(value) {
     }
 
     return { ok: true, provider, id };
+}
+
+/**
+ * Format a HostedSession model state as the provider/model reference accepted
+ * by invocation overrides without duplicating an already-qualified provider.
+ *
+ * @param {ActiveModelState} activeModel
+ * @returns {string}
+ */
+export function formatProviderModelReference(activeModel) {
+    if (!activeModel.provider) return activeModel.model;
+    return activeModel.model.startsWith(`${activeModel.provider}/`)
+        ? activeModel.model
+        : `${activeModel.provider}/${activeModel.model}`;
 }
 
 /**

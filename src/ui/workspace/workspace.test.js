@@ -789,9 +789,8 @@ Deno.test("buildWorkspaceBoard groups top-level cards into status columns and hi
             planName: "epic",
             planId: "epic-id",
             status: "draft",
-            attrs: { classification: "PROJECT", type: "epic" },
+            attrs: { classification: "PROJECT" },
             classification: "PROJECT",
-            type: "epic",
             isEpic: true,
             isChild: false,
             hierarchyRole: "epic",
@@ -837,9 +836,8 @@ Deno.test("buildWorkspaceBoard keeps closed children with their active Epic inst
                 planName: "epic",
                 planId: "epic-id",
                 status: "in_progress",
-                attrs: { classification: "PROJECT", type: "epic", status: "in_progress" },
+                attrs: { classification: "PROJECT", status: "in_progress" },
                 classification: "PROJECT",
-                type: "epic",
                 isEpic: true,
                 isChild: false,
                 hierarchyRole: "epic",
@@ -941,7 +939,6 @@ Deno.test("loadPlanSummaries marks top-level, Epic, child, and orphan-child hier
         await savePlan(cwd, "epic", "# Epic", {
             planId: "epic-id",
             classification: "PROJECT",
-            type: "epic",
         });
         await savePlan(cwd, "epic/child", "# Child", {
             planId: "child-id",
@@ -998,12 +995,17 @@ Deno.test("loadPlanSummaries preserves the core plan-list order", async () => {
 Deno.test("loadWorkspaceDetail returns Epic detail with children grouped by status", async () => {
     const cwd = await Deno.makeTempDir();
     try {
-        await savePlan(cwd, "epic", "# Epic\n\nBody", {
-            planId: "epic-id",
-            classification: "PROJECT",
-            type: "epic",
-            status: "draft",
-        });
+        await savePlan(
+            cwd,
+            "epic",
+            "# Epic\n\nBody",
+            {
+                planId: "epic-id",
+                classification: "PROJECT",
+                status: "draft",
+                type: "epic",
+            },
+        );
         await savePlan(cwd, "epic/child", "# Child", {
             planId: "child-id",
             classification: "FEATURE",
@@ -1012,6 +1014,8 @@ Deno.test("loadWorkspaceDetail returns Epic detail with children grouped by stat
         });
         const detail = /** @type {any} */ (await loadWorkspaceDetail(cwd, "epic-id"));
         assertEquals(detail.detailKind, "epic");
+        assertEquals(Object.hasOwn(detail.attrs, "type"), false);
+        assertEquals(Object.hasOwn(detail.frontMatter, "type"), false);
         assertEquals(detail.childProgress.total, 1);
         assertEquals(detail.childProgress.byStatus.failed, 1);
         assertEquals(detail.childHealth.failed.map((/** @type {any} */ plan) => plan.planId), ["child-id"]);
@@ -1028,7 +1032,6 @@ Deno.test("workspace adapter exposes Epic dependency health done-enough held and
         await savePlan(cwd, "epic", "# Epic", {
             planId: "epic-id",
             classification: "PROJECT",
-            type: "epic",
             status: "on_hold",
             heldFromStatus: "in_progress",
             heldAt: "2026-01-01T00:00:00.000Z",
@@ -1413,6 +1416,33 @@ Deno.test("Workspace API and detail route return readable editable Plan body met
     }
 });
 
+Deno.test("PlanDetail derives Epic UI from classification rather than legacy subtype metadata", () => {
+    const html = renderToStaticMarkup(
+        React.createElement(PlanDetail, {
+            plan: {
+                planId: "legacy-type-id",
+                planName: "Legacy type plan",
+                title: "Legacy type plan",
+                status: "draft",
+                classification: "FEATURE",
+                type: "epic",
+                detailKind: "epic",
+                summary: "Feature with legacy metadata",
+                capabilities: { bodyEditing: true },
+                body: "# Body",
+                bodyJson: { type: "doc", content: [] },
+                bodyHash: "hash",
+            },
+            url: "http://localhost/plans/legacy-type-id?token=secret",
+            staticRender: true,
+        }),
+    );
+
+    assertStringIncludes(html, "Feature with legacy metadata");
+    assertEquals(html.includes("Epic progress"), false);
+    assertEquals(html.includes("Child plans"), false);
+});
+
 Deno.test("Workspace detail SSR fallback renders visible empty Plan body state", async () => {
     const cwd = await Deno.makeTempDir();
     try {
@@ -1487,7 +1517,6 @@ Deno.test("Workspace body-save API preserves front matter rejects stale writes a
         await savePlan(cwd, "epic", "# Epic\n", {
             planId: "epic-id",
             classification: "PROJECT",
-            type: "epic",
             status: "draft",
         });
         const epicRejected = await app(
@@ -1515,7 +1544,6 @@ Deno.test("Workspace Epic detail SSR-renders child FEATURE Plans by status", asy
                 planId: "epic-id",
                 status: "draft",
                 classification: "PROJECT",
-                type: "epic",
                 summary: "Epic summary",
                 epicCompletionMode: "done_enough",
                 epicDoneEnoughAt: "2026-06-30T12:00:00.000Z",
@@ -1566,7 +1594,6 @@ Deno.test("Workspace Epic detail SSR-renders child FEATURE Plans by status", asy
             planId: "held-epic-id",
             status: "on_hold",
             classification: "PROJECT",
-            type: "epic",
             summary: "Held Epic summary",
             heldFromStatus: "in_progress",
             heldAt: "2026-01-03T00:00:00.000Z",

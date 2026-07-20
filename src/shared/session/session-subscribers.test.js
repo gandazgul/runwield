@@ -141,6 +141,33 @@ Deno.test("session subscriber maps one Pi tool lifecycle to one runtime tool lif
     assertEquals(unsubscribed(), true);
 });
 
+Deno.test("delegated child messages remain visible on the parent HostedSession event surface", () => {
+    const { session, emit } = makeSubscribableSession();
+    const { hostedSession, events } = makeRuntimeHarness("subscriber-delegated");
+    const delegatedAgent = /** @type {import('./types.js').AgentDefinition} */ ({
+        name: "delegated",
+        displayName: "Delegated Agent",
+        model: "",
+        description: "Context-isolated child",
+        tools: [],
+        systemPrompt: "system",
+    });
+    const state = attachSessionEventSubscribers(session, delegatedAgent, undefined, hostedSession);
+
+    emit({ type: "turn_start", turnId: "delegated-turn" });
+    emit({ type: "message_start", message: { id: "delegated-message", role: "assistant" } });
+    emit({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "child handoff" } });
+    emit({ type: "message_end", message: { role: "assistant", stopReason: "stop", usage: {} } });
+    emit({ type: "turn_end" });
+
+    const textEvent = events.find((event) => event.type === "assistant_text_delta");
+    assertEquals(textEvent?.delta, "child handoff");
+    assertEquals(textEvent?.agentName, "Delegated Agent");
+    assertEquals(events.some((event) => event.type === "turn_start"), true);
+    assertEquals(events.some((event) => event.type === "turn_end"), true);
+    state.unsubscribe();
+});
+
 Deno.test("session subscriber writes debug stream logs without any presentation port", async () => {
     const { session, emit } = makeSubscribableSession();
     const { hostedSession } = makeRuntimeHarness("subscriber-debug");

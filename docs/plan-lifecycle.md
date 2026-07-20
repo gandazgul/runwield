@@ -6,10 +6,9 @@ Lifecycle decides the next status and front matter updates.
 Plan metadata is canonical in the primary project checkout even when implementation runs in a linked execution worktree.
 Worktree paths, branches, and registry records describe where execution work lives; they do not replace Plan Status.
 
-PROJECT Plans with `type: epic` are Epic containers. They are decomposed interactively by the Slicer into child FEATURE
+Every PROJECT Plan is an Epic container. PROJECT Plans are decomposed interactively by the Slicer into child FEATURE
 Plans under `plans/<epic-name>/` and are not executed as implementation work themselves. Child FEATURE Plans point back
-to the Epic with `parentPlan` and may list sibling `dependencies`. Legacy non-Epic PROJECT task tables still exist for
-compatibility, but they are not the active PROJECT workflow.
+to the Epic with `parentPlan` and may list sibling `dependencies`.
 
 ## Statuses
 
@@ -22,9 +21,8 @@ compatibility, but they are not the active PROJECT workflow.
 `ready_for_decomposition`: An Epic PROJECT Plan has been approved and can be opened by the Slicer. This is not an
 executable status.
 
-`ready_for_work`: The only executable status for FEATURE Plans and legacy non-Epic PROJECT Plans. For an Epic PROJECT
-Plan, it means decomposition has been finalized and child FEATURE Plans can be selected; the Epic itself is still a
-container, not executable implementation work.
+`ready_for_work`: The executable status for FEATURE Plans. For a PROJECT Epic, it means decomposition has been finalized
+and child FEATURE Plans can be selected; the Epic itself is still a container, not executable implementation work.
 
 `in_progress`: Execution has started. For executable plans, implementation work runs in the recorded execution worktree.
 
@@ -85,7 +83,7 @@ changing the Plan state machine.
 | `review_approved`                    | `draft`, `feedback`, `approved`                                                                 | `approved`                    | User approval is durable before the Readiness Gate runs.                                                                                                                                                                       |
 | `epic_readiness_passed`              | `approved`                                                                                      | `ready_for_decomposition`     | PROJECT Epics pass approval into decomposition; they are not executable yet.                                                                                                                                                   |
 | `decomposition_finalized`            | `approved`, `ready_for_decomposition`                                                           | `ready_for_work`              | Slicer finalized at least one child FEATURE Plan, so the Epic can offer child selection.                                                                                                                                       |
-| `readiness_passed`                   | `approved`                                                                                      | `ready_for_work`              | FEATURE Plans pass without an LLM call; legacy non-Epic PROJECT Plans pass after valid Slicer Tasks exist.                                                                                                                     |
+| `readiness_passed`                   | `approved`                                                                                      | `ready_for_work`              | FEATURE Plans pass without an LLM call.                                                                                                                                                                                        |
 | `execution_started`                  | `ready_for_work`                                                                                | `in_progress`                 | Captures `executionBaselineTree` and records active worktree metadata before executable Plan work begins.                                                                                                                      |
 | `execution_failed`                   | `in_progress`                                                                                   | `failed`                      | Sets `failureReason`, `failedAt`, and `worktreeStatus: "execution_failed"` when a reason is available.                                                                                                                         |
 | `implementation_finished`            | `in_progress`                                                                                   | `implemented`                 | Sets `implementedAt` and `worktreeStatus: "completed"`; Workflow Validation still needs to run.                                                                                                                                |
@@ -106,7 +104,7 @@ changing the Plan state machine.
 
 Board actions are lifecycle events, not direct Front Matter edits. Generic board movement uses `manual_status_change`
 and may move both directions only within the safe board set: `draft`, `feedback`, `approved`, `ready_for_work`,
-`in_progress`, and `implemented`. For PROJECT Epics with `type: epic`, `ready_for_decomposition` is also board-safe.
+`in_progress`, and `implemented`. For PROJECT Epics, `ready_for_decomposition` is also board-safe.
 
 Generic board movement cannot enter or leave `failed`, cannot produce `verified`, cannot enter
 `closed_without_verification`, and cannot enter or resume from `on_hold`. Those states remain behind recovery, Workflow
@@ -143,8 +141,7 @@ run before recording `hold_resumed`.
 `hold_reset_to_draft` clears hold fields plus stale execution/recovery/validation fields: `worktreeId`, `worktreePath`,
 `worktreeBranch`, `worktreeStatus`, `executionBaselineTree`, `failureReason`, `failedAt`, `implementedAt`, `verifiedAt`,
 `humanReviewMode`, `humanReviewDecision`, and `humanReviewedAt`. It preserves identity/context fields such as
-`classification`, `complexity`, `summary`, `affectedPaths`, `createdAt`, `origin`, `type`, `parentPlan`, and
-`dependencies`.
+`classification`, `complexity`, `summary`, `affectedPaths`, `createdAt`, `origin`, `parentPlan`, and `dependencies`.
 
 ## Readiness Gate
 
@@ -158,16 +155,12 @@ Slicer materializes child FEATURE Plans as `draft`, records `decomposition_final
 `ready_for_work` for child selection. That status does not mean the Epic itself can be executed, and draft child FEATURE
 Plans still go through Planner/Plannotator review before execution.
 
-For legacy non-Epic PROJECT Plans, the gate keeps the older task-table compatibility path: it ensures a parseable Tasks
-table exists and runs the legacy Slicer if needed. That task-DAG path is legacy/future machinery, not the default
-PROJECT behavior.
-
 ## Execution Worktrees
 
 Before executable implementation starts, RunWield creates or reuses a git worktree for the plan and records its metadata
 in the primary plan file and `.wld/worktrees.json`. Agent sessions, built-in file tools, custom edit tools, local CI,
 workflow diffs, reviewer sessions, and repair sessions receive the execution worktree as their cwd. RunWield does not
-use `Deno.chdir()` for this because concurrent execution may still exist in future task-based workflows.
+use `Deno.chdir()` for this because workflow operations should stay scoped to their execution context.
 
 The primary checkout remains the metadata root for saved plans, settings, `.wld/worktrees.json`, and
 `.wld/worktrees.lock`. This means `wld plans` and `wld load-plan` can see current lifecycle state while implementation
@@ -222,19 +215,16 @@ cleanup are post-merge bookkeeping. Their failures are reported without recordin
 `validation_failed` over the verified Plan. Inconclusive merge verification retains the worktree for inspection.
 
 For PROJECT Epics, child FEATURE Plans run their own Workflow Validation. The Epic can be marked done enough for now,
-but it does not run a validation loop as if it were an implementation diff. For legacy non-Epic PROJECT Plans, the final
-tester-owned Task remains the Integration Point before Workflow Validation.
+but it does not run a validation loop as if it were an implementation diff.
 
-For executable FEATURE and legacy non-Epic PROJECT Plans, the workflow diff must contain implementation changes. An
-empty scoped diff, or a diff that only changes Plan documents under `plans/`, is a validation failure. OPERATION and
-QUICK_FIX are not saved as executable Plans. OPERATION ends after Operator self-verification and `task_completed`.
-QUICK_FIX runs no-plan Mechanical Validation after Engineer `task_completed`, without Plan lifecycle state.
+For executable FEATURE Plans, the workflow diff must contain implementation changes. An empty scoped diff, or a diff
+that only changes Plan documents under `plans/`, is a validation failure. OPERATION and QUICK_FIX are not saved as
+executable Plans. OPERATION ends after Operator self-verification and `task_completed`. QUICK_FIX runs no-plan
+Mechanical Validation after Engineer `task_completed`, without Plan lifecycle state.
 
 ## Front Matter Fields
 
 `status`: Current Plan Status.
-
-`type`: Optional Plan subtype. `type: epic` marks a PROJECT Plan as an Epic container.
 
 `parentPlan`: Child FEATURE pointer to the parent Epic plan name.
 
@@ -306,9 +296,9 @@ unrelated changes made after that snapshot will be lost.
 
 ## Plan List Visibility
 
-`wld plans` shows Epic hierarchy when PROJECT Plans use `type: epic`. Child FEATURE Plans are grouped under their parent
-Epic using `parentPlan`, and Epics show verified/active/remaining/failed progress. Child FEATURE Plans whose
-`parentPlan` does not match an existing Epic are shown as orphaned child plans.
+`wld plans` shows Epic hierarchy for PROJECT Plans. Child FEATURE Plans are grouped under their parent Epic using
+`parentPlan`, and Epics show verified/active/remaining/failed progress. Child FEATURE Plans whose `parentPlan` does not
+match an existing Epic are shown as orphaned child plans.
 
 `wld plans` also shows concise worktree state for plans with worktree metadata:
 
@@ -320,7 +310,7 @@ The parenthesized value is the recorded worktree branch when available, otherwis
 
 ## Invariants
 
-- `ready_for_work` is the only executable status for FEATURE and legacy non-Epic PROJECT Plans.
+- `ready_for_work` is the executable status for FEATURE Plans.
 - `ready_for_work` on a PROJECT Epic means child FEATURE selection is available, not that the Epic executes directly.
 - `ready_for_decomposition` is not executable.
 - `approved` is durable but not executable.
@@ -331,7 +321,5 @@ The parenthesized value is the recorded worktree branch when available, otherwis
 - `closed_without_verification` is terminal manual closure and never implies validation passed.
 - `on_hold` is a pause state; resume/reset must clear hold metadata.
 - Human code review is optional Workflow Validation metadata, not a separate Plan Status.
-- Executable FEATURE and legacy non-Epic PROJECT validation cannot pass with an empty or Plan-document-only workflow
-  diff.
-- Legacy non-Epic PROJECT Task graphs must finish with an Integration Point before Workflow Validation starts.
+- Executable FEATURE validation cannot pass with an empty or Plan-document-only workflow diff.
 - Workflow code should record Plan Events instead of directly mutating Plan Status.

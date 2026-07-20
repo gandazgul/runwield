@@ -53,7 +53,7 @@ function normalizeComplexity(value) {
 
 /** @param {Record<string, unknown>} attrs */
 function isChildFeaturePlan(attrs) {
-    const classification = normalizeComplexity(attrs.classification || attrs.type);
+    const classification = normalizeComplexity(attrs.classification);
     return classification === "FEATURE" && Boolean(attrs.parentPlan || attrs.parent || attrs.epic || attrs.epicName);
 }
 

@@ -1,5 +1,5 @@
 import { assertEquals } from "@std/assert";
-import { parseProviderModel, resolveTemplateModel } from "./model-validation.js";
+import { formatProviderModelReference, parseProviderModel, resolveTemplateModel } from "./model-validation.js";
 
 Deno.test("parseProviderModel accepts strict provider/id", () => {
     const parsed = parseProviderModel("openai/gpt-4.1");
@@ -10,6 +10,15 @@ Deno.test("parseProviderModel rejects non provider/id formats", () => {
     assertEquals(parseProviderModel("gpt-4.1"), { ok: false });
     assertEquals(parseProviderModel("openai/"), { ok: false });
     assertEquals(parseProviderModel("/gpt-4.1"), { ok: false });
+});
+
+Deno.test("formatProviderModelReference qualifies active model state exactly once", () => {
+    assertEquals(formatProviderModelReference({ model: "gpt-5", provider: "openai" }), "openai/gpt-5");
+    assertEquals(
+        formatProviderModelReference({ model: "openai/gpt-5", provider: "openai" }),
+        "openai/gpt-5",
+    );
+    assertEquals(formatProviderModelReference({ model: "local-model" }), "local-model");
 });
 
 Deno.test("resolveTemplateModel returns ok for valid configured model", () => {

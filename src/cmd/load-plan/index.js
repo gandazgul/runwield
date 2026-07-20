@@ -10,7 +10,6 @@ import { AGENTS, CLI_BIN } from "../../constants.js";
 import {
     compareChildPlansByOrder,
     findPlansByParent as findPlansByParentFn,
-    injectFrontMatter,
     loadPlan as loadPlanFn,
     resolvePlan as resolvePlanFn,
     resolveSiblingChildPlanDependencies as resolveSiblingChildPlanDependenciesFn,
@@ -74,9 +73,7 @@ export { getLoadPlanCompletions } from "./getArgumentCompletions.js";
  * @property {typeof decidePostPlanningFn} [decidePostPlanning]
  * @property {typeof decidePostExecutionFn} [decidePostExecution]
  * @property {(planName: string) => Promise<string>} [askPostApproval]
- * @property {(planName: string) => Promise<string>} [askApprovalWithTasks]
  * @property {(planName: string) => Promise<string>} [askProjectDecompositionApproval]
- * @property {(options: Record<string, any>) => Promise<any>} [ensureSlicerTasks]
  * @property {(options: Record<string, any>) => Promise<any>} [runValidationLoop]
  * @property {(options: Record<string, any>) => Promise<any>} [runSlicerAgent]
  * @property {typeof loadPlanFn} [loadPlan]
@@ -118,12 +115,10 @@ export { getLoadPlanCompletions } from "./getArgumentCompletions.js";
  * @property {(options: Record<string, any>) => Promise<any>} runPlanningAgent
  * @property {(options: Record<string, any>) => Promise<any>} runValidation
  * @property {(options: Record<string, any>) => Promise<any>} runSlicerAgent
- * @property {(options: Record<string, any>) => Promise<any>} ensureSlicerTasks
  * @property {(workflow: Record<string, any>) => void} setActiveExecutionWorkflow
  * @property {() => void} clearActiveExecutionWorkflow
  * @property {(planName: string) => Promise<string>} askPostApproval
  * @property {(planName: string) => Promise<string>} askProjectDecompositionApproval
- * @property {(planName: string) => Promise<string>} askApprovalWithTasks
  * @property {(meta: { planName: string, planPath: string, triageMeta: Record<string, any> }) => Promise<{ canceled: boolean, approved: boolean, feedback?: string, images?: Array<{base64: string, mimeType: string}> }>} reviewPlan
  * @property {(name: string) => void} rename
  */
@@ -159,10 +154,6 @@ function createPlanSessionSurface(runtime, sessionId, deps) {
             deps.runSlicerAgent
                 ? /** @type {any} */ (deps.runSlicerAgent)(options)
                 : runtime.runSlicerAgent(sessionId, options),
-        ensureSlicerTasks: (options) =>
-            deps.ensureSlicerTasks
-                ? /** @type {any} */ (deps.ensureSlicerTasks)(options)
-                : runtime.ensureSlicerTasks(sessionId, options),
         setActiveExecutionWorkflow: (workflow) => {
             runtime.setActiveExecutionWorkflow(sessionId, workflow);
         },
@@ -177,10 +168,6 @@ function createPlanSessionSurface(runtime, sessionId, deps) {
             deps.askProjectDecompositionApproval
                 ? /** @type {any} */ (deps.askProjectDecompositionApproval)(planName)
                 : runtime.askProjectDecompositionApproval(sessionId, planName),
-        askApprovalWithTasks: (planName) =>
-            deps.askApprovalWithTasks
-                ? /** @type {any} */ (deps.askApprovalWithTasks)(planName)
-                : runtime.askApprovalWithTasks(sessionId, planName, snapshot.cwd),
         reviewPlan: async (meta) => {
             const response = await runtime.requestInteraction(sessionId, {
                 type: RuntimeInteractionTypes.PLAN_REVIEW,
@@ -239,39 +226,6 @@ function extractSection(body, name) {
     const re = new RegExp(`(^|\\n)##\\s+${escaped}\\s*\\n([\\s\\S]*?)(?=\\n##\\s|$)`, "i");
     const match = body.match(re);
     return match ? match[2].trim() : null;
-}
-
-/**
- * Remove the `## Tasks` section (and any following `### Slice Details` block,
- * including `#### Task N` sub-blocks) from a plan body. Strips up to the next
- * `##` heading or end of file. Returns the body unchanged if no Tasks heading
- * is present.
- *
- * @param {string} body
- * @returns {string}
- */
-export function stripTasksSection(body) {
-    const re = /(^|\n)##\s+Tasks\s*\n[\s\S]*?(?=\n##\s|$)/i;
-    if (!re.test(body)) return body;
-    const stripped = body.replace(re, "$1").replace(/\n{3,}/g, "\n\n").trimEnd();
-    return stripped + "\n";
-}
-
-/**
- * Strip the Tasks + Slice Details blocks from a plan file in-place and write
- * the result back. Used when the user re-opens an approved/completed plan for
- * review — slicer output must be discarded so the architect → slicer flow can
- * regenerate tasks against any revised design.
- *
- * @param {{ path: string, body: string, attrs: import('../../plan-store.js').PlanFrontMatter }} plan
- * @returns {Promise<void>}
- */
-async function stripTasksFromPlanFile(plan) {
-    const stripped = stripTasksSection(plan.body);
-    if (stripped === plan.body) return;
-    plan.body = stripped;
-    const withFm = injectFrontMatter(stripped, plan.attrs);
-    await Deno.writeTextFile(plan.path, withFm);
 }
 
 /**
@@ -961,10 +915,6 @@ async function executePostPlanningDecision({
 
     const planName = /** @type {string} */ (decision.payload.planName);
     const triageMeta = /** @type {import('../../plan-store.js').PlanFrontMatter} */ (decision.payload.triageMeta);
-    const tasks = /** @type {import('../../shared/workflow/workflow.js').PlanOutcomeResult["tasks"]} */ (
-        decision.payload.tasks
-    );
-
     const confirmed = await confirmAffectedPathChangesBeforeExecution({
         projectRoot,
         planName,
@@ -977,7 +927,6 @@ async function executePostPlanningDecision({
     const execRes = await executePlan({
         planName,
         triageMeta,
-        structuredTasks: tasks,
     });
     const executionDecision = decidePostExecution(execRes, {
         planName,
@@ -1005,22 +954,13 @@ function shouldKeepPlanningAgentActive(decision) {
 /**
  * Run the Readiness Gate for an approved Plan.
  *
- * @param {{ planName: string, path: string, attrs: import('../../plan-store.js').PlanFrontMatter }} plan
- * @param {import('../../ui/tui/types.js').UiAPI} uiAPI
- * @param {PlanSessionSurface["ensureSlicerTasks"]} ensureSlicerTasks
- * @param {typeof recordPlanEventFn} recordPlanEvent
- * @param {PlanSessionSurface} session
- * @returns {Promise<boolean>}
- */
-/**
  * @param {string} projectRoot
  * @param {{ planName: string, path: string, attrs: import('../../plan-store.js').PlanFrontMatter }} plan
  * @param {import('../../ui/tui/types.js').UiAPI} uiAPI
- * @param {PlanSessionSurface["ensureSlicerTasks"]} ensureSlicerTasks
  * @param {typeof recordPlanEventFn} recordPlanEvent
  * @returns {Promise<boolean>}
  */
-async function prepareApprovedPlanForWork(projectRoot, plan, uiAPI, ensureSlicerTasks, recordPlanEvent) {
+async function prepareApprovedPlanForWork(projectRoot, plan, uiAPI, recordPlanEvent) {
     if (isEpicPlan(plan.attrs)) {
         await recordPlanEvent({
             cwd: projectRoot,
@@ -1036,22 +976,6 @@ async function prepareApprovedPlanForWork(projectRoot, plan, uiAPI, ensureSlicer
             "RunWield",
         );
         return false;
-    }
-
-    if (plan.attrs.classification === "PROJECT") {
-        const sliceResult = await ensureSlicerTasks({
-            planName: plan.planName,
-            planPath: plan.path,
-            triageMeta: plan.attrs,
-        });
-        if (!sliceResult.ok) {
-            uiAPI.appendSystemMessage(
-                `Readiness Gate failed before execution: ${sliceResult.error}`,
-                true,
-                "RunWield",
-            );
-            return false;
-        }
     }
 
     await recordPlanEvent({
@@ -1087,110 +1011,39 @@ async function executeReadyPlanWithRepair({
     projectRoot,
     plan,
     agentName,
-    uiAPI,
     executePlan,
-    runPlanningAgent,
-    decidePostPlanning,
     decidePostExecution,
     runValidationLoop,
     loadPlan,
     listCommitsTouchingPathsSince,
     session,
+    uiAPI,
 }) {
-    const MAX_REPAIR_ATTEMPTS = 2;
-    let currentPlanName = plan.planName;
-    /** @type {Partial<import('../../plan-store.js').PlanFrontMatter>} */
-    let currentMeta = plan.attrs;
-    /** @type {Array<{ task: number, assignee: string, dependencies: string, description: string, writeScope?: string }> | undefined} */
-    let currentTasks = undefined;
-
     const confirmed = await confirmAffectedPathChangesBeforeExecution({
         projectRoot,
-        planName: currentPlanName,
-        triageMeta: currentMeta,
+        planName: plan.planName,
+        triageMeta: plan.attrs,
         uiAPI,
         listCommitsTouchingPathsSince,
     });
     if (!confirmed) return;
 
-    for (let attempt = 0; attempt <= MAX_REPAIR_ATTEMPTS; attempt++) {
-        const execRes = await executePlan({
-            planName: currentPlanName,
-            triageMeta: currentMeta,
-            structuredTasks: currentTasks,
-        });
-        const executionDecision = decidePostExecution(execRes, {
-            planName: currentPlanName,
-            triageMeta: /** @type {import('../../tools/plan-written.js').TriageMeta} */ (currentMeta),
-            executionAgentName: agentName,
-        });
-        if (executionDecision.kind !== "repair_plan") {
-            await validatePostExecutionDecision({
-                executionDecision,
-                fallbackPlanContent: plan.markdown || plan.body || "",
-                runValidationLoop,
-                loadPlan,
-                session,
-            });
-            break;
-        }
-
-        if (attempt === MAX_REPAIR_ATTEMPTS) {
-            uiAPI.appendSystemMessage(
-                `Execution failed after ${MAX_REPAIR_ATTEMPTS} repair attempts. Aborting.`,
-                true,
-                "RunWield",
-            );
-            break;
-        }
-
-        uiAPI.appendSystemMessage(
-            `Execution failed due to task table error. Rerouting to ${agentName} for repair (attempt ${
-                attempt + 1
-            }/${MAX_REPAIR_ATTEMPTS})...`,
-            false,
-            "RunWield",
-        );
-        await session.switchAgent(agentName);
-        const repairOutcome = await runPlanningAgent({
-            agentName,
-            initialRequest: [
-                `## Plan Execution Halted — Task Table Repair Required`,
-                "",
-                `The plan "${currentPlanName}" had a malformed Tasks table: ${
-                    String(executionDecision.payload.error || "Unknown task table error")
-                }.`,
-                "",
-                "Fix the markdown Tasks table to follow:",
-                "",
-                "| Task | Assignee | Dependencies | Write Scope | Description |",
-                "",
-                "Use numeric task IDs, valid assignees, numeric dependency IDs or `none`, narrow repo-relative write scopes, and a final tester Integration Point that depends on every prior task.",
-                "Then call plan_written again with the plan name.",
-            ].join("\n"),
-            triageMeta: currentMeta,
-        });
-        const repairDecision = decidePostPlanning(repairOutcome, {
-            planningAgentName: agentName,
-            fallbackTriageMeta: currentMeta,
-        });
-        if (repairDecision.kind !== "execute_plan") {
-            uiAPI.appendSystemMessage(
-                "Repair did not produce an approved plan. Aborting.",
-                false,
-                "RunWield",
-            );
-            break;
-        }
-        currentPlanName = /** @type {string} */ (repairDecision.payload.planName);
-        currentMeta = /** @type {Partial<import('../../plan-store.js').PlanFrontMatter>} */ (
-            repairDecision.payload.triageMeta || currentMeta
-        );
-        currentTasks =
-            /** @type {Array<{ task: number, assignee: string, dependencies: string, description: string, writeScope?: string }> | undefined} */ (
-                repairDecision.payload.tasks
-            );
-    }
+    const execRes = await executePlan({
+        planName: plan.planName,
+        triageMeta: plan.attrs,
+    });
+    const executionDecision = decidePostExecution(execRes, {
+        planName: plan.planName,
+        triageMeta: /** @type {import('../../tools/plan-written.js').TriageMeta} */ (plan.attrs),
+        executionAgentName: agentName,
+    });
+    await validatePostExecutionDecision({
+        executionDecision,
+        fallbackPlanContent: plan.markdown || plan.body || "",
+        runValidationLoop,
+        loadPlan,
+        session,
+    });
 }
 
 /**
@@ -1293,7 +1146,6 @@ async function reopenPlanForReview({
         await updateWorktreeRegistryEntry(projectRoot, priorWorktree.id, { status: "abandoned" });
     }
     session.clearActiveExecutionWorkflow();
-    await stripTasksFromPlanFile(plan);
     const updatedAttrs = await recordPlanEvent({
         cwd: projectRoot,
         planName: plan.planName,
@@ -2311,9 +2163,7 @@ function isActionableNextChild(child) {
  */
 function formatTopLevelPlanOption(plan) {
     const summary = plan.attrs.summary ? ` — ${plan.attrs.summary}` : "";
-    const descriptionType = plan.attrs.classification === "PROJECT" || !plan.attrs.type
-        ? plan.attrs.classification
-        : `${plan.attrs.classification}:${plan.attrs.type}`;
+    const descriptionType = plan.attrs.classification;
     return {
         value: plan.name,
         label: `${plan.name}${summary}`,
@@ -2475,7 +2325,29 @@ async function handleEpicPlan({
         child.attrs.classification === "FEATURE"
     ).sort(compareChildPlansByOrder);
     const hasChildren = children.length > 0;
-    const canPickChild = hasChildren && isDecomposedEpicStatus(plan.attrs);
+    const isApprovedEpic = plan.attrs.status === "approved";
+    const hasLegacyExecutableEpicStatus = ["in_progress", "failed", "implemented"].includes(plan.attrs.status);
+    const canPickChild = hasChildren &&
+        (isDecomposedEpicStatus(plan.attrs) || isApprovedEpic || hasLegacyExecutableEpicStatus);
+    let epicReadinessRecorded = false;
+
+    async function ensureEpicReadinessPassed() {
+        if (plan.attrs.status !== "approved" || epicReadinessRecorded) return;
+        const updatedAttrs = await recordPlanEvent({
+            cwd: projectRoot,
+            planName: plan.planName,
+            event: "epic_readiness_passed",
+            currentStatus: "approved",
+            details: { triageMeta: plan.attrs },
+        });
+        plan.attrs = { ...plan.attrs, ...updatedAttrs };
+        epicReadinessRecorded = true;
+        uiAPI.appendSystemMessage(
+            `PROJECT Epic ready for decomposition or child plan selection: ${plan.planName}`,
+            false,
+            "RunWield",
+        );
+    }
 
     if (hasChildren) {
         uiAPI.appendSystemMessage(formatEpicProgressSummary(children), false, "RunWield");
@@ -2491,7 +2363,8 @@ async function handleEpicPlan({
 
     const canReviewWithArchitect = plan.attrs.status === "draft" || plan.attrs.status === "feedback" ||
         plan.attrs.status === "approved";
-    const canOpenSlicer = plan.attrs.status === "ready_for_decomposition" || plan.attrs.status === "ready_for_work";
+    const canOpenSlicer = isApprovedEpic || hasLegacyExecutableEpicStatus ||
+        plan.attrs.status === "ready_for_decomposition" || plan.attrs.status === "ready_for_work";
 
     if (canReviewWithArchitect) {
         const action = canOpenSlicer
@@ -2538,6 +2411,7 @@ async function handleEpicPlan({
         }
 
         if (answer === "slicer") {
+            await ensureEpicReadinessPassed();
             await runSlicerAgent({
                 planName: plan.planName,
                 triageMeta: plan.attrs,
@@ -2584,6 +2458,7 @@ async function handleEpicPlan({
         }
 
         if (answer === "pick_child") {
+            await ensureEpicReadinessPassed();
             while (true) {
                 const nextChild = children.find(isActionableNextChild);
                 const childOptions = [
@@ -2801,9 +2676,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
     const executePlan = session.executePlan;
     const runPlanningAgent = session.runPlanningAgent;
     const askPostApproval = session.askPostApproval;
-    const askApprovalWithTasks = session.askApprovalWithTasks;
     const askProjectDecompositionApproval = session.askProjectDecompositionApproval;
-    const ensureSlicerTasks = session.ensureSlicerTasks;
     const runValidationLoop = session.runValidation;
     const runSlicerAgent = session.runSlicerAgent;
     const switchPlanAgent = session.switchAgent;
@@ -2894,6 +2767,22 @@ export async function runLoadPlanCommand(argv, options = {}) {
             if (result === "handled") return;
         }
 
+        const epicResult = await handleEpicPlan({
+            projectRoot,
+            plan,
+            uiAPI,
+            findPlansByParent,
+            runSlicerAgent,
+            recordPlanEvent,
+            resolvePlan,
+            loadChildPlan: loadAnotherPlan,
+        });
+        if (epicResult === "handled") {
+            skipRouterRestore = true;
+            return;
+        }
+        const forceReview = epicResult === "review";
+
         if (["in_progress", "failed", "implemented"].includes(plan.attrs.status)) {
             restoreAgentName = planFlowRestoreAgent;
             const result = await handlePlanRecovery({
@@ -2931,22 +2820,6 @@ export async function runLoadPlanCommand(argv, options = {}) {
             });
             if (result === "handled") return;
         }
-
-        const epicResult = await handleEpicPlan({
-            projectRoot,
-            plan,
-            uiAPI,
-            findPlansByParent,
-            runSlicerAgent,
-            recordPlanEvent,
-            resolvePlan,
-            loadChildPlan: loadAnotherPlan,
-        });
-        if (epicResult === "handled") {
-            skipRouterRestore = true;
-            return;
-        }
-        const forceReview = epicResult === "review";
 
         const dependenciesConfirmed = await confirmChildFeatureDependencies(
             projectRoot,
@@ -3011,7 +2884,6 @@ export async function runLoadPlanCommand(argv, options = {}) {
                             projectRoot,
                             plan,
                             uiAPI,
-                            ensureSlicerTasks,
                             recordPlanEvent,
                         );
                         if (!ready) {
@@ -3050,10 +2922,6 @@ export async function runLoadPlanCommand(argv, options = {}) {
                             recordPlanEvent,
                             session,
                         });
-                    } else {
-                        // Approved Plans do not have an execution generation yet,
-                        // but their generated task slices still need refreshing.
-                        await stripTasksFromPlanFile(plan);
                     }
 
                     await switchPlanAgent(agentName);
@@ -3106,16 +2974,13 @@ export async function runLoadPlanCommand(argv, options = {}) {
                             projectRoot,
                             plan,
                             uiAPI,
-                            ensureSlicerTasks,
                             recordPlanEvent,
                         );
                         if (!ready) {
                             skipRouterRestore = true;
                             return;
                         }
-                        const action = plan.attrs.classification === "PROJECT"
-                            ? await askApprovalWithTasks(plan.planName)
-                            : await askPostApproval(plan.planName);
+                        const action = await askPostApproval(plan.planName);
                         if (action === "proceed") {
                             const confirmed = await confirmAffectedPathChangesBeforeExecution({
                                 projectRoot,

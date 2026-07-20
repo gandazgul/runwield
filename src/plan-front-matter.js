@@ -12,7 +12,6 @@ export const PLAN_FRONT_MATTER_KEYS = Object.freeze({
     updatedAt: "updatedAt",
     status: "status",
     origin: "origin",
-    type: "type",
     parentPlan: "parentPlan",
     order: "order",
     dependencies: "dependencies",
