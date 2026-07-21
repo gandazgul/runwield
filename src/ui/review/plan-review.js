@@ -116,6 +116,7 @@ function bytesToBase64(bytes) {
  * @param {string} opts.planName - Plan filename (without .md)
  * @param {string} opts.planPath - Absolute path to the plan .md file
  * @param {Partial<import('../../plan-store.js').PlanFrontMatter>} [opts.triageMeta] - Triage metadata to ensure in front matter
+ * @param {(output: { stream: "stdout" | "stderr", text: string }) => void} [opts.onOutput]
  * @param {AbortSignal} [opts.signal]
  * @param {{
  *   startPlanReviewSurface?: typeof startPlanReviewSurface,
@@ -131,6 +132,7 @@ export async function submitPlanForReview({
     planName,
     planPath,
     triageMeta,
+    onOutput,
     signal,
     __deps,
 }) {
@@ -171,6 +173,7 @@ export async function submitPlanForReview({
         htmlContent: __deps?.htmlContent,
         startPlanReviewServer: __deps?.startPlanReviewServer,
         openInDefaultBrowser: __deps?.openInDefaultBrowser,
+        onOutput,
     });
 
     try {

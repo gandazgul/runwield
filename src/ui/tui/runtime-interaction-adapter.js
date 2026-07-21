@@ -103,6 +103,7 @@ export function createTuiInteractionAdapter(uiAPI, dependencies = {}) {
                     planName: meta.planName,
                     planPath: meta.planPath,
                     triageMeta: meta.triageMeta,
+                    onOutput: typeof meta.onOutput === "function" ? meta.onOutput : undefined,
                     signal,
                 });
                 return {
