@@ -63,10 +63,29 @@ export function attachTuiRuntimeAdapter({
     const thinkingMessages = new Map();
     runtime.setInteractionAdapter(sessionId, createTuiInteractionAdapter(uiAPI));
 
+    const initialSnapshot = runtime.getSessionSnapshot(sessionId);
+    let currentRoutingIntent = initialSnapshot?.workflowContext?.routingIntent || null;
+    let validationSessionActive = false;
+    let terminalValidationPanelVisible = false;
+    let hiddenValidationReportCached = false;
+    const shouldCacheValidationReport = () => {
+        if (validationSessionActive) return true;
+        return currentRoutingIntent === "FEATURE" || currentRoutingIntent === "PROJECT" ||
+            currentRoutingIntent === "QUICK_FIX";
+    };
     const unsubscribe = runtime.subscribeSessionEvents(sessionId, (event) => {
         const value = /** @type {any} */ (event);
         switch (event.type) {
             case RuntimeEventTypes.USER_MESSAGE:
+                if (terminalValidationPanelVisible) {
+                    uiAPI.clearValidationPanel?.();
+                    terminalValidationPanelVisible = false;
+                    validationSessionActive = false;
+                    hiddenValidationReportCached = false;
+                } else if (!validationSessionActive && hiddenValidationReportCached) {
+                    uiAPI.clearValidationPanel?.();
+                    hiddenValidationReportCached = false;
+                }
                 uiAPI.appendUserMessage?.(value.text);
                 for (const image of value.images) uiAPI.appendImage?.(image.base64, image.mimeType);
                 break;
@@ -83,6 +102,21 @@ export function attachTuiRuntimeAdapter({
                 break;
             }
             case RuntimeEventTypes.ASSISTANT_TEXT_DELTA: {
+                if (value.workflowMessage === "task_completed" && shouldCacheValidationReport()) {
+                    uiAPI.updateValidationReport?.("engineer", {
+                        agentName: value.agentName,
+                        markdown: value.delta,
+                    });
+                    hiddenValidationReportCached ||= !validationSessionActive;
+                }
+                if (value.workflowMessage === "review_complete" && shouldCacheValidationReport()) {
+                    uiAPI.updateValidationReport?.("reviewer", {
+                        agentName: value.agentName,
+                        markdown: value.delta,
+                        approved: value.approved,
+                    });
+                    hiddenValidationReportCached ||= !validationSessionActive;
+                }
                 if (value.messageKind === "review_result" && uiAPI.appendReviewResult) {
                     uiAPI.appendReviewResult(
                         value.agentName,
@@ -136,6 +170,12 @@ export function attachTuiRuntimeAdapter({
                 break;
             }
             case RuntimeEventTypes.SYSTEM_STATUS:
+                if (value.validationProgress) {
+                    validationSessionActive = true;
+                    hiddenValidationReportCached = false;
+                    uiAPI.updateValidationProgress?.(value.validationProgress);
+                    terminalValidationPanelVisible = ["verified", "failed"].includes(value.validationProgress.outcome);
+                }
                 uiAPI.appendSystemMessage(
                     value.message,
                     value.level === "error",
@@ -143,6 +183,12 @@ export function attachTuiRuntimeAdapter({
                 );
                 break;
             case RuntimeEventTypes.TERMINAL_ERROR:
+                if (validationSessionActive || terminalValidationPanelVisible || hiddenValidationReportCached) {
+                    uiAPI.clearValidationPanel?.();
+                    validationSessionActive = false;
+                    terminalValidationPanelVisible = false;
+                    hiddenValidationReportCached = false;
+                }
                 uiAPI.appendSystemMessage(value.message, true);
                 break;
             case RuntimeEventTypes.CANCELLATION:
@@ -165,6 +211,9 @@ export function attachTuiRuntimeAdapter({
                 else uiAPI.disableInput?.();
                 break;
             case RuntimeEventTypes.MESSAGES_CLEARED:
+                terminalValidationPanelVisible = false;
+                validationSessionActive = false;
+                hiddenValidationReportCached = false;
                 uiAPI.clearMessages?.();
                 break;
             case RuntimeEventTypes.TURN_END:
@@ -174,7 +223,12 @@ export function attachTuiRuntimeAdapter({
                 break;
             case RuntimeEventTypes.MODEL_CHANGED:
             case RuntimeEventTypes.THINKING_LEVEL_CHANGED:
+                uiAPI.requestRender();
+                break;
             case RuntimeEventTypes.WORKFLOW_CONTEXT_CHANGED:
+                currentRoutingIntent = value.workflowContext?.routingIntent || null;
+                uiAPI.requestRender();
+                break;
             case RuntimeEventTypes.USAGE:
                 uiAPI.requestRender();
                 break;
@@ -192,7 +246,7 @@ export function attachTuiRuntimeAdapter({
         }
     });
 
-    for (const message of runtime.getSessionSnapshot(sessionId)?.queuedMessages || []) {
+    for (const message of initialSnapshot?.queuedMessages || []) {
         uiAPI.appendQueuedMessage?.(message.id, formatQueuedMessageText(message));
     }
 

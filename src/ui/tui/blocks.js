@@ -354,6 +354,123 @@ export class ReviewResultBlock {
     }
 }
 
+/**
+ * Full-width pinned validation handoff panel. It renders a complete structured
+ * validation snapshot plus the latest semantic reports mirrored from history.
+ */
+export class ValidationHandoffBlock {
+    /**
+     * @param {Object} state
+     * @param {import('../../shared/session/session-runtime-events.js').RuntimeValidationProgress} state.progress
+     * @param {{ agentName: string, markdown: string, completedOrder: number } | null} [state.engineer]
+     * @param {{ agentName: string, markdown: string, approved: boolean, completedOrder: number } | null} [state.reviewer]
+     */
+    constructor(state) {
+        this.state = state;
+        this.block = new StyledBlock("customMessageBg", 2, 1, {
+            render: (w) => this.renderContent(w),
+            invalidate: () => {},
+        });
+    }
+
+    /**
+     * @param {Object} state
+     * @param {import('../../shared/session/session-runtime-events.js').RuntimeValidationProgress} state.progress
+     * @param {{ agentName: string, markdown: string, completedOrder: number } | null} [state.engineer]
+     * @param {{ agentName: string, markdown: string, approved: boolean, completedOrder: number } | null} [state.reviewer]
+     */
+    setState(state) {
+        this.state = state;
+        this.invalidate();
+    }
+
+    invalidate() {
+        this.block.invalidate();
+    }
+
+    /** @param {import('../../shared/session/session-runtime-events.js').RuntimeValidationProgress} progress */
+    formatHeading(progress) {
+        const kind = progress.kind === "mechanical" ? "Mechanical Validation" : "Workflow Validation";
+        const outcome = progress.outcome === "verified"
+            ? progress.kind === "mechanical" ? "passed" : "verified"
+            : progress.outcome === "failed"
+            ? "failed"
+            : progress.outcome === "paused"
+            ? "paused"
+            : "running";
+        const cycle = progress.cycle && progress.maxCycles ? ` • cycle ${progress.cycle}/${progress.maxCycles}` : "";
+        const total = progress.totalCycle && progress.totalCycle !== progress.cycle
+            ? ` (total ${progress.totalCycle})`
+            : "";
+        const stageLabel = progress.stage.replaceAll("_", " ");
+        const stage = ` • stage ${stageLabel}`;
+        const repair = progress.repairAttempt && progress.maxRepairAttempts
+            ? ` • attempt ${progress.repairAttempt}/${progress.maxRepairAttempts}`
+            : "";
+        const checks = progress.checks
+            ? progress.kind === "mechanical"
+                ? ` • CI ${progress.checks.ci}`
+                : ` • CI ${progress.checks.ci}, Review ${progress.checks.semanticReview}, Human ${progress.checks.humanReview}, Merge ${progress.checks.merge}`
+            : "";
+        return `${kind} ${outcome}${cycle}${total}${stage}${repair}${checks}`;
+    }
+
+    /**
+     * @param {string[]} lines
+     * @param {string} title
+     * @param {string} markdownText
+     * @param {number} width
+     */
+    appendMarkdownSection(lines, title, markdownText, width) {
+        lines.push("");
+        lines.push(theme.fg("accent", theme.bold(title)));
+        const markdown = new Markdown(markdownText || "(no report text)", 0, 0, getMarkdownTheme());
+        lines.push(...markdown.render(width));
+    }
+
+    /** @param {number} w */
+    renderContent(w) {
+        const width = Math.max(1, w);
+        const progress = this.state.progress;
+        const headingColor = progress.outcome === "failed"
+            ? "error"
+            : progress.outcome === "verified"
+            ? "success"
+            : "accent";
+        /** @type {string[]} */
+        const lines = [theme.fg(headingColor, theme.bold(this.formatHeading(progress)))];
+        if (progress.message) lines.push(theme.fg("muted", progress.message));
+        const engineer = this.state.engineer || null;
+        const reviewer = this.state.reviewer || null;
+        if (engineer) {
+            this.appendMarkdownSection(
+                lines,
+                `${engineer.agentName || "Engineer"} latest Task Completion`,
+                engineer.markdown,
+                width,
+            );
+        }
+        if (reviewer) {
+            const stale = engineer && reviewer.completedOrder < engineer.completedOrder && !reviewer.approved
+                ? " (feedback addressed; rechecking)"
+                : "";
+            const verdict = reviewer.approved ? "approved" : "rejected";
+            this.appendMarkdownSection(
+                lines,
+                `${reviewer.agentName || "Reviewer"} latest Review — ${verdict}${stale}`,
+                reviewer.markdown || (reviewer.approved ? "Approved." : "Rejected without detailed feedback."),
+                width,
+            );
+        }
+        return lines;
+    }
+
+    /** @param {number} w */
+    render(w) {
+        return this.block.render(w);
+    }
+}
+
 export class SystemMessageBlock {
     /**
      * @param {string} text
