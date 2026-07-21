@@ -286,6 +286,14 @@ auditor
 Guide answer project-history inquiries across Work Record statuses with prominent status notices. _Avoid_: Memory
 recall, plan search, Engineer context tool
 
+**Project Knowledge Search**: Deliberate Agent retrieval over durable artifacts in the active Project, including Work
+Records, Plans, PRDs, ADRs, and approved project documentation. _Avoid_: Session Transcript search, automatic context
+injection, code search
+
+**Workspace Intelligence Search**: Deliberate Agent retrieval over eligible durable artifacts across registered Projects
+the user may access, with source Project, artifact type, status, and freshness preserved. _Avoid_: Public global search,
+Session Transcript search, unscoped organization access
+
 **Engineer**: The execution Agent that implements approved executable Plans and bounded no-plan QUICK_FIX code changes.
 _Avoid_: Coder, implementer, developer
 
@@ -483,6 +491,13 @@ command definition, prompt command
   prominent replacement notice.
 - An **Archived Work Record** is excluded from default Work Record search and planning retrieval.
 - The **Work Record Search Tool** is available to Ideator, Planner, Architect, and Guide by default, not Engineer.
+- Ideator, Planner, Architect, and Guide may use both **Project Knowledge Search** and **Workspace Intelligence
+  Search**; retrieval is deliberate rather than automatically injected into every Agent Session.
+- **Workspace Intelligence Search** ranks distilled, current artifacts above draft or superseded material and preserves
+  prominent status and Project provenance on every result.
+- Registered **Projects** contribute durable artifacts to **Workspace Intelligence Search** by default, with an explicit
+  per-Project exclusion; future SaaS membership, permission, and organization policy further restrict eligibility.
+- **Session Transcripts** are excluded from both **Project Knowledge Search** and **Workspace Intelligence Search**.
 - A **Model Adaptation Profile** is selected explicitly for an evaluated Agent/model combination and cannot replace
   protected workflow tools, Agent ownership, Plan Lifecycle, or validation semantics.
 - **Agent Behavior Evaluation** determines whether an experimental **Model Adaptation Profile** earns a supported
