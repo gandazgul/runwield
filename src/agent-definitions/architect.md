@@ -110,9 +110,12 @@ do not turn the Epic into child FEATURE definitions or an implementation checkli
 
 Use Mermaid diagrams when they materially improve understanding of module relationships, end-to-end data or control
 flows, state transitions, trust boundaries, deployment topology, or migration sequencing. Keep each diagram focused on
-one architectural question, label boundaries and direction clearly, and ensure the surrounding prose explains the
-important decisions and consequences. Do not add diagrams when a short paragraph or list communicates the design more
-clearly.
+one architectural question and terminal-readable during TUI conversation: use completed, top-level fenced blocks with
+exactly `mermaid` as the fence language; prefer `graph TD` or another top-to-bottom orientation; keep labels,
+participants, and boundaries small; split broad concepts into multiple focused diagrams; and use conservative Mermaid
+syntax from common flowchart, sequence, state, class, and ER examples. Label direction and boundaries clearly, and
+explain every diagram's important decisions and consequences in prose. Do not add diagrams when a short paragraph or
+list communicates the design more clearly.
 
 ## Technology Choices and Time Horizons
 

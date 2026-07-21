@@ -13,17 +13,14 @@ affectedPaths:
     - "src/agent-definitions/architect.md"
 frontend: false
 createdAt: "2026-07-21T13:07:03-04:00"
-updatedAt: "2026-07-21T17:39:42.766Z"
-status: "in_progress"
+updatedAt: "2026-07-21T18:37:20.053Z"
+status: "verified"
 origin: "internal"
-humanReviewMode: null
-humanReviewDecision: null
-executionBaselineTree: "354573b9b237073ab55f773fe65e92e6c09c2cd4"
-worktreeId: "291ea25a"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-render-mermaid-diagrams-in-tui-291ea25a"
-worktreeBranch: "runwield/worktree/render-mermaid-diagrams-in-tui-291ea25a"
-worktreeBaseBranch: "main"
-worktreeStatus: "active"
+implementedAt: "2026-07-21T18:10:09.481Z"
+verifiedAt: "2026-07-21T18:37:20.053Z"
+executionReport: "- Implemented `MermaidMarkdown` with `beautiful-mermaid` Unicode rendering, top-level completed-fence interception, ANSI-aware width fallback, per-source caching, and upstream Markdown delegation.\n- Wired Agent TUI messages to use `MermaidMarkdown` and added focused renderer plus `AgentMessageBlock` integration coverage.\n- Updated Planner and Architect Mermaid guidance for narrow, top-to-bottom, terminal-readable diagrams.\n- Verified `renderMermaidASCII` import/dependency via Deno lock refresh; `deno test -A src/ui/tui/mermaid-markdown.test.js src/ui/tui/blocks.test.js` passed.\n- Full quality gate passed: `deno task ci` (1414 tests, check/lint/fmt/test/release smoke all clean; only existing build warnings emitted).\n- Manual TUI checks: launched `deno task cli` successfully; exercised `AgentMessageBlock` rendering by script for partial stream source fallback, completed flowchart Unicode, sequence/state/class/ER diagrams, malformed fallback, and narrow-width fallback."
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
 ---
 
 # Render Mermaid Diagrams in the TUI
