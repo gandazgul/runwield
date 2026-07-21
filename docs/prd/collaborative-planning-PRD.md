@@ -30,7 +30,7 @@ local Plan lifecycle semantics.
 | Decision                                                        | Current product reality                                                                                                                                                                                         |
 | --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Shared Space, not immutable snapshots**                       | One Shared Space contains Revisions and per-Revision comments. Comments do not carry over to new Revisions.                                                                                                     |
-| **Self-hosted SQLite first**                                    | V1 is a source-built Deno/Astro/React Workspace Plan Server with SQLite, Dockerfile, and Docker Compose. Published images, Cloudflare/D1, and hosted RunWield Workspace are deferred.                           |
+| **Self-hosted SQLite first**                                    | V1 is a source-built Deno/Astro/React Workspace Plan Server with SQLite, `Containerfile`, and `compose.yml` for Podman/OCI. Published images, Cloudflare/D1, and hosted RunWield Workspace are deferred.        |
 | **Remote-canonical while shared**                               | Local Plans carry non-secret collaboration Front Matter and enter a hard Shared Plan Lock. Pull/push/unshare are the controlled mutation paths.                                                                 |
 | **Encryption: client-side only**                                | Plan bodies, comment bodies, display names, selected/original text, and annotation metadata are encrypted before upload. Content keys live in URL fragments and local secret stores.                            |
 | **Authorization: bearer capabilities, no accounts**             | Reviewer and maintainer links carry capability material. The server stores only capability hashes. Reverse proxies must preserve `Authorization: Bearer`; generic Basic Auth is not recommended.                |
@@ -47,7 +47,7 @@ share/pull/push/unshare  <-->   /api/spaces + SQLite ciphertext  <--> /p/<space-
 
 - The Plan Server serves HTTP inside the deployment boundary. Operators own TLS termination through Nginx or an
   equivalent reverse proxy.
-- Docker Compose binds the container to host loopback by default. Public exposure is intentional proxy configuration.
+- Podman Compose binds the container to host loopback by default. Public exposure is intentional proxy configuration.
 - SQLite is file-backed under `/data`, uses WAL, and is intended for a single active Plan Server container.
 - `/healthz` is liveness; `/readyz` checks SQLite readiness.
 - `RUNWIELD_REMOTE_MAX_REQUEST_BYTES` defaults to 5 MiB for complete JSON request bodies.
@@ -89,7 +89,7 @@ remain locked until explicit maintainer recovery.
 - Deno remote Workspace Plan Server.
 - Astro/React remote review UI reusing Plannotator annotation primitives.
 - SQLite under a persistent `/data` volume.
-- Dockerfile and Docker Compose in the repository.
+- `Containerfile` and `compose.yml` in the repository.
 - Loopback-only host port by default.
 - Nginx example for public TLS termination, bearer-header preservation, request-size limits, and rate limits.
 - Backup/restore/upgrade guidance based on stopped-service SQLite volume copies.

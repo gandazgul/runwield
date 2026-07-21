@@ -1,4 +1,5 @@
 ---
+planId: "d684dbd2-21ec-4743-89cc-814cb018bac9"
 classification: "PROJECT"
 complexity: "HIGH"
 summary: "Introduce a first-class Frontend Engineer Agent and TUI-hosted Pair Execution for browser UI/UX Plans, with explicit execution ownership, resumable visual checkpoints, owner-preserving validation repair, and retirement of the legacy frontend Plan flag."

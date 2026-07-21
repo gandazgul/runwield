@@ -1,6 +1,7 @@
 // @ts-nocheck: tiny Astro-dev-only router mirrors the server wrapper route shape.
 import { DEFAULT_REMOTE_MAX_REQUEST_BYTES, registerRemoteApiRoutes } from "../routes/remote-api.js";
 import { createRemoteWorkspaceAdapter } from "./remote-adapter.js";
+import { isRemoteDevelopmentModeEnabled } from "./remote-mode.js";
 
 const REMOTE_DEV_APP_KEY = Symbol.for("runwield.workspace.remote-dev-app");
 const REMOTE_DEV_DB_PATH_KEY = Symbol.for("runwield.workspace.remote-dev-db-path");
@@ -8,7 +9,12 @@ const REMOTE_DEV_CONFIG_KEY = Symbol.for("runwield.workspace.remote-dev-config")
 
 /** @type {import("astro").APIRoute} */
 export async function handleRemoteSpaceApi(context) {
-    if (!import.meta.env.DEV || Deno.env.get("RUNWIELD_WORKSPACE_MODE") !== "remote") {
+    if (
+        !isRemoteDevelopmentModeEnabled({
+            isDevelopment: Boolean(import.meta.env?.DEV),
+            workspaceMode: Deno.env.get("RUNWIELD_WORKSPACE_MODE"),
+        })
+    ) {
         return Response.json({ error: "Not found" }, { status: 404 });
     }
     const app = getRemoteDevApp();

@@ -1,7 +1,16 @@
 .git
 .gitignore
 .wld
+.wld/
 plans
+plans/
+sessions
+sessions/
+*_memory-backups
+collaboration-secrets.json
+**/collaboration-secrets.json
+secrets.json
+**/secrets.json
 node_modules
 src/ui/workspace/node_modules
 src/ui/workspace/.astro

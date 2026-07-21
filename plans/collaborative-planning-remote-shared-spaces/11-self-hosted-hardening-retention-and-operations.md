@@ -1,4 +1,5 @@
 ---
+planId: "25fee6ed-0faa-4968-bc5c-5c23a10e9c04"
 classification: "FEATURE"
 complexity: "HIGH"
 summary: "Harden the accountless self-hosted Plan Server with bounded requests, optional visible inactivity retention, safe reverse-proxy defaults, database-aware readiness and shutdown, tested backup/restore/upgrade guidance, and corrected Collaborative Planning product documentation."

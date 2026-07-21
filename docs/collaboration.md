@@ -26,20 +26,21 @@ retention if you want abandoned public links to be removed automatically.
 RunWield itself serves plain HTTP inside the deployment boundary. Do not mount certificates into the container or expect
 it to terminate HTTPS.
 
-## Run the Plan Server with Docker Compose
+## Run the Plan Server with Podman Compose
 
 From the repository root:
 
 ```bash
-docker compose up -d
+podman compose -f compose.yml up -d
 curl http://127.0.0.1:8080/healthz
 curl http://127.0.0.1:8080/readyz
 ```
 
+The repository uses `Containerfile`, `.containerignore`, and `compose.yml` as the supported Podman/OCI packaging path.
 `/healthz` is process liveness. `/readyz` also checks SQLite access and is used by Compose health checks.
 
 The compose service publishes `127.0.0.1:8080:8080` by default and persists SQLite data in the
-`runwield-plan-server-data` Docker volume at `/data/runwield-shared-spaces.sqlite` inside the container.
+`runwield-plan-server-data` Podman volume at `/data/runwield-shared-spaces.sqlite` inside the container.
 
 Useful environment variables:
 
@@ -52,7 +53,7 @@ Useful environment variables:
 | `RUNWIELD_REMOTE_MAX_REQUEST_BYTES` | `5242880`                             | Maximum JSON request body size; keep proxy limits in sync.     |
 | `RUNWIELD_REMOTE_RETENTION_DAYS`    | unset / `0`                           | Optional inactivity retention. Use `7` for public trial hosts. |
 
-For source development without Docker:
+For source development without a container:
 
 ```bash
 RUNWIELD_REMOTE_HOST=127.0.0.1 \
@@ -217,16 +218,16 @@ state, copy the whole volume directory with ownership preserved, then run a real
 copied database before trusting the backup:
 
 ```bash
-docker compose stop runwield-plan-server
+podman compose -f compose.yml stop runwield-plan-server
 mkdir -p backups
 backup_dir="backups/runwield-plan-server-data-$(date +%Y%m%d%H%M%S)"
-docker run --rm \
+podman run --rm \
   -v runwield-plan-server-data:/data:ro \
   -v "$PWD/backups:/backup" \
   busybox sh -c "mkdir -p /backup/$(basename "$backup_dir") && cp -a /data/. /backup/$(basename "$backup_dir")/"
 
 sqlite3 "$backup_dir/runwield-shared-spaces.sqlite" 'PRAGMA integrity_check;'
-docker compose up -d
+podman compose -f compose.yml up -d
 curl http://127.0.0.1:8080/readyz
 ```
 
@@ -241,21 +242,21 @@ passed `PRAGMA integrity_check;`, start the service, then verify both SQLite int
 restore_dir="backups/runwield-plan-server-data-YYYYMMDDHHMMSS"
 sqlite3 "$restore_dir/runwield-shared-spaces.sqlite" 'PRAGMA integrity_check;'
 
-docker compose stop runwield-plan-server
-docker run --rm \
+podman compose -f compose.yml stop runwield-plan-server
+podman run --rm \
   -v runwield-plan-server-data:/data \
   -v "$PWD/$restore_dir:/restore:ro" \
   busybox sh -c 'rm -rf /data/* /data/.[!.]* /data/..?* 2>/dev/null || true; cp -a /restore/. /data/'
 
 # Optional but recommended: copy the restored database out and verify the restored volume contents.
 restored_check_dir="$(mktemp -d)"
-docker run --rm \
+podman run --rm \
   -v runwield-plan-server-data:/data:ro \
   -v "$restored_check_dir:/check" \
   busybox sh -c 'cp -a /data/. /check/'
 sqlite3 "$restored_check_dir/runwield-shared-spaces.sqlite" 'PRAGMA integrity_check;'
 
-docker compose up -d
+podman compose -f compose.yml up -d
 curl http://127.0.0.1:8080/readyz
 ```
 
@@ -272,7 +273,7 @@ Avoid these unsafe patterns:
 - copying only `runwield-shared-spaces.sqlite` while the service is live and ignoring `-wal`/`-shm` files;
 - storing the SQLite database on a shared NFS/network filesystem;
 - running multiple Plan Server containers against the same SQLite file;
-- treating the source-built local image as a published, signed, multi-architecture release artifact.
+- treating the source-built local OCI image as a published, signed, multi-architecture release artifact.
 
 ## Secret storage
 
@@ -311,7 +312,7 @@ a maintainer URL can import maintainer capability material and then pull, push, 
 
 Use this checklist after changing packaging or collaboration behavior:
 
-1. `docker compose up -d`.
+1. `podman compose -f compose.yml up -d`.
 2. Confirm `curl http://127.0.0.1:8080/healthz` and `/readyz` return `{"ok":true,"mode":"remote"}`.
 3. Configure `planServerUrl` or pass `--plan-server http://127.0.0.1:8080`.
 4. Run `wld plans share <plan>` and save the reviewer and maintainer URLs securely.
