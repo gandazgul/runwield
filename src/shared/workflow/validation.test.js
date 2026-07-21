@@ -1735,6 +1735,10 @@ Deno.test("runValidationLoop halts and preserves worktree when post-merge verifi
             },
             verifyExecutionWorktreeMerged: () =>
                 Promise.resolve({ merged: false, message: "branch is not contained in target" }),
+            runCompletionGatedRepair: () => {
+                actions.push("repair:merge_verification");
+                return Promise.resolve(false);
+            },
             updateWorktreeRegistryEntry: (
                 /** @type {string} */ _projectRoot,
                 /** @type {string} */ _id,
@@ -1758,14 +1762,19 @@ Deno.test("runValidationLoop halts and preserves worktree when post-merge verifi
 
     assertEquals(actions, [
         "merge",
+        "repair:merge_verification",
         "registry:merge_conflict",
-        "event:worktree_merge_failed:Post-merge verification failed: branch is not contained in target",
+        "event:worktree_merge_failed:Post-merge verification found remaining merge-back work: branch is not contained in target",
     ]);
     assertEquals(
         uiAPI.messages.some((/** @type {string} */ message) =>
-            message.includes("Worktree merge could not be verified; preserving worktree for recovery")
+            message.includes("Dispatching Engineer for automatic merge repair attempt")
         ),
         true,
+    );
+    assertEquals(
+        uiAPI.messages.some((/** @type {string} */ message) => message.includes("preserving worktree for recovery")),
+        false,
     );
     assertEquals(
         uiAPI.messages.some((/** @type {string} */ message) =>
@@ -2430,6 +2439,7 @@ Deno.test("runValidationLoop warns when using legacy current-checkout merge fall
             updateWorktreeRegistryEntry: () => Promise.resolve({}),
             recordPlanEvent: noOpRecordPlanEvent,
             removeExecutionWorktree: () => Promise.resolve(),
+            verifyExecutionWorktreeMerged: () => Promise.resolve({ merged: true, message: "merged" }),
             getCodeReviewMode: () => "none",
         }),
     });
