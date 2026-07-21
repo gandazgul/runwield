@@ -19,14 +19,25 @@ external hosts. _Avoid_: TUI mode, batch wrapper, remote UI
 **Agent Client Protocol (ACP)**: The editor-oriented JSON-RPC protocol RunWield may implement to expose a long-lived
 coding Agent surface to IDEs and external hosts. _Avoid_: Agent Control Protocol, Agent Communication Protocol
 
-**Session Host**: The non-TUI runtime boundary that owns one or more live RunWield Agent Sessions and exposes them to
-external clients. _Avoid_: TUI backend, daemon, adapter
+**Session Host**: The non-TUI runtime boundary that owns one or more live RunWield Sessions and exposes them to external
+clients. _Avoid_: TUI backend, daemon, adapter
+
+**Session**: A durable user-facing conversation and workflow thread within one Project. A Session has its own history
+and Session Name, persists across Agent handoffs, and may contain multiple Agent Sessions. _Avoid_: Agent Session,
+HostedSession, Task, Work Item
+
+**Session Transcript**: The private raw message and event history of one Session. Its owner may resume or search it, but
+it is not shared project knowledge or a source for cross-Session Agent retrieval. _Avoid_: Work Record, planning memory,
+shared conversation
+
+**Session Control**: The right of one attached client to submit user messages or answer pending interactions for a live
+Session; observation does not require control. _Avoid_: Plan Workflow Lease, Session ownership, Agent ownership
 
 **Terminal Title**: The terminal emulator window or tab label RunWield sets for an interactive TUI session. _Avoid_: Tab
 name, shell title
 
-**Session Name**: The persisted short human label for an Agent Session, initially derived from Router Triage for fresh
-User Requests. _Avoid_: Tab title, conversation name
+**Session Name**: The persisted short human label for a Session, initially derived from Router Triage for fresh User
+Requests. _Avoid_: Tab title, conversation name
 
 **Empty Project Directory**: A current working directory with no meaningful project files for RunWield to inspect.
 _Avoid_: Empty Workspace, new project, initialized project
@@ -121,8 +132,18 @@ _Avoid_: Phase, stage
 **Plan Event**: A recorded workflow fact that the Plan Lifecycle uses to transition a Plan. _Avoid_: Next step, status
 update
 
+**Plan Workflow Lease**: A durable local ownership claim that permits exactly one Session at a time to drive
+consequential Plan workflow actions across TUI, Workspace, ACP, and other hosts. An uncertain or stale lease requires
+explicit recovery or takeover rather than silent deletion. _Avoid_: Shared Plan Lock, worktree registry lock, mutex
+
 **Approved Plan**: A Plan whose Review Loop ended in user approval but whose pre-execution preparation may still be
 unfinished. _Avoid_: Ready plan, executable plan
+
+**Approve & Run**: A Plan review outcome that both approves the Plan and explicitly authorizes the current Session to
+continue through readiness, execution, and Workflow Validation. _Avoid_: Approve, auto-run
+
+**Approve for Later**: A Plan review outcome that approves and prepares the Plan as Ready For Work without authorizing
+immediate execution. _Avoid_: Save draft, approve and run
 
 **Ready For Work**: The executable Plan Status for FEATURE Plans, meaning the Plan is approved and every pre-execution
 prerequisite is satisfied; for an Epic it means decomposition is finalized and child FEATURE Plans can be selected,
@@ -172,6 +193,9 @@ Plan requirement and must be repaired before approval. _Avoid_: Review Advisory,
 **Review Advisory**: A non-blocking Semantic Code Review finding that explains an ambiguity in the approved Plan without
 preventing implementation approval. _Avoid_: Review Issue, warning, waived defect
 
+**PRD**: An independent durable product-requirements artifact that may inform multiple Plans and Agent Sessions without
+participating in Plan Lifecycle. _Avoid_: Plan, Work Item, chat transcript
+
 **Plannotator**: The browser-based artifact review UI where users approve, return feedback, or annotate Plans, Work
 Records, and code-review diffs. _Avoid_: Plan-only review UI, approval screen
 
@@ -191,9 +215,20 @@ rather than broad same-origin access. _Avoid_: Default review block, arbitrary a
 Status and lets the user inspect or edit Plan files while preserving the local Plan files as the canonical source of
 truth. _Avoid_: Remote plan database, hosted board, task board
 
-**Workspace**: A future browser-based RunWield space that can contain Plans alongside project documentation, notes,
-wiki-style pages, and other project knowledge while preserving Plans as markdown files that workflow agents can read.
-_Avoid_: Database-only knowledge base, replacement for Plans
+**Workspace**: The browser-based RunWield environment for working across registered Projects, Agent Sessions, Plans,
+PRDs, ADRs, Work Records, review surfaces, and related project knowledge while preserving repository artifacts as their
+canonical source of truth. _Avoid_: Project root, browser IDE, database-only knowledge base, replacement for Plans
+
+**Project**: A trusted repository or project directory registered in Workspace as a boundary for Sessions, artifacts,
+code access, and RunWield workflows. This is distinct from the uppercase `PROJECT` Routing Intent. _Avoid_: Workspace,
+workspace root, project space
+
+**Attention Dashboard**: The default Workspace home that aggregates work needing user judgment, running Sessions, Ready
+For Work Plans, and recent outcomes across Projects. _Avoid_: Project grid, task board, notifications page
+
+**Code Surface**: The subordinate code-server screen for inspecting or manually changing a Project's main checkout;
+manual changes and commits remain the developer's responsibility and do not transfer ownership of RunWield Plan
+worktrees. _Avoid_: Workspace shell, Plan worktree editor, Agent terminal
 
 **RunWield Design System**: The shared browser UI language of tokens, components, layout patterns, and interaction rules
 that governs Workspace, Plannotator, and future RunWield web surfaces. _Avoid_: Workspace styles, style guide, UI kit
@@ -423,7 +458,17 @@ command definition, prompt command
   FEATURE Plans**, and executed by loading those child FEATURE Plans independently.
 - A **Plan** has exactly one **Plan Status**, exactly one **Origin**, and one **Front Matter** block.
 - A **Plan Event** is the only way workflow code should ask the **Plan Lifecycle** to change Plan Status.
+- A **Plan Workflow Lease** allows one workflow-owning Session to mutate a Plan's lifecycle, execution, validation, or
+  recovery state at a time, regardless of whether that Session is viewed through TUI, Workspace, or ACP.
+- The **Plan Workflow Lease** belongs to the Session rather than its current UI client, so TUI and Workspace can observe
+  the same live Session and transfer Session Control while idle or awaiting user input without transferring Plan
+  ownership.
+- A second client may observe or resume the owning Session; explicit takeover by a different Session must stop a live
+  owner or enter safe recovery when ownership is uncertain, never silently create a competing workflow owner.
 - An **Approved Plan** passes through the **Readiness Gate** before becoming **Ready For Work**.
+- **Approve & Run** supplies execution authorization for the current Session after the Plan becomes Ready For Work;
+  **Approve for Later** stops at Ready For Work until a separate Run action.
+- Approving a Plan outside an active end-to-end Session must not start execution without an explicit Run action.
 - A **Plan** can proceed to direct implementation only when its **Plan Status** is **Ready For Work** and it is not an
   **Epic** container.
 - A **Verified Plan** or **Closed Without Verification Plan** may produce one **Work Record**.
@@ -461,6 +506,35 @@ command definition, prompt command
 - A denied **Plan** produces **Feedback**, and each **Feedback** response triggers one **Revision**.
 - The **RunWield Design System** governs browser UI surfaces including **Workspace**, **Plan Board**, and
   **Plannotator**.
+- A **Workspace** contains zero or more registered **Projects** and may host live Sessions in multiple Projects
+  concurrently.
+- The **Attention Dashboard** is the default Workspace landing surface; Project views remain secondary sidebar
+  destinations and stay Plan-centered when opened.
+- The **Code Surface** opens the Project's main checkout, while planned Agent execution remains isolated in
+  RunWield-owned worktrees and is reviewed through Workspace or Plannotator rather than edited through code-server.
+- Manual main-checkout changes made through the **Code Surface** are not silently committed or incorporated into active
+  Plan worktrees; they may instead create staleness or later merge conflicts that RunWield must detect.
+- A **Project** is the parent boundary for its **Sessions**, **Plans**, **PRDs**, ADRs, and **Work Records**; inactive
+  Project Runtimes may remain dormant until needed.
+- A **Session** may remain standalone or become associated with one or more durable artifacts and Plans.
+- A **Session** may contain multiple sequential or delegated **Agent Sessions** while preserving one user-facing history
+  across Agent handoffs.
+- A live **Session** may have multiple observing clients but only one holder of **Session Control** at a time; an idle
+  or waiting Session can transfer control between Workspace and TUI without creating a new Session.
+- A **Session Transcript** is visible and searchable by its owner and is available when that same Session is resumed,
+  but other users cannot see it and Agents cannot retrieve it as cross-Session planning or ideation context.
+- A fresh **Session** receives prior conclusions only through explicitly referenced durable artifacts such as a PRD,
+  Plan, ADR, Work Record, or handoff document; attaching an artifact does not expose its source Session Transcript.
+- A **PRD** remains independent and may inform multiple Plans; it is not owned by the first Plan it helps produce.
+- Starting a new **Session** from a PRD, Plan, or Work Record creates a fresh context boundary associated with that
+  artifact; **Resume** re-enters the same Session and its existing history.
+- Browser or private-network disconnection does not cancel an active **Session**; it continues within its already
+  authorized workflow until completion or a required user interaction, while process failure relies on durable recovery
+  rather than blind replay of uncertain side effects.
+- When a **Session** produces a Plan, the Plan becomes the primary durable workflow anchor while the Session retains its
+  own name and history.
+- Once a Plan exists, its detail, associated Session activity, review, changes, validation, recovery, and related
+  artifacts appear in one unified Plan-centered workflow surface rather than separate Plan and chat destinations.
 - An **Epic** has zero or more **Child FEATURE Plans** discovered by their `parentPlan` Front Matter pointer.
 - A **Child FEATURE Plan** follows the normal FEATURE lifecycle and may list sibling FEATURE dependencies.
 - An **On-Hold Plan** can be an **Epic**; its **Child FEATURE Plans** inherit on-hold visibility without mutating their
