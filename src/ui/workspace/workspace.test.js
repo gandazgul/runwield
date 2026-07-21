@@ -106,7 +106,10 @@ Deno.test("review request forwarding does not inherit Deno.serve's legacy abort 
     }).output();
 
     assertEquals(output.success, true);
-    assertEquals(new TextDecoder().decode(output.stderr), "");
+    const stderr = new TextDecoder().decode(output.stderr).split("\n").filter((line) => {
+        return !line.includes("Blocking") || !line.includes("waiting for file lock on node_modules directory");
+    }).join("\n");
+    assertEquals(stderr, "");
 });
 
 Deno.test("review server reports stdout through its output callback", async () => {
