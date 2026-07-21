@@ -92,6 +92,7 @@
         "diff": "npm:diff@^8.0.4",
         "dompurify": "npm:dompurify@^3.4.11",
         "highlight.js": "npm:highlight.js@^11.11.1",
+        "beautiful-mermaid": "npm:beautiful-mermaid@^1.1.3",
         "katex": "npm:katex@^0.16.47",
         "lucide-react": "npm:lucide-react@^1.23.0",
         "marked": "npm:marked@^17.0.6",

@@ -122,6 +122,17 @@ Deno.test("AgentMessageBlock renders without background (like Pi)", () => {
     assertEquals(plain.includes("TestAgent:"), true, "Should contain agent name");
 });
 
+Deno.test("AgentMessageBlock renders completed Mermaid fences as Unicode diagrams", () => {
+    const block = new AgentMessageBlock("Planner");
+    block.appendText("```mermaid\ngraph TD\n  A --> B\n```");
+
+    const plain = block.render(120).map((line) => stripAnsi(line)).join("\n");
+
+    assertEquals(plain.includes("Planner:"), true, "Should contain agent name");
+    assertEquals(plain.includes("┌"), true, "Should render a Unicode diagram");
+    assertEquals(plain.includes("```mermaid"), false, "Should not show source for fitting completed diagram");
+});
+
 // ─── ThinkingBlock ───────────────────────────────────────────────────────────
 
 Deno.test("ThinkingBlock renders reasoning with muted styling", () => {

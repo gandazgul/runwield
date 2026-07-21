@@ -11,6 +11,7 @@ import {
     visibleWidth,
 } from "@earendil-works/pi-tui";
 import { getMarkdownTheme, getSelectListTheme, theme } from "../theme/theme.js";
+import { MermaidMarkdown } from "./mermaid-markdown.js";
 import stripAnsi from "strip-ansi";
 
 // ─── Utilities ───────────────────────────────────────────────────────────────
@@ -296,8 +297,10 @@ export class AgentMessageBlock {
         }
 
         this.currentText = "";
-        this.markdown = new Markdown("", 0, 0, getMarkdownTheme());
-        this.container.addChild(this.markdown);
+        this.markdown = new MermaidMarkdown("", 0, 0, getMarkdownTheme());
+        this.container.addChild(
+            /** @type {import('@earendil-works/pi-tui').Component} */ (/** @type {unknown} */ (this.markdown)),
+        );
         this.container.addChild(new Spacer(1));
     }
 

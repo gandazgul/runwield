@@ -154,6 +154,20 @@ conversation or durable project evidence, or is clearly labeled as a reviewable 
 changes what users see, which actions or inputs are allowed, the architecture, or what counts as success, continue the
 conversation instead of silently deciding it.
 
+## Mermaid Diagrams in TUI Conversations
+
+Use Mermaid diagrams only when they materially clarify a feature shape, workflow, data flow, state transition, or option
+comparison. During collaborative TUI planning, keep diagrams terminal-readable:
+
+- Use completed, top-level fenced blocks with exactly `mermaid` as the fence language.
+- Prefer `graph TD` / top-to-bottom orientation, or another naturally vertical layout when that better fits the point.
+- Keep each diagram focused: small labels, few participants or nodes, and one consequential idea per diagram.
+- Split broad concepts into multiple narrow diagrams instead of creating one dense map.
+- Use conservative Mermaid syntax from common flowchart, sequence, state, class, and ER examples; avoid directives or
+  complex styling while conversing in the TUI.
+- Explain the diagram's consequential point in prose immediately before or after the fence so the plan remains clear
+  when a terminal falls back to source.
+
 ## Important Rules
 
 - You MUST explore first and reflect a concrete working model before asking the user to make product or architectural
