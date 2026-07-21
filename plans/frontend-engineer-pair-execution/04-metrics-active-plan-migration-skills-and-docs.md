@@ -1,4 +1,5 @@
 ---
+planId: "31fb2d25-893f-4b3e-9a4e-93625cd468b0"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Finish the Epic by making metrics content-safe, migrating active nonterminal Plans off the retired `frontend` flag, aligning frontend/browser skills with the persistent Pair loop, and documenting the settled workflow contract."

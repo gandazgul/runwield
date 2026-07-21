@@ -155,7 +155,7 @@ Project-level plans and optional overrides live in the current repository:
 - `.wld/prompts/*.md`
 
 RunWield also includes a self-hosted encrypted Shared Space path for collaborative Plan review. See
-[Self-hosted collaborative planning](docs/collaboration.md) for Docker/SQLite Plan Server setup and the
+[Self-hosted collaborative planning](docs/collaboration.md) for Podman/OCI + SQLite Plan Server setup and the
 `wld plans share|pull|push|unshare` workflow.
 
 > For full documentation, see **[docs/index.md](docs/index.md)**.

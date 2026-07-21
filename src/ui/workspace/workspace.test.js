@@ -36,6 +36,8 @@ import {
     parseRetentionDays,
     readRemoteServerConfig,
 } from "./remote-server.js";
+import { handleRemoteSpaceApi } from "./server/remote-dev-api.js";
+import { isRemoteDevelopmentModeEnabled } from "./server/remote-mode.js";
 import { renderRunWieldThemeCss } from "../design-system/theme-bridge.js";
 import {
     createReviewWorkspaceApp,
@@ -56,6 +58,43 @@ import {
     remoteCommentToPlannotatorAnnotation,
 } from "./react/remote-review-payload.js";
 import { RemoteCommentStateList } from "./react/RemoteCommentStateList.jsx";
+
+/**
+ * @param {Record<string, string | undefined>} values
+ * @returns {Deno.Env}
+ */
+function createTestEnv(values) {
+    return {
+        get(key) {
+            return values[key];
+        },
+        set(key, value) {
+            values[key] = value;
+        },
+        delete(key) {
+            delete values[key];
+        },
+        has(key) {
+            return values[key] !== undefined;
+        },
+        toObject() {
+            /** @type {Record<string, string>} */
+            const result = {};
+            for (const [key, value] of Object.entries(values)) {
+                if (value !== undefined) result[key] = value;
+            }
+            return result;
+        },
+    };
+}
+
+/**
+ * @param {Request} request
+ * @returns {import("astro").APIContext}
+ */
+function createTestApiContext(request) {
+    return /** @type {import("astro").APIContext} */ ({ request });
+}
 
 /**
  * @param {string} cwd
@@ -2564,6 +2603,40 @@ Deno.test("remote schema migration preserves v1 rows and rejects newer schemas",
     }
 });
 
+Deno.test("remote Shared Space development gate requires both development and remote mode", () => {
+    assertEquals(isRemoteDevelopmentModeEnabled({ isDevelopment: true, workspaceMode: "remote" }), true);
+    assertEquals(isRemoteDevelopmentModeEnabled({ isDevelopment: true, workspaceMode: "local" }), false);
+    assertEquals(isRemoteDevelopmentModeEnabled({ isDevelopment: true, workspaceMode: undefined }), false);
+    assertEquals(isRemoteDevelopmentModeEnabled({ isDevelopment: false, workspaceMode: "remote" }), false);
+});
+
+Deno.test("remote development API and page share the central gate", async () => {
+    const apiSource = await Deno.readTextFile("src/ui/workspace/server/remote-dev-api.js");
+    const pageSource = await Deno.readTextFile("src/ui/workspace/pages/p/[spaceId].astro");
+    assertStringIncludes(apiSource, "isRemoteDevelopmentModeEnabled");
+    assertStringIncludes(pageSource, "isRemoteDevelopmentModeEnabled");
+});
+
+Deno.test("remote development API rejects non-development and non-remote requests", async () => {
+    const originalMode = Deno.env.get("RUNWIELD_WORKSPACE_MODE");
+    try {
+        Deno.env.set("RUNWIELD_WORKSPACE_MODE", "remote");
+        const nonDevelopment = await handleRemoteSpaceApi(
+            createTestApiContext(new Request("http://localhost/api/spaces")),
+        );
+        assertEquals(nonDevelopment.status, 404);
+        assertEquals(await nonDevelopment.json(), { error: "Not found" });
+
+        Deno.env.set("RUNWIELD_WORKSPACE_MODE", "local");
+        const nonRemote = await handleRemoteSpaceApi(createTestApiContext(new Request("http://localhost/api/spaces")));
+        assertEquals(nonRemote.status, 404);
+        assertEquals(await nonRemote.json(), { error: "Not found" });
+    } finally {
+        if (originalMode === undefined) Deno.env.delete("RUNWIELD_WORKSPACE_MODE");
+        else Deno.env.set("RUNWIELD_WORKSPACE_MODE", originalMode);
+    }
+});
+
 Deno.test("remote Shared Space review route is isolated to remote mode", async () => {
     const localApp = createWorkspaceApp({ cwd: Deno.cwd(), token: "secret" }).handler();
     const localResponse = await localApp(new Request("http://localhost/p/space-1?token=secret"));
@@ -2591,21 +2664,22 @@ Deno.test("remote Workspace health and readiness endpoints are remote-only and n
 });
 
 Deno.test("remote server entry reads env defaults and validates ports", () => {
-    const values = new Map([
-        ["RUNWIELD_REMOTE_HOST", "127.0.0.1"],
-        ["RUNWIELD_REMOTE_PORT", "9001"],
-        ["RUNWIELD_REMOTE_DB_PATH", "/tmp/runwield.sqlite"],
-        ["RUNWIELD_REMOTE_MAX_REQUEST_BYTES", "2048"],
-        ["RUNWIELD_REMOTE_RETENTION_DAYS", "7"],
-    ]);
-    const env = { get: (/** @type {string} */ key) => values.get(key) };
-    assertEquals(readRemoteServerConfig(/** @type {Deno.Env} */ (env)), {
-        host: "127.0.0.1",
-        port: 9001,
-        dbPath: "/tmp/runwield.sqlite",
-        maxRequestBytes: 2048,
-        retentionDays: 7,
-    });
+    assertEquals(
+        readRemoteServerConfig(createTestEnv({
+            RUNWIELD_REMOTE_HOST: "127.0.0.1",
+            RUNWIELD_REMOTE_PORT: "9001",
+            RUNWIELD_REMOTE_DB_PATH: "/tmp/runwield.sqlite",
+            RUNWIELD_REMOTE_MAX_REQUEST_BYTES: "2048",
+            RUNWIELD_REMOTE_RETENTION_DAYS: "7",
+        })),
+        {
+            host: "127.0.0.1",
+            port: 9001,
+            dbPath: "/tmp/runwield.sqlite",
+            maxRequestBytes: 2048,
+            retentionDays: 7,
+        },
+    );
     assertEquals(parsePort(undefined), 8080);
     assertEquals(parsePort("65535"), 65535);
     assertEquals(parseMaxRequestBytes(undefined), 5 * 1024 * 1024);
@@ -2615,31 +2689,37 @@ Deno.test("remote server entry reads env defaults and validates ports", () => {
 Deno.test("remote server entry closes the owned adapter after server completion", async () => {
     let closed = 0;
     let startedWithAdapter = false;
-    const env = {
-        get: (/** @type {string} */ key) =>
-            ({
-                RUNWIELD_REMOTE_HOST: "127.0.0.1",
-                RUNWIELD_REMOTE_PORT: "9002",
-                RUNWIELD_REMOTE_DB_PATH: `${Deno.cwd()}/.wld/test-remote-server.sqlite`,
-            })[key],
-    };
-    await runRemoteServerMain({
-        env: /** @type {Deno.Env} */ (env),
-        createRemoteWorkspaceAdapter: () => /** @type {any} */ ({
-            reconcileRetentionPolicy() {},
-            cleanupExpiredSharedSpaces: () => 0,
-            close: () => {
-                closed += 1;
+    const cwd = await Deno.makeTempDir({ prefix: "runwield-remote-server-main-" });
+    try {
+        const env = createTestEnv({
+            RUNWIELD_REMOTE_HOST: "127.0.0.1",
+            RUNWIELD_REMOTE_PORT: "9002",
+            RUNWIELD_REMOTE_DB_PATH: `${cwd}/test-remote-server.sqlite`,
+        });
+        await runRemoteServerMain({
+            env,
+            createRemoteWorkspaceAdapter: (options) => {
+                const adapter = createRemoteWorkspaceAdapter(options);
+                const close = adapter.close.bind(adapter);
+                adapter.close = () => {
+                    closed += 1;
+                    close();
+                };
+                return adapter;
             },
-        }),
-        startWorkspaceServer: (/** @type {any} */ options) => {
-            startedWithAdapter = Boolean(options.adapter);
-            return /** @type {any} */ ({ addr: { port: 9002 }, finished: Promise.resolve() });
-        },
-        log: () => {},
-    });
-    assertEquals(startedWithAdapter, true);
-    assertEquals(closed, 1);
+            startWorkspaceServer: (options) => {
+                startedWithAdapter = Boolean(options.adapter);
+                const server = Deno.serve({ hostname: "127.0.0.1", port: 0, onListen() {} }, () => new Response("ok"));
+                queueMicrotask(() => server.shutdown());
+                return server;
+            },
+            log: () => {},
+        });
+        assertEquals(startedWithAdapter, true);
+        assertEquals(closed, 1);
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
 });
 
 Deno.test("remote Shared Space review route SSR smoke keeps fragments out of rendered shell", async () => {
