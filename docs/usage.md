@@ -106,6 +106,32 @@ execution, validation, and recovery flow.
 
 See [Plans and workflows](workflows.md) and [Plan Lifecycle](plan-lifecycle.md).
 
+## Work Records
+
+Work Records are canonical repo-local Markdown artifacts in `docs/work-records/`. They summarize completed planned work
+for future planning and are linked from eligible top-level Plans through `workRecord` front matter.
+
+RunWield automatically generates or links a Work Record after supported terminal outcomes: verified standalone FEATURE
+completion, PROJECT Epics marked done enough, eligible Workspace close-without-verification actions, and parent Epics
+that become done enough when the final child FEATURE verifies. Child FEATURE plans do not get their own Work Records;
+the parent Epic receives one once it is terminal. Automatic failures do not roll back the Plan outcome and are
+recoverable with explicit backfill.
+
+Available commands:
+
+```bash
+wld wr                         # list current records
+wld wr list [--all]            # list current or maintenance/all records
+wld wr search <query> [--all]  # search the derived Work Record index
+wld wr read <recordId> [--all] # read one record by stable recordId
+wld wr index rebuild           # rebuild the derived index from Markdown
+wld wr backfill                # generate/link missing records for completed Plans/Epics
+```
+
+Disable only automatic completion hooks with
+[`workRecords.autoGenerateOnPlanCompletion`](settings.md#workrecordsautogenerateonplancompletion); listing, search/read,
+index rebuild, and backfill remain available.
+
 ## Collaborative Plan review
 
 A self-hosted Plan Server can host encrypted remote-canonical Shared Spaces for browser review:
@@ -165,6 +191,7 @@ wld plans pull <url-or-plan>      # import/pull reviewer feedback as maintainer
 wld plans push <plan>            # publish the next encrypted Revision
 wld plans unshare <plan>         # destructively delete a remote Shared Space
 wld load-plan <name-or-path>     # continue a plan
+wld wr [list|search|read|backfill|index rebuild] # Work Record retrieval and recovery
 wld init                         # initialize project context
 wld sleep                        # memory/context cleanup prompt
 wld theme <name>                 # set theme

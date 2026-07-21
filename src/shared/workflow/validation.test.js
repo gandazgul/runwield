@@ -685,6 +685,95 @@ Deno.test("runValidationLoop skips semantic review and merge-back for non-Git in
     assertEquals(events.some((event) => event.event === "validation_passed"), true);
 });
 
+Deno.test("runValidationLoop starts Manual QA and Work Record generation concurrently after FEATURE validation", async () => {
+    const uiAPI = makeUi();
+    const session = makeRecordedSession("post-verification-concurrency", uiAPI);
+    session.setActiveExecutionWorkflow({
+        planName: "p",
+        triageMeta: { classification: "FEATURE" },
+        projectRoot: Deno.cwd(),
+        executionCwd: Deno.cwd(),
+    });
+    /** @type {string[]} */
+    const actions = [];
+    /** @type {() => void} */
+    let resolveQa = () => {};
+    /** @type {() => void} */
+    let resolveWr = () => {};
+    const qaStarted = new Promise((resolve) => {
+        resolveQa = /** @type {() => void} */ (resolve);
+    });
+    const wrStarted = new Promise((resolve) => {
+        resolveWr = /** @type {() => void} */ (resolve);
+    });
+    /** @type {() => void} */
+    let releaseQa = () => {};
+    /** @type {() => void} */
+    let releaseWr = () => {};
+    const qaRelease = new Promise((resolve) => {
+        releaseQa = /** @type {() => void} */ (resolve);
+    });
+    const wrRelease = new Promise((resolve) => {
+        releaseWr = /** @type {() => void} */ (resolve);
+    });
+
+    const running = runValidationLoop({
+        hostedSession: session,
+        planName: "p",
+        planContent: "# Plan",
+        triageMeta: { classification: "FEATURE" },
+        sessionManager: undefined,
+        __deps: /** @type {any} */ ({
+            runLocalCI: () => Promise.resolve({ exitCode: 0, output: "ok" }),
+            getDiffText: () => Promise.resolve("diff --git a/x.js b/x.js\n+change\n"),
+            runIsolatedAgentSession: () =>
+                Promise.resolve(
+                    /** @type {any} */ ([{
+                        role: "assistant",
+                        content: [{ type: "text", text: "The implementation matches the plan." }],
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_complete",
+                        details: { outcome: "approved", approved: true, feedback: "" },
+                    }]),
+                ),
+            runManualQaChecklistPrompt: async () => {
+                actions.push("qa-start");
+                resolveQa();
+                await qaRelease;
+                actions.push("qa-end");
+                return [];
+            },
+            autoGenerateWorkRecordForCompletedPlan: async () => {
+                actions.push("wr-start");
+                resolveWr();
+                await wrRelease;
+                actions.push("wr-end");
+                return {
+                    status: "generated",
+                    planName: "p",
+                    path: "docs/work-records/p.md",
+                    message: "Work Record generated: docs/work-records/p.md.",
+                };
+            },
+            getCodeReviewMode: () => "none",
+            recordPlanEvent: noOpRecordPlanEvent,
+            recordWorkflowMetric: () => Promise.resolve(null),
+        }),
+    });
+
+    await Promise.all([qaStarted, wrStarted]);
+    assertEquals(actions, ["qa-start", "wr-start"]);
+    releaseQa();
+    releaseWr();
+    await running;
+    assertEquals(actions, ["qa-start", "wr-start", "qa-end", "wr-end"]);
+    assertEquals(
+        uiAPI.messages.some((/** @type {string} */ message) => message.includes("Work Record generated")),
+        true,
+    );
+});
+
 Deno.test("runValidationLoop does not switch active agent unless finalAgentName is provided", async () => {
     const uiAPI = makeUi();
     await runValidationLoop({
@@ -1453,6 +1542,8 @@ Deno.test("runValidationLoop merges verified Plan metadata in Git and leaves the
                         }]),
                     ),
                 getCodeReviewMode: () => "none",
+                autoGenerateWorkRecordForCompletedPlan: () =>
+                    Promise.resolve({ status: "disabled", planName: "git-plan", message: "disabled" }),
                 recordWorkflowMetric: () => Promise.resolve(null),
             }),
         });

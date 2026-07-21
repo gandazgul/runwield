@@ -51,6 +51,18 @@
             "type": "boolean",
             "description": "When true, successful merge-back removes the execution checkout and clears plan worktree metadata."
         },
+        "workRecords": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Work Record automation settings. Missing or malformed values use the default behavior.",
+            "properties": {
+                "autoGenerateOnPlanCompletion": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Automatically generate or reconcile eligible Work Records after supported terminal Plan outcomes. Only literal false disables automatic generation."
+                }
+            }
+        },
         "notifications": {
             "$ref": "#/$defs/notifications",
             "description": "Desktop attention notifications for agent stops, plan review, and user interview prompts."

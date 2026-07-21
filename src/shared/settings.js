@@ -17,6 +17,7 @@ const RUNWEILD_CUSTOM_SETTING_KEYS = [
     "guidedReview",
     "cleanupMergedWorktrees",
     "workflowMetrics",
+    "workRecords",
     "notifications",
     "nonGitExecutionConsent",
     "enableExternalSkills",
@@ -535,6 +536,20 @@ export function getResolvedVisionFallbackModelSetting() {
 export function shouldCleanupMergedWorktrees(projectRoot) {
     if (!projectRoot) throw new Error("shouldCleanupMergedWorktrees: projectRoot is required");
     return getMergedCustomSetting("cleanupMergedWorktrees", projectRoot) !== false;
+}
+
+/**
+ * Whether completed top-level Plans should automatically generate or reconcile Work Records.
+ * Defaults to true; only a literal nested `workRecords.autoGenerateOnPlanCompletion: false` disables it.
+ *
+ * @param {string} projectRoot
+ * @returns {boolean}
+ */
+export function shouldAutoGenerateWorkRecordsOnPlanCompletion(projectRoot) {
+    if (!projectRoot) throw new Error("shouldAutoGenerateWorkRecordsOnPlanCompletion: projectRoot is required");
+    const workRecords = getMergedCustomSetting("workRecords", projectRoot);
+    if (!workRecords || typeof workRecords !== "object" || Array.isArray(workRecords)) return true;
+    return workRecords.autoGenerateOnPlanCompletion !== false;
 }
 
 /**

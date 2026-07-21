@@ -1864,6 +1864,119 @@ Deno.test("Workspace lifecycle API mutates through lifecycle events and blocks i
     }
 });
 
+Deno.test("Workspace persisted close without verification triggers Work Record generation after closure", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "feature", "# Feature", {
+            planId: "feature-id",
+            status: "implemented",
+            classification: "FEATURE",
+        });
+        /** @type {Array<{ cwd: string, planName: string, statusAtGeneration: string }>} */
+        const calls = [];
+        const app = createWorkspaceApp({
+            cwd,
+            token: "secret",
+            autoGenerateWorkRecordForCompletedPlan: async ({ cwd: generationCwd, planName }) => {
+                calls.push({
+                    cwd: generationCwd,
+                    planName,
+                    statusAtGeneration: String((await loadWorkspaceDetail(generationCwd, "feature-id")).status),
+                });
+                return {
+                    status: "generated",
+                    planName,
+                    message: "Work Record generated: docs/work-records/2026-01-01-feature.md.",
+                };
+            },
+        }).handler();
+
+        const response = await app(
+            new Request("http://localhost/api/plans/feature-id/lifecycle-action", {
+                method: "POST",
+                headers: { [PLAN_UI_TOKEN_HEADER]: "secret", "content-type": "application/json" },
+                body: JSON.stringify({
+                    action: "close_without_verification",
+                    closedWithoutVerificationReason: "Manual acceptance.",
+                }),
+            }),
+        );
+        assertEquals(response.status, 200);
+        const payload = await response.json();
+        assertStringIncludes(payload.message, "Work Record generated");
+        assertEquals(calls, [{ cwd, planName: "feature", statusAtGeneration: "closed_without_verification" }]);
+        const detail = await loadWorkspaceDetail(cwd, "feature-id");
+        assertEquals(detail.status, "closed_without_verification");
+        assertEquals(detail.closedWithoutVerificationReason, "Manual acceptance.");
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+Deno.test("Workspace persisted close preserves closure when Work Record generation fails", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "feature", "# Feature", {
+            planId: "feature-id",
+            status: "implemented",
+            classification: "FEATURE",
+        });
+        const app = createWorkspaceApp({
+            cwd,
+            token: "secret",
+            autoGenerateWorkRecordForCompletedPlan: () => Promise.reject(new Error("recorder unavailable")),
+        }).handler();
+
+        const response = await app(
+            new Request("http://localhost/api/plans/feature-id/lifecycle-action", {
+                method: "POST",
+                headers: { [PLAN_UI_TOKEN_HEADER]: "secret", "content-type": "application/json" },
+                body: JSON.stringify({
+                    action: "close_without_verification",
+                    closedWithoutVerificationReason: "Manual acceptance despite CI gap.",
+                }),
+            }),
+        );
+        assertEquals(response.status, 200);
+        const payload = await response.json();
+        assertStringIncludes(payload.message, "Work Record generation failed");
+        assertStringIncludes(payload.message, "recorder unavailable");
+        const detail = await loadWorkspaceDetail(cwd, "feature-id");
+        assertEquals(detail.status, "closed_without_verification");
+        assertEquals(detail.closedWithoutVerificationReason, "Manual acceptance despite CI gap.");
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+Deno.test("Workspace in-memory close preview is side-effect free", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        const summary = serializePlanSummary({
+            planId: "preview-id",
+            name: "preview",
+            relativePath: "plans/preview.md",
+            attrs: { planId: "preview-id", status: "implemented", classification: "FEATURE" },
+        });
+        const preview = applyWorkspaceLifecycleActionInMemory(summary, {
+            action: "close_without_verification",
+            closedWithoutVerificationReason: "Preview close.",
+        });
+
+        assertEquals(summary.status, "implemented");
+        assertEquals(preview.plan.status, "closed_without_verification");
+        let workRecordDirExists = true;
+        try {
+            await Deno.stat(`${cwd}/docs/work-records`);
+        } catch (error) {
+            workRecordDirExists = !(error instanceof Deno.errors.NotFound);
+        }
+        assertEquals(workRecordDirExists, false);
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
 Deno.test("Workspace lifecycle API requires Resume Check confirmation for staleness warnings", async () => {
     const cwd = await Deno.makeTempDir();
     try {
