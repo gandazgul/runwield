@@ -1,4 +1,5 @@
 ---
+planId: "b6fd8e18-ea6f-4b7b-a446-0d30ec8d303c"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Add a persistent TUI validation panel above the input that keeps current progress and the latest Engineer and Reviewer reports visible during validation."
@@ -21,10 +22,15 @@ affectedPaths:
     - "src/ui/tui/chat-session.test.js"
 frontend: false
 createdAt: "2026-07-18T22:51:42-04:00"
-updatedAt: "2026-07-21T21:46:55.165Z"
+updatedAt: "2026-07-21T22:10:50.077Z"
 status: "verified"
 origin: "internal"
 verifiedAt: "2026-07-21T21:46:55.165Z"
+workRecord:
+    status: "generated"
+    recordId: "8a91c86b-6186-4f3a-a42a-da58d555def4"
+    path: "docs/work-records/2026-07-21-pinned-tui-validation-handoff-panel.md"
+    lastAttemptAt: "2026-07-21T22:10:42.706Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
 ---
