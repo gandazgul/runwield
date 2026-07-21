@@ -1,4 +1,5 @@
 ---
+planId: "70d7d21d-c9e6-46b4-a5ea-288feb542c30"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Add the Pair Execution runtime style and checkpoint tool for Frontend Engineer without making checkpoints a Plan status, Task Completion, or validation boundary. This slice provides the workflow semantics while keeping host-specific rendering minimal."
