@@ -1,8 +1,9 @@
 # PRD: RunWield Session Host and ACP Integration
 
-**Status:** Living roadmap — Session Host and ACP stdio MVP implemented; OpenAB/Telegram validation next\
+**Status:** Living roadmap — Session Host and ACP stdio MVP implemented; OpenAB/Telegram follows Personal Remote
+Workspace\
 **Author:** Gandazgul + RunWield Ideator\
-**Last Updated:** 2026-07-19
+**Last Updated:** 2026-07-20
 
 ---
 
@@ -18,10 +19,11 @@ The implemented foundation consists of:
 - **ACP stdio MVP:** `SessionRuntime` exposes the adapter-neutral session surface, and ACP is a sibling adapter to the
   TUI.
 
-The next phase has two ordered stages:
+After Personal Remote Workspace establishes the authoritative persistent Session Host and workflow-ownership model, the
+next ACP-specific phase has two ordered stages:
 
 1. **OpenAB/Telegram compatibility:** prove that one trusted operator can complete and recover a full RunWield workflow
-   through Telegram, with OpenAB as a replaceable reference ACP client.
+   through Telegram, with OpenAB as a replaceable reference ACP client attached to the same Session authority.
 2. **Full ACP v1 compliance:** close the remaining protocol gaps independently of Telegram, including required stdio MCP
    server support and schema-based conformance testing.
 

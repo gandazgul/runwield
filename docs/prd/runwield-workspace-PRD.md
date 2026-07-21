@@ -1,835 +1,536 @@
 ---
 title: RunWield Workspace
-status: draft
+status: living-roadmap
 createdAt: "2026-07-06T00:00:00.000Z"
+updatedAt: "2026-07-20T23:15:00-04:00"
 ---
 
 # RunWield Workspace PRD
 
+**Status:** Living roadmap — current local Plan Workspace implemented; Personal Remote Workspace v1 next\
+**Last Updated:** 2026-07-20
+
 ## 1. Objective
 
-Define **RunWield Workspace** as the cohesive planning product that grows out of the local-first Plan Board and the
-encrypted Collaborative Planning direction.
+Evolve RunWield Workspace from a browser Plan Board for one checkout into the primary browser environment for working
+the RunWield way across multiple registered Projects.
 
-Workspace should let software teams figure out what to build, shape ideas into reviewable Plans and PRDs, manage Plans
-through the work lifecycle, collaborate on review, and preserve Work Records that make future planning smarter.
+The next product milestone is **Personal Remote Workspace v1**: one trusted developer uses a persistent Workspace on
+their own machine through a private network. The developer can move among Projects, create and resume durable Sessions,
+observe and control RunWield workflows, review and execute Plans, receive attention signals, search durable project
+knowledge and selected source code, and open a subordinate Code Surface.
 
-This PRD marries:
+This milestone must preserve RunWield Core's existing ownership of:
 
-- [Local-First Plan Management UI](./local-first-plan-management-ui-PRD.md)
-- [Collaborative Planning](./collaborative-planning-PRD.md)
+- SessionRuntime semantics;
+- Plan Lifecycle and Workflow Validation;
+- RunWield-owned Plan worktrees;
+- Plan Recovery;
+- canonical repository artifacts;
+- local developer agency.
 
-into one product story:
+The same Project Runtime model should later support isolated SaaS containers without turning the personal deployment
+into a throwaway prototype.
+
+## 2. Problem Statement
+
+The current Workspace is useful but scoped to one checkout and centered on a Plan Board. RunWield Sessions primarily
+live in terminal processes, while browser review, Shared Plan collaboration, TUI operation, ACP clients, and future chat
+channels are separate surfaces.
+
+That creates five product gaps:
+
+1. **No persistent multi-Project home.** The user cannot register trusted Projects and see attention, active work,
+   Sessions, Plans, and recent outcomes across them.
+2. **No authoritative remotely attachable Session.** Reopening the same transcript in another process is not equivalent
+   to attaching to the same live workflow and risks split ownership.
+3. **No complete browser workflow.** Workspace cannot yet carry one Session through ideation, Plan review, execution,
+   validation, and recovery using semantic Runtime events.
+4. **Knowledge is fragmented.** Plans and Work Records can inform future work, but Workspace lacks a deliberate
+   Project-level and cross-Project retrieval experience. Source-code search is likewise confined to the active Project.
+5. **Remote access is not a product boundary.** The current random launch token and loopback-oriented server are not
+   sufficient for a persistent remotely reachable owner Workspace.
+
+The answer is not a generic Agent manager, issue tracker, transcript memory system, or browser IDE. Workspace should
+remain a Plan- and workflow-first RunWield product.
+
+## 3. Product Thesis and Principles
+
+RunWield Workspace is **AI-native collaborative software planning and workflow continuity**.
+
+Its core loop is:
 
 ```text
-local Plan Workspace -> self-hostable shared Plan Spaces -> RunWield Workspace SaaS
+ideate or inquire
+    -> materialize durable artifacts when useful
+    -> review and approve a Plan
+    -> execute and validate locally
+    -> distill the outcome into a Work Record
+    -> use durable records to plan better
 ```
 
-The self-hostable Plan sharing tool is not a throwaway prototype. It is the deployable, privacy-preserving collaboration
-substrate that should also fold into the hosted Workspace product.
+Product principles:
 
-## 2. Product Thesis
+- **Workspace is the primary browser shell.** Plans, Sessions, workflows, review, knowledge, and attention define the
+  product; code-server is subordinate.
+- **Projects are explicit trust boundaries.** Workspace accesses only registered roots and never treats an incidental
+  local cache as authorization.
+- **Sessions are durable, not duplicated.** TUI, Workspace, and external clients attach to one authoritative live
+  Session instead of independently reopening its transcript.
+- **Plans own planned-work lifecycle.** Once a Plan exists, its workflow surface becomes the durable center for review,
+  execution, validation, recovery, changes, and associated Sessions.
+- **Approval is not execution authorization.** The user can approve and run now or approve for later.
+- **Artifacts outrank transcripts.** Plans, PRDs, ADRs, and Work Records form durable Project and Workspace
+  intelligence. Raw Session Transcripts do not.
+- **Local-first does not mean browser-bound.** Work continues safely when the browser disconnects and stops only at
+  completion, cancellation, failure, or the next required human decision.
+- **Preserve local agency.** Personal mode does not force every QUICK_FIX, manual edit, or supported in-place workflow
+  into a Plan worktree.
+- **Explicit scope beats ambient reach.** Cross-Project source search and future Agent access must never silently
+  broaden from one Project to every registered Project.
+- **Use the RunWield Design System.** Workspace, Plannotator, and related browser surfaces should remain visually and
+  behaviorally coherent.
 
-RunWield Workspace is **collaborative software planning with AI**.
+## 4. Current Baseline
 
-The Plan is the central object. Workspace exists to help a team move Plans through this loop:
+RunWield currently provides:
 
-```text
-ideate -> plan -> review -> execute -> record -> use records to plan better
-```
+- a local browser Workspace for one checkout;
+- Plan and Epic boards, detail views, body editing, and lifecycle-safe actions;
+- Plannotator-based Plan and code review;
+- encrypted Shared Plan Spaces with capability-based review;
+- stable Plan identity and canonical markdown storage;
+- Work Records and Work Record retrieval;
+- a multi-session in-process Session Host and adapter-neutral SessionRuntime;
+- TUI and ACP as sibling Runtime adapters;
+- an ACP stdio MVP that can create, load, prompt, cancel, close, and replay Sessions;
+- Cymbal as the current-Project, working-tree-aware code-intelligence layer.
 
-RunWield Core remains the free local harness for execution, validation, local Plans, and local Work Records. Workspace
-adds shared planning, collaboration, and cross-project memory without reframing RunWield as hosted agent management.
+The current Session Host is not yet the persistent cross-process authority required for seamless TUI and Workspace
+attachment. The current Workspace token model is also not the remote owner-authentication model described here.
 
-Workspace should avoid issue-tracker, ticket, Scrum, and Agile positioning. Kanban-style flow is acceptable when it
-helps users understand Plan movement, but the product category is planning.
+Existing local Plan management and Shared Plan collaboration remain supported foundations. Personal Remote Workspace v1
+expands their containing product model rather than replacing their lifecycle or canonical storage.
 
-## 3. Product Layers
+## 5. Resolved Product Model
 
-### 3.1 Local Workspace
+### 5.1 Workspace
 
-The local Workspace is launched from a checkout, for example through `wld plans ui`.
+**Workspace** is the browser environment containing registered Projects, durable Sessions, Plans, PRDs, ADRs, Work
+Records, review surfaces, search, attention, and Code Surfaces.
 
-It provides:
+The default home is the cross-Project **Attention Dashboard**, not a Project grid or a global Plan board.
 
-- a browser Plan board over canonical markdown Plans
-- Plan detail and edit surfaces
-- Epic detail views and child Plan progress
-- lifecycle actions backed by Core Plan Lifecycle APIs
-- stable local resource URLs
-- a route/resource model that can map to self-hosted and hosted URLs later
+### 5.2 Project and Project Runtime
 
-The local Workspace is a Core client. It is for people who prefer browser workflows or need a richer local planning UI
-than the TUI provides.
+A **Project** is a trusted repository or project directory registered with Workspace. Registration authorizes Workspace
+to operate within that root; it does not make every path on the machine accessible.
 
-### 3.2 Self-Hosted Shared Plan Spaces
+Each Project has a **Project Runtime** responsible for its Sessions, Plan workflows, artifact discovery, code search,
+health, and optional Code Surface. Several Projects may have live Sessions concurrently. Inactive Project Runtimes may
+be dormant and restart without losing durable Session or workflow identity.
 
-The self-hostable collaboration tool lets users share a Plan into a remote-canonical encrypted Shared Space.
+The first version operates on local roots on the owner's machine. A later SaaS mode mounts or clones each Project into
+an isolated container while retaining the same conceptual contract.
 
-It provides:
+### 5.3 Session and Agent Session
 
-- a Docker/self-hostable server
-- SQLite-backed remote storage
-- encrypted Plan revisions and comments
-- reviewer and maintainer capability links
-- browser review without requiring every reviewer to install RunWield
-- `wld plans share|pull|push|unshare` style local integration
+A **Session** is the durable user-facing conversation and workflow thread within one Project. It spans Router Triage and
+specialist Agent handoffs and has a stable identity and human-readable Session Name.
 
-While a Plan is shared, the remote Shared Space is canonical for collaboration. The local Plan enters a hard Shared Plan
-Lock so normal local mutation is blocked except through collaboration-aware commands.
+An **Agent Session** is an internal specialist invocation within a Session. It is not the main navigation object.
 
-This tool must remain usable independently for teams that want self-hosted collaboration without the hosted SaaS.
+A Session may begin without a Plan for ideation, inquiry, operation, or QUICK_FIX work. When a Plan materializes, the
+Session becomes associated with it and the Plan workflow becomes the primary route. Starting from an existing artifact
+creates a fresh associated Session; **Resume** re-enters the same Session.
 
-### 3.3 RunWield Workspace SaaS
+Workspace does not introduce a generic Work Item above Sessions, Plans, and artifacts.
 
-The hosted Workspace is the collaborative SaaS product.
+### 5.4 Durable artifacts
 
-It uses the same product model as the local/self-hosted layers, then adds:
+- **Plan:** owns planned implementation lifecycle and may become the center of one or more associated Sessions.
+- **PRD:** independent product-intent artifact that may inform multiple Sessions or Plans and does not participate in
+  Plan Lifecycle.
+- **ADR:** authoritative architecture-decision artifact.
+- **Work Record:** retrospective account of completed planned work and its durable future planning lessons.
+- **Session Transcript:** owner-private raw history used for human resume and search, not shared knowledge.
 
-- team workspaces
-- project membership and minimal roles
-- Plan-centered collaboration across projects
-- hosted Shared Plan Spaces
-- Work Record visibility and retrieval
-- cross-project planning intelligence
-- optional governance around approvals and records
+Repository artifacts remain canonical. Workspace may index and project them, but must not silently replace them with
+browser-database-only copies.
 
-The first SaaS wedge is planning and records, not hosted execution. Hosted AFK `wld` agents may be added later for
-executing ready Plans, but the product should not lead with that capability.
+## 6. Personal Remote Workspace v1
 
-## 4. Users and Collaboration Model
+### 6.1 Target user and environment
 
-Workspace is for software teams planning complex work together.
+The first version serves:
 
-Primary collaborators:
+- one trusted developer;
+- on the developer's own machine;
+- through Tailscale, WireGuard, or an equivalent private network;
+- from owner-approved paired browser devices;
+- across several registered local Projects;
+- with no team accounts or shared-machine concurrency.
 
-- PMs shaping what to build and why
-- tech leads shaping architecture and technical approach
-- developers reviewing, executing, and refining implementation Plans
-- external reviewers or stakeholders commenting on specific shared Plans
+This is a durable personal self-hosted mode, not merely a development demonstration.
 
-Workspace must not encode strict job-description boundaries into the product by default. Teams decide how they divide
-planning, architecture, review, and execution responsibility.
+### 6.2 Attention Dashboard
 
-Default roles:
+The default Workspace home aggregates only actionable or recent information across Projects:
 
-- **Admin:** workspace settings, billing, member management, policies.
-- **Member:** normal team collaborator.
-- **Reviewer/Guest:** limited shared-artifact access for review flows.
+- **Needs You:** pending interviews, approvals, recovery choices, failed work, and other required judgment;
+- **Running:** Sessions and Plan workflows currently progressing;
+- **Ready:** Plans that are Ready For Work but not executing;
+- **Recently Finished:** recent verified, closed, failed, or otherwise completed outcomes.
 
-Later, teams may optionally expand Member permissions into more granular policies, but launch behavior should stay
-minimal.
+Project navigation remains available, but users should not have to inspect every Project to discover blocked or finished
+work.
 
-## 5. Core Artifacts
+Browser and system notifications should point back to the authoritative Session or Plan workflow. Notifications are
+attention signals, not an alternate workflow state store.
 
-### 5.1 Plan
+### 6.3 Project experience
 
-The Plan is the central Workspace object.
+For each registered Project, Workspace shows:
 
-Plans are prospective. They describe what the team intends to build and how.
+- registration and RunWield initialization health;
+- active, held, failed, implemented, verified, and closed Plans;
+- standalone and Plan-associated Sessions;
+- PRDs, ADRs, Work Records, and related research;
+- artifact and Project knowledge search;
+- current code-index health;
+- access to the main-checkout Code Surface;
+- relevant workflow, Git, validation, and recovery health.
 
-Requirements:
+Registration, disabling, and removal affect Workspace access and indexing only. They must not delete repository data,
+Plans, Work Records, Session history, branches, or RunWield worktrees.
 
-- remain markdown with stable front matter in RunWield Core
-- retain stable `planId` identifiers for durable local, self-hosted, and hosted URLs
-- support FEATURE and PROJECT/Epic workflows
-- support review, readiness, execution, validation, hold, recovery, closure, and archival states through Core lifecycle
-  APIs
-- be readable and reviewable by technical and non-technical collaborators
+### 6.4 Session experience
 
-### 5.2 Epic
+Workspace must support creating, resuming, observing, and controlling Sessions through semantic SessionRuntime events.
+The primary timeline represents:
 
-An Epic is a PROJECT Plan container for larger work.
+- user and Agent messages;
+- Agent identity and handoffs;
+- tool progress and structured output;
+- pending human interactions;
+- Plan review links and outcomes;
+- execution and validation progress;
+- cancellation, failure, and recovery;
+- usage and Session status where useful.
 
-Requirements:
+Terminal-byte streaming is not the primary Session UI. A raw WebTUI may remain an optional future advanced/debug
+surface.
 
-- appear as one top-level card in the main Workspace board
-- summarize child FEATURE Plan progress
-- open an Epic detail view for child Plans and decomposition state
-- not flood the main board with every child slice by default
-- support the existing done-enough flow where an Epic can reach `verified` with `epicCompletionMode: done_enough`
+Several Sessions may run across several Projects. Closing a browser tab or losing network access does not cancel work.
+On reconnection, Workspace reattaches to the same authoritative Session and receives the durable state and semantic
+event history required to continue.
 
-### 5.3 PRD
+### 6.5 Session Control
 
-PRDs capture product intent, constraints, and desired outcomes.
+Observation and control are separate:
 
-Workspace should make it natural to start with an idea and produce or refine a PRD through RunWield roles such as
-Ideator and Planner.
+- TUI and Workspace may observe the same live Session.
+- Exactly one attached client holds **Session Control** for submitting user messages or answering pending interactions.
+- Control may transfer safely while the Session is idle or waiting for human input.
+- A disconnect must not create two independent controllers or cancel background work.
+- Ambiguous ownership requires visible recovery or takeover rather than implicit last-writer-wins behavior.
 
-### 5.4 ADR
+Session Control belongs to an attached client; it does not determine which Session owns a Plan workflow.
 
-ADRs remain the authoritative home for architecture and technical decisions.
+### 6.6 Plan workflow ownership
 
-Plans and Work Records may reference ADRs. Work Records should not become a parallel architecture-decision system.
+Exactly one Session may drive consequential actions for a Plan at a time across TUI, Workspace, ACP, and future hosts. A
+durable **Plan Workflow Lease** enforces that rule.
 
-### 5.5 Work Record
+The lease belongs to the workflow-owning Session, not to the current UI. TUI and Workspace may transfer Session Control
+without changing Plan ownership.
 
-Work Records are retrospective planning-memory artifacts.
+A stale or uncertain lease cannot be silently deleted. Workspace must present an explicit takeover or Plan Recovery
+choice grounded in durable Plan, worktree, and Session state.
 
-They should summarize:
+### 6.7 Plan workflow surface
 
-- original intent
-- final outcome
-- what changed
-- referenced PRDs and ADRs
-- validation outcome
-- deferred work
-- future planning notes
+Once a Plan exists, one Plan-centered surface unifies:
 
-Work Records are not raw review transcripts. They are distilled records for humans and future AI planning agents.
+- Plan content and related PRDs, ADRs, research, and Work Records;
+- associated Session activity;
+- Plannotator review and Feedback;
+- readiness and execution authorization;
+- execution progress and affected files;
+- validation, semantic review, Guided Review, and repair activity;
+- Plan worktree state and changes;
+- failure details and Plan Recovery;
+- terminal outcome and resulting Work Record.
 
-Core should generate Work Records locally for verified planned work. Workspace should make them visible, searchable, and
-eventually useful across projects.
+Review offers distinct outcomes:
 
-### 5.6 Shared Space
+- **Approve & Run:** approve the Plan and authorize the current Session to proceed through readiness, execution, and
+  Workflow Validation.
+- **Approve for Later:** approve and prepare the Plan as Ready For Work without authorizing immediate execution.
 
-A Shared Space is a remote-canonical collaboration container for one shared Plan.
+Plan approval never implies ambient permission for a different Session to execute it.
 
-It contains encrypted revisions, encrypted comments, status, capabilities, and minimal routing metadata. It is not a
-replacement for the Plan Lifecycle. It is the collaboration surface used while review is happening outside the local
-checkout.
+### 6.8 Durable knowledge search
 
-## 6. Product Surfaces
+Workspace provides two human-facing durable-artifact scopes:
 
-### 6.1 Plan Board
+1. **Project Knowledge Search:** Plans, PRDs, ADRs, Work Records, and eligible research within one Project.
+2. **Workspace Intelligence Search:** eligible durable artifacts across registered Projects.
 
-The main Workspace screen is the Plan board.
+Registered Projects contribute durable artifacts to Workspace Intelligence by default, with a per-Project opt-out for
+sensitive repositories. Results always identify their Project and artifact type.
 
-User-facing board areas should be product-friendly rather than raw lifecycle names:
+Session Transcripts remain:
 
-- Ideas
-- Planning
-- Review
-- Ready
-- In Progress
-- Verifying
-- Done
-- On Hold
+- searchable by their owner for human navigation;
+- unavailable to cross-Session Agent retrieval;
+- excluded from Workspace Intelligence;
+- unavailable to collaborators;
+- non-authoritative when they disagree with durable artifacts.
 
-Raw statuses such as `ready_for_decomposition`, `ready_for_work`, `implemented`, `verified`, and
-`closed_without_verification` can appear in detail views and metadata panels where precision matters.
+Source code is also excluded from Workspace Intelligence. Artifact retrieval and source-code search are distinct modes
+with different scope and trust semantics.
 
-The board should show:
+### 6.9 Human cross-Project code search
 
-- top-level Plans
-- Epic cards with child progress
-- review-needed Plans
-- ready Plans
-- active work
-- verification state
-- on-hold work
-- done/closed work in a separate view or tab
+Personal Remote Workspace v1 includes RunWield-owned Cymbal federation:
 
-### 6.2 Plan Detail
+- the user explicitly selects one or more registered Projects;
+- Workspace queries each selected Project's Cymbal index with bounded concurrency;
+- results are grouped or clearly labeled by Project;
+- first-use indexing, refresh, partial results, failures, and freshness are visible;
+- absolute local paths are not exposed to the browser as ambient filesystem authority;
+- duplicate symbols across Projects are not silently collapsed;
+- relationship, reference, trace, and impact results remain Project-scoped unless a real cross-Project dependency is
+  known.
 
-Clicking a Plan opens a read-first detail view.
+Global code search targets registered Projects' main checkouts. RunWield Plan worktrees are excluded to prevent
+conflicting versions, duplicate results, and exposure of intermediate work. Plan-worktree code remains available through
+its Plan workflow and review surfaces.
 
-Detail requirements:
+Cross-Project code search is human-only in the first version. Existing Agent code tools remain scoped to the Session's
+Project. Users may deliberately bring selected findings into a Session, but Workspace must not silently grant an Agent
+access to other Projects.
 
-- render markdown clearly
-- show front matter summary fields
-- show related PRDs, ADRs, and later Work Records
-- show quiet metadata such as author, agent author, approval mode, created/updated times, and source references
-- expose an intentional Edit action
-- expose lifecycle actions through structured controls
-- avoid raw front matter editing as the default path
+Sourcebot is not a first-version dependency. It remains an optional future provider for organization-scale or remote
+committed-code search.
 
-### 6.3 Epic Detail
+### 6.10 Code Surface
 
-Clicking an Epic opens an Epic detail view.
+Workspace may launch or connect to code-server as the subordinate **Code Surface** for a Project's main checkout.
 
-Epic detail requirements:
+The Code Surface:
 
-- show the Epic body
-- show child FEATURE Plan progress by lifecycle state
-- list children, dependencies, blocked state, and validation state
-- expose Slicer/decomposition status where relevant
-- support done-enough completion metadata and deferred-work summaries
+- supports manual inspection and editing without replacing Workspace navigation;
+- does not own Sessions, Plan Lifecycle, validation, recovery, or RunWield worktrees;
+- opens global code-search results at the corresponding main-checkout location when valid;
+- never pretends Plan-worktree-only content is present in the main checkout;
+- preserves code-server's separate security boundary and limits its filesystem reach to the intended Project.
 
-### 6.4 Plan Editor
+Manual changes and commits remain the developer's responsibility. They may make active Plans stale or create merge
+conflicts, which RunWield handles through normal lifecycle and integration checks.
 
-The Plan Editor edits the markdown body by default.
+Personal mode preserves existing local agency: QUICK_FIX and supported in-place workflows may modify the main checkout
+without being forced into Plan worktrees.
 
-Requirements:
+### 6.11 Pairing and remote trust
 
-- save-only: no canonical writes until explicit Save
-- browser-local draft recovery for unsaved edits
-- preserve front matter unless a structured lifecycle/control action changes it
-- reject or loudly surface unsafe markdown rewrites
-- sit behind a replaceable editor adapter
+Private networking is necessary but not sufficient authorization. The first version requires owner-approved browser
+device pairing:
 
-CodeMirror-style editing is the conservative default. BlockSuite or richer editors can be introduced only after
-canonical markdown round-trip fidelity is proven.
+- bootstrap approval is short-lived and intentional;
+- paired-device sessions persist but are revocable;
+- Workspace provides a paired-device and revocation view;
+- WebSocket and ordinary browser requests share the same authorization boundary;
+- Project roots are allowlisted independently of browser authorization;
+- consequential execution, terminal, filesystem, and destructive actions remain explicit and auditable;
+- secrets and bearer credentials do not enter Plan front matter, Session Transcripts, URLs beyond bootstrap necessity,
+  or repository artifacts.
 
-### 6.5 Shared Review View
+The first version does not require usernames, passwords, team accounts, account recovery, public-internet exposure, or
+organization roles.
 
-The shared review view is the browser surface opened from a shared Plan link.
+Shared Plan capability authorization remains separate from Workspace device authorization. A paired Workspace device
+does not automatically receive a Shared Plan capability, and possessing a Shared Plan link does not authorize the owner
+Workspace.
 
-Requirements:
+## 7. Technical Approach
 
-- decrypt Plan content client-side
-- render the current revision
-- support revision history
-- support inline and global comments
-- support comment resolve/unresolve where capability allows
-- show reviewer display names
-- work without requiring reviewers to install RunWield
-- keep comments tied to revisions so old discussion does not create mixed signals for current planning
+This section describes product-level boundaries, not final implementation design.
 
-### 6.6 Work Record Views
+### 7.1 Authoritative persistent Session Host
 
-Work Records are secondary to the Plan board but important for the product loop.
+A persistent Session Host becomes the single live authority for Sessions on the machine. Workspace and TUI are clients
+of that authority and consume the same SessionRuntime operations, semantic events, interactions, replay, cancellation,
+and recovery state.
 
-Workspace should provide:
+Workspace should use a native SessionRuntime adapter appropriate for browser clients. ACP remains the canonical
+host-agnostic external integration protocol for editors and replaceable external hosts; Workspace does not need to route
+its first-party browser traffic through ACP merely for symmetry.
 
-- Work Record detail views
-- search over titles, descriptions, and headings
-- links back to source Plans, PRDs, and ADRs
-- filters by project, area, status, scope, and completion mode
-- retrieval surfaces for new planning sessions
+### 7.2 Project Runtime lifecycle
 
-Workspace should not make raw review histories the default planning memory. Work Records are the distilled surface.
+The Workspace service coordinates registered Project Runtimes. A Project Runtime may activate when it has live Sessions,
+pending workflow work, indexing activity, or an open Code Surface and may otherwise become dormant. Dormancy must not
+change Session identity, Plan Workflow Leases, or recoverable workflow state.
 
-### 6.7 AI Planning Actions
+Resource limits must prevent one Project's indexing, validation, or Agent activity from starving unrelated Projects.
 
-Workspace AI collaboration should reuse RunWield roles rather than invent a generic assistant.
+### 7.3 Canonical storage
 
-Primary actions:
+Repository markdown remains canonical for Plans, PRDs, ADRs, Work Records, and project-specific context. Workspace-owned
+state may store registration, device authorization, Session indexing, attention projections, and runtime coordination,
+but it must not become a competing source of truth for repository artifacts.
 
-- **New Idea:** invoke Ideator.
-- **New PRD:** invoke Ideator or Planner depending on input shape.
-- **New Plan:** invoke Planner.
-- **New Epic:** invoke Architect.
-- **Review Plan:** invoke review/critique flow or human review surface.
-- **Find Context:** retrieve relevant Plans, PRDs, ADRs, and Work Records.
+Session Transcripts remain private Session data. Shared and Agent-retrievable knowledge is derived from explicit durable
+artifacts, not transcript ingestion.
 
-Router can still be used for vague entry points, but Workspace may offer direct role actions when users know the
-artifact they want.
+### 7.4 Search boundaries
 
-## 7. Local Workspace Requirements
+Durable artifact search uses the Project registry to enforce eligible Project scope and contribution policy. Cymbal
+federation likewise uses the Project registry rather than Cymbal's global cache listing as authorization.
 
-### 7.1 Launch and Scope
+The first version federates per-Project Cymbal queries rather than physically merging SQLite databases. This preserves
+Project boundaries and working-copy freshness while remaining operationally light for a personal Workspace.
 
-- `wld plans ui` starts an ephemeral local Workspace server for the current checkout.
-- The server binds to `127.0.0.1` by default.
-- State-changing requests require a random per-server session token.
-- File access is path-sandboxed beneath the launched checkout.
-- The local server should reject permissive CORS by default.
-- The local Workspace shows one project/checkout at a time.
+### 7.5 Browser and Code Surface
 
-### 7.2 Canonical Storage
+The existing Astro/React Workspace and RunWield Design System remain the browser foundation. Plannotator remains the
+review foundation. code-server is integrated as a bounded subordinate service rather than used as the Workspace shell.
 
-- The checkout's `plans/` directory remains the canonical Plan store.
-- The local Workspace must not introduce a local database as the canonical source for Plans.
-- Planner, Architect, Slicer, `wld plans`, and `wld load-plan` must continue to read/write the same Plan files.
-- The Workspace API must call Plan store and Plan Lifecycle seams rather than editing YAML directly.
+Dense desktop workflow layouts should collapse to focused views or drawers on smaller screens. Remote continuation and
+human-gate handling must remain usable from a phone, although full code editing need not be optimized for mobile.
 
-### 7.3 Resource Identity and URLs
+## 8. First-Version Acceptance Criteria
 
-- Plans have globally unique `planId` front matter.
-- Existing Plans can be lazily/backfilled with explicit, idempotent, collision-checked mutations.
-- Local routes should use durable resource identity and readable slugs where useful.
-- Board filters, Plan details, Epic child views, closed screens, and on-hold screens should be URL-addressable.
-- Local URL concepts should map cleanly to self-hosted and SaaS URLs later.
+Personal Remote Workspace v1 is complete only when one trusted developer can:
 
-### 7.4 Plan Board API
+1. Reach Workspace over a private network, pair a browser deliberately, list paired devices, and revoke one.
+2. Register at least two local Projects and verify Workspace cannot browse or search unregistered roots.
+3. See Needs You, Running, Ready, and Recently Finished work across those Projects on the Attention Dashboard.
+4. Create a standalone Session in Workspace, resume it later, and retain one durable identity across Agent handoffs.
+5. Run live Sessions in at least two Projects concurrently without Session, tool, interaction, or workflow state bleed.
+6. Disconnect the browser during active work, let the Session continue to completion or its next human gate, reconnect,
+   and resume from authoritative state.
+7. Observe the same Session from TUI and Workspace, transfer Session Control safely at an idle or waiting boundary, and
+   prevent simultaneous control.
+8. Associate a Session with a Plan and ensure a second Session cannot drive consequential actions while the first holds
+   the Plan Workflow Lease.
+9. Complete a bounded FEATURE journey through planning, Plannotator review, **Approve & Run**, execution, Workflow
+   Validation, and Work Record visibility from Workspace.
+10. Use **Approve for Later** to leave an approved Plan Ready For Work without starting execution.
+11. Recover an interrupted or uncertain Plan through an explicit operator-confirmed recovery path rather than blind
+    replay or silent lease deletion.
+12. Search eligible Plans, PRDs, ADRs, and Work Records within one Project and across contributing registered Projects.
+13. Search source code across explicitly selected Projects through Cymbal federation, receive Project-labeled partial
+    results when one index fails, and avoid Plan-worktree duplicates.
+14. Confirm that another Session's Transcript is absent from Agent retrieval and Workspace Intelligence while remaining
+    searchable by the owner for navigation.
+15. Open a Project's main checkout in code-server without granting it ownership of RunWield Plan worktrees.
+16. Receive an actionable attention signal for a required human interaction and return to the correct Session or Plan
+    workflow.
 
-The local API should expose:
+## 9. Success Measures
 
-- list Plans
-- grouped Epic hierarchy
-- read Plan front matter and markdown body
-- save Plan markdown body while preserving front matter
-- record lifecycle/manual status actions
-- list child FEATURE Plans for an Epic
-- surface dependencies, affected paths, worktree state, and validation state as read-only detail fields
+The first version succeeds when:
 
-### 7.5 Lifecycle Actions
+- the owner can complete the acceptance journey remotely without depending on an active TUI process;
+- browser reconnect and TUI attachment never create duplicate live Sessions or competing workflow owners;
+- multiple Projects can make progress concurrently while human attention remains understandable;
+- consequential Plan actions are rejected or recovered safely when Session or lease ownership is ambiguous;
+- artifact and code search return only eligible, explicitly scoped Project data;
+- repository artifacts remain usable through existing CLI and TUI workflows without migration to Workspace-only data;
+- users can distinguish durable knowledge, private transcript history, main-checkout code, and Plan-worktree changes;
+- Workspace feels like a Plan/workflow product rather than an Agent fleet dashboard or browser IDE wrapper.
 
-Board actions must record lifecycle events or call lifecycle helpers.
+## 10. Risks and Mitigations
 
-Allowed manual actions should include:
+| Risk                                                                 | Product mitigation                                                                                                                                                   |
+| -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Persistent remote access expands the local attack surface.           | Require private networking, device pairing, revocation, trusted Project roots, shared authorization across HTTP/WebSocket paths, and explicit consequential actions. |
+| TUI and Workspace can create split-brain Sessions or Plan execution. | Use one authoritative Session Host, separate observation from Session Control, and enforce durable Plan Workflow Leases.                                             |
+| Background continuation surprises the user.                          | Show Running and Needs You state prominently, notify at human gates, expose cancellation, and preserve explicit execution authorization.                             |
+| Multi-Project concurrency exhausts a developer laptop.               | Allow dormant Project Runtimes, bound indexing and Session concurrency, surface health, and degrade to partial results rather than blocking Workspace globally.      |
+| Cross-Project search leaks sensitive code or paths.                  | Query only explicitly selected registered Projects, sanitize absolute paths, keep Agent tools Project-scoped, and support artifact-intelligence opt-out.             |
+| Global search conflates incompatible symbol versions.                | Keep Project identity visible, group results by Project, exclude Plan worktrees, and avoid invented cross-Project call graphs.                                       |
+| code-server becomes an unbounded filesystem or terminal backdoor.    | Treat it as a separately bounded Code Surface tied to the intended Project and never as authorization for other roots or Plan worktrees.                             |
+| Session history becomes accidental shared memory.                    | Keep Transcripts owner-private and out of Agent retrieval; require durable artifact creation for reusable knowledge.                                                 |
+| Workspace drifts into generic Agent management.                      | Organize around attention, Projects, Sessions, and Plan workflows; do not add generic Tasks or Work Items.                                                           |
+| Personal architecture cannot evolve to SaaS.                         | Keep Project Runtime, Session identity, authorization, and storage boundaries compatible with later per-Project isolated containers and organization policy.         |
 
-- move draft/feedback/approved work toward Ready where lifecycle rules allow
-- mark externally started work as In Progress
-- mark externally completed work as Implemented
-- close without verification
-- hold a Plan
-- resume from hold only through Resume Check
+## 11. Out of Scope for Personal Remote Workspace v1
 
-Guardrails:
+- Public-internet exposure without a private network.
+- Team accounts, roles, organization membership, or shared-machine concurrency.
+- Collaborator access to Session Transcripts.
+- Cross-Session Agent retrieval from Session Transcripts.
+- Agent access to cross-Project Cymbal search.
+- A generic Work Item, Task, ticket, Scrum, or issue-tracker layer.
+- Replacing markdown Plans, PRDs, ADRs, or Work Records with database-only documents.
+- Rebuilding VS Code, language servers, terminals, debugging, or extension management inside Workspace.
+- Opening or editing RunWield-owned Plan worktrees through code-server.
+- Requiring Git, GitHub, pull requests, or Plan worktrees for every supported workflow.
+- Bundling Sourcebot or depending on its services, authentication, or license.
+- Making a raw WebTUI the primary Session experience.
+- Blind workflow replay after a crash.
+- Transparent automatic Plan Workflow Lease takeover.
+- Hosted SaaS execution, billing, organization policy, or multi-tenant infrastructure.
+- Replacing Shared Plan capability links with Workspace device identity.
 
-- FEATURE Plans must not become `verified` without Workflow Validation.
-- `failed` remains a mechanical recovery state and should not be entered or exited through casual board movement.
-- raw front matter editing must not be the default path for lifecycle state.
+## 12. Sequencing
 
-## 8. Shared Plan Space Requirements
+### Current foundation
 
-### 8.1 Deployment Modes
+Retain and build on:
 
-Shared Plan Spaces must support:
+- current local Plan Workspace;
+- Plannotator review;
+- Shared Plan collaboration;
+- Work Records;
+- SessionRuntime and the in-process multi-session host;
+- TUI/ACP sibling adapters;
+- Cymbal current-Project code intelligence.
 
-- self-hosted Astro/React Workspace Deno server with SQLite
-- Docker/Docker Compose deployment
-- loopback-bound Docker/Docker Compose deployment by default
-- operator-managed reverse proxy for public TLS, request-size limits, rate limits, and bearer-header preservation
-- optional inactivity retention for accountless public trial instances
-- future hosted SaaS deployment using the same protocol concepts
+### Next: Personal Remote Workspace v1
 
-Generic HTTP Basic Auth is not recommended because browser and CLI collaboration requests already use
-`Authorization: Bearer` for reviewer/maintainer capabilities. Cloudflare/D1 or other hosted infrastructure is a
-follow-up after the self-hosted SQLite protocol and Workspace remote mode are proven.
+Deliver the complete first-version boundary in this PRD, including registered Projects, persistent Sessions, remote
+device pairing, Attention Dashboard, Session Control, Plan Workflow Leases, unified Plan workflow, notifications,
+artifact intelligence, human cross-Project Cymbal search, and the code-server Code Surface.
 
-### 8.2 Encryption and Privacy
+Cross-Project search is part of the first version, not a later add-on: a multi-Project Workspace should support
+deliberate search across both durable planning artifacts and source code while preserving their different semantics.
 
-Remote servers must store ciphertext for Plan content and comments.
+### Following: OpenAB/Telegram compatibility
 
-Requirements:
+After Workspace establishes the authoritative persistent Session Host and workflow-ownership model, complete the
+OpenAB/Telegram Stage 1 proof against that same authority. Telegram remains a secondary notification and continuation
+channel rather than a parallel Session owner or primary product shell.
 
-- encryption/decryption happens client-side
-- content encryption keys are never sent to the server
-- content keys can live in URL fragments or local secure storage
-- authorization tokens are separate from content encryption keys
-- the server stores only minimal unencrypted routing metadata
-- comment anchors and original text should be encrypted unless a deliberate later decision says otherwise
+ACP remains the replaceable external-client contract, and full ACP v1 compliance remains valuable independently of
+Telegram.
 
-### 8.3 Capabilities
+### Later: collaborative SaaS Workspace
 
-Use accountless bearer capabilities for v1 shared review.
+Extend the same concepts with:
 
-Capability types:
+- isolated Project Runtime containers;
+- team and organization membership;
+- Project-level authorization and policy;
+- collaborator-visible durable artifacts and review;
+- organization-scale Workspace Intelligence;
+- optional external cross-repository search providers;
+- hosted execution only after planning, workflow, isolation, and recovery semantics are proven.
 
-- **Reviewer:** view encrypted Plan content after client-side decryption, comment, resolve own or allowed comments.
-- **Maintainer:** pull comments, push revisions, resolve comments, close review, hand off maintainer access, unshare.
+## 13. References
 
-Reviewer links should be easy to send to PMs, designers, clients, or other stakeholders. Maintainer capabilities should
-be treated as sensitive secrets.
-
-### 8.4 Remote Canonical Lock
-
-When a local Plan is shared:
-
-- the remote Shared Space becomes canonical for collaboration
-- the local Plan enters a Shared Plan Lock
-- normal local mutation is blocked
-- collaboration-aware commands can pull comments, incorporate feedback, push revisions, close, or unshare
-
-This prevents the team from reviewing stale or divergent local Plan state.
-
-### 8.5 Revision Model
-
-Shared Plans use revisions.
-
-Requirements:
-
-- one stable shared URL for the Plan Space
-- each pushed Plan update creates a new revision
-- comments are attached to a specific revision
-- old revisions remain readable for manual history
-- current planning should use the latest accepted revision, not every intermediate conversation
-- closing a Shared Space makes it read-only
-
-Comments do not need to carry forward automatically across revisions in v1. Future UI can help users inspect unresolved
-comments from previous revisions.
-
-### 8.6 Commands
-
-Command names should align with the existing `wld plans` command family.
-
-Expected command shape:
-
-| Command                           | Purpose                                                                           |
-| --------------------------------- | --------------------------------------------------------------------------------- |
-| `wld plans share <plan>`          | Encrypt and create a Shared Plan Space, then print reviewer/maintainer links.     |
-| `wld plans pull <shared-plan>`    | Fetch and decrypt comments/revisions, then offer Planner/Architect incorporation. |
-| `wld plans push <plan>`           | Encrypt and push a new revision after local incorporation.                        |
-| `wld plans close <shared-plan>`   | Close review and make the Shared Space read-only.                                 |
-| `wld plans unshare <shared-plan>` | Destructively remove or detach the remote Shared Space where capability allows.   |
-
-Exact names can be finalized during implementation, but the product concept should remain plural `plans` integration
-rather than a disconnected sharing CLI.
-
-### 8.7 Shared Space API
-
-The server API should be backend-agnostic and usable by self-hosted and hosted deployments.
-
-Core resources:
-
-- shared spaces
-- revisions
-- comments
-- capabilities
-- status
-
-Conceptual endpoints:
-
-- create Shared Space
-- fetch Shared Space metadata
-- fetch encrypted revision
-- push encrypted revision
-- list encrypted comments
-- create encrypted comment
-- resolve/unresolve comment
-- close Shared Space
-- destroy/unshare Shared Space
-
-The server must not need plaintext Plan content to perform these operations.
-
-## 9. RunWield Workspace SaaS Requirements
-
-### 9.1 Team Workspaces
-
-The SaaS product organizes work by team workspace and project.
-
-Requirements:
-
-- Admin/Member/Reviewer roles
-- project-scoped Plan boards
-- cross-project search and retrieval
-- durable hosted URLs
-- hosted Shared Plan Spaces
-- workspace settings for approval strictness and record policies
-
-### 9.2 Plan-Centered Home
-
-The first paid screen should be about Plans.
-
-It should prioritize:
-
-- backlog/planning work
-- review-needed Plans
-- ready Plans
-- in-progress Plans
-- verifying work
-- done/on-hold views
-- new idea/Plan/PRD actions
-
-Search over records is important but secondary. The daily surface is the Plan workspace.
-
-### 9.3 Planning Memory
-
-Workspace should make Work Records useful across projects.
-
-Capabilities:
-
-- search Work Records by title, description, and headings
-- retrieve relevant records for new Plans
-- produce planning context packs for Ideator, Planner, and Architect
-- answer "what did we decide before?"
-- filter by project, area, scope, completion mode, status, and related artifacts
-- support future compression/deduplication of older records
-
-Only approved/auto-approved Work Records should enter default planning retrieval. Draft and superseded records may
-remain manually accessible.
-
-### 9.4 Conversation Privacy
-
-Workspace should persist artifacts, not raw chat traces.
-
-Requirements:
-
-- individual chat messages are private-first
-- generated artifacts store user and Agent authorship
-- details screens show metadata quietly
-- admins may have session debugging access where policy allows
-- analytics for RunWield improvement should be anonymized and aggregated unless a user explicitly opts into broader
-  sharing
-
-### 9.5 Hosted Execution Later
-
-Hosted AFK execution of ready Plans is a future expansion, not the initial SaaS wedge.
-
-If added later, it should:
-
-- execute ready Plans through `wld`/RunWield Core semantics
-- preserve Plan Lifecycle and Work Record semantics
-- make execution status visible from Workspace
-- avoid turning the product into generic agent fleet management
-
-## 10. Architecture
-
-### 10.1 Shared Frontend
-
-Production UI should live under `src/ui/workspace/`.
-
-The same Astro/React Workspace app should support:
-
-- local Plan Workspace mode
-- self-hosted Shared Space mode
-- hosted SaaS Workspace mode
-
-Different modes can use different adapters, but the design system, route concepts, Plan rendering, comment UI, and
-resource vocabulary should stay coherent.
-
-### 10.2 Adapter Boundaries
-
-Workspace should use adapters for:
-
-- local Plan store over markdown files
-- Plan Lifecycle actions
-- Shared Space remote API
-- hosted Workspace API
-- editor implementation
-- search/retrieval
-
-This keeps the local Core workflow from depending on SaaS infrastructure while allowing SaaS to reuse the same product
-concepts.
-
-### 10.3 Storage Model
-
-Local mode:
-
-- canonical Plans under `plans/`
-- future Work Records under `docs/work-records/`
-- local runtime state under `~/.wld/`
-- no local database as canonical Plan storage
-
-Self-hosted Shared Space mode:
-
-- SQLite database
-- encrypted revisions/comments
-- bearer capability metadata
-- minimal unencrypted routing fields
-
-SaaS mode:
-
-- hosted database/storage
-- team/project membership
-- hosted Shared Spaces
-- indexed planning artifacts and Work Records
-- cross-project retrieval indexes
-
-### 10.4 Suggested Shared Space Schema
-
-Conceptual SQLite schema:
-
-```sql
-CREATE TABLE shared_spaces (
-  id TEXT PRIMARY KEY,
-  status TEXT NOT NULL,
-  current_revision INTEGER,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
-);
-
-CREATE TABLE revisions (
-  id TEXT PRIMARY KEY,
-  shared_space_id TEXT NOT NULL REFERENCES shared_spaces(id) ON DELETE CASCADE,
-  revision_number INTEGER NOT NULL,
-  encrypted_plan TEXT NOT NULL,
-  created_by TEXT,
-  created_at TEXT NOT NULL,
-  UNIQUE(shared_space_id, revision_number)
-);
-
-CREATE TABLE comments (
-  id TEXT PRIMARY KEY,
-  shared_space_id TEXT NOT NULL REFERENCES shared_spaces(id) ON DELETE CASCADE,
-  revision_id TEXT NOT NULL REFERENCES revisions(id) ON DELETE CASCADE,
-  encrypted_body TEXT NOT NULL,
-  encrypted_anchor TEXT,
-  author_display_name TEXT,
-  resolved INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
-);
-
-CREATE TABLE capabilities (
-  id TEXT PRIMARY KEY,
-  shared_space_id TEXT NOT NULL REFERENCES shared_spaces(id) ON DELETE CASCADE,
-  capability_hash TEXT NOT NULL,
-  capability_type TEXT NOT NULL,
-  created_at TEXT NOT NULL,
-  revoked_at TEXT
-);
-```
-
-Exact schema should be finalized in the implementation Plan. The product invariant is more important than these table
-names: remote collaboration stores ciphertext and capability metadata, not plaintext Plans.
-
-## 11. User Stories
-
-### 11.1 Local Planning
-
-1. As a user, I want to open `wld plans ui` in a checkout so I can manage Plans in a browser.
-2. As a user, I want the board to reflect canonical markdown Plans so CLI and agent workflows keep working.
-3. As a user, I want Epics to stay top-level so child slices do not overwhelm daily planning.
-4. As a user, I want to read a Plan before editing it so accidental changes are less likely.
-5. As a user, I want lifecycle actions to preserve RunWield semantics so `verified` keeps its meaning.
-
-### 11.2 Shared Review
-
-1. As a user, I want to share a Plan link with reviewers who do not have RunWield installed.
-2. As a reviewer, I want to read the current Plan revision and leave comments in a browser.
-3. As a maintainer, I want to pull comments into RunWield and ask Planner or Architect to incorporate them.
-4. As a maintainer, I want to push a new revision without creating a new review link.
-5. As a security-conscious team, I want the server to store only ciphertext.
-6. As a self-hosted team, I want to run the sharing server with Docker and SQLite.
-
-### 11.3 SaaS Workspace
-
-1. As a team member, I want a shared Plan board so planning work is visible to the team.
-2. As a PM, I want to start from an idea and collaborate with AI to shape a PRD or Plan.
-3. As a tech lead, I want to review Plans and link relevant ADRs before work starts.
-4. As a developer, I want ready Plans to carry enough context to execute without archaeology.
-5. As a team, I want Work Records to make future planning aware of what was built and why.
-6. As a team working across projects, I want relevant prior records retrieved automatically.
-
-## 12. Phasing
-
-### Phase 1: Local Workspace Foundation
-
-Status: already underway / partially implemented.
-
-Scope:
-
-- local Plan board
-- Plan detail and editor
-- Epic detail
-- lifecycle actions
-- stable `planId`
-- local URLs
-- Workspace-capable shell
-
-### Phase 2: Self-Hosted Shared Plan Spaces
-
-Scope:
-
-- self-hosted Astro/React Workspace Deno/SQLite server
-- encrypted revisions and comments
-- reviewer and maintainer capability links
-- Shared Plan Lock
-- `wld plans share|pull|push|unshare`, with close/browser destructive lifecycle deferred unless later slices add it
-- Docker Compose and setup docs
-
-This phase proves the collaboration protocol before hosted SaaS deployment.
-
-### Phase 3: Work Records in Core
-
-Scope:
-
-- Recorder Agent
-- repo-local Work Record markdown
-- auto-generation after verified planned work
-- auto-approval by default
-- relevance search for future planning
-- Planner/Architect/Ideator retrieval behavior
-
-This phase completes the local `plan -> execute -> record -> plan better` loop.
-
-### Phase 4: Hosted RunWield Workspace
-
-Scope:
-
-- team workspaces
-- project boards
-- hosted Shared Spaces
-- minimal roles
-- approval strictness settings
-- Work Record search and retrieval
-- cross-project planning intelligence
-
-### Phase 5: Hosted Execution
-
-Future optional scope:
-
-- AFK hosted `wld` execution for ready Plans
-- execution monitoring in Workspace
-- preserving Core validation and Work Record semantics
-
-## 13. Non-Goals
-
-- Replacing repo-local markdown as the Core Plan source of truth.
-- Making the Plan board a BlockSuite/AFFiNE database board.
-- Building a generic issue tracker or Scrum/Agile tool.
-- Leading the SaaS with hosted execution.
-- Persisting raw chat traces as planning memory by default.
-- Requiring Git, GitHub, pull requests, or a specific external workflow.
-- Making all reviewers create accounts for shared review v1.
-- Real-time Google-Docs-style editing in the first shared review version.
-- Letting remote servers see plaintext Plan content or comments.
-- Making job-title roles such as PM/Lead/Developer part of default permissions.
-
-## 14. Testing Strategy
-
-### 14.1 Local Workspace
-
-Test:
-
-- local server launch and token enforcement
-- Plan list and Epic hierarchy
-- Plan detail rendering
-- body-only save preserving front matter
-- lifecycle action API behavior
-- blocked lifecycle moves
-- closed/on-hold separation
-- stable URL routing
-- editor markdown fidelity
-
-### 14.2 Shared Spaces
-
-Test:
-
-- create Shared Space
-- generate reviewer/maintainer capabilities
-- encrypted Plan upload/download
-- encrypted comment create/list/resolve
-- revision push and history
-- close/read-only behavior
-- Shared Plan Lock behavior in local commands
-- self-hosted Docker startup
-- network capture or test fixture proving no plaintext content is sent
-
-### 14.3 SaaS Workspace
-
-Test:
-
-- role access boundaries
-- project-scoped boards
-- hosted Shared Space flows
-- Plan review cycle
-- Work Record retrieval
-- cross-project search relevance
-- privacy boundaries for sessions vs artifacts
-
-## 15. Success Metrics
-
-Local Workspace:
-
-- users can find and manage active Plans faster than with terminal listing
-- Plan body edits preserve front matter and markdown fidelity
-- lifecycle actions keep CLI and agent workflows coherent
-
-Self-hosted Shared Spaces:
-
-- a maintainer can share a Plan, collect comments, pull feedback, push a revision, and close review
-- reviewers can participate without installing RunWield
-- a Docker self-hosted server can be running in under five minutes
-- remote storage contains no plaintext Plan content or comments
-
-SaaS Workspace:
-
-- teams use Plans as their primary planning object
-- Plan review cycle time decreases
-- new Plans reuse relevant PRDs, ADRs, and Work Records
-- cross-project retrieval is rated useful by users
-- Work Records reduce repeated planning debates caused by missing history
-
-## 16. Open Questions
-
-- What is the exact command naming for shared Plan operations under `wld plans`?
-- Which encrypted comment anchor representation best balances privacy and UI robustness?
-- How much Shared Plan metadata can remain unencrypted without weakening user trust?
-- Should self-hosted Shared Spaces support optional accounts later, or remain capability-only?
-- What is the first hosted Workspace URL model for team/project/Plan resources?
-- When should Work Record retrieval appear directly in the Plan creation flow?
-- What minimum hosted Workspace billing boundary makes sense: workspace, project, or member?
-
-## 17. References
-
-- [Root RunWield PRD](../../PRD.md)
 - [RunWield Core PRD](./runwield-core-prd.md)
+- [Session Host and ACP PRD](./runwield-acp-session-host-PRD.md)
+- [Workspace Agent Sessions and Web IDE handoff](../handoffs/2026-07-20-workspace-agent-sessions-and-web-ide.md)
+- [Cymbal multi-Project federation research](../research/cymbal-multiproject-search-federation.md)
+- [Sourcebot integration research](../research/sourcebot-workspace-integration.md)
 - [Local-First Plan Management UI PRD](./local-first-plan-management-ui-PRD.md)
 - [Collaborative Planning PRD](./collaborative-planning-PRD.md)
 - [ADR-007: Local-First Workspace Plan Board](../adr/007-local-first-workspace-plan-board.md)
 - [ADR-008: Remote-Canonical Collaborative Shared Spaces](../adr/008-remote-canonical-collaborative-shared-spaces.md)
+- [ADR-010: SessionRuntime sibling adapters and ACP](../adr/010-session-runtime-sibling-adapters-and-acp.md)
+- [RunWield Design System](../design-system.md)
