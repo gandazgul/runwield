@@ -23,14 +23,22 @@ affectedPaths:
     - "docs/settings.md"
 frontend: false
 createdAt: "2026-07-15T21:05:36.853Z"
-updatedAt: "2026-07-19T14:11:26.884Z"
-status: "ready_for_work"
+updatedAt: "2026-07-21T01:00:16.387Z"
+status: "in_progress"
 origin: "internal"
 parentPlan: "work-records-v1"
 order: 4
 dependencies:
     - "02-recorder-generation-and-backfill"
     - "03-index-search-cli-and-agent-retrieval-tools"
+humanReviewMode: null
+humanReviewDecision: null
+executionBaselineTree: "7f217d199cd2f1dd68e54f38a623f01185309448"
+worktreeId: "e6f1d27a"
+worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-work-records-v1-04-session-end-auto-generation-s-e6f1d27a"
+worktreeBranch: "runwield/worktree/work-records-v1-04-session-end-auto-generation-s-e6f1d27a"
+worktreeBaseBranch: "main"
+worktreeStatus: "active"
 ---
 
 # Post-Completion Auto Generation, Settings, and Docs
