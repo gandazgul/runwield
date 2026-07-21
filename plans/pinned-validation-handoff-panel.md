@@ -21,15 +21,12 @@ affectedPaths:
     - "src/ui/tui/chat-session.test.js"
 frontend: false
 createdAt: "2026-07-18T22:51:42-04:00"
-updatedAt: "2026-07-21T21:59:50.457Z"
-status: "implemented"
+updatedAt: "2026-07-21T21:46:55.165Z"
+status: "verified"
 origin: "internal"
-failureReason: "Primary checkout has uncommitted changes that overlap execution worktree changes; refusing to merge: src/ui/tui/api.js, src/ui/tui/api.test.js"
-worktreeId: "fe2fa691"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-pinned-validation-handoff-panel-fe2fa691"
-worktreeBranch: "runwield/worktree/pinned-validation-handoff-panel-fe2fa691"
-worktreeBaseBranch: "main"
-worktreeStatus: "merge_conflict"
+verifiedAt: "2026-07-21T21:46:55.165Z"
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
 ---
 
 # Pin Validation Progress and Latest Reports Above TUI Input
