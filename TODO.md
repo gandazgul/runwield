@@ -1,5 +1,9 @@
 # TODO
 
+## Completed
+
+- [x] Pin validation progress and latest Engineer/Reviewer handoff reports above TUI input.
+
 ## Bugs
 
 - [ ] Guided review tries to use claude code???? it should use WLD instead. "failed · claude/claude-cli · 3.2s · tokens

@@ -16,6 +16,22 @@ import {
 } from "./chat-session.js";
 import { resolveTemplateModel } from "../../shared/models/model-validation.js";
 
+Deno.test("chat session layout keeps transcript, validation panel, spinner, prompts, accessories, and editor in order", async () => {
+    const source = await Deno.readTextFile(new URL("./chat-session.js", import.meta.url));
+    const orderedMarkers = [
+        "container.addChild(messageList)",
+        "container.addChild(validationPanelContainer)",
+        "container.addChild(runningTasksComponent)",
+        "container.addChild(activeInteractionContainer)",
+        "container.addChild(inputAccessoryContainer)",
+        "container.addChild(editor)",
+    ];
+    const indexes = orderedMarkers.map((marker) => source.indexOf(marker));
+
+    assertEquals(indexes.every((index) => index >= 0), true);
+    assertEquals(indexes, [...indexes].sort((a, b) => a - b));
+});
+
 Deno.test("footer thinking level is hidden until a model is configured", () => {
     assertEquals(shouldShowFooterThinkingLevel("", "medium"), false);
     assertEquals(shouldShowFooterThinkingLevel("test/model", "off"), false);
