@@ -299,7 +299,7 @@ maintainer URLs here; those contain secret `#key=...` and capability material. F
 `--plan-server http://127.0.0.1:8080` instead of editing settings. Pull, push, and unshare use the Plan's stored
 `collaborationServerUrl` and reject overrides that point at a different Plan Server.
 
-See [Self-hosted collaborative planning](collaboration.md) for Docker setup and the collaboration privacy model.
+See [Self-hosted collaborative planning](collaboration.md) for Podman/OCI setup and the collaboration privacy model.
 
 ### Resolution Order
 

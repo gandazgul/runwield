@@ -145,7 +145,7 @@ wld plans unshare <plan-name-or-id>
 
 Configure a non-secret `planServerUrl` in settings or pass `--plan-server <url>` to `share` for one invocation. Reviewer
 and maintainer URLs contain secret fragment/capability material; do not paste them into settings, Plans, issues, or
-logs. See [Self-hosted collaborative planning](collaboration.md) for Docker setup, the privacy model, and recovery
+logs. See [Self-hosted collaborative planning](collaboration.md) for Podman/OCI setup, the privacy model, and recovery
 flows.
 
 ## Slash commands

@@ -236,7 +236,7 @@ wld plans ui
 Current local Workspace requirements:
 
 - scoped to the current checkout
-- starts an ephemeral Fresh server
+- starts an ephemeral Astro/React Workspace server
 - binds to `127.0.0.1` by default
 - uses a random token for non-public routes and state-changing requests
 - exposes board, detail, lifecycle-action, and body-save APIs
@@ -252,7 +252,7 @@ Core includes encrypted collaborative Plan sharing through self-hosted remote Wo
 
 Current implemented surface:
 
-- self-hosted remote Workspace Plan Server with SQLite storage and Docker Compose packaging
+- self-hosted remote Workspace Plan Server with SQLite storage and Podman/OCI Compose packaging
 - `wld plans share <plan-name-or-id>`
 - `wld plans pull <maintainer-url-or-plan-name-or-id>`
 - `wld plans push <plan-name-or-id>`
@@ -451,7 +451,7 @@ Current:
 - **Agent runtime:** `@earendil-works/pi-coding-agent`.
 - **Compatibility:** preserve Pi Coding Agent behavior and configuration compatibility where it does not conflict with
   RunWield's planning/lifecycle product model.
-- **Local UI:** Fresh 2, Vite, Preact islands/signals, UnoCSS.
+- **Local UI:** Astro SSR, Vite, React islands, Tailwind/Radix-compatible Workspace primitives.
 - **Plan persistence:** repo-local markdown under `plans/`.
 - **RunWield settings/state:** `~/.wld/` and `.wld/` where appropriate.
 - **Memory:** Mnemosyne.
