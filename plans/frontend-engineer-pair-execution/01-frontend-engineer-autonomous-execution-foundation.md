@@ -1,5 +1,4 @@
 ---
-planId: "781f8fc4-9ca5-4c52-88ae-2fbde402e251"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Establish Frontend Engineer as a valid FEATURE execution owner and harden autonomous owner validation, dispatch, Task Completion, recovery, and validation repair end-to-end."
