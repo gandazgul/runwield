@@ -23,14 +23,19 @@ affectedPaths:
     - "docs/settings.md"
 frontend: false
 createdAt: "2026-07-15T21:05:36.853Z"
-updatedAt: "2026-07-19T14:11:26.884Z"
-status: "ready_for_work"
+updatedAt: "2026-07-21T02:26:56.143Z"
+status: "verified"
 origin: "internal"
 parentPlan: "work-records-v1"
 order: 4
 dependencies:
     - "02-recorder-generation-and-backfill"
     - "03-index-search-cli-and-agent-retrieval-tools"
+implementedAt: "2026-07-21T01:52:28.560Z"
+verifiedAt: "2026-07-21T02:26:56.143Z"
+executionReport: "- Implemented completion-driven Work Record auto-generation across validation success, TUI Epic done-enough, and Workspace persisted close-without-verification paths.\n- Added default-on `workRecords.autoGenerateOnPlanCompletion` setting, schema support, preservation/merge behavior, targeted generation helpers, Epic child resolution, failure isolation, and concise user-facing result formatting.\n- Updated Work Record generation/backfill helpers and docs for completion-driven hooks, settings, CLI usage, child/Epic behavior, Manual QA parallelism, failure isolation, and backfill guidance.\n- Added/updated tests for settings, targeted generation outcomes, validation concurrency/reporting, TUI hook, and Workspace lifecycle hook.\n- Repaired release quality-gate issues in Workspace build/runtime preparation so release compile succeeds.\n- Verification passed: `deno test -A src/shared/workflow/validation.test.js src/shared/work-records/work-records.test.js src/shared/settings.test.js src/cmd/load-plan/index.test.js src/ui/workspace/workspace.test.js` (264 passed).\n- Verification passed: `deno task release:check`.\n- Verification passed: `deno task ci` (1396 tests passed plus checks/lint/fmt/release check)."
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
 ---
 
 # Post-Completion Auto Generation, Settings, and Docs

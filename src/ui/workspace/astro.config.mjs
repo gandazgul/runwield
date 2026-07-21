@@ -14,6 +14,7 @@ import tidewave from "tidewave/vite-plugin";
 const WORKSPACE_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = resolve(WORKSPACE_DIR, "../../..");
 const PLANNOTATOR_DIR = resolve(ROOT_DIR, "third_party/plannotator");
+const STD_EXTERNALS = ["@std/front-matter", "@std/jsonc", "@std/path"];
 
 export default defineConfig({
     root: WORKSPACE_DIR,
@@ -39,14 +40,14 @@ export default defineConfig({
         plugins: [tidewave(), tailwindcss()],
         build: {
             rollupOptions: {
-                external: [/^@std\//],
+                external: STD_EXTERNALS,
             },
         },
         ssr: {
-            external: [/^@std\//],
+            external: STD_EXTERNALS,
         },
         optimizeDeps: {
-            exclude: ["@std/front-matter", "@std/jsonc", "@std/path"],
+            exclude: STD_EXTERNALS,
             esbuildOptions: {
                 define: { "process.env.NODE_ENV": '"development"' },
             },

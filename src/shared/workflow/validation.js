@@ -43,6 +43,10 @@ import {
 } from "../worktree-registry.js";
 import { buildGuidedReviewPolicy, recommendGuidedReview } from "./guided-review.js";
 import { buildLargeDiffReviewPrompt, createReviewDiffTool } from "./review-diff-tool.js";
+import {
+    autoGenerateWorkRecordForCompletedPlan,
+    formatWorkRecordAutoGenerationResult,
+} from "../work-records/auto-generation.js";
 
 export const __dirname = dirname(fromFileUrl(import.meta.url));
 const WORKFLOW_PROMPTS_DIR = "workflow-prompts";
@@ -279,6 +283,55 @@ async function presentManualQaChecklist({ hostedSession, name, classification, c
             true,
         );
     }
+}
+
+/**
+ * @param {Object} args
+ * @param {import('../session/hosted-session.js').HostedSession} args.hostedSession
+ * @param {string} args.planName
+ * @param {string} args.planContent
+ * @param {string} args.projectRoot
+ * @param {typeof runManualQaChecklistPrompt} args.runManualQaChecklistPrompt
+ * @param {typeof autoGenerateWorkRecordForCompletedPlan} args.autoGenerateWorkRecordForCompletedPlan
+ * @param {typeof formatWorkRecordAutoGenerationResult} args.formatWorkRecordAutoGenerationResult
+ */
+async function runFeaturePostVerificationHandoffs({
+    hostedSession,
+    planName,
+    planContent,
+    projectRoot,
+    runManualQaChecklistPrompt,
+    autoGenerateWorkRecordForCompletedPlan,
+    formatWorkRecordAutoGenerationResult,
+}) {
+    emitRunWieldSystemStatus(
+        hostedSession,
+        "Preparing post-verification Manual QA checklist and Work Record generation.",
+    );
+    const manualQaPromise = presentManualQaChecklist({
+        hostedSession,
+        name: planName,
+        classification: "FEATURE",
+        context: planContent,
+        cwd: projectRoot,
+        runPrompt: runManualQaChecklistPrompt,
+    });
+    const workRecordPromise = autoGenerateWorkRecordForCompletedPlan({ cwd: projectRoot, planName }).catch((error) => {
+        const reason = error instanceof Error ? error.message : String(error);
+        return {
+            status: /** @type {const} */ ("failed"),
+            planName,
+            error: reason,
+            message:
+                `Work Record generation failed for ${planName}: ${reason}. The Plan terminal state was preserved; run wld wr backfill after repair.`,
+        };
+    });
+    const [, workRecordResult] = await Promise.all([manualQaPromise, workRecordPromise]);
+    emitRunWieldSystemStatus(
+        hostedSession,
+        workRecordResult.message || formatWorkRecordAutoGenerationResult(workRecordResult),
+        workRecordResult.status === "failed" ? "warning" : "info",
+    );
 }
 
 /**
@@ -1061,6 +1114,8 @@ export async function runMechanicalValidation({
  *   getGuidedReviewMode?: typeof getGuidedReviewMode,
  *   verifyExecutionWorktreeMerged?: typeof verifyExecutionWorktreeMerged,
  *   recordWorkflowMetric?: typeof recordWorkflowMetric,
+ *   autoGenerateWorkRecordForCompletedPlan?: typeof autoGenerateWorkRecordForCompletedPlan,
+ *   formatWorkRecordAutoGenerationResult?: typeof formatWorkRecordAutoGenerationResult,
  * }} [args.__deps] Test-only injection point.
  */
 export async function runValidationLoop({
@@ -1102,6 +1157,10 @@ export async function runValidationLoop({
     const getGuidedReviewModeImpl = __deps?.getGuidedReviewMode || getGuidedReviewMode;
     const verifyExecutionWorktreeMergedImpl = __deps?.verifyExecutionWorktreeMerged || verifyExecutionWorktreeMerged;
     const recordWorkflowMetricSource = __deps?.recordWorkflowMetric || recordWorkflowMetric;
+    const autoGenerateWorkRecordForCompletedPlanImpl = __deps?.autoGenerateWorkRecordForCompletedPlan ||
+        autoGenerateWorkRecordForCompletedPlan;
+    const formatWorkRecordAutoGenerationResultImpl = __deps?.formatWorkRecordAutoGenerationResult ||
+        formatWorkRecordAutoGenerationResult;
     const activeWorkflow = hostedSession?.getActiveExecutionWorkflow?.() || null;
     const baselineTree = activeWorkflow?.baselineTree;
     const projectRoot = activeWorkflow?.projectRoot || hostedSession?.cwd;
@@ -2217,13 +2276,14 @@ export async function runValidationLoop({
                 });
             }
             if (triageMeta?.classification === "FEATURE") {
-                await presentManualQaChecklist({
+                await runFeaturePostVerificationHandoffs({
                     hostedSession,
-                    name: planName,
-                    classification: "FEATURE",
-                    context: planContent,
-                    cwd: projectRoot,
-                    runPrompt: runManualQaChecklistPromptImpl,
+                    planName,
+                    planContent,
+                    projectRoot,
+                    runManualQaChecklistPrompt: runManualQaChecklistPromptImpl,
+                    autoGenerateWorkRecordForCompletedPlan: autoGenerateWorkRecordForCompletedPlanImpl,
+                    formatWorkRecordAutoGenerationResult: formatWorkRecordAutoGenerationResultImpl,
                 });
             }
         } else if (haltReason) {

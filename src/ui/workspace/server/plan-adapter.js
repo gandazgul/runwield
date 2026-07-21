@@ -26,6 +26,10 @@ import {
 import { SharedPlanLockError } from "../../../shared/collaboration/lock.js";
 import { getWorktreeStatus, inspectExecutionWorktreeMergeRisk } from "../../../shared/worktree.js";
 import { PLAN_LIFECYCLE_ACTIONS } from "../constants.js";
+import {
+    autoGenerateWorkRecordForCompletedPlan,
+    formatWorkRecordAutoGenerationResult,
+} from "../../../shared/work-records/auto-generation.js";
 
 export const ACTIVE_STATUSES = ACTIVE_PLAN_STATUSES;
 export const CLOSED_STATUSES = CLOSED_PLAN_STATUSES;
@@ -770,11 +774,17 @@ export function applyWorkspaceLifecycleActionInMemory(plan, payload) {
 }
 
 /**
+ * @typedef {Object} WorkspaceLifecycleActionDeps
+ * @property {typeof autoGenerateWorkRecordForCompletedPlan} [autoGenerateWorkRecordForCompletedPlan]
+ */
+
+/**
  * @param {string} cwd
  * @param {string} planId
  * @param {unknown} payload
+ * @param {WorkspaceLifecycleActionDeps} [deps]
  */
-export async function applyWorkspaceLifecycleAction(cwd, planId, payload) {
+export async function applyWorkspaceLifecycleAction(cwd, planId, payload, deps = {}) {
     const request = validateLifecycleActionPayload(payload);
     const resource = await findPlanById(cwd, planId);
     const attrs = safeObject(resource.attrs);
@@ -837,7 +847,30 @@ export async function applyWorkspaceLifecycleAction(cwd, planId, payload) {
         message = "Held Plan reset to draft; worktrees were not deleted.";
     }
 
-    await recordPlanEvent({ cwd, planName: resource.planName || resource.name, event, currentStatus, details });
+    const planName = resource.planName || resource.name;
+    await recordPlanEvent({ cwd, planName, event, currentStatus, details });
+    if (event === "manual_closed_without_verification") {
+        const generateWorkRecord = deps.autoGenerateWorkRecordForCompletedPlan ||
+            autoGenerateWorkRecordForCompletedPlan;
+        let workRecordResult;
+        try {
+            workRecordResult = await generateWorkRecord({ cwd, planName });
+        } catch (error) {
+            const reason = error instanceof Error ? error.message : String(error);
+            workRecordResult = {
+                status: /** @type {const} */ ("failed"),
+                planName,
+                error: reason,
+                message: formatWorkRecordAutoGenerationResult({
+                    status: "failed",
+                    planName,
+                    error: reason,
+                    message: "",
+                }),
+            };
+        }
+        message = `${message} ${workRecordResult.message}`;
+    }
     return {
         blocked: false,
         body: {
