@@ -56,3 +56,39 @@ Deno.test("TUI interaction adapter maps approval prompts to accepted outcome", a
     assertEquals(response.outcome, "accepted");
     assertEquals(response.value, true);
 });
+
+Deno.test("TUI interaction adapter returns atomic pair checkpoint revision feedback", async () => {
+    /** @type {string[]} */
+    const prompts = [];
+    const adapter = createTuiInteractionAdapter(
+        /** @type {any} */ ({
+            /** @param {string} prompt */
+            promptSelect: (prompt) => {
+                prompts.push(prompt);
+                return Promise.resolve("revise");
+            },
+            promptText: () => Promise.resolve("Increase the heading contrast"),
+        }),
+    );
+
+    assertEquals(adapter.supportsInteraction?.("pair_checkpoint"), true);
+    const response = await adapter.requestInteraction({
+        type: "pair_checkpoint",
+        prompt: "Rendered account card",
+        _meta: {
+            route: "/account",
+            viewport: "mobile",
+            evidence: ["/tmp/account.png"],
+            diagnostics: "No console errors",
+            nextIncrement: "Polish empty state",
+        },
+    });
+
+    assertEquals(response, {
+        outcome: "selected",
+        value: "revise",
+        _meta: { feedback: "Increase the heading contrast" },
+    });
+    assertEquals(prompts[0].includes("/account"), true);
+    assertEquals(prompts[0].includes("/tmp/account.png"), true);
+});

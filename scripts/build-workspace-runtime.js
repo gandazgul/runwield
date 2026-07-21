@@ -157,6 +157,23 @@ async function waitForServerEntryImports(serverEntry) {
 }
 
 /**
+ * @param {string} path
+ * @returns {Promise<Deno.FileInfo>}
+ */
+async function waitForFile(path) {
+    const deadline = Date.now() + 5000;
+    while (true) {
+        const stat = await Deno.stat(path).catch((error) => {
+            if (error instanceof Deno.errors.NotFound) return null;
+            throw error;
+        });
+        if (stat?.isFile) return stat;
+        if (Date.now() >= deadline) throw new Error(`Workspace runtime server was not created: ${path}`);
+        await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+}
+
+/**
  * @param {WorkspaceRuntimeBuildOptions} [options]
  * @returns {Promise<void>}
  */
@@ -187,8 +204,7 @@ export async function buildWorkspaceRuntime(options = {}) {
     ]);
     await copyOpaqueAssets(clientDir, join(runtimeDir, "client"));
 
-    const serverInfo = await Deno.stat(serverOutput);
-    if (!serverInfo.isFile) throw new Error(`Workspace runtime server was not created: ${serverOutput}`);
+    await waitForFile(serverOutput);
 }
 
 if (import.meta.main) {

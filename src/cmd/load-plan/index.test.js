@@ -3160,6 +3160,46 @@ Deno.test("runLoadPlanCommand verified plan review path records review_reopened"
     assertEquals(lifecycleCalled, true);
 });
 
+Deno.test("runLoadPlanCommand verified plan can be archived from the action menu", async () => {
+    const { uiAPI, selections, prompts, messages } = makeUi();
+    selections.push("archive");
+    /** @type {string | null} */
+    let archivedTarget = null;
+
+    await runLoadPlanCommand(["plan-verified-archive"], {
+        ...makeRuntimeContext(),
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: () => ({ help: false, _: ["plan-verified-archive"] }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "plan-verified-archive",
+                    path: "plans/plan-verified-archive.md",
+                    body: "body",
+                    attrs: {
+                        classification: "FEATURE",
+                        complexity: "LOW",
+                        summary: "s",
+                        affectedPaths: [],
+                        status: "verified",
+                    },
+                }),
+            archivePlan: (/** @type {string} */ _cwd, /** @type {string} */ target) => {
+                archivedTarget = target;
+                return Promise.resolve(
+                    /** @type {any} */ ({ relativePath: "plans/archived/plan-verified-archive.md" }),
+                );
+            },
+        }),
+    });
+
+    const actionPrompt = prompts.find((prompt) => prompt.prompt === "What would you like to do?");
+    assertEquals(actionPrompt?.options.some((option) => option.value === "archive"), true);
+    assertEquals(archivedTarget, "plan-verified-archive");
+    assertEquals(messages.some((message) => message.includes("plans/archived/plan-verified-archive.md")), true);
+});
+
 Deno.test("runLoadPlanCommand verified plan cancel returns without changes", async () => {
     const { uiAPI, selections } = makeUi();
     selections.push("cancel");

@@ -1184,6 +1184,7 @@ export async function runValidationLoop({
     const formatWorkRecordAutoGenerationResultImpl = __deps?.formatWorkRecordAutoGenerationResult ||
         formatWorkRecordAutoGenerationResult;
     const activeWorkflow = hostedSession?.getActiveExecutionWorkflow?.() || null;
+    const executionAgent = activeWorkflow?.executionAgent || AGENTS.ENGINEER;
     const baselineTree = activeWorkflow?.baselineTree;
     const projectRoot = activeWorkflow?.projectRoot || hostedSession?.cwd;
     if (!projectRoot) throw new Error("runValidationLoop: hostedSession or active workflow projectRoot is required");
@@ -1205,11 +1206,11 @@ export async function runValidationLoop({
     const switchActiveAgentImpl = __deps?.switchActiveAgent || switchActiveAgent;
     const runManualQaChecklistPromptImpl = __deps?.runManualQaChecklistPrompt || runManualQaChecklistPrompt;
     /** @param {string} reason */
-    const pauseForEngineerContinuation = async (reason) => {
+    const pauseForExecutionContinuation = async (reason) => {
         emitRunWieldSystemStatus(
             hostedSession,
             `${reason} Staying with ${
-                getAgentDisplayName(AGENTS.ENGINEER, projectRoot)
+                getAgentDisplayName(executionAgent, projectRoot)
             } so the user can continue the session. ` +
                 "Validation will resume after task_completed.",
             true,
@@ -1222,7 +1223,7 @@ export async function runValidationLoop({
                 executionCwd,
                 validationContinuation: true,
             });
-            await switchActiveAgentImpl(hostedSession, { agentName: AGENTS.ENGINEER });
+            await switchActiveAgentImpl(hostedSession, { agentName: executionAgent });
         }
     };
     let executionComplete = false;
@@ -1276,7 +1277,7 @@ export async function runValidationLoop({
                 },
             });
             if (ciResult.canceled) {
-                await pauseForEngineerContinuation("CI validation canceled.");
+                await pauseForExecutionContinuation("CI validation canceled.");
                 return;
             }
             if (ciResult.exitCode === 0) {
@@ -1286,7 +1287,7 @@ export async function runValidationLoop({
                 emitRunWieldSystemStatus(
                     hostedSession,
                     `Build failed. Dispatching ${
-                        getAgentDisplayName(AGENTS.ENGINEER, projectRoot)
+                        getAgentDisplayName(executionAgent, projectRoot)
                     } to fix syntax/types...`,
                     true,
                 );
@@ -1299,7 +1300,7 @@ export async function runValidationLoop({
                 });
                 const completed = await repair({
                     hostedSession,
-                    agentName: AGENTS.ENGINEER,
+                    agentName: executionAgent,
                     userRequest:
                         "The project failed CI validation. Fix the following build errors, then call task_completed " +
                         `when the repair is complete:\n\n${ciResult.output}`,
@@ -1319,9 +1320,9 @@ export async function runValidationLoop({
                     },
                 });
                 if (!completed) {
-                    await pauseForEngineerContinuation(
+                    await pauseForExecutionContinuation(
                         `${
-                            getAgentDisplayName(AGENTS.ENGINEER, projectRoot)
+                            getAgentDisplayName(executionAgent, projectRoot)
                         } stopped without task_completed during CI repair.`,
                     );
                     return;
@@ -1772,7 +1773,7 @@ export async function runValidationLoop({
                         emitRunWieldSystemStatus(
                             hostedSession,
                             `User code review returned feedback. Sending feedback back to ${
-                                getAgentDisplayName(AGENTS.ENGINEER, projectRoot)
+                                getAgentDisplayName(executionAgent, projectRoot)
                             }...\nUser Code Review Feedback:\n${feedbackText}`,
                             true,
                         );
@@ -1791,13 +1792,13 @@ export async function runValidationLoop({
                         await recordWorkflowMetricImpl({
                             category: "validation",
                             event: "repair_dispatched",
-                            agentName: AGENTS.ENGINEER,
+                            agentName: executionAgent,
                             planName,
                             details: { repairKind: "human_review", validationCycle: validationCycles },
                         });
                         const completed = await repair({
                             hostedSession,
-                            agentName: AGENTS.ENGINEER,
+                            agentName: executionAgent,
                             userRequest:
                                 "The user provided feedback about your implementation during a code review. Please fix them, " +
                                 `do not break existing tests, and call task_completed when finished.\n\n` +
@@ -1811,7 +1812,7 @@ export async function runValidationLoop({
                         await recordWorkflowMetricImpl({
                             category: "validation",
                             event: "repair_completed",
-                            agentName: AGENTS.ENGINEER,
+                            agentName: executionAgent,
                             planName,
                             details: {
                                 repairKind: "human_review",
@@ -1820,9 +1821,9 @@ export async function runValidationLoop({
                             },
                         });
                         if (!completed) {
-                            await pauseForEngineerContinuation(
+                            await pauseForExecutionContinuation(
                                 `${
-                                    getAgentDisplayName(AGENTS.ENGINEER, projectRoot)
+                                    getAgentDisplayName(executionAgent, projectRoot)
                                 } stopped without task_completed during human code review repair.`,
                             );
                             return;
@@ -1843,19 +1844,19 @@ export async function runValidationLoop({
             });
             emitRunWieldSystemStatus(
                 hostedSession,
-                `Review failed. Sending feedback back to ${getAgentDisplayName(AGENTS.ENGINEER, projectRoot)}...`,
+                `Review failed. Sending feedback back to ${getAgentDisplayName(executionAgent, projectRoot)}...`,
                 true,
             );
             await recordWorkflowMetricImpl({
                 category: "validation",
                 event: "repair_dispatched",
-                agentName: AGENTS.ENGINEER,
+                agentName: executionAgent,
                 planName,
                 details: { repairKind: "semantic", validationCycle: validationCycles },
             });
             const completed = await repair({
                 hostedSession,
-                agentName: AGENTS.ENGINEER,
+                agentName: executionAgent,
                 userRequest: "The code reviewer found issues with your implementation. Please fix them, do not break " +
                     `existing tests, and call task_completed when finished.\n\nReviewer Feedback:\n${reviewResponse}`,
                 sessionManager,
@@ -1864,7 +1865,7 @@ export async function runValidationLoop({
             await recordWorkflowMetricImpl({
                 category: "validation",
                 event: "repair_completed",
-                agentName: AGENTS.ENGINEER,
+                agentName: executionAgent,
                 planName,
                 details: {
                     repairKind: "semantic",
@@ -1873,9 +1874,9 @@ export async function runValidationLoop({
                 },
             });
             if (!completed) {
-                await pauseForEngineerContinuation(
+                await pauseForExecutionContinuation(
                     `${
-                        getAgentDisplayName(AGENTS.ENGINEER, projectRoot)
+                        getAgentDisplayName(executionAgent, projectRoot)
                     } stopped without task_completed during semantic repair.`,
                 );
                 return;
@@ -2018,20 +2019,20 @@ export async function runValidationLoop({
                             emitRunWieldSystemStatus(
                                 hostedSession,
                                 `Post-merge verification found remaining merge-back work. Dispatching ${
-                                    getAgentDisplayName(AGENTS.ENGINEER, projectRoot)
+                                    getAgentDisplayName(executionAgent, projectRoot)
                                 } for automatic merge repair attempt ${mergeRepairAttempts}/${maxMergeRepairAttempts}...`,
                                 true,
                             );
                             await recordWorkflowMetricImpl({
                                 category: "validation",
                                 event: "repair_dispatched",
-                                agentName: AGENTS.ENGINEER,
+                                agentName: executionAgent,
                                 planName,
                                 details: { repairKind: "merge_verification", repairAttempt: mergeRepairAttempts },
                             });
                             const completed = await repair({
                                 hostedSession,
-                                agentName: AGENTS.ENGINEER,
+                                agentName: executionAgent,
                                 userRequest: buildMergeRepairRequest({
                                     planName,
                                     reason,
@@ -2050,7 +2051,7 @@ export async function runValidationLoop({
                             await recordWorkflowMetricImpl({
                                 category: "validation",
                                 event: "repair_completed",
-                                agentName: AGENTS.ENGINEER,
+                                agentName: executionAgent,
                                 planName,
                                 details: {
                                     repairKind: "merge_verification",
@@ -2062,7 +2063,7 @@ export async function runValidationLoop({
                             emitRunWieldSystemStatus(
                                 hostedSession,
                                 `${
-                                    getAgentDisplayName(AGENTS.ENGINEER, projectRoot)
+                                    getAgentDisplayName(executionAgent, projectRoot)
                                 } stopped without task_completed during merge verification repair.`,
                                 true,
                             );
@@ -2259,20 +2260,20 @@ export async function runValidationLoop({
                         emitRunWieldSystemStatus(
                             hostedSession,
                             `Dispatching ${
-                                getAgentDisplayName(AGENTS.ENGINEER, projectRoot)
+                                getAgentDisplayName(executionAgent, projectRoot)
                             } for merge repair attempt ${mergeRepairAttempts}/${maxMergeRepairAttempts}...`,
                             true,
                         );
                         await recordWorkflowMetricImpl({
                             category: "validation",
                             event: "repair_dispatched",
-                            agentName: AGENTS.ENGINEER,
+                            agentName: executionAgent,
                             planName,
                             details: { repairKind: "merge", repairAttempt: mergeRepairAttempts },
                         });
                         const completed = await repair({
                             hostedSession,
-                            agentName: AGENTS.ENGINEER,
+                            agentName: executionAgent,
                             userRequest: buildMergeRepairRequest({
                                 planName,
                                 reason,
@@ -2291,7 +2292,7 @@ export async function runValidationLoop({
                         await recordWorkflowMetricImpl({
                             category: "validation",
                             event: "repair_completed",
-                            agentName: AGENTS.ENGINEER,
+                            agentName: executionAgent,
                             planName,
                             details: {
                                 repairKind: "merge",
@@ -2303,7 +2304,7 @@ export async function runValidationLoop({
                         emitRunWieldSystemStatus(
                             hostedSession,
                             `${
-                                getAgentDisplayName(AGENTS.ENGINEER, projectRoot)
+                                getAgentDisplayName(executionAgent, projectRoot)
                             } stopped without task_completed during merge repair.`,
                             true,
                         );

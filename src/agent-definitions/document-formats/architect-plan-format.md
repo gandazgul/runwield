@@ -5,7 +5,6 @@ summary: "<Brief summary of the project-level change>"
 affectedPaths:
     - "path/to/file1"
     - "path/to/file2"
-frontend: false
 devServerCommand: null
 devServerUrl: null
 devServerHmr: null

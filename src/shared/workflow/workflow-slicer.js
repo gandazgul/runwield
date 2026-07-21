@@ -82,9 +82,14 @@ const CHILD_DESCRIPTOR_SCHEMA = Type.Object({
     summary: Type.String({ description: "Brief child FEATURE summary." }),
     dependencies: Type.Array(Type.String(), { description: "Child plan dependencies, if any." }),
     affectedPaths: Type.Array(Type.String(), { description: "Expected affected paths." }),
-    frontend: Type.Optional(
-        Type.Boolean({ description: "True when this child FEATURE includes frontend UI/UX work." }),
-    ),
+    executionAgent: Type.Union([
+        Type.Literal("engineer"),
+        Type.Literal("frontend-engineer"),
+    ], { description: "Canonical owner; Frontend Engineer is browser-rendered UI only." }),
+    collaborationRecommendation: Type.Union([
+        Type.Literal("pair"),
+        Type.Literal("autonomous"),
+    ], { description: "Suggested execution style for frontend-owned work." }),
     devServerCommand: Type.Optional(Type.String({
         description: "Dev or preview command to run for browser verification, if known.",
     })),

@@ -31,10 +31,11 @@ import { AGENTS } from "../../constants.js";
 
 /**
  * @param {string} agentName
+ * @param {import('./hosted-session.js').ActiveExecutionWorkflow} workflow
  * @returns {boolean}
  */
-function canCompleteActiveExecutionWorkflow(agentName) {
-    return agentName === AGENTS.ENGINEER;
+function canCompleteActiveExecutionWorkflow(agentName, workflow) {
+    return agentName === (workflow.executionAgent || AGENTS.ENGINEER);
 }
 
 /**
@@ -103,6 +104,10 @@ export function createAgentHandler(agentName, __deps) {
     return async (userRequest, images, sessionManager) => {
         if (!hostedSession) throw new Error("createAgentHandler: hostedSession is required");
         const projectRoot = hostedSession.cwd;
+        const resumedWorkflow = hostedSession.getActiveExecutionWorkflow();
+        if (resumedWorkflow?.pairStopRequested) {
+            hostedSession.setActiveExecutionWorkflow({ ...resumedWorkflow, pairStopRequested: undefined });
+        }
         /**
          * @param {Parameters<typeof recordWorkflowMetricSource>[0]} metric
          * @param {Parameters<typeof recordWorkflowMetricSource>[1]} [deps]
@@ -272,10 +277,11 @@ export function createAgentHandler(agentName, __deps) {
                 // Ignore in tests or if the file doesn't exist
             }
 
+            const executionOwner = hostedSession.getActiveExecutionWorkflow()?.executionAgent || AGENTS.ENGINEER;
             const executionDecision = decidePostExecution(executionResult, {
                 planName,
                 triageMeta,
-                executionAgentName: AGENTS.ENGINEER,
+                executionAgentName: executionOwner,
             });
             await recordWorkflowMetricImpl({
                 category: "execution",
@@ -363,7 +369,11 @@ export function createAgentHandler(agentName, __deps) {
         const taskCompleted = readLatestTaskCompletedOutcome(messages, preTurnCount);
         if (taskCompleted) {
             const workflow = hostedSession.getActiveExecutionWorkflow();
-            if (workflow && !canCompleteActiveExecutionWorkflow(agentName)) {
+            if (workflow?.pairStopRequested) {
+                requestAgentStoppedAttention();
+                return { kind: "complete" };
+            }
+            if (workflow && !canCompleteActiveExecutionWorkflow(agentName, workflow)) {
                 requestAgentStoppedAttention();
                 return { kind: "complete" };
             }
