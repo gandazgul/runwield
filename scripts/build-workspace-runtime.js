@@ -72,6 +72,50 @@ async function copyOpaqueAssets(sourceDir, destinationDir) {
 }
 
 /**
+ * Return static relative imports from an Astro server entrypoint. JSDoc type
+ * imports are intentionally ignored because they are erased at runtime.
+ *
+ * @param {string} source
+ * @param {string} entryDir
+ * @returns {string[]}
+ */
+export function getServerEntryImportPaths(source, entryDir) {
+    const importPaths = [];
+    for (const line of source.split("\n")) {
+        const trimmed = line.trimStart();
+        if (trimmed.startsWith("/*") || trimmed.startsWith("*") || trimmed.startsWith("//")) continue;
+
+        const staticMatch = trimmed.match(/^import(?:\s+[^'";]+?\s+from\s+|\s*)['"](\.\.?\/[^'"]+)['"]/);
+        if (staticMatch) {
+            importPaths.push(join(entryDir, staticMatch[1]));
+            continue;
+        }
+
+        const dynamicMatch = trimmed.match(/\bimport\(['"](\.\.?\/[^'"]+)['"]\)/);
+        if (dynamicMatch) importPaths.push(join(entryDir, dynamicMatch[1]));
+    }
+    return importPaths;
+}
+
+/**
+ * Replace the Deno adapter shim with concrete JSR imports before bundling.
+ * @deno/astro-adapter patches server chunks, but recent Astro/Vite output can
+ * place the shim in the entrypoint itself.
+ *
+ * @param {string} source
+ * @returns {string}
+ */
+export function normalizeDenoAdapterShimImport(source) {
+    return source.replace(
+        /^import\s+\{\s*fromFileUrl\s*,\s*serveFile\s*\}\s+from\s+["']@deno\/astro-adapter\/__deno_imports\.ts["'];$/m,
+        'import { serveFile } from "jsr:@std/http@1.0/file-server";\nimport { fromFileUrl } from "jsr:@std/path@1.0";',
+    ).replace(
+        /^import\s+\{\s*serveFile\s*,\s*fromFileUrl\s*\}\s+from\s+["']@deno\/astro-adapter\/__deno_imports\.ts["'];$/m,
+        'import { serveFile } from "jsr:@std/http@1.0/file-server";\nimport { fromFileUrl } from "jsr:@std/path@1.0";',
+    );
+}
+
+/**
  * Astro can return before all generated server chunks are immediately visible to
  * a follow-up subprocess on every filesystem. Wait for entrypoint imports before
  * invoking `deno bundle`, so release builds do not race the server output.
@@ -81,14 +125,12 @@ async function copyOpaqueAssets(sourceDir, destinationDir) {
  */
 async function waitForServerEntryImports(serverEntry) {
     const entryDir = dirname(serverEntry);
-    const source = await Deno.readTextFile(serverEntry);
-    const importPaths = Array.from(source.matchAll(/(?:from\s+|import\()['"](\.\.?\/[^'"]+)['"]/g), (match) => {
-        return join(entryDir, match[1]);
-    });
     const deadline = Date.now() + 5000;
     while (true) {
+        const source = normalizeDenoAdapterShimImport(await Deno.readTextFile(serverEntry));
+        await Deno.writeTextFile(serverEntry, source);
         const missing = [];
-        for (const path of importPaths) {
+        for (const path of getServerEntryImportPaths(source, entryDir)) {
             const stat = await Deno.stat(path).catch((error) => {
                 if (error instanceof Deno.errors.NotFound) return null;
                 throw error;
