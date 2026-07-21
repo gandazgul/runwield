@@ -41,16 +41,28 @@ jobs:
                     exit 0
                   fi
 
-                  current="$(
+                  package_import_present="$(
                     node --input-type=module <<'NODE'
                   import fs from "node:fs";
 
                   const denoJson = JSON.parse(fs.readFileSync("deno.json", "utf8"));
                   const spec = denoJson.imports?.["@gandazgul/plannotator-pi-extension-compiled"];
-                  if (!spec) {
-                    throw new Error("Missing @gandazgul/plannotator-pi-extension-compiled import in deno.json");
-                  }
+                  console.log(spec ? "true" : "false");
+                  NODE
+                  )"
 
+                  if [ "$package_import_present" != "true" ]; then
+                    echo "has_update=false" >> "$GITHUB_OUTPUT"
+                    echo "@gandazgul/plannotator-pi-extension-compiled is not imported in deno.json; skipping this run."
+                    exit 0
+                  fi
+
+                  current="$(
+                    node --input-type=module <<'NODE'
+                  import fs from "node:fs";
+
+                  const denoJson = JSON.parse(fs.readFileSync("deno.json", "utf8"));
+                  const spec = denoJson.imports["@gandazgul/plannotator-pi-extension-compiled"];
                   const match = spec.match(/@gandazgul\/plannotator-pi-extension-compiled@\^?([^/]+)/);
                   if (!match) {
                     throw new Error(`Could not parse current Plannotator compiled version from ${spec}`);
