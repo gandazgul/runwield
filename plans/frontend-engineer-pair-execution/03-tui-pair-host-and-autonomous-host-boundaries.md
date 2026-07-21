@@ -1,4 +1,5 @@
 ---
+planId: "9afabaad-0575-43ee-bf9c-77def26287a2"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Make Pair Execution available from the local TUI and ensure ACP, headless, and sessions without Pair-capable adapters execute Frontend Engineer autonomously. This slice turns the core Pair workflow into the intended host behavior without pretending unsupported hosts share a browser surface."
