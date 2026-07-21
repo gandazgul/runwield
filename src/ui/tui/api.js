@@ -15,7 +15,6 @@ import {
 /**
  * @typedef {Object} ToolElapsedTimerState
  * @property {ReturnType<typeof setTimeout> | null} startTimer
- * @property {ReturnType<typeof setInterval> | null} renderTimer
  */
 
 /**
@@ -98,24 +97,22 @@ export function createUiApi(tui, messageList, spinner, inputAccessoryContainer) 
     let keyboardHelp = null;
 
     let isBusy = false;
-    /** @type {ReturnType<typeof setTimeout> | null} */
-    let spinnerTimer = null;
-
     /** @type {(() => void) | null} */
     let activePromptCancel = null;
 
     let toolsExpanded = false;
     let outputSuppressed = false;
 
-    /** Recursive setTimeout loop — self-terminates when isBusy is cleared. */
-    const runSpinner = () => {
-        if (!isBusy) {
-            spinnerTimer = null;
-            return;
-        }
+    /**
+     * Paint one busy-frame transition without installing a continuous repaint
+     * loop. Terminal output usually forces the user's scrollback view back to
+     * the bottom, so idle animation timers make it impossible to scroll up and
+     * read previous blocks while an Agent is working but not streaming text.
+     */
+    const renderBusyFrame = () => {
+        if (!isBusy) return;
         spinner.advance();
         tui.requestRender();
-        spinnerTimer = setTimeout(runSpinner, 80);
     };
 
     /**
@@ -125,7 +122,6 @@ export function createUiApi(tui, messageList, spinner, inputAccessoryContainer) 
         const timer = toolElapsedTimers.get(id);
         if (!timer) return;
         if (timer.startTimer) clearTimeout(timer.startTimer);
-        if (timer.renderTimer) clearInterval(timer.renderTimer);
         toolElapsedTimers.delete(id);
     };
 
@@ -137,7 +133,6 @@ export function createUiApi(tui, messageList, spinner, inputAccessoryContainer) 
         clearToolElapsedTimer(id);
         const timer = /** @type {ToolElapsedTimerState} */ ({
             startTimer: null,
-            renderTimer: null,
         });
         timer.startTimer = setTimeout(() => {
             timer.startTimer = null;
@@ -147,13 +142,7 @@ export function createUiApi(tui, messageList, spinner, inputAccessoryContainer) 
             }
             block.enableElapsedTime();
             tui.requestRender();
-            timer.renderTimer = setInterval(() => {
-                if (outputSuppressed || block.ended || activeToolBlocks.get(id) !== block) {
-                    clearToolElapsedTimer(id);
-                    return;
-                }
-                tui.requestRender();
-            }, 1000);
+            toolElapsedTimers.delete(id);
         }, 500);
         toolElapsedTimers.set(id, timer);
     };
@@ -365,12 +354,7 @@ export function createUiApi(tui, messageList, spinner, inputAccessoryContainer) 
             isBusy = busy;
             spinner.setBusy(busy, spinner.tasks);
 
-            if (busy && !spinnerTimer) {
-                runSpinner();
-            } else if (!busy && spinnerTimer) {
-                clearTimeout(spinnerTimer);
-                spinnerTimer = null;
-            }
+            if (busy) renderBusyFrame();
             tui.requestRender();
         },
 
