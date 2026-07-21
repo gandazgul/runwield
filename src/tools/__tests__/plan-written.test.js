@@ -53,9 +53,13 @@ function makeHarness(options = {}) {
     return { tool, hostedSession, events, lifecycle, metrics };
 }
 
-/** @param {ReturnType<typeof makeHarness>["tool"]} tool @param {string} [planName] */
-function execute(tool, planName = "runtime-boundary") {
-    return /** @type {any} */ (tool.execute)("call", { planName });
+/**
+ * @param {ReturnType<typeof makeHarness>["tool"]} tool
+ * @param {string} [planName]
+ * @param {(result: any) => void} [onUpdate]
+ */
+function execute(tool, planName = "runtime-boundary", onUpdate = () => {}) {
+    return /** @type {any} */ (tool.execute)("call", { planName }, new AbortController().signal, onUpdate, {});
 }
 
 Deno.test("plan_written validates the declared plan before requesting review", async () => {
@@ -63,6 +67,21 @@ Deno.test("plan_written validates the declared plan before requesting review", a
     const result = await execute(tool);
     assertMatch(result.content[0].text, /not found/);
     assertEquals(result.terminate, undefined);
+});
+
+Deno.test("plan_written streams declared plan details into the active tool block", async () => {
+    const { tool } = makeHarness();
+    const updates = /** @type {any[]} */ ([]);
+    await execute(tool, "runtime-boundary", (result) => updates.push(result));
+
+    assertEquals(updates.length >= 2, true);
+    const firstText = updates[0].content[0].text;
+    assertMatch(firstText, /Plan: plans\/runtime-boundary\.md/);
+    assertMatch(firstText, /File URL: file:\/\//);
+    assertMatch(firstText, /Path: .*plans\/runtime-boundary\.md/);
+    assertMatch(firstText, /Status: Opening browser review UI\./);
+    assertEquals(updates[0].details.planName, "runtime-boundary");
+    assertEquals(updates[0].details.planFileUrl.startsWith("file://"), true);
 });
 
 Deno.test("plan_written returns review feedback and images to the planning agent", async () => {

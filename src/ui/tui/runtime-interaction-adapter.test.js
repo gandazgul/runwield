@@ -57,6 +57,26 @@ Deno.test("TUI interaction adapter maps approval prompts to accepted outcome", a
     assertEquals(response.value, true);
 });
 
+Deno.test("TUI interaction adapter forwards plan review server output listener", async () => {
+    let forwardedOnOutput = null;
+    const onOutput = () => {};
+    const adapter = createTuiInteractionAdapter(makeUi(null), {
+        submitPlanForReview: (/** @type {any} */ options) => {
+            forwardedOnOutput = options.onOutput;
+            return Promise.resolve({ approved: true });
+        },
+    });
+
+    const response = await adapter.requestInteraction({
+        type: "plan_review",
+        prompt: "Review",
+        _meta: { cwd: "/repo", planName: "plan", planPath: "/repo/plans/plan.md", onOutput },
+    });
+
+    assertEquals(response.outcome, "accepted");
+    assertEquals(forwardedOnOutput, onOutput);
+});
+
 Deno.test("TUI interaction adapter returns atomic pair checkpoint revision feedback", async () => {
     /** @type {string[]} */
     const prompts = [];
