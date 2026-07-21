@@ -82,6 +82,7 @@ export function hasWorkspaceToken(request, expectedToken) {
  * @property {string} cwd
  * @property {string} token
  * @property {boolean} [skipTokenCheck]
+ * @property {import("./server/plan-adapter.js").WorkspaceLifecycleActionDeps["autoGenerateWorkRecordForCompletedPlan"]} [autoGenerateWorkRecordForCompletedPlan]
  */
 
 /**
@@ -130,7 +131,7 @@ export function createRemoteWorkspaceApp(options = { mode: "remote" }) {
 }
 
 /** @param {LocalWorkspaceAppOptions} options */
-function createLocalWorkspaceApp({ cwd, token, skipTokenCheck = false }) {
+function createLocalWorkspaceApp({ cwd, token, skipTokenCheck = false, autoGenerateWorkRecordForCompletedPlan }) {
     return {
         handler() {
             /** @param {Request} request */
@@ -140,7 +141,7 @@ function createLocalWorkspaceApp({ cwd, token, skipTokenCheck = false }) {
                 if (!skipTokenCheck && !hasWorkspaceToken(request, token)) {
                     return new Response("Workspace token required.", { status: 401 });
                 }
-                return await handleLocalWorkspaceRequest(request, { cwd });
+                return await handleLocalWorkspaceRequest(request, { cwd, autoGenerateWorkRecordForCompletedPlan });
             };
         },
     };
@@ -242,7 +243,7 @@ function hasReviewAssetToken(request, token) {
     }
 }
 
-/** @param {Request} request @param {{ cwd: string }} state */
+/** @param {Request} request @param {{ cwd: string, autoGenerateWorkRecordForCompletedPlan?: import("./server/plan-adapter.js").WorkspaceLifecycleActionDeps["autoGenerateWorkRecordForCompletedPlan"] }} state */
 async function handleLocalWorkspaceRequest(request, state) {
     const url = new URL(request.url);
     const pathname = url.pathname;
@@ -263,7 +264,7 @@ function isAstroPageRoute(pathname) {
     return pathname === "/" || pathname === "/closed" || pathname === "/on-hold" || pathname.startsWith("/plans/");
 }
 
-/** @param {Request} request @param {{ cwd: string }} state @param {string} pathname */
+/** @param {Request} request @param {{ cwd: string, autoGenerateWorkRecordForCompletedPlan?: import("./server/plan-adapter.js").WorkspaceLifecycleActionDeps["autoGenerateWorkRecordForCompletedPlan"] }} state @param {string} pathname */
 async function handleLocalApiRequest(request, state, pathname) {
     if (request.method === "GET" && pathname === "/api/workspace") return await workspaceApi(ctx(request, state));
     if (request.method === "GET" && pathname === "/api/plans") return await plansApi(ctx(request, state));
