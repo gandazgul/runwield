@@ -149,16 +149,25 @@ export function createUiApi(
 
     const activePromptContainer = activeInteractionContainer || messageList;
 
-    /**
-     * Paint one busy-frame transition without installing a continuous repaint
-     * loop. Terminal output usually forces the user's scrollback view back to
-     * the bottom, so idle animation timers make it impossible to scroll up and
-     * read previous blocks while an Agent is working but not streaming text.
-     */
+    /** @type {ReturnType<typeof setInterval> | null} */
+    let busyFrameTimer = null;
+
+    const stopBusyFrameTimer = () => {
+        if (busyFrameTimer === null) return;
+        clearInterval(busyFrameTimer);
+        busyFrameTimer = null;
+    };
+
     const renderBusyFrame = () => {
-        if (!isBusy) return;
+        if (!isBusy || outputSuppressed) return;
         spinner.advance();
         tui.requestRender();
+    };
+
+    const startBusyFrameTimer = () => {
+        if (busyFrameTimer !== null || outputSuppressed) return;
+        renderBusyFrame();
+        busyFrameTimer = setInterval(renderBusyFrame, 120);
     };
 
     /**
@@ -441,7 +450,11 @@ export function createUiApi(
             isBusy = busy;
             spinner.setBusy(busy, spinner.tasks);
 
-            if (busy) renderBusyFrame();
+            if (busy) {
+                startBusyFrameTimer();
+            } else {
+                stopBusyFrameTimer();
+            }
             tui.requestRender();
         },
 
@@ -559,6 +572,9 @@ export function createUiApi(
 
         suppressOutput: () => {
             outputSuppressed = true;
+            isBusy = false;
+            spinner.setBusy(false, spinner.tasks);
+            stopBusyFrameTimer();
             if (activePromptCancel) {
                 activePromptCancel();
             }
