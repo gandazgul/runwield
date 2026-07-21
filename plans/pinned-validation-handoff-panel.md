@@ -21,17 +21,11 @@ affectedPaths:
     - "src/ui/tui/chat-session.test.js"
 frontend: false
 createdAt: "2026-07-18T22:51:42-04:00"
-updatedAt: "2026-07-21T01:00:29.907Z"
-status: "in_progress"
+updatedAt: "2026-07-21T02:45:55.048Z"
+status: "implemented"
 origin: "internal"
-humanReviewMode: null
-humanReviewDecision: null
-executionBaselineTree: "7f217d199cd2f1dd68e54f38a623f01185309448"
-worktreeId: "fe2fa691"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-pinned-validation-handoff-panel-fe2fa691"
-worktreeBranch: "runwield/worktree/pinned-validation-handoff-panel-fe2fa691"
-worktreeBaseBranch: "main"
-worktreeStatus: "active"
+implementedAt: "2026-07-21T02:45:55.048Z"
+worktreeStatus: "completed"
 ---
 
 # Pin Validation Progress and Latest Reports Above TUI Input

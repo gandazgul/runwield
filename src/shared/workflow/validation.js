@@ -720,12 +720,34 @@ async function verifyExecutionWorktreeMerged({ projectRoot, worktreeBranch, work
             return { merged: true, message: `${worktreeBranch} is contained in ${targetRef}.` };
         }
 
+        const mergeBaseResult = await runGitForMergeVerification(projectRoot, [
+            "merge-base",
+            worktreeBranch,
+            targetRef,
+        ]);
+        const mergeBase = mergeBaseResult.stdout.trim();
+        if (mergeBaseResult.exitCode === 0 && mergeBase) {
+            const treeDiffResult = await runGitForMergeVerification(projectRoot, [
+                "diff",
+                "--quiet",
+                mergeBase,
+                worktreeBranch,
+            ]);
+            if (treeDiffResult.exitCode === 0) {
+                return {
+                    merged: true,
+                    message:
+                        `${worktreeBranch} has no unmerged tree changes beyond ${targetRef}; latest branch-only metadata commit can be safely treated as merged.`,
+                };
+            }
+        }
+
         const detail = (ancestorResult.stderr || ancestorResult.stdout).trim();
         return {
             merged: false,
             message: detail
-                ? `${worktreeBranch} is not verified as merged into ${targetRef}: ${detail}`
-                : `${worktreeBranch} is not verified as merged into ${targetRef}.`,
+                ? `${worktreeBranch} still has changes that are not merged into ${targetRef}: ${detail}`
+                : `${worktreeBranch} still has changes that are not merged into ${targetRef}.`,
         };
     } catch (error) {
         const reason = error instanceof Error ? error.message : String(error);
@@ -1977,10 +1999,77 @@ export async function runValidationLoop({
                             : String(verificationError);
                     }
                     if (mergeVerificationFailure) {
-                        const reason = `Post-merge verification failed: ${mergeVerificationFailure}`;
+                        const reason =
+                            `Post-merge verification found remaining merge-back work: ${mergeVerificationFailure}`;
+                        await recordWorkflowMetricImpl({
+                            category: "validation",
+                            event: "merge_back_result",
+                            planName,
+                            details: {
+                                passed: false,
+                                mergeFailureKind: "post_merge_verification_failed",
+                                verificationFailure: mergeVerificationFailure,
+                            },
+                        });
+                        if (mergeRepairAttempts < maxMergeRepairAttempts) {
+                            mergeRepairAttempts++;
+                            const repairCwd = pendingRepairMergeWorktreePath || executionCwd || projectRoot;
+                            const gitStatusContext = await getGitStatusContext(repairCwd);
+                            emitRunWieldSystemStatus(
+                                hostedSession,
+                                `Post-merge verification found remaining merge-back work. Dispatching ${
+                                    getAgentDisplayName(AGENTS.ENGINEER, projectRoot)
+                                } for automatic merge repair attempt ${mergeRepairAttempts}/${maxMergeRepairAttempts}...`,
+                                true,
+                            );
+                            await recordWorkflowMetricImpl({
+                                category: "validation",
+                                event: "repair_dispatched",
+                                agentName: AGENTS.ENGINEER,
+                                planName,
+                                details: { repairKind: "merge_verification", repairAttempt: mergeRepairAttempts },
+                            });
+                            const completed = await repair({
+                                hostedSession,
+                                agentName: AGENTS.ENGINEER,
+                                userRequest: buildMergeRepairRequest({
+                                    planName,
+                                    reason,
+                                    executionCwd,
+                                    worktreeBranch,
+                                    worktreeBaseBranch,
+                                    currentPlanStatus: "implemented",
+                                    diffContext: latestDiffText.trim() ? latestDiffText.slice(0, 6000) : undefined,
+                                    gitStatusContext,
+                                    repairCwd,
+                                    mergeFailureKind: "post_merge_verification_failed",
+                                }),
+                                sessionManager,
+                                cwd: repairCwd,
+                            });
+                            await recordWorkflowMetricImpl({
+                                category: "validation",
+                                event: "repair_completed",
+                                agentName: AGENTS.ENGINEER,
+                                planName,
+                                details: {
+                                    repairKind: "merge_verification",
+                                    repairAttempt: mergeRepairAttempts,
+                                    taskCompletedObserved: Boolean(completed),
+                                },
+                            });
+                            if (completed) continue;
+                            emitRunWieldSystemStatus(
+                                hostedSession,
+                                `${
+                                    getAgentDisplayName(AGENTS.ENGINEER, projectRoot)
+                                } stopped without task_completed during merge verification repair.`,
+                                true,
+                            );
+                        }
                         emitRunWieldSystemStatus(
                             hostedSession,
-                            `Worktree merge could not be verified; preserving worktree for recovery: ${reason}`,
+                            `Automatic merge verification repair did not complete; preserving worktree for manual recovery: ${reason}`,
                             true,
                         );
                         if (worktreeId) {
@@ -2025,19 +2114,9 @@ export async function runValidationLoop({
                                 );
                             }
                         }
-                        await recordWorkflowMetricImpl({
-                            category: "validation",
-                            event: "merge_back_result",
-                            planName,
-                            details: {
-                                passed: false,
-                                mergeFailureKind: "post_merge_verification_failed",
-                                verificationFailure: mergeVerificationFailure,
-                            },
-                        });
                         postMergeVerificationHalted = true;
                         executionComplete = false;
-                        haltReason = `Worktree merge could not be verified: ${mergeVerificationFailure}`;
+                        haltReason = `Post-merge verification repair did not complete: ${mergeVerificationFailure}`;
                         break;
                     }
                     pendingRepairMergeWorktreePath = undefined;
