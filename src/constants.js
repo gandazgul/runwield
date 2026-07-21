@@ -129,7 +129,7 @@ export const HOME_DIR = readOptionalEnv("HOME");
  * `src/agent-definitions/workflow-prompts/delegated-agent-prompt.md` as a bare
  * prompt by the `delegate_agent` tool.
  */
-/** @type {Readonly<{ROUTER: string, GUIDE: string, OPERATOR: string, PLANNER: string, ARCHITECT: string, ENGINEER: string, RECORDER: string, REVIEWER: string, SLICER: string, IDEATOR: string, INIT: string, DELEGATED: string}>} */
+/** @type {Readonly<{ROUTER: string, GUIDE: string, OPERATOR: string, PLANNER: string, ARCHITECT: string, ENGINEER: string, FRONTEND_ENGINEER: string, RECORDER: string, REVIEWER: string, SLICER: string, IDEATOR: string, INIT: string, DELEGATED: string}>} */
 export const AGENTS = Object.freeze({
     ROUTER: "router",
     GUIDE: "guide",
@@ -137,6 +137,7 @@ export const AGENTS = Object.freeze({
     PLANNER: "planner",
     ARCHITECT: "architect",
     ENGINEER: "engineer",
+    FRONTEND_ENGINEER: "frontend-engineer",
     RECORDER: "recorder",
     REVIEWER: "reviewer",
     SLICER: "slicer",

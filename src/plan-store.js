@@ -99,6 +99,9 @@ function getStoredPlanLocation(cwd, planName) {
  * @property {"LOW"|"MEDIUM"|"HIGH"} complexity
  * @property {string} summary - Brief description of what the plan addresses
  * @property {string[]} affectedPaths - Files that will be created/modified
+ * @property {"engineer"|"frontend-engineer"} [executionAgent] - Canonical FEATURE execution owner
+ * @property {"pair"|"autonomous"} [collaborationRecommendation] - Planner's suggested execution style
+ * @property {"pair"|"autonomous"} [collaborationMode] - Durable user-selected execution style
  * @property {boolean} [frontend] - Whether this plan includes frontend UI/UX work
  * @property {string|null} [devServerCommand] - Project dev/preview command for browser verification, if known
  * @property {string|null} [devServerUrl] - Local URL expected for browser verification, if known
@@ -161,6 +164,8 @@ function getStoredPlanLocation(cwd, planName) {
  * @property {string} title - Human-readable child plan title.
  * @property {string} summary - Brief child FEATURE summary.
  * @property {string[]} affectedPaths - Files that the child FEATURE expects to touch.
+ * @property {"engineer"|"frontend-engineer"} [executionAgent] - Canonical child execution owner.
+ * @property {"pair"|"autonomous"} [collaborationRecommendation] - Suggested execution style.
  * @property {boolean} [frontend] - Whether this child includes frontend UI/UX work.
  * @property {string|null} [devServerCommand] - Project dev/preview command for browser verification, if known.
  * @property {string|null} [devServerUrl] - Local URL expected for browser verification, if known.
@@ -342,6 +347,9 @@ function formatFrontMatter(fm) {
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.complexity, fm.complexity);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.summary, fm.summary);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.affectedPaths, fm.affectedPaths);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.executionAgent, fm.executionAgent);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.collaborationRecommendation, fm.collaborationRecommendation);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.collaborationMode, fm.collaborationMode);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.frontend, fm.frontend);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.devServerCommand, fm.devServerCommand);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.devServerUrl, fm.devServerUrl);
@@ -457,6 +465,16 @@ function normalizeOptionalBoolean(value) {
         if (value === "false") return false;
     }
     return undefined;
+}
+
+/** @param {unknown} value @returns {"engineer"|"frontend-engineer"|undefined} */
+export function normalizeExecutionAgent(value) {
+    return value === "engineer" || value === "frontend-engineer" ? value : undefined;
+}
+
+/** @param {unknown} value @returns {"pair"|"autonomous"|undefined} */
+export function normalizeCollaborationMode(value) {
+    return value === "pair" || value === "autonomous" ? value : undefined;
 }
 
 /**
@@ -635,6 +653,13 @@ export function injectFrontMatter(markdown, overrides = {}) {
         affectedPaths: overrides.affectedPaths ??
             existingFm.affectedPaths ??
             DEFAULT_FRONT_MATTER.affectedPaths,
+        executionAgent: normalizeExecutionAgent(optionalFrontMatterValue(overrides, existingFm, "executionAgent")),
+        collaborationRecommendation: normalizeCollaborationMode(
+            optionalFrontMatterValue(overrides, existingFm, "collaborationRecommendation"),
+        ),
+        collaborationMode: normalizeCollaborationMode(
+            optionalFrontMatterValue(overrides, existingFm, "collaborationMode"),
+        ),
         frontend: Object.hasOwn(overrides, "frontend")
             ? normalizeOptionalBoolean(overrides.frontend)
             : normalizeOptionalBoolean(existingFm.frontend),
@@ -747,6 +772,11 @@ export function parsePlanFrontMatter(markdown, opts = {}) {
             complexity: attrs.complexity || DEFAULT_FRONT_MATTER.complexity,
             summary: attrs.summary || DEFAULT_FRONT_MATTER.summary,
             affectedPaths: normalizeStringList(attrs.affectedPaths) || DEFAULT_FRONT_MATTER.affectedPaths,
+            executionAgent: normalizeExecutionAgent(attrs.executionAgent) ||
+                (normalizeOptionalBoolean(attrs.frontend) === true ? "frontend-engineer" : undefined),
+            collaborationRecommendation: normalizeCollaborationMode(attrs.collaborationRecommendation) ||
+                (normalizeOptionalBoolean(attrs.frontend) === true ? "autonomous" : undefined),
+            collaborationMode: normalizeCollaborationMode(attrs.collaborationMode),
             frontend: normalizeOptionalBoolean(attrs.frontend),
             devServerCommand: typeof attrs.devServerCommand === "string"
                 ? attrs.devServerCommand
@@ -1108,6 +1138,8 @@ export async function saveChildFeaturePlans(cwd, epicPlanName, children, options
             order: child.order,
             affectedPaths,
         };
+        const executionAgent = normalizeExecutionAgent(child.executionAgent);
+        const collaborationRecommendation = normalizeCollaborationMode(child.collaborationRecommendation);
         const frontend = normalizeOptionalBoolean(child.frontend);
         const devServerCommand = typeof child.devServerCommand === "string"
             ? child.devServerCommand
@@ -1125,7 +1157,10 @@ export async function saveChildFeaturePlans(cwd, epicPlanName, children, options
             : child.worktreeBaseBranch === null
             ? null
             : undefined;
-        if (frontend !== undefined) metadata.frontend = frontend;
+        if (executionAgent !== undefined) metadata.executionAgent = executionAgent;
+        if (collaborationRecommendation !== undefined) {
+            metadata.collaborationRecommendation = collaborationRecommendation;
+        }
         if (devServerCommand !== undefined) metadata.devServerCommand = devServerCommand;
         if (devServerUrl !== undefined) metadata.devServerUrl = devServerUrl;
         if (devServerHmr !== undefined) metadata.devServerHmr = devServerHmr;
