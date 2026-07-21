@@ -10,6 +10,13 @@ without adding Sourcebot or merging every Project into one shared index?
 This research informs the Workspace code-search boundary and follows
 [`sourcebot-workspace-integration.md`](./sourcebot-workspace-integration.md).
 
+## Decision
+
+The first Personal Remote Workspace will include RunWield-owned Cymbal federation as its built-in human-facing
+cross-Project code search. Queries require explicit registered-Project selection and remain separate from durable
+artifact intelligence. Agent code tools remain Project-scoped. Sourcebot is deferred as an optional future provider for
+organization-scale or remote committed-code search.
+
 ## Findings
 
 - The installed Cymbal `v0.14.0` stores one SQLite index per repository or worktree by default. Indexes live in an OS

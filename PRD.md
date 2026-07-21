@@ -410,6 +410,10 @@ Optional stricter settings:
 
 The paid Workspace moat is shared cross-project planning intelligence.
 
+```text
+A trusted planning system where every material change has a reviewable intent, governed execution, independently verified outcome, and reusable record of what the team learned.
+```
+
 Workspace should extend Core's repo-local records with:
 
 - team-wide Work Record search
