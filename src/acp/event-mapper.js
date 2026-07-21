@@ -150,6 +150,7 @@ export function mapRuntimeEventToAcpUpdate(event) {
                 _meta: runtimeMeta(event, {
                     type: event.type,
                     level: "level" in event ? event.level : undefined,
+                    validationProgress: "validationProgress" in event ? event.validationProgress : undefined,
                 }),
             };
         }

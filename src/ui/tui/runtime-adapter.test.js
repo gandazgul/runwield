@@ -8,6 +8,8 @@ function makeUi() {
     const transcript = [];
     /** @type {Map<string, any>} */
     const tools = new Map();
+    /** @type {any[]} */
+    const validationProgressUpdates = [];
     const uiAPI = /** @type {import('./types.js').UiAPI} */ ({
         appendUserMessage: (text) => transcript.push(`user:${text}`),
         appendImage: (base64, mimeType) => transcript.push(`image:${mimeType}:${base64}`),
@@ -21,6 +23,13 @@ function makeUi() {
             end: () => transcript.push("thinking:end"),
         }),
         appendSystemMessage: (text, isError) => transcript.push(`system:${isError ? "error" : "info"}:${text}`),
+        updateValidationProgress: (progress) => {
+            validationProgressUpdates.push(progress);
+            transcript.push(`validation:${progress.outcome}:${progress.stage}`);
+        },
+        updateValidationReport: (role, report) =>
+            transcript.push(`report:${role}:${report.agentName}:${report.markdown}`),
+        clearValidationPanel: () => transcript.push("validation:clear"),
         showKeyboardHelp: (help) =>
             transcript.push(
                 `help:${help.title}:${help.items.map((/** @type {{ key: string }} */ item) => item.key).join(",")}`,
@@ -50,7 +59,7 @@ function makeUi() {
         promptText: () => Promise.resolve(null),
         showModelSelector() {},
     });
-    return { transcript, uiAPI };
+    return { transcript, uiAPI, validationProgressUpdates };
 }
 
 /**
@@ -59,8 +68,9 @@ function makeUi() {
  *
  * @param {string} sessionId
  * @param {import('../../shared/session/session-runtime-events.js').RuntimeQueuedMessage[]} [queuedMessages]
+ * @param {{ routingIntent?: string, complexity?: string, planName?: string } | null} [workflowContext]
  */
-function makeRuntimeHarness(sessionId, queuedMessages = []) {
+function makeRuntimeHarness(sessionId, queuedMessages = [], workflowContext = null) {
     /** @type {((event: any) => void) | null} */
     let listener = null;
     const runtime = /** @type {any} */ ({
@@ -80,6 +90,7 @@ function makeRuntimeHarness(sessionId, queuedMessages = []) {
             cwd: Deno.cwd(),
             name: null,
             queuedMessages,
+            workflowContext,
         }),
     });
     return { runtime, sessionId };
@@ -179,6 +190,159 @@ Deno.test("TUI and ACP adapters consume the same semantic runtime transcript", (
         "agent_message_chunk",
     ]);
     assertEquals(attentionRequests, [{ reason: "agentStopped", sessionName: undefined, agentName: "Guide" }]);
+});
+
+Deno.test("TUI adapter updates validation panel only for structured progress and clears terminal panel on next user message", () => {
+    const { runtime, sessionId } = makeRuntimeHarness("validation-panel-lifecycle");
+    const { transcript, validationProgressUpdates, uiAPI } = makeUi();
+    const adapter = attachTuiRuntimeAdapter({ runtime, sessionId, uiAPI });
+
+    runtime.emitSessionEvent(sessionId, {
+        type: RuntimeEventTypes.SYSTEM_STATUS,
+        message: "OPERATION status without validation",
+        level: "info",
+    });
+    runtime.emitSessionEvent(sessionId, {
+        type: RuntimeEventTypes.SYSTEM_STATUS,
+        message: "Validation complete",
+        level: "success",
+        validationProgress: {
+            kind: "mechanical",
+            outcome: "verified",
+            stage: "terminal",
+            checks: { ci: "passed", semanticReview: "skipped", humanReview: "skipped", merge: "skipped" },
+        },
+    });
+    runtime.emitSessionEvent(sessionId, { type: RuntimeEventTypes.USER_MESSAGE, text: "next", images: [] });
+
+    assertEquals(validationProgressUpdates.length, 1);
+    assertEquals(transcript, [
+        "system:info:OPERATION status without validation",
+        "validation:verified:terminal",
+        "system:info:Validation complete",
+        "validation:clear",
+        "user:next",
+    ]);
+    adapter.dispose();
+});
+
+Deno.test("TUI adapter clears active validation panel on terminal runtime errors", () => {
+    const { runtime, sessionId } = makeRuntimeHarness("validation-panel-terminal-error");
+    const { transcript, uiAPI } = makeUi();
+    const adapter = attachTuiRuntimeAdapter({ runtime, sessionId, uiAPI });
+
+    runtime.emitSessionEvent(sessionId, {
+        type: RuntimeEventTypes.SYSTEM_STATUS,
+        message: "Validation running",
+        level: "info",
+        validationProgress: {
+            kind: "workflow",
+            outcome: "running",
+            stage: "semantic_review",
+            cycle: 1,
+            maxCycles: 3,
+            totalCycle: 1,
+            checks: { ci: "passed", semanticReview: "running", humanReview: "pending", merge: "pending" },
+        },
+    });
+    runtime.emitSessionEvent(sessionId, {
+        type: RuntimeEventTypes.TERMINAL_ERROR,
+        message: "Runtime crashed",
+        error: "boom",
+    });
+    runtime.emitSessionEvent(sessionId, { type: RuntimeEventTypes.USER_MESSAGE, text: "next", images: [] });
+
+    assertEquals(transcript, [
+        "validation:running:semantic_review",
+        "system:info:Validation running",
+        "validation:clear",
+        "system:error:Runtime crashed",
+        "user:next",
+    ]);
+    adapter.dispose();
+});
+
+Deno.test("TUI adapter excludes OPERATION task_completed reports from later validation panels", () => {
+    const { runtime, sessionId } = makeRuntimeHarness("operation-report-exclusion", [], {
+        routingIntent: "OPERATION",
+        complexity: "LOW",
+    });
+    const { transcript, uiAPI } = makeUi();
+    const adapter = attachTuiRuntimeAdapter({ runtime, sessionId, uiAPI });
+
+    runtime.emitSessionEvent(sessionId, {
+        type: RuntimeEventTypes.ASSISTANT_TEXT_DELTA,
+        messageId: "operation-task-completed",
+        delta: "operation done",
+        agentName: "Operator",
+        messageKind: "workflow",
+        workflowMessage: "task_completed",
+    });
+    runtime.emitSessionEvent(sessionId, {
+        type: RuntimeEventTypes.SYSTEM_STATUS,
+        message: "Validation started",
+        level: "info",
+        validationProgress: {
+            kind: "mechanical",
+            outcome: "running",
+            stage: "ci",
+            checks: { ci: "running", semanticReview: "skipped", humanReview: "skipped", merge: "skipped" },
+        },
+    });
+
+    assertEquals(transcript.includes("report:engineer:Operator:operation done"), false);
+    assertEquals(transcript.includes("validation:running:ci"), true);
+    adapter.dispose();
+});
+
+Deno.test("TUI adapter preserves workflow routing intent across model and thinking updates", () => {
+    const { runtime, sessionId } = makeRuntimeHarness("workflow-context-preserved", [], {
+        routingIntent: "FEATURE",
+        complexity: "LOW",
+    });
+    const { transcript, uiAPI } = makeUi();
+    const adapter = attachTuiRuntimeAdapter({ runtime, sessionId, uiAPI });
+
+    runtime.emitSessionEvent(sessionId, { type: RuntimeEventTypes.MODEL_CHANGED, model: "test/model" });
+    runtime.emitSessionEvent(sessionId, { type: RuntimeEventTypes.THINKING_LEVEL_CHANGED, thinkingLevel: "medium" });
+    runtime.emitSessionEvent(sessionId, {
+        type: RuntimeEventTypes.ASSISTANT_TEXT_DELTA,
+        messageId: "feature-task-completed-after-model-change",
+        delta: "feature done",
+        agentName: "Engineer",
+        messageKind: "workflow",
+        workflowMessage: "task_completed",
+    });
+
+    assertEquals(transcript.includes("report:engineer:Engineer:feature done"), true);
+    adapter.dispose();
+});
+
+Deno.test("TUI adapter clears hidden pre-validation reports on next user message", () => {
+    const { runtime, sessionId } = makeRuntimeHarness("hidden-report-clear", [], {
+        routingIntent: "FEATURE",
+        complexity: "LOW",
+    });
+    const { transcript, uiAPI } = makeUi();
+    const adapter = attachTuiRuntimeAdapter({ runtime, sessionId, uiAPI });
+
+    runtime.emitSessionEvent(sessionId, {
+        type: RuntimeEventTypes.ASSISTANT_TEXT_DELTA,
+        messageId: "feature-task-completed",
+        delta: "feature done",
+        agentName: "Engineer",
+        messageKind: "workflow",
+        workflowMessage: "task_completed",
+    });
+    runtime.emitSessionEvent(sessionId, { type: RuntimeEventTypes.USER_MESSAGE, text: "new request", images: [] });
+
+    assertEquals(transcript, [
+        "report:engineer:Engineer:feature done",
+        "assistant:Engineer:feature done",
+        "validation:clear",
+        "user:new request",
+    ]);
+    adapter.dispose();
 });
 
 Deno.test("TUI renders Runtime cancellation events instead of key handlers rendering directly", () => {
