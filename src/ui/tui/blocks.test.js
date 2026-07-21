@@ -20,6 +20,7 @@ import {
     ThinkingBlock,
     ToolExecutionBlock,
     UserPromptBlock,
+    ValidationHandoffBlock,
 } from "./blocks.js";
 import { Text } from "@earendil-works/pi-tui";
 import stripAnsi from "strip-ansi";
@@ -263,6 +264,72 @@ Deno.test("ReviewResultBlock renders feedback markdown with error background", (
     assertEquals(plain.includes("Reviewer:"), true);
     assertEquals(plain.includes("Semantic review rejected:"), true);
     assertEquals(plain.includes("Missing thing"), true);
+});
+
+Deno.test("ValidationHandoffBlock renders full validation state and latest handoff reports", () => {
+    const w = 180;
+    const block = new ValidationHandoffBlock({
+        progress: {
+            kind: "workflow",
+            outcome: "paused",
+            stage: "engineer_repair",
+            cycle: 2,
+            maxCycles: 3,
+            totalCycle: 5,
+            repairAttempt: 1,
+            maxRepairAttempts: 3,
+            checks: { ci: "failed", semanticReview: "pending", humanReview: "pending", merge: "pending" },
+            message: "Engineer continuation required.",
+        },
+        engineer: { agentName: "Engineer", markdown: "- Fixed CI", completedOrder: 2 },
+        reviewer: { agentName: "Reviewer", markdown: "- Earlier feedback", approved: false, completedOrder: 1 },
+    });
+    const lines = block.render(w);
+    const plain = lines.map((line) => stripAnsi(line)).join("\n");
+
+    assertBlockBackground(lines, w, "ValidationHandoffBlock");
+    assertEquals(plain.includes("Workflow Validation paused"), true);
+    assertEquals(plain.includes("cycle 2/3 (total 5)"), true);
+    assertEquals(plain.includes("stage engineer repair"), true);
+    assertEquals(plain.includes("attempt 1/3"), true);
+    assertEquals(plain.includes("CI failed, Review pending, Human pending, Merge pending"), true);
+    assertEquals(plain.includes("Engineer latest Task Completion"), true);
+    assertEquals(plain.includes("Reviewer latest Review — rejected (feedback addressed; rechecking)"), true);
+});
+
+Deno.test("ValidationHandoffBlock renders mechanical validation with QUICK_FIX wording and only applicable CI check", () => {
+    const runningBlock = new ValidationHandoffBlock({
+        progress: {
+            kind: "mechanical",
+            outcome: "running",
+            stage: "ci",
+            checks: { ci: "running", semanticReview: "skipped", humanReview: "skipped", merge: "skipped" },
+        },
+        engineer: { agentName: "Engineer", markdown: "- Repairing CI", completedOrder: 1 },
+    });
+    const runningPlain = stripAnsi(runningBlock.render(120).join("\n"));
+
+    assertEquals(runningPlain.includes("Mechanical Validation running"), true);
+    assertEquals(runningPlain.includes("stage ci"), true);
+    assertEquals(runningPlain.includes("CI running"), true);
+    assertEquals(runningPlain.includes("Review skipped"), false);
+    assertEquals(runningPlain.includes("Human skipped"), false);
+    assertEquals(runningPlain.includes("Merge skipped"), false);
+    assertEquals(runningPlain.includes("Engineer latest Task Completion"), true);
+    assertEquals(runningPlain.includes("Reviewer latest Review"), false);
+
+    const verifiedBlock = new ValidationHandoffBlock({
+        progress: {
+            kind: "mechanical",
+            outcome: "verified",
+            stage: "terminal",
+            checks: { ci: "passed", semanticReview: "skipped", humanReview: "skipped", merge: "skipped" },
+        },
+    });
+    const verifiedPlain = stripAnsi(verifiedBlock.render(120).join("\n"));
+
+    assertEquals(verifiedPlain.includes("Mechanical Validation passed"), true);
+    assertEquals(verifiedPlain.includes("Mechanical Validation verified"), false);
 });
 
 Deno.test("KeyboardHelpBlock renders ordered shortcuts with responsive wrapping", () => {

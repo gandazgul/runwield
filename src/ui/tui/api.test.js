@@ -1,7 +1,15 @@
 import { assertEquals } from "@std/assert";
 import { Spacer } from "@earendil-works/pi-tui";
 import { createFooterOnlyUiApi, createSilentUiApi, createUiApi } from "./api.js";
-import { KeyboardHelpBlock, SpinnerBlock, SystemMessageBlock, ThinkingBlock, ToolExecutionBlock } from "./blocks.js";
+import {
+    KeyboardHelpBlock,
+    PromptSelectBlock,
+    SpinnerBlock,
+    SystemMessageBlock,
+    ThinkingBlock,
+    ToolExecutionBlock,
+    ValidationHandoffBlock,
+} from "./blocks.js";
 import stripAnsi from "strip-ansi";
 import { initRunWieldTheme } from "../theme/theme.js";
 
@@ -248,6 +256,69 @@ Deno.test("createUiApi setBusy does not continuously repaint while Runtime remai
     assertEquals(renders(), stoppedRenderCount);
 });
 
+Deno.test("createUiApi renders validation panel separately from active prompt placement", async () => {
+    const { tui, messageList, focus } = makeTuiHarness();
+    const validationPanelContainer = makeContainer();
+    const activeInteractionContainer = makeContainer();
+    const ui = /** @type {any} */ (
+        createUiApi(
+            tui,
+            messageList,
+            new SpinnerBlock(),
+            undefined,
+            validationPanelContainer,
+            activeInteractionContainer,
+        )
+    );
+
+    ui.updateValidationProgress({
+        kind: "mechanical",
+        outcome: "running",
+        stage: "ci",
+        checks: { ci: "running", semanticReview: "skipped", humanReview: "skipped", merge: "skipped" },
+    });
+    const promptPromise = ui.promptSelect("Resolve?", [{ value: "yes", label: "Yes" }]);
+
+    assertEquals(validationPanelContainer.children[0] instanceof ValidationHandoffBlock, true);
+    assertEquals(validationPanelContainer.children[1] instanceof Spacer, true);
+    assertEquals(activeInteractionContainer.children[0] instanceof PromptSelectBlock, true);
+    assertEquals(messageList.children, []);
+
+    focus().list.onSelect({ value: "yes" });
+    assertEquals(await promptPromise, "yes");
+    assertEquals(activeInteractionContainer.children, []);
+    assertEquals(messageList.children[0] instanceof PromptSelectBlock, true);
+    assertEquals(validationPanelContainer.children[0] instanceof ValidationHandoffBlock, true);
+});
+
+Deno.test("createUiApi marks stale reviewer feedback by report order instead of wall clock", () => {
+    const { tui, messageList } = makeTuiHarness();
+    const validationPanelContainer = makeContainer();
+    const ui = /** @type {any} */ (
+        createUiApi(tui, messageList, new SpinnerBlock(), undefined, validationPanelContainer)
+    );
+    const originalNow = Date.now;
+    Date.now = () => 1000;
+    try {
+        ui.updateValidationProgress({
+            kind: "workflow",
+            outcome: "running",
+            stage: "semantic_review",
+            cycle: 1,
+            maxCycles: 3,
+            totalCycle: 1,
+            checks: { ci: "passed", semanticReview: "failed", humanReview: "pending", merge: "pending" },
+        });
+        ui.updateValidationReport("reviewer", { agentName: "Reviewer", markdown: "needs changes", approved: false });
+        ui.updateValidationReport("engineer", { agentName: "Engineer", markdown: "addressed feedback" });
+
+        const plain = stripAnsi(validationPanelContainer.children[0].render(160).join("\n"));
+        assertEquals(plain.includes("feedback addressed; rechecking"), true);
+    } finally {
+        Date.now = originalNow;
+    }
+});
+
 Deno.test("createUiApi promptSelect resolves selection, cancellation, and selection-change hook", async () => {
     const { tui, messageList, focus } = makeTuiHarness();
     const ui = /** @type {any} */ (createUiApi(tui, messageList, new SpinnerBlock()));
@@ -312,6 +383,45 @@ Deno.test("createUiApi promptText resolves submit, rejects empty required submit
     const abortPromise = ui.promptText("Abort");
     ui.abortActivePrompt();
     assertEquals(await abortPromise, null);
+});
+
+Deno.test("createUiApi clearMessages settles active prompt without orphaned interaction state", async () => {
+    const { tui, messageList, focus } = makeTuiHarness();
+    const activeInteractionContainer = makeContainer();
+    const ui = /** @type {any} */ (
+        createUiApi(tui, messageList, new SpinnerBlock(), undefined, undefined, activeInteractionContainer)
+    );
+
+    const promptPromise = ui.promptText("Clear me");
+    assertNotEquals(focus(), null);
+    assertEquals(activeInteractionContainer.children.length, 2);
+
+    ui.clearMessages();
+
+    assertEquals(await promptPromise, null);
+    assertEquals(activeInteractionContainer.children, []);
+    assertEquals(messageList.children, []);
+    assertEquals(focus(), null);
+});
+
+Deno.test("createUiApi suppressOutput settles active prompt without stale interaction components", async () => {
+    const { tui, messageList, focus } = makeTuiHarness();
+    const activeInteractionContainer = makeContainer();
+    const ui = /** @type {any} */ (
+        createUiApi(tui, messageList, new SpinnerBlock(), undefined, undefined, activeInteractionContainer)
+    );
+
+    const promptPromise = ui.promptSelect("Continue?", [{ value: "yes", label: "Yes" }]);
+    assertEquals(activeInteractionContainer.children.length, 2);
+    assertNotEquals(focus(), null);
+
+    ui.suppressOutput();
+
+    assertEquals(await promptPromise, null);
+    assertEquals(activeInteractionContainer.children, []);
+    assertEquals(messageList.children, []);
+    assertEquals(focus(), null);
+    assertEquals(ui.isOutputSuppressed(), true);
 });
 
 Deno.test("createUiApi suppressOutput silences later UI mutations except clearing existing messages", () => {

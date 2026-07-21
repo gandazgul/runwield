@@ -813,16 +813,104 @@ ${diffContext}`
     ].join("\n");
 }
 
+/** @type {WeakMap<object, import('../session/session-runtime-events.js').RuntimeValidationProgress>} */
+const CURRENT_VALIDATION_PROGRESS = new WeakMap();
+
 /**
  * @param {import('../session/hosted-session.js').HostedSession | undefined} hostedSession
  * @param {string} text
  * @param {"info" | "success" | "warning" | "error" | boolean} [level]
+ * @param {import('../session/session-runtime-events.js').RuntimeValidationProgress} [validationProgress]
  */
-function emitRunWieldSystemStatus(hostedSession, text, level = "info") {
+function emitRunWieldSystemStatus(hostedSession, text, level = "info", validationProgress) {
     const resolvedLevel = level === true ? "error" : level === false ? "info" : level;
+    if (hostedSession && validationProgress) CURRENT_VALIDATION_PROGRESS.set(hostedSession, validationProgress);
+    const currentProgress = validationProgress ||
+        (hostedSession ? CURRENT_VALIDATION_PROGRESS.get(hostedSession) : undefined);
     emitSystemStatus(hostedSession, text, {
         level: resolvedLevel,
         header: "RunWield",
+        ...(currentProgress ? { validationProgress: structuredClone(currentProgress) } : {}),
+    });
+}
+
+/**
+ * @param {Omit<Partial<import('../session/session-runtime-events.js').RuntimeValidationProgress>, 'checks'> & { checks?: Partial<import('../session/session-runtime-events.js').RuntimeValidationCheckResults> }} values
+ * @returns {import('../session/session-runtime-events.js').RuntimeValidationProgress}
+ */
+function createValidationProgress(values) {
+    return {
+        kind: values.kind || "workflow",
+        outcome: values.outcome || "running",
+        stage: values.stage || "cycle",
+        checks: {
+            ci: values.checks?.ci || "pending",
+            semanticReview: values.checks?.semanticReview || "pending",
+            humanReview: values.checks?.humanReview || "pending",
+            merge: values.checks?.merge || "pending",
+        },
+        ...(values.cycle ? { cycle: values.cycle } : {}),
+        ...(values.maxCycles ? { maxCycles: values.maxCycles } : {}),
+        ...(values.totalCycle ? { totalCycle: values.totalCycle } : {}),
+        ...(values.repairAttempt ? { repairAttempt: values.repairAttempt } : {}),
+        ...(values.maxRepairAttempts ? { maxRepairAttempts: values.maxRepairAttempts } : {}),
+        ...(values.message ? { message: values.message } : {}),
+    };
+}
+
+/**
+ * @typedef {Omit<Partial<import('../session/session-runtime-events.js').RuntimeValidationProgress>, 'checks' | 'cycle' | 'maxCycles' | 'totalCycle' | 'repairAttempt' | 'maxRepairAttempts' | 'message'> & { checks?: Partial<import('../session/session-runtime-events.js').RuntimeValidationCheckResults>, cycle?: number | null, maxCycles?: number | null, totalCycle?: number | null, repairAttempt?: number | null, maxRepairAttempts?: number | null, message?: string | null }} RuntimeValidationProgressPatch
+ */
+
+/**
+ * @param {import('../session/session-runtime-events.js').RuntimeValidationProgress} progress
+ * @param {RuntimeValidationProgressPatch} patch
+ * @returns {import('../session/session-runtime-events.js').RuntimeValidationProgress}
+ */
+function updateValidationProgress(progress, patch) {
+    const next = createValidationProgress(
+        /** @type {any} */ ({
+            ...progress,
+            ...patch,
+            checks: { ...progress.checks, ...(patch.checks || {}) },
+        }),
+    );
+    for (const field of ["cycle", "maxCycles", "totalCycle", "repairAttempt", "maxRepairAttempts"]) {
+        if (/** @type {Record<string, unknown>} */ (patch)[field] === null) {
+            delete /** @type {Record<string, unknown>} */ (next)[field];
+        }
+    }
+    if (!Object.hasOwn(patch, "message") || patch.message === null) {
+        delete next.message;
+    }
+    return next;
+}
+
+/**
+ * @param {import('../session/session-runtime-events.js').RuntimeValidationProgress} progress
+ * @param {boolean} passed
+ * @param {string} message
+ * @returns {import('../session/session-runtime-events.js').RuntimeValidationProgress}
+ */
+function completeValidationProgress(progress, passed, message) {
+    const terminalChecks =
+        /** @type {Record<string, import('../session/session-runtime-events.js').RuntimeValidationCheckResult>} */ ({
+            ...progress.checks,
+        });
+    for (const key of ["ci", "semanticReview", "humanReview", "merge"]) {
+        if (terminalChecks[key] === "pending") {
+            terminalChecks[key] = "skipped";
+        } else if (terminalChecks[key] === "running") {
+            terminalChecks[key] = passed ? "skipped" : "failed";
+        }
+    }
+    return updateValidationProgress(progress, {
+        outcome: passed ? "verified" : "failed",
+        stage: "terminal",
+        checks: terminalChecks,
+        message,
+        repairAttempt: progress.repairAttempt || null,
+        maxRepairAttempts: progress.maxRepairAttempts || null,
     });
 }
 
@@ -961,6 +1049,12 @@ export async function runMechanicalValidation({
     };
     const maxRepairAttempts = 3;
     let repairAttempts = 0;
+    let progress = createValidationProgress({
+        kind: "mechanical",
+        outcome: "running",
+        stage: "ci",
+        checks: { ci: "running", semanticReview: "skipped", humanReview: "skipped", merge: "skipped" },
+    });
 
     await recordWorkflowMetricImpl({
         category: "validation",
@@ -968,12 +1062,21 @@ export async function runMechanicalValidation({
         planName: "quick-fix",
         details: { maxRepairAttempts },
     });
-    emitRunWieldSystemStatus(hostedSession, "Starting QUICK_FIX Mechanical Validation.");
+    emitRunWieldSystemStatus(hostedSession, "Starting QUICK_FIX Mechanical Validation.", "info", progress);
 
     while (true) {
+        progress = updateValidationProgress(progress, {
+            outcome: "running",
+            stage: "ci",
+            repairAttempt: repairAttempts > 0 ? repairAttempts : null,
+            maxRepairAttempts: repairAttempts > 0 ? maxRepairAttempts : null,
+            checks: { ci: "running" },
+        });
         emitRunWieldSystemStatus(
             hostedSession,
             `Running QUICK_FIX CI Validation (Repair Attempts ${repairAttempts}/${maxRepairAttempts})...`,
+            "info",
+            progress,
         );
         const ciResult = await runLocalCIImpl({ hostedSession, cwd: validationCwd });
 
@@ -990,7 +1093,13 @@ export async function runMechanicalValidation({
         });
         if (ciResult.canceled) {
             const reason = "QUICK_FIX Mechanical Validation canceled. Staying with Engineer so messages can continue.";
-            emitRunWieldSystemStatus(hostedSession, reason, false);
+            progress = updateValidationProgress(progress, {
+                outcome: "paused",
+                stage: "terminal",
+                message: reason,
+                checks: { ci: "canceled" },
+            });
+            emitRunWieldSystemStatus(hostedSession, reason, false, progress);
             await recordWorkflowMetricImpl({
                 category: "validation",
                 event: "mechanical_validation_finished",
@@ -1001,10 +1110,12 @@ export async function runMechanicalValidation({
             return { passed: false, attempts: repairAttempts, reason: "canceled" };
         }
         if (ciResult.exitCode === 0) {
+            progress = updateValidationProgress(progress, { checks: { ci: "passed" } });
             emitRunWieldSystemStatus(
                 hostedSession,
-                "QUICK_FIX Mechanical Validation passed.",
+                "QUICK_FIX Mechanical Validation passed CI.",
                 "success",
+                progress,
             );
             await recordWorkflowMetricImpl({
                 category: "validation",
@@ -1012,6 +1123,17 @@ export async function runMechanicalValidation({
                 planName: "quick-fix",
                 details: { passed: true, attempts: repairAttempts },
             });
+            progress = updateValidationProgress(progress, {
+                outcome: "running",
+                stage: "manual_qa",
+                message: "Preparing QUICK_FIX manual QA checklist.",
+            });
+            emitRunWieldSystemStatus(
+                hostedSession,
+                "Preparing QUICK_FIX manual QA checklist.",
+                "info",
+                progress,
+            );
             await presentManualQaChecklist({
                 hostedSession,
                 name: manualQaName,
@@ -1020,6 +1142,13 @@ export async function runMechanicalValidation({
                 cwd: validationCwd,
                 runPrompt: runManualQaChecklistPromptImpl,
             });
+            progress = completeValidationProgress(progress, true, "QUICK_FIX Mechanical Validation passed.");
+            emitRunWieldSystemStatus(
+                hostedSession,
+                "QUICK_FIX Mechanical Validation passed.",
+                "success",
+                progress,
+            );
             await activateAgent(AGENTS.ENGINEER);
             return { passed: true, attempts: repairAttempts };
         }
@@ -1027,7 +1156,12 @@ export async function runMechanicalValidation({
         if (repairAttempts >= maxRepairAttempts) {
             const reason =
                 `QUICK_FIX Mechanical Validation failed after ${maxRepairAttempts} Engineer repair attempts.`;
-            emitRunWieldSystemStatus(hostedSession, reason, true);
+            progress = completeValidationProgress(
+                updateValidationProgress(progress, { checks: { ci: "failed" } }),
+                false,
+                reason,
+            );
+            emitRunWieldSystemStatus(hostedSession, reason, true, progress);
             await recordWorkflowMetricImpl({
                 category: "validation",
                 event: "mechanical_validation_finished",
@@ -1046,12 +1180,20 @@ export async function runMechanicalValidation({
             planName: "quick-fix",
             details: { repairAttempt: repairAttempts },
         });
+        progress = updateValidationProgress(progress, {
+            outcome: "running",
+            stage: "engineer_repair",
+            repairAttempt: repairAttempts,
+            maxRepairAttempts,
+            checks: { ci: "failed" },
+        });
         emitRunWieldSystemStatus(
             hostedSession,
             `QUICK_FIX CI failed. Dispatching ${
                 getAgentDisplayName(AGENTS.ENGINEER, projectRoot)
             } for repair attempt ${repairAttempts}/${maxRepairAttempts}...`,
             true,
+            progress,
         );
         const completed = await repair({
             agentName: AGENTS.ENGINEER,
@@ -1074,6 +1216,10 @@ export async function runMechanicalValidation({
             const reason = `${
                 getAgentDisplayName(AGENTS.ENGINEER, projectRoot)
             } stopped without task_completed during QUICK_FIX repair.`;
+            progress = updateValidationProgress(progress, {
+                outcome: "paused",
+                message: reason,
+            });
             emitRunWieldSystemStatus(
                 hostedSession,
                 `${reason} Staying with ${
@@ -1081,6 +1227,7 @@ export async function runMechanicalValidation({
                 } so the user can continue the session. ` +
                     "Mechanical Validation will resume after task_completed.",
                 true,
+                progress,
             );
             await recordWorkflowMetricImpl({
                 category: "validation",
@@ -1207,6 +1354,10 @@ export async function runValidationLoop({
     const runManualQaChecklistPromptImpl = __deps?.runManualQaChecklistPrompt || runManualQaChecklistPrompt;
     /** @param {string} reason */
     const pauseForExecutionContinuation = async (reason) => {
+        progress = updateValidationProgress(progress, {
+            outcome: "paused",
+            message: reason,
+        });
         emitRunWieldSystemStatus(
             hostedSession,
             `${reason} Staying with ${
@@ -1214,6 +1365,7 @@ export async function runValidationLoop({
             } so the user can continue the session. ` +
                 "Validation will resume after task_completed.",
             true,
+            progress,
         );
         if (hostedSession) {
             hostedSession.setActiveExecutionWorkflow({
@@ -1234,6 +1386,14 @@ export async function runValidationLoop({
     let humanReviewMetadata = null;
     let validationCycles = 0;
     const MAX_VALIDATION_CYCLES = 3;
+    let progress = createValidationProgress({
+        kind: "workflow",
+        outcome: "running",
+        stage: "cycle",
+        cycle: 1,
+        maxCycles: MAX_VALIDATION_CYCLES,
+        totalCycle: 1,
+    });
 
     await recordWorkflowMetricImpl({
         category: "validation",
@@ -1251,9 +1411,19 @@ export async function runValidationLoop({
             planName,
             details: { validationCycle: validationCycles, maxValidationCycles: MAX_VALIDATION_CYCLES },
         });
+        progress = createValidationProgress({
+            kind: "workflow",
+            outcome: "running",
+            stage: "cycle",
+            cycle: validationCycleInBatch,
+            maxCycles: MAX_VALIDATION_CYCLES,
+            totalCycle: validationCycles,
+        });
         emitRunWieldSystemStatus(
             hostedSession,
             `Starting Validation Cycle ${validationCycleInBatch}/${MAX_VALIDATION_CYCLES}`,
+            "info",
+            progress,
         );
 
         let buildPasses = false;
@@ -1261,7 +1431,19 @@ export async function runValidationLoop({
 
         while (!buildPasses && mechanicalAttempts < 3) {
             mechanicalAttempts++;
-            emitRunWieldSystemStatus(hostedSession, `Running CI Validation (Attempt ${mechanicalAttempts}/3)...`);
+            progress = updateValidationProgress(progress, {
+                outcome: "running",
+                stage: "ci",
+                repairAttempt: null,
+                maxRepairAttempts: null,
+                checks: { ci: "running" },
+            });
+            emitRunWieldSystemStatus(
+                hostedSession,
+                `Running CI Validation (Attempt ${mechanicalAttempts}/3)...`,
+                "info",
+                progress,
+            );
             const ciResult = await runLocalCIImpl({ hostedSession, cwd: executionCwd });
 
             await recordWorkflowMetricImpl({
@@ -1277,19 +1459,34 @@ export async function runValidationLoop({
                 },
             });
             if (ciResult.canceled) {
-                await pauseForExecutionContinuation("CI validation canceled.");
+                progress = updateValidationProgress(progress, {
+                    outcome: "paused",
+                    stage: "terminal",
+                    message: "CI validation canceled.",
+                    checks: { ci: "canceled" },
+                });
+                emitRunWieldSystemStatus(hostedSession, "CI validation canceled.", false, progress);
+                await pauseForEngineerContinuation("CI validation canceled.");
                 return;
             }
             if (ciResult.exitCode === 0) {
                 buildPasses = true;
-                emitRunWieldSystemStatus(hostedSession, "Build and tests passed.", "success");
+                progress = updateValidationProgress(progress, { checks: { ci: "passed" } });
+                emitRunWieldSystemStatus(hostedSession, "Build and tests passed.", "success", progress);
             } else {
+                progress = updateValidationProgress(progress, {
+                    stage: "engineer_repair",
+                    repairAttempt: mechanicalAttempts,
+                    maxRepairAttempts: 3,
+                    checks: { ci: "failed" },
+                });
                 emitRunWieldSystemStatus(
                     hostedSession,
                     `Build failed. Dispatching ${
                         getAgentDisplayName(executionAgent, projectRoot)
                     } to fix syntax/types...`,
                     true,
+                    progress,
                 );
                 await recordWorkflowMetricImpl({
                     category: "validation",
@@ -1336,10 +1533,14 @@ export async function runValidationLoop({
         }
 
         if (nonGitInPlace) {
+            progress = updateValidationProgress(progress, {
+                checks: { semanticReview: "skipped", humanReview: "skipped", merge: "skipped" },
+            });
             emitRunWieldSystemStatus(
                 hostedSession,
                 "Git is not available for this project. RunWield cannot compute a Git diff, so automated Semantic Code Review and human diff review are skipped for this in-place execution.",
                 true,
+                progress,
             );
             humanReviewMetadata = {
                 humanReviewMode: getCodeReviewModeImpl(projectRoot),
@@ -1350,7 +1551,13 @@ export async function runValidationLoop({
             break;
         }
 
-        emitRunWieldSystemStatus(hostedSession, "Running Semantic Code Review...");
+        progress = updateValidationProgress(progress, {
+            stage: "semantic_review",
+            repairAttempt: null,
+            maxRepairAttempts: null,
+            checks: { semanticReview: "running" },
+        });
+        emitRunWieldSystemStatus(hostedSession, "Running Semantic Code Review...", "info", progress);
         let diffText = "";
         let reviewResponse = "";
         let reviewOutcome = null;
@@ -1416,10 +1623,16 @@ export async function runValidationLoop({
                     const errorMsg = invocationError instanceof Error
                         ? invocationError.message
                         : String(invocationError);
+                    progress = updateValidationProgress(progress, {
+                        stage: "semantic_review",
+                        checks: { semanticReview: "failed" },
+                        message: `Semantic Reviewer execution failed: ${errorMsg}`,
+                    });
                     emitRunWieldSystemStatus(
                         hostedSession,
                         `Semantic Reviewer execution failed: ${errorMsg}`,
                         true,
+                        progress,
                     );
                     reviewerFailed = true;
                     reviewResponse = "";
@@ -1429,10 +1642,16 @@ export async function runValidationLoop({
                 if (!reviewerFailed) {
                     reviewOutcome = readLatestReviewOutcome(sessionMessages);
                     if (!reviewOutcome) {
+                        progress = updateValidationProgress(progress, {
+                            stage: "semantic_review",
+                            checks: { semanticReview: "failed" },
+                            message: "Semantic Reviewer did not call review_complete. Treating as execution failure.",
+                        });
                         emitRunWieldSystemStatus(
                             hostedSession,
                             "Semantic Reviewer did not call review_complete. Treating as execution failure.",
                             true,
+                            progress,
                         );
                         reviewerFailed = true;
                     } else {
@@ -1443,7 +1662,8 @@ export async function runValidationLoop({
         } catch (error) {
             if (isGitRepositoryRequiredError(error)) {
                 haltReason = formatGitRequiredMessage(error);
-                emitRunWieldSystemStatus(hostedSession, `Workflow halted: ${haltReason}`, true);
+                progress = completeValidationProgress(progress, false, `Workflow halted: ${haltReason}`);
+                emitRunWieldSystemStatus(hostedSession, `Workflow halted: ${haltReason}`, true, progress);
             } else {
                 throw error;
             }
@@ -1467,7 +1687,11 @@ export async function runValidationLoop({
                 // Reset failure flag before retry; the first failure should not carry over
                 reviewerFailed = false;
                 // Rerun semantic review from the beginning of the cycle
-                emitRunWieldSystemStatus(hostedSession, "Retrying Semantic Code Review...");
+                progress = updateValidationProgress(progress, {
+                    stage: "semantic_review",
+                    checks: { semanticReview: "running" },
+                });
+                emitRunWieldSystemStatus(hostedSession, "Retrying Semantic Code Review...", "info", progress);
                 try {
                     // Rebuild diff and try again
                     const retryDiffText = await getDiffText(baselineTree, executionCwd);
@@ -1513,10 +1737,16 @@ export async function runValidationLoop({
                         reviewOutcome = retryOutcome;
                     } catch (/** @type {any} */ retryError) {
                         const errorMsg = retryError instanceof Error ? retryError.message : String(retryError);
+                        progress = updateValidationProgress(progress, {
+                            stage: "semantic_review",
+                            checks: { semanticReview: "failed" },
+                            message: `Semantic Reviewer retry also failed: ${errorMsg}`,
+                        });
                         emitRunWieldSystemStatus(
                             hostedSession,
                             `Semantic Reviewer retry also failed: ${errorMsg}`,
                             true,
+                            progress,
                         );
                         reviewerFailed = true;
                     }
@@ -1525,10 +1755,14 @@ export async function runValidationLoop({
                 }
 
                 if (!reviewerFailed && reviewOutcome?.feedback != null) {
+                    progress = updateValidationProgress(progress, {
+                        checks: { semanticReview: reviewOutcome?.approved ? "passed" : "failed" },
+                    });
                     emitRunWieldSystemStatus(
                         hostedSession,
                         "Semantic Review retry completed.",
                         "success",
+                        progress,
                     );
                     // Reset reviewerFailed so normal flow continues below
                     reviewerFailed = false;
@@ -1574,10 +1808,15 @@ export async function runValidationLoop({
         }
 
         if (!diffText.trim()) {
+            progress = updateValidationProgress(progress, {
+                stage: "cycle",
+                checks: { semanticReview: "skipped", humanReview: "skipped" },
+            });
             emitRunWieldSystemStatus(
                 hostedSession,
                 "No changes detected in diff. Assuming approved.",
                 "success",
+                progress,
             );
             humanReviewMetadata = {
                 humanReviewMode: getCodeReviewModeImpl(projectRoot),
@@ -1595,9 +1834,11 @@ export async function runValidationLoop({
                 planName,
                 details: { validationCycle: validationCycles, approved: true, hasDiff: Boolean(diffText.trim()) },
             });
-            emitRunWieldSystemStatus(hostedSession, "Semantic Code Review Approved.", "success");
+            progress = updateValidationProgress(progress, { checks: { semanticReview: "passed" } });
+            emitRunWieldSystemStatus(hostedSession, "Semantic Code Review Approved.", "success", progress);
             const codeReviewMode = getCodeReviewModeImpl(projectRoot);
             if (codeReviewMode === "none") {
+                progress = updateValidationProgress(progress, { checks: { humanReview: "skipped" } });
                 humanReviewMetadata = {
                     humanReviewMode: "none",
                     humanReviewDecision: "not_required",
@@ -1623,6 +1864,7 @@ export async function runValidationLoop({
                     });
                     shouldOpenReview = reviewResponse.outcome === "selected" && reviewResponse.value === "open";
                     if (!shouldOpenReview) {
+                        progress = updateValidationProgress(progress, { checks: { humanReview: "skipped" } });
                         humanReviewMetadata = {
                             humanReviewMode: "ask",
                             humanReviewDecision: "skipped",
@@ -1705,6 +1947,11 @@ export async function runValidationLoop({
                             stats: guidedReview.stats,
                         },
                     });
+                    progress = updateValidationProgress(progress, {
+                        stage: "human_review",
+                        checks: { humanReview: "running" },
+                    });
+                    emitRunWieldSystemStatus(hostedSession, "Waiting for User Code Review...", "info", progress);
                     const humanReviewResponse = await requestInteraction(hostedSession, {
                         type: RuntimeInteractionTypes.CODE_REVIEW,
                         prompt: `Review implementation diff for "${planName}"`,
@@ -1736,15 +1983,21 @@ export async function runValidationLoop({
                                 imageCount: humanReview.images?.length || 0,
                             },
                         });
+                        progress = updateValidationProgress(progress, {
+                            checks: { humanReview: humanReview.canceled ? "canceled" : "failed" },
+                        });
+                        emitRunWieldSystemStatus(hostedSession, "User Code Review halted validation.", true, progress);
                         haltReason = "User code review exited without approval or feedback.";
                         break;
                     }
 
                     if (humanReview.approved) {
+                        progress = updateValidationProgress(progress, { checks: { humanReview: "passed" } });
                         emitRunWieldSystemStatus(
                             hostedSession,
                             "User Code Review Approved.",
                             "success",
+                            progress,
                         );
                         humanReviewMetadata = {
                             humanReviewMode: codeReviewMode,
@@ -1770,12 +2023,19 @@ export async function runValidationLoop({
                             humanReview.feedback || "(no free-text feedback provided)",
                             annotationText ? `Annotations:\n${annotationText}` : "",
                         ].filter(Boolean).join("\n\n");
+                        progress = updateValidationProgress(progress, {
+                            stage: "engineer_repair",
+                            repairAttempt: 1,
+                            maxRepairAttempts: MAX_VALIDATION_CYCLES,
+                            checks: { humanReview: "failed" },
+                        });
                         emitRunWieldSystemStatus(
                             hostedSession,
                             `User code review returned feedback. Sending feedback back to ${
                                 getAgentDisplayName(executionAgent, projectRoot)
                             }...\nUser Code Review Feedback:\n${feedbackText}`,
                             true,
+                            progress,
                         );
                         await recordWorkflowMetricImpl({
                             category: "validation",
@@ -1842,10 +2102,17 @@ export async function runValidationLoop({
                     hasReviewerOutput: Boolean(reviewResponse),
                 },
             });
+            progress = updateValidationProgress(progress, {
+                stage: "engineer_repair",
+                repairAttempt: validationCycleInBatch,
+                maxRepairAttempts: MAX_VALIDATION_CYCLES,
+                checks: { semanticReview: "failed" },
+            });
             emitRunWieldSystemStatus(
                 hostedSession,
                 `Review failed. Sending feedback back to ${getAgentDisplayName(executionAgent, projectRoot)}...`,
                 true,
+                progress,
             );
             await recordWorkflowMetricImpl({
                 category: "validation",
@@ -1886,9 +2153,20 @@ export async function runValidationLoop({
         if (!executionComplete && !haltReason && validationCycleInBatch >= MAX_VALIDATION_CYCLES) {
             const action = await promptForSemanticValidationLimitAction(hostedSession, MAX_VALIDATION_CYCLES);
             if (action === "retry") {
+                progress = createValidationProgress({
+                    kind: "workflow",
+                    outcome: "running",
+                    stage: "cycle",
+                    cycle: 1,
+                    maxCycles: MAX_VALIDATION_CYCLES,
+                    totalCycle: validationCycles + 1,
+                    message: `Retrying Semantic Validation for another ${MAX_VALIDATION_CYCLES} cycles...`,
+                });
                 emitRunWieldSystemStatus(
                     hostedSession,
                     `Retrying Semantic Validation for another ${MAX_VALIDATION_CYCLES} cycles...`,
+                    "info",
+                    progress,
                 );
                 continue;
             }
@@ -1944,11 +2222,14 @@ export async function runValidationLoop({
                             primaryPlanSnapshots.push(await preparePrimaryPlanPathImpl({ projectRoot, relativePath }));
                         }
                     }
+                    progress = updateValidationProgress(progress, { stage: "merge", checks: { merge: "running" } });
                     emitRunWieldSystemStatus(
                         hostedSession,
                         worktreeBaseBranch
                             ? `Merging validated worktree branch ${worktreeBranch} into target branch ${worktreeBaseBranch}.`
                             : `Merging validated worktree branch ${worktreeBranch} into primary checkout.`,
+                        "info",
+                        progress,
                     );
                     const mergeResult = await mergeExecutionWorktreeImpl({
                         projectRoot,
@@ -2016,6 +2297,7 @@ export async function runValidationLoop({
                             mergeRepairAttempts++;
                             const repairCwd = pendingRepairMergeWorktreePath || executionCwd || projectRoot;
                             const gitStatusContext = await getGitStatusContext(repairCwd);
+                            progress = updateValidationProgress(progress, { checks: { merge: "failed" } });
                             emitRunWieldSystemStatus(
                                 hostedSession,
                                 `Post-merge verification found remaining merge-back work. Dispatching ${
@@ -2072,6 +2354,7 @@ export async function runValidationLoop({
                             hostedSession,
                             `Automatic merge verification repair did not complete; preserving worktree for manual recovery: ${reason}`,
                             true,
+                            progress,
                         );
                         if (worktreeId) {
                             try {
@@ -2199,7 +2482,8 @@ export async function runValidationLoop({
                             }
                         }
                     }
-                    emitRunWieldSystemStatus(hostedSession, `Worktree merge failed: ${reason}`, true);
+                    progress = updateValidationProgress(progress, { checks: { merge: "failed" } });
+                    emitRunWieldSystemStatus(hostedSession, `Worktree merge failed: ${reason}`, true, progress);
                     if (worktreeId) {
                         try {
                             await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, {
@@ -2257,12 +2541,19 @@ export async function runValidationLoop({
                         const repairCwd = getMergeRepairCwd(error) || pendingRepairMergeWorktreePath || executionCwd ||
                             projectRoot;
                         const gitStatusContext = await getGitStatusContext(repairCwd);
+                        progress = updateValidationProgress(progress, {
+                            stage: "engineer_repair",
+                            repairAttempt: mergeRepairAttempts,
+                            maxRepairAttempts: maxMergeRepairAttempts,
+                            checks: { merge: "failed" },
+                        });
                         emitRunWieldSystemStatus(
                             hostedSession,
                             `Dispatching ${
                                 getAgentDisplayName(executionAgent, projectRoot)
                             } for merge repair attempt ${mergeRepairAttempts}/${maxMergeRepairAttempts}...`,
                             true,
+                            progress,
                         );
                         await recordWorkflowMetricImpl({
                             category: "validation",
@@ -2301,12 +2592,19 @@ export async function runValidationLoop({
                             },
                         });
                         if (completed) continue;
+                        progress = updateValidationProgress(progress, {
+                            outcome: "paused",
+                            message: `${
+                                getAgentDisplayName(AGENTS.ENGINEER, projectRoot)
+                            } stopped without task_completed during merge repair.`,
+                        });
                         emitRunWieldSystemStatus(
                             hostedSession,
                             `${
                                 getAgentDisplayName(executionAgent, projectRoot)
                             } stopped without task_completed during merge repair.`,
                             true,
+                            progress,
                         );
                     }
 
@@ -2314,7 +2612,17 @@ export async function runValidationLoop({
                     if (action === "retry") {
                         continue;
                     }
-                    emitRunWieldSystemStatus(hostedSession, `Workflow halted: Worktree merge failed: ${reason}`, true);
+                    progress = completeValidationProgress(
+                        progress,
+                        false,
+                        `Workflow halted: Worktree merge failed: ${reason}`,
+                    );
+                    emitRunWieldSystemStatus(
+                        hostedSession,
+                        `Workflow halted: Worktree merge failed: ${reason}`,
+                        true,
+                        progress,
+                    );
                     executionComplete = false;
                     haltReason = `Worktree merge failed: ${reason}`;
                 }
@@ -2338,11 +2646,7 @@ export async function runValidationLoop({
                     true,
                 );
             }
-            emitRunWieldSystemStatus(
-                hostedSession,
-                `${triageClassificationDisplay} execution and validation complete.`,
-                "success",
-            );
+            progress = updateValidationProgress(progress, { checks: { merge: worktreeBranch ? "passed" : "skipped" } });
             if (planName && planName !== "quick-fix" && !worktreeBranch) {
                 await recordPlanEventImpl({
                     cwd: projectRoot,
@@ -2356,6 +2660,17 @@ export async function runValidationLoop({
                 });
             }
             if (triageMeta?.classification === "FEATURE") {
+                progress = updateValidationProgress(progress, {
+                    outcome: "running",
+                    stage: "manual_qa",
+                    message: "Preparing FEATURE manual QA checklist.",
+                });
+                emitRunWieldSystemStatus(
+                    hostedSession,
+                    "Preparing FEATURE manual QA checklist.",
+                    "info",
+                    progress,
+                );
                 await runFeaturePostVerificationHandoffs({
                     hostedSession,
                     planName,
@@ -2366,6 +2681,17 @@ export async function runValidationLoop({
                     formatWorkRecordAutoGenerationResult: formatWorkRecordAutoGenerationResultImpl,
                 });
             }
+            progress = completeValidationProgress(
+                progress,
+                true,
+                `${triageClassificationDisplay} execution and validation complete.`,
+            );
+            emitRunWieldSystemStatus(
+                hostedSession,
+                `${triageClassificationDisplay} execution and validation complete.`,
+                "success",
+                progress,
+            );
         } else if (haltReason) {
             await recordWorkflowMetricImpl({
                 category: "validation",
@@ -2416,7 +2742,8 @@ export async function runValidationLoop({
             planName,
             details: { passed: false, validationCycles, reason: "halted" },
         });
-        emitRunWieldSystemStatus(hostedSession, `Workflow halted: ${reason}`, true);
+        progress = completeValidationProgress(progress, false, `Workflow halted: ${reason}`);
+        emitRunWieldSystemStatus(hostedSession, `Workflow halted: ${reason}`, true, progress);
         if (worktreeId) {
             await updateWorktreeRegistryEntryImpl(projectRoot, worktreeId, { status: "validation_failed" });
         }

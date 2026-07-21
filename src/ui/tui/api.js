@@ -10,6 +10,7 @@ import {
     ThinkingBlock,
     ToolExecutionBlock,
     UserPromptBlock,
+    ValidationHandoffBlock,
 } from "./blocks.js";
 
 /**
@@ -35,6 +36,9 @@ export function createSilentUiApi() {
         appendQueuedMessage: () => {},
         removeQueuedMessage: () => {},
         appendReviewResult: () => {},
+        updateValidationProgress: () => {},
+        updateValidationReport: () => {},
+        clearValidationPanel: () => {},
         appendSystemMessage: () => {},
         startToolExecution: () => ({
             setOutput: () => {},
@@ -85,9 +89,18 @@ export function createFooterOnlyUiApi(parentUiAPI) {
  * @param {{ addChild: (child: any) => void, removeChild: (child: any) => void, clear: () => void, children: any[] }} messageList
  * @param {import('./blocks.js').SpinnerBlock} spinner
  * @param {{ addChild: (child: any) => void, removeChild: (child: any) => void, children: any[] }} [inputAccessoryContainer]
+ * @param {{ addChild: (child: any) => void, removeChild: (child: any) => void, clear?: () => void, children: any[] }} [validationPanelContainer]
+ * @param {{ addChild: (child: any) => void, removeChild: (child: any) => void, clear?: () => void, children: any[] }} [activeInteractionContainer]
  * @returns {import('./types.js').UiAPI}
  */
-export function createUiApi(tui, messageList, spinner, inputAccessoryContainer) {
+export function createUiApi(
+    tui,
+    messageList,
+    spinner,
+    inputAccessoryContainer,
+    validationPanelContainer,
+    activeInteractionContainer,
+) {
     const activeToolBlocks = new Map();
     /** @type {Map<string, { block: SystemMessageBlock, spacer: Spacer }>} */
     const queuedMessageBlocks = new Map();
@@ -102,6 +115,39 @@ export function createUiApi(tui, messageList, spinner, inputAccessoryContainer) 
 
     let toolsExpanded = false;
     let outputSuppressed = false;
+    /** @type {import('../../shared/session/session-runtime-events.js').RuntimeValidationProgress | null} */
+    let validationProgress = null;
+    /** @type {{ agentName: string, markdown: string, completedOrder: number } | null} */
+    let latestEngineerReport = null;
+    /** @type {{ agentName: string, markdown: string, approved: boolean, completedOrder: number } | null} */
+    let latestReviewerReport = null;
+    let validationReportOrder = 0;
+    /** @type {ValidationHandoffBlock | null} */
+    let validationPanelBlock = null;
+
+    const renderValidationPanel = () => {
+        if (!validationPanelContainer || outputSuppressed) return;
+        if (!validationProgress) {
+            validationPanelContainer.clear?.();
+            validationPanelBlock = null;
+            return;
+        }
+        const state = {
+            progress: validationProgress,
+            engineer: latestEngineerReport,
+            reviewer: latestReviewerReport,
+        };
+        if (!validationPanelBlock) {
+            validationPanelContainer.clear?.();
+            validationPanelBlock = new ValidationHandoffBlock(state);
+            validationPanelContainer.addChild(validationPanelBlock);
+            validationPanelContainer.addChild(new Spacer(1));
+        } else {
+            validationPanelBlock.setState(state);
+        }
+    };
+
+    const activePromptContainer = activeInteractionContainer || messageList;
 
     /**
      * Paint one busy-frame transition without installing a continuous repaint
@@ -234,6 +280,47 @@ export function createUiApi(tui, messageList, spinner, inputAccessoryContainer) 
             const block = new ReviewResultBlock(agentName, markdown, approved);
             messageList.addChild(block);
             messageList.addChild(new Spacer(1));
+            tui.requestRender();
+        },
+
+        /** @param {import('../../shared/session/session-runtime-events.js').RuntimeValidationProgress} progress */
+        updateValidationProgress: (progress) => {
+            if (outputSuppressed) return;
+            validationProgress = structuredClone(progress);
+            renderValidationPanel();
+            tui.requestRender();
+        },
+
+        /**
+         * @param {"engineer" | "reviewer"} role
+         * @param {{ agentName: string, markdown: string, approved?: boolean }} report
+         */
+        updateValidationReport: (role, report) => {
+            if (outputSuppressed) return;
+            const completedOrder = ++validationReportOrder;
+            if (role === "engineer") {
+                latestEngineerReport = { agentName: report.agentName, markdown: report.markdown, completedOrder };
+            } else {
+                latestReviewerReport = {
+                    agentName: report.agentName,
+                    markdown: report.markdown,
+                    approved: report.approved === true,
+                    completedOrder,
+                };
+            }
+            if (validationProgress) {
+                renderValidationPanel();
+                tui.requestRender();
+            }
+        },
+
+        clearValidationPanel: () => {
+            validationProgress = null;
+            latestEngineerReport = null;
+            latestReviewerReport = null;
+            validationReportOrder = 0;
+            validationPanelContainer?.clear?.();
+            validationPanelBlock = null;
             tui.requestRender();
         },
 
@@ -381,8 +468,8 @@ export function createUiApi(tui, messageList, spinner, inputAccessoryContainer) 
             return new Promise((resolve) => {
                 const block = new PromptSelectBlock(title, options, hooks?.hint, hooks?.layout);
                 const spacer = new Spacer(1);
-                messageList.addChild(block);
-                messageList.addChild(spacer);
+                activePromptContainer.addChild(block);
+                activePromptContainer.addChild(spacer);
 
                 tui.setFocus(block);
                 tui.requestRender();
@@ -392,11 +479,12 @@ export function createUiApi(tui, messageList, spinner, inputAccessoryContainer) 
                 // Single path for settling and cleanup
                 const settleAndCleanup = (/** @type {string | null} */ value) => {
                     activePromptCancel = null;
-                    if (shouldPersistResult) {
+                    activePromptContainer.removeChild(block);
+                    activePromptContainer.removeChild(spacer);
+                    if (shouldPersistResult && !outputSuppressed) {
                         block.settle(value);
-                    } else {
-                        messageList.removeChild(block);
-                        messageList.removeChild(spacer);
+                        messageList.addChild(block);
+                        messageList.addChild(spacer);
                     }
                     resolve(value);
                     tui.requestRender();
@@ -433,8 +521,9 @@ export function createUiApi(tui, messageList, spinner, inputAccessoryContainer) 
                     block.input.setValue(defaultValue);
                 }
 
-                messageList.addChild(block);
-                messageList.addChild(new Spacer(1));
+                const spacer = new Spacer(1);
+                activePromptContainer.addChild(block);
+                activePromptContainer.addChild(spacer);
 
                 tui.setFocus(block);
                 tui.requestRender();
@@ -442,7 +531,13 @@ export function createUiApi(tui, messageList, spinner, inputAccessoryContainer) 
                 // Single path for settling and cleanup
                 const settleAndCleanup = (/** @type {string | null} */ value) => {
                     activePromptCancel = null;
-                    block.settle(value);
+                    activePromptContainer.removeChild(block);
+                    activePromptContainer.removeChild(spacer);
+                    if (!outputSuppressed) {
+                        block.settle(value);
+                        messageList.addChild(block);
+                        messageList.addChild(spacer);
+                    }
                     resolve(value);
                     tui.requestRender();
                 };
@@ -464,13 +559,37 @@ export function createUiApi(tui, messageList, spinner, inputAccessoryContainer) 
 
         suppressOutput: () => {
             outputSuppressed = true;
+            if (activePromptCancel) {
+                activePromptCancel();
+            }
+            tui.setFocus(null);
+            validationPanelContainer?.clear?.();
+            activeInteractionContainer?.clear?.();
+            validationProgress = null;
+            latestEngineerReport = null;
+            latestReviewerReport = null;
+            validationPanelBlock = null;
+            validationReportOrder = 0;
+            activePromptCancel = null;
             for (const id of toolElapsedTimers.keys()) {
                 clearToolElapsedTimer(id);
             }
         },
 
         clearMessages: () => {
+            if (activePromptCancel) {
+                activePromptCancel();
+                activePromptCancel = null;
+            }
+            tui.setFocus(null);
             messageList.clear();
+            validationPanelContainer?.clear?.();
+            activeInteractionContainer?.clear?.();
+            validationProgress = null;
+            latestEngineerReport = null;
+            latestReviewerReport = null;
+            validationPanelBlock = null;
+            validationReportOrder = 0;
             queuedMessageBlocks.clear();
             tui.requestRender();
         },

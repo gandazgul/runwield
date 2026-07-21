@@ -123,6 +123,156 @@ Deno.test("Runtime event factory supplies shared identity defaults and rejects p
     );
 });
 
+Deno.test("Runtime accepts complete validation progress snapshots on system status", () => {
+    const event = createSessionRuntimeEvent("session-1", {
+        type: RuntimeEventTypes.SYSTEM_STATUS,
+        message: "Starting Validation Cycle 1/3",
+        validationProgress: {
+            kind: "workflow",
+            outcome: "running",
+            stage: "cycle",
+            cycle: 1,
+            maxCycles: 3,
+            totalCycle: 1,
+            checks: {
+                ci: "pending",
+                semanticReview: "pending",
+                humanReview: "pending",
+                merge: "pending",
+            },
+        },
+    });
+    assertEquals(event.type, RuntimeEventTypes.SYSTEM_STATUS);
+    assertEquals(/** @type {any} */ (event).validationProgress?.kind, "workflow");
+});
+
+Deno.test("Runtime rejects malformed validation progress snapshots", () => {
+    const base = /** @type {any} */ ({
+        type: RuntimeEventTypes.SYSTEM_STATUS,
+        message: "bad",
+        validationProgress: {
+            kind: "mechanical",
+            outcome: "verified",
+            stage: "terminal",
+            repairAttempt: 2,
+            maxRepairAttempts: 3,
+            checks: {
+                ci: "passed",
+                semanticReview: "skipped",
+                humanReview: "skipped",
+                merge: "skipped",
+            },
+        },
+    });
+    assertThrows(
+        () =>
+            createSessionRuntimeEvent("session-1", {
+                ...base,
+                validationProgress: { ...base.validationProgress, outcome: "done" },
+            }),
+        TypeError,
+        "validationProgress.outcome is invalid",
+    );
+    assertThrows(
+        () =>
+            createSessionRuntimeEvent("session-1", {
+                ...base,
+                validationProgress: { ...base.validationProgress, cycle: 4, maxCycles: 3 },
+            }),
+        TypeError,
+        "validationProgress.cycle must be <= maxCycles",
+    );
+    assertThrows(
+        () =>
+            createSessionRuntimeEvent("session-1", {
+                ...base,
+                validationProgress: {
+                    ...base.validationProgress,
+                    checks: { ...base.validationProgress.checks, semanticReview: "pending" },
+                },
+            }),
+        TypeError,
+        "mechanical validation must skip non-CI checks",
+    );
+    assertThrows(
+        () =>
+            createSessionRuntimeEvent("session-1", {
+                ...base,
+                validationProgress: { ...base.validationProgress, maxRepairAttempts: 3, repairAttempt: undefined },
+            }),
+        TypeError,
+        "repairAttempt and maxRepairAttempts must be provided together",
+    );
+    assertThrows(
+        () =>
+            createSessionRuntimeEvent("session-1", {
+                ...base,
+                validationProgress: {
+                    kind: "workflow",
+                    outcome: "verified",
+                    stage: "terminal",
+                    cycle: 1,
+                    maxCycles: 3,
+                    totalCycle: 1,
+                    checks: { ci: "passed", semanticReview: "pending", humanReview: "skipped", merge: "skipped" },
+                },
+            }),
+        TypeError,
+        "terminal validation outcome cannot have pending checks",
+    );
+    assertThrows(
+        () =>
+            createSessionRuntimeEvent("session-1", {
+                ...base,
+                validationProgress: {
+                    kind: "workflow",
+                    outcome: "verified",
+                    stage: "terminal",
+                    cycle: 1,
+                    maxCycles: 3,
+                    totalCycle: 1,
+                    checks: { ci: "passed", semanticReview: "failed", humanReview: "skipped", merge: "skipped" },
+                },
+            }),
+        TypeError,
+        "verified validation outcome cannot have failed or canceled checks",
+    );
+    assertThrows(
+        () =>
+            createSessionRuntimeEvent("session-1", {
+                ...base,
+                validationProgress: {
+                    kind: "workflow",
+                    outcome: "failed",
+                    stage: "terminal",
+                    cycle: 1,
+                    maxCycles: 3,
+                    totalCycle: 1,
+                    checks: { ci: "passed", semanticReview: "passed", humanReview: "skipped", merge: "skipped" },
+                },
+            }),
+        TypeError,
+        "failed validation outcome requires a failed or canceled check",
+    );
+    assertThrows(
+        () =>
+            createSessionRuntimeEvent("session-1", {
+                ...base,
+                validationProgress: {
+                    kind: "workflow",
+                    outcome: "running",
+                    stage: "semantic_review",
+                    cycle: 1,
+                    maxCycles: 3,
+                    totalCycle: 1,
+                    checks: { ci: "passed", semanticReview: "skipped", humanReview: "pending", merge: "pending" },
+                },
+            }),
+        TypeError,
+        "semantic_review stage requires active or completed semantic review",
+    );
+});
+
 Deno.test("internal event sink contract failures are not swallowed as consumer failures", () => {
     const session = new HostedSession({ id: "sink-errors", cwd: Deno.cwd() });
     session.setEventSink(() => {

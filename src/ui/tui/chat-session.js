@@ -471,8 +471,14 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
     container.addChild(messageList);
     container.addChild(new Spacer(1));
 
+    const validationPanelContainer = new Container();
+    container.addChild(validationPanelContainer);
+
     const runningTasksComponent = new SpinnerBlock();
     container.addChild(runningTasksComponent);
+
+    const activeInteractionContainer = new Container();
+    container.addChild(activeInteractionContainer);
 
     const inputAccessoryContainer = new Container();
     container.addChild(inputAccessoryContainer);
@@ -712,7 +718,14 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
     const skills = await sessionRuntime.listSessionSkills(sessionId);
 
     // Expose a UI API for agents to append to the message list
-    const uiAPI = createUiApi(tui, messageList, runningTasksComponent, inputAccessoryContainer);
+    const uiAPI = createUiApi(
+        tui,
+        messageList,
+        runningTasksComponent,
+        inputAccessoryContainer,
+        validationPanelContainer,
+        activeInteractionContainer,
+    );
 
     let tuiRuntimeAdapter = attachTuiRuntimeAdapter({ runtime: sessionRuntime, sessionId: sessionId, uiAPI });
 
@@ -743,6 +756,7 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
         pastedImages.length = 0;
         previewImages.clear();
         uiAPI.hideKeyboardHelp?.();
+        uiAPI.clearValidationPanel?.();
         editor.setText("");
         tui.setFocus(editor);
         tui.requestRender();

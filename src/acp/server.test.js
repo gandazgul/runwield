@@ -1002,6 +1002,32 @@ Deno.test("ACP event mapper forwards the complete canonical Runtime tool descrip
     assertEquals(/** @type {any} */ (toolEnd)._meta?.runwield?.durationMs, 25);
 });
 
+Deno.test("ACP event mapper forwards structured validation progress metadata on system status", () => {
+    const progress = /** @type {import('../shared/session/session-runtime-events.js').RuntimeValidationProgress} */ ({
+        kind: "workflow",
+        outcome: "paused",
+        stage: "engineer_repair",
+        cycle: 1,
+        maxCycles: 3,
+        totalCycle: 1,
+        repairAttempt: 1,
+        maxRepairAttempts: 3,
+        checks: { ci: "failed", semanticReview: "pending", humanReview: "pending", merge: "pending" },
+        message: "Awaiting Engineer continuation.",
+    });
+    const update = mapRuntimeEventToAcpUpdate({
+        type: "system_status",
+        sessionId: "session-1",
+        timestamp: "now",
+        messageId: "status-1",
+        message: "Validation paused.",
+        level: "warning",
+        validationProgress: progress,
+    });
+
+    assertEquals(/** @type {any} */ (update)._meta?.runwield?.validationProgress, progress);
+});
+
 Deno.test("ACP session/cancel makes the in-flight prompt return cancelled", async () => {
     const runtime = makeFakeRuntime();
     /** @type {any} */
