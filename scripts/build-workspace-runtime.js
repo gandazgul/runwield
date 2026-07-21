@@ -157,13 +157,6 @@ async function patchDenoAdapterShimImport(serverEntry) {
  */
 async function waitForServerEntryImports(serverEntry) {
     const entryDir = dirname(serverEntry);
-    const source = await Deno.readTextFile(serverEntry);
-    const importPaths = Array.from(
-        source.matchAll(
-            /(?:^|[\n;])\s*(?:import\s+[^'";]+?\s+from\s+|export\s+[^'";]+?\s+from\s+|import\s*)['"](\.\.?\/[^'"]+)['"]/g,
-        ),
-        (match) => join(entryDir, match[1]),
-    );
     const deadline = Date.now() + 5000;
     while (true) {
         const source = normalizeDenoAdapterShimImport(await Deno.readTextFile(serverEntry));
