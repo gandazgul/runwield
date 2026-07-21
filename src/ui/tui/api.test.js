@@ -1,4 +1,4 @@
-import { assertEquals, assertNotEquals } from "@std/assert";
+import { assertEquals } from "@std/assert";
 import { Spacer } from "@earendil-works/pi-tui";
 import { createFooterOnlyUiApi, createSilentUiApi, createUiApi } from "./api.js";
 import { KeyboardHelpBlock, SpinnerBlock, SystemMessageBlock, ThinkingBlock, ToolExecutionBlock } from "./blocks.js";
@@ -230,17 +230,16 @@ Deno.test("createUiApi keeps semantic status messages independent from active to
     assertEquals(messageList.children[2] instanceof SystemMessageBlock, true);
 });
 
-Deno.test("createUiApi setBusy animates frames until Runtime reports idle", async () => {
+Deno.test("createUiApi setBusy does not continuously repaint while Runtime remains busy", async () => {
     const { tui, messageList, renders } = makeTuiHarness();
     const spinner = new SpinnerBlock();
     const ui = /** @type {any} */ (createUiApi(tui, messageList, spinner));
 
     ui.setBusy(true);
     assertEquals(spinner.isBusy, true);
-    const firstFrame = stripAnsi(spinner.render(80)[0]);
+    const busyRenderCount = renders();
     await new Promise((resolve) => setTimeout(resolve, 170));
-    const laterFrame = stripAnsi(spinner.render(80)[0]);
-    assertNotEquals(laterFrame, firstFrame);
+    assertEquals(renders(), busyRenderCount);
 
     ui.setBusy(false);
     assertEquals(spinner.isBusy, false);
