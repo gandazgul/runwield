@@ -37,19 +37,17 @@ export default defineConfig({
     },
     vite: {
         plugins: [tidewave(), tailwindcss()],
+        define: { "process.env.NODE_ENV": '"development"' },
         build: {
             rollupOptions: {
                 external: [/^@std\//],
             },
         },
         ssr: {
-            external: [/^@std\//],
+            external: ["@std/assert", "@std/cli", "@std/front-matter", "@std/jsonc", "@std/path"],
         },
         optimizeDeps: {
             exclude: ["@std/front-matter", "@std/jsonc", "@std/path"],
-            esbuildOptions: {
-                define: { "process.env.NODE_ENV": '"development"' },
-            },
             include: [
                 "@codemirror/lang-javascript",
                 "@codemirror/lang-json",
