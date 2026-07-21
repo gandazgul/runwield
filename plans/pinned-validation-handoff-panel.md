@@ -1,4 +1,5 @@
 ---
+planId: "68081250-2d4b-4f5f-87b5-c2134d2f36f7"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Add a persistent TUI validation panel above the input that keeps current progress and the latest Engineer and Reviewer reports visible during validation."

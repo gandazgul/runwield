@@ -24,6 +24,18 @@ export const REMOTE_CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
  * @property {number | undefined} retentionDays
  */
 
+/** @typedef {ReturnType<typeof setInterval>} RemoteCleanupTimer */
+
+/**
+ * @typedef {Object} RemoteServerMainOptions
+ * @property {Deno.Env} [env]
+ * @property {typeof startWorkspaceServer} [startWorkspaceServer]
+ * @property {typeof createRemoteWorkspaceAdapter} [createRemoteWorkspaceAdapter]
+ * @property {(...args: unknown[]) => void} [log]
+ * @property {typeof setInterval} [setInterval]
+ * @property {typeof clearInterval} [clearInterval]
+ */
+
 /**
  * @param {string | undefined} value
  * @param {number} fallback
@@ -94,9 +106,7 @@ function installShutdownHandlers(controller) {
     };
 }
 
-/**
- * @param {{ env?: Deno.Env, startWorkspaceServer?: typeof startWorkspaceServer, createRemoteWorkspaceAdapter?: typeof createRemoteWorkspaceAdapter, log?: (...args: unknown[]) => void, setInterval?: typeof setInterval, clearInterval?: typeof clearInterval }} [options]
- */
+/** @param {RemoteServerMainOptions} [options] */
 export async function main(options = {}) {
     const config = readRemoteServerConfig(options.env || Deno.env);
     const controller = new AbortController();
@@ -106,6 +116,7 @@ export async function main(options = {}) {
     const log = options.log || console.log;
     const setCleanupInterval = options.setInterval || setInterval;
     const clearCleanupInterval = options.clearInterval || clearInterval;
+    /** @type {RemoteCleanupTimer | undefined} */
     let cleanupTimer;
     /** @type {import("./server/remote-adapter.js").RemoteWorkspaceAdapter | undefined} */
     let adapter;

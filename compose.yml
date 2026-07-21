@@ -2,7 +2,7 @@ services:
     runwield-plan-server:
         build:
             context: .
-            dockerfile: Dockerfile
+            dockerfile: Containerfile
         image: runwield-plan-server:local
         restart: unless-stopped
         environment:
@@ -17,11 +17,8 @@ services:
             - runwield-plan-server-data:/data
         healthcheck:
             test:
-                - CMD
-                - deno
-                - run
-                - --allow-net=127.0.0.1:8080
-                - "data:application/typescript,const%20r%20%3D%20await%20fetch(%22http%3A%2F%2F127.0.0.1%3A8080%2Freadyz%22)%3B%20if%20(!r.ok)%20Deno.exit(1)%3B"
+                - CMD-SHELL
+                - printf 'const r = await fetch("http://127.0.0.1:8080/readyz"); if (!r.ok) Deno.exit(1);' | deno run --allow-net=127.0.0.1:8080 -
             interval: 10s
             timeout: 5s
             retries: 5

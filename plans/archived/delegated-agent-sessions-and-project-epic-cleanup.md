@@ -1,4 +1,5 @@
 ---
+planId: "dfe26cae-9d6f-47cc-a555-8aaf9ecc24e5"
 classification: "FEATURE"
 complexity: "HIGH"
 summary: "Make every PROJECT Plan an Epic, remove legacy task-table/DAG machinery, and add bounded context-isolated Delegated Agent Sessions."
