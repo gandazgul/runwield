@@ -22,9 +22,12 @@ affectedPaths:
     - "/Users/gandazgul/.codex/archived_sessions"
 frontend: false
 createdAt: "2026-07-10T09:36:24-04:00"
-updatedAt: "2026-07-16T14:08:45.056Z"
 status: "verified"
 origin: "internal"
+updatedAt: "2026-07-21T19:06:35.282Z"
+archivedAt: "2026-07-21T19:06:35.282Z"
+archivedFromStatus: "verified"
+archivedFromPath: "plans/rename-local-checkout-folder-to-runwield.md"
 ---
 
 # Rename the Local Checkout Folder to `runwield`

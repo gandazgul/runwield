@@ -33,6 +33,9 @@ import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runt
  * @typedef {Object} ActiveExecutionWorkflow
  * @property {string} planName
  * @property {any} triageMeta
+ * @property {string} [executionAgent]
+ * @property {"pair"|"autonomous"} [collaborationMode]
+ * @property {boolean} [pairStopRequested]
  * @property {string} [baselineTree]
  * @property {string} [projectRoot]
  * @property {string} [executionCwd]

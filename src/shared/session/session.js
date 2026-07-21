@@ -711,6 +711,18 @@ function isUnsupportedTemperatureError(error) {
 }
 
 /**
+ * The ChatGPT Codex Responses endpoint rejects sampling temperature. Detect the
+ * endpoint capability instead of maintaining a model-name list that will go
+ * stale as Codex models change.
+ *
+ * @param {import('@earendil-works/pi-ai').Model<any>} model
+ * @returns {boolean}
+ */
+function modelSupportsTemperature(model) {
+    return model.provider !== "openai-codex" && model.api !== "openai-codex-responses";
+}
+
+/**
  * Some provider/model APIs reject `temperature` even though pi-ai exposes it as
  * a generic stream option. Retry once without temperature when the provider
  * reports that exact incompatibility before emitting assistant content.
@@ -730,6 +742,8 @@ function createTemperatureFallbackStream(firstSource, retryWithoutTemperature) {
     async function forward(sourcePromise, canRetry) {
         const source = await sourcePromise;
         let emittedAssistantContent = false;
+        /** @type {import('@earendil-works/pi-ai').AssistantMessageEvent[]} */
+        const pendingLifecycleEvents = [];
         for await (const event of source) {
             if (
                 event.type === "error" &&
@@ -739,10 +753,25 @@ function createTemperatureFallbackStream(firstSource, retryWithoutTemperature) {
             ) {
                 return "retry";
             }
+
+            // Providers may emit `start` before reporting request validation
+            // errors. Hold it until the first substantive event so a fallback
+            // can discard the failed attempt without duplicating lifecycle
+            // events in the replacement stream.
+            if (event.type === "start") {
+                pendingLifecycleEvents.push(event);
+                continue;
+            }
+            for (const pendingEvent of pendingLifecycleEvents.splice(0)) {
+                output.push(pendingEvent);
+            }
             if (event.type !== "error" && event.type !== "done") {
                 emittedAssistantContent = true;
             }
             output.push(event);
+        }
+        for (const pendingEvent of pendingLifecycleEvents) {
+            output.push(pendingEvent);
         }
         return "done";
     }
@@ -813,6 +842,9 @@ export function applySessionTemperature(session, temperature) {
     if (temperature === undefined) return;
     const originalStreamFn = session.agent.streamFn;
     session.agent.streamFn = (model, context, options) => {
+        if (!modelSupportsTemperature(model)) {
+            return originalStreamFn(model, context, omitTemperatureOption(options));
+        }
         const optionsWithTemperature = {
             ...options,
             temperature,

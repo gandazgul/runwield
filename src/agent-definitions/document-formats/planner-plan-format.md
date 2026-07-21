@@ -5,7 +5,8 @@ summary: "<Brief summary of the feature change>"
 affectedPaths:
     - "path/to/file1"
     - "path/to/file2"
-frontend: false
+executionAgent: "engineer|frontend-engineer"
+collaborationRecommendation: "pair|autonomous"
 devServerCommand: null
 devServerUrl: null
 devServerHmr: null
@@ -52,9 +53,12 @@ Existing functions, modules, or patterns to reuse:
 - Automated: exact command(s) to run
 - Manual: precise user flows / checks
 - Expected results for key scenarios
-- For frontend work: set `frontend: true`, include known dev server command/URL when discoverable, and describe the
-  headed browser flow that proves the requested UI behavior. `frontend: true` makes headed browser verification
-  mandatory for execution agents unless blocked.
+- For browser-rendered UI work whose primary outcome is materially visual or interactive, set
+  `executionAgent:
+  frontend-engineer`; otherwise use `engineer` (including TUI work and incidental frontend-file
+  edits). Recommend `pair` when live visual judgment is valuable and `autonomous` otherwise. Include known dev-server
+  hints and exact headed-browser checks; real-browser verification is mandatory for Frontend Engineer unless externally
+  blocked.
 
 ## Edge Cases & Considerations
 

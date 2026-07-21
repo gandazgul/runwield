@@ -329,6 +329,10 @@ Temperature resolution:
 3. Layered agent definition frontmatter `temperature` (`./.wld` > `~/.wld` > bundled).
 4. Unset, letting the provider/model default apply.
 
+RunWield omits the resolved temperature for the ChatGPT Codex Responses endpoint, which does not support that parameter.
+If another provider or model reports that temperature is unsupported before returning assistant content, RunWield
+retries that request once without temperature.
+
 ## RunWield Custom Keys
 
 These keys are read by RunWield outside the upstream Pi `SettingsManager` schema.

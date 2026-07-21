@@ -21,15 +21,15 @@ affectedPaths:
     - "src/ui/tui/chat-session.test.js"
 frontend: false
 createdAt: "2026-07-18T22:51:42-04:00"
-updatedAt: "2026-07-21T17:50:08.031Z"
+updatedAt: "2026-07-21T21:46:55.897Z"
 status: "implemented"
 origin: "internal"
-failureReason: "Semantic validation did not approve after 3 cycles."
+failureReason: "Worktree branch runwield/worktree/pinned-validation-handoff-panel-fe2fa691 is 17 commits behind main and rebase failed: git rebase refs/heads/main failed: Rebasing (1/1)\rerror: could not apply 12e8a622... Complete pinned-validation-handoff-panel\nhint: Resolve all conflicts manually, mark them as resolved with\nhint: \"git add/rm <conflicted_files>\", then run \"git rebase --continue\".\nhint: You can instead skip this commit: run \"git rebase --skip\".\nhint: To abort and get back to the state before \"git rebase\", run \"git rebase --abort\".\nhint: Disable this message with \"git config set advice.mergeConflict false\"\nCould not apply 12e8a622... # Complete pinned-validation-handoff-panel."
 worktreeId: "fe2fa691"
 worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-pinned-validation-handoff-panel-fe2fa691"
 worktreeBranch: "runwield/worktree/pinned-validation-handoff-panel-fe2fa691"
 worktreeBaseBranch: "main"
-worktreeStatus: "validation_failed"
+worktreeStatus: "merge_conflict"
 ---
 
 # Pin Validation Progress and Latest Reports Above TUI Input

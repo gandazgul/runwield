@@ -11,12 +11,15 @@ import {
     RuntimeInteractionTypes,
 } from "../shared/session/session-runtime-interactions.js";
 import { recordWorkflowMetric } from "../shared/workflow/metrics.js";
+import { updatePlanFrontMatter } from "../plan-store.js";
 
 /**
- * @param {{hostedSession: import('../shared/session/hosted-session.js').HostedSession}} opts
+ * @param {{hostedSession: import('../shared/session/hosted-session.js').HostedSession, __deps?: {updatePlanFrontMatter?: typeof updatePlanFrontMatter, recordWorkflowMetric?: typeof recordWorkflowMetric}}} opts
  */
-export function createPairCheckpointTool({ hostedSession }) {
+export function createPairCheckpointTool({ hostedSession, __deps = {} }) {
     if (!hostedSession) throw new Error("createPairCheckpointTool: hostedSession is required");
+    const updatePlanFrontMatterImpl = __deps.updatePlanFrontMatter || updatePlanFrontMatter;
+    const recordWorkflowMetricImpl = __deps.recordWorkflowMetric || recordWorkflowMetric;
     return defineTool({
         name: "pair_checkpoint",
         label: "Pair Checkpoint",
@@ -37,7 +40,7 @@ export function createPairCheckpointTool({ hostedSession }) {
             if (workflow?.executionAgent !== "frontend-engineer" || workflow?.collaborationMode !== "pair") {
                 return {
                     content: [{ type: "text", text: "Pair checkpoint unavailable; continue autonomously." }],
-                    details: { outcome: "autonomous", reason: "pair_mode_inactive" },
+                    details: { outcome: "autonomous", feedback: "", reason: "pair_mode_inactive" },
                 };
             }
             const response = await requestHostedSessionInteraction(hostedSession, {
@@ -54,8 +57,15 @@ export function createPairCheckpointTool({ hostedSession }) {
                 : "autonomous";
             if (decision === "autonomous") {
                 hostedSession.setActiveExecutionWorkflow({ ...workflow, collaborationMode: "autonomous" });
+                await updatePlanFrontMatterImpl(workflow.projectRoot || hostedSession.cwd, workflow.planName, {
+                    collaborationMode: "autonomous",
+                });
+            } else if (decision === "stop") {
+                hostedSession.setActiveExecutionWorkflow({ ...workflow, pairStopRequested: true });
+            } else if (workflow.pairStopRequested) {
+                hostedSession.setActiveExecutionWorkflow({ ...workflow, pairStopRequested: undefined });
             }
-            await recordWorkflowMetric({
+            await recordWorkflowMetricImpl({
                 category: "execution",
                 event: "pair_checkpoint_resolved",
                 planName: workflow.planName,
@@ -74,7 +84,7 @@ export function createPairCheckpointTool({ hostedSession }) {
                         ? "Continue the remaining work autonomously."
                         : "The increment is accepted; continue Pair Execution.",
                 }],
-                details: { outcome: decision, feedback },
+                details: { outcome: decision, feedback, reason: "" },
             };
         },
     });
