@@ -344,6 +344,26 @@ Deno.test("bundled reviewer prompt permits unrelated formatter-only changes", as
     assertStringIncludes(prompt, "Do not fail a review merely because the diff touches files the plan did not mention");
 });
 
+Deno.test("bundled reviewer prompt reviews implementation semantics rather than verification completion", async () => {
+    const prompt = await Deno.readTextFile(
+        new URL("../../agent-definitions/workflow-prompts/reviewer-prompt.md", import.meta.url),
+    );
+
+    assertStringIncludes(prompt, "Do the changes adhere to the implementation requirements in the Plan's steps?");
+    assertStringIncludes(prompt, "Does the resulting implementation meet the Plan's objective?");
+    assertStringIncludes(prompt, "Do not audit whether the Engineer performed");
+    assertStringIncludes(prompt, "browser/integration/server flow remains unverified");
+    assertStringIncludes(prompt, "workflow context, not as semantic requirements or proof");
+    assertStringIncludes(prompt, "external verification procedure so that the Reviewer can approve the code");
+    assertStringIncludes(prompt, "If missing external verification evidence is your only concern, approve");
+    assertStringIncludes(prompt, "Every blocking issue must identify a concrete implementation defect");
+    assertStringIncludes(
+        prompt,
+        "Never send the Engineer a blocking issue whose requested fix is only to run a command",
+    );
+    assertStringIncludes(prompt, "not a verification-completion audit");
+});
+
 Deno.test("runLocalCI emits one semantic validation tool lifecycle", async () => {
     const originalCwd = Deno.cwd();
     const tempDir = await Deno.makeTempDir({ prefix: "runwield-validation-test-" });
