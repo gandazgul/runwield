@@ -12,7 +12,7 @@
  * in-session to iterate.
  */
 
-import { join } from "@std/path";
+import { join, toFileUrl } from "@std/path";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { CLI_BIN, PLANS_DIR_NAME } from "../constants.js";
@@ -86,6 +86,36 @@ function textResult(text, details, terminate, images = []) {
     };
     if (terminate) result.terminate = true;
     return result;
+}
+
+/**
+ * @param {{ planName: string, planPath: string, status: string, output?: string }} opts
+ * @returns {string}
+ */
+function buildPlanWrittenToolOutput({ planName, planPath, status, output = "" }) {
+    const planDisplayPath = `${PLANS_DIR_NAME}/${planName}.md`;
+    const lines = [
+        `Plan: ${planDisplayPath}`,
+        `File URL: ${toFileUrl(planPath).href}`,
+        `Path: ${planPath}`,
+        `Status: ${status}`,
+    ];
+    const trimmedOutput = output.trimEnd();
+    if (trimmedOutput) lines.push("", "Review server output:", trimmedOutput);
+    return `${lines.join("\n")}\n`;
+}
+
+/**
+ * @param {unknown} onUpdate
+ * @param {import('@earendil-works/pi-coding-agent').AgentToolResult<unknown>} result
+ */
+function emitToolUpdate(onUpdate, result) {
+    if (typeof onUpdate !== "function") return;
+    try {
+        onUpdate(result);
+    } catch {
+        // Tool-block progress is best-effort; the final tool result remains authoritative.
+    }
 }
 
 /**
@@ -170,7 +200,7 @@ export function createPlanWrittenTool(
             "If the user submits feedback instead of approving, the tool result contains that feedback so you can " +
             "revise in this same session.",
         parameters: TOOL_PARAMS,
-        async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+        async execute(_toolCallId, params, _signal, onUpdate, _ctx) {
             const planName = String(params.planName || "").trim().replace(/^plans\//i, "").replace(/\.md$/i, "").trim();
 
             if (!planName) {
@@ -202,8 +232,29 @@ export function createPlanWrittenTool(
             }
 
             const effectiveMeta = await resolveTriageMeta(triageMeta, planName, cwd);
+            const planDetails = {
+                planName,
+                planPath,
+                planFileUrl: toFileUrl(planPath).href,
+                triageMeta: effectiveMeta,
+            };
+            let reviewServerOutput = "";
+            const updateToolBlock = (/** @type {string} */ status) => {
+                emitToolUpdate(
+                    onUpdate,
+                    textResult(
+                        buildPlanWrittenToolOutput({ planName, planPath, status, output: reviewServerOutput }),
+                        planDetails,
+                    ),
+                );
+            };
+            const onReviewServerOutput = (/** @type {{ stream: "stdout" | "stderr", text: string }} */ entry) => {
+                reviewServerOutput += `[${entry.stream}] ${entry.text}`;
+                updateToolBlock("Waiting for plan review decision.");
+            };
 
             emitSystemStatus(hostedSession, `[RunWield] Plan declared: plans/${planName}.md`);
+            updateToolBlock("Opening browser review UI.");
 
             // Lazy imports break the circular dep: plan-written → workflow → session → plan-written.
             const requestPlanReview = deps.requestPlanReview || requestHostedSessionInteraction;
@@ -221,8 +272,9 @@ export function createPlanWrittenTool(
             const reviewResponse = await requestPlanReview(hostedSession, {
                 type: RuntimeInteractionTypes.PLAN_REVIEW,
                 prompt: `Review plan "${planName}"`,
-                _meta: { cwd, planName, planPath, triageMeta: effectiveMeta },
+                _meta: { cwd, planName, planPath, triageMeta: effectiveMeta, onOutput: onReviewServerOutput },
             });
+            updateToolBlock("Plan review decision received.");
             const reviewMeta = /** @type {any} */ (reviewResponse._meta || {});
             const reviewResult = {
                 canceled: reviewResponse.outcome === RuntimeInteractionOutcomes.CANCELED,
