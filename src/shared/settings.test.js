@@ -19,6 +19,7 @@ import {
     setCompactionReserveTokens,
     setCustomSetting,
     setDefaultPlanServerUrl,
+    shouldAutoGenerateWorkRecordsOnPlanCompletion,
     shouldCleanupMergedWorktrees,
 } from "./settings.js";
 
@@ -297,6 +298,68 @@ Deno.test("migratePiSettingsOnce leaves existing RunWield settings untouched", a
         assertEquals(await Deno.readTextFile(runwieldPath), '{"theme":"runwield"}');
     } finally {
         await Deno.remove(tempDir, { recursive: true });
+    }
+});
+
+Deno.test("workRecords setting is preserved across SettingsManager-shaped writes", () => {
+    const previous = JSON.stringify({ workRecords: { autoGenerateOnPlanCompletion: false } });
+    const next = JSON.stringify({ theme: "new-theme" });
+
+    assertEquals(JSON.parse(preserveRunWieldCustomSettingsForWrite(previous, next)), {
+        theme: "new-theme",
+        workRecords: { autoGenerateOnPlanCompletion: false },
+    });
+});
+
+Deno.test("shouldAutoGenerateWorkRecordsOnPlanCompletion defaults true and only literal nested false disables", async () => {
+    const originalHome = Deno.env.get("HOME");
+    const originalCwd = Deno.cwd();
+    const tempHome = await Deno.makeTempDir({ prefix: "runwield-work-record-setting-home-" });
+    const tempProject = await Deno.makeTempDir({ prefix: "runwield-work-record-setting-project-" });
+    try {
+        Deno.env.set("HOME", tempHome);
+        Deno.chdir(tempProject);
+        __resetSettingsForTests();
+
+        assertEquals(shouldAutoGenerateWorkRecordsOnPlanCompletion(tempProject), true);
+
+        await setCustomSetting("workRecords", { autoGenerateOnPlanCompletion: "false" }, "project");
+        assertEquals(shouldAutoGenerateWorkRecordsOnPlanCompletion(tempProject), true);
+
+        await setCustomSetting("workRecords", { autoGenerateOnPlanCompletion: false }, "project");
+        assertEquals(shouldAutoGenerateWorkRecordsOnPlanCompletion(tempProject), false);
+    } finally {
+        Deno.chdir(originalCwd);
+        if (originalHome === undefined) Deno.env.delete("HOME");
+        else Deno.env.set("HOME", originalHome);
+        __resetSettingsForTests();
+        await Deno.remove(tempHome, { recursive: true });
+        await Deno.remove(tempProject, { recursive: true });
+    }
+});
+
+Deno.test("shouldAutoGenerateWorkRecordsOnPlanCompletion merges global and project workRecords settings", async () => {
+    const originalHome = Deno.env.get("HOME");
+    const originalCwd = Deno.cwd();
+    const tempHome = await Deno.makeTempDir({ prefix: "runwield-work-record-merge-home-" });
+    const tempProject = await Deno.makeTempDir({ prefix: "runwield-work-record-merge-project-" });
+    try {
+        Deno.env.set("HOME", tempHome);
+        Deno.chdir(tempProject);
+        __resetSettingsForTests();
+
+        await setCustomSetting("workRecords", { autoGenerateOnPlanCompletion: false }, "global");
+        assertEquals(shouldAutoGenerateWorkRecordsOnPlanCompletion(tempProject), false);
+
+        await setCustomSetting("workRecords", { autoGenerateOnPlanCompletion: true }, "project");
+        assertEquals(shouldAutoGenerateWorkRecordsOnPlanCompletion(tempProject), true);
+    } finally {
+        Deno.chdir(originalCwd);
+        if (originalHome === undefined) Deno.env.delete("HOME");
+        else Deno.env.set("HOME", originalHome);
+        __resetSettingsForTests();
+        await Deno.remove(tempHome, { recursive: true });
+        await Deno.remove(tempProject, { recursive: true });
     }
 });
 
