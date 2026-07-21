@@ -98,7 +98,33 @@ export const RuntimeEventTypes = Object.freeze({
  */
 
 /**
- * @typedef {RuntimeEventBase & { type: "system_status", messageId: string, message: string, level: "info" | "success" | "warning" | "error", header?: string }} RuntimeSystemStatusEvent
+ * @typedef {"pending" | "running" | "passed" | "failed" | "skipped" | "canceled"} RuntimeValidationCheckResult
+ */
+
+/**
+ * @typedef {Object} RuntimeValidationCheckResults
+ * @property {RuntimeValidationCheckResult} ci
+ * @property {RuntimeValidationCheckResult} semanticReview
+ * @property {RuntimeValidationCheckResult} humanReview
+ * @property {RuntimeValidationCheckResult} merge
+ */
+
+/**
+ * @typedef {Object} RuntimeValidationProgress
+ * @property {"workflow" | "mechanical"} kind
+ * @property {"running" | "paused" | "verified" | "failed"} outcome
+ * @property {"cycle" | "ci" | "engineer_repair" | "semantic_review" | "human_review" | "merge" | "manual_qa" | "terminal"} stage
+ * @property {RuntimeValidationCheckResults} checks
+ * @property {number} [cycle]
+ * @property {number} [maxCycles]
+ * @property {number} [totalCycle]
+ * @property {number} [repairAttempt]
+ * @property {number} [maxRepairAttempts]
+ * @property {string} [message]
+ */
+
+/**
+ * @typedef {RuntimeEventBase & { type: "system_status", messageId: string, message: string, level: "info" | "success" | "warning" | "error", header?: string, validationProgress?: RuntimeValidationProgress }} RuntimeSystemStatusEvent
  */
 
 /**
@@ -218,6 +244,147 @@ const TOOL_KINDS = new Set([
     "switch_mode",
     "other",
 ]);
+const VALIDATION_KINDS = new Set(["workflow", "mechanical"]);
+const VALIDATION_OUTCOMES = new Set(["running", "paused", "verified", "failed"]);
+const VALIDATION_STAGES = new Set([
+    "cycle",
+    "ci",
+    "engineer_repair",
+    "semantic_review",
+    "human_review",
+    "merge",
+    "manual_qa",
+    "terminal",
+]);
+const VALIDATION_CHECK_RESULTS = new Set(["pending", "running", "passed", "failed", "skipped", "canceled"]);
+
+/**
+ * @param {unknown} progress
+ * @param {string} type
+ */
+function validateRuntimeValidationProgress(progress, type) {
+    requireRuntimeEvent(
+        Boolean(progress && typeof progress === "object"),
+        type,
+        "validationProgress must be an object",
+    );
+    const value = /** @type {Record<string, any>} */ (progress);
+    requireRuntimeEvent(VALIDATION_KINDS.has(value.kind), type, "validationProgress.kind is invalid");
+    requireRuntimeEvent(VALIDATION_OUTCOMES.has(value.outcome), type, "validationProgress.outcome is invalid");
+    requireRuntimeEvent(VALIDATION_STAGES.has(value.stage), type, "validationProgress.stage is invalid");
+    requireRuntimeEvent(value.checks && typeof value.checks === "object", type, "validationProgress.checks required");
+    for (const field of ["ci", "semanticReview", "humanReview", "merge"]) {
+        requireRuntimeEvent(
+            VALIDATION_CHECK_RESULTS.has(value.checks[field]),
+            type,
+            `validationProgress.checks.${field} is invalid`,
+        );
+    }
+    const requirePositiveInteger = (/** @type {string} */ field) => {
+        if (value[field] === undefined) return;
+        requireRuntimeEvent(
+            Number.isInteger(value[field]) && value[field] > 0,
+            type,
+            `validationProgress.${field} must be a positive integer`,
+        );
+    };
+    for (const field of ["cycle", "maxCycles", "totalCycle", "repairAttempt", "maxRepairAttempts"]) {
+        requirePositiveInteger(field);
+    }
+    if (value.kind === "workflow") {
+        for (const field of ["cycle", "maxCycles", "totalCycle"]) {
+            requireRuntimeEvent(value[field] !== undefined, type, `validationProgress.${field} required for workflow`);
+        }
+    }
+    if (value.maxCycles !== undefined) {
+        requireRuntimeEvent(value.cycle !== undefined, type, "validationProgress.cycle required with maxCycles");
+        requireRuntimeEvent(value.cycle <= value.maxCycles, type, "validationProgress.cycle must be <= maxCycles");
+    }
+    requireRuntimeEvent(
+        (value.maxRepairAttempts === undefined) === (value.repairAttempt === undefined),
+        type,
+        "validationProgress repairAttempt and maxRepairAttempts must be provided together",
+    );
+    if (value.maxRepairAttempts !== undefined) {
+        requireRuntimeEvent(
+            value.repairAttempt <= value.maxRepairAttempts,
+            type,
+            "validationProgress.repairAttempt must be <= maxRepairAttempts",
+        );
+    }
+    if (value.kind === "mechanical") {
+        requireRuntimeEvent(
+            value.checks.semanticReview === "skipped" && value.checks.humanReview === "skipped" &&
+                value.checks.merge === "skipped",
+            type,
+            "mechanical validation must skip non-CI checks",
+        );
+    }
+    const runningChecks = Object.values(value.checks).filter((check) => check === "running");
+    if (value.stage === "ci") {
+        requireRuntimeEvent(
+            value.checks.ci !== "pending" && value.checks.ci !== "skipped",
+            type,
+            "ci stage requires active or completed CI",
+        );
+    }
+    if (value.stage === "semantic_review") {
+        requireRuntimeEvent(
+            value.checks.semanticReview !== "pending" && value.checks.semanticReview !== "skipped",
+            type,
+            "semantic_review stage requires active or completed semantic review",
+        );
+    }
+    if (value.stage === "human_review") {
+        requireRuntimeEvent(
+            value.checks.humanReview !== "pending" && value.checks.humanReview !== "skipped",
+            type,
+            "human_review stage requires active or completed human review",
+        );
+    }
+    if (value.stage === "merge") {
+        requireRuntimeEvent(
+            value.checks.merge !== "pending" && value.checks.merge !== "skipped",
+            type,
+            "merge stage requires active or completed merge",
+        );
+    }
+    if (value.outcome === "verified" || value.outcome === "failed") {
+        const checkValues = Object.values(value.checks);
+        const failedOrCanceledChecks = checkValues.filter((check) => check === "failed" || check === "canceled");
+        requireRuntimeEvent(value.stage === "terminal", type, "terminal validation outcome requires terminal stage");
+        requireRuntimeEvent(runningChecks.length === 0, type, "terminal validation outcome cannot have running checks");
+        requireRuntimeEvent(
+            !checkValues.includes("pending"),
+            type,
+            "terminal validation outcome cannot have pending checks",
+        );
+        if (value.outcome === "verified") {
+            requireRuntimeEvent(
+                failedOrCanceledChecks.length === 0,
+                type,
+                "verified validation outcome cannot have failed or canceled checks",
+            );
+        }
+        if (value.outcome === "failed") {
+            requireRuntimeEvent(
+                failedOrCanceledChecks.length > 0,
+                type,
+                "failed validation outcome requires a failed or canceled check",
+            );
+        }
+    }
+    if (value.stage === "terminal") {
+        requireRuntimeEvent(
+            value.outcome === "verified" || value.outcome === "failed" || value.outcome === "paused",
+            type,
+            "terminal stage requires terminal or paused outcome",
+        );
+    }
+    if (value.message !== undefined) {
+        requireRuntimeEvent(typeof value.message === "string", type, "validationProgress.message must be a string");
+    }
+}
 
 /**
  * @param {boolean} condition
@@ -311,6 +478,9 @@ export function assertSessionRuntimeEvent(event) {
                 event.type,
                 "level is invalid",
             );
+            if (value.validationProgress !== undefined) {
+                validateRuntimeValidationProgress(value.validationProgress, event.type);
+            }
             break;
         case RuntimeEventTypes.BUSY_CHANGED:
             requireRuntimeEvent(typeof value.busy === "boolean", event.type, "busy must be boolean");
@@ -533,7 +703,7 @@ export function emitHostedSessionRuntimeEvent(hostedSession, event) {
  *
  * @param {import('./hosted-session.js').HostedSession | undefined} hostedSession
  * @param {string} message
- * @param {{ level?: "info" | "success" | "warning" | "error", header?: string }} [options]
+ * @param {{ level?: "info" | "success" | "warning" | "error", header?: string, validationProgress?: RuntimeValidationProgress }} [options]
  * @returns {boolean}
  */
 export function emitSystemStatus(hostedSession, message, options = {}) {
@@ -543,6 +713,7 @@ export function emitSystemStatus(hostedSession, message, options = {}) {
         message: String(message),
         level: options.level || "info",
         ...(options.header ? { header: options.header } : {}),
+        ...(options.validationProgress ? { validationProgress: options.validationProgress } : {}),
     });
 }
 

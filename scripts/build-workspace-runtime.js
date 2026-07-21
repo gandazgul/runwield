@@ -72,6 +72,27 @@ async function copyOpaqueAssets(sourceDir, destinationDir) {
 }
 
 /**
+ * Astro 7 can leave the Deno adapter shim import in entry.mjs. Replace it with
+ * direct JSR imports before bundling so Deno does not type-strip node_modules.
+ *
+ * @param {string} serverEntry
+ * @returns {Promise<void>}
+ */
+async function replaceDenoAdapterShim(serverEntry) {
+    const shimImports = [
+        'import { fromFileUrl, serveFile } from "@deno/astro-adapter/__deno_imports.ts";',
+        'import { serveFile, fromFileUrl } from "@deno/astro-adapter/__deno_imports.ts";',
+        "import { fromFileUrl, serveFile } from '@deno/astro-adapter/__deno_imports.ts';",
+        "import { serveFile, fromFileUrl } from '@deno/astro-adapter/__deno_imports.ts';",
+    ];
+    const replacement =
+        'import { serveFile } from "jsr:@std/http@1.0/file-server";\nimport { fromFileUrl } from "jsr:@std/path@1.0";';
+    const source = await Deno.readTextFile(serverEntry);
+    const next = shimImports.reduce((text, shim) => text.replace(shim, replacement), source);
+    if (next !== source) await Deno.writeTextFile(serverEntry, next);
+}
+
+/**
  * Return static relative imports from an Astro server entrypoint. JSDoc type
  * imports are intentionally ignored because they are erased at runtime.
  *
@@ -136,6 +157,13 @@ async function patchDenoAdapterShimImport(serverEntry) {
  */
 async function waitForServerEntryImports(serverEntry) {
     const entryDir = dirname(serverEntry);
+    const source = await Deno.readTextFile(serverEntry);
+    const importPaths = Array.from(
+        source.matchAll(
+            /(?:^|[\n;])\s*(?:import\s+[^'";]+?\s+from\s+|export\s+[^'";]+?\s+from\s+|import\s*)['"](\.\.?\/[^'"]+)['"]/g,
+        ),
+        (match) => join(entryDir, match[1]),
+    );
     const deadline = Date.now() + 5000;
     while (true) {
         const source = normalizeDenoAdapterShimImport(await Deno.readTextFile(serverEntry));
@@ -189,6 +217,7 @@ export async function buildWorkspaceRuntime(options = {}) {
     });
     await Deno.mkdir(dirname(serverOutput), { recursive: true });
 
+    await replaceDenoAdapterShim(serverEntry);
     await patchDenoAdapterShimImport(serverEntry);
     await waitForServerEntryImports(serverEntry);
     await run("deno", [

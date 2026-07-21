@@ -28,12 +28,12 @@ async function git(cwd, args) {
 }
 
 /**
- * @returns {any & { messages: string[], systemCalls: Array<{ message: string, isError: boolean, header: string, level: string }>, promptSelections: string[], busyStates: boolean[], toolCalls: Array<{ id: string, name: string, args: string }>, toolOutputs: string[], toolResults: Array<{ id: string, name: string, result: string, isError: boolean, durationMs: number }> }}
+ * @returns {any & { messages: string[], systemCalls: Array<{ message: string, isError: boolean, header: string, level: string, validationProgress?: import('../session/session-runtime-events.js').RuntimeValidationProgress }>, promptSelections: string[], busyStates: boolean[], toolCalls: Array<{ id: string, name: string, args: string }>, toolOutputs: string[], toolResults: Array<{ id: string, name: string, result: string, isError: boolean, durationMs: number }> }}
  */
 function makeUi() {
     /** @type {string[]} */
     const messages = [];
-    /** @type {Array<{ message: string, isError: boolean, header: string, level: string }>} */
+    /** @type {Array<{ message: string, isError: boolean, header: string, level: string, validationProgress?: import('../session/session-runtime-events.js').RuntimeValidationProgress }>} */
     const systemCalls = [];
     /** @type {string[]} */
     const promptSelections = [];
@@ -107,6 +107,7 @@ function attachRecorder(session, recorder) {
                 isError: event.level === "error" || event.type === "terminal_error",
                 header: event.header || "",
                 level: event.level || (event.type === "terminal_error" ? "error" : "info"),
+                ...(event.validationProgress ? { validationProgress: event.validationProgress } : {}),
             });
         } else if (event.type === "busy_changed") {
             recorder.busyStates.push(Boolean(event.busy));
@@ -484,6 +485,12 @@ Deno.test("runMechanicalValidation passes local CI without plan-specific work", 
         uiAPI.messages.some((/** @type {string} */ m) => m.includes("QUICK_FIX Mechanical Validation passed")),
         true,
     );
+    assertEquals(
+        uiAPI.systemCalls
+            .map((/** @type {typeof uiAPI.systemCalls[number]} */ call) => call.validationProgress?.stage)
+            .filter(Boolean),
+        ["ci", "ci", "ci", "manual_qa", "terminal"],
+    );
     assertEquals(metrics.map((metric) => metric.event), [
         "mechanical_validation_started",
         "mechanical_ci_attempt",
@@ -621,6 +628,33 @@ Deno.test("runMechanicalValidation detects task_completed when repair returns a 
     assertEquals(result, { passed: true, attempts: 1 });
 });
 
+Deno.test("runMechanicalValidation emits paused progress when Engineer repair stops without completion", async () => {
+    const uiAPI = makeUi();
+    const session = makeRecordedSession("mechanical-paused-progress-test", uiAPI);
+
+    const result = await runMechanicalValidation({
+        hostedSession: session,
+        sessionManager: undefined,
+        cwd: "/repo",
+        __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
+            runLocalCI: () => Promise.resolve({ exitCode: 1, output: "boom" }),
+            runActiveAgentTurn: () => Promise.resolve([]),
+            readLatestTaskCompletedOutcome: () => false,
+            recordWorkflowMetric: () => Promise.resolve(null),
+        }),
+    });
+
+    assertEquals(result.reason, "Engineer stopped without task_completed during QUICK_FIX repair.");
+    const paused = uiAPI.systemCalls.find((/** @type {typeof uiAPI.systemCalls[number]} */ call) =>
+        call.message.includes("Mechanical Validation will resume")
+    )?.validationProgress;
+    assertEquals(paused?.outcome, "paused");
+    assertEquals(paused?.stage, "engineer_repair");
+    assertEquals(paused?.repairAttempt, 1);
+    assertEquals(paused?.checks, { ci: "failed", semanticReview: "skipped", humanReview: "skipped", merge: "skipped" });
+});
+
 Deno.test("runMechanicalValidation stops after three Engineer repair attempts without Plan side effects", async () => {
     const uiAPI = makeUi();
     let repairCalls = 0;
@@ -655,6 +689,17 @@ Deno.test("runMechanicalValidation stops after three Engineer repair attempts wi
         uiAPI.messages.some((/** @type {string} */ m) => m.includes("failed after 3 Engineer repair attempts")),
         true,
     );
+    const terminal = uiAPI.systemCalls.find((/** @type {typeof uiAPI.systemCalls[number]} */ call) =>
+        call.message.includes("failed after 3 Engineer repair attempts") &&
+        call.validationProgress?.stage === "terminal"
+    )?.validationProgress;
+    assertEquals(terminal?.outcome, "failed");
+    assertEquals(terminal?.checks, {
+        ci: "failed",
+        semanticReview: "skipped",
+        humanReview: "skipped",
+        merge: "skipped",
+    });
 });
 
 Deno.test("runValidationLoop skips semantic review and merge-back for non-Git in-place execution", async () => {
@@ -718,6 +763,13 @@ Deno.test("runValidationLoop skips semantic review and merge-back for non-Git in
         true,
     );
     assertEquals(events.some((event) => event.event === "validation_passed"), true);
+    assertEquals(
+        uiAPI.systemCalls
+            .map((/** @type {typeof uiAPI.systemCalls[number]} */ call) => call.validationProgress?.stage)
+            .filter(Boolean)
+            .includes("manual_qa"),
+        true,
+    );
 });
 
 Deno.test("runValidationLoop starts Manual QA and Work Record generation concurrently after FEATURE validation", async () => {
@@ -1111,6 +1163,12 @@ Deno.test("runValidationLoop pauses with Engineer when CI repair does not call t
         uiAPI.messages.some((/** @type {string} */ m) => m.includes("during validation repair")),
         false,
     );
+    const paused = uiAPI.systemCalls.find((/** @type {typeof uiAPI.systemCalls[number]} */ call) =>
+        call.message.includes("Validation will resume after task_completed")
+    )?.validationProgress;
+    assertEquals(paused?.outcome, "paused");
+    assertEquals(paused?.stage, "engineer_repair");
+    assertEquals(paused?.checks.ci, "failed");
 });
 
 Deno.test("runValidationLoop pauses with Engineer on interrupted semantic repair", async () => {
@@ -1276,6 +1334,19 @@ Deno.test("runValidationLoop retries another three semantic cycles when requeste
         ),
         true,
     );
+    const retryProgress = uiAPI.systemCalls.find((/** @type {typeof uiAPI.systemCalls[number]} */ call) =>
+        call.message.includes("Retrying Semantic Validation for another 3 cycles")
+    )?.validationProgress;
+    assertEquals(retryProgress?.stage, "cycle");
+    assertEquals(retryProgress?.cycle, 1);
+    assertEquals(retryProgress?.maxCycles, 3);
+    assertEquals(retryProgress?.totalCycle, 4);
+    assertEquals(retryProgress?.checks, {
+        ci: "pending",
+        semanticReview: "pending",
+        humanReview: "pending",
+        merge: "pending",
+    });
     assertEquals(
         uiAPI.messages.some((/** @type {string} */ message) =>
             message.includes("Feature execution and validation complete")
@@ -3132,6 +3203,11 @@ Deno.test("runValidationLoop shows retry/cancel menu when reviewer throws an err
         uiAPI.messages.join(" "),
         "Semantic Reviewer execution failed",
     );
+    const failureProgress = uiAPI.systemCalls.find((/** @type {typeof uiAPI.systemCalls[number]} */ call) =>
+        call.message.includes("Semantic Reviewer execution failed")
+    )?.validationProgress;
+    assertEquals(failureProgress?.stage, "semantic_review");
+    assertEquals(failureProgress?.checks.semanticReview, "failed");
     assertStringIncludes(
         uiAPI.messages.join(" "),
         "User canceled validation",
@@ -3231,5 +3307,10 @@ Deno.test("runValidationLoop retries semantic review when user chooses retry", a
         [false, false],
         "Reviewer retries must each start without the shared workflow SessionManager",
     );
+    const retryProgress = uiAPI.systemCalls.find((/** @type {typeof uiAPI.systemCalls[number]} */ call) =>
+        call.message.includes("Retrying Semantic Code Review")
+    )?.validationProgress;
+    assertEquals(retryProgress?.stage, "semantic_review");
+    assertEquals(retryProgress?.message, undefined);
     assertStringIncludes(uiAPI.messages.join(" "), "retry completed");
 });
