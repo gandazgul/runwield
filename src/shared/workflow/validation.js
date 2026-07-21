@@ -1466,7 +1466,7 @@ export async function runValidationLoop({
                     checks: { ci: "canceled" },
                 });
                 emitRunWieldSystemStatus(hostedSession, "CI validation canceled.", false, progress);
-                await pauseForEngineerContinuation("CI validation canceled.");
+                await pauseForExecutionContinuation("CI validation canceled.");
                 return;
             }
             if (ciResult.exitCode === 0) {
