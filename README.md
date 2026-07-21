@@ -399,10 +399,12 @@ Interactive agent workflows require both binaries in `PATH`.
 
 ### Plan Review UI Does Not Open
 
-Confirm the compiled Plannotator package can resolve:
+Plan review now runs inside the Workspace UI. For source checkouts, confirm the reviewed Plannotator source checkout and
+published Plannotator packages are available:
 
-- `@gandazgul/plannotator-pi-extension-compiled/server`
-- `@gandazgul/plannotator-pi-extension-compiled/assets`
+- `third_party/plannotator/` exists and matches `third_party/plannotator-revision.txt`.
+- `deno task workspace:dev:plan-review` starts the fixture-backed review route.
+- `deno task workspace:check` can resolve the `@plannotator/*` imports from `deno.json` and Workspace aliases.
 
 ### A Saved Plan Is Not Loading
 
