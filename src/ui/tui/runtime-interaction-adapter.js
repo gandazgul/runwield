@@ -26,6 +26,9 @@ export function createTuiInteractionAdapter(uiAPI, dependencies = {}) {
     const submitPlanReview = dependencies.submitPlanForReview || submitPlanForReview;
     const submitCodeReview = dependencies.runCodeReview || runCodeReview;
     return {
+        supportsInteraction(type) {
+            return type === RuntimeInteractionTypes.PAIR_CHECKPOINT;
+        },
         async requestInteraction(request, signal) {
             if (request.type === RuntimeInteractionTypes.SELECT || request.type === RuntimeInteractionTypes.APPROVAL) {
                 const value = await uiAPI.promptSelect(request.prompt, request.options || []);
@@ -62,6 +65,36 @@ export function createTuiInteractionAdapter(uiAPI, dependencies = {}) {
                 });
                 if (value === null) return { outcome: RuntimeInteractionOutcomes.CANCELED };
                 return { outcome: RuntimeInteractionOutcomes.TEXT, value };
+            }
+            if (request.type === RuntimeInteractionTypes.PAIR_CHECKPOINT) {
+                const meta = /** @type {any} */ (request._meta || {});
+                const evidence = Array.isArray(meta.evidence) && meta.evidence.length
+                    ? `\nEvidence: ${meta.evidence.join(", ")}`
+                    : "";
+                const context = [meta.route && `Route: ${meta.route}`, meta.viewport && `Viewport: ${meta.viewport}`]
+                    .filter(Boolean).join(" | ");
+                const prompt = [
+                    "Pair checkpoint",
+                    request.prompt,
+                    context,
+                    meta.diagnostics && `Diagnostics: ${meta.diagnostics}`,
+                    evidence,
+                    `Next: ${meta.nextIncrement}`,
+                ].filter(Boolean).join("\n");
+                const value = await uiAPI.promptSelect(prompt, [
+                    { value: "continue", label: "Continue" },
+                    { value: "revise", label: "Revise this increment" },
+                    { value: "autonomous", label: "Finish autonomously" },
+                    { value: "stop", label: "Stop and keep Plan in progress" },
+                ]);
+                if (value === null) return { outcome: RuntimeInteractionOutcomes.CANCELED };
+                if (value !== "revise") return { outcome: RuntimeInteractionOutcomes.SELECTED, value };
+                const feedback = await uiAPI.promptText("Revision feedback", {
+                    placeholder: "Describe what should change in this increment",
+                    allowEmpty: false,
+                });
+                if (feedback === null) return { outcome: RuntimeInteractionOutcomes.CANCELED };
+                return { outcome: RuntimeInteractionOutcomes.SELECTED, value, _meta: { feedback } };
             }
             if (request.type === RuntimeInteractionTypes.PLAN_REVIEW) {
                 const meta = /** @type {any} */ (request._meta || {});

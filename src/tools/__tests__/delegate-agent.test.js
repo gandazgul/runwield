@@ -59,14 +59,25 @@ function assistantDone() {
 }
 
 Deno.test("resolveDelegatedToolNames intersects parent tools with mode policy", () => {
-    assertEquals(resolveDelegatedToolNames(["read", "bash", "edit", "task_completed", "delegate_agent"], "read"), [
-        "read",
-    ]);
-    assertEquals(resolveDelegatedToolNames(["read", "bash", "edit", "task_completed", "delegate_agent"], "write"), [
+    const parentTools = [
         "read",
         "bash",
         "edit",
-    ]);
+        "task_completed",
+        "return_to_router",
+        "review_complete",
+        "triage_report",
+        "user_interview",
+        "memory_recall",
+        "memory_recall_global",
+        "memory_store",
+        "memory_store_global",
+        "memory_delete",
+        "delegate_agent",
+    ];
+
+    assertEquals(resolveDelegatedToolNames(parentTools, "read"), ["read"]);
+    assertEquals(resolveDelegatedToolNames(parentTools, "write"), ["read", "bash", "edit"]);
 });
 
 Deno.test("diffDelegatedChangeSnapshot compares the full pre/post workspace baseline", () => {
@@ -103,6 +114,9 @@ Deno.test("delegated agent prompt includes inherited repository context placehol
     assertStringIncludes(prompt, "{{GLOBAL_AGENTSMD}}");
     assertStringIncludes(prompt, "{{PROJECT_AGENTSMD}}");
     assertStringIncludes(prompt, "{{PROJECT_STATE_CONTEXT}}");
+    assertStringIncludes(prompt, "{{MEMORIES}}");
+    assertStringIncludes(prompt, "Treat core memories as background context");
+    assertStringIncludes(prompt, "Leave all changes uncommitted");
     assertStringIncludes(prompt, "tools: []");
 });
 

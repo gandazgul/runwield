@@ -5,7 +5,12 @@
  */
 
 import { AGENTS } from "../../constants.js";
-import { loadPlan } from "../../plan-store.js";
+import {
+    loadPlan,
+    normalizeCollaborationMode,
+    normalizeExecutionAgent,
+    updatePlanFrontMatter,
+} from "../../plan-store.js";
 import { hasNonGitExecutionConsent, probeGitRepository, rememberNonGitExecutionConsent } from "../git.js";
 import { getAgentDisplayName } from "../session/agents.js";
 import { emitSystemStatus } from "../session/session-runtime-events.js";
@@ -48,6 +53,36 @@ export {
     readLatestReviewOutcome,
     readLatestTaskCompletedOutcome,
 } from "./workflow-results.js";
+
+/** @param {Partial<import('../../plan-store.js').PlanFrontMatter>} meta */
+export function resolveExecutionOwner(meta) {
+    return normalizeExecutionAgent(meta.executionAgent) ||
+        (meta.frontend === true ? AGENTS.FRONTEND_ENGINEER : AGENTS.ENGINEER);
+}
+
+/**
+ * @param {import('../session/hosted-session.js').HostedSession} hostedSession
+ * @param {Partial<import('../../plan-store.js').PlanFrontMatter>} meta
+ */
+async function resolveCollaborationMode(hostedSession, meta) {
+    if (resolveExecutionOwner(meta) !== AGENTS.FRONTEND_ENGINEER) return undefined;
+    const adapter = hostedSession.getInteractionAdapter?.();
+    const pairCapable = adapter?.supportsInteraction?.(RuntimeInteractionTypes.PAIR_CHECKPOINT) === true;
+    const stored = normalizeCollaborationMode(meta.collaborationMode);
+    if (stored) return pairCapable ? stored : "autonomous";
+    if (!pairCapable) return "autonomous";
+    const recommendation = normalizeCollaborationMode(meta.collaborationRecommendation) || "autonomous";
+    const response = await requestHostedSessionInteraction(hostedSession, {
+        type: RuntimeInteractionTypes.SELECT,
+        prompt: "Choose how Frontend Engineer should execute this Plan.",
+        defaultValue: recommendation,
+        options: [
+            { value: "pair", label: "Pair in the TUI", description: "Review coherent visible increments." },
+            { value: "autonomous", label: "Run autonomously", description: "Review only after implementation." },
+        ],
+    });
+    return response.outcome === "selected" && response.value === "pair" ? "pair" : "autonomous";
+}
 
 /**
  * @typedef {"approved_execute" | "approved_decompose" | "saved" | "feedback" | "canceled" | "repair_required" | "no_call"} PlanOutcome
@@ -162,6 +197,18 @@ export async function executePlan({
     }
 
     const effectiveMeta = { ...plan.attrs, ...(triageMeta || {}) };
+    effectiveMeta.executionAgent = resolveExecutionOwner(effectiveMeta);
+    const storedCollaborationMode = normalizeCollaborationMode(effectiveMeta.collaborationMode);
+    effectiveMeta.collaborationMode = await resolveCollaborationMode(hostedSession, effectiveMeta);
+    if (effectiveMeta.executionAgent === AGENTS.FRONTEND_ENGINEER && !storedCollaborationMode) {
+        await updatePlanFrontMatter(projectRoot, planName, {
+            executionAgent: effectiveMeta.executionAgent,
+            collaborationMode: effectiveMeta.collaborationMode,
+            ...(plan.attrs.frontend === true && !plan.attrs.collaborationRecommendation
+                ? { collaborationRecommendation: "autonomous", frontend: undefined }
+                : {}),
+        });
+    }
 
     if (isEpicPlan(plan.attrs)) {
         const error = `Plan ${planName} is a PROJECT Epic container and cannot be executed directly.`;
@@ -309,6 +356,8 @@ async function executeSingleEngineerPlan(
         executionContext.projectRoot,
         reviewFeedback,
         reviewImages,
+        triageMeta.executionAgent || AGENTS.ENGINEER,
+        triageMeta.collaborationMode,
         __deps,
     );
     if (!engineerResult.completed) {
@@ -332,6 +381,8 @@ async function executeSingleEngineerPlan(
  * @param {string} [projectRoot]
  * @param {string} [reviewFeedback]
  * @param {Array<{base64: string, mimeType: string}>} [reviewImages]
+ * @param {string} [executionAgent]
+ * @param {"pair"|"autonomous"} [collaborationMode]
  * @param {{ runActiveAgentTurn?: typeof import('../session/agent-switching.js').runActiveAgentTurn }} [__deps]
  * @returns {Promise<{ completed: boolean, messages: import('@earendil-works/pi-agent-core').AgentMessage[], error?: string, completionReport?: string }>}
  */
@@ -344,6 +395,8 @@ async function runEngineerWithPlan(
     projectRoot,
     reviewFeedback,
     reviewImages,
+    executionAgent = AGENTS.ENGINEER,
+    collaborationMode,
     __deps,
 ) {
     if (!hostedSession) throw new Error("runEngineerWithPlan: hostedSession is required");
@@ -353,8 +406,10 @@ async function runEngineerWithPlan(
     try {
         messages = await runActiveAgentTurn({
             hostedSession,
-            agentName: AGENTS.ENGINEER,
-            userRequest: buildEngineerRequest(planName, planBody, reviewFeedback),
+            agentName: executionAgent,
+            userRequest: `${
+                buildEngineerRequest(planName, planBody, reviewFeedback)
+            }\n\nExecution owner: ${executionAgent}. Collaboration mode: ${collaborationMode || "autonomous"}.`,
             images: reviewImages,
             sessionManager,
             cwd: executionCwd,
@@ -366,7 +421,7 @@ async function runEngineerWithPlan(
         const rootMessages = hostedRootSession?.agent?.state?.messages || [];
         emitSystemStatus(
             hostedSession,
-            buildEngineerPausedMessage(errorMessage, projectRoot || hostedSession?.cwd),
+            buildEngineerPausedMessage(errorMessage, projectRoot || hostedSession?.cwd, executionAgent),
             { level: "error", header: "RunWield" },
         );
         return { completed: false, messages: rootMessages, error: errorMessage };
@@ -377,7 +432,7 @@ async function runEngineerWithPlan(
     if (!completed) {
         emitSystemStatus(
             hostedSession,
-            buildEngineerPausedMessage(undefined, projectRoot || hostedSession?.cwd),
+            buildEngineerPausedMessage(undefined, projectRoot || hostedSession?.cwd, executionAgent),
             { header: "RunWield" },
         );
     }
@@ -389,10 +444,10 @@ async function runEngineerWithPlan(
  * @param {string} [reason]
  * @param {string} [projectRoot]
  */
-function buildEngineerPausedMessage(reason, projectRoot) {
+function buildEngineerPausedMessage(reason, projectRoot, executionAgent = AGENTS.ENGINEER) {
     const base = `${
-        getAgentDisplayName(AGENTS.ENGINEER, projectRoot)
-    } stopped without task_completed; execution is paused. Say "continue" to resume with the Engineer.`;
+        getAgentDisplayName(executionAgent, projectRoot)
+    } stopped without task_completed; execution is paused. Say "continue" to resume with the execution owner.`;
     return reason ? `${base}\nReason: ${reason}` : base;
 }
 
@@ -492,6 +547,8 @@ export async function startActiveExecutionWorkflow(
         const workflow = {
             planName,
             triageMeta,
+            executionAgent: resolveExecutionOwner(triageMeta),
+            collaborationMode: normalizeCollaborationMode(triageMeta.collaborationMode),
             projectRoot,
             executionCwd: projectRoot,
             nonGitInPlace: true,
@@ -548,6 +605,8 @@ export async function startActiveExecutionWorkflow(
     const workflow = {
         planName,
         triageMeta,
+        executionAgent: resolveExecutionOwner(triageMeta),
+        collaborationMode: normalizeCollaborationMode(triageMeta.collaborationMode),
         baselineTree,
         projectRoot,
         executionCwd: worktree.path,
