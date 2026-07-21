@@ -130,3 +130,27 @@ files and worktree registry state.
 Workflow validation applies to executable saved plan work: standalone FEATURE plans, child FEATURE plans, and legacy
 non-Epic PROJECT plans. PROJECT Epics do not run an implementation validation loop themselves; their child FEATURE plans
 run local validation, semantic review, and merge-back before being marked verified.
+
+## Completion-time Work Records
+
+After a supported terminal Plan outcome is durably recorded, RunWield attempts Work Record auto-generation or
+reconciliation when `workRecords.autoGenerateOnPlanCompletion` is not set to literal `false`.
+
+Supported automatic hooks:
+
+- standalone FEATURE validation: after in-place `validation_passed`, or after worktree merge-back makes the verified
+  Plan visible in the primary checkout;
+- post-validation parent Epic resolution: a child FEATURE never receives a record, but if validating a child advances
+  its parent Epic to `done_enough`, the parent receives one Epic Work Record;
+- `wld load-plan`: after the `epic_done_enough` lifecycle event succeeds;
+- Workspace: after a canonical close-without-verification action succeeds.
+
+For verified FEATURE plans, Manual QA checklist generation and Recorder Work Record generation start together after the
+Plan is terminal. Manual QA uses the hosted session prompt; Recorder uses a separate non-interactive session, so the two
+handoffs can overlap safely. RunWield waits for both before printing the Work Record result.
+
+Automatic generation is best-effort and non-authoritative. A Recorder, Markdown, backlink, or index failure is reported
+on the calling surface but does not undo `verified`, `done_enough`, or `closed_without_verification`. Successful
+Markdown writes with index warnings remain successful and can be repaired with `wld wr index rebuild`; missing or failed
+records can be retried with `wld wr backfill`. Automatic hooks target only the Plan that just completed and its needed
+Epic-child context; broad active+archived discovery belongs to explicit backfill.

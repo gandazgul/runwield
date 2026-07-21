@@ -17,7 +17,7 @@ import {
 } from "../../plan-store.js";
 import { runNonInteractiveAgentPrompt } from "../session/session.js";
 import { extractAssistantOutput } from "../workflow/workflow-results.js";
-import { listWorkRecords, writeWorkRecord } from "./store.js";
+import { buildWorkRecordFileName, listWorkRecords, writeWorkRecord } from "./store.js";
 import { syncWorkRecordToIndex } from "./index-adapter.js";
 
 const DEFAULT_CLOSURE_REASON = "Reason not specified.";
@@ -169,7 +169,7 @@ export function deriveWorkRecordScope(source) {
 }
 
 /** @param {import('./schema.js').WorkRecordResource[]} records */
-function recordsBySourcePlanId(records) {
+export function recordsBySourcePlanId(records) {
     /** @type {Map<string, import('./schema.js').WorkRecordResource[]>} */
     const map = new Map();
     for (const record of records) {
@@ -238,16 +238,7 @@ export async function discoverWorkRecordSources(cwd) {
     for (const entry of await listPlans(cwd)) {
         const loaded = await loadPlan(cwd, entry.name);
         if (!loaded) continue;
-        sources.push({
-            sourceKind: "active",
-            name: entry.name,
-            relativePath: `plans/${entry.name}.md`,
-            path: loaded.path,
-            planId: loaded.attrs.planId || "",
-            attrs: loaded.attrs,
-            body: loaded.body,
-            markdown: loaded.markdown,
-        });
+        sources.push(buildActiveWorkRecordSource(entry.name, loaded));
     }
     for (const entry of await listArchivedPlans(cwd)) {
         const loaded = await loadArchivedPlan(cwd, entry.name);
@@ -267,10 +258,28 @@ export async function discoverWorkRecordSources(cwd) {
 }
 
 /**
+ * @param {string} name
+ * @param {{ path: string, markdown: string, attrs: import('../../plan-store.js').PlanFrontMatter, body: string }} loaded
+ * @returns {WorkRecordSource}
+ */
+export function buildActiveWorkRecordSource(name, loaded) {
+    return {
+        sourceKind: "active",
+        name,
+        relativePath: `plans/${name}.md`,
+        path: loaded.path,
+        planId: loaded.attrs.planId || "",
+        attrs: loaded.attrs,
+        body: loaded.body,
+        markdown: loaded.markdown,
+    };
+}
+
+/**
  * @param {WorkRecordSource[]} sources
  * @returns {WorkRecordSource[]}
  */
-function attachEpicChildren(sources) {
+export function attachEpicChildren(sources) {
     return sources.map((source) => {
         if (!isEpicPlan(source.attrs)) return source;
         const children = sources.filter((candidate) =>
@@ -550,7 +559,9 @@ export async function generateWorkRecordForSource(cwd, inputSource, options = {}
             createdAt: iso(now),
             provenance: { sourcePlans: [source.planId] },
         };
-        const record = await writeWorkRecord(cwd, attrs, buildBody(source, sections));
+        const body = buildBody(source, sections);
+        const title = body.match(/^#\s+(.+)$/m)?.[1] || attrs.recordId;
+        const record = await writeWorkRecord(cwd, attrs, body, { fileName: buildWorkRecordFileName(title, now) });
         await linkSourceToRecord(cwd, source, record, now);
         const indexWarning = await bestEffortSyncGeneratedRecord(cwd, record, options);
         return {

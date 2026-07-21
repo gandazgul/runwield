@@ -54,6 +54,10 @@ import {
 import { printCommandHelp as printCommandHelpFn } from "../help/index.js";
 import { startInteractiveSession as startInteractiveSessionFn } from "../../ui/tui/chat-session.js";
 import { shouldCleanupMergedWorktrees as shouldCleanupMergedWorktreesFn } from "../../shared/settings.js";
+import {
+    autoGenerateWorkRecordForCompletedPlan as autoGenerateWorkRecordForCompletedPlanFn,
+    formatWorkRecordAutoGenerationResult,
+} from "../../shared/work-records/auto-generation.js";
 import { setTerminalTitleForName as setTerminalTitleForNameFn } from "../../ui/tui/terminal-title.js";
 import { resetTuiState as resetTuiStateFn } from "../command-helpers.js";
 import {
@@ -103,6 +107,7 @@ export { getLoadPlanCompletions } from "./getArgumentCompletions.js";
  * @property {typeof recordWorkflowMetric} [recordWorkflowMetric]
  * @property {typeof probeGitRepositoryFn} [probeGitRepository]
  * @property {typeof setTerminalTitleForNameFn} [setTerminalTitleForName]
+ * @property {typeof autoGenerateWorkRecordForCompletedPlanFn} [autoGenerateWorkRecordForCompletedPlan]
  */
 
 /**
@@ -2307,6 +2312,7 @@ async function confirmChildFeatureDependencies(projectRoot, plan, uiAPI, resolve
  * @param {typeof recordPlanEventFn} opts.recordPlanEvent
  * @param {typeof resolvePlanFn} opts.resolvePlan
  * @param {(childPlanName: string) => Promise<void>} opts.loadChildPlan
+ * @param {typeof autoGenerateWorkRecordForCompletedPlanFn} opts.autoGenerateWorkRecordForCompletedPlan
  * @returns {Promise<"handled" | "continue" | "review">}
  */
 async function handleEpicPlan({
@@ -2318,6 +2324,7 @@ async function handleEpicPlan({
     recordPlanEvent,
     resolvePlan,
     loadChildPlan,
+    autoGenerateWorkRecordForCompletedPlan,
 }) {
     if (!isEpicPlan(plan.attrs)) return "continue";
 
@@ -2454,6 +2461,29 @@ async function handleEpicPlan({
                 false,
                 "RunWield",
             );
+            let workRecordResult;
+            try {
+                workRecordResult = await autoGenerateWorkRecordForCompletedPlan({
+                    cwd: projectRoot,
+                    planName: plan.planName,
+                });
+            } catch (error) {
+                const reason = error instanceof Error ? error.message : String(error);
+                workRecordResult = {
+                    status: /** @type {const} */ ("failed"),
+                    planName: plan.planName,
+                    error: reason,
+                    message: formatWorkRecordAutoGenerationResult({
+                        status: "failed",
+                        planName: plan.planName,
+                        error: reason,
+                        message: "",
+                    }),
+                };
+            }
+            if (workRecordResult.status !== "skipped" || workRecordResult.reason !== "parent_not_terminal") {
+                uiAPI.appendSystemMessage(workRecordResult.message, workRecordResult.status === "failed", "RunWield");
+            }
             continue;
         }
 
@@ -2559,6 +2589,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
         shouldCleanupMergedWorktrees: shouldCleanupMergedWorktreesDep,
         recordWorkflowMetric: recordWorkflowMetricDep,
         probeGitRepository: probeGitRepositoryDep,
+        autoGenerateWorkRecordForCompletedPlan: autoGenerateWorkRecordForCompletedPlanDep,
     } = deps;
 
     const parseArgs = parseArgsDep || parseArgsFn;
@@ -2596,6 +2627,8 @@ export async function runLoadPlanCommand(argv, options = {}) {
     const shouldCleanupMergedWorktrees = shouldCleanupMergedWorktreesDep || shouldCleanupMergedWorktreesFn;
     const recordWorkflowMetricForLoadPlan = recordWorkflowMetricDep || recordWorkflowMetric;
     const probeGitRepository = probeGitRepositoryDep || probeGitRepositoryFn;
+    const autoGenerateWorkRecordForCompletedPlan = autoGenerateWorkRecordForCompletedPlanDep ||
+        autoGenerateWorkRecordForCompletedPlanFn;
 
     const parsedArgs = parseArgs(argv, {
         boolean: ["help"],
@@ -2776,6 +2809,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
             recordPlanEvent,
             resolvePlan,
             loadChildPlan: loadAnotherPlan,
+            autoGenerateWorkRecordForCompletedPlan,
         });
         if (epicResult === "handled") {
             skipRouterRestore = true;
