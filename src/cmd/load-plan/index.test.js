@@ -807,6 +807,115 @@ Deno.test("runLoadPlanCommand Epic done-enough confirm records lifecycle event",
     assertEquals(messages.some((message) => message.includes("Epic marked done enough")), true);
 });
 
+Deno.test("runLoadPlanCommand Epic done-enough auto-generates Work Record only after lifecycle success", async () => {
+    const { uiAPI, selections } = makeUi();
+    selections.push("done_enough", "confirm");
+    let generated = false;
+
+    let failed = false;
+    try {
+        await runLoadPlanCommand(["epic-record-fails"], {
+            ...makeRuntimeContext(),
+            uiAPI,
+            editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+            __testDeps: /** @type {any} */ ({
+                parseArgs: (/** @type {string[]} */ argv) => ({ help: false, _: argv }),
+                resolvePlan: () =>
+                    Promise.resolve({
+                        planName: "epic-record-fails",
+                        path: "plans/epic-record-fails.md",
+                        body: "body",
+                        markdown: "body",
+                        attrs: {
+                            classification: "PROJECT",
+                            complexity: "HIGH",
+                            summary: "Epic summary",
+                            affectedPaths: [],
+                            status: "ready_for_work",
+                        },
+                    }),
+                findPlansByParent: () =>
+                    Promise.resolve([
+                        {
+                            name: "epic-record-fails/01-first",
+                            path: "",
+                            attrs: { classification: "FEATURE", status: "verified" },
+                        },
+                    ]),
+                recordPlanEvent: () => Promise.reject(new Error("lifecycle write failed")),
+                autoGenerateWorkRecordForCompletedPlan: () => {
+                    generated = true;
+                    return Promise.resolve({
+                        status: "generated",
+                        planName: "epic-record-fails",
+                        message: "generated",
+                    });
+                },
+                resetTuiState: () => {},
+            }),
+        });
+    } catch (error) {
+        failed = error instanceof Error && error.message.includes("lifecycle write failed");
+    }
+
+    assertEquals(failed, true);
+    assertEquals(generated, false);
+});
+
+Deno.test("runLoadPlanCommand Epic done-enough reports Work Record failure without undoing terminal Epic state", async () => {
+    const { uiAPI, selections, messages } = makeUi();
+    selections.push("done_enough", "confirm", "cancel");
+    /** @type {any} */
+    let updatedAttrs = null;
+
+    await runLoadPlanCommand(["epic-generation-fails"], {
+        ...makeRuntimeContext(),
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: (/** @type {string[]} */ argv) => ({ help: false, _: argv }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "epic-generation-fails",
+                    path: "plans/epic-generation-fails.md",
+                    body: "body",
+                    markdown: "body",
+                    attrs: {
+                        classification: "PROJECT",
+                        complexity: "HIGH",
+                        summary: "Epic summary",
+                        affectedPaths: [],
+                        status: "ready_for_work",
+                    },
+                }),
+            findPlansByParent: () =>
+                Promise.resolve([
+                    {
+                        name: "epic-generation-fails/01-first",
+                        path: "",
+                        attrs: { classification: "FEATURE", status: "verified" },
+                    },
+                ]),
+            recordPlanEvent: () => {
+                updatedAttrs = {
+                    status: "verified",
+                    epicCompletionMode: "done_enough",
+                    epicDoneEnoughSummary: "1/1 child FEATURE plans are verified.",
+                };
+                return Promise.resolve(updatedAttrs);
+            },
+            autoGenerateWorkRecordForCompletedPlan: () => Promise.reject(new Error("recorder unavailable")),
+            resetTuiState: () => {},
+        }),
+    });
+
+    assertEquals(updatedAttrs.status, "verified");
+    assertEquals(updatedAttrs.epicCompletionMode, "done_enough");
+    assertEquals(messages.some((message) => message.includes("Epic marked done enough")), true);
+    assertEquals(messages.some((message) => message.includes("Work Record generation failed")), true);
+    assertEquals(messages.some((message) => message.includes("recorder unavailable")), true);
+});
+
 Deno.test("runLoadPlanCommand Epic done-enough can be canceled", async () => {
     const { uiAPI, selections, messages } = makeUi();
     selections.push("done_enough", "cancel", "cancel");

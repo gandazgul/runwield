@@ -285,49 +285,39 @@ For QUICK_FIX:
 ### Guided Review Reuse
 
 Guided Review remains a pre-merge validation aid, not a durable planning artifact. Work Records remain the durable
-planning-memory artifact. Guided Review v1 can ship without Work Record integration; this reuse is a later integration
-between the two concepts. When validation-time Guided Review is requested or auto-selected, RunWield should reuse the
-same ephemeral analysis pass to prepare both Guided Review material and Work Record material:
-
-- source Plan identity and background context
-- concise summary of what was built
-- detected deviations from the Plan
-- deferred work candidates
-- stable file-level evidence from the diff
-- ephemeral Guided Review material needed for the human diff walkthrough
-
-The shared review-intelligence packet is runtime/session state only. It should not be committed, stored in Plan Front
-Matter, written as a sidecar artifact, or indexed. If the session is interrupted before the Work Record is written, the
-analysis should be regenerated later from the Plan, diff/worktree state when available, and normal Recorder inputs.
-
-If Guided Review runs before merge-back, Recorder may create the Work Record immediately as
-`status: pending_verification`. That record must not enter default search or Agent retrieval until the source Plan
-reaches `verified`, `closed_without_verification`, or `done_enough`. If verification/review succeeds, the pending record
-transitions to `approved` with the final `completionMode`. If verification fails or the user requests changes, the
-pending record should remain hidden and be updated, replaced, or discarded by the later successful attempt.
-
-When Guided Review does not run because the user declined it, settings disable it, or deterministic heuristics consider
-the change too small or low-signal, Work Record generation follows the normal session-boundary background path.
+planning-memory artifact. Reusing Guided Review analysis for Work Record drafting is deferred beyond this V1 completion
+hook. V1 Recorder generation runs after the terminal Plan state is visible and reconstructs its source material from the
+Plan, execution report, completion metadata, and Epic child context when needed.
 
 ### Best-Effort and Timing
 
-Work Record generation is best-effort and must not block Plans from reaching `verified` or
-`closed_without_verification`.
+Work Record generation is best-effort and must not block Plans from reaching `verified`, `closed_without_verification`,
+or `done_enough`.
 
-Automatic generation waits until session boundary instead of running immediately when a Plan/Epic completes:
+V1 generation is completion-driven, not session-boundary driven. Automatic hooks run after the terminal event is already
+durable:
 
-- `/new`
-- `/quit`
+- after successful FEATURE Workflow Validation and merge-back/in-place `validation_passed` persistence;
+- after `wld load-plan` records `epic_done_enough`;
+- after Workspace records a canonical `manual_closed_without_verification` action;
+- after a child FEATURE validation causes its parent Epic to become `done_enough`.
 
-At session boundary, RunWield should kick off pending Work Record generation in the background, not block the user.
+For verified FEATURE plans, Manual QA checklist generation and Work Record generation start together after the Plan is
+terminal. Manual QA runs through the hosted session prompt; Recorder runs through a separate non-interactive Agent
+Session, so the two handoffs can overlap safely. RunWield waits for both handoffs, then prints a concise Work Record
+result.
 
-Session-end auto-generation is scoped only to top-level Plans/Epics touched in the current session. Broader backfill
-across all verified/closed Plans is explicit.
+Automatic generation is controlled by `workRecords.autoGenerateOnPlanCompletion`, defaulting to enabled. Only literal
+nested `false` disables automatic generation. Disabling the setting does not affect canonical Markdown storage, `wld wr`
+list/search/read, index rebuild, or explicit `wld wr backfill`.
+
+Automatic generation targets only the just-completed active Plan and the Epic children needed for targeted context. It
+does not scan archived Plans or unrelated completed Plans. Broader active+archived recovery remains explicit backfill.
 
 If RunWield crashes or generation fails, recovery/backfill can find missing records later. Generation failure should be
-recorded on the source Plan's `workRecord` backlink with `status: failed`, `lastAttemptAt`, and a concise `error`.
-Session-end generation failures may also print a concise stderr message when there is still a process surface available,
-but the Plan backlink is the durable failure record for v1.
+recorded on the source Plan's `workRecord` backlink with `status: failed`, `lastAttemptAt`, and a concise `error`. The
+calling surface also prints generated/linked/failed status, paths for successful records, index warnings when present,
+and backfill/index-rebuild guidance for failures. These failures never roll back the terminal Plan outcome.
 
 ### Plan Backlink Metadata
 
@@ -363,7 +353,8 @@ When manually closing a Plan without RunWield verification:
 - Older already-closed Plans that lack this field should not block Work Record generation or backfill; Recorder should
   use `Reason not specified.` as the closure reason.
 - Recorder must include the closure reason in the Work Record Summary.
-- Work Record generation follows the same session-end/background timing as verified Plans.
+- Work Record generation runs after the canonical close-without-verification action succeeds, or during explicit
+  backfill.
 
 ## Manual, Imported, and External Work Records
 
@@ -625,14 +616,13 @@ wld wr
 wld wr list [--all]
 wld wr search <query>
 wld wr read <recordId>
-wld wr create [optional text]
+wld wr index rebuild
 wld wr backfill
 ```
 
-The first storage/lifecycle slice may ship only `wld wr` / `wld wr list` over canonical Markdown records. Generation,
-backfill, indexed search/read, and manual create belong to later slices or deferred manual/external Work Record scope.
-Default listing should show current usable records; `--all` is a maintenance view with prominent status, archival,
-supersession, and completion-mode warnings.
+The shipped V1 command surface covers canonical listing, indexed search/read, index rebuild, and explicit backfill.
+Manual/external `wld wr create` remains deferred. Default listing should show current usable records; `--all` is a
+maintenance view with prominent status, archival, supersession, and completion-mode warnings.
 
 `wld wr backfill` should:
 
@@ -649,14 +639,16 @@ maintenance-oriented.
 
 ## Settings
 
-Consider a setting to disable session-boundary background generation:
+Completion-time automation can be disabled with a nested Work Records setting:
 
 ```yaml
 workRecords:
-    autoGenerateOnSessionEnd: true
+    autoGenerateOnPlanCompletion: true
 ```
 
-Default should be true.
+The default is true. Global and project `workRecords` objects are shallow-merged with project values winning; only
+literal `false` disables automatic generation. Explicit `wld wr backfill`, list/search/read, and index rebuild ignore
+this automation setting.
 
 ## Out of Scope for V1
 
@@ -699,12 +691,11 @@ Use these to continue the design conversation later.
      existing Work Record backlink, previews the generation set, and requires human confirmation before generating.
    - Open: exact non-interactive/headless behavior and flags.
 
-5. **Session-end background behavior**
+5. **Completion-time background behavior**
    - Resolved: source Plan `workRecord.status: failed` with `lastAttemptAt` and concise `error` is the durable v1
      failure record.
-   - Resolved: session-end generation failures may also print a concise stderr message when a process surface is
-     available.
-   - Open: richer `/new` or Workspace notification behavior.
+   - Resolved: completion-time attempts print a concise result on the calling surface when one is available.
+   - Deferred: session-boundary workers such as `/new` or `/quit` automation.
 
 6. **Plan closure metadata**
    - Resolved: new `manual_closed_without_verification` lifecycle events require a non-empty reason at the lifecycle/API

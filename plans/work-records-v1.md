@@ -35,12 +35,16 @@ devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://localhost:5173/"
 devServerHmr: true
 createdAt: "2026-07-15T10:40:54-04:00"
-updatedAt: "2026-07-15T21:05:36.864Z"
-status: "ready_for_work"
+updatedAt: "2026-07-21T02:26:56.149Z"
+status: "verified"
 origin: "internal"
-type: "epic"
+verifiedAt: "2026-07-21T02:26:56.149Z"
+epicCompletionMode: "done_enough"
+epicDoneEnoughAt: "2026-07-21T02:26:56.149Z"
+epicDoneEnoughSummary: "All 4 child FEATURE plans are verified after work-records-v1/04-session-end-auto-generation-settings-and-docs."
 routingIntent: "PROJECT"
 sessionName: "work records v1"
+type: "epic"
 ---
 
 # Work Records V1

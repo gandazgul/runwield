@@ -75,13 +75,24 @@ async function copyOpaqueAssets(sourceDir, destinationDir) {
  * Astro can return before all generated server chunks are immediately visible to
  * a follow-up subprocess on every filesystem. Wait for entrypoint imports before
  * invoking `deno bundle`, so release builds do not race the server output.
- *
+ */
+/** @param {string} serverEntry */
+async function patchDenoAdapterShimImport(serverEntry) {
+    const source = await Deno.readTextFile(serverEntry);
+    const patched = source.replace(
+        'import { fromFileUrl, serveFile } from "@deno/astro-adapter/__deno_imports.ts";',
+        'import { fromFileUrl } from "@std/path";\nimport { serveFile } from "jsr:@std/http@1.0/file-server";',
+    );
+    if (patched !== source) await Deno.writeTextFile(serverEntry, patched);
+}
+
+/**
  * @param {string} serverEntry
  * @returns {Promise<void>}
  */
 async function waitForServerEntryImports(serverEntry) {
     const entryDir = dirname(serverEntry);
-    const source = await Deno.readTextFile(serverEntry);
+    const source = (await Deno.readTextFile(serverEntry)).replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
     const importPaths = Array.from(source.matchAll(/(?:from\s+|import\()['"](\.\.?\/[^'"]+)['"]/g), (match) => {
         return join(entryDir, match[1]);
     });
@@ -119,6 +130,7 @@ export async function buildWorkspaceRuntime(options = {}) {
     });
     await Deno.mkdir(dirname(serverOutput), { recursive: true });
 
+    await patchDenoAdapterShimImport(serverEntry);
     await waitForServerEntryImports(serverEntry);
     await run("deno", [
         "bundle",

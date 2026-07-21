@@ -62,7 +62,9 @@ export async function lifecycleActionApi(ctx) {
     }
 
     try {
-        const result = await applyWorkspaceLifecycleAction(ctx.state.cwd, ctx.params.planId, payload);
+        const result = await applyWorkspaceLifecycleAction(ctx.state.cwd, ctx.params.planId, payload, {
+            autoGenerateWorkRecordForCompletedPlan: ctx.state.autoGenerateWorkRecordForCompletedPlan,
+        });
         if (result.blocked) return json(result.body, result.status || 409);
         return json(result.body);
     } catch (error) {
