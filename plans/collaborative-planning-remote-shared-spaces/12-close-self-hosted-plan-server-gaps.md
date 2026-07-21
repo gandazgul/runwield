@@ -33,7 +33,7 @@ devServerCommand: "RUNWIELD_WORKSPACE_MODE=remote RUNWIELD_REMOTE_DB_PATH=.wld/r
 devServerUrl: "http://127.0.0.1:5173"
 devServerHmr: true
 createdAt: "2026-07-20T22:54:41-04:00"
-updatedAt: "2026-07-21T04:13:07.050Z"
+updatedAt: "2026-07-21T17:13:39.007Z"
 status: "implemented"
 origin: "internal"
 parentPlan: "collaborative-planning-remote-shared-spaces"
@@ -42,6 +42,10 @@ dependencies:
     - "11-self-hosted-hardening-retention-and-operations"
 implementedAt: "2026-07-21T04:13:07.050Z"
 executionReport: "- Implemented Plan 12: restored Plan 09 verified lifecycle metadata, centralized/tested remote dev gating, added minimal generated Plan Server runtime builder, and replaced Docker-first packaging with `Containerfile`, `.containerignore`, and `compose.yml`.\n- Updated living docs/PRDs/ADR/Epic wording to Astro/React and Podman/OCI-first self-hosting; preserved historical Plan 09 body.\n- Verification passed: `deno task ci`; focused runtime/Workspace/collaboration tests; `deno task workspace:remote:build`; `podman build -f Containerfile -t runwield-plan-server:gap-close .`; `podman compose -f compose.yml config`; `podman compose -f compose.yml up --build -d` with healthy `/healthz` and `/readyz`, loopback port, API create smoke, restart health, and SQLite persistence.\n- Image-content check passed: final image contains generated runtime, CSS/logo/agent definition assets, and no broad executable source/test/state files.\n- Frontend/browser: pre-implementation headed browser preflight loaded remote dev UI at `http://127.0.0.1:5174/p/preflight-space` with HMR expected; after compaction no `agent-browser` tool was available here, so the full share/review/pull/push/unshare browser flow remains unverified in headed browser, but corresponding CLI/protocol and Workspace automated coverage passed."
+worktreeId: "11ea65b6"
+worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-collaborative-planning-remote-shared-spaces-12-c-11ea65b6"
+worktreeBranch: "runwield/worktree/collaborative-planning-remote-shared-spaces-12-c-11ea65b6"
+worktreeBaseBranch: "main"
 worktreeStatus: "completed"
 ---
 

@@ -21,10 +21,14 @@ affectedPaths:
     - "src/ui/tui/chat-session.test.js"
 frontend: false
 createdAt: "2026-07-18T22:51:42-04:00"
-updatedAt: "2026-07-21T17:07:30.421Z"
+updatedAt: "2026-07-21T17:50:08.031Z"
 status: "implemented"
 origin: "internal"
 failureReason: "Semantic validation did not approve after 3 cycles."
+worktreeId: "fe2fa691"
+worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-pinned-validation-handoff-panel-fe2fa691"
+worktreeBranch: "runwield/worktree/pinned-validation-handoff-panel-fe2fa691"
+worktreeBaseBranch: "main"
 worktreeStatus: "validation_failed"
 ---
 
