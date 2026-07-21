@@ -8,6 +8,7 @@
 import { parseArgs as parseArgsFn } from "@std/cli/parse-args";
 import { AGENTS, CLI_BIN } from "../../constants.js";
 import {
+    archivePlan as archivePlanFn,
     compareChildPlansByOrder,
     findPlansByParent as findPlansByParentFn,
     loadPlan as loadPlanFn,
@@ -81,6 +82,7 @@ export { getLoadPlanCompletions } from "./getArgumentCompletions.js";
  * @property {(options: Record<string, any>) => Promise<any>} [runValidationLoop]
  * @property {(options: Record<string, any>) => Promise<any>} [runSlicerAgent]
  * @property {typeof loadPlanFn} [loadPlan]
+ * @property {typeof archivePlanFn} [archivePlan]
  * @property {typeof getWorkflowDiffFn} [getWorkflowDiff]
  * @property {typeof listCommitsTouchingPathsSinceFn} [listCommitsTouchingPathsSince]
  * @property {typeof restoreWorktreeTreeFn} [restoreWorktreeTree]
@@ -1208,10 +1210,14 @@ async function pathExists(path) {
 function rehydrateActiveRecoveryWorkflow(projectRoot, plan, context, session) {
     const baselineTree = plan.attrs.executionBaselineTree || context?.baseTree;
     if (!baselineTree && !hasWorktreeContext(context)) return;
-    /** @type {{ planName: string, triageMeta: import('../../plan-store.js').PlanFrontMatter, baselineTree?: string, projectRoot: string, executionCwd?: string, worktreeId?: string, worktreeBranch?: string, worktreeBaseBranch?: string }} */
+    /** @type {{planName: string, triageMeta: import('../../plan-store.js').PlanFrontMatter, executionAgent: string, collaborationMode?: "pair"|"autonomous", baselineTree?: string, projectRoot: string, executionCwd?: string, worktreeId?: string, worktreeBranch?: string, worktreeBaseBranch?: string}} */
     const workflow = {
         planName: plan.planName,
         triageMeta: plan.attrs,
+        executionAgent: plan.attrs.executionAgent === "frontend-engineer" || plan.attrs.frontend === true
+            ? "frontend-engineer"
+            : "engineer",
+        collaborationMode: plan.attrs.collaborationMode,
         baselineTree,
         projectRoot: projectRoot,
     };
@@ -2566,6 +2572,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
         decidePostPlanning: decidePostPlanningDep,
         decidePostExecution: decidePostExecutionDep,
         loadPlan: loadPlanDep,
+        archivePlan: archivePlanDep,
         getWorkflowDiff: getWorkflowDiffDep,
         listCommitsTouchingPathsSince: listCommitsTouchingPathsSinceDep,
         restoreWorktreeTree: restoreWorktreeTreeDep,
@@ -2599,6 +2606,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
     const decidePostPlanning = decidePostPlanningDep || decidePostPlanningFn;
     const decidePostExecution = decidePostExecutionDep || decidePostExecutionFn;
     const loadPlan = loadPlanDep || loadPlanFn;
+    const archivePlan = archivePlanDep || archivePlanFn;
     const getWorkflowDiff = getWorkflowDiffDep || getWorkflowDiffFn;
     const listCommitsTouchingPathsSince = listCommitsTouchingPathsSinceDep || listCommitsTouchingPathsSinceFn;
     const restoreWorktreeTree = restoreWorktreeTreeDep || restoreWorktreeTreeFn;
@@ -2868,6 +2876,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
             while (true) {
                 const answer = await uiAPI.promptSelect("What would you like to do?", [
                     { value: "review", label: "Re-open for review (planner/architect)" },
+                    { value: "archive", label: "Archive plan" },
                     { value: "view", label: "View plan details" },
                     { value: "cancel", label: "Cancel" },
                 ]);
@@ -2877,6 +2886,15 @@ export async function runLoadPlanCommand(argv, options = {}) {
                 if (answer === "view") {
                     uiAPI.appendSystemMessage(buildPlanSummary(plan), false, "Plan");
                     continue;
+                }
+                if (answer === "archive") {
+                    const archived = await archivePlan(projectRoot, plan.planName);
+                    uiAPI.appendSystemMessage(
+                        `Archived ${plan.planName} to ${archived.relativePath}`,
+                        false,
+                        "RunWield",
+                    );
+                    return;
                 }
                 await reopenPlanForReview({
                     projectRoot,

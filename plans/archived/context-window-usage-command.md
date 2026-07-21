@@ -17,7 +17,6 @@ affectedPaths:
     - "docs/usage.md"
 frontend: false
 createdAt: "2026-07-17T22:54:51-04:00"
-updatedAt: "2026-07-18T14:34:08.034Z"
 status: "verified"
 origin: "internal"
 verifiedAt: "2026-07-18T14:13:58.734Z"
@@ -29,6 +28,10 @@ workRecord:
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
 routingIntent: "FEATURE"
+updatedAt: "2026-07-21T19:06:11.006Z"
+archivedAt: "2026-07-21T19:06:11.006Z"
+archivedFromStatus: "verified"
+archivedFromPath: "plans/context-window-usage-command.md"
 ---
 
 # Context Window Usage Command

@@ -49,9 +49,15 @@ Typical flow:
 2. Planner writes a plan.
 3. The user reviews it in Plannotator.
 4. On approval, RunWield marks it ready for work.
-5. Engineer executes the plan.
+5. RunWield dispatches the recorded `executionAgent`. Browser UI FEATURE Plans may use Frontend Engineer; other Plans
+   use Engineer. Frontend Engineer runs autonomously or, in a capable TUI, through blocking Pair checkpoints.
 6. RunWield runs workflow validation.
 7. The plan is marked verified after validation and merge-back succeed.
+
+The selected `collaborationMode` is durable Plan execution metadata. A resumed Pair run automatically pairs again in a
+capable TUI after Frontend Engineer restarts or reconnects its dev server and headed browser. ACP, headless, and other
+incapable hosts temporarily run autonomously without changing the stored Pair selection. Validation repairs preserve the
+original execution owner and collaboration mode.
 
 ## PROJECT
 

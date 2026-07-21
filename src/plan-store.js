@@ -1140,7 +1140,6 @@ export async function saveChildFeaturePlans(cwd, epicPlanName, children, options
         };
         const executionAgent = normalizeExecutionAgent(child.executionAgent);
         const collaborationRecommendation = normalizeCollaborationMode(child.collaborationRecommendation);
-        const frontend = normalizeOptionalBoolean(child.frontend);
         const devServerCommand = typeof child.devServerCommand === "string"
             ? child.devServerCommand
             : child.devServerCommand === null

@@ -364,6 +364,21 @@ Deno.test("bundled reviewer prompt reviews implementation semantics rather than 
     assertStringIncludes(prompt, "not a verification-completion audit");
 });
 
+Deno.test("bundled reviewer prompt requires exhaustive findings in one review pass", async () => {
+    const prompt = await Deno.readTextFile(
+        new URL("../../agent-definitions/workflow-prompts/reviewer-prompt.md", import.meta.url),
+    );
+
+    assertStringIncludes(prompt, "private coverage checklist of every material implementation requirement");
+    assertStringIncludes(prompt, "Do not call `review_complete` while any material");
+    assertStringIncludes(prompt, "Finding one blocking issue does not finish the review");
+    assertStringIncludes(prompt, "perform a final coverage sweep");
+    assertStringIncludes(prompt, "Do not defer discoverable issues to a later review cycle");
+    assertStringIncludes(prompt, "Report the complete set now, not one representative issue");
+    assertStringIncludes(prompt, "Never stop reviewing after the first valid issue");
+    assertStringIncludes(prompt, "Do not hold findings back for a later repair/review cycle");
+});
+
 Deno.test("runLocalCI emits one semantic validation tool lifecycle", async () => {
     const originalCwd = Deno.cwd();
     const tempDir = await Deno.makeTempDir({ prefix: "runwield-validation-test-" });

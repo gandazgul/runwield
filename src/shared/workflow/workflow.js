@@ -54,10 +54,12 @@ export {
     readLatestTaskCompletedOutcome,
 } from "./workflow-results.js";
 
-/** @param {Partial<import('../../plan-store.js').PlanFrontMatter>} meta */
+/**
+ * @param {Partial<import('../../plan-store.js').PlanFrontMatter>} meta
+ * @returns {"engineer"|"frontend-engineer"}
+ */
 export function resolveExecutionOwner(meta) {
-    return normalizeExecutionAgent(meta.executionAgent) ||
-        (meta.frontend === true ? AGENTS.FRONTEND_ENGINEER : AGENTS.ENGINEER);
+    return normalizeExecutionAgent(meta.executionAgent) || (meta.frontend === true ? "frontend-engineer" : "engineer");
 }
 
 /**
@@ -74,14 +76,23 @@ async function resolveCollaborationMode(hostedSession, meta) {
     const recommendation = normalizeCollaborationMode(meta.collaborationRecommendation) || "autonomous";
     const response = await requestHostedSessionInteraction(hostedSession, {
         type: RuntimeInteractionTypes.SELECT,
-        prompt: "Choose how Frontend Engineer should execute this Plan.",
+        prompt: "Choose how Frontend Engineer should execute this Plan in the interactive host.",
         defaultValue: recommendation,
         options: [
-            { value: "pair", label: "Pair in the TUI", description: "Review coherent visible increments." },
+            { value: "pair", label: "Pair interactively", description: "Review coherent visible increments." },
             { value: "autonomous", label: "Run autonomously", description: "Review only after implementation." },
         ],
     });
     return response.outcome === "selected" && response.value === "pair" ? "pair" : "autonomous";
+}
+
+/**
+ * @param {import('../session/hosted-session.js').HostedSession} hostedSession
+ * @returns {boolean}
+ */
+function isPairCapableHost(hostedSession) {
+    return hostedSession.getInteractionAdapter?.()?.supportsInteraction?.(RuntimeInteractionTypes.PAIR_CHECKPOINT) ===
+        true;
 }
 
 /**
@@ -153,6 +164,7 @@ export async function runPlanningAgent(
  *   recordPlanEvent?: typeof recordPlanEvent,
  *   markActiveWorktreeStatus?: typeof markActiveWorktreeStatus,
  *   recordWorkflowMetric?: typeof recordWorkflowMetric,
+ *   updatePlanFrontMatter?: typeof updatePlanFrontMatter,
  *   runActiveAgentTurn?: typeof import('../session/agent-switching.js').runActiveAgentTurn,
  *   }
  * }} options
@@ -174,6 +186,7 @@ export async function executePlan({
     const recordPlanEventFn = __deps.recordPlanEvent || recordPlanEvent;
     const markActiveWorktreeStatusFn = __deps.markActiveWorktreeStatus || markActiveWorktreeStatus;
     const recordWorkflowMetricFn = __deps.recordWorkflowMetric || recordWorkflowMetric;
+    const updatePlanFrontMatterFn = __deps.updatePlanFrontMatter || updatePlanFrontMatter;
 
     await recordWorkflowMetricFn({
         category: "execution",
@@ -198,17 +211,6 @@ export async function executePlan({
 
     const effectiveMeta = { ...plan.attrs, ...(triageMeta || {}) };
     effectiveMeta.executionAgent = resolveExecutionOwner(effectiveMeta);
-    const storedCollaborationMode = normalizeCollaborationMode(effectiveMeta.collaborationMode);
-    effectiveMeta.collaborationMode = await resolveCollaborationMode(hostedSession, effectiveMeta);
-    if (effectiveMeta.executionAgent === AGENTS.FRONTEND_ENGINEER && !storedCollaborationMode) {
-        await updatePlanFrontMatter(projectRoot, planName, {
-            executionAgent: effectiveMeta.executionAgent,
-            collaborationMode: effectiveMeta.collaborationMode,
-            ...(plan.attrs.frontend === true && !plan.attrs.collaborationRecommendation
-                ? { collaborationRecommendation: "autonomous", frontend: undefined }
-                : {}),
-        });
-    }
 
     if (isEpicPlan(plan.attrs)) {
         const error = `Plan ${planName} is a PROJECT Epic container and cannot be executed directly.`;
@@ -232,6 +234,35 @@ export async function executePlan({
             details: { reason: "not_ready_for_work", status: plan.attrs.status },
         }, { cwd: projectRoot });
         return { repairRequired: false, executionComplete: false, error };
+    }
+
+    const hasLegacyFrontend = typeof plan.attrs.frontend === "boolean";
+    if (hasLegacyFrontend) {
+        if (plan.attrs.frontend === true) {
+            /** @type {Partial<import('../../plan-store.js').PlanFrontMatter>} */
+            const updates = {
+                executionAgent: "frontend-engineer",
+                collaborationRecommendation: "autonomous",
+                frontend: undefined,
+            };
+            await updatePlanFrontMatterFn(projectRoot, planName, updates);
+        } else {
+            /** @type {Partial<import('../../plan-store.js').PlanFrontMatter>} */
+            const updates = { frontend: undefined };
+            await updatePlanFrontMatterFn(projectRoot, planName, updates);
+        }
+    }
+
+    const storedCollaborationMode = normalizeCollaborationMode(effectiveMeta.collaborationMode);
+    const pairCapableHost = isPairCapableHost(hostedSession);
+    effectiveMeta.collaborationMode = await resolveCollaborationMode(hostedSession, effectiveMeta);
+    if (
+        effectiveMeta.executionAgent === AGENTS.FRONTEND_ENGINEER && !storedCollaborationMode && pairCapableHost
+    ) {
+        await updatePlanFrontMatterFn(projectRoot, planName, {
+            executionAgent: effectiveMeta.executionAgent,
+            collaborationMode: effectiveMeta.collaborationMode,
+        });
     }
 
     emitSystemStatus(hostedSession, `=== Executing Plan: ${planName} ===`, { header: "RunWield" });
@@ -427,7 +458,8 @@ async function runEngineerWithPlan(
         return { completed: false, messages: rootMessages, error: errorMessage };
     }
 
-    const completed = readLatestTaskCompletedOutcome(messages);
+    const pairStopped = hostedSession.getActiveExecutionWorkflow?.()?.pairStopRequested === true;
+    const completed = !pairStopped && readLatestTaskCompletedOutcome(messages);
     const completionReport = readLatestTaskCompletedMessage(messages) || undefined;
     if (!completed) {
         emitSystemStatus(

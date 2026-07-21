@@ -23,8 +23,8 @@ affectedPaths:
     - "README.md"
 frontend: false
 createdAt: "2026-07-16T16:40:36-04:00"
-updatedAt: "2026-07-16T21:45:43.154Z"
-status: "in_progress"
+updatedAt: "2026-07-17T03:47:52.090Z"
+status: "verified"
 origin: "internal"
 parentPlan: "collaborative-planning-remote-shared-spaces"
 order: 9
@@ -34,14 +34,10 @@ dependencies:
     - "07-wld-plans-push-remote-revision-publish-flow"
     - "08-wld-plans-unshare-cli-delete-and-recovery"
     - "10-remote-review-plannotator-markdown-annotations"
-humanReviewMode: null
-humanReviewDecision: null
-executionBaselineTree: "032d4eacc5ec587d4ff615042da1ddd3e0e5bac6"
-worktreeId: "8ffc919c"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-collaborative-planning-remote-shared-spaces-09-s-8ffc919c"
-worktreeBranch: "runwield/worktree/collaborative-planning-remote-shared-spaces-09-s-8ffc919c"
-worktreeBaseBranch: "main"
-worktreeStatus: "active"
+implementedAt: "2026-07-17T03:20:14.411Z"
+verifiedAt: "2026-07-17T03:47:52.090Z"
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
 ---
 
 # Self-Hosted Packaging and Collaboration Docs

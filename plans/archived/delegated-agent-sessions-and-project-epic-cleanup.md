@@ -18,11 +18,14 @@ affectedPaths:
     - "docs/workflows.md"
 frontend: false
 createdAt: "2026-07-17T22:07:19-04:00"
-updatedAt: "2026-07-20T01:59:07.566Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-07-18T15:01:49.331Z"
 verifiedAt: "2026-07-20T01:59:07.566Z"
+updatedAt: "2026-07-21T19:06:25.502Z"
+archivedAt: "2026-07-21T19:06:25.502Z"
+archivedFromStatus: "verified"
+archivedFromPath: "plans/delegated-agent-sessions-and-project-epic-cleanup.md"
 ---
 
 # Delegated Agent Sessions and PROJECT Epic Cleanup

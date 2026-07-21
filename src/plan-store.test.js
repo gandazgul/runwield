@@ -956,7 +956,6 @@ testWithFs("saveChildFeaturePlans creates draft child FEATURE plans with order a
             parentPlan: "project-breakdown-epic",
             order: 1,
             affectedPaths: ["src/plan-store.js"],
-            frontend: true,
             devServerCommand: "deno task workspace:dev",
             devServerUrl: "http://localhost:5173",
             devServerHmr: true,
@@ -969,7 +968,7 @@ testWithFs("saveChildFeaturePlans creates draft child FEATURE plans with order a
         assertEquals(first?.attrs.parentPlan, "project-breakdown-epic");
         assertEquals(first?.attrs.summary, "Keep parent-child links loadable");
         assertEquals(first?.attrs.order, 1);
-        assertEquals(first?.attrs.frontend, true);
+        assertEquals(first?.attrs.frontend, undefined);
         assertEquals(first?.attrs.devServerCommand, "deno task workspace:dev");
         assertEquals(first?.attrs.devServerUrl, "http://localhost:5173");
         assertEquals(first?.attrs.devServerHmr, true);
