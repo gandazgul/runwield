@@ -3,10 +3,12 @@
  * Login/logout/status commands for RunWield-owned model authentication.
  */
 
+import { AGENTS } from "../../constants.js";
 import { getModelRegistry as getModelRegistryFn } from "../../shared/models/model-registry.js";
 
 const LOGIN_SUBSCRIPTION_LABEL = "Use a subscription";
 const LOGIN_API_KEY_LABEL = "Use an API key";
+const LOGIN_BACK_VALUE = "__runwield_login_back__";
 
 /**
  * @typedef {Object} CommandDependencies
@@ -112,17 +114,25 @@ async function promptForAuthType(uiAPI) {
  * @param {import('../../ui/tui/types.js').UiAPI} uiAPI
  * @param {Array<{ id: string, name: string, authType: "oauth" | "api_key" }>} providers
  * @param {"login" | "logout"} mode
- * @returns {Promise<{ id: string, name: string, authType: "oauth" | "api_key" } | null>}
+ * @param {{ allowBack?: boolean }} [options]
+ * @returns {Promise<{ id: string, name: string, authType: "oauth" | "api_key" } | "back" | null>}
  */
-async function promptForProvider(uiAPI, providers, mode) {
+async function promptForProvider(uiAPI, providers, mode, options = {}) {
+    const providerOptions = providers.map((provider) => ({
+        value: provider.id,
+        label: provider.name,
+        description: provider.authType === "oauth" ? "subscription" : "API key",
+    }));
     const selected = await uiAPI.promptSelect(
         mode === "login" ? "Select provider to configure:" : "Select provider to logout:",
-        providers.map((provider) => ({
-            value: provider.id,
-            label: provider.name,
-            description: provider.authType === "oauth" ? "subscription" : "API key",
-        })),
+        options.allowBack
+            ? [
+                { value: LOGIN_BACK_VALUE, label: "Back", description: "Choose a different authentication method" },
+                ...providerOptions,
+            ]
+            : providerOptions,
     );
+    if (selected === LOGIN_BACK_VALUE || (selected === null && options.allowBack)) return "back";
     return providers.find((provider) => provider.id === selected) || null;
 }
 
@@ -186,11 +196,27 @@ async function loginWithSubscription(uiAPI, provider, registry) {
 async function loginWithApiKey(uiAPI, provider, registry) {
     const apiKey = await uiAPI.promptText(`Enter API key for ${provider.name}:`, {
         allowEmpty: false,
+        persistResult: false,
     });
     if (apiKey === null) {
         throw new Error("Login cancelled");
     }
     registry.authStorage.set(provider.id, { type: "api_key", key: apiKey.trim() });
+}
+
+/**
+ * @param {import('../../cmd/registry.js').CommandContext} options
+ * @param {{ getAvailable?: () => unknown[] }} registry
+ */
+async function configureInteractiveSessionAfterLogin(options, registry) {
+    const availableModels = typeof registry.getAvailable === "function" ? registry.getAvailable() : [];
+    if (availableModels.length > 0) {
+        await options.uiAPI?.showModelSelector?.();
+    }
+
+    if (options.sessionId && options.sessionRuntime) {
+        await options.sessionRuntime.switchAgent(options.sessionId, { agentName: AGENTS.ROUTER });
+    }
 }
 
 /**
@@ -214,38 +240,47 @@ export async function runLoginCommand(argv, options = {}) {
         authType = oauthProviderIds.has(providerArg) ? "oauth" : "api_key";
     }
 
-    if (!authType) {
-        authType = await promptForAuthType(uiAPI);
-    }
-    if (!authType) return;
+    while (true) {
+        if (!authType) {
+            authType = await promptForAuthType(uiAPI);
+        }
+        if (!authType) return;
 
-    const providers = getLoginProviderOptions(registry, authType);
-    if (providers.length === 0) {
-        uiAPI.appendSystemMessage(
-            authType === "oauth" ? "No subscription providers available." : "No API key providers available.",
-        );
+        const providers = getLoginProviderOptions(registry, authType);
+        if (providers.length === 0) {
+            uiAPI.appendSystemMessage(
+                authType === "oauth" ? "No subscription providers available." : "No API key providers available.",
+            );
+            return;
+        }
+
+        let provider = providerArg ? providers.find((candidate) => candidate.id === providerArg) : null;
+        if (!provider) {
+            const selectedProvider = await promptForProvider(uiAPI, providers, "login", { allowBack: true });
+            if (selectedProvider === "back") {
+                authType = null;
+                continue;
+            }
+            provider = selectedProvider;
+        }
+        if (!provider) return;
+
+        try {
+            if (provider.authType === "oauth") {
+                await loginWithSubscription(uiAPI, provider, registry);
+            } else {
+                await loginWithApiKey(uiAPI, provider, registry);
+            }
+            registry.refresh?.();
+            uiAPI.appendSystemMessage(`Logged in to ${provider.name}.`);
+            await configureInteractiveSessionAfterLogin(options, registry);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            if (message !== "Login cancelled") {
+                uiAPI.appendSystemMessage(`Failed to login to ${provider.name}: ${message}`, true);
+            }
+        }
         return;
-    }
-
-    let provider = providerArg ? providers.find((candidate) => candidate.id === providerArg) : null;
-    if (!provider) {
-        provider = await promptForProvider(uiAPI, providers, "login");
-    }
-    if (!provider) return;
-
-    try {
-        if (provider.authType === "oauth") {
-            await loginWithSubscription(uiAPI, provider, registry);
-        } else {
-            await loginWithApiKey(uiAPI, provider, registry);
-        }
-        registry.refresh?.();
-        uiAPI.appendSystemMessage(`Logged in to ${provider.name}.`);
-    } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        if (message !== "Login cancelled") {
-            uiAPI.appendSystemMessage(`Failed to login to ${provider.name}: ${message}`, true);
-        }
     }
 }
 
@@ -271,7 +306,8 @@ export async function runLogoutCommand(argv, options = {}) {
     const providerArg = argv[0];
     let provider = providerArg ? providers.find((candidate) => candidate.id === providerArg) : null;
     if (!provider) {
-        provider = await promptForProvider(uiAPI, providers, "logout");
+        const selectedProvider = await promptForProvider(uiAPI, providers, "logout");
+        provider = selectedProvider === "back" ? null : selectedProvider;
     }
     if (!provider) return;
 

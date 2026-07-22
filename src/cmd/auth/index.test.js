@@ -48,21 +48,33 @@ function createRegistry() {
 function createUi() {
     /** @type {string[]} */
     const messages = [];
-    /** @type {string[]} */
+    /** @type {Array<string | null>} */
     const selections = [];
     /** @type {string[]} */
     const textInputs = [];
+    /** @type {Array<{ title: string, options?: { defaultValue?: string, placeholder?: string, allowEmpty?: boolean, persistResult?: boolean } }>} */
+    const textPrompts = [];
+    let modelSelectorCalls = 0;
     return {
         messages,
         selections,
         textInputs,
+        textPrompts,
+        get modelSelectorCalls() {
+            return modelSelectorCalls;
+        },
         uiAPI: {
             appendSystemMessage: (/** @type {string} */ message) => messages.push(message),
             appendAgentMessageStart: () => ({ appendText: () => {} }),
             requestRender: () => {},
             promptSelect: () => Promise.resolve(selections.shift() ?? null),
-            promptText: () => Promise.resolve(textInputs.shift() ?? null),
-            showModelSelector: () => {},
+            promptText: (/** @type {string} */ title, /** @type {any} */ options) => {
+                textPrompts.push({ title, options });
+                return Promise.resolve(textInputs.shift() ?? null);
+            },
+            showModelSelector: () => {
+                modelSelectorCalls++;
+            },
             abortActivePrompt: () => {},
         },
     };
@@ -124,6 +136,50 @@ Deno.test("runLoginCommand prompts for auth type and provider when args are omit
 
     assertEquals(registry.authStorage.get("openai"), { type: "api_key", key: "prompted-key" });
     assertEquals(messages.at(-1), "Logged in to OpenAI.");
+});
+
+Deno.test("runLoginCommand keeps API key prompt private and opens model selector with router active", async () => {
+    const registry = createRegistry();
+    const ui = createUi();
+    ui.textInputs.push("secret-key");
+    /** @type {string[]} */
+    const afterLoginActions = [];
+    ui.uiAPI.showModelSelector = () => {
+        afterLoginActions.push("model");
+    };
+
+    await runLoginCommand(["api-key", "openai"], {
+        uiAPI: /** @type {any} */ (ui.uiAPI),
+        sessionId: "session-1",
+        sessionRuntime: /** @type {any} */ ({
+            switchAgent: (
+                /** @type {string} */ _sessionId,
+                /** @type {{ agentName: string }} */ options,
+            ) => afterLoginActions.push(`agent:${options.agentName}`),
+        }),
+        __testDeps: { getModelRegistry: () => registry },
+    });
+
+    assertEquals(ui.textPrompts, [{
+        title: "Enter API key for OpenAI:",
+        options: { allowEmpty: false, persistResult: false },
+    }]);
+    assertEquals(afterLoginActions, ["model", "agent:router"]);
+});
+
+Deno.test("runLoginCommand lets provider prompt escape return to auth method menu", async () => {
+    const registry = createRegistry();
+    const ui = createUi();
+    ui.selections.push("oauth", null, "api_key", "openai");
+    ui.textInputs.push("prompted-key");
+
+    await runLoginCommand([], {
+        uiAPI: /** @type {any} */ (ui.uiAPI),
+        __testDeps: { getModelRegistry: () => registry },
+    });
+
+    assertEquals(registry.authStorage.get("openai"), { type: "api_key", key: "prompted-key" });
+    assertEquals(registry.authStorage.get("openai-codex"), undefined);
 });
 
 Deno.test("runLoginCommand returns quietly when auth type or provider prompts are cancelled", async () => {

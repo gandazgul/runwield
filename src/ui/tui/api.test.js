@@ -384,6 +384,12 @@ Deno.test("createUiApi promptText resolves submit, rejects empty required submit
     requiredBlock.input.onSubmit("Grace");
     assertEquals(await requiredPromise, "Grace");
 
+    const privatePromptChildCount = messageList.children.length;
+    const privatePromise = ui.promptText("API key", { allowEmpty: false, persistResult: false });
+    focus().input.onSubmit("secret-key");
+    assertEquals(await privatePromise, "secret-key");
+    assertEquals(messageList.children.length, privatePromptChildCount);
+
     const abortPromise = ui.promptText("Abort");
     ui.abortActivePrompt();
     assertEquals(await abortPromise, null);
