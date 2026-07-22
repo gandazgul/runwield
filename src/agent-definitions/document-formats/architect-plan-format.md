@@ -45,9 +45,9 @@ Existing functions, modules, or patterns to reuse:
 - Automated: exact command(s) to run
 - Manual: precise user flows / checks
 - Expected results for key scenarios
-- For Epics with frontend scope: set `frontend: true` on the Epic, and describe which child FEATURE slices will need
-  headed browser verification. The Slicer is responsible for marking those executable child FEATURE plans with
-  `frontend: true`.
+- For Epics with browser UI scope: do not set Epic-level `executionAgent`, `collaborationRecommendation`, or `frontend`.
+  Describe which child FEATURE slices will need Frontend Engineer ownership and headed browser verification; the Slicer
+  assigns canonical ownership on executable child FEATURE Plans.
 
 ## Edge Cases & Considerations
 

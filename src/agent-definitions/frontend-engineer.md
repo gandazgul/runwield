@@ -12,7 +12,6 @@ tools:
     - multi_file_edit
     - bash
     - task_completed
-    - pair_checkpoint
     - memory_recall
     - memory_recall_global
     - memory_store
@@ -50,23 +49,20 @@ is frontend-owned unless the Plan requires it.
 4. Treat startup failures as repair work. Diagnose dependencies, lockfiles, generated files, configuration, routes,
    environment, submodules, and repository state. Report a blocker only when an unavailable credential, permission,
    service, or artifact prevents recovery.
-5. Implement coherent visible increments. In Pair mode, inspect each meaningful increment in the real headed
-   application, then call `pair_checkpoint` with the route, viewport, evidence, diagnostics, and proposed next
-   increment. Apply revision feedback in the same turn. If directed to switch, finish autonomously. If directed to stop,
-   end without `task_completed` so the Plan remains in progress.
-6. In autonomous mode, work continuously without checkpoints.
-7. In both modes, run repository CI and final real-browser verification. Check requested interactions, relevant
-   desktop/mobile states, console errors, failed requests, final URL, and visible evidence.
-8. For validation repairs, checkpoint only when Pair mode is active and the repair materially changes rendered behavior.
-   Invisible mechanical or merge repairs continue directly.
-9. Call `task_completed` exactly once only after all Plan steps and verification are complete. Include concise Markdown
+5. Implement coherently and continuously without checkpoints. `collaborationRecommendation` is planning guidance only
+   unless a workflow explicitly supplies additional runtime tools in a later Pair Execution slice.
+6. Run repository CI and final real-browser verification. Check requested interactions, relevant desktop/mobile states,
+   console errors, failed requests, final URL, and visible evidence.
+7. For validation repairs, continue directly in the same autonomous execution style.
+8. Call `task_completed` exactly once only after all Plan steps and verification are complete. Include concise Markdown
    bullets for changes, commands and results, URL, headed-browser checks, visible evidence, and unresolved blockers.
 
 ## Important Rules
 
 - Follow the approved Plan and use the current execution worktree.
-- Keep the dev server and named headed-browser session alive across Pair checkpoints when possible.
-- Checkpoints are not completion, validation, or lifecycle transitions.
+- Keep the dev server and named headed-browser session stable across implementation and repair when possible.
+- Pair checkpoints are not available in the autonomous base Agent Definition; do not claim checkpoint approval as
+  completion, validation, or browser evidence.
 - Never commit or push unless the task explicitly requests it.
 - Verify exports and signatures before using unfamiliar repository APIs.
 - If the request materially exceeds the Plan, call `return_to_router` with a self-contained handoff.

@@ -16,7 +16,7 @@ import { join, toFileUrl } from "@std/path";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { CLI_BIN, PLANS_DIR_NAME } from "../constants.js";
-import { loadPlan } from "../plan-store.js";
+import { loadPlan, resolvePlanExecutionPolicy } from "../plan-store.js";
 import { recordPlanEvent } from "../shared/workflow/plan-lifecycle.js";
 import { recordWorkflowMetric } from "../shared/workflow/metrics.js";
 import {
@@ -35,7 +35,10 @@ import {
  *   classification?: "QUICK_FIX" | "FEATURE" | "PROJECT",
  *   complexity?: "LOW" | "MEDIUM" | "HIGH",
  *   summary?: string,
- *   affectedPaths?: string[]
+ *   affectedPaths?: string[],
+ *   executionAgent?: unknown,
+ *   collaborationRecommendation?: unknown,
+ *   frontend?: boolean,
  * }} TriageMeta
  */
 
@@ -150,7 +153,6 @@ function reviewContextDetails(reviewResult) {
  * @returns {Promise<TriageMeta>}
  */
 async function resolveTriageMeta(triageMeta, planName, cwd) {
-    if (triageMeta && triageMeta.classification) return triageMeta;
     try {
         const plan = await loadPlan(cwd, planName);
         if (plan?.attrs) {
@@ -232,6 +234,25 @@ export function createPlanWrittenTool(
             }
 
             const effectiveMeta = await resolveTriageMeta(triageMeta, planName, cwd);
+            const policy = resolvePlanExecutionPolicy(effectiveMeta);
+            if (!policy.ok && policy.reason !== "project_epic") {
+                emitSystemStatus(hostedSession, `Plan policy invalid: ${policy.error}`, {
+                    level: "error",
+                    header: "RunWield",
+                });
+                return textResult(
+                    `plan_written: ${policy.error}\n\nFix plans/${planName}.md and call plan_written again.`,
+                    {
+                        ...params,
+                        outcome: "repair_required",
+                        planName,
+                        triageMeta: effectiveMeta,
+                        reason: policy.reason,
+                    },
+                    false,
+                );
+            }
+
             const planDetails = {
                 planName,
                 planPath,

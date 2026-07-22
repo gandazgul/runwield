@@ -1842,6 +1842,101 @@ Deno.test("runLoadPlanCommand approved PROJECT Epic opens Slicer without executi
     assertEquals(messages.some((message) => message.includes("not executable")), true);
 });
 
+Deno.test("runLoadPlanCommand approved PROJECT Epic rejects execution policy before readiness", async () => {
+    const { uiAPI, selections, messages } = makeUi();
+    selections.push("slicer");
+    let slicerOpened = false;
+    /** @type {RecordedPlanEvent[]} */
+    const events = [];
+
+    await runLoadPlanCommand(["epic-invalid-policy"], {
+        ...makeRuntimeContext(),
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: () => ({ help: false, _: ["epic-invalid-policy"] }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "epic-invalid-policy",
+                    path: "plans/epic-invalid-policy.md",
+                    body: "body",
+                    markdown: "markdown",
+                    attrs: {
+                        classification: "PROJECT",
+                        complexity: "HIGH",
+                        summary: "s",
+                        affectedPaths: [],
+                        status: "approved",
+                        executionAgent: "frontend-engineer",
+                    },
+                }),
+            findPlansByParent: () => Promise.resolve([]),
+            runSlicerAgent: () => {
+                slicerOpened = true;
+                return Promise.resolve({ ok: true });
+            },
+            recordPlanEvent: (/** @type {RecordedPlanEvent} */ args) => {
+                events.push(args);
+                return Promise.resolve({ status: "ready_for_decomposition" });
+            },
+            resetTuiState: () => {},
+        }),
+    });
+
+    assertEquals(slicerOpened, false);
+    assertEquals(events, []);
+    assertEquals(messages.some((message) => message.includes("PROJECT Epics are non-executable")), true);
+});
+
+Deno.test("runLoadPlanCommand post-review PROJECT Epic rejects execution policy before readiness", async () => {
+    const { uiAPI, selections, messages } = makeUi();
+    selections.push("review");
+    const fixture = makeRuntimeFixture({
+        requestInteraction: () => ({ outcome: "accepted", _meta: { approved: true } }),
+    });
+    let slicerOpened = false;
+    /** @type {RecordedPlanEvent[]} */
+    const events = [];
+
+    await runLoadPlanCommand(["epic-review-invalid-policy"], {
+        ...fixture.context,
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: () => ({ help: false, _: ["epic-review-invalid-policy"] }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "epic-review-invalid-policy",
+                    path: "plans/epic-review-invalid-policy.md",
+                    body: "body",
+                    markdown: "markdown",
+                    attrs: {
+                        classification: "PROJECT",
+                        complexity: "HIGH",
+                        summary: "s",
+                        affectedPaths: [],
+                        status: "approved",
+                        collaborationRecommendation: "pair",
+                    },
+                }),
+            askProjectDecompositionApproval: () => Promise.resolve("proceed"),
+            runSlicerAgent: () => {
+                slicerOpened = true;
+                return Promise.resolve({ ok: true });
+            },
+            recordPlanEvent: (/** @type {RecordedPlanEvent} */ args) => {
+                events.push(args);
+                return Promise.resolve({ status: "ready_for_decomposition" });
+            },
+            resetTuiState: () => {},
+        }),
+    });
+
+    assertEquals(slicerOpened, false);
+    assertEquals(events, []);
+    assertEquals(messages.some((message) => message.includes("PROJECT Epics are non-executable")), true);
+});
+
 Deno.test("runLoadPlanCommand legacy in-progress PROJECT Epic opens Slicer instead of recovery", async () => {
     const { uiAPI, selections, prompts } = makeUi();
     selections.push("slicer");
@@ -2636,12 +2731,142 @@ Deno.test("runLoadPlanCommand implemented plan retries validation", async () => 
             failureReason: "CI failed",
             executionBaselineTree: "baseline-tree",
         },
+        executionAgent: "engineer",
         baselineTree: "baseline-tree",
+        projectRoot: Deno.cwd(),
     });
     assertEquals(otherFixture.state.workflow, {
         planName: "other",
         triageMeta: {},
         baselineTree: "other-tree",
+    });
+});
+
+Deno.test("runLoadPlanCommand reports invalid recovery policy without workflow mutation or dispatch", async () => {
+    for (
+        const scenario of [
+            { status: "implemented", action: "validate" },
+            { status: "in_progress", action: "continue" },
+            { status: "failed", action: "reset" },
+            { status: "implemented", action: "merge" },
+        ]
+    ) {
+        const { uiAPI, selections, messages } = makeUi();
+        selections.push(scenario.action, "cancel");
+        let validationDispatched = false;
+        let executionDispatched = false;
+        let metadataMutated = false;
+        const fixture = makeRuntimeFixture({ sessionId: `invalid-policy-${scenario.status}` });
+
+        await runLoadPlanCommand([`invalid-${scenario.status}`], {
+            uiAPI,
+            ...fixture.context,
+            editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+            __testDeps: /** @type {any} */ ({
+                parseArgs: () => ({ help: false, _: [`invalid-${scenario.status}`] }),
+                resolvePlan: () =>
+                    Promise.resolve({
+                        planName: `invalid-${scenario.status}`,
+                        path: `plans/invalid-${scenario.status}.md`,
+                        body: "body",
+                        markdown: "markdown",
+                        attrs: {
+                            classification: "FEATURE",
+                            complexity: "LOW",
+                            summary: "s",
+                            affectedPaths: [],
+                            status: scenario.status,
+                            executionAgent: "unknown-owner",
+                        },
+                    }),
+                runValidationLoop: () => {
+                    validationDispatched = true;
+                    return Promise.resolve();
+                },
+                executePlan: () => {
+                    executionDispatched = true;
+                    return Promise.resolve({ executionComplete: false });
+                },
+                updatePlanFrontMatter: () => {
+                    metadataMutated = true;
+                    return Promise.resolve({});
+                },
+                updateWorktreeRegistryEntry: () => {
+                    metadataMutated = true;
+                    return Promise.resolve({});
+                },
+                resetTuiState: () => {},
+            }),
+        });
+
+        assertEquals(validationDispatched, false);
+        assertEquals(executionDispatched, false);
+        assertEquals(metadataMutated, false);
+        assertEquals(fixture.state.workflow, null);
+        assertEquals(
+            messages.some((message) =>
+                message.includes("Cannot recover Plan recovery") &&
+                message.includes("Invalid executionAgent: unknown-owner")
+            ),
+            true,
+        );
+    }
+});
+
+Deno.test("runLoadPlanCommand implemented non-Git plan retries validation in-place", async () => {
+    const { uiAPI, selections } = makeUi();
+    selections.push("validate");
+    let validated = false;
+    /** @type {unknown} */
+    let workflowDuringValidation = null;
+    const fixture = makeRuntimeFixture({ sessionId: "load-plan-non-git-validation" });
+
+    await runLoadPlanCommand(["plan-implemented-non-git"], {
+        uiAPI,
+        ...fixture.context,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: () => ({ help: false, _: ["plan-implemented-non-git"] }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "plan-implemented-non-git",
+                    path: "plans/plan-implemented-non-git.md",
+                    body: "body",
+                    markdown: "markdown",
+                    attrs: {
+                        classification: "FEATURE",
+                        complexity: "LOW",
+                        summary: "s",
+                        affectedPaths: [],
+                        status: "implemented",
+                        failureReason: "CI failed",
+                    },
+                }),
+            runValidationLoop: () => {
+                validated = true;
+                workflowDuringValidation = fixture.state.workflow;
+                fixture.runtime.clearActiveExecutionWorkflow(fixture.context.sessionId);
+                return Promise.resolve();
+            },
+            resetTuiState: () => {},
+        }),
+    });
+
+    assertEquals(validated, true);
+    assertEquals(workflowDuringValidation, {
+        planName: "plan-implemented-non-git",
+        triageMeta: {
+            classification: "FEATURE",
+            complexity: "LOW",
+            summary: "s",
+            affectedPaths: [],
+            status: "implemented",
+            failureReason: "CI failed",
+        },
+        executionAgent: "engineer",
+        projectRoot: Deno.cwd(),
+        executionCwd: Deno.cwd(),
+        nonGitInPlace: true,
     });
 });
 

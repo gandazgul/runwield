@@ -33,8 +33,7 @@ import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runt
  * @typedef {Object} ActiveExecutionWorkflow
  * @property {string} planName
  * @property {any} triageMeta
- * @property {string} [executionAgent]
- * @property {"pair"|"autonomous"} [collaborationMode]
+ * @property {"engineer"|"frontend-engineer"} executionAgent
  * @property {boolean} [pairStopRequested]
  * @property {string} [baselineTree]
  * @property {string} [projectRoot]
@@ -470,6 +469,14 @@ export class HostedSession {
     /** @param {ActiveExecutionWorkflow | null} workflow */
     setActiveExecutionWorkflow(workflow) {
         this.assertActive();
+        if (workflow) {
+            const owner = workflow.executionAgent;
+            if (owner !== "engineer" && owner !== "frontend-engineer") {
+                throw new Error(
+                    "setActiveExecutionWorkflow: active execution workflow requires executionAgent engineer or frontend-engineer",
+                );
+            }
+        }
         this.activeExecutionWorkflow = workflow;
     }
 

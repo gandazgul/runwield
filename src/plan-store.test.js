@@ -1,4 +1,4 @@
-import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
+import { assertEquals, assertRejects, assertStringIncludes, assertThrows } from "@std/assert";
 import {
     archivePlan,
     archivePlansByStatus,
@@ -26,6 +26,7 @@ import {
     PLAN_FRONT_MATTER_KEY_ORDER,
     PLAN_FRONT_MATTER_KEYS,
     resolvePlan,
+    resolvePlanExecutionPolicy,
     resolveSiblingChildPlanDependencyStates,
     restoreArchivedPlan,
     saveChildFeaturePlans,
@@ -99,7 +100,7 @@ Deno.test("Plan Work Record metadata round trips with nested YAML", () => {
     assertStringIncludes(withFm, "workRecord:\n    status:");
 });
 
-Deno.test("frontend verification front matter round trips", () => {
+Deno.test("frontend verification front matter round trips as legacy source metadata", () => {
     const markdown = "## Plan\n\nBody";
     const withFm = injectFrontMatter(markdown, {
         frontend: true,
@@ -111,11 +112,130 @@ Deno.test("frontend verification front matter round trips", () => {
     const { attrs } = parsePlanFrontMatter(withFm);
 
     assertEquals(attrs.frontend, true);
+    assertEquals(attrs.executionAgent, undefined);
+    assertEquals(resolvePlanExecutionPolicy(attrs), {
+        ok: true,
+        policy: {
+            executionAgent: "frontend-engineer",
+            collaborationRecommendation: "autonomous",
+            source: "legacy_frontend",
+        },
+    });
     assertEquals(attrs.devServerCommand, "npm run dev");
     assertEquals(attrs.devServerUrl, "http://localhost:5173");
     assertEquals(attrs.devServerHmr, true);
     assertEquals(withFm.indexOf("affectedPaths:") < withFm.indexOf("frontend:"), true);
     assertEquals(withFm.indexOf("devServerHmr:") < withFm.indexOf("createdAt:"), true);
+});
+
+Deno.test("Plan execution policy preserves invalid raw values for diagnostics", () => {
+    const { attrs } = parsePlanFrontMatter(`---
+classification: FEATURE
+executionAgent: typo-agent
+collaborationRecommendation: buddy
+---
+# Bad
+`);
+
+    assertEquals(attrs.executionAgent, "typo-agent");
+    assertEquals(attrs.collaborationRecommendation, "buddy");
+    assertEquals(resolvePlanExecutionPolicy(attrs), {
+        ok: false,
+        reason: "invalid_execution_agent",
+        error: "Invalid executionAgent: typo-agent. Supported values are engineer and frontend-engineer.",
+    });
+});
+
+Deno.test("Plan execution policy preserves invalid non-string raw values for diagnostics", () => {
+    const { attrs } = parsePlanFrontMatter(`---
+classification: FEATURE
+executionAgent: 123
+collaborationRecommendation: false
+---
+# Bad
+`);
+
+    assertEquals(attrs.executionAgent, 123);
+    assertEquals(attrs.collaborationRecommendation, false);
+    assertEquals(resolvePlanExecutionPolicy(attrs), {
+        ok: false,
+        reason: "invalid_execution_agent",
+        error: "Invalid executionAgent: 123. Supported values are engineer and frontend-engineer.",
+    });
+    assertThrows(
+        () => injectFrontMatter("# Bad\n", { executionAgent: 123 }),
+        Error,
+        "Invalid executionAgent: 123",
+    );
+    assertThrows(
+        () => injectFrontMatter("# Bad\n", { executionAgent: "frontend-engineer", collaborationRecommendation: false }),
+        Error,
+        "Invalid collaborationRecommendation: false",
+    );
+});
+
+Deno.test("Plan execution policy enforces owner and recommendation matrix", () => {
+    assertEquals(resolvePlanExecutionPolicy({ classification: "FEATURE" }), {
+        ok: true,
+        policy: { executionAgent: "engineer", collaborationRecommendation: "autonomous", source: "absent" },
+    });
+    assertEquals(resolvePlanExecutionPolicy({ classification: "FEATURE", frontend: false }), {
+        ok: true,
+        policy: {
+            executionAgent: "engineer",
+            collaborationRecommendation: "autonomous",
+            source: "legacy_frontend_false",
+        },
+    });
+    assertEquals(resolvePlanExecutionPolicy({ classification: "FEATURE", executionAgent: "engineer" }), {
+        ok: true,
+        policy: { executionAgent: "engineer", collaborationRecommendation: "autonomous", source: "canonical" },
+    });
+    assertEquals(
+        resolvePlanExecutionPolicy({
+            classification: "FEATURE",
+            executionAgent: "frontend-engineer",
+            collaborationRecommendation: "pair",
+            frontend: false,
+        }),
+        {
+            ok: true,
+            policy: { executionAgent: "frontend-engineer", collaborationRecommendation: "pair", source: "canonical" },
+        },
+    );
+    assertEquals(
+        resolvePlanExecutionPolicy({
+            classification: "FEATURE",
+            executionAgent: "engineer",
+            collaborationRecommendation: "pair",
+        }),
+        {
+            ok: false,
+            reason: "engineer_pair_recommendation",
+            error: "collaborationRecommendation: pair is only valid for executionAgent: frontend-engineer.",
+        },
+    );
+    assertEquals(resolvePlanExecutionPolicy({ classification: "PROJECT", frontend: true }), {
+        ok: false,
+        reason: "project_epic",
+        error: "PROJECT Epics are non-executable and do not have an execution owner.",
+    });
+    assertEquals(resolvePlanExecutionPolicy({ classification: "PROJECT", executionAgent: "engineer" }), {
+        ok: false,
+        reason: "project_execution_agent",
+        error: "PROJECT Epics are non-executable and must not define executionAgent.",
+    });
+    assertEquals(
+        resolvePlanExecutionPolicy({
+            classification: "QUICK_FIX",
+            executionAgent: "frontend-engineer",
+            frontend: true,
+        }),
+        {
+            ok: true,
+            policy: { executionAgent: "engineer", collaborationRecommendation: "autonomous", source: "absent" },
+        },
+    );
 });
 
 Deno.test("injectFrontMatter preserves new closure and hold lifecycle fields", () => {
@@ -956,6 +1076,8 @@ testWithFs("saveChildFeaturePlans creates draft child FEATURE plans with order a
             parentPlan: "project-breakdown-epic",
             order: 1,
             affectedPaths: ["src/plan-store.js"],
+            executionAgent: "frontend-engineer",
+            collaborationRecommendation: "autonomous",
             devServerCommand: "deno task workspace:dev",
             devServerUrl: "http://localhost:5173",
             devServerHmr: true,
@@ -969,6 +1091,8 @@ testWithFs("saveChildFeaturePlans creates draft child FEATURE plans with order a
         assertEquals(first?.attrs.summary, "Keep parent-child links loadable");
         assertEquals(first?.attrs.order, 1);
         assertEquals(first?.attrs.frontend, undefined);
+        assertEquals(first?.attrs.executionAgent, "frontend-engineer");
+        assertEquals(first?.attrs.collaborationRecommendation, "autonomous");
         assertEquals(first?.attrs.devServerCommand, "deno task workspace:dev");
         assertEquals(first?.attrs.devServerUrl, "http://localhost:5173");
         assertEquals(first?.attrs.devServerHmr, true);
@@ -976,6 +1100,41 @@ testWithFs("saveChildFeaturePlans creates draft child FEATURE plans with order a
 
         const second = await loadPlan(cwd, "project-breakdown-epic/02-load-child-features");
         assertEquals(second?.attrs.dependencies, ["project-breakdown-epic/01-preserve-epic-and-child-metadata"]);
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+testWithFs("saveChildFeaturePlans rejects invalid child policies before writing any files", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await assertRejects(
+            () =>
+                saveChildFeaturePlans(cwd, "project-breakdown-epic", [
+                    {
+                        order: 1,
+                        title: "Valid child",
+                        summary: "This child would be valid",
+                        affectedPaths: ["src/a.js"],
+                        executionAgent: "engineer",
+                        dependencies: [],
+                        content: "# Valid child\n",
+                    },
+                    {
+                        order: 2,
+                        title: "Invalid child",
+                        summary: "Pair is invalid for Engineer",
+                        affectedPaths: ["src/b.js"],
+                        executionAgent: "engineer",
+                        collaborationRecommendation: "pair",
+                        dependencies: [],
+                        content: "# Invalid child\n",
+                    },
+                ]),
+            Error,
+            "collaborationRecommendation: pair",
+        );
+        assertEquals(await loadPlan(cwd, "project-breakdown-epic/01-valid-child"), null);
     } finally {
         await Deno.remove(cwd, { recursive: true });
     }
@@ -1268,6 +1427,69 @@ testWithFs("updatePlanFrontMatter preserves body and clears optional fields", as
 
         const loaded = await loadPlan(cwd, "front-matter");
         assertEquals(loaded?.body.trim(), "## Body");
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+testWithFs("classification updates reject preserved canonical execution policy on PROJECT Epics", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "feature-policy", "# Body", {
+            classification: "FEATURE",
+            executionAgent: "frontend-engineer",
+            collaborationRecommendation: "pair",
+        });
+
+        await assertRejects(
+            () => updatePlanFrontMatter(cwd, "feature-policy", { classification: "PROJECT" }),
+            Error,
+            "PROJECT Epics are non-executable and must not define executionAgent.",
+        );
+        const loaded = await loadPlan(cwd, "feature-policy");
+        assertEquals(loaded?.attrs.classification, "FEATURE");
+        assertEquals(loaded?.attrs.executionAgent, "frontend-engineer");
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+testWithFs("lifecycle front matter updates preserve unchanged invalid raw policy values", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        const plansDir = `${cwd}/plans`;
+        await Deno.mkdir(plansDir, { recursive: true });
+        await Deno.writeTextFile(
+            `${plansDir}/invalid-policy.md`,
+            [
+                "---",
+                "classification: FEATURE",
+                "executionAgent: typo-agent",
+                "collaborationRecommendation: 123",
+                "status: draft",
+                "---",
+                "# Body",
+                "",
+            ].join("\n"),
+        );
+
+        await updatePlanStatus(cwd, "invalid-policy", "approved");
+        let loaded = await loadPlan(cwd, "invalid-policy");
+        assertEquals(loaded?.attrs.status, "approved");
+        assertEquals(loaded?.attrs.executionAgent, "typo-agent");
+        assertEquals(loaded?.attrs.collaborationRecommendation, 123);
+
+        await updatePlanFrontMatter(cwd, "invalid-policy", { summary: "Updated summary" });
+        loaded = await loadPlan(cwd, "invalid-policy");
+        assertEquals(loaded?.attrs.summary, "Updated summary");
+        assertEquals(loaded?.attrs.executionAgent, "typo-agent");
+        assertEquals(loaded?.attrs.collaborationRecommendation, 123);
+
+        await assertRejects(
+            () => updatePlanFrontMatter(cwd, "invalid-policy", { executionAgent: "unknown-owner" }),
+            Error,
+            "Invalid executionAgent: unknown-owner",
+        );
     } finally {
         await Deno.remove(cwd, { recursive: true });
     }

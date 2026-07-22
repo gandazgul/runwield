@@ -400,6 +400,7 @@ Deno.test("agent-handler records delayed implementation finish before continuati
     hostedSession.setActiveExecutionWorkflow({
         planName: "p",
         triageMeta: { classification: "FEATURE" },
+        executionAgent: "engineer",
         baselineTree: "baseline-tree",
     });
 
@@ -434,6 +435,7 @@ Deno.test("agent-handler records delayed implementation finish before continuati
     assertEquals(workflowDuringValidation, {
         planName: "p",
         triageMeta: { classification: "FEATURE" },
+        executionAgent: "engineer",
         baselineTree: "baseline-tree",
     });
     assertEquals(events, ["implementation_finished", "validation_started"]);
@@ -447,6 +449,7 @@ Deno.test("agent-handler resumes validation continuation without recording imple
     hostedSession.setActiveExecutionWorkflow({
         planName: "p",
         triageMeta: { classification: "FEATURE" },
+        executionAgent: "engineer",
         baselineTree: "baseline-tree",
         validationContinuation: true,
     });
@@ -480,6 +483,7 @@ Deno.test("agent-handler resumes validation continuation without recording imple
     assertEquals(workflowDuringValidation, {
         planName: "p",
         triageMeta: { classification: "FEATURE" },
+        executionAgent: "engineer",
         baselineTree: "baseline-tree",
         validationContinuation: true,
     });
@@ -497,6 +501,7 @@ Deno.test("agent-handler ignores stale task_completed outcomes from earlier root
     hostedSession.setActiveExecutionWorkflow({
         planName: "p",
         triageMeta: { classification: "FEATURE" },
+        executionAgent: "engineer",
         baselineTree: "baseline-tree",
     });
     hostedSession.setRootAgentName("engineer");
@@ -535,6 +540,7 @@ Deno.test("agent-handler ignores stale task_completed outcomes from earlier root
         assertEquals(hostedSession.getActiveExecutionWorkflow(), {
             planName: "p",
             triageMeta: { classification: "FEATURE" },
+            executionAgent: "engineer",
             baselineTree: "baseline-tree",
         });
     } finally {
@@ -551,6 +557,7 @@ Deno.test("agent-handler validates task_completed against hosted workflow", asyn
     hostedSession.setActiveExecutionWorkflow({
         planName: "hosted-plan",
         triageMeta: { classification: "FEATURE" },
+        executionAgent: "engineer",
         baselineTree: "hosted-tree",
     });
     const handler = createAgentHandler("engineer", {
@@ -579,6 +586,7 @@ Deno.test("agent-handler validates task_completed against hosted workflow", asyn
         assertEquals(validationWorkflow, {
             planName: "hosted-plan",
             triageMeta: { classification: "FEATURE" },
+            executionAgent: "engineer",
             baselineTree: "hosted-tree",
         });
     } finally {
@@ -592,6 +600,7 @@ Deno.test("agent-handler resumes QUICK_FIX mechanical validation after repair ta
     hostedSession.setActiveExecutionWorkflow({
         planName: "quick-fix",
         triageMeta: { classification: "QUICK_FIX" },
+        executionAgent: "engineer",
         executionCwd: "/quick-fix-repair",
         validationContinuation: true,
         manualQaName: "settings-fix",
@@ -638,6 +647,7 @@ Deno.test("agent-handler ignores operator task_completed while an Engineer workf
     hostedSession.setActiveExecutionWorkflow({
         planName: "quick-fix",
         triageMeta: { classification: "QUICK_FIX" },
+        executionAgent: "engineer",
         executionCwd: "/quick-fix-repair",
         validationContinuation: true,
     });
@@ -675,6 +685,7 @@ Deno.test("agent-handler ignores operator task_completed while an Engineer workf
     assertEquals(hostedSession.getActiveExecutionWorkflow(), {
         planName: "quick-fix",
         triageMeta: { classification: "QUICK_FIX" },
+        executionAgent: "engineer",
         executionCwd: "/quick-fix-repair",
         validationContinuation: true,
     });
@@ -734,6 +745,7 @@ Deno.test("agent-handler requests attention after validation completes", async (
     hostedSession.setActiveExecutionWorkflow({
         planName: "quick-fix",
         triageMeta: { classification: "FEATURE" },
+        executionAgent: "engineer",
         baselineTree: "baseline-tree",
     });
     const handler = createAgentHandler("engineer", {
