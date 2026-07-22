@@ -2,13 +2,13 @@
 title: RunWield Workspace
 status: living-roadmap
 createdAt: "2026-07-06T00:00:00.000Z"
-updatedAt: "2026-07-20T23:15:00-04:00"
+updatedAt: "2026-07-22T09:30:00-04:00"
 ---
 
 # RunWield Workspace PRD
 
 **Status:** Living roadmap — current local Plan Workspace implemented; Personal Remote Workspace v1 next\
-**Last Updated:** 2026-07-20
+**Last Updated:** 2026-07-22
 
 ## 1. Objective
 
@@ -17,8 +17,8 @@ the RunWield way across multiple registered Projects.
 
 The next product milestone is **Personal Remote Workspace v1**: one trusted developer uses a persistent Workspace on
 their own machine through a private network. The developer can move among Projects, create and resume durable Sessions,
-observe and control RunWield workflows, review and execute Plans, receive attention signals, search durable project
-knowledge and selected source code, and open a subordinate Code Surface.
+observe synchronized Session state, resolve durable human gates, review and execute Plans, receive attention signals,
+search durable project knowledge and selected source code, and open a subordinate Code Surface.
 
 This milestone must preserve RunWield Core's existing ownership of:
 
@@ -42,8 +42,8 @@ That creates five product gaps:
 
 1. **No persistent multi-Project home.** The user cannot register trusted Projects and see attention, active work,
    Sessions, Plans, and recent outcomes across them.
-2. **No authoritative remotely attachable Session.** Reopening the same transcript in another process is not equivalent
-   to attaching to the same live workflow and risks split ownership.
+2. **No exclusive cross-surface Session activation.** Reopening the same transcript in another process is not equivalent
+   to continuing one durable Session and risks competing transcript writers unless writable activation is coordinated.
 3. **No complete browser workflow.** Workspace cannot yet carry one Session through ideation, Plan review, execution,
    validation, and recovery using semantic Runtime events.
 4. **Knowledge is fragmented.** Plans and Work Records can inform future work, but Workspace lacks a deliberate
@@ -75,8 +75,8 @@ Product principles:
   product; code-server is subordinate.
 - **Projects are explicit trust boundaries.** Workspace accesses only registered roots and never treats an incidental
   local cache as authorization.
-- **Sessions are durable, not duplicated.** TUI, Workspace, and external clients attach to one authoritative live
-  Session instead of independently reopening its transcript.
+- **Sessions are durable, not simultaneously writable.** TUI, Workspace, and ACP remain sibling Runtime consumers;
+  exactly one process may hold writable Session activation while other surfaces synchronize committed state.
 - **Plans own planned-work lifecycle.** Once a Plan exists, its workflow surface becomes the durable center for review,
   execution, validation, recovery, changes, and associated Sessions.
 - **Approval is not execution authorization.** The user can approve and run now or approve for later.
@@ -106,8 +106,10 @@ RunWield currently provides:
 - an ACP stdio MVP that can create, load, prompt, cancel, close, and replay Sessions;
 - Cymbal as the current-Project, working-tree-aware code-intelligence layer.
 
-The current Session Host is not yet the persistent cross-process authority required for seamless TUI and Workspace
-attachment. The current Workspace token model is also not the remote owner-authentication model described here.
+The current Session Host is an in-process Runtime boundary, not a cross-process authority. Personal Remote Workspace v1
+adds coordination below the sibling adapters through stable Session identity, fenced activation leases, committed
+generations, and Durable Workflow Checkpoints. The current Workspace token model is also not the remote
+owner-authentication model described here.
 
 Existing local Plan management and Shared Plan collaboration remain supported foundations. Personal Remote Workspace v1
 expands their containing product model rather than replacing their lifecycle or canonical storage.
@@ -185,8 +187,8 @@ The default Workspace home aggregates only actionable or recent information acro
 Project navigation remains available, but users should not have to inspect every Project to discover blocked or finished
 work.
 
-Browser and system notifications should point back to the authoritative Session or Plan workflow. Notifications are
-attention signals, not an alternate workflow state store.
+Browser and system notifications should point back to the stable Session or Plan workflow checkpoint that needs
+attention. Notifications are attention signals, not an alternate workflow state store.
 
 ### 6.3 Project experience
 
@@ -206,8 +208,9 @@ Plans, Work Records, Session history, branches, or RunWield worktrees.
 
 ### 6.4 Session experience
 
-Workspace must support creating, resuming, observing, and controlling Sessions through semantic SessionRuntime events.
-The primary timeline represents:
+Workspace must support creating, resuming, observing, and mutating Sessions through semantic `SessionRuntime` events
+only after the owning process has the required Session Activation Lease. Non-owning surfaces synchronize committed
+Session generations through read-only projection. The primary timeline represents:
 
 - user and Agent messages;
 - Agent identity and handoffs;
@@ -222,28 +225,37 @@ Terminal-byte streaming is not the primary Session UI. A raw WebTUI may remain a
 surface.
 
 Several Sessions may run across several Projects. Closing a browser tab or losing network access does not cancel work.
-On reconnection, Workspace reattaches to the same authoritative Session and receives the durable state and semantic
-event history required to continue.
+On reconnection, Workspace reloads the stable Session record, receives committed semantic state, and either remains a
+synchronized reader or acquires writable activation at a safe boundary before continuing.
 
-### 6.5 Session Control
+### 6.5 Activation, checkpoints, and synchronization
 
-Observation and control are separate:
+Cross-surface Session behavior uses three separate mechanisms:
 
-- TUI and Workspace may observe the same live Session.
-- Exactly one attached client holds **Session Control** for submitting user messages or answering pending interactions.
-- Control may transfer safely while the Session is idle or waiting for human input.
-- A disconnect must not create two independent controllers or cancel background work.
-- Ambiguous ownership requires visible recovery or takeover rather than implicit last-writer-wins behavior.
+- **Session Activation Lease:** before Workspace, TUI, ACP, or another process opens or mutates a writable Pi
+  `SessionManager` for an existing Session, it must acquire a fenced lease keyed by the stable RunWield Session ID. Only
+  the current activation owner may publish fenced coordination state for the Session.
+- **Durable Workflow Checkpoints:** Plan review, Feedback, **Approve & Run**, **Approve for Later**, Plan Recovery,
+  human code review, and cross-surface structured interactions are resolved through typed checkpoint records with
+  compare-and-set outcome and consumption semantics. Workspace may render and resolve a checkpoint for a TUI- or
+  ACP-owned Runtime without loading a second writable Runtime.
+- **Automatic read synchronization:** idle non-owning surfaces monitor committed Session generations, read transcript
+  updates through a non-mutating path, replay only unseen stable entries, refresh summaries, preserve unsent drafts and
+  local annotations, and show which surface currently owns activation.
 
-Session Control belongs to an attached client; it does not determine which Session owns a Plan workflow.
+At an idle checkpoint, Workspace, TUI, and ACP may race to acquire activation; the database transaction chooses one
+owner and all other surfaces remain synchronized readers. Mid-token, mid-command, mid-tool, and mid-filesystem-effect
+transfer is out of scope. Ambiguous activation, stale fencing, or uncertain side effects require visible recovery rather
+than implicit last-writer-wins behavior.
 
 ### 6.6 Plan workflow ownership
 
 Exactly one Session may drive consequential actions for a Plan at a time across TUI, Workspace, ACP, and future hosts. A
 durable **Plan Workflow Lease** enforces that rule.
 
-The lease belongs to the workflow-owning Session, not to the current UI. TUI and Workspace may transfer Session Control
-without changing Plan ownership.
+The lease belongs to the workflow-owning Session, not to the current process or UI. The same Session may move from TUI
+to Workspace while retaining Plan workflow ownership, but a different Session is rejected until the workflow is
+released, held, completed, or explicitly recovered/taken over.
 
 A stale or uncertain lease cannot be silently deleted. Workspace must present an explicit takeover or Plan Recovery
 choice grounded in durable Plan, worktree, and Session state.
@@ -342,6 +354,10 @@ device pairing:
 - paired-device sessions persist but are revocable;
 - Workspace provides a paired-device and revocation view;
 - WebSocket and ordinary browser requests share the same authorization boundary;
+- CSRF and Origin policy protect state-changing owner Workspace requests;
+- browser access requires a secure TLS boundary at non-loopback addresses, using a documented trusted terminator if
+  RunWield does not manage certificates itself;
+- direct plaintext non-loopback exposure is not a safe default;
 - Project roots are allowlisted independently of browser authorization;
 - consequential execution, terminal, filesystem, and destructive actions remain explicit and auditable;
 - secrets and bearer credentials do not enter Plan front matter, Session Transcripts, URLs beyond bootstrap necessity,
@@ -358,15 +374,30 @@ Workspace.
 
 This section describes product-level boundaries, not final implementation design.
 
-### 7.1 Authoritative persistent Session Host
+### 7.1 Sibling Runtimes with owner coordination
 
-A persistent Session Host becomes the single live authority for Sessions on the machine. Workspace and TUI are clients
-of that authority and consume the same SessionRuntime operations, semantic events, interactions, replay, cancellation,
-and recovery state.
+TUI, Workspace, and ACP remain sibling consumers of the adapter-neutral `SessionRuntime` contract. Each process may own
+its own in-process `SessionHost`; Workspace is not a mandatory Runtime proxy or parent API for TUI or ACP. Cross-process
+correctness comes from shared owner coordination below the adapters.
 
-Workspace should use a native SessionRuntime adapter appropriate for browser clients. ACP remains the canonical
-host-agnostic external integration protocol for editors and replaceable external hosts; Workspace does not need to route
-its first-party browser traffic through ACP merely for symmetry.
+A stable RunWield Session ID is the durable product identity. It maps to one registered Project and the underlying Pi
+Session Manager identity/JSONL locator. In-process Hosted Session IDs remain runtime implementation details and must not
+be used as cross-process ownership keys.
+
+The owner-only SQLite database under `~/.wld/` coordinates Project registration, paired browser devices, stable Session
+identity, activation leases, committed Session generations, Durable Workflow Checkpoints, Plan Workflow Leases,
+attention projections, and related owner-local runtime state. It is distinct from canonical repository artifacts,
+private Session Transcripts, derived Mnemosyne/Cymbal indexes, and public Shared Space ciphertext/capability storage.
+
+Writable Runtime hydration must acquire a Session Activation Lease before constructing or mutating a writable Pi
+`SessionManager`. Every safe checkpoint advances the committed Session generation only after the transcript or
+repository effect is durable; fenced SQLite checkpoint/generation publication follows canonical writes. If
+reconciliation finds transcript-ahead/database-behind or uncertain Plan/worktree evidence, Workspace must route to
+explicit recovery rather than claiming that an arbitrary effect can be replayed.
+
+Workspace should use a native `SessionRuntime` adapter appropriate for browser clients. ACP remains the canonical
+host-agnostic external protocol for editors and replaceable external hosts, but first-party Workspace browser traffic
+does not need to route through ACP merely for symmetry.
 
 ### 7.2 Project Runtime lifecycle
 
@@ -410,10 +441,10 @@ Personal Remote Workspace v1 is complete only when one trusted developer can:
 3. See Needs You, Running, Ready, and Recently Finished work across those Projects on the Attention Dashboard.
 4. Create a standalone Session in Workspace, resume it later, and retain one durable identity across Agent handoffs.
 5. Run live Sessions in at least two Projects concurrently without Session, tool, interaction, or workflow state bleed.
-6. Disconnect the browser during active work, let the Session continue to completion or its next human gate, reconnect,
-   and resume from authoritative state.
-7. Observe the same Session from TUI and Workspace, transfer Session Control safely at an idle or waiting boundary, and
-   prevent simultaneous control.
+6. Disconnect the browser during active work, let the activation owner continue to completion or its next durable human
+   gate, reconnect, and resume from committed Session state.
+7. Keep TUI and Workspace open on the same stable Session, allow exactly one writable activation owner at a time, and
+   synchronize non-owning surfaces from committed generations without creating simultaneous writers.
 8. Associate a Session with a Plan and ensure a second Session cannot drive consequential actions while the first holds
    the Plan Workflow Lease.
 9. Complete a bounded FEATURE journey through planning, Plannotator review, **Approve & Run**, execution, Workflow
@@ -435,7 +466,7 @@ Personal Remote Workspace v1 is complete only when one trusted developer can:
 The first version succeeds when:
 
 - the owner can complete the acceptance journey remotely without depending on an active TUI process;
-- browser reconnect and TUI attachment never create duplicate live Sessions or competing workflow owners;
+- browser reconnect and open TUI/ACP clients never create competing transcript writers or duplicate workflow owners;
 - multiple Projects can make progress concurrently while human attention remains understandable;
 - consequential Plan actions are rejected or recovered safely when Session or lease ownership is ambiguous;
 - artifact and code search return only eligible, explicitly scoped Project data;
@@ -445,18 +476,18 @@ The first version succeeds when:
 
 ## 10. Risks and Mitigations
 
-| Risk                                                                 | Product mitigation                                                                                                                                                   |
-| -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Persistent remote access expands the local attack surface.           | Require private networking, device pairing, revocation, trusted Project roots, shared authorization across HTTP/WebSocket paths, and explicit consequential actions. |
-| TUI and Workspace can create split-brain Sessions or Plan execution. | Use one authoritative Session Host, separate observation from Session Control, and enforce durable Plan Workflow Leases.                                             |
-| Background continuation surprises the user.                          | Show Running and Needs You state prominently, notify at human gates, expose cancellation, and preserve explicit execution authorization.                             |
-| Multi-Project concurrency exhausts a developer laptop.               | Allow dormant Project Runtimes, bound indexing and Session concurrency, surface health, and degrade to partial results rather than blocking Workspace globally.      |
-| Cross-Project search leaks sensitive code or paths.                  | Query only explicitly selected registered Projects, sanitize absolute paths, keep Agent tools Project-scoped, and support artifact-intelligence opt-out.             |
-| Global search conflates incompatible symbol versions.                | Keep Project identity visible, group results by Project, exclude Plan worktrees, and avoid invented cross-Project call graphs.                                       |
-| code-server becomes an unbounded filesystem or terminal backdoor.    | Treat it as a separately bounded Code Surface tied to the intended Project and never as authorization for other roots or Plan worktrees.                             |
-| Session history becomes accidental shared memory.                    | Keep Transcripts owner-private and out of Agent retrieval; require durable artifact creation for reusable knowledge.                                                 |
-| Workspace drifts into generic Agent management.                      | Organize around attention, Projects, Sessions, and Plan workflows; do not add generic Tasks or Work Items.                                                           |
-| Personal architecture cannot evolve to SaaS.                         | Keep Project Runtime, Session identity, authorization, and storage boundaries compatible with later per-Project isolated containers and organization policy.         |
+| Risk                                                                     | Product mitigation                                                                                                                                                                                                    |
+| ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Persistent remote access expands the local attack surface.               | Require private networking, device pairing, revocation, trusted Project roots, shared authorization across HTTP/WebSocket paths, and explicit consequential actions.                                                  |
+| TUI, Workspace, or ACP can create split-brain Session or Plan execution. | Require fenced Session Activation Leases before writable Runtime access, synchronize idle readers from committed generations, use idempotent Durable Workflow Checkpoints, and enforce separate Plan Workflow Leases. |
+| Background continuation surprises the user.                              | Show Running and Needs You state prominently, notify at human gates, expose cancellation, and preserve explicit execution authorization.                                                                              |
+| Multi-Project concurrency exhausts a developer laptop.                   | Allow dormant Project Runtimes, bound indexing and Session concurrency, surface health, and degrade to partial results rather than blocking Workspace globally.                                                       |
+| Cross-Project search leaks sensitive code or paths.                      | Query only explicitly selected registered Projects, sanitize absolute paths, keep Agent tools Project-scoped, and support artifact-intelligence opt-out.                                                              |
+| Global search conflates incompatible symbol versions.                    | Keep Project identity visible, group results by Project, exclude Plan worktrees, and avoid invented cross-Project call graphs.                                                                                        |
+| code-server becomes an unbounded filesystem or terminal backdoor.        | Treat it as a separately bounded Code Surface tied to the intended Project and never as authorization for other roots or Plan worktrees.                                                                              |
+| Session history becomes accidental shared memory.                        | Keep Transcripts owner-private and out of Agent retrieval; require durable artifact creation for reusable knowledge.                                                                                                  |
+| Workspace drifts into generic Agent management.                          | Organize around attention, Projects, Sessions, and Plan workflows; do not add generic Tasks or Work Items.                                                                                                            |
+| Personal architecture cannot evolve to SaaS.                             | Keep Project Runtime, Session identity, authorization, and storage boundaries compatible with later per-Project isolated containers and organization policy.                                                          |
 
 ## 11. Out of Scope for Personal Remote Workspace v1
 
@@ -494,17 +525,19 @@ Retain and build on:
 ### Next: Personal Remote Workspace v1
 
 Deliver the complete first-version boundary in this PRD, including registered Projects, persistent Sessions, remote
-device pairing, Attention Dashboard, Session Control, Plan Workflow Leases, unified Plan workflow, notifications,
-artifact intelligence, human cross-Project Cymbal search, and the code-server Code Surface.
+device pairing, Attention Dashboard, Session Activation Leases, Durable Workflow Checkpoints, automatic synchronization,
+Plan Workflow Leases, unified Plan workflow, notifications, artifact intelligence, human cross-Project Cymbal search,
+and the code-server Code Surface.
 
 Cross-Project search is part of the first version, not a later add-on: a multi-Project Workspace should support
 deliberate search across both durable planning artifacts and source code while preserving their different semantics.
 
 ### Following: OpenAB/Telegram compatibility
 
-After Workspace establishes the authoritative persistent Session Host and workflow-ownership model, complete the
-OpenAB/Telegram Stage 1 proof against that same authority. Telegram remains a secondary notification and continuation
-channel rather than a parallel Session owner or primary product shell.
+After Personal Remote Workspace establishes stable Session identity, activation, checkpoint, synchronization, and
+workflow-ownership coordination, complete the OpenAB/Telegram Stage 1 proof against the same shared coordination model.
+Telegram remains a secondary notification and continuation channel rather than a parallel Session owner or primary
+product shell.
 
 ACP remains the replaceable external-client contract, and full ACP v1 compliance remains valuable independently of
 Telegram.
@@ -533,4 +566,5 @@ Extend the same concepts with:
 - [ADR-007: Local-First Workspace Plan Board](../adr/007-local-first-workspace-plan-board.md)
 - [ADR-008: Remote-Canonical Collaborative Shared Spaces](../adr/008-remote-canonical-collaborative-shared-spaces.md)
 - [ADR-010: SessionRuntime sibling adapters and ACP](../adr/010-session-runtime-sibling-adapters-and-acp.md)
+- [ADR-011: Exclusive Session Activation and Durable Workflow Checkpoints](../adr/011-exclusive-session-activation-and-durable-workflow-checkpoints.md)
 - [RunWield Design System](../design-system.md)

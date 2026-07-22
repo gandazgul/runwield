@@ -3,7 +3,7 @@
 **Status:** Living roadmap — Session Host and ACP stdio MVP implemented; OpenAB/Telegram follows Personal Remote
 Workspace\
 **Author:** Gandazgul + RunWield Ideator\
-**Last Updated:** 2026-07-20
+**Last Updated:** 2026-07-22
 
 ---
 
@@ -19,11 +19,12 @@ The implemented foundation consists of:
 - **ACP stdio MVP:** `SessionRuntime` exposes the adapter-neutral session surface, and ACP is a sibling adapter to the
   TUI.
 
-After Personal Remote Workspace establishes the authoritative persistent Session Host and workflow-ownership model, the
-next ACP-specific phase has two ordered stages:
+After Personal Remote Workspace establishes stable Session identity, exclusive activation, Durable Workflow Checkpoints,
+automatic synchronization, and workflow-ownership coordination, the next ACP-specific phase has two ordered stages:
 
 1. **OpenAB/Telegram compatibility:** prove that one trusted operator can complete and recover a full RunWield workflow
-   through Telegram, with OpenAB as a replaceable reference ACP client attached to the same Session authority.
+   through Telegram, with OpenAB as a replaceable reference ACP client participating in the same Session coordination
+   model.
 2. **Full ACP v1 compliance:** close the remaining protocol gaps independently of Telegram, including required stdio MCP
    server support and schema-based conformance testing.
 
@@ -39,10 +40,10 @@ and RunWield now ships a useful ACP stdio MVP.
 
 Two product gaps remain:
 
-1. **No external chat client has proven the complete workflow.** A standard client must be able to create or reload an
-   Agent Session, stream progress, answer structured interactions, receive a shared Plan review URL, approve the Plan in
-   the browser, continue through execution and Workflow Validation, cancel live work, and recover safely after a process
-   failure.
+1. **No external chat client has proven the complete workflow.** A standard client must be able to create or reload a
+   durable RunWield Session, stream progress, answer structured interactions, receive a shared Plan review URL, approve
+   the Plan in the browser, continue through execution and Workflow Validation, cancel live work, and recover safely
+   after a process failure.
 2. **The ACP adapter is not yet fully conformant with ACP v1.** The audit in `docs/acp-implementation-details.md`
    identifies required wire, identity, cancellation, and MCP support gaps. Some must be fixed for OpenAB
    interoperability; others are protocol-wide work that should not block the first Telegram proof.
@@ -58,28 +59,29 @@ Chat platform -> thin ACP client -> RunWield ACP -> SessionRuntime -> RunWield w
 
 ## 3. Resolved Assumptions
 
-| Decision                                                            | Rationale                                                                                                                                                                                        | State                                                                                    |
-| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------- |
-| **ACP is the canonical external protocol**                          | IDEs, chat hosts, Workspace, and other clients should not require separate RunWield protocols.                                                                                                   | Implemented as an ACP stdio MVP; remains the strategic direction.                        |
-| **SessionRuntime is the public live-session boundary**              | TUI and external adapters need the same semantic operations, events, and interactions without accessing Hosted Session internals.                                                                | Implemented; TUI and ACP are sibling adapters.                                           |
-| **OpenAB is the first reference ACP chat host**                     | It already connects Telegram, Slack, Discord, and other platforms to ACP Agents over stdio without imposing another Plan Lifecycle or worktree system.                                           | Selected for Stage 1 validation.                                                         |
-| **OpenAB remains replaceable**                                      | RunWield must stay host-agnostic, and SaaS-scale requirements may eventually justify a fork or a RunWield-owned gateway.                                                                         | Permanent fork and custom gateway are deferred.                                          |
-| **Upstream contribution is preferred**                              | Generic ACP improvements benefit other Agents and avoid permanent RunWield-specific host maintenance.                                                                                            | An open upstream PR plus a passing pinned contribution branch is sufficient for Stage 1. |
-| **Telegram is the only Stage 1 channel**                            | One complete vertical slice is more valuable than shallow Telegram, Slack, and Discord demonstrations.                                                                                           | Slack and Discord validation are deferred.                                               |
-| **Stage 1 serves one trusted operator**                             | The concept proof should validate RunWield's ACP boundary, not prematurely design SaaS tenancy and identity.                                                                                     | One bot and an explicit Telegram user allowlist are required.                            |
-| **Use generic ACP elicitation first**                               | RunWield already maps select, text, and approval interactions to the experimental `elicitation/create` form capability. Generic OpenAB support is more upstreamable than a RunWield-only method. | A namespaced RunWield interaction method is fallback-only.                               |
-| **Plan review remains browser-based**                               | Plannotator and the shared Plan server already own rich Feedback and approval. Rebuilding artifact review in Telegram would create a second review product.                                      | Telegram delivers the public review URL and reports the result.                          |
-| **Telegram authorization and Plan-link authorization are separate** | BotFather credentials and Telegram allowlists control bot access; the public Plan server uses its existing capability-link model.                                                                | No Telegram account linking or Plan-server identity system is required.                  |
-| **RunWield owns execution worktrees**                               | External hosts must not impose branch or worktree lifecycle semantics over RunWield's Plan Lifecycle and recovery safeguards.                                                                    | OpenAB supplies cwd/workspace selection only.                                            |
-| **Stage 1 proves the full lifecycle**                               | Planning-only validation would leave execution progress, approval resumption, worktree ownership, cancellation, validation, and recovery untested.                                               | One bounded end-to-end FEATURE workflow is required.                                     |
-| **Plan Recovery is operator-confirmed**                             | A crash can leave uncertain filesystem, command, commit, validation, or merge side effects. Blind replay is unsafe.                                                                              | RunWield detects durable state and asks the operator how to proceed.                     |
-| **ACP compliance is split into a second stage**                     | OpenAB does not require every ACP capability, while full v1 compliance includes materially broader work such as stdio MCP servers.                                                               | Stage 1 fixes compatibility blockers; Stage 2 closes the complete audit.                 |
+| Decision                                                            | Rationale                                                                                                                                                                                                | State                                                                                    |
+| ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| **ACP is the canonical external protocol**                          | IDEs, chat hosts, and replaceable external hosts should not require bespoke RunWield protocols. First-party Workspace browser traffic may consume `SessionRuntime` natively without routing through ACP. | Implemented as an ACP stdio MVP; remains the strategic external-client direction.        |
+| **SessionRuntime is the adapter-neutral live-session boundary**     | TUI, Workspace, ACP, and future adapters need the same semantic operations, events, and interactions without accessing Hosted Session internals or importing one another.                                | Implemented; TUI and ACP are sibling adapters.                                           |
+| **OpenAB is the first reference ACP chat host**                     | It already connects Telegram, Slack, Discord, and other platforms to ACP Agents over stdio without imposing another Plan Lifecycle or worktree system.                                                   | Selected for Stage 1 validation.                                                         |
+| **OpenAB remains replaceable**                                      | RunWield must stay host-agnostic, and SaaS-scale requirements may eventually justify a fork or a RunWield-owned gateway.                                                                                 | Permanent fork and custom gateway are deferred.                                          |
+| **Upstream contribution is preferred**                              | Generic ACP improvements benefit other Agents and avoid permanent RunWield-specific host maintenance.                                                                                                    | An open upstream PR plus a passing pinned contribution branch is sufficient for Stage 1. |
+| **Telegram is the only Stage 1 channel**                            | One complete vertical slice is more valuable than shallow Telegram, Slack, and Discord demonstrations.                                                                                                   | Slack and Discord validation are deferred.                                               |
+| **Stage 1 serves one trusted operator**                             | The concept proof should validate RunWield's ACP boundary, not prematurely design SaaS tenancy and identity.                                                                                             | One bot and an explicit Telegram user allowlist are required.                            |
+| **Use generic ACP elicitation first**                               | RunWield already maps select, text, and approval interactions to the experimental `elicitation/create` form capability. Generic OpenAB support is more upstreamable than a RunWield-only method.         | A namespaced RunWield interaction method is fallback-only.                               |
+| **Plan review remains browser-based**                               | Plannotator and the shared Plan server already own rich Feedback and approval. Rebuilding artifact review in Telegram would create a second review product.                                              | Telegram delivers the public review URL and reports the result.                          |
+| **Telegram authorization and Plan-link authorization are separate** | BotFather credentials and Telegram allowlists control bot access; the public Plan server uses its existing capability-link model.                                                                        | No Telegram account linking or Plan-server identity system is required.                  |
+| **RunWield owns execution worktrees**                               | External hosts must not impose branch or worktree lifecycle semantics over RunWield's Plan Lifecycle and recovery safeguards.                                                                            | OpenAB supplies cwd/workspace selection only.                                            |
+| **Stage 1 proves the full lifecycle**                               | Planning-only validation would leave execution progress, approval resumption, worktree ownership, cancellation, validation, and recovery untested.                                                       | One bounded end-to-end FEATURE workflow is required.                                     |
+| **Plan Recovery is operator-confirmed**                             | A crash can leave uncertain filesystem, command, commit, validation, or merge side effects. Blind replay is unsafe.                                                                                      | RunWield detects durable state and asks the operator how to proceed.                     |
+| **ACP compliance is split into a second stage**                     | OpenAB does not require every ACP capability, while full v1 compliance includes materially broader work such as stdio MCP servers.                                                                       | Stage 1 fixes compatibility blockers; Stage 2 closes the complete audit.                 |
 
 ## 4. Current Architecture
 
-`SessionRuntime` is the public live-session boundary. Consumers use opaque runtime session IDs, runtime methods,
-semantic events, and runtime interactions. They do not import `SessionHost`, `HostedSession`, root-session internals, or
-TUI modules.
+`SessionRuntime` is the adapter-neutral live-session boundary. Consumers use runtime methods, semantic events, and
+runtime interactions. In-process runtime session IDs are implementation details; durable ACP `sessionId` values must map
+to stable RunWield Session IDs when Personal Remote Workspace coordination is enabled. Consumers do not import
+`SessionHost`, `HostedSession`, root-session internals, TUI modules, or Workspace application services.
 
 Current layers:
 
@@ -101,19 +103,21 @@ Private Telegram chat
     -> wld acp over stdio
     -> ACP adapter
     -> SessionRuntime
-    -> RunWield Agent Session and Plan Lifecycle
+    -> RunWield Session and Plan Lifecycle
 
 Plan review message
     -> public Shared Plan URL
     -> Plannotator in the operator's browser
     -> Feedback or approval
-    -> waiting RunWield Agent Session resumes
+    -> waiting RunWield Session resumes
 ```
 
 The Telegram webhook and public Shared Plan server may share a reverse proxy, but they remain independent services with
 separate credentials and authorization boundaries.
 
-This architecture follows `docs/adr/010-session-runtime-sibling-adapters-and-acp.md`.
+This architecture follows `docs/adr/010-session-runtime-sibling-adapters-and-acp.md`. Personal Remote Workspace adds the
+cross-process activation and checkpoint invariants accepted in
+`docs/adr/011-exclusive-session-activation-and-durable-workflow-checkpoints.md`.
 
 ## 5. Implemented Foundation
 
@@ -176,12 +180,12 @@ availability guarantees are not required.
 Stage 1 is complete only when the operator can:
 
 1. Submit a bounded FEATURE User Request in Telegram.
-2. Start a new RunWield Agent Session or reload the durable Agent Session associated with the chat.
+2. Start a new RunWield Session or reload the durable Session associated with the chat.
 3. Receive streamed Agent messages, tool progress, relevant status, and actionable failure information.
 4. Answer select, text, and approval interactions through generic ACP form elicitation rendered by OpenAB.
 5. Receive the public Shared Plan URL in Telegram.
 6. Submit Feedback or approve the Plan in Plannotator.
-7. Resume the same Agent Session after approval and execute the Plan in a RunWield-owned worktree.
+7. Resume the same Session after approval and execute the Plan in a RunWield-owned worktree.
 8. Receive execution and Workflow Validation progress and the terminal outcome in Telegram.
 9. Cancel a live turn and receive its settled final updates before the turn is considered available again.
 10. Restart OpenAB or `wld acp`, reload the same durable session, and continue without losing settled conversation
@@ -192,10 +196,14 @@ Stage 1 is complete only when the operator can:
 
 Stage 1 fixes the ACP gaps that affect the reference journey:
 
-- The standard `sessionId` returned by `session/new` remains loadable after the `wld acp` process exits. Runtime session
-  identity may remain separate internally.
+- The standard `sessionId` returned by `session/new` remains loadable after the `wld acp` process exits and maps to a
+  stable RunWield Session ID. In-process Runtime IDs may remain separate internally.
 - `initialize` negotiates the supported protocol version instead of echoing unsupported versions.
 - `usage_update.cost` uses the ACP cost object shape, and context capacity is not knowingly misreported.
+- ACP `session/load`, `session/prompt`, `session/cancel`, compaction, and continuation paths acquire or validate a
+  Session Activation Lease before opening or mutating a writable Pi `SessionManager` for an existing Session.
+- If another TUI, Workspace, or ACP process owns activation, ACP fails mutation visibly and safely or remains a
+  synchronized reader where the protocol operation supports read-only behavior.
 - Cancellation waits for Runtime settlement and final mapped updates before `session/prompt` returns `cancelled`.
 - OpenAB advertises and handles generic ACP form elicitation for RunWield select, text, and approval interactions.
 - Unsupported interaction capabilities fail visibly and safely rather than selecting a default.
@@ -205,26 +213,31 @@ Stage 1 fixes the ACP gaps that affect the reference journey:
 `session/resume` is not required for this stage. Correct durable `session/load` behavior is the interoperability
 requirement.
 
-### 6.4 Plan Recovery requirement
+### 6.4 Checkpoint and Plan Recovery requirement
 
-Reloading an Agent Session is not sufficient when a process failed during execution. `activeExecutionWorkflow` is live
-Hosted Session state, while Plan status, execution baseline, and worktree identity provide the durable recovery
-evidence. Stage 1 must bridge that gap through **Plan Recovery**.
+Reloading a Session is not sufficient when a process failed during execution or while awaiting a human decision.
+`activeExecutionWorkflow` is live Hosted Session state, while committed Session generation, checkpoint state, Plan
+status/revision, Plan Workflow Lease generation, execution baseline, and worktree identity provide the durable recovery
+evidence. Stage 1 must bridge that gap through **Durable Workflow Checkpoints** and **Plan Recovery**.
 
 After reloading a session associated with an In-Progress Plan, RunWield must:
 
-- detect the interrupted Plan and any recorded worktree state;
+- detect the interrupted Plan, relevant checkpoint state, expected generations, and any recorded worktree state;
 - reconstruct enough durable context to inspect the current state safely;
 - notify the Telegram operator that execution was interrupted;
 - offer applicable recovery choices through elicitation, including inspect, continue, reset, reopen for review, put on
   hold, abandon, or cancel;
 - require an explicit operator decision before new execution proceeds;
 - start a new Engineer turn from the preserved Plan and worktree when continuation is selected;
-- avoid repeating completed lifecycle transitions, validation, merge-back, or cleanup;
+- consume checkpoint outcomes and lifecycle transitions idempotently so duplicate submissions or reconnect retries do
+  not repeat completed review, execution, validation, merge-back, or cleanup;
 - preserve uncertain work for inspection rather than silently deleting or replaying it.
 
 Stage 1 does **not** promise transparent continuation at the exact interrupted token, model request, command, or tool
-call. Exactly-once replay of arbitrary side effects is neither safe nor implied by ACP session loading.
+call. Exactly-once replay of arbitrary side effects is neither safe nor implied by ACP session loading. Workspace may
+render and resolve a durable interaction for an ACP-owned Runtime without loading a second writable Runtime; the live
+owner consumes the outcome if still valid, otherwise a later owner validates the checkpoint and follows its typed
+continuation policy.
 
 ### 6.5 OpenAB contribution policy
 
@@ -244,13 +257,13 @@ separately and becomes a blocker if RunWield begins emitting standard ACP permis
 
 ### 6.6 Stage 1 acceptance criteria
 
-- An unauthorized Telegram user cannot start or control the configured RunWield Agent Session.
+- An unauthorized Telegram user cannot start or mutate the configured RunWield Session.
 - One authorized operator completes the required FEATURE journey from Telegram through a Verified Plan.
 - At least one structured interaction is completed through OpenAB's generic elicitation support.
-- Plannotator Feedback or approval resumes the waiting Agent Session without Telegram account linking.
+- Plannotator Feedback or approval resumes the waiting Session without Telegram account linking.
 - Restarting OpenAB and `wld acp` between settled turns preserves the Telegram-to-session mapping and conversation.
-- A forced interruption during execution produces operator-confirmed Plan Recovery and can continue to a safe terminal
-  outcome without abandoning the preserved worktree.
+- A forced interruption during execution or checkpoint consumption produces operator-confirmed Plan Recovery and can
+  continue to a safe terminal outcome without abandoning the preserved worktree or applying one outcome twice.
 - Live cancellation settles the Runtime turn and delivers final mapped updates before a new turn starts.
 - RunWield remains usable by other conforming ACP clients without requiring OpenAB-specific behavior.
 - The integration passes against a pinned OpenAB commit associated with an open upstream PR.
@@ -289,22 +302,23 @@ compliance does not require advertising optional capabilities RunWield does not 
 
 ## 9. Risks and Guardrails
 
-| Risk                                                               | Guardrail                                                                                                                                                                                        |
-| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **OpenAB is pre-1.0 and may change quickly.**                      | Pin the passing version or commit and maintain black-box compatibility coverage.                                                                                                                 |
-| **Experimental ACP elicitation may evolve.**                       | Negotiate the capability, pin the tested ACP/SDK baseline, and isolate changes in the interaction adapters. Use a namespaced RunWield extension only if generic elicitation proves insufficient. |
-| **Public Telegram webhook ingress expands attack surface.**        | Validate webhook authenticity, use explicit Telegram allowlists, and expose only the required route through HTTPS.                                                                               |
-| **Shared Plan URLs can be forwarded.**                             | Treat them as capability links under the Shared Plan server's existing authorization and expiry policy; do not conflate them with Telegram identity.                                             |
-| **Automatic ACP permission approval could authorize unsafe work.** | Confirm RunWield emits no permission requests in Stage 1, document the limitation, and pursue deny-by-default upstream handling before relying on the method.                                    |
-| **A crash leaves ambiguous partial side effects.**                 | Use operator-confirmed Plan Recovery from durable Plan/worktree state; never auto-replay uncertain operations.                                                                                   |
-| **OpenAB's process-per-thread model may not scale efficiently.**   | Accept it for the single-operator proof; measure before adopting it for a hosted service. Preserve RunWield's multi-session Session Host for other clients.                                      |
-| **Reference-client accommodations could leak into core.**          | Keep OpenAB-specific transport behavior outside RunWield; core changes must improve standard ACP or adapter-neutral Runtime semantics.                                                           |
+| Risk                                                               | Guardrail                                                                                                                                                                                                     |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **OpenAB is pre-1.0 and may change quickly.**                      | Pin the passing version or commit and maintain black-box compatibility coverage.                                                                                                                              |
+| **Experimental ACP elicitation may evolve.**                       | Negotiate the capability, pin the tested ACP/SDK baseline, and isolate changes in the interaction adapters. Use a namespaced RunWield extension only if generic elicitation proves insufficient.              |
+| **Public Telegram webhook ingress expands attack surface.**        | Validate webhook authenticity, use explicit Telegram allowlists, and expose only the required route through HTTPS.                                                                                            |
+| **Shared Plan URLs can be forwarded.**                             | Treat them as capability links under the Shared Plan server's existing authorization and expiry policy; do not conflate them with Telegram identity.                                                          |
+| **Automatic ACP permission approval could authorize unsafe work.** | Confirm RunWield emits no permission requests in Stage 1, document the limitation, and pursue deny-by-default upstream handling before relying on the method.                                                 |
+| **A crash leaves ambiguous partial side effects.**                 | Use Durable Workflow Checkpoints, stable Session generations, Plan Workflow Lease generations, and operator-confirmed Plan Recovery from durable Plan/worktree state; never auto-replay uncertain operations. |
+| **OpenAB's process-per-thread model may not scale efficiently.**   | Accept it for the single-operator proof; measure before adopting it for a hosted service. Preserve RunWield's multi-session Session Host for other clients.                                                   |
+| **Reference-client accommodations could leak into core.**          | Keep OpenAB-specific transport behavior outside RunWield; core changes must improve standard ACP or adapter-neutral Runtime semantics.                                                                        |
 
 ## 10. Future Work Unlocked
 
 - Validate Slack and Discord through the same OpenAB ACP core.
 - Add richer IDE integrations through conforming ACP clients.
-- Let Workspace start, resume, or monitor Agent Sessions through `SessionRuntime`.
+- Let Workspace start, resume, or monitor Sessions through native `SessionRuntime` APIs while sharing stable Session
+  identity, activation, checkpoints, and synchronization with ACP and TUI.
 - Evaluate a forked OpenAB deployment or RunWield-owned gateway for SaaS tenancy and scale.
 - Add richer ACP session discovery, configuration, and workflow-specific presentation without weakening standard
   fallbacks.
@@ -314,6 +328,7 @@ compliance does not require advertising optional capabilities RunWield does not 
 
 - ACP implementation audit: `docs/acp-implementation-details.md`
 - SessionRuntime architecture decision: `docs/adr/010-session-runtime-sibling-adapters-and-acp.md`
+- Exclusive activation and checkpoints: `docs/adr/011-exclusive-session-activation-and-durable-workflow-checkpoints.md`
 - SessionRuntime and ACP MVP Work Record: `docs/work-records/2026-07-17-sessionruntime-and-acp-v1-stdio-mvp.md`
 - OpenAB: <https://github.com/openabdev/openab>
 - ACP v1 extensibility: <https://agentclientprotocol.com/protocol/v1/extensibility>
