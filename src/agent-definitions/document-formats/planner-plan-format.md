@@ -53,12 +53,22 @@ Existing functions, modules, or patterns to reuse:
 - Automated: exact command(s) to run
 - Manual: precise user flows / checks
 - Expected results for key scenarios
-- For browser-rendered UI work whose primary outcome is materially visual or interactive, set
-  `executionAgent:
-  frontend-engineer`; otherwise use `engineer` (including TUI work and incidental frontend-file
-  edits). Recommend `pair` when live visual judgment is valuable and `autonomous` otherwise. Include known dev-server
-  hints and exact headed-browser checks; real-browser verification is mandatory for Frontend Engineer unless externally
-  blocked.
+- Execution policy matrix:
+  - FEATURE Plans may omit `executionAgent`; omission defaults to `engineer` for backward compatibility.
+  - FEATURE Plans may set `executionAgent: "engineer"` with `collaborationRecommendation: "autonomous"` or omitted.
+    `pair` is invalid for Engineer-owned execution.
+  - FEATURE Plans may set `executionAgent: "frontend-engineer"` with `collaborationRecommendation: "autonomous"` or
+    `"pair"`.
+  - Use `frontend-engineer` for browser-rendered UI work whose primary outcome is materially visual or interactive;
+    otherwise use `engineer` (including TUI work and incidental frontend-file edits).
+  - Recommend `pair` only when live visual judgment is valuable; use `autonomous` otherwise. Include known dev-server
+    hints and exact headed-browser checks. Real-browser verification is mandatory for Frontend Engineer unless
+    externally blocked.
+  - PROJECT Epics are non-executable containers and must not define `executionAgent` or `collaborationRecommendation`;
+    execution policy belongs only on child FEATURE Plans.
+  - Legacy `frontend: true` on FEATURE Plans is still accepted as Frontend Engineer/autonomous compatibility metadata,
+    but new Plans should use canonical `executionAgent` / `collaborationRecommendation` instead. Legacy
+    `frontend: false` remains Engineer compatibility metadata and is distinct from an absent canonical owner.
 
 ## Edge Cases & Considerations
 

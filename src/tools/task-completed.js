@@ -17,10 +17,19 @@ const ENGINEER_MESSAGE_DESCRIPTION =
 
 /**
  * @param {string} agentName
+ * @returns {string}
+ */
+function normalizeAgentName(agentName) {
+    return agentName.trim().toLowerCase().replaceAll(" ", "-");
+}
+
+/**
+ * @param {string} agentName
  * @returns {boolean}
  */
-function isEngineer(agentName) {
-    return agentName.trim().toLowerCase() === "engineer";
+function isExecutionAgent(agentName) {
+    const normalized = normalizeAgentName(agentName);
+    return normalized === "engineer" || normalized === "frontend-engineer";
 }
 
 /**
@@ -30,7 +39,7 @@ function isEngineer(agentName) {
 function buildToolParams(agentName) {
     return Type.Object({
         message: Type.String({
-            description: isEngineer(agentName) ? ENGINEER_MESSAGE_DESCRIPTION : DEFAULT_MESSAGE_DESCRIPTION,
+            description: isExecutionAgent(agentName) ? ENGINEER_MESSAGE_DESCRIPTION : DEFAULT_MESSAGE_DESCRIPTION,
             minLength: 1,
         }),
     });
@@ -73,6 +82,19 @@ export function createTaskCompletedTool(
         parameters: buildToolParams(agentName),
         async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
             await Promise.resolve();
+            const activeWorkflow = hostedSession.getActiveExecutionWorkflow?.();
+            const normalizedAgentName = normalizeAgentName(agentName);
+            if (activeWorkflow?.executionAgent && activeWorkflow.executionAgent !== normalizedAgentName) {
+                return {
+                    content: [{
+                        type: "text",
+                        text:
+                            `task_completed rejected: active workflow owner is ${activeWorkflow.executionAgent}, not ${normalizedAgentName}.`,
+                    }],
+                    details: { outcome: "rejected", reason: "wrong_execution_owner" },
+                    terminate: false,
+                };
+            }
             emitTaskCompletedMessage(hostedSession, agentName, params.message);
             await recordWorkflowMetricImpl({
                 category: "execution",

@@ -99,10 +99,9 @@ function getStoredPlanLocation(cwd, planName) {
  * @property {"LOW"|"MEDIUM"|"HIGH"} complexity
  * @property {string} summary - Brief description of what the plan addresses
  * @property {string[]} affectedPaths - Files that will be created/modified
- * @property {"engineer"|"frontend-engineer"} [executionAgent] - Canonical FEATURE execution owner
- * @property {"pair"|"autonomous"} [collaborationRecommendation] - Planner's suggested execution style
- * @property {"pair"|"autonomous"} [collaborationMode] - Durable user-selected execution style
- * @property {boolean} [frontend] - Whether this plan includes frontend UI/UX work
+ * @property {unknown} [executionAgent] - Canonical FEATURE execution owner, preserved raw when invalid for diagnostics
+ * @property {unknown} [collaborationRecommendation] - Planner's suggested execution style, preserved raw when invalid for diagnostics
+ * @property {boolean} [frontend] - Legacy browser UI/UX marker retained for source compatibility
  * @property {string|null} [devServerCommand] - Project dev/preview command for browser verification, if known
  * @property {string|null} [devServerUrl] - Local URL expected for browser verification, if known
  * @property {boolean|null} [devServerHmr] - Whether the dev server is expected to support hot module reload
@@ -166,7 +165,7 @@ function getStoredPlanLocation(cwd, planName) {
  * @property {string[]} affectedPaths - Files that the child FEATURE expects to touch.
  * @property {"engineer"|"frontend-engineer"} [executionAgent] - Canonical child execution owner.
  * @property {"pair"|"autonomous"} [collaborationRecommendation] - Suggested execution style.
- * @property {boolean} [frontend] - Whether this child includes frontend UI/UX work.
+ * @property {boolean} [frontend] - Legacy child UI/UX marker; new child descriptors should use executionAgent.
  * @property {string|null} [devServerCommand] - Project dev/preview command for browser verification, if known.
  * @property {string|null} [devServerUrl] - Local URL expected for browser verification, if known.
  * @property {boolean|null} [devServerHmr] - Whether the dev server is expected to support hot module reload.
@@ -349,7 +348,6 @@ function formatFrontMatter(fm) {
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.affectedPaths, fm.affectedPaths);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.executionAgent, fm.executionAgent);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.collaborationRecommendation, fm.collaborationRecommendation);
-    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.collaborationMode, fm.collaborationMode);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.frontend, fm.frontend);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.devServerCommand, fm.devServerCommand);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.devServerUrl, fm.devServerUrl);
@@ -478,6 +476,131 @@ export function normalizeCollaborationMode(value) {
 }
 
 /**
+ * @typedef {Object} PlanExecutionPolicy
+ * @property {"engineer"|"frontend-engineer"} executionAgent
+ * @property {"autonomous"|"pair"} collaborationRecommendation
+ * @property {"canonical"|"legacy_frontend"|"legacy_frontend_false"|"absent"} source
+ */
+
+/**
+ * @typedef {Object} PlanExecutionPolicyError
+ * @property {false} ok
+ * @property {string} error
+ * @property {string} reason
+ */
+
+/**
+ * @typedef {Object} PlanExecutionPolicySuccess
+ * @property {true} ok
+ * @property {PlanExecutionPolicy} policy
+ */
+
+/**
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+function hasExplicitPolicyValue(value) {
+    return value !== undefined && value !== null && value !== "";
+}
+
+/**
+ * Resolve and validate Plan execution policy without mutating source Front Matter.
+ *
+ * @param {Partial<PlanFrontMatter>} meta
+ * @returns {PlanExecutionPolicySuccess | PlanExecutionPolicyError}
+ */
+export function resolvePlanExecutionPolicy(meta) {
+    const classification = meta.classification || DEFAULT_FRONT_MATTER.classification;
+    const explicitAgent = hasExplicitPolicyValue(meta.executionAgent);
+    const explicitRecommendation = hasExplicitPolicyValue(meta.collaborationRecommendation);
+    const validAgent = normalizeExecutionAgent(meta.executionAgent);
+    const validRecommendation = normalizeCollaborationMode(meta.collaborationRecommendation);
+
+    if (explicitAgent && !validAgent) {
+        return {
+            ok: false,
+            reason: "invalid_execution_agent",
+            error: `Invalid executionAgent: ${
+                String(meta.executionAgent)
+            }. Supported values are engineer and frontend-engineer.`,
+        };
+    }
+    if (explicitRecommendation && !validRecommendation) {
+        return {
+            ok: false,
+            reason: "invalid_collaboration_recommendation",
+            error: `Invalid collaborationRecommendation: ${
+                String(meta.collaborationRecommendation)
+            }. Supported values are autonomous and pair.`,
+        };
+    }
+    if (classification === "PROJECT") {
+        if (explicitAgent) {
+            return {
+                ok: false,
+                reason: "project_execution_agent",
+                error: "PROJECT Epics are non-executable and must not define executionAgent.",
+            };
+        }
+        if (explicitRecommendation) {
+            return {
+                ok: false,
+                reason: "project_collaboration_recommendation",
+                error: "PROJECT Epics are non-executable and must not define collaborationRecommendation.",
+            };
+        }
+        return {
+            ok: false,
+            reason: "project_epic",
+            error: "PROJECT Epics are non-executable and do not have an execution owner.",
+        };
+    }
+
+    const isFeature = classification === "FEATURE";
+    const executionAgent = isFeature && validAgent
+        ? validAgent
+        : isFeature && meta.frontend === true
+        ? "frontend-engineer"
+        : "engineer";
+    const source = isFeature && validAgent
+        ? "canonical"
+        : isFeature && meta.frontend === true
+        ? "legacy_frontend"
+        : isFeature && meta.frontend === false
+        ? "legacy_frontend_false"
+        : "absent";
+    if (executionAgent === "engineer" && validRecommendation === "pair") {
+        return {
+            ok: false,
+            reason: "engineer_pair_recommendation",
+            error: "collaborationRecommendation: pair is only valid for executionAgent: frontend-engineer.",
+        };
+    }
+    return {
+        ok: true,
+        policy: {
+            executionAgent,
+            collaborationRecommendation: validRecommendation || "autonomous",
+            source,
+        },
+    };
+}
+
+/**
+ * @param {Partial<PlanFrontMatter>} attempted
+ * @param {Partial<PlanFrontMatter>} merged
+ */
+function assertExecutionPolicyWriteAllowed(attempted, merged) {
+    const writesPolicy = Object.hasOwn(attempted, "executionAgent") ||
+        Object.hasOwn(attempted, "collaborationRecommendation") ||
+        Object.hasOwn(attempted, "classification") ||
+        Object.hasOwn(attempted, "frontend");
+    if (!writesPolicy) return;
+    const result = resolvePlanExecutionPolicy(merged);
+    if (!result.ok && result.reason !== "project_epic") throw new Error(result.error);
+}
+
+/**
  * Return an optional front matter value, allowing explicit null to clear it.
  *
  * @param {Partial<PlanFrontMatter>} overrides
@@ -505,6 +628,17 @@ function optionalStringValue(overrides, existingFm, key) {
     }
     const value = existingFm[key];
     return typeof value === "string" ? value : undefined;
+}
+
+/**
+ * @param {Partial<PlanFrontMatter>} overrides
+ * @param {Partial<PlanFrontMatter>} existingFm
+ * @param {keyof PlanFrontMatter} key
+ * @returns {unknown}
+ */
+function optionalExecutionPolicyValue(overrides, existingFm, key) {
+    if (Object.hasOwn(overrides, key)) return overrides[key] ?? undefined;
+    return existingFm[key] ?? undefined;
 }
 
 /**
@@ -653,13 +787,8 @@ export function injectFrontMatter(markdown, overrides = {}) {
         affectedPaths: overrides.affectedPaths ??
             existingFm.affectedPaths ??
             DEFAULT_FRONT_MATTER.affectedPaths,
-        executionAgent: normalizeExecutionAgent(optionalFrontMatterValue(overrides, existingFm, "executionAgent")),
-        collaborationRecommendation: normalizeCollaborationMode(
-            optionalFrontMatterValue(overrides, existingFm, "collaborationRecommendation"),
-        ),
-        collaborationMode: normalizeCollaborationMode(
-            optionalFrontMatterValue(overrides, existingFm, "collaborationMode"),
-        ),
+        executionAgent: optionalExecutionPolicyValue(overrides, existingFm, "executionAgent"),
+        collaborationRecommendation: optionalExecutionPolicyValue(overrides, existingFm, "collaborationRecommendation"),
         frontend: Object.hasOwn(overrides, "frontend")
             ? normalizeOptionalBoolean(overrides.frontend)
             : normalizeOptionalBoolean(existingFm.frontend),
@@ -734,6 +863,8 @@ export function injectFrontMatter(markdown, overrides = {}) {
         restoredFromPath: optionalFrontMatterValue(overrides, existingFm, "restoredFromPath"),
     };
     Object.assign(fm, normalizeCollaborationFrontMatter({ ...existingFm, ...overrides }));
+    delete /** @type {Record<string, unknown>} */ (fm).collaborationMode;
+    assertExecutionPolicyWriteAllowed(overrides, fm);
 
     return formatFrontMatter(fm) + "\n" + body.trimStart();
 }
@@ -764,6 +895,7 @@ export function parsePlanFrontMatter(markdown, opts = {}) {
     for (const key of Object.values(COLLABORATION_FRONT_MATTER_KEYS)) {
         delete sourceAttrs[key];
     }
+    delete sourceAttrs.collaborationMode;
     return {
         attrs: {
             ...sourceAttrs,
@@ -772,11 +904,10 @@ export function parsePlanFrontMatter(markdown, opts = {}) {
             complexity: attrs.complexity || DEFAULT_FRONT_MATTER.complexity,
             summary: attrs.summary || DEFAULT_FRONT_MATTER.summary,
             affectedPaths: normalizeStringList(attrs.affectedPaths) || DEFAULT_FRONT_MATTER.affectedPaths,
-            executionAgent: normalizeExecutionAgent(attrs.executionAgent) ||
-                (normalizeOptionalBoolean(attrs.frontend) === true ? "frontend-engineer" : undefined),
-            collaborationRecommendation: normalizeCollaborationMode(attrs.collaborationRecommendation) ||
-                (normalizeOptionalBoolean(attrs.frontend) === true ? "autonomous" : undefined),
-            collaborationMode: normalizeCollaborationMode(attrs.collaborationMode),
+            executionAgent: Object.hasOwn(attrs, "executionAgent") ? attrs.executionAgent ?? undefined : undefined,
+            collaborationRecommendation: Object.hasOwn(attrs, "collaborationRecommendation")
+                ? attrs.collaborationRecommendation ?? undefined
+                : undefined,
             frontend: normalizeOptionalBoolean(attrs.frontend),
             devServerCommand: typeof attrs.devServerCommand === "string"
                 ? attrs.devServerCommand
@@ -1105,8 +1236,8 @@ export async function saveChildFeaturePlans(cwd, epicPlanName, children, options
     }
     if (!Array.isArray(children)) throw new Error("Child plans must be an array");
 
-    /** @type {SavedChildFeaturePlan[]} */
-    const results = [];
+    /** @type {Array<{ child: ChildFeaturePlanDescriptor, name: string, filePath: string }>} */
+    const validatedChildren = [];
     const seen = new Set();
 
     for (const rawChild of children) {
@@ -1119,7 +1250,20 @@ export async function saveChildFeaturePlans(cwd, epicPlanName, children, options
         }
         if (seen.has(name)) throw new Error(`Duplicate child plan name: ${name}`);
         seen.add(name);
+        const policy = resolvePlanExecutionPolicy({
+            classification: "FEATURE",
+            executionAgent: child.executionAgent,
+            collaborationRecommendation: child.collaborationRecommendation,
+            frontend: child.frontend,
+        });
+        if (!policy.ok) throw new Error(`Invalid child plan execution policy for ${child.title}: ${policy.error}`);
+        validatedChildren.push({ child, name, filePath });
+    }
 
+    /** @type {SavedChildFeaturePlan[]} */
+    const results = [];
+
+    for (const { child, name, filePath } of validatedChildren) {
         let action = /** @type {"created" | "updated"} */ ("created");
         try {
             const stat = await Deno.stat(filePath);
@@ -1138,8 +1282,13 @@ export async function saveChildFeaturePlans(cwd, epicPlanName, children, options
             order: child.order,
             affectedPaths,
         };
-        const executionAgent = normalizeExecutionAgent(child.executionAgent);
-        const collaborationRecommendation = normalizeCollaborationMode(child.collaborationRecommendation);
+        const policyResult = resolvePlanExecutionPolicy({
+            classification: "FEATURE",
+            executionAgent: child.executionAgent,
+            collaborationRecommendation: child.collaborationRecommendation,
+            frontend: child.frontend,
+        });
+        if (!policyResult.ok) throw new Error(policyResult.error);
         const devServerCommand = typeof child.devServerCommand === "string"
             ? child.devServerCommand
             : child.devServerCommand === null
@@ -1156,9 +1305,9 @@ export async function saveChildFeaturePlans(cwd, epicPlanName, children, options
             : child.worktreeBaseBranch === null
             ? null
             : undefined;
-        if (executionAgent !== undefined) metadata.executionAgent = executionAgent;
-        if (collaborationRecommendation !== undefined) {
-            metadata.collaborationRecommendation = collaborationRecommendation;
+        metadata.executionAgent = policyResult.policy.executionAgent;
+        if (policyResult.policy.executionAgent === "frontend-engineer") {
+            metadata.collaborationRecommendation = policyResult.policy.collaborationRecommendation;
         }
         if (devServerCommand !== undefined) metadata.devServerCommand = devServerCommand;
         if (devServerUrl !== undefined) metadata.devServerUrl = devServerUrl;
@@ -1306,7 +1455,7 @@ export async function updatePlanStatus(
     const plan = await loadPlan(cwd, planName);
     if (plan) {
         assertSharedPlanWriteAllowed(plan.attrs, options);
-        const withFm = injectFrontMatter(plan.body, { ...plan.attrs, status });
+        const withFm = injectFrontMatter(plan.markdown, { status });
         await Deno.writeTextFile(plan.path, withFm);
 
         return;
@@ -1351,8 +1500,8 @@ export async function updatePlanFrontMatter(
     const plan = await loadPlan(cwd, planName);
     if (plan) {
         assertSharedPlanWriteAllowed(plan.attrs, options);
-        const attrs = { ...plan.attrs, ...updates, updatedAt: updates.updatedAt ?? new Date().toISOString() };
-        const withFm = injectFrontMatter(plan.body, attrs);
+        const attrs = { ...updates, updatedAt: updates.updatedAt ?? new Date().toISOString() };
+        const withFm = injectFrontMatter(plan.markdown, attrs);
         await Deno.writeTextFile(plan.path, withFm);
         return parsePlanFrontMatter(withFm).attrs;
     }

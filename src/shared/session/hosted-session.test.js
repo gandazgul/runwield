@@ -63,6 +63,7 @@ Deno.test("HostedSession stores mutable root runtime state per session", () => {
     session.setActiveExecutionWorkflow({
         planName: "plan-a",
         triageMeta: { intent: "FEATURE" },
+        executionAgent: "engineer",
         executionCwd: "/exec/a",
     });
 
@@ -81,6 +82,7 @@ Deno.test("HostedSession stores mutable root runtime state per session", () => {
     assertEquals(session.getActiveExecutionWorkflow(), {
         planName: "plan-a",
         triageMeta: { intent: "FEATURE" },
+        executionAgent: "engineer",
         executionCwd: "/exec/a",
     });
     assertEquals(session.getActiveExecutionCwd(), "/exec/a");
@@ -139,8 +141,18 @@ Deno.test("two Hosted Sessions do not share session-scoped runtime state", () =>
     beta.setThinkingLevel("xhigh");
     alpha.setProjectStateContext("alpha context");
     beta.setProjectStateContext("beta context");
-    alpha.setActiveExecutionWorkflow({ planName: "alpha-plan", triageMeta: {}, executionCwd: "/exec/alpha" });
-    beta.setActiveExecutionWorkflow({ planName: "beta-plan", triageMeta: {}, executionCwd: "/exec/beta" });
+    alpha.setActiveExecutionWorkflow({
+        planName: "alpha-plan",
+        triageMeta: {},
+        executionAgent: "engineer",
+        executionCwd: "/exec/alpha",
+    });
+    beta.setActiveExecutionWorkflow({
+        planName: "beta-plan",
+        triageMeta: {},
+        executionAgent: "engineer",
+        executionCwd: "/exec/beta",
+    });
 
     assertEquals(alpha.getActiveAgentName(), "Router");
     assertEquals(beta.getActiveAgentName(), "Planner");
@@ -170,6 +182,20 @@ Deno.test("two Hosted Sessions do not share session-scoped runtime state", () =>
     assertEquals(beta.getRootSessionManager()?.getSessionId?.(), "beta-manager");
     assertEquals(alpha.getEventSink(), { session: "alpha-sink" });
     assertEquals(beta.getEventSink(), { session: "beta-sink" });
+});
+
+Deno.test("HostedSession rejects ownerless active execution workflows", () => {
+    const session = new HostedSession({ id: "owner-invariant", cwd: "/work/owner-invariant" });
+
+    assertThrows(
+        () =>
+            session.setActiveExecutionWorkflow(
+                /** @type {any} */ ({ planName: "p", triageMeta: { classification: "FEATURE" } }),
+            ),
+        Error,
+        "requires executionAgent",
+    );
+    assertEquals(session.getActiveExecutionWorkflow(), null);
 });
 
 Deno.test("HostedSession hydrates and persists workflow context defensively", () => {
@@ -276,7 +302,12 @@ Deno.test("HostedSession dispose clears owned runtime references and rejects lat
     session.setRootAgentName("engineer");
     session.setRootAgentSession(root);
     session.addSubAgentSession(sub);
-    session.setActiveExecutionWorkflow({ planName: "plan", triageMeta: {}, executionCwd: "/exec" });
+    session.setActiveExecutionWorkflow({
+        planName: "plan",
+        triageMeta: {},
+        executionAgent: "engineer",
+        executionCwd: "/exec",
+    });
     session.setWorkflowPlanName("disposing-plan");
 
     session.dispose();
