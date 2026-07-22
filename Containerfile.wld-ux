@@ -1,0 +1,99 @@
+# Build a local RunWield CLI image for clean first-run / new-user UX testing.
+#
+# Build:
+#   podman build -f Containerfile.wld-ux -t runwield-wld-ux:local .
+#
+# Start wld in a fresh disposable project:
+#   podman run --rm -it \
+#     -e ANTHROPIC_API_KEY \
+#     -e OPENAI_API_KEY \
+#     runwield-wld-ux:local
+#
+# Test against a host checkout while keeping container HOME clean:
+#   podman run --rm -it \
+#     -v "$PWD:/workspace/project:Z" \
+#     -w /workspace/project \
+#     -e ANTHROPIC_API_KEY \
+#     runwield-wld-ux:local
+#
+# Preserve first-run state across restarts:
+#   podman volume create runwield-wld-home
+#   podman run --rm -it \
+#     -v runwield-wld-home:/home/deno/.wld:Z \
+#     runwield-wld-ux:local
+
+FROM denoland/deno:2.9.2 AS builder
+WORKDIR /app
+
+COPY deno.json deno.lock runtime-root.js ./
+COPY scripts ./scripts
+COPY src ./src
+COPY third_party ./third_party
+COPY logo.svg ./logo.svg
+
+RUN deno task compile --output /out/wld
+
+FROM docker.io/library/golang:1.26 AS mnemosyne-builder
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libsqlite3-dev \
+    && rm -rf /var/lib/apt/lists/* \
+    && PATH="/usr/local/go/bin:$PATH" go install github.com/gandazgul/mnemosyne@v0.2.5
+
+FROM denoland/deno:2.9.2
+
+USER root
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        bash \
+        ca-certificates \
+        curl \
+        git \
+        gzip \
+        less \
+        libsqlite3-0 \
+        openssh-client \
+        tar \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN set -eux; \
+    arch="$(uname -m)"; \
+    case "$arch" in \
+        x86_64|amd64) snip_arch="amd64"; cymbal_arch="x86_64" ;; \
+        aarch64|arm64) snip_arch="arm64"; cymbal_arch="arm64" ;; \
+        *) echo "unsupported architecture: $arch" >&2; exit 1 ;; \
+    esac; \
+    tmp_dir="$(mktemp -d)"; \
+    trap 'rm -rf "$tmp_dir"' EXIT; \
+    snip_url="$(curl -fsSL https://api.github.com/repos/edouard-claude/snip/releases/latest \
+        | grep -Eo 'https://[^\"]+snip_[^\"]+_linux_'"$snip_arch"'\.tar\.gz' \
+        | head -n 1)"; \
+    test -n "$snip_url"; \
+    curl -fsSL "$snip_url" -o "$tmp_dir/snip.tar.gz"; \
+    tar -xzf "$tmp_dir/snip.tar.gz" -C "$tmp_dir"; \
+    install -m 0755 "$(find "$tmp_dir" -type f -name snip | head -n 1)" /usr/local/bin/snip; \
+    rm -rf "$tmp_dir"/*; \
+    cymbal_url="$(curl -fsSL https://api.github.com/repos/1broseidon/cymbal/releases/latest \
+        | grep -Eo 'https://[^\"]+cymbal_[^\"]+_linux_'"$cymbal_arch"'\.tar\.gz' \
+        | head -n 1)"; \
+    test -n "$cymbal_url"; \
+    curl -fsSL "$cymbal_url" -o "$tmp_dir/cymbal.tar.gz"; \
+    tar -xzf "$tmp_dir/cymbal.tar.gz" -C "$tmp_dir"; \
+    install -m 0755 "$(find "$tmp_dir" -type f -name cymbal | head -n 1)" /usr/local/bin/cymbal
+
+COPY --from=builder --chown=deno:deno /out/wld /usr/local/bin/wld
+COPY --from=mnemosyne-builder --chown=deno:deno /go/bin/mnemosyne /usr/local/bin/mnemosyne
+
+ENV HOME=/home/deno \
+    WLD_NEW_USER_UX_CONTAINER=1 \
+    NO_COLOR=0
+
+RUN mkdir -p /workspace/project /home/deno/.wld \
+    && chown -R deno:deno /workspace /home/deno
+
+USER deno
+WORKDIR /workspace/project
+
+VOLUME ["/workspace/project", "/home/deno/.wld"]
+
+ENTRYPOINT ["wld"]

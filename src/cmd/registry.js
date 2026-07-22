@@ -133,14 +133,14 @@ export const commandRegistry = {
         name: COMMAND_NAMES.ACP,
         displayName: "ACP",
         description: "Run the ACP stdio adapter",
-        summary: "Start the minimal Agent Client Protocol stdio server without launching the TUI.",
+        summary: "Start the Agent Client Protocol stdio server without launching the TUI.",
         usage: [
             `${bin("acp")}`,
             `${bin("--mode acp")}`,
         ],
         notes: [
             "CLI only: stdout is reserved for ACP JSON-RPC protocol frames.",
-            "This MVP handles initialize and returns structured errors for unimplemented session methods.",
+            "Handles initialize, session new/load/prompt/close, and session cancellation; other ACP methods return structured unimplemented errors.",
         ],
         execute: runAcpCommand,
         surfaces: ["cli"],
@@ -171,11 +171,14 @@ export const commandRegistry = {
         description: "Switch AI model",
         summary: "Switch active AI model via slash command or CLI.",
         usage: [
+            `${bin("model")}                         Show CLI usage when no model is supplied`,
             `${bin("model <provider>/<model_id>")}`,
             `${bin("models <provider>/<model_id>")}`,
+            "/model                              Open the interactive model selector",
+            "/model <provider>/<model_id>",
         ],
         notes: [
-            "Switch the active AI model.",
+            "Switches the active AI model for the current runtime session.",
             "Inside the interactive session, use '/model <tab>' for autocomplete.",
         ],
         execute: runModelsCommand,
@@ -189,10 +192,13 @@ export const commandRegistry = {
         summary: "Sign in with a subscription or save an API key for a model provider.",
         usage: [
             "/login",
+            "/login <provider>",
             "/login subscription openai-codex",
             "/login api-key openai",
         ],
         notes: [
+            "Without arguments, prompts for authentication type and provider.",
+            "When only a provider is supplied, subscription-capable providers use subscription login; other providers use API key login.",
             "Credentials are stored in RunWield config at ~/.wld/auth.json.",
             "Use /status to inspect configured providers.",
         ],
@@ -234,8 +240,10 @@ export const commandRegistry = {
         description: "Load and continue a saved plan",
         summary: "Load a saved plan by name or file path and continue work on it.",
         usage: [
-            `${bin("load-plan <plan-name>")}`,
+            `${bin("load-plan <plan-name-or-id>")}`,
             `${bin("load-plan plans/<plan>.md")}`,
+            "/load-plan                         Open the interactive Plan selector",
+            "/load-plan <plan-name-or-id>",
             `${bin("load-plan --help")}`,
         ],
         notes: [
@@ -358,17 +366,17 @@ export const commandRegistry = {
             "Manage saved plans, publish Shared Spaces, sync remote revisions, delete Shared Spaces, and start the read-only local browser Workspace.",
         usage: [
             `${bin("plans")}`,
-            `${bin("plans read <plan-name-or-id>")}`,
-            `${bin("plans share <plan-name-or-id> [--plan-server <url>] [--project-secrets]")}`,
+            `${bin("plans read <plan-name-or-id> [--help]")}`,
+            `${bin("plans share <plan-name-or-id> [--plan-server <url>] [--project-secrets] [--help]")}`,
             `${
-                bin("plans pull <maintainer-url-or-plan-name-or-id> [--plan-server <url>] [--project-secrets] [--to <plan-name>]")
+                bin("plans pull <maintainer-url-or-plan-name-or-id> [--plan-server <url>] [--project-secrets] [--to <plan-name>] [--help]")
             }`,
-            `${bin("plans push <plan-name-or-id> [--plan-server <url>] [--project-secrets]")}`,
-            `${bin("plans unshare <plan-name-or-id> [--plan-server <url>] [--project-secrets] [--force]")}`,
-            `${bin("plans archive")}`,
-            `${bin("plans archive <plan-name-or-id> [--reason <text>] [--force]")}`,
-            `${bin("plans archive --all --status <status> [--reason <text>] [--force]")}`,
-            `${bin("plans archive restore <archived-plan-name-or-id> [--to <plan-name>]")}`,
+            `${bin("plans push <plan-name-or-id> [--plan-server <url>] [--project-secrets] [--help]")}`,
+            `${bin("plans unshare <plan-name-or-id> [--plan-server <url>] [--project-secrets] [--force] [--help]")}`,
+            `${bin("plans archive [--help]")}`,
+            `${bin("plans archive <plan-name-or-id> [--reason <text>] [--force] [--help]")}`,
+            `${bin("plans archive --all --status <status> [--reason <text>] [--force] [--help]")}`,
+            `${bin("plans archive restore <archived-plan-name-or-id> [--to <plan-name>] [--help]")}`,
             `${bin("plans ui [--bind <host>|--host <host>] [--port <port>] [--no-open]")}`,
             `${bin("plans --help")}`,
             `${bin("plans ui --help")}`,
@@ -447,6 +455,8 @@ export const commandRegistry = {
             `${bin("--help")}`,
             `${bin("help")}`,
             `${bin("help <command>")}`,
+            `${bin("--help <command>")}`,
+            `${bin("<command> --help")}`,
         ],
         notes: [],
         execute: runHelpCommand,
@@ -459,6 +469,7 @@ export const commandRegistry = {
         summary: "Print runwield version and platform architecture.",
         usage: [
             `${bin("--version")}`,
+            `${bin("-v")}`,
             `${bin("version")}`,
         ],
         notes: [],
@@ -493,6 +504,8 @@ export const commandRegistry = {
         summary: "Initialize RunWield into the current project (bootstraps context index and memory).",
         usage: [
             `${bin("init")}`,
+            `${bin("init --help")}`,
+            "/init",
         ],
         notes: [
             "Runs a one-time agent that explores the codebase and writes a CONTEXT.md summary.",
@@ -521,8 +534,9 @@ export const commandRegistry = {
     [COMMAND_NAMES.INSTALL]: {
         name: COMMAND_NAMES.INSTALL,
         displayName: "Install",
-        description: "Install a package",
-        summary: "Install package themes and prompt templates from npm, git, or local path.",
+        description: "Install a package source",
+        summary:
+            "Install package themes, prompt templates, and WLD-compatible extensions from npm, git, or local path.",
         usage: [
             `${bin("install npm:<spec>")}`,
             `${bin("install git:<url>")}`,
@@ -539,8 +553,8 @@ export const commandRegistry = {
     [COMMAND_NAMES.REMOVE]: {
         name: COMMAND_NAMES.REMOVE,
         displayName: "Remove",
-        description: "Remove an installed theme package",
-        summary: "Uninstall a theme package.",
+        description: "Remove an installed package source",
+        summary: "Uninstall a package source and unregister its resources.",
         usage: [
             `${bin("remove <source>")}`,
         ],
@@ -555,13 +569,17 @@ export const commandRegistry = {
         description: "Install or clean up RunWield Deno Snip filters",
         summary: "Install, clean up, or inspect RunWield-managed Deno Snip filters in Snip's default filter directory.",
         usage: [
+            `${bin("snip-filters")}`,
             `${bin("snip-filters status")}`,
             `${bin("snip-filters install")}`,
             `${bin("snip-filters cleanup")}`,
+            `${bin("snip-filters remove")}`,
+            `${bin("snip-filters uninstall")}`,
         ],
         notes: [
+            "Default action is status.",
             "Install copies RunWield-managed Deno filters into ~/.config/snip/filters so plain Snip commands can find them.",
-            "Cleanup removes only files marked as RunWield-managed.",
+            "Cleanup/remove/uninstall removes only files marked as RunWield-managed.",
         ],
         execute: runSnipFiltersCommand,
         surfaces: ["cli"],

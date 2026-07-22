@@ -32,10 +32,15 @@ export function printGlobalHelp() {
 
     console.log("\nGlobal flags:");
     console.log("  --continue, -c   Continue newest saved session (default startup route only)");
+    console.log("  --help, -h       Show global help or command help");
+    console.log("  --version, -v    Print version and target architecture");
+    console.log("  --mode acp       Start the ACP stdio adapter (stdout reserved for protocol frames)");
 
     console.log("\nHelp:");
     console.log(`  ${CLI_BIN} help`);
     console.log(`  ${CLI_BIN} help <command>`);
+    console.log(`  ${CLI_BIN} --help <command>`);
+    console.log(`  ${CLI_BIN} <command> --help`);
 }
 
 /**
