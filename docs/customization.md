@@ -70,8 +70,10 @@ Bundled skills include `documentation` (Markdown project docs), `ketch` (web sea
 (disciplined bug diagnosis), `prototype` (throwaway prototypes to validate design), `improve-codebase-architecture`
 (visual architecture review and deepening), `codebase-design` (shared deep-module vocabulary and interface design),
 `research` (source-backed Markdown research notes), and `write-a-skill` (creating new agent skills). The `documentation`
-skill is the replacement for the former dedicated docs-writer agent — any agent can load it when a task involves
-updating Markdown documentation.
+skill is the replacement for the former dedicated docs-writer agent. Skill availability is separate from file-mutation
+capability: writable agents use their normal tools for documentation work, while Guide has restricted `write_docs` and
+`edit_docs` tools only for explicit requests to preserve or update ordinary `.md` documents from an ongoing Guide
+conversation.
 
 ## Themes
 

@@ -71,7 +71,8 @@ Users can:
 
 Router emits one canonical **Routing Intent**:
 
-- `INQUIRY`: read-mostly understanding work, answered by Guide.
+- `INQUIRY`: answer-focused understanding work, answered by Guide. Guide may preserve an answer as an ordinary `.md`
+  document only after an explicit in-session user request.
 - `IDEATION`: strategic/product exploration and Socratic shaping, handled by Ideator.
 - `OPERATION`: direct non-code repository or environment operation, handled by Operator.
 - `QUICK_FIX`: bounded no-plan code implementation, handled by Engineer with Mechanical Validation only.
@@ -340,6 +341,12 @@ effective tools = merged override tools + protected bundled tools
 
 Runtime `toolNames` can narrow the effective set but cannot add outside it. Runtime `customTools` can be supplied
 explicitly by the host.
+
+Guide's bundled tools include the restricted `write_docs` and `edit_docs` Custom Tools. They preserve native write/edit
+relative and absolute path behavior but reject targets whose final extension is not `.md` before mutation. They are
+intended only for explicit user requests to preserve or update ordinary Markdown documents from an ongoing Guide
+conversation; Router dispatch and Operator capabilities are unchanged, and workflow-owned Markdown artifacts remain
+outside Guide's policy scope.
 
 ### 7.3 Skills
 
