@@ -4,7 +4,7 @@
 
 import { dirname } from "@std/path";
 
-export const DENO_COMPILE_VERSION = "2.9.2";
+export const DENO_COMPILE_VERSION = "2.9.3";
 
 const STATIC_INCLUDE_PATHS = [
     "src/ui/workspace/static/",

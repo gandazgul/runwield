@@ -1,4 +1,4 @@
-FROM denoland/deno:2.9.2 AS builder
+FROM denoland/deno:2.9.3 AS builder
 WORKDIR /app
 
 COPY deno.json deno.lock runtime-root.js ./
@@ -9,7 +9,7 @@ COPY logo.svg ./logo.svg
 
 RUN deno task workspace:remote:build
 
-FROM denoland/deno:2.9.2
+FROM denoland/deno:2.9.3
 WORKDIR /app
 
 ENV RUNWIELD_REMOTE_HOST=0.0.0.0 \
