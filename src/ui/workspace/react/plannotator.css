@@ -83,6 +83,38 @@
     flex-wrap: wrap;
 }
 
+.rw-approval-split-menu {
+    flex: none;
+}
+
+.rw-approval-split-button {
+    display: inline-flex;
+    align-items: stretch;
+    filter: drop-shadow(0 1px 1px rgb(0 0 0 / 0.16));
+}
+
+.rw-approval-split-button .rw-approval-primary {
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+}
+
+.rw-approval-split-button .rw-approval-caret {
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+    border-left: 1px solid color-mix(in srgb, currentColor 28%, transparent);
+    padding-inline: 0.45rem;
+}
+
+.rw-approval-action-menu button {
+    color: var(--rw-text, hsl(var(--foreground)));
+}
+
+.rw-approval-action-menu button:hover,
+.rw-approval-action-menu button:focus-visible {
+    background: color-mix(in srgb, var(--rw-accent, #38bdf8) 16%, var(--rw-surface-muted, #1e293b));
+    color: var(--rw-text-strong, hsl(var(--foreground)));
+}
+
 .rw-plannotator-plan-layout,
 .rw-plannotator-code-layout {
     display: grid;
