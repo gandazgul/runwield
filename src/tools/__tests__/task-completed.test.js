@@ -30,13 +30,46 @@ Deno.test("task_completed emits one semantic assistant message and terminates", 
     assertEquals(metrics[0].event, "task_completed");
 });
 
+Deno.test("task_completed rejects a mismatched active workflow owner without side effects", async () => {
+    const events = /** @type {any[]} */ ([]);
+    const metrics = /** @type {any[]} */ ([]);
+    const hostedSession = new HostedSession({ id: "task-completed-wrong-owner", cwd: Deno.cwd() });
+    hostedSession.setEventSink({ emit: (/** @type {any} */ event) => events.push(event) });
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "visual-plan",
+        triageMeta: { classification: "FEATURE" },
+        executionAgent: "frontend-engineer",
+    });
+    const tool = createTaskCompletedTool({
+        hostedSession,
+        agentName: "engineer",
+        recordWorkflowMetric: (metric) => {
+            metrics.push(metric);
+            return Promise.resolve(/** @type {any} */ (null));
+        },
+    });
+
+    const result = await /** @type {any} */ (tool.execute)("call", { message: "- Done." });
+
+    assertEquals(result.terminate, false);
+    assertEquals(result.details, { outcome: "rejected", reason: "wrong_execution_owner" });
+    assertEquals(events, []);
+    assertEquals(metrics, []);
+    assertEquals(hostedSession.getActiveExecutionWorkflow()?.executionAgent, "frontend-engineer");
+});
+
 Deno.test("task_completed message schema owns Engineer report format and accepts runtime display name", () => {
     const hostedSession = new HostedSession({ id: "task-completed-schema", cwd: Deno.cwd() });
     const engineerTool = createTaskCompletedTool({ hostedSession, agentName: "Engineer" });
+    const frontendEngineerTool = createTaskCompletedTool({ hostedSession, agentName: "Frontend Engineer" });
     const operatorTool = createTaskCompletedTool({ hostedSession, agentName: "operator" });
 
     assertStringIncludes(
         engineerTool.parameters.properties.message.description,
+        "Concise Markdown bullet-point success, failure, or blocked report",
+    );
+    assertStringIncludes(
+        frontendEngineerTool.parameters.properties.message.description,
         "Concise Markdown bullet-point success, failure, or blocked report",
     );
     assertEquals(engineerTool.parameters.required, ["message"]);

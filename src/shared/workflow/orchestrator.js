@@ -42,6 +42,7 @@ import {
     executePlan,
     extractAssistantOutput,
     readLatestTaskCompletedOutcome,
+    resolveExecutionOwner,
     runPlanningAgent,
     runSlicerAgent,
 } from "./workflow.js";
@@ -499,10 +500,12 @@ export async function dispatchPostTriage(
             });
         } catch (error) {
             const reason = error instanceof Error ? error.message : String(error);
+            const executionOwner = hostedSession.getActiveExecutionWorkflow()?.executionAgent ||
+                resolveExecutionOwner(decisionTriageMeta);
             await recordWorkflowMetricImpl({
                 category: "execution",
                 event: "feature_project_outcome",
-                agentName: AGENTS.ENGINEER,
+                agentName: executionOwner,
                 planName,
                 details: {
                     routingIntent: normalizedTriage.routingIntent,
@@ -512,22 +515,26 @@ export async function dispatchPostTriage(
             });
             emitSystemStatus(
                 hostedSession,
-                `Plan execution failed: ${reason}. The Engineer may need manual intervention.`,
+                `Plan execution failed: ${reason}. ${
+                    getAgentDisplayName(executionOwner, projectRoot)
+                } may need manual intervention.`,
                 { level: "error", header: "RunWield" },
             );
-            await activateAgent(AGENTS.ENGINEER);
+            await activateAgent(executionOwner);
             return;
         }
 
+        const executionOwner = hostedSession.getActiveExecutionWorkflow()?.executionAgent ||
+            resolveExecutionOwner(decisionTriageMeta);
         const executionDecision = decidePostExecutionImpl(executionResult, {
             planName,
             triageMeta: decisionTriageMeta,
-            executionAgentName: AGENTS.ENGINEER,
+            executionAgentName: executionOwner,
         });
         await recordWorkflowMetricImpl({
             category: "execution",
             event: "decision",
-            agentName: AGENTS.ENGINEER,
+            agentName: executionOwner,
             planName,
             details: summarizeWorkflowDecision(executionDecision),
         });
@@ -546,7 +553,7 @@ export async function dispatchPostTriage(
                 await recordWorkflowMetricImpl({
                     category: "execution",
                     event: "feature_project_outcome",
-                    agentName: AGENTS.ENGINEER,
+                    agentName: executionOwner,
                     planName,
                     details: {
                         routingIntent: normalizedTriage.routingIntent,
@@ -558,7 +565,7 @@ export async function dispatchPostTriage(
                 await recordWorkflowMetricImpl({
                     category: "execution",
                     event: "feature_project_outcome",
-                    agentName: AGENTS.ENGINEER,
+                    agentName: executionOwner,
                     planName,
                     details: {
                         routingIntent: normalizedTriage.routingIntent,
@@ -582,12 +589,12 @@ export async function dispatchPostTriage(
             });
             await activateAgent(nextAgentName);
         } else {
-            // halt — stay with Engineer for manual recovery
+            // halt — stay with the execution owner for manual recovery
             const reason = executionDecision.payload?.reason || "unknown";
             await recordWorkflowMetricImpl({
                 category: "execution",
                 event: "feature_project_outcome",
-                agentName: AGENTS.ENGINEER,
+                agentName: executionOwner,
                 planName,
                 details: {
                     routingIntent: normalizedTriage.routingIntent,
@@ -598,10 +605,10 @@ export async function dispatchPostTriage(
             });
             emitSystemStatus(
                 hostedSession,
-                `Execution stopped: ${reason}. Staying with Engineer for manual intervention.`,
+                `Execution stopped: ${reason}. Staying with ${executionOwner} for manual intervention.`,
                 { level: "error", header: "RunWield" },
             );
-            await activateAgent(AGENTS.ENGINEER);
+            await activateAgent(executionOwner);
         }
     }
 }
