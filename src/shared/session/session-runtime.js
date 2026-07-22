@@ -1084,22 +1084,6 @@ export class SessionRuntime {
         });
     }
 
-    /** @param {string} sessionId @param {string} planName */
-    async askPostApproval(sessionId, planName) {
-        const session = this.#sessionHost.getSession(sessionId);
-        if (!session) throw new Error("SessionRuntime.askPostApproval: session not found");
-        const { askPostApproval } = await import("../workflow/workflow-prompts.js");
-        return await askPostApproval(planName, session);
-    }
-
-    /** @param {string} sessionId @param {string} planName */
-    async askProjectDecompositionApproval(sessionId, planName) {
-        const session = this.#sessionHost.getSession(sessionId);
-        if (!session) throw new Error("SessionRuntime.askProjectDecompositionApproval: session not found");
-        const { askProjectDecompositionApproval } = await import("../workflow/workflow-prompts.js");
-        return await askProjectDecompositionApproval(planName, session);
-    }
-
     /** @param {string} sessionId @param {boolean} enabled */
     async setSessionAutoCompaction(sessionId, enabled) {
         const session = this.#sessionHost.getSession(sessionId);

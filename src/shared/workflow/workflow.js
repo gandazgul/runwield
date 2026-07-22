@@ -36,12 +36,7 @@ export {
     openSlicerDecomposition,
     runSlicerAgent,
 } from "./workflow-slicer.js";
-export {
-    askPostApproval,
-    askProjectDecompositionApproval,
-    buildEngineerRequest,
-    buildSlicerRequest,
-} from "./workflow-prompts.js";
+export { buildEngineerRequest, buildSlicerRequest } from "./workflow-prompts.js";
 export {
     extractAssistantOutput,
     readLatestPlanOutcome,

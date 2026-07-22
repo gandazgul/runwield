@@ -657,6 +657,7 @@ Deno.test("Plan approval preserves annotations, global images, and the edited Pl
                     feedback: "# Approval annotations\n\nKeep the command wording.",
                     annotations,
                     globalAttachments,
+                    approvalAction: "run",
                     plan: "# Approved edited Plan\n",
                     planSave: { enabled: true, path: "plans/approved.md" },
                 }),
@@ -675,6 +676,7 @@ Deno.test("Plan approval preserves annotations, global images, and the edited Pl
             ],
             plan: "# Approved edited Plan\n",
             savedPath: "plans/approved.md",
+            approvalAction: "run",
             agentSwitch: undefined,
             permissionMode: undefined,
         });
