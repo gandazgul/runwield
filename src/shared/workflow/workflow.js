@@ -9,7 +9,12 @@ import { loadPlan, resolvePlanExecutionPolicy } from "../../plan-store.js";
 import { hasNonGitExecutionConsent, probeGitRepository, rememberNonGitExecutionConsent } from "../git.js";
 import { getAgentDisplayName } from "../session/agents.js";
 import { emitSystemStatus } from "../session/session-runtime-events.js";
-import { requestHostedSessionInteraction, RuntimeInteractionTypes } from "../session/session-runtime-interactions.js";
+import {
+    requestHostedSessionInteraction,
+    RuntimeInteractionOutcomes,
+    RuntimeInteractionTypes,
+    supportsHostedSessionInteraction,
+} from "../session/session-runtime-interactions.js";
 import {
     createExecutionWorktree,
     findReusableWorktree,
@@ -20,8 +25,9 @@ import {
 import { updateEntry as updateWorktreeRegistryEntry } from "../worktree-registry.js";
 import { captureWorktreeTree } from "./git-snapshot.js";
 import { isEpicPlan, isExecutablePlanStatus, recordPlanEvent } from "./plan-lifecycle.js";
+import { createPairCheckpointTool } from "../../tools/pair-checkpoint.js";
 import { recordWorkflowMetric } from "./metrics.js";
-import { buildEngineerRequest } from "./workflow-prompts.js";
+import { buildCollaborationStylePrompt, buildEngineerRequest } from "./workflow-prompts.js";
 import {
     readLatestPlanOutcome,
     readLatestTaskCompletedMessage,
@@ -55,6 +61,88 @@ export function resolveExecutionOwner(meta) {
     throw new Error(policy.error);
 }
 
+export const CollaborationStyles = Object.freeze({
+    AUTONOMOUS: "autonomous",
+    PAIR: "pair",
+});
+
+export const PairCheckpointDecisions = Object.freeze({
+    CONTINUE: "continue",
+    REVISE: "revise",
+    SWITCH_TO_AUTONOMOUS: "switch_to_autonomous",
+    STOP: "stop",
+});
+
+export const PairPauseReasons = Object.freeze({
+    STOP: "stop",
+    CANCELED: "canceled",
+});
+
+/**
+ * @param {import('../session/hosted-session.js').HostedSession} hostedSession
+ * @returns {boolean}
+ */
+export function supportsPairExecution(hostedSession) {
+    return supportsHostedSessionInteraction(hostedSession, RuntimeInteractionTypes.PAIR_CHECKPOINT);
+}
+
+/**
+ * @typedef {Object} RuntimeCollaborationSelection
+ * @property {"autonomous"|"pair"} style
+ * @property {"autonomous"|"pair"} recommendation
+ * @property {boolean} [canceled]
+ */
+
+/**
+ * @param {import('../session/hosted-session.js').HostedSession} hostedSession
+ * @param {{ executionAgent: "engineer"|"frontend-engineer", collaborationRecommendation: "autonomous"|"pair", source: "canonical"|"legacy_frontend"|"legacy_frontend_false"|"absent" }} policy
+ * @returns {Promise<RuntimeCollaborationSelection>}
+ */
+async function selectRuntimeCollaborationStyle(hostedSession, policy) {
+    const recommendation = policy.collaborationRecommendation || CollaborationStyles.AUTONOMOUS;
+    if (
+        policy.executionAgent !== AGENTS.FRONTEND_ENGINEER || policy.source !== "canonical" ||
+        !supportsPairExecution(hostedSession)
+    ) {
+        return { style: CollaborationStyles.AUTONOMOUS, recommendation };
+    }
+    const response = await requestHostedSessionInteraction(hostedSession, {
+        type: RuntimeInteractionTypes.SELECT,
+        prompt: buildCollaborationStylePrompt(recommendation),
+        options: [
+            {
+                value: CollaborationStyles.PAIR,
+                label: recommendation === CollaborationStyles.PAIR ? "Pair Execution (recommended)" : "Pair Execution",
+                description: "Pause after coherent visible increments for user direction.",
+            },
+            {
+                value: CollaborationStyles.AUTONOMOUS,
+                label: recommendation === CollaborationStyles.AUTONOMOUS
+                    ? "Autonomous execution (recommended)"
+                    : "Autonomous execution",
+                description: "Run AFK and verify in the browser before Task Completion.",
+            },
+        ],
+        defaultValue: recommendation,
+        _meta: { collaborationRecommendation: recommendation },
+    });
+    if (response.outcome === RuntimeInteractionOutcomes.CANCELED) {
+        return { style: CollaborationStyles.AUTONOMOUS, recommendation, canceled: true };
+    }
+    if (
+        response.outcome === RuntimeInteractionOutcomes.SELECTED &&
+        (response.value === CollaborationStyles.PAIR || response.value === CollaborationStyles.AUTONOMOUS)
+    ) {
+        return { style: /** @type {"autonomous"|"pair"} */ (response.value), recommendation };
+    }
+    emitSystemStatus(
+        hostedSession,
+        "Pair Execution selection is unavailable; continuing with autonomous Frontend Engineer execution.",
+        { header: "RunWield" },
+    );
+    return { style: CollaborationStyles.AUTONOMOUS, recommendation };
+}
+
 /**
  * @typedef {"approved_execute" | "approved_decompose" | "saved" | "feedback" | "canceled" | "repair_required" | "no_call"} PlanOutcome
  */
@@ -72,6 +160,9 @@ export function resolveExecutionOwner(meta) {
  * @typedef {Object} PlanExecutionResult
  * @property {boolean} repairRequired
  * @property {boolean} executionComplete
+ * @property {boolean} [paused]
+ * @property {boolean} [canceled]
+ * @property {"stop"|"canceled"} [pauseReason]
  * @property {string} [error]
  * @property {string} [completionReport]
  */
@@ -205,6 +296,21 @@ export async function executePlan({
         return { repairRequired: false, executionComplete: false, error };
     }
 
+    const collaboration = policy.ok
+        ? await selectRuntimeCollaborationStyle(hostedSession, policy.policy)
+        : { style: CollaborationStyles.AUTONOMOUS, recommendation: CollaborationStyles.AUTONOMOUS };
+    if (collaboration.canceled) {
+        emitSystemStatus(hostedSession, `Plan execution canceled before work started: ${planName}`, {
+            header: "RunWield",
+        });
+        return {
+            repairRequired: false,
+            executionComplete: false,
+            canceled: true,
+            error: "Collaboration style selection canceled before execution started.",
+        };
+    }
+
     await recordWorkflowMetricFn({
         category: "execution",
         event: "plan_execution_started",
@@ -224,6 +330,8 @@ export async function executePlan({
         hostedSession,
         reviewFeedback,
         reviewImages,
+        collaborationStyle: collaboration.style,
+        collaborationRecommendation: collaboration.recommendation,
         __deps: { ...__deps, recordWorkflowMetric: recordWorkflowMetricFn },
     });
     if (!result.executionComplete) {
@@ -288,6 +396,8 @@ export async function executePlan({
  *     hostedSession?: import('../session/hosted-session.js').HostedSession,
  *     reviewFeedback?: string,
  *     reviewImages?: Array<{base64: string, mimeType: string}>,
+ *     collaborationStyle?: "autonomous"|"pair",
+ *     collaborationRecommendation?: "autonomous"|"pair",
  *     __deps?: {
  *       recordWorkflowMetric?: typeof recordWorkflowMetric,
  *       runActiveAgentTurn?: typeof import('../session/agent-switching.js').runActiveAgentTurn,
@@ -305,6 +415,8 @@ async function executeSingleEngineerPlan(
         hostedSession,
         reviewFeedback,
         reviewImages,
+        collaborationStyle = CollaborationStyles.AUTONOMOUS,
+        collaborationRecommendation = CollaborationStyles.AUTONOMOUS,
         __deps,
     },
 ) {
@@ -315,10 +427,19 @@ async function executeSingleEngineerPlan(
             triageMeta,
             currentStatus,
             hostedSession,
+            collaborationStyle,
+            collaborationRecommendation,
             __deps,
         });
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
+        const failedWorkflow = hostedSession?.getActiveExecutionWorkflow?.();
+        if (failedWorkflow?.planName === planName && failedWorkflow.collaborationStyle === CollaborationStyles.PAIR) {
+            hostedSession?.setActiveExecutionWorkflow({
+                ...failedWorkflow,
+                collaborationStyle: CollaborationStyles.AUTONOMOUS,
+            });
+        }
         emitSystemStatus(hostedSession, `Execution did not start: ${message}`, {
             level: "error",
             header: "RunWield",
@@ -338,7 +459,12 @@ async function executeSingleEngineerPlan(
         __deps,
     );
     if (!engineerResult.completed) {
-        return { repairRequired: false, executionComplete: false, error: engineerResult.error };
+        return {
+            repairRequired: false,
+            executionComplete: false,
+            ...(engineerResult.paused ? { paused: true, pauseReason: engineerResult.pauseReason } : {}),
+            ...(engineerResult.error ? { error: engineerResult.error } : {}),
+        };
     }
     return {
         repairRequired: false,
@@ -360,7 +486,7 @@ async function executeSingleEngineerPlan(
  * @param {Array<{base64: string, mimeType: string}>} [reviewImages]
  * @param {string} [executionAgent]
  * @param {{ runActiveAgentTurn?: typeof import('../session/agent-switching.js').runActiveAgentTurn }} [__deps]
- * @returns {Promise<{ completed: boolean, messages: import('@earendil-works/pi-agent-core').AgentMessage[], error?: string, completionReport?: string }>}
+ * @returns {Promise<{ completed: boolean, messages: import('@earendil-works/pi-agent-core').AgentMessage[], paused?: boolean, pauseReason?: "stop"|"canceled", error?: string, completionReport?: string }>}
  */
 async function runEngineerWithPlan(
     planName,
@@ -377,18 +503,24 @@ async function runEngineerWithPlan(
     if (!hostedSession) throw new Error("runEngineerWithPlan: hostedSession is required");
     const runActiveAgentTurn = __deps?.runActiveAgentTurn ||
         (await import("../session/agent-switching.js")).runActiveAgentTurn;
+    const workflow = hostedSession.getActiveExecutionWorkflow?.();
+    const collaborationStyle = workflow?.collaborationStyle || CollaborationStyles.AUTONOMOUS;
+    const customTools = executionAgent === AGENTS.FRONTEND_ENGINEER && collaborationStyle === CollaborationStyles.PAIR
+        ? [createPairCheckpointTool({ hostedSession })]
+        : undefined;
     let messages;
     try {
         messages = await runActiveAgentTurn({
             hostedSession,
             agentName: executionAgent,
             userRequest: `${
-                buildEngineerRequest(planName, planBody, reviewFeedback)
+                buildEngineerRequest(planName, planBody, reviewFeedback, { collaborationStyle })
             }\n\nExecution owner: ${executionAgent}.`,
             images: reviewImages,
             sessionManager,
             cwd: executionCwd,
             allowReturnToRouter: false,
+            ...(customTools ? { customTools } : {}),
         });
     } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
@@ -402,18 +534,25 @@ async function runEngineerWithPlan(
         return { completed: false, messages: rootMessages, error: errorMessage };
     }
 
-    const pairStopped = hostedSession.getActiveExecutionWorkflow?.()?.pairStopRequested === true;
-    const completed = !pairStopped && readLatestTaskCompletedOutcome(messages);
-    const completionReport = readLatestTaskCompletedMessage(messages) || undefined;
+    const pauseReason = hostedSession.getActiveExecutionWorkflow?.()?.pairPauseReason;
+    const completed = !pauseReason && readLatestTaskCompletedOutcome(messages);
+    const completionReport = completed ? readLatestTaskCompletedMessage(messages) || undefined : undefined;
     if (!completed) {
         emitSystemStatus(
             hostedSession,
-            buildEngineerPausedMessage(undefined, projectRoot || hostedSession?.cwd, executionAgent),
+            pauseReason
+                ? buildPairPausedMessage(pauseReason, projectRoot || hostedSession?.cwd)
+                : buildEngineerPausedMessage(undefined, projectRoot || hostedSession?.cwd, executionAgent),
             { header: "RunWield" },
         );
     }
 
-    return { completed, messages, completionReport };
+    return {
+        completed,
+        messages,
+        ...(pauseReason ? { paused: true, pauseReason } : {}),
+        ...(completionReport ? { completionReport } : {}),
+    };
 }
 
 /**
@@ -425,6 +564,17 @@ function buildEngineerPausedMessage(reason, projectRoot, executionAgent = AGENTS
         getAgentDisplayName(executionAgent, projectRoot)
     } stopped without task_completed; execution is paused. Say "continue" to resume with the execution owner.`;
     return reason ? `${base}\nReason: ${reason}` : base;
+}
+
+/**
+ * @param {"stop"|"canceled"} pauseReason
+ * @param {string} [projectRoot]
+ */
+function buildPairPausedMessage(pauseReason, projectRoot) {
+    const owner = getAgentDisplayName(AGENTS.FRONTEND_ENGINEER, projectRoot);
+    return pauseReason === PairPauseReasons.STOP
+        ? `${owner} stopped Pair Execution at your checkpoint direction. The Plan remains In Progress; say "continue" to resume Pair Execution.`
+        : `${owner} paused because the Pair checkpoint interaction was canceled. No approval or Task Completion was recorded; say "continue" to resume.`;
 }
 
 /**
@@ -479,6 +629,8 @@ export function assertReusableWorktreeTargetMatches(reusableBaseBranch, targetBr
  *   triageMeta: Partial<import('../../plan-store.js').PlanFrontMatter>,
  *   currentStatus: import('./plan-lifecycle.js').PlanStatus,
  *   hostedSession?: import('../session/hosted-session.js').HostedSession,
+ *   collaborationStyle?: "autonomous"|"pair",
+ *   collaborationRecommendation?: "autonomous"|"pair",
  *   __deps?: {
  *     createExecutionWorktree?: typeof createExecutionWorktree,
  *     findReusableWorktree?: typeof findReusableWorktree,
@@ -494,10 +646,18 @@ export function assertReusableWorktreeTargetMatches(reusableBaseBranch, targetBr
  *     confirmNonGitFeaturePlanExecution?: typeof confirmNonGitFeaturePlanExecution,
  *   },
  * }} opts
- * @returns {Promise<{ projectRoot: string, executionCwd: string, executionAgent: "engineer"|"frontend-engineer", baselineTree?: string, worktreeId?: string, worktreeBranch?: string, worktreeBaseBranch?: string, nonGitInPlace?: boolean }>}
+ * @returns {Promise<import('../session/hosted-session.js').ActiveExecutionWorkflow>}
  */
 export async function startActiveExecutionWorkflow(
-    { planName, triageMeta, currentStatus, hostedSession, __deps },
+    {
+        planName,
+        triageMeta,
+        currentStatus,
+        hostedSession,
+        collaborationStyle = CollaborationStyles.AUTONOMOUS,
+        collaborationRecommendation = CollaborationStyles.AUTONOMOUS,
+        __deps,
+    },
 ) {
     if (!hostedSession) throw new Error("startActiveExecutionWorkflow: hostedSession is required");
     const projectRoot = hostedSession.cwd;
@@ -514,12 +674,19 @@ export async function startActiveExecutionWorkflow(
     const hasConsent = __deps?.hasNonGitExecutionConsent || hasNonGitExecutionConsent;
     const confirmNonGit = __deps?.confirmNonGitFeaturePlanExecution || confirmNonGitFeaturePlanExecution;
     const executionAgent = resolveExecutionOwner(triageMeta);
+    const collaborationState = {
+        collaborationStyle,
+        collaborationRecommendation,
+        pairCheckpointCount: 0,
+    };
     const initialWorkflow = hostedSession.getActiveExecutionWorkflow();
     if (initialWorkflow?.planName !== planName) {
         hostedSession.setActiveExecutionWorkflow({
             planName,
             triageMeta,
             executionAgent,
+            executionStarted: false,
+            ...collaborationState,
             projectRoot,
             executionCwd: projectRoot,
         });
@@ -535,6 +702,8 @@ export async function startActiveExecutionWorkflow(
             planName,
             triageMeta,
             executionAgent,
+            executionStarted: false,
+            ...collaborationState,
             projectRoot,
             executionCwd: projectRoot,
             nonGitInPlace: true,
@@ -547,13 +716,15 @@ export async function startActiveExecutionWorkflow(
             currentStatus,
             details: { triageMeta, nonGitInPlace: true },
         });
+        const activeWorkflow = { ...workflow, executionStarted: true };
+        hostedSession.setActiveExecutionWorkflow(activeWorkflow);
         await recordWorkflowMetricFn({
             category: "execution",
             event: "non_git_in_place_execution_started",
             planName,
             details: { gitState: gitProbe.state },
         }, { cwd: projectRoot });
-        return workflow;
+        return activeWorkflow;
     }
     const targetBranch = normalizeExecutionTargetBranch(triageMeta.worktreeBaseBranch);
     const hasRecordedWorktree = Boolean(
@@ -592,6 +763,8 @@ export async function startActiveExecutionWorkflow(
         planName,
         triageMeta,
         executionAgent,
+        executionStarted: false,
+        ...collaborationState,
         baselineTree,
         projectRoot,
         executionCwd: worktree.path,
@@ -618,6 +791,8 @@ export async function startActiveExecutionWorkflow(
             worktreeStatus: "active",
         },
     });
+    const activeWorkflow = { ...workflow, executionStarted: true };
+    hostedSession.setActiveExecutionWorkflow(activeWorkflow);
     await recordWorkflowMetricFn({
         category: "execution",
         event: "worktree_prepared",
@@ -630,7 +805,7 @@ export async function startActiveExecutionWorkflow(
             hasBaselineTree: Boolean(baselineTree),
         },
     }, { cwd: projectRoot });
-    return workflow;
+    return activeWorkflow;
 }
 
 /**
