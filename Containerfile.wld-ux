@@ -22,7 +22,7 @@
 #     -v runwield-wld-home:/home/deno/.wld:Z \
 #     runwield-wld-ux:local
 
-FROM denoland/deno:2.9.2 AS builder
+FROM denoland/deno:2.9.3 AS builder
 WORKDIR /app
 
 COPY deno.json deno.lock runtime-root.js ./
@@ -40,7 +40,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && PATH="/usr/local/go/bin:$PATH" go install github.com/gandazgul/mnemosyne@v0.2.5
 
-FROM denoland/deno:2.9.2
+FROM denoland/deno:2.9.3
 
 USER root
 RUN apt-get update \
