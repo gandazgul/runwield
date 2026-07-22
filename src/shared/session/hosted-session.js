@@ -34,6 +34,13 @@ import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runt
  * @property {string} planName
  * @property {any} triageMeta
  * @property {"engineer"|"frontend-engineer"} executionAgent
+ * @property {boolean} [executionStarted]
+ * @property {"autonomous"|"pair"} [collaborationStyle]
+ * @property {"autonomous"|"pair"} [collaborationRecommendation]
+ * @property {number} [pairCheckpointCount]
+ * @property {boolean} [pairSwitchedToAutonomous]
+ * @property {boolean} [pairCapabilityLost]
+ * @property {"stop"|"canceled"} [pairPauseReason]
  * @property {boolean} [pairStopRequested]
  * @property {string} [baselineTree]
  * @property {string} [projectRoot]
@@ -475,6 +482,35 @@ export class HostedSession {
                 throw new Error(
                     "setActiveExecutionWorkflow: active execution workflow requires executionAgent engineer or frontend-engineer",
                 );
+            }
+            if (workflow.executionStarted !== undefined && typeof workflow.executionStarted !== "boolean") {
+                throw new Error("setActiveExecutionWorkflow: executionStarted must be boolean");
+            }
+            if (
+                workflow.collaborationStyle !== undefined && workflow.collaborationStyle !== "autonomous" &&
+                workflow.collaborationStyle !== "pair"
+            ) {
+                throw new Error("setActiveExecutionWorkflow: collaborationStyle must be autonomous or pair");
+            }
+            if (
+                workflow.collaborationRecommendation !== undefined &&
+                workflow.collaborationRecommendation !== "autonomous" && workflow.collaborationRecommendation !== "pair"
+            ) {
+                throw new Error(
+                    "setActiveExecutionWorkflow: collaborationRecommendation must be autonomous or pair",
+                );
+            }
+            if (
+                workflow.pairCheckpointCount !== undefined &&
+                (!Number.isInteger(workflow.pairCheckpointCount) || workflow.pairCheckpointCount < 0)
+            ) {
+                throw new Error("setActiveExecutionWorkflow: pairCheckpointCount must be a non-negative integer");
+            }
+            if (
+                workflow.pairPauseReason !== undefined && workflow.pairPauseReason !== "stop" &&
+                workflow.pairPauseReason !== "canceled"
+            ) {
+                throw new Error("setActiveExecutionWorkflow: pairPauseReason must be stop or canceled");
             }
         }
         this.activeExecutionWorkflow = workflow;

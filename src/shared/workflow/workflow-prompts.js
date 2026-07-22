@@ -101,19 +101,48 @@ export function buildSlicerRequest(input, legacyTriageMeta) {
 }
 
 /**
+ * @param {"autonomous"|"pair"} recommendation
+ * @returns {string}
+ */
+export function buildCollaborationStylePrompt(recommendation) {
+    const recommended = recommendation === "pair" ? "Pair Execution" : "Autonomous execution";
+    return [
+        "Choose the Frontend Engineer execution style for this approved Plan.",
+        `Planner recommendation: ${recommended}.`,
+        "Pair Execution pauses after coherent visible increments for your direction; autonomous execution runs AFK and verifies at the end.",
+    ].join("\n");
+}
+
+/**
  * @param {string} planName
  * @param {string} planBody
  * @param {string} [reviewFeedback]
+ * @param {{ collaborationStyle?: "autonomous"|"pair" }} [options]
  * @returns {string}
  */
-export function buildEngineerRequest(planName, planBody, reviewFeedback) {
+export function buildEngineerRequest(planName, planBody, reviewFeedback, options = {}) {
     const lines = [
         `## Approved Plan: ${planName}`,
         "",
         "Execute the following plan step by step. This is a FEATURE request. Complete all Implementation Steps and the Verification Plan, then call task_completed with a concise bullet-point success or failure report.",
         "",
-        planBody,
     ];
+    if (options.collaborationStyle === "pair") {
+        lines.push(
+            "## Runtime Collaboration Style",
+            "Pair Execution is active. Work in coherent visible increments, inspect the headed browser before each checkpoint, call pair_checkpoint for user direction after each meaningful increment, and do not call task_completed until the full Plan and final verification are complete.",
+            "",
+        );
+    } else if (options.collaborationStyle === "autonomous") {
+        lines.push(
+            "## Runtime Collaboration Style",
+            "Autonomous execution is active. Do not use Pair checkpoint ceremony; complete the Plan and final verification before task_completed.",
+            "",
+        );
+    }
+    lines.push(
+        planBody,
+    );
     if (reviewFeedback) {
         lines.push(
             "",
