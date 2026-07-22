@@ -9,76 +9,221 @@ import {
     requestHostedSessionInteraction,
     RuntimeInteractionOutcomes,
     RuntimeInteractionTypes,
+    supportsHostedSessionInteraction,
 } from "../shared/session/session-runtime-interactions.js";
-import { recordWorkflowMetric } from "../shared/workflow/metrics.js";
+
+const CHECKPOINT_DECISIONS = Object.freeze({
+    CONTINUE: "continue",
+    REVISE: "revise",
+    SWITCH_TO_AUTONOMOUS: "switch_to_autonomous",
+    STOP: "stop",
+});
 
 /**
- * @param {{hostedSession: import('../shared/session/hosted-session.js').HostedSession, __deps?: {recordWorkflowMetric?: typeof recordWorkflowMetric}}} opts
+ * @typedef {Object} PairCheckpointDetails
+ * @property {string} decision
+ * @property {number} [checkpointNumber]
+ * @property {string} [feedback]
+ * @property {string} [reason]
  */
-export function createPairCheckpointTool({ hostedSession, __deps = {} }) {
+
+/**
+ * @param {string} text
+ * @param {PairCheckpointDetails} details
+ * @param {boolean} [terminate]
+ */
+function checkpointResult(text, details, terminate = false) {
+    return { content: [{ type: /** @type {const} */ ("text"), text }], details, terminate };
+}
+
+/**
+ * @param {import('../shared/session/hosted-session.js').ActiveExecutionWorkflow} workflow
+ * @returns {import('../shared/session/hosted-session.js').ActiveExecutionWorkflow}
+ */
+function clearPairPause(workflow) {
+    const next = { ...workflow };
+    delete next.pairPauseReason;
+    delete next.pairStopRequested;
+    return next;
+}
+
+/**
+ * @param {{hostedSession: import('../shared/session/hosted-session.js').HostedSession}} opts
+ */
+export function createPairCheckpointTool({ hostedSession }) {
     if (!hostedSession) throw new Error("createPairCheckpointTool: hostedSession is required");
-    const recordWorkflowMetricImpl = __deps.recordWorkflowMetric || recordWorkflowMetric;
     return defineTool({
         name: "pair_checkpoint",
         label: "Pair Checkpoint",
         description:
-            "Pause Pair Execution after a coherent visible increment has been inspected in the headed browser. Returns the user's direction without completing the task.",
+            "Pause active Pair Execution after a coherent visible increment has been inspected in the headed browser. Returns the user's direction without completing the task or starting validation.",
         parameters: Type.Object({
-            summary: Type.String({ description: "Concise description of the visible increment." }),
-            route: Type.Optional(Type.String({ description: "Route or URL currently shown." })),
-            viewport: Type.Optional(Type.String({ description: "Viewport or device inspected." })),
-            evidence: Type.Optional(
-                Type.Array(Type.String(), { description: "Screenshot paths or visible evidence." }),
+            summary: Type.String({
+                minLength: 1,
+                description: "Concise description of the visible increment now available for review.",
+            }),
+            route: Type.Optional(Type.String({ minLength: 1, description: "Route or URL currently shown." })),
+            state: Type.Optional(
+                Type.String({ minLength: 1, description: "Application state or scenario inspected." }),
             ),
-            diagnostics: Type.Optional(Type.String({ description: "Console, network, or runtime health summary." })),
-            nextIncrement: Type.String({ description: "The next coherent increment proposed." }),
-        }),
+            viewport: Type.Optional(Type.String({ minLength: 1, description: "Viewport or device inspected." })),
+            evidence: Type.Optional(
+                Type.Array(Type.String({ minLength: 1 }), {
+                    description: "Content-safe notes or screenshot paths describing visible evidence.",
+                }),
+            ),
+            diagnostics: Type.Optional(
+                Type.String({
+                    minLength: 1,
+                    description: "Console, network, accessibility, or runtime health summary.",
+                }),
+            ),
+            nextIncrement: Type.Optional(
+                Type.String({ minLength: 1, description: "The next coherent increment proposed." }),
+            ),
+        }, { additionalProperties: false }),
         async execute(toolCallId, params, signal) {
             const workflow = hostedSession.getActiveExecutionWorkflow?.();
-            if (workflow?.executionAgent !== "frontend-engineer") {
-                return {
-                    content: [{ type: "text", text: "Pair checkpoint unavailable; continue autonomously." }],
-                    details: { outcome: "autonomous", feedback: "", reason: "pair_mode_inactive" },
-                };
+            if (
+                workflow?.executionAgent !== "frontend-engineer" || workflow.executionStarted === false ||
+                workflow.collaborationStyle !== "pair"
+            ) {
+                return checkpointResult(
+                    "Pair checkpoint is inactive; continue autonomously.",
+                    { decision: "inactive", reason: "pair_execution_inactive" },
+                );
             }
+            if (workflow.pairPauseReason || workflow.pairStopRequested) {
+                return checkpointResult(
+                    "Pair Execution is already paused. Do not continue implementation or call task_completed until the user deliberately resumes execution.",
+                    { decision: "inactive", reason: "pair_execution_paused" },
+                    true,
+                );
+            }
+
+            const checkpointNumber = (workflow.pairCheckpointCount || 0) + 1;
+            const checkpointWorkflow = clearPairPause({ ...workflow, pairCheckpointCount: checkpointNumber });
+            hostedSession.setActiveExecutionWorkflow(checkpointWorkflow);
+
+            if (!supportsHostedSessionInteraction(hostedSession, RuntimeInteractionTypes.PAIR_CHECKPOINT)) {
+                hostedSession.setActiveExecutionWorkflow({
+                    ...checkpointWorkflow,
+                    collaborationStyle: "autonomous",
+                    pairCapabilityLost: true,
+                });
+                return checkpointResult(
+                    "Pair checkpoint capability is unavailable. Continue the remaining work autonomously; do not treat this increment as user-approved.",
+                    {
+                        decision: CHECKPOINT_DECISIONS.SWITCH_TO_AUTONOMOUS,
+                        checkpointNumber,
+                        reason: "pair_capability_lost",
+                    },
+                );
+            }
+
             const response = await requestHostedSessionInteraction(hostedSession, {
                 type: RuntimeInteractionTypes.PAIR_CHECKPOINT,
                 prompt: params.summary,
                 toolCallId,
-                _meta: params,
+                _meta: { ...params, checkpointNumber },
             }, signal);
-            const decision = response.outcome === RuntimeInteractionOutcomes.SELECTED &&
-                    ["continue", "revise", "autonomous", "stop"].includes(String(response.value))
-                ? String(response.value)
-                : response.outcome === RuntimeInteractionOutcomes.CANCELED
-                ? "stop"
-                : "autonomous";
-            if (decision === "stop") {
-                hostedSession.setActiveExecutionWorkflow({ ...workflow, pairStopRequested: true });
-            } else if (workflow.pairStopRequested) {
-                hostedSession.setActiveExecutionWorkflow({ ...workflow, pairStopRequested: undefined });
+
+            if (response.outcome === RuntimeInteractionOutcomes.CANCELED) {
+                hostedSession.setActiveExecutionWorkflow({ ...checkpointWorkflow, pairPauseReason: "canceled" });
+                return checkpointResult(
+                    "The Pair checkpoint interaction was canceled. Pause this turn without task_completed; no increment approval was recorded.",
+                    { decision: "canceled", checkpointNumber, reason: "checkpoint_interaction_canceled" },
+                    true,
+                );
             }
-            await recordWorkflowMetricImpl({
-                category: "execution",
-                event: "pair_checkpoint_resolved",
-                planName: workflow.planName,
-                agentName: "frontend-engineer",
-                details: { decision, supported: response.outcome !== RuntimeInteractionOutcomes.UNSUPPORTED },
-            }, { cwd: workflow.projectRoot || hostedSession.cwd });
-            const feedback = typeof response._meta?.feedback === "string" ? response._meta.feedback : "";
-            return {
-                content: [{
-                    type: "text",
-                    text: decision === "stop"
-                        ? "Stop Pair Execution now without calling task_completed; leave the Plan in progress."
-                        : decision === "revise"
-                        ? `Revise this increment using the user's feedback: ${feedback}`
-                        : decision === "autonomous"
-                        ? "Continue the remaining work autonomously."
-                        : "The increment is accepted; continue Pair Execution.",
-                }],
-                details: { outcome: decision, feedback, reason: "" },
-            };
+
+            if (
+                response.outcome === RuntimeInteractionOutcomes.UNSUPPORTED ||
+                response.outcome === RuntimeInteractionOutcomes.BLOCKED
+            ) {
+                hostedSession.setActiveExecutionWorkflow({
+                    ...checkpointWorkflow,
+                    collaborationStyle: "autonomous",
+                    pairCapabilityLost: true,
+                });
+                return checkpointResult(
+                    "Pair checkpoint capability is unavailable. Continue the remaining work autonomously; do not treat this increment as user-approved.",
+                    {
+                        decision: CHECKPOINT_DECISIONS.SWITCH_TO_AUTONOMOUS,
+                        checkpointNumber,
+                        reason: "pair_capability_lost",
+                    },
+                );
+            }
+
+            const rawDecision = response.outcome === RuntimeInteractionOutcomes.SELECTED
+                ? String(response.value || "")
+                : "";
+            const decision = rawDecision === "autonomous" ? CHECKPOINT_DECISIONS.SWITCH_TO_AUTONOMOUS : rawDecision;
+
+            if (decision === CHECKPOINT_DECISIONS.CONTINUE) {
+                hostedSession.setActiveExecutionWorkflow(checkpointWorkflow);
+                return checkpointResult(
+                    "The increment is accepted; continue Pair Execution.",
+                    { decision, checkpointNumber },
+                );
+            }
+
+            if (decision === CHECKPOINT_DECISIONS.REVISE) {
+                const feedback = typeof response._meta?.feedback === "string" ? response._meta.feedback.trim() : "";
+                if (!feedback) {
+                    hostedSession.setActiveExecutionWorkflow({ ...checkpointWorkflow, pairPauseReason: "canceled" });
+                    return checkpointResult(
+                        "Revision was selected without feedback. Pause this turn without task_completed; no increment approval was recorded.",
+                        { decision: "canceled", checkpointNumber, reason: "revision_feedback_required" },
+                        true,
+                    );
+                }
+                hostedSession.setActiveExecutionWorkflow(checkpointWorkflow);
+                return checkpointResult(
+                    `Revise this increment using the user's feedback: ${feedback}`,
+                    { decision, feedback, checkpointNumber },
+                );
+            }
+
+            if (decision === CHECKPOINT_DECISIONS.SWITCH_TO_AUTONOMOUS) {
+                hostedSession.setActiveExecutionWorkflow({
+                    ...checkpointWorkflow,
+                    collaborationStyle: "autonomous",
+                    pairSwitchedToAutonomous: true,
+                });
+                return checkpointResult(
+                    "Continue the remaining work autonomously.",
+                    { decision, checkpointNumber },
+                );
+            }
+
+            if (decision === CHECKPOINT_DECISIONS.STOP) {
+                hostedSession.setActiveExecutionWorkflow({
+                    ...checkpointWorkflow,
+                    pairPauseReason: "stop",
+                    pairStopRequested: true,
+                });
+                return checkpointResult(
+                    "Stop Pair Execution now without task_completed; leave the Plan In Progress.",
+                    { decision, checkpointNumber },
+                    true,
+                );
+            }
+
+            hostedSession.setActiveExecutionWorkflow({
+                ...checkpointWorkflow,
+                collaborationStyle: "autonomous",
+                pairCapabilityLost: true,
+            });
+            return checkpointResult(
+                "The checkpoint response was not recognized. Continue autonomously without treating the increment as user-approved.",
+                {
+                    decision: CHECKPOINT_DECISIONS.SWITCH_TO_AUTONOMOUS,
+                    checkpointNumber,
+                    reason: "invalid_checkpoint_response",
+                },
+            );
         },
     });
 }

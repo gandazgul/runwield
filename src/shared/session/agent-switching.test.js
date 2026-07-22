@@ -104,6 +104,37 @@ Deno.test("runActiveAgentTurn leaves Engineer callable when its turn is interrup
     assertEquals(hostedSession.getActiveOnMessage(), engineerHandler);
 });
 
+Deno.test("runActiveAgentTurn supplies workflow custom tools to the active root turn", async () => {
+    const hostedSession = makeSession();
+    const pairTool = /** @type {any} */ ({ name: "pair_checkpoint" });
+    /** @type {any} */
+    let switchOptions = null;
+    let rootDuringTurn = "";
+
+    await runActiveAgentTurn({
+        hostedSession,
+        agentName: "frontend-engineer",
+        userRequest: "Implement in Pair Execution",
+        customTools: [pairTool],
+    }, {
+        switchActiveAgent: /** @type {any} */ ((
+            /** @type {HostedSession} */ session,
+            /** @type {any} */ options,
+        ) => {
+            switchOptions = options;
+            session.setRootAgentName(options.agentName);
+            return Promise.resolve({ ok: true, agentName: options.agentName, changed: true });
+        }),
+        runRootTurn: /** @type {any} */ ((/** @type {any} */ options) => {
+            rootDuringTurn = options.hostedSession.getRootAgentName();
+            return Promise.resolve([]);
+        }),
+    });
+
+    assertEquals(switchOptions.customTools, [pairTool]);
+    assertEquals(rootDuringTurn, "frontend-engineer");
+});
+
 Deno.test("switchActiveAgent rebuilds the active Agent root in the requested execution cwd", async () => {
     const hostedSession = makeSession();
     const previousRoot = /** @type {any} */ ({ dispose: () => {} });

@@ -1,7 +1,8 @@
 import { assertEquals } from "@std/assert";
 import { parsePlanFrontMatter, resolvePlanExecutionPolicy } from "../../plan-store.js";
-import { resolveExecutionOwner } from "./workflow.js";
-import { createPairCheckpointTool } from "../../tools/pair-checkpoint.js";
+import { HostedSession } from "../session/hosted-session.js";
+import { decidePostExecution } from "./decisions.js";
+import { resolveExecutionOwner, supportsPairExecution } from "./workflow.js";
 
 Deno.test("Plan metadata normalizes explicit pair execution ownership", () => {
     const parsed = parsePlanFrontMatter(`---
@@ -31,8 +32,6 @@ frontend: true
 ---
 # Legacy UI
 `);
-    assertEquals(parsed.attrs.executionAgent, undefined);
-    assertEquals(parsed.attrs.collaborationRecommendation, undefined);
     assertEquals(resolvePlanExecutionPolicy(parsed.attrs), {
         ok: true,
         policy: {
@@ -49,50 +48,54 @@ Deno.test("missing and frontend false ownership resolve to Engineer", () => {
     assertEquals(resolveExecutionOwner({ frontend: false }), "engineer");
 });
 
-for (const decision of ["continue", "revise", "autonomous", "stop", "cancel"]) {
-    Deno.test(`pair checkpoint enforces ${decision} behavior`, async () => {
-        let workflow = /** @type {any} */ ({
-            planName: "visual-plan",
-            projectRoot: Deno.cwd(),
-            executionAgent: "frontend-engineer",
-        });
-        /** @type {any[]} */
-        const updates = [];
-        const hostedSession = /** @type {any} */ ({
-            cwd: Deno.cwd(),
-            getActiveExecutionWorkflow: () => workflow,
-            setActiveExecutionWorkflow: (/** @type {any} */ next) => workflow = next,
-            getInteractionAdapter: () => ({
-                requestInteraction: () =>
-                    Promise.resolve(
-                        decision === "cancel" ? { outcome: "canceled" } : {
-                            outcome: "selected",
-                            value: decision,
-                            _meta: decision === "revise" ? { feedback: "Tighten spacing" } : {},
-                        },
-                    ),
-            }),
-        });
-        const tool = createPairCheckpointTool({
-            hostedSession,
-            __deps: {
-                recordWorkflowMetric: () => Promise.resolve(null),
-            },
-        });
-
-        const result = await tool.execute(
-            "checkpoint-1",
-            {
-                summary: "Rendered settings form",
-                nextIncrement: "Polish validation states",
-            },
-            undefined,
-            undefined,
-            /** @type {any} */ ({}),
-        );
-        const expected = decision === "cancel" ? "stop" : decision;
-        assertEquals(result.details.outcome, expected);
-        assertEquals(workflow.pairStopRequested, expected === "stop" ? true : undefined);
-        assertEquals(updates.length, 0);
+Deno.test("Pair capability requires explicit pair checkpoint support", () => {
+    const unsupported = new HostedSession({
+        id: "pair-unsupported",
+        cwd: Deno.cwd(),
+        interactionAdapter: {
+            requestInteraction: () => ({ outcome: "selected", value: "pair" }),
+        },
     });
-}
+    const supported = new HostedSession({
+        id: "pair-supported",
+        cwd: Deno.cwd(),
+        interactionAdapter: {
+            supportsInteraction: (type) => type === "pair_checkpoint",
+            requestInteraction: () => ({ outcome: "selected", value: "pair" }),
+        },
+    });
+
+    assertEquals(supportsPairExecution(unsupported), false);
+    assertEquals(supportsPairExecution(supported), true);
+});
+
+Deno.test("post-execution decisions keep Pair pauses out of validation", () => {
+    const options = /** @type {const} */ ({
+        planName: "visual-plan",
+        triageMeta: { classification: "FEATURE" },
+        executionAgentName: "frontend-engineer",
+    });
+
+    assertEquals(
+        decidePostExecution(
+            { repairRequired: false, executionComplete: false, paused: true, pauseReason: "stop" },
+            options,
+        ),
+        {
+            kind: "stay_with_agent",
+            payload: {
+                agentName: "frontend-engineer",
+                reason: "execution_paused",
+                pauseReason: "stop",
+                error: undefined,
+            },
+        },
+    );
+    assertEquals(
+        decidePostExecution(
+            { repairRequired: false, executionComplete: false, canceled: true },
+            options,
+        ).payload.reason,
+        "execution_canceled",
+    );
+});

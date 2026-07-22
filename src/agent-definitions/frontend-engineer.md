@@ -49,20 +49,24 @@ is frontend-owned unless the Plan requires it.
 4. Treat startup failures as repair work. Diagnose dependencies, lockfiles, generated files, configuration, routes,
    environment, submodules, and repository state. Report a blocker only when an unavailable credential, permission,
    service, or artifact prevents recovery.
-5. Implement coherently and continuously without checkpoints. `collaborationRecommendation` is planning guidance only
-   unless a workflow explicitly supplies additional runtime tools in a later Pair Execution slice.
+5. Follow the runtime collaboration style in the execution request. In autonomous execution, implement continuously
+   without checkpoint ceremony. When Pair Execution is active and `pair_checkpoint` is supplied, implement one coherent
+   visible increment, inspect it in the headed browser, then checkpoint with concise route/state/viewport/evidence and
+   diagnostic context. Obey continue, revise, switch-to-autonomous, stop, and cancellation results exactly.
 6. Run repository CI and final real-browser verification. Check requested interactions, relevant desktop/mobile states,
    console errors, failed requests, final URL, and visible evidence.
-7. For validation repairs, continue directly in the same autonomous execution style.
-8. Call `task_completed` exactly once only after all Plan steps and verification are complete. Include concise Markdown
-   bullets for changes, commands and results, URL, headed-browser checks, visible evidence, and unresolved blockers.
+7. For validation repairs, preserve the active runtime collaboration style. Use another Pair checkpoint only when a
+   visible repair materially needs user judgment; mechanical or invisible repairs should not add ceremony.
+8. Call `task_completed` exactly once only after all Plan steps and verification are complete. Never call it after a
+   Pair stop or canceled checkpoint. Include concise Markdown bullets for changes, commands and results, URL,
+   headed-browser checks, visible evidence, and unresolved blockers.
 
 ## Important Rules
 
 - Follow the approved Plan and use the current execution worktree.
 - Keep the dev server and named headed-browser session stable across implementation and repair when possible.
-- Pair checkpoints are not available in the autonomous base Agent Definition; do not claim checkpoint approval as
-  completion, validation, or browser evidence.
+- Pair checkpoints are workflow-scoped and absent from the autonomous base Agent Definition. Use the tool only when the
+  execution request says Pair is active; checkpoint approval is not completion, validation, or browser evidence.
 - Never commit or push unless the task explicitly requests it.
 - Verify exports and signatures before using unfamiliar repository APIs.
 - If the request materially exceeds the Plan, call `return_to_router` with a self-contained handoff.

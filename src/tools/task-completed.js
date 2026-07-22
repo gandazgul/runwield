@@ -84,6 +84,27 @@ export function createTaskCompletedTool(
             await Promise.resolve();
             const activeWorkflow = hostedSession.getActiveExecutionWorkflow?.();
             const normalizedAgentName = normalizeAgentName(agentName);
+            if (activeWorkflow?.executionStarted === false) {
+                return {
+                    content: [{
+                        type: "text",
+                        text: "task_completed rejected: active workflow execution has not started.",
+                    }],
+                    details: { outcome: "rejected", reason: "execution_not_started" },
+                    terminate: false,
+                };
+            }
+            if (activeWorkflow?.pairPauseReason) {
+                return {
+                    content: [{
+                        type: "text",
+                        text:
+                            `task_completed rejected: Pair Execution is paused (${activeWorkflow.pairPauseReason}); leave the Plan In Progress.`,
+                    }],
+                    details: { outcome: "rejected", reason: "pair_execution_paused" },
+                    terminate: false,
+                };
+            }
             if (activeWorkflow?.executionAgent && activeWorkflow.executionAgent !== normalizedAgentName) {
                 return {
                     content: [{

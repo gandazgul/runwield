@@ -159,9 +159,14 @@ Deno.test("resolveSessionToolNames blocks runtime toolNames from re-enabling rem
     assert(!resolved.includes("bash"));
 });
 
-Deno.test("resolveSessionToolNames allows runtime custom tools", () => {
-    const resolved = resolveSessionToolNames(["read"], ["read"], ["extension_tool", "read"]);
-    assertEquals(resolved, ["read", "extension_tool"]);
+Deno.test("pair checkpoint cannot be re-enabled by static runtime tool names", () => {
+    const resolved = resolveSessionToolNames(["read"], ["read", "pair_checkpoint"], []);
+    assertEquals(resolved, ["read"]);
+});
+
+Deno.test("resolveSessionToolNames allows workflow runtime custom tools", () => {
+    const resolved = resolveSessionToolNames(["read"], ["read"], ["pair_checkpoint", "read"]);
+    assertEquals(resolved, ["read", "pair_checkpoint"]);
 });
 
 Deno.test("resolveEffectiveSessionToolNames filters return_to_router unless explicitly allowed", () => {
