@@ -9,7 +9,7 @@
  */
 
 /**
- * @typedef {"plan_feedback"|"plan_review_canceled"|"missing_plan_declaration"|"execution_incomplete"|"missing_execution_result"|"unknown_plan_outcome"} WorkflowDecisionReason
+ * @typedef {"plan_feedback"|"plan_review_canceled"|"missing_plan_declaration"|"execution_incomplete"|"execution_paused"|"execution_canceled"|"missing_execution_result"|"unknown_plan_outcome"} WorkflowDecisionReason
  */
 
 /**
@@ -145,6 +145,23 @@ export function decidePostExecution(executionResult, { planName, triageMeta, exe
 
     if (executionResult.executionComplete) {
         return decision("run_validation", { planName, triageMeta });
+    }
+
+    if (executionResult.canceled) {
+        return decision("stay_with_agent", {
+            agentName: executionAgentName,
+            reason: "execution_canceled",
+            error: executionResult.error,
+        });
+    }
+
+    if (executionResult.paused) {
+        return decision("stay_with_agent", {
+            agentName: executionAgentName,
+            reason: "execution_paused",
+            pauseReason: executionResult.pauseReason,
+            error: executionResult.error,
+        });
     }
 
     return decision("stay_with_agent", {
