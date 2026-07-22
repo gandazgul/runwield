@@ -320,6 +320,7 @@ Deno.test("startActiveExecutionWorkflow prompts once and uses CWD for non-Git in
     assertEquals(result.nonGitInPlace, true);
     assertEquals(result.worktreeId, undefined);
     assertEquals(hostedSession.getActiveExecutionWorkflow()?.nonGitInPlace, true);
+    assertEquals(hostedSession.getActiveExecutionWorkflow()?.executionStarted, true);
     assertEquals(/** @type {any} */ (events[0]).details.nonGitInPlace, true);
 });
 
@@ -346,6 +347,10 @@ Deno.test("startActiveExecutionWorkflow cancels non-Git execution without consen
         planName: "non-git-plan",
         triageMeta: { classification: "FEATURE" },
         executionAgent: "engineer",
+        executionStarted: false,
+        collaborationStyle: "autonomous",
+        collaborationRecommendation: "autonomous",
+        pairCheckpointCount: 0,
         projectRoot: Deno.cwd(),
         executionCwd: Deno.cwd(),
     });
@@ -372,6 +377,7 @@ Deno.test("startActiveExecutionWorkflow stores Frontend Engineer owner before no
     );
 
     assertEquals(hostedSession.getActiveExecutionWorkflow()?.executionAgent, "frontend-engineer");
+    assertEquals(hostedSession.getActiveExecutionWorkflow()?.executionStarted, false);
 });
 
 Deno.test("readLatestPlanOutcome returns the latest plan_written outcome", () => {
@@ -623,6 +629,190 @@ Deno.test("executePlan dispatches explicit Frontend Engineer from loaded Plan me
 
     assertEquals(result.executionComplete, true);
     assertEquals(dispatchedAgent, "frontend-engineer");
+});
+
+Deno.test("executePlan selects Pair before execution and injects one workflow checkpoint tool", async () => {
+    const hostedSession = makeHostedSession("pair-execution");
+    /** @type {any[]} */
+    const interactions = [];
+    /** @type {any} */
+    let activeTurn = null;
+    hostedSession.setInteractionAdapter({
+        supportsInteraction: (type) => type === "pair_checkpoint",
+        requestInteraction: (request) => {
+            interactions.push(request);
+            return Promise.resolve({ outcome: "selected", value: "pair" });
+        },
+    });
+
+    const result = await executePlan({
+        planName: "visual-feature",
+        triageMeta: { classification: "FEATURE" },
+        hostedSession,
+        __deps: {
+            loadPlan: () =>
+                Promise.resolve(
+                    /** @type {any} */ ({
+                        attrs: {
+                            status: "ready_for_work",
+                            classification: "FEATURE",
+                            executionAgent: "frontend-engineer",
+                            collaborationRecommendation: "pair",
+                        },
+                        body: "## Visual Feature",
+                    }),
+                ),
+            runActiveAgentTurn: (/** @type {any} */ opts) => {
+                activeTurn = opts;
+                return Promise.resolve(
+                    /** @type {any} */ ([{
+                        role: "toolResult",
+                        toolName: "task_completed",
+                        details: { outcome: "task_completed", message: "- Done." },
+                    }]),
+                );
+            },
+            probeGitRepository: () => Promise.resolve({ ok: false, state: "git_missing", cwd: Deno.cwd() }),
+            hasNonGitExecutionConsent: () => true,
+            recordPlanEvent: () => Promise.resolve(/** @type {any} */ ({})),
+            markActiveWorktreeStatus: () => Promise.resolve(),
+            recordWorkflowMetric: () => Promise.resolve(null),
+        },
+    });
+
+    assertEquals(result.executionComplete, true);
+    assertEquals(interactions.length, 1);
+    assertEquals(interactions[0].type, "select");
+    assertStringIncludes(interactions[0].prompt, "Planner recommendation: Pair Execution");
+    assertEquals(activeTurn.agentName, "frontend-engineer");
+    assertEquals(activeTurn.customTools.map((/** @type {any} */ tool) => tool.name), ["pair_checkpoint"]);
+    assertStringIncludes(activeTurn.userRequest, "Pair Execution is active");
+    assertEquals(hostedSession.getActiveExecutionWorkflow()?.collaborationStyle, "pair");
+    assertEquals(hostedSession.getActiveExecutionWorkflow()?.pairCheckpointCount, 0);
+});
+
+Deno.test("executePlan cancels collaboration selection before execution mutation", async () => {
+    const hostedSession = makeHostedSession("pair-selection-canceled");
+    hostedSession.setInteractionAdapter({
+        supportsInteraction: (type) => type === "pair_checkpoint",
+        requestInteraction: () => Promise.resolve({ outcome: "canceled" }),
+    });
+    let executed = false;
+    /** @type {any[]} */
+    const metrics = [];
+
+    const result = await executePlan({
+        planName: "visual-feature",
+        triageMeta: { classification: "FEATURE" },
+        hostedSession,
+        __deps: {
+            loadPlan: () =>
+                Promise.resolve(
+                    /** @type {any} */ ({
+                        attrs: {
+                            status: "ready_for_work",
+                            classification: "FEATURE",
+                            executionAgent: "frontend-engineer",
+                            collaborationRecommendation: "pair",
+                        },
+                        body: "## Visual Feature",
+                    }),
+                ),
+            executeSingleEngineerPlan: () => {
+                executed = true;
+                return Promise.resolve({ repairRequired: false, executionComplete: true });
+            },
+            recordWorkflowMetric: (/** @type {any} */ metric) => {
+                metrics.push(metric);
+                return Promise.resolve(null);
+            },
+        },
+    });
+
+    assertEquals(result.canceled, true);
+    assertEquals(result.executionComplete, false);
+    assertEquals(executed, false);
+    assertEquals(hostedSession.getActiveExecutionWorkflow(), null);
+    assertEquals(metrics.some((metric) => metric.event === "plan_execution_started"), false);
+});
+
+Deno.test("executePlan clears unusable Pair style when execution setup fails", async () => {
+    const hostedSession = makeHostedSession("pair-setup-failed");
+    hostedSession.setInteractionAdapter({
+        supportsInteraction: (type) => type === "pair_checkpoint",
+        requestInteraction: () => Promise.resolve({ outcome: "selected", value: "pair" }),
+    });
+    let activeTurnStarted = false;
+
+    const result = await executePlan({
+        planName: "visual-feature",
+        triageMeta: { classification: "FEATURE" },
+        hostedSession,
+        __deps: {
+            loadPlan: () =>
+                Promise.resolve(
+                    /** @type {any} */ ({
+                        attrs: {
+                            status: "ready_for_work",
+                            classification: "FEATURE",
+                            executionAgent: "frontend-engineer",
+                            collaborationRecommendation: "pair",
+                        },
+                        body: "## Visual Feature",
+                    }),
+                ),
+            probeGitRepository: () => Promise.resolve({ ok: false, state: "git_missing", cwd: Deno.cwd() }),
+            hasNonGitExecutionConsent: () => false,
+            confirmNonGitFeaturePlanExecution: () => Promise.resolve(false),
+            runActiveAgentTurn: () => {
+                activeTurnStarted = true;
+                return Promise.resolve([]);
+            },
+            recordWorkflowMetric: () => Promise.resolve(null),
+        },
+    });
+
+    assertEquals(result.executionComplete, false);
+    assertEquals(activeTurnStarted, false);
+    assertEquals(hostedSession.getActiveExecutionWorkflow()?.executionAgent, "frontend-engineer");
+    assertEquals(hostedSession.getActiveExecutionWorkflow()?.collaborationStyle, "autonomous");
+    assertEquals(hostedSession.getActiveExecutionWorkflow()?.executionStarted, false);
+});
+
+Deno.test("executePlan keeps legacy frontend execution autonomous without prompting", async () => {
+    const hostedSession = makeHostedSession("legacy-frontend-autonomous");
+    hostedSession.setInteractionAdapter({
+        supportsInteraction: (type) => type === "pair_checkpoint",
+        requestInteraction: () => {
+            throw new Error("legacy frontend must not prompt");
+        },
+    });
+    /** @type {any} */
+    let executionArgs = null;
+
+    const result = await executePlan({
+        planName: "legacy-visual-feature",
+        triageMeta: { classification: "FEATURE" },
+        hostedSession,
+        __deps: {
+            loadPlan: () =>
+                Promise.resolve(
+                    /** @type {any} */ ({
+                        attrs: { status: "ready_for_work", classification: "FEATURE", frontend: true },
+                        body: "## Legacy Visual Feature",
+                    }),
+                ),
+            executeSingleEngineerPlan: (args) => {
+                executionArgs = args;
+                return Promise.resolve({ repairRequired: false, executionComplete: false });
+            },
+            recordWorkflowMetric: () => Promise.resolve(null),
+        },
+    });
+
+    assertEquals(result.executionComplete, false);
+    assertEquals(executionArgs.collaborationStyle, "autonomous");
+    assertEquals(executionArgs.triageMeta.executionAgent, "frontend-engineer");
 });
 
 Deno.test("executePlan rejects invalid loaded policy before dispatch or lifecycle mutation", async () => {

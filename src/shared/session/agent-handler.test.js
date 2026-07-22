@@ -225,6 +225,57 @@ Deno.test("agent-handler skips validation when approved_execute did not complete
     assertEquals(validationCount, 0);
 });
 
+Deno.test("agent-handler does not switch agents when pre-execution selection is canceled", async () => {
+    /** @type {string[]} */
+    const switchedAgents = [];
+    /** @type {string[]} */
+    const attentionAgents = [];
+    const hostedSession = makeHostedSession("pre-execution-canceled");
+    hostedSession.setRootAgentName("planner");
+    hostedSession.setRootAgentSession(
+        /** @type {any} */ ({ agent: { state: { messages: [] } }, dispose: () => {} }),
+    );
+    const handler = createAgentHandler("planner", {
+        hostedSession,
+        runRootTurn: () => Promise.resolve(/** @type {any} */ ([])),
+        readLatestPlanOutcome: () => /** @type {any} */ ({
+            outcome: "approved_execute",
+            planName: "visual-plan",
+            triageMeta: {
+                classification: "FEATURE",
+                executionAgent: "frontend-engineer",
+                collaborationRecommendation: "pair",
+            },
+        }),
+        executePlan: /** @type {any} */ (() =>
+            Promise.resolve({
+                repairRequired: false,
+                executionComplete: false,
+                canceled: true,
+                error: "Collaboration style selection canceled before execution started.",
+            })),
+        switchActiveAgent: (
+            /** @type {HostedSession} */ _hostedSession,
+            /** @type {{ agentName: string }} */ options,
+        ) => {
+            switchedAgents.push(options.agentName);
+            return Promise.resolve({ ok: true, agentName: options.agentName, changed: true });
+        },
+        requestAttention: (
+            /** @type {HostedSession} */ _hostedSession,
+            /** @type {string} */ _reason,
+            /** @type {string} */ targetAgentName,
+        ) => attentionAgents.push(targetAgentName),
+    });
+
+    await handler("req", [], /** @type {any} */ (undefined));
+
+    assertEquals(switchedAgents, []);
+    assertEquals(attentionAgents, ["planner"]);
+    assertEquals(hostedSession.getRootAgentName(), "planner");
+    assertEquals(hostedSession.getActiveExecutionWorkflow(), null);
+});
+
 Deno.test("agent-handler keeps Engineer active when approved_execute execution is incomplete", async () => {
     /** @type {string[]} */
     const restoredAgents = [];
@@ -255,6 +306,162 @@ Deno.test("agent-handler keeps Engineer active when approved_execute execution i
     await handler("req", [], /** @type {any} */ (undefined));
     assertEquals(restoredAgents, ["engineer"]);
     assertEquals(attentionAgents, ["engineer"]);
+});
+
+Deno.test("agent-handler clears a transient Pair pause when the user resumes", async () => {
+    const hostedSession = makeHostedSession("pair-resume");
+    hostedSession.setRootAgentName("frontend-engineer");
+    hostedSession.setRootAgentSession(
+        /** @type {any} */ ({ agent: { state: { messages: [] } }, dispose: () => {} }),
+    );
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "visual-plan",
+        triageMeta: { classification: "FEATURE" },
+        executionAgent: "frontend-engineer",
+        collaborationStyle: "pair",
+        pairCheckpointCount: 1,
+        pairPauseReason: "stop",
+        pairStopRequested: true,
+    });
+    const handler = createAgentHandler("frontend-engineer", {
+        hostedSession,
+        runRootTurn: () => {
+            assertEquals(hostedSession.getActiveExecutionWorkflow()?.pairPauseReason, undefined);
+            assertEquals(hostedSession.getActiveExecutionWorkflow()?.pairStopRequested, undefined);
+            return Promise.resolve([]);
+        },
+        readLatestPlanOutcome: () => null,
+        readLatestTaskCompletedOutcome: () => false,
+    });
+
+    await handler("continue", [], /** @type {any} */ (undefined));
+
+    assertEquals(hostedSession.getActiveExecutionWorkflow()?.collaborationStyle, "pair");
+    assertEquals(hostedSession.getActiveExecutionWorkflow()?.pairCheckpointCount, 1);
+});
+
+Deno.test("agent-handler keeps a Pair pause for unrelated follow-up input", async () => {
+    const hostedSession = makeHostedSession("pair-unrelated-follow-up");
+    hostedSession.setRootAgentName("frontend-engineer");
+    hostedSession.setRootAgentSession(
+        /** @type {any} */ ({ agent: { state: { messages: [] } }, dispose: () => {} }),
+    );
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "visual-plan",
+        triageMeta: { classification: "FEATURE" },
+        executionAgent: "frontend-engineer",
+        collaborationStyle: "pair",
+        pairCheckpointCount: 1,
+        pairPauseReason: "stop",
+        pairStopRequested: true,
+    });
+    let validationCount = 0;
+    const handler = createAgentHandler("frontend-engineer", {
+        hostedSession,
+        runRootTurn: () => {
+            assertEquals(hostedSession.getActiveExecutionWorkflow()?.pairPauseReason, "stop");
+            assertEquals(hostedSession.getActiveExecutionWorkflow()?.pairStopRequested, true);
+            return Promise.resolve(
+                /** @type {any} */ ([{
+                    role: "toolResult",
+                    toolName: "task_completed",
+                    details: { outcome: "task_completed" },
+                }]),
+            );
+        },
+        readLatestPlanOutcome: () => null,
+        readLatestTaskCompletedOutcome: () => true,
+        runValidationLoop: () => {
+            validationCount++;
+            return Promise.resolve();
+        },
+    });
+
+    await handler("what changed so far?", [], /** @type {any} */ (undefined));
+
+    assertEquals(validationCount, 0);
+    assertEquals(hostedSession.getActiveExecutionWorkflow()?.pairPauseReason, "stop");
+    assertEquals(hostedSession.getActiveExecutionWorkflow()?.pairStopRequested, true);
+});
+
+Deno.test("agent-handler does not validate same-turn Task Completion after a Pair stop", async () => {
+    const hostedSession = makeHostedSession("pair-stop-completion");
+    hostedSession.setRootAgentName("frontend-engineer");
+    hostedSession.setRootAgentSession(
+        /** @type {any} */ ({ agent: { state: { messages: [] } }, dispose: () => {} }),
+    );
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "visual-plan",
+        triageMeta: { classification: "FEATURE" },
+        executionAgent: "frontend-engineer",
+        collaborationStyle: "pair",
+        pairCheckpointCount: 0,
+    });
+    let validationCount = 0;
+    const handler = createAgentHandler("frontend-engineer", {
+        hostedSession,
+        runRootTurn: () => {
+            const workflow = hostedSession.getActiveExecutionWorkflow();
+            if (!workflow) throw new Error("expected active workflow");
+            hostedSession.setActiveExecutionWorkflow({ ...workflow, pairPauseReason: "stop" });
+            return Promise.resolve(
+                /** @type {any} */ ([{
+                    role: "toolResult",
+                    toolName: "task_completed",
+                    details: { outcome: "task_completed" },
+                }]),
+            );
+        },
+        readLatestPlanOutcome: () => null,
+        readLatestTaskCompletedOutcome: () => true,
+        runValidationLoop: () => {
+            validationCount++;
+            return Promise.resolve();
+        },
+    });
+
+    await handler("implement", [], /** @type {any} */ (undefined));
+
+    assertEquals(validationCount, 0);
+    assertEquals(hostedSession.getActiveExecutionWorkflow()?.pairPauseReason, "stop");
+});
+
+Deno.test("agent-handler ignores Task Completion for execution that never started", async () => {
+    const hostedSession = makeHostedSession("execution-not-started");
+    hostedSession.setRootAgentName("frontend-engineer");
+    hostedSession.setRootAgentSession(
+        /** @type {any} */ ({ agent: { state: { messages: [] } }, dispose: () => {} }),
+    );
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "visual-plan",
+        triageMeta: { classification: "FEATURE" },
+        executionAgent: "frontend-engineer",
+        executionStarted: false,
+        collaborationStyle: "autonomous",
+    });
+    let validationCount = 0;
+    const handler = createAgentHandler("frontend-engineer", {
+        hostedSession,
+        runRootTurn: () =>
+            Promise.resolve(
+                /** @type {any} */ ([{
+                    role: "toolResult",
+                    toolName: "task_completed",
+                    details: { outcome: "task_completed" },
+                }]),
+            ),
+        readLatestPlanOutcome: () => null,
+        readLatestTaskCompletedOutcome: () => true,
+        runValidationLoop: () => {
+            validationCount++;
+            return Promise.resolve();
+        },
+    });
+
+    await handler("continue", [], /** @type {any} */ (undefined));
+
+    assertEquals(validationCount, 0);
+    assertEquals(hostedSession.getActiveExecutionWorkflow()?.executionStarted, false);
 });
 
 Deno.test("agent-handler does NOT call executePlan when outcome is saved", async () => {

@@ -198,6 +198,48 @@ Deno.test("HostedSession rejects ownerless active execution workflows", () => {
     assertEquals(session.getActiveExecutionWorkflow(), null);
 });
 
+Deno.test("HostedSession validates Pair execution runtime state", () => {
+    const session = new HostedSession({ id: "pair-state", cwd: "/work/pair-state" });
+    session.setActiveExecutionWorkflow({
+        planName: "visual-plan",
+        triageMeta: { classification: "FEATURE" },
+        executionAgent: "frontend-engineer",
+        collaborationStyle: "pair",
+        collaborationRecommendation: "pair",
+        pairCheckpointCount: 2,
+        pairPauseReason: "stop",
+    });
+
+    assertEquals(session.getActiveExecutionWorkflow()?.collaborationStyle, "pair");
+    assertThrows(
+        () =>
+            session.setActiveExecutionWorkflow(
+                /** @type {any} */ ({
+                    planName: "visual-plan",
+                    triageMeta: {},
+                    executionAgent: "frontend-engineer",
+                    collaborationStyle: "live",
+                }),
+            ),
+        Error,
+        "collaborationStyle must be autonomous or pair",
+    );
+    assertThrows(
+        () =>
+            session.setActiveExecutionWorkflow(
+                /** @type {any} */ ({
+                    planName: "visual-plan",
+                    triageMeta: {},
+                    executionAgent: "frontend-engineer",
+                    collaborationStyle: "pair",
+                    pairCheckpointCount: -1,
+                }),
+            ),
+        Error,
+        "pairCheckpointCount must be a non-negative integer",
+    );
+});
+
 Deno.test("HostedSession hydrates and persists workflow context defensively", () => {
     /** @type {Array<Record<string, unknown>>} */
     const entries = [

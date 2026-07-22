@@ -61,6 +61,21 @@ export const RuntimeInteractionOutcomes = Object.freeze({
  * @property {() => void} [cancelAll]
  */
 
+/**
+ * @param {import('./hosted-session.js').HostedSession | undefined | null} hostedSession
+ * @param {string} type
+ * @returns {boolean}
+ */
+export function supportsHostedSessionInteraction(hostedSession, type) {
+    const adapter = hostedSession?.getInteractionAdapter?.();
+    if (!adapter || typeof adapter.supportsInteraction !== "function") return false;
+    try {
+        return adapter.supportsInteraction(type) === true;
+    } catch {
+        return false;
+    }
+}
+
 /** @param {unknown} value */
 function isAbortError(value) {
     return value instanceof DOMException && value.name === "AbortError";
