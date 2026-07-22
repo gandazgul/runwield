@@ -519,10 +519,10 @@ export function createUiApi(
 
         /**
          * @param {string} title
-         * @param {{ defaultValue?: string, placeholder?: string, allowEmpty?: boolean }} [opts]
+         * @param {{ defaultValue?: string, placeholder?: string, allowEmpty?: boolean, persistResult?: boolean }} [opts]
          */
         promptText: (title, opts = {}) => {
-            const { defaultValue, placeholder, allowEmpty = true } = opts;
+            const { defaultValue, placeholder, allowEmpty = true, persistResult = true } = opts;
 
             return new Promise((resolve) => {
                 const hints = ["enter submit", "esc cancel"];
@@ -546,7 +546,7 @@ export function createUiApi(
                     activePromptCancel = null;
                     activePromptContainer.removeChild(block);
                     activePromptContainer.removeChild(spacer);
-                    if (!outputSuppressed) {
+                    if (persistResult && !outputSuppressed) {
                         block.settle(value);
                         messageList.addChild(block);
                         messageList.addChild(spacer);
