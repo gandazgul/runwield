@@ -309,19 +309,19 @@ Use `wld load-plan <name-or-path>` to:
 Bundled agent definitions live in [`src/agent-definitions/`](src/agent-definitions/). They are markdown files with front
 matter for name, model, description, and tools.
 
-| Agent     | Purpose                                                                    |
-| --------- | -------------------------------------------------------------------------- |
-| Router    | Default triage Agent that calls `triage_report`.                           |
-| Guide     | Answers `INQUIRY` requests and provides direct help or explanation.        |
-| Ideator   | Researches and sharpens `IDEATION` requests before planning.               |
-| Operator  | Executes direct `OPERATION` work without code implementation.              |
-| Engineer  | Implements approved plans and bounded no-plan `QUICK_FIX` code changes.    |
-| Planner   | Writes reviewable plans for `FEATURE` work.                                |
-| Architect | Designs `PROJECT` plans without implementing code.                         |
-| Slicer    | Decomposes approved PROJECT Epics into child FEATURE plans.                |
-| Engineer  | Implements approved executable plans and uses skills for specialized work. |
-| Tester    | Writes, updates, and runs tests for assigned work.                         |
-| Reviewer  | Compares the final diff against the original plan.                         |
+| Agent     | Purpose                                                                                               |
+| --------- | ----------------------------------------------------------------------------------------------------- |
+| Router    | Default triage Agent that calls `triage_report`.                                                      |
+| Guide     | Answers `INQUIRY` requests; on explicit follow-up, can save ordinary `.md` docs with docs-only tools. |
+| Ideator   | Researches and sharpens `IDEATION` requests before planning.                                          |
+| Operator  | Executes direct `OPERATION` work without code implementation.                                         |
+| Engineer  | Implements approved plans and bounded no-plan `QUICK_FIX` code changes.                               |
+| Planner   | Writes reviewable plans for `FEATURE` work.                                                           |
+| Architect | Designs `PROJECT` plans without implementing code.                                                    |
+| Slicer    | Decomposes approved PROJECT Epics into child FEATURE plans.                                           |
+| Engineer  | Implements approved executable plans and uses skills for specialized work.                            |
+| Tester    | Writes, updates, and runs tests for assigned work.                                                    |
+| Reviewer  | Compares the final diff against the original plan.                                                    |
 
 ### Agent Overrides
 

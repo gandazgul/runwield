@@ -17,14 +17,14 @@ wld router "fix the bug in the parser"
 
 Router is the default Agent for fresh triage. It calls `triage_report`, and that tool outcome starts the workflow:
 
-| Routing intent | Use when                                            | Typical path                                                                                                          |
-| -------------- | --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `INQUIRY`      | The user needs an answer, explanation, or guidance. | Guide answers directly and can return to Router if the request becomes executable work.                               |
-| `IDEATION`     | The user wants to explore or sharpen an idea.       | Ideator interviews, researches, and produces a PRD or synthesis before routing implementation back through Router.    |
-| `OPERATION`    | Direct non-code repository/environment work.        | Operator executes directly and self-verifies; no RunWield validation loop runs afterward.                             |
-| `QUICK_FIX`    | Bounded no-plan code implementation.                | Engineer implements directly, then RunWield runs Mechanical Validation only.                                          |
-| `FEATURE`      | Non-trivial implementation needs a reviewable plan. | Planner records an owner; Engineer or Frontend Engineer executes it, then RunWield validates it.                      |
-| `PROJECT`      | Large work needs architecture and slicing.          | Architect designs the Epic, interactive Slicer creates child FEATURE plans, execution proceeds one feature at a time. |
+| Routing intent | Use when                                            | Typical path                                                                                                                                     |
+| -------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `INQUIRY`      | The user needs an answer, explanation, or guidance. | Guide answers directly, can preserve ordinary `.md` docs on explicit follow-up, and can return to Router if the request becomes executable work. |
+| `IDEATION`     | The user wants to explore or sharpen an idea.       | Ideator interviews, researches, and produces a PRD or synthesis before routing implementation back through Router.                               |
+| `OPERATION`    | Direct non-code repository/environment work.        | Operator executes directly and self-verifies; no RunWield validation loop runs afterward.                                                        |
+| `QUICK_FIX`    | Bounded no-plan code implementation.                | Engineer implements directly, then RunWield runs Mechanical Validation only.                                                                     |
+| `FEATURE`      | Non-trivial implementation needs a reviewable plan. | Planner records an owner; Engineer or Frontend Engineer executes it, then RunWield validates it.                                                 |
+| `PROJECT`      | Large work needs architecture and slicing.          | Architect designs the Epic, interactive Slicer creates child FEATURE plans, execution proceeds one feature at a time.                            |
 
 ## Interactive sessions
 
@@ -36,7 +36,9 @@ wld
 
 A new interactive session starts with Router. After `triage_report` dispatches to Guide, Ideator, Operator, Planner,
 Architect, or another specialist, that specialist remains the active root agent so follow-up messages stay in the same
-working context.
+working context. When Guide has already produced a useful explanation, you can explicitly ask it to save or update an
+ordinary `.md` document using its docs-only tools; this is an in-session preservation follow-up, not a Router routing
+change.
 
 Use:
 

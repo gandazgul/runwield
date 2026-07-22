@@ -12,6 +12,16 @@ Deno.test("Runtime provides one stable tool descriptor for live, replay, TUI, AC
         title: "read README.md",
         kind: "read",
     });
+    assertEquals(describeRuntimeTool("write_docs", { path: "docs/report.md" }), {
+        toolName: "write_docs",
+        title: "write_docs docs/report.md",
+        kind: "edit",
+    });
+    assertEquals(describeRuntimeTool("edit_docs", { path: "docs/report.md" }), {
+        toolName: "edit_docs",
+        title: "edit_docs docs/report.md",
+        kind: "edit",
+    });
     assertEquals(describeRuntimeTool("grep", { pattern: "SessionRuntime", path: ["src", "tests"] }), {
         toolName: "grep",
         title: "grep SessionRuntime in src tests",

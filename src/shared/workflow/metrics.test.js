@@ -159,6 +159,8 @@ Deno.test("classifyToolSubUsage returns coarse categories only", () => {
     assertEquals(classifyToolSubUsage("code_search", { query: "private query" }), "search");
     assertEquals(classifyToolSubUsage("memory_store", { content: "private memory text" }), "write");
     assertEquals(classifyToolSubUsage("write", { content: "file contents" }), "write");
+    assertEquals(classifyToolSubUsage("write_docs", { content: "file contents" }), "write");
+    assertEquals(classifyToolSubUsage("edit_docs", { oldText: "before", newText: "after" }), "edit");
 });
 
 Deno.test("tool usage metrics omit raw commands, queries, file contents, messages, and results", () => {
