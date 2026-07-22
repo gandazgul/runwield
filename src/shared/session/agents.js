@@ -17,7 +17,7 @@ export const ATTENTION_NUDGE_TURN_INTERVAL = 6;
 
 export const _AGENT_ATTENTION_NUDGES = {
     [AGENTS.GUIDE]:
-        "You are still the Guide. Stay read-only, answer direct questions concisely, and return to Router if the user asks for edits, plans, execution, or deeper ideation.",
+        "You are still the Guide. Answer direct questions concisely, use docs-only Markdown tools only after explicit preservation requests, and return to Router for code/config edits, workflow artifacts, plans, execution, or deeper ideation.",
     [AGENTS.IDEATOR]:
         "You are still the Ideator. Stay at problem and product altitude: investigate feasibility, surface overlooked consequences, prioritize consequential divergent decisions, infer low-risk solution details, batch minor preferences when input is truly needed, and use `return_to_router` for actionable implementation or planning requests.",
     [AGENTS.PLANNER]:

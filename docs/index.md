@@ -104,7 +104,9 @@ User-selectable bundled agents include `router`, `guide`, `ideator`, `operator`,
 validation; they do not appear in normal `/agent` listings.
 
 Documentation work no longer has a dedicated agent. It is handled through the bundled `documentation` skill, which any
-agent (Operator, Engineer, etc.) loads automatically when a task involves updating Markdown project docs. The full list
+agent with suitable file-mutation tools loads automatically when a task involves updating Markdown project docs. Guide
+also has docs-only `write_docs` and `edit_docs` tools for explicit in-session requests to preserve an answer,
+walkthrough, or report as an ordinary `.md` document; Router dispatch and Operator behavior are unchanged. The full list
 of bundled skills is available under [`docs/customization.md`](customization.md).
 
 ### Use plans for non-trivial work

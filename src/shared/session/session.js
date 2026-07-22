@@ -19,6 +19,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import { createEditWithFallbackToolDefinition } from "../../tools/edit-with-fallback.js";
+import { createEditDocsToolDefinition, createWriteDocsToolDefinition } from "../../tools/docs-file-tools.js";
 import { createRunWieldGrepToolDefinition } from "../../tools/grep.js";
 import { extractYaml, test as hasFrontMatter } from "@std/front-matter";
 import { dirname, join } from "@std/path";
@@ -1709,6 +1710,14 @@ export async function buildAgentSession({
     if (tools.includes("multi_file_edit") && !finalCustomTools.find((t) => t.name === "multi_file_edit")) {
         const { createMultiFileEditTool } = await import("../../tools/multi_file_edit.js");
         finalCustomTools.push(createMultiFileEditTool(sessionCwd));
+    }
+
+    if (tools.includes("write_docs") && !finalCustomTools.find((t) => t.name === "write_docs")) {
+        finalCustomTools.push(createWriteDocsToolDefinition(sessionCwd));
+    }
+
+    if (tools.includes("edit_docs") && !finalCustomTools.find((t) => t.name === "edit_docs")) {
+        finalCustomTools.push(createEditDocsToolDefinition(sessionCwd));
     }
 
     if (tools.includes("see_image") && visionFallback && !finalCustomTools.find((t) => t.name === "see_image")) {
