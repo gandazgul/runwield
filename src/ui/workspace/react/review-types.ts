@@ -32,6 +32,7 @@
  * @property {unknown[]} [annotations]
  * @property {string} [plan]
  * @property {string} [savedPath]
+ * @property {"run"|"decompose"|"later"} [approvalAction]
  * @property {boolean} [exit]
  * @property {string} [agentSwitch]
  * @property {string} [permissionMode]

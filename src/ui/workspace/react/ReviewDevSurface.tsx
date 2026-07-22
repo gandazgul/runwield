@@ -109,6 +109,15 @@ Lorem ipsum dolor sit amet, consectetur adipiscing elit. Vestibulum lacinia arcu
 ad litora torquent per conubia nostra per inceptos himenaeos curabitur sodales ligula in libero.
 `;
 
+const PROJECT_PLAN_FIXTURE = PLAN_FIXTURE
+    .replace('classification: "FEATURE"', 'classification: "PROJECT"')
+    .replace(
+        'summary: "Fixture test plan for exercising every Plan Review UI interaction"',
+        'summary: "Fixture PROJECT Epic for exercising approval and Slicer review actions"',
+    )
+    .replace("frontend: true", 'frontend: true\nepicCompletionMode: "manual"')
+    .replace("# Fixture Test Plan: Plan Review UI", "# Fixture PROJECT Epic: Plan Review UI");
+
 const CODE_REVIEW_FIXTURE = `diff --git a/src/review/feedback.js b/src/review/feedback.js
 index 1111111..2222222 100644
 --- a/src/review/feedback.js
@@ -461,11 +470,40 @@ function buildCodeReviewDevPayload(variant) {
 export function ReviewDevSurface({ surface }) {
     const isPlan = surface === "plan";
     const [guideVariant, setGuideVariant] = React.useState("ready");
-    const payload = isPlan
-        ? { plan: PLAN_FIXTURE, token: "dev-plan-review", mode: "dev" }
-        : buildCodeReviewDevPayload(guideVariant);
+    const [planVariant, setPlanVariant] = React.useState("feature");
+    const planPayload = {
+        plan: planVariant === "project" ? PROJECT_PLAN_FIXTURE : PLAN_FIXTURE,
+        token: `dev-plan-review-${planVariant}`,
+        mode: "dev",
+    };
+    const payload = isPlan ? planPayload : buildCodeReviewDevPayload(guideVariant);
 
-    if (isPlan) return React.createElement(PlanReviewSurface, { payload });
+    if (isPlan) {
+        return React.createElement(
+            React.Fragment,
+            null,
+            React.createElement(
+                "nav",
+                { className: "rw-dev-fixture-switcher", "aria-label": "Plan Review dev fixtures" },
+                [
+                    { id: "feature", label: "FEATURE Plan" },
+                    { id: "project", label: "PROJECT Epic" },
+                ].map((variant) =>
+                    React.createElement(
+                        "button",
+                        {
+                            key: variant.id,
+                            type: "button",
+                            className: planVariant === variant.id ? "active" : "",
+                            onClick: () => setPlanVariant(variant.id),
+                        },
+                        variant.label,
+                    )
+                ),
+            ),
+            React.createElement(PlanReviewSurface, { key: planVariant, payload }),
+        );
+    }
 
     return React.createElement(
         React.Fragment,

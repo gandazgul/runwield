@@ -4,8 +4,8 @@
  * run the review-and-approve lifecycle.
  *
  * createPlanWrittenTool captures hosted-session context and triage metadata at session-start
- * time. The tool runs review (and optional save-vs-execute prompt) inside execute,
- * but does NOT execute the plan — that's the orchestrator's job after the planning
+ * time. The tool runs review inside execute, but does NOT execute the plan — that's
+ * the orchestrator's job after the planning
  * session ends. The outcome (`approved_execute`, `approved_decompose`, `saved`, `feedback`, `canceled`,
  * `repair_required`) is returned via `details.outcome` so the orchestrator can
  * dispatch the next agent, while `feedback` and `repair_required` keep the planner
@@ -18,6 +18,7 @@ import { defineTool } from "@earendil-works/pi-coding-agent";
 import { CLI_BIN, PLANS_DIR_NAME } from "../constants.js";
 import { loadPlan, resolvePlanExecutionPolicy } from "../plan-store.js";
 import { recordPlanEvent } from "../shared/workflow/plan-lifecycle.js";
+import { normalizePlanApprovalAction, PLAN_APPROVAL_ACTIONS } from "../shared/workflow/plan-approval.js";
 import { recordWorkflowMetric } from "../shared/workflow/metrics.js";
 import {
     emitHostedSessionRuntimeEvent,
@@ -167,8 +168,6 @@ async function resolveTriageMeta(triageMeta, planName, cwd) {
 /**
  * @typedef {Object} PlanWrittenDeps
  * @property {typeof requestHostedSessionInteraction} [requestPlanReview]
- * @property {(planName: string, hostedSession: import('../shared/session/hosted-session.js').HostedSession) => Promise<"proceed" | "save">} [askPostApproval]
- * @property {(planName: string, hostedSession: import('../shared/session/hosted-session.js').HostedSession) => Promise<"proceed" | "save">} [askProjectDecompositionApproval]
  * @property {typeof recordPlanEvent} [recordPlanEvent]
  * @property {typeof recordWorkflowMetric} [recordWorkflowMetric]
  * @property {(path: string) => Promise<{ isFile: boolean }>} [stat]
@@ -277,12 +276,7 @@ export function createPlanWrittenTool(
             emitSystemStatus(hostedSession, `[RunWield] Plan declared: plans/${planName}.md`);
             updateToolBlock("Opening browser review UI.");
 
-            // Lazy imports break the circular dep: plan-written → workflow → session → plan-written.
             const requestPlanReview = deps.requestPlanReview || requestHostedSessionInteraction;
-            const workflow = await import("../shared/workflow/workflow.js");
-            const askPostApproval = deps.askPostApproval || workflow.askPostApproval;
-            const askProjectDecompositionApproval = deps.askProjectDecompositionApproval ||
-                workflow.askProjectDecompositionApproval;
             const recordPlanEventFn = deps.recordPlanEvent || recordPlanEvent;
             const recordWorkflowMetricSource = deps.recordWorkflowMetric || recordWorkflowMetric;
             /** @param {Parameters<typeof recordWorkflowMetricSource>[0]} metric */
@@ -302,6 +296,7 @@ export function createPlanWrittenTool(
                 approved: reviewMeta.approved === true,
                 feedback: typeof reviewMeta.feedback === "string" ? reviewMeta.feedback : undefined,
                 images: Array.isArray(reviewMeta.images) ? reviewMeta.images : undefined,
+                approvalAction: reviewMeta.approvalAction,
             };
 
             if (reviewMeta.remoteReview === true) {
@@ -375,6 +370,11 @@ export function createPlanWrittenTool(
                 );
             }
 
+            const action = normalizePlanApprovalAction({
+                classification: effectiveMeta.classification,
+                action: reviewResult.approvalAction,
+            });
+
             if (effectiveMeta.classification === "PROJECT") {
                 const projectMeta = { ...effectiveMeta };
                 await recordPlanEventFn({
@@ -397,14 +397,13 @@ export function createPlanWrittenTool(
                     { header: "RunWield" },
                 );
 
-                const action = await askProjectDecompositionApproval(planName, hostedSession);
-                if (action !== "proceed") {
+                if (action !== PLAN_APPROVAL_ACTIONS.DECOMPOSE) {
                     await recordWorkflowMetricFn({
                         category: "planning",
                         event: "review_outcome",
                         agentName,
                         planName,
-                        details: { outcome: "saved", classification: "PROJECT", projectAction: action },
+                        details: { outcome: "saved", classification: "PROJECT", approvalAction: action },
                     });
                     emitSystemStatus(
                         hostedSession,
@@ -436,7 +435,7 @@ export function createPlanWrittenTool(
                     details: {
                         outcome: "approved_decompose",
                         classification: "PROJECT",
-                        projectAction: "decomposition_requested",
+                        approvalAction: action,
                     },
                 });
                 const slicerFeedbackSuffix = reviewResult.feedback
@@ -454,36 +453,34 @@ export function createPlanWrittenTool(
                     true,
                     reviewResult.images,
                 );
-            } else {
-                await recordPlanEventFn({
-                    cwd,
-                    planName,
-                    event: "readiness_passed",
-                    currentStatus: "approved",
-                    details: { triageMeta: effectiveMeta },
-                });
-                await recordWorkflowMetricFn({
-                    category: "planning",
-                    event: "readiness_outcome",
-                    agentName,
-                    planName,
-                    details: {
-                        outcome: "passed",
-                        classification: effectiveMeta.classification,
-                        lifecycleEvent: "readiness_passed",
-                    },
-                });
             }
 
-            const action = await askPostApproval(planName, hostedSession);
+            await recordPlanEventFn({
+                cwd,
+                planName,
+                event: "readiness_passed",
+                currentStatus: "approved",
+                details: { triageMeta: effectiveMeta },
+            });
+            await recordWorkflowMetricFn({
+                category: "planning",
+                event: "readiness_outcome",
+                agentName,
+                planName,
+                details: {
+                    outcome: "passed",
+                    classification: effectiveMeta.classification,
+                    lifecycleEvent: "readiness_passed",
+                },
+            });
 
-            if (action !== "proceed") {
+            if (action !== PLAN_APPROVAL_ACTIONS.RUN) {
                 await recordWorkflowMetricFn({
                     category: "planning",
                     event: "review_outcome",
                     agentName,
                     planName,
-                    details: { outcome: "saved", classification: effectiveMeta.classification, action },
+                    details: { outcome: "saved", classification: effectiveMeta.classification, approvalAction: action },
                 });
                 emitSystemStatus(
                     hostedSession,
@@ -506,7 +503,11 @@ export function createPlanWrittenTool(
                 event: "review_outcome",
                 agentName,
                 planName,
-                details: { outcome: "approved_execute", classification: effectiveMeta.classification, action },
+                details: {
+                    outcome: "approved_execute",
+                    classification: effectiveMeta.classification,
+                    approvalAction: action,
+                },
             });
             const execFeedbackSuffix = reviewResult.feedback
                 ? `\n\nFeedback/annotations from review: ${reviewResult.feedback}`

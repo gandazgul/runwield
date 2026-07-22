@@ -115,8 +115,6 @@ function makeRuntimeFixture(options = {}) {
                 state.workflow = null;
                 return { ok: true };
             },
-            askPostApproval: () => Promise.resolve("cancel"),
-            askProjectDecompositionApproval: () => Promise.resolve("cancel"),
             /** @param {string} _id @param {any} request */
             requestInteraction: (_id, request) =>
                 Promise.resolve(
@@ -1693,7 +1691,6 @@ Deno.test("runLoadPlanCommand approved review uses the Runtime review interactio
                         status: "approved",
                     },
                 }),
-            askPostApproval: () => Promise.resolve("save"),
             executePlan: () => {
                 executed = true;
                 return Promise.resolve(undefined);
@@ -1705,6 +1702,46 @@ Deno.test("runLoadPlanCommand approved review uses the Runtime review interactio
 
     assertEquals(submitCalled, true);
     assertEquals(executed, false);
+});
+
+Deno.test("runLoadPlanCommand approved review run action executes without post-approval prompt", async () => {
+    const { uiAPI, selections } = makeUi();
+    selections.push("review");
+    let executed = false;
+    const fixture = makeRuntimeFixture({
+        requestInteraction: () => ({ outcome: "accepted", _meta: { approved: true, approvalAction: "run" } }),
+    });
+
+    await runLoadPlanCommand(["plan-run-now"], {
+        ...fixture.context,
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: () => ({ help: false, _: ["plan-run-now"] }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "plan-run-now",
+                    path: "plans/plan-run-now.md",
+                    body: "body",
+                    attrs: {
+                        classification: "FEATURE",
+                        complexity: "LOW",
+                        summary: "s",
+                        affectedPaths: [],
+                        status: "approved",
+                    },
+                }),
+            executePlan: () => {
+                executed = true;
+                return Promise.resolve({ repairRequired: false, executionComplete: true });
+            },
+            runValidationLoop: () => Promise.resolve({ ok: true }),
+            recordPlanEvent: noOpRecordPlanEvent,
+            resetTuiState: () => {},
+        }),
+    });
+
+    assertEquals(executed, true);
 });
 
 Deno.test("runLoadPlanCommand reapproval abandons the prior worktree generation", async () => {
@@ -1771,7 +1808,6 @@ Deno.test("runLoadPlanCommand reapproval abandons the prior worktree generation"
                 }
                 return Promise.resolve({ ...event.details.triageMeta, status: "ready_for_work" });
             },
-            askPostApproval: () => Promise.resolve("save"),
             resetTuiState: () => {},
         }),
     });
@@ -2054,6 +2090,46 @@ Deno.test("runLoadPlanCommand approved review proceed keeps plan owner without t
     });
 
     assertEquals(fixture.state.agentHistory, [AGENTS.ARCHITECT]);
+});
+
+Deno.test("runLoadPlanCommand approved PROJECT review decompose action starts Slicer", async () => {
+    const { uiAPI, selections } = makeUi();
+    selections.push("review");
+    let slicerCalled = false;
+    const fixture = makeRuntimeFixture({
+        requestInteraction: () => ({ outcome: "accepted", _meta: { approved: true, approvalAction: "decompose" } }),
+    });
+
+    await runLoadPlanCommand(["plan-project-decompose"], {
+        ...fixture.context,
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: () => ({ help: false, _: ["plan-project-decompose"] }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "plan-project-decompose",
+                    path: "plans/plan-project-decompose.md",
+                    body: "body",
+                    markdown: "markdown",
+                    attrs: {
+                        classification: "PROJECT",
+                        complexity: "HIGH",
+                        summary: "s",
+                        affectedPaths: [],
+                        status: "approved",
+                    },
+                }),
+            runSlicerAgent: () => {
+                slicerCalled = true;
+                return Promise.resolve({ ok: true });
+            },
+            recordPlanEvent: noOpRecordPlanEvent,
+            resetTuiState: () => {},
+        }),
+    });
+
+    assertEquals(slicerCalled, true);
 });
 
 Deno.test("runLoadPlanCommand approved review kicks off planner on denial", async () => {
