@@ -13,6 +13,7 @@ import {
     findPlansByParent as findPlansByParentFn,
     loadPlan as loadPlanFn,
     resolvePlan as resolvePlanFn,
+    resolvePlanExecutionPolicy,
     resolveSiblingChildPlanDependencies as resolveSiblingChildPlanDependenciesFn,
     updatePlanFrontMatter as updatePlanFrontMatterFn,
 } from "../../plan-store.js";
@@ -800,6 +801,8 @@ async function handleOnHoldPlan({
  * @param {typeof loadPlanFn} loadPlan
  * @param {RecoveryWorktreeContext | null} worktreeContext
  * @param {PlanSessionSurface} session
+ * @param {import('../../ui/tui/types.js').UiAPI} [uiAPI]
+ * @returns {Promise<boolean>}
  */
 async function validateCompletedExecution(
     executionResult,
@@ -810,38 +813,55 @@ async function validateCompletedExecution(
     loadPlan,
     worktreeContext,
     session,
+    uiAPI,
 ) {
     const projectRoot = session.cwd;
-    if (!(executionResult && typeof executionResult === "object" && "executionComplete" in executionResult)) return;
-    if (!/** @type {{ executionComplete?: boolean }} */ (executionResult).executionComplete) return;
+    if (!(executionResult && typeof executionResult === "object" && "executionComplete" in executionResult)) {
+        return false;
+    }
+    if (!/** @type {{ executionComplete?: boolean }} */ (executionResult).executionComplete) return false;
     let planContent = fallbackPlanContent;
+    let effectiveMeta = triageMeta;
     try {
         const latestPlan = await loadPlan(projectRoot, planName);
         planContent = latestPlan?.markdown || latestPlan?.body || fallbackPlanContent;
+        if (latestPlan?.attrs) effectiveMeta = latestPlan.attrs;
     } catch {
         // Keep fallback content in tests or if the plan was removed.
     }
-    if (triageMeta.executionBaselineTree) {
-        /** @type {{ planName: string, triageMeta: import('../../plan-store.js').PlanFrontMatter, baselineTree: string, projectRoot?: string, executionCwd?: string, worktreeId?: string, worktreeBranch?: string }} */
-        const workflow = {
-            planName,
-            triageMeta,
-            baselineTree: triageMeta.executionBaselineTree,
-        };
-        const executionCwd = worktreeContext?.path || triageMeta.worktreePath;
-        const worktreeId = worktreeContext?.id || triageMeta.worktreeId;
-        const worktreeBranch = worktreeContext?.branch || triageMeta.worktreeBranch;
-        if (executionCwd || worktreeId || worktreeBranch) workflow.projectRoot = projectRoot;
-        if (executionCwd) workflow.executionCwd = executionCwd;
-        if (worktreeId) workflow.worktreeId = worktreeId;
-        if (worktreeBranch) workflow.worktreeBranch = worktreeBranch;
-        session.setActiveExecutionWorkflow(workflow);
+    const policy = resolvePlanExecutionPolicy(effectiveMeta);
+    if (!policy.ok) {
+        if (uiAPI) {
+            reportInvalidRecoveryPolicy("validate", planName, policy.error, uiAPI);
+            return false;
+        }
+        throw new Error(policy.error);
     }
+    /** @type {{ planName: string, triageMeta: import('../../plan-store.js').PlanFrontMatter, executionAgent: string, baselineTree?: string, projectRoot: string, executionCwd?: string, worktreeId?: string, worktreeBranch?: string, nonGitInPlace?: boolean }} */
+    const workflow = {
+        planName,
+        triageMeta: effectiveMeta,
+        executionAgent: policy.policy.executionAgent,
+        projectRoot,
+    };
+    if (effectiveMeta.executionBaselineTree) workflow.baselineTree = effectiveMeta.executionBaselineTree;
+    const executionCwd = worktreeContext?.path || effectiveMeta.worktreePath;
+    const worktreeId = worktreeContext?.id || effectiveMeta.worktreeId;
+    const worktreeBranch = worktreeContext?.branch || effectiveMeta.worktreeBranch;
+    if (executionCwd) workflow.executionCwd = executionCwd;
+    if (worktreeId) workflow.worktreeId = worktreeId;
+    if (worktreeBranch) workflow.worktreeBranch = worktreeBranch;
+    if (!workflow.baselineTree && !executionCwd && !worktreeId && !worktreeBranch) {
+        workflow.executionCwd = projectRoot;
+        workflow.nonGitInPlace = true;
+    }
+    session.setActiveExecutionWorkflow(workflow);
     await runValidationLoop({
         planName,
         planContent,
-        triageMeta,
+        triageMeta: effectiveMeta,
     });
+    return true;
 }
 
 /**
@@ -935,10 +955,11 @@ async function executePostPlanningDecision({
         planName,
         triageMeta,
     });
+    const policy = resolvePlanExecutionPolicy(triageMeta);
     const executionDecision = decidePostExecution(execRes, {
         planName,
         triageMeta,
-        executionAgentName: AGENTS.ENGINEER,
+        executionAgentName: policy.ok ? policy.policy.executionAgent : AGENTS.ENGINEER,
     });
     await validatePostExecutionDecision({
         executionDecision,
@@ -959,6 +980,20 @@ function shouldKeepPlanningAgentActive(decision) {
 }
 
 /**
+ * @param {{ planName: string, attrs: import('../../plan-store.js').PlanFrontMatter }} plan
+ * @param {import('../../ui/tui/types.js').UiAPI} uiAPI
+ * @returns {boolean}
+ */
+function validatePlanExecutionPolicyForReadiness(plan, uiAPI) {
+    const policy = resolvePlanExecutionPolicy(plan.attrs);
+    if (!policy.ok && policy.reason !== "project_epic") {
+        uiAPI.appendSystemMessage(`Plan policy invalid: ${policy.error}`, true, "RunWield");
+        return false;
+    }
+    return true;
+}
+
+/**
  * Run the Readiness Gate for an approved Plan.
  *
  * @param {string} projectRoot
@@ -968,6 +1003,7 @@ function shouldKeepPlanningAgentActive(decision) {
  * @returns {Promise<boolean>}
  */
 async function prepareApprovedPlanForWork(projectRoot, plan, uiAPI, recordPlanEvent) {
+    if (!validatePlanExecutionPolicyForReadiness(plan, uiAPI)) return false;
     if (isEpicPlan(plan.attrs)) {
         await recordPlanEvent({
             cwd: projectRoot,
@@ -1039,10 +1075,12 @@ async function executeReadyPlanWithRepair({
         planName: plan.planName,
         triageMeta: plan.attrs,
     });
+    const policy = resolvePlanExecutionPolicy(plan.attrs);
+    const executionOwner = policy.ok ? policy.policy.executionAgent : agentName;
     const executionDecision = decidePostExecution(execRes, {
         planName: plan.planName,
         triageMeta: /** @type {import('../../tools/plan-written.js').TriageMeta} */ (plan.attrs),
-        executionAgentName: agentName,
+        executionAgentName: executionOwner,
     });
     await validatePostExecutionDecision({
         executionDecision,
@@ -1202,30 +1240,57 @@ async function pathExists(path) {
 }
 
 /**
+ * @param {string} action
+ * @param {string} planName
+ * @param {string} error
+ * @param {import('../../ui/tui/types.js').UiAPI} uiAPI
+ */
+function reportInvalidRecoveryPolicy(action, planName, error, uiAPI) {
+    uiAPI.appendSystemMessage(
+        `Cannot ${action} Plan recovery for "${planName}" because its execution policy is invalid: ${error} Fix the Plan front matter or re-open it for review before retrying recovery.`,
+        true,
+        "RunWield",
+    );
+}
+
+/**
  * @param {string} projectRoot
  * @param {{ planName: string, attrs: import('../../plan-store.js').PlanFrontMatter }} plan
  * @param {RecoveryWorktreeContext | null} context
  * @param {PlanSessionSurface} session
+ * @param {import('../../ui/tui/types.js').UiAPI} [uiAPI]
+ * @param {string} [action]
+ * @returns {boolean}
  */
-function rehydrateActiveRecoveryWorkflow(projectRoot, plan, context, session) {
+function rehydrateActiveRecoveryWorkflow(projectRoot, plan, context, session, uiAPI, action = "continue") {
+    const policy = resolvePlanExecutionPolicy(plan.attrs);
+    if (!policy.ok) {
+        if (uiAPI) {
+            reportInvalidRecoveryPolicy(action, plan.planName, policy.error, uiAPI);
+            return false;
+        }
+        throw new Error(policy.error);
+    }
     const baselineTree = plan.attrs.executionBaselineTree || context?.baseTree;
-    if (!baselineTree && !hasWorktreeContext(context)) return;
-    /** @type {{planName: string, triageMeta: import('../../plan-store.js').PlanFrontMatter, executionAgent: string, collaborationMode?: "pair"|"autonomous", baselineTree?: string, projectRoot: string, executionCwd?: string, worktreeId?: string, worktreeBranch?: string, worktreeBaseBranch?: string}} */
+    const hasGitRecoveryMetadata = Boolean(baselineTree || context?.path || context?.id || context?.branch);
+    /** @type {{planName: string, triageMeta: import('../../plan-store.js').PlanFrontMatter, executionAgent: string, baselineTree?: string, projectRoot: string, executionCwd?: string, worktreeId?: string, worktreeBranch?: string, worktreeBaseBranch?: string, nonGitInPlace?: boolean}} */
     const workflow = {
         planName: plan.planName,
         triageMeta: plan.attrs,
-        executionAgent: plan.attrs.executionAgent === "frontend-engineer" || plan.attrs.frontend === true
-            ? "frontend-engineer"
-            : "engineer",
-        collaborationMode: plan.attrs.collaborationMode,
-        baselineTree,
+        executionAgent: policy.policy.executionAgent,
         projectRoot: projectRoot,
     };
+    if (baselineTree) workflow.baselineTree = baselineTree;
     if (context?.path) workflow.executionCwd = context.path;
     if (context?.id) workflow.worktreeId = context.id;
     if (context?.branch) workflow.worktreeBranch = context.branch;
     if (context?.baseBranch) workflow.worktreeBaseBranch = context.baseBranch;
+    if (!hasGitRecoveryMetadata) {
+        workflow.executionCwd = projectRoot;
+        workflow.nonGitInPlace = true;
+    }
     session.setActiveExecutionWorkflow(workflow);
+    return true;
 }
 
 /**
@@ -1515,6 +1580,12 @@ async function handlePlanRecovery({
     session,
     probeGitRepository = probeGitRepositoryFn,
 }) {
+    const initialPolicy = resolvePlanExecutionPolicy(plan.attrs);
+    if (!initialPolicy.ok && initialPolicy.reason !== "project_epic") {
+        reportInvalidRecoveryPolicy("recover", plan.planName, initialPolicy.error, uiAPI);
+        return "handled";
+    }
+
     const refreshRecoveryWorktree = async () => {
         const resolved = await resolveRecoveryWorktree(projectRoot, plan, { findWorktreeById, findWorktreeByPlanName });
         plan.attrs = await persistRecoveredWorktreeMetadata(projectRoot, plan, resolved, updatePlanFrontMatter);
@@ -1625,8 +1696,7 @@ async function handlePlanRecovery({
             ) {
                 continue;
             }
-            rehydrateActiveRecoveryWorkflow(projectRoot, plan, worktreeContext, session);
-            await validateCompletedExecution(
+            const validationStarted = await validateCompletedExecution(
                 { executionComplete: true },
                 plan.planName,
                 plan.markdown || plan.body || "",
@@ -1635,7 +1705,12 @@ async function handlePlanRecovery({
                 loadPlan,
                 worktreeContext,
                 session,
+                uiAPI,
             );
+            if (!validationStarted) {
+                await recordRecoveryResult("validate", "blocked", { reason: "invalid_execution_policy" });
+                continue;
+            }
             await recordRecoveryResult("validate", "handled");
             return "handled";
         }
@@ -1653,7 +1728,10 @@ async function handlePlanRecovery({
             ) {
                 continue;
             }
-            rehydrateActiveRecoveryWorkflow(projectRoot, plan, worktreeContext, session);
+            if (!rehydrateActiveRecoveryWorkflow(projectRoot, plan, worktreeContext, session, uiAPI, "continue")) {
+                await recordRecoveryResult("continue", "blocked", { reason: "invalid_execution_policy" });
+                continue;
+            }
             await recordPlanEvent({
                 cwd: projectRoot,
                 planName: plan.planName,
@@ -2345,7 +2423,8 @@ async function handleEpicPlan({
     let epicReadinessRecorded = false;
 
     async function ensureEpicReadinessPassed() {
-        if (plan.attrs.status !== "approved" || epicReadinessRecorded) return;
+        if (plan.attrs.status !== "approved" || epicReadinessRecorded) return true;
+        if (!validatePlanExecutionPolicyForReadiness(plan, uiAPI)) return false;
         const updatedAttrs = await recordPlanEvent({
             cwd: projectRoot,
             planName: plan.planName,
@@ -2360,6 +2439,7 @@ async function handleEpicPlan({
             false,
             "RunWield",
         );
+        return true;
     }
 
     if (hasChildren) {
@@ -2424,7 +2504,7 @@ async function handleEpicPlan({
         }
 
         if (answer === "slicer") {
-            await ensureEpicReadinessPassed();
+            if (!(await ensureEpicReadinessPassed())) return "handled";
             await runSlicerAgent({
                 planName: plan.planName,
                 triageMeta: plan.attrs,
@@ -2494,7 +2574,7 @@ async function handleEpicPlan({
         }
 
         if (answer === "pick_child") {
-            await ensureEpicReadinessPassed();
+            if (!(await ensureEpicReadinessPassed())) return "handled";
             while (true) {
                 const nextChild = children.find(isActionableNextChild);
                 const childOptions = [
@@ -2992,6 +3072,10 @@ export async function runLoadPlanCommand(argv, options = {}) {
 
                     if (reviewResult.approved) {
                         if (isEpicPlan(plan.attrs)) {
+                            if (!validatePlanExecutionPolicyForReadiness(plan, uiAPI)) {
+                                skipRouterRestore = true;
+                                return;
+                            }
                             await recordPlanEvent({
                                 cwd: projectRoot,
                                 planName: plan.planName,

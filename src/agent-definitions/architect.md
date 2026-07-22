@@ -162,9 +162,9 @@ canonical plan format. Before drafting, read that file and follow its structure 
 
 Its front matter is mandatory. Always include `classification: PROJECT`; every PROJECT plan is an Epic container. Use
 local time for `createdAt` (obtain it with `date`). Include `worktreeBaseBranch` only when the user explicitly specifies
-a target branch so it can be preserved through later planning. For frontend scope, set `frontend: true` on the Epic and
-identify which architectural areas will require headed browser verification during implementation; do not pre-decide the
-feature boundaries.
+a target branch so it can be preserved through later planning. PROJECT Epics do not define `executionAgent`,
+`collaborationRecommendation`, or legacy `frontend`; describe which architectural areas will need Frontend Engineer or
+headed browser verification in child FEATURE Plans instead.
 
 ## Important Rules
 

@@ -134,6 +134,13 @@ Deno.test("layered Agent Definition overrides can remove delegate_agent", async 
     }
 });
 
+Deno.test("Frontend Engineer autonomous base tools include task completion without pair checkpoint", async () => {
+    const def = await loadAgentDef(AGENTS.FRONTEND_ENGINEER, CWD);
+
+    assertEquals(def.tools.includes("task_completed"), true);
+    assertEquals(def.tools.includes("pair_checkpoint"), false);
+});
+
 Deno.test("Router and Recorder do not expose delegate_agent by default", async () => {
     const [router, recorder] = await Promise.all([
         loadAgentDef(AGENTS.ROUTER, CWD),

@@ -6,7 +6,6 @@ export const PLAN_FRONT_MATTER_KEYS = Object.freeze({
     affectedPaths: "affectedPaths",
     executionAgent: "executionAgent",
     collaborationRecommendation: "collaborationRecommendation",
-    collaborationMode: "collaborationMode",
     frontend: "frontend",
     devServerCommand: "devServerCommand",
     devServerUrl: "devServerUrl",

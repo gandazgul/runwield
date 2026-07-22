@@ -23,8 +23,18 @@ function makeHostedSession(id = "workflow-test") {
 Deno.test("HostedSession scopes active execution workflow independently", () => {
     const sessionA = new HostedSession({ id: "workflow-a", cwd: "/project-a" });
     const sessionB = new HostedSession({ id: "workflow-b", cwd: "/project-b" });
-    const workflowA = { planName: "a", triageMeta: {}, executionCwd: "/work/a" };
-    const workflowB = { planName: "b", triageMeta: {}, executionCwd: "/work/b" };
+    const workflowA = /** @type {const} */ ({
+        planName: "a",
+        triageMeta: {},
+        executionAgent: "engineer",
+        executionCwd: "/work/a",
+    });
+    const workflowB = /** @type {const} */ ({
+        planName: "b",
+        triageMeta: {},
+        executionAgent: "engineer",
+        executionCwd: "/work/b",
+    });
 
     sessionA.setActiveExecutionWorkflow(workflowA);
     sessionB.setActiveExecutionWorkflow(workflowB);
@@ -241,6 +251,7 @@ Deno.test("startActiveExecutionWorkflow does not let plan target overwrite unkno
     hostedSession.setActiveExecutionWorkflow({
         planName: "targeted-plan",
         triageMeta: {},
+        executionAgent: "engineer",
         baselineTree: "tree4",
         projectRoot: "/repo",
         executionCwd: "/tmp/wt4",
@@ -331,7 +342,36 @@ Deno.test("startActiveExecutionWorkflow cancels non-Git execution without consen
         Error,
         "in-place execution was not approved",
     );
-    assertEquals(hostedSession.getActiveExecutionWorkflow(), null);
+    assertEquals(hostedSession.getActiveExecutionWorkflow(), {
+        planName: "non-git-plan",
+        triageMeta: { classification: "FEATURE" },
+        executionAgent: "engineer",
+        projectRoot: Deno.cwd(),
+        executionCwd: Deno.cwd(),
+    });
+});
+
+Deno.test("startActiveExecutionWorkflow stores Frontend Engineer owner before non-Git consent failure", async () => {
+    const hostedSession = makeHostedSession("frontend-non-git-cancel-workflow");
+    await assertRejects(
+        () =>
+            startActiveExecutionWorkflow({
+                planName: "visual-plan",
+                triageMeta: { classification: "FEATURE", executionAgent: "frontend-engineer" },
+                currentStatus: "ready_for_work",
+                hostedSession,
+                __deps: {
+                    probeGitRepository: () => Promise.resolve({ ok: false, state: "not_git", cwd: Deno.cwd() }),
+                    hasNonGitExecutionConsent: () => false,
+                    confirmNonGitFeaturePlanExecution: () => Promise.resolve(false),
+                    recordPlanEvent: () => Promise.reject(new Error("should not record execution_started")),
+                },
+            }),
+        Error,
+        "in-place execution was not approved",
+    );
+
+    assertEquals(hostedSession.getActiveExecutionWorkflow()?.executionAgent, "frontend-engineer");
 });
 
 Deno.test("readLatestPlanOutcome returns the latest plan_written outcome", () => {
@@ -541,6 +581,93 @@ Deno.test("executePlan still executes ready FEATURE plans", async () => {
         metrics.some((metric) => metric.category === "execution" && metric.event === "implementation_finished"),
         true,
     );
+});
+
+Deno.test("executePlan dispatches explicit Frontend Engineer from loaded Plan metadata", async () => {
+    let dispatchedAgent = "";
+    const result = await executePlan({
+        planName: "visual-feature",
+        triageMeta: { classification: "FEATURE", executionAgent: "engineer" },
+        hostedSession: makeHostedSession("frontend-execution"),
+        __deps: {
+            loadPlan: () =>
+                Promise.resolve(
+                    /** @type {any} */ ({
+                        attrs: {
+                            status: "ready_for_work",
+                            classification: "FEATURE",
+                            executionAgent: "frontend-engineer",
+                            collaborationRecommendation: "pair",
+                        },
+                        body: "## Visual Feature",
+                        markdown: "## Visual Feature",
+                    }),
+                ),
+            runActiveAgentTurn: (/** @type {any} */ opts) => {
+                dispatchedAgent = opts.agentName;
+                return Promise.resolve(
+                    /** @type {any} */ ([{
+                        role: "toolResult",
+                        toolName: "task_completed",
+                        details: { outcome: "task_completed" },
+                    }]),
+                );
+            },
+            probeGitRepository: () => Promise.resolve({ ok: false, state: "git_missing", cwd: Deno.cwd() }),
+            hasNonGitExecutionConsent: () => true,
+            recordPlanEvent: () => Promise.resolve(/** @type {any} */ ({})),
+            markActiveWorktreeStatus: () => Promise.resolve(),
+            recordWorkflowMetric: () => Promise.resolve(null),
+        },
+    });
+
+    assertEquals(result.executionComplete, true);
+    assertEquals(dispatchedAgent, "frontend-engineer");
+});
+
+Deno.test("executePlan rejects invalid loaded policy before dispatch or lifecycle mutation", async () => {
+    let dispatched = false;
+    let lifecycleMutated = false;
+    /** @type {any[]} */
+    const metrics = [];
+    const result = await executePlan({
+        planName: "bad-feature",
+        triageMeta: { classification: "FEATURE", executionAgent: "frontend-engineer" },
+        hostedSession: makeHostedSession("bad-feature-execution"),
+        __deps: {
+            loadPlan: () =>
+                Promise.resolve(
+                    /** @type {any} */ ({
+                        attrs: {
+                            status: "ready_for_work",
+                            classification: "FEATURE",
+                            executionAgent: "unknown-owner",
+                            frontend: true,
+                        },
+                        body: "## Bad Feature",
+                        markdown: "## Bad Feature",
+                    }),
+                ),
+            executeSingleEngineerPlan: () => {
+                dispatched = true;
+                return Promise.resolve({ repairRequired: false, executionComplete: true });
+            },
+            recordPlanEvent: () => {
+                lifecycleMutated = true;
+                return Promise.resolve(/** @type {any} */ ({}));
+            },
+            recordWorkflowMetric: (/** @type {any} */ metric) => {
+                metrics.push(metric);
+                return Promise.resolve(null);
+            },
+        },
+    });
+
+    assertEquals(result.executionComplete, false);
+    assertStringIncludes(result.error || "", "Invalid executionAgent: unknown-owner");
+    assertEquals(dispatched, false);
+    assertEquals(lifecycleMutated, false);
+    assertEquals(metrics.some((metric) => metric.event === "plan_execution_started"), false);
 });
 
 Deno.test("executePlan treats incomplete Engineer execution as resumable", async () => {
