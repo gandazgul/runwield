@@ -6,6 +6,7 @@
 import { extractYaml } from "@std/front-matter";
 import { dirname, fromFileUrl, join } from "@std/path";
 import { AGENTS } from "../../constants.js";
+import { resolvePlanExecutionPolicy } from "../../plan-store.js";
 import { formatGitRequiredMessage, isGitRepositoryRequiredError } from "../git.js";
 import { getAgentDisplayName } from "../session/agents.js";
 import { ensureBundledAgentDefFile } from "../session/agent-assets.js";
@@ -1238,6 +1239,7 @@ export async function runMechanicalValidation({
             hostedSession?.setActiveExecutionWorkflow({
                 planName: "quick-fix",
                 triageMeta: { classification: "QUICK_FIX" },
+                executionAgent: /** @type {"engineer"} */ (AGENTS.ENGINEER),
                 executionCwd: validationCwd,
                 validationContinuation: true,
                 manualQaName,
@@ -1331,7 +1333,13 @@ export async function runValidationLoop({
     const formatWorkRecordAutoGenerationResultImpl = __deps?.formatWorkRecordAutoGenerationResult ||
         formatWorkRecordAutoGenerationResult;
     const activeWorkflow = hostedSession?.getActiveExecutionWorkflow?.() || null;
-    const executionAgent = activeWorkflow?.executionAgent || AGENTS.ENGINEER;
+    if (activeWorkflow && !activeWorkflow.executionAgent) {
+        throw new Error("runValidationLoop: active execution workflow is missing executionAgent");
+    }
+    const policy = resolvePlanExecutionPolicy(triageMeta || {});
+    if (!policy.ok && policy.reason !== "project_epic") throw new Error(policy.error);
+    const executionAgent = activeWorkflow?.executionAgent ||
+        (policy.ok ? policy.policy.executionAgent : AGENTS.ENGINEER);
     const baselineTree = activeWorkflow?.baselineTree;
     const projectRoot = activeWorkflow?.projectRoot || hostedSession?.cwd;
     if (!projectRoot) throw new Error("runValidationLoop: hostedSession or active workflow projectRoot is required");
@@ -1372,6 +1380,7 @@ export async function runValidationLoop({
                 ...(activeWorkflow || {}),
                 planName,
                 triageMeta,
+                executionAgent: /** @type {"engineer"|"frontend-engineer"} */ (executionAgent),
                 executionCwd,
                 validationContinuation: true,
             });
@@ -1491,7 +1500,7 @@ export async function runValidationLoop({
                 await recordWorkflowMetricImpl({
                     category: "validation",
                     event: "repair_dispatched",
-                    agentName: AGENTS.OPERATOR,
+                    agentName: executionAgent,
                     planName,
                     details: { repairKind: "ci", validationCycle: validationCycles, attempt: mechanicalAttempts },
                 });
@@ -1507,7 +1516,7 @@ export async function runValidationLoop({
                 await recordWorkflowMetricImpl({
                     category: "validation",
                     event: "repair_completed",
-                    agentName: AGENTS.OPERATOR,
+                    agentName: executionAgent,
                     planName,
                     details: {
                         repairKind: "ci",

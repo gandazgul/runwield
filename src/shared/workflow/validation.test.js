@@ -708,6 +708,7 @@ Deno.test("runValidationLoop skips semantic review and merge-back for non-Git in
     session.setActiveExecutionWorkflow({
         planName: "p",
         triageMeta: { classification: "FEATURE" },
+        executionAgent: "engineer",
         projectRoot: Deno.cwd(),
         executionCwd: "/feature-execution",
         nonGitInPlace: true,
@@ -778,6 +779,7 @@ Deno.test("runValidationLoop starts Manual QA and Work Record generation concurr
     session.setActiveExecutionWorkflow({
         planName: "p",
         triageMeta: { classification: "FEATURE" },
+        executionAgent: "engineer",
         projectRoot: Deno.cwd(),
         executionCwd: Deno.cwd(),
     });
@@ -1145,6 +1147,7 @@ Deno.test("runValidationLoop pauses with Engineer when CI repair does not call t
     assertEquals(repairHostedSession.getActiveExecutionWorkflow(), {
         planName: "p",
         triageMeta: { classification: "FEATURE" },
+        executionAgent: "engineer",
         executionCwd: Deno.cwd(),
         validationContinuation: true,
     });
@@ -1203,6 +1206,7 @@ Deno.test("runValidationLoop pauses with Engineer on interrupted semantic repair
     assertEquals(repairHostedSession.getActiveExecutionWorkflow(), {
         planName: "p",
         triageMeta: { classification: "FEATURE" },
+        executionAgent: "engineer",
         executionCwd: Deno.cwd(),
         validationContinuation: true,
     });
@@ -1224,6 +1228,108 @@ Deno.test("runValidationLoop pauses with Engineer on interrupted semantic repair
     assertEquals(
         uiAPI.messages.some((/** @type {string} */ m) => m.includes("Maximum validation cycles")),
         false,
+    );
+});
+
+Deno.test("runValidationLoop preserves Frontend Engineer owner when CI repair pauses", async () => {
+    const uiAPI = makeUi();
+    const repairHostedSession = makeRecordedSession("frontend-ci-repair-pause-test", uiAPI);
+    repairHostedSession.setActiveExecutionWorkflow({
+        planName: "visual-plan",
+        triageMeta: { classification: "FEATURE", executionAgent: "frontend-engineer" },
+        executionAgent: "frontend-engineer",
+        executionCwd: Deno.cwd(),
+    });
+    let repairAgentName = "";
+    /** @type {any[]} */
+    const metrics = [];
+
+    await runValidationLoop({
+        hostedSession: repairHostedSession,
+        planName: "visual-plan",
+        planContent: "",
+        triageMeta: { classification: "FEATURE", executionAgent: "frontend-engineer" },
+        sessionManager: undefined,
+        __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
+            runLocalCI: () => Promise.resolve({ exitCode: 1, output: "boom" }),
+            runActiveAgentTurn: (/** @type {any} */ opts) => {
+                repairAgentName = opts.agentName;
+                return Promise.resolve([]);
+            },
+            readLatestTaskCompletedOutcome: () => false,
+            recordPlanEvent: noOpRecordPlanEvent,
+            recordWorkflowMetric: (/** @type {any} */ metric) => {
+                metrics.push(metric);
+                return Promise.resolve(null);
+            },
+        }),
+    });
+
+    assertEquals(repairAgentName, "frontend-engineer");
+    assertEquals(
+        metrics
+            .filter((metric) => metric.event === "repair_dispatched" || metric.event === "repair_completed")
+            .every((metric) => metric.agentName === "frontend-engineer"),
+        true,
+    );
+    assertEquals(repairHostedSession.getActiveExecutionWorkflow()?.executionAgent, "frontend-engineer");
+    assertEquals(repairHostedSession.getActiveExecutionWorkflow()?.validationContinuation, true);
+    assertEquals(
+        uiAPI.messages.some((/** @type {string} */ m) =>
+            m.includes("Frontend Engineer stopped without task_completed during CI repair.") &&
+            m.includes("Validation will resume after task_completed")
+        ),
+        true,
+    );
+});
+
+Deno.test("runValidationLoop preserves Frontend Engineer owner when semantic repair pauses", async () => {
+    const uiAPI = makeUi();
+    const repairHostedSession = makeRecordedSession("frontend-semantic-repair-pause-test", uiAPI);
+    repairHostedSession.setActiveExecutionWorkflow({
+        planName: "visual-plan",
+        triageMeta: { classification: "FEATURE", executionAgent: "frontend-engineer" },
+        executionAgent: "frontend-engineer",
+        executionCwd: Deno.cwd(),
+    });
+    let repairAgentName = "";
+
+    await runValidationLoop({
+        hostedSession: repairHostedSession,
+        planName: "visual-plan",
+        planContent: "plan",
+        triageMeta: { classification: "FEATURE", executionAgent: "frontend-engineer" },
+        sessionManager: undefined,
+        __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
+            runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
+            getDiffText: () => Promise.resolve("diff"),
+            runIsolatedAgentSession: () =>
+                Promise.resolve(
+                    /** @type {any} */ ([{
+                        role: "toolResult",
+                        toolName: "review_complete",
+                        details: { outcome: "feedback", approved: false, feedback: "missing requirement" },
+                    }]),
+                ),
+            runCompletionGatedRepair: (/** @type {any} */ opts) => {
+                repairAgentName = opts.agentName;
+                return Promise.resolve(false);
+            },
+            recordPlanEvent: noOpRecordPlanEvent,
+        }),
+    });
+
+    assertEquals(repairAgentName, "frontend-engineer");
+    assertEquals(repairHostedSession.getActiveExecutionWorkflow()?.executionAgent, "frontend-engineer");
+    assertEquals(repairHostedSession.getActiveExecutionWorkflow()?.validationContinuation, true);
+    assertEquals(
+        uiAPI.messages.some((/** @type {string} */ m) =>
+            m.includes("Frontend Engineer stopped without task_completed during semantic repair.") &&
+            m.includes("Validation will resume after task_completed")
+        ),
+        true,
     );
 });
 
@@ -1364,6 +1470,7 @@ Deno.test("runValidationLoop reviews the diff scoped to the active workflow base
     hostedSession.setActiveExecutionWorkflow({
         planName: "p",
         triageMeta: { classification: "FEATURE" },
+        executionAgent: "engineer",
         baselineTree: "baseline-tree",
     });
 
@@ -1418,6 +1525,7 @@ Deno.test("runValidationLoop runs validation and reviewer in active execution cw
     hostedSession.setActiveExecutionWorkflow({
         planName: "p",
         triageMeta: { classification: "FEATURE" },
+        executionAgent: "engineer",
         baselineTree: "baseline-tree",
         projectRoot: "/primary",
         executionCwd: "/worktree",
@@ -1486,6 +1594,7 @@ Deno.test("runValidationLoop stages validation_passed before worktree merge succ
     hostedSession.setActiveExecutionWorkflow({
         planName: "p",
         triageMeta: { classification: "FEATURE", summary: "Preserve metadata in merge commits." },
+        executionAgent: "engineer",
         baselineTree: "baseline-tree",
         projectRoot: "/primary",
         executionCwd: "/worktree",
@@ -1619,6 +1728,7 @@ Deno.test("runValidationLoop merges verified Plan metadata in Git and leaves the
         session.setActiveExecutionWorkflow({
             planName: "git-plan",
             triageMeta: { classification: "FEATURE", summary: "Verify metadata in history." },
+            executionAgent: "engineer",
             baselineTree,
             projectRoot,
             executionCwd: worktree.path,
@@ -1697,6 +1807,7 @@ Deno.test("runValidationLoop reapplies verified Plan metadata after real merge-c
         session.setActiveExecutionWorkflow({
             planName: "conflict-plan",
             triageMeta: { classification: "FEATURE" },
+            executionAgent: "engineer",
             baselineTree,
             projectRoot,
             executionCwd: worktree.path,
@@ -1756,6 +1867,7 @@ Deno.test("runValidationLoop does not preserve a nonexistent Plan path for quick
     hostedSession.setActiveExecutionWorkflow({
         planName: "quick-fix",
         triageMeta: { classification: "QUICK_FIX" },
+        executionAgent: "engineer",
         baselineTree: "baseline-tree",
         projectRoot: "/primary",
         executionCwd: "/worktree",
@@ -1804,7 +1916,8 @@ Deno.test("runValidationLoop halts and preserves worktree when post-merge verifi
 
     hostedSession.setActiveExecutionWorkflow({
         planName: "p",
-        triageMeta: { classification: "FEATURE" },
+        triageMeta: { classification: "FEATURE", executionAgent: "frontend-engineer" },
+        executionAgent: "frontend-engineer",
         baselineTree: "baseline-tree",
         projectRoot: "/primary",
         executionCwd: "/worktree",
@@ -1817,7 +1930,7 @@ Deno.test("runValidationLoop halts and preserves worktree when post-merge verifi
         hostedSession,
         planName: "p",
         planContent: "plan",
-        triageMeta: { classification: "FEATURE" },
+        triageMeta: { classification: "FEATURE", executionAgent: "frontend-engineer" },
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
             ...noOpWorktreePlanHandoffDeps(),
@@ -1841,8 +1954,8 @@ Deno.test("runValidationLoop halts and preserves worktree when post-merge verifi
             },
             verifyExecutionWorktreeMerged: () =>
                 Promise.resolve({ merged: false, message: "branch is not contained in target" }),
-            runCompletionGatedRepair: () => {
-                actions.push("repair:merge_verification");
+            runCompletionGatedRepair: (/** @type {any} */ opts) => {
+                actions.push(`repair:${opts.agentName}:merge_verification`);
                 return Promise.resolve(false);
             },
             updateWorktreeRegistryEntry: (
@@ -1868,13 +1981,13 @@ Deno.test("runValidationLoop halts and preserves worktree when post-merge verifi
 
     assertEquals(actions, [
         "merge",
-        "repair:merge_verification",
+        "repair:frontend-engineer:merge_verification",
         "registry:merge_conflict",
         "event:worktree_merge_failed:Post-merge verification found remaining merge-back work: branch is not contained in target",
     ]);
     assertEquals(
         uiAPI.messages.some((/** @type {string} */ message) =>
-            message.includes("Dispatching Engineer for automatic merge repair attempt")
+            message.includes("Dispatching Frontend Engineer for automatic merge repair attempt")
         ),
         true,
     );
@@ -1903,6 +2016,7 @@ Deno.test("runValidationLoop runs always human review after semantic approval an
     hostedSession.setActiveExecutionWorkflow({
         planName: "p",
         triageMeta: { classification: "FEATURE" },
+        executionAgent: "engineer",
         baselineTree: "baseline-tree",
         projectRoot: "/primary",
         executionCwd: "/worktree",
@@ -1982,6 +2096,7 @@ Deno.test("runValidationLoop ask mode can skip human review and merge", async ()
     hostedSession.setActiveExecutionWorkflow({
         planName: "p",
         triageMeta: { classification: "FEATURE" },
+        executionAgent: "engineer",
         baselineTree: "baseline-tree",
         projectRoot: "/primary",
         executionCwd: "/worktree",
@@ -2049,6 +2164,7 @@ Deno.test("runValidationLoop ask mode opens human review before merge when appro
     hostedSession.setActiveExecutionWorkflow({
         planName: "p",
         triageMeta: { classification: "FEATURE" },
+        executionAgent: "engineer",
         baselineTree: "baseline-tree",
         projectRoot: "/primary",
         executionCwd: "/worktree",
@@ -2112,7 +2228,15 @@ Deno.test("runValidationLoop ask mode opens human review before merge when appro
     assertEquals(actions, ["prompt", "human-review:/worktree:true", "merge"]);
 });
 
-Deno.test("runValidationLoop sends human feedback to Engineer and continues validation", async () => {
+Deno.test("runValidationLoop sends human feedback to active execution owner and continues validation", async () => {
+    const uiAPI = makeUi();
+    const reviewHostedSession = makeRecordedSession("human-review-feedback-owner-test", uiAPI);
+    reviewHostedSession.setActiveExecutionWorkflow({
+        planName: "p",
+        triageMeta: { classification: "FEATURE", executionAgent: "frontend-engineer" },
+        executionAgent: "frontend-engineer",
+        executionCwd: Deno.cwd(),
+    });
     /** @type {string[]} */
     const actions = [];
     /** @type {any[]} */
@@ -2121,10 +2245,10 @@ Deno.test("runValidationLoop sends human feedback to Engineer and continues vali
     let humanReviewCalls = 0;
 
     await runValidationLoop({
-        hostedSession,
+        hostedSession: reviewHostedSession,
         planName: "p",
         planContent: "plan",
-        triageMeta: { classification: "FEATURE" },
+        triageMeta: { classification: "FEATURE", executionAgent: "frontend-engineer" },
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
             ...noOpWorktreePlanHandoffDeps(),
@@ -2186,7 +2310,7 @@ Deno.test("runValidationLoop sends human feedback to Engineer and continues vali
 
     assertEquals(actions, [
         "human-review:1",
-        "repair:engineer:true:true",
+        "repair:frontend-engineer:true:true",
         "human-review:2",
         "event:validation_passed:always:approved",
     ]);
@@ -2210,6 +2334,7 @@ Deno.test("runValidationLoop treats human review exit as validation failure with
     hostedSession.setActiveExecutionWorkflow({
         planName: "p",
         triageMeta: { classification: "FEATURE" },
+        executionAgent: "engineer",
         baselineTree: "baseline-tree",
         projectRoot: "/primary",
         executionCwd: "/worktree",
@@ -2290,6 +2415,7 @@ Deno.test("runValidationLoop keeps merged worktree when cleanup setting is disab
     hostedSession.setActiveExecutionWorkflow({
         planName: "p",
         triageMeta: { classification: "FEATURE" },
+        executionAgent: "engineer",
         baselineTree: "baseline-tree",
         projectRoot: "/primary",
         executionCwd: "/worktree",
@@ -2358,6 +2484,7 @@ Deno.test("runValidationLoop records worktree_merge_failed when merge-back fails
     hostedSession.setActiveExecutionWorkflow({
         planName: "p",
         triageMeta: { classification: "FEATURE" },
+        executionAgent: "engineer",
         baselineTree: "baseline-tree",
         projectRoot: "/primary",
         executionCwd: "/worktree",
@@ -2443,6 +2570,7 @@ Deno.test("runValidationLoop still prompts when merge-conflict metadata updates 
     hostedSession.setActiveExecutionWorkflow({
         planName: "p",
         triageMeta: { classification: "FEATURE" },
+        executionAgent: "engineer",
         baselineTree: "baseline-tree",
         projectRoot: "/primary",
         executionCwd: "/worktree",
@@ -2510,6 +2638,7 @@ Deno.test("runValidationLoop warns when using legacy current-checkout merge fall
     hostedSession.setActiveExecutionWorkflow({
         planName: "p",
         triageMeta: { classification: "FEATURE" },
+        executionAgent: "engineer",
         baselineTree: "baseline-tree",
         projectRoot: "/primary",
         executionCwd: "/worktree",
@@ -2559,7 +2688,7 @@ Deno.test("runValidationLoop warns when using legacy current-checkout merge fall
     );
 });
 
-Deno.test("runValidationLoop dispatches Engineer merge repair and retries merge-back", async () => {
+Deno.test("runValidationLoop dispatches active owner merge repair and retries merge-back", async () => {
     const uiAPI = makeUi();
     /** @type {string[]} */
     const actions = [];
@@ -2567,7 +2696,8 @@ Deno.test("runValidationLoop dispatches Engineer merge repair and retries merge-
 
     hostedSession.setActiveExecutionWorkflow({
         planName: "p",
-        triageMeta: { classification: "FEATURE" },
+        triageMeta: { classification: "FEATURE", executionAgent: "frontend-engineer" },
+        executionAgent: "frontend-engineer",
         baselineTree: "baseline-tree",
         projectRoot: "/primary",
         executionCwd: "/worktree",
@@ -2580,7 +2710,7 @@ Deno.test("runValidationLoop dispatches Engineer merge repair and retries merge-
         hostedSession,
         planName: "p",
         planContent: "plan",
-        triageMeta: { classification: "FEATURE" },
+        triageMeta: { classification: "FEATURE", executionAgent: "frontend-engineer" },
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
             ...noOpWorktreePlanHandoffDeps(),
@@ -2614,7 +2744,7 @@ Deno.test("runValidationLoop dispatches Engineer merge repair and retries merge-
             },
             runCompletionGatedRepair: (/** @type {any} */ opts) => {
                 actions.push(
-                    `repair:${opts.cwd}:${opts.userRequest.includes("feature-base")}:${
+                    `repair:${opts.agentName}:${opts.cwd}:${opts.userRequest.includes("feature-base")}:${
                         opts.userRequest.includes("Current plan status: implemented")
                     }:${opts.userRequest.includes("Diff/context:")}:${
                         opts.userRequest.includes("detached merge worktree")
@@ -2649,7 +2779,7 @@ Deno.test("runValidationLoop dispatches Engineer merge repair and retries merge-
         "merge:1:",
         "registry:merge_conflict",
         "event:worktree_merge_failed:conflict",
-        "repair:/merge-wt:true:true:true:true",
+        "repair:frontend-engineer:/merge-wt:true:true:true:true",
         "merge:2:/merge-wt",
         "registry:merged",
         "remove",
@@ -2677,6 +2807,7 @@ Deno.test("runValidationLoop completes after merge repair task_completed and ret
     repairHostedSession.setActiveExecutionWorkflow({
         planName: "p",
         triageMeta: { classification: "FEATURE" },
+        executionAgent: "engineer",
         baselineTree: "baseline-tree",
         projectRoot: "/primary",
         executionCwd: "/worktree",
@@ -2754,6 +2885,7 @@ Deno.test("runValidationLoop retries worktree merge after user fixes primary che
     hostedSession.setActiveExecutionWorkflow({
         planName: "p",
         triageMeta: { classification: "FEATURE" },
+        executionAgent: "engineer",
         baselineTree: "baseline-tree",
         projectRoot: "/primary",
         executionCwd: "/worktree",
@@ -2831,6 +2963,7 @@ Deno.test("runValidationLoop marks active worktree validation_failed when valida
     hostedSession.setActiveExecutionWorkflow({
         planName: "p",
         triageMeta: { classification: "FEATURE" },
+        executionAgent: "engineer",
         baselineTree: "baseline-tree",
         projectRoot: "/primary",
         executionCwd: "/worktree",

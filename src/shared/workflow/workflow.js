@@ -5,12 +5,7 @@
  */
 
 import { AGENTS } from "../../constants.js";
-import {
-    loadPlan,
-    normalizeCollaborationMode,
-    normalizeExecutionAgent,
-    updatePlanFrontMatter,
-} from "../../plan-store.js";
+import { loadPlan, resolvePlanExecutionPolicy } from "../../plan-store.js";
 import { hasNonGitExecutionConsent, probeGitRepository, rememberNonGitExecutionConsent } from "../git.js";
 import { getAgentDisplayName } from "../session/agents.js";
 import { emitSystemStatus } from "../session/session-runtime-events.js";
@@ -59,40 +54,10 @@ export {
  * @returns {"engineer"|"frontend-engineer"}
  */
 export function resolveExecutionOwner(meta) {
-    return normalizeExecutionAgent(meta.executionAgent) || (meta.frontend === true ? "frontend-engineer" : "engineer");
-}
-
-/**
- * @param {import('../session/hosted-session.js').HostedSession} hostedSession
- * @param {Partial<import('../../plan-store.js').PlanFrontMatter>} meta
- */
-async function resolveCollaborationMode(hostedSession, meta) {
-    if (resolveExecutionOwner(meta) !== AGENTS.FRONTEND_ENGINEER) return undefined;
-    const adapter = hostedSession.getInteractionAdapter?.();
-    const pairCapable = adapter?.supportsInteraction?.(RuntimeInteractionTypes.PAIR_CHECKPOINT) === true;
-    const stored = normalizeCollaborationMode(meta.collaborationMode);
-    if (stored) return pairCapable ? stored : "autonomous";
-    if (!pairCapable) return "autonomous";
-    const recommendation = normalizeCollaborationMode(meta.collaborationRecommendation) || "autonomous";
-    const response = await requestHostedSessionInteraction(hostedSession, {
-        type: RuntimeInteractionTypes.SELECT,
-        prompt: "Choose how Frontend Engineer should execute this Plan in the interactive host.",
-        defaultValue: recommendation,
-        options: [
-            { value: "pair", label: "Pair interactively", description: "Review coherent visible increments." },
-            { value: "autonomous", label: "Run autonomously", description: "Review only after implementation." },
-        ],
-    });
-    return response.outcome === "selected" && response.value === "pair" ? "pair" : "autonomous";
-}
-
-/**
- * @param {import('../session/hosted-session.js').HostedSession} hostedSession
- * @returns {boolean}
- */
-function isPairCapableHost(hostedSession) {
-    return hostedSession.getInteractionAdapter?.()?.supportsInteraction?.(RuntimeInteractionTypes.PAIR_CHECKPOINT) ===
-        true;
+    const policy = resolvePlanExecutionPolicy(meta);
+    if (policy.ok) return policy.policy.executionAgent;
+    if (policy.reason === "project_epic") return /** @type {"engineer"} */ (AGENTS.ENGINEER);
+    throw new Error(policy.error);
 }
 
 /**
@@ -164,15 +129,17 @@ export async function runPlanningAgent(
  *   recordPlanEvent?: typeof recordPlanEvent,
  *   markActiveWorktreeStatus?: typeof markActiveWorktreeStatus,
  *   recordWorkflowMetric?: typeof recordWorkflowMetric,
- *   updatePlanFrontMatter?: typeof updatePlanFrontMatter,
  *   runActiveAgentTurn?: typeof import('../session/agent-switching.js').runActiveAgentTurn,
+ *   probeGitRepository?: typeof probeGitRepository,
+ *   hasNonGitExecutionConsent?: typeof hasNonGitExecutionConsent,
+ *   confirmNonGitFeaturePlanExecution?: typeof confirmNonGitFeaturePlanExecution,
  *   }
  * }} options
  * @returns {Promise<PlanExecutionResult>}
  */
 export async function executePlan({
     planName,
-    triageMeta,
+    triageMeta: _triageMeta,
     sessionManager,
     hostedSession,
     reviewFeedback,
@@ -186,14 +153,7 @@ export async function executePlan({
     const recordPlanEventFn = __deps.recordPlanEvent || recordPlanEvent;
     const markActiveWorktreeStatusFn = __deps.markActiveWorktreeStatus || markActiveWorktreeStatus;
     const recordWorkflowMetricFn = __deps.recordWorkflowMetric || recordWorkflowMetric;
-    const updatePlanFrontMatterFn = __deps.updatePlanFrontMatter || updatePlanFrontMatter;
 
-    await recordWorkflowMetricFn({
-        category: "execution",
-        event: "plan_execution_started",
-        planName,
-        details: { classification: triageMeta?.classification, status: triageMeta?.status },
-    }, { cwd: projectRoot });
     const plan = await loadPlanFn(projectRoot, planName);
     if (!plan) {
         emitSystemStatus(hostedSession, `ERROR: Could not load plan ${planName}`, {
@@ -209,8 +169,22 @@ export async function executePlan({
         return { repairRequired: false, executionComplete: false, error: `Could not load plan ${planName}` };
     }
 
-    const effectiveMeta = { ...plan.attrs, ...(triageMeta || {}) };
-    effectiveMeta.executionAgent = resolveExecutionOwner(effectiveMeta);
+    const effectiveMeta = { ...plan.attrs };
+    const policy = resolvePlanExecutionPolicy(effectiveMeta);
+    if (!policy.ok && policy.reason !== "project_epic") {
+        emitSystemStatus(hostedSession, `ERROR: ${policy.error}`, { level: "error", header: "RunWield" });
+        await recordWorkflowMetricFn({
+            category: "execution",
+            event: "plan_execution_rejected",
+            planName,
+            details: { reason: policy.reason },
+        }, { cwd: projectRoot });
+        return { repairRequired: false, executionComplete: false, error: policy.error };
+    }
+    if (policy.ok) {
+        effectiveMeta.executionAgent = policy.policy.executionAgent;
+        effectiveMeta.collaborationRecommendation = policy.policy.collaborationRecommendation;
+    }
 
     if (isEpicPlan(plan.attrs)) {
         const error = `Plan ${planName} is a PROJECT Epic container and cannot be executed directly.`;
@@ -236,34 +210,12 @@ export async function executePlan({
         return { repairRequired: false, executionComplete: false, error };
     }
 
-    const hasLegacyFrontend = typeof plan.attrs.frontend === "boolean";
-    if (hasLegacyFrontend) {
-        if (plan.attrs.frontend === true) {
-            /** @type {Partial<import('../../plan-store.js').PlanFrontMatter>} */
-            const updates = {
-                executionAgent: "frontend-engineer",
-                collaborationRecommendation: "autonomous",
-                frontend: undefined,
-            };
-            await updatePlanFrontMatterFn(projectRoot, planName, updates);
-        } else {
-            /** @type {Partial<import('../../plan-store.js').PlanFrontMatter>} */
-            const updates = { frontend: undefined };
-            await updatePlanFrontMatterFn(projectRoot, planName, updates);
-        }
-    }
-
-    const storedCollaborationMode = normalizeCollaborationMode(effectiveMeta.collaborationMode);
-    const pairCapableHost = isPairCapableHost(hostedSession);
-    effectiveMeta.collaborationMode = await resolveCollaborationMode(hostedSession, effectiveMeta);
-    if (
-        effectiveMeta.executionAgent === AGENTS.FRONTEND_ENGINEER && !storedCollaborationMode && pairCapableHost
-    ) {
-        await updatePlanFrontMatterFn(projectRoot, planName, {
-            executionAgent: effectiveMeta.executionAgent,
-            collaborationMode: effectiveMeta.collaborationMode,
-        });
-    }
+    await recordWorkflowMetricFn({
+        category: "execution",
+        event: "plan_execution_started",
+        planName,
+        details: { classification: effectiveMeta.classification, status: effectiveMeta.status },
+    }, { cwd: projectRoot });
 
     emitSystemStatus(hostedSession, `=== Executing Plan: ${planName} ===`, { header: "RunWield" });
 
@@ -387,8 +339,7 @@ async function executeSingleEngineerPlan(
         executionContext.projectRoot,
         reviewFeedback,
         reviewImages,
-        triageMeta.executionAgent || AGENTS.ENGINEER,
-        triageMeta.collaborationMode,
+        executionContext.executionAgent,
         __deps,
     );
     if (!engineerResult.completed) {
@@ -413,7 +364,6 @@ async function executeSingleEngineerPlan(
  * @param {string} [reviewFeedback]
  * @param {Array<{base64: string, mimeType: string}>} [reviewImages]
  * @param {string} [executionAgent]
- * @param {"pair"|"autonomous"} [collaborationMode]
  * @param {{ runActiveAgentTurn?: typeof import('../session/agent-switching.js').runActiveAgentTurn }} [__deps]
  * @returns {Promise<{ completed: boolean, messages: import('@earendil-works/pi-agent-core').AgentMessage[], error?: string, completionReport?: string }>}
  */
@@ -427,7 +377,6 @@ async function runEngineerWithPlan(
     reviewFeedback,
     reviewImages,
     executionAgent = AGENTS.ENGINEER,
-    collaborationMode,
     __deps,
 ) {
     if (!hostedSession) throw new Error("runEngineerWithPlan: hostedSession is required");
@@ -440,7 +389,7 @@ async function runEngineerWithPlan(
             agentName: executionAgent,
             userRequest: `${
                 buildEngineerRequest(planName, planBody, reviewFeedback)
-            }\n\nExecution owner: ${executionAgent}. Collaboration mode: ${collaborationMode || "autonomous"}.`,
+            }\n\nExecution owner: ${executionAgent}.`,
             images: reviewImages,
             sessionManager,
             cwd: executionCwd,
@@ -550,7 +499,7 @@ export function assertReusableWorktreeTargetMatches(reusableBaseBranch, targetBr
  *     confirmNonGitFeaturePlanExecution?: typeof confirmNonGitFeaturePlanExecution,
  *   },
  * }} opts
- * @returns {Promise<{ projectRoot: string, executionCwd: string, baselineTree?: string, worktreeId?: string, worktreeBranch?: string, worktreeBaseBranch?: string, nonGitInPlace?: boolean }>}
+ * @returns {Promise<{ projectRoot: string, executionCwd: string, executionAgent: "engineer"|"frontend-engineer", baselineTree?: string, worktreeId?: string, worktreeBranch?: string, worktreeBaseBranch?: string, nonGitInPlace?: boolean }>}
  */
 export async function startActiveExecutionWorkflow(
     { planName, triageMeta, currentStatus, hostedSession, __deps },
@@ -569,6 +518,17 @@ export async function startActiveExecutionWorkflow(
     const probeGit = __deps?.probeGitRepository || probeGitRepository;
     const hasConsent = __deps?.hasNonGitExecutionConsent || hasNonGitExecutionConsent;
     const confirmNonGit = __deps?.confirmNonGitFeaturePlanExecution || confirmNonGitFeaturePlanExecution;
+    const executionAgent = resolveExecutionOwner(triageMeta);
+    const initialWorkflow = hostedSession.getActiveExecutionWorkflow();
+    if (initialWorkflow?.planName !== planName) {
+        hostedSession.setActiveExecutionWorkflow({
+            planName,
+            triageMeta,
+            executionAgent,
+            projectRoot,
+            executionCwd: projectRoot,
+        });
+    }
     const gitProbe = await probeGit(projectRoot);
     if (!gitProbe.ok) {
         if (!hasConsent("featurePlan", projectRoot) && !(await confirmNonGit(hostedSession, projectRoot))) {
@@ -579,8 +539,7 @@ export async function startActiveExecutionWorkflow(
         const workflow = {
             planName,
             triageMeta,
-            executionAgent: resolveExecutionOwner(triageMeta),
-            collaborationMode: normalizeCollaborationMode(triageMeta.collaborationMode),
+            executionAgent,
             projectRoot,
             executionCwd: projectRoot,
             nonGitInPlace: true,
@@ -637,8 +596,7 @@ export async function startActiveExecutionWorkflow(
     const workflow = {
         planName,
         triageMeta,
-        executionAgent: resolveExecutionOwner(triageMeta),
-        collaborationMode: normalizeCollaborationMode(triageMeta.collaborationMode),
+        executionAgent,
         baselineTree,
         projectRoot,
         executionCwd: worktree.path,

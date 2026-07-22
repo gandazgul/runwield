@@ -84,6 +84,53 @@ Deno.test("plan_written streams declared plan details into the active tool block
     assertEquals(updates[0].details.planFileUrl.startsWith("file://"), true);
 });
 
+Deno.test("plan_written rejects invalid loaded Plan policy before review or readiness", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await Deno.mkdir(`${cwd}/plans`, { recursive: true });
+        await Deno.writeTextFile(
+            `${cwd}/plans/runtime-boundary.md`,
+            `---
+classification: FEATURE
+executionAgent: engineer
+collaborationRecommendation: pair
+---
+# Invalid
+`,
+        );
+        let reviewRequested = false;
+        const lifecycle = /** @type {any[]} */ ([]);
+        const hostedSession = new HostedSession({ id: crypto.randomUUID(), cwd });
+        const tool = createPlanWrittenTool({
+            hostedSession,
+            agentName: "planner",
+            triageMeta: { classification: "FEATURE", complexity: "MEDIUM" },
+            __deps: {
+                cwd,
+                stat: () => Promise.resolve({ isFile: true }),
+                requestPlanReview: () => {
+                    reviewRequested = true;
+                    return Promise.resolve({ outcome: "accepted", _meta: { approved: true } });
+                },
+                recordPlanEvent: (event) => {
+                    lifecycle.push(event);
+                    return Promise.resolve(/** @type {any} */ ({}));
+                },
+                recordWorkflowMetric: () => Promise.resolve(/** @type {any} */ (null)),
+            },
+        });
+
+        const result = await execute(tool);
+
+        assertEquals(result.details.outcome, "repair_required");
+        assertEquals(result.details.reason, "engineer_pair_recommendation");
+        assertEquals(reviewRequested, false);
+        assertEquals(lifecycle, []);
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
 Deno.test("plan_written returns review feedback and images to the planning agent", async () => {
     const { tool, lifecycle } = makeHarness({
         reviewResponse: {

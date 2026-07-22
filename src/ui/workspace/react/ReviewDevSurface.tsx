@@ -12,7 +12,8 @@ affectedPaths:
     - "src/ui/workspace/react/PlanReviewSurface.tsx"
     - "src/ui/workspace/react/ReviewDevSurface.tsx"
     - "src/ui/workspace/react/plannotator.css"
-frontend: true
+executionAgent: "frontend-engineer"
+collaborationRecommendation: "autonomous"
 devServerCommand: "deno task workspace:dev:plan-review"
 devServerUrl: "http://127.0.0.1:5173/dev/plan-review"
 devServerHmr: true
