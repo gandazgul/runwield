@@ -21,7 +21,7 @@ workRecord:
     recordId: "b5e7e491-045b-437e-bd38-f3a3c20e3035"
     path: "docs/work-records/2026-07-21-self-hosted-collaborative-planning-shared-spaces-completed.md"
     lastAttemptAt: "2026-07-21T22:23:47.172Z"
-epicCompletionMode: "done_enough"
+epicCompletionMode: "verified"
 epicDoneEnoughAt: "2026-07-21T22:22:08.581Z"
 epicDoneEnoughSummary: "All 12 child FEATURE plans are verified after collaborative-planning-remote-shared-spaces/12-close-self-hosted-plan-server-gaps."
 routingIntent: "PROJECT"
