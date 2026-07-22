@@ -19,9 +19,10 @@ Core is the free local engine behind the broader RunWield product:
 - interactive TUI
 - local browser Workspace client
 - Plan lifecycle and validation workflows
-- local markdown Plans, PRDs, ADRs, and future Work Records
+- local markdown Plans, PRDs, ADRs, and Work Records
 - agent definitions, skills, tools, and model configuration
-- future Session Host / ACP runtime boundary for external clients
+- in-process `SessionHost`/`HostedSession` and adapter-neutral `SessionRuntime` boundary for TUI, ACP, and Workspace
+  clients
 
 Where RunWield's product vision does not require deliberate divergence, Core should remain compatible with
 `@earendil-works/pi-coding-agent` conventions, APIs, session behavior, model/provider configuration, and skill/tool
@@ -33,7 +34,7 @@ goals require a distinct product surface.
 - **Plan-by-Default:** Material work should become a reviewed Plan unless it is explicitly `OPERATION` or `QUICK_FIX`.
 - **Right ceremony for the request:** Router should distinguish inquiry, ideation, operation, quick fix, feature, and
   project work so simple tasks are not over-planned and large work is not under-specified.
-- **Artifacts over vibes:** Plans, PRDs, ADRs, validation notes, and future Work Records are durable project memory.
+- **Artifacts over vibes:** Plans, PRDs, ADRs, validation notes, and Work Records are durable project memory.
 - **Session continuity:** Fresh sessions start with Router, but follow-up messages stay with the specialist Agent that
   owns the current topic unless the user explicitly starts fresh or returns to Router.
 - **Tool-driven workflow:** Agents declare intent with custom tools; orchestration code decides lifecycle transitions,
@@ -243,7 +244,8 @@ Current local Workspace requirements:
 - reads and writes canonical markdown Plans through Plan store and lifecycle APIs
 - preserves `plans/` as the source of truth
 
-The local Workspace is a Core client, not the SaaS product. Broader Workspace and SaaS requirements live in
+The local Workspace is a Core client and remains supported alongside the later persistent owner Workspace. Broader
+Workspace, Personal Remote Workspace, and SaaS requirements live in
 [runwield-workspace-PRD.md](./runwield-workspace-PRD.md).
 
 ## 5. Current Collaborative Planning Surface
@@ -405,42 +407,53 @@ Open questions:
 - Should dangerous shell command policy live in RunWield itself, in Pi, or in user/project instructions?
 - Should a Governance Agent or architecture guardrail become a first-class workflow, or remain a Skill/policy option?
 
-## 10. Session Host and External Integration
+## 10. Session Host, SessionRuntime, and External Integration
 
-### 10.1 Current
+### 10.1 Current foundation
 
-Current interactive runtime still has a single process-global session state owner for:
+Core currently has an in-process multi-session **Session Host** foundation:
 
-- active Agent
-- active model/thinking state
-- root Session Manager
-- root Agent Session
-- active UI API
-- pending root swap
-- pending return-to-router handoff
-- transient sub-Agent Sessions
-- active execution workflow
-- project-state context
+- `SessionHost` owns the in-process registry and lifecycle for one or more Hosted Sessions.
+- `HostedSession` owns per-session Project root, persisted root Session Manager, active Agent/model/thinking state,
+  interaction adapter, workflow context, active execution workflow, event sink, and turn state.
+- `SessionRuntime` exposes adapter-neutral create, load, prompt, cancel, close, replay, snapshot, workflow-action,
+  event, and interaction semantics.
+- TUI and ACP are sibling Runtime consumers and must not import one another or require Workspace application services.
+- Workspace may also consume `SessionRuntime` through a native browser adapter rather than routing first-party traffic
+  through ACP.
 
-This is sufficient for the current TUI-oriented runtime, but it is not the target architecture for ACP, Workspace-driven
-sessions, or messaging transports.
+This foundation isolates multiple Hosted Sessions in one process, but it does not make one JavaScript Runtime instance
+shareable across TUI, Workspace, and ACP processes. Loading the same Pi Session transcript in two processes without
+coordination risks stale context, unintended branches, or duplicated side effects.
 
-### 10.2 Future / Open
+### 10.2 Personal Remote Workspace coordination requirements
 
-The next major Core architecture goal is the multi-session **Session Host**, described in
-[runwield-acp-session-host-PRD.md](./runwield-acp-session-host-PRD.md).
+Personal Remote Workspace v1 adds the cross-process coordination layer accepted in
+[ADR-011](../adr/011-exclusive-session-activation-and-durable-workflow-checkpoints.md) while preserving the sibling
+Runtime boundary described in [runwield-acp-session-host-PRD.md](./runwield-acp-session-host-PRD.md).
 
-Requirements:
+Core requirements for that layer:
 
-- introduce a Session Host abstraction that owns one or more Hosted Sessions
-- move session-scoped state out of process-global `session-state.js`
-- make the TUI a client of one Hosted Session
-- support multiple independent Hosted Sessions in one process
-- expose create/load/prompt/cancel/observe semantics for non-TUI clients
-- make ACP the strategic external protocol
-- preserve existing TUI behavior while changing the runtime ownership boundary
+- assign a stable RunWield Session ID above Pi Session Manager IDs and in-process Hosted Session IDs;
+- map each stable Session to one Project and Pi transcript locator in an owner-only SQLite database under `~/.wld/`;
+- keep canonical Plans, PRDs, ADRs, Work Records, source code, worktree registry evidence, and private Session
+  Transcripts outside the owner coordination database;
+- acquire a fenced **Session Activation Lease** before any process opens or mutates a writable Pi `SessionManager` for
+  an existing Session;
+- publish committed Session generations only after the corresponding transcript or repository effects are durable;
+- provide a genuinely non-mutating transcript reader for idle non-owners to project unseen stable entries without
+  migrating or rewriting JSONL;
+- persist typed **Durable Workflow Checkpoints** for Plan review, Feedback, **Approve & Run**, **Approve for Later**,
+  Plan Recovery, human code review, and cross-surface structured interactions;
+- resolve and consume checkpoint outcomes through compare-and-set transitions so retries, stale owners, and duplicate
+  browser submissions cannot apply an outcome twice;
+- enforce a separate **Plan Workflow Lease** keyed by Project and Plan and owned by a stable RunWield Session ID;
+- treat stale activation, uncertain workflow leases, transcript/database reconciliation mismatches, and partial
+  filesystem effects as recovery cases rather than replaying arbitrary model, command, tool, or filesystem work.
 
-Session Host comes before ACP. ACP should expose RunWield behavior; it should not reach into TUI globals.
+These requirements sit below adapters and above consequential transcript, lifecycle, checkpoint, and worktree effects.
+They must preserve existing local TUI, ACP, current-checkout Plan UI, Shared Plan, QUICK_FIX, non-Git, Plan Lifecycle,
+Workflow Validation, and RunWield worktree behavior where that behavior does not violate one-writer ownership.
 
 ## 11. Technical Stack
 
@@ -458,13 +471,13 @@ Current:
 - **Code intelligence:** Cymbal plus command/search tools.
 - **Execution isolation:** Git worktrees and `.wld/worktrees.json` runtime registry.
 - **Validation:** project-configured validation command, semantic review, optional human review, merge-back.
-- **Collaboration:** encrypted Shared Space protocol and local sharing command work in progress.
+- **Collaboration:** encrypted Shared Space protocol and implemented share/pull/push/unshare CLI lifecycle.
 
 Future/open:
 
-- Session Host and ACP runtime mode.
-- Work Records as first-class local markdown planning memory.
-- Complete shared Plan pull/push/unshare lifecycle.
+- Personal Remote Workspace owner coordination: stable Session catalog, activation leases, committed generations,
+  Durable Workflow Checkpoints, Plan Workflow Leases, and automatic synchronization.
+- Hosted RunWield Workspace / Cloudflare D1 deployment for Shared Spaces and later SaaS composition.
 - Any RunWield-owned semantic index if Cymbal is not sufficient.
 
 ## 12. Success Metrics
@@ -480,8 +493,12 @@ Current Core metrics:
 
 Future Core metrics:
 
-- TUI runs through Session Host with no intended behavior regression.
-- Multiple Hosted Sessions can run in one process without state bleed.
-- ACP clients can create/load/prompt/cancel sessions and observe workflow events.
-- Work Records are generated for verified planned work and improve future planning retrieval.
-- Shared Plan pull/push/unshare flows complete the remote-canonical collaboration loop.
+- All writable Session opening paths acquire activation before mutating an existing transcript.
+- Idle non-owning TUI, Workspace, and ACP surfaces synchronize from committed Session generations without constructing
+  writable managers.
+- Durable Workflow Checkpoints resume or recover human-gated workflows exactly once across process loss and reconnect
+  retries.
+- Plan Workflow Leases prevent a different Session from driving one Plan concurrently across CLI, TUI, Workspace, ACP,
+  validation, and recovery paths.
+- Owner coordination state can be reconstructed conservatively from canonical Projects, transcript catalogs, Plan files,
+  and worktree evidence without deleting source, Plans, Work Records, worktrees, or Session Transcripts.
