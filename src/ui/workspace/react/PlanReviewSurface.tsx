@@ -7,9 +7,10 @@ import { Viewer } from "@plannotator/ui/components/Viewer.tsx";
 import { MarkdownEditor } from "@plannotator/ui/components/MarkdownEditor.tsx";
 import { AnnotationPanel } from "@plannotator/ui/components/AnnotationPanel.tsx";
 import { AnnotationToolstrip } from "@plannotator/ui/components/AnnotationToolstrip.tsx";
-import { ApproveButton, FeedbackButton } from "@plannotator/ui/components/ToolbarButtons.tsx";
+import { FeedbackButton } from "@plannotator/ui/components/ToolbarButtons.tsx";
 import { CompletionOverlay } from "@plannotator/ui/components/CompletionOverlay.tsx";
 import { ActionMenu, ActionMenuItem } from "@plannotator/ui/components/ActionMenu.tsx";
+import { Button } from "@plannotator/ui/components/ui/button.tsx";
 import { OverlayScrollArea } from "@plannotator/ui/components/OverlayScrollArea.tsx";
 import { ResizeHandle } from "@plannotator/ui/components/ResizeHandle.tsx";
 import { SidebarContainer } from "@plannotator/ui/components/sidebar/SidebarContainer.tsx";
@@ -21,6 +22,10 @@ import { getPlanSaveSettings } from "@plannotator/ui/utils/planSave.ts";
 import { exportAnnotations, extractFrontmatter, parseMarkdownToBlocks } from "@plannotator/ui/utils/parser.ts";
 import { getUIPreferences, PLAN_WIDTH_OPTIONS } from "@plannotator/ui/utils/uiPreferences.ts";
 import { PlanReviewSettings } from "./PlanReviewSettings.tsx";
+import {
+    PLAN_APPROVAL_ACTIONS,
+    primaryPlanApprovalActionForClassification,
+} from "../../../shared/workflow/plan-approval.js";
 import "./plannotator.css";
 
 const DEFAULT_PLAN_PAYLOAD = { plan: "", token: "", mode: "dev" };
@@ -62,12 +67,15 @@ export function PlanReviewSurface({ payload }) {
             frontmatter: frontmatterResult.frontmatter,
         };
     }, [plan]);
+    const planClassification = parsed.frontmatter?.classification || initialPayload.classification || "FEATURE";
+    const primaryApprovalAction = primaryPlanApprovalActionForClassification(planClassification);
 
-    async function submitApprove() {
+    async function submitApprove(approvalAction) {
         setSubmitting("approve");
         try {
             await submit("decision", {
                 approved: true,
+                approvalAction,
                 ...buildReviewPayload(),
                 ...buildPlanSavePayload(),
             });
@@ -194,8 +202,9 @@ export function PlanReviewSurface({ payload }) {
                                     ? "Add an annotation before sending feedback"
                                     : "Send all annotations"}
                             />
-                            <ApproveButton
-                                onClick={submitApprove}
+                            <PlanApprovalSplitButton
+                                primaryAction={primaryApprovalAction}
+                                onApprove={submitApprove}
                                 disabled={submitting !== null}
                                 isLoading={submitting === "approve"}
                             />
@@ -410,6 +419,69 @@ export function PlanReviewSurface({ payload }) {
     }
 }
 
+function PlanApprovalSplitButton({ primaryAction, onApprove, disabled, isLoading }) {
+    const isProject = primaryAction === PLAN_APPROVAL_ACTIONS.DECOMPOSE;
+    const primaryLabel = isProject ? "Approve & Slice" : "Approve & Run";
+    const primaryMobileLabel = isProject ? "Slice" : "Run";
+    const loadingLabel = isProject ? "Approving…" : "Approving…";
+
+    function submitPrimary() {
+        onApprove(primaryAction);
+    }
+
+    function submitForLater(closeMenu) {
+        closeMenu();
+        onApprove(PLAN_APPROVAL_ACTIONS.LATER);
+    }
+
+    return (
+        <ActionMenu
+            className="rw-approval-split-menu"
+            panelClassName="rw-approval-action-menu absolute top-full right-0 mt-1 w-60 rounded-lg border border-border bg-popover py-1 shadow-xl z-[70]"
+            renderTrigger={({ isOpen, toggleMenu }) => (
+                <div className="rw-approval-split-button" aria-label="Plan approval actions">
+                    <Button
+                        variant="success"
+                        size="xs"
+                        className="rw-approval-primary"
+                        onClick={submitPrimary}
+                        disabled={disabled}
+                        title={primaryLabel}
+                        aria-label={primaryLabel}
+                        iconLeft={<CheckIcon />}
+                    >
+                        <span className="md:hidden">{isLoading ? "…" : primaryMobileLabel}</span>
+                        <span className="hidden md:inline">{isLoading ? loadingLabel : primaryLabel}</span>
+                    </Button>
+                    <Button
+                        variant="success"
+                        size="xs"
+                        className="rw-approval-caret"
+                        onClick={toggleMenu}
+                        disabled={disabled}
+                        title="More approval options"
+                        aria-label="More approval options"
+                        aria-expanded={isOpen}
+                    >
+                        <ChevronDownIcon />
+                    </Button>
+                </div>
+            )}
+        >
+            {({ closeMenu }) => (
+                <ActionMenuItem
+                    onClick={() => submitForLater(closeMenu)}
+                    icon={<ClockIcon />}
+                    label="Approve for Later"
+                    subtitle={isProject
+                        ? "Approve and save this Epic for later Slicer decomposition."
+                        : "Approve and save this Plan for later execution."}
+                />
+            )}
+        </ActionMenu>
+    );
+}
+
 function PlanReviewOptionsMenu({ onOpenSettings, onPrint }) {
     return (
         <ActionMenu
@@ -452,6 +524,34 @@ function PlanReviewOptionsMenu({ onOpenSettings, onPrint }) {
                 </>
             )}
         </ActionMenu>
+    );
+}
+
+function CheckIcon() {
+    return (
+        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+        </svg>
+    );
+}
+
+function ChevronDownIcon() {
+    return (
+        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+    );
+}
+
+function ClockIcon() {
+    return (
+        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M12 6v6l4 2M12 22a10 10 0 110-20 10 10 0 010 20z"
+            />
+        </svg>
     );
 }
 

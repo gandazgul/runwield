@@ -1,5 +1,7 @@
 /** Review decision transport for Workspace-hosted review surfaces. */
 
+import { readPlanApprovalAction } from "../../../../shared/workflow/plan-approval.js";
+
 const REVIEW_TIMEOUT_MS = 30 * 60 * 1000;
 /** @type {Map<string, { resolve: (value: any) => void, promise: Promise<any>, timeoutId: ReturnType<typeof setTimeout> }>} */
 const reviewDecisions = new Map();
@@ -53,6 +55,7 @@ export async function reviewDecisionApi(ctx) {
         ...reviewImageDecisionFields(body),
         plan: typeof body.plan === "string" ? body.plan : undefined,
         savedPath: readPlanSavePath(body.planSave),
+        approvalAction: readPlanApprovalAction(body.approvalAction),
         agentSwitch: typeof body.agentSwitch === "string" ? body.agentSwitch : undefined,
         permissionMode: typeof body.permissionMode === "string" ? body.permissionMode : undefined,
     }));

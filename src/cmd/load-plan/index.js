@@ -26,6 +26,7 @@ import {
     recordPlanEvent as recordPlanEventFn,
     stageValidationPassedInExecutionWorktree as stageValidationPassedInExecutionWorktreeFn,
 } from "../../shared/workflow/plan-lifecycle.js";
+import { normalizePlanApprovalAction, PLAN_APPROVAL_ACTIONS } from "../../shared/workflow/plan-approval.js";
 import {
     getWorkflowDiff as getWorkflowDiffFn,
     listCommitsTouchingPathsSince as listCommitsTouchingPathsSinceFn,
@@ -77,8 +78,6 @@ export { getLoadPlanCompletions } from "./getArgumentCompletions.js";
  * @property {(options: Record<string, any>) => Promise<any>} [runPlanningAgent]
  * @property {typeof decidePostPlanningFn} [decidePostPlanning]
  * @property {typeof decidePostExecutionFn} [decidePostExecution]
- * @property {(planName: string) => Promise<string>} [askPostApproval]
- * @property {(planName: string) => Promise<string>} [askProjectDecompositionApproval]
  * @property {(options: Record<string, any>) => Promise<any>} [runValidationLoop]
  * @property {(options: Record<string, any>) => Promise<any>} [runSlicerAgent]
  * @property {typeof loadPlanFn} [loadPlan]
@@ -124,9 +123,7 @@ export { getLoadPlanCompletions } from "./getArgumentCompletions.js";
  * @property {(options: Record<string, any>) => Promise<any>} runSlicerAgent
  * @property {(workflow: Record<string, any>) => void} setActiveExecutionWorkflow
  * @property {() => void} clearActiveExecutionWorkflow
- * @property {(planName: string) => Promise<string>} askPostApproval
- * @property {(planName: string) => Promise<string>} askProjectDecompositionApproval
- * @property {(meta: { planName: string, planPath: string, triageMeta: Record<string, any> }) => Promise<{ canceled: boolean, approved: boolean, feedback?: string, images?: Array<{base64: string, mimeType: string}> }>} reviewPlan
+ * @property {(meta: { planName: string, planPath: string, triageMeta: Record<string, any> }) => Promise<{ canceled: boolean, approved: boolean, feedback?: string, approvalAction?: import('../../shared/workflow/plan-approval.js').PlanApprovalAction, images?: Array<{base64: string, mimeType: string}> }>} reviewPlan
  * @property {(name: string) => void} rename
  */
 
@@ -167,14 +164,6 @@ function createPlanSessionSurface(runtime, sessionId, deps) {
         clearActiveExecutionWorkflow: () => {
             runtime.clearActiveExecutionWorkflow(sessionId);
         },
-        askPostApproval: (planName) =>
-            deps.askPostApproval
-                ? /** @type {any} */ (deps.askPostApproval)(planName)
-                : runtime.askPostApproval(sessionId, planName),
-        askProjectDecompositionApproval: (planName) =>
-            deps.askProjectDecompositionApproval
-                ? /** @type {any} */ (deps.askProjectDecompositionApproval)(planName)
-                : runtime.askProjectDecompositionApproval(sessionId, planName),
         reviewPlan: async (meta) => {
             const response = await runtime.requestInteraction(sessionId, {
                 type: RuntimeInteractionTypes.PLAN_REVIEW,
@@ -186,6 +175,7 @@ function createPlanSessionSurface(runtime, sessionId, deps) {
                 canceled: response.outcome === RuntimeInteractionOutcomes.CANCELED,
                 approved: review.approved === true,
                 feedback: typeof review.feedback === "string" ? review.feedback : undefined,
+                approvalAction: review.approvalAction,
                 images: Array.isArray(review.images) ? review.images : undefined,
             };
         },
@@ -2716,8 +2706,6 @@ export async function runLoadPlanCommand(argv, options = {}) {
     const projectRoot = session.cwd;
     const executePlan = session.executePlan;
     const runPlanningAgent = session.runPlanningAgent;
-    const askPostApproval = session.askPostApproval;
-    const askProjectDecompositionApproval = session.askProjectDecompositionApproval;
     const runValidationLoop = session.runValidation;
     const runSlicerAgent = session.runSlicerAgent;
     const switchPlanAgent = session.switchAgent;
@@ -2991,6 +2979,10 @@ export async function runLoadPlanCommand(argv, options = {}) {
                     }
 
                     if (reviewResult.approved) {
+                        const approvalAction = normalizePlanApprovalAction({
+                            classification: plan.attrs.classification,
+                            action: reviewResult.approvalAction,
+                        });
                         if (isEpicPlan(plan.attrs)) {
                             await recordPlanEvent({
                                 cwd: projectRoot,
@@ -3005,8 +2997,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                                 false,
                                 "RunWield",
                             );
-                            const action = await askProjectDecompositionApproval(plan.planName);
-                            if (action === "proceed") {
+                            if (approvalAction === PLAN_APPROVAL_ACTIONS.DECOMPOSE) {
                                 await runSlicerAgent({
                                     planName: plan.planName,
                                     triageMeta: plan.attrs,
@@ -3032,8 +3023,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                             skipRouterRestore = true;
                             return;
                         }
-                        const action = await askPostApproval(plan.planName);
-                        if (action === "proceed") {
+                        if (approvalAction === PLAN_APPROVAL_ACTIONS.RUN) {
                             const confirmed = await confirmAffectedPathChangesBeforeExecution({
                                 projectRoot,
                                 planName: plan.planName,
