@@ -251,9 +251,9 @@ export function classifyToolSubUsage(toolName, args = undefined) {
     if (toolName === "read") return "read";
     if (toolName === "grep") return "search";
     if (toolName === "find" || toolName === "ls") return "list";
-    if (toolName === "edit") return "edit";
+    if (toolName === "edit" || toolName === "edit_docs") return "edit";
     if (toolName === "multi_file_edit") return "multi_edit";
-    if (toolName === "write") return "write";
+    if (toolName === "write" || toolName === "write_docs") return "write";
     if (toolName === "triage_report") return "triage";
     if (toolName === "plan_written") return "plan_written";
     if (toolName === "task_completed") return "task_completed";

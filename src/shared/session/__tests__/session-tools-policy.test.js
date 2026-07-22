@@ -97,6 +97,10 @@ Deno.test("loadAgentDef loads Guide with read-only tools and return_to_router", 
     assert(def.tools.includes("memory_recall_global"));
     assert(def.tools.includes("code_search"));
     assert(def.tools.includes("return_to_router"));
+    assert(def.tools.includes("write_docs"));
+    assert(def.tools.includes("edit_docs"));
+    assert(def.systemPrompt.includes("explicitly asks you to preserve or update"));
+    assert(def.systemPrompt.includes("Plans, PRDs, ADRs, `CONTEXT.md`, Work Records, Agent Definitions, Skills"));
 
     assert(!def.tools.includes("edit"));
     assert(!def.tools.includes("write"));
@@ -186,6 +190,50 @@ Deno.test("resolveEffectiveSessionToolNames normalizes legacy multi replace tool
         resolveEffectiveSessionToolNames(["read", "edit", "multi_replace_file_content"], undefined, []),
         ["read", "edit", "multi_file_edit"],
     );
+});
+
+Deno.test("buildAgentSession auto-wires Guide docs-only tools when requested", async () => {
+    const originalHome = Deno.env.get("HOME");
+    const tempHome = await Deno.makeTempDir({ prefix: "runwield-guide-docs-tools-" });
+    /** @type {import('@earendil-works/pi-coding-agent').AgentSession | undefined} */
+    let session;
+
+    try {
+        Deno.env.set("HOME", tempHome);
+        __resetSettingsForTests();
+        await writeVisionModelConfig(tempHome);
+        const hostedSession = new HostedSession({ id: "guide-docs-tools", cwd: tempHome });
+        const built = await buildAgentSession({
+            hostedSession,
+            agentName: AGENTS.GUIDE,
+            modelOverride: "test/text",
+            _agentDefOverride: {
+                name: AGENTS.GUIDE,
+                displayName: "Guide",
+                model: "",
+                description: "Guide docs tools",
+                tools: ["write_docs", "edit_docs"],
+                systemPrompt: "Prompt.",
+            },
+        });
+        session = built.session;
+
+        assertEquals(built.tools.includes("write_docs"), true);
+        assertEquals(built.tools.includes("edit_docs"), true);
+        const writeDocs = built.finalCustomTools.find((tool) => tool.name === "write_docs");
+        const editDocs = built.finalCustomTools.find((tool) => tool.name === "edit_docs");
+        assert(writeDocs, "expected write_docs to be auto-wired");
+        assert(editDocs, "expected edit_docs to be auto-wired");
+        assertEquals(typeof writeDocs.execute, "function");
+        assertEquals(typeof editDocs.execute, "function");
+    } finally {
+        session?.dispose();
+        __resetSettingsForTests();
+        if (originalHome === undefined) Deno.env.delete("HOME");
+        else Deno.env.set("HOME", originalHome);
+        __resetSettingsForTests();
+        await Deno.remove(tempHome, { recursive: true });
+    }
 });
 
 Deno.test("buildAgentSession auto-wires return_to_router to the target HostedSession", async () => {

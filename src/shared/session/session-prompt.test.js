@@ -249,7 +249,7 @@ Deno.test("applyAttentionNudge only injects scheduled long-lived agent nudges", 
         applyAttentionNudge(AGENTS.GUIDE, "User asks", 6),
         [
             "<attention_nudge>",
-            "You are still the Guide. Stay read-only, answer direct questions concisely, and return to Router if the user asks for edits, plans, execution, or deeper ideation.",
+            "You are still the Guide. Answer direct questions concisely, use docs-only Markdown tools only after explicit preservation requests, and return to Router for code/config edits, workflow artifacts, plans, execution, or deeper ideation.",
             "</attention_nudge>",
             "",
             "User asks",
