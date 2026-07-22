@@ -88,6 +88,17 @@ _Avoid_: Impacted files, file list
 **Vertical Slice**: A narrow, end-to-end trace through the codebase from entry point to boundary for one request.
 _Avoid_: Cross-section, code path
 
+### External Work Sources
+
+**External Work Source**: A non-RunWield system such as Jira, GitHub Issues, or a Notion work database that owns demand
+management for requested work. _Avoid_: RunWield tracker, Plan store, execution system
+
+**Ticket**: A demand-management item in an External Work Source that may relate to zero or more Plans without
+participating in Plan Lifecycle. _Avoid_: Plan, User Request, Task
+
+**Ticket Reference**: A structured relation on a Plan or Work Record whose required URL links to a related Ticket
+without synchronizing content, state, or lifecycle. _Avoid_: Ticket copy, status mapping, external Plan
+
 ### Plans & Review
 
 **Plan**: A markdown file in `plans/` with YAML Front Matter that describes the implementation strategy for a User
@@ -432,6 +443,13 @@ command definition, prompt command
 
 ## Relationships
 
+- An **External Work Source** owns demand management, while RunWield owns planning, execution, Plan Lifecycle, and
+  delivery truth.
+- **Tickets** and **Plans** have a many-to-many relationship expressed through **Ticket References**.
+- A completed **Plan** carries its **Ticket References** into its **Work Record** as durable demand provenance.
+- An Epic **Work Record** aggregates and deduplicates **Ticket References** from the Epic and all child FEATURE Plans.
+- A **Ticket Reference** is provenance and navigation only; it does not make either system authoritative over the
+  other's lifecycle.
 - A **TUI** session may set a **Terminal Title** before and after **Triage** to keep terminal tabs distinguishable.
 - A **Terminal Title** should mirror the current **Session Name** when one exists.
 - Router-provided auto-naming only sets the **Session Name** for unnamed sessions; manual naming overrides it.
@@ -619,6 +637,8 @@ command definition, prompt command
 
 ## Flagged ambiguities
 
+- "ticket" and "Plan" can both describe units of work; resolved: a **Ticket** belongs to an **External Work Source** and
+  captures demand, while a **Plan** belongs to RunWield and governs software delivery.
 - "router", "dispatcher", and "orchestrator" were used interchangeably; resolved: **Router** is an Agent, while the
   **Workflow Orchestrator** coordinates workflow steps after Custom Tool outcomes.
 - "agent def" and "agent config" appeared as aliases; resolved: use **Agent Definition** for the markdown source, and

@@ -1,0 +1,215 @@
+# WLD User-Facing Features
+
+- **Installation and startup**
+  - Install the standalone `wld` binary on macOS or Linux with the release installer.
+  - Choose a custom install directory with `WLD_INSTALL_DIR`.
+  - Run from source with Deno for contributor workflows.
+  - Compile a standalone binary from source.
+  - Print global command help with `wld help`.
+  - Print per-command help with `wld help <command>`.
+  - Print version and platform architecture with `wld version`.
+  - Start an interactive terminal session with `wld`.
+  - Send a one-shot routed request with `wld "<request>"`.
+  - Explicitly route a request with `wld router "<request>"`.
+
+- **Model access and provider setup**
+  - Sign in to subscription model providers with `/login`.
+  - Save API-key provider credentials with `/login api-key <provider>`.
+  - Remove stored provider credentials with `/logout`.
+  - Inspect configured providers and available models with `/status`.
+  - Switch the active model with `/model` or `wld model <provider>/<model_id>`.
+  - Configure providers and custom models through RunWield-owned config paths.
+  - Use per-agent model overrides in settings.
+  - Use named model presets in settings.
+  - Configure model thinking levels per agent.
+  - Use a vision fallback model for pasted images when the active model is text-only.
+
+- **Routing and agent workflow**
+  - Start new work through Router by default.
+  - Get an explicit Triage Report for routed requests.
+  - Route direct questions and explanations as `INQUIRY` work.
+  - Route idea shaping, research, and PRD-style exploration as `IDEATION` work.
+  - Route direct non-code repository or environment tasks as `OPERATION` work.
+  - Route bounded no-plan code changes as `QUICK_FIX` work.
+  - Route non-trivial implementation as planned `FEATURE` work.
+  - Route large efforts as `PROJECT` Epics.
+  - Keep the specialist agent active after Router handoff for follow-up context.
+  - Return a running session to Router with `/agent router`.
+  - List available agents with `wld agent`.
+  - Start directly with a chosen agent using `wld agent <name>` or `wld agent <name> "<request>"`.
+  - Switch agents inside the TUI with `/agent <name>`.
+  - Use bundled specialist agents including Router, Guide, Ideator, Operator, Planner, Architect, Engineer, and Tester.
+  - Use workflow specialists such as Slicer and Reviewer during plan decomposition and validation flows.
+
+- **Planning and execution**
+  - Store plans as Markdown files under `plans/`.
+  - Use YAML front matter to preserve plan metadata and workflow state.
+  - Review `FEATURE` plans before execution.
+  - Save approved plans for later execution.
+  - Load a plan by name or path with `wld load-plan <name-or-path>`.
+  - Continue draft or feedback plans.
+  - Re-open approved, implemented, or verified plans for review.
+  - Execute ready standalone `FEATURE` plans.
+  - Execute ready child `FEATURE` plans from an Epic.
+  - Target saved plan execution at a chosen git branch with `worktreeBaseBranch`.
+  - Run saved plan work in linked git worktrees when applicable.
+  - Merge verified worktree changes back to the target branch.
+  - Preserve plan lifecycle state through execution, validation, failures, holds, and recovery.
+  - Put plans on hold and later resume them.
+  - Close eligible work without verification when explicitly chosen.
+  - Recover failed execution, validation, and merge-back states through dedicated plan recovery actions.
+
+- **Project Epics and slicing**
+  - Represent large `PROJECT` work as Epic container plans.
+  - Review and approve Epic design plans before decomposition.
+  - Use the interactive Slicer to discuss child feature boundaries.
+  - Sequence child features and record sibling dependencies.
+  - Materialize child `FEATURE` plan drafts under the Epic folder.
+  - Finalize decomposition only after explicit confirmation.
+  - Load an Epic to resume decomposition or choose child feature work.
+  - Warn about unverified child feature dependencies.
+  - Mark an Epic done enough for now without pretending it produced a single implementation diff.
+
+- **Validation and review**
+  - Run Mechanical Validation after direct `QUICK_FIX` work.
+  - Run workflow validation after saved executable plan work.
+  - Run semantic review against the original plan after saved plan implementation.
+  - Send validation failures back through repair attempts.
+  - Preserve the original execution owner during validation repairs.
+  - Optionally use a human code-review gate during validation when configured.
+  - Generate post-verification Manual QA checklist handoffs for supported plan completions.
+  - Record validation, review, and merge outcomes in plan lifecycle metadata.
+
+- **Plans CLI**
+  - List active saved plans with `wld plans`.
+  - Group child feature plans under their parent Epic in plan listings.
+  - Read active or archived plan details with `wld plans read <name-or-id>`.
+  - Archive verified or closed plans with `wld plans archive <name-or-id>`.
+  - Force archive other safe statuses when explicitly requested.
+  - Bulk archive active plans by exact status with `wld plans archive --all --status <status>`.
+  - List archived plans with `wld plans archive`.
+  - Restore archived plans with `wld plans archive restore <name-or-id>`.
+  - Refuse unsafe archive and restore operations that would overwrite or lose recoverable state.
+
+- **Local browser Workspace and plan review UI**
+  - Launch the local Plans Workspace with `wld plans ui`.
+  - Start the Workspace without opening a browser with `wld plans ui --no-open`.
+  - Serve the Workspace from the current checkout.
+  - Bind the local Workspace to `127.0.0.1` by default.
+  - Use a random per-server token for Workspace pages and APIs.
+  - Warn before serving plaintext plan content on non-loopback hosts.
+  - View plan boards in the browser.
+  - View closed plans in the browser.
+  - View on-hold plans in the browser.
+  - View plan and Epic detail pages in the browser.
+  - Use stable plan detail URLs based on `planId`.
+  - Review plans in the browser through the Workspace/Plannotator review surface.
+  - Approve, request changes, save, or cancel from the plan review flow.
+  - Read and comment on remote Shared Space plans in the browser.
+  - Resolve and reopen remote review comments in the browser.
+  - Switch remote review revisions in the browser.
+
+- **Collaborative planning**
+  - Run a self-hosted encrypted Plan Server with Podman/OCI Compose and SQLite.
+  - Share a local plan to an encrypted remote Shared Space with `wld plans share <plan-name-or-id>`.
+  - Print reviewer and maintainer URLs for a shared plan.
+  - Configure a default Plan Server with `planServerUrl`.
+  - Override the Plan Server for a single share command with `--plan-server`.
+  - Pull remote feedback with `wld plans pull <maintainer-url-or-plan-name-or-id>`.
+  - Pull a shared plan into another checkout with `--to <plan-name>`.
+  - Push an accepted local revision with `wld plans push <plan-name-or-id>`.
+  - Delete a remote Shared Space and clear local collaboration metadata with `wld plans unshare <plan-name-or-id>`.
+  - Lock shared local plans against ordinary local mutation while the remote is canonical.
+  - Preserve local plan files as plaintext while remote payloads are encrypted.
+  - Support optional Shared Space inactivity retention on the Plan Server.
+  - Report expired, deleted, stale, and no-op remote collaboration states.
+
+- **Work Records**
+  - Store canonical Work Records as Markdown under `docs/work-records/`.
+  - Automatically generate or link Work Records after supported completed plan outcomes.
+  - Generate parent Epic Work Records after supported child-feature completion outcomes.
+  - List current Work Records with `wld wr` or `wld wr list`.
+  - Include maintenance records with `wld wr list --all`.
+  - Search the Work Record index with `wld wr search <query>`.
+  - Search all maintenance states with `wld wr search <query> --all`.
+  - Read a Work Record by stable ID with `wld wr read <recordId>`.
+  - Rebuild the derived Work Record index with `wld wr index rebuild`.
+  - Backfill missing Work Records with `wld wr backfill`.
+  - Preview Work Record backfill with `wld wr backfill --dry-run`.
+
+- **Project context, memory, and code intelligence**
+  - Initialize project context with `wld init` or `/init`.
+  - Generate a project `CONTEXT.md` during initialization.
+  - Store durable project memories during initialization.
+  - Use Mnemosyne for project and global memory recall.
+  - Use Cymbal for code search, symbol lookup, references, impact analysis, and tracing.
+  - Use Snip for compact command-output rewriting when available.
+  - Install RunWield-managed Deno Snip filters with `wld snip-filters install`.
+  - Check Snip filter status with `wld snip-filters status`.
+  - Remove RunWield-managed Snip filters with `wld snip-filters cleanup`.
+  - Run memory and context cleanup with `wld sleep` or `/sleep`.
+  - Back up session-scoped memory before sleep cleanup.
+
+- **Interactive TUI and session management**
+  - Use slash-command autocomplete by typing `/`.
+  - Use file-reference fuzzy search by typing `@`.
+  - Run shell commands and send output to the model with `!command`.
+  - Run shell commands without adding output to model context with `!!command`.
+  - Paste images into the TUI when supported by the active model or configured fallback.
+  - Queue messages while an agent is working.
+  - Use multiline input and external editor shortcuts inherited from Pi.
+  - Browse and resume recent sessions with `/resume`.
+  - Start a new root session with `/new`.
+  - Name a session with `/name <name>`.
+  - Show the current session name with `/name`.
+  - Inspect current session information and cumulative token totals with `/session`.
+  - Inspect active context-window usage with `/context`.
+  - Manually compact session context with `/compact`.
+  - Customize compaction instructions with `/compact "<instructions>"`.
+  - Configure compaction behavior through `/settings`.
+  - Reload settings, instructions, prompts, skills, models, themes, and memories with `/reload`.
+  - Copy the last assistant message to the clipboard with `/copy`.
+  - Exit with `/quit` or `/exit`.
+  - Persist session history under `~/.wld/sessions/`.
+  - Automatically name sessions and terminal titles from Router triage when no manual name exists.
+  - Offer compaction before resuming large sessions when configured.
+
+- **Session export and sharing**
+  - Export the current session to HTML with `/export`.
+  - Export the current session to JSONL with `/export output.jsonl`.
+  - Choose an explicit export path with `/export <path>`.
+  - Share the current session as a secret GitHub Gist with `/share`.
+
+- **Customization**
+  - Configure global settings in `~/.wld/settings.json`.
+  - Configure project settings in `.wld/settings.json`.
+  - Use the published JSON Schema URL for settings autocomplete and validation.
+  - Layer project customization over home customization over bundled defaults.
+  - Override agent definitions with `.wld/agents/` or `~/.wld/agents/`.
+  - Add project or home prompt templates with `.wld/prompts/` or `~/.wld/prompts/`.
+  - Use prompt templates as slash commands when they do not collide with built-ins.
+  - Load project, home, bundled, and external ecosystem skills.
+  - Invoke bundled skills with `/skill:<name>`.
+  - Use bundled skills for documentation, web lookup, diagnosis, prototyping, research, test writing, skill writing, and
+    codebase design tasks.
+  - Read RunWield-specific global instructions from `~/.wld/RUNWEILD.md` or `~/.wld/AGENTS.md`.
+  - Optionally fall back to shared `~/.agents/AGENTS.md` instructions.
+
+- **Themes and visual customization**
+  - Use the embedded `catppuccin-mocha` theme by default.
+  - Open an interactive theme picker with `/theme`.
+  - Preview themes live in the TUI before confirming.
+  - Persist the selected theme.
+  - List installed themes with `wld theme --list`.
+  - Switch themes from the CLI with `wld theme <name>`.
+  - Install theme packages from npm with `wld install npm:<package-spec>`.
+  - Install theme packages from git with `wld install git:<url>`.
+  - Install theme packages from a local path with `wld install local:<path>`.
+  - Remove installed theme packages with `wld remove <source>`.
+  - Reset to the built-in theme when the active external theme is removed.
+
+- **Protocol and external-client support**
+  - Start the ACP stdio adapter with `wld acp`.
+  - Start ACP mode with `wld --mode acp`.
+  - Expose a minimal Agent Client Protocol server for external clients.
+  - Return structured ACP errors for protocol methods not yet implemented.
