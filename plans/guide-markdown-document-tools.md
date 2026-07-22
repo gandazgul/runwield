@@ -23,12 +23,14 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-22T09:47:20-04:00"
-updatedAt: "2026-07-22T14:00:47.862Z"
-status: "implemented"
+updatedAt: "2026-07-22T17:32:08.187Z"
+status: "verified"
 origin: "internal"
 implementedAt: "2026-07-22T14:00:47.862Z"
+verifiedAt: "2026-07-22T17:32:08.187Z"
 executionReport: "- Implemented `write_docs` / `edit_docs` Markdown-restricted Custom Tools and auto-wiring; non-`.md` targets are rejected before mutation.\n- Updated Guide policy/tools and docs so Guide can only preserve/update ordinary `.md` docs on explicit follow-up; Router and Operator behavior remain unchanged.\n- Added regression coverage for tool behavior, Guide tool policy, Runtime titles, metrics, and delegated-agent exclusion.\n- Verification passed: `deno test -A src/tools/__tests__/docs-file-tools.test.js`; targeted session/runtime tests; `deno test -A src/tools/__tests__/delegate-agent.test.js`; `deno task ci`.\n- Manual model-backed Guide conversation flows were not run; equivalent tool and policy behavior was covered by automated tests."
-worktreeStatus: "completed"
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
 routingIntent: "FEATURE"
 ---
 
