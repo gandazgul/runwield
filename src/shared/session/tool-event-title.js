@@ -44,6 +44,8 @@ function getFilePathForTool(toolName, args) {
         case "read":
         case "edit":
         case "write":
+        case "edit_docs":
+        case "write_docs":
             return typeof args.path === "string"
                 ? args.path
                 : typeof args.file_path === "string"
@@ -147,7 +149,10 @@ export function describeRuntimeTool(toolName, args) {
     /** @type {RuntimeToolKind} */
     let kind = "other";
     if (toolName === "read" || toolName === "ls") kind = "read";
-    else if (toolName === "edit" || toolName === "write" || toolName === "multi_file_edit") kind = "edit";
+    else if (
+        toolName === "edit" || toolName === "write" || toolName === "multi_file_edit" ||
+        toolName === "edit_docs" || toolName === "write_docs"
+    ) kind = "edit";
     else if (
         toolName === "grep" || toolName === "find" || toolName === "code_search" || toolName === "code_refs" ||
         toolName === "code_impact" || toolName === "code_trace" || toolName === "code_impls" ||
