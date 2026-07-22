@@ -41,6 +41,24 @@ function canCompleteActiveExecutionWorkflow(agentName, workflow) {
 }
 
 /**
+ * @param {string} userRequest
+ * @returns {boolean}
+ */
+function isDeliberateExecutionResume(userRequest) {
+    const normalized = userRequest.trim().toLowerCase().replaceAll(/\s+/g, " ");
+    return [
+        "continue",
+        "continue execution",
+        "continue pair execution",
+        "resume",
+        "resume execution",
+        "resume pair execution",
+        "proceed",
+        "keep going",
+    ].includes(normalized);
+}
+
+/**
  * Create an onMessage handler for the active Agent.
  *
  * The returned function produces the typed turn result consumed by
@@ -107,8 +125,14 @@ export function createAgentHandler(agentName, __deps) {
         if (!hostedSession) throw new Error("createAgentHandler: hostedSession is required");
         const projectRoot = hostedSession.cwd;
         const resumedWorkflow = hostedSession.getActiveExecutionWorkflow();
-        if (resumedWorkflow?.pairStopRequested) {
-            hostedSession.setActiveExecutionWorkflow({ ...resumedWorkflow, pairStopRequested: undefined });
+        if (
+            (resumedWorkflow?.pairPauseReason || resumedWorkflow?.pairStopRequested) &&
+            isDeliberateExecutionResume(userRequest)
+        ) {
+            const resumed = { ...resumedWorkflow };
+            delete resumed.pairPauseReason;
+            delete resumed.pairStopRequested;
+            hostedSession.setActiveExecutionWorkflow(resumed);
         }
         /**
          * @param {Parameters<typeof recordWorkflowMetricSource>[0]} metric
@@ -283,8 +307,12 @@ export function createAgentHandler(agentName, __deps) {
                 // Ignore in tests or if the file doesn't exist
             }
 
-            const executionOwner = hostedSession.getActiveExecutionWorkflow()?.executionAgent ||
-                resolveExecutionOwner(/** @type {any} */ (triageMeta));
+            const activeWorkflowAfterExecution = hostedSession.getActiveExecutionWorkflow();
+            const executionCanceledBeforeStart = executionResult?.canceled && !activeWorkflowAfterExecution;
+            const executionOwner = executionCanceledBeforeStart
+                ? agentName
+                : activeWorkflowAfterExecution?.executionAgent ||
+                    resolveExecutionOwner(/** @type {any} */ (triageMeta));
             const executionDecision = decidePostExecution(executionResult, {
                 planName,
                 triageMeta,
@@ -317,6 +345,10 @@ export function createAgentHandler(agentName, __deps) {
                 });
                 requestAgentStoppedAttention();
             } else if (executionDecision.kind === "stay_with_agent") {
+                if (executionCanceledBeforeStart) {
+                    requestAgentStoppedAttention();
+                    return { kind: "complete" };
+                }
                 const nextAgentName = /** @type {string} */ (executionDecision.payload.agentName || AGENTS.ENGINEER);
                 await recordWorkflowMetricImpl({
                     category: "execution",
@@ -376,7 +408,11 @@ export function createAgentHandler(agentName, __deps) {
         const taskCompleted = readLatestTaskCompletedOutcome(messages, preTurnCount);
         if (taskCompleted) {
             const workflow = hostedSession.getActiveExecutionWorkflow();
-            if (workflow?.pairStopRequested) {
+            if (workflow?.executionStarted === false) {
+                requestAgentStoppedAttention();
+                return { kind: "complete" };
+            }
+            if (workflow?.pairPauseReason || workflow?.pairStopRequested) {
                 requestAgentStoppedAttention();
                 return { kind: "complete" };
             }

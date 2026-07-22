@@ -1666,14 +1666,6 @@ export async function buildAgentSession({
     }
 
     if (
-        tools.includes("pair_checkpoint") && targetHostedSession &&
-        !finalCustomTools.find((t) => t.name === "pair_checkpoint")
-    ) {
-        const { createPairCheckpointTool } = await import("../../tools/pair-checkpoint.js");
-        finalCustomTools.push(createPairCheckpointTool({ hostedSession: targetHostedSession }));
-    }
-
-    if (
         tools.includes("review_complete") && targetHostedSession &&
         !finalCustomTools.find((t) => t.name === "review_complete")
     ) {
