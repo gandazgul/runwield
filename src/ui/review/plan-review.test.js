@@ -40,7 +40,7 @@ function makeDeps(decision) {
 
 Deno.test("submitPlanForReview updates metadata and records approval", async () => {
     const { dir, planPath } = await makePlanFile();
-    const harness = makeDeps({ approved: true, feedback: "looks good" });
+    const harness = makeDeps({ approved: true, feedback: "looks good", approvalAction: "run" });
     try {
         const result = await submitPlanForReview({
             cwd: dir,
@@ -58,7 +58,7 @@ Deno.test("submitPlanForReview updates metadata and records approval", async () 
         const parsed = parsePlanFrontMatter(await Deno.readTextFile(planPath));
         assertEquals(parsed.attrs.classification, "FEATURE");
         assertEquals(parsed.attrs.complexity, "MEDIUM");
-        assertEquals(result, { approved: true, feedback: "looks good" });
+        assertEquals(result, { approved: true, feedback: "looks good", approvalAction: "run" });
         assertEquals(harness.events.map((event) => event.event), ["review_approved"]);
         assertEquals(harness.stops(), 1);
     } finally {

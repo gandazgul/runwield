@@ -22,6 +22,7 @@ import { startPlanReviewSurface } from "./review-launcher.js";
  * @property {boolean} approved - Whether the plan was approved
  * @property {boolean} [canceled] - Whether waiting for review was canceled via Esc
  * @property {string} [feedback] - User feedback/annotations (present when the user submits feedback or approves with notes)
+ * @property {import('../../shared/workflow/plan-approval.js').PlanApprovalAction} [approvalAction] - Browser-selected post-approval action.
  * @property {string} [savedPath] - Optional path where plan was saved (if available)
  * @property {Array<{base64: string, mimeType: string, name: string}>} [images] - Annotated feedback images for the agent
  */
@@ -239,6 +240,7 @@ export async function submitPlanForReview({
         return {
             approved: decision.approved,
             feedback: decision.feedback,
+            ...(decision.approvalAction && { approvalAction: decision.approvalAction }),
             ...(decision.savedPath && { savedPath: decision.savedPath }),
             ...(images.length > 0 && { images }),
         };

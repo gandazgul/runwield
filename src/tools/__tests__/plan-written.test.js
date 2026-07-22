@@ -7,7 +7,7 @@ import { createPlanWrittenTool } from "../plan-written.js";
  * @param {Object} options
  * @param {"FEATURE" | "PROJECT"} [options.classification]
  * @param {any} [options.reviewResponse]
- * @param {"proceed" | "save"} [options.action]
+ * @param {"run" | "decompose" | "later"} [options.approvalAction]
  * @param {boolean} [options.exists]
  */
 function makeHarness(options = {}) {
@@ -35,11 +35,13 @@ function makeHarness(options = {}) {
                 Promise.resolve(
                     options.reviewResponse || {
                         outcome: "accepted",
-                        _meta: { approved: true },
+                        _meta: {
+                            approved: true,
+                            approvalAction: options.approvalAction ||
+                                (options.classification === "PROJECT" ? "decompose" : "run"),
+                        },
                     },
                 ),
-            askPostApproval: () => Promise.resolve(options.action || "proceed"),
-            askProjectDecompositionApproval: () => Promise.resolve(options.action || "proceed"),
             recordPlanEvent: (event) => {
                 lifecycle.push(event);
                 return Promise.resolve(/** @type {any} */ (event.details?.triageMeta || {}));
@@ -120,7 +122,7 @@ Deno.test("plan_written cancellation is terminal and event-driven", async () => 
 });
 
 Deno.test("plan_written feature approval returns execution outcome", async () => {
-    const { tool, lifecycle, metrics } = makeHarness({ classification: "FEATURE", action: "proceed" });
+    const { tool, lifecycle, metrics } = makeHarness({ classification: "FEATURE", approvalAction: "run" });
     const result = await execute(tool);
 
     assertEquals(result.details.outcome, "approved_execute");
@@ -131,7 +133,7 @@ Deno.test("plan_written feature approval returns execution outcome", async () =>
 });
 
 Deno.test("plan_written feature approval can save without execution", async () => {
-    const { tool, events } = makeHarness({ classification: "FEATURE", action: "save" });
+    const { tool, events } = makeHarness({ classification: "FEATURE", approvalAction: "later" });
     const result = await execute(tool);
 
     assertEquals(result.details.outcome, "saved");
@@ -140,11 +142,30 @@ Deno.test("plan_written feature approval can save without execution", async () =
 });
 
 Deno.test("plan_written project approval returns decomposition outcome", async () => {
-    const { tool, lifecycle } = makeHarness({ classification: "PROJECT", action: "proceed" });
+    const { tool, lifecycle } = makeHarness({ classification: "PROJECT", approvalAction: "decompose" });
     const result = await execute(tool, "runtime-epic");
 
     assertEquals(result.details.outcome, "approved_decompose");
     assertEquals(result.details.triageMeta.classification, "PROJECT");
+    assertEquals(lifecycle.map((event) => event.event), ["epic_readiness_passed"]);
+});
+
+Deno.test("plan_written missing approval action safely saves for later", async () => {
+    const { tool, lifecycle } = makeHarness({
+        classification: "FEATURE",
+        reviewResponse: { outcome: "accepted", _meta: { approved: true } },
+    });
+    const result = await execute(tool);
+
+    assertEquals(result.details.outcome, "saved");
+    assertEquals(lifecycle.map((event) => event.event), ["readiness_passed"]);
+});
+
+Deno.test("plan_written mismatched project approval action safely saves for later", async () => {
+    const { tool, lifecycle } = makeHarness({ classification: "PROJECT", approvalAction: "run" });
+    const result = await execute(tool, "runtime-epic");
+
+    assertEquals(result.details.outcome, "saved");
     assertEquals(lifecycle.map((event) => event.event), ["epic_readiness_passed"]);
 });
 

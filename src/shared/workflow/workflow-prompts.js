@@ -3,8 +3,6 @@
  * User prompts and agent request text used by workflow execution.
  */
 
-import { requestHostedSessionInteraction, RuntimeInteractionTypes } from "../session/session-runtime-interactions.js";
-
 /**
  * @typedef {Object} SlicerChildSummary
  * @property {string} name
@@ -100,50 +98,6 @@ export function buildSlicerRequest(input, legacyTriageMeta) {
     );
 
     return lines.join("\n");
-}
-
-/**
- * Ask user what to do after plan approval.
- *
- * @param {string} planName
- * @param {import('../session/hosted-session.js').HostedSession} hostedSession
- * @returns {Promise<"proceed" | "save">}
- */
-export async function askPostApproval(planName, hostedSession) {
-    const title = `Plan "${planName}" approved! What next?`;
-    const options = [
-        { value: "proceed", label: "Proceed with execution" },
-        { value: "save", label: "Save for later" },
-    ];
-    const response = await requestHostedSessionInteraction(hostedSession, {
-        type: RuntimeInteractionTypes.SELECT,
-        prompt: title,
-        options,
-    });
-    const choice = response.outcome === "selected" ? response.value : null;
-    return choice === "proceed" ? "proceed" : "save";
-}
-
-/**
- * Ask user whether to start PROJECT decomposition now or save the ready Epic for later.
- *
- * @param {string} planName
- * @param {import('../session/hosted-session.js').HostedSession} hostedSession
- * @returns {Promise<"proceed" | "save">}
- */
-export async function askProjectDecompositionApproval(planName, hostedSession) {
-    const title = `Project plan "${planName}" approved! What next?`;
-    const options = [
-        { value: "proceed", label: "Start Slicer decomposition now" },
-        { value: "save", label: "Save for later" },
-    ];
-    const response = await requestHostedSessionInteraction(hostedSession, {
-        type: RuntimeInteractionTypes.SELECT,
-        prompt: title,
-        options,
-    });
-    const choice = response.outcome === "selected" ? response.value : null;
-    return choice === "proceed" ? "proceed" : "save";
 }
 
 /**
