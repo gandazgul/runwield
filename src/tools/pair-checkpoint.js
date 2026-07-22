@@ -11,14 +11,12 @@ import {
     RuntimeInteractionTypes,
 } from "../shared/session/session-runtime-interactions.js";
 import { recordWorkflowMetric } from "../shared/workflow/metrics.js";
-import { updatePlanFrontMatter } from "../plan-store.js";
 
 /**
- * @param {{hostedSession: import('../shared/session/hosted-session.js').HostedSession, __deps?: {updatePlanFrontMatter?: typeof updatePlanFrontMatter, recordWorkflowMetric?: typeof recordWorkflowMetric}}} opts
+ * @param {{hostedSession: import('../shared/session/hosted-session.js').HostedSession, __deps?: {recordWorkflowMetric?: typeof recordWorkflowMetric}}} opts
  */
 export function createPairCheckpointTool({ hostedSession, __deps = {} }) {
     if (!hostedSession) throw new Error("createPairCheckpointTool: hostedSession is required");
-    const updatePlanFrontMatterImpl = __deps.updatePlanFrontMatter || updatePlanFrontMatter;
     const recordWorkflowMetricImpl = __deps.recordWorkflowMetric || recordWorkflowMetric;
     return defineTool({
         name: "pair_checkpoint",
@@ -37,7 +35,7 @@ export function createPairCheckpointTool({ hostedSession, __deps = {} }) {
         }),
         async execute(toolCallId, params, signal) {
             const workflow = hostedSession.getActiveExecutionWorkflow?.();
-            if (workflow?.executionAgent !== "frontend-engineer" || workflow?.collaborationMode !== "pair") {
+            if (workflow?.executionAgent !== "frontend-engineer") {
                 return {
                     content: [{ type: "text", text: "Pair checkpoint unavailable; continue autonomously." }],
                     details: { outcome: "autonomous", feedback: "", reason: "pair_mode_inactive" },
@@ -55,12 +53,7 @@ export function createPairCheckpointTool({ hostedSession, __deps = {} }) {
                 : response.outcome === RuntimeInteractionOutcomes.CANCELED
                 ? "stop"
                 : "autonomous";
-            if (decision === "autonomous") {
-                hostedSession.setActiveExecutionWorkflow({ ...workflow, collaborationMode: "autonomous" });
-                await updatePlanFrontMatterImpl(workflow.projectRoot || hostedSession.cwd, workflow.planName, {
-                    collaborationMode: "autonomous",
-                });
-            } else if (decision === "stop") {
+            if (decision === "stop") {
                 hostedSession.setActiveExecutionWorkflow({ ...workflow, pairStopRequested: true });
             } else if (workflow.pairStopRequested) {
                 hostedSession.setActiveExecutionWorkflow({ ...workflow, pairStopRequested: undefined });

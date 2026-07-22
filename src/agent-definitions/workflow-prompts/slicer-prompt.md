@@ -99,7 +99,10 @@ Each child descriptor must include:
   descriptor's `order` plus slugified `title` (for example, order `2` and title `Add Search` becomes `02-add-search`).
   Use these prefixed identifiers rather than unprefixed slugs (`add-search`) or human-readable titles (`Add Search`).
 - `affectedPaths` — high-signal paths expected to change, if known.
-- `frontend` — `true` when the child includes frontend UI/UX work; otherwise omit or set `false`.
+- `executionAgent` — `frontend-engineer` only when the child FEATURE's primary outcome is materially visual or
+  interactive browser UI; otherwise `engineer`, including TUI work and incidental frontend-file edits.
+- `collaborationRecommendation` — for Frontend Engineer children, use `pair` when live visual judgment is valuable and
+  `autonomous` otherwise; for Engineer children, omit or use `autonomous`.
 - `devServerCommand` — the project dev or preview command if discoverable from config/docs; omit when unknown.
 - `devServerUrl` — the local URL to open if discoverable; omit when unknown.
 - `devServerHmr` — `true` when the dev server is expected to support hot module reload, `false` only when you know it
@@ -112,10 +115,10 @@ Draft child plans should be useful to an Engineer as standalone FEATURE requests
 `classification: FEATURE`, `status: draft`, and `parentPlan` front matter, but RunWield adds that metadata; do not
 include YAML front matter in the content.
 
-For child FEATUREs with `frontend: true`, headed browser verification is mandatory for execution agents unless blocked.
-Write a Verification Plan that names the browser-visible behavior to prove, the relevant route/user flow, and any known
-dev server command or URL. If the command or URL is unknown, make discovery of the project's normal dev server an
-explicit verification step.
+For child FEATUREs owned by Frontend Engineer, headed browser verification is mandatory unless blocked. Write a
+Verification Plan that names the browser-visible behavior to prove, the relevant route/user flow, and any known dev
+server command or URL. If the command or URL is unknown, make discovery of the project's normal dev server an explicit
+verification step.
 
 Finalization moves the Epic to `ready_for_work`, where `load-plan` offers child FEATURE selection. Mention that outcome
 as useful context when presenting the decomposition; it does not require a separate consent ritual. The materialized

@@ -1,5 +1,5 @@
 import { assertEquals } from "@std/assert";
-import { parsePlanFrontMatter } from "../../plan-store.js";
+import { parsePlanFrontMatter, resolvePlanExecutionPolicy } from "../../plan-store.js";
 import { resolveExecutionOwner } from "./workflow.js";
 import { createPairCheckpointTool } from "../../tools/pair-checkpoint.js";
 
@@ -8,13 +8,19 @@ Deno.test("Plan metadata normalizes explicit pair execution ownership", () => {
 classification: FEATURE
 executionAgent: frontend-engineer
 collaborationRecommendation: pair
-collaborationMode: pair
 ---
 # UI
 `);
     assertEquals(parsed.attrs.executionAgent, "frontend-engineer");
     assertEquals(parsed.attrs.collaborationRecommendation, "pair");
-    assertEquals(parsed.attrs.collaborationMode, "pair");
+    assertEquals(resolvePlanExecutionPolicy(parsed.attrs), {
+        ok: true,
+        policy: {
+            executionAgent: "frontend-engineer",
+            collaborationRecommendation: "pair",
+            source: "canonical",
+        },
+    });
     assertEquals(resolveExecutionOwner(parsed.attrs), "frontend-engineer");
 });
 
@@ -25,15 +31,22 @@ frontend: true
 ---
 # Legacy UI
 `);
-    assertEquals(parsed.attrs.executionAgent, "frontend-engineer");
-    assertEquals(parsed.attrs.collaborationRecommendation, "autonomous");
+    assertEquals(parsed.attrs.executionAgent, undefined);
+    assertEquals(parsed.attrs.collaborationRecommendation, undefined);
+    assertEquals(resolvePlanExecutionPolicy(parsed.attrs), {
+        ok: true,
+        policy: {
+            executionAgent: "frontend-engineer",
+            collaborationRecommendation: "autonomous",
+            source: "legacy_frontend",
+        },
+    });
     assertEquals(resolveExecutionOwner(parsed.attrs), "frontend-engineer");
 });
 
 Deno.test("missing and frontend false ownership resolve to Engineer", () => {
     assertEquals(resolveExecutionOwner({}), "engineer");
     assertEquals(resolveExecutionOwner({ frontend: false }), "engineer");
-    assertEquals(resolveExecutionOwner(/** @type {any} */ ({ executionAgent: "unknown" })), "engineer");
 });
 
 for (const decision of ["continue", "revise", "autonomous", "stop", "cancel"]) {
@@ -42,7 +55,6 @@ for (const decision of ["continue", "revise", "autonomous", "stop", "cancel"]) {
             planName: "visual-plan",
             projectRoot: Deno.cwd(),
             executionAgent: "frontend-engineer",
-            collaborationMode: "pair",
         });
         /** @type {any[]} */
         const updates = [];
@@ -64,10 +76,6 @@ for (const decision of ["continue", "revise", "autonomous", "stop", "cancel"]) {
         const tool = createPairCheckpointTool({
             hostedSession,
             __deps: {
-                updatePlanFrontMatter: (root, planName, attrs) => {
-                    updates.push({ root, planName, attrs });
-                    return Promise.resolve(/** @type {any} */ ({}));
-                },
                 recordWorkflowMetric: () => Promise.resolve(null),
             },
         });
@@ -85,10 +93,6 @@ for (const decision of ["continue", "revise", "autonomous", "stop", "cancel"]) {
         const expected = decision === "cancel" ? "stop" : decision;
         assertEquals(result.details.outcome, expected);
         assertEquals(workflow.pairStopRequested, expected === "stop" ? true : undefined);
-        assertEquals(workflow.collaborationMode, expected === "autonomous" ? "autonomous" : "pair");
-        assertEquals(updates.length, expected === "autonomous" ? 1 : 0);
-        if (expected === "autonomous") {
-            assertEquals(updates[0].attrs, { collaborationMode: "autonomous" });
-        }
+        assertEquals(updates.length, 0);
     });
 }

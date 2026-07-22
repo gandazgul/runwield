@@ -9,6 +9,7 @@ import {
     executePlan as executePlanFn,
     readLatestPlanOutcome as readLatestPlanOutcomeFn,
     readLatestTaskCompletedOutcome as readLatestTaskCompletedOutcomeFn,
+    resolveExecutionOwner,
     runSlicerAgent as runSlicerAgentFn,
 } from "../workflow/workflow.js";
 import { readLatestReturnToRouterOutcome } from "../workflow/workflow-results.js";
@@ -25,6 +26,7 @@ import { recordWorkflowMetric } from "../workflow/metrics.js";
 import { runMechanicalValidation, runValidationLoop, shouldRunWorkflowValidation } from "../workflow/validation.js";
 import { recordPlanEvent as recordPlanEventFn } from "../workflow/plan-lifecycle.js";
 import { switchActiveAgent as switchActiveAgentFn } from "./agent-switching.js";
+import { getAgentDisplayName } from "./agents.js";
 import { emitHostedSessionRuntimeEvent, emitSystemStatus, RuntimeEventTypes } from "./session-runtime-events.js";
 import { join } from "@std/path";
 import { AGENTS } from "../../constants.js";
@@ -35,7 +37,7 @@ import { AGENTS } from "../../constants.js";
  * @returns {boolean}
  */
 function canCompleteActiveExecutionWorkflow(agentName, workflow) {
-    return agentName === (workflow.executionAgent || AGENTS.ENGINEER);
+    return agentName === workflow.executionAgent;
 }
 
 /**
@@ -260,12 +262,16 @@ export function createAgentHandler(agentName, __deps) {
                 });
             } catch (error) {
                 const reason = error instanceof Error ? error.message : String(error);
+                const executionOwner = hostedSession.getActiveExecutionWorkflow()?.executionAgent ||
+                    resolveExecutionOwner(/** @type {any} */ (triageMeta));
                 emitSystemStatus(
                     hostedSession,
-                    `Plan execution failed: ${reason}. The Engineer may need manual intervention.`,
+                    `Plan execution failed: ${reason}. ${
+                        getAgentDisplayName(executionOwner, projectRoot)
+                    } may need manual intervention.`,
                     { level: "error", header: "RunWield" },
                 );
-                await switchActiveAgent(hostedSession, { agentName: AGENTS.ENGINEER });
+                await switchActiveAgent(hostedSession, { agentName: executionOwner });
                 requestAgentStoppedAttention();
                 return { kind: "complete" };
             }
@@ -277,7 +283,8 @@ export function createAgentHandler(agentName, __deps) {
                 // Ignore in tests or if the file doesn't exist
             }
 
-            const executionOwner = hostedSession.getActiveExecutionWorkflow()?.executionAgent || AGENTS.ENGINEER;
+            const executionOwner = hostedSession.getActiveExecutionWorkflow()?.executionAgent ||
+                resolveExecutionOwner(/** @type {any} */ (triageMeta));
             const executionDecision = decidePostExecution(executionResult, {
                 planName,
                 triageMeta,
@@ -286,7 +293,7 @@ export function createAgentHandler(agentName, __deps) {
             await recordWorkflowMetricImpl({
                 category: "execution",
                 event: "decision",
-                agentName: AGENTS.ENGINEER,
+                agentName: executionOwner,
                 planName,
                 details: summarizeWorkflowDecision(executionDecision),
             });
@@ -295,7 +302,7 @@ export function createAgentHandler(agentName, __deps) {
                 await recordWorkflowMetricImpl({
                     category: "execution",
                     event: "active_agent_transition",
-                    agentName: AGENTS.ENGINEER,
+                    agentName: executionOwner,
                     planName,
                     details: { transition: "run_validation", decisionKind: executionDecision.kind },
                 });
@@ -321,12 +328,12 @@ export function createAgentHandler(agentName, __deps) {
                 await switchActiveAgent(hostedSession, { agentName: nextAgentName });
                 requestAgentStoppedAttention();
             } else {
-                // halt — stay with Engineer for manual recovery
+                // halt — stay with the execution owner for manual recovery
                 const reason = executionDecision.payload?.reason || "unknown";
                 await recordWorkflowMetricImpl({
                     category: "execution",
                     event: "active_agent_transition",
-                    agentName: AGENTS.ENGINEER,
+                    agentName: executionOwner,
                     planName,
                     details: {
                         transition: executionDecision.kind === "halt" ? "halt" : "stay_with_agent",
@@ -336,10 +343,10 @@ export function createAgentHandler(agentName, __deps) {
                 });
                 emitSystemStatus(
                     hostedSession,
-                    `Execution stopped: ${reason}. Staying with Engineer for manual intervention.`,
+                    `Execution stopped: ${reason}. Staying with ${executionOwner} for manual intervention.`,
                     { level: "error", header: "RunWield" },
                 );
-                await switchActiveAgent(hostedSession, { agentName: AGENTS.ENGINEER });
+                await switchActiveAgent(hostedSession, { agentName: executionOwner });
                 requestAgentStoppedAttention();
             }
             return { kind: "complete" };

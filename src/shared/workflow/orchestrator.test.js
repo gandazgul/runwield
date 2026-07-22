@@ -40,7 +40,7 @@ Deno.test("dispatchPostTriage does not force Engineer after FEATURE/PROJECT vali
 Deno.test("dispatchPostTriage keeps Engineer active when FEATURE/PROJECT execution is incomplete", async () => {
     const source = await Deno.readTextFile(new URL("./orchestrator.js", import.meta.url));
     assertEquals(source.includes('executionDecision.kind === "stay_with_agent"'), true);
-    assertEquals(source.includes("executionAgentName: AGENTS.ENGINEER"), true);
+    assertEquals(source.includes("executionAgentName: executionOwner"), true);
 });
 
 Deno.test("dispatchPostTriage routes INQUIRY to Guide without completion or validation checks", async () => {
