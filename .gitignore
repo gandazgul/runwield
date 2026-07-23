@@ -6,6 +6,7 @@ node_modules/
 
 .history/
 .pi/
+.astro/
 
 debug.log
 .wld/debug/
@@ -22,4 +23,3 @@ src/shared/version.js
 
 # Riptide artifacts (cloud-synced)
 .humanlayer/tasks/
--e \n# Astro build cache\n.astro/

@@ -1,4 +1,5 @@
 ---
+planId: "34a79fb8-802a-4d68-8975-415fbf8959be"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Open Plans and Work Records from their CLI read commands in a shared Workspace read-only browser surface with Contents navigation and Close-only workflow controls."
@@ -26,10 +27,15 @@ devServerCommand: "deno task workspace:dev:plan-review"
 devServerUrl: "http://127.0.0.1:5173/dev/plan-review"
 devServerHmr: true
 createdAt: "2026-07-23T10:12:55-04:00"
-updatedAt: "2026-07-23T15:23:27.845Z"
+updatedAt: "2026-07-23T15:23:39.901Z"
 status: "verified"
 origin: "internal"
 verifiedAt: "2026-07-23T15:23:27.845Z"
+workRecord:
+    status: "generated"
+    recordId: "d9ce80c3-6f3c-4b74-bbf6-7c509f4e4ca3"
+    path: "docs/work-records/2026-07-23-browser-read-only-plan-and-work-record-view.md"
+    lastAttemptAt: "2026-07-23T15:23:33.599Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
 ---
