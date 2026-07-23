@@ -19,15 +19,12 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-23T14:38:52-04:00"
-updatedAt: "2026-07-23T21:00:25.200Z"
-status: "implemented"
+updatedAt: "2026-07-23T21:00:24.582Z"
+status: "verified"
 origin: "internal"
-failureReason: "Worktree branch runwield/worktree/install-runwield-runtime-helpers-64d7639c is 6 commits behind main and rebase failed: git rebase refs/heads/main failed: Rebasing (1/1)\rerror: could not apply d9abe726... Complete install-runwield-runtime-helpers\nhint: Resolve all conflicts manually, mark them as resolved with\nhint: \"git add/rm <conflicted_files>\", then run \"git rebase --continue\".\nhint: You can instead skip this commit: run \"git rebase --skip\".\nhint: To abort and get back to the state before \"git rebase\", run \"git rebase --abort\".\nhint: Disable this message with \"git config set advice.mergeConflict false\"\nCould not apply d9abe726... # Complete install-runwield-runtime-helpers."
-worktreeId: "64d7639c"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-install-runwield-runtime-helpers-64d7639c"
-worktreeBranch: "runwield/worktree/install-runwield-runtime-helpers-64d7639c"
-worktreeBaseBranch: "main"
-worktreeStatus: "merge_conflict"
+verifiedAt: "2026-07-23T21:00:24.582Z"
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
 ---
 
 # Install RunWield Runtime Helpers

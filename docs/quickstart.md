@@ -13,8 +13,8 @@ On macOS or Linux:
 curl -fsSL https://raw.githubusercontent.com/gandazgul/runwield/main/install.sh | bash
 ```
 
-The installer installs the `wld` binary to `~/.local/bin` by default. If your shell cannot find `wld`, add the install
-directory to your `PATH`.
+The installer installs `wld` plus required Mnemosyne/Cymbal helpers and optional Snip to `~/.local/bin` by default. If
+your shell cannot find `wld`, add the install directory to your `PATH`.
 
 To choose a different install directory:
 
@@ -40,13 +40,13 @@ deno task compile
 
 ## Runtime helpers
 
-Interactive RunWield workflows expect these tools to be available when you want the full experience:
+The one-line installer is the complete standalone setup path. It installs missing required helpers (`mnemosyne` for
+project/global memory and `cymbal` for symbol-aware code search) beside `wld`, preserving helper binaries you already
+manage elsewhere on `PATH` or in `WLD_INSTALL_DIR`. It also attempts optional `snip` for compact shell-output rewriting;
+RunWield still starts if Snip is missing.
 
-- [`mnemosyne`](https://github.com/gandazgul/mnemosyne) - project/global memory.
-- [`cymbal`](https://github.com/1broseidon/cymbal) - symbol-aware code search and impact analysis.
-- [`snip`](https://github.com/edouard-claude/snip) - optional compact shell-output rewriting.
-
-RunWield still starts if Snip is missing. Memory and code-intelligence features require their corresponding binaries.
+Mnemosyne's model payload is not downloaded by the installer. It is fetched lazily by Mnemosyne on first semantic memory
+use.
 
 ## Authenticate
 

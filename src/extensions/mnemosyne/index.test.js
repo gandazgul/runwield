@@ -111,6 +111,7 @@ Deno.test("memory_recall returns missing binary message when mnemosyne is unavai
     const result = await executeTool(tool, { query: "test" });
 
     assertMatch(firstText(result), /mnemosyne binary not found/i);
+    assertMatch(firstText(result), /RunWield installer/i);
 });
 
 Deno.test("memory_recall_global searches global memory", async () => {

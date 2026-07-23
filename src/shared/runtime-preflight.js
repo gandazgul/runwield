@@ -3,8 +3,9 @@
  * Shared startup/execution preflight checks.
  */
 
-const MNEMOSYNE_INSTALL_URL = "https://github.com/gandazgul/mnemosyne#quick-start";
-const CYMBAL_INSTALL_URL = "https://github.com/1broseidon/cymbal#install";
+const RUNWIELD_INSTALL_URL = "https://github.com/gandazgul/runwield#installation";
+const RUNWIELD_INSTALL_COMMAND =
+    "curl -fsSL https://raw.githubusercontent.com/gandazgul/runwield/main/install.sh | bash";
 
 let mnemosyneChecked = false;
 let mnemosyneAvailable = false;
@@ -62,7 +63,8 @@ export async function ensureMnemosyneBinary() {
     throw new Error(
         [
             "[RunWield] Mnemosyne binary not found in PATH.",
-            `Install it: ${MNEMOSYNE_INSTALL_URL}`,
+            `Rerun the RunWield installer to install required runtime helpers: ${RUNWIELD_INSTALL_URL}`,
+            `Command: ${RUNWIELD_INSTALL_COMMAND}`,
         ].join("\n"),
     );
 }
@@ -90,7 +92,8 @@ export async function ensureCymbalBinary() {
     throw new Error(
         [
             "[RunWield] Cymbal binary not found in PATH.",
-            `Install it: ${CYMBAL_INSTALL_URL}`,
+            `Rerun the RunWield installer to install required runtime helpers: ${RUNWIELD_INSTALL_URL}`,
+            `Command: ${RUNWIELD_INSTALL_COMMAND}`,
         ].join("\n"),
     );
 }
