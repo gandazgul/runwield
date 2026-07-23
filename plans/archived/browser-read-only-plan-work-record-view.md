@@ -27,7 +27,6 @@ devServerCommand: "deno task workspace:dev:plan-review"
 devServerUrl: "http://127.0.0.1:5173/dev/plan-review"
 devServerHmr: true
 createdAt: "2026-07-23T10:12:55-04:00"
-updatedAt: "2026-07-23T15:23:39.901Z"
 status: "verified"
 origin: "internal"
 verifiedAt: "2026-07-23T15:23:27.845Z"
@@ -38,6 +37,10 @@ workRecord:
     lastAttemptAt: "2026-07-23T15:23:33.599Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
+updatedAt: "2026-07-23T17:37:24.086Z"
+archivedAt: "2026-07-23T17:37:24.086Z"
+archivedFromStatus: "verified"
+archivedFromPath: "plans/browser-read-only-plan-work-record-view.md"
 ---
 
 # Browser Read-Only Plan and Work Record View
