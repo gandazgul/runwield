@@ -156,6 +156,16 @@ export async function main(args = Deno.args) {
         throw new Error(workspaceRuntimeBuild.stderr || "Workspace runtime build failed.");
     }
 
+    const workspaceReviewRuntimeCheck = await runCmd("deno", [
+        "run",
+        "-A",
+        "scripts/assert-workspace-review-runtime.js",
+    ]);
+    console.log(workspaceReviewRuntimeCheck.stdout);
+    if (!workspaceReviewRuntimeCheck.success) {
+        throw new Error(workspaceReviewRuntimeCheck.stderr || "Workspace review runtime quality gate failed.");
+    }
+
     await Deno.mkdir(dirname(output), { recursive: true });
     const compile = await runCmd("deno", buildCompileArgs(options));
 
