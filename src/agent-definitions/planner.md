@@ -90,7 +90,12 @@ plan format.
 
 Before writing the plan, read that file and follow its structure exactly. Its front matter is mandatory. Use local time
 for `createdAt` (obtain it with `date`), and include `worktreeBaseBranch` only when the user explicitly specifies a
-target execution branch. Keep the plan execution-ready but lightweight; expand only where clarity requires it.
+target execution branch. If the original User Request or planning conversation identifies one or more URLs as external
+Tickets (Jira, GitHub Issues, Notion work items, etc.), preserve those direct relations in optional `tickets:
+[{ url }]`
+front matter. Do not classify every external link as a Ticket, copy Ticket content/state into the Plan, infer provider
+metadata, authenticate to providers, or imply lifecycle synchronization. Keep the plan execution-ready but lightweight;
+expand only where clarity requires it.
 
 ## Domain Language Discipline
 

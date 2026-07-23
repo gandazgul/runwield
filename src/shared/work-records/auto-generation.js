@@ -3,7 +3,14 @@
  * Targeted Work Record auto-generation after terminal Plan outcomes.
  */
 
-import { findPlansByParent, isChildFeaturePlan, isEpicPlan, loadPlan } from "../../plan-store.js";
+import {
+    findPlansByParent,
+    isChildFeaturePlan,
+    isEpicPlan,
+    listArchivedPlans,
+    loadArchivedPlan,
+    loadPlan,
+} from "../../plan-store.js";
 import { shouldAutoGenerateWorkRecordsOnPlanCompletion } from "../settings.js";
 import { listWorkRecords } from "./store.js";
 import {
@@ -53,6 +60,21 @@ async function withEpicChildren(cwd, source) {
     for (const child of await findPlansByParent(cwd, source.name)) {
         const loaded = await loadPlan(cwd, child.name);
         if (loaded) children.push(buildActiveWorkRecordSource(child.name, loaded));
+    }
+    for (const child of await listArchivedPlans(cwd)) {
+        if (child.attrs.classification !== "FEATURE" || child.attrs.parentPlan !== source.name) continue;
+        const loaded = await loadArchivedPlan(cwd, child.name);
+        if (!loaded) continue;
+        children.push({
+            sourceKind: /** @type {const} */ ("archived"),
+            name: child.name,
+            relativePath: child.relativePath,
+            path: loaded.path,
+            planId: loaded.attrs.planId || "",
+            attrs: loaded.attrs,
+            body: loaded.body,
+            markdown: loaded.markdown,
+        });
     }
     return attachEpicChildren([source, ...children])[0];
 }

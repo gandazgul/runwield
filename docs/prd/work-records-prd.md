@@ -47,8 +47,12 @@ docs/work-records/2026-07-14-work-records-design.md
 - `recordId` uses the same style as Plan `planId`: a plain UUID string, not a prefixed `wr_...` ID.
 - References use stable IDs, not paths.
 - `provenance.sourcePlans` is an ID-only list of Plan IDs.
+- `tickets` is an optional provider-neutral list of user-identified Ticket References shaped as objects with required
+  `url`; future YAML-safe properties round-trip but v1 interprets only `url`.
 - `supersedes` and `supersededBy` store Work Record IDs only.
 - Empty optional fields are omitted from front matter rather than written as nulls or empty arrays.
+- Commits, pull requests, deployment links, customer notes, and incidental links remain body references, not schema
+  fields.
 
 ### Scope
 
@@ -193,6 +197,8 @@ scope: feature
 origin: internal
 completionMode: verified
 createdAt: 2026-07-14T08:32:00-04:00
+tickets:
+    - url: "https://example.com/tickets/ABC-123"
 provenance:
     sourcePlans:
         - 22222222-2222-4222-8222-222222222222
@@ -273,6 +279,9 @@ For Epics:
 - generate one longer Epic Work Record
 - include a clear overall Summary
 - include detail about child FEATURE outcomes when needed
+- aggregate direct Ticket References from the Epic first, then child FEATURE Plans in deterministic order, deduplicating
+  by exact trimmed URL with first object winning
+- include active, unfinished, and archived children in the provenance aggregation boundary
 - do not generate one Work Record per child Plan by default
 
 For QUICK_FIX:
@@ -311,8 +320,9 @@ Automatic generation is controlled by `workRecords.autoGenerateOnPlanCompletion`
 nested `false` disables automatic generation. Disabling the setting does not affect canonical Markdown storage, `wld wr`
 list/search/read, index rebuild, or explicit `wld wr backfill`.
 
-Automatic generation targets only the just-completed active Plan and the Epic children needed for targeted context. It
-does not scan archived Plans or unrelated completed Plans. Broader active+archived recovery remains explicit backfill.
+Automatic generation targets only the just-completed active Plan and the Epic children needed for targeted context,
+including archived children for Epic Ticket Reference aggregation parity with backfill. It does not scan unrelated
+completed Plans. Broader active+archived recovery remains explicit backfill.
 
 If RunWield crashes or generation fails, recovery/backfill can find missing records later. Generation failure should be
 recorded on the source Plan's `workRecord` backlink with `status: failed`, `lastAttemptAt`, and a concise `error`. The
@@ -510,6 +520,7 @@ Indexing targets:
 - Markdown H1 title
 - `## Summary`
 - textual metadata such as `scope`, `origin`, and `completionMode`
+- Ticket Reference URLs so Ticket keys embedded in URLs are searchable
 
 This supports queries like “unverified auth work” without embedding full implementation detail.
 

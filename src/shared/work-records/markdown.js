@@ -4,6 +4,7 @@
  */
 
 import { extractYaml, test as hasFrontMatter } from "@std/front-matter";
+import { normalizeTicketReferences } from "../ticket-references.js";
 import {
     isWorkRecordCompletionMode,
     isWorkRecordOrigin,
@@ -68,6 +69,7 @@ export function normalizeWorkRecordFrontMatter(attrs) {
         origin: /** @type {any} */ (asTrimmedString(attrs.origin)),
         completionMode: /** @type {any} */ (asTrimmedString(attrs.completionMode)),
         createdAt: asTrimmedString(attrs.createdAt),
+        ...(normalizeTicketReferences(attrs.tickets) ? { tickets: normalizeTicketReferences(attrs.tickets) } : {}),
         ...(asTrimmedString(attrs.archivedAt) ? { archivedAt: asTrimmedString(attrs.archivedAt) } : {}),
         ...(Array.isArray(attrs.supersedes)
             ? { supersedes: stringList(attrs.supersedes) || [] }
@@ -99,6 +101,72 @@ function appendScalarOrList(lines, key, value) {
         return;
     }
     if (String(value).trim()) lines.push(`${key}: ${yamlScalar(String(value))}`);
+}
+
+/**
+ * @param {string[]} lines
+ * @param {string} key
+ * @param {unknown} value
+ * @param {number} indent
+ */
+function appendYamlValue(lines, key, value, indent) {
+    const pad = " ".repeat(indent);
+    if (Array.isArray(value)) {
+        if (!value.length) return;
+        lines.push(`${pad}${key}:`);
+        for (const item of value) appendYamlObjectListItem(lines, item, indent + 4);
+        return;
+    }
+    if (value && typeof value === "object") {
+        const entries = Object.entries(/** @type {Record<string, unknown>} */ (value)).filter(([, child]) =>
+            child !== undefined
+        );
+        if (!entries.length) return;
+        lines.push(`${pad}${key}:`);
+        for (const [childKey, childValue] of entries) appendYamlValue(lines, childKey, childValue, indent + 4);
+        return;
+    }
+    if (typeof value === "string") lines.push(`${pad}${key}: ${yamlScalar(value)}`);
+    else if (value === null) lines.push(`${pad}${key}: null`);
+    else lines.push(`${pad}${key}: ${String(value)}`);
+}
+
+/**
+ * @param {string[]} lines
+ * @param {unknown} value
+ * @param {number} indent
+ */
+function appendYamlObjectListItem(lines, value, indent) {
+    const pad = " ".repeat(indent);
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+        const entries = Object.entries(/** @type {Record<string, unknown>} */ (value)).filter(([, child]) =>
+            child !== undefined
+        );
+        if (!entries.length) return;
+        const [firstKey, firstValue] = entries[0];
+        if (typeof firstValue === "string") lines.push(`${pad}- ${firstKey}: ${yamlScalar(firstValue)}`);
+        else if (firstValue === null) lines.push(`${pad}- ${firstKey}: null`);
+        else if (["number", "boolean"].includes(typeof firstValue)) {
+            lines.push(`${pad}- ${firstKey}: ${String(firstValue)}`);
+        } else {
+            lines.push(`${pad}- ${firstKey}:`);
+            appendYamlObjectListItem(lines, firstValue, indent + 4);
+        }
+        for (const [childKey, childValue] of entries.slice(1)) appendYamlValue(lines, childKey, childValue, indent + 2);
+        return;
+    }
+    if (typeof value === "string") lines.push(`${pad}- ${yamlScalar(value)}`);
+    else if (value === null) lines.push(`${pad}- null`);
+    else lines.push(`${pad}- ${String(value)}`);
+}
+
+/**
+ * @param {string[]} lines
+ * @param {import('../ticket-references.js').TicketReference[] | undefined} tickets
+ */
+function appendTickets(lines, tickets) {
+    const normalized = normalizeTicketReferences(tickets);
+    if (normalized) appendYamlValue(lines, WORK_RECORD_FRONT_MATTER_KEYS.tickets, normalized, 0);
 }
 
 /**
@@ -135,6 +203,7 @@ export function formatWorkRecordFrontMatter(attrs) {
     appendScalarOrList(lines, WORK_RECORD_FRONT_MATTER_KEYS.origin, fm.origin);
     appendScalarOrList(lines, WORK_RECORD_FRONT_MATTER_KEYS.completionMode, fm.completionMode);
     appendScalarOrList(lines, WORK_RECORD_FRONT_MATTER_KEYS.createdAt, fm.createdAt);
+    appendTickets(lines, fm.tickets);
     appendProvenance(lines, fm.provenance);
     appendScalarOrList(lines, WORK_RECORD_FRONT_MATTER_KEYS.archivedAt, fm.archivedAt);
     appendScalarOrList(lines, WORK_RECORD_FRONT_MATTER_KEYS.supersedes, fm.supersedes);

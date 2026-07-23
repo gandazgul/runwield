@@ -5,6 +5,7 @@
 
 import { AGENTS } from "../../constants.js";
 import {
+    compareChildPlansByOrder,
     ensurePlanIdentity,
     isChildFeaturePlan,
     isEpicPlan,
@@ -16,6 +17,7 @@ import {
     updatePlanFrontMatter,
 } from "../../plan-store.js";
 import { runNonInteractiveAgentPrompt } from "../session/session.js";
+import { dedupeTicketReferencesByUrl } from "../ticket-references.js";
 import { extractAssistantOutput } from "../workflow/workflow-results.js";
 import { buildWorkRecordFileName, listWorkRecords, writeWorkRecord } from "./store.js";
 import { syncWorkRecordToIndex } from "./index-adapter.js";
@@ -284,7 +286,7 @@ export function attachEpicChildren(sources) {
         if (!isEpicPlan(source.attrs)) return source;
         const children = sources.filter((candidate) =>
             candidate.attrs.classification === "FEATURE" && candidate.attrs.parentPlan === source.name
-        );
+        ).sort(compareChildPlansByOrder);
         return { ...source, children };
     });
 }
@@ -331,6 +333,7 @@ async function ensureSourcePlanId(cwd, source, options) {
             attrs: resource.attrs,
             body: resource.body,
             markdown: resource.markdown,
+            children: source.children,
         };
     }
     const planId = options.idGenerator ? options.idGenerator() : crypto.randomUUID();
@@ -433,6 +436,23 @@ function prepareGeneratedSections(source, sections) {
     }
     if (!normalized.summary.includes(reason)) summaryParts.push(`Closure reason: ${reason}`);
     return { ...normalized, summary: [...summaryParts, normalized.summary].join(" ").trim() };
+}
+
+/**
+ * @param {WorkRecordSource} source
+ * @param {GeneratedWorkRecordSections} sections
+ */
+/**
+ * @param {WorkRecordSource} source
+ */
+export function aggregateWorkRecordTickets(source) {
+    if (source.scope === "epic") {
+        return dedupeTicketReferencesByUrl(
+            source.attrs.tickets,
+            ...(source.children || []).sort(compareChildPlansByOrder).map((child) => child.attrs.tickets),
+        );
+    }
+    return dedupeTicketReferencesByUrl(source.attrs.tickets);
 }
 
 /**
@@ -557,6 +577,7 @@ export async function generateWorkRecordForSource(cwd, inputSource, options = {}
             completionMode:
                 /** @type {"verified"|"closed_without_verification"|"done_enough"} */ (source.completionMode),
             createdAt: iso(now),
+            ...(aggregateWorkRecordTickets(source) ? { tickets: aggregateWorkRecordTickets(source) } : {}),
             provenance: { sourcePlans: [source.planId] },
         };
         const body = buildBody(source, sections);
