@@ -174,6 +174,40 @@ Deno.test("read command reports duplicate archived plan ids", async () => {
     );
 });
 
+Deno.test("read command --no-open suppresses browser launch and manual recovery", async () => {
+    /** @type {any} */
+    let seen;
+    const logs = await captureLogs(() =>
+        runPlansReadCommand(
+            ["same", "--no-open"],
+            /** @type {any} */ ({
+                __testDeps: {
+                    loadPlan: () =>
+                        Promise.resolve({
+                            path: "/repo/plans/same.md",
+                            markdown: "# Active",
+                            attrs: {},
+                            body: "# Active",
+                        }),
+                    startArtifactReadSurface: (/** @type {any} */ options) => {
+                        seen = options;
+                        return Promise.resolve({
+                            url: "http://127.0.0.1:1234/review/plan?token=test",
+                            opened: false,
+                            waitForDecision: () => Promise.resolve({ exit: true }),
+                            stop: () => Promise.resolve(),
+                        });
+                    },
+                },
+            }),
+        )
+    );
+
+    assertEquals(typeof seen.openInDefaultBrowser, "function");
+    assertEquals(await seen.openInDefaultBrowser("http://127.0.0.1:1234"), false);
+    assertEquals(logs.some((line) => line.includes("Could not open your browser automatically")), false);
+});
+
 Deno.test("read command prints manual URL recovery when browser opening fails", async () => {
     const logs = await captureLogs(() =>
         runPlansReadCommand(
