@@ -39,6 +39,7 @@ import {
     restorePrimaryPlanPathAfterMergeFailure,
 } from "../worktree.js";
 import {
+    findById as findWorktreeRegistryEntryById,
     removeEntry as removeWorktreeRegistryEntry,
     updateEntry as updateWorktreeRegistryEntry,
 } from "../worktree-registry.js";
@@ -1277,6 +1278,7 @@ export async function runMechanicalValidation({
  *   removeExecutionWorktree?: typeof removeExecutionWorktree,
  *   removeWorktreeRegistryEntry?: typeof removeWorktreeRegistryEntry,
  *   updateWorktreeRegistryEntry?: typeof updateWorktreeRegistryEntry,
+ *   findWorktreeRegistryEntryById?: typeof findWorktreeRegistryEntryById,
  *   switchActiveAgent?: typeof switchActiveAgent,
  *   loadReviewerPrompt?: typeof loadReviewerPrompt,
  *   shouldCleanupMergedWorktrees?: typeof shouldCleanupMergedWorktrees,
@@ -1321,6 +1323,7 @@ export async function runValidationLoop({
     const removeExecutionWorktreeImpl = __deps?.removeExecutionWorktree || removeExecutionWorktree;
     const removeWorktreeRegistryEntryImpl = __deps?.removeWorktreeRegistryEntry || removeWorktreeRegistryEntry;
     const updateWorktreeRegistryEntryImpl = __deps?.updateWorktreeRegistryEntry || updateWorktreeRegistryEntry;
+    const findWorktreeRegistryEntryByIdImpl = __deps?.findWorktreeRegistryEntryById || findWorktreeRegistryEntryById;
     const loadReviewerPromptImpl = __deps?.loadReviewerPrompt || loadReviewerPrompt;
     const shouldCleanupMergedWorktreesImpl = __deps?.shouldCleanupMergedWorktrees || shouldCleanupMergedWorktrees;
     const getCodeReviewModeImpl = __deps?.getCodeReviewMode || getCodeReviewMode;
@@ -1352,7 +1355,7 @@ export async function runValidationLoop({
         return recordWorkflowMetricSource(metric, { cwd: projectRoot, ...deps });
     }
     const worktreeBranch = activeWorkflow?.worktreeBranch;
-    const worktreeBaseBranch = activeWorkflow?.worktreeBaseBranch;
+    let worktreeBaseBranch = activeWorkflow?.worktreeBaseBranch;
     const worktreeId = activeWorkflow?.worktreeId;
     const nonGitInPlace = activeWorkflow?.nonGitInPlace === true;
     if (activeWorkflow) {
@@ -2194,6 +2197,28 @@ export async function runValidationLoop({
         let pendingRepairMergeWorktreePath;
         let mergeBackCompleted = false;
         let postMergeVerificationHalted = false;
+
+        if (worktreeBranch && !worktreeBaseBranch && worktreeId) {
+            try {
+                const registryEntry = await findWorktreeRegistryEntryByIdImpl(projectRoot, worktreeId);
+                if (registryEntry?.baseBranch) {
+                    worktreeBaseBranch = registryEntry.baseBranch;
+                    emitRunWieldSystemStatus(
+                        hostedSession,
+                        `Recovered target branch ${worktreeBaseBranch} from the worktree registry for ${worktreeBranch}.`,
+                        "info",
+                    );
+                }
+            } catch (error) {
+                emitRunWieldSystemStatus(
+                    hostedSession,
+                    `Could not recover worktree target branch from the registry: ${
+                        error instanceof Error ? error.message : String(error)
+                    }`,
+                    true,
+                );
+            }
+        }
 
         if (worktreeBranch && !worktreeBaseBranch) {
             emitRunWieldSystemStatus(
