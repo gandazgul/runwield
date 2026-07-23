@@ -1786,7 +1786,7 @@ export async function buildAgentSession({
             emitSystemStatus(targetHostedSession || undefined, msg, { level: "warning" });
             if (String(err.error).toLowerCase().includes("mnemosyne")) {
                 const msg2 =
-                    "[RunWield] Memory extension issue detected. Install mnemosyne: https://github.com/gandazgul/mnemosyne#quick-start";
+                    "[RunWield] Memory extension issue detected. Rerun the RunWield installer to install required runtime helpers: curl -fsSL https://raw.githubusercontent.com/gandazgul/runwield/main/install.sh | bash";
                 emitSystemStatus(targetHostedSession || undefined, msg2, { level: "warning" });
             }
         }
