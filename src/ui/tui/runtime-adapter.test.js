@@ -73,8 +73,14 @@ function makeUi() {
 function makeRuntimeHarness(sessionId, queuedMessages = [], workflowContext = null) {
     /** @type {((event: any) => void) | null} */
     let listener = null;
+    /** @type {any[]} */
+    const interactionAdapters = [];
     const runtime = /** @type {any} */ ({
-        setInteractionAdapter: () => ({ ok: true }),
+        setInteractionAdapter: (/** @type {string} */ id, /** @type {any} */ adapter) => {
+            if (id !== sessionId) throw new Error("wrong session id");
+            interactionAdapters.push(adapter);
+            return { ok: true };
+        },
         subscribeSessionEvents: (/** @type {string} */ id, /** @type {(event: any) => void} */ next) => {
             if (id !== sessionId) throw new Error("wrong session id");
             listener = next;
@@ -93,8 +99,29 @@ function makeRuntimeHarness(sessionId, queuedMessages = [], workflowContext = nu
             workflowContext,
         }),
     });
-    return { runtime, sessionId };
+    return { runtime, sessionId, interactionAdapters };
 }
+
+Deno.test("TUI adapter advertises Pair checkpoints only while attached", () => {
+    const { runtime, sessionId, interactionAdapters } = makeRuntimeHarness("pair-capability-lifetime");
+    const { uiAPI } = makeUi();
+    let canceledPrompts = 0;
+    uiAPI.abortActivePrompt = () => {
+        canceledPrompts++;
+    };
+
+    const registration = attachTuiRuntimeAdapter({ runtime, sessionId, uiAPI });
+
+    assertEquals(interactionAdapters.length, 1);
+    assertEquals(interactionAdapters[0].supportsInteraction("pair_checkpoint"), true);
+    assertEquals(interactionAdapters[0].supportsInteraction("select"), false);
+
+    registration.dispose();
+    registration.dispose();
+
+    assertEquals(canceledPrompts, 1);
+    assertEquals(interactionAdapters, [interactionAdapters[0], null]);
+});
 
 Deno.test("TUI and ACP adapters consume the same semantic runtime transcript", () => {
     const { runtime, sessionId } = makeRuntimeHarness("adapter-parity");

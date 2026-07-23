@@ -1104,6 +1104,36 @@ Deno.test("ACP production modules do not import TUI adapter code", async () => {
     assertEquals(violations, []);
 });
 
+Deno.test("ACP interaction adapter withholds Pair capability and checkpoints", async () => {
+    /** @type {unknown[]} */
+    const requests = [];
+    const adapter = createAcpInteractionAdapter({
+        acpSessionId: "acp-1",
+        clientCapabilities: { elicitation: { form: {} } },
+        context: {
+            request: (/** @type {unknown} */ request) => {
+                requests.push(request);
+                return Promise.resolve({ action: "accept", content: { answer: "continue" } });
+            },
+        },
+    });
+
+    assertEquals(adapter.supportsInteraction?.("pair_checkpoint"), false);
+    assertEquals(adapter.supportsInteraction?.("select"), false);
+    assertEquals(
+        await adapter.requestInteraction({
+            id: "interaction-pair",
+            type: "pair_checkpoint",
+            prompt: "Review the increment",
+        }),
+        {
+            outcome: "unsupported",
+            message: "ACP does not support Pair Execution checkpoints.",
+        },
+    );
+    assertEquals(requests, []);
+});
+
 Deno.test("ACP interaction adapter maps form elicitation answers", async () => {
     /** @type {unknown[]} */
     const requests = [];
