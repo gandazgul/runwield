@@ -17,8 +17,8 @@ On macOS or Linux:
 curl -fsSL https://raw.githubusercontent.com/gandazgul/runwield/main/install.sh | bash
 ```
 
-The installer downloads the `wld` binary and installs it to `~/.local/bin` by default. Make sure that directory is on
-your `PATH`.
+The installer downloads `wld`, required Mnemosyne/Cymbal runtime helpers, and optional Snip, then installs missing
+binaries to `~/.local/bin` by default. Make sure that directory is on your `PATH`.
 
 Contributors can also run from source:
 
@@ -28,13 +28,11 @@ deno task compile
 ./bin/wld help
 ```
 
-### 2. Install runtime helpers
+### 2. Runtime helpers
 
-RunWield works best when these optional-but-expected binaries are available on `PATH`:
-
-- [`mnemosyne`](https://github.com/gandazgul/mnemosyne) for project and global memory.
-- [`cymbal`](https://github.com/1broseidon/cymbal) for code search, symbol lookup, impact analysis, and tracing.
-- [`snip`](https://github.com/edouard-claude/snip) for compact command-output rewriting. Snip is optional and fail-open.
+The installer is the helper recovery path. Mnemosyne and Cymbal are required for interactive Agent Sessions; Snip is
+optional and fail-open. Existing helper binaries found on `PATH` or already executable in `WLD_INSTALL_DIR` are
+preserved, while missing helpers are installed beside `wld`.
 
 ### 3. Authenticate a model provider
 
