@@ -2,29 +2,44 @@
 planId: "d604dd4b-b9f8-4330-8a6a-6e31ed7507ca"
 classification: "FEATURE"
 complexity: "HIGH"
-summary: "Add fenced Session Activation Leases, committed Session generations, non-mutating timeline projection, and the narrow Workspace/TUI/ACP runtime APIs needed to continue an idle Session safely."
+summary: "Add fenced Session Activation Leases, committed Session generations, non-mutating timeline projection, and the narrow Workspace/TUI/ACP Runtime APIs needed to resume an idle Session safely."
 affectedPaths:
     - "src/shared/owner-coordination/"
     - "src/shared/session/"
+    - "src/shared/types.js"
     - "src/ui/workspace/server.js"
     - "src/ui/workspace/server/"
     - "src/ui/workspace/routes/"
-    - "src/ui/tui/chat-session.js"
-    - "src/acp/server.js"
-    - "src/acp/session-map.js"
+    - "src/ui/tui/"
+    - "src/acp/"
     - "src/cmd/acp/"
-    - "src/cmd/workspace/serve.js"
+    - "src/cmd/workspace/"
+    - "src/cmd/load-plan/"
+    - "src/cmd/resume/"
+    - "src/cmd/new/"
+    - "src/cmd/init/"
+    - "src/cmd/reload/"
+    - "src/cmd/name/"
+    - "src/cmd/quit/"
     - "docs/usage.md"
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-21T23:56:51-04:00"
-updatedAt: "2026-07-23T18:12:42.871Z"
-status: "draft"
+updatedAt: "2026-07-23T20:51:42.917Z"
+status: "in_progress"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v1"
 order: 4
 dependencies:
     - "03-secure-persistent-workspace-bootstrap-and-device-pairing"
+humanReviewMode: null
+humanReviewDecision: null
+executionBaselineTree: "f5112a8f2da167a5851203ff1f58f1402584d337"
+worktreeId: "776120b1"
+worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-personal-remote-workspace-v1-04-activation-gated-776120b1"
+worktreeBranch: "runwield/worktree/personal-remote-workspace-v1-04-activation-gated-776120b1"
+worktreeBaseBranch: "main"
+worktreeStatus: "active"
 ---
 
 # Activation-Gated Workspace Session Continuation APIs
@@ -32,321 +47,403 @@ dependencies:
 ## Context
 
 Slices 2 and 3 delivered the owner coordination database, stable RunWield Session catalog, persistent owner Workspace,
-registered Project authorization, and paired-device authentication. The next tracer bullet is continuing an idle
-ideation or planning Session from Workspace without allowing two processes to mutate one Pi Session Transcript from
-stale in-memory leaves.
+registered Project authorization, and paired-device authentication. The next tracer bullet is resuming an idle Ideator
+Session from Workspace without allowing two processes to mutate one Pi Session Transcript from stale in-memory leaves.
 
-The current Runtime does not yet provide that guarantee. `SessionRuntime.loadSession()` calls writable
-`SessionManager.open()` before any cross-process authorization, TUI and ACP retain writable managers while idle, and
-`HostedSession` knows only its process-local ID and Pi Session Manager ID. A Workspace-only lock would prevent two
-browser requests from racing but would not exclude TUI or ACP. The user therefore chose to include minimum TUI/ACP
-participation for writable load and ordinary Session turns in this slice; slice 7 remains responsible for the exhaustive
-mutation audit and richer handling of compaction, cancellation settlement, shell/tool recording, images, configuration,
-and workflow operations.
+The current Runtime cannot provide that guarantee. `SessionRuntime.loadSession()` opens a writable Pi Session Manager
+before cross-process authorization, `HostedSession` derives durable metadata from that live manager, and TUI and ACP
+retain writable managers while idle. A Workspace-only lock would not exclude those sibling processes. This slice must
+therefore introduce the common activation-aware Runtime operation and make TUI/ACP participate for managed Session
+creation, dormant load, ordinary text turns, and turn cancellation/checkpoint settlement.
 
-Workspace also needs to render committed history without obtaining activation. A small read-only projection foundation
-belongs here so a GET request never calls `SessionManager.open()` or changes the transcript merely to display it. Slice
-6 will extend that foundation with incremental unseen-entry replay, committed-generation monitoring, draft preservation,
-and automatic idle TUI synchronization.
+The user chose a bounded compatibility transition. For Sessions in registered Projects, direct mutation paths beyond
+managed start/load and an ordinary text turn fail closed until slice 7. This includes direct Plan loading/execution,
+standalone compaction, Session rename/reload, shell recording, images, model/thinking changes, steering, and queues.
+Operations reached inside an already fenced TUI/ACP text turn may use that turn's proof, including Agent handoff,
+interactions, workflow tool outcomes, and automatic turn settlement. Projects that have positively never entered owner
+coordination retain legacy behavior. Slice 7 converts deferred methods to fenced implementations and hardens lower-level
+write paths.
 
-Workspace continuation in this slice is deliberately conversation-only. It may continue an idle Ideator or Planner
-conversation, but it must not expose materializing workflow tools, durable human gates, Plan review/execution, or
-repository-changing operations before Durable Workflow Checkpoints and Plan Workflow Leases land. Existing TUI/ACP
-workflows retain their current product behavior while participating in Session activation.
+Workspace continuation is narrower: only an idle Ideator Session is eligible. Workspace uses a positive conversation-
+only capability profile with no workflow handler, materializing tools, interactions, handoffs, compaction, images, or
+repository/memory mutation. Planner continuation waits for the Durable Workflow Checkpoint slices rather than exposing a
+Planner that cannot safely use `user_interview` or `plan_written`.
+
+Workspace also needs committed history without writable hydration. This slice owns the complete one-shot, non-mutating
+committed-prefix reader and semantic projector. Slice 6 adds generation watching, unseen-event selection, automatic idle
+TUI refresh, dedupe state, and draft preservation. Before that watcher exists, a stale TUI submission will project the
+newly committed history, restore the unsent User Request, and require explicit resubmission instead of sending against
+history the user has not seen.
 
 ## Objective
 
 Implement the first enforceable Session Activation Lease and committed-generation vertical slice so that:
 
-- an enabled registered Project's stable RunWield Session is the coordination key, distinct from Pi and in-process
-  Runtime IDs;
-- Workspace, TUI, and ACP acquire fenced activation before writable hydration or an ordinary Session turn;
-- Workspace accepts only a conversation-only turn and cannot materialize workflow, Plan, repository, or pending
-  interaction effects in this slice;
-- safe-idle release leaves a dormant Runtime with no writable manager, and every later turn acquires and hydrates anew;
-- a Session generation is published only after transcript bytes are durably settled and verifiable;
-- paired Workspace clients can list eligible Sessions, inspect activation state, read a committed semantic timeline, and
-  start one server-owned continuation without receiving a fencing token or filesystem locator;
-- activation is released only at a safe idle checkpoint, while stale, interrupted, or transcript-ahead states block
-  ordinary continuation and require later recovery; and
-- unrelated Sessions remain independently activatable while same-Session races have exactly one winner.
+- stable RunWield Session ID, not Pi or process-local Runtime identity, is the coordination key;
+- Workspace, TUI, and ACP acquire fenced activation before writable hydration or an ordinary managed Session turn;
+- safe-idle release dehydrates the managed Hosted Session into a dormant shell with no manager, Agent Session, handler,
+  interaction, queue, subagent, or activation proof;
+- Session generation publication happens only after exact transcript bytes are settled, synchronized, and verified;
+- paired Workspace clients can list eligible Sessions, inspect activation state, read a committed semantic timeline,
+  bootstrap legacy evidence through an authenticated mutation, and start one idempotent server-owned continuation;
+- same-Session races have one winner while unrelated Sessions remain independently activatable;
+- stale, expired, interrupted, transcript-ahead, database-ahead, or replaced-database states block ordinary continuation
+  without automatic takeover or User Request replay;
+- stale TUI submission refreshes committed history and restores the draft for explicit resubmission; and
+- owner continuation remains disabled until the operator acknowledges that pre-v3 RunWield processes have stopped.
 
-This slice does not implement Durable Workflow Checkpoints, Plan Workflow Leases, automatic TUI synchronization,
-complete Session UI, or silent takeover of an uncertain owner. Owner continuation remains disabled until the operator
-explicitly enables the coordination protocol after stopping pre-v3 RunWield processes.
+This slice does not add Durable Workflow Checkpoints, Plan Workflow Leases, Workspace Planner continuation, automatic
+idle TUI synchronization, complete managed mutator support, recovery/takeover endpoints, or phone UI. Slices 5–9 extend
+those capabilities without replacing the activation, generation, and projection contracts defined here.
 
 ## Approach
 
-Extend the owner database with a retained per-Session activation record and append-only committed-generation evidence.
-Existing cataloged Sessions begin in an explicit `uninitialized` state with no committed generation. Their first managed
-access performs a fenced, Agent-free bootstrap: acquire exclusively, verify a stable read-only transcript prefix, sync
-and capture its terminal evidence, publish it as generation `0`, and release. New Sessions write only the unavoidable Pi
-header before stable identity exists, then catalog, acquire, perform first Agent setup, publish generation `0`, and
-release. Until bootstrap succeeds, timeline reads report `bootstrap_required` or complete the same server-owned
-bootstrap; continuation never guesses baseline evidence.
+### Owner protocol and activation state
 
-A normal lease acquisition increments a monotonic fencing token and binds it to a process instance plus one operation
-ID. Heartbeat, publication, no-change release, and failure marking use compare-and-set conditions over the stable
-Session, Project, owner instance, operation, fence, phase, and expected committed generation. Releasing clears the live
-owner but never deletes or resets the row. Expired heartbeat evidence moves the Session to `uncertain`; it never permits
-automatic takeover.
+Upgrade the owner database to v3 and add a separate owner-only activation protocol marker under `~/.wld/`. The database
+stores a random database epoch; the marker stores the acknowledged protocol version and matching epoch. Migration alone
+does not opt in. `wld workspace serve --enable-session-activation` atomically writes the marker only after warning that
+all incompatible processes must be stopped. Until acknowledgement, managed mutations from Workspace, TUI, and ACP are
+blocked. If an acknowledged database is missing or replaced, the epoch mismatch blocks Session mutation globally until
+explicit reconstruction and re-acknowledgement, so a previously managed transcript cannot silently fall back to legacy
+writes.
 
-Keep SQLite transactions short and synchronous. Improve pre-migration backup to use a WAL-safe SQLite checkpoint/
-snapshot mechanism before v3 rather than copying only the main database file. Transcript work stays outside SQLite and
-uses this order:
+Legacy eligibility is based on Project/root evidence, never merely on a missing Session row. A transcript under a
+current or historical registered Project root must catalog before mutation or fail closed. Once cataloged, Project
+disable/removal, health loss, locator conflict, or a missing activation row blocks new mutation; it never enables an
+unmanaged writer. Historical roots remain identity evidence, but mutation requires an enabled, healthy current Project
+and an unambiguous guarded locator. An already active owner with an unexpired exact proof may checkpoint/release after
+Project eligibility changes, but may not start another turn.
 
-1. acquire activation with the caller's exact expected committed generation;
-2. compare the full guarded file against that generation's byte length, terminal entry, and digest before writable
-   hydration; any tail or mismatch marks reconcile-needed and stops;
-3. hydrate the writable manager and activate the Agent only after the comparison succeeds;
-4. run the allowed Session turn while heartbeating and buffering semantic Runtime events;
-5. wait for Runtime and Agent idle, dispose the writable manager, sync the exact cataloged transcript, and capture byte
-   length, terminal entry ID, and a digest of the committed prefix;
-6. insert the next generation and release in one fenced transaction; and
-7. if canonical transcript effects exist but publication cannot be proven, never rerun the User Request—retain or mark
-   reconcile-needed/uncertain state and report degraded status.
+Keep one retained `session_activation_state` row per Session and append-only `session_committed_generations`. Activation
+states are `uninitialized`, `idle`, `active`, `uncertain`, and `reconcile_required`; active phases are explicitly
+limited to `bootstrap`, `preparing`, `hydrated`, `turning`, and `checkpointing`. Existing bootstrap acquires through
+`uninitialized -> active/bootstrap`, while managed-new initialization uses `uninitialized -> active/preparing`; both may
+publish generation `0` and enter `idle`, or transition to `uninitialized`, `uncertain`, or `reconcile_required`
+according to whether writable hydration/effects occurred. Normal acquisition from `idle` checks the caller's exact
+expected generation, increments a monotonic fence, and binds owner instance, process kind, operation ID, phase, and
+heartbeat deadline. Heartbeat, phase changes, publication, pre-hydration release, and failure transitions use
+compare-and-set over the complete proof. A heartbeat at or after expiry is rejected and moves the Session to
+`uncertain`. Neither `uncertain` nor `reconcile_required` has an automatic path back to `idle` in this slice.
 
-Extract existing replay shaping into a shared pure projection module. A strictly read-only JSONL reader validates the
-cataloged path, reads only the byte prefix named by the latest generation, reconstructs the committed branch, and
-verifies terminal evidence. Each projected event receives canonical `eventId = <entryId>:<eventKind>:<blockIndex>`;
-existing `messageId` and `toolCallId` remain semantic grouping IDs, while `eventId` is the pagination/deduplication
-cursor. An uncommitted live tail is ignored, but malformed or mismatched committed evidence fails closed. SQLite stores
-only coordination and transcript evidence, never transcript text or event bodies.
+Fencing prevents stale SQLite publication; it cannot undo a Pi file append. Safety therefore depends on never granting a
+new owner after heartbeat loss or uncertain effects. A failure before writable hydration may release without advancing
+generation only when the full file still exactly matches committed evidence. Once hydration occurs, every safe
+checkpoint publishes exactly the next generation even if its final bytes happen to be unchanged; otherwise the Session
+becomes uncertain. Such a pre-hydration release is an abandoned acquisition, not a Session checkpoint.
 
-Add an adapter-neutral activation coordinator to `SessionRuntime`. A Session is legacy-compatible only when it has
-positively never been cataloged or activation-managed. Once managed, disabling/removing its Project or losing root
-health blocks new mutation; it must never fall back to unmanaged writes. An already fenced owner may still checkpoint or
-release after Project eligibility changes so authorization changes do not strand an active lease.
+### Generation and transcript evidence
 
-Represent an idle managed Session as a dormant Hosted Session shell with stable RunWield, Pi, and adapter identities
-plus its last committed snapshot, but no writable manager or live Agent. Existing-session startup becomes read-only
-locator resolution, catalog lookup/bootstrap, and committed projection. The first later turn acquires, hydrates, runs,
-checkpoints, disposes, and returns to dormant state. New-session startup is split so manager/header creation precedes
-cataloging, but Agent activation and all later writes occur only under the first fence. Direct mutation methods that
-this slice does not adopt must fail closed on dormant managed Sessions; slice 7 will add complete fenced support.
+Each generation records the evidence version, SHA-256 of the exact raw byte range `[0, byteLength)`, byte length,
+terminal entry ID, stable Session/Project/locator identity, producing operation/fence, and publication time. Original
+line endings are part of the digest. `terminalEntryId` is nullable only for a valid header-only transcript, and a
+committed prefix must end on a complete JSONL record boundary. Readers use positional reads of exactly that prefix;
+shorter or mismatched bytes fail closed, while later uncommitted bytes are ignored only for read projection.
 
-Workspace owns continuation operations server-side rather than exposing acquire/heartbeat/release primitives to the
-browser. It uses a conversation-only Runtime policy that removes materializing workflow/outcome tools, structured
-interaction tools, shell/repository mutation, Plan actions, and execution. If an unexpected interaction or workflow
-continuation is nevertheless requested, terminate the operation as unsupported and checkpoint only settled transcript
-output; never leave an in-memory browser gate. Starting a continuation returns an opaque operation ID, survives browser
-disconnection, and supports bounded authenticated polling. Device revocation closes that device's connection but does
-not cancel the Runtime or release activation.
+Existing cataloged Sessions migrate to `uninitialized` without filesystem access. Their CSRF-protected bootstrap
+operation acquires the bootstrap phase, uses direct read-only file APIs (never Pi list/open/continue APIs), validates
+the guarded path/header/file identity and a stable complete prefix, publishes generation `0`, and releases without
+creating an Agent Session or changing transcript bytes. GET list/timeline routes report `bootstrap_required`; they never
+perform bootstrap as a side effect.
 
-Because a pre-v3 process cannot honor the database, owner continuation is off by default. `wld workspace serve` requires
-an explicit activation-protocol enable flag/acknowledgement stating that older RunWield processes have been stopped and
-must not run concurrently. TUI and ACP in the new binary open one shared coordinator for their process lifetime. Full
-version/process diagnostics may improve in slice 7, but slice 4 must not expose continuation without this rollout gate.
+For a new managed TUI Session, model onboarding completes before persistent Session creation so no lease is held while
+waiting for configuration. Runtime then creates the unavoidable Pi header, keeps it hidden from adapters, catalogs it as
+`source = created` with its activation row, acquires activation, performs initial Agent setup under the fence,
+dehydrates, synchronizes the exact file, and publishes generation `0`. ACP follows the same sequence without interactive
+onboarding. Failure after header/catalog creation leaves an uninitialized or uncertain managed Session; it never falls
+back to legacy writes.
+
+Before writable hydration, compare the entire current guarded file to the expected generation's length and digest. Any
+extra tail, replacement, truncation, malformed committed record, terminal mismatch, or digest mismatch moves the Session
+to `reconcile_required` and prevents acceptance of the User Request. After a turn settles, dispose/unsubscribe the root
+Agent Session, extensions, subagents, queues, and interactions; dispose the manager; synchronize the exact transcript
+file; then hash and parse evidence from that same guarded file before publishing generation and release in one SQLite
+transaction. For a newly created transcript, synchronize both the transcript file and its parent Session directory so
+the directory entry is durable before generation `0` publication. Configure and test SQLite durability for coordination
+publication (`synchronous = FULL`).
+
+### Runtime ownership and projection
+
+Put lease ownership below adapters. Add one high-level activation-aware Runtime operation that owns:
+
+1. protocol/Project/Session eligibility and expected-generation validation;
+2. activation acquisition and heartbeat;
+3. full-file committed-evidence comparison;
+4. writable Pi hydration and Agent activation;
+5. the allowed turn or initialization action;
+6. proof-aware cancellation and settlement;
+7. Agent/manager dehydration, file synchronization, and evidence capture; and
+8. fenced generation publication/release or conservative failure transition.
+
+Workspace, TUI, and ACP invoke and subscribe to this operation; they never receive a fence, manager, locator, database
+handle, or owner identity. Runtime remains busy through checkpoint publication, while `TURN_END` means the Agent turn is
+settled rather than that the whole activation operation is idle. Activation must succeed before `USER_MESSAGE` or
+`TURN_START` is emitted, so a rejected request is not presented as accepted. ACP and Workspace subscribe before invoking
+the operation.
+
+Extend `HostedSession` with distinct RunWield Session, Project, Pi, Runtime, and adapter identities plus retained
+committed metadata. Add a dedicated dehydration lifecycle separate from `dispose()`: dormant shells keep stable
+identity, name, Agent/workflow summary, generation, and projected snapshot data but no writable or continuation-capable
+reference. `closeSession` still destroys the shell. Update `SessionSnapshot` and event types without exposing private
+IDs or proofs.
+
+Extract replay shaping into `session-transcript-projection.js`. The module independently parses raw JSONL, validates the
+header and terminal parent chain, derives committed name/Agent/model/workflow state and unresolved-tool eligibility, and
+projects the same consumer-ready semantic events as live replay. Each event gets stable
+`eventId = <entryId>:<eventKind>:<blockIndex>` (`blockIndex = 0` for entry-level events). Cursor scope is
+`(generation, eventId)`; lookup follows projection order rather than lexical ID order, and unknown/stale cursors are
+rejected. Slice 6 must reuse this one-shot projector rather than add another parser.
+
+For a stale managed TUI submission, the Runtime rejects before accepting the User Request, projects the latest committed
+generation through the existing TUI adapter, and returns a typed `refresh_required` result. Slice 4 retains the stable
+event IDs rendered for that open Session and emits only IDs not already shown, preventing duplicates without guessing
+cross-generation cursor order. TUI restores the exact untrimmed editor text and attachments without duplicating history
+and requires explicit resubmission. Slice 6 generalizes that transient dedupe state and makes refresh automatic while
+idle.
+
+### Workspace continuation and adapter rollout
+
+Workspace uses a dedicated Ideator conversation profile propagated through Agent construction. Final tools are selected
+from a fixed trusted read-only allowlist after layered Agent resolution; arbitrary Custom Tools, package extensions,
+edit fallback, delegation, memory mutation, shell, workflow tools, `user_interview`, `return_to_router`, and handoffs
+are disabled. Do not install the generic workflow-aware Agent Handler. Disable images and automatic compaction; context
+exhaustion or any attempted interaction/workflow continuation returns a typed unsupported result and checkpoints only
+settled transcript output. Eligibility requires durable committed evidence that the active Agent is Ideator and that no
+workflow, unresolved tool call, or pending interaction is present.
+
+The browser supplies a random `requestId` with each bootstrap/continuation start. Persist a minimal operation receipt
+before Agent invocation, scoped to device, Project, Session, request ID, expected generation, and a normalized request
+body digest. Store status/generation/error metadata only—never prompt text or event bodies. An exact retry returns the
+same opaque operation/result; reuse with different input is rejected, and loss of the initial `202` cannot invoke the
+User Request twice.
+
+`session-continuation.js` owns one process-scoped Runtime/coordinator, bounded safe live-event buffers, heartbeats,
+operation status, and draining. Browser disconnect or device revocation stops that client's connection but does not
+cancel a turn or release activation. Durable receipts allow status recovery; if an in-memory event buffer is gone, the
+client resumes from committed timeline. Shutdown releases only pre-hydration or fully checkpointed operations, while
+active uncertain work remains fenced.
+
+TUI and ACP each open one owner store/coordinator for process lifetime, use dormant stable mappings for managed
+Sessions, and close them on shutdown. Managed `/load-plan`, resume compaction, `/name`, `/reload`, `/init`, shell
+recording, image persistence, direct model/thinking changes, steering, and queued writes return bounded
+unsupported/invalid-state results without touching the transcript. Positively unregistered Projects retain existing
+behavior. Normal TUI/ACP text turns may perform nested Agent/workflow operations only through an unexported
+operation-scoped Runtime capability created by the active managed turn. The mere presence of an active turn/lease never
+authorizes a public direct mutator; slash commands and adapter calls cannot obtain or forge the nested capability. This
+still does not provide cross-Session Plan exclusivity before slice 9.
 
 ## Files to Modify
 
-- `src/shared/owner-coordination/schema.js` and `database.js` — add ordered migration v3 for retained activation state
-  and committed-generation evidence, including a WAL-safe upgrade snapshot plus existing foreign-key and newer-schema
-  refusal behavior.
-- `src/shared/owner-coordination/session-activations.js` — implement fenced acquire, inspect, heartbeat, phase change,
-  publish-and-release, no-change release, and uncertain/reconcile-needed transitions with synchronous CAS transactions.
-- `src/shared/owner-coordination/sessions.js` and `projects.js` — distinguish positively never-managed roots from
-  cataloged-but-ineligible Sessions, resolve the stable Project/Session pair, and never auto-register Projects.
-- `src/shared/owner-coordination/index.js` — expose typed JSDoc coordination methods while keeping SQLite handles and
-  fencing tokens out of adapters and browser DTOs.
-- `src/shared/session/session-transcript-projection.js` — host pure branch reconstruction and semantic replay projection
-  with stable event IDs, reused by live Runtime replay and committed read APIs.
-- `src/shared/session/root-session.js` — add guarded read-only committed-prefix parsing and transcript
-  durability/evidence helpers without using `SessionManager.open()` on read paths.
-- `src/shared/session/hosted-session.js` and `session-host.js` — retain distinct stable RunWield, Pi, and process-local
-  identities plus current activation/generation metadata for Runtime assertions and stale-cache invalidation.
-- `src/shared/session/session-runtime.js` and `session.js` — split manager creation from Agent activation, inject the
-  activation coordinator, support dormant managed Sessions, gate writable hydration/turns, and reuse extracted
-  projection without changing semantic event ownership.
-- `src/ui/tui/chat-session.js` — replace writable `continueRecent()` startup for managed Sessions with read-only
-  resolution/dormant adoption, use activation-aware turns, and show bounded ownership/reconciliation errors; automatic
-  committed-history refresh remains slice 6.
-- `src/acp/server.js`, `session-map.js`, and `src/cmd/acp/` — give the ACP process one coordinator/store lifetime, map
-  transport IDs to dormant stable Sessions, and return invalid-state responses when activation is unavailable.
-- `src/ui/workspace/server/session-continuation.js` — own the Workspace process/operation identities, Runtime lifetime,
-  heartbeat, buffered operation progress, checkpoint publication, release, and shutdown behavior.
-- `src/ui/workspace/routes/owner-session-api.js` and `owner-api.js` — add authenticated, Project-scoped Session DTO,
-  timeline, continuation-start, and continuation-status handlers with shared bounded parsing and sanitized errors.
-- `src/ui/workspace/server.js` and `src/cmd/workspace/serve.js` — compose one persistent continuation service, require
-  explicit activation-protocol enablement, register routes, and drain safely without affecting other Workspace modes.
-- `docs/usage.md` — document the rollout gate, stop/restart requirement for pre-v3 processes, supported continuation
-  boundary, and recovery behavior.
-- Focused `*.test.js` files beside the modules above plus `src/ui/workspace/owner-workspace.test.js` — cover migration,
-  fencing, persistence order, projection, adapters, authentication, concurrency, and shutdown.
+- `src/shared/owner-coordination/schema.js` and `database.js` — add migration v3, database epoch, retained activation
+  state, committed generations, idempotent operation receipts, composite Session/Project integrity, insert-time
+  activation-row creation, `synchronous = FULL`, and WAL-safe pre-migration snapshot behavior.
+- `src/shared/owner-coordination/paths.js` and new `activation-protocol.js` — resolve, atomically write, permission, and
+  verify the owner protocol/epoch marker independently from migration.
+- `src/shared/owner-coordination/session-activations.js` — implement the explicit state machine, fenced CAS operations,
+  heartbeat/expiry, generation publication, and typed blocked states.
+- `src/shared/owner-coordination/sessions.js`, `projects.js`, and `index.js` — support created-session cataloging,
+  activation-row invariants, current-root managed resolution, protocol health, and narrow adapter-neutral services.
+- `src/shared/session/session-transcript-projection.js`, `root-session.js`, `active-agent-session.js`, and
+  `workflow-context-session.js` — implement guarded exact-prefix I/O, file synchronization/evidence, branch/state
+  reconstruction, and shared semantic projection without writable Pi APIs.
+- `src/shared/session/session-runtime.js`, `hosted-session.js`, `session-host.js`, `session.js`, and
+  `agent-switching.js` — inject coordination, add managed initialization/load/turn operations and dormant dehydration,
+  propagate the Ideator conversation profile, and enforce the method classification.
+- `src/shared/session/session-runtime-events.js` and `src/shared/types.js` — add stable event IDs, typed activation/
+  generation outcomes, and safe dormant snapshot metadata.
+- `src/shared/session/architecture-boundary.test.js` — preserve sibling-adapter and hidden-manager boundaries while
+  allowing only shared coordination imports below Runtime.
+- `src/ui/tui/chat-session.js`, `runtime-adapter.js`, `model-welcome.js`, and `bash-interceptor.js` — compose one
+  process coordinator, delay managed persistence until model readiness, adopt dormant/replay behavior, restore stale
+  drafts, and fail closed for deferred direct mutations.
+- `src/cmd/load-plan/`, `resume/`, `new/`, `init/`, `reload/`, `name/`, and `quit/` — route supported start/load through
+  Runtime, return clear managed unsupported states for deferred commands, and close coordination resources.
+- `src/acp/server.js`, `session-map.js`, and `src/cmd/acp/` — compose one coordinator, preserve transport IDs while
+  mapping stable RunWield identity, subscribe before turns, and map typed activation failures to ACP invalid-state
+  responses.
+- `src/ui/workspace/server/session-continuation.js` — implement server-owned Ideator operations, idempotent receipts,
+  event buffers, polling, heartbeat, and drain/close behavior over the high-level Runtime API.
+- `src/ui/workspace/routes/owner-session-api.js` and `owner-api.js` — add authenticated Session list/status, timeline,
+  bootstrap, continuation-start, and operation-status routes with bounded parsing and whitelisted DTOs.
+- `src/ui/workspace/server.js` and `src/cmd/workspace/serve.js` — compose and close the continuation service, propagate
+  shutdown signals, and implement explicit owner-wide activation protocol acknowledgement.
+- Focused `*.test.js` files beside these modules plus owner Workspace integration tests — cover migration, state
+  transitions, durability order, projection parity, adapter policy, authentication, concurrency, and shutdown.
+- `docs/usage.md` — document opt-in, pre-v3 stop/restart requirements, managed compatibility limits, Ideator-only
+  Workspace scope, database-epoch recovery, and conservative uncertainty behavior.
 
 ## Reuse Opportunities
 
 Existing functions, modules, or patterns to reuse:
 
-- `src/shared/owner-coordination/database.js` — reuse ordered migrations, `BEGIN IMMEDIATE`, busy timeout, and hidden
-  database-handle conventions; replace unsafe main-file copying during a live WAL database upgrade with a supported
-  SQLite checkpoint/snapshot and never run transcript I/O inside synchronous transactions.
-- `src/shared/owner-coordination/sessions.js` — reuse the stable Session-to-Project/Pi-transcript mapping and guarded
-  locator validation; whitelist browser DTOs because catalog records contain private absolute paths.
-- `src/shared/owner-coordination/pairing.js` — follow its conditional-update/`changes === 1` CAS pattern for fenced
-  activation transitions.
-- `src/shared/session/session-runtime.js` `createReplayEvents()` — extract and reuse its semantic message, Agent, tool,
-  usage, compaction, and workflow projection instead of creating Workspace-specific transcript parsing.
-- `src/shared/session/root-session.js` `readCatalogSafeRootSessionLocator()` and path guards — reuse containment and
-  header validation while extending the read-only path beyond the header only up to published committed evidence.
-- `src/shared/session/session-runtime-events.js` — preserve the consumer-ready semantic Runtime event contract; owner
-  routes project a safe subset rather than importing Runtime normalizers into Workspace.
+- `src/shared/owner-coordination/database.js` — retain ordered migrations, `BEGIN IMMEDIATE`, busy timeout, and hidden
+  handle conventions; move backup before migration SQL and use a standalone restorable SQLite snapshot such as
+  synchronous `VACUUM INTO` rather than copying the main WAL database file. Validate the observed source schema version
+  rather than assuming every upgrade starts at v2.
+- `src/shared/owner-coordination/pairing.js` — reuse conditional-update/`changes === 1` compare-and-set patterns for
+  fenced transitions and idempotent operation receipts.
+- `src/shared/owner-coordination/sessions.js` — reuse stable Session/Project/Pi locator mapping and guarded catalog
+  validation; browser DTOs must remain explicit allowlists.
+- `src/shared/session/session-runtime.js` `createReplayEvents()` and `promptSession()` — preserve semantic event and
+  turn behavior by extracting projection and wrapping the turn in Runtime-owned activation rather than adding adapter
+  logic.
+- `src/shared/session/root-session.js` `readCatalogSafeRootSessionLocator()` — reuse containment and header identity
+  checks, extending them with exact-prefix reads and durable file evidence.
+- `src/shared/session/session-runtime-events.js` — preserve consumer-ready message/thinking/tool/usage semantics while
+  adding stable projection IDs.
+- `src/ui/tui/runtime-adapter.js` — reuse semantic replay rendering for on-submit stale refresh; slice 6 adds idle
+  generation watching around the same adapter.
 - `src/ui/workspace/server/owner-auth.js`, `owner-projects.js`, and `owner-connections.js` — reuse paired-device/CSRF,
-  enabled Project root authorization, and revocation-aware connection cleanup.
-- `src/ui/workspace/routes/owner-api.js` — reuse `ownerJson`, sanitized error behavior, and bounded JSON parsing after
-  centralizing the helpers needed by the new route module.
-- `src/acp/session-map.js` and `src/ui/tui/runtime-adapter.js` — preserve existing adapter-facing identities and
-  semantic rendering while adding activation metadata below them.
+  enabled Project authorization, and revocation-aware connection cleanup.
+- `src/ui/workspace/routes/owner-api.js` — reuse `ownerJson`, bounded body parsing, and sanitized error conventions
+  after centralizing shared helpers.
+- `src/acp/session-map.js` — retain ACP transport-facing identity and prompt lifecycle while attaching stable Session
+  metadata below the protocol boundary.
 
 ## Implementation Steps
 
-- [ ] Upgrade owner persistence to schema v3. Before migration, create a WAL-safe SQLite snapshot/checkpoint instead of
-      copying only the main file. Add `session_activation_state` with nullable generation for `uninitialized` Sessions
-      and append-only `session_committed_generations` keyed by `(runwield_session_id, generation)`. Enforce the matching
-      Session/Project pair, monotonic fence/generation values, legal states/phases, and unique active operation
-      identity.
-- [ ] Implement typed activation services with injectable clock/ID factories: inspect, bootstrap-acquire, normal
-      acquire, heartbeat, phase change, publish-and-release, no-change release, and mark uncertain/reconcile-needed.
-      Every write after acquisition matches Session, Project, owner instance, operation, fence, phase, and expected
-      generation. Exact operation retries may be idempotent; stale proofs and other operations fail. Heartbeat expiry
-      marks uncertain and never permits takeover.
-- [ ] Define managed-state resolution independently from current Project eligibility. Positively never-cataloged roots
-      may retain legacy behavior. Any Session with a stable catalog/activation record remains managed forever; disabled,
-      removed, missing, unreadable, or relink-conflicted Projects reject new acquisition rather than falling back to an
-      unmanaged writer. Permit only the current valid proof to checkpoint/release after eligibility changes.
-- [ ] Implement generation bootstrap. Migration backfills existing stable Sessions as `uninitialized` without touching
-      files. First managed read/turn acquires the bootstrap phase, captures the same stable transcript prefix before and
-      after sync, publishes generation `0`, and releases without invoking an Agent. New-session setup creates the Pi
-      header, catalogs it, acquires, activates the initial Agent under the fence, then publishes generation `0` and
-      disposes. Concurrent or failed bootstrap returns typed `bootstrap_required`, ownership, or reconciliation status.
-- [ ] Implement fenced checkpoints. After a changed turn, wait for Runtime and Agent idle, dispose the writable manager,
-      open and sync the exact guarded locator, parse the settled prefix, and capture byte length, terminal entry ID, and
-      digest. One transaction verifies the old generation/fence, inserts exactly the next generation, and releases. A
-      no-change operation may release only after equal before/after evidence. Publication failure never retries the User
-      Request and leaves recoverable reconcile-needed/uncertain evidence.
-- [ ] Extract `createReplayEvents()` into a pure shared projection module. Preserve current semantic events,
-      `messageId`, and `toolCallId`; add canonical `eventId = <entryId>:<eventKind>:<blockIndex>` as the committed
-      cursor. Add a non-mutating JSONL parser that validates catalog containment/header identity, reads only the
-      published byte prefix, reconstructs the terminal branch, verifies digest/evidence, bounds output, and ignores only
-      bytes after the committed prefix. Malformed committed data fails closed.
-- [ ] Extend `HostedSession`, `SessionHost`, Runtime snapshots, and results with separate RunWield Session, Project, Pi,
-      Runtime, and adapter IDs. Add a dormant managed-session state that retains committed projection/snapshot data but
-      owns no manager, Agent, interaction promise, or write proof. Ensure no locator, owner instance, operation ID, or
-      fence leaks through public snapshots.
-- [ ] Refactor Runtime startup ordering. Existing managed Session startup uses read-only catalog resolution/bootstrap
-      and creates a dormant shell; it must not call `SessionManager.continueRecent()`/`open()` or activate an Agent. On
-      a turn, acquire, compare the entire current file to committed evidence, and only then call
-      `openPersistedRootSession()`, activate the Agent, run, checkpoint, dispose, and return to dormant. A tail or
-      mismatch before hydration marks reconcile-needed and prevents the User Request. Split new manager/header creation
-      from `switchAgent()` so TUI and ACP can catalog/acquire before Agent setup or the first User Request.
-- [ ] Classify every public Runtime operation as read-only, adopted, nested-under-turn, or unsupported for dormant
-      managed Sessions. This slice adopts existing load/start and ordinary TUI/ACP turns. Nested operations require the
-      active turn's proof. Direct compaction, cancellation settlement, model/thinking changes, shell/tool recording,
-      images, steering/queues, and workflow entry points fail closed without a proof; encode the classification in tests
-      so slice 7 can add complete fenced behavior without reopening bypasses.
-- [ ] Give TUI and ACP one owner-coordination store/coordinator per process and close it on shutdown. For registered
-      Projects, replace current writable continue/load behavior with dormant adoption and use the activated turn path;
-      catalog new transcript headers before first Agent setup. Preserve only positively unregistered Project behavior.
-      ACP keeps transport IDs, maps the stable ID in RunWield metadata, and returns sanitized invalid-state errors for
-      ownership/bootstrap/reconciliation conflicts.
-- [ ] Implement a Workspace conversation-only Runtime policy. Permit text-only (image-free) Ideator or Planner
-      conversation while removing `plan_written`, execution/outcome tools, `user_interview`, shell/repository tools,
-      Plan actions, and other materializing Custom Tools from that operation. Reject a Session already in workflow,
-      execution, or pending interaction state. Treat any unexpected interaction/handoff into a disallowed workflow as
-      unsupported, settle what is already durable, checkpoint safely, and never leave a pending browser continuation.
-- [ ] Build `session-continuation.js` as a server-owned operation service over one Workspace Runtime. Validate stable
-      Project/Session association and conversation-only eligibility, bootstrap when needed, acquire with a process plus
-      opaque operation ID, subscribe before the turn, heartbeat, buffer bounded safe events, checkpoint/release, and
-      retain terminal status for polling. Disconnect/revocation closes only that client. Shutdown drains proven idle
-      operations; active work remains fenced and later becomes uncertain.
-- [ ] Add owner Session routes: Session list/status, committed timeline with generation/event cursor, continuation
-      start, and operation status. Require paired-device auth and CSRF on start, server-side enabled Project
-      authorization, and exact `expectedGeneration`. Return `202` with an opaque operation ID, `409` for
-      ownership/staleness/bootstrap races, and `503` for reconcile-needed or rollout-disabled state. Whitelist DTOs;
-      omit roots, transcript/Pi/Runtime IDs, fences, owner IDs, raw tool arguments, and internal errors.
-- [ ] Gate owner continuation startup behind an explicit `wld workspace serve` activation-protocol option. Without it,
-      read-only Project/Plan behavior remains available but Session continuation routes report disabled. The option must
-      warn that all pre-v3 TUI/ACP/Workspace processes must be stopped and cannot run concurrently. Document the
-      rollout, managed/unmanaged boundary, conversation-only scope, and conservative recovery behavior in
-      `docs/usage.md`.
-- [ ] Add focused migration, coordination, projection, Runtime, TUI, ACP, Workspace service, route, and shutdown tests.
-      Use two database connections and at least one subprocess race. Cover WAL-safe v2-to-v3 upgrade, legacy/new
-      bootstrap, disabled managed Projects, startup ordering, exact durability/publication order, direct-mutator denial,
-      one-winner races, unrelated Sessions, rollout gating, auth/CSRF, reconnect/revocation, and sanitized DTOs.
+- [ ] Refactor owner migration startup so newer-schema refusal occurs first, then a unique owner-only WAL-complete
+      snapshot of the observed pre-migration schema is created outside migration SQL, opened independently, checked with
+      `quick_check`, and verified at that same source version; only then enter `BEGIN IMMEDIATE`, re-read version, and
+      apply each missing migration through v3. Abort without migration if snapshot creation or validation fails or
+      remains busy; cover fresh, v1-to-v3, and v2-to-v3 paths.
+- [ ] Add v3 schema and invariants: database epoch, activation state, committed generations, and continuation operation
+      receipts; composite `(Session, Project)` parent/foreign keys; trigger or equivalent insert-time creation of an
+      `uninitialized` activation row; append-only/monotonic generation constraints; and migration backfill for existing
+      Sessions without filesystem reads.
+- [ ] Add owner activation protocol marker services and `workspace serve` acknowledgement. Atomically write owner-only
+      JSON containing marker schema, protocol version, and database epoch. Test unacknowledged, matching, missing DB,
+      mismatched epoch, malformed marker, and explicit re-acknowledgement states across Workspace, TUI, and ACP.
+- [ ] Implement the activation state machine with injectable clock/ID factories. Cover both fenced generation-zero paths
+      (`uninitialized -> active/bootstrap|preparing -> idle`) and their pre/post-hydration failures. Test every
+      legal/illegal transition, late heartbeat, phase mismatch, stale fence/generation, exact retry, pre-hydration
+      no-change release, current-owner settlement after Project disable, and permanent blocking after uncertain/
+      reconcile states.
+- [ ] Resolve managed state from protocol and Project/root evidence. Catalog registered-root transcripts before
+      mutation, support `source = created`, require an enabled healthy current root for acquisition, and make missing
+      activation rows, historical-only locators, relink conflicts, and database epoch mismatch fail closed without
+      legacy fallback.
+- [ ] Implement byte-exact generation evidence and Agent-free bootstrap. Validate raw header/JSONL boundaries, path and
+      file identity, terminal parent chain, SHA-256 prefix digest, and stable before/after evidence. Expose bootstrap
+      only through an authenticated CSRF-protected idempotent operation; GETs report `bootstrap_required`.
+- [ ] Build the complete one-shot transcript parser/projector. Reconstruct the committed branch and name/Agent/model/
+      workflow/unresolved-tool state, preserve current replay semantics, add stable `eventId`, and enforce bounded
+      `(generation, eventId)` pagination with parity fixtures against live Runtime replay.
+- [ ] Extend Hosted Session identity and add dedicated dormant dehydration. Dispose
+      Agent/extension/subagent/interaction/ queue references before the manager, retain committed metadata for
+      snapshots, and distinguish checkpoint release from shell-destroying `closeSession`.
+- [ ] Add the Runtime-owned managed operation with heartbeat and explicit phases. Acquire and compare evidence before
+      emitting accepted-turn events; hydrate/activate only after validation; keep Runtime busy through checkpoint;
+      synchronize/hash after Agent and manager disposal; then publish/release or mark uncertainty without rerunning.
+- [ ] Split managed new-session creation from TUI model onboarding. Create the persistent header only after model
+      readiness, catalog it and acquire before first Agent setup, publish generation `0`, and return dormant. Apply the
+      same catalog/acquire ordering to ACP new Session creation.
+- [ ] Classify and test every public Runtime method as read-only, managed start/load, ordinary-turn/nested-under-turn,
+      or unsupported while dormant. Use an unexported operation-scoped capability for nested workflow calls; active
+      lease presence alone must not authorize `/agent`, compaction, Plan execution/pull, or any public direct mutator.
+      Adopt proof-aware turn cancellation/settlement, audit command entry points, fail closed before deferred side
+      effects, and prevent stale handlers/managers from escaping Runtime or surviving dehydration.
+- [ ] Update TUI to use one process coordinator and dormant managed Sessions. On stale submission, project only stable
+      event IDs not already rendered, restore the exact untrimmed text/attachments without another history entry, emit
+      no accepted User Request event, and require resubmission. Keep positively unregistered Projects unchanged and
+      return clear unsupported messages for deferred commands.
+- [ ] Update ACP to use one process coordinator, dormant stable mapping, pre-turn subscriptions, and typed
+      `ACP_INVALID_STATE` responses for protocol, ownership, stale, bootstrap, reconcile, and unsupported states without
+      leaking paths or proofs.
+- [ ] Implement the Workspace Ideator-only conversation profile from a trusted positive read-only allowlist. Assert the
+      final Agent Session inventory after layered resolution; disable generic workflow dispatch, interactions, handoffs,
+      arbitrary Custom Tools/extensions, edit fallback, images, and auto-compaction. Canary-test that source, Plans,
+      worktree registry, settings, and memory state do not change.
+- [ ] Implement durable operation receipts and `session-continuation.js`. Record device-scoped request idempotency
+      before invocation, subscribe before the Runtime operation, heartbeat and bound event buffers, return/recover
+      terminal status, and drain only safely checkpointed operations on shutdown.
+- [ ] Add owner Session routes for list/status, committed timeline, bootstrap, continuation start, and operation status.
+      Require paired-device auth, CSRF on mutations, enabled Project containment, exact expected generation, and bounded
+      text/cursor/request IDs. Return `202` for accepted/existing idempotent operations, `409` for ownership/staleness/
+      bootstrap races or key mismatch, and `503` for disabled protocol, epoch recovery, uncertain, or reconcile states.
+- [ ] Wire Workspace/TUI/ACP resource lifetimes and shutdown signals so each process closes its coordinator and Runtime;
+      never release an active lease unless pre-hydration or fully checkpointed safety is proven.
+- [ ] Update usage documentation, add focused unit/integration/subprocess tests, and run the full quality gate.
 
 ## Verification Plan
 
 - Automated: run `deno task ci` and fix all failures.
-- Automated: migrate a real temporary v2 WAL database with uncheckpointed committed pages; prove the v3 safety snapshot
-  contains them, migration is ordered/idempotent, and newer-schema refusal remains non-mutating.
-- Automated: use independent connections and a subprocess race to prove one same-Session winner, unrelated Session
-  acquisition, monotonic fences/generations, exact-operation idempotency, stale-proof rejection, disabled-managed
-  fail-closed behavior, and no automatic stale-owner takeover.
-- Automated: cover existing and new Session bootstrap. Existing transcripts become generation `0` without Agent or JSONL
-  mutation; new Sessions perform no Agent setup before catalog/acquire. Concurrent bootstrap converges, and failed or
-  unstable evidence returns typed blocked/reconciliation state.
-- Automated: instrument Runtime dependencies for
-  `acquire -> committed-evidence comparison -> writable open/Agent activation -> turn -> Runtime+Agent idle -> manager dispose -> exact-file sync/evidence -> generation publish+release`.
-  Inject failure at each boundary and prove no duplicate Agent turn or database-ahead-of-transcript publication.
-- Automated: byte-for-byte and modification-time tests prove list/status/timeline reads never call writable Pi APIs or
-  modify JSONL. Timeline projection validates the committed prefix, ignores a later tail, rejects mismatched evidence,
-  and emits stable `eventId` values across repeated reads and Runtime replay.
-- Automated: adapter tests cover dormant TUI/ACP startup, process-scoped store cleanup, registered versus positively
-  never-registered Projects, disabled managed Projects, ownership conflicts, ACP stable mapping, direct-mutator denial,
-  and unchanged semantic event contracts.
-- Automated: Workspace tests cover rollout-disabled `503`, paired-device auth, CSRF, Project/Session containment,
-  conversation-only tool policy, expected generation, one-winner continuation races, reconnect polling, revocation
-  without cancellation, shutdown, sanitized DTOs, and unchanged ephemeral/Shared Space authorization.
-- Manual rollout/API check: stop other RunWield processes, start owner Workspace with explicit activation-protocol
-  enablement, pair a browser, list a registered Project's Sessions, bootstrap/read one timeline, start an idle ideation
-  continuation, and poll it to completion. Confirm generation advances and activation returns to idle; a second client
-  using the old generation receives a conflict.
-- Manual cross-surface check: open the same managed Session dormant in TUI, continue it through Workspace, then submit
-  the next TUI User Request. The TUI must acquire and hydrate before writing; automatic display of the remote turn
-  remains slice 6.
-- Expected result: supported load/turn paths have one fenced writer, committed history is readable without writable
-  hydration, transcript durability precedes publication, and unsupported/uncertain states block rather than bypassing or
-  replaying effects.
+- Automated: migrate temporary v1 and v2 WAL databases containing committed uncheckpointed pages. Prove each standalone
+  backup contains them, opens without source `-wal`/`-shm`, preserves the observed source version, passes `quick_check`,
+  has owner-only permissions, and is created before migration SQL; also cover a fresh database. Backup failure/BUSY and
+  newer-schema refusal must remain non-mutating.
+- Automated: use independent database connections and a subprocess race to prove one same-Session winner, unrelated
+  Session concurrency, monotonic fences/generations, legal state transitions, exact-operation idempotency, expired-proof
+  rejection, and no takeover from `uncertain` or `reconcile_required`.
+- Automated: test protocol marker behavior across all adapters. Migration without acknowledgement does not enable
+  managed mutation; matching epoch enables it; deleted/replaced DB blocks Session writes globally; explicit
+  reconstruction and re-acknowledgement are required.
+- Automated: cover existing and new bootstrap. Existing transcripts publish generation `0` without Agent creation,
+  writable Pi APIs, byte changes, or mtime changes. Managed new Sessions create no transcript before model readiness and
+  perform no Agent setup before catalog/acquire.
+- Automated: instrument the exact sequence
+  `acquire -> full-file evidence comparison -> manager open/Agent activation -> turn -> Agent settle -> Agent dispose -> manager dispose -> file sync -> evidence capture -> SQLite COMMIT/release`.
+  Inject failure at each boundary and prove no duplicate Agent invocation or database-ahead publication. Heartbeat loss
+  after hydration must block publication and all later acquisition.
+- Automated: projection fixtures prove byte-exact prefix verification, later-tail ignoring, malformed committed-prefix
+  rejection, parent-chain reconstruction, stable event IDs/cursors, and semantic parity with repeated live replay. Byte
+  and mtime assertions prove list/status/timeline GETs never invoke writable Pi APIs or bootstrap.
+- Automated: Runtime/TUI tests cover dormant invariants, no private proof leakage, accepted-event ordering, unforgeable
+  nested-operation authority, public direct-mutator rejection before side effects, proof-aware cancellation,
+  duplicate-free stale-generation refresh, exact raw draft/attachment/history restoration, no accepted User Request
+  event on refresh, and explicit resubmission.
+- Automated: ACP tests cover dormant new/load, stable transport mapping, subscription ordering, coordinator cleanup, and
+  sanitized invalid-state errors while preserving protocol framing and existing unregistered behavior.
+- Automated: Workspace tests cover paired-device auth, CSRF, Project/Session containment, Ideator-only eligibility,
+  malicious Agent overrides, final tool inventory, request ID response-loss retries during and after execution, bounded
+  polling, revocation without cancellation, shutdown, sanitized DTOs, and unchanged ephemeral/Shared Space authority.
+- Manual rollout/API check: stop other RunWield processes, start owner Workspace with activation acknowledgement, pair a
+  browser, list a registered Project's Sessions, bootstrap/read one timeline, start an idle Ideator continuation, and
+  poll it to completion. Confirm generation advances, activation returns idle, and retrying the same request ID does not
+  invoke another turn.
+- Manual cross-surface check: leave the same managed Session dormant in TUI, resume it through Workspace, then submit a
+  TUI User Request. Confirm the remote committed turn is rendered, the draft is restored without submission, and only a
+  second explicit submit acquires/hydrates and writes. Automatic idle refresh remains slice 6.
+- Expected result: supported paths have one fenced writer, committed history is readable without writable hydration,
+  transcript durability precedes generation publication, and unsupported or uncertain states block rather than bypass,
+  take over, or replay effects.
 
 ## Edge Cases & Considerations
 
-- **Interim enforcement boundary:** slice 4 classifies all public Runtime mutators and fails closed where support is
-  deferred. Slice 7 owns seamless fenced implementations and root-write hardening, not discovery of bypasses left open
-  here.
-- **Generation bootstrap:** schema migration cannot derive filesystem evidence. Existing Sessions remain explicitly
-  uninitialized until an exclusive Agent-free bootstrap publishes generation `0`; no API may treat nullable generation
-  as an empty transcript or safe default.
-- **Managed versus eligible:** once cataloged/managed, a Session never falls back to legacy mutation. Project disable,
-  removal, health loss, or relink conflict blocks new acquisition while preserving the current owner's ability to settle
-  and release.
-- **Workspace scope:** remote turns are conversation-only. Plan materialization/review/execution, repository effects,
-  structured interactions, and workflow continuation wait for slices 8, 9, and 12; TUI/ACP keep existing workflows under
-  Session activation.
-- **Upgrade boundary:** an already-running old binary cannot be fenced retroactively. Continuation therefore requires an
-  explicit rollout acknowledgement after old processes are stopped; operators must not restart incompatible binaries
-  concurrently.
-- **Heartbeat age:** expiry never proves an interrupted model call, command, tool, or filesystem effect is safe to
-  repeat. No takeover or recovery endpoint is added here.
-- **Transcript ahead of SQLite:** after acquisition and before writable hydration, compare the full file with the latest
-  committed evidence. Any extra tail or mismatch blocks the User Request and marks reconcile-needed. If a new turn is
-  durable but publication fails, never append or invoke it again, even when SQLite is temporarily unavailable.
-- **SQLite ahead of transcript:** durability order and terminal evidence must prevent this. Detection makes timeline
-  reads fail closed instead of presenting absent content.
-- **Dormant Runtime:** safe-idle release disposes the writable manager and Agent while retaining adapter/stable identity
-  and committed projection. The next mutation always acquires and hydrates anew.
-- **Read while active:** timeline readers use only the last published prefix. They may show the prior generation while a
-  turn is live and label the owning surface without exposing owner identity.
-- **Branch and malformed tail:** committed evidence names one terminal branch. Ignore bytes after the prefix, but never
-  skip malformed data inside it or guess another leaf.
-- **Browser disconnect and revocation:** neither cancels a turn nor releases activation. The server operation continues
-  to a safe checkpoint; reconnect falls back to committed history if its in-memory buffer is gone.
-- **Process shutdown:** release only Sessions proven idle and checkpointed. A killed owner leaves fenced stale state
-  that becomes uncertain; cleanup must not claim safety it cannot prove.
-- **Database loss:** source, Plans, and Session Transcripts survive, but activation/generation identity is not guessed.
-  Reconstruction treats potentially active work conservatively.
-- **Path and content privacy:** DTOs omit roots, locators, Pi/Runtime IDs, fences, owner IDs, and internal errors.
-  Session text remains owner-private content; raw tool arguments/details stay outside this narrow timeline.
-- **No adapter inversion:** TUI and ACP consume shared coordination/Runtime services and never import Workspace routes.
-  Workspace remains a sibling Runtime consumer, not a central proxy.
-- **Slice handoff:** slice 6 extends this reader with unseen-entry synchronization rather than adding a second parser;
-  slice 7 completes mutator support without replacing this fencing contract.
+- **Fencing boundary:** the fence protects coordination publication, not raw Pi appends. Slice 4 prevents a second
+  writer by making expiry/uncertainty terminal; slice 7 adds deeper proof checks around every write path.
+- **Managed compatibility:** registered managed Sessions intentionally fail closed for direct mutations deferred to
+  slice 7. Normal nested TUI/ACP turn workflows remain process-local under one activation and do not imply durable
+  cross-surface continuation or Plan Workflow Lease protection.
+- **Protocol/database loss:** the epoch marker is intentionally outside the replaceable database. Mismatch blocks all
+  Session mutation until explicit reconstruction; it does not guess prior Project/Session identity.
+- **Generation zero:** migration cannot derive file evidence. Existing Sessions remain `uninitialized` until an
+  exclusive `active/bootstrap` Agent-free bootstrap. New managed TUI Sessions delay persistence until model readiness,
+  then use `active/preparing` for Agent activation and synchronize the new file plus parent directory before publishing
+  generation `0`.
+- **Transcript ahead of SQLite:** any tail before hydration causes `reconcile_required`. If a turn becomes durable but
+  publication cannot be proven, never append or invoke it again; recovery is deferred.
+- **SQLite ahead of transcript:** durability ordering should prevent this. A short or mismatched published prefix makes
+  timeline and mutation fail closed.
+- **No-change acquisition:** release without generation advancement is allowed only before hydration with exact
+  unchanged evidence. Every safely checkpointed hydrated operation publishes the next generation.
+- **Heartbeat/project changes:** deadline expiry invalidates the proof even if the process wakes later. Project disable,
+  removal, or health changes do not invalidate an unexpired owner's right to checkpoint/release, but prevent new work.
+- **Workspace scope:** only durable evidence of an idle Ideator Session is eligible. Planner, workflows, unresolved
+  tools, interactions, images, compaction, and materializing effects wait for later slices.
+- **Idempotency:** operation receipts contain hashes and coordination metadata, not User Request text or event bodies.
+  Same key/different body is a conflict; ambiguous post-invocation failure never triggers automatic replay.
+- **Read while active:** timeline reads show only the last committed prefix and a generic owning-surface state, never
+  owner instance, operation, fence, path, or live uncommitted content.
+- **Browser disconnect/revocation:** neither cancels a turn nor releases activation. Reconnect uses operation status and
+  committed timeline if the live buffer is gone.
+- **Process shutdown:** release only before hydration or after a proven checkpoint. A killed owner becomes uncertain and
+  requires later recovery.
+- **Domain language:** ADR-011 and the aligned Personal Workspace PRDs govern this Plan's use of Session Activation
+  Lease and automatic synchronization. Root `CONTEXT.md` still contains the retired “Session Control” term; updating
+  that glossary is a separate Ideator/Init follow-up, not part of this Plan.
+- **Slice handoff:** this Plan supersedes overlapping draft language in sibling slices: slice 5 consumes an Ideator-only
+  API, slice 6 adds watching and generalized incremental idle synchronization around this completed projector, and slice
+  7 converts the fail-closed mutator matrix to fenced support rather than reimplementing create/load/prompt activation.
+  Slices 8–9 add Durable Workflow Checkpoints and Plan Workflow Leases. The Slicer/Planner should align those draft Plan
+  files separately; this feature must not modify sibling Plans during execution.
