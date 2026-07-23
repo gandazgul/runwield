@@ -852,6 +852,60 @@ Deno.test("Work Record search rejects duplicate indexed locator candidates", asy
     }
 });
 
+Deno.test("Work Record search hydrates indexed candidates from a single canonical scan", async () => {
+    const cwd = await Deno.makeTempDir();
+    const originalReadTextFile = Deno.readTextFile;
+    let workRecordFileReads = 0;
+    Deno.readTextFile = (path) => {
+        if (typeof path === "string" && path.includes("docs/work-records")) workRecordFileReads += 1;
+        return originalReadTextFile(path);
+    };
+    try {
+        const first = await writeWorkRecord(cwd, INTERNAL_ATTRS, BODY, { fileName: "2026-07-14-example.md" });
+        const second = await writeWorkRecord(
+            cwd,
+            {
+                ...INTERNAL_ATTRS,
+                recordId: "33333333-3333-4333-8333-333333333333",
+                createdAt: "2026-07-15T08:32:00-04:00",
+            },
+            BODY.replace("Example", "Second"),
+            { fileName: "2026-07-15-second.md" },
+        );
+        const third = await writeWorkRecord(
+            cwd,
+            {
+                ...INTERNAL_ATTRS,
+                recordId: "44444444-4444-4444-8444-444444444444",
+                createdAt: "2026-07-16T08:32:00-04:00",
+            },
+            BODY.replace("Example", "Third"),
+            { fileName: "2026-07-16-third.md" },
+        );
+        workRecordFileReads = 0;
+
+        await searchWorkRecords(cwd, "durable", {
+            commandOutput: (/** @type {string} */ _command, /** @type {string[]} */ args) => {
+                if (args[0] === "list") return Promise.resolve(ok("[1] indexed"));
+                if (args[0] === "search") {
+                    return Promise.resolve(ok(JSON.stringify({
+                        results: [first, second, third].map((record, index) => ({
+                            document_id: index + 1,
+                            metadata: { tags: [`work-record:${record.attrs.recordId}`] },
+                        })),
+                    })));
+                }
+                return Promise.resolve(ok(""));
+            },
+        });
+
+        assertEquals(workRecordFileReads, 3);
+    } finally {
+        Deno.readTextFile = originalReadTextFile;
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
 Deno.test("Work Record search bootstraps empty index, filters current records, and omits body from results", async () => {
     const cwd = await Deno.makeTempDir();
     try {
