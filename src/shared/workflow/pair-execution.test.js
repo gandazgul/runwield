@@ -56,6 +56,24 @@ Deno.test("Pair capability requires explicit pair checkpoint support", () => {
             requestInteraction: () => ({ outcome: "selected", value: "pair" }),
         },
     });
+    const genericOnly = new HostedSession({
+        id: "pair-generic-only",
+        cwd: Deno.cwd(),
+        interactionAdapter: {
+            supportsInteraction: (type) => type === "select" || type === "text",
+            requestInteraction: () => ({ outcome: "selected", value: "pair" }),
+        },
+    });
+    const throwing = new HostedSession({
+        id: "pair-throwing",
+        cwd: Deno.cwd(),
+        interactionAdapter: {
+            supportsInteraction: () => {
+                throw new Error("capability probe failed");
+            },
+            requestInteraction: () => ({ outcome: "selected", value: "pair" }),
+        },
+    });
     const supported = new HostedSession({
         id: "pair-supported",
         cwd: Deno.cwd(),
@@ -65,7 +83,10 @@ Deno.test("Pair capability requires explicit pair checkpoint support", () => {
         },
     });
 
+    assertEquals(supportsPairExecution(new HostedSession({ id: "pair-none", cwd: Deno.cwd() })), false);
     assertEquals(supportsPairExecution(unsupported), false);
+    assertEquals(supportsPairExecution(genericOnly), false);
+    assertEquals(supportsPairExecution(throwing), false);
     assertEquals(supportsPairExecution(supported), true);
 });
 
