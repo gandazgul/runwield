@@ -74,15 +74,17 @@ export function PlanReviewSurface({ payload, executionSelectionPrototype = false
     }, [plan]);
     const planClassification = parsed.frontmatter?.classification || initialPayload.classification || "FEATURE";
     const primaryApprovalAction = primaryPlanApprovalActionForClassification(planClassification);
+    const prototypeClassification = prototypeFrontmatterScalar(planClassification);
     const prototypeEnabled = executionSelectionPrototype === true && initialPayload.mode === "dev" &&
-        planClassification === "FEATURE";
-    const recommendedAgent = parsed.frontmatter?.executionAgent || "frontend-engineer";
-    const recommendedMode = parsed.frontmatter?.collaborationRecommendation || "autonomous";
+        prototypeClassification === "FEATURE";
+    const recommendedAgent = prototypeFrontmatterScalar(parsed.frontmatter?.executionAgent) || "frontend-engineer";
+    const recommendedMode = prototypeFrontmatterScalar(parsed.frontmatter?.collaborationRecommendation) || "autonomous";
     const [executionAgent, setExecutionAgent] = useState(recommendedAgent);
     const [collaborationMode, setCollaborationMode] = useState(recommendedMode);
     const { variant: prototypeVariant, selectVariant: selectPrototypeVariant } = useExecutionSelectionPrototypeVariant(
         prototypeEnabled,
     );
+    const balancedToolbarPrototype = prototypeEnabled && prototypeVariant === "D";
     const executionPrototypeProps = {
         variant: prototypeVariant,
         executionAgent,
@@ -218,6 +220,13 @@ export function PlanReviewSurface({ payload, executionSelectionPrototype = false
                 <div className="rw-plannotator-host rw-plan-review" data-review-mode={initialPayload.mode}>
                     <header className="rw-plannotator-toolbar">
                         <div className="rw-plan-review-heading">
+                            {balancedToolbarPrototype && (
+                                <PlanReviewOptionsMenu
+                                    iconOnly
+                                    onOpenSettings={() => setSettingsOpen(true)}
+                                    onPrint={() => globalThis.print?.()}
+                                />
+                            )}
                             <img src="/logo.svg" alt="" aria-hidden="true" />
                             <h1>Plan Review</h1>
                             {initialPayload.mode === "dev" && (
@@ -227,10 +236,18 @@ export function PlanReviewSurface({ payload, executionSelectionPrototype = false
                             )}
                         </div>
                         <div className="rw-plannotator-actions">
-                            <PlanReviewOptionsMenu
-                                onOpenSettings={() => setSettingsOpen(true)}
-                                onPrint={() => globalThis.print?.()}
-                            />
+                            {!balancedToolbarPrototype && (
+                                <PlanReviewOptionsMenu
+                                    onOpenSettings={() => setSettingsOpen(true)}
+                                    onPrint={() => globalThis.print?.()}
+                                />
+                            )}
+                            {balancedToolbarPrototype && (
+                                <ExecutionSelectionPrototype
+                                    placement="toolbar"
+                                    {...executionPrototypeProps}
+                                />
+                            )}
                             <FeedbackButton
                                 onClick={submitFeedback}
                                 disabled={(annotations.length === 0 && globalAttachments.length === 0) ||
@@ -240,7 +257,16 @@ export function PlanReviewSurface({ payload, executionSelectionPrototype = false
                                     ? "Add an annotation before sending feedback"
                                     : "Send all annotations"}
                             />
-                            {prototypeEnabled
+                            {balancedToolbarPrototype
+                                ? (
+                                    <BalancedToolbarPrototypeApprovalActions
+                                        onApprove={() => submitApprove(primaryApprovalAction)}
+                                        onApproveLater={() => submitApprove(PLAN_APPROVAL_ACTIONS.LATER)}
+                                        disabled={submitting !== null}
+                                        isLoading={submitting === "approve"}
+                                    />
+                                )
+                                : prototypeEnabled
                                 ? (
                                     <ExecutionSelectionPrototype
                                         placement="toolbar"
@@ -547,14 +573,49 @@ function PlanApprovalSplitButton({ primaryAction, onApprove, disabled, isLoading
     );
 }
 
-function PlanReviewOptionsMenu({ onOpenSettings, onPrint }) {
+function BalancedToolbarPrototypeApprovalActions({ onApprove, onApproveLater, disabled, isLoading }) {
+    return (
+        <>
+            <Button
+                variant="outline"
+                size="xs"
+                onClick={onApproveLater}
+                disabled={disabled}
+                title="Approve for Later"
+                aria-label="Approve for Later"
+                iconLeft={<ClockIcon />}
+            >
+                <span className="hidden md:inline">Approve for Later</span>
+            </Button>
+            <Button
+                variant="success"
+                size="xs"
+                className="rw-execution-prototype-primary-action"
+                onClick={onApprove}
+                disabled={disabled}
+                title="Approve & Run"
+                aria-label="Approve & Run"
+                iconLeft={<CheckIcon />}
+            >
+                <span className="hidden md:inline">{isLoading ? "Approving…" : "Approve & Run"}</span>
+            </Button>
+        </>
+    );
+}
+
+function PlanReviewOptionsMenu({ iconOnly = false, onOpenSettings, onPrint }) {
     return (
         <ActionMenu
+            panelClassName={iconOnly
+                ? "absolute top-full left-0 mt-1 w-56 rounded-lg border border-border bg-popover py-1 shadow-xl z-[70]"
+                : undefined}
             renderTrigger={({ isOpen, toggleMenu }) => (
                 <button
                     type="button"
                     onClick={toggleMenu}
-                    className={`relative flex items-center gap-1.5 p-1.5 md:px-2.5 md:py-1 rounded-md text-xs font-medium transition-colors ${
+                    className={`relative flex items-center gap-1.5 p-1.5 ${
+                        iconOnly ? "" : "md:px-2.5 md:py-1"
+                    } rounded-md text-xs font-medium transition-colors ${
                         isOpen
                             ? "bg-muted text-foreground"
                             : "text-muted-foreground hover:text-foreground hover:bg-muted"
@@ -564,7 +625,7 @@ function PlanReviewOptionsMenu({ onOpenSettings, onPrint }) {
                     aria-expanded={isOpen}
                 >
                     <MenuIcon />
-                    <span className="hidden md:inline">Options</span>
+                    {!iconOnly && <span className="hidden md:inline">Options</span>}
                 </button>
             )}
         >
@@ -663,6 +724,19 @@ function toggleMarkdownCheckbox(markdown, lineNumber, checked) {
     const next = [...lines];
     next[index] = nextLine;
     return next.join("\n");
+}
+
+// THROWAWAY PROTOTYPE: Plannotator preserves YAML quotes in display-oriented Front Matter values.
+function prototypeFrontmatterScalar(value) {
+    if (typeof value !== "string") return value;
+    const trimmed = value.trim();
+    if (
+        trimmed.length >= 2 && ((trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+            (trimmed.startsWith("'") && trimmed.endsWith("'")))
+    ) {
+        return trimmed.slice(1, -1);
+    }
+    return trimmed;
 }
 
 function readEmbeddedPayload(name) {

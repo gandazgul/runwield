@@ -1,5 +1,5 @@
 // @ts-nocheck: THROWAWAY PROTOTYPE — delete after choosing an execution-selection direction.
-// Three variants of pre-approval execution selection, switchable via ?variant=A|B|C on /dev/plan-review.
+// Four variants of pre-approval execution selection, switchable via ?variant=A|B|C|D on /dev/plan-review.
 
 import { useEffect, useState } from "react";
 import "./execution-selection-prototype.css";
@@ -8,6 +8,7 @@ const PROTOTYPE_VARIANTS = [
     { id: "A", label: "Command bar" },
     { id: "B", label: "Launch dock" },
     { id: "C", label: "Execution card" },
+    { id: "D", label: "Balanced toolbar" },
 ];
 
 const AGENT_LABELS = {
@@ -71,6 +72,43 @@ export function ExecutionSelectionPrototype({
     disabled,
     isLoading,
 }) {
+    if (placement === "toolbar" && variant === "D") {
+        return (
+            <section
+                className="rw-execution-prototype-balanced"
+                aria-label="Execution configuration"
+                title={recommendationSentence(recommendedAgent, recommendedMode)}
+            >
+                <SegmentedChoice
+                    label="Agent"
+                    visuallyHiddenLabel
+                    tooltip="Choose which execution Agent will implement this Plan."
+                    value={executionAgent}
+                    onChange={onAgentChange}
+                    options={[
+                        { value: "frontend-engineer", label: "Frontend Engineer" },
+                        { value: "engineer", label: "Engineer" },
+                    ]}
+                />
+                <SegmentedChoice
+                    label="Style"
+                    visuallyHiddenLabel
+                    tooltip="Choose Pair Execution for feedback checkpoints or Autonomous for a complete handoff."
+                    value={collaborationMode}
+                    onChange={onModeChange}
+                    options={[
+                        {
+                            value: "pair",
+                            label: "Pair Execution",
+                            disabled: executionAgent === "engineer",
+                        },
+                        { value: "autonomous", label: "Autonomous" },
+                    ]}
+                />
+            </section>
+        );
+    }
+
     if (placement === "toolbar" && variant === "A") {
         return (
             <section className="rw-execution-prototype-command" aria-label="Execution configuration">
@@ -98,13 +136,14 @@ export function ExecutionSelectionPrototype({
                 />
                 <span
                     className="rw-execution-prototype-recommendation"
-                    title={executionAgent === "engineer"
-                        ? "Pair Execution is available only with Frontend Engineer"
-                        : recommendationSentence(recommendedAgent, recommendedMode)}
+                    title={`${recommendationSentence(recommendedAgent, recommendedMode)}${
+                        executionAgent === "engineer"
+                            ? " Pair Execution is frontend-only, so Autonomous was applied."
+                            : ""
+                    }`}
                 >
-                    {executionAgent === "engineer"
-                        ? "Pair is frontend-only · set to Autonomous"
-                        : `Recommended: ${compactSummary(recommendedAgent, recommendedMode)}`}
+                    Recommended: {compactSummary(recommendedAgent, recommendedMode)}
+                    {executionAgent === "engineer" && " · Pair frontend-only; Autonomous applied"}
                 </span>
                 <PrototypeApprovalActions
                     compact
@@ -128,9 +167,9 @@ export function ExecutionSelectionPrototype({
                         Launch with {agentLabel(executionAgent)} in {modeLabel(collaborationMode).toLowerCase()} mode.
                     </strong>
                     <span>
-                        {executionAgent === "engineer"
-                            ? "Pair Execution is frontend-only, so Engineer runs autonomously."
-                            : recommendationSentence(recommendedAgent, recommendedMode)}
+                        {recommendationSentence(recommendedAgent, recommendedMode)}
+                        {executionAgent === "engineer" &&
+                            " Pair Execution is frontend-only, so Engineer runs autonomously."}
                     </span>
                 </div>
                 <div className="rw-execution-prototype-dock-controls">
@@ -280,10 +319,10 @@ function CompactSelect({ label, value, onChange, options }) {
     );
 }
 
-function SegmentedChoice({ label, value, onChange, options }) {
+function SegmentedChoice({ label, visuallyHiddenLabel = false, tooltip, value, onChange, options }) {
     return (
-        <fieldset className="rw-execution-prototype-segmented">
-            <legend>{label}</legend>
+        <fieldset className="rw-execution-prototype-segmented" title={tooltip}>
+            <legend className={visuallyHiddenLabel ? "rw-execution-prototype-visually-hidden" : ""}>{label}</legend>
             <div>
                 {options.map((option) => (
                     <button
