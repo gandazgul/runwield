@@ -24,7 +24,6 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-22T09:47:20-04:00"
-updatedAt: "2026-07-22T17:32:24.082Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-07-22T14:00:47.862Z"
@@ -38,6 +37,10 @@ workRecord:
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
 routingIntent: "FEATURE"
+updatedAt: "2026-07-23T17:37:43.634Z"
+archivedAt: "2026-07-23T17:37:43.634Z"
+archivedFromStatus: "verified"
+archivedFromPath: "plans/guide-markdown-document-tools.md"
 ---
 
 # Guide Markdown Document Tools
