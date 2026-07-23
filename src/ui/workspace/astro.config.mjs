@@ -16,25 +16,6 @@ const ROOT_DIR = resolve(WORKSPACE_DIR, "../../..");
 const PLANNOTATOR_DIR = resolve(ROOT_DIR, "third_party/plannotator");
 const STD_EXTERNALS = ["@std/assert", "@std/cli", "@std/front-matter", "@std/jsonc", "@std/path"];
 
-function denoAdapter(options) {
-    const integration = deno(options);
-    const configDone = integration.hooks?.["astro:config:done"];
-    if (!configDone) return integration;
-    return {
-        ...integration,
-        hooks: {
-            ...integration.hooks,
-            "astro:config:done": (params) =>
-                configDone({
-                    ...params,
-                    setAdapter(adapter) {
-                        params.setAdapter({ ...adapter, entrypointResolution: "auto" });
-                    },
-                }),
-        },
-    };
-}
-
 export default defineConfig({
     root: WORKSPACE_DIR,
     srcDir: WORKSPACE_DIR,
@@ -45,8 +26,10 @@ export default defineConfig({
         host: "127.0.0.1",
         port: 5173,
     },
-    adapter: denoAdapter({
+    adapter: deno({
         start: false,
+        port: 8085,
+        hostname: "0.0.0.0",
     }),
     integrations: [react()],
     image: {
