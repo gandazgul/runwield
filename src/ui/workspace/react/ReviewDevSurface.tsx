@@ -554,7 +554,11 @@ export function ReviewDevSurface({ surface }) {
                 ? React.createElement(ArtifactReadSurface, { key: planVariant, payload: readPlanPayload })
                 : planVariant === "read-work-record"
                 ? React.createElement(ArtifactReadSurface, { key: planVariant, payload: readWorkRecordPayload })
-                : React.createElement(PlanReviewSurface, { key: planVariant, payload }),
+                : React.createElement(PlanReviewSurface, {
+                    key: planVariant,
+                    payload,
+                    executionSelectionPrototype: planVariant === "feature",
+                }),
         );
     }
 
