@@ -421,10 +421,22 @@ Agent roundtrips while leaving Cymbal CLI commands as raw primitives. _Avoid_: M
 **Memory**: A concise fact, decision, or preference stored in Mnemosyne for future retrieval. _Avoid_: Note, record,
 entry
 
-**Core Memory**: A Memory tagged `core` that is injected into every Agent Session. _Avoid_: Critical memory, pinned
-memory
+**Local Memory**: A project Memory retained only in its owner's local Mnemosyne collection. _Avoid_: Private memory,
+personal memory
+
+**Team Memory Candidate**: A Local Memory classified as stable, repository-safe, and useful to teammates but not yet
+trusted as shared project context. _Avoid_: Shareable memory, pending memory
+
+**Team Memory**: A project Memory whose canonical human-readable form is versioned in the repository and whose local
+Mnemosyne copies are derived from trusted text. _Avoid_: Shared memory, synchronized memory
+
+**Core Memory**: A Memory tagged `core` that is injected into every Agent Session independently of whether it is Local
+or Team. _Avoid_: Critical memory, pinned memory, shared memory
 
 **Global Memory**: A Memory stored in the cross-project collection. _Avoid_: Shared memory, universal memory
+
+**Trusted Branch**: A configured repository branch whose reviewed Team Memories may become active local Mnemosyne
+context. _Avoid_: Main branch, safe branch
 
 **Sleep**: A maintenance workflow that exports, analyzes, and improves the Mnemosyne collection. _Avoid_: Memory
 cleanup, memory maintenance
@@ -604,6 +616,13 @@ command definition, prompt command
   whether it fixes now or reports only may be governed by project or user preference.
 - Every active Agent turn uses the same **Agent Handler**; boot, `/agent`, `return_to_router`, and workflow restores
   must not install Agent-specific handlers.
+- Every project **Memory** is either a **Local Memory** or a **Team Memory**, while `core` independently controls
+  whether it is injected into every **Agent Session**.
+- A **Team Memory Candidate** begins as a **Local Memory** and becomes a **Team Memory** only after its canonical text
+  is trusted through the repository workflow.
+- A **Team Memory** has one canonical repository representation and zero or more derived local **Mnemosyne** copies.
+- Only **Team Memories** accepted through a **Trusted Branch** may become active shared context in local **Mnemosyne**
+  collections.
 - **Core Memories** are injected into every **Agent Session** by the **Mnemosyne** extension.
 - **Prompt Templates** become slash commands in the **TUI**.
 - A **Workflow Decision** may cause workflow code to record a **Plan Event**, but it is not itself durable state.
@@ -637,6 +656,8 @@ command definition, prompt command
 
 ## Flagged ambiguities
 
+- "core" was used to imply that a Memory is shared; resolved: **Core Memory** controls always-on injection, while
+  **Local Memory** and **Team Memory** define audience independently.
 - "ticket" and "Plan" can both describe units of work; resolved: a **Ticket** belongs to an **External Work Source** and
   captures demand, while a **Plan** belongs to RunWield and governs software delivery.
 - "router", "dispatcher", and "orchestrator" were used interchangeably; resolved: **Router** is an Agent, while the
