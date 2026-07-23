@@ -23,6 +23,11 @@ import { exportAnnotations, extractFrontmatter, parseMarkdownToBlocks } from "@p
 import { getUIPreferences, PLAN_WIDTH_OPTIONS } from "@plannotator/ui/utils/uiPreferences.ts";
 import { PlanReviewSettings } from "./PlanReviewSettings.tsx";
 import {
+    ExecutionSelectionPrototype,
+    ExecutionSelectionPrototypeSwitcher,
+    useExecutionSelectionPrototypeVariant,
+} from "./ExecutionSelectionPrototype.tsx";
+import {
     PLAN_APPROVAL_ACTIONS,
     primaryPlanApprovalActionForClassification,
 } from "../../../shared/workflow/plan-approval.js";
@@ -30,7 +35,7 @@ import "./plannotator.css";
 
 const DEFAULT_PLAN_PAYLOAD = { plan: "", token: "", mode: "dev" };
 
-export function PlanReviewSurface({ payload }) {
+export function PlanReviewSurface({ payload, executionSelectionPrototype = false }) {
     usePrintMode();
     const initialPayload = useMemo(() => payload || readEmbeddedPayload("review-payload") || DEFAULT_PLAN_PAYLOAD, [
         payload,
@@ -69,6 +74,28 @@ export function PlanReviewSurface({ payload }) {
     }, [plan]);
     const planClassification = parsed.frontmatter?.classification || initialPayload.classification || "FEATURE";
     const primaryApprovalAction = primaryPlanApprovalActionForClassification(planClassification);
+    const prototypeEnabled = executionSelectionPrototype === true && initialPayload.mode === "dev" &&
+        planClassification === "FEATURE";
+    const recommendedAgent = parsed.frontmatter?.executionAgent || "frontend-engineer";
+    const recommendedMode = parsed.frontmatter?.collaborationRecommendation || "autonomous";
+    const [executionAgent, setExecutionAgent] = useState(recommendedAgent);
+    const [collaborationMode, setCollaborationMode] = useState(recommendedMode);
+    const { variant: prototypeVariant, selectVariant: selectPrototypeVariant } = useExecutionSelectionPrototypeVariant(
+        prototypeEnabled,
+    );
+    const executionPrototypeProps = {
+        variant: prototypeVariant,
+        executionAgent,
+        collaborationMode,
+        recommendedAgent,
+        recommendedMode,
+        onAgentChange: selectExecutionAgent,
+        onModeChange: selectCollaborationMode,
+        onApprove: () => submitApprove(primaryApprovalAction),
+        onApproveLater: () => submitApprove(PLAN_APPROVAL_ACTIONS.LATER),
+        disabled: submitting !== null,
+        isLoading: submitting === "approve",
+    };
 
     async function submitApprove(approvalAction) {
         setSubmitting("approve");
@@ -100,6 +127,16 @@ export function PlanReviewSurface({ payload }) {
         } finally {
             setSubmitting(null);
         }
+    }
+
+    function selectExecutionAgent(nextAgent) {
+        setExecutionAgent(nextAgent);
+        if (nextAgent === "engineer") setCollaborationMode("autonomous");
+    }
+
+    function selectCollaborationMode(nextMode) {
+        if (nextMode === "pair" && executionAgent !== "frontend-engineer") return;
+        setCollaborationMode(nextMode);
     }
 
     function addAnnotation(annotation) {
@@ -151,6 +188,7 @@ export function PlanReviewSurface({ payload }) {
             ...(hasAnnotations && {
                 feedback: exportAnnotations(parsed.blocks, annotations, globalAttachments),
             }),
+            ...(prototypeEnabled && { executionAgent, collaborationMode }),
             annotations,
             globalAttachments,
         };
@@ -202,12 +240,21 @@ export function PlanReviewSurface({ payload }) {
                                     ? "Add an annotation before sending feedback"
                                     : "Send all annotations"}
                             />
-                            <PlanApprovalSplitButton
-                                primaryAction={primaryApprovalAction}
-                                onApprove={submitApprove}
-                                disabled={submitting !== null}
-                                isLoading={submitting === "approve"}
-                            />
+                            {prototypeEnabled
+                                ? (
+                                    <ExecutionSelectionPrototype
+                                        placement="toolbar"
+                                        {...executionPrototypeProps}
+                                    />
+                                )
+                                : (
+                                    <PlanApprovalSplitButton
+                                        primaryAction={primaryApprovalAction}
+                                        onApprove={submitApprove}
+                                        disabled={submitting !== null}
+                                        isLoading={submitting === "approve"}
+                                    />
+                                )}
                         </div>
                     </header>
                     {error && <p className="rw-review-error" role="alert">{error}</p>}
@@ -262,14 +309,14 @@ export function PlanReviewSurface({ payload }) {
                                             type="button"
                                             onClick={() => setEditorMode("view")}
                                         >
-                                            Viewer
+                                            View
                                         </button>
                                         <button
                                             className={editorMode === "edit" ? "active" : ""}
                                             type="button"
                                             onClick={() => setEditorMode("edit")}
                                         >
-                                            MarkdownEditor
+                                            Edit
                                         </button>
                                     </div>
                                     {editorMode === "view"
@@ -292,6 +339,12 @@ export function PlanReviewSurface({ payload }) {
                                             </div>
                                         )}
                                 </div>
+                                {prototypeEnabled && (
+                                    <ExecutionSelectionPrototype
+                                        placement="content"
+                                        {...executionPrototypeProps}
+                                    />
+                                )}
                                 <div className="rw-plan-content-area">
                                     {!sidebarOpen && (
                                         <SidebarTabs
@@ -381,6 +434,18 @@ export function PlanReviewSurface({ payload }) {
                             )}
                         </div>
                     </ScrollViewportContext.Provider>
+                    {prototypeEnabled && (
+                        <>
+                            <ExecutionSelectionPrototype
+                                placement="dock"
+                                {...executionPrototypeProps}
+                            />
+                            <ExecutionSelectionPrototypeSwitcher
+                                variant={prototypeVariant}
+                                onChange={selectPrototypeVariant}
+                            />
+                        </>
+                    )}
                     <PlanReviewSettings
                         open={settingsOpen}
                         onClose={() => setSettingsOpen(false)}
