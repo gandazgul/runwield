@@ -26,18 +26,21 @@ import { startArtifactReadSurface } from "../../ui/review/review-launcher.js";
 /**
  * @param {ResolvedPlanReadArtifact} artifact
  * @param {ReadCommandDependencies} deps
+ * @param {{ noOpen?: boolean }} [options]
  */
-async function openPlanReadSurface(artifact, deps) {
+async function openPlanReadSurface(artifact, deps, options = {}) {
     const startReadSurface = deps.startArtifactReadSurface || startArtifactReadSurface;
+    const noOpen = options.noOpen === true;
     const server = await startReadSurface({
         cwd: CWD,
         markdown: artifact.markdown,
         artifactKind: "plan",
         title: artifact.title,
         path: artifact.path,
+        openInDefaultBrowser: noOpen ? () => Promise.resolve(false) : undefined,
     });
     console.log(`[RunWield] Plan read-only view: ${server.url}`);
-    if (!server.opened) {
+    if (!server.opened && !noOpen) {
         console.log(
             "[RunWield] Could not open your browser automatically. Open the URL above, then choose Close when finished.",
         );
@@ -66,12 +69,22 @@ async function stopReadSurface(server) {
  */
 export async function runPlansReadCommand(argv, options = {}) {
     if (argv[0] === "--help" || argv[0] === "-h") {
-        console.log(`Usage: ${CLI_BIN} plans read <plan-name-or-id>`);
+        console.log(`Usage: ${CLI_BIN} plans read [--no-open] <plan-name-or-id>`);
         return;
     }
-    const target = argv[0];
+    let noOpen = false;
+    const targets = [];
+    for (const arg of argv) {
+        if (arg === "--no-open") {
+            noOpen = true;
+            continue;
+        }
+        if (arg.startsWith("-")) throw new Error(`Unexpected read argument: ${arg}`);
+        targets.push(arg);
+    }
+    const target = targets[0];
     if (!target) throw new Error("Missing Plan name or id.");
-    if (argv.length > 1) throw new Error(`Unexpected read argument: ${argv[1]}`);
+    if (targets.length > 1) throw new Error(`Unexpected read argument: ${targets[1]}`);
 
     const deps = /** @type {ReadCommandDependencies} */ (options.__testDeps || {});
     const loadPlanDep = deps.loadPlan || loadPlan;
@@ -81,21 +94,29 @@ export async function runPlansReadCommand(argv, options = {}) {
 
     const active = await loadPlanDep(CWD, target).catch(() => null);
     if (active && !target.replaceAll("\\", "/").startsWith("archived/")) {
-        await openPlanReadSurface({
-            title: target.replace(/\.md$/, ""),
-            path: active.path,
-            markdown: active.markdown,
-        }, deps);
+        await openPlanReadSurface(
+            {
+                title: target.replace(/\.md$/, ""),
+                path: active.path,
+                markdown: active.markdown,
+            },
+            deps,
+            { noOpen },
+        );
         return;
     }
 
     const archived = await loadArchivedPlanDep(CWD, target).catch(() => null);
     if (archived) {
-        await openPlanReadSurface({
-            title: `${PLANS_DIR_NAME}/archived/${archived.name}.md`,
-            path: archived.path,
-            markdown: archived.markdown,
-        }, deps);
+        await openPlanReadSurface(
+            {
+                title: `${PLANS_DIR_NAME}/archived/${archived.name}.md`,
+                path: archived.path,
+                markdown: archived.markdown,
+            },
+            deps,
+            { noOpen },
+        );
         return;
     }
 
@@ -106,22 +127,30 @@ export async function runPlansReadCommand(argv, options = {}) {
     if (archivedMatches.length === 1) {
         const loaded = await loadArchivedPlanDep(CWD, archivedMatches[0].name);
         if (loaded) {
-            await openPlanReadSurface({
-                title: `${PLANS_DIR_NAME}/archived/${loaded.name}.md`,
-                path: loaded.path,
-                markdown: loaded.markdown,
-            }, deps);
+            await openPlanReadSurface(
+                {
+                    title: `${PLANS_DIR_NAME}/archived/${loaded.name}.md`,
+                    path: loaded.path,
+                    markdown: loaded.markdown,
+                },
+                deps,
+                { noOpen },
+            );
             return;
         }
     }
 
     try {
         const activeById = await findPlanByIdDep(CWD, target);
-        await openPlanReadSurface({
-            title: activeById.planName,
-            path: activeById.path,
-            markdown: activeById.markdown,
-        }, deps);
+        await openPlanReadSurface(
+            {
+                title: activeById.planName,
+                path: activeById.path,
+                markdown: activeById.markdown,
+            },
+            deps,
+            { noOpen },
+        );
         return;
     } catch {
         // Continue to user-facing not found error.
