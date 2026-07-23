@@ -315,6 +315,11 @@ Rules:
 - hide implementation-only values unless they help the user make a workflow decision;
 - show unknown or missing metadata only when that absence matters.
 
+Use `.metadata-reference-list` for metadata whose value is an external reference, such as Plan Ticket References. Render
+one semantic link per safe `http`/`https` URL, use `target="_blank"` with `rel="noreferrer noopener"`, preserve visible
+focus with `--rw-accent`, and allow long unbroken URLs to wrap inside the sidebar. Unsafe or non-HTTP values may be
+shown as muted text but must not become clickable.
+
 ## Plannotator port guidance
 
 The future RunWield-owned Plannotator should conform to this design system rather than preserving the external

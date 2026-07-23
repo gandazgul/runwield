@@ -35,6 +35,7 @@ export const WORK_RECORD_FRONT_MATTER_KEYS = Object.freeze({
     origin: "origin",
     completionMode: "completionMode",
     createdAt: "createdAt",
+    tickets: "tickets",
     archivedAt: "archivedAt",
     supersedes: "supersedes",
     supersededBy: "supersededBy",
@@ -64,6 +65,7 @@ export const WORK_RECORD_FRONT_MATTER_KEY_ORDER = Object.freeze(Object.values(WO
  * @property {"internal"|"external"} origin
  * @property {"verified"|"closed_without_verification"|"done_enough"} completionMode
  * @property {string} createdAt
+ * @property {import('../ticket-references.js').TicketReference[]} [tickets]
  * @property {string} [archivedAt]
  * @property {string|string[]} [supersedes]
  * @property {string} [supersededBy]

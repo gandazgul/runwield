@@ -25,6 +25,7 @@ import {
  * @property {string} origin
  * @property {string} completionMode
  * @property {string[]} sourcePlans
+ * @property {import('../ticket-references.js').TicketReference[]} tickets
  * @property {string} path
  * @property {string[]} notices
  */
@@ -40,6 +41,7 @@ export function formatHydratedWorkRecord(record) {
         origin: record.attrs.origin,
         completionMode: record.attrs.completionMode,
         sourcePlans: record.attrs.provenance?.sourcePlans || [],
+        tickets: record.attrs.tickets || [],
         path: record.relativePath,
         notices: workRecordNotices(record),
     };
@@ -186,6 +188,8 @@ export function formatWorkRecordSearchResult(result) {
         `  completionMode: ${result.completionMode}`,
     ];
     if (result.sourcePlans.length) lines.push(`  sourcePlans: ${result.sourcePlans.join(", ")}`);
+    const tickets = result.tickets || [];
+    if (tickets.length) lines.push(`  tickets: ${tickets.map((ticket) => ticket.url).join(", ")}`);
     lines.push(`  path: ${result.path}`, "  Summary:", ...result.summary.split("\n").map((line) => `    ${line}`));
     for (const notice of result.notices) lines.push(`  ${notice}`);
     return lines.join("\n");
@@ -228,6 +232,8 @@ export function formatWorkRecordReadResult(result) {
         `completionMode: ${result.completionMode}`,
     ];
     if (result.sourcePlans.length) lines.push(`sourcePlans: ${result.sourcePlans.join(", ")}`);
+    const tickets = result.tickets || [];
+    if (tickets.length) lines.push(`tickets: ${tickets.map((ticket) => ticket.url).join(", ")}`);
     lines.push(`path: ${result.path}`);
     for (const notice of result.notices) lines.push(notice);
     lines.push("", result.body.trim());
