@@ -3,7 +3,7 @@
  * Root interactive session lifecycle helpers (persisted in ~/.wld/sessions).
  */
 
-import { dirname, isAbsolute, join, resolve } from "@std/path";
+import { basename, dirname, isAbsolute, join, resolve } from "@std/path";
 
 /**
  * Encode cwd into a filesystem-safe directory segment (Pi-style).
@@ -116,10 +116,19 @@ export async function createRootSessionManager(mode, cwd) {
  */
 
 /** @param {string} path @param {string} baseDir */
-function isPathInside(path, baseDir) {
+export function isPathInside(path, baseDir) {
     const resolvedPath = resolve(path);
     const resolvedBase = resolve(baseDir);
     return resolvedPath === resolvedBase || resolvedPath.startsWith(`${resolvedBase}/`);
+}
+
+/** @param {string} path @param {string} baseDir */
+async function assertRealPathInside(path, baseDir) {
+    const realPath = await Deno.realPath(path);
+    const realBase = await Deno.realPath(baseDir);
+    if (!isPathInside(realPath, realBase)) {
+        throw new Error("Persisted session path resolves outside the RunWield session directory for cwd");
+    }
 }
 
 /** @param {unknown} value */
@@ -206,6 +215,128 @@ export async function openPersistedRootSession(options) {
 export function getRootSessionBranchEntries(sessionManager) {
     const entries = sessionManager?.getBranch?.() || sessionManager?.getEntries?.() || [];
     return Array.isArray(entries) ? entries : [];
+}
+
+/**
+ * @typedef {Object} CatalogSafeRootSessionLocator
+ * @property {string} cwd
+ * @property {string} sessionDir
+ * @property {string} sessionPath
+ * @property {string} piSessionId
+ * @property {string} headerCwd
+ * @property {number | null} headerVersion
+ * @property {string | null} headerTimestamp
+ */
+
+/**
+ * @typedef {Object} CatalogSafeLocatorDiagnostic
+ * @property {string} sessionPath
+ * @property {string} code
+ * @property {string} message
+ */
+
+/**
+ * Read only the first JSONL record from a persisted root Session file.
+ * This helper intentionally avoids Pi SessionManager.open() so cataloging does
+ * not migrate, rewrite, or otherwise mutate legacy transcripts.
+ *
+ * @param {{ cwd: string, sessionPath: string, sessionDir?: string, maxHeaderBytes?: number }} options
+ * @returns {Promise<CatalogSafeRootSessionLocator>}
+ */
+export async function readCatalogSafeRootSessionLocator(options) {
+    if (!options?.cwd || !isAbsolute(options.cwd)) {
+        throw new Error("readCatalogSafeRootSessionLocator requires an absolute cwd");
+    }
+    const sessionDir = options.sessionDir || getRunWieldSessionDir(options.cwd);
+    const sessionPath = resolve(options.sessionPath || "");
+    if (!isPathInside(sessionPath, sessionDir)) {
+        throw new Error("Persisted session path is outside the RunWield session directory for cwd");
+    }
+    if (!sessionPath.endsWith(".jsonl")) throw new Error("Persisted session path must be a JSONL file");
+    await assertRealPathInside(sessionPath, sessionDir);
+    const file = await Deno.open(sessionPath, { read: true });
+    try {
+        const maxHeaderBytes = Math.max(128, options.maxHeaderBytes || 65536);
+        const buffer = new Uint8Array(maxHeaderBytes);
+        const bytesRead = await file.read(buffer);
+        if (!bytesRead) throw new Error("Persisted session file is empty");
+        const chunk = new TextDecoder().decode(buffer.subarray(0, bytesRead));
+        const newlineIndex = chunk.indexOf("\n");
+        if (newlineIndex === -1 && bytesRead >= maxHeaderBytes) {
+            throw new Error("Persisted session header exceeds catalog limit");
+        }
+        const firstLine = (newlineIndex === -1 ? chunk : chunk.slice(0, newlineIndex)).trim();
+        if (!firstLine) throw new Error("Persisted session header is empty");
+        const header = JSON.parse(firstLine);
+        if (!header || typeof header !== "object" || header.type !== "session") {
+            throw new Error("Persisted session header is not a session record");
+        }
+        const piSessionId = typeof header.id === "string" ? header.id : "";
+        const headerCwd = typeof header.cwd === "string" ? header.cwd : "";
+        if (!piSessionId) throw new Error("Persisted session header is missing an id");
+        if (!headerCwd || !isAbsolute(headerCwd)) {
+            throw new Error("Persisted session header is missing an absolute cwd");
+        }
+        if (!basename(sessionPath).includes(piSessionId)) {
+            throw new Error("Persisted session filename does not contain the Pi session id");
+        }
+        return {
+            cwd: options.cwd,
+            sessionDir: resolve(sessionDir),
+            sessionPath,
+            piSessionId,
+            headerCwd,
+            headerVersion: typeof header.version === "number" ? header.version : null,
+            headerTimestamp: typeof header.timestamp === "string" ? header.timestamp : null,
+        };
+    } finally {
+        file.close();
+    }
+}
+
+/**
+ * Enumerate catalog-safe metadata for persisted root Session JSONL files.
+ * Invalid candidates are returned as diagnostics so callers can continue
+ * cataloging valid transcripts.
+ *
+ * @param {string} cwd
+ * @param {{ sessionDir?: string, maxHeaderBytes?: number }} [options]
+ * @returns {Promise<{ locators: CatalogSafeRootSessionLocator[], diagnostics: CatalogSafeLocatorDiagnostic[] }>}
+ */
+export async function listCatalogSafeRootSessionLocators(cwd, options = {}) {
+    if (!cwd || !isAbsolute(cwd)) throw new Error("listCatalogSafeRootSessionLocators requires an absolute cwd");
+    const sessionDir = options.sessionDir || getRunWieldSessionDir(cwd);
+    /** @type {CatalogSafeRootSessionLocator[]} */
+    const locators = [];
+    /** @type {CatalogSafeLocatorDiagnostic[]} */
+    const diagnostics = [];
+    try {
+        for await (const entry of Deno.readDir(sessionDir)) {
+            if (!entry.isFile || !entry.name.endsWith(".jsonl")) continue;
+            const sessionPath = join(sessionDir, entry.name);
+            try {
+                locators.push(
+                    await readCatalogSafeRootSessionLocator({
+                        cwd,
+                        sessionDir,
+                        sessionPath,
+                        maxHeaderBytes: options.maxHeaderBytes,
+                    }),
+                );
+            } catch (error) {
+                diagnostics.push({
+                    sessionPath,
+                    code: "invalid_locator",
+                    message: error instanceof Error ? error.message : String(error),
+                });
+            }
+        }
+    } catch (error) {
+        if (error instanceof Deno.errors.NotFound) return { locators, diagnostics };
+        throw error;
+    }
+    locators.sort((a, b) => a.sessionPath.localeCompare(b.sessionPath));
+    return { locators, diagnostics };
 }
 
 /**
