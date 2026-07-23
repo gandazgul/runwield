@@ -60,7 +60,7 @@ sha_verify() {
   check_line="$(awk -v asset="$asset_name" '$2 == asset { print; exit }' "$checksums_file")"
   if [[ -z "$check_line" ]]; then
     echo "[wld installer] Checksum manifest lacks an entry for ${asset_name}." >&2
-    return 1
+    return 2
   fi
 
   if command -v sha256sum >/dev/null 2>&1; then
@@ -89,6 +89,49 @@ latest_tag_for_repo() {
   fi
 
   echo "$tag"
+}
+
+release_asset_sha256() {
+  local repo="$1"
+  local version="$2"
+  local asset_name="$3"
+  local api_url="https://api.github.com/repos/${repo}/releases/tags/${version}"
+  local digest
+
+  digest="$(curl -fsSL "$api_url" | awk -v asset="$asset_name" '
+    index($0, "\"name\": \"" asset "\"") { found = 1 }
+    found && /\"digest\"[[:space:]]*:/ {
+      line = $0
+      sub(/^.*\"digest\"[[:space:]]*:[[:space:]]*\"/, "", line)
+      sub(/\".*$/, "", line)
+      if (line ~ /^sha256:[0-9a-fA-F]{64}$/) {
+        sub(/^sha256:/, "", line)
+        print line
+        exit
+      }
+    }
+  ')"
+
+  if [[ -z "$digest" ]]; then
+    echo "[wld installer] Could not find a SHA-256 release asset digest for ${asset_name} in ${repo} ${version}." >&2
+    return 1
+  fi
+
+  echo "$digest"
+}
+
+sha_verify_asset_digest() {
+  local repo="$1"
+  local version="$2"
+  local asset_name="$3"
+  local archive_path="$4"
+  local digest digest_file
+
+  digest="$(release_asset_sha256 "$repo" "$version" "$asset_name")" || return 1
+  digest_file="${archive_path}.sha256"
+  printf '%s  %s\n' "$digest" "$asset_name" >"$digest_file"
+  echo "[wld installer] Using GitHub release asset digest for ${asset_name}."
+  sha_verify "$digest_file" "$asset_name"
 }
 
 resolve_version() {
@@ -298,7 +341,7 @@ install_helper() {
   local name="$1"
   local repo="$2"
   local required="$3"
-  local existing version asset base_url work_dir checksums source_path
+  local existing version asset base_url work_dir checksums source_path verify_status
 
   if existing="$(helper_existing_path "$name")"; then
     PRESERVED_HELPERS+=("${name}:${existing}")
@@ -321,9 +364,19 @@ install_helper() {
     echo "[wld installer] Failed to download ${name} archive ${asset}." >&2
     [[ "$required" == "required" ]] && return 1 || return 2
   fi
-  if ! sha_verify "${work_dir}/checksums.txt" "$asset"; then
-    echo "[wld installer] Checksum verification failed for ${name} asset ${asset}." >&2
-    [[ "$required" == "required" ]] && return 1 || return 2
+  if sha_verify "${work_dir}/checksums.txt" "$asset"; then
+    :
+  else
+    verify_status=$?
+    if [[ "$verify_status" == "2" ]]; then
+      if ! sha_verify_asset_digest "$repo" "$version" "$asset" "${work_dir}/${asset}"; then
+        echo "[wld installer] Checksum verification failed for ${name} asset ${asset}." >&2
+        [[ "$required" == "required" ]] && return 1 || return 2
+      fi
+    else
+      echo "[wld installer] Checksum verification failed for ${name} asset ${asset}." >&2
+      [[ "$required" == "required" ]] && return 1 || return 2
+    fi
   fi
   if ! extract_archive "${work_dir}/${asset}" "$work_dir"; then
     echo "[wld installer] Failed to extract ${name} archive ${asset}." >&2
