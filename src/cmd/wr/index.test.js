@@ -241,9 +241,11 @@ Deno.test("wld wr search --all passes broad visibility", async () => {
     assertEquals(includeAll, true);
 });
 
-Deno.test("wld wr read prints canonical body and notices", async () => {
+Deno.test("wld wr read opens canonical markdown and notices in browser read surface", async () => {
     /** @type {string[]} */
     const logs = [];
+    /** @type {any} */
+    let seen;
     const orig = console.log;
     console.log = (msg = "") => logs.push(String(msg));
     try {
@@ -266,17 +268,30 @@ Deno.test("wld wr read prints canonical body and notices", async () => {
                     path: current.relativePath,
                     notices: ["NOTICE: canonical"],
                     body: "# Current Record\n\n## Summary\n\nCurrent body",
-                    markdown: current.markdown,
+                    markdown: "---\nrecordId: test\n---\n# Current Record\n\n## Summary\n\nCurrent body",
                     record: current,
                 })),
+                startArtifactReadSurface: /** @type {any} */ ((/** @type {any} */ options) => {
+                    seen = options;
+                    return Promise.resolve({
+                        url: "http://127.0.0.1:1234/review/plan?token=test",
+                        opened: true,
+                        waitForDecision: () => Promise.resolve({ exit: true }),
+                        stop: () => Promise.resolve(),
+                    });
+                }),
             },
         });
     } finally {
         console.log = orig;
     }
     const output = logs.join("\n");
-    assertEquals(output.includes("NOTICE: canonical"), true);
-    assertEquals(output.includes("Current body"), true);
+    assertEquals(output.includes("Work Record read-only view"), true);
+    assertEquals(seen.artifactKind, "work-record");
+    assertEquals(seen.title, current.title);
+    assertEquals(seen.path, current.relativePath);
+    assertEquals(seen.notices, ["NOTICE: canonical"]);
+    assertEquals(seen.markdown.includes("Current body"), true);
 });
 
 Deno.test("wld wr index rebuild prints counts", async () => {
@@ -303,6 +318,36 @@ Deno.test("wld wr index rebuild prints counts", async () => {
     const output = logs.join("\n");
     assertEquals(output.includes("repo:work-records"), true);
     assertEquals(output.includes("indexed: 2"), true);
+});
+
+Deno.test("wld wr read prints manual URL recovery when browser opening fails", async () => {
+    /** @type {string[]} */
+    const logs = [];
+    const orig = console.log;
+    console.log = (msg = "") => logs.push(String(msg));
+    try {
+        await runWorkRecordsCommand(["read", current.attrs.recordId], {
+            __testDeps: {
+                readWorkRecordById: /** @type {any} */ (() =>
+                    Promise.resolve({
+                        title: current.title,
+                        path: current.relativePath,
+                        notices: [],
+                        markdown: "# Current Record",
+                    })),
+                startArtifactReadSurface: () =>
+                    Promise.resolve({
+                        url: "http://127.0.0.1:1234/review/plan?token=test",
+                        opened: false,
+                        waitForDecision: () => Promise.resolve({ exit: true }),
+                        stop: () => Promise.resolve(),
+                    }),
+            },
+        });
+    } finally {
+        console.log = orig;
+    }
+    assertEquals(logs.some((line) => line.includes("Could not open your browser automatically")), true);
 });
 
 Deno.test("wld wr read validates exactly one recordId", async () => {

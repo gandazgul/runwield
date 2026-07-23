@@ -16,6 +16,19 @@
  */
 
 /**
+ * @typedef {Object} ArtifactReadOptions
+ * @property {"artifact-read"} surface
+ * @property {string} markdown
+ * @property {string} token
+ * @property {"plan" | "work-record"} artifactKind
+ * @property {string} title
+ * @property {string} [artifactPath]
+ * @property {string[]} [notices]
+ * @property {"workflow" | "dev"} mode
+ * @property {string} [imageBaseDir]
+ */
+
+/**
  * @typedef {Object} CodeReviewOptions
  * @property {string} rawPatch
  * @property {string} gitRef

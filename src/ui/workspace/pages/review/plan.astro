@@ -1,5 +1,6 @@
 ---
 import ReviewLayout from "../../layouts/ReviewLayout.astro";
+import { ArtifactReadSurface } from "../../react/ArtifactReadSurface.tsx";
 import { PlanReviewSurface } from "../../react/PlanReviewSurface.tsx";
 
 const payloadHeader = Astro.request.headers.get("x-runwield-review-payload") || "";
@@ -12,8 +13,13 @@ try {
 if (!payload) {
     return new Response("Review token required.", { status: 401 });
 }
+const isArtifactRead = payload.surface === "artifact-read";
+const artifactLabel = payload.artifactKind === "work-record" ? "Work Record" : "Plan";
+const pageTitle = isArtifactRead ? `${artifactLabel} · RunWield Workspace` : "Plan Review · RunWield Workspace";
 ---
-<ReviewLayout title="Plan Review · RunWield Workspace">
+<ReviewLayout title={pageTitle}>
     <script type="application/json" data-review-payload set:html={JSON.stringify(payload)} />
-    <PlanReviewSurface payload={payload} client:only="react" />
+    {isArtifactRead
+        ? <ArtifactReadSurface payload={payload} client:only="react" />
+        : <PlanReviewSurface payload={payload} client:only="react" />}
 </ReviewLayout>

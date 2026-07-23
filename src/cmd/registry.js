@@ -384,7 +384,7 @@ export const commandRegistry = {
         ],
         notes: [
             "Default behavior lists active Plans only; plaintext archives under plans/archived/ are hidden from this list.",
-            "Use plans archive with no target to list archived Plans, and plans read to inspect active or archived markdown.",
+            "Use plans archive with no target to list archived Plans, and plans read to open active or archived markdown in a local read-only browser view.",
             "Use plans share to publish an active saved Plan to a Plan Server; --plan-server overrides planServerUrl for one invocation.",
             "Share output prints secret reviewer and maintainer URLs once; anyone with the maintainer URL can pull, push, close, or unshare.",
             "Use plans pull with a maintainer URL to import secrets and create/update a locked local Plan; --to chooses the local filename for fresh URL pulls.",
@@ -422,7 +422,7 @@ export const commandRegistry = {
         notes: [
             "Default list/search behavior includes current usable Work Records only: approved, non-archived, non-superseded records.",
             "Use wr search --all or wr list --all for maintenance inspection of draft, pending, superseded, or archived records with warnings.",
-            "Use wr read <recordId> for explicit canonical Markdown lookup by stable ID, independent of file moves.",
+            "Use wr read <recordId> to open canonical Markdown by stable ID in a local read-only browser view, independent of file moves.",
             "Use wr index rebuild to repair or bootstrap only the derived Work Record Mnemosyne collection.",
             "Manual create remains deferred to later Work Records slices.",
         ],
