@@ -103,9 +103,18 @@ graph TD
 curl -fsSL https://raw.githubusercontent.com/gandazgul/runwield/main/install.sh | bash
 ```
 
-The installer downloads the latest release binary for macOS or Linux, verifies checksums, and installs `wld`. By default
-it installs to `~/.local/bin` and does not require root. To choose another user-writable directory, set
-`WLD_INSTALL_DIR`.
+The installer downloads the latest release binary for macOS or Linux, verifies checksums, and installs `wld` plus the
+runtime helpers RunWield Sessions need: required [`mnemosyne`](https://github.com/gandazgul/mnemosyne), required
+[`cymbal`](https://github.com/1broseidon/cymbal), and optional [`snip`](https://github.com/edouard-claude/snip). By
+default everything RunWield manages is installed to `~/.local/bin` and does not require root. To choose another
+user-writable directory shared by all managed binaries, set `WLD_INSTALL_DIR`.
+
+The installer preserves helper commands already found earlier on `PATH` or already executable in `WLD_INSTALL_DIR`; it
+fills missing dependencies rather than silently upgrading helpers you manage with Homebrew, Go, or another tool. If a
+required Mnemosyne or Cymbal download/checksum/extract step fails, the installer exits nonzero with the failing helper
+named and can be rerun safely after the upstream issue is fixed. Snip installation is attempted by default but remains
+optional: a Snip failure prints a warning and leaves `wld`, Mnemosyne, and Cymbal usable. Mnemosyne's model/ONNX payload
+is not downloaded during installation; upstream setup remains lazy on first semantic memory use.
 
 ### From Source
 
@@ -119,10 +128,8 @@ deno task compile
 
 End users run the standalone `wld` binary. Contributors use Deno.
 
-Interactive agent workflows require these binaries in `PATH`:
-
-- [`mnemosyne`](https://github.com/gandazgul/mnemosyne) for project/global memory
-- [`cymbal`](https://github.com/1broseidon/cymbal) for code search, symbol lookup, impact analysis, and tracing
+Interactive agent workflows require `mnemosyne` for project/global memory and `cymbal` for code search, symbol lookup,
+impact analysis, and tracing. The one-line installer provisions both unless an existing helper is already present.
 
 RunWield also uses [`snip`](https://github.com/edouard-claude/snip) when `snip` is available in `PATH`. Snip proxies
 eligible agent-initiated shell commands so agents see compact command output. Snip is optional and fail-open: if it is
@@ -392,12 +399,18 @@ docs/                  ADRs, PRDs, and feature docs
 
 ## Troubleshooting
 
-### [Mnemosyne](https://github.com/gandazgul/mnemosyne) or [Cymbal](https://github.com/1broseidon/cymbal) Is Missing
+### Mnemosyne or Cymbal Is Missing
 
-Interactive agent workflows require both binaries in `PATH`.
+Interactive agent workflows require both binaries in `PATH`. Rerun the RunWield installer to restore missing required
+helpers into the same install directory as `wld`:
 
-- [Mnemosyne](https://github.com/gandazgul/mnemosyne): [quick start](https://github.com/gandazgul/mnemosyne#quick-start)
-- [Cymbal](https://github.com/1broseidon/cymbal): [install](https://github.com/1broseidon/cymbal#install)
+```bash
+curl -fsSL https://raw.githubusercontent.com/gandazgul/runwield/main/install.sh | bash
+```
+
+If you use a custom directory, pass the same `WLD_INSTALL_DIR` again. Existing helper binaries found on `PATH` or in the
+install directory are preserved; remove a RunWield-managed helper from `WLD_INSTALL_DIR` before rerunning if you want
+the installer to fetch a fresh copy.
 
 ### Plan Review UI Does Not Open
 
