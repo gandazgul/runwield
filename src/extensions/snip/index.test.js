@@ -93,3 +93,21 @@ Deno.test("snip extension handles shell safety and env prefixes", async () => {
     await handler(snippetEvent, {});
     assertEquals(snippetEvent.input.command, `snip run -- snippets list ${SNIP_NO_FILTER_STDERR_FILTER}`);
 });
+
+Deno.test("snip extension does not rewrite command substitutions", async () => {
+    const { getHandler } = setup();
+    const handler = getHandler("tool_call");
+    if (!handler) throw new Error("tool_call handler not registered");
+
+    const tempDirEvent = { toolName: "bash", input: { command: 'tmp=$(mktemp -d); cd "$tmp"; pwd' } };
+    await handler(tempDirEvent, {});
+    assertEquals(tempDirEvent.input.command, 'tmp=$(mktemp -d); cd "$tmp"; pwd');
+
+    const inlineEvent = { toolName: "bash", input: { command: "echo $(date)" } };
+    await handler(inlineEvent, {});
+    assertEquals(inlineEvent.input.command, "echo $(date)");
+
+    const backtickEvent = { toolName: "bash", input: { command: "echo `date`" } };
+    await handler(backtickEvent, {});
+    assertEquals(backtickEvent.input.command, "echo `date`");
+});
