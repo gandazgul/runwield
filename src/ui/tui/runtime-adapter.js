@@ -61,7 +61,8 @@ export function attachTuiRuntimeAdapter({
     const assistantMessages = new Map();
     /** @type {Map<string, ReturnType<NonNullable<import('./types.js').UiAPI['appendThinkingStart']>>>} */
     const thinkingMessages = new Map();
-    runtime.setInteractionAdapter(sessionId, createTuiInteractionAdapter(uiAPI));
+    const interactionAdapter = createTuiInteractionAdapter(uiAPI);
+    runtime.setInteractionAdapter(sessionId, interactionAdapter);
 
     const initialSnapshot = runtime.getSessionSnapshot(sessionId);
     let currentRoutingIntent = initialSnapshot?.workflowContext?.routingIntent || null;
@@ -261,6 +262,7 @@ export function attachTuiRuntimeAdapter({
             assistantMessages.clear();
             if (registrations.get(sessionId) !== registration) return;
             registrations.delete(sessionId);
+            interactionAdapter.cancelAll?.();
             runtime.setInteractionAdapter(sessionId, null);
         },
     };
