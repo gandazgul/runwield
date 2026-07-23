@@ -89,7 +89,6 @@ export function supportsPairExecution(hostedSession) {
  * @typedef {Object} RuntimeCollaborationSelection
  * @property {"autonomous"|"pair"} style
  * @property {"autonomous"|"pair"} recommendation
- * @property {boolean} [canceled]
  */
 
 /**
@@ -270,19 +269,8 @@ export async function executePlan({
     }
 
     const collaboration = policy.ok
-        ? await selectRuntimeCollaborationStyle(hostedSession, policy.policy)
+        ? selectRuntimeCollaborationStyle(hostedSession, policy.policy)
         : { style: CollaborationStyles.AUTONOMOUS, recommendation: CollaborationStyles.AUTONOMOUS };
-    if (collaboration.canceled) {
-        emitSystemStatus(hostedSession, `Plan execution canceled before work started: ${planName}`, {
-            header: "RunWield",
-        });
-        return {
-            repairRequired: false,
-            executionComplete: false,
-            canceled: true,
-            error: "Collaboration style selection canceled before execution started.",
-        };
-    }
 
     await recordWorkflowMetricFn({
         category: "execution",
