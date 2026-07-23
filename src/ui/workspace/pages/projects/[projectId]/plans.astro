@@ -1,0 +1,31 @@
+---
+import WorkspaceLayout from "../../../layouts/WorkspaceLayout.astro";
+import { PlanBoard } from "../../../components/Board.jsx";
+import { serializeCanonicalPlanError } from "../../../server/astro-canonical-data.js";
+import { loadOwnerProjectBoard } from "../../../server/astro-owner-data.js";
+
+const projectId = Astro.params.projectId ?? "";
+let board = null;
+let error = null;
+try {
+    board = await loadOwnerProjectBoard(projectId);
+} catch (caught) {
+    error = await serializeCanonicalPlanError(caught);
+    Astro.response.status = 409;
+}
+---
+<WorkspaceLayout title="Project Plan Board" selectedTab="projects" url={Astro.url.href}>
+    <section class="page-header">
+        <a class="detail-back-link" href="/">← Projects</a>
+        <h1>Project Plan Board</h1>
+        <p>Owner Workspace reuses the existing Plan Board within a registered Project boundary. Actions are read-only in this slice.</p>
+    </section>
+    {error ? (
+        <section class="error-panel">
+            <h2>Project Plan Board failed to load</h2>
+            <p>{error.error}</p>
+        </section>
+    ) : (
+        <PlanBoard board={board} view="active" url={Astro.url.href} client:load />
+    )}
+</WorkspaceLayout>

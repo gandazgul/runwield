@@ -1,4 +1,5 @@
 ---
+planId: "b1f73d48-320a-4451-bd59-b4f9a0b266fe"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Add provider-agnostic Ticket References to Plans, surface them in Workspace, and preserve them through standalone and Epic Work Records."

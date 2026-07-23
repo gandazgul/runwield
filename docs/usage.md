@@ -138,6 +138,33 @@ index rebuild, and backfill remain available.
 Work Record Markdown, and any maintenance notices. The command remains attached until the browser view's Close button is
 used or the process is cancelled.
 
+## Personal owner Workspace
+
+Persistent owner Workspace is the paired-device, multi-Project browser surface for personal remote use:
+
+```bash
+wld workspace serve
+wld workspace pair <code>
+```
+
+`wld workspace serve` uses the owner coordination database under `~/.wld/` and binds to `127.0.0.1:8787` by default. An
+unpaired browser shows a short-lived pairing code and a copyable command such as `wld workspace pair ABC123`. Approving
+that code locally pairs that specific browser; the browser then receives a persistent, revocable device credential
+stored in cookies. The pairing code is not a password or bearer token, and owner credentials are not stored in Plans,
+Session Transcripts, URLs, or repository files.
+
+Owner Workspace is authorization, not encryption. Loopback HTTP is safe for same-machine use. For phone access, put the
+loopback listener behind Tailscale Serve, WireGuard plus a trusted HTTPS terminator, or an equivalent private-network
+TLS boundary. Direct non-loopback owner serving is refused unless trusted-terminator mode is explicit and the configured
+public origin is `https://...`; do not expose the plaintext backend listener directly to browsers.
+
+Projects must be explicitly registered before Workspace can show their Plans. The owner Project view reuses the existing
+Plan Board inside the registered Project boundary. In the bootstrap slice, owner Project Plan views are read-only until
+later Plan Workflow Lease enforcement enables consequential remote Plan mutations safely.
+
+`wld plans ui` remains the temporary current-checkout compatibility launcher. Use it when you want a one-shot local Plan
+Board without registering the Project or pairing a device.
+
 ## Collaborative Plan review
 
 A self-hosted Plan Server can host encrypted remote-canonical Shared Spaces for browser review:
