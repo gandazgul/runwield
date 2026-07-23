@@ -1,4 +1,5 @@
 ---
+planId: "959c9e85-75d6-44c5-b882-a646b134bbc9"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Add a genuinely non-mutating transcript reader and idle TUI synchronization so phone-created Session generations appear in an already-open TUI without losing drafts."

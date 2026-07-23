@@ -1,0 +1,89 @@
+---
+import WorkspaceLayout from "../layouts/WorkspaceLayout.astro";
+---
+<WorkspaceLayout title="Pair RunWield Workspace" selectedTab="projects" url={Astro.url.href}>
+    <section class="owner-card pairing-card">
+        <p class="kicker">Device pairing</p>
+        <h1>Pair this browser with owner Workspace</h1>
+        <p>
+            Private networking is not authorization. Request a short-lived code, then approve it locally with{" "}
+            <code>wld workspace pair &lt;code&gt;</code>.
+        </p>
+        <form class="owner-form">
+            <label>Device label <input id="device-label" name="deviceLabel" value="Browser device" maxlength="80" /></label>
+        </form>
+        <div class="owner-pairing-result" aria-live="polite">
+            <div class="pairing-actions-row">
+                <div class="pairing-code" id="pairing-code" aria-label="Example pairing code">------</div>
+                <div class="pairing-command-box">
+                    <p>Run <code id="pairing-command">wld workspace pair ------</code>.</p>
+                    <button class="copy-command-button" id="copy-pairing-command" type="button">Copy command</button>
+                </div>
+            </div>
+            <p class="pairing-timer" id="dev-pairing-timer">This code expires in 5:00. A new code appears automatically when it expires.</p>
+        </div>
+    </section>
+    <script>
+        function defaultDeviceLabel() {
+            const ua = navigator.userAgent;
+            const browser = ua.includes("Edg/") ? "Edge" : ua.includes("CriOS") || ua.includes("Chrome/")
+                ? "Chrome"
+                : ua.includes("Firefox/") || ua.includes("FxiOS")
+                ? "Firefox"
+                : ua.includes("Safari/")
+                ? "Safari"
+                : "Browser";
+            const os = /iPhone|iPad|iPod/.test(ua) ? "iPhone" : ua.includes("Android")
+                ? "Android"
+                : ua.includes("Mac OS X")
+                ? "macOS"
+                : ua.includes("Windows")
+                ? "Windows"
+                : ua.includes("Linux")
+                ? "Linux"
+                : "this device";
+            return `${browser} on ${os}`;
+        }
+        const label = document.getElementById("device-label");
+        if (label instanceof HTMLInputElement) label.value = defaultDeviceLabel();
+        function generatePairingCode() {
+            const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+            const bytes = new Uint8Array(6);
+            crypto.getRandomValues(bytes);
+            return Array.from(bytes, (byte) => alphabet[byte % alphabet.length]).join("");
+        }
+        let expiresAt = Date.now() + 5 * 60 * 1000;
+        const timer = document.getElementById("dev-pairing-timer");
+        const codeBox = document.getElementById("pairing-code");
+        const command = document.getElementById("pairing-command");
+        function resetCode() {
+            const code = generatePairingCode();
+            if (codeBox) codeBox.textContent = code;
+            if (command) command.textContent = `wld workspace pair ${code}`;
+            expiresAt = Date.now() + 5 * 60 * 1000;
+        }
+        function tickPairingTimer() {
+            let remaining = Math.max(0, expiresAt - Date.now());
+            if (remaining <= 0) {
+                if (timer) timer.textContent = "Code expired. Generating a new code...";
+                resetCode();
+                remaining = Math.max(0, expiresAt - Date.now());
+            }
+            const seconds = Math.ceil(remaining / 1000);
+            const minutes = Math.floor(seconds / 60);
+            const rest = String(seconds % 60).padStart(2, "0");
+            if (timer) {
+                timer.textContent = `This code expires in ${minutes}:${rest}. A new code appears automatically when it expires.`;
+            }
+        }
+        const copyButton = document.getElementById("copy-pairing-command");
+        copyButton?.addEventListener("click", async () => {
+            await navigator.clipboard.writeText(document.getElementById("pairing-command")?.textContent || "");
+            copyButton.textContent = "Copied";
+            setTimeout(() => copyButton.textContent = "Copy command", 1600);
+        });
+        resetCode();
+        tickPairingTimer();
+        setInterval(tickPairingTimer, 1000);
+    </script>
+</WorkspaceLayout>
