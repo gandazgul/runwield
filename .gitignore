@@ -14,6 +14,7 @@ debug.log
 .wld/collaboration-secrets.json
 
 prototypes/
+.learning/
 
 src/shared/version.js
 

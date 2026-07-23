@@ -30,7 +30,7 @@ function registryWithAvailable(available) {
 function makeHarness(selection, modelCommandSelectsDefault = true) {
     /** @type {Array<string>} */
     const messages = [];
-    /** @type {Array<{ name: string, argv: string[] }>} */
+    /** @type {Array<{ name: string, argv: string[], skipPostLoginSetup?: boolean }>} */
     const commands = [];
     let defaultModel = "";
     let defaultProvider = "";
@@ -49,8 +49,8 @@ function makeHarness(selection, modelCommandSelectsDefault = true) {
     };
     const commandRegistry = {
         [COMMAND_NAMES.LOGIN]: {
-            execute: (/** @type {string[]} */ argv) => {
-                commands.push({ name: COMMAND_NAMES.LOGIN, argv });
+            execute: (/** @type {string[]} */ argv, /** @type {{ skipPostLoginSetup?: boolean }} */ options) => {
+                commands.push({ name: COMMAND_NAMES.LOGIN, argv, skipPostLoginSetup: options.skipPostLoginSetup });
                 return Promise.resolve();
             },
         },
@@ -183,7 +183,7 @@ Deno.test("subscription setup runs login, opens model selection, and builds the 
 
     assertEquals(result, { shown: true, suppressBootBanner: true, noModel: false, setupCompleted: true });
     assertEquals(harness.commands, [
-        { name: COMMAND_NAMES.LOGIN, argv: ["subscription"] },
+        { name: COMMAND_NAMES.LOGIN, argv: ["subscription"], skipPostLoginSetup: true },
         { name: COMMAND_NAMES.MODEL, argv: [] },
     ]);
     assertEquals(harness.agentActivated(), 1);
@@ -214,7 +214,7 @@ Deno.test("API key setup dispatches the API key login command", async () => {
         getModelRegistry: () => registryWithAvailable(availabilityChecks++ === 0 ? [] : [{ id: "model" }]),
     });
 
-    assertEquals(harness.commands[0], { name: COMMAND_NAMES.LOGIN, argv: ["api-key"] });
+    assertEquals(harness.commands[0], { name: COMMAND_NAMES.LOGIN, argv: ["api-key"], skipPostLoginSetup: true });
 });
 
 Deno.test("failed setup returns control to the editor so recovery slash commands can run", async () => {

@@ -273,7 +273,9 @@ export async function runLoginCommand(argv, options = {}) {
             }
             registry.refresh?.();
             uiAPI.appendSystemMessage(`Logged in to ${provider.name}.`);
-            await configureInteractiveSessionAfterLogin(options, registry);
+            if (!options.skipPostLoginSetup) {
+                await configureInteractiveSessionAfterLogin(options, registry);
+            }
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             if (message !== "Login cancelled") {
