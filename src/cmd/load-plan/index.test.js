@@ -1554,11 +1554,12 @@ Deno.test("runLoadPlanCommand proceeds after affected path warning confirmation"
 Deno.test("runLoadPlanCommand validates completed execution against freshly loaded plan content", async () => {
     const { uiAPI, selections } = makeUi();
     selections.push("proceed");
+    const runtimeFixture = makeRuntimeFixture();
     /** @type {string | undefined} */
     let validatedPlanContent;
 
     await runLoadPlanCommand(["plan-fresh"], {
-        ...makeRuntimeContext(),
+        ...runtimeFixture.context,
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -1578,7 +1579,22 @@ Deno.test("runLoadPlanCommand validates completed execution against freshly load
                     },
                 }),
             executePlan: () => Promise.resolve({ repairRequired: false, executionComplete: true }),
-            loadPlan: () => Promise.resolve({ markdown: "fresh markdown", body: "fresh body", attrs: {} }),
+            loadPlan: () =>
+                Promise.resolve({
+                    markdown: "fresh markdown",
+                    body: "fresh body",
+                    attrs: {
+                        classification: "FEATURE",
+                        complexity: "LOW",
+                        summary: "fresh summary",
+                        affectedPaths: [],
+                        status: "implemented",
+                        worktreeId: "wt1",
+                        worktreePath: "/worktree",
+                        worktreeBranch: "runwield/worktree/plan-fresh-wt1",
+                        worktreeBaseBranch: "feature-base",
+                    },
+                }),
             runValidationLoop: (/** @type {{ planContent: string }} */ args) => {
                 validatedPlanContent = args.planContent;
                 return Promise.resolve();
@@ -1589,6 +1605,7 @@ Deno.test("runLoadPlanCommand validates completed execution against freshly load
     });
 
     assertEquals(validatedPlanContent, "fresh markdown");
+    assertEquals(runtimeFixture.state.workflow?.worktreeBaseBranch, "feature-base");
 });
 
 Deno.test("runLoadPlanCommand non-approved plan kicks off planning agent", async () => {

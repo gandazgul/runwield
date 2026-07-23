@@ -827,7 +827,7 @@ async function validateCompletedExecution(
         }
         throw new Error(policy.error);
     }
-    /** @type {{ planName: string, triageMeta: import('../../plan-store.js').PlanFrontMatter, executionAgent: string, baselineTree?: string, projectRoot: string, executionCwd?: string, worktreeId?: string, worktreeBranch?: string, nonGitInPlace?: boolean }} */
+    /** @type {{ planName: string, triageMeta: import('../../plan-store.js').PlanFrontMatter, executionAgent: string, baselineTree?: string, projectRoot: string, executionCwd?: string, worktreeId?: string, worktreeBranch?: string, worktreeBaseBranch?: string, nonGitInPlace?: boolean }} */
     const workflow = {
         planName,
         triageMeta: effectiveMeta,
@@ -838,9 +838,11 @@ async function validateCompletedExecution(
     const executionCwd = worktreeContext?.path || effectiveMeta.worktreePath;
     const worktreeId = worktreeContext?.id || effectiveMeta.worktreeId;
     const worktreeBranch = worktreeContext?.branch || effectiveMeta.worktreeBranch;
+    const worktreeBaseBranch = worktreeContext?.baseBranch || effectiveMeta.worktreeBaseBranch;
     if (executionCwd) workflow.executionCwd = executionCwd;
     if (worktreeId) workflow.worktreeId = worktreeId;
     if (worktreeBranch) workflow.worktreeBranch = worktreeBranch;
+    if (worktreeBaseBranch) workflow.worktreeBaseBranch = worktreeBaseBranch;
     if (!workflow.baselineTree && !executionCwd && !worktreeId && !worktreeBranch) {
         workflow.executionCwd = projectRoot;
         workflow.nonGitInPlace = true;
