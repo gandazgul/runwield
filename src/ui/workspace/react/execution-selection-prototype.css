@@ -1,5 +1,17 @@
 /* THROWAWAY PROTOTYPE — execution selection variants for /dev/plan-review only. */
 
+.rw-execution-prototype-visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+}
+
 .rw-execution-prototype-kicker {
     color: var(--rw-accent-strong);
     font-size: 0.68rem;
@@ -14,6 +26,34 @@
     gap: 0.45rem;
     padding-left: 0.5rem;
     border-left: 1px solid var(--rw-border);
+}
+
+.rw-execution-prototype-balanced {
+    display: flex;
+    align-items: end;
+    gap: 0.45rem;
+    padding-inline: 0.35rem;
+    border-inline: 1px solid var(--rw-border);
+}
+
+.rw-execution-prototype-balanced .rw-execution-prototype-segmented {
+    gap: 0.14rem;
+}
+
+.rw-execution-prototype-balanced .rw-execution-prototype-segmented legend {
+    font-size: 0.56rem;
+}
+
+.rw-execution-prototype-balanced .rw-execution-prototype-segmented > div {
+    padding: 0.1rem;
+    border-radius: 0.45rem;
+}
+
+.rw-execution-prototype-balanced .rw-execution-prototype-segmented button {
+    min-height: 1.55rem;
+    border-radius: 0.3rem;
+    padding: 0.18rem 0.45rem;
+    font-size: 0.66rem;
 }
 
 .rw-execution-prototype-select {
@@ -103,6 +143,18 @@
 .rw-execution-prototype-approval button:disabled {
     cursor: not-allowed;
     opacity: 0.55;
+}
+
+.rw-execution-prototype-primary-action {
+    transition: background-color 150ms ease, box-shadow 150ms ease, color 150ms ease, transform 150ms ease;
+}
+
+.rw-execution-prototype-primary-action:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--rw-success) 72%, var(--rw-page-bg));
+    color: var(--rw-text-strong);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--rw-success) 58%, transparent),
+        0 0.4rem 1rem color-mix(in srgb, var(--rw-success) 22%, transparent);
+    transform: translateY(-1px);
 }
 
 .rw-execution-prototype-approval.compact {
@@ -414,6 +466,26 @@
 }
 
 @media (max-width: 780px) {
+    .rw-plannotator-toolbar:has(.rw-execution-prototype-balanced) {
+        align-items: flex-start;
+        flex-wrap: wrap;
+    }
+
+    .rw-plannotator-toolbar:has(.rw-execution-prototype-balanced) .rw-plan-review-heading,
+    .rw-plannotator-toolbar:has(.rw-execution-prototype-balanced) .rw-plannotator-actions {
+        width: 100%;
+    }
+
+    .rw-plannotator-toolbar:has(.rw-execution-prototype-balanced) .rw-plannotator-actions {
+        justify-content: flex-start;
+    }
+
+    .rw-execution-prototype-balanced {
+        flex: 1 1 calc(100% - 2.5rem);
+        max-width: calc(100% - 2.5rem);
+        overflow-x: auto;
+    }
+
     .rw-execution-prototype-command {
         width: 100%;
         padding-top: 0.45rem;
