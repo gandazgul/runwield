@@ -1,4 +1,5 @@
 ---
+planId: "589dd642-b83f-4f61-ae00-9ac2f570653f"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Install RunWield and its runtime helper binaries through one rootless installer, and make the new-user UX container exercise that installer instead of locally baking binaries."
@@ -19,10 +20,15 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-23T14:38:52-04:00"
-updatedAt: "2026-07-23T21:00:24.582Z"
+updatedAt: "2026-07-23T21:07:59.861Z"
 status: "verified"
 origin: "internal"
 verifiedAt: "2026-07-23T21:00:24.582Z"
+workRecord:
+    status: "generated"
+    recordId: "8a1e4845-293a-4438-a80c-dc0c04bd11a5"
+    path: "docs/work-records/2026-07-23-unified-runtime-helper-installation.md"
+    lastAttemptAt: "2026-07-23T21:07:50.427Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
 ---
