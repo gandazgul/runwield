@@ -86,10 +86,10 @@ export function parseWorkRecordSearchJson(output) {
  */
 async function ensureSearchBootstrap(cwd, deps = {}) {
     const canonical = await listWorkRecords(cwd, { createDir: false });
-    if (!canonical.length) return { bootstrapped: false, rebuild: null };
-    if (!(await isWorkRecordIndexEmpty(cwd, deps))) return { bootstrapped: false, rebuild: null };
+    if (!canonical.length) return { bootstrapped: false, rebuild: null, canonical };
+    if (!(await isWorkRecordIndexEmpty(cwd, deps))) return { bootstrapped: false, rebuild: null, canonical };
     const rebuild = await rebuildWorkRecordIndex(cwd, deps);
-    return { bootstrapped: true, rebuild };
+    return { bootstrapped: true, rebuild, canonical };
 }
 
 /**
@@ -136,10 +136,11 @@ export async function searchWorkRecords(cwd, query, options = {}) {
             }. Run wld wr index rebuild to repair the derived Work Record index.`,
         );
     }
+    const recordsById = new Map(bootstrap.canonical.map((record) => [record.attrs.recordId, record]));
     const records = [];
     const stale = [];
     for (const candidate of candidates) {
-        const record = await findWorkRecordById(cwd, candidate.recordId);
+        const record = recordsById.get(candidate.recordId);
         if (!record) {
             stale.push(candidate.recordId);
             continue;
