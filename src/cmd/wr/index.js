@@ -9,7 +9,6 @@ import {
     formatWorkRecordBackfillOutcomes,
     formatWorkRecordBackfillPreview,
     formatWorkRecordList,
-    formatWorkRecordReadResult,
     formatWorkRecordSearchResults,
     listWorkRecords as listWorkRecordsFn,
     previewWorkRecordBackfill as previewWorkRecordBackfillFn,
@@ -18,6 +17,7 @@ import {
     runWorkRecordBackfill as runWorkRecordBackfillFn,
     searchWorkRecords as searchWorkRecordsFn,
 } from "../../shared/work-records/index.js";
+import { startArtifactReadSurface as startArtifactReadSurfaceFn } from "../../ui/review/review-launcher.js";
 
 /**
  * @typedef {Object} WorkRecordCommandDependencies
@@ -28,6 +28,7 @@ import {
  * @property {typeof searchWorkRecordsFn} [searchWorkRecords]
  * @property {typeof readWorkRecordByIdFn} [readWorkRecordById]
  * @property {typeof rebuildWorkRecordIndexFn} [rebuildWorkRecordIndex]
+ * @property {typeof startArtifactReadSurfaceFn} [startArtifactReadSurface]
  * @property {(message: string) => boolean|Promise<boolean>} [confirmBackfill]
  * @property {(commandName: string) => boolean} [printCommandHelp]
  */
@@ -36,6 +37,44 @@ import {
 function promptForBackfillConfirmation(message) {
     const answer = prompt(`${message}\nType BACKFILL to continue:`) || "";
     return answer.trim() === "BACKFILL";
+}
+
+/**
+ * @param {Awaited<ReturnType<typeof readWorkRecordByIdFn>>} record
+ * @param {WorkRecordCommandDependencies} deps
+ */
+async function openWorkRecordReadSurface(record, deps) {
+    const startReadSurface = deps.startArtifactReadSurface || startArtifactReadSurfaceFn;
+    const server = await startReadSurface({
+        cwd: CWD,
+        markdown: record.markdown,
+        artifactKind: "work-record",
+        title: record.title,
+        path: record.path,
+        notices: record.notices,
+    });
+    console.log(`[RunWield] Work Record read-only view: ${server.url}`);
+    if (!server.opened) {
+        console.log(
+            "[RunWield] Could not open your browser automatically. Open the URL above, then choose Close when finished.",
+        );
+    }
+    try {
+        await server.waitForDecision();
+    } finally {
+        await stopReadSurface(server);
+    }
+    if (!deps.startArtifactReadSurface) Deno.exit(0);
+}
+
+/**
+ * @param {{ stop: () => void | Promise<void> }} server
+ */
+async function stopReadSurface(server) {
+    await Promise.race([
+        Promise.resolve(server.stop()),
+        new Promise((resolve) => setTimeout(resolve, 1000)),
+    ]);
 }
 
 /**
@@ -142,8 +181,9 @@ export async function runWorkRecordsCommand(argv, options = {}) {
         }
         rejectUnknownFlags(parsed);
         if (parsed._.length !== 1) throw new Error("Usage: wld wr read <recordId>");
-        console.log(
-            formatWorkRecordReadResult(await readWorkRecordById(CWD, String(parsed._[0]), { accessMode: "all" })),
+        await openWorkRecordReadSurface(
+            await readWorkRecordById(CWD, String(parsed._[0]), { accessMode: "all" }),
+            deps,
         );
         return;
     }

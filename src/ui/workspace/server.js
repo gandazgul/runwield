@@ -369,7 +369,11 @@ function workspaceBuildUnavailable() {
  * @param {Record<string, unknown>} payload
  */
 function renderStaticReviewFallback(reviewType, payload) {
-    const title = reviewType === "plan" ? "Plan Review · RunWield Workspace" : "Code Review · RunWield Workspace";
+    const title = payload?.surface === "artifact-read"
+        ? `${payload.artifactKind === "work-record" ? "Work Record" : "Plan"} · RunWield Workspace`
+        : reviewType === "plan"
+        ? "Plan Review · RunWield Workspace"
+        : "Code Review · RunWield Workspace";
     const payloadAttribute = reviewType === "plan" ? "data-review-payload" : "data-code-review-payload";
     const payloadJson = escapeScriptJson(JSON.stringify(payload));
     return new Response(
