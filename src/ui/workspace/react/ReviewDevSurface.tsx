@@ -1,6 +1,7 @@
 // @ts-nocheck: Workspace React islands compile TSX, but this module uses JSDoc-style JavaScript only.
 
 import React from "react";
+import { ArtifactReadSurface } from "./ArtifactReadSurface.tsx";
 import { CodeReviewSurface } from "./CodeReviewSurface.tsx";
 import { PlanReviewSurface } from "./PlanReviewSurface.tsx";
 
@@ -117,6 +118,32 @@ const PROJECT_PLAN_FIXTURE = PLAN_FIXTURE
     )
     .replace("frontend: true", 'frontend: true\nepicCompletionMode: "manual"')
     .replace("# Fixture Test Plan: Plan Review UI", "# Fixture PROJECT Epic: Plan Review UI");
+
+const WORK_RECORD_FIXTURE = `---
+recordId: "fixture-work-record-123"
+title: "Fixture Browser Read Work Record"
+status: "superseded"
+scope: "feature"
+origin: "internal"
+completionMode: "verified"
+---
+
+# Fixture Browser Read Work Record
+
+## Summary
+
+This Work Record fixture exercises the read-only artifact surface with maintenance notices and canonical markdown.
+
+## Durable Outcome
+
+- Contents navigation should be the only sidebar.
+- The document should render front matter and Markdown headings.
+- The top-right workflow action should be Close.
+
+## Planning Guidance
+
+Future sessions should preserve read-only browser inspection for canonical Plans and Work Records.
+`;
 
 const CODE_REVIEW_FIXTURE = `diff --git a/src/review/feedback.js b/src/review/feedback.js
 index 1111111..2222222 100644
@@ -476,6 +503,26 @@ export function ReviewDevSurface({ surface }) {
         token: `dev-plan-review-${planVariant}`,
         mode: "dev",
     };
+    const readPlanPayload = {
+        surface: "artifact-read",
+        markdown: PLAN_FIXTURE,
+        token: "dev-read-plan",
+        mode: "dev",
+        artifactKind: "plan",
+        title: "Fixture Test Plan: Plan Review UI",
+        artifactPath: "plans/fixture-test-plan.md",
+        notices: [],
+    };
+    const readWorkRecordPayload = {
+        surface: "artifact-read",
+        markdown: WORK_RECORD_FIXTURE,
+        token: "dev-read-work-record",
+        mode: "dev",
+        artifactKind: "work-record",
+        title: "Fixture Browser Read Work Record",
+        artifactPath: "docs/work-records/fixture-browser-read-work-record.md",
+        notices: ["NOTICE: superseded Work Record; newer planning guidance may exist."],
+    };
     const payload = isPlan ? planPayload : buildCodeReviewDevPayload(guideVariant);
 
     if (isPlan) {
@@ -488,6 +535,8 @@ export function ReviewDevSurface({ surface }) {
                 [
                     { id: "feature", label: "FEATURE Plan" },
                     { id: "project", label: "PROJECT Epic" },
+                    { id: "read-plan", label: "Read-only Plan" },
+                    { id: "read-work-record", label: "Read-only Work Record" },
                 ].map((variant) =>
                     React.createElement(
                         "button",
@@ -501,7 +550,11 @@ export function ReviewDevSurface({ surface }) {
                     )
                 ),
             ),
-            React.createElement(PlanReviewSurface, { key: planVariant, payload }),
+            planVariant === "read-plan"
+                ? React.createElement(ArtifactReadSurface, { key: planVariant, payload: readPlanPayload })
+                : planVariant === "read-work-record"
+                ? React.createElement(ArtifactReadSurface, { key: planVariant, payload: readWorkRecordPayload })
+                : React.createElement(PlanReviewSurface, { key: planVariant, payload }),
         );
     }
 

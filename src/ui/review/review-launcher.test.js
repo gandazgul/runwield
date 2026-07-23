@@ -1,5 +1,10 @@
 import { assertEquals } from "@std/assert";
-import { startCodeReviewSurface, startPlanReviewSurface, stopActiveReviewSurfaces } from "./review-launcher.js";
+import {
+    startArtifactReadSurface,
+    startCodeReviewSurface,
+    startPlanReviewSurface,
+    stopActiveReviewSurfaces,
+} from "./review-launcher.js";
 
 Deno.test("stopActiveReviewSurfaces stops active plan and code review servers", async () => {
     let planStops = 0;
@@ -103,6 +108,45 @@ Deno.test("code review surface forwards guided review payload to injected server
     await server.stop();
 
     assertEquals(seen?.autoStart, true);
+});
+
+Deno.test("artifact read surface opens Workspace-hosted read payload", async () => {
+    const server = await startArtifactReadSurface({
+        cwd: Deno.cwd(),
+        markdown: "# Read Me",
+        artifactKind: "work-record",
+        title: "Read Me",
+        path: "docs/work-records/read-me.md",
+        notices: ["NOTICE: maintenance"],
+        openInDefaultBrowser: () => Promise.resolve(false),
+    });
+
+    const page = await fetch(server.url);
+    const html = await page.text();
+    const decision = server.waitForDecision();
+    await server.stop();
+
+    assertEquals(server.opened, false);
+    assertEquals(server.url.includes("/review/plan?token="), true);
+    assertEquals(html.includes("artifact-read"), true);
+    assertEquals(html.includes("Read Me"), true);
+    assertEquals(await decision, { approved: false, feedback: "", exit: true, canceled: true });
+});
+
+Deno.test("artifact read surface unregisters from active cleanup after stop", async () => {
+    const server = await startArtifactReadSurface({
+        cwd: Deno.cwd(),
+        markdown: "# Plan",
+        artifactKind: "plan",
+        title: "Plan",
+        openInDefaultBrowser: () => Promise.resolve(false),
+    });
+    const decision = server.waitForDecision();
+
+    await server.stop();
+    await stopActiveReviewSurfaces();
+
+    assertEquals(await decision, { approved: false, feedback: "", exit: true, canceled: true });
 });
 
 Deno.test("plan review surface forwards server output to its caller", async () => {

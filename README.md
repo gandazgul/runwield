@@ -197,7 +197,7 @@ wld router "your request"           # explicit router form
 wld agent                           # list available agents
 wld agent engineer "implement X"    # start with Engineer instead of Router
 wld plans                           # list active saved plans
-wld plans read <name-or-id>         # inspect an active or archived plan
+wld plans read <name-or-id>         # open an active or archived plan read-only in the browser
 wld plans archive                   # list archived plans
 wld plans archive <name-or-id>      # move a verified/closed plan to plans/archived/
 wld plans archive --all --status verified # bulk archive active verified plans
@@ -267,13 +267,15 @@ wld plans archive <plan-name-or-id> --reason "done"    # archive a verified or c
 wld plans archive <plan-name-or-id> --force            # archive another status when safe
 wld plans archive --all --status verified --reason "done" # best-effort bulk archive exact status matches
 wld plans archive restore <archived-plan-name-or-id>   # restore to plans/
-wld plans read <plan-name-or-id>                       # print active or archived plan details and body
+wld plans read <plan-name-or-id>                       # open active or archived plan markdown read-only in the browser
 ```
 
 `verified` and `closed_without_verification` Plans can be archived without `--force`; other statuses require `--force`,
 and recoverable worktree states remain blocked. `wld plans archive --all --status <status>` bulk archives active Plans
 by exact status match on a best-effort basis: safe matches move, blocked matches are reported, and any failure makes the
-command exit non-zero after printing the summary. Restore refuses to overwrite an active file.
+command exit non-zero after printing the summary. Restore refuses to overwrite an active file. `wld plans read` starts a
+local token-protected read-only browser view with Contents navigation and remains attached until Close is used or the
+process is cancelled.
 
 Use `wld plans ui` to launch the local browser Workspace for the current checkout:
 

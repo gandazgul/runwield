@@ -182,6 +182,55 @@ Deno.test("review page accepts Unicode Plan payloads", async () => {
     assertEquals(response.status < 500, true);
 });
 
+Deno.test("artifact read page receives authenticated read-only payload", async () => {
+    const token = "read-secret";
+    const app = createReviewWorkspaceApp({
+        cwd: Deno.cwd(),
+        token,
+        reviewPayload: {
+            surface: "artifact-read",
+            markdown: "# Work Record\n\n## Summary\n\nRead-only.",
+            artifactKind: "work-record",
+            title: "Work Record",
+            artifactPath: "docs/work-records/work-record.md",
+            notices: ["NOTICE: superseded"],
+        },
+        reviewType: "plan",
+    }).handler();
+
+    const unauthorized = await app(new Request("http://localhost/review/plan"));
+    assertEquals(unauthorized.status, 401);
+
+    const response = await app(new Request(`http://localhost/review/plan?token=${token}`));
+    assertEquals(response.status < 500, true);
+    const html = await response.text();
+    assertStringIncludes(html, "artifact-read");
+    assertStringIncludes(html, "NOTICE: superseded");
+});
+
+Deno.test("artifact read Close resolves review exit without approval", async () => {
+    const token = "read-close-secret";
+    const app = createReviewWorkspaceApp({
+        cwd: Deno.cwd(),
+        token,
+        reviewPayload: { surface: "artifact-read", markdown: "# Plan", artifactKind: "plan", title: "Plan" },
+        reviewType: "plan",
+    }).handler();
+    const { promise } = registerReviewDecisionPromise(token);
+
+    const response = await app(
+        new Request(`http://localhost/api/review/exit?token=${token}`, {
+            method: "POST",
+            headers: { "x-runwield-review-token": token, "content-type": "application/json" },
+            body: JSON.stringify({ reviewType: "plan" }),
+        }),
+    );
+
+    assertEquals(response.status, 200);
+    assertEquals(await promise, { approved: false, feedback: "", exit: true });
+    unregisterReviewDecision(token);
+});
+
 Deno.test("Plan review surfaces do not expose Guided Review APIs", async () => {
     const token = "plan-review-secret";
     const reviewApp = createReviewWorkspaceApp({
@@ -1800,6 +1849,55 @@ Deno.test("Workspace Plan document loads Plannotator viewer and published markdo
     assertStringIncludes(documentSource, "@plannotator/ui/components/RenderedMarkdown.tsx");
     assertStringIncludes(editorSource, "node_modules/@plannotator/markdown-editor/dist/index.js");
     assertEquals(editorSource.includes("markdown-editor-shim"), false);
+});
+
+Deno.test("ArtifactReadSurface keeps the React read surface to Contents, notices, document, and Close", async () => {
+    const surfaceSource = await Deno.readTextFile(new URL("./react/ArtifactReadSurface.tsx", import.meta.url));
+    const pageSource = await Deno.readTextFile(new URL("./pages/review/plan.astro", import.meta.url));
+    const cssSource = await Deno.readTextFile(new URL("./react/plannotator.css", import.meta.url));
+
+    assertStringIncludes(pageSource, 'payload.surface === "artifact-read"');
+    assertStringIncludes(pageSource, '<ArtifactReadSurface payload={payload} client:only="react" />');
+    assertStringIncludes(surfaceSource, "Read-only {artifactLabel}");
+    assertStringIncludes(surfaceSource, "aria-label={`${artifactLabel} notices`}");
+    assertStringIncludes(surfaceSource, "{notices.map((notice) => <p key={notice}>{notice}</p>)}");
+    assertStringIncludes(surfaceSource, 'className="rw-artifact-close-button"');
+    assertStringIncludes(surfaceSource, 'activeTab="toc"');
+    assertStringIncludes(surfaceSource, "showFilesTab={false}");
+    assertStringIncludes(surfaceSource, "showVersionsTab={false}");
+    assertStringIncludes(surfaceSource, "showArchiveTab={false}");
+    assertStringIncludes(surfaceSource, "annotations={[]}");
+    assertStringIncludes(surfaceSource, "<Viewer");
+    assertStringIncludes(surfaceSource, "readOnly");
+    assertStringIncludes(cssSource, '.rw-artifact-read-layout[data-sidebar-open="true"]');
+    assertStringIncludes(cssSource, "@media (max-width: 980px)");
+    assertStringIncludes(cssSource, ".rw-artifact-read .rw-plannotator-plan-layout > aside");
+    assertEquals(surfaceSource.includes("Feedback"), false);
+    assertEquals(surfaceSource.includes("Approve"), false);
+    assertEquals(surfaceSource.includes("WorkspaceMarkdownEditor"), false);
+});
+
+Deno.test("Plannotator Viewer readOnly disables annotation creation and checkbox mutation affordances", async () => {
+    const viewerSource = await Deno.readTextFile(
+        new URL("../../../third_party/plannotator/packages/ui/components/Viewer.tsx", import.meta.url),
+    );
+
+    assertStringIncludes(viewerSource, "readOnly?: boolean");
+    assertStringIncludes(viewerSource, "readOnly = false");
+    assertStringIncludes(viewerSource, "const annotationsEnabled = !readOnly");
+    assertStringIncludes(viewerSource, "enabled: annotationsEnabled");
+    assertStringIncludes(viewerSource, "enabled: annotationsEnabled && !toolbarState");
+    assertStringIncludes(viewerSource, "useValidatedCodePaths(readOnly ? '' : markdown, codePathBaseDir)");
+    assertStringIncludes(viewerSource, "annotationsEnabled && inputMethod === 'pinpoint'");
+    assertStringIncludes(viewerSource, "stickyActions && annotationsEnabled");
+    assertStringIncludes(viewerSource, "{annotationsEnabled && <div data-print-hide data-sticky-actions");
+    assertStringIncludes(viewerSource, "onToggleCheckbox={annotationsEnabled ? onToggleCheckbox : undefined}");
+    assertStringIncludes(viewerSource, "{annotationsEnabled && toolbarState && (");
+    assertStringIncludes(viewerSource, "{annotationsEnabled && hoveredTable && !toolbarState && (");
+    assertStringIncludes(viewerSource, "{annotationsEnabled && hookCommentPopover && (");
+    assertStringIncludes(viewerSource, "{annotationsEnabled && viewerCommentPopover && (");
+    assertStringIncludes(viewerSource, "{annotationsEnabled && hookQuickLabelPicker && (");
+    assertStringIncludes(viewerSource, "{annotationsEnabled && codeBlockQuickLabelPicker && (");
 });
 
 Deno.test("Workspace lifecycle API mutates through lifecycle events and blocks invalid actions", async () => {

@@ -18,7 +18,24 @@ async function captureLogs(fn) {
     return logs;
 }
 
-Deno.test("read command prints active plans before archived duplicates", async () => {
+/**
+ * @param {(options: any) => void} onStart
+ */
+function fakeReadSurface(onStart) {
+    return /** @type {any} */ ((/** @type {any} */ options) => {
+        onStart(options);
+        return Promise.resolve({
+            url: "http://127.0.0.1:1234/review/plan?token=test",
+            opened: true,
+            waitForDecision: () => Promise.resolve({ exit: true }),
+            stop: () => Promise.resolve(),
+        });
+    });
+}
+
+Deno.test("read command opens active plans before archived duplicates", async () => {
+    /** @type {any} */
+    let seen;
     const logs = await captureLogs(() =>
         runPlansReadCommand(
             ["same"],
@@ -27,23 +44,30 @@ Deno.test("read command prints active plans before archived duplicates", async (
                     loadPlan: () =>
                         Promise.resolve({
                             path: "/repo/plans/same.md",
+                            markdown: "---\nstatus: draft\n---\n# Active",
                             attrs: { status: "draft", classification: "FEATURE", complexity: "LOW", summary: "Active" },
                             body: "# Active",
                         }),
                     loadArchivedPlan: () => {
                         throw new Error("should not read archive");
                     },
+                    startArtifactReadSurface: fakeReadSurface((options) => seen = options),
                 },
             }),
         )
     );
 
-    assertEquals(logs.some((line) => line.includes("Path: /repo/plans/same.md")), true);
-    assertEquals(logs.some((line) => line.includes("# Active")), true);
+    assertEquals(seen.artifactKind, "plan");
+    assertEquals(seen.title, "same");
+    assertEquals(seen.path, "/repo/plans/same.md");
+    assertEquals(seen.markdown.includes("# Active"), true);
+    assertEquals(logs.some((line) => line.includes("Plan read-only view")), true);
 });
 
-Deno.test("read command prints archived plans when explicitly addressed", async () => {
-    const logs = await captureLogs(() =>
+Deno.test("read command opens archived plans when explicitly addressed", async () => {
+    /** @type {any} */
+    let seen;
+    await captureLogs(() =>
         runPlansReadCommand(
             ["archived/same"],
             /** @type {any} */ ({
@@ -53,6 +77,7 @@ Deno.test("read command prints archived plans when explicitly addressed", async 
                         Promise.resolve({
                             name: "same",
                             path: "/repo/plans/archived/same.md",
+                            markdown: "---\nstatus: verified\n---\n# Archived",
                             attrs: {
                                 status: "verified",
                                 classification: "FEATURE",
@@ -62,14 +87,73 @@ Deno.test("read command prints archived plans when explicitly addressed", async 
                             },
                             body: "# Archived",
                         }),
+                    startArtifactReadSurface: fakeReadSurface((options) => seen = options),
                 },
             }),
         )
     );
 
-    assertEquals(logs.some((line) => line.includes("plans/archived/same.md")), true);
-    assertEquals(logs.some((line) => line.includes("Archived: now")), true);
-    assertEquals(logs.some((line) => line.includes("# Archived")), true);
+    assertEquals(seen.title, "plans/archived/same.md");
+    assertEquals(seen.path, "/repo/plans/archived/same.md");
+    assertEquals(seen.markdown.includes("# Archived"), true);
+});
+
+Deno.test("read command opens archived plans by plan id", async () => {
+    /** @type {any} */
+    let seen;
+    await captureLogs(() =>
+        runPlansReadCommand(
+            ["archived-id"],
+            /** @type {any} */ ({
+                __testDeps: {
+                    loadPlan: () => Promise.resolve(null),
+                    loadArchivedPlan: (/** @type {string} */ _cwd, /** @type {string} */ name) =>
+                        name === "archived-match"
+                            ? Promise.resolve({
+                                name,
+                                path: "/repo/plans/archived/archived-match.md",
+                                markdown: "# Archived By ID",
+                                attrs: {},
+                                body: "# Archived By ID",
+                            })
+                            : Promise.resolve(null),
+                    listArchivedPlans: () => Promise.resolve([{ name: "archived-match", planId: "archived-id" }]),
+                    startArtifactReadSurface: fakeReadSurface((options) => seen = options),
+                },
+            }),
+        )
+    );
+
+    assertEquals(seen.title, "plans/archived/archived-match.md");
+    assertEquals(seen.markdown, "# Archived By ID");
+});
+
+Deno.test("read command opens active plans by plan id", async () => {
+    /** @type {any} */
+    let seen;
+    await captureLogs(() =>
+        runPlansReadCommand(
+            ["active-id"],
+            /** @type {any} */ ({
+                __testDeps: {
+                    loadPlan: () => Promise.resolve(null),
+                    loadArchivedPlan: () => Promise.resolve(null),
+                    listArchivedPlans: () => Promise.resolve([]),
+                    findPlanById: () =>
+                        Promise.resolve({
+                            planName: "id-plan",
+                            path: "/repo/plans/id-plan.md",
+                            markdown: "# Active By ID",
+                            attrs: {},
+                        }),
+                    startArtifactReadSurface: fakeReadSurface((options) => seen = options),
+                },
+            }),
+        )
+    );
+
+    assertEquals(seen.title, "id-plan");
+    assertEquals(seen.markdown, "# Active By ID");
 });
 
 Deno.test("read command reports duplicate archived plan ids", async () => {
@@ -88,4 +172,31 @@ Deno.test("read command reports duplicate archived plan ids", async () => {
         Error,
         "Duplicate archived planId",
     );
+});
+
+Deno.test("read command prints manual URL recovery when browser opening fails", async () => {
+    const logs = await captureLogs(() =>
+        runPlansReadCommand(
+            ["same"],
+            /** @type {any} */ ({
+                __testDeps: {
+                    loadPlan: () =>
+                        Promise.resolve({
+                            path: "/repo/plans/same.md",
+                            markdown: "# Active",
+                            attrs: {},
+                            body: "# Active",
+                        }),
+                    startArtifactReadSurface: () =>
+                        Promise.resolve({
+                            url: "http://127.0.0.1:1234/review/plan?token=test",
+                            opened: false,
+                            waitForDecision: () => Promise.resolve({ exit: true }),
+                            stop: () => Promise.resolve(),
+                        }),
+                },
+            }),
+        )
+    );
+    assertEquals(logs.some((line) => line.includes("Could not open your browser automatically")), true);
 });

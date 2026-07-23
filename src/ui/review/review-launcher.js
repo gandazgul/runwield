@@ -24,6 +24,8 @@ import { startReviewWorkspaceServer } from "../../review-workspace-server.js";
 const activeReviewSurfaces = new Set();
 
 let processExitCleanupInstalled = false;
+/** @type {Array<{ signal: "SIGINT" | "SIGTERM", handler: () => void }>} */
+let processExitCleanupSignalHandlers = [];
 let stoppingActiveReviewSurfaces = false;
 
 /**
@@ -49,6 +51,7 @@ export async function stopActiveReviewSurfaces() {
         }));
     } finally {
         stoppingActiveReviewSurfaces = false;
+        uninstallProcessExitCleanup();
     }
 }
 
@@ -64,16 +67,32 @@ function installProcessExitCleanup() {
 
     for (const [signal, exitCode] of /** @type {const} */ ([["SIGINT", 130], ["SIGTERM", 143]])) {
         try {
-            Deno.addSignalListener(signal, () => {
+            const handler = () => {
                 void (async () => {
                     await stopActiveReviewSurfaces();
                     Deno.exit(exitCode);
                 })();
-            });
+            };
+            Deno.addSignalListener(signal, handler);
+            processExitCleanupSignalHandlers.push({ signal, handler });
         } catch {
             // Some platforms or test environments do not support all signals.
         }
     }
+}
+
+function uninstallProcessExitCleanup() {
+    if (!processExitCleanupInstalled) return;
+    globalThis.removeEventListener?.("unload", stopActiveReviewSurfacesBestEffort);
+    for (const { signal, handler } of processExitCleanupSignalHandlers) {
+        try {
+            Deno.removeSignalListener(signal, handler);
+        } catch {
+            // Best-effort cleanup for platforms or tests without signal support.
+        }
+    }
+    processExitCleanupSignalHandlers = [];
+    processExitCleanupInstalled = false;
 }
 
 /**
@@ -90,7 +109,11 @@ function registerReviewSurface(server) {
         ...server,
         stop: async () => {
             activeReviewSurfaces.delete(server);
-            await stop();
+            try {
+                await stop();
+            } finally {
+                if (activeReviewSurfaces.size === 0) uninstallProcessExitCleanup();
+            }
         },
     });
 }
@@ -191,6 +214,14 @@ function parseGitPorcelainStatus(text) {
  */
 
 /**
+ * @typedef {Object} ArtifactReadSurface
+ * @property {string} url
+ * @property {() => Promise<any>} waitForDecision
+ * @property {() => void | Promise<void>} stop
+ * @property {boolean} opened
+ */
+
+/**
  * @typedef {Object} CodeReviewSurface
  * @property {string} url
  * @property {() => Promise<any>} waitForDecision
@@ -215,6 +246,42 @@ async function startWorkspaceHostedPlanReview({
         cwd,
         token,
         reviewPayload: { plan, planPath },
+        reviewType: "plan",
+        onOutput,
+    });
+    const url = `${server.url}/review/plan?token=${encodeURIComponent(token)}`;
+    const opened = await openInDefaultBrowserImpl(url);
+    return { ...server, url, opened };
+}
+
+/**
+ * @param {{ cwd: string, markdown: string, artifactKind: "plan" | "work-record", title: string, path?: string, notices?: string[], token?: string, openInDefaultBrowser?: typeof openInDefaultBrowser, onOutput?: ReviewServerOutputListener }} opts
+ * @returns {Promise<ArtifactReadSurface>}
+ */
+async function startWorkspaceHostedArtifactRead({
+    cwd,
+    markdown,
+    artifactKind,
+    title,
+    path,
+    notices = [],
+    token = crypto.randomUUID(),
+    openInDefaultBrowser: openInDefaultBrowserImpl = openInDefaultBrowser,
+    onOutput,
+}) {
+    if (!cwd) throw new Error("startWorkspaceHostedArtifactRead: cwd is required");
+    const server = startReviewWorkspaceServer({
+        cwd,
+        token,
+        reviewPayload: {
+            surface: "artifact-read",
+            markdown,
+            plan: markdown,
+            artifactKind,
+            title,
+            artifactPath: path,
+            notices,
+        },
         reviewType: "plan",
         onOutput,
     });
@@ -271,6 +338,44 @@ export async function startPlanReviewSurface({
     );
     const opened = await openInDefaultBrowserImpl(server.url);
     return { ...server, opened };
+}
+
+/**
+ * Start a Workspace-hosted read-only Markdown artifact surface for Plans and Work Records.
+ *
+ * @param {Object} opts
+ * @param {string} opts.cwd
+ * @param {string} opts.markdown
+ * @param {"plan" | "work-record"} opts.artifactKind
+ * @param {string} opts.title
+ * @param {string} [opts.path]
+ * @param {string[]} [opts.notices]
+ * @param {typeof openInDefaultBrowser} [opts.openInDefaultBrowser]
+ * @param {ReviewServerOutputListener} [opts.onOutput]
+ * @returns {Promise<ArtifactReadSurface>}
+ */
+export async function startArtifactReadSurface({
+    cwd,
+    markdown,
+    artifactKind,
+    title,
+    path,
+    notices,
+    openInDefaultBrowser: openInDefaultBrowserImpl = openInDefaultBrowser,
+    onOutput,
+}) {
+    return registerReviewSurface(
+        await startWorkspaceHostedArtifactRead({
+            cwd,
+            markdown,
+            artifactKind,
+            title,
+            path,
+            notices,
+            openInDefaultBrowser: openInDefaultBrowserImpl,
+            onOutput,
+        }),
+    );
 }
 
 /**
