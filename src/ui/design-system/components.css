@@ -427,6 +427,45 @@ button.danger-action:hover {
     margin: 0;
 }
 
+.metadata-reference-list {
+    display: grid;
+    gap: 8px;
+    list-style: none;
+    margin: 12px 0 0;
+    padding: 0;
+}
+
+.metadata-reference-list li {
+    min-width: 0;
+}
+
+.metadata-reference-link,
+.metadata-reference-text {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.metadata-reference-link {
+    color: var(--rw-accent-text);
+    text-decoration: underline;
+    text-decoration-thickness: 0.08em;
+    text-underline-offset: 0.18em;
+}
+
+.metadata-reference-link:hover {
+    color: var(--rw-text-strong);
+}
+
+.metadata-reference-link:focus-visible {
+    border-radius: 6px;
+    outline: 2px solid var(--rw-accent);
+    outline-offset: 3px;
+}
+
+.metadata-reference-text {
+    color: var(--rw-text-muted);
+}
+
 button.primary-action:disabled,
 button.secondary-action:disabled,
 button.danger-action:disabled {

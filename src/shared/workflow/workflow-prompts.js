@@ -11,6 +11,7 @@
  * @property {string} [summary]
  * @property {string[]} [dependencies]
  * @property {string[]} [affectedPaths]
+ * @property {import('../ticket-references.js').TicketReference[]} [tickets]
  */
 
 /**
@@ -46,6 +47,12 @@ export function buildSlicerRequest(input, legacyTriageMeta) {
     if (attrs.summary) lines.push(`- Summary: ${attrs.summary}`);
     if (attrs.parentPlan) lines.push(`- Parent plan: ${attrs.parentPlan}`);
     if (attrs.worktreeBaseBranch) lines.push(`- Target branch: ${attrs.worktreeBaseBranch}`);
+    if (Array.isArray(attrs.tickets) && attrs.tickets.length) {
+        lines.push("- Epic Ticket references (context only; do not copy to every child):");
+        for (const ticket of attrs.tickets) {
+            if (ticket && typeof ticket.url === "string") lines.push(`  - ${ticket.url}`);
+        }
+    }
     if (Array.isArray(attrs.dependencies) && attrs.dependencies.length) {
         lines.push(`- Epic dependencies: ${attrs.dependencies.join(", ")}`);
     }
@@ -87,11 +94,14 @@ export function buildSlicerRequest(input, legacyTriageMeta) {
             if (child.summary) lines.push(`  - Summary: ${child.summary}`);
             if (child.dependencies?.length) lines.push(`  - Dependencies: ${child.dependencies.join(", ")}`);
             if (child.affectedPaths?.length) lines.push(`  - Affected paths: ${child.affectedPaths.join(", ")}`);
+            if (child.tickets?.length) {
+                lines.push(`  - Direct Ticket references: ${child.tickets.map((ticket) => ticket.url).join(", ")}`);
+            }
         }
     }
     lines.push(
         "",
-        "Existing child drafts may contain user edits. Do not overwrite or update an existing child draft casually; explain the overwrite risk and ask for confirmation first.",
+        "Existing child drafts may contain user edits and direct Ticket References. Do not overwrite or update an existing child draft casually; explain the overwrite risk and ask for confirmation first. When updating a child descriptor, omit tickets to preserve existing direct child Ticket References, use tickets: [] only when explicitly clearing them, and never copy all Epic Ticket References into every child.",
         "",
         "## Epic Markdown",
         epicText,
