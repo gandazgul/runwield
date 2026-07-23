@@ -17,13 +17,21 @@ devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://127.0.0.1:5173"
 devServerHmr: true
 createdAt: "2026-07-21T23:56:51.460-04:00"
-updatedAt: "2026-07-23T03:46:52.824Z"
-status: "draft"
+updatedAt: "2026-07-23T12:27:53.450Z"
+status: "in_progress"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v1"
 order: 3
 dependencies:
     - "02-owner-coordination-database-and-session-catalog"
+humanReviewMode: null
+humanReviewDecision: null
+executionBaselineTree: "f69d416188af35bff09bcae940845bedf1693a87"
+worktreeId: "383c470f"
+worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-personal-remote-workspace-v1-03-secure-persisten-383c470f"
+worktreeBranch: "runwield/worktree/personal-remote-workspace-v1-03-secure-persisten-383c470f"
+worktreeBaseBranch: "main"
+worktreeStatus: "active"
 ---
 
 # Secure Persistent Workspace Bootstrap and Device Pairing
