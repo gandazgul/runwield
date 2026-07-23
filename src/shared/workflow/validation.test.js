@@ -2630,6 +2630,72 @@ Deno.test("runValidationLoop still prompts when merge-conflict metadata updates 
     );
 });
 
+Deno.test("runValidationLoop recovers missing worktree target branch from registry before merge", async () => {
+    const uiAPI = makeUi();
+    /** @type {Array<string | undefined>} */
+    const targets = [];
+
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "p",
+        triageMeta: { classification: "FEATURE" },
+        executionAgent: "engineer",
+        baselineTree: "baseline-tree",
+        projectRoot: "/primary",
+        executionCwd: "/worktree",
+        worktreeId: "wt1",
+        worktreeBranch: "runwield/worktree/p-wt1",
+    });
+
+    await runValidationLoop({
+        hostedSession,
+        planName: "p",
+        planContent: "plan",
+        triageMeta: { classification: "FEATURE" },
+        sessionManager: undefined,
+        __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
+            runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
+            getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
+            runIsolatedAgentSession: () =>
+                Promise.resolve(
+                    /** @type {any} */ ([{
+                        role: "assistant",
+                        content: [{ type: "text", text: "The implementation matches the plan." }],
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_complete",
+                        details: { outcome: "approved", approved: true, feedback: "" },
+                    }]),
+                ),
+            mergeExecutionWorktree: (/** @type {{ targetBranch?: string }} */ args) => {
+                targets.push(args.targetBranch);
+                return Promise.resolve();
+            },
+            findWorktreeRegistryEntryById: (/** @type {string} */ projectRoot, /** @type {string} */ id) =>
+                Promise.resolve({ id, projectRoot, baseBranch: "main" }),
+            updateWorktreeRegistryEntry: () => Promise.resolve({}),
+            recordPlanEvent: noOpRecordPlanEvent,
+            removeExecutionWorktree: () => Promise.resolve(),
+            verifyExecutionWorktreeMerged: () => Promise.resolve({ merged: true, message: "merged" }),
+            getCodeReviewMode: () => "none",
+        }),
+    });
+
+    assertEquals(targets, ["main"]);
+    assertEquals(
+        uiAPI.messages.some((/** @type {string} */ message) =>
+            message.includes("Recovered target branch main from the worktree registry")
+        ),
+        true,
+    );
+    assertEquals(
+        uiAPI.messages.some((/** @type {string} */ message) =>
+            message.includes("Recorded worktree target branch is unknown")
+        ),
+        false,
+    );
+});
+
 Deno.test("runValidationLoop warns when using legacy current-checkout merge fallback", async () => {
     const uiAPI = makeUi();
     /** @type {Array<string | undefined>} */
@@ -2671,6 +2737,7 @@ Deno.test("runValidationLoop warns when using legacy current-checkout merge fall
                 targets.push(args.targetBranch);
                 return Promise.resolve();
             },
+            findWorktreeRegistryEntryById: () => Promise.resolve(null),
             updateWorktreeRegistryEntry: () => Promise.resolve({}),
             recordPlanEvent: noOpRecordPlanEvent,
             removeExecutionWorktree: () => Promise.resolve(),
