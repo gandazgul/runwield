@@ -160,6 +160,7 @@ export async function maybeShowModelWelcome(options) {
         tui: options.tui,
         sessionId: options.sessionId,
         sessionRuntime: options.sessionRuntime,
+        skipPostLoginSetup: true,
     });
 
     const afterLoginAvailability = getConfiguredModelAvailability(getModelRegistry);

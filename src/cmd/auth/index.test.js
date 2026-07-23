@@ -182,6 +182,32 @@ Deno.test("runLoginCommand lets provider prompt escape return to auth method men
     assertEquals(registry.authStorage.get("openai-codex"), undefined);
 });
 
+Deno.test("runLoginCommand can skip post-login setup for first-run welcome", async () => {
+    const registry = createRegistry();
+    const ui = createUi();
+    ui.textInputs.push("secret-key");
+    /** @type {string[]} */
+    const afterLoginActions = [];
+    ui.uiAPI.showModelSelector = () => {
+        afterLoginActions.push("model");
+    };
+
+    await runLoginCommand(["api-key", "openai"], {
+        uiAPI: /** @type {any} */ (ui.uiAPI),
+        sessionId: "session-1",
+        sessionRuntime: /** @type {any} */ ({
+            switchAgent: (
+                /** @type {string} */ _sessionId,
+                /** @type {{ agentName: string }} */ options,
+            ) => afterLoginActions.push(`agent:${options.agentName}`),
+        }),
+        skipPostLoginSetup: true,
+        __testDeps: { getModelRegistry: () => registry },
+    });
+
+    assertEquals(afterLoginActions, []);
+});
+
 Deno.test("runLoginCommand returns quietly when auth type or provider prompts are cancelled", async () => {
     const registry = createRegistry();
     const first = createUi();
