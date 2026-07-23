@@ -14,6 +14,6 @@ if (!payload) {
 }
 ---
 <ReviewLayout title="Code Review · RunWield Workspace">
-    <script type="application/json" data-code-review-payload set:html={JSON.stringify(payload)} />
+    <script is:inline type="application/json" data-code-review-payload set:html={JSON.stringify(payload)} />
     <CodeReviewSurface payload={payload} client:only="react" />
 </ReviewLayout>

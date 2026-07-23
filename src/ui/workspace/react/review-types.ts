@@ -1,81 +1,69 @@
-/**
- * Shared review surface typedefs.
- *
- * This file intentionally contains JSDoc-only types so Workspace review
- * surfaces can share shapes without introducing executable TypeScript syntax.
- */
+export type PlanReviewOptions = {
+    plan: string;
+    token: string;
+    planPath?: string;
+    mode: "workflow" | "dev";
+    frontmatter?: Record<string, unknown>;
+    imageBaseDir?: string;
+};
 
-/**
- * @typedef {Object} PlanReviewOptions
- * @property {string} plan
- * @property {string} token
- * @property {string} [planPath]
- * @property {"workflow" | "dev"} mode
- * @property {Record<string, unknown>} [frontmatter]
- * @property {string} [imageBaseDir]
- */
+export type ArtifactReadOptions = {
+    surface: "artifact-read";
+    markdown: string;
+    token: string;
+    artifactKind: "plan" | "work-record";
+    title: string;
+    artifactPath?: string;
+    notices?: string[];
+    mode: "workflow" | "dev";
+    imageBaseDir?: string;
+};
 
-/**
- * @typedef {Object} ArtifactReadOptions
- * @property {"artifact-read"} surface
- * @property {string} markdown
- * @property {string} token
- * @property {"plan" | "work-record"} artifactKind
- * @property {string} title
- * @property {string} [artifactPath]
- * @property {string[]} [notices]
- * @property {"workflow" | "dev"} mode
- * @property {string} [imageBaseDir]
- */
+export type CodeReviewOptions = {
+    rawPatch: string;
+    gitRef: string;
+    agentCwd: string;
+    token: string;
+    reviewStatus?: {
+        stagedFiles: string[];
+        unstagedFiles: string[];
+        untrackedFiles: string[];
+    };
+    mode: "workflow" | "dev";
+};
 
-/**
- * @typedef {Object} CodeReviewOptions
- * @property {string} rawPatch
- * @property {string} gitRef
- * @property {string} agentCwd
- * @property {string} token
- * @property {{ stagedFiles: string[], unstagedFiles: string[], untrackedFiles: string[] }} [reviewStatus]
- * @property {"workflow" | "dev"} mode
- */
+export type PlanReviewDecision = {
+    approved: boolean;
+    feedback?: string;
+    annotations?: unknown[];
+    plan?: string;
+    savedPath?: string;
+    approvalAction?: "run" | "decompose" | "later";
+    exit?: boolean;
+    agentSwitch?: string;
+    permissionMode?: string;
+};
 
-/**
- * @typedef {Object} PlanReviewDecision
- * @property {boolean} approved
- * @property {string} [feedback]
- * @property {unknown[]} [annotations]
- * @property {string} [plan]
- * @property {string} [savedPath]
- * @property {"run"|"decompose"|"later"} [approvalAction]
- * @property {boolean} [exit]
- * @property {string} [agentSwitch]
- * @property {string} [permissionMode]
- */
+export type CodeReviewAnnotation = {
+    id: string;
+    filePath: string;
+    line: number;
+    side: string;
+    comment: string;
+};
 
-/**
- * @typedef {Object} CodeReviewAnnotation
- * @property {string} id
- * @property {string} filePath
- * @property {number} line
- * @property {string} side
- * @property {string} comment
- */
+export type CodeReviewDecision = {
+    approved: boolean;
+    feedback: string;
+    annotations: CodeReviewAnnotation[];
+    images?: Array<{ path: string; name: string }>;
+    exit?: boolean;
+    canceled?: boolean;
+    agentSwitch?: string;
+};
 
-/**
- * @typedef {Object} CodeReviewDecision
- * @property {boolean} approved
- * @property {string} feedback
- * @property {CodeReviewAnnotation[]} annotations
- * @property {Array<{path: string, name: string}>} [images]
- * @property {boolean} [exit]
- * @property {boolean} [canceled]
- * @property {string} [agentSwitch]
- */
-
-/**
- * @typedef {Object} ReviewSurfaceResult
- * @property {string} url
- * @property {() => Promise<any>} waitForDecision
- * @property {() => void | Promise<void>} stop
- */
-
-export {};
+export type ReviewSurfaceResult = {
+    url: string;
+    waitForDecision: () => Promise<unknown>;
+    stop: () => void | Promise<void>;
+};
