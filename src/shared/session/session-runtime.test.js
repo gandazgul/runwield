@@ -278,7 +278,10 @@ Deno.test("SessionRuntime snapshots and events keep workflow footer context sepa
     runtime.setActiveExecutionWorkflow(sessionId, {
         planName: "execution-plan",
         triageMeta: { complexity: "HIGH" },
-        executionAgent: "engineer",
+        executionAgent: "frontend-engineer",
+        collaborationRecommendation: "pair",
+        collaborationStyle: "pair",
+        pairCheckpointCount: 2,
         executionCwd: Deno.cwd(),
     });
 
@@ -291,9 +294,13 @@ Deno.test("SessionRuntime snapshots and events keep workflow footer context sepa
     assertEquals(snapshot?.activeExecutionWorkflow, {
         planName: "execution-plan",
         triageMeta: { complexity: "HIGH" },
-        executionAgent: "engineer",
+        executionAgent: "frontend-engineer",
+        collaborationRecommendation: "pair",
+        collaborationStyle: "pair",
+        pairCheckpointCount: 2,
         executionCwd: Deno.cwd(),
     });
+    assertEquals(snapshot?.activeExecutionWorkflow === hostedSession.getActiveExecutionWorkflow(), false);
     assertEquals("workflow" in /** @type {Record<string, unknown>} */ (snapshot || {}), false);
     assertEquals(
         events.filter((event) => event.type === RuntimeEventTypes.WORKFLOW_CONTEXT_CHANGED)

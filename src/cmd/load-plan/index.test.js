@@ -2255,15 +2255,16 @@ Deno.test("runLoadPlanCommand skips affected path history in non-Git projects", 
     );
 });
 
-Deno.test("runLoadPlanCommand in_progress plan can continue from current worktree", async () => {
+Deno.test("runLoadPlanCommand rehydrates Frontend Engineer recovery without transient Pair style", async () => {
     const { uiAPI, selections } = makeUi();
+    const runtimeFixture = makeRuntimeFixture();
     selections.push("continue");
     let executed = false;
     /** @type {string | null} */
     let lifecycleEvent = null;
 
     await runLoadPlanCommand(["plan-progress"], {
-        ...makeRuntimeContext(),
+        ...runtimeFixture.context,
         uiAPI,
         editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
         __testDeps: /** @type {any} */ ({
@@ -2280,6 +2281,8 @@ Deno.test("runLoadPlanCommand in_progress plan can continue from current worktre
                         summary: "s",
                         affectedPaths: [],
                         status: "in_progress",
+                        executionAgent: "frontend-engineer",
+                        collaborationRecommendation: "pair",
                         executionBaselineTree: "baseline-tree",
                     },
                 }),
@@ -2297,6 +2300,11 @@ Deno.test("runLoadPlanCommand in_progress plan can continue from current worktre
 
     assertEquals(lifecycleEvent, "recovery_continue");
     assertEquals(executed, true);
+    assertEquals(runtimeFixture.state.workflow?.executionAgent, "frontend-engineer");
+    assertEquals(runtimeFixture.state.workflow?.baselineTree, "baseline-tree");
+    assertEquals(runtimeFixture.state.workflow?.triageMeta.collaborationRecommendation, "pair");
+    assertEquals("collaborationStyle" in (runtimeFixture.state.workflow || {}), false);
+    assertEquals("pairCheckpointCount" in (runtimeFixture.state.workflow || {}), false);
 });
 
 Deno.test("runLoadPlanCommand blocks Git-dependent recovery continue in non-Git projects", async () => {
