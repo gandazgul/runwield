@@ -59,12 +59,12 @@ async function collectStream(stream, onText) {
 }
 
 /** @param {string} output */
-function readReviewUrl(output) {
+export function readReviewUrl(output) {
     return output.match(/http:\/\/127\.0\.0\.1:\d+\/review\/plan\?token=[^\s]+/)?.[0] || "";
 }
 
 /** @param {string} html */
-function assertBinaryReviewHtml(html) {
+export function assertBinaryReviewHtml(html) {
     if (html.includes("Workspace review UI assets are unavailable")) {
         throw new Error("Standalone binary rendered the old unavailable-assets review page.");
     }
@@ -83,10 +83,88 @@ function assertBinaryReviewHtml(html) {
 }
 
 /**
+ * @param {string} html
+ * @param {string} baseUrl
+ * @returns {string[]}
+ */
+export function collectReviewAssetUrls(html, baseUrl) {
+    const urls = new Set();
+    const attributePattern = /(?:src|href|component-url|renderer-url)=(['"])(.*?)\1/g;
+    let match;
+    while ((match = attributePattern.exec(html)) !== null) {
+        addReviewAssetUrl(urls, match[2], baseUrl);
+    }
+    return [...urls];
+}
+
+/**
+ * @param {Set<string>} urls
+ * @param {string} rawUrl
+ * @param {string} baseUrl
+ */
+function addReviewAssetUrl(urls, rawUrl, baseUrl) {
+    if (!rawUrl || rawUrl.startsWith("data:") || rawUrl.startsWith("#")) return;
+    const url = new URL(rawUrl, baseUrl);
+    if (url.pathname.startsWith("/_astro/")) urls.add(url.href);
+}
+
+/**
+ * @param {string} source
+ * @param {string} assetUrl
+ * @returns {string[]}
+ */
+export function collectNestedReviewAssetUrls(source, assetUrl) {
+    const urls = new Set();
+    const importPattern = /(?:import\s*\(\s*|from\s+)(['"])(.*?)\1/g;
+    let match;
+    while ((match = importPattern.exec(source)) !== null) {
+        addReviewAssetUrl(urls, match[2], assetUrl);
+    }
+    const sideEffectImportPattern = /import\s+(['"])(.*?)\1/g;
+    while ((match = sideEffectImportPattern.exec(source)) !== null) {
+        addReviewAssetUrl(urls, match[2], assetUrl);
+    }
+    const cssUrlPattern = /url\(\s*(['"]?)(.*?)\1\s*\)/g;
+    while ((match = cssUrlPattern.exec(source)) !== null) {
+        addReviewAssetUrl(urls, match[2], assetUrl);
+    }
+    return [...urls];
+}
+
+/**
+ * @param {string} pageUrl
+ * @param {string} html
+ */
+export async function assertReviewAssetsLoad(pageUrl, html) {
+    const pending = collectReviewAssetUrls(html, pageUrl);
+    const seen = new Set();
+
+    while (pending.length) {
+        const assetUrl = pending.shift();
+        if (!assetUrl || seen.has(assetUrl)) continue;
+        seen.add(assetUrl);
+
+        const response = await fetch(assetUrl);
+        const body = await response.text();
+        if (response.status !== 200) {
+            throw new Error(`Review UI asset failed to load (${response.status}): ${assetUrl}\n${body.slice(0, 200)}`);
+        }
+
+        if (assetUrl.endsWith(".js") || assetUrl.endsWith(".css")) {
+            for (const nestedUrl of collectNestedReviewAssetUrls(body, assetUrl)) {
+                if (!seen.has(nestedUrl)) pending.push(nestedUrl);
+            }
+        }
+    }
+
+    if (!seen.size) throw new Error("Review UI page did not reference any loadable Astro assets.");
+}
+
+/**
  * @param {string} binaryPath
  * @param {string} root
  */
-async function smokeTestBinaryReviewSurface(binaryPath, root) {
+export async function smokeTestBinaryReviewSurface(binaryPath, root) {
     console.log("\n==> Smoke test standalone review surface");
     const projectDir = join(root, "project");
     await Deno.mkdir(join(projectDir, "plans"), { recursive: true });
@@ -96,7 +174,7 @@ async function smokeTestBinaryReviewSurface(binaryPath, root) {
     );
 
     const child = new Deno.Command(binaryPath, {
-        args: ["plans", "read", "release-review-smoke"],
+        args: ["plans", "read", "release-review-smoke", "--no-open"],
         cwd: projectDir,
         stdin: "null",
         stdout: "piped",
@@ -133,6 +211,7 @@ async function smokeTestBinaryReviewSurface(binaryPath, root) {
         const html = await response.text();
         if (response.status !== 200) throw new Error(`Review URL returned ${response.status}: ${html.slice(0, 200)}`);
         assertBinaryReviewHtml(html);
+        await assertReviewAssetsLoad(url, html);
 
         const token = new URL(url).searchParams.get("token") || "";
         const origin = new URL(url).origin;
@@ -153,16 +232,20 @@ async function smokeTestBinaryReviewSurface(binaryPath, root) {
     }
 }
 
-const tempDir = await Deno.makeTempDir({ prefix: "wld-release-check-" });
-const binaryName = Deno.build.os === "windows" ? "wld.exe" : "wld";
-const output = join(tempDir, binaryName);
+export async function main() {
+    const tempDir = await Deno.makeTempDir({ prefix: "wld-release-check-" });
+    const binaryName = Deno.build.os === "windows" ? "wld.exe" : "wld";
+    const output = join(tempDir, binaryName);
 
-try {
-    await mustRun("Compile release binary", "deno", ["run", "-A", "scripts/compile.js", "--output", output]);
-    await mustRun("Smoke test release binary", output, ["--version"]);
-    await smokeTestBinaryReviewSurface(output, tempDir);
-} finally {
-    await Deno.remove(tempDir, { recursive: true }).catch((error) => {
-        if (!(error instanceof Deno.errors.NotFound)) throw error;
-    });
+    try {
+        await mustRun("Compile release binary", "deno", ["run", "-A", "scripts/compile.js", "--output", output]);
+        await mustRun("Smoke test release binary", output, ["--version"]);
+        await smokeTestBinaryReviewSurface(output, tempDir);
+    } finally {
+        await Deno.remove(tempDir, { recursive: true }).catch((error) => {
+            if (!(error instanceof Deno.errors.NotFound)) throw error;
+        });
+    }
 }
+
+if (import.meta.main) await main();
