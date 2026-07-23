@@ -37,17 +37,14 @@ devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://127.0.0.1:5173"
 devServerHmr: true
 createdAt: "2026-07-22T13:11:44-04:00"
-updatedAt: "2026-07-23T17:51:22.809Z"
-status: "in_progress"
+updatedAt: "2026-07-23T19:01:19.670Z"
+status: "verified"
 origin: "internal"
-humanReviewMode: null
-humanReviewDecision: null
-executionBaselineTree: "4f931a5c2e2da81023ca0dac704db7ae9c7c6b73"
-worktreeId: "adf19a14"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-ticket-reference-provenance-adf19a14"
-worktreeBranch: "runwield/worktree/ticket-reference-provenance-adf19a14"
-worktreeBaseBranch: "main"
-worktreeStatus: "active"
+implementedAt: "2026-07-23T18:13:27.281Z"
+verifiedAt: "2026-07-23T19:01:19.670Z"
+executionReport: "- Implemented provider-neutral Ticket References across Plan front matter, Slicer descriptors/prompts, Work Record schema/generation/index/search/read surfaces, and Workspace Plan detail rendering.\n- Updated Planner/Architect/Slicer guidance plus PRD and design-system docs for demand-provenance boundaries and metadata-reference link styling.\n- Added regression coverage for Plan round-trips/child preservation, Work Record snapshot/aggregation/search hydration, and Workspace safe link rendering.\n- Verification passed: `deno test -A src/plan-store.test.js`; workflow prompt/tests; Work Record/tool/CLI tests; `deno task workspace:test`; and full `deno task ci` (1583 passed, release smoke passed).\n- Headed browser check: ran Workspace at `http://127.0.0.1:5173`, opened standalone and child Ticket fixture details with `agent-browser --headed`; verified direct vs Epic inherited groups, long URL rendering, safe external href/target/rel, non-HTTP value not linked, no `example.com` network request before activation; screenshots saved at `/tmp/ticket-standalone.png` and `/tmp/ticket-child.png`."
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
 ---
 
 # Preserve Ticket References Through Delivery

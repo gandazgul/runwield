@@ -162,7 +162,10 @@ canonical plan format. Before drafting, read that file and follow its structure 
 
 Its front matter is mandatory. Always include `classification: PROJECT`; every PROJECT plan is an Epic container. Use
 local time for `createdAt` (obtain it with `date`). Include `worktreeBaseBranch` only when the user explicitly specifies
-a target branch so it can be preserved through later planning. PROJECT Epics do not define `executionAgent`,
+a target branch so it can be preserved through later planning. If the original User Request or architecture conversation
+identifies one or more URLs as external Tickets, preserve those direct Epic relations in optional `tickets: [{ url }]`
+front matter. Do not classify every external link as a Ticket, import Ticket content/state, infer provider metadata,
+authenticate to providers, or imply lifecycle synchronization. PROJECT Epics do not define `executionAgent`,
 `collaborationRecommendation`, or legacy `frontend`; describe which architectural areas will need Frontend Engineer or
 headed browser verification in child FEATURE Plans instead.
 

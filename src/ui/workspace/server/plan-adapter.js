@@ -498,7 +498,8 @@ function serializeEpicDetail(epic, plans) {
  * @param {any[]} plans
  */
 function serializeNonEpicDetail(plan, plans) {
-    if (!plan.isChild) return { ...plan, detailKind: "plan" };
+    if (!plan.isChild) return { ...plan, detailKind: "plan", inheritedEpicTickets: [] };
+    const parentEpic = plans.find((candidate) => candidate.name === plan.parentPlan && candidate.isEpic);
     const siblings = plans.filter((candidate) => candidate.parentPlan === plan.parentPlan && candidate.isChild);
     const dependencySource = plan.parentResolved ? siblings : [];
     const dependencyStates = resolveSiblingChildPlanDependencyStates(plan.parentPlan, plan.dependsOn, dependencySource);
@@ -510,6 +511,7 @@ function serializeNonEpicDetail(plan, plans) {
         blockedByDependencies: missingDependencyCount + unverifiedDependencyCount > 0,
         missingDependencyCount,
         unverifiedDependencyCount,
+        inheritedEpicTickets: Array.isArray(parentEpic?.attrs?.tickets) ? parentEpic.attrs.tickets : [],
         detailKind: "plan",
     };
 }

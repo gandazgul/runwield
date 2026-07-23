@@ -12,6 +12,7 @@ import { extractYaml, test as hasFrontMatter } from "@std/front-matter";
 import { basename, join, relative, resolve } from "@std/path";
 import { CLI_BIN, PLANS_DIR_NAME } from "./constants.js";
 import { PLAN_FRONT_MATTER_KEY_ORDER, PLAN_FRONT_MATTER_KEYS } from "./plan-front-matter.js";
+import { normalizeTicketReferences } from "./shared/ticket-references.js";
 import {
     assertSharedPlanWriteAllowed,
     COLLABORATION_FRONT_MATTER_KEYS,
@@ -99,6 +100,7 @@ function getStoredPlanLocation(cwd, planName) {
  * @property {"LOW"|"MEDIUM"|"HIGH"} complexity
  * @property {string} summary - Brief description of what the plan addresses
  * @property {string[]} affectedPaths - Files that will be created/modified
+ * @property {import('./shared/ticket-references.js').TicketReference[]} [tickets] - Optional provider-neutral Ticket References identified by the user.
  * @property {unknown} [executionAgent] - Canonical FEATURE execution owner, preserved raw when invalid for diagnostics
  * @property {unknown} [collaborationRecommendation] - Planner's suggested execution style, preserved raw when invalid for diagnostics
  * @property {boolean} [frontend] - Legacy browser UI/UX marker retained for source compatibility
@@ -171,6 +173,7 @@ function getStoredPlanLocation(cwd, planName) {
  * @property {boolean|null} [devServerHmr] - Whether the dev server is expected to support hot module reload.
  * @property {string|null} [worktreeBaseBranch] - Target branch this child FEATURE should execute from and merge back into.
  * @property {string[]} dependencies - Sibling child plan names or identifiers required first.
+ * @property {import('./shared/ticket-references.js').TicketReference[]} [tickets] - Direct child Ticket References; omitted preserves existing child references, [] clears.
  * @property {string} content - Planner-format markdown body for the child FEATURE.
  * @property {number} [order] - Optional stable execution order used in front matter and the file name.
  * @property {number} [sequence] - Deprecated alias for order.
@@ -346,6 +349,7 @@ function formatFrontMatter(fm) {
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.complexity, fm.complexity);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.summary, fm.summary);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.affectedPaths, fm.affectedPaths);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.tickets, fm.tickets);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.executionAgent, fm.executionAgent);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.collaborationRecommendation, fm.collaborationRecommendation);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.frontend, fm.frontend);
@@ -787,6 +791,9 @@ export function injectFrontMatter(markdown, overrides = {}) {
         affectedPaths: overrides.affectedPaths ??
             existingFm.affectedPaths ??
             DEFAULT_FRONT_MATTER.affectedPaths,
+        tickets: Object.hasOwn(overrides, "tickets")
+            ? normalizeTicketReferences(overrides.tickets)
+            : normalizeTicketReferences(existingFm.tickets),
         executionAgent: optionalExecutionPolicyValue(overrides, existingFm, "executionAgent"),
         collaborationRecommendation: optionalExecutionPolicyValue(overrides, existingFm, "collaborationRecommendation"),
         frontend: Object.hasOwn(overrides, "frontend")
@@ -904,6 +911,7 @@ export function parsePlanFrontMatter(markdown, opts = {}) {
             complexity: attrs.complexity || DEFAULT_FRONT_MATTER.complexity,
             summary: attrs.summary || DEFAULT_FRONT_MATTER.summary,
             affectedPaths: normalizeStringList(attrs.affectedPaths) || DEFAULT_FRONT_MATTER.affectedPaths,
+            tickets: normalizeTicketReferences(attrs.tickets),
             executionAgent: Object.hasOwn(attrs, "executionAgent") ? attrs.executionAgent ?? undefined : undefined,
             collaborationRecommendation: Object.hasOwn(attrs, "collaborationRecommendation")
                 ? attrs.collaborationRecommendation ?? undefined
@@ -1202,6 +1210,9 @@ function validateChildFeaturePlanDescriptor(child) {
         throw new Error(`Child plan order must be a non-negative integer: ${rawOrder}`);
     }
     descriptor.order = order;
+    if (Object.hasOwn(descriptor, "tickets")) {
+        descriptor.tickets = normalizeTicketReferences(descriptor.tickets) || [];
+    }
 
     return /** @type {ChildFeaturePlanDescriptor} */ (descriptor);
 }
@@ -1313,6 +1324,17 @@ export async function saveChildFeaturePlans(cwd, epicPlanName, children, options
         if (devServerUrl !== undefined) metadata.devServerUrl = devServerUrl;
         if (devServerHmr !== undefined) metadata.devServerHmr = devServerHmr;
         if (worktreeBaseBranch !== undefined) metadata.worktreeBaseBranch = worktreeBaseBranch;
+        if (Object.hasOwn(child, "tickets")) {
+            metadata.tickets = normalizeTicketReferences(child.tickets);
+        } else if (action === "updated") {
+            try {
+                const existing = parsePlanFrontMatter(await Deno.readTextFile(filePath)).attrs;
+                const tickets = normalizeTicketReferences(existing.tickets);
+                if (tickets) metadata.tickets = tickets;
+            } catch {
+                // Best-effort preservation; savePlan will surface unreadable-file errors.
+            }
+        }
         const path = await savePlan(cwd, name, child.content, {
             ...metadata,
             summary: child.summary,

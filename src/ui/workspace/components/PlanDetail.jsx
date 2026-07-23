@@ -2,6 +2,7 @@ import {
     PLAN_FRONT_MATTER_KEY_ORDER as FRONT_MATTER_KEY_ORDER,
     PLAN_FRONT_MATTER_KEYS as FM,
 } from "../../../plan-front-matter.js";
+import { safeHttpTicketReferenceUrl } from "../../../shared/ticket-references.js";
 import { PlanBodyEditor } from "../islands/PlanBodyEditor.jsx";
 import { PlanLifecycleActions } from "../islands/PlanLifecycleActions.jsx";
 import { BoardColumn } from "./BoardColumn.jsx";
@@ -52,7 +53,7 @@ const FRONT_MATTER_KEYS_IN_ORDER = [...FRONT_MATTER_KEY_ORDER];
 /** @type {Set<string>} */
 const FRONT_MATTER_KEY_SET = new Set(FRONT_MATTER_KEYS_IN_ORDER);
 /** @type {Set<string>} */
-const HIDDEN_METADATA_KEYS = new Set([FM.worktreePath]);
+const HIDDEN_METADATA_KEYS = new Set([FM.worktreePath, FM.tickets]);
 const RESOURCE_METADATA_KEYS = Object.freeze({
     relativePath: "relativePath",
     dependencyState: "dependencyState",
@@ -68,6 +69,7 @@ const METADATA_LABELS = Object.freeze({
     [FM.complexity]: "Complexity",
     [FM.summary]: "Summary",
     [FM.affectedPaths]: "Affected paths",
+    [FM.tickets]: "Ticket references",
     [FM.createdAt]: "Created at",
     [FM.updatedAt]: "Updated at",
     [FM.parentPlan]: "Epic",
@@ -173,6 +175,7 @@ function planMetadata(plan) {
         [FM.classification]: source[FM.classification] ?? plan.classification,
         [FM.complexity]: source[FM.complexity] ?? plan.complexity,
         [FM.summary]: source[FM.summary] ?? plan.summary,
+        [FM.tickets]: source[FM.tickets],
         [FM.parentPlan]: source[FM.parentPlan] ?? plan.parentPlan,
         [FM.dependencies]: source[FM.dependencies] ?? plan.dependsOn,
         [FM.worktreeBranch]: source[FM.worktreeBranch] ?? plan.worktreeBranch,
@@ -258,6 +261,45 @@ function additionalMetadataEntries(metadata, renderedKeys) {
         .map(([key, value]) => ({ key, label: metadataLabel(key), value }));
 }
 
+/** @param {unknown} value */
+function ticketReferences(value) {
+    return Array.isArray(value)
+        ? value.filter((ticket) => ticket && typeof ticket === "object" && typeof ticket.url === "string")
+        : [];
+}
+
+/** @param {{ title: string, tickets: any[] }} props */
+function TicketReferenceGroup({ title, tickets }) {
+    if (!tickets.length) return null;
+    return (
+        <section className="metadata-group metadata-reference-group" aria-label={`${title} metadata`}>
+            <h4 className="metadata-group-title">{title}</h4>
+            <ul className="metadata-reference-list">
+                {tickets.map((ticket, index) => {
+                    const label = String(ticket.url || "");
+                    const href = safeHttpTicketReferenceUrl(label);
+                    return (
+                        <li key={`${label}-${index}`}>
+                            {href
+                                ? (
+                                    <a
+                                        className="metadata-reference-link"
+                                        href={href}
+                                        target="_blank"
+                                        rel="noreferrer noopener"
+                                    >
+                                        {label}
+                                    </a>
+                                )
+                                : <span className="metadata-reference-text">{label}</span>}
+                        </li>
+                    );
+                })}
+            </ul>
+        </section>
+    );
+}
+
 /** @param {{ title: string, entries: Array<{ key: string, label: string, value: unknown }> }} props */
 function MetadataGroup({ title, entries }) {
     if (!entries.length) return null;
@@ -286,8 +328,13 @@ function DetailMetadata({ plan }) {
     })).filter((group) => group.entries.length);
     const additionalEntries = additionalMetadataEntries(metadata, renderedKeys);
 
+    const directTickets = ticketReferences(metadata[FM.tickets]);
+    const inheritedEpicTickets = ticketReferences(plan.inheritedEpicTickets);
+
     return (
         <div className="metadata-section">
+            <TicketReferenceGroup title="Ticket references" tickets={directTickets} />
+            <TicketReferenceGroup title="Epic ticket references" tickets={inheritedEpicTickets} />
             {groups.map((group) => <MetadataGroup key={group.title} title={group.title} entries={group.entries} />)}
             <MetadataGroup title="Additional metadata" entries={additionalEntries} />
         </div>
