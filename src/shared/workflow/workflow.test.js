@@ -1240,6 +1240,63 @@ Deno.test("runSlicerAgent returns ok=true when session resolves", async () => {
     assertStringIncludes(captured.userRequest, "my-plan");
 });
 
+Deno.test("runSlicerAgent includes existing child Ticket References in resumed handoff", async () => {
+    let userRequest = "";
+    const sessionManager = /** @type {any} */ ({
+        buildSessionContext: () => ({ messages: [] }),
+        getLeafId: () => "architect-leaf",
+        appendCompaction: () => {},
+    });
+    const hostedSession = makeHostedSession();
+    hostedSession.setRootAgentName("architect");
+    hostedSession.setRootSessionManager(sessionManager);
+
+    const result = await runSlicerAgent({
+        planName: "epic-a",
+        hostedSession,
+        __deps: {
+            loadPlan: () =>
+                Promise.resolve({
+                    path: "/tmp/epic-a.md",
+                    attrs: {
+                        classification: "PROJECT",
+                        status: "approved",
+                        complexity: "HIGH",
+                        summary: "Epic",
+                        affectedPaths: [],
+                        createdAt: "2026-01-01T00:00:00.000Z",
+                    },
+                    markdown: "# Epic",
+                    body: "# Epic",
+                }),
+            findPlansByParent: () =>
+                Promise.resolve([{
+                    name: "epic-a/01-child",
+                    path: "/tmp/epic-a/01-child.md",
+                    attrs: {
+                        classification: "FEATURE",
+                        status: "draft",
+                        complexity: "MEDIUM",
+                        order: 1,
+                        summary: "Child slice",
+                        affectedPaths: [],
+                        createdAt: "2026-01-01T00:00:00.000Z",
+                        tickets: [{ url: "https://tracker.example/TICKET-1" }],
+                    },
+                }]),
+            ensureBundledAgentDefFile: (relativePath) => Promise.resolve(`/tmp/${relativePath}`),
+            loadAgentDefFromPath: () => Promise.resolve(/** @type {any} */ ({ displayName: "Slicer" })),
+            runActiveAgentTurn: (/** @type {any} */ opts) => {
+                userRequest = opts.userRequest;
+                return Promise.resolve([]);
+            },
+        },
+    });
+
+    assertEquals(result.ok, true);
+    assertStringIncludes(userRequest, "Direct Ticket references: https://tracker.example/TICKET-1");
+});
+
 Deno.test("runSlicerAgent restores the prior session leaf when isolated Slicer startup fails", async () => {
     /** @type {string[]} */
     const restoredLeaves = [];

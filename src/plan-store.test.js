@@ -2112,3 +2112,69 @@ testWithFs("updateArchivedPlanFrontMatter preserves archive metadata while addin
         await Deno.remove(cwd, { recursive: true });
     }
 });
+
+testWithFs("Plan front matter normalizes and preserves Ticket References", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "ticketed", "# Ticketed", {
+            summary: "Ticketed",
+            tickets: [
+                { url: " https://example.com/tickets/ABC-123 ", label: "ABC", count: 1 },
+                { url: "" },
+                /** @type {any} */ ("https://example.com/not-an-object"),
+            ],
+        });
+        const loaded = await loadPlan(cwd, "ticketed");
+        assertEquals(loaded?.attrs.tickets, [{ url: "https://example.com/tickets/ABC-123", label: "ABC", count: 1 }]);
+        assertStringIncludes(loaded?.markdown || "", 'tickets:\n    - url: "https://example.com/tickets/ABC-123"');
+
+        const updated = await updatePlanFrontMatter(cwd, "ticketed", { status: "approved" });
+        assertEquals(updated.tickets, [{ url: "https://example.com/tickets/ABC-123", label: "ABC", count: 1 }]);
+        const cleared = await updatePlanFrontMatter(cwd, "ticketed", { tickets: [] });
+        assertEquals(cleared.tickets, undefined);
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+testWithFs(
+    "child plan materialization preserves omitted Ticket References and clears explicit empty references",
+    async () => {
+        const cwd = await Deno.makeTempDir();
+        try {
+            await savePlan(cwd, "epic", "# Epic", { classification: "PROJECT", status: "approved" });
+            await saveChildFeaturePlans(cwd, "epic", [{
+                title: "Child",
+                order: 1,
+                summary: "Child",
+                affectedPaths: [],
+                dependencies: [],
+                tickets: [{ url: "https://example.com/tickets/CHILD-1" }],
+                content: "# Child",
+            }]);
+            await saveChildFeaturePlans(cwd, "epic", [{
+                title: "Child",
+                order: 1,
+                summary: "Updated",
+                affectedPaths: [],
+                dependencies: [],
+                content: "# Child updated",
+            }]);
+            assertEquals((await loadPlan(cwd, "epic/01-child"))?.attrs.tickets, [{
+                url: "https://example.com/tickets/CHILD-1",
+            }]);
+            await saveChildFeaturePlans(cwd, "epic", [{
+                title: "Child",
+                order: 1,
+                summary: "Cleared",
+                affectedPaths: [],
+                dependencies: [],
+                tickets: [],
+                content: "# Child cleared",
+            }]);
+            assertEquals((await loadPlan(cwd, "epic/01-child"))?.attrs.tickets, undefined);
+        } finally {
+            await Deno.remove(cwd, { recursive: true });
+        }
+    },
+);
