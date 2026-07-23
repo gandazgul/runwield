@@ -26,14 +26,12 @@ devServerCommand: "deno task workspace:dev:plan-review"
 devServerUrl: "http://127.0.0.1:5173/dev/plan-review"
 devServerHmr: true
 createdAt: "2026-07-23T10:12:55-04:00"
-updatedAt: "2026-07-23T15:18:17.346Z"
-status: "implemented"
+updatedAt: "2026-07-23T15:23:27.845Z"
+status: "verified"
 origin: "internal"
-failureReason: "Primary checkout has uncommitted changes that overlap execution worktree changes; refusing to merge: plans/personal-remote-workspace-v1/03-secure-persistent-workspace-bootstrap-and-device-pairing.md"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-browser-read-only-plan-work-record-view-0cde5ba9"
-worktreeBranch: "runwield/worktree/browser-read-only-plan-work-record-view-0cde5ba9"
-worktreeBaseBranch: "main"
-worktreeStatus: "merge_conflict"
+verifiedAt: "2026-07-23T15:23:27.845Z"
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
 ---
 
 # Browser Read-Only Plan and Work Record View

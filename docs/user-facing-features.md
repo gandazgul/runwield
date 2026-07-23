@@ -83,7 +83,7 @@
 - **Plans CLI**
   - List active saved plans with `wld plans`.
   - Group child feature plans under their parent Epic in plan listings.
-  - Read active or archived plan details with `wld plans read <name-or-id>`.
+  - Open active or archived plan details read-only in the browser with `wld plans read <name-or-id>`.
   - Archive verified or closed plans with `wld plans archive <name-or-id>`.
   - Force archive other safe statuses when explicitly requested.
   - Bulk archive active plans by exact status with `wld plans archive --all --status <status>`.
@@ -132,7 +132,7 @@
   - Include maintenance records with `wld wr list --all`.
   - Search the Work Record index with `wld wr search <query>`.
   - Search all maintenance states with `wld wr search <query> --all`.
-  - Read a Work Record by stable ID with `wld wr read <recordId>`.
+  - Open a Work Record read-only in the browser by stable ID with `wld wr read <recordId>`.
   - Rebuild the derived Work Record index with `wld wr index rebuild`.
   - Backfill missing Work Records with `wld wr backfill`.
   - Preview Work Record backfill with `wld wr backfill --dry-run`.
