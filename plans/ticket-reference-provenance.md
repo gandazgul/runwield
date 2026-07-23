@@ -37,9 +37,17 @@ devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://127.0.0.1:5173"
 devServerHmr: true
 createdAt: "2026-07-22T13:11:44-04:00"
-updatedAt: "2026-07-22T17:15:42.050Z"
-status: "ready_for_work"
+updatedAt: "2026-07-23T17:51:22.809Z"
+status: "in_progress"
 origin: "internal"
+humanReviewMode: null
+humanReviewDecision: null
+executionBaselineTree: "4f931a5c2e2da81023ca0dac704db7ae9c7c6b73"
+worktreeId: "adf19a14"
+worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-ticket-reference-provenance-adf19a14"
+worktreeBranch: "runwield/worktree/ticket-reference-provenance-adf19a14"
+worktreeBaseBranch: "main"
+worktreeStatus: "active"
 ---
 
 # Preserve Ticket References Through Delivery
