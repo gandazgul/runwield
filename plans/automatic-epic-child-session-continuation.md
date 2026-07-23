@@ -1,4 +1,5 @@
 ---
+planId: "d26b8dd4-b04c-4130-849a-cacd1b93db84"
 classification: "FEATURE"
 complexity: "HIGH"
 summary: "Automatically continue an Epic with its next ordered child FEATURE Plan in a fresh core-owned Session after successful Workflow Validation."
@@ -19,9 +20,19 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-22T08:32:40-04:00"
-updatedAt: "2026-07-22T18:08:47.064Z"
-status: "ready_for_work"
+updatedAt: "2026-07-23T02:48:01.126Z"
+status: "verified"
 origin: "internal"
+implementedAt: "2026-07-23T02:42:14.284Z"
+verifiedAt: "2026-07-23T02:47:51.617Z"
+executionReport: "- Implemented typed Workflow Validation results and propagated verified/paused/failed outcomes through validation, orchestrator, agent handler, Runtime, `/load-plan`, TUI, and ACP paths.\n- Added strict Epic child continuation resolver/runner with canonical ordering, terminal-sibling skipping, dependency blocking, readiness execution, fresh Session replacement event, TUI rebinding, and ACP stable-ID remapping.\n- Updated `docs/workflows.md` and `docs/usage.md` for default Epic auto-continuation and fresh Session boundary.\n- Added focused tests for Epic continuation resolution, `session_replaced` event validation, and ACP runtime-session remapping.\n- Verification passed: `deno test -A src/shared/workflow/epic-continuation.test.js src/shared/session/session-runtime-events.test.js src/acp/session-map.test.js`; `deno check ...`; `deno task ci`.\n- Manual TUI/ACP end-to-end scenarios from the plan were not run in an interactive client; automated CI passed."
+workRecord:
+    status: "generated"
+    recordId: "bf81ff83-73b6-47a8-a3ae-4cf05bc3ca5d"
+    path: "docs/work-records/2026-07-23-automatic-epic-child-session-continuation.md"
+    lastAttemptAt: "2026-07-23T02:47:51.669Z"
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
 ---
 
 # Automatic Epic Child Session Continuation
