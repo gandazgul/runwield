@@ -1,4 +1,5 @@
 ---
+planId: "b0e98f29-33de-44bf-a785-dbda322d2533"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Build the first phone-friendly Workspace Session surface: authenticated timeline, prompt box, activation-aware ownership state, and a basic ideation continuation flow backed by the slice 4 APIs."

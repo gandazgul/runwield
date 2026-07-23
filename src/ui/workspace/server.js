@@ -28,11 +28,39 @@ import {
     reviewFeedbackApi,
 } from "./routes/api/review-handlers.js";
 import { createRemoteWorkspaceAdapter } from "./server/remote-adapter.js";
+import { openOwnerCoordinationStore } from "../../shared/owner-coordination/index.js";
+import { loadBoard, loadWorkspaceDetail } from "./server/plan-adapter.js";
+import { PlanBoard } from "./components/Board.jsx";
+import { PlanBoardToolbar } from "./components/PlanBoardToolbar.jsx";
+import { PlanDetail } from "./components/PlanDetail.jsx";
 import { loadRunWieldThemeCss } from "../design-system/theme-bridge.js";
 import { reviewImageApi, reviewImageUploadApi } from "./routes/api/review-image-handlers.js";
 import { cleanupReviewAgentState, createReviewAgentState, reviewAgentApi } from "./routes/api/review-agent-handlers.js";
 import { reviewFileContentApi, reviewLocalConfigApi, reviewOpenInAppsApi } from "./routes/api/review-file-handlers.js";
 import { reviewWidgetApi } from "./routes/api/review-widget-handlers.js";
+import {
+    devicesApi,
+    ownerErrorJson,
+    ownerProjectBoardApi,
+    ownerProjectPlanDetailApi,
+    pairingClaimApi,
+    pairingRequestApi,
+    pairingStatusApi,
+    projectActionApi,
+    projectsApi,
+    registerProjectApi,
+    revokeDeviceApi,
+} from "./routes/owner-api.js";
+import { authenticateOwnerRequest, authorizeOwnerUpgradeRequest, isOwnerUpgradeRequest } from "./server/owner-auth.js";
+import {
+    assertOwnerHost,
+    assertOwnerOrigin,
+    isStateChangingRequest,
+    withOwnerSecurityHeaders,
+} from "./server/owner-origin.js";
+import { listOwnerProjects, requireOwnerProjectRoot } from "./server/owner-projects.js";
+import { createOwnerConnectionRegistry } from "./server/owner-connections.js";
+import { setAstroOwnerWorkspaceStore } from "./server/astro-owner-data.js";
 
 const WORKSPACE_DIR = join(RUNWIELD_SOURCE_ROOT, "ui", "workspace");
 const ROOT_DIR = RUNWIELD_ROOT;
@@ -67,6 +95,14 @@ const REVIEW_PAYLOAD_HEADER = "x-runwield-review-payload";
 /** @typedef {(output: ReviewServerOutput) => void} ReviewServerOutputListener */
 
 /**
+ * @typedef {Object} OwnerWorkspaceAppOptions
+ * @property {"owner"} mode
+ * @property {string} publicOrigin
+ * @property {string} [dbPath]
+ * @property {ReturnType<typeof openOwnerCoordinationStore>} [store]
+ */
+
+/**
  * @param {Request} request
  * @param {string} expectedToken
  */
@@ -94,9 +130,10 @@ export function hasWorkspaceToken(request, expectedToken) {
  * @property {number} [retentionDays]
  */
 
-/** @param {LocalWorkspaceAppOptions | RemoteWorkspaceAppOptions} options */
+/** @param {LocalWorkspaceAppOptions | RemoteWorkspaceAppOptions | OwnerWorkspaceAppOptions} options */
 export function createWorkspaceApp(options) {
     if (options.mode === "remote") return createRemoteWorkspaceApp(options);
+    if (options.mode === "owner") return createOwnerWorkspaceApp(options);
     return createLocalWorkspaceApp(options);
 }
 
@@ -127,6 +164,97 @@ export function createRemoteWorkspaceApp(options = { mode: "remote" }) {
     });
     app.notFound(() => jsonNotFound());
     app.adapter = adapter;
+    return app;
+}
+
+/** @param {OwnerWorkspaceAppOptions} options */
+export function createOwnerWorkspaceApp(options) {
+    const app = createWorkspaceRouter();
+    const store = options.store || openOwnerCoordinationStore({ dbPath: options.dbPath });
+    setAstroOwnerWorkspaceStore(store);
+    const connections = createOwnerConnectionRegistry();
+    const pairingRateLimit = createInProcessRateLimit({ limit: 4, windowMs: 60_000 });
+    registerStaticRoutes(app);
+    app.use(async (ctx) => {
+        try {
+            assertOwnerHost(ctx.req, { publicOrigin: options.publicOrigin });
+            if (isStateChangingRequest(ctx.req)) assertOwnerOrigin(ctx.req, { publicOrigin: options.publicOrigin });
+            ctx.state.store = store;
+            ctx.state.publicOrigin = options.publicOrigin;
+            ctx.state.ownerConnections = connections;
+            ctx.state.pairingRateLimit = pairingRateLimit;
+            ctx.state.bootstrapProofCookieHeader = (proof) =>
+                `rw_pairing_proof=${encodeURIComponent(proof)}; Max-Age=300; Path=/; SameSite=Strict${
+                    options.publicOrigin.startsWith("https:") ? "; Secure" : ""
+                }; HttpOnly`;
+            const path = ctx.url.pathname;
+            if (isOwnerUpgradeRequest(ctx.req)) {
+                ctx.state.ownerDevice = authorizeOwnerUpgradeRequest(ctx.req, ctx.state);
+                return withOwnerSecurityHeaders(await ctx.next());
+            }
+            const pairingPath = path === "/pair" || path.startsWith("/api/owner/pairing");
+            const publicAssetPath = isPublicWorkspaceAsset(path);
+            if (!pairingPath && !publicAssetPath) {
+                const ownerDevice = authenticateOwnerRequest(ctx.req, ctx.state);
+                if (!ownerDevice) {
+                    if (path.startsWith("/api/")) {
+                        return ownerJsonResponse({ error: "Owner Workspace device pairing required." }, 401);
+                    }
+                    return redirectResponse("/pair");
+                }
+                ctx.state.ownerDevice = ownerDevice;
+            }
+            return withOwnerSecurityHeaders(await ctx.next());
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            if (ctx.url.pathname.startsWith("/api/")) return ownerJsonResponse({ error: message }, 403);
+            return ownerHtmlResponse(
+                "RunWield Owner Workspace",
+                `<section class=\"error-panel\"><h2>Workspace request blocked</h2><p>${
+                    escapeHtml(message)
+                }</p></section>`,
+                403,
+            );
+        }
+    });
+    app.get("/", (ctx) => ownerHtmlResponse("RunWield Owner Workspace", renderOwnerHome(ctx)));
+    app.get("/pair", (ctx) => ownerHtmlResponse("Pair RunWield Workspace", renderPairingPage(ctx)));
+    app.get("/devices", (ctx) => ownerHtmlResponse("Paired devices", renderDevicesPage(ctx)));
+    app.get(
+        "/projects/:projectId/plans",
+        async (ctx) => ownerHtmlResponse("Project Plans", await renderOwnerProjectBoard(ctx, "active")),
+    );
+    app.get(
+        "/projects/:projectId/plans/closed",
+        async (ctx) => ownerHtmlResponse("Closed Project Plans", await renderOwnerProjectBoard(ctx, "closed")),
+    );
+    app.get(
+        "/projects/:projectId/plans/on-hold",
+        async (ctx) => ownerHtmlResponse("On-hold Project Plans", await renderOwnerProjectBoard(ctx, "on-hold")),
+    );
+    app.get(
+        "/projects/:projectId/plans/:planId",
+        async (ctx) => ownerHtmlResponse("Project Plan", await renderOwnerPlanDetail(ctx)),
+    );
+    app.post("/api/owner/pairing/request", pairingRequestApi);
+    app.get("/api/owner/pairing/status", pairingStatusApi);
+    app.post("/api/owner/pairing/claim", pairingClaimApi);
+    app.get("/api/owner/projects", projectsApi);
+    app.post("/api/owner/projects", registerProjectApi);
+    app.post("/api/owner/projects/:projectId/action", projectActionApi);
+    app.get("/api/owner/projects/:projectId/plans", ownerProjectBoardApi);
+    app.get("/api/owner/projects/:projectId/plans/view/:view", ownerProjectBoardApi);
+    app.get("/api/owner/projects/:projectId/plans/:planId", ownerProjectPlanDetailApi);
+    app.get("/api/owner/devices", devicesApi);
+    app.post("/api/owner/devices/:deviceId/revoke", revokeDeviceApi);
+    app.notFound((ctx) => {
+        if (ctx.url.pathname.startsWith("/api/owner/")) {
+            return ownerErrorJson(new Error("Owner API route not found."), 404);
+        }
+        return ownerHtmlResponse("Not found", `<section class=\"error-panel\"><h2>Not found</h2></section>`, 404);
+    });
+    app.store = store;
+    app.ownerConnections = connections;
     return app;
 }
 
@@ -413,7 +541,212 @@ function escapeScriptJson(value) {
 
 /** @param {string} value */
 function escapeHtml(value) {
-    return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
+    return String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll(
+        '"',
+        "&quot;",
+    );
+}
+
+/** @param {unknown} body @param {number} [status] */
+function ownerJsonResponse(body, status = 200) {
+    const response = new Response(JSON.stringify(body), {
+        status,
+        headers: { "content-type": "application/json; charset=utf-8" },
+    });
+    return withOwnerSecurityHeaders(response);
+}
+
+/** @param {string} location */
+function redirectResponse(location) {
+    return withOwnerSecurityHeaders(new Response(null, { status: 302, headers: { location } }));
+}
+
+/** @param {string} title @param {string} body @param {number} [status] */
+function ownerHtmlResponse(title, body, status = 200) {
+    const html =
+        `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${
+            escapeHtml(title)
+        }</title><link rel="icon" href="/logo.svg" type="image/svg+xml"><link rel="stylesheet" href="/tokens.css"><link rel="stylesheet" href="/components.css"><link rel="stylesheet" href="/workspace.css"><link rel="stylesheet" href="/theme.css"></head><body class="theme-runwield"><div class="workspace-shell owner-workspace-shell"><header class="topbar"><a class="brand" href="/" aria-label="RunWield Workspace home"><img class="brand-logo" src="/logo.svg" alt="" aria-hidden="true"><span>RunWield Workspace</span></a></header><nav class="tabs" aria-label="Workspace views"><a data-tab="projects" href="/" class="active">Projects</a><a data-tab="devices" href="/devices">Devices</a></nav><main>${body}</main></div></body></html>`;
+    return withOwnerSecurityHeaders(
+        new Response(html, { status, headers: { "content-type": "text/html; charset=utf-8" } }),
+    );
+}
+
+function createInProcessRateLimit({ limit, windowMs }) {
+    const buckets = new Map();
+    return {
+        /** @param {Request} request */
+        check(request) {
+            const now = Date.now();
+            const url = new URL(request.url);
+            const key = `${url.protocol}//${url.host}:${request.headers.get("user-agent") || "unknown"}`;
+            const bucket = buckets.get(key) || { count: 0, resetAt: now + windowMs };
+            if (bucket.resetAt <= now) {
+                bucket.count = 0;
+                bucket.resetAt = now + windowMs;
+            }
+            bucket.count += 1;
+            buckets.set(key, bucket);
+            if (bucket.count > limit) throw new Error("Too many pairing requests. Wait briefly before retrying.");
+        },
+    };
+}
+
+function ownerMutationScript() {
+    return `function ownerCookie(name){return document.cookie.split('; ').find(v=>v.startsWith(name+'='))?.split('=').slice(1).join('=')||'';} async function ownerFetch(url,options={}){options.headers=Object.assign({'content-type':'application/json','x-runwield-csrf':decodeURIComponent(ownerCookie('rw_owner_csrf'))},options.headers||{});return await fetch(url,options);}`;
+}
+
+function renderPairingPage() {
+    return `<section class="owner-card pairing-card"><p class="kicker">Device pairing</p><h1>Pair this browser with owner Workspace</h1><p>Private networking is not authorization. A short-lived code appears below; approve it locally with&nbsp;<code>wld workspace pair &lt;code&gt;</code>.</p><form id="pairing-form" class="owner-form"><label>Device label <input id="device-label" name="deviceLabel" value="Browser device" maxlength="80"></label></form><div id="pairing-result" class="owner-pairing-result" aria-live="polite"></div></section><script>function escapeHtml(value){return String(value).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');}function defaultDeviceLabel(){const ua=navigator.userAgent;const browser=ua.includes('Edg/')?'Edge':(ua.includes('CriOS')||ua.includes('Chrome/'))?'Chrome':(ua.includes('Firefox/')||ua.includes('FxiOS'))?'Firefox':ua.includes('Safari/')?'Safari':'Browser';const os=/iPhone|iPad|iPod/.test(ua)?'iPhone':ua.includes('Android')?'Android':ua.includes('Mac OS X')?'macOS':ua.includes('Windows')?'Windows':ua.includes('Linux')?'Linux':'this device';return browser+' on '+os;}const form=document.getElementById('pairing-form');const label=document.getElementById('device-label');if(label instanceof HTMLInputElement)label.value=defaultDeviceLabel();const out=document.getElementById('pairing-result');let timer=null;let pollTimer=null;let pollDelay=1000;async function requestCode(){clearTimeout(pollTimer);const body={deviceLabel:new FormData(form).get('deviceLabel')};const res=await fetch('/api/owner/pairing/request',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});const data=await res.json();if(!res.ok){out.innerHTML='<p class="notice danger">'+escapeHtml(data.error)+'</p>';return;}pollDelay=1000;renderCode(data);pollStatus();}async function claimApproved(){const claim=await fetch('/api/owner/pairing/claim',{method:'POST'});const claimData=await claim.json();if(claim.ok){location.href='/';return true;}if(claimData.error)out.insertAdjacentHTML('beforeend','<p class="notice danger">'+escapeHtml(claimData.error)+'</p>');return false;}async function pollStatus(){const status=await fetch('/api/owner/pairing/status');const data=await status.json().catch(()=>({state:'missing'}));if(data.state==='approved'){if(await claimApproved())return;}if(data.state==='expired'||data.state==='missing'){requestCode();return;}pollDelay=Math.min(Math.round(pollDelay*1.5),8000);pollTimer=setTimeout(pollStatus,pollDelay);}function renderCode(data){clearInterval(timer);out.innerHTML='<div class="pairing-actions-row"><div class="pairing-code" aria-label="Pairing code">'+escapeHtml(data.code)+'</div><div class="pairing-command-box"><p>Run <code id="pairing-command">wld workspace pair '+escapeHtml(data.code)+'</code>.</p><button class="copy-command-button" id="copy-pairing-command" type="button">Copy command</button><p class="pairing-poll-note">Waiting for local approval. This browser will pair automatically.</p></div></div><p class="pairing-timer" id="pairing-timer"></p>';const timerEl=document.getElementById('pairing-timer');const expiresAt=new Date(data.expiresAt).getTime();function tick(){const remaining=Math.max(0,expiresAt-Date.now());const seconds=Math.ceil(remaining/1000);const minutes=Math.floor(seconds/60);const rest=String(seconds%60).padStart(2,'0');timerEl.textContent=remaining>0?'This code expires in '+minutes+':'+rest+'. A new code appears automatically when it expires.':'Code expired. Generating a new code...';if(remaining<=0){clearInterval(timer);requestCode();}}tick();timer=setInterval(tick,1000);document.getElementById('copy-pairing-command').addEventListener('click',async(event)=>{await navigator.clipboard.writeText(document.getElementById('pairing-command').textContent||'');event.currentTarget.textContent='Copied';setTimeout(()=>event.currentTarget.textContent='Copy command',1600);});}label?.addEventListener('change',()=>requestCode());requestCode();</script>`;
+}
+
+/** @param {any} ctx */
+function renderOwnerHome(ctx) {
+    const projects = listOwnerProjects(ctx.state.store);
+    const cards = projects.length
+        ? projects.map((project) =>
+            `<article class="owner-card project-card"><div class="card-header"><div><p class="kicker">${
+                escapeHtml(project.lifecycle)
+            } Project</p><h2>${escapeHtml(project.displayName)}</h2><p>${escapeHtml(project.rootLabel)} · ${
+                escapeHtml(project.healthStatus)
+            }</p></div><span class="status-badge">${
+                escapeHtml(project.enabled ? "Available" : "Needs repair")
+            }</span></div>${
+                project.healthEvidence?.length
+                    ? `<ul>${project.healthEvidence.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`
+                    : ""
+            }<div class="card-actions">${
+                project.enabled
+                    ? `<a class="action-primary" href="/projects/${
+                        encodeURIComponent(project.projectId)
+                    }/plans">Open Plan Board</a>`
+                    : ""
+            }<button class="action-secondary" data-project-action="${escapeHtml(project.projectId)}" data-action="${
+                project.lifecycle === "disabled" ? "enable" : "disable"
+            }">${
+                project.lifecycle === "disabled" ? "Enable" : "Disable"
+            }</button><button class="action-secondary" data-project-action="${
+                escapeHtml(project.projectId)
+            }" data-action="rescan">Full Session rescan</button><button class="action-danger" data-project-action="${
+                escapeHtml(project.projectId)
+            }" data-action="${project.lifecycle === "removed" ? "restore" : "remove"}">${
+                project.lifecycle === "removed" ? "Restore" : "Remove"
+            }</button></div><form class="owner-form project-relink-form" data-project-relink="${
+                escapeHtml(project.projectId)
+            }"><label>Relink Project root <input name="newRoot" placeholder="New absolute path"></label><button class="action-secondary" type="submit">Relink</button></form><pre class="project-diagnostics" data-project-diagnostics="${
+                escapeHtml(project.projectId)
+            }" hidden></pre></article>`
+        ).join("")
+        : `<section class="owner-card empty-state"><h2>No registered Projects yet</h2><p>Register trusted local Projects before Workspace can browse Plans or later continue Sessions.</p></section>`;
+    return `<section class="page-header"><h1>Projects</h1><p>Register and repair trusted Project roots. The later Attention Dashboard will become the default home; for now, Project setup is the bootstrap surface.</p></section><section class="owner-card"><form id="project-register" class="owner-form"><label>Project root <input name="root" placeholder="/absolute/path/to/project" required></label><label>Display name <input name="displayName" placeholder="Optional"></label><button class="action-primary" type="submit">Register Project</button></form><p id="project-message" aria-live="polite"></p></section><section class="project-grid">${cards}</section><script>${ownerMutationScript()}document.getElementById('project-register').addEventListener('submit',async(event)=>{event.preventDefault();const form=new FormData(event.currentTarget);const response=await ownerFetch('/api/owner/projects',{method:'POST',body:JSON.stringify({root:form.get('root'),displayName:form.get('displayName')})});if(response.ok) location.reload(); else document.getElementById('project-message').textContent=(await response.json()).error;});document.querySelectorAll('[data-project-action]').forEach((button)=>button.addEventListener('click',async()=>{if(button.dataset.action==='remove'&&!confirm('Remove this Project from Workspace? Repository files are not deleted.'))return;const response=await ownerFetch('/api/owner/projects/'+encodeURIComponent(button.dataset.projectAction)+'/action',{method:'POST',body:JSON.stringify({action:button.dataset.action})});const data=await response.json().catch(()=>({}));if(response.ok){if(button.dataset.action==='rescan'){const diagnostics=document.querySelector('[data-project-diagnostics="'+CSS.escape(button.dataset.projectAction)+'"]');if(diagnostics){diagnostics.hidden=false;diagnostics.textContent=(data.diagnostics||[]).length?JSON.stringify(data.diagnostics,null,2):'Full Session catalog rescan completed with no diagnostics.';}return;}location.reload();} else alert(data.error); }));document.querySelectorAll('[data-project-relink]').forEach((relinkForm)=>relinkForm.addEventListener('submit',async(event)=>{event.preventDefault();const formData=new FormData(relinkForm);const response=await ownerFetch('/api/owner/projects/'+encodeURIComponent(relinkForm.dataset.projectRelink)+'/action',{method:'POST',body:JSON.stringify({action:'relink',newRoot:formData.get('newRoot')})});if(response.ok) location.reload(); else alert((await response.json()).error);}));</script>`;
+}
+
+/** @param {any} ctx */
+function renderDevicesPage(ctx) {
+    const devices = ctx.state.store.listDevices();
+    const currentDeviceId = ctx.state.ownerDevice?.deviceId || "";
+    const items = devices.map((device) =>
+        `<article class="owner-card"><div class="card-header"><div><p class="kicker">Paired device</p><h2>${
+            escapeHtml(device.label)
+        }</h2><p>Paired ${escapeHtml(device.createdAt)}${
+            device.lastSeenAt ? ` · Last seen ${escapeHtml(device.lastSeenAt)}` : ""
+        }</p></div><span class="status-badge">${
+            device.revokedAt ? "Revoked" : device.deviceId === currentDeviceId ? "Current" : "Active"
+        }</span></div>${
+            device.revokedAt
+                ? `<p>Revoked ${escapeHtml(device.revokedAt)}</p>`
+                : `<button class="action-danger" data-revoke-device="${escapeHtml(device.deviceId)}">Revoke</button>`
+        }</article>`
+    ).join("");
+    return `<section class="page-header"><h1>Paired devices</h1><p>Revocation denies the device's next owner request and closes registered live connections without canceling unrelated workflows.</p></section><section class="project-grid">${
+        items || `<article class="owner-card"><h2>No devices</h2></article>`
+    }</section><script>${ownerMutationScript()}const currentDeviceId=${
+        JSON.stringify(currentDeviceId)
+    };document.querySelectorAll('[data-revoke-device]').forEach((button)=>button.addEventListener('click',async()=>{if(!confirm('Revoke this device?'))return;const response=await ownerFetch('/api/owner/devices/'+encodeURIComponent(button.dataset.revokeDevice)+'/revoke',{method:'POST',body:'{}'});if(response.ok){ if(button.dataset.revokeDevice===currentDeviceId) location.href='/pair'; else location.reload(); } else alert((await response.json()).error);}));</script>`;
+}
+
+/** @param {"active" | "closed" | "on-hold"} view */
+function ownerBoardScreenKey(view) {
+    return view === "on-hold" ? "onHold" : view;
+}
+
+/** @param {any} component @param {Record<string, unknown>} props */
+async function renderOwnerReactComponent(component, props) {
+    const [{ default: React }, { renderToStaticMarkup }] = await Promise.all([
+        import("react"),
+        import("react-dom/server"),
+    ]);
+    return renderToStaticMarkup(React.createElement(component, props));
+}
+
+/** @param {URL} currentUrl @param {string} pathname */
+function ownerPresentationUrl(currentUrl, pathname) {
+    const url = new URL(pathname, currentUrl.origin);
+    const query = currentUrl.searchParams.get("q");
+    if (query) url.searchParams.set("q", query);
+    return String(url);
+}
+
+/** @param {any} ctx @param {"active" | "closed" | "on-hold"} view */
+async function renderOwnerProjectBoard(ctx, view) {
+    const root = requireOwnerProjectRoot(ctx.state.store, ctx.params.projectId);
+    const board = await loadBoard(root);
+    const componentView = ownerBoardScreenKey(view);
+    const projectId = encodeURIComponent(ctx.params.projectId);
+    const url = ownerPresentationUrl(ctx.url, `/projects/${projectId}/plans${view === "active" ? "" : `/${view}`}`);
+    const tabs =
+        `<nav class="tabs owner-project-tabs" aria-label="Project Plan views"><a href="/projects/${projectId}/plans" class="${
+            view === "active" ? "active" : ""
+        }">Plan Board</a><a href="/projects/${projectId}/plans/closed" class="${
+            view === "closed" ? "active" : ""
+        }">Closed</a><a href="/projects/${projectId}/plans/on-hold" class="${
+            view === "on-hold" ? "active" : ""
+        }">On Hold</a></nav>`;
+    const toolbar = await renderOwnerReactComponent(PlanBoardToolbar, { board, view: componentView, url });
+    const boardHtml = await renderOwnerReactComponent(PlanBoard, {
+        board,
+        view: componentView,
+        url,
+        staticRender: true,
+        staticRenderNotice:
+            "Owner Workspace Plan Boards are read-only in this slice; lifecycle moves and edits are disabled until Plan Workflow Lease enforcement can authorize them safely.",
+        draggableCards: false,
+    });
+    return `<section class="page-header"><a class="detail-back-link" href="/">← Projects</a><h1>Project Plan Board</h1><p>Owner Workspace shows registered Project Plans read-only until Plan Workflow Lease enforcement enables remote mutations safely.</p></section>${tabs}<div class="toolbar">${toolbar}</div>${boardHtml}`;
+}
+
+/** @param {any} plan */
+function ownerReadOnlyPlanDetail(plan) {
+    return {
+        ...plan,
+        capabilities: { ...(plan.capabilities || {}), bodyEditing: false },
+        actions: {},
+        childrenByStatus: plan.childrenByStatus
+            ? Object.fromEntries(
+                Object.entries(plan.childrenByStatus).map(([status, children]) => [
+                    status,
+                    Array.isArray(children) ? children.map(ownerReadOnlyPlanDetail) : children,
+                ]),
+            )
+            : plan.childrenByStatus,
+    };
+}
+
+/** @param {any} ctx */
+async function renderOwnerPlanDetail(ctx) {
+    const root = requireOwnerProjectRoot(ctx.state.store, ctx.params.projectId);
+    const plan = ownerReadOnlyPlanDetail(await loadWorkspaceDetail(root, ctx.params.planId));
+    const url = ownerPresentationUrl(
+        ctx.url,
+        `/projects/${encodeURIComponent(ctx.params.projectId)}/plans/${encodeURIComponent(ctx.params.planId)}`,
+    );
+    const detailHtml = await renderOwnerReactComponent(PlanDetail, {
+        plan,
+        url,
+        editIntent: false,
+        staticRender: true,
+    });
+    return `${detailHtml}<aside class="owner-card owner-read-only-note"><h2>Owner safety</h2><p>Lifecycle and body editing are intentionally disabled in this slice so later Plan Workflow Lease enforcement can cover consequential actions.</p></aside>`;
 }
 
 /** @param {Request} request @param {string} cwd */
@@ -626,7 +959,7 @@ function remoteJson(data, status = 200) {
 }
 
 /**
- * @param {{ mode?: "local" | "remote", cwd?: string, host: string, port: number, token?: string, dbPath?: string, signal?: AbortSignal, adapter?: import("./server/remote-adapter.js").RemoteWorkspaceAdapter, maxRequestBytes?: number, retentionDays?: number }} options
+ * @param {{ mode?: "local" | "remote" | "owner", cwd?: string, host: string, port: number, token?: string, dbPath?: string, signal?: AbortSignal, adapter?: import("./server/remote-adapter.js").RemoteWorkspaceAdapter, maxRequestBytes?: number, retentionDays?: number, publicOrigin?: string, trustTlsTerminator?: boolean, store?: ReturnType<typeof openOwnerCoordinationStore> }} options
  */
 export function startWorkspaceServer(options) {
     const app = options.mode === "remote"
@@ -636,6 +969,13 @@ export function startWorkspaceServer(options) {
             adapter: options.adapter,
             maxRequestBytes: options.maxRequestBytes,
             retentionDays: options.retentionDays,
+        })
+        : options.mode === "owner"
+        ? createWorkspaceApp({
+            mode: "owner",
+            dbPath: options.dbPath,
+            store: options.store,
+            publicOrigin: options.publicOrigin || `http://${options.host}:${options.port}`,
         })
         : createWorkspaceApp({ cwd: options.cwd ?? Deno.cwd(), token: options.token ?? "" });
     return Deno.serve({

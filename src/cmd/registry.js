@@ -32,10 +32,11 @@ import { runReloadCommand } from "./reload/index.js";
 import { runVersionCommand } from "./version/index.js";
 import { runSnipFiltersCommand } from "./snip-filters/index.js";
 import { runAcpCommand } from "./acp/index.js";
+import { runWorkspaceCommand } from "./workspace/index.js";
 import { getAgentDisplayName } from "../shared/session/agents.js";
 
 /** Known CLI / slash command names. Defined alongside the registry so adding a new command only touches one file. */
-/** @type {Readonly<{ROUTER: string, AGENT: string, MODEL: string, LOGIN: string, LOGOUT: string, STATUS: string, EXPORT: string, SHARE: string, LOAD_PLAN: string, RESUME: string, NEW: string, NAME: string, SESSION: string, PLANS: string, WR: string, SLEEP: string, HELP: string, VERSION: string, QUIT: string, EXIT: string, INIT: string, THEME: string, INSTALL: string, REMOVE: string, COMPACT: string, SETTINGS: string, RELOAD: string, SNIP_FILTERS: string, COPY: string, CONTEXT: string, ACP: string}>} */
+/** @type {Readonly<{ROUTER: string, AGENT: string, MODEL: string, LOGIN: string, LOGOUT: string, STATUS: string, EXPORT: string, SHARE: string, LOAD_PLAN: string, RESUME: string, NEW: string, NAME: string, SESSION: string, PLANS: string, WR: string, SLEEP: string, HELP: string, VERSION: string, QUIT: string, EXIT: string, INIT: string, THEME: string, INSTALL: string, REMOVE: string, COMPACT: string, SETTINGS: string, RELOAD: string, SNIP_FILTERS: string, COPY: string, CONTEXT: string, ACP: string, WORKSPACE: string}>} */
 export const COMMAND_NAMES = Object.freeze({
     ROUTER: "router",
     AGENT: "agent",
@@ -68,6 +69,7 @@ export const COMMAND_NAMES = Object.freeze({
     COPY: "copy",
     CONTEXT: "context",
     ACP: "acp",
+    WORKSPACE: "workspace",
 });
 
 /** @param {...string} parts */
@@ -399,6 +401,25 @@ export const commandRegistry = {
             "Workspace HTML and APIs require the per-server token in the launch URL or x-runwield-workspace-token header.",
         ],
         execute: runPlansCommand,
+        surfaces: ["cli"],
+    },
+    [COMMAND_NAMES.WORKSPACE]: {
+        name: COMMAND_NAMES.WORKSPACE,
+        displayName: "Workspace",
+        description: "Start the persistent owner Workspace or approve browser pairing",
+        summary: "Serve the persistent multi-Project owner Workspace and approve paired browser devices.",
+        usage: [
+            `${
+                bin("workspace serve [--bind <host>|--host <host>] [--port <port>] [--public-origin <origin>] [--trust-tls-terminator] [--no-open]")
+            }`,
+            `${bin("workspace pair <code>")}`,
+            `${bin("workspace --help")}`,
+        ],
+        notes: [
+            "Owner Workspace uses the owner coordination database and paired-device authorization.",
+            "Use plans ui for the temporary current-checkout compatibility Plan Board.",
+        ],
+        execute: runWorkspaceCommand,
         surfaces: ["cli"],
     },
     [COMMAND_NAMES.WR]: {

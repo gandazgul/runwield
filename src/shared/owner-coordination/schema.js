@@ -3,10 +3,10 @@
  * Owner-only coordination schema for registered Projects and stable Session cataloging.
  *
  * Later Personal Remote Workspace slices add activation leases, committed generations,
- * devices, checkpoints, Plan workflow leases, and attention tables through new migrations.
+ * checkpoints, Plan workflow leases, and attention tables through new migrations.
  */
 
-export const OWNER_COORDINATION_SCHEMA_VERSION = 1;
+export const OWNER_COORDINATION_SCHEMA_VERSION = 2;
 
 export const OWNER_COORDINATION_SCHEMA_V1_SQL = `
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -84,4 +84,37 @@ CREATE INDEX IF NOT EXISTS idx_runwield_sessions_project ON runwield_sessions(pr
 CREATE INDEX IF NOT EXISTS idx_project_session_catalog_scans_project ON project_session_catalog_scans(project_id);
 CREATE INDEX IF NOT EXISTS idx_session_transcript_locators_project ON session_transcript_locators(project_id);
 CREATE INDEX IF NOT EXISTS idx_session_transcript_locators_pi ON session_transcript_locators(pi_session_id);
+`;
+
+export const OWNER_COORDINATION_SCHEMA_V2_SQL = `
+CREATE TABLE IF NOT EXISTS pairing_requests (
+    id TEXT PRIMARY KEY,
+    code_hash TEXT NOT NULL,
+    proof_hash TEXT NOT NULL UNIQUE,
+    device_label TEXT NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('pending', 'approved', 'claimed', 'expired')),
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    approved_at TEXT,
+    claimed_at TEXT,
+    claimed_device_id TEXT,
+    approval_attempts INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY (claimed_device_id) REFERENCES paired_devices(id) ON DELETE RESTRICT
+);
+
+CREATE TABLE IF NOT EXISTS paired_devices (
+    id TEXT PRIMARY KEY,
+    label TEXT NOT NULL,
+    credential_hash TEXT NOT NULL UNIQUE,
+    csrf_hash TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    last_seen_at TEXT,
+    revoked_at TEXT,
+    revoked_reason TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_pairing_requests_code_hash ON pairing_requests(code_hash);
+CREATE INDEX IF NOT EXISTS idx_pairing_requests_state ON pairing_requests(state);
+CREATE INDEX IF NOT EXISTS idx_pairing_requests_expires_at ON pairing_requests(expires_at);
+CREATE INDEX IF NOT EXISTS idx_paired_devices_revoked ON paired_devices(revoked_at);
 `;

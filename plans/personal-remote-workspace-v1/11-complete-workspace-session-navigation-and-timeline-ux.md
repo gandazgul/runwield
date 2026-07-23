@@ -1,4 +1,5 @@
 ---
+planId: "d1e53a05-7256-4840-816b-6059adcebf34"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Expand the phone ideation tracer bullet into the full Workspace Session surface with multi-Project navigation, semantic timelines, ownership handoff, reconnect behavior, and Session creation/continuation polish."

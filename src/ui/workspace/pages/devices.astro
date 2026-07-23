@@ -1,0 +1,22 @@
+---
+import WorkspaceLayout from "../layouts/WorkspaceLayout.astro";
+---
+<WorkspaceLayout title="Paired devices" selectedTab="devices" url={Astro.url.href}>
+    <section class="page-header">
+        <h1>Paired devices</h1>
+        <p>Revocation denies owner Workspace access without canceling unrelated workflows.</p>
+    </section>
+    <section class="project-grid">
+        <article class="owner-card">
+            <div class="card-header">
+                <div>
+                    <p class="kicker">Paired device</p>
+                    <h2>Phone browser</h2>
+                    <p>Paired today · Last seen just now</p>
+                </div>
+                <span class="status-badge">Current</span>
+            </div>
+            <button class="action-danger" type="button">Revoke</button>
+        </article>
+    </section>
+</WorkspaceLayout>

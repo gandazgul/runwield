@@ -1,4 +1,5 @@
 ---
+planId: "a18622d0-1387-4062-9ec6-8b8609aaa78a"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Add owner Workspace Plan review, Feedback, Approve for Later, Approve & Run, and Plan Recovery flows backed by durable checkpoints and Plan Workflow Leases."

@@ -1,4 +1,5 @@
 ---
+planId: "a72d1a30-d67c-4a90-ae8b-27b754fe55ae"
 classification: "FEATURE"
 complexity: "HIGH"
 summary: "Prevent avoidable context-window overflow by monitoring active Agent Sessions, compacting at safe internal turn boundaries, and continuing the same assignment safely."
