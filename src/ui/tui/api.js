@@ -1,4 +1,4 @@
-import { Spacer } from "@earendil-works/pi-tui";
+import { isFocusable, Spacer } from "@earendil-works/pi-tui";
 import { getSettingsManager } from "../../shared/settings.js";
 import {
     AgentMessageBlock,
@@ -109,12 +109,13 @@ export function createUiApi(
     /** @type {{ block: KeyboardHelpBlock, spacer: Spacer } | null} */
     let keyboardHelp = null;
 
-    let isBusy = false;
     /** @type {(() => void) | null} */
     let activePromptCancel = null;
 
     let toolsExpanded = false;
     let outputSuppressed = false;
+    /** @type {(import('@earendil-works/pi-tui').Component & import('@earendil-works/pi-tui').Focusable) | null} */
+    let busyBlurredFocus = null;
     /** @type {import('../../shared/session/session-runtime-events.js').RuntimeValidationProgress | null} */
     let validationProgress = null;
     /** @type {{ agentName: string, markdown: string, completedOrder: number } | null} */
@@ -149,6 +150,27 @@ export function createUiApi(
 
     const activePromptContainer = activeInteractionContainer || messageList;
 
+    const suppressFocusedCursorForBusy = () => {
+        const tuiFocus = /** @type {{ focusedComponent?: import('@earendil-works/pi-tui').Component | null }} */ (
+            /** @type {unknown} */ (tui)
+        );
+        const focused = tuiFocus.focusedComponent || null;
+        if (!isFocusable(focused) || !focused.focused) return;
+        busyBlurredFocus = focused;
+        focused.focused = false;
+    };
+
+    const restoreFocusedCursorAfterBusy = () => {
+        if (!busyBlurredFocus) return;
+        const tuiFocus = /** @type {{ focusedComponent?: import('@earendil-works/pi-tui').Component | null }} */ (
+            /** @type {unknown} */ (tui)
+        );
+        if (tuiFocus.focusedComponent === busyBlurredFocus) {
+            busyBlurredFocus.focused = true;
+        }
+        busyBlurredFocus = null;
+    };
+
     /** @type {ReturnType<typeof setInterval> | null} */
     let busyFrameTimer = null;
 
@@ -159,7 +181,7 @@ export function createUiApi(
     };
 
     const renderBusyFrame = () => {
-        if (!isBusy || outputSuppressed) return;
+        if (!spinner.isBusy || outputSuppressed) return;
         spinner.advance();
         tui.requestRender();
     };
@@ -447,13 +469,13 @@ export function createUiApi(
         setBusy: (busy) => {
             if (outputSuppressed && busy) return;
 
-            isBusy = busy;
             spinner.setBusy(busy, spinner.tasks);
-
             if (busy) {
+                suppressFocusedCursorForBusy();
                 startBusyFrameTimer();
             } else {
                 stopBusyFrameTimer();
+                restoreFocusedCursorAfterBusy();
             }
             tui.requestRender();
         },
@@ -572,9 +594,9 @@ export function createUiApi(
 
         suppressOutput: () => {
             outputSuppressed = true;
-            isBusy = false;
             spinner.setBusy(false, spinner.tasks);
             stopBusyFrameTimer();
+            restoreFocusedCursorAfterBusy();
             if (activePromptCancel) {
                 activePromptCancel();
             }

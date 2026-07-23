@@ -2223,8 +2223,11 @@ export async function runValidationLoop({
         if (worktreeBranch && !worktreeBaseBranch) {
             emitRunWieldSystemStatus(
                 hostedSession,
-                "Recorded worktree target branch is unknown; using legacy current-checkout merge fallback. " +
-                    "Recover the target from the worktree registry when possible before retrying.",
+                `Target branch metadata is missing for worktree branch ${worktreeBranch}. RunWield checked ` +
+                    "the worktree registry and could not recover the target, so it will merge this validated " +
+                    "worktree into the currently open primary checkout instead. This is a guarded fallback, not " +
+                    "a lost-work state; the worktree branch remains intact unless Git confirms the merge and " +
+                    "RunWield completes cleanup.",
                 true,
             );
         }

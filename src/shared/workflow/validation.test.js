@@ -2696,7 +2696,7 @@ Deno.test("runValidationLoop recovers missing worktree target branch from regist
     );
 });
 
-Deno.test("runValidationLoop warns when using legacy current-checkout merge fallback", async () => {
+Deno.test("runValidationLoop explains guarded primary-checkout merge fallback", async () => {
     const uiAPI = makeUi();
     /** @type {Array<string | undefined>} */
     const targets = [];
@@ -2749,9 +2749,18 @@ Deno.test("runValidationLoop warns when using legacy current-checkout merge fall
     assertEquals(targets, [undefined]);
     assertEquals(
         uiAPI.messages.some((/** @type {string} */ message) =>
-            message.includes("Recorded worktree target branch is unknown")
+            message.includes("Target branch metadata is missing for worktree branch runwield/worktree/p-wt1") &&
+            message.includes("currently open primary checkout") &&
+            message.includes("guarded fallback, not a lost-work state") &&
+            message.includes("remains intact unless Git confirms the merge")
         ),
         true,
+    );
+    assertEquals(
+        uiAPI.messages.some((/** @type {string} */ message) =>
+            message.includes("Recorded worktree target branch is unknown") || message.includes("legacy")
+        ),
+        false,
     );
 });
 
