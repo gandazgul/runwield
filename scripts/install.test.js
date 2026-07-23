@@ -15,6 +15,9 @@ const VERSIONS = {
 /** @type {BinaryName[]} */
 const BINARY_NAMES = ["wld", "mnemosyne", "cymbal", "snip"];
 
+/** @type {Array<Exclude<BinaryName, "wld">>} */
+const HELPER_NAMES = ["mnemosyne", "cymbal", "snip"];
+
 /**
  * @param {string} path
  * @param {string} body
@@ -75,7 +78,7 @@ function assetNamesFor(os, arch) {
 }
 
 /**
- * @param {{ os?: TestOs, arch?: TestArch, badChecksumFor?: BinaryName, omitChecksumFor?: BinaryName, missingAssetFor?: BinaryName, missingExecutableFor?: BinaryName }} [options]
+ * @param {{ os?: TestOs, arch?: TestArch, badChecksumFor?: BinaryName, omitChecksumFor?: BinaryName, badDigestFor?: BinaryName, omitDigestFor?: BinaryName, missingAssetFor?: BinaryName, missingExecutableFor?: BinaryName }} [options]
  */
 async function createFixture(options = {}) {
     const root = await Deno.makeTempDir();
@@ -100,21 +103,34 @@ async function createFixture(options = {}) {
         }
     }
 
+    /** @type {Partial<Record<BinaryName, string>>} */
+    const digests = {};
+    for (const name of BINARY_NAMES) {
+        if (options.missingAssetFor === name) continue;
+        digests[name] = options.badDigestFor === name ? "0".repeat(64) : await sha256(join(fixtureDir, assets[name]));
+    }
+
     /** @type {string[]} */
     const wldSums = [];
     /** @type {string[]} */
     const helperSums = [];
     for (const name of BINARY_NAMES) {
         if (options.missingAssetFor === name || options.omitChecksumFor === name) continue;
-        const checksum = options.badChecksumFor === name
-            ? "0".repeat(64)
-            : await sha256(join(fixtureDir, assets[name]));
+        const checksum = options.badChecksumFor === name ? "0".repeat(64) : digests[name];
         const line = `${checksum}  ${assets[name]}`;
         if (name === "wld") wldSums.push(line);
         else helperSums.push(line);
     }
     await Deno.writeTextFile(join(fixtureDir, "SHA256SUMS"), `${wldSums.join("\n")}\n`);
     await Deno.writeTextFile(join(fixtureDir, "checksums.txt"), `${helperSums.join("\n")}\n`);
+
+    for (const name of HELPER_NAMES) {
+        const assetDigest = options.omitDigestFor === name || !digests[name] ? null : `sha256:${digests[name]}`;
+        await Deno.writeTextFile(
+            join(fixtureDir, `${name}-release.json`),
+            JSON.stringify({ assets: assetDigest ? [{ name: assets[name], digest: assetDigest }] : [] }, null, 2),
+        );
+    }
 
     await writeExecutable(
         join(binDir, "curl"),
@@ -135,6 +151,9 @@ case "$url" in
   *gandazgul/mnemosyne*/releases/latest*) body='{"tag_name":"${VERSIONS.mnemosyne}"}' ;;
   *1broseidon/cymbal*/releases/latest*) body='{"tag_name":"${VERSIONS.cymbal}"}' ;;
   *edouard-claude/snip*/releases/latest*) body='{"tag_name":"${VERSIONS.snip}"}' ;;
+  *gandazgul/mnemosyne*/releases/tags/*) file='${join(fixtureDir, "mnemosyne-release.json")}' ;;
+  *1broseidon/cymbal*/releases/tags/*) file='${join(fixtureDir, "cymbal-release.json")}' ;;
+  *edouard-claude/snip*/releases/tags/*) file='${join(fixtureDir, "snip-release.json")}' ;;
   */SHA256SUMS) file='${join(fixtureDir, "SHA256SUMS")}' ;;
   */checksums.txt) file='${join(fixtureDir, "checksums.txt")}' ;;
   *) file='${fixtureDir}'/"$(basename "$url")" ;;
@@ -289,13 +308,29 @@ Deno.test("install.sh preserves helpers on PATH and in install dir, and idempote
     }
 });
 
-Deno.test("install.sh rejects missing or corrupt checksum entries", async (t) => {
-    await t.step("missing checksum entry", async () => {
-        const fixture = await createFixture({ omitChecksumFor: "cymbal" });
+Deno.test("install.sh uses GitHub asset digest when helper checksum manifest omits an asset", async () => {
+    const fixture = await createFixture({ omitChecksumFor: "mnemosyne" });
+    try {
+        const result = await runInstaller(fixture);
+        assertEquals(result.code, 0, `${result.stdout}\n${result.stderr}`);
+        assertStringIncludes(result.stderr, "Checksum manifest lacks an entry for mnemosyne");
+        assertStringIncludes(result.stdout, "Using GitHub release asset digest for mnemosyne");
+        const stat = await Deno.stat(join(fixture.installDir, "mnemosyne"));
+        assertEquals(stat.isFile, true);
+    } finally {
+        await Deno.remove(fixture.root, { recursive: true });
+    }
+});
+
+Deno.test("install.sh rejects missing or corrupt checksum coverage", async (t) => {
+    await t.step("missing manifest entry and missing release asset digest", async () => {
+        const fixture = await createFixture({ omitChecksumFor: "cymbal", omitDigestFor: "cymbal" });
         try {
             const result = await runInstaller(fixture);
             assertEquals(result.code, 1);
             assertStringIncludes(result.stderr, "Checksum manifest lacks an entry for cymbal");
+            assertStringIncludes(result.stderr, "Could not find a SHA-256 release asset digest for cymbal");
+            assertStringIncludes(result.stderr, "Checksum verification failed for cymbal");
         } finally {
             await Deno.remove(fixture.root, { recursive: true });
         }
@@ -306,6 +341,18 @@ Deno.test("install.sh rejects missing or corrupt checksum entries", async (t) =>
         try {
             const result = await runInstaller(fixture);
             assertEquals(result.code, 1);
+            assertStringIncludes(result.stderr, "Checksum verification failed for mnemosyne");
+        } finally {
+            await Deno.remove(fixture.root, { recursive: true });
+        }
+    });
+
+    await t.step("corrupt release asset digest", async () => {
+        const fixture = await createFixture({ omitChecksumFor: "mnemosyne", badDigestFor: "mnemosyne" });
+        try {
+            const result = await runInstaller(fixture);
+            assertEquals(result.code, 1);
+            assertStringIncludes(result.stderr, "Checksum manifest lacks an entry for mnemosyne");
             assertStringIncludes(result.stderr, "Checksum verification failed for mnemosyne");
         } finally {
             await Deno.remove(fixture.root, { recursive: true });
