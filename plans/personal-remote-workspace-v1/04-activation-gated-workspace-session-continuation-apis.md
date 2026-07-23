@@ -1,4 +1,5 @@
 ---
+planId: "d604dd4b-b9f8-4330-8a6a-6e31ed7507ca"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Add the narrow backend/runtime APIs needed for Workspace to safely continue an idle Session under an exclusive activation lease, publish committed generations, and release at idle."

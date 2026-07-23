@@ -18,6 +18,7 @@ Deno.test("getCliCommandDefinitions excludes slash-only commands", () => {
     assertEquals(commands.some((command) => command.name === "settings"), false);
     assertEquals(commands.some((command) => command.name === "router"), true);
     assertEquals(commands.some((command) => command.name === "acp"), true);
+    assertEquals(commands.some((command) => command.name === "workspace"), true);
 });
 
 Deno.test("getSlashCommandDefinitions excludes cli-only commands", () => {
@@ -40,6 +41,14 @@ Deno.test("registry surfaces capture theme and model CLI support", () => {
 Deno.test("getSlashCommandDefinition resolves slash aliases", () => {
     const command = getSlashCommandDefinition("models");
     assertEquals(command?.name, "model");
+});
+
+Deno.test("workspace command is CLI-only", () => {
+    const command = getCommandDefinition("workspace");
+    assertEquals(command?.name, "workspace");
+    assertEquals(command ? hasCommandSurface(command, "cli") : false, true);
+    assertEquals(command ? hasCommandSurface(command, "slash") : true, false);
+    assertEquals(getSlashCommandDefinition("workspace"), undefined);
 });
 
 Deno.test("context command is a slash-only built-in", () => {

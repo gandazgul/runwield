@@ -1,4 +1,5 @@
 ---
+planId: "6f657be4-18bc-4942-acb2-8aa4abe50c6e"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Persist typed human gates and structured interactions so feedback, approvals, recovery decisions, and cross-surface prompts can survive process loss and be consumed exactly once."

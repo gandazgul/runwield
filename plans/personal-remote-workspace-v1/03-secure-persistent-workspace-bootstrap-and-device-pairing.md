@@ -17,16 +17,16 @@ devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://127.0.0.1:5173"
 devServerHmr: true
 createdAt: "2026-07-21T23:56:51.460-04:00"
-updatedAt: "2026-07-23T14:35:39.365Z"
-status: "implemented"
+updatedAt: "2026-07-23T16:54:27.539Z"
+status: "verified"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v1"
 order: 3
 dependencies:
     - "02-owner-coordination-database-and-session-catalog"
-implementedAt: "2026-07-23T14:35:39.365Z"
-executionReport: "- Implemented persistent owner Workspace bootstrap and browser-initiated device pairing: owner coordination schema/migration, pairing/device credentials, `wld workspace serve`, `wld workspace pair <code>`, Project registration, read-only Project Plan Board, device revocation, CSRF/Origin/security controls, docs, and tests.\n- Repaired revocation CSS regression: owner auth now allows public Workspace assets such as `/workspace.css` for unpaired browsers; added regression coverage that unpaired CSS returns `200 text/css` while protected pages redirect to `/pair`.\n- Verification passed: `deno fmt ...`, focused `deno test -A src/ui/workspace/owner-workspace.test.js`, and full `deno task ci` (`1552 passed | 0 failed`; existing Astro/Vite warnings only).\n- Headed browser verified actual owner flow at `http://127.0.0.1:8793`: paired browser via CLI, opened Devices, revoked current device, landed on `/pair` with Workspace CSS still applied.\n- Visible evidence: `/tmp/runwield-owner-css-after-revoke.png`; computed styles after revoke showed `bodyBg: rgb(17, 17, 27)` and `.owner-card` `rgb(49, 50, 68)`, confirming CSS did not drop.\n- Cleanup: stopped temporary owner server. No unresolved blockers."
-worktreeStatus: "completed"
+verifiedAt: "2026-07-23T16:54:27.539Z"
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
 ---
 
 # Secure Persistent Workspace Bootstrap and Device Pairing

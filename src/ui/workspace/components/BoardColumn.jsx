@@ -1,8 +1,8 @@
 import { EpicCard } from "./EpicCard.jsx";
 import { PlanCard } from "./PlanCard.jsx";
 
-/** @param {{ column: any, url: URL | string }} props */
-export function BoardColumn({ column, url }) {
+/** @param {{ column: any, url: URL | string, draggableCards?: boolean }} props */
+export function BoardColumn({ column, url, draggableCards = true }) {
     return (
         <section
             className="board-column"
@@ -23,8 +23,16 @@ export function BoardColumn({ column, url }) {
             <div className="column-cards">
                 {column.cards.map(/** @param {any} plan */ (plan) => (
                     plan.isEpic
-                        ? <EpicCard key={plan.planId} epic={plan} url={url} draggableCard />
-                        : <PlanCard key={plan.planId} plan={plan} url={url} roleLabel="Feature" draggableCard />
+                        ? <EpicCard key={plan.planId} epic={plan} url={url} draggableCard={draggableCards} />
+                        : (
+                            <PlanCard
+                                key={plan.planId}
+                                plan={plan}
+                                url={url}
+                                roleLabel="Feature"
+                                draggableCard={draggableCards}
+                            />
+                        )
                 ))}
                 {column.cards.length === 0
                     ? <p className="empty compact-empty" data-original-empty>No top-level Plans.</p>
