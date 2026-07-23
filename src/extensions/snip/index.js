@@ -82,6 +82,45 @@ function findFirstSegmentEnd(command) {
 
 /**
  * @param {string} segment
+ * @returns {boolean}
+ */
+function hasCommandSubstitution(segment) {
+    let quote = "";
+    for (let i = 0; i < segment.length; i++) {
+        const char = segment[i];
+        if (quote === "'") {
+            if (char === quote) quote = "";
+            continue;
+        }
+        if (quote === '"') {
+            if (char === "\\") {
+                i++;
+                continue;
+            }
+            if (char === quote) {
+                quote = "";
+                continue;
+            }
+            if (char === "$" && segment[i + 1] === "(") return true;
+            if (char === "`") return true;
+            continue;
+        }
+        if (char === "'" || char === '"') {
+            quote = char;
+            continue;
+        }
+        if (char === "\\") {
+            i++;
+            continue;
+        }
+        if (char === "$" && segment[i + 1] === "(") return true;
+        if (char === "`") return true;
+    }
+    return false;
+}
+
+/**
+ * @param {string} segment
  * @returns {string[]}
  */
 function splitWords(segment) {
@@ -181,6 +220,7 @@ function parseSimpleSegment(segment) {
     const leading = segment.match(/^\s*/)?.[0] || "";
     const trimmed = segment.trim();
     if (!trimmed) return null;
+    if (hasCommandSubstitution(segment)) return null;
 
     const words = splitWords(trimmed);
     if (words.length === 0) return null;
