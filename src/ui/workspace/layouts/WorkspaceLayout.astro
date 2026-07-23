@@ -35,15 +35,28 @@ function linkWithToken(path: string) {
                 </a>
             </header>
             <nav class="tabs" aria-label="Workspace views">
-                <a class={selectedTab === "active" ? "active" : ""} data-tab="active" href={linkWithToken("/")}>
-                    Plan Board
-                </a>
-                <a class={selectedTab === "closed" ? "active" : ""} data-tab="closed" href={linkWithToken("/closed")}>
-                    Closed
-                </a>
-                <a class={selectedTab === "on-hold" ? "active" : ""} data-tab="on-hold" href={linkWithToken("/on-hold")}>
-                    On Hold
-                </a>
+                {selectedTab === "projects" || selectedTab === "devices" ? (
+                    <>
+                        <a class={selectedTab === "projects" ? "active" : ""} data-tab="projects" href={linkWithToken("/")}>
+                            Projects
+                        </a>
+                        <a class={selectedTab === "devices" ? "active" : ""} data-tab="devices" href={linkWithToken("/devices")}>
+                            Devices
+                        </a>
+                    </>
+                ) : (
+                    <>
+                        <a class={selectedTab === "active" ? "active" : ""} data-tab="active" href={linkWithToken("/")}>
+                            Plan Board
+                        </a>
+                        <a class={selectedTab === "closed" ? "active" : ""} data-tab="closed" href={linkWithToken("/closed")}>
+                            Closed
+                        </a>
+                        <a class={selectedTab === "on-hold" ? "active" : ""} data-tab="on-hold" href={linkWithToken("/on-hold")}>
+                            On Hold
+                        </a>
+                    </>
+                )}
                 <div class="tab-search-slot" data-plan-search-slot>
                     <slot name="toolbar" />
                 </div>

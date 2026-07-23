@@ -1,4 +1,5 @@
 ---
+planId: "a708681a-0823-432d-8af8-d881df540309"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Build the owner Attention Dashboard and projection services for running, waiting, ready, failed, and recently completed work across registered Projects."

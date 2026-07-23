@@ -1,4 +1,5 @@
 ---
+planId: "5b1d47b6-58d1-48f8-acd0-e25bcd88aae1"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Introduce the owner-local coordination database, registered Project records, stable RunWield Session IDs, and lazy legacy transcript cataloging needed by all cross-surface behavior."

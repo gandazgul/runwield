@@ -34,8 +34,8 @@ function OrphanRepairSection({ screen, url }) {
     );
 }
 
-/** @param {{ board: any, view: "active"|"closed"|"onHold", url: URL | string, staticRender?: boolean }} props */
-export function PlanBoard({ board, view, url, staticRender = false }) {
+/** @param {{ board: any, view: "active"|"closed"|"onHold", url: URL | string, staticRender?: boolean, staticRenderNotice?: string, draggableCards?: boolean }} props */
+export function PlanBoard({ board, view, url, staticRender = false, staticRenderNotice, draggableCards = true }) {
     const screen = board.screens[view];
     const totalCards = screen.columns.reduce(
         (/** @type {number} */ total, /** @type {any} */ column) =>
@@ -56,12 +56,16 @@ export function PlanBoard({ board, view, url, staticRender = false }) {
                 aria-label={`${screen.title} status columns`}
             >
                 {screen.columns.map(/** @param {any} column */ (column) => (
-                    <BoardColumn key={column.status} column={column} url={url} />
+                    <BoardColumn key={column.status} column={column} url={url} draggableCards={draggableCards} />
                 ))}
             </div>
             {screen.columns.length && !staticRender ? <PlanBoardDragDrop boardId={boardId} /> : null}
             {screen.columns.length && staticRender
-                ? <p className="notice muted board-dnd-status">Drag this Plan Card to an allowed status column.</p>
+                ? (
+                    <p className="notice muted board-dnd-status">
+                        {staticRenderNotice || "Drag this Plan Card to an allowed status column."}
+                    </p>
+                )
                 : null}
             <OrphanRepairSection screen={screen} url={url} />
         </section>

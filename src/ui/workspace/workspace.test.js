@@ -1025,6 +1025,12 @@ Deno.test("workspaceHref preserves token and board search query", () => {
     assertEquals(PLAN_SEARCH_QUERY_PARAM, "q");
 });
 
+Deno.test("workspaceHref omits ephemeral token on owner Project Plan routes", () => {
+    const url = new URL("http://localhost/projects/project-id/plans?token=secret&q=fuzzy%20plan");
+    assertEquals(workspaceHref("/closed", url), "/projects/project-id/plans/closed?q=fuzzy+plan");
+    assertEquals(detailHref({ planId: "plan id" }, url), "/projects/project-id/plans/plan%20id?q=fuzzy+plan");
+});
+
 Deno.test("loadPlanSummaries marks top-level, Epic, child, and orphan-child hierarchy roles", async () => {
     const cwd = await Deno.makeTempDir();
     try {

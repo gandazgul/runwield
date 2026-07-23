@@ -232,6 +232,17 @@ Dialog should be flexible rather than confirmation-only:
 - remain ephemeral by default: opening a dialog should not change the browser URL, and refresh may close it unless a
   future use case explicitly requires a route-backed dialog.
 
+### Pairing code panels
+
+Owner Workspace pairing uses a compact card that keeps the device label, short code, copyable CLI command, and countdown
+in one visible decision area. Place the large code and command/copy box side by side on desktop and stack them on narrow
+screens. The timer text belongs below both so expiration and automatic replacement are understood as applying to the
+whole pairing request.
+
+Use the existing card, form, primary/secondary action, and status text patterns. The copy command should look like a
+real action button, not a plain text link. Never style a pairing code as a long-lived secret; the surrounding copy
+should make clear that it is short-lived and replaced automatically.
+
 ### Markdown and editor surfaces
 
 Markdown and editor content should sit on darker nested surfaces with borders and rounded corners. Markdown headings use

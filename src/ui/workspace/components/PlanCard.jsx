@@ -15,8 +15,18 @@ export function workspaceUrl(url) {
  */
 export function workspaceHref(path, url) {
     const currentUrl = workspaceUrl(url);
-    const next = new URL(path, currentUrl);
-    const token = currentUrl.searchParams.get(PLAN_UI_TOKEN_QUERY) || "";
+    const ownerMatch = currentUrl.pathname.match(/^\/projects\/([^/]+)\/plans(?:\/(?:closed|on-hold))?(?:\/[^/]*)?$/);
+    const isOwnerProjectPlanRoute = Boolean(ownerMatch);
+    let nextPath = path;
+    if (ownerMatch) {
+        const projectBase = `/projects/${ownerMatch[1]}/plans`;
+        if (path === "/") nextPath = projectBase;
+        else if (path === "/closed") nextPath = `${projectBase}/closed`;
+        else if (path === "/on-hold") nextPath = `${projectBase}/on-hold`;
+        else if (path.startsWith("/plans/")) nextPath = `${projectBase}/${path.slice("/plans/".length)}`;
+    }
+    const next = new URL(nextPath, currentUrl);
+    const token = isOwnerProjectPlanRoute ? "" : currentUrl.searchParams.get(PLAN_UI_TOKEN_QUERY) || "";
     const query = currentUrl.searchParams.get(PLAN_SEARCH_QUERY_PARAM) || "";
     if (token) next.searchParams.set(PLAN_UI_TOKEN_QUERY, token);
     if (query) next.searchParams.set(PLAN_SEARCH_QUERY_PARAM, query);

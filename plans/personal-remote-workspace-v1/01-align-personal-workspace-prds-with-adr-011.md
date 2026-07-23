@@ -1,4 +1,5 @@
 ---
+planId: "ba47f287-d055-4076-8571-4403109e6477"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Align the Workspace, Core, and ACP PRDs with ADR-011 by replacing central authoritative Session Host assumptions with exclusive Session activation, Durable Workflow Checkpoints, automatic synchronization, and trust-separated owner Workspace boundaries."

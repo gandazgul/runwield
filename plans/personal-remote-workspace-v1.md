@@ -1,4 +1,5 @@
 ---
+planId: "71193aae-92b3-4123-9ac4-ed6cae9b0aa1"
 classification: "PROJECT"
 complexity: "HIGH"
 summary: "Evolve RunWield Workspace into a secure personal multi-Project environment with durable cross-surface Sessions, workflow ownership, remote browser access, search, and a subordinate Code Surface."

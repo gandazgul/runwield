@@ -1096,3 +1096,224 @@
         position: static;
     }
 }
+
+.owner-hero,
+.owner-card {
+    background: var(--rw-surface-raised);
+    border: 1px solid var(--rw-border);
+    border-radius: 16px;
+    box-shadow: 0 16px 34px #0004;
+    padding: 18px;
+}
+
+.owner-hero {
+    margin: 20px 0;
+}
+
+.owner-hero h1,
+.owner-card h2 {
+    margin: 0.15rem 0 0.5rem;
+}
+
+.owner-form {
+    display: grid;
+    gap: 12px;
+}
+
+.owner-form label {
+    color: var(--rw-text-muted);
+    display: grid;
+    font-weight: 700;
+    gap: 6px;
+}
+
+.owner-form input {
+    background: color-mix(in srgb, var(--rw-page-bg) 68%, black);
+    border: 1px solid var(--rw-border);
+    border-radius: 12px;
+    color: var(--rw-text);
+    padding: 0.72rem 0.85rem;
+}
+
+.owner-form input:focus {
+    border-color: var(--rw-accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--rw-accent) 22%, transparent);
+    outline: none;
+}
+
+.owner-pairing-result {
+    margin-top: 16px;
+}
+
+.pairing-code {
+    background: var(--rw-surface-muted);
+    border: 1px solid var(--rw-accent);
+    border-radius: 16px;
+    color: var(--rw-accent-text);
+    display: inline-flex;
+    font-size: clamp(2rem, 10vw, 4rem);
+    font-weight: 900;
+    letter-spacing: 0.14em;
+    padding: 0.35em 0.55em;
+}
+
+.project-grid {
+    display: grid;
+    gap: 14px;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.project-relink-form,
+.project-diagnostics {
+    margin-top: 14px;
+}
+
+.project-diagnostics {
+    background: color-mix(in srgb, var(--rw-page-bg) 74%, black);
+    border: 1px solid var(--rw-border);
+    border-radius: 12px;
+    color: var(--rw-text-muted);
+    overflow: auto;
+    padding: 0.8rem;
+    white-space: pre-wrap;
+}
+
+.project-card .card-actions,
+.card-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 14px;
+}
+
+.status-badge {
+    background: var(--rw-surface-muted);
+    border: 1px solid var(--rw-border);
+    border-radius: 999px;
+    color: var(--rw-accent-text);
+    display: inline-flex;
+    font-weight: 800;
+    padding: 0.35rem 0.65rem;
+}
+
+.action-primary,
+.action-secondary,
+.action-danger {
+    border-radius: 999px;
+    cursor: pointer;
+    display: inline-flex;
+    font-weight: 800;
+    justify-content: center;
+    padding: 0.62rem 0.95rem;
+    text-decoration: none;
+}
+
+.action-primary {
+    background: var(--rw-accent);
+    border: 1px solid var(--rw-accent);
+    color: var(--rw-page-bg);
+}
+
+.action-secondary {
+    background: var(--rw-surface-muted);
+    border: 1px solid var(--rw-border);
+    color: var(--rw-accent-text);
+}
+
+.action-danger {
+    background: color-mix(in srgb, var(--rw-error) 22%, transparent);
+    border: 1px solid var(--rw-error);
+    color: var(--rw-text-strong);
+}
+
+.notice.danger {
+    border-color: var(--rw-error);
+    color: var(--rw-text-strong);
+}
+
+.markdown-body pre {
+    overflow-x: auto;
+    white-space: pre-wrap;
+}
+
+@media (max-width: 720px) {
+    .owner-workspace-shell {
+        padding: 16px;
+    }
+
+    .tabs,
+    .project-card .card-actions {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .tabs a,
+    .action-primary,
+    .action-secondary,
+    .action-danger {
+        min-width: 0;
+        width: 100%;
+    }
+}
+
+.pairing-card {
+    margin: 20px 0;
+    max-width: 760px;
+}
+
+.pairing-timer {
+    color: var(--rw-text-muted);
+    font-weight: 700;
+}
+
+.pairing-actions-row {
+    align-items: stretch;
+    display: grid;
+    gap: 14px;
+    grid-template-columns: minmax(0, max-content) minmax(220px, 1fr);
+    margin-top: 16px;
+}
+
+.pairing-command-box {
+    align-content: center;
+    background: var(--rw-surface-muted);
+    border: 1px solid var(--rw-border);
+    border-radius: 16px;
+    display: grid;
+    gap: 10px;
+    padding: 14px;
+}
+
+.pairing-command-box p {
+    margin: 0;
+}
+
+@media (max-width: 720px) {
+    .pairing-actions-row {
+        grid-template-columns: 1fr;
+    }
+}
+
+.copy-command-button {
+    align-items: center;
+    background: var(--rw-accent);
+    border: 1px solid var(--rw-accent);
+    border-radius: 999px;
+    color: var(--rw-page-bg);
+    cursor: pointer;
+    display: inline-flex;
+    font-weight: 900;
+    justify-content: center;
+    padding: 0.68rem 1rem;
+    text-decoration: none;
+    width: fit-content;
+}
+
+.copy-command-button:hover {
+    background: var(--rw-accent-strong);
+}
+
+.copy-command-button:focus-visible {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--rw-accent) 28%, transparent);
+    outline: none;
+}
