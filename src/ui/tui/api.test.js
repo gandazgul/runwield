@@ -43,15 +43,23 @@ function makeTuiHarness() {
     let renderCount = 0;
     let focused = /** @type {any} */ (null);
     const messageList = makeContainer();
-    const tui = {
+    const tui = /** @type {any} */ ({
+        focusedComponent: null,
         requestRender() {
             renderCount++;
         },
         /** @param {any} block */
         setFocus(block) {
+            if (this.focusedComponent && "focused" in this.focusedComponent) {
+                this.focusedComponent.focused = false;
+            }
             focused = block;
+            this.focusedComponent = block;
+            if (block && "focused" in block) {
+                block.focused = true;
+            }
         },
-    };
+    });
     return { tui, messageList, renders: () => renderCount, focus: () => focused };
 }
 
@@ -258,6 +266,24 @@ Deno.test("createUiApi setBusy animates while Runtime remains busy and stops whe
     await new Promise((resolve) => setTimeout(resolve, 150));
     assertEquals(spinner.frame, stoppedFrame);
     assertEquals(renders(), stoppedRenderCount);
+});
+
+Deno.test("createUiApi suppresses focused cursor while busy animation repaints", () => {
+    const { tui, messageList } = makeTuiHarness();
+    const spinner = new SpinnerBlock();
+    const ui = /** @type {any} */ (createUiApi(tui, messageList, spinner));
+    const editor = { focused: false, invalidate() {}, render: () => [] };
+
+    tui.setFocus(editor);
+    assertEquals(editor.focused, true);
+
+    ui.setBusy(true);
+    assertEquals(tui.focusedComponent, editor);
+    assertEquals(editor.focused, false);
+
+    ui.setBusy(false);
+    assertEquals(tui.focusedComponent, editor);
+    assertEquals(editor.focused, true);
 });
 
 Deno.test("createUiApi renders validation panel separately from active prompt placement", async () => {

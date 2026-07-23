@@ -1959,7 +1959,10 @@ async function handlePlanRecovery({
                 }
                 if (!worktreeContext.baseBranch) {
                     uiAPI.appendSystemMessage(
-                        "Recorded worktree target branch is unknown; using legacy current-checkout merge fallback.",
+                        `Target branch metadata is missing for worktree branch ${worktreeContext.branch}. ` +
+                            "RunWield will merge this recovered worktree into the currently open primary checkout " +
+                            "instead. This is a guarded fallback, not a lost-work state; the worktree branch remains " +
+                            "intact unless Git confirms the merge and RunWield completes cleanup.",
                         true,
                         "RunWield",
                     );
