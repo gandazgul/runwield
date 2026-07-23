@@ -68,6 +68,9 @@ function buildSchema(interaction) {
  */
 export function createAcpInteractionAdapter({ context, acpSessionId, clientCapabilities }) {
     return {
+        supportsInteraction(_type) {
+            return false;
+        },
         async requestInteraction(interaction) {
             if (interaction.type === RuntimeInteractionTypes.PLAN_REVIEW) {
                 const meta = /** @type {any} */ (interaction._meta || {});
@@ -80,6 +83,12 @@ export function createAcpInteractionAdapter({ context, acpSessionId, clientCapab
                     outcome: RuntimeInteractionOutcomes.ACCEPTED,
                     message: `Plan "${shared.planName}" saved for remote review.`,
                     _meta: { ...shared, approved: false, remoteReview: true },
+                };
+            }
+            if (interaction.type === RuntimeInteractionTypes.PAIR_CHECKPOINT) {
+                return {
+                    outcome: RuntimeInteractionOutcomes.UNSUPPORTED,
+                    message: "ACP does not support Pair Execution checkpoints.",
                 };
             }
             if (!supportsFormElicitation(clientCapabilities)) {

@@ -727,6 +727,94 @@ Deno.test("executePlan runs autonomously when Plan recommends autonomous without
     assertEquals(executionArgs.collaborationRecommendation, "autonomous");
 });
 
+Deno.test("executePlan falls back to autonomous without an interaction adapter", async () => {
+    const hostedSession = makeHostedSession("pair-no-adapter");
+    /** @type {string[]} */
+    const messages = [];
+    hostedSession.setEventSink((/** @type {{ message?: string }} */ event) => {
+        if (event.message) messages.push(event.message);
+    });
+    /** @type {any} */
+    let executionArgs = null;
+
+    const result = await executePlan({
+        planName: "visual-feature",
+        triageMeta: { classification: "FEATURE" },
+        hostedSession,
+        __deps: {
+            loadPlan: () =>
+                Promise.resolve(
+                    /** @type {any} */ ({
+                        attrs: {
+                            status: "ready_for_work",
+                            classification: "FEATURE",
+                            executionAgent: "frontend-engineer",
+                            collaborationRecommendation: "pair",
+                        },
+                        body: "## Visual Feature",
+                    }),
+                ),
+            executeSingleEngineerPlan: (args) => {
+                executionArgs = args;
+                return Promise.resolve({ repairRequired: false, executionComplete: false });
+            },
+            recordWorkflowMetric: () => Promise.resolve(null),
+        },
+    });
+
+    assertEquals(result.executionComplete, false);
+    assertEquals(executionArgs.collaborationStyle, "autonomous");
+    assertEquals(executionArgs.collaborationRecommendation, "pair");
+    assertEquals(
+        messages.filter((message) => message.includes("Pair Execution is recommended by the Plan")),
+        [
+            "Pair Execution is recommended by the Plan but unavailable in this host; continuing with autonomous Frontend Engineer execution.",
+        ],
+    );
+});
+
+Deno.test("executePlan falls back to autonomous when the adapter withholds Pair capability", async () => {
+    const hostedSession = makeHostedSession("pair-unsupported-adapter");
+    let interactionRequested = false;
+    hostedSession.setInteractionAdapter({
+        supportsInteraction: () => false,
+        requestInteraction: () => {
+            interactionRequested = true;
+            return Promise.resolve({ outcome: "selected", value: "continue" });
+        },
+    });
+    /** @type {any} */
+    let executionArgs = null;
+
+    await executePlan({
+        planName: "visual-feature",
+        triageMeta: { classification: "FEATURE" },
+        hostedSession,
+        __deps: {
+            loadPlan: () =>
+                Promise.resolve(
+                    /** @type {any} */ ({
+                        attrs: {
+                            status: "ready_for_work",
+                            classification: "FEATURE",
+                            executionAgent: "frontend-engineer",
+                            collaborationRecommendation: "pair",
+                        },
+                        body: "## Visual Feature",
+                    }),
+                ),
+            executeSingleEngineerPlan: (args) => {
+                executionArgs = args;
+                return Promise.resolve({ repairRequired: false, executionComplete: false });
+            },
+            recordWorkflowMetric: () => Promise.resolve(null),
+        },
+    });
+
+    assertEquals(interactionRequested, false);
+    assertEquals(executionArgs.collaborationStyle, "autonomous");
+});
+
 Deno.test("executePlan clears unusable Pair style when execution setup fails", async () => {
     const hostedSession = makeHostedSession("pair-setup-failed");
     hostedSession.setInteractionAdapter({

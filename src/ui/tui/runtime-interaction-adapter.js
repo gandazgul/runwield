@@ -17,6 +17,20 @@ import { submitPlanForReview } from "../review/plan-review.js";
  * @property {typeof runCodeReview} [runCodeReview]
  */
 
+const MAX_PAIR_PROMPT_VALUE_LENGTH = 500;
+const MAX_PAIR_EVIDENCE_ITEMS = 8;
+
+/**
+ * @param {unknown} value
+ * @returns {string}
+ */
+function formatPairPromptValue(value) {
+    if (typeof value !== "string" && typeof value !== "number") return "";
+    const text = String(value).trim();
+    if (text.length <= MAX_PAIR_PROMPT_VALUE_LENGTH) return text;
+    return `${text.slice(0, MAX_PAIR_PROMPT_VALUE_LENGTH - 3)}...`;
+}
+
 /**
  * @param {import('./types.js').UiAPI} uiAPI
  * @param {TuiInteractionDependencies} [dependencies]
@@ -68,32 +82,61 @@ export function createTuiInteractionAdapter(uiAPI, dependencies = {}) {
             }
             if (request.type === RuntimeInteractionTypes.PAIR_CHECKPOINT) {
                 const meta = /** @type {any} */ (request._meta || {});
-                const evidence = Array.isArray(meta.evidence) && meta.evidence.length
-                    ? `\nEvidence: ${meta.evidence.join(", ")}`
+                const rawEvidence = Array.isArray(meta.evidence) ? meta.evidence : [];
+                const evidenceItems = rawEvidence.map(formatPairPromptValue).filter(Boolean).slice(
+                    0,
+                    MAX_PAIR_EVIDENCE_ITEMS,
+                );
+                const evidence = evidenceItems.length
+                    ? `Evidence: ${evidenceItems.join(", ")}${
+                        rawEvidence.length > MAX_PAIR_EVIDENCE_ITEMS
+                            ? ` (+${rawEvidence.length - MAX_PAIR_EVIDENCE_ITEMS} more)`
+                            : ""
+                    }`
                     : "";
-                const context = [meta.route && `Route: ${meta.route}`, meta.viewport && `Viewport: ${meta.viewport}`]
-                    .filter(Boolean).join(" | ");
+                const checkpointNumber = Number.isInteger(meta.checkpointNumber) && meta.checkpointNumber > 0
+                    ? meta.checkpointNumber
+                    : null;
+                const route = formatPairPromptValue(meta.route);
+                const state = formatPairPromptValue(meta.state);
+                const viewport = formatPairPromptValue(meta.viewport);
+                const diagnostics = formatPairPromptValue(meta.diagnostics);
+                const nextIncrement = formatPairPromptValue(meta.nextIncrement);
+                const context = [
+                    checkpointNumber && `Checkpoint: ${checkpointNumber}`,
+                    route && `Route: ${route}`,
+                    state && `State: ${state}`,
+                    viewport && `Viewport: ${viewport}`,
+                ].filter(Boolean).join(" | ");
                 const prompt = [
                     "Pair checkpoint",
-                    request.prompt,
+                    formatPairPromptValue(request.prompt),
                     context,
-                    meta.diagnostics && `Diagnostics: ${meta.diagnostics}`,
                     evidence,
-                    `Next: ${meta.nextIncrement}`,
+                    diagnostics && `Diagnostics: ${diagnostics}`,
+                    nextIncrement && `Next: ${nextIncrement}`,
                 ].filter(Boolean).join("\n");
-                const value = await uiAPI.promptSelect(prompt, [
-                    { value: "continue", label: "Continue" },
+                const options = [
+                    { value: "continue", label: "Continue to the next increment" },
                     { value: "revise", label: "Revise this increment" },
                     { value: "autonomous", label: "Finish autonomously" },
-                    { value: "stop", label: "Stop and keep Plan in progress" },
-                ]);
+                    { value: "stop", label: "Stop and keep the Plan in progress" },
+                ];
+                const value = await uiAPI.promptSelect(prompt, options);
                 if (value === null) return { outcome: RuntimeInteractionOutcomes.CANCELED };
+                const option = options.find((item) => item.value === value);
+                if (!option) {
+                    return {
+                        outcome: RuntimeInteractionOutcomes.UNSUPPORTED,
+                        message: `Pair checkpoint prompt returned invalid option: ${value}`,
+                    };
+                }
                 if (value !== "revise") return { outcome: RuntimeInteractionOutcomes.SELECTED, value };
-                const feedback = await uiAPI.promptText("Revision feedback", {
+                const feedback = await uiAPI.promptText("Revision feedback for this Pair checkpoint", {
                     placeholder: "Describe what should change in this increment",
                     allowEmpty: false,
                 });
-                if (feedback === null) return { outcome: RuntimeInteractionOutcomes.CANCELED };
+                if (feedback === null || !feedback.trim()) return { outcome: RuntimeInteractionOutcomes.CANCELED };
                 return { outcome: RuntimeInteractionOutcomes.SELECTED, value, _meta: { feedback } };
             }
             if (request.type === RuntimeInteractionTypes.PLAN_REVIEW) {
