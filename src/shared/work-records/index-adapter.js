@@ -58,6 +58,7 @@ export function buildWorkRecordIndexTags(record) {
 /** @param {import('./schema.js').WorkRecordResource} record */
 export function buildWorkRecordIndexDocument(record) {
     const sourcePlans = record.attrs.provenance?.sourcePlans || [];
+    const ticketUrls = (record.attrs.tickets || []).map((ticket) => ticket.url).filter(Boolean);
     return [
         `# ${record.title}`,
         "",
@@ -67,6 +68,7 @@ export function buildWorkRecordIndexDocument(record) {
         `origin: ${record.attrs.origin}`,
         `completionMode: ${record.attrs.completionMode}`,
         sourcePlans.length ? `sourcePlans: ${sourcePlans.join(", ")}` : "sourcePlans: none",
+        ticketUrls.length ? `ticketUrls: ${ticketUrls.join(", ")}` : "ticketUrls: none",
         "",
         "## Summary",
         "",

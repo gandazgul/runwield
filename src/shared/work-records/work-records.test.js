@@ -1019,3 +1019,121 @@ Deno.test("Work Record index sync rejects locator listing without numeric docume
     );
     assertEquals(calls.some((args) => args[0] === "add"), false);
 });
+
+Deno.test("Work Record markdown round-trips Ticket References and index/search surfaces include URLs", () => {
+    const markdown = formatWorkRecordMarkdown({
+        ...INTERNAL_ATTRS,
+        tickets: [{ url: " https://example.com/tickets/ABC-123 ", label: "Primary" }],
+    }, "# Ticketed\n\n## Summary\n\nDone.");
+    const record = parseWorkRecordMarkdown(markdown);
+    assertEquals(record.attrs.tickets, [{ url: "https://example.com/tickets/ABC-123", label: "Primary" }]);
+    assertStringIncludes(markdown, 'tickets:\n    - url: "https://example.com/tickets/ABC-123"');
+    assertStringIncludes(buildWorkRecordIndexDocument(record), "ticketUrls: https://example.com/tickets/ABC-123");
+    assertEquals(formatHydratedWorkRecord(record).tickets, [{
+        url: "https://example.com/tickets/ABC-123",
+        label: "Primary",
+    }]);
+});
+
+Deno.test("Work Record generation preserves child Ticket References when assigning active Epic planId", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "epic-without-plan-id", "# Epic", {
+            classification: "PROJECT",
+            status: "verified",
+            epicCompletionMode: "done_enough",
+            tickets: [{ url: "https://example.com/tickets/EPIC-NO-ID" }],
+        });
+        await savePlan(cwd, "epic-without-plan-id/01-child", "# Child", {
+            parentPlan: "epic-without-plan-id",
+            order: 1,
+            status: "verified",
+            tickets: [{ url: "https://example.com/tickets/CHILD-NO-ID" }],
+        });
+        const source = (await previewWorkRecordBackfill(cwd)).eligible.find((candidate) =>
+            candidate.name === "epic-without-plan-id"
+        );
+        if (!source) throw new Error("Expected active Epic source");
+        assertEquals(source.planId, "");
+        assertEquals(source.children?.length, 1);
+
+        const ids = [
+            "11111111-1111-4111-8111-111111111114",
+            "11111111-1111-4111-8111-111111111115",
+        ];
+        const outcome = await generateWorkRecordForSource(cwd, source, {
+            idGenerator: () => ids.shift() || "11111111-1111-4111-8111-111111111116",
+            generateSections: () => ({ title: "Epic Without Plan ID", summary: "Done." }),
+            syncWorkRecordToIndex: () => Promise.resolve({ action: "added", recordId: "" }),
+        });
+
+        assertEquals(outcome.status, "generated");
+        assertEquals((await findWorkRecordById(cwd, "11111111-1111-4111-8111-111111111115"))?.attrs.tickets, [
+            { url: "https://example.com/tickets/EPIC-NO-ID" },
+            { url: "https://example.com/tickets/CHILD-NO-ID" },
+        ]);
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+Deno.test("Work Record generation snapshots standalone and Epic Ticket References deterministically", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "standalone", "# Standalone", {
+            planId: "plan-standalone",
+            status: "verified",
+            tickets: [{ url: "https://example.com/tickets/STAND-1", label: "standalone" }],
+        });
+        const standalone = (await previewWorkRecordBackfill(cwd)).eligible.find((source) =>
+            source.name === "standalone"
+        );
+        if (!standalone) throw new Error("Expected standalone source");
+        const standaloneOutcome = await generateWorkRecordForSource(cwd, standalone, {
+            idGenerator: () => "11111111-1111-4111-8111-111111111112",
+            generateSections: () => ({ title: "Standalone", summary: "Done." }),
+            syncWorkRecordToIndex: () => Promise.resolve({ action: "added", recordId: "" }),
+        });
+        assertEquals(standaloneOutcome.status, "generated");
+        assertEquals((await findWorkRecordById(cwd, "11111111-1111-4111-8111-111111111112"))?.attrs.tickets, [
+            { url: "https://example.com/tickets/STAND-1", label: "standalone" },
+        ]);
+
+        await savePlan(cwd, "epic", "# Epic", {
+            classification: "PROJECT",
+            planId: "plan-epic",
+            status: "verified",
+            epicCompletionMode: "done_enough",
+            tickets: [{ url: "https://example.com/tickets/DUP", label: "epic" }],
+        });
+        await savePlan(cwd, "epic/02-child", "# Child 2", {
+            planId: "plan-child-2",
+            parentPlan: "epic",
+            order: 2,
+            status: "draft",
+            tickets: [{ url: "https://example.com/tickets/CHILD-2" }],
+        });
+        await savePlan(cwd, "epic/01-child", "# Child 1", {
+            planId: "plan-child-1",
+            parentPlan: "epic",
+            order: 1,
+            status: "verified",
+            tickets: [{ url: "https://example.com/tickets/DUP", label: "child" }],
+        });
+        const epic = (await previewWorkRecordBackfill(cwd)).eligible.find((source) => source.name === "epic");
+        if (!epic) throw new Error("Expected Epic source");
+        const epicOutcome = await generateWorkRecordForSource(cwd, epic, {
+            idGenerator: () => "11111111-1111-4111-8111-111111111113",
+            generateSections: () => ({ title: "Epic", summary: "Done." }),
+            syncWorkRecordToIndex: () => Promise.resolve({ action: "added", recordId: "" }),
+        });
+        assertEquals(epicOutcome.status, "generated");
+        assertEquals((await findWorkRecordById(cwd, "11111111-1111-4111-8111-111111111113"))?.attrs.tickets, [
+            { url: "https://example.com/tickets/DUP", label: "epic" },
+            { url: "https://example.com/tickets/CHILD-2" },
+        ]);
+        assertEquals((await loadPlan(cwd, "epic/01-child"))?.attrs.workRecord, undefined);
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});

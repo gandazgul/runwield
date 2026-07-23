@@ -1426,6 +1426,10 @@ Deno.test("Workspace API and detail route return readable editable Plan body met
                 complexity: "HIGH",
                 summary: "Detail summary",
                 affectedPaths: ["src/ui/workspace/components/PlanDetail.jsx"],
+                tickets: [
+                    { url: "https://example.com/tickets/DETAIL-123" },
+                    { url: "javascript:alert(1)" },
+                ],
                 dependencies: ["sibling-plan"],
                 implementedAt: "2026-06-30T10:00:00.000Z",
                 executionBaselineTree: "tree-detail",
@@ -1456,6 +1460,10 @@ Deno.test("Workspace API and detail route return readable editable Plan body met
         assertEquals(Object.hasOwn(apiBody.plan, "path"), false);
         assertEquals(Object.hasOwn(apiBody.plan.frontMatter, "worktreePath"), false);
         assertEquals(Object.hasOwn(apiBody.plan.attrs, "worktreePath"), false);
+        assertEquals(apiBody.plan.frontMatter.tickets, [
+            { url: "https://example.com/tickets/DETAIL-123" },
+            { url: "javascript:alert(1)" },
+        ]);
 
         const plan = await loadWorkspaceDetail(cwd, "detail-id");
         const html = renderToStaticMarkup(
@@ -1488,6 +1496,12 @@ Deno.test("Workspace API and detail route return readable editable Plan body met
         assertEquals(html.includes("Front matter summary"), false);
         assertStringIncludes(html, "Identity");
         assertStringIncludes(html, "Planning");
+        assertStringIncludes(html, "Ticket references");
+        assertStringIncludes(html, 'href="https://example.com/tickets/DETAIL-123"');
+        assertStringIncludes(html, 'target="_blank"');
+        assertStringIncludes(html, 'rel="noreferrer noopener"');
+        assertEquals(html.includes('href="javascript:alert(1)"'), false);
+        assertEquals(html.includes("{&quot;url&quot;"), false);
         assertStringIncludes(html, "Hierarchy &amp; dependencies");
         assertStringIncludes(html, "Lifecycle");
         assertStringIncludes(html, "Execution worktree");

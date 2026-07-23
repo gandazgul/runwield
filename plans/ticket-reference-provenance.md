@@ -37,9 +37,14 @@ devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://127.0.0.1:5173"
 devServerHmr: true
 createdAt: "2026-07-22T13:11:44-04:00"
-updatedAt: "2026-07-22T17:15:42.050Z"
-status: "ready_for_work"
+updatedAt: "2026-07-23T19:01:19.670Z"
+status: "verified"
 origin: "internal"
+implementedAt: "2026-07-23T18:13:27.281Z"
+verifiedAt: "2026-07-23T19:01:19.670Z"
+executionReport: "- Implemented provider-neutral Ticket References across Plan front matter, Slicer descriptors/prompts, Work Record schema/generation/index/search/read surfaces, and Workspace Plan detail rendering.\n- Updated Planner/Architect/Slicer guidance plus PRD and design-system docs for demand-provenance boundaries and metadata-reference link styling.\n- Added regression coverage for Plan round-trips/child preservation, Work Record snapshot/aggregation/search hydration, and Workspace safe link rendering.\n- Verification passed: `deno test -A src/plan-store.test.js`; workflow prompt/tests; Work Record/tool/CLI tests; `deno task workspace:test`; and full `deno task ci` (1583 passed, release smoke passed).\n- Headed browser check: ran Workspace at `http://127.0.0.1:5173`, opened standalone and child Ticket fixture details with `agent-browser --headed`; verified direct vs Epic inherited groups, long URL rendering, safe external href/target/rel, non-HTTP value not linked, no `example.com` network request before activation; screenshots saved at `/tmp/ticket-standalone.png` and `/tmp/ticket-child.png`."
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
 ---
 
 # Preserve Ticket References Through Delivery

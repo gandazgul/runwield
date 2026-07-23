@@ -101,7 +101,9 @@ A Plan connects:
 Plans are prospective: they describe what the team intends to do and how.
 
 Plans remain markdown files with stable front matter in Core. Workspace can provide richer collaboration, but must not
-erase the repo-local Plan model.
+erase the repo-local Plan model. Optional provider-neutral `tickets: [{ url }]` front matter may preserve
+user-identified external demand provenance for navigation; RunWield still does not make external trackers mandatory,
+fetch Ticket data, or synchronize Ticket lifecycle state.
 
 ### 4.2 PRD
 
@@ -299,9 +301,11 @@ lastEditedBy:
 lastEditedWithAgent:
 ```
 
-Stable front matter should reference only RunWield-controlled artifacts. Git-specific or external-process references
-such as commits, pull requests, issues, deployment links, or customer notes can appear as loose markdown links in the
-body.
+Stable front matter references RunWield-controlled artifacts plus optional provider-neutral `tickets: [{ url }]` demand
+provenance copied from source Plans. Standalone FEATURE records snapshot direct Plan Ticket References. Epic records
+snapshot a stable first-seen union of direct Epic references followed by child FEATURE references. Git-specific or
+external-process references such as commits, pull requests, deployment links, customer notes, and incidental links
+remain loose markdown body references rather than schema fields.
 
 Suggested body schema:
 
@@ -326,8 +330,8 @@ Suggested body schema:
 ```
 
 Future Planner, Architect, and Ideator agents should retrieve only relevant Work Records by default. Initial retrieval
-can search Work Record titles, descriptions, and headings, then follow `sourcePlans`, `relatedPrds`, `relatedAdrs`, and
-body links when deeper context is needed.
+can search Work Record titles, descriptions, headings, and Ticket URLs, then follow `sourcePlans`, `relatedPrds`,
+`relatedAdrs`, structured Ticket URLs, and body links when deeper context is needed.
 
 ## 6. RunWield Workspace Requirements
 

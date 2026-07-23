@@ -5,6 +5,9 @@ summary: "<Brief summary of the project-level change>"
 affectedPaths:
     - "path/to/file1"
     - "path/to/file2"
+# Optional: only when the user identifies external demand URLs as Tickets.
+# tickets:
+#     - url: "https://example.com/tickets/ABC-123"
 devServerCommand: null
 devServerUrl: null
 devServerHmr: null

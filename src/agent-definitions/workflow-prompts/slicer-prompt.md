@@ -99,6 +99,10 @@ Each child descriptor must include:
   descriptor's `order` plus slugified `title` (for example, order `2` and title `Add Search` becomes `02-add-search`).
   Use these prefixed identifiers rather than unprefixed slugs (`add-search`) or human-readable titles (`Add Search`).
 - `affectedPaths` — high-signal paths expected to change, if known.
+- `tickets` — optional direct child Ticket References as provider-neutral objects with at least `url`. Include this only
+  when the user identified those external URLs as Tickets for that specific child. When updating an existing child, omit
+  `tickets` to preserve its current direct Ticket References; use `tickets: []` only when explicitly clearing them.
+  Never copy all Epic Ticket References into every child.
 - `executionAgent` — `frontend-engineer` only when the child FEATURE's primary outcome is materially visual or
   interactive browser UI; otherwise `engineer`, including TUI work and incidental frontend-file edits.
 - `collaborationRecommendation` — for Frontend Engineer children, use `pair` when live visual judgment is valuable and

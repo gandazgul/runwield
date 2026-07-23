@@ -76,12 +76,20 @@ function restoreFailedSlicerContextPhase(boundary) {
     else boundary.manager.resetLeaf?.();
 }
 
+const TICKET_REFERENCE_SCHEMA = Type.Object({
+    url: Type.String({ description: "User-identified external Ticket URL." }),
+});
+
 const CHILD_DESCRIPTOR_SCHEMA = Type.Object({
     title: Type.String({ description: "Child FEATURE title." }),
     order: Type.Number({ description: "1-based integer execution order from the agreed slice sequence." }),
     summary: Type.String({ description: "Brief child FEATURE summary." }),
     dependencies: Type.Array(Type.String(), { description: "Child plan dependencies, if any." }),
     affectedPaths: Type.Array(Type.String(), { description: "Expected affected paths." }),
+    tickets: Type.Optional(Type.Array(TICKET_REFERENCE_SCHEMA, {
+        description:
+            "Direct child Ticket References only when the user identified those URLs as Tickets. Omit to preserve existing child references; [] clears direct child references.",
+    })),
     executionAgent: Type.Union([
         Type.Literal("engineer"),
         Type.Literal("frontend-engineer"),
@@ -240,7 +248,7 @@ export function createSlicerFinalizeTool({ planName, cwd, __deps }) {
 
 /**
  * @param {{ name: string, attrs: import('../../plan-store.js').PlanFrontMatter }} child
- * @returns {{ name: string, order: number | undefined, status: string | undefined, summary: string | undefined, dependencies: string[], affectedPaths: string[] }}
+ * @returns {{ name: string, order: number | undefined, status: string | undefined, summary: string | undefined, dependencies: string[], affectedPaths: string[], tickets?: import('../ticket-references.js').TicketReference[] }}
  */
 function summarizeChild(child) {
     return {
@@ -250,6 +258,7 @@ function summarizeChild(child) {
         summary: child.attrs.summary,
         dependencies: Array.isArray(child.attrs.dependencies) ? child.attrs.dependencies : [],
         affectedPaths: Array.isArray(child.attrs.affectedPaths) ? child.attrs.affectedPaths : [],
+        tickets: Array.isArray(child.attrs.tickets) ? child.attrs.tickets : undefined,
     };
 }
 
