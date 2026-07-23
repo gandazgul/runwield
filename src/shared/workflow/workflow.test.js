@@ -631,17 +631,14 @@ Deno.test("executePlan dispatches explicit Frontend Engineer from loaded Plan me
     assertEquals(dispatchedAgent, "frontend-engineer");
 });
 
-Deno.test("executePlan selects Pair before execution and injects one workflow checkpoint tool", async () => {
+Deno.test("executePlan uses the Plan Pair recommendation and injects one workflow checkpoint tool", async () => {
     const hostedSession = makeHostedSession("pair-execution");
-    /** @type {any[]} */
-    const interactions = [];
     /** @type {any} */
     let activeTurn = null;
     hostedSession.setInteractionAdapter({
         supportsInteraction: (type) => type === "pair_checkpoint",
-        requestInteraction: (request) => {
-            interactions.push(request);
-            return Promise.resolve({ outcome: "selected", value: "pair" });
+        requestInteraction: () => {
+            throw new Error("approve & run must not prompt for collaboration style");
         },
     });
 
@@ -681,9 +678,6 @@ Deno.test("executePlan selects Pair before execution and injects one workflow ch
     });
 
     assertEquals(result.executionComplete, true);
-    assertEquals(interactions.length, 1);
-    assertEquals(interactions[0].type, "select");
-    assertStringIncludes(interactions[0].prompt, "Planner recommendation: Pair Execution");
     assertEquals(activeTurn.agentName, "frontend-engineer");
     assertEquals(activeTurn.customTools.map((/** @type {any} */ tool) => tool.name), ["pair_checkpoint"]);
     assertStringIncludes(activeTurn.userRequest, "Pair Execution is active");
@@ -691,15 +685,16 @@ Deno.test("executePlan selects Pair before execution and injects one workflow ch
     assertEquals(hostedSession.getActiveExecutionWorkflow()?.pairCheckpointCount, 0);
 });
 
-Deno.test("executePlan cancels collaboration selection before execution mutation", async () => {
-    const hostedSession = makeHostedSession("pair-selection-canceled");
+Deno.test("executePlan runs autonomously when Plan recommends autonomous without prompting", async () => {
+    const hostedSession = makeHostedSession("frontend-autonomous-recommendation");
     hostedSession.setInteractionAdapter({
         supportsInteraction: (type) => type === "pair_checkpoint",
-        requestInteraction: () => Promise.resolve({ outcome: "canceled" }),
+        requestInteraction: () => {
+            throw new Error("approve & run must not prompt for collaboration style");
+        },
     });
-    let executed = false;
-    /** @type {any[]} */
-    const metrics = [];
+    /** @type {any} */
+    let executionArgs = null;
 
     const result = await executePlan({
         planName: "visual-feature",
@@ -713,27 +708,23 @@ Deno.test("executePlan cancels collaboration selection before execution mutation
                             status: "ready_for_work",
                             classification: "FEATURE",
                             executionAgent: "frontend-engineer",
-                            collaborationRecommendation: "pair",
+                            collaborationRecommendation: "autonomous",
                         },
                         body: "## Visual Feature",
                     }),
                 ),
-            executeSingleEngineerPlan: () => {
-                executed = true;
-                return Promise.resolve({ repairRequired: false, executionComplete: true });
+            executeSingleEngineerPlan: (args) => {
+                executionArgs = args;
+                return Promise.resolve({ repairRequired: false, executionComplete: false });
             },
-            recordWorkflowMetric: (/** @type {any} */ metric) => {
-                metrics.push(metric);
-                return Promise.resolve(null);
-            },
+            recordWorkflowMetric: () => Promise.resolve(null),
         },
     });
 
-    assertEquals(result.canceled, true);
     assertEquals(result.executionComplete, false);
-    assertEquals(executed, false);
-    assertEquals(hostedSession.getActiveExecutionWorkflow(), null);
-    assertEquals(metrics.some((metric) => metric.event === "plan_execution_started"), false);
+    assertEquals(result.canceled, undefined);
+    assertEquals(executionArgs.collaborationStyle, "autonomous");
+    assertEquals(executionArgs.collaborationRecommendation, "autonomous");
 });
 
 Deno.test("executePlan clears unusable Pair style when execution setup fails", async () => {
