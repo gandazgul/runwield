@@ -18,7 +18,7 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-21T23:56:51-04:00"
-updatedAt: "2026-07-23T13:58:51-04:00"
+updatedAt: "2026-07-23T18:12:42.871Z"
 status: "draft"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v1"
@@ -63,8 +63,7 @@ Implement the first enforceable Session Activation Lease and committed-generatio
 - Workspace, TUI, and ACP acquire fenced activation before writable hydration or an ordinary Session turn;
 - Workspace accepts only a conversation-only turn and cannot materialize workflow, Plan, repository, or pending
   interaction effects in this slice;
-- an idle cached Runtime is treated as non-writable after release and is rehydrated if another surface advanced the
-  committed generation;
+- safe-idle release leaves a dormant Runtime with no writable manager, and every later turn acquires and hydrates anew;
 - a Session generation is published only after transcript bytes are durably settled and verifiable;
 - paired Workspace clients can list eligible Sessions, inspect activation state, read a committed semantic timeline, and
   start one server-owned continuation without receiving a fencing token or filesystem locator;
@@ -97,12 +96,14 @@ snapshot mechanism before v3 rather than copying only the main database file. Tr
 uses this order:
 
 1. acquire activation with the caller's exact expected committed generation;
-2. hydrate the writable manager and activate the Agent only after acquisition;
-3. run the allowed Session turn while heartbeating and buffering semantic Runtime events;
-4. wait for Runtime and Agent idle, dispose the writable manager, sync the exact cataloged transcript, and capture byte
+2. compare the full guarded file against that generation's byte length, terminal entry, and digest before writable
+   hydration; any tail or mismatch marks reconcile-needed and stops;
+3. hydrate the writable manager and activate the Agent only after the comparison succeeds;
+4. run the allowed Session turn while heartbeating and buffering semantic Runtime events;
+5. wait for Runtime and Agent idle, dispose the writable manager, sync the exact cataloged transcript, and capture byte
    length, terminal entry ID, and a digest of the committed prefix;
-5. insert the next generation and release in one fenced transaction; and
-6. if canonical transcript effects exist but publication cannot be proven, never rerun the User Request—retain or mark
+6. insert the next generation and release in one fenced transaction; and
+7. if canonical transcript effects exist but publication cannot be proven, never rerun the User Request—retain or mark
    reconcile-needed/uncertain state and report degraded status.
 
 Extract existing replay shaping into a shared pure projection module. A strictly read-only JSONL reader validates the
@@ -234,9 +235,10 @@ Existing functions, modules, or patterns to reuse:
       fence leaks through public snapshots.
 - [ ] Refactor Runtime startup ordering. Existing managed Session startup uses read-only catalog resolution/bootstrap
       and creates a dormant shell; it must not call `SessionManager.continueRecent()`/`open()` or activate an Agent. On
-      a turn, acquire first, call `openPersistedRootSession()`, activate the Agent, run, checkpoint, dispose, and return
-      to dormant. Split new manager/header creation from `switchAgent()` so TUI and ACP can catalog/acquire before Agent
-      setup or the first User Request.
+      a turn, acquire, compare the entire current file to committed evidence, and only then call
+      `openPersistedRootSession()`, activate the Agent, run, checkpoint, dispose, and return to dormant. A tail or
+      mismatch before hydration marks reconcile-needed and prevents the User Request. Split new manager/header creation
+      from `switchAgent()` so TUI and ACP can catalog/acquire before Agent setup or the first User Request.
 - [ ] Classify every public Runtime operation as read-only, adopted, nested-under-turn, or unsupported for dormant
       managed Sessions. This slice adopts existing load/start and ordinary TUI/ACP turns. Nested operations require the
       active turn's proof. Direct compaction, cancellation settlement, model/thinking changes, shell/tool recording,
@@ -247,11 +249,11 @@ Existing functions, modules, or patterns to reuse:
       catalog new transcript headers before first Agent setup. Preserve only positively unregistered Project behavior.
       ACP keeps transport IDs, maps the stable ID in RunWield metadata, and returns sanitized invalid-state errors for
       ownership/bootstrap/reconciliation conflicts.
-- [ ] Implement a Workspace conversation-only Runtime policy. Permit text/image-free Ideator or Planner conversation
-      while removing `plan_written`, execution/outcome tools, `user_interview`, shell/repository tools, Plan actions,
-      and other materializing Custom Tools from that operation. Reject a Session already in workflow, execution, or
-      pending interaction state. Treat any unexpected interaction/handoff into a disallowed workflow as unsupported,
-      settle what is already durable, checkpoint safely, and never leave a pending browser continuation.
+- [ ] Implement a Workspace conversation-only Runtime policy. Permit text-only (image-free) Ideator or Planner
+      conversation while removing `plan_written`, execution/outcome tools, `user_interview`, shell/repository tools,
+      Plan actions, and other materializing Custom Tools from that operation. Reject a Session already in workflow,
+      execution, or pending interaction state. Treat any unexpected interaction/handoff into a disallowed workflow as
+      unsupported, settle what is already durable, checkpoint safely, and never leave a pending browser continuation.
 - [ ] Build `session-continuation.js` as a server-owned operation service over one Workspace Runtime. Validate stable
       Project/Session association and conversation-only eligibility, bootstrap when needed, acquire with a process plus
       opaque operation ID, subscribe before the turn, heartbeat, buffer bounded safe events, checkpoint/release, and
@@ -284,7 +286,7 @@ Existing functions, modules, or patterns to reuse:
   mutation; new Sessions perform no Agent setup before catalog/acquire. Concurrent bootstrap converges, and failed or
   unstable evidence returns typed blocked/reconciliation state.
 - Automated: instrument Runtime dependencies for
-  `acquire -> writable open/Agent activation -> turn -> Runtime+Agent idle -> manager dispose -> exact-file sync/evidence -> generation publish+release`.
+  `acquire -> committed-evidence comparison -> writable open/Agent activation -> turn -> Runtime+Agent idle -> manager dispose -> exact-file sync/evidence -> generation publish+release`.
   Inject failure at each boundary and prove no duplicate Agent turn or database-ahead-of-transcript publication.
 - Automated: byte-for-byte and modification-time tests prove list/status/timeline reads never call writable Pi APIs or
   modify JSONL. Timeline projection validates the committed prefix, ignores a later tail, rejects mismatched evidence,
@@ -325,8 +327,9 @@ Existing functions, modules, or patterns to reuse:
   concurrently.
 - **Heartbeat age:** expiry never proves an interrupted model call, command, tool, or filesystem effect is safe to
   repeat. No takeover or recovery endpoint is added here.
-- **Transcript ahead of SQLite:** if the turn is durable but publication fails, never append or invoke it again. Report
-  reconcile-needed/uncertain state even when SQLite is temporarily unavailable.
+- **Transcript ahead of SQLite:** after acquisition and before writable hydration, compare the full file with the latest
+  committed evidence. Any extra tail or mismatch blocks the User Request and marks reconcile-needed. If a new turn is
+  durable but publication fails, never append or invoke it again, even when SQLite is temporarily unavailable.
 - **SQLite ahead of transcript:** durability order and terminal evidence must prevent this. Detection makes timeline
   reads fail closed instead of presenting absent content.
 - **Dormant Runtime:** safe-idle release disposes the writable manager and Agent while retaining adapter/stable identity
