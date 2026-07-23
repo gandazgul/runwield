@@ -11,7 +11,6 @@ import { getAgentDisplayName } from "../session/agents.js";
 import { emitSystemStatus } from "../session/session-runtime-events.js";
 import {
     requestHostedSessionInteraction,
-    RuntimeInteractionOutcomes,
     RuntimeInteractionTypes,
     supportsHostedSessionInteraction,
 } from "../session/session-runtime-interactions.js";
@@ -27,7 +26,7 @@ import { captureWorktreeTree } from "./git-snapshot.js";
 import { isEpicPlan, isExecutablePlanStatus, recordPlanEvent } from "./plan-lifecycle.js";
 import { createPairCheckpointTool } from "../../tools/pair-checkpoint.js";
 import { recordWorkflowMetric } from "./metrics.js";
-import { buildCollaborationStylePrompt, buildEngineerRequest } from "./workflow-prompts.js";
+import { buildEngineerRequest } from "./workflow-prompts.js";
 import {
     readLatestPlanOutcome,
     readLatestTaskCompletedMessage,
@@ -96,51 +95,25 @@ export function supportsPairExecution(hostedSession) {
 /**
  * @param {import('../session/hosted-session.js').HostedSession} hostedSession
  * @param {{ executionAgent: "engineer"|"frontend-engineer", collaborationRecommendation: "autonomous"|"pair", source: "canonical"|"legacy_frontend"|"legacy_frontend_false"|"absent" }} policy
- * @returns {Promise<RuntimeCollaborationSelection>}
+ * @returns {RuntimeCollaborationSelection}
  */
-async function selectRuntimeCollaborationStyle(hostedSession, policy) {
+function selectRuntimeCollaborationStyle(hostedSession, policy) {
     const recommendation = policy.collaborationRecommendation || CollaborationStyles.AUTONOMOUS;
-    if (
-        policy.executionAgent !== AGENTS.FRONTEND_ENGINEER || policy.source !== "canonical" ||
-        !supportsPairExecution(hostedSession)
-    ) {
+    if (policy.executionAgent !== AGENTS.FRONTEND_ENGINEER || policy.source !== "canonical") {
         return { style: CollaborationStyles.AUTONOMOUS, recommendation };
     }
-    const response = await requestHostedSessionInteraction(hostedSession, {
-        type: RuntimeInteractionTypes.SELECT,
-        prompt: buildCollaborationStylePrompt(recommendation),
-        options: [
-            {
-                value: CollaborationStyles.PAIR,
-                label: recommendation === CollaborationStyles.PAIR ? "Pair Execution (recommended)" : "Pair Execution",
-                description: "Pause after coherent visible increments for user direction.",
-            },
-            {
-                value: CollaborationStyles.AUTONOMOUS,
-                label: recommendation === CollaborationStyles.AUTONOMOUS
-                    ? "Autonomous execution (recommended)"
-                    : "Autonomous execution",
-                description: "Run AFK and verify in the browser before Task Completion.",
-            },
-        ],
-        defaultValue: recommendation,
-        _meta: { collaborationRecommendation: recommendation },
-    });
-    if (response.outcome === RuntimeInteractionOutcomes.CANCELED) {
-        return { style: CollaborationStyles.AUTONOMOUS, recommendation, canceled: true };
+    if (recommendation !== CollaborationStyles.PAIR) {
+        return { style: CollaborationStyles.AUTONOMOUS, recommendation };
     }
-    if (
-        response.outcome === RuntimeInteractionOutcomes.SELECTED &&
-        (response.value === CollaborationStyles.PAIR || response.value === CollaborationStyles.AUTONOMOUS)
-    ) {
-        return { style: /** @type {"autonomous"|"pair"} */ (response.value), recommendation };
+    if (!supportsPairExecution(hostedSession)) {
+        emitSystemStatus(
+            hostedSession,
+            "Pair Execution is recommended by the Plan but unavailable in this host; continuing with autonomous Frontend Engineer execution.",
+            { header: "RunWield" },
+        );
+        return { style: CollaborationStyles.AUTONOMOUS, recommendation };
     }
-    emitSystemStatus(
-        hostedSession,
-        "Pair Execution selection is unavailable; continuing with autonomous Frontend Engineer execution.",
-        { header: "RunWield" },
-    );
-    return { style: CollaborationStyles.AUTONOMOUS, recommendation };
+    return { style: CollaborationStyles.PAIR, recommendation };
 }
 
 /**
