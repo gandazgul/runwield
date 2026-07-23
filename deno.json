@@ -130,7 +130,7 @@
         "workspace:react:check": "deno task workspace:check",
         "workspace:test": "deno test -A src/ui/workspace src/cmd/plans/ui.test.js",
         "compile": "deno run -A ./scripts/compile.js",
-        "ux:new-user": "podman build -f Containerfile.wld-ux -t runwield-wld-ux:local . && podman run --rm -it -e ANTHROPIC_API_KEY -e OPENAI_API_KEY -e GOOGLE_API_KEY -e MISTRAL_API_KEY runwield-wld-ux:local",
+        "ux:new-user": "podman build --build-arg WLD_INSTALL_REFRESH=$(date +%s) -f Containerfile.wld-ux -t runwield-wld-ux:local . && podman run --rm -it -e ANTHROPIC_API_KEY -e OPENAI_API_KEY -e GOOGLE_API_KEY -e MISTRAL_API_KEY runwield-wld-ux:local",
         "release:check": "deno run -A scripts/release-check.js",
         "compile:watch": "watchexec -e js,jsx,mjs,md,css,ts,tsx,json --ignore node_modules --ignore dist --ignore bin --ignore src/shared/version.js -- deno task compile",
         "prototype:plan-ui": "deno task -c prototypes/fresh-plan-ui/deno.json dev",

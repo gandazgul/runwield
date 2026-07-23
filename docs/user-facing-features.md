@@ -1,7 +1,10 @@
 # WLD User-Facing Features
 
 - **Installation and startup**
-  - Install the standalone `wld` binary on macOS or Linux with the release installer.
+  - Install the standalone `wld` binary and missing runtime helpers on macOS or Linux with the release installer.
+  - Install required Mnemosyne/Cymbal and optional Snip into the shared `WLD_INSTALL_DIR` when they are not already
+    present.
+  - Preserve existing helper binaries already found on `PATH` or in `WLD_INSTALL_DIR`.
   - Choose a custom install directory with `WLD_INSTALL_DIR`.
   - Run from source with Deno for contributor workflows.
   - Compile a standalone binary from source.
@@ -141,9 +144,9 @@
   - Initialize project context with `wld init` or `/init`.
   - Generate a project `CONTEXT.md` during initialization.
   - Store durable project memories during initialization.
-  - Use Mnemosyne for project and global memory recall.
+  - Use Mnemosyne for project and global memory recall; Mnemosyne models download lazily on first semantic use.
   - Use Cymbal for code search, symbol lookup, references, impact analysis, and tracing.
-  - Use Snip for compact command-output rewriting when available.
+  - Use Snip for compact command-output rewriting when available; Snip remains optional and fail-open.
   - Install RunWield-managed Deno Snip filters with `wld snip-filters install`.
   - Check Snip filter status with `wld snip-filters status`.
   - Remove RunWield-managed Snip filters with `wld snip-filters cleanup`.

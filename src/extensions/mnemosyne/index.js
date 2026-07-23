@@ -8,7 +8,7 @@ import { Type } from "@sinclair/typebox";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 
 const MISSING_BINARY_MSG =
-    "Error: mnemosyne binary not found. Install it: https://github.com/gandazgul/mnemosyne#quick-start";
+    "Error: mnemosyne binary not found. Rerun the RunWield installer to install required runtime helpers: curl -fsSL https://raw.githubusercontent.com/gandazgul/runwield/main/install.sh | bash";
 
 export const memoryRecallToolDef = defineTool({
     name: "memory_recall",
