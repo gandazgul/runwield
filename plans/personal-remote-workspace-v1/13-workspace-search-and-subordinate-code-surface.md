@@ -1,4 +1,5 @@
 ---
+planId: "3186a95c-94c1-4ae3-abbc-c32808a701dc"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Add owner-only Project artifact search, explicitly scoped multi-Project Cymbal code search, and code-server supervision for registered main checkouts with safe deep links from search results."

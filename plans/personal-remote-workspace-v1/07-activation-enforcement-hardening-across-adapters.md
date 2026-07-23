@@ -1,4 +1,5 @@
 ---
+planId: "7c2a6b78-6dbd-4e78-8979-fbe3aa49621e"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Expand the initial Workspace activation tracer bullet into comprehensive writable Session activation enforcement for TUI, ACP, initialization, compaction, cancellation, and all Runtime mutation paths."

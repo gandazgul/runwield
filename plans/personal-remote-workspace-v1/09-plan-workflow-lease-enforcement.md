@@ -1,4 +1,5 @@
 ---
+planId: "f8c4bb27-964d-46ac-b51c-22510569d953"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Add Session-owned Plan Workflow Leases around lifecycle, validation, worktree, recovery, and manual Plan actions so one Session owns a Plan workflow even when the active process changes."

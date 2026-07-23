@@ -6,7 +6,11 @@
 import { DatabaseSync } from "node:sqlite";
 import { dirname, extname } from "@std/path";
 import { ensureOwnerDatabaseDirectory, getOwnerCoordinationDatabasePath } from "./paths.js";
-import { OWNER_COORDINATION_SCHEMA_V1_SQL, OWNER_COORDINATION_SCHEMA_VERSION } from "./schema.js";
+import {
+    OWNER_COORDINATION_SCHEMA_V1_SQL,
+    OWNER_COORDINATION_SCHEMA_V2_SQL,
+    OWNER_COORDINATION_SCHEMA_VERSION,
+} from "./schema.js";
 
 /**
  * @typedef {Object} OwnerCoordinationDatabase
@@ -76,6 +80,10 @@ export function runOwnerCoordinationMigrations(db, options = {}) {
         if (latestVersion < 1) {
             db.exec(OWNER_COORDINATION_SCHEMA_V1_SQL);
             recordMigration(db, 1, options.now);
+        }
+        if (latestVersion < 2) {
+            db.exec(OWNER_COORDINATION_SCHEMA_V2_SQL);
+            recordMigration(db, 2, options.now);
         }
         db.exec("COMMIT");
     } catch (error) {

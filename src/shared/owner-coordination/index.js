@@ -5,8 +5,8 @@
  * Slice boundaries:
  * - Workspace UI consumes these Project and Session catalog services for registration,
  *   health, restoration, relinking, and repair actions.
- * - Later activation/generation, device, checkpoint, Plan Workflow Lease, and
- *   attention slices add their own migrations and APIs here.
+ * - Later activation/generation, checkpoint, Plan Workflow Lease, and attention
+ *   slices add their own migrations and APIs here.
  * - Runtime adapters and browser services must call shared APIs rather than
  *   issuing owner-database SQL directly.
  */
@@ -33,8 +33,16 @@ import {
     getSessionById,
     listProjectSessions,
 } from "./sessions.js";
+import { listDevices, revokeDevice, verifyDeviceCredential, verifyDeviceCsrf } from "./devices.js";
+import {
+    approvePairingRequest,
+    claimPairingRequest,
+    createPairingRequest,
+    getPairingRequestByProof,
+} from "./pairing.js";
 
 export { getOwnerCoordinationDatabasePath, OWNER_COORDINATION_DB_FILENAME, OWNER_COORDINATION_SCHEMA_VERSION };
+export { OWNER_CSRF_COOKIE, OWNER_DEVICE_COOKIE, OWNER_DEVICE_MAX_AGE_SECONDS } from "./devices.js";
 
 /**
  * @typedef {Object} OwnerCoordinationStore
@@ -55,6 +63,14 @@ export { getOwnerCoordinationDatabasePath, OWNER_COORDINATION_DB_FILENAME, OWNER
  * @property {(runwieldSessionId: string) => ReturnType<typeof getSessionById>} getSessionById
  * @property {(projectId: string, options?: Parameters<typeof listProjectSessions>[2]) => ReturnType<typeof listProjectSessions>} listProjectSessions
  * @property {(projectId: string, options?: Parameters<typeof catalogProjectSessions>[2]) => ReturnType<typeof catalogProjectSessions>} catalogProjectSessions
+ * @property {(options?: Parameters<typeof createPairingRequest>[1]) => ReturnType<typeof createPairingRequest>} createPairingRequest
+ * @property {(code: string, options?: Parameters<typeof approvePairingRequest>[2]) => ReturnType<typeof approvePairingRequest>} approvePairingRequest
+ * @property {(proof: string, options?: Parameters<typeof getPairingRequestByProof>[2]) => ReturnType<typeof getPairingRequestByProof>} getPairingRequestByProof
+ * @property {(proof: string, options?: Parameters<typeof claimPairingRequest>[2]) => ReturnType<typeof claimPairingRequest>} claimPairingRequest
+ * @property {() => ReturnType<typeof listDevices>} listDevices
+ * @property {(credential: string, options?: Parameters<typeof verifyDeviceCredential>[2]) => ReturnType<typeof verifyDeviceCredential>} verifyDeviceCredential
+ * @property {(deviceId: string, csrf: string) => ReturnType<typeof verifyDeviceCsrf>} verifyDeviceCsrf
+ * @property {(deviceId: string, options?: Parameters<typeof revokeDevice>[2]) => ReturnType<typeof revokeDevice>} revokeDevice
  */
 
 /**
@@ -87,5 +103,14 @@ export function openOwnerCoordinationStore(options = {}) {
         listProjectSessions: (projectId, sessionOptions) => listProjectSessions(database, projectId, sessionOptions),
         catalogProjectSessions: (projectId, sessionOptions) =>
             catalogProjectSessions(database, projectId, sessionOptions),
+        createPairingRequest: (pairingOptions) => createPairingRequest(database, pairingOptions),
+        approvePairingRequest: (code, pairingOptions) => approvePairingRequest(database, code, pairingOptions),
+        getPairingRequestByProof: (proof, pairingOptions) => getPairingRequestByProof(database, proof, pairingOptions),
+        claimPairingRequest: (proof, pairingOptions) => claimPairingRequest(database, proof, pairingOptions),
+        listDevices: () => listDevices(database),
+        verifyDeviceCredential: (credential, deviceOptions) =>
+            verifyDeviceCredential(database, credential, deviceOptions),
+        verifyDeviceCsrf: (deviceId, csrf) => verifyDeviceCsrf(database, deviceId, csrf),
+        revokeDevice: (deviceId, deviceOptions) => revokeDevice(database, deviceId, deviceOptions),
     };
 }
