@@ -108,7 +108,7 @@ export function PlanBodyEditor({ plan, initialEdit = false }) {
         if (!canEdit || !dirty) return undefined;
         const handler = (/** @type {BeforeUnloadEvent} */ event) => {
             event.preventDefault();
-            event.returnValue = "";
+            Reflect.set(event, "returnValue", "");
         };
         addEventListener("beforeunload", handler);
         return () => removeEventListener("beforeunload", handler);

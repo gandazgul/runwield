@@ -18,7 +18,7 @@ const artifactLabel = payload.artifactKind === "work-record" ? "Work Record" : "
 const pageTitle = isArtifactRead ? `${artifactLabel} · RunWield Workspace` : "Plan Review · RunWield Workspace";
 ---
 <ReviewLayout title={pageTitle}>
-    <script type="application/json" data-review-payload set:html={JSON.stringify(payload)} />
+    <script is:inline type="application/json" data-review-payload set:html={JSON.stringify(payload)} />
     {isArtifactRead
         ? <ArtifactReadSurface payload={payload} client:only="react" />
         : <PlanReviewSurface payload={payload} client:only="react" />}

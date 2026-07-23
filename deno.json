@@ -134,7 +134,7 @@
         "workspace:dev:plan-review": "deno run -A --env npm:astro dev --config src/ui/workspace/astro.config.mjs --host 127.0.0.1 --port 5173 --open /dev/plan-review",
         "workspace:dev:code-review": "deno run -A --env npm:astro dev --config src/ui/workspace/astro.config.mjs --host 127.0.0.1 --port 5173 --open /dev/code-review",
         "workspace:build": "deno run -A --env npm:astro build --config src/ui/workspace/astro.config.mjs",
-        "workspace:check": "deno run -A --env npm:astro check --root src/ui/workspace --tsconfig tsconfig.json"
+        "workspace:check": "deno run -A npm:astro check --root src/ui/workspace --tsconfig tsconfig.json"
     },
     "fmt": {
         "lineWidth": 120,
