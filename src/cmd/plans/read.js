@@ -1,37 +1,63 @@
 /**
  * @module cmd/plans/read
- * Print active or archived Plan markdown for inspection.
+ * Open active or archived Plan markdown in a read-only browser view.
  */
 
 import { CLI_BIN, CWD, PLANS_DIR_NAME } from "../../constants.js";
-import { listArchivedPlans, loadArchivedPlan, loadPlan, parsePlanFrontMatter } from "../../plan-store.js";
+import { findPlanById, listArchivedPlans, loadArchivedPlan, loadPlan } from "../../plan-store.js";
+import { startArtifactReadSurface } from "../../ui/review/review-launcher.js";
 
 /**
  * @typedef {Object} ReadCommandDependencies
  * @property {typeof loadPlan} [loadPlan]
  * @property {typeof loadArchivedPlan} [loadArchivedPlan]
  * @property {typeof listArchivedPlans} [listArchivedPlans]
+ * @property {typeof findPlanById} [findPlanById]
+ * @property {typeof startArtifactReadSurface} [startArtifactReadSurface]
  */
 
 /**
- * @param {string} name
- * @param {string} path
- * @param {import("../../plan-store.js").PlanFrontMatter} attrs
- * @param {string} body
+ * @typedef {Object} ResolvedPlanReadArtifact
+ * @property {string} title
+ * @property {string} path
+ * @property {string} markdown
  */
-function printPlan(name, path, attrs, body) {
-    console.log(`[RunWield] Plan: ${name}`);
-    console.log(`Path: ${path}`);
-    if (attrs.planId) console.log(`Plan ID: ${attrs.planId}`);
-    console.log(`Status: ${attrs.status}`);
-    console.log(`Classification: ${attrs.classification}`);
-    console.log(`Complexity: ${attrs.complexity}`);
-    console.log(`Summary: ${attrs.summary || "(none)"}`);
-    if (attrs.archivedAt) console.log(`Archived: ${attrs.archivedAt}`);
-    if (attrs.archiveReason) console.log(`Archive reason: ${attrs.archiveReason}`);
-    if (attrs.restoredAt) console.log(`Restored: ${attrs.restoredAt}`);
-    console.log("\n--- Body ---\n");
-    console.log(body.trimEnd());
+
+/**
+ * @param {ResolvedPlanReadArtifact} artifact
+ * @param {ReadCommandDependencies} deps
+ */
+async function openPlanReadSurface(artifact, deps) {
+    const startReadSurface = deps.startArtifactReadSurface || startArtifactReadSurface;
+    const server = await startReadSurface({
+        cwd: CWD,
+        markdown: artifact.markdown,
+        artifactKind: "plan",
+        title: artifact.title,
+        path: artifact.path,
+    });
+    console.log(`[RunWield] Plan read-only view: ${server.url}`);
+    if (!server.opened) {
+        console.log(
+            "[RunWield] Could not open your browser automatically. Open the URL above, then choose Close when finished.",
+        );
+    }
+    try {
+        await server.waitForDecision();
+    } finally {
+        await stopReadSurface(server);
+    }
+    if (!deps.startArtifactReadSurface) Deno.exit(0);
+}
+
+/**
+ * @param {{ stop: () => void | Promise<void> }} server
+ */
+async function stopReadSurface(server) {
+    await Promise.race([
+        Promise.resolve(server.stop()),
+        new Promise((resolve) => setTimeout(resolve, 1000)),
+    ]);
 }
 
 /**
@@ -51,16 +77,25 @@ export async function runPlansReadCommand(argv, options = {}) {
     const loadPlanDep = deps.loadPlan || loadPlan;
     const loadArchivedPlanDep = deps.loadArchivedPlan || loadArchivedPlan;
     const listArchivedPlansDep = deps.listArchivedPlans || listArchivedPlans;
+    const findPlanByIdDep = deps.findPlanById || findPlanById;
 
     const active = await loadPlanDep(CWD, target).catch(() => null);
     if (active && !target.replaceAll("\\", "/").startsWith("archived/")) {
-        printPlan(target.replace(/\.md$/, ""), active.path, active.attrs, active.body);
+        await openPlanReadSurface({
+            title: target.replace(/\.md$/, ""),
+            path: active.path,
+            markdown: active.markdown,
+        }, deps);
         return;
     }
 
     const archived = await loadArchivedPlanDep(CWD, target).catch(() => null);
     if (archived) {
-        printPlan(`${PLANS_DIR_NAME}/archived/${archived.name}.md`, archived.path, archived.attrs, archived.body);
+        await openPlanReadSurface({
+            title: `${PLANS_DIR_NAME}/archived/${archived.name}.md`,
+            path: archived.path,
+            markdown: archived.markdown,
+        }, deps);
         return;
     }
 
@@ -71,15 +106,22 @@ export async function runPlansReadCommand(argv, options = {}) {
     if (archivedMatches.length === 1) {
         const loaded = await loadArchivedPlanDep(CWD, archivedMatches[0].name);
         if (loaded) {
-            printPlan(`${PLANS_DIR_NAME}/archived/${loaded.name}.md`, loaded.path, loaded.attrs, loaded.body);
+            await openPlanReadSurface({
+                title: `${PLANS_DIR_NAME}/archived/${loaded.name}.md`,
+                path: loaded.path,
+                markdown: loaded.markdown,
+            }, deps);
             return;
         }
     }
 
     try {
-        const activeById = await import("../../plan-store.js").then((mod) => mod.findPlanById(CWD, target));
-        const parsed = parsePlanFrontMatter(activeById.markdown);
-        printPlan(activeById.planName, activeById.path, activeById.attrs, parsed.body);
+        const activeById = await findPlanByIdDep(CWD, target);
+        await openPlanReadSurface({
+            title: activeById.planName,
+            path: activeById.path,
+            markdown: activeById.markdown,
+        }, deps);
         return;
     } catch {
         // Continue to user-facing not found error.

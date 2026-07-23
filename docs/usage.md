@@ -125,7 +125,7 @@ Available commands:
 wld wr                         # list current records
 wld wr list [--all]            # list current or maintenance/all records
 wld wr search <query> [--all]  # search the derived Work Record index
-wld wr read <recordId> [--all] # read one record by stable recordId
+wld wr read <recordId>         # open one record read-only in the browser by stable recordId
 wld wr index rebuild           # rebuild the derived index from Markdown
 wld wr backfill                # generate/link missing records for completed Plans/Epics
 ```
@@ -133,6 +133,10 @@ wld wr backfill                # generate/link missing records for completed Pla
 Disable only automatic completion hooks with
 [`workRecords.autoGenerateOnPlanCompletion`](settings.md#workrecordsautogenerateonplancompletion); listing, search/read,
 index rebuild, and backfill remain available.
+
+`wld wr read <recordId>` starts a local token-protected read-only browser view with Contents navigation, the canonical
+Work Record Markdown, and any maintenance notices. The command remains attached until the browser view's Close button is
+used or the process is cancelled.
 
 ## Collaborative Plan review
 
