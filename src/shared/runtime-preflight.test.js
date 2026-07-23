@@ -1,4 +1,4 @@
-import { assertEquals, assertRejects } from "@std/assert";
+import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import {
     __resetRuntimePreflightForTest,
     ensureCymbalBinary,
@@ -30,16 +30,19 @@ Deno.test("runtime preflight caches required binaries and probes optional Snip l
 Deno.test("runtime preflight reports install guidance when binaries are missing", async () => {
     __resetRuntimePreflightForTest(() => Promise.resolve(false));
     try {
-        await assertRejects(
+        const mnemosyneError = await assertRejects(
             () => ensureMnemosyneBinary(),
             Error,
             "Mnemosyne binary not found",
         );
-        await assertRejects(
+        assertStringIncludes(mnemosyneError.message, "Rerun the RunWield installer");
+        assertStringIncludes(mnemosyneError.message, "raw.githubusercontent.com/gandazgul/runwield/main/install.sh");
+        const cymbalError = await assertRejects(
             () => ensureCymbalBinary(),
             Error,
             "Cymbal binary not found",
         );
+        assertStringIncludes(cymbalError.message, "Rerun the RunWield installer");
     } finally {
         __resetRuntimePreflightForTest();
     }
