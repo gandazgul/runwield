@@ -1,6 +1,7 @@
 /** Review decision transport for Workspace-hosted review surfaces. */
 
 import { readPlanApprovalAction } from "../../../../shared/workflow/plan-approval.js";
+import { normalizeCollaborationMode, normalizeExecutionAgent } from "../../../../plan-store.js";
 
 const REVIEW_TIMEOUT_MS = 30 * 60 * 1000;
 /** @type {Map<string, { resolve: (value: any) => void, promise: Promise<any>, timeoutId: ReturnType<typeof setTimeout> }>} */
@@ -48,17 +49,22 @@ export function unregisterReviewDecision(token) {
 
 /** @param {any} ctx */
 export async function reviewDecisionApi(ctx) {
-    return await resolveFromRequest(ctx, (body) => ({
-        approved: true,
-        feedback: typeof body.feedback === "string" ? body.feedback : undefined,
-        annotations: Array.isArray(body.annotations) ? body.annotations : [],
-        ...reviewImageDecisionFields(body),
-        plan: typeof body.plan === "string" ? body.plan : undefined,
-        savedPath: readPlanSavePath(body.planSave),
-        approvalAction: readPlanApprovalAction(body.approvalAction),
-        agentSwitch: typeof body.agentSwitch === "string" ? body.agentSwitch : undefined,
-        permissionMode: typeof body.permissionMode === "string" ? body.permissionMode : undefined,
-    }));
+    return await resolveFromRequest(ctx, (body) => {
+        const executionPolicy = validateApprovedExecutionPolicy(body, ctx.state?.reviewPayload);
+        if (executionPolicy instanceof Response) return executionPolicy;
+        return {
+            approved: true,
+            feedback: typeof body.feedback === "string" ? body.feedback : undefined,
+            annotations: Array.isArray(body.annotations) ? body.annotations : [],
+            ...reviewImageDecisionFields(body),
+            plan: typeof body.plan === "string" ? body.plan : undefined,
+            savedPath: readPlanSavePath(body.planSave),
+            approvalAction: readPlanApprovalAction(body.approvalAction),
+            ...executionPolicy,
+            agentSwitch: typeof body.agentSwitch === "string" ? body.agentSwitch : undefined,
+            permissionMode: typeof body.permissionMode === "string" ? body.permissionMode : undefined,
+        };
+    });
 }
 
 /** @param {any} ctx */
@@ -158,10 +164,77 @@ async function resolveFromRequest(ctx, createDecision) {
     }
 
     const decision = createDecision(body || {});
+    if (decision instanceof Response) return decision;
     if (!resolveReviewDecision(token, decision)) {
         return jsonError("review_not_found", "Review expired or completed.", 404);
     }
     return Response.json({ ok: true }, { headers: { "cache-control": "no-store" } });
+}
+
+/**
+ * @param {any} body
+ * @param {any} reviewPayload
+ * @returns {{ executionAgent?: "engineer" | "frontend-engineer", collaborationRecommendation?: "autonomous" | "pair" } | Response}
+ */
+function validateApprovedExecutionPolicy(body, reviewPayload) {
+    const hasAgent = Object.hasOwn(body, "executionAgent");
+    const hasRecommendation = Object.hasOwn(body, "collaborationRecommendation");
+    if (!hasAgent && !hasRecommendation) return {};
+    if (!hasAgent || !hasRecommendation) {
+        return jsonError(
+            "invalid_execution_policy",
+            "Approval must include both executionAgent and collaborationRecommendation.",
+            400,
+        );
+    }
+
+    const classification = trustedReviewClassification(reviewPayload);
+    if (classification === "PROJECT") {
+        return jsonError(
+            "project_execution_policy",
+            "PROJECT Epics are non-executable and cannot approve execution policy fields.",
+            400,
+        );
+    }
+
+    const executionAgent = normalizeExecutionAgent(body.executionAgent);
+    if (!executionAgent) {
+        return jsonError(
+            "invalid_execution_agent",
+            `Invalid executionAgent: ${
+                String(body.executionAgent)
+            }. Supported values are engineer and frontend-engineer.`,
+            400,
+        );
+    }
+    const collaborationRecommendation = normalizeCollaborationMode(body.collaborationRecommendation);
+    if (!collaborationRecommendation) {
+        return jsonError(
+            "invalid_collaboration_recommendation",
+            `Invalid collaborationRecommendation: ${
+                String(body.collaborationRecommendation)
+            }. Supported values are autonomous and pair.`,
+            400,
+        );
+    }
+    if (executionAgent === "engineer" && collaborationRecommendation === "pair") {
+        return jsonError(
+            "engineer_pair_recommendation",
+            "collaborationRecommendation: pair is only valid for executionAgent: frontend-engineer.",
+            400,
+        );
+    }
+    return { executionAgent, collaborationRecommendation };
+}
+
+/** @param {any} reviewPayload */
+function trustedReviewClassification(reviewPayload) {
+    const classification = typeof reviewPayload?.classification === "string"
+        ? reviewPayload.classification
+        : typeof reviewPayload?.frontmatter?.classification === "string"
+        ? reviewPayload.frontmatter.classification
+        : "FEATURE";
+    return classification === "PROJECT" ? "PROJECT" : classification === "FEATURE" ? "FEATURE" : classification;
 }
 
 /** @param {any} planSave */

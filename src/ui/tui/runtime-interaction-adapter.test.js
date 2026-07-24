@@ -61,10 +61,14 @@ Deno.test("TUI interaction adapter forwards plan review server output listener",
     let forwardedOnOutput = null;
     const onOutput = () => {};
     const adapter = createTuiInteractionAdapter(makeUi(null), {
-        submitPlanForReview: (/** @type {any} */ options) => {
+        submitPlanForReview: /** @type {any} */ ((/** @type {any} */ options) => {
             forwardedOnOutput = options.onOutput;
-            return Promise.resolve({ approved: true, approvalAction: "run" });
-        },
+            return Promise.resolve({
+                approved: true,
+                approvalAction: "run",
+                planAttrs: { executionAgent: "frontend-engineer", collaborationRecommendation: "pair" },
+            });
+        }),
     });
 
     const response = await adapter.requestInteraction({
@@ -75,6 +79,9 @@ Deno.test("TUI interaction adapter forwards plan review server output listener",
 
     assertEquals(response.outcome, "accepted");
     assertEquals(response._meta?.approvalAction, "run");
+    const meta = /** @type {any} */ (response._meta || {});
+    assertEquals(meta.planAttrs?.executionAgent, "frontend-engineer");
+    assertEquals(meta.planAttrs?.collaborationRecommendation, "pair");
     assertEquals(forwardedOnOutput, onOutput);
 });
 

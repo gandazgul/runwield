@@ -1761,6 +1761,152 @@ Deno.test("runLoadPlanCommand approved review run action executes without post-a
     assertEquals(executed, true);
 });
 
+Deno.test("runLoadPlanCommand reapproval refreshes execution policy before readiness and execution", async () => {
+    const { uiAPI, selections } = makeUi();
+    selections.push("review");
+    /** @type {any} */
+    let executedTriageMeta = null;
+    const readinessEvents = /** @type {any[]} */ ([]);
+    const fixture = makeRuntimeFixture({
+        requestInteraction: () => ({
+            outcome: "accepted",
+            _meta: {
+                approved: true,
+                approvalAction: "run",
+                planAttrs: {
+                    classification: "FEATURE",
+                    complexity: "LOW",
+                    summary: "s",
+                    affectedPaths: [],
+                    status: "approved",
+                    executionAgent: "frontend-engineer",
+                    collaborationRecommendation: "pair",
+                },
+            },
+        }),
+    });
+
+    await runLoadPlanCommand(["plan-policy-refresh"], {
+        ...fixture.context,
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: () => ({ help: false, _: ["plan-policy-refresh"] }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "plan-policy-refresh",
+                    path: "plans/plan-policy-refresh.md",
+                    body: "body",
+                    markdown: "body",
+                    attrs: {
+                        classification: "FEATURE",
+                        complexity: "LOW",
+                        summary: "s",
+                        affectedPaths: [],
+                        status: "approved",
+                        executionAgent: "engineer",
+                        collaborationRecommendation: "autonomous",
+                    },
+                }),
+            executePlan: (/** @type {any} */ options) => {
+                executedTriageMeta = options.triageMeta;
+                return Promise.resolve({ repairRequired: false, executionComplete: false });
+            },
+            recordPlanEvent: (/** @type {any} */ event) => {
+                readinessEvents.push(event);
+                return noOpRecordPlanEvent();
+            },
+            resetTuiState: () => {},
+        }),
+    });
+
+    assertEquals(readinessEvents[0].details.triageMeta.executionAgent, "frontend-engineer");
+    assertEquals(readinessEvents[0].details.triageMeta.collaborationRecommendation, "pair");
+    assertEquals(executedTriageMeta.executionAgent, "frontend-engineer");
+    assertEquals(executedTriageMeta.collaborationRecommendation, "pair");
+});
+
+Deno.test("runLoadPlanCommand reapproval refreshes edited Plan content before execution fallback validation", async () => {
+    const { uiAPI, selections } = makeUi();
+    selections.push("review");
+    let executed = false;
+    /** @type {string | null} */
+    let validationPlanContent = null;
+    const fixture = makeRuntimeFixture({
+        requestInteraction: () => ({
+            outcome: "accepted",
+            _meta: {
+                approved: true,
+                approvalAction: "run",
+                planAttrs: {
+                    classification: "FEATURE",
+                    complexity: "LOW",
+                    summary: "updated",
+                    affectedPaths: [],
+                    status: "approved",
+                    executionAgent: "frontend-engineer",
+                    collaborationRecommendation: "pair",
+                },
+            },
+        }),
+    });
+
+    await runLoadPlanCommand(["plan-content-refresh"], {
+        ...fixture.context,
+        uiAPI,
+        editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+        __testDeps: /** @type {any} */ ({
+            parseArgs: () => ({ help: false, _: ["plan-content-refresh"] }),
+            resolvePlan: () =>
+                Promise.resolve({
+                    planName: "plan-content-refresh",
+                    path: "plans/plan-content-refresh.md",
+                    body: "stale body",
+                    markdown: "stale markdown",
+                    attrs: {
+                        classification: "FEATURE",
+                        complexity: "LOW",
+                        summary: "stale",
+                        affectedPaths: [],
+                        status: "approved",
+                        executionAgent: "engineer",
+                        collaborationRecommendation: "autonomous",
+                    },
+                }),
+            loadPlan: () => {
+                if (executed) throw new Error("validation reload unavailable");
+                return Promise.resolve({
+                    planName: "plan-content-refresh",
+                    path: "plans/plan-content-refresh.md",
+                    body: "updated body",
+                    markdown: "updated markdown",
+                    attrs: {
+                        classification: "FEATURE",
+                        complexity: "LOW",
+                        summary: "updated",
+                        affectedPaths: [],
+                        status: "approved",
+                        executionAgent: "frontend-engineer",
+                        collaborationRecommendation: "pair",
+                    },
+                });
+            },
+            executePlan: () => {
+                executed = true;
+                return Promise.resolve({ repairRequired: false, executionComplete: true });
+            },
+            runValidationLoop: (/** @type {any} */ options) => {
+                validationPlanContent = options.planContent;
+                return Promise.resolve({ ok: true });
+            },
+            recordPlanEvent: noOpRecordPlanEvent,
+            resetTuiState: () => {},
+        }),
+    });
+
+    assertEquals(validationPlanContent, "updated markdown");
+});
+
 Deno.test("runLoadPlanCommand reapproval abandons the prior worktree generation", async () => {
     const { uiAPI, selections } = makeUi();
     selections.push("review");
