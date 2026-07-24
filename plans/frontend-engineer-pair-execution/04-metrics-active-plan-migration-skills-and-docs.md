@@ -27,15 +27,18 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-18T11:02:23-04:00"
-updatedAt: "2026-07-23T22:05:38.735Z"
+updatedAt: "2026-07-24T03:58:42.189Z"
 status: "implemented"
 origin: "internal"
 parentPlan: "frontend-engineer-pair-execution"
 order: 4
 dependencies:
     - "03-tui-pair-host-and-autonomous-host-boundaries"
-implementedAt: "2026-07-23T22:05:38.735Z"
-worktreeStatus: "completed"
+failureReason: "Worktree branch runwield/worktree/frontend-engineer-pair-execution-04-metrics-acti-6e1c2bda is 19 commits behind main and rebase failed: git rebase refs/heads/main failed: Rebasing (1/1)\rerror: could not apply 50ed5c13... Complete frontend-engineer-pair-execution/04-metrics-active-plan-migration-skills-and-docs\nhint: Resolve all conflicts manually, mark them as resolved with\nhint: \"git add/rm <conflicted_files>\", then run \"git rebase --continue\".\nhint: You can instead skip this commit: run \"git rebase --skip\".\nhint: To abort and get back to the state before \"git rebase\", run \"git rebase --abort\".\nhint: Disable this message with \"git config set advice.mergeConflict false\"\nCould not apply 50ed5c13... # Complete frontend-engineer-pair-execution/04-metrics-active-plan-migration-skills-and-docs."
+worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-frontend-engineer-pair-execution-04-metrics-acti-6e1c2bda"
+worktreeBranch: "runwield/worktree/frontend-engineer-pair-execution-04-metrics-acti-6e1c2bda"
+worktreeBaseBranch: "main"
+worktreeStatus: "merge_conflict"
 ---
 
 # Metrics, Active Plan Migration, Skills, and Docs
