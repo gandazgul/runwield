@@ -508,6 +508,48 @@ export class SystemMessageBlock {
     }
 }
 
+export class ManagedSyncStatusBlock {
+    /** @param {import('../../shared/session/session-runtime-events.js').RuntimeManagedSyncStateEvent} state */
+    constructor(state) {
+        this.state = { ...state };
+    }
+
+    /** @param {import('../../shared/session/session-runtime-events.js').RuntimeManagedSyncStateEvent} state */
+    setState(state) {
+        this.state = { ...state };
+    }
+
+    invalidate() {}
+
+    /** @param {number} w */
+    render(w) {
+        const state = this.state;
+        const surface = state.owningSurfaceKind ? ` (${state.owningSurfaceKind} active)` : "";
+        const generations = state.latestGeneration === null
+            ? "no committed generation"
+            : `gen ${state.localGeneration ?? "?"}/${state.latestGeneration}`;
+        const label = state.status === "current"
+            ? "Session current"
+            : state.status === "syncing"
+            ? "Syncing committed updates"
+            : state.status === "active_elsewhere"
+            ? "Read-only: another surface is active"
+            : state.status === "blocked"
+            ? "Managed submission blocked"
+            : "Sync degraded — refresh required";
+        const message = state.message ? ` — ${state.message}` : "";
+        return [
+            truncateToWidth(
+                theme.fg(
+                    state.status === "degraded" ? "warning" : "dim",
+                    `${label}${surface} · ${generations}${message}`,
+                ),
+                w,
+            ),
+        ];
+    }
+}
+
 export class KeyboardHelpBlock {
     /** @param {import('../../shared/session/session-help.js').SessionHelpPayload} help */
     constructor(help) {

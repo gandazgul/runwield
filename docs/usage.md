@@ -189,6 +189,16 @@ are blocked until later lease slices. Activation conflicts, stale generations, t
 or lost database evidence are reported conservatively and require local recovery rather than automatic takeover or
 replay.
 
+When an already-open TUI is attached to an idle managed Session, it quietly observes committed Session generations from
+Workspace or ACP. The TUI reads only verified committed transcript prefixes, shows new committed messages once,
+refreshes Session title/Agent/model/thinking/workflow summaries, and may display a compact read-only ownership/sync
+status such as another generic surface being active, blocked, or degraded. It does not show owner instance IDs,
+transcript paths, operation IDs, fences, or proof material, and it does not display live in-progress tokens from another
+surface. Automatic refresh preserves the exact unsent editor draft, pasted image previews/order, input history, and
+focus. If a submit loses the generation race, RunWield refreshes first, restores the draft unchanged, and requires an
+explicit second submit. Persistent projection/evidence failures leave managed submission disabled until a later safe
+refresh succeeds.
+
 `wld plans ui` remains the temporary current-checkout compatibility launcher. Use it when you want a one-shot local Plan
 Board without registering the Project or pairing a device.
 

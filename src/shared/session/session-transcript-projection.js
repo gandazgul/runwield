@@ -359,6 +359,50 @@ export async function captureTranscriptEvidence(options) {
 /**
  * @param {{ sessionPath: string, sessionDir: string, cwd: string, generation: number, byteLength: number, digestHex: string, terminalEntryId: string | null, runtimeSessionId?: string, cursorEventId?: string, limit?: number }} options
  */
+/**
+ * @param {{ events: Array<Record<string, any> & { eventId: string }>, cursorEventId?: string | null, limit?: number }} options
+ */
+export function selectProjectedEventsAfterCursor(options) {
+    const events = Array.isArray(options.events) ? options.events : [];
+    let startIndex = 0;
+    if (options.cursorEventId) {
+        const cursorIndex = events.findIndex((event) => event.eventId === options.cursorEventId);
+        if (cursorIndex === -1) {
+            const error = new Error("Timeline cursor is not present in the requested generation");
+            error.name = "ProjectionContinuityError";
+            throw error;
+        }
+        startIndex = cursorIndex + 1;
+    }
+    const limit = Math.max(1, Math.min(500, options.limit || 200));
+    const selected = events.slice(startIndex, startIndex + limit);
+    return {
+        events: selected,
+        nextCursor: selected.length > 0 ? selected[selected.length - 1].eventId : options.cursorEventId || null,
+        complete: startIndex + selected.length >= events.length,
+    };
+}
+
+/** @param {unknown} error */
+export function toProjectionFailure(error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const code = error instanceof Error && error.name === "ProjectionContinuityError"
+        ? "cursor_missing"
+        : message.includes("digest")
+        ? "evidence_mismatch"
+        : message.includes("terminal")
+        ? "terminal_mismatch"
+        : message.includes("outside")
+        ? "invalid_transcript_path"
+        : message.includes("JSON")
+        ? "malformed_committed_prefix"
+        : "projection_failed";
+    return { ok: false, state: "degraded", code, message: "Committed transcript projection is unavailable." };
+}
+
+/**
+ * @param {{ cwd: string, sessionDir: string, sessionPath: string, runtimeSessionId?: string, generation: number, byteLength: number, terminalEntryId: string | null, digestHex: string, cursorEventId?: string | null, limit?: number }} options
+ */
 export async function projectCommittedTranscript(options) {
     const sessionPath = resolve(options.sessionPath);
     if (!isPathInside(sessionPath, options.sessionDir)) {
@@ -376,18 +420,17 @@ export async function projectCommittedTranscript(options) {
     if (evidence.terminalEntryId !== options.terminalEntryId) {
         throw new Error("Committed transcript terminal entry does not match published evidence");
     }
-    const events = createReplayEvents(options.runtimeSessionId || "committed", evidence.entries);
-    let startIndex = 0;
-    if (options.cursorEventId) {
-        const cursorIndex = events.findIndex((event) => event.eventId === options.cursorEventId);
-        if (cursorIndex === -1) throw new Error("Timeline cursor is not present in the requested generation");
-        startIndex = cursorIndex + 1;
-    }
-    const limit = Math.max(1, Math.min(500, options.limit || 200));
+    const allEvents = createReplayEvents(options.runtimeSessionId || "committed", evidence.entries);
+    const selected = selectProjectedEventsAfterCursor({
+        events: allEvents,
+        cursorEventId: options.cursorEventId,
+        limit: options.limit,
+    });
     return {
         generation: options.generation,
-        events: events.slice(startIndex, startIndex + limit),
-        nextCursor: events[startIndex + limit - 1]?.eventId || null,
+        events: selected.events,
+        nextCursor: selected.nextCursor,
+        complete: selected.complete,
         snapshot: summarizeProjectedEntries(evidence.entries),
     };
 }
@@ -419,14 +462,30 @@ export function summarizeProjectedEntries(entries) {
     let activeAgent = null;
     let name = null;
     let workflowContext = null;
+    let model = null;
+    let provider = null;
+    let thinkingLevel = null;
+    let attention = null;
     for (const entry of entries) {
         const value = /** @type {any} */ (entry || {});
         if (value.type === "session" && typeof value.name === "string") name = value.name;
         if (value.type === "custom" && value.customType === ACTIVE_AGENT_CUSTOM_TYPE) {
             if (typeof value.data?.agentName === "string") activeAgent = value.data.agentName;
         }
+        if (value.type === "model_change") {
+            if (typeof value.modelId === "string") model = value.modelId;
+            if (typeof value.provider === "string") provider = value.provider;
+        }
+        if (value.type === "thinking_level_change" && typeof value.thinkingLevel === "string") {
+            thinkingLevel = value.thinkingLevel;
+        }
+        if (value.type === "custom" && value.customType === "runwield.attention") {
+            const reason = typeof value.data?.reason === "string" ? value.data.reason : "agentStopped";
+            const agentName = typeof value.data?.agentName === "string" ? value.data.agentName : activeAgent;
+            attention = { reason, agentName };
+        }
         const maybeWorkflow = readPersistedWorkflowContext(/** @type {any} */ ({ getEntries: () => [value] }));
         if (maybeWorkflow) workflowContext = maybeWorkflow;
     }
-    return { name, activeAgent, workflowContext };
+    return { name, activeAgent, model, provider, thinkingLevel, workflowContext, attention };
 }
