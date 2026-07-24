@@ -17,6 +17,7 @@ import {
 } from "./session.js";
 import { HostedSession } from "./hosted-session.js";
 import { estimateContextTextTokens } from "./session-context-report.js";
+import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 
 /**
  * @typedef {Object} TestAgentSessionOptions
@@ -24,7 +25,25 @@ import { estimateContextTextTokens } from "./session-context-report.js";
  * @property {"off"|"minimal"|"low"|"medium"|"high"|"xhigh"} [thinkingLevelOverride]
  */
 
-Deno.test("assembleFinalSystemPrompt includes project-state context only when provided", async () => {
+/**
+ * @param {string | Record<string, any>} testDefinition
+ * @param {(() => void | Promise<void>) | undefined} [fn]
+ */
+function sessionPromptTest(testDefinition, fn) {
+    if (typeof testDefinition === "string") {
+        if (!fn) throw new Error("sessionPromptTest requires a test function");
+        Deno.test(testDefinition, () => withProcessGlobalTestLock(async () => await fn()));
+        return;
+    }
+    Deno.test(
+        /** @type {any} */ ({
+            ...testDefinition,
+            fn: () => withProcessGlobalTestLock(async () => await testDefinition.fn()),
+        }),
+    );
+}
+
+sessionPromptTest("assembleFinalSystemPrompt includes project-state context only when provided", async () => {
     const agentDef = {
         name: "test",
         displayName: "Test",
@@ -42,7 +61,7 @@ Deno.test("assembleFinalSystemPrompt includes project-state context only when pr
     assertStringIncludes(withContext, "### Project State\n\nGreenfield note.");
 });
 
-Deno.test("assembleFinalSystemPromptWithContextProjection attributes resident context", async () => {
+sessionPromptTest("assembleFinalSystemPromptWithContextProjection attributes resident context", async () => {
     const originalHome = Deno.env.get("HOME");
     const tempHome = await Deno.makeTempDir({ prefix: "runwield-context-home-" });
     const projectRoot = await Deno.makeTempDir({ prefix: "runwield-context-project-" });
@@ -129,7 +148,7 @@ Deno.test("assembleFinalSystemPromptWithContextProjection attributes resident co
     }
 });
 
-Deno.test("assembleFinalSystemPromptWithContextProjection excludes omitted placeholder context", async () => {
+sessionPromptTest("assembleFinalSystemPromptWithContextProjection excludes omitted placeholder context", async () => {
     const originalHome = Deno.env.get("HOME");
     const tempHome = await Deno.makeTempDir({ prefix: "runwield-context-home-" });
     const projectRoot = await Deno.makeTempDir({ prefix: "runwield-context-project-" });
@@ -181,7 +200,7 @@ Deno.test("assembleFinalSystemPromptWithContextProjection excludes omitted place
     }
 });
 
-Deno.test("readGlobalAgentMd falls back from ~/.wld/RUNWIELD.md to ~/.wld/AGENTS.md", async () => {
+sessionPromptTest("readGlobalAgentMd falls back from ~/.wld/RUNWIELD.md to ~/.wld/AGENTS.md", async () => {
     const tempHome = await Deno.makeTempDir({ prefix: "runwield-agents-md-" });
 
     try {
@@ -196,7 +215,7 @@ Deno.test("readGlobalAgentMd falls back from ~/.wld/RUNWIELD.md to ~/.wld/AGENTS
     }
 });
 
-Deno.test("readGlobalAgentMd falls back to ~/.agents/AGENTS.md by default", async () => {
+sessionPromptTest("readGlobalAgentMd falls back to ~/.agents/AGENTS.md by default", async () => {
     const tempHome = await Deno.makeTempDir({ prefix: "runwield-agents-md-" });
 
     try {
@@ -211,7 +230,7 @@ Deno.test("readGlobalAgentMd falls back to ~/.agents/AGENTS.md by default", asyn
     }
 });
 
-Deno.test("readGlobalAgentMd can disable ~/.agents/AGENTS.md fallback", async () => {
+sessionPromptTest("readGlobalAgentMd can disable ~/.agents/AGENTS.md fallback", async () => {
     const tempHome = await Deno.makeTempDir({ prefix: "runwield-agents-md-" });
 
     try {
@@ -226,14 +245,14 @@ Deno.test("readGlobalAgentMd can disable ~/.agents/AGENTS.md fallback", async ()
     }
 });
 
-Deno.test("getGlobalAgentMdPaths stays inside ~/.wld", () => {
+sessionPromptTest("getGlobalAgentMdPaths stays inside ~/.wld", () => {
     assertEquals(getGlobalAgentMdPaths("/tmp/home", { includeExternal: false }), [
         "/tmp/home/.wld/RUNWIELD.md",
         "/tmp/home/.wld/AGENTS.md",
     ]);
 });
 
-Deno.test("getGlobalAgentMdPaths includes shared ~/.agents/AGENTS.md when enabled", () => {
+sessionPromptTest("getGlobalAgentMdPaths includes shared ~/.agents/AGENTS.md when enabled", () => {
     assertEquals(getGlobalAgentMdPaths("/tmp/home", { includeExternal: true }), [
         "/tmp/home/.wld/RUNWIELD.md",
         "/tmp/home/.wld/AGENTS.md",
@@ -241,7 +260,7 @@ Deno.test("getGlobalAgentMdPaths includes shared ~/.agents/AGENTS.md when enable
     ]);
 });
 
-Deno.test("applyAttentionNudge only injects scheduled long-lived agent nudges", () => {
+sessionPromptTest("applyAttentionNudge only injects scheduled long-lived agent nudges", () => {
     assertEquals(applyAttentionNudge(AGENTS.IDEATOR, "User asks", 1), "User asks");
     assertEquals(applyAttentionNudge(AGENTS.OPERATOR, "User asks", 6), "User asks");
 
@@ -268,7 +287,7 @@ Deno.test("applyAttentionNudge only injects scheduled long-lived agent nudges", 
     );
 });
 
-Deno.test("shouldReuseExistingRootSession ignores undefined optional overrides", () => {
+sessionPromptTest("shouldReuseExistingRootSession ignores undefined optional overrides", () => {
     assertEquals(
         shouldReuseExistingRootSession({
             agentName: AGENTS.OPERATOR,
@@ -288,7 +307,7 @@ Deno.test("shouldReuseExistingRootSession ignores undefined optional overrides",
     );
 });
 
-Deno.test("runPrompt proactively compacts before a prompt that would exceed the safe threshold", async () => {
+sessionPromptTest("runPrompt proactively compacts before a prompt that would exceed the safe threshold", async () => {
     const calls = /** @type {string[]} */ ([]);
     const session = /** @type {any} */ ({
         model: { provider: "test", id: "model", input: ["text"], contextWindow: 100 },
@@ -335,7 +354,7 @@ Deno.test("runPrompt proactively compacts before a prompt that would exceed the 
     assertEquals(calls, ["compact:threshold:false", "prompt"]);
 });
 
-Deno.test("runPrompt sends fallback image markers without raw image content to text-only model", async () => {
+sessionPromptTest("runPrompt sends fallback image markers without raw image content to text-only model", async () => {
     const originalHome = Deno.env.get("HOME");
     const originalCwd = Deno.cwd();
     const tempHome = await Deno.makeTempDir({ prefix: "runwield-runprompt-home-" });
@@ -463,39 +482,42 @@ function makeAttachStub() {
     });
 }
 
-Deno.test("ensureRootAgentSession scopes root session, metadata, agent name, and manager to each HostedSession", async () => {
-    const hostedA = makeHostedRuntimeSession("root-a");
-    const hostedB = makeHostedRuntimeSession("root-b");
-    hostedA.setProjectStateContext("context-a");
-    hostedB.setProjectStateContext("context-b");
-    const builds = /** @type {Array<any>} */ ([]);
+sessionPromptTest(
+    "ensureRootAgentSession scopes root session, metadata, agent name, and manager to each HostedSession",
+    async () => {
+        const hostedA = makeHostedRuntimeSession("root-a");
+        const hostedB = makeHostedRuntimeSession("root-b");
+        hostedA.setProjectStateContext("context-a");
+        hostedB.setProjectStateContext("context-b");
+        const builds = /** @type {Array<any>} */ ([]);
 
-    const rootA = await ensureRootAgentSession({
-        hostedSession: hostedA,
-        agentName: "router",
-        _buildAgentSession: makeBuildAgentSessionStub("a", builds),
-        _attachSessionEventSubscribers: makeAttachStub(),
-    });
-    const rootB = await ensureRootAgentSession({
-        hostedSession: hostedB,
-        agentName: "operator",
-        _buildAgentSession: makeBuildAgentSessionStub("b", builds),
-        _attachSessionEventSubscribers: makeAttachStub(),
-    });
+        const rootA = await ensureRootAgentSession({
+            hostedSession: hostedA,
+            agentName: "router",
+            _buildAgentSession: makeBuildAgentSessionStub("a", builds),
+            _attachSessionEventSubscribers: makeAttachStub(),
+        });
+        const rootB = await ensureRootAgentSession({
+            hostedSession: hostedB,
+            agentName: "operator",
+            _buildAgentSession: makeBuildAgentSessionStub("b", builds),
+            _attachSessionEventSubscribers: makeAttachStub(),
+        });
 
-    assertEquals(hostedA.getRootAgentSession(), rootA);
-    assertEquals(hostedB.getRootAgentSession(), rootB);
-    assertEquals(hostedA.getRootAgentName(), "router");
-    assertEquals(hostedB.getRootAgentName(), "operator");
-    assertEquals(__getRootSessionMetadataForTests(rootA).projectStateContext, "context-a");
-    assertEquals(__getRootSessionMetadataForTests(rootB).projectStateContext, "context-b");
-    assertEquals(builds[0].opts.sessionManager, hostedA.getRootSessionManager());
-    assertEquals(builds[1].opts.sessionManager, hostedB.getRootSessionManager());
-    assertEquals(hostedA.getAgentInfoStack()[0].displayName, "a-router");
-    assertEquals(hostedB.getAgentInfoStack()[0].displayName, "b-operator");
-});
+        assertEquals(hostedA.getRootAgentSession(), rootA);
+        assertEquals(hostedB.getRootAgentSession(), rootB);
+        assertEquals(hostedA.getRootAgentName(), "router");
+        assertEquals(hostedB.getRootAgentName(), "operator");
+        assertEquals(__getRootSessionMetadataForTests(rootA).projectStateContext, "context-a");
+        assertEquals(__getRootSessionMetadataForTests(rootB).projectStateContext, "context-b");
+        assertEquals(builds[0].opts.sessionManager, hostedA.getRootSessionManager());
+        assertEquals(builds[1].opts.sessionManager, hostedB.getRootSessionManager());
+        assertEquals(hostedA.getAgentInfoStack()[0].displayName, "a-router");
+        assertEquals(hostedB.getAgentInfoStack()[0].displayName, "b-operator");
+    },
+);
 
-Deno.test("ensureRootAgentSession disposes a replacement built after its HostedSession closes", async () => {
+sessionPromptTest("ensureRootAgentSession disposes a replacement built after its HostedSession closes", async () => {
     const hostedSession = makeHostedRuntimeSession("closed-during-build");
     const replacement = makeRuntimeAgentSession("replacement");
     let finishBuild = /** @type {(() => void) | undefined} */ (undefined);
@@ -535,7 +557,7 @@ Deno.test("ensureRootAgentSession disposes a replacement built after its HostedS
     assertEquals(replacement.disposeCalls, 1);
 });
 
-Deno.test("runRootTurn increments only the target HostedSession root turn metadata", async () => {
+sessionPromptTest("runRootTurn increments only the target HostedSession root turn metadata", async () => {
     const hostedA = makeHostedRuntimeSession("turn-a");
     const hostedB = makeHostedRuntimeSession("turn-b");
     const builds = /** @type {Array<any>} */ ([]);
@@ -576,113 +598,130 @@ Deno.test("runRootTurn increments only the target HostedSession root turn metada
     assertEquals(runPrompts.map((entry) => entry.session), [rootA, rootA]);
 });
 
-Deno.test("runIsolatedAgentSession keeps disposable agents scoped to their supplied HostedSession", async () => {
-    const hostedA = makeHostedRuntimeSession("run-a");
-    const hostedB = makeHostedRuntimeSession("run-b");
-    hostedA.setActiveModelState("manual-a", "test", true);
-    hostedB.setActiveModelState("manual-b", "test", true);
-    hostedA.setThinkingLevel("low");
-    hostedB.setThinkingLevel("high");
-    const builds = /** @type {Array<any>} */ ([]);
-    const prompts = /** @type {Array<any>} */ ([]);
-    const runPromptStub = (/** @type {any} */ opts) => {
-        prompts.push(opts);
-        return Promise.resolve([]);
-    };
+sessionPromptTest(
+    "runIsolatedAgentSession keeps disposable agents scoped to their supplied HostedSession",
+    async () => {
+        const hostedA = makeHostedRuntimeSession("run-a");
+        const hostedB = makeHostedRuntimeSession("run-b");
+        hostedA.setActiveModelState("manual-a", "test", true);
+        hostedB.setActiveModelState("manual-b", "test", true);
+        hostedA.setThinkingLevel("low");
+        hostedB.setThinkingLevel("high");
+        const builds = /** @type {Array<any>} */ ([]);
+        const prompts = /** @type {Array<any>} */ ([]);
+        const runPromptStub = (/** @type {any} */ opts) => {
+            prompts.push(opts);
+            return Promise.resolve([]);
+        };
 
-    await runIsolatedAgentSession({
-        hostedSession: hostedA,
-        agentName: "router",
-        userRequest: "isolated a",
-        _buildAgentSession: makeBuildAgentSessionStub("run-a", builds),
-        _attachSessionEventSubscribers: makeAttachStub(),
-        _runPrompt: runPromptStub,
-    });
-    await runIsolatedAgentSession({
-        hostedSession: hostedB,
-        agentName: "operator",
-        userRequest: "transient b",
-        _buildAgentSession: makeBuildAgentSessionStub("run-b", builds),
-        _attachSessionEventSubscribers: makeAttachStub(),
-        _runPrompt: runPromptStub,
-    });
-
-    assertEquals(hostedA.getRootAgentName(), null);
-    assertEquals(hostedB.getRootAgentName(), null);
-    assertEquals(hostedB.getSubAgentSessions().size, 0, "transient sub-agent is removed from its own HostedSession");
-    assertEquals(hostedA.getSubAgentSessions().size, 0, "transient sub-agent never appears in another HostedSession");
-    assertEquals(builds[0].opts.hostedSession, hostedA);
-    assertEquals(builds[1].opts.hostedSession, hostedB);
-    assertEquals(hostedA.getActiveModelState(), { model: "manual-a", provider: "test" });
-    assertEquals(hostedB.getActiveModelState(), { model: "manual-b", provider: "test" });
-    assertEquals(hostedA.getThinkingLevel(), "low");
-    assertEquals(hostedB.getThinkingLevel(), "high");
-    assertEquals(prompts.length, 2);
-});
-
-Deno.test("runIsolatedAgentSession removes its own display entry when concurrent children finish out of order", async () => {
-    const hostedSession = makeHostedRuntimeSession("run-concurrent");
-    hostedSession.resetAgentInfoStack("Router", "test/root", "test", "router");
-    /** @type {Record<string, () => void>} */
-    const releasePrompt = {};
-    const buildAgentSessionStub = (/** @type {TestAgentSessionOptions} */ opts) =>
-        Promise.resolve({
-            session: makeRuntimeAgentSession(opts.agentName),
-            agentDef: {
-                name: opts.agentName,
-                displayName: opts.agentName,
-                model: "",
-                description: "Test agent",
-                tools: [],
-                systemPrompt: "system",
-            },
-            promptState: { text: "system" },
-            resolvedModel: { provider: "test", id: opts.agentName, input: ["text"] },
-            resolvedThinkingLevel: "medium",
+        await runIsolatedAgentSession({
+            hostedSession: hostedA,
+            agentName: "router",
+            userRequest: "isolated a",
+            _buildAgentSession: makeBuildAgentSessionStub("run-a", builds),
+            _attachSessionEventSubscribers: makeAttachStub(),
+            _runPrompt: runPromptStub,
         });
-    const runPromptStub = (/** @type {TestAgentSessionOptions} */ opts) =>
-        new Promise((resolve) => {
-            releasePrompt[opts.agentName] = () => resolve([]);
+        await runIsolatedAgentSession({
+            hostedSession: hostedB,
+            agentName: "operator",
+            userRequest: "transient b",
+            _buildAgentSession: makeBuildAgentSessionStub("run-b", builds),
+            _attachSessionEventSubscribers: makeAttachStub(),
+            _runPrompt: runPromptStub,
         });
 
-    const readerA = runIsolatedAgentSession({
-        hostedSession,
-        agentName: "Reader A",
-        userRequest: "read a",
-        _buildAgentSession: buildAgentSessionStub,
-        _attachSessionEventSubscribers: makeAttachStub(),
-        _runPrompt: runPromptStub,
-    });
-    await Promise.resolve();
-    const readerB = runIsolatedAgentSession({
-        hostedSession,
-        agentName: "Reader B",
-        userRequest: "read b",
-        _buildAgentSession: buildAgentSessionStub,
-        _attachSessionEventSubscribers: makeAttachStub(),
-        _runPrompt: runPromptStub,
-    });
-    await Promise.resolve();
+        assertEquals(hostedA.getRootAgentName(), null);
+        assertEquals(hostedB.getRootAgentName(), null);
+        assertEquals(
+            hostedB.getSubAgentSessions().size,
+            0,
+            "transient sub-agent is removed from its own HostedSession",
+        );
+        assertEquals(
+            hostedA.getSubAgentSessions().size,
+            0,
+            "transient sub-agent never appears in another HostedSession",
+        );
+        assertEquals(builds[0].opts.hostedSession, hostedA);
+        assertEquals(builds[1].opts.hostedSession, hostedB);
+        assertEquals(hostedA.getActiveModelState(), { model: "manual-a", provider: "test" });
+        assertEquals(hostedB.getActiveModelState(), { model: "manual-b", provider: "test" });
+        assertEquals(hostedA.getThinkingLevel(), "low");
+        assertEquals(hostedB.getThinkingLevel(), "high");
+        assertEquals(prompts.length, 2);
+    },
+);
 
-    assertEquals(hostedSession.getAgentInfoStack().map((agentInfo) => agentInfo.displayName), [
-        "Router",
-        "Reader A",
-        "Reader B",
-    ]);
+sessionPromptTest(
+    "runIsolatedAgentSession removes its own display entry when concurrent children finish out of order",
+    async () => {
+        const hostedSession = makeHostedRuntimeSession("run-concurrent");
+        hostedSession.resetAgentInfoStack("Router", "test/root", "test", "router");
+        /** @type {Record<string, () => void>} */
+        const releasePrompt = {};
+        const buildAgentSessionStub = (/** @type {TestAgentSessionOptions} */ opts) =>
+            Promise.resolve({
+                session: makeRuntimeAgentSession(opts.agentName),
+                agentDef: {
+                    name: opts.agentName,
+                    displayName: opts.agentName,
+                    model: "",
+                    description: "Test agent",
+                    tools: [],
+                    systemPrompt: "system",
+                },
+                promptState: { text: "system" },
+                resolvedModel: { provider: "test", id: opts.agentName, input: ["text"] },
+                resolvedThinkingLevel: "medium",
+            });
+        const runPromptStub = (/** @type {TestAgentSessionOptions} */ opts) =>
+            new Promise((resolve) => {
+                releasePrompt[opts.agentName] = () => resolve([]);
+            });
 
-    releasePrompt["Reader A"]();
-    await readerA;
+        const readerA = runIsolatedAgentSession({
+            hostedSession,
+            agentName: "Reader A",
+            userRequest: "read a",
+            _buildAgentSession: buildAgentSessionStub,
+            _attachSessionEventSubscribers: makeAttachStub(),
+            _runPrompt: runPromptStub,
+        });
+        await Promise.resolve();
+        const readerB = runIsolatedAgentSession({
+            hostedSession,
+            agentName: "Reader B",
+            userRequest: "read b",
+            _buildAgentSession: buildAgentSessionStub,
+            _attachSessionEventSubscribers: makeAttachStub(),
+            _runPrompt: runPromptStub,
+        });
+        await Promise.resolve();
 
-    assertEquals(hostedSession.getAgentInfoStack().map((agentInfo) => agentInfo.displayName), ["Router", "Reader B"]);
-    assertEquals(hostedSession.getActiveAgentName(), "Reader B");
+        assertEquals(hostedSession.getAgentInfoStack().map((agentInfo) => agentInfo.displayName), [
+            "Router",
+            "Reader A",
+            "Reader B",
+        ]);
 
-    releasePrompt["Reader B"]();
-    await readerB;
+        releasePrompt["Reader A"]();
+        await readerA;
 
-    assertEquals(hostedSession.getAgentInfoStack().map((agentInfo) => agentInfo.displayName), ["Router"]);
-});
+        assertEquals(hostedSession.getAgentInfoStack().map((agentInfo) => agentInfo.displayName), [
+            "Router",
+            "Reader B",
+        ]);
+        assertEquals(hostedSession.getActiveAgentName(), "Reader B");
 
-Deno.test("runNonInteractiveAgentPrompt forwards an explicit thinking-level override", async () => {
+        releasePrompt["Reader B"]();
+        await readerB;
+
+        assertEquals(hostedSession.getAgentInfoStack().map((agentInfo) => agentInfo.displayName), ["Router"]);
+    },
+);
+
+sessionPromptTest("runNonInteractiveAgentPrompt forwards an explicit thinking-level override", async () => {
     const childSession = makeRuntimeAgentSession("non-interactive-thinking");
     /** @type {TestAgentSessionOptions | undefined} */
     let buildOptions;
@@ -702,7 +741,7 @@ Deno.test("runNonInteractiveAgentPrompt forwards an explicit thinking-level over
     assertEquals(childSession.disposeCalls, 1);
 });
 
-Deno.test("runIsolatedAgentSession does not start a child canceled during session construction", async () => {
+sessionPromptTest("runIsolatedAgentSession does not start a child canceled during session construction", async () => {
     const hostedSession = makeHostedRuntimeSession("run-cancel-build");
     const controller = new AbortController();
     const childSession = makeRuntimeAgentSession("canceled-child");

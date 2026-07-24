@@ -117,6 +117,7 @@ Deno.test("createExecutionWorktree initializes submodules", async () => {
     const submoduleRoot = await makeRepo();
     const worktreeRoot = await Deno.makeTempDir();
     const previousAllowedProtocols = Deno.env.get("GIT_ALLOW_PROTOCOL");
+    /** @type {Awaited<ReturnType<typeof createExecutionWorktree>> | undefined} */
     let worktree;
     try {
         await Deno.writeTextFile(`${submoduleRoot}/module.css`, "body { color: red; }\n");

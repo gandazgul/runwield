@@ -16,15 +16,7 @@ import { HostedSession } from "./hosted-session.js";
 import { getAgentDisplayName, listAvailableAgents } from "./agents.js";
 import { getCustomSetting } from "../settings.js";
 import { loadPlan } from "../../plan-store.js";
-
-const localPromptsDir = join(Deno.cwd(), ".wld", "prompts");
-const localSkillsDir = join(Deno.cwd(), ".wld", "skills");
-
-async function cleanupLocalCatalogFixtures() {
-    await Deno.remove(join(localPromptsDir, "code-review.md")).catch(() => {});
-    await Deno.remove(join(localPromptsDir, "coverage-local.md")).catch(() => {});
-    await Deno.remove(join(localSkillsDir, "coverage-skill"), { recursive: true }).catch(() => {});
-}
+import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 
 Deno.test("two project roots keep local catalogs settings and Plans isolated", async () => {
     const alpha = await Deno.makeTempDir({ prefix: "runwield-project-alpha-" });
@@ -185,7 +177,6 @@ Deno.test("expandPromptTemplate strips front matter and appends user instruction
 });
 
 Deno.test("listSkills and expandSkillCommand read local skill definitions", async () => {
-    await cleanupLocalCatalogFixtures();
     const projectRoot = await Deno.makeTempDir({ prefix: "runwield-local-skill-" });
     const skillName = `coverage-skill-${crypto.randomUUID()}`;
     const skillDir = join(projectRoot, ".wld", "skills", skillName);
@@ -221,12 +212,10 @@ Deno.test("listSkills and expandSkillCommand read local skill definitions", asyn
         );
     } finally {
         await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
-        await cleanupLocalCatalogFixtures();
     }
 });
 
 Deno.test("listSkills advertises bundled skills from the runtime-readable cache", async () => {
-    await cleanupLocalCatalogFixtures();
     const skills = await listSkills();
     const ketch = skills.find((item) => item.name === "ketch");
 
@@ -285,72 +274,72 @@ Deno.test("readGlobalAgentMd falls through configured global instruction paths",
 });
 
 Deno.test("assembleFinalSystemPrompt fills tools, instruction files, skills, and bundled paths", async () => {
-    await cleanupLocalCatalogFixtures();
-    const originalHome = Deno.env.get("HOME");
-    const tempHome = await Deno.makeTempDir({ prefix: "runwield-assemble-prompt-" });
-    const projectRoot = await Deno.makeTempDir({ prefix: "runwield-assemble-project-" });
-    const projectHarnessPath = join(projectRoot, "RUNWIELD.md");
-    const skillName = `coverage-skill-${crypto.randomUUID()}`;
-    const skillDir = join(projectRoot, ".wld", "skills", skillName);
-    const skillPath = join(skillDir, "SKILL.md");
+    await withProcessGlobalTestLock(async () => {
+        const originalHome = Deno.env.get("HOME");
+        const tempHome = await Deno.makeTempDir({ prefix: "runwield-assemble-prompt-" });
+        const projectRoot = await Deno.makeTempDir({ prefix: "runwield-assemble-project-" });
+        const projectHarnessPath = join(projectRoot, "RUNWIELD.md");
+        const skillName = `coverage-skill-${crypto.randomUUID()}`;
+        const skillDir = join(projectRoot, ".wld", "skills", skillName);
+        const skillPath = join(skillDir, "SKILL.md");
 
-    try {
-        Deno.env.set("HOME", tempHome);
-        await Deno.mkdir(join(tempHome, ".wld"), { recursive: true });
-        await Deno.writeTextFile(join(tempHome, ".wld", "RUNWIELD.md"), "Global prompt context");
-        await Deno.writeTextFile(projectHarnessPath, "Project prompt context");
-        await Deno.mkdir(skillDir, { recursive: true });
-        await Deno.writeTextFile(
-            skillPath,
-            [
-                "---",
-                `name: "${skillName}"`,
-                'description: "Available for prompt assembly"',
-                "---",
-                "Use this skill carefully.",
-            ].join("\n"),
-        );
-
-        const prompt = await assembleFinalSystemPrompt(
-            /** @type {any} */ ({
-                systemPrompt: [
-                    "Tools:",
-                    "{{AVAILABLE_TOOLS}}",
-                    "Global:",
-                    "{{GLOBAL_AGENTSMD}}",
-                    "Project:",
-                    "{{PROJECT_AGENTSMD}}",
-                    "Memories:",
-                    "{{MEMORIES}}",
-                    "Skills:",
-                    "{{SKILLS}}",
-                    "Bundled:",
-                    "{{BUNDLED_AGENT_DEFS_DIR}}",
+        try {
+            Deno.env.set("HOME", tempHome);
+            await Deno.mkdir(join(tempHome, ".wld"), { recursive: true });
+            await Deno.writeTextFile(join(tempHome, ".wld", "RUNWIELD.md"), "Global prompt context");
+            await Deno.writeTextFile(projectHarnessPath, "Project prompt context");
+            await Deno.mkdir(skillDir, { recursive: true });
+            await Deno.writeTextFile(
+                skillPath,
+                [
+                    "---",
+                    `name: "${skillName}"`,
+                    'description: "Available for prompt assembly"',
+                    "---",
+                    "Use this skill carefully.",
                 ].join("\n"),
-            }),
-            ["read", "custom_tool", "unknown_tool"],
-            /** @type {any[]} */ ([{
-                name: "custom_tool",
-                description: "custom description",
-                promptSnippet: "custom snippet",
-            }]),
-            projectRoot,
-        );
+            );
 
-        assertStringIncludes(prompt, "- read -");
-        assertStringIncludes(prompt, "- custom_tool - custom snippet");
-        assertStringIncludes(prompt, "- unknown_tool - Built-in tool");
-        assertStringIncludes(prompt, "Global prompt context");
-        assertStringIncludes(prompt, "Project prompt context");
-        assertStringIncludes(prompt, `${skillName} - Available for prompt assembly (read: ${skillPath})`);
-        assertStringIncludes(prompt, "agent-definitions");
-    } finally {
-        if (originalHome === undefined) Deno.env.delete("HOME");
-        else Deno.env.set("HOME", originalHome);
-        await Deno.remove(tempHome, { recursive: true }).catch(() => {});
-        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
-        await cleanupLocalCatalogFixtures();
-    }
+            const prompt = await assembleFinalSystemPrompt(
+                /** @type {any} */ ({
+                    systemPrompt: [
+                        "Tools:",
+                        "{{AVAILABLE_TOOLS}}",
+                        "Global:",
+                        "{{GLOBAL_AGENTSMD}}",
+                        "Project:",
+                        "{{PROJECT_AGENTSMD}}",
+                        "Memories:",
+                        "{{MEMORIES}}",
+                        "Skills:",
+                        "{{SKILLS}}",
+                        "Bundled:",
+                        "{{BUNDLED_AGENT_DEFS_DIR}}",
+                    ].join("\n"),
+                }),
+                ["read", "custom_tool", "unknown_tool"],
+                /** @type {any[]} */ ([{
+                    name: "custom_tool",
+                    description: "custom description",
+                    promptSnippet: "custom snippet",
+                }]),
+                projectRoot,
+            );
+
+            assertStringIncludes(prompt, "- read -");
+            assertStringIncludes(prompt, "- custom_tool - custom snippet");
+            assertStringIncludes(prompt, "- unknown_tool - Built-in tool");
+            assertStringIncludes(prompt, "Global prompt context");
+            assertStringIncludes(prompt, "Project prompt context");
+            assertStringIncludes(prompt, `${skillName} - Available for prompt assembly (read: ${skillPath})`);
+            assertStringIncludes(prompt, "agent-definitions");
+        } finally {
+            if (originalHome === undefined) Deno.env.delete("HOME");
+            else Deno.env.set("HOME", originalHome);
+            await Deno.remove(tempHome, { recursive: true }).catch(() => {});
+            await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+        }
+    });
 });
 
 Deno.test("steerRootSession sends image content only while root is streaming", async () => {
