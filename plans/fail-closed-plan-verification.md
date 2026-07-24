@@ -33,9 +33,17 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-23T23:08:25-04:00"
-updatedAt: "2026-07-24T03:59:04.271Z"
-status: "ready_for_work"
+updatedAt: "2026-07-24T04:00:19.998Z"
+status: "in_progress"
 origin: "internal"
+humanReviewMode: null
+humanReviewDecision: null
+executionBaselineTree: "96d542ae02ea7abb548c26fe357b344d7c8987fd"
+worktreeId: "56e1224d"
+worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-fail-closed-plan-verification-56e1224d"
+worktreeBranch: "runwield/worktree/fail-closed-plan-verification-56e1224d"
+worktreeBaseBranch: "main"
+worktreeStatus: "active"
 ---
 
 # Fail-Closed Plan Verification and Delivery Evidence
