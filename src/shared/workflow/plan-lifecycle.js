@@ -8,7 +8,13 @@
  */
 
 import { dirname, join } from "@std/path";
-import { findPlansByParent, loadPlan, updatePlanFrontMatter } from "../../plan-store.js";
+import {
+    findPlansByParent,
+    loadPlan,
+    normalizeDeliveryEvidence,
+    normalizeExecutionMode,
+    updatePlanFrontMatter,
+} from "../../plan-store.js";
 import { SHARED_PLAN_LOCK_REPAIR, SharedPlanLockError } from "../collaboration/lock.js";
 
 /**
@@ -36,6 +42,8 @@ import { SHARED_PLAN_LOCK_REPAIR, SharedPlanLockError } from "../collaboration/l
  * @property {import('../../plan-store.js').PlanFrontMatter['humanReviewDecision']} [humanReviewDecision]
  * @property {string|null} [humanReviewedAt]
  * @property {string} [epicDoneEnoughSummary]
+ * @property {import('../../plan-store.js').ExecutionMode} [executionMode]
+ * @property {import('../../plan-store.js').DeliveryEvidence} [deliveryEvidence]
  * @property {PlanStatus} [manualTargetStatus]
  * @property {string} [holdReason]
  * @property {string} [closedWithoutVerificationReason]
@@ -349,6 +357,8 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         updates.heldAt = null;
         updates.holdReason = null;
         updates.holdStalenessBaseline = null;
+        updates.executionMode = null;
+        updates.deliveryEvidence = null;
         updates.executionBaselineTree = null;
         updates.worktreeId = null;
         updates.worktreePath = null;
@@ -368,6 +378,7 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         if (targetStatus !== "implemented") {
             updates.implementedAt = null;
             updates.verifiedAt = null;
+            updates.deliveryEvidence = null;
             updates.humanReviewMode = null;
             updates.humanReviewDecision = null;
             updates.humanReviewedAt = null;
@@ -398,6 +409,8 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
     }
 
     if (event === "execution_started") {
+        updates.executionMode = details.nonGitInPlace ? "non_git_in_place" : "worktree";
+        updates.deliveryEvidence = null;
         if (details.nonGitInPlace) {
             updates.executionBaselineTree = null;
             updates.worktreeId = null;
@@ -461,6 +474,30 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
     }
 
     if (event === "validation_passed") {
+        const executionMode = normalizeExecutionMode(details.executionMode ?? updates.executionMode);
+        const deliveryEvidence = normalizeDeliveryEvidence(details.deliveryEvidence);
+        if (updates.classification === "FEATURE") {
+            if (!executionMode) {
+                throw new Error("Invalid Plan Lifecycle transition: FEATURE validation_passed requires executionMode.");
+            }
+            if (!deliveryEvidence) {
+                throw new Error(
+                    "Invalid Plan Lifecycle transition: FEATURE validation_passed requires deliveryEvidence.",
+                );
+            }
+            if (executionMode === "worktree" && deliveryEvidence.mode !== "worktree_merge") {
+                throw new Error(
+                    "Invalid Plan Lifecycle transition: worktree validation requires worktree Delivery Evidence.",
+                );
+            }
+            if (executionMode === "non_git_in_place" && deliveryEvidence.mode !== "non_git_in_place") {
+                throw new Error(
+                    "Invalid Plan Lifecycle transition: non-Git validation requires non-Git Delivery Evidence.",
+                );
+            }
+        }
+        updates.executionMode = executionMode;
+        updates.deliveryEvidence = deliveryEvidence;
         updates.worktreeStatus = details.worktreeStatus || "merged";
         if (details.cleanupMergedWorktrees !== false) {
             updates.executionBaselineTree = null;
@@ -479,6 +516,8 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
     }
 
     if (event === "recovery_reset") {
+        updates.executionMode = details.nonGitInPlace ? "non_git_in_place" : details.executionMode ?? null;
+        updates.deliveryEvidence = null;
         updates.worktreeId = details.worktreeId || updates.worktreeId;
         updates.worktreePath = details.worktreePath || updates.worktreePath;
         updates.worktreeBranch = details.worktreeBranch || updates.worktreeBranch;
@@ -499,6 +538,7 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         updates.failedAt = null;
         updates.implementedAt = null;
         updates.verifiedAt = null;
+        updates.deliveryEvidence = null;
         updates.humanReviewMode = null;
         updates.humanReviewDecision = null;
         updates.humanReviewedAt = null;
@@ -509,6 +549,8 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         updates.failedAt = null;
         updates.implementedAt = null;
         updates.verifiedAt = null;
+        updates.executionMode = null;
+        updates.deliveryEvidence = null;
         updates.humanReviewMode = null;
         updates.humanReviewDecision = null;
         updates.humanReviewedAt = null;
@@ -521,6 +563,17 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
     }
 
     return updates;
+}
+
+/** @param {import('../../plan-store.js').PlanFrontMatter} attrs */
+function hasModeAppropriateDeliveryEvidence(attrs) {
+    if (attrs.classification !== "FEATURE") return true;
+    const executionMode = normalizeExecutionMode(attrs.executionMode);
+    const deliveryEvidence = normalizeDeliveryEvidence(attrs.deliveryEvidence);
+    if (!executionMode || !deliveryEvidence) return false;
+    if (executionMode === "worktree") return deliveryEvidence.mode === "worktree_merge";
+    if (executionMode === "non_git_in_place") return deliveryEvidence.mode === "non_git_in_place";
+    return false;
 }
 
 /**
@@ -546,7 +599,9 @@ async function advanceParentEpicWhenAllChildrenVerified({ cwd, planName, event, 
 
     const children = await findPlansByParent(cwd, parentPlanName);
     if (!children.length) return;
-    if (children.some((child) => child.attrs.status !== "verified")) return;
+    if (
+        children.some((child) => child.attrs.status !== "verified" || !hasModeAppropriateDeliveryEvidence(child.attrs))
+    ) return;
 
     await recordPlanEvent({
         cwd,
@@ -573,6 +628,12 @@ async function advanceParentEpicWhenAllChildrenVerified({ cwd, planName, event, 
  * @returns {Promise<import('../../plan-store.js').PlanFrontMatter>}
  */
 export async function recordPlanEvent({ cwd, planName, event, currentStatus, details = {} }) {
+    if (event === "validation_passed" && !details.triageMeta) {
+        const existingPlan = await loadPlan(cwd, planName);
+        if (existingPlan?.attrs) {
+            details = { ...details, triageMeta: existingPlan.attrs };
+        }
+    }
     const updates = buildPlanEventUpdates(event, currentStatus, details);
     try {
         const updatedAttrs = await updatePlanFrontMatter(cwd, planName, updates, details.triageMeta);
@@ -636,6 +697,54 @@ export async function stageValidationPassedInExecutionWorktree({
         }
         if (executionPlan.attrs.humanReviewedAt == null && canonicalPlan.attrs.humanReviewedAt != null) {
             missingHumanReviewEvidence.humanReviewedAt = canonicalPlan.attrs.humanReviewedAt;
+        }
+        const executionMode = normalizeExecutionMode(details.executionMode ?? executionPlan.attrs.executionMode);
+        const deliveryEvidence = normalizeDeliveryEvidence(
+            details.deliveryEvidence ?? executionPlan.attrs.deliveryEvidence,
+        );
+        if (executionPlan.attrs.classification === "FEATURE") {
+            if (!executionMode || !deliveryEvidence) {
+                throw new Error(
+                    `Cannot reuse verified Plan ${planName} from execution worktree: Delivery Evidence is missing.`,
+                );
+            }
+            const suppliedExecutionMode = Object.hasOwn(details, "executionMode")
+                ? normalizeExecutionMode(details.executionMode)
+                : undefined;
+            const suppliedDeliveryEvidence = Object.hasOwn(details, "deliveryEvidence")
+                ? normalizeDeliveryEvidence(details.deliveryEvidence)
+                : undefined;
+            const existingExecutionMode = normalizeExecutionMode(executionPlan.attrs.executionMode);
+            const existingDeliveryEvidence = normalizeDeliveryEvidence(executionPlan.attrs.deliveryEvidence);
+            if (suppliedExecutionMode && existingExecutionMode && suppliedExecutionMode !== existingExecutionMode) {
+                throw new Error(
+                    `Cannot reuse verified Plan ${planName} from execution worktree: executionMode does not match supplied Delivery Evidence.`,
+                );
+            }
+            if (
+                suppliedDeliveryEvidence && existingDeliveryEvidence &&
+                JSON.stringify(suppliedDeliveryEvidence) !== JSON.stringify(existingDeliveryEvidence)
+            ) {
+                throw new Error(
+                    `Cannot reuse verified Plan ${planName} from execution worktree: Delivery Evidence does not match supplied evidence.`,
+                );
+            }
+            if (executionMode === "worktree" && deliveryEvidence.mode !== "worktree_merge") {
+                throw new Error(
+                    `Cannot reuse verified Plan ${planName} from execution worktree: worktree Delivery Evidence is missing.`,
+                );
+            }
+            if (executionMode === "non_git_in_place" && deliveryEvidence.mode !== "non_git_in_place") {
+                throw new Error(
+                    `Cannot reuse verified Plan ${planName} from execution worktree: non-Git Delivery Evidence is missing.`,
+                );
+            }
+        }
+        if (executionPlan.attrs.executionMode == null && executionMode) {
+            missingHumanReviewEvidence.executionMode = executionMode;
+        }
+        if (executionPlan.attrs.deliveryEvidence == null && deliveryEvidence) {
+            missingHumanReviewEvidence.deliveryEvidence = deliveryEvidence;
         }
         if (Object.keys(missingHumanReviewEvidence).length > 0) {
             const attrs = await updatePlanFrontMatter(

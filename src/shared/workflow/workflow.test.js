@@ -1033,11 +1033,11 @@ Deno.test("executePlan keeps Engineer active when the implementation turn is int
         }),
     });
 
-    assertEquals(result, {
-        repairRequired: false,
-        executionComplete: false,
-        error: "interrupted by user question",
-    });
+    assertEquals(result.repairRequired, false);
+    assertEquals(result.executionComplete, false);
+    assertEquals(result.error, "interrupted by user question");
+    assertEquals(result.executionContext?.executionMode, "non_git_in_place");
+    assertEquals(result.executionContext?.executionCwd, Deno.cwd());
     assertEquals(order, ["switch", "turn"]);
     assertEquals(hostedSession.getRootAgentName(), "engineer");
     assertEquals(hostedSession.getActiveOnMessage(), engineerHandler);

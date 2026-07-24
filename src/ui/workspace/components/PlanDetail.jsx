@@ -83,6 +83,8 @@ const METADATA_LABELS = Object.freeze({
     [FM.verifiedAt]: "Verified at",
     [FM.closedWithoutVerificationReason]: "Closed without verification reason",
     [FM.workRecord]: "Work Record",
+    [FM.executionMode]: "Execution mode",
+    [FM.deliveryEvidence]: "Delivery Evidence",
     [FM.executionBaselineTree]: "Execution baseline tree",
     [FM.worktreeId]: "Worktree ID",
     [FM.worktreeBranch]: "Worktree branch",
@@ -131,7 +133,14 @@ const METADATA_GROUPS = Object.freeze([
     },
     {
         title: "Execution worktree",
-        keys: [FM.executionBaselineTree, FM.worktreeId, FM.worktreeBranch, FM.worktreeStatus],
+        keys: [
+            FM.executionMode,
+            FM.deliveryEvidence,
+            FM.executionBaselineTree,
+            FM.worktreeId,
+            FM.worktreeBranch,
+            FM.worktreeStatus,
+        ],
     },
     {
         title: "Review",
@@ -191,6 +200,8 @@ function planMetadata(plan) {
         [FM.closedWithoutVerificationReason]: source[FM.closedWithoutVerificationReason] ??
             plan.closedWithoutVerificationReason,
         [FM.workRecord]: source[FM.workRecord] ?? plan.workRecord,
+        [FM.executionMode]: source[FM.executionMode] ?? plan.executionMode,
+        [FM.deliveryEvidence]: source[FM.deliveryEvidence] ?? plan.deliveryEvidence,
         [FM.epicCompletionMode]: source[FM.epicCompletionMode] ?? plan.epicCompletionMode,
         [FM.epicDoneEnoughSummary]: source[FM.epicDoneEnoughSummary] ?? plan.epicDoneEnoughSummary,
         [FM.epicDoneEnoughAt]: source[FM.epicDoneEnoughAt] ?? plan.epicDoneEnoughAt,

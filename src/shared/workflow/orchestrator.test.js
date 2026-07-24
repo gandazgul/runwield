@@ -540,7 +540,10 @@ Deno.test("dispatchPostTriage executes approved FEATURE plans and runs validatio
             }),
             executePlan: (/** @type {any[]} */ ...args) => {
                 executed.push(args);
-                return Promise.resolve({ executionComplete: true });
+                return Promise.resolve({
+                    executionComplete: true,
+                    executionContext: { executionMode: "worktree", executionCwd: "/worktree", immutable: true },
+                });
             },
             decidePostExecution: () => ({ kind: "run_validation", payload: {} }),
             loadPlan: () => Promise.resolve(/** @type {any} */ ({ markdown: "plan markdown" })),
@@ -564,6 +567,11 @@ Deno.test("dispatchPostTriage executes approved FEATURE plans and runs validatio
     assertEquals(validations.length, 1);
     assertEquals(/** @type {any} */ (validations[0]).planContent, "plan markdown");
     assertEquals(/** @type {any} */ (validations[0]).finalAgentName, "planner");
+    assertEquals(/** @type {any} */ (validations[0]).executionContext, {
+        executionMode: "worktree",
+        executionCwd: "/worktree",
+        immutable: true,
+    });
     assertEquals(typeof executionArgs.__deps.recordWorkflowMetric, "function");
     assertEquals(typeof /** @type {any} */ (validations[0]).__deps.recordWorkflowMetric, "function");
     assertEquals(
