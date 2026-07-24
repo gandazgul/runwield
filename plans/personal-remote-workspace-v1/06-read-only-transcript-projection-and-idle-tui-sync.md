@@ -9,7 +9,6 @@ affectedPaths:
     - "src/ui/tui/"
     - "src/ui/tui/runtime-adapter.js"
     - "src/ui/tui/system-notifications.js"
-frontend: false
 createdAt: "2026-07-22T03:56:51.470Z"
 updatedAt: "2026-07-22T03:56:51.470Z"
 status: "draft"

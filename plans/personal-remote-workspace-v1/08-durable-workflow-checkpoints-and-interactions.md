@@ -9,7 +9,6 @@ affectedPaths:
     - "src/shared/session/session-runtime-interactions.js"
     - "src/ui/workspace/server/"
     - "src/ui/tui/"
-frontend: false
 createdAt: "2026-07-22T03:56:51.473Z"
 updatedAt: "2026-07-22T03:56:51.473Z"
 status: "draft"

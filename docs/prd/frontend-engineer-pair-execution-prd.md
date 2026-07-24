@@ -1,7 +1,8 @@
 # Product Requirements Document: Frontend Engineer and Pair Execution
 
-**Status:** Proposed\
-**Date:** 2026-07-17 EDT
+**Status:** Implemented\
+**Date:** 2026-07-17 EDT\
+**Updated:** 2026-07-23 EDT
 
 ## Objective
 
@@ -12,7 +13,8 @@ Frontend Engineer should combine design-system-aware implementation, a persisten
 normal RunWield execution discipline. Users should be able to refine visual treatment through meaningful checkpoints
 without abandoning the approved Plan, restarting execution, or waiting until final verification to see the result.
 
-The same Agent must also support autonomous execution when the user prefers AFK work.
+The same Agent must also support autonomous execution when the Plan recommends it or the current host cannot support
+Pair checkpoints.
 
 ## Problem Statement
 
@@ -39,7 +41,7 @@ treating them as one boolean or one final QA gate.
 1. **Frontend is a distinct execution discipline.** Materially visual or interactive work deserves a dedicated Agent
    identity, prompt, tool policy, and model configuration.
 2. **Pairing is optional, not synonymous with frontend.** Frontend Engineer can work through Pair Execution or
-   autonomously; the user chooses.
+   autonomously; runtime style is derived from Plan recommendation and host capability.
 3. **Plan the intent, iterate the treatment.** An approved Plan settles the outcome, constraints, states, behavior, and
    design basis without pretending the final visual treatment is knowable before implementation.
 4. **Use the real application early.** Frontend work begins with the normal app running in a headed browser, not with a
@@ -59,10 +61,11 @@ A successful experience lets that user:
 
 - rely on Planner to discover the project's design system and identify relevant existing UI patterns;
 - understand why Pair or autonomous execution is recommended;
-- choose Pair or AFK execution without changing the execution Agent;
+- receive Pair Execution when the Plan recommends it and the current TUI host supports checkpoints, without changing the
+  execution Agent;
 - watch the real application update through HMR when available;
 - give feedback after bounded visual increments;
-- switch the remaining work to AFK at any checkpoint;
+- switch the remaining work to autonomous execution at any checkpoint;
 - preserve the same worktree, Agent context, dev server, and browser session across iterations;
 - finish with normal automated and browser verification;
 - avoid unsolicited Playwright installation or snapshot-test churn.
@@ -88,7 +91,8 @@ A successful experience lets that user:
   execution-time refinement.
 - Planner recommends Pair Execution when user taste or visual exploration materially affects success. Merely touching a
   frontend file is insufficient.
-- The user chooses Pair or autonomous execution when work starts.
+- Runtime style is derived at execution start from the Plan recommendation and current host capability; no separate
+  startup choice is required.
 - Ordinary treatment refinements remain within the approved Plan. Feedback that changes capability, information
   architecture, or material scope returns to planning.
 - Highly ambiguous concepts may be prototyped before Plan approval rather than turning Pair Execution into open-ended
@@ -145,7 +149,7 @@ should retain RunWield's shared execution invariants while focusing its attentio
 - small coherent visual increments;
 - HMR-aware iteration;
 - responsive, accessibility, content-resilience, console, and network checks;
-- Pair checkpoints when selected;
+- Pair checkpoints when the resolved runtime style is Pair;
 - normal Task Completion only after implementation and verification are complete.
 
 Frontend Engineer should be independently configurable so users can select a vision-capable model without changing the
@@ -153,22 +157,26 @@ general Engineer configuration.
 
 ### 2. Separate Plan concerns
 
-The planning and execution contracts must represent three independent product decisions:
+The planning and execution contracts represent three independent product decisions:
 
 1. whether Frontend Engineer owns execution;
 2. whether Planner recommends Pair or autonomous execution; and
 3. what browser and deterministic verification the Plan requires.
 
-The exact Front Matter representation is deferred to implementation planning. Existing `frontend: true` Plans require a
-clear compatibility interpretation rather than silently changing behavior.
+Executable FEATURE Plans use `executionAgent: "engineer" | "frontend-engineer"`. Frontend-owned Plans may use
+`collaborationRecommendation: "autonomous" | "pair"` as Planner guidance. The retired `frontend` boolean is not emitted
+for new Plans or retained in active nonterminal Plans. Legacy executable FEATURE Plans with `frontend: true` resolve to
+Frontend Engineer autonomous execution, while legacy `frontend: false` has no effect; PROJECT Epics remain
+non-executable containers.
 
 ### 3. Dispatch by execution ownership
 
-When a frontend-owned Plan starts, RunWield activates Frontend Engineer instead of general Engineer. In an interactive
-host, RunWield presents Planner's collaboration recommendation and lets the user choose Pair or autonomous execution.
-Non-interactive hosts use autonomous execution.
+When a frontend-owned Plan starts, RunWield activates Frontend Engineer instead of general Engineer. RunWield derives
+runtime style from Planner's collaboration recommendation and the current host capability: a Pair recommendation uses
+Pair only in a Pair-capable TUI, while ACP, headless, and other incapable hosts use autonomous execution.
 
-The selected execution style belongs to the active execution workflow, not to Agent identity or Plan Status.
+The resolved execution style belongs to the active execution workflow, not to Agent identity or Plan Status, and is
+re-derived from Plan metadata plus host capability after runtime context loss.
 
 ### 4. Run the frontend feedback loop
 
@@ -179,7 +187,7 @@ browser, and identifies whether HMR is active. In Pair Execution it then repeats
 2. observe the updated application through the browser;
 3. check relevant browser diagnostics and capture visual evidence;
 4. block for user direction;
-5. revise, continue, switch to AFK, or stop according to the response.
+5. revise, continue, switch to autonomous execution, or stop according to the response.
 
 The same Agent Session and execution worktree should continue across responses. Dev-server and browser lifecycle should
 be managed so checkpoints do not force repeated startup or lose the state being discussed.
@@ -197,9 +205,9 @@ requires another Pair checkpoint should follow the active execution style and th
 
 Opt-in workflow metrics may record coarse, content-free facts such as:
 
-- Planner recommendation and user selection;
+- Planner recommendation and resolved runtime style;
 - number of checkpoints;
-- continue, revise, switch-to-AFK, and stop decisions;
+- continue, revise, switch-to-autonomous, and stop decisions;
 - successful completion or abandonment;
 - elapsed execution time;
 - browser preflight success or external blockage.
@@ -213,10 +221,11 @@ The first complete product slice succeeds when:
 - Planner distinguishes materially visual/interactive work from incidental frontend-file changes and identifies the
   project's design basis.
 - An approved frontend-owned FEATURE Plan dispatches to Frontend Engineer and preserves that owner through repair.
-- The user can choose Pair or autonomous execution without rewriting or reopening the Plan.
+- Pair or autonomous execution is selected without rewriting or reopening the Plan, based on recommendation and host
+  capability.
 - In Pair Execution, the user can complete at least two feedback/revision checkpoints without restarting the Plan, Agent
   context, execution worktree, dev server, or browser session.
-- The user can switch remaining work to AFK at a checkpoint.
+- The user can switch remaining work to autonomous execution at a checkpoint.
 - Pair checkpoints are rendered as expected collaboration rather than failed or interrupted execution.
 - Frontend Engineer verifies the final behavior in the real browser before Task Completion.
 - Normal Workflow Validation still runs and Pair feedback is never presented as equivalent validation evidence.
@@ -229,9 +238,10 @@ The first complete product slice succeeds when:
 - **Agent prompt duplication:** Frontend Engineer and Engineer could drift on shared execution rules. Keep common
   invariants concise and synchronized while preserving distinct work styles.
 - **Overclassification:** Planner may send routine frontend maintenance into Pair Execution. Base ownership on the
-  primary product outcome and make pairing a recommendation the user can override.
+  primary product outcome and make pairing a recommendation that host capability can resolve to autonomous when Pair is
+  unavailable.
 - **Checkpoint fatigue:** Too many pauses would make Pair Execution slower than direct steering. Require coherent
-  visible increments and always offer switch-to-AFK.
+  visible increments and always offer switch-to-autonomous.
 - **Plan drift:** Visual feedback can expand into product redesign. Preserve the approved objective and return material
   capability or information-architecture changes to planning.
 - **Browser lifecycle failures:** Dev servers, ports, credentials, and remote dependencies can block the loop. Preserve

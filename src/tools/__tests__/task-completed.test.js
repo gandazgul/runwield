@@ -136,3 +136,122 @@ Deno.test("task_completed message schema owns Engineer report format and accepts
     assertEquals(engineerTool.description.includes("Markdown bullet-point"), false);
     assertEquals(operatorTool.parameters.properties.message.description.includes("Markdown bullet-point"), false);
 });
+
+Deno.test("task_completed requires Frontend Engineer preflight outcome only", () => {
+    const hostedSession = new HostedSession({ id: "task-completed-preflight-schema", cwd: Deno.cwd() });
+    const frontendEngineerTool = createTaskCompletedTool({ hostedSession, agentName: "Frontend Engineer" });
+    const engineerTool = createTaskCompletedTool({ hostedSession, agentName: "Engineer" });
+
+    assertEquals(frontendEngineerTool.parameters.required, ["message", "browserPreflightOutcome"]);
+    assertEquals(
+        frontendEngineerTool.parameters.properties.browserPreflightOutcome.anyOf.map((/** @type {any} */ item) =>
+            item.const
+        ),
+        [
+            "succeeded",
+            "failed",
+            "externally_blocked",
+        ],
+    );
+    assertStringIncludes(
+        frontendEngineerTool.parameters.properties.message.description,
+        "checkpoint acceptance is not verification evidence",
+    );
+    assertEquals(engineerTool.parameters.properties.browserPreflightOutcome, undefined);
+});
+
+for (const outcome of /** @type {const} */ (["succeeded", "failed", "externally_blocked"])) {
+    Deno.test(`task_completed records Frontend Engineer completion preflight outcome ${outcome}`, async () => {
+        const metrics = /** @type {any[]} */ ([]);
+        const hostedSession = new HostedSession({ id: `task-completed-${outcome}`, cwd: Deno.cwd() });
+        hostedSession.setActiveExecutionWorkflow({
+            planName: "visual-plan",
+            triageMeta: { classification: "FEATURE" },
+            executionAgent: "frontend-engineer",
+            executionStarted: true,
+            executionAttemptStartedAtMs: 1000,
+            collaborationStyle: "pair",
+            pairCheckpointCount: 2,
+            pairSwitchedToAutonomous: true,
+            pairCapabilityLost: false,
+        });
+        const tool = createTaskCompletedTool({
+            hostedSession,
+            agentName: "Frontend Engineer",
+            now: () => 1750,
+            recordWorkflowMetric: (metric, deps) => {
+                metrics.push({ metric, deps });
+                return Promise.resolve(/** @type {any} */ (null));
+            },
+        });
+
+        const result = await /** @type {any} */ (tool.execute)("call", {
+            message: "- URL: http://localhost:5173/private\n- Screenshot: /tmp/secret.png",
+            browserPreflightOutcome: outcome,
+        });
+
+        assertEquals(result.terminate, true);
+        assertEquals(result.details.browserPreflightOutcome, outcome);
+        assertEquals(metrics, [
+            {
+                metric: {
+                    category: "execution",
+                    event: "task_completed",
+                    agentName: "Frontend Engineer",
+                    details: { hasMessage: true },
+                },
+                deps: { cwd: Deno.cwd() },
+            },
+            {
+                metric: {
+                    category: "execution",
+                    event: "frontend_execution_completed",
+                    details: {
+                        phase: "implementation",
+                        runtimeStyle: "pair",
+                        checkpointCount: 2,
+                        switchedToAutonomous: true,
+                        capabilityLost: false,
+                        browserPreflightOutcome: outcome,
+                        elapsedMs: 750,
+                    },
+                },
+                deps: { cwd: Deno.cwd() },
+            },
+        ]);
+        assertEquals(JSON.stringify(metrics).includes("localhost"), false);
+        assertEquals(JSON.stringify(metrics).includes("secret.png"), false);
+    });
+}
+
+Deno.test("task_completed labels validation repair Frontend Engineer completion", async () => {
+    const metrics = /** @type {any[]} */ ([]);
+    const hostedSession = new HostedSession({ id: "task-completed-repair", cwd: Deno.cwd() });
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "visual-plan",
+        triageMeta: { classification: "FEATURE" },
+        executionAgent: "frontend-engineer",
+        executionStarted: true,
+        executionAttemptStartedAtMs: 500,
+        validationContinuation: true,
+        collaborationStyle: "autonomous",
+        pairCheckpointCount: 0,
+    });
+    const tool = createTaskCompletedTool({
+        hostedSession,
+        agentName: "frontend-engineer",
+        now: () => 900,
+        recordWorkflowMetric: (metric, deps) => {
+            metrics.push({ metric, deps });
+            return Promise.resolve(/** @type {any} */ (null));
+        },
+    });
+
+    await /** @type {any} */ (tool.execute)("call", {
+        message: "- Repair complete.",
+        browserPreflightOutcome: "succeeded",
+    });
+
+    assertEquals(metrics[1].metric.details.phase, "validation_repair");
+    assertEquals(metrics[1].metric.details.elapsedMs, 400);
+});
