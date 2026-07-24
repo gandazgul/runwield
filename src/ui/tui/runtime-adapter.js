@@ -71,12 +71,18 @@ export function attachTuiRuntimeAdapter({
     let validationSessionActive = false;
     let terminalValidationPanelVisible = false;
     let hiddenValidationReportCached = false;
+    /** @type {Set<string>} */
+    const seenProjectedEventIds = new Set();
     const shouldCacheValidationReport = () => {
         if (validationSessionActive) return true;
         return currentRoutingIntent === "FEATURE" || currentRoutingIntent === "PROJECT" ||
             currentRoutingIntent === "QUICK_FIX";
     };
     const unsubscribe = runtime.subscribeSessionEvents(sessionId, (event) => {
+        if (event.eventId) {
+            if (seenProjectedEventIds.has(event.eventId)) return;
+            seenProjectedEventIds.add(event.eventId);
+        }
         const value = /** @type {any} */ (event);
         switch (event.type) {
             case RuntimeEventTypes.SESSION_REPLACED:
@@ -236,6 +242,16 @@ export function attachTuiRuntimeAdapter({
                 uiAPI.requestRender();
                 break;
             case RuntimeEventTypes.USAGE:
+                uiAPI.requestRender();
+                break;
+            case RuntimeEventTypes.MANAGED_SYNC_STATE_CHANGED:
+                uiAPI.setManagedSyncStatus?.({
+                    status: value.status,
+                    localGeneration: value.localGeneration,
+                    latestGeneration: value.latestGeneration,
+                    owningSurfaceKind: value.owningSurfaceKind,
+                    message: value.message,
+                });
                 uiAPI.requestRender();
                 break;
             case RuntimeEventTypes.SESSION_RENAMED:
