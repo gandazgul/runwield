@@ -3,6 +3,7 @@ import { getSettingsManager } from "../../shared/settings.js";
 import {
     AgentMessageBlock,
     KeyboardHelpBlock,
+    ManagedSyncStatusBlock,
     PromptSelectBlock,
     PromptTextBlock,
     ReviewResultBlock,
@@ -39,6 +40,7 @@ export function createSilentUiApi() {
         updateValidationProgress: () => {},
         updateValidationReport: () => {},
         clearValidationPanel: () => {},
+        setManagedSyncStatus: () => {},
         appendSystemMessage: () => {},
         startToolExecution: () => ({
             setOutput: () => {},
@@ -108,6 +110,8 @@ export function createUiApi(
     const toolElapsedTimers = new Map();
     /** @type {{ block: KeyboardHelpBlock, spacer: Spacer } | null} */
     let keyboardHelp = null;
+    /** @type {{ block: ManagedSyncStatusBlock, spacer: Spacer } | null} */
+    let managedSyncStatus = null;
 
     /** @type {(() => void) | null} */
     let activePromptCancel = null;
@@ -447,6 +451,30 @@ export function createUiApi(
             inputAccessoryContainer.removeChild(keyboardHelp.block);
             inputAccessoryContainer.removeChild(keyboardHelp.spacer);
             keyboardHelp = null;
+            tui.requestRender();
+        },
+
+        /** @param {import('../../shared/session/session-runtime-events.js').RuntimeManagedSyncStateEvent} state */
+        setManagedSyncStatus: (state) => {
+            if (!inputAccessoryContainer || outputSuppressed) return;
+            if (state.status === "current" && !state.owningSurfaceKind) {
+                if (managedSyncStatus) {
+                    inputAccessoryContainer.removeChild(managedSyncStatus.block);
+                    inputAccessoryContainer.removeChild(managedSyncStatus.spacer);
+                    managedSyncStatus = null;
+                    tui.requestRender();
+                }
+                return;
+            }
+            if (!managedSyncStatus) {
+                const block = new ManagedSyncStatusBlock(state);
+                const spacer = new Spacer(1);
+                managedSyncStatus = { block, spacer };
+                inputAccessoryContainer.addChild(block);
+                inputAccessoryContainer.addChild(spacer);
+            } else {
+                managedSyncStatus.block.setState(state);
+            }
             tui.requestRender();
         },
 

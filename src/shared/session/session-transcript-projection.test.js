@@ -1,7 +1,11 @@
-import { assertEquals, assertRejects } from "@std/assert";
+import { assertEquals, assertRejects, assertThrows } from "@std/assert";
 import { join } from "@std/path";
 import { encodeCwdForSessionDir } from "./root-session.js";
-import { captureTranscriptEvidence, projectCommittedTranscript } from "./session-transcript-projection.js";
+import {
+    captureTranscriptEvidence,
+    projectCommittedTranscript,
+    selectProjectedEventsAfterCursor,
+} from "./session-transcript-projection.js";
 
 /** @param {(home: string) => Promise<void>} callback */
 async function withHome(callback) {
@@ -91,4 +95,27 @@ Deno.test("committed projection rejects mismatched evidence", async () => {
             "digest",
         );
     });
+});
+
+Deno.test("projection cursor selection returns only later events and advances summary-only generations", () => {
+    const events = [
+        { type: "user_message", eventId: "one" },
+        { type: "assistant_text_delta", eventId: "two" },
+        { type: "assistant_text_delta", eventId: "three" },
+    ];
+    const selected = selectProjectedEventsAfterCursor({ events, cursorEventId: "two" });
+    assertEquals(selected.events.map((event) => event.eventId), ["three"]);
+    assertEquals(selected.nextCursor, "three");
+    const summaryOnly = selectProjectedEventsAfterCursor({ events: [], cursorEventId: null });
+    assertEquals(summaryOnly.events, []);
+    assertEquals(summaryOnly.nextCursor, null);
+});
+
+Deno.test("projection cursor selection fails closed when the prior cursor is absent", () => {
+    const events = [{ type: "user_message", eventId: "one" }];
+    assertThrows(
+        () => selectProjectedEventsAfterCursor({ events, cursorEventId: "missing" }),
+        Error,
+        "Timeline cursor",
+    );
 });

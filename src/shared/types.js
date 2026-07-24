@@ -42,7 +42,7 @@
  * @property {string | null} sessionManagerId
  * @property {string | null} name
  * @property {boolean} disposed
- * @property {{ runwieldSessionId: string, projectId: string, generation: number | null, dormant: boolean } | null} [managed]
+ * @property {{ runwieldSessionId: string, projectId: string, generation: number | null, acknowledgedGeneration?: number | null, acknowledgedEventId?: string | null, syncState?: { status: import('./session/session-runtime-events.js').RuntimeManagedSyncStatus, localGeneration: number | null, latestGeneration: number | null, owningSurfaceKind?: "workspace" | "tui" | "acp" | "unknown", message?: string } | null, dormant: boolean } | null} [managed]
  * @property {string | null} activeAgent
  * @property {{ displayName: string, model: string, provider: string, agentName?: string } | null} activeAgentInfo
  * @property {{ model: string, provider: string }} activeModel
