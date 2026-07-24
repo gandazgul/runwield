@@ -1,8 +1,10 @@
 import { assertEquals } from "@std/assert";
+import { join } from "@std/path";
 import {
     getOpaqueWorkspaceAssetName,
     getServerEntryImportPaths,
     normalizeDenoAdapterShimImport,
+    waitForStableWorkspaceClientAssets,
 } from "./build-workspace-runtime.js";
 
 Deno.test("getOpaqueWorkspaceAssetName hides executable browser modules from compile graph tracing", () => {
@@ -35,4 +37,20 @@ Deno.test("normalizeDenoAdapterShimImport replaces entrypoint adapter shims", ()
         normalizeDenoAdapterShimImport(source),
         'import { serveFile } from "jsr:@std/http@1.0/file-server";\nimport { fromFileUrl } from "jsr:@std/path@1.0";\n',
     );
+});
+
+Deno.test("waitForStableWorkspaceClientAssets waits for delayed generated files", async () => {
+    const root = await Deno.makeTempDir({ prefix: "wld-workspace-client-assets-" });
+    try {
+        await Deno.writeTextFile(join(root, "first.css"), "a{}");
+        const delayedWrite = new Promise((resolve, reject) => {
+            setTimeout(() => Deno.writeTextFile(join(root, "second.css"), "b{}").then(resolve, reject), 20);
+        });
+        await waitForStableWorkspaceClientAssets(root, { intervalMs: 50, timeoutMs: 1000 });
+        await delayedWrite;
+
+        assertEquals(await Deno.readTextFile(join(root, "second.css")), "b{}");
+    } finally {
+        await Deno.remove(root, { recursive: true });
+    }
 });
