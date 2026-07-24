@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-RunWeild stores Plans as markdown files with YAML front matter under `plans/`. Planner, Architect, Slicer, `wld plans`,
+RunWield stores Plans as markdown files with YAML front matter under `plans/`. Planner, Architect, Slicer, `wld plans`,
 and `wld load-plan` all depend on those files as the canonical workflow state. The new local-first Plan Management UI
 needs a browser workspace for reading, editing, and moving Plans through their lifecycle without replacing that markdown
 source of truth.
@@ -26,7 +26,7 @@ Build the v1 Plan Management UI as a local-first Workspace shell launched by `wl
 - Production UI code lives under `src/ui/workspace/`.
 - The CLI launch boundary is `src/cmd/plans/ui.js`, invoked as a subcommand from the existing `wld plans` command.
 - The UI server is scoped to the current checkout and reads/writes only that checkout's canonical `plans/` tree.
-- The top-level Plan Board is custom RunWeild UI backed by Plan store and Plan Lifecycle APIs, not a BlockSuite/AFFiNE
+- The top-level Plan Board is custom RunWield UI backed by Plan store and Plan Lifecycle APIs, not a BlockSuite/AFFiNE
   database board.
 - The v1 editor is a conservative body-only markdown editor using a CodeMirror-style editing surface. BlockSuite is
   deferred behind a future replaceable editor adapter.

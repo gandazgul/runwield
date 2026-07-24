@@ -4,7 +4,7 @@
  */
 
 import { dirname, join } from "@std/path";
-import { RUNWEILD_DIR_NAME, WORKTREE_REGISTRY_FILE, WORKTREE_REGISTRY_LOCK_FILE } from "../constants.js";
+import { RUNWIELD_DIR_NAME, WORKTREE_REGISTRY_FILE, WORKTREE_REGISTRY_LOCK_FILE } from "../constants.js";
 
 const LOCK_TIMEOUT_MS = 30_000;
 const LOCK_RETRY_MS = 50;
@@ -51,12 +51,12 @@ function delay(ms) {
 
 /** @param {string} projectRoot */
 export function getWorktreeRegistryPath(projectRoot) {
-    return join(projectRoot, RUNWEILD_DIR_NAME, WORKTREE_REGISTRY_FILE);
+    return join(projectRoot, RUNWIELD_DIR_NAME, WORKTREE_REGISTRY_FILE);
 }
 
 /** @param {string} projectRoot */
 export function getWorktreeRegistryLockPath(projectRoot) {
-    return join(projectRoot, RUNWEILD_DIR_NAME, WORKTREE_REGISTRY_LOCK_FILE);
+    return join(projectRoot, RUNWIELD_DIR_NAME, WORKTREE_REGISTRY_LOCK_FILE);
 }
 
 /**

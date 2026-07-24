@@ -8,7 +8,7 @@ import { HOME_DIR, SNIP_FILTERS_DIR } from "../constants.js";
 
 const BUNDLED_SNIP_FILTERS_DIR = SNIP_FILTERS_DIR;
 const FILTER_FILE_NAMES = ["deno-check.yaml", "deno-fmt.yaml", "deno-lint.yaml", "deno-test.yaml"];
-const RUNWEILD_MANAGED_SNIP_FILTER_MARKER = "# Managed by RunWield. Remove with: wld snip-filters cleanup";
+const RUNWIELD_MANAGED_SNIP_FILTER_MARKER = "# Managed by RunWield. Remove with: wld snip-filters cleanup";
 
 /**
  * @param {string} path
@@ -30,9 +30,9 @@ async function writeIfChanged(path, content) {
  * @returns {string}
  */
 function withManagedMarker(content) {
-    return content.startsWith(`${RUNWEILD_MANAGED_SNIP_FILTER_MARKER}\n`)
+    return content.startsWith(`${RUNWIELD_MANAGED_SNIP_FILTER_MARKER}\n`)
         ? content
-        : `${RUNWEILD_MANAGED_SNIP_FILTER_MARKER}\n${content}`;
+        : `${RUNWIELD_MANAGED_SNIP_FILTER_MARKER}\n${content}`;
 }
 
 /**
@@ -67,7 +67,7 @@ export async function installRunWieldSnipFiltersForUser(options = {}) {
         const content = withManagedMarker(await Deno.readTextFile(sourcePath));
         try {
             const existing = await Deno.readTextFile(targetPath);
-            if (!existing.startsWith(RUNWEILD_MANAGED_SNIP_FILTER_MARKER)) {
+            if (!existing.startsWith(RUNWIELD_MANAGED_SNIP_FILTER_MARKER)) {
                 skipped.push({ path: targetPath, reason: "existing non-RunWield filter" });
                 continue;
             }
@@ -97,7 +97,7 @@ export async function cleanupRunWieldSnipFiltersForUser(options = {}) {
         const targetPath = join(paths.userFiltersDir, fileName);
         try {
             const existing = await Deno.readTextFile(targetPath);
-            if (!existing.startsWith(RUNWEILD_MANAGED_SNIP_FILTER_MARKER)) {
+            if (!existing.startsWith(RUNWIELD_MANAGED_SNIP_FILTER_MARKER)) {
                 skipped.push({ path: targetPath, reason: "existing non-RunWield filter" });
                 continue;
             }
@@ -126,7 +126,7 @@ export async function getRunWieldSnipFilterInstallStatus(options = {}) {
         const targetPath = join(paths.userFiltersDir, fileName);
         try {
             const existing = await Deno.readTextFile(targetPath);
-            if (existing.startsWith(RUNWEILD_MANAGED_SNIP_FILTER_MARKER)) installed.push(targetPath);
+            if (existing.startsWith(RUNWIELD_MANAGED_SNIP_FILTER_MARKER)) installed.push(targetPath);
             else conflicts.push(targetPath);
         } catch (error) {
             if (error instanceof Deno.errors.NotFound) {

@@ -662,7 +662,7 @@ export const commandRegistry = {
         ],
         notes: [
             "Slash command only (interactive session).",
-            "Refreshes memories, RUNWEILD.md, prompt templates, skills, model settings, and themes.",
+            "Refreshes memories, RUNWIELD.md, prompt templates, skills, model settings, and themes.",
         ],
         execute: runReloadCommand,
         surfaces: ["slash"],

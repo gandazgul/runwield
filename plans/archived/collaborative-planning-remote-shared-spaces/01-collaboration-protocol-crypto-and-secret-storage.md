@@ -149,7 +149,7 @@ Existing functions, modules, or patterns to reuse:
       `.wld/settings.json` and existing `.wld/` runtime behavior unchanged.
 - [ ] Step 9: Add `PLAN_SERVER_URL_SETTING_KEY`, `getDefaultPlanServerUrl`, and `setDefaultPlanServerUrl` (or similarly
       named helpers) in `src/shared/settings.js`; store only a normalized non-secret URL and add the key to
-      `RUNWEILD_CUSTOM_SETTING_KEYS` preservation.
+      `RUNWIELD_CUSTOM_SETTING_KEYS` preservation.
 - [ ] Step 10: Add settings tests for global/project precedence, project override, invalid URL rejection, fragment
       rejection, preservation across `SettingsManager` writes, and proof that full share URLs/secrets are not accepted
       as the Plan Server URL.

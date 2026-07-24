@@ -17,8 +17,8 @@ On macOS or Linux:
 curl -fsSL https://raw.githubusercontent.com/gandazgul/runwield/main/install.sh | bash
 ```
 
-The installer downloads `wld`, required Mnemosyne/Cymbal runtime helpers, and optional Snip, then installs missing
-binaries to `~/.local/bin` by default. Make sure that directory is on your `PATH`.
+The installer downloads `wld`, required Mnemosyne/Cymbal runtime helpers, required agent-browser, and optional Snip,
+then installs missing binaries to `~/.local/bin` by default. Make sure that directory is on your `PATH`.
 
 Contributors can also run from source:
 
@@ -30,9 +30,9 @@ deno task compile
 
 ### 2. Runtime helpers
 
-The installer is the helper recovery path. Mnemosyne and Cymbal are required for interactive Agent Sessions; Snip is
-optional and fail-open. Existing helper binaries found on `PATH` or already executable in `WLD_INSTALL_DIR` are
-preserved, while missing helpers are installed beside `wld`.
+The installer is the helper recovery path. Mnemosyne, Cymbal, and agent-browser are required for interactive Agent
+Sessions; Snip is optional and fail-open. Existing helper binaries found on `PATH` or already executable in
+`WLD_INSTALL_DIR` are preserved, while missing helpers are installed beside `wld`.
 
 ### 3. Authenticate a model provider
 

@@ -76,11 +76,18 @@ Typical flow:
    dependencies, MVP scope, and deferred work with the user.
 5. After explicit user confirmation, Slicer writes draft child FEATURE plans under `plans/<epic-name>/`.
 6. Slicer finalizes decomposition, moving the Epic to `ready_for_work` for child selection.
-7. The user chooses child FEATURE plans to review, execute, validate, and merge independently.
+7. RunWield advances through child FEATURE plans in Epic order. After a child verifies, Manual QA and Work Record
+   handoffs finish in the old Session; then RunWield creates a fresh Session and starts the next child automatically.
 
 Child FEATURE plans are ordinary FEATURE plans with `parentPlan: <epic-name>` and optional sibling `dependencies`. They
 carry their own lifecycle, worktree, review, validation, and merge history. The parent Epic can later be marked "done
 enough for now" without pretending it produced an implementation diff.
+
+Epic continuation is strict and enabled by default. RunWield skips only terminal child plans (`verified` and
+`closed_without_verification`), examines the earliest remaining child, and stops there if it is on hold, needs recovery,
+has unmet dependencies, or has an unsupported status. A `draft` or `feedback` child opens Planner in the fresh Session;
+an `approved` child records readiness and executes; a `ready_for_work` child executes immediately. Explicit planning
+outcomes such as "approve for later" stop the chain instead of being converted into execution.
 
 Project decomposition is described in [Project Decomposition PRD](prd/project-decomposition-PRD.md).
 
@@ -110,7 +117,8 @@ wld load-plan <name-or-path>
 `wld plans` groups child FEATURE plans beneath their Epic when the parent exists. `wld load-plan` is Epic-aware: loading
 an Epic opens or resumes Slicer decomposition, offers child FEATURE selection once decomposition is finalized, or lets
 the user mark the Epic done enough for now. Loading a child FEATURE follows the normal FEATURE workflow and warns about
-unverified sibling dependencies when present.
+unverified sibling dependencies when present. Once a child FEATURE verifies, the automatic Epic continuation flow uses
+the same canonical child ordering and dependency checks without a manual "proceed anyway" escape hatch.
 
 For the durable state machine, see [Plan Lifecycle](plan-lifecycle.md).
 

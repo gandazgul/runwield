@@ -31,7 +31,7 @@ routingIntent: "FEATURE"
 
 The product must be rebranded from Harns to RunWield for copyright reasons. The user specifically requested:
 
-- Rename `harns`/`Harns`/`HARNS` occurrences to `runwield`/`RunWield`/`RUNWEILD`, respecting capitalization.
+- Rename `harns`/`Harns`/`HARNS` occurrences to `runwield`/`RunWield`/`RUNWIELD`, respecting capitalization.
 - Rename the installed CLI binary from `hns` to `wld`.
 - Rename the global settings directory from `~/.hns` to `~/.wld`.
 - Preserve the Router's display name as `Harns` as a nod to the project's origin.
@@ -62,7 +62,7 @@ Perform the rebrand in layers rather than a blind replace:
    `~/.hns`.
 3. Rename user-facing strings, docs, comments, JSDoc symbols, test fixture values, and generated release asset names
    with capitalization preserved.
-4. Rename context files from `HARNS.md` to `RUNWEILD.md`, while preserving `AGENTS.md` fallback behavior. Do not read
+4. Rename context files from `HARNS.md` to `RUNWIELD.md`, while preserving `AGENTS.md` fallback behavior. Do not read
    legacy `HARNS.md` as a compatibility path.
 5. Update boot logo arrays to render a block `W` plus blinking dot (`W.`), keeping the same `theme.fg("mdCode", ...)`
    styling, `dotOn`/`dotOff` animation, and interval behavior.
@@ -108,8 +108,8 @@ entry directly encodes the old project binary/package name.
 - `install.sh` — rename environment variables (`WLD_REPO`, `WLD_INSTALL_DIR`), installer log prefix (`[wld installer]`),
   asset names, binary extraction/install checks, PATH advice, Snip filter examples, and default repo to
   `gandazgul/runwield`.
-- `README.md`, `docs/**`, and `TODO.md` — update user-facing docs and examples to RunWield/`wld`/`~/.wld`/`RUNWEILD.md`.
-- `HARNS.md` — rename to `RUNWEILD.md`; update references/tests accordingly; no legacy `HARNS.md` read fallback is
+- `README.md`, `docs/**`, and `TODO.md` — update user-facing docs and examples to RunWield/`wld`/`~/.wld`/`RUNWIELD.md`.
+- `HARNS.md` — rename to `RUNWIELD.md`; update references/tests accordingly; no legacy `HARNS.md` read fallback is
   required.
 - `.hns/settings.json` and `.gitignore` — rename tracked project settings directory to `.wld`; update ignored
   debug/worktree paths.
@@ -127,7 +127,7 @@ Existing functions, modules, or patterns to reuse:
 - `src/shared/models/model-registry.js` — follow existing `migratePiModelConfigOnce` pattern only for Pi-owned
   model/auth import into `~/.wld`; do not add Harns-owned config import.
 - `src/shared/session/session.js` — preserve existing layered context lookup patterns
-  (`RUNWEILD.md`/`AGENTS.md`/external `AGENTS.md`) and local/home/bundled prompt/skill precedence.
+  (`RUNWIELD.md`/`AGENTS.md`/external `AGENTS.md`) and local/home/bundled prompt/skill precedence.
 - `src/shared/session/root-session.js` — reuse `encodeCwdForSessionDir` unchanged for session directory names.
 - `src/shared/ui/boot-logo.js` — preserve the existing `logo`, `dotOn`, `dotOff`, `renderBootLogo`, and `endBlink`
   structure while changing only the rendered block glyph layout.
@@ -137,7 +137,7 @@ Existing functions, modules, or patterns to reuse:
 ## Implementation Steps
 
 - [ ] Step 1: Apply the resolved rename boundaries:
-  - Full project-local rename: `.hns` -> `.wld` and `HARNS.md` -> `RUNWEILD.md` across tracked files, source, docs,
+  - Full project-local rename: `.hns` -> `.wld` and `HARNS.md` -> `RUNWIELD.md` across tracked files, source, docs,
     fixtures, and tests.
   - Intentionally do not migrate/copy old `~/.hns` data into `~/.wld`, read old Harns markers/paths as fallbacks, or
     rescue old Harns worktrees.
@@ -162,9 +162,9 @@ Existing functions, modules, or patterns to reuse:
 - [ ] Step 5: Rename project-local metadata/context paths:
   - Change project metadata directory from `.hns` to `.wld` in constants and direct string literals.
   - Rename tracked `.hns/settings.json` to `.wld/settings.json`.
-  - Change global/project context filename from `HARNS.md` to `RUNWEILD.md`, with `AGENTS.md` fallback still supported
+  - Change global/project context filename from `HARNS.md` to `RUNWIELD.md`, with `AGENTS.md` fallback still supported
     and no legacy `HARNS.md` read fallback.
-  - Rename root `HARNS.md` to `RUNWEILD.md` and update tests/fixtures.
+  - Rename root `HARNS.md` to `RUNWIELD.md` and update tests/fixtures.
 - [ ] Step 6: Update session custom marker naming:
   - Change `ACTIVE_AGENT_CUSTOM_TYPE` from `harns.active_agent` to `runwield.active_agent` for newly written markers.
   - Read and write only the new `runwield.active_agent` marker; old `harns.active_agent` markers may be ignored.
@@ -188,7 +188,7 @@ Existing functions, modules, or patterns to reuse:
     fallbacks.
   - Set the default repo slug to `gandazgul/runwield`.
 - [ ] Step 10: Update all source tests and docs:
-  - `src/**/*.test.js`, docs, README, TODO, and agent definitions should use RunWield/`wld`/`.wld`/`RUNWEILD.md`.
+  - `src/**/*.test.js`, docs, README, TODO, and agent definitions should use RunWield/`wld`/`.wld`/`RUNWIELD.md`.
   - Keep only `src/agent-definitions/router.md` front matter `name: Harns` as the in-repo product-name exception;
     otherwise source/docs/tests should use RunWield naming.
 - [ ] Step 11: Sweep and clean up:
@@ -229,7 +229,7 @@ Existing functions, modules, or patterns to reuse:
 ## Edge Cases & Considerations
 
 - Project-local rename boundary is resolved: perform the full rename, including `.hns` -> `.wld` and `HARNS.md` ->
-  `RUNWEILD.md`.
+  `RUNWIELD.md`.
 - Existing user state compatibility is resolved by intentionally breaking from old Harns-owned state: do not
   migrate/copy old `~/.hns` settings, auth, models, sessions, bundled caches, init-state, or worktree registry data into
   `~/.wld`; do not read old Harns paths or markers as fallbacks. Do not delete old data automatically.

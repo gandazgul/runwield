@@ -51,8 +51,8 @@ Deno.test("assembleFinalSystemPromptWithContextProjection attributes resident co
     try {
         Deno.env.set("HOME", tempHome);
         await Deno.mkdir(join(tempHome, ".wld"), { recursive: true });
-        await Deno.writeTextFile(join(tempHome, ".wld", "RUNWEILD.md"), "Global context instructions");
-        await Deno.writeTextFile(join(projectRoot, "RUNWEILD.md"), "Project context instructions");
+        await Deno.writeTextFile(join(tempHome, ".wld", "RUNWIELD.md"), "Global context instructions");
+        await Deno.writeTextFile(join(projectRoot, "RUNWIELD.md"), "Project context instructions");
         await Deno.mkdir(localSkillDir, { recursive: true });
         await Deno.writeTextFile(
             join(localSkillDir, "SKILL.md"),
@@ -137,8 +137,8 @@ Deno.test("assembleFinalSystemPromptWithContextProjection excludes omitted place
     try {
         Deno.env.set("HOME", tempHome);
         await Deno.mkdir(join(tempHome, ".wld"), { recursive: true });
-        await Deno.writeTextFile(join(tempHome, ".wld", "RUNWEILD.md"), "Global context instructions");
-        await Deno.writeTextFile(join(projectRoot, "RUNWEILD.md"), "Project context instructions");
+        await Deno.writeTextFile(join(tempHome, ".wld", "RUNWIELD.md"), "Global context instructions");
+        await Deno.writeTextFile(join(projectRoot, "RUNWIELD.md"), "Project context instructions");
         await Deno.mkdir(localSkillDir, { recursive: true });
         await Deno.writeTextFile(
             join(localSkillDir, "SKILL.md"),
@@ -181,7 +181,7 @@ Deno.test("assembleFinalSystemPromptWithContextProjection excludes omitted place
     }
 });
 
-Deno.test("readGlobalAgentMd falls back from ~/.wld/RUNWEILD.md to ~/.wld/AGENTS.md", async () => {
+Deno.test("readGlobalAgentMd falls back from ~/.wld/RUNWIELD.md to ~/.wld/AGENTS.md", async () => {
     const tempHome = await Deno.makeTempDir({ prefix: "runwield-agents-md-" });
 
     try {
@@ -228,14 +228,14 @@ Deno.test("readGlobalAgentMd can disable ~/.agents/AGENTS.md fallback", async ()
 
 Deno.test("getGlobalAgentMdPaths stays inside ~/.wld", () => {
     assertEquals(getGlobalAgentMdPaths("/tmp/home", { includeExternal: false }), [
-        "/tmp/home/.wld/RUNWEILD.md",
+        "/tmp/home/.wld/RUNWIELD.md",
         "/tmp/home/.wld/AGENTS.md",
     ]);
 });
 
 Deno.test("getGlobalAgentMdPaths includes shared ~/.agents/AGENTS.md when enabled", () => {
     assertEquals(getGlobalAgentMdPaths("/tmp/home", { includeExternal: true }), [
-        "/tmp/home/.wld/RUNWEILD.md",
+        "/tmp/home/.wld/RUNWIELD.md",
         "/tmp/home/.wld/AGENTS.md",
         "/tmp/home/.agents/AGENTS.md",
     ]);

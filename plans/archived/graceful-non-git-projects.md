@@ -174,7 +174,7 @@ running CI/Mechanical Validation and recording Plan Lifecycle events without Wor
   - [ ] `isGitRepositoryRequiredError(error)` and `formatGitRequiredMessage(error)` for UI callers.
   - [ ] Non-Git consent helpers if they are not placed in a separate workflow policy module.
 - [ ] Add project-scoped non-Git consent support:
-  - [ ] Add `nonGitExecutionConsent` to `RUNWEILD_CUSTOM_SETTING_KEYS` in `src/shared/settings.js`.
+  - [ ] Add `nonGitExecutionConsent` to `RUNWIELD_CUSTOM_SETTING_KEYS` in `src/shared/settings.js`.
   - [ ] Add small helper functions to read/write `featurePlan` and `quickFix` consent with `getCustomSetting()` /
         `setCustomSetting()`.
   - [ ] Keep FEATURE/Plan and QUICK_FIX consent separate.
