@@ -179,6 +179,61 @@ Deno.test("plan_written feature approval returns execution outcome", async () =>
     assertEquals(metrics.some((metric) => metric.details?.outcome === "approved_execute"), true);
 });
 
+Deno.test("plan_written feature approval uses post-review execution metadata for readiness", async () => {
+    const { tool, lifecycle } = makeHarness({
+        classification: "FEATURE",
+        reviewResponse: {
+            outcome: "accepted",
+            _meta: {
+                approved: true,
+                approvalAction: "run",
+                planAttrs: {
+                    classification: "FEATURE",
+                    complexity: "MEDIUM",
+                    summary: "Plan the boundary",
+                    affectedPaths: ["src/shared/session/session-runtime.js"],
+                    executionAgent: "frontend-engineer",
+                    collaborationRecommendation: "pair",
+                },
+            },
+        },
+    });
+    const result = await execute(tool);
+
+    assertEquals(result.details.outcome, "approved_execute");
+    assertEquals(result.details.triageMeta.executionAgent, "frontend-engineer");
+    assertEquals(result.details.triageMeta.collaborationRecommendation, "pair");
+    assertEquals(lifecycle[0].details.triageMeta.executionAgent, "frontend-engineer");
+    assertEquals(lifecycle[0].details.triageMeta.collaborationRecommendation, "pair");
+});
+
+Deno.test("plan_written saved feature approval keeps post-review execution metadata", async () => {
+    const { tool, lifecycle } = makeHarness({
+        classification: "FEATURE",
+        reviewResponse: {
+            outcome: "accepted",
+            _meta: {
+                approved: true,
+                approvalAction: "later",
+                planAttrs: {
+                    classification: "FEATURE",
+                    complexity: "MEDIUM",
+                    summary: "Plan the boundary",
+                    affectedPaths: ["src/shared/session/session-runtime.js"],
+                    executionAgent: "engineer",
+                    collaborationRecommendation: "autonomous",
+                },
+            },
+        },
+    });
+    const result = await execute(tool);
+
+    assertEquals(result.details.outcome, "saved");
+    assertEquals(result.details.triageMeta.executionAgent, "engineer");
+    assertEquals(result.details.triageMeta.collaborationRecommendation, "autonomous");
+    assertEquals(lifecycle[0].details.triageMeta.executionAgent, "engineer");
+});
+
 Deno.test("plan_written feature approval can save without execution", async () => {
     const { tool, events } = makeHarness({ classification: "FEATURE", approvalAction: "later" });
     const result = await execute(tool);

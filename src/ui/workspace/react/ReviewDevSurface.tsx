@@ -116,7 +116,7 @@ const PROJECT_PLAN_FIXTURE = PLAN_FIXTURE
         'summary: "Fixture test plan for exercising every Plan Review UI interaction"',
         'summary: "Fixture PROJECT Epic for exercising approval and Slicer review actions"',
     )
-    .replace("frontend: true", 'frontend: true\nepicCompletionMode: "manual"')
+    .replace('executionAgent: "frontend-engineer"\ncollaborationRecommendation: "autonomous"\n', "")
     .replace("# Fixture Test Plan: Plan Review UI", "# Fixture PROJECT Epic: Plan Review UI");
 
 const WORK_RECORD_FIXTURE = `---
@@ -498,11 +498,30 @@ export function ReviewDevSurface({ surface }) {
     const isPlan = surface === "plan";
     const [guideVariant, setGuideVariant] = React.useState("ready");
     const [planVariant, setPlanVariant] = React.useState("feature");
-    const planPayload = {
-        plan: planVariant === "project" ? PROJECT_PLAN_FIXTURE : PLAN_FIXTURE,
-        token: `dev-plan-review-${planVariant}`,
-        mode: "dev",
-    };
+    const planPayload = planVariant === "project"
+        ? {
+            plan: PROJECT_PLAN_FIXTURE,
+            token: `dev-plan-review-${planVariant}`,
+            mode: "dev",
+            classification: "PROJECT",
+            frontmatter: { classification: "PROJECT" },
+        }
+        : {
+            plan: PLAN_FIXTURE,
+            token: `dev-plan-review-${planVariant}`,
+            mode: "dev",
+            classification: "FEATURE",
+            frontmatter: {
+                classification: "FEATURE",
+                executionAgent: "frontend-engineer",
+                collaborationRecommendation: "autonomous",
+            },
+            executionPolicy: {
+                executionAgent: "frontend-engineer",
+                collaborationRecommendation: "autonomous",
+                source: "canonical",
+            },
+        };
     const readPlanPayload = {
         surface: "artifact-read",
         markdown: PLAN_FIXTURE,
@@ -557,7 +576,6 @@ export function ReviewDevSurface({ surface }) {
                 : React.createElement(PlanReviewSurface, {
                     key: planVariant,
                     payload,
-                    executionSelectionPrototype: planVariant === "feature",
                 }),
         );
     }
