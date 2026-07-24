@@ -7,6 +7,7 @@ export const RuntimeEventTypes = Object.freeze({
     SESSION_CREATED: "session_created",
     SESSION_LOADED: "session_loaded",
     SESSION_CLOSED: "session_closed",
+    SESSION_REPLACED: "session_replaced",
     USER_MESSAGE: "user_message",
     ASSISTANT_TEXT_DELTA: "assistant_text_delta",
     ASSISTANT_THINKING_DELTA: "assistant_thinking_delta",
@@ -48,6 +49,10 @@ export const RuntimeEventTypes = Object.freeze({
 
 /**
  * @typedef {RuntimeEventBase & { type: "session_created" | "session_loaded" | "session_closed", cwd?: string }} RuntimeSessionLifecycleEvent
+ */
+
+/**
+ * @typedef {RuntimeEventBase & { type: "session_replaced", oldSessionId: string, newSessionId: string, reason: "epic_continuation", parentPlanName: string, completedPlanName: string, childPlanName: string, action: "plan" | "readiness_execute" | "execute" }} RuntimeSessionReplacedEvent
  */
 
 /**
@@ -215,7 +220,7 @@ export const RuntimeEventTypes = Object.freeze({
  */
 
 /**
- * @typedef {RuntimeSessionLifecycleEvent | RuntimeUserMessageEvent | RuntimeAssistantTextDeltaEvent | RuntimeAssistantThinkingDeltaEvent | RuntimeAssistantThinkingEndEvent | RuntimeToolStartEvent | RuntimeToolUpdateEvent | RuntimeToolEndEvent | RuntimeSystemStatusEvent | RuntimeTurnEvent | RuntimeBusyChangedEvent | RuntimeAgentChangedEvent | RuntimeModelChangedEvent | RuntimeThinkingLevelChangedEvent | RuntimeWorkflowContextChangedEvent | RuntimeSessionRenamedEvent | RuntimePresentationStateEvent | RuntimeQueuedMessageEvent | RuntimeUsageEvent | RuntimeCancellationEvent | RuntimeTerminalErrorEvent | RuntimeInteractionLifecycleEvent | RuntimePlanReviewLinkEvent | RuntimeAttentionRequestedEvent | RuntimeKeyboardHelpEvent} SessionRuntimeEvent
+ * @typedef {RuntimeSessionLifecycleEvent | RuntimeSessionReplacedEvent | RuntimeUserMessageEvent | RuntimeAssistantTextDeltaEvent | RuntimeAssistantThinkingDeltaEvent | RuntimeAssistantThinkingEndEvent | RuntimeToolStartEvent | RuntimeToolUpdateEvent | RuntimeToolEndEvent | RuntimeSystemStatusEvent | RuntimeTurnEvent | RuntimeBusyChangedEvent | RuntimeAgentChangedEvent | RuntimeModelChangedEvent | RuntimeThinkingLevelChangedEvent | RuntimeWorkflowContextChangedEvent | RuntimeSessionRenamedEvent | RuntimePresentationStateEvent | RuntimeQueuedMessageEvent | RuntimeUsageEvent | RuntimeCancellationEvent | RuntimeTerminalErrorEvent | RuntimeInteractionLifecycleEvent | RuntimePlanReviewLinkEvent | RuntimeAttentionRequestedEvent | RuntimeKeyboardHelpEvent} SessionRuntimeEvent
  */
 
 /** @type {Set<string>} */
@@ -420,6 +425,19 @@ export function assertSessionRuntimeEvent(event) {
 
     if (MESSAGE_ID_EVENT_TYPES.has(event.type)) requireString("messageId");
     switch (event.type) {
+        case RuntimeEventTypes.SESSION_REPLACED:
+            for (
+                const field of ["oldSessionId", "newSessionId", "parentPlanName", "completedPlanName", "childPlanName"]
+            ) {
+                requireString(field);
+            }
+            requireRuntimeEvent(value.reason === "epic_continuation", event.type, "reason is invalid");
+            requireRuntimeEvent(
+                ["plan", "readiness_execute", "execute"].includes(value.action),
+                event.type,
+                "action is invalid",
+            );
+            break;
         case RuntimeEventTypes.USER_MESSAGE:
             requireString("text");
             requireRuntimeEvent(Array.isArray(value.images), event.type, "images must be an array");

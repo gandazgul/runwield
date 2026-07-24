@@ -1,7 +1,7 @@
 ---
 name: agent-browser-use
 description: Use this skill when building, fixing, reviewing, or debugging web UI, UX, or frontend behavior and you need to exercise the app in a real browser with agent-browser. Use it to reproduce user-reported browser bugs, inspect accessibility snapshots, interact with forms and controls, capture screenshots for visual verification, check console/network failures, or compare UI before and after changes.
-compatibility: Requires the agent-browser CLI. Install with npm if it is missing, then run agent-browser install to fetch Chrome for Testing when needed.
+compatibility: Requires the agent-browser CLI. RunWield's installer provisions it as a required helper when missing; run agent-browser install to fetch Chrome for Testing when needed.
 metadata:
     version: "1.0"
 ---
@@ -20,18 +20,16 @@ Before relying on it, check whether the CLI exists:
 command -v agent-browser
 ```
 
-If it is missing and the project does not already pin it, install it globally with npm:
+If it is missing in a RunWield environment, rerun the RunWield installer to restore the required helper:
 
 ```bash
-npm install -g agent-browser
-agent-browser install
+curl -fsSL https://raw.githubusercontent.com/gandazgul/runwield/main/install.sh | bash
 ```
 
-If the project should pin browser tooling in `package.json`, install it locally instead:
+Then install Chrome for Testing when needed:
 
 ```bash
-npm install --save-dev agent-browser
-npx agent-browser install
+agent-browser install
 ```
 
 On Linux, use browser dependency installation when Chrome cannot launch:

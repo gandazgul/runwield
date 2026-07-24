@@ -67,6 +67,16 @@ const REVIEW_INLINE_DIFF_MAX_BYTES = 60 * 1024;
  */
 
 /**
+ * @typedef {Object} WorkflowValidationResult
+ * @property {"verified"|"paused"|"failed"} kind
+ * @property {string} planName
+ * @property {string} projectRoot
+ * @property {string} [classification]
+ * @property {string} [reason]
+ * @property {{ completedPlanName: string, projectRoot: string }} [epicContinuation]
+ */
+
+/**
  * @param {Uint8Array<ArrayBufferLike>} left
  * @param {Uint8Array<ArrayBufferLike>} right
  * @returns {Uint8Array<ArrayBufferLike>}
@@ -1363,7 +1373,10 @@ export async function runValidationLoop({
     }
     const switchActiveAgentImpl = __deps?.switchActiveAgent || switchActiveAgent;
     const runManualQaChecklistPromptImpl = __deps?.runManualQaChecklistPrompt || runManualQaChecklistPrompt;
-    /** @param {string} reason */
+    /**
+     * @param {string} reason
+     * @returns {Promise<WorkflowValidationResult>}
+     */
     const pauseForExecutionContinuation = async (reason) => {
         progress = updateValidationProgress(progress, {
             outcome: "paused",
@@ -1389,6 +1402,7 @@ export async function runValidationLoop({
             });
             await switchActiveAgentImpl(hostedSession, { agentName: executionAgent });
         }
+        return { kind: "paused", planName, projectRoot, reason };
     };
     let executionComplete = false;
     let latestDiffText = "";
@@ -1478,8 +1492,7 @@ export async function runValidationLoop({
                     checks: { ci: "canceled" },
                 });
                 emitRunWieldSystemStatus(hostedSession, "CI validation canceled.", false, progress);
-                await pauseForExecutionContinuation("CI validation canceled.");
-                return;
+                return await pauseForExecutionContinuation("CI validation canceled.");
             }
             if (ciResult.exitCode === 0) {
                 buildPasses = true;
@@ -1529,12 +1542,11 @@ export async function runValidationLoop({
                     },
                 });
                 if (!completed) {
-                    await pauseForExecutionContinuation(
+                    return await pauseForExecutionContinuation(
                         `${
                             getAgentDisplayName(executionAgent, projectRoot)
                         } stopped without task_completed during CI repair.`,
                     );
-                    return;
                 }
             }
         }
@@ -2093,12 +2105,11 @@ export async function runValidationLoop({
                             },
                         });
                         if (!completed) {
-                            await pauseForExecutionContinuation(
+                            return await pauseForExecutionContinuation(
                                 `${
                                     getAgentDisplayName(executionAgent, projectRoot)
                                 } stopped without task_completed during human code review repair.`,
                             );
-                            return;
                         }
                     }
                 }
@@ -2153,12 +2164,11 @@ export async function runValidationLoop({
                 },
             });
             if (!completed) {
-                await pauseForExecutionContinuation(
+                return await pauseForExecutionContinuation(
                     `${
                         getAgentDisplayName(executionAgent, projectRoot)
                     } stopped without task_completed during semantic repair.`,
                 );
-                return;
             }
         }
 
@@ -2798,4 +2808,17 @@ export async function runValidationLoop({
     if (finalAgentName && hostedSession) {
         await switchActiveAgentImpl(hostedSession, { agentName: finalAgentName });
     }
+
+    if (executionComplete) {
+        return /** @type {WorkflowValidationResult} */ ({
+            kind: "verified",
+            planName,
+            projectRoot,
+            classification: triageMeta?.classification,
+            ...(triageMeta?.classification === "FEATURE"
+                ? { epicContinuation: { completedPlanName: planName, projectRoot } }
+                : {}),
+        });
+    }
+    return { kind: "failed", planName, projectRoot, reason: haltReason || "Validation stopped before completion." };
 }

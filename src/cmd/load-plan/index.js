@@ -3236,7 +3236,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
             skipRouterRestore = true;
         }
     } finally {
-        if (!skipRouterRestore) {
+        if (!skipRouterRestore && sessionRuntime.getSessionSnapshot(session.id)) {
             await restorePreviousAgentFlow(uiAPI, restoreAgentName, session);
         }
     }
