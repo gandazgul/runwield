@@ -2,10 +2,15 @@
 
 ## Bugs
 
+- [ ] Install.sh should init mnemosyne global collection with `mnemosyne init --name global`
+- [ ] CONTEXT-FORMAT file is not extracted on a fresh install.
+
 - [ ] P0 before marking a plan as verified we need to check that: all changes in the worktree were actually committed,
       then that main's HEAD is not the same as the plan's base commit, then that the plan's base commit is an ancestor
       of main's HEAD. If any of these checks fail, it should dispatch engineer back to fix the merge issues before
       checking again.
+- [ ] the login URLs from /login subscription models are split and only the first line is used when users clicks, the
+      rest of the url appears as just text. User has to copy and paste on the browser. Fix the formatting.
 - [ ] plans/session-runtime-acp-mvp/01-acp-sdk-and-stdio-entrypoint-skeleton.md says status: verified but still has
       worktreeStatus: merge_conflict and a failure reason about overlapping uncommitted\
       primary-checkout changes. That conflicts with the normal lifecycle expectation that verified worktree-backed plans
