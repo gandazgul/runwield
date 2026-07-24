@@ -32,6 +32,19 @@ Deno.test("chat session layout keeps transcript, validation panel, spinner, prom
     assertEquals(indexes, [...indexes].sort((a, b) => a - b));
 });
 
+Deno.test("managed session sync can read processing state before startup awaits", async () => {
+    const source = await Deno.readTextFile(new URL("./chat-session.js", import.meta.url));
+    const processingStateIndex = source.indexOf("let isProcessingSubmission = false;");
+    const syncControllerIndex = source.indexOf("const managedSyncController = createManagedSessionSyncController({");
+    const modelWelcomeIndex = source.indexOf("const modelWelcomeResult = await maybeShowModelWelcome({");
+
+    assertEquals(processingStateIndex >= 0, true);
+    assertEquals(syncControllerIndex >= 0, true);
+    assertEquals(modelWelcomeIndex >= 0, true);
+    assertEquals(processingStateIndex < syncControllerIndex, true);
+    assertEquals(syncControllerIndex < modelWelcomeIndex, true);
+});
+
 Deno.test("footer thinking level is hidden until a model is configured", () => {
     assertEquals(shouldShowFooterThinkingLevel("", "medium"), false);
     assertEquals(shouldShowFooterThinkingLevel("test/model", "off"), false);

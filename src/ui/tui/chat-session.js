@@ -728,6 +728,8 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
         activeInteractionContainer,
     );
 
+    let isProcessingSubmission = false;
+
     let tuiRuntimeAdapter = attachTuiRuntimeAdapter({
         runtime: sessionRuntime,
         sessionId: sessionId,
@@ -1029,8 +1031,6 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
         }
         tui.setFocus(editor);
     }
-
-    let isProcessingSubmission = false;
 
     /**
      * Restore a queued item into the editor.
