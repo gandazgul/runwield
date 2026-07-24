@@ -86,6 +86,25 @@ Deno.test("buildPlanEventUpdates records worktree metadata when execution starts
     assertEquals(updates.worktreeStatus, "active");
 });
 
+Deno.test("buildPlanEventUpdates restores durable worktree identity when implementation finishes", () => {
+    const updates = buildPlanEventUpdates("implementation_finished", "in_progress", {
+        executionMode: "worktree",
+        executionBaselineTree: "attempt-tree",
+        worktreeId: "wt-1",
+        worktreePath: "/tmp/repo-runwield-plan-wt-1",
+        worktreeBranch: "runwield/worktree/plan-wt-1",
+        worktreeBaseBranch: "main",
+    });
+
+    assertEquals(updates.executionMode, "worktree");
+    assertEquals(updates.executionBaselineTree, "attempt-tree");
+    assertEquals(updates.worktreeId, "wt-1");
+    assertEquals(updates.worktreePath, "/tmp/repo-runwield-plan-wt-1");
+    assertEquals(updates.worktreeBranch, "runwield/worktree/plan-wt-1");
+    assertEquals(updates.worktreeBaseBranch, "main");
+    assertEquals(updates.worktreeStatus, "completed");
+});
+
 Deno.test("buildPlanEventUpdates keeps implemented status when validation fails", () => {
     const updates = buildPlanEventUpdates("validation_failed", "implemented", {
         failureReason: "CI failed",

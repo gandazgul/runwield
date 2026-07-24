@@ -1143,12 +1143,23 @@ export async function mergeExecutionWorktree(
  */
 export async function removeExecutionWorktree({ projectRoot, path, branch, force = false }) {
     await assertGitRepository(projectRoot, "Removing an execution worktree");
-    const args = ["worktree", "remove"];
-    if (force) args.push("--force");
-    args.push(path);
-    await runGit(projectRoot, args).catch(async (error) => {
-        if (!force || await pathExists(path)) throw error;
-    });
+    if (force) {
+        await runGit(projectRoot, ["worktree", "remove", "--force", path]).catch(async (error) => {
+            if (await pathExists(path)) throw error;
+        });
+    } else {
+        const status = await runGit(path, ["status", "--porcelain", "--ignore-submodules=none"]);
+        if (status.trim()) {
+            throw new Error(`Refusing to remove dirty execution worktree:\n${status}`);
+        }
+        try {
+            await runGit(projectRoot, ["worktree", "remove", path]);
+        } catch (error) {
+            const reason = error instanceof Error ? error.message : String(error);
+            if (!reason.includes("working trees containing submodules cannot be moved or removed")) throw error;
+            await runGit(projectRoot, ["worktree", "remove", "--force", path]);
+        }
+    }
     if (branch) await runGit(projectRoot, ["branch", "-D", branch]).catch(() => {});
 }
 

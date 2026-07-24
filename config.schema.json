@@ -49,7 +49,7 @@
         },
         "cleanupMergedWorktrees": {
             "type": "boolean",
-            "description": "When true, successful merge-back removes the execution checkout and clears plan worktree metadata."
+            "description": "When true, successful merge-back removes a clean execution checkout and clears Plan worktree metadata; unexpected dirty state is preserved."
         },
         "workRecords": {
             "type": "object",

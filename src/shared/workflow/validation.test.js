@@ -1784,8 +1784,10 @@ Deno.test("runValidationLoop stages validation_passed before worktree merge succ
                 actions.push("restore-primary");
                 return Promise.resolve();
             },
-            removeExecutionWorktree: (/** @type {{ projectRoot: string, path: string, branch?: string }} */ args) => {
-                actions.push(`remove:${args.projectRoot}:${args.path}:${args.branch || ""}`);
+            removeExecutionWorktree: (
+                /** @type {{ projectRoot: string, path: string, branch?: string, force?: boolean }} */ args,
+            ) => {
+                actions.push(`remove:${args.projectRoot}:${args.path}:${args.branch || ""}:${args.force}`);
                 return Promise.resolve();
             },
             removeWorktreeRegistryEntry: (/** @type {string} */ projectRoot, /** @type {string} */ id) => {
@@ -1819,7 +1821,7 @@ Deno.test("runValidationLoop stages validation_passed before worktree merge succ
         "merge:/primary:runwield/worktree/p-wt1:feature-base:p:Preserve metadata in merge commits.",
         "restore-primary",
         "registry:merged",
-        "remove:/primary:/worktree:runwield/worktree/p-wt1",
+        "remove:/primary:/worktree:runwield/worktree/p-wt1:false",
         "registry-remove:/primary:wt1",
     ]);
     assertEquals(

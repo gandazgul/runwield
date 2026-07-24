@@ -37,6 +37,7 @@ async function isPidAlive(pid) {
  * @property {string} baseRef
  * @property {string} baseCommit
  * @property {string} [baseTree]
+ * @property {string} [executionBaselineTree]
  * @property {string} branch
  * @property {string} path
  * @property {"active"|"completed"|"execution_failed"|"validation_failed"|"merge_conflict"|"merged"|"abandoned"} status

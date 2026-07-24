@@ -40,8 +40,10 @@ avoids per-task worktree complexity while allowing concurrent plan executions to
 2. **Execution** — Implementation runs in the worktree cwd. RunWield records the execution baseline tree from that
    worktree. Agent sessions and file-writing tools receive the worktree cwd explicitly; RunWield does not mutate the
    process cwd with `Deno.chdir()`.
-3. **Implementation complete** — `implementation_finished` means implementation finished in the worktree. It sets Plan
-   Status `implemented` and worktree status `completed`, but does **not** merge the branch into the primary checkout.
+3. **Implementation complete** — Before `implementation_finished`, RunWield commits every tracked and untracked
+   execution-worktree change and requires the checkout to be clean. Only then does it set Plan Status `implemented` and
+   worktree status `completed`; a checkpoint failure leaves the Plan In Progress and the worktree recoverable. This does
+   **not** merge the branch into the primary checkout.
 4. **Validation** — Workflow Validation runs local CI, workflow diff computation, semantic review, and repair sessions
    in the execution worktree.
 5. **Merge-back** — Only after Workflow Validation passes does RunWield merge the worktree branch into the primary

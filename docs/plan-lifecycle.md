@@ -179,8 +179,13 @@ state is not treated as proof that validation should run in the primary checkout
 For worktree-backed plans:
 
 1. Implementation runs in the execution worktree.
-2. `implementation_finished` records Plan Status `implemented` and worktree status `completed`; it does not merge into
-   the primary checkout.
+2. Before `implementation_finished` can record Plan Status `implemented` and worktree status `completed`, RunWield
+   checkpoints every tracked and untracked execution-worktree change in a branch commit and requires the checkout to be
+   clean. The checkpoint also restores the attempt baseline and complete worktree identity in Plan metadata, so a stale
+   intermediate Plan write cannot make the committed work unrecoverable. A missing execution context or failed
+   checkpoint leaves the Plan `in_progress` and the worktree recoverable. The registry keeps the immutable worktree
+   creation tree separate from the execution-attempt baseline, which may advance when a failed worktree is reused.
+   Completion does not merge into the primary checkout.
 3. Workflow Validation runs local CI, computes the workflow diff, starts semantic reviewer sessions, and starts repair
    sessions in the execution worktree.
 4. If `codereview` is `ask` or `always`, RunWield opens or offers Plannotator human code review after semantic review
@@ -189,18 +194,19 @@ For worktree-backed plans:
    sent back to the Engineer in the execution worktree, then validation reruns.
 5. If validation fails, RunWield keeps Plan Status `implemented`, records `worktreeStatus: "validation_failed"`, and
    leaves the worktree for recovery.
-6. If validation passes, RunWield seals the execution worktree into a pinned candidate commit, captures the target
-   branch head before merge, copies the primary Plan's current implemented Front Matter into the execution worktree, and
-   records `validation_passed` there with `executionMode` plus versioned `deliveryEvidence`. This branch-local
-   `verified` state is staged for merge and is not yet canonical.
+6. If validation passes, RunWield commits any later validation or repair changes and seals the execution worktree into a
+   pinned candidate commit, captures the target branch head before merge, copies the primary Plan's current implemented
+   Front Matter into the execution worktree, and records `validation_passed` there with `executionMode` plus versioned
+   `deliveryEvidence`. This branch-local `verified` state is staged for merge and is not yet canonical.
 7. RunWield snapshots the primary Plan's index and working-file state, returns both to the checked-in state, and merges
    the execution branch. When the target branch is not checked out in the primary checkout, the merge updates that
    target ref through a detached merge worktree and RunWield restores the primary snapshot; otherwise the successful
    merge supplies the primary file directly. The staged verified Plan becomes canonical only after Git proves the sealed
    candidate commit and metadata commit are ancestors of the target branch. By default, RunWield removes the execution
-   checkout, deletes its `.wld/worktrees.json` entry, and the merged Plan has `executionBaselineTree`, `worktreeId`,
-   `worktreePath`, `worktreeBranch`, and `worktreeStatus` cleared. If `cleanupMergedWorktrees` is `false`, the merged
-   checkout, registry entry, and Plan pointers remain for inspection.
+   checkout only if it is still clean, then deletes its `.wld/worktrees.json` entry; the merged Plan has
+   `executionBaselineTree`, `worktreeId`, `worktreePath`, `worktreeBranch`, and `worktreeStatus` cleared. Unexpected
+   post-merge dirty state is preserved with its registry entry instead of being force-deleted. If
+   `cleanupMergedWorktrees` is `false`, the merged checkout, registry entry, and Plan pointers remain for inspection.
 8. If merge-back fails or is refused, RunWield restores the exact primary Plan snapshot before recording
    `worktree_merge_failed`. The primary Plan stays `implemented` with `worktreeStatus: "merge_conflict"`, while the
    execution branch retains its staged verified Plan for an idempotent retry or manual merge recovery. If another file
