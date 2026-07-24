@@ -1,5 +1,6 @@
 import { assertEquals, assertRejects } from "@std/assert";
 import { join } from "@std/path";
+import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import {
     formatImageAttachmentMarker,
     getSessionImageDir,
@@ -23,33 +24,35 @@ Deno.test("modelSupportsImageInput checks image modality", () => {
 });
 
 Deno.test("persistImageAttachment stores session-scoped file and resolves attachment ref", async () => {
-    const originalHome = Deno.env.get("HOME");
-    const tempHome = await Deno.makeTempDir({ prefix: "runwield-images-home-" });
-    const cwd = await Deno.makeTempDir({ prefix: "runwield-images-project-" });
-    try {
-        Deno.env.set("HOME", tempHome);
-        const sessionManager = makeSessionManager("abc");
-        const stored = await persistImageAttachment(
-            { base64: btoa("hello"), mimeType: "image/png" },
-            /** @type {any} */ (sessionManager),
-            cwd,
-        );
-        assertEquals(stored.ref?.startsWith("attachment:"), true);
-        assertEquals(await Deno.readTextFile(stored.path || ""), "hello");
-        assertEquals(stored.path?.startsWith(getSessionImageDir(/** @type {any} */ (sessionManager), cwd)), true);
+    await withProcessGlobalTestLock(async () => {
+        const originalHome = Deno.env.get("HOME");
+        const tempHome = await Deno.makeTempDir({ prefix: "runwield-images-home-" });
+        const cwd = await Deno.makeTempDir({ prefix: "runwield-images-project-" });
+        try {
+            Deno.env.set("HOME", tempHome);
+            const sessionManager = makeSessionManager("abc");
+            const stored = await persistImageAttachment(
+                { base64: btoa("hello"), mimeType: "image/png" },
+                /** @type {any} */ (sessionManager),
+                cwd,
+            );
+            assertEquals(stored.ref?.startsWith("attachment:"), true);
+            assertEquals(await Deno.readTextFile(stored.path || ""), "hello");
+            assertEquals(stored.path?.startsWith(getSessionImageDir(/** @type {any} */ (sessionManager), cwd)), true);
 
-        const resolved = await resolveImageRef(stored.ref || "", {
-            sessionManager: /** @type {any} */ (sessionManager),
-            cwd,
-        });
-        assertEquals(resolved.mimeType, "image/png");
-        assertEquals(resolved.refType, "attachment");
-    } finally {
-        if (originalHome === undefined) Deno.env.delete("HOME");
-        else Deno.env.set("HOME", originalHome);
-        await Deno.remove(tempHome, { recursive: true });
-        await Deno.remove(cwd, { recursive: true });
-    }
+            const resolved = await resolveImageRef(stored.ref || "", {
+                sessionManager: /** @type {any} */ (sessionManager),
+                cwd,
+            });
+            assertEquals(resolved.mimeType, "image/png");
+            assertEquals(resolved.refType, "attachment");
+        } finally {
+            if (originalHome === undefined) Deno.env.delete("HOME");
+            else Deno.env.set("HOME", originalHome);
+            await Deno.remove(tempHome, { recursive: true });
+            await Deno.remove(cwd, { recursive: true });
+        }
+    });
 });
 
 Deno.test("resolveImageRef resolves safe project-relative paths and rejects escapes", async () => {
@@ -133,75 +136,79 @@ async function withVisionSettings(settings, fn) {
 }
 
 Deno.test("resolveVisionFallbackModel reports unknown, unauthenticated, and non-vision fallback", async () => {
-    await withVisionSettings({ visionFallback: { model: "test/missing" } }, async () => {
-        await assertRejects(
-            () => resolveVisionFallbackModel({ find: () => undefined, hasConfiguredAuth: () => true }),
-            Error,
-            "Unknown visionFallback.model",
-        );
-    });
+    await withProcessGlobalTestLock(async () => {
+        await withVisionSettings({ visionFallback: { model: "test/missing" } }, async () => {
+            await assertRejects(
+                () => resolveVisionFallbackModel({ find: () => undefined, hasConfiguredAuth: () => true }),
+                Error,
+                "Unknown visionFallback.model",
+            );
+        });
 
-    await withVisionSettings({ visionFallback: { model: "test/vision" } }, async () => {
-        const model = { provider: "test", id: "vision", input: ["text", "image"] };
-        await assertRejects(
-            () => resolveVisionFallbackModel({ find: () => model, hasConfiguredAuth: () => false }),
-            Error,
-            "No API key configured for visionFallback.model",
-        );
-    });
+        await withVisionSettings({ visionFallback: { model: "test/vision" } }, async () => {
+            const model = { provider: "test", id: "vision", input: ["text", "image"] };
+            await assertRejects(
+                () => resolveVisionFallbackModel({ find: () => model, hasConfiguredAuth: () => false }),
+                Error,
+                "No API key configured for visionFallback.model",
+            );
+        });
 
-    await withVisionSettings({ visionFallback: { model: "test/text" } }, async () => {
-        const model = { provider: "test", id: "text", input: ["text"] };
-        await assertRejects(
-            () => resolveVisionFallbackModel({ find: () => model, hasConfiguredAuth: () => true }),
-            Error,
-            "not vision-capable",
-        );
+        await withVisionSettings({ visionFallback: { model: "test/text" } }, async () => {
+            const model = { provider: "test", id: "text", input: ["text"] };
+            await assertRejects(
+                () => resolveVisionFallbackModel({ find: () => model, hasConfiguredAuth: () => true }),
+                Error,
+                "not vision-capable",
+            );
+        });
     });
 });
 
 Deno.test("resolveVisionFallbackModel discovers configured provider models", async () => {
-    await withVisionSettings({ visionFallback: { model: "local/discovered" } }, async (tempHome, tempProject) => {
-        await Deno.mkdir(join(tempHome, ".wld"), { recursive: true });
-        await Deno.writeTextFile(
-            join(tempHome, ".wld", "models.json"),
-            JSON.stringify({
-                providers: {
-                    local: {
-                        baseUrl: "https://example.invalid/v1",
-                        api: "openai-completions",
-                        apiKey: "test-key",
+    await withProcessGlobalTestLock(async () => {
+        await withVisionSettings({ visionFallback: { model: "local/discovered" } }, async (tempHome, tempProject) => {
+            await Deno.mkdir(join(tempHome, ".wld"), { recursive: true });
+            await Deno.writeTextFile(
+                join(tempHome, ".wld", "models.json"),
+                JSON.stringify({
+                    providers: {
+                        local: {
+                            baseUrl: "https://example.invalid/v1",
+                            api: "openai-completions",
+                            apiKey: "test-key",
+                        },
                     },
+                }),
+            );
+            const registry = {
+                /** @type {any[]} */
+                models: [],
+                /** @param {string} provider @param {string} id */
+                find(provider, id) {
+                    return this.models.find((model) => model.provider === provider && model.id === id);
                 },
-            }),
-        );
-        const registry = {
-            /** @type {any[]} */
-            models: [],
-            /** @param {string} provider @param {string} id */
-            find(provider, id) {
-                return this.models.find((model) => model.provider === provider && model.id === id);
-            },
-            hasConfiguredAuth: () => true,
-            /** @param {string} provider @param {{ models: any[] }} config */
-            registerProvider(provider, config) {
-                for (const model of config.models) this.models.push({ provider, ...model });
-            },
-        };
-        const originalFetch = globalThis.fetch;
-        globalThis.fetch = /** @type {any} */ (() =>
-            Promise.resolve({
-                ok: true,
-                json: () => Promise.resolve({ data: [{ id: "discovered" }] }),
-            }));
-        try {
-            const resolved = await resolveVisionFallbackModel(/** @type {any} */ (registry));
-            assertEquals(resolved?.modelRef, "local/discovered");
-            assertEquals(resolved?.model.input, ["text", "image"]);
-            assertEquals(Deno.cwd().endsWith(tempProject.replace(/^\/private/, "")), true);
-        } finally {
-            globalThis.fetch = originalFetch;
-        }
+                hasConfiguredAuth: () => true,
+                /** @param {string} provider @param {{ models: any[] }} config */
+                registerProvider(provider, config) {
+                    for (const model of config.models) this.models.push({ provider, ...model });
+                },
+            };
+            const originalFetch = globalThis.fetch;
+            globalThis.fetch = /** @type {any} */ (() =>
+                Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve({ data: [{ id: "discovered" }] }),
+                }));
+            try {
+                const resolved = await resolveVisionFallbackModel(/** @type {any} */ (registry));
+                assertEquals(resolved?.modelRef, "local/discovered");
+                assertEquals(resolved?.model.input, ["text", "image"]);
+                assertEquals(Deno.cwd().endsWith(tempProject.replace(/^\/private/, "")), true);
+            } finally {
+                globalThis.fetch = originalFetch;
+            }
+        });
     });
 });
 
