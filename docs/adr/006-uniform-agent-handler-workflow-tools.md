@@ -1,8 +1,8 @@
+---
+status: accepted
+---
+
 # ADR-006: Active Agents Use One Workflow-Aware Handler
-
-## Status
-
-Accepted
 
 ## Context
 
