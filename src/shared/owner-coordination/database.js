@@ -1,4 +1,4 @@
-/**
+/*
  * @module shared/owner-coordination/database
  * SQLite opener and migration runner for owner-only coordination state.
  */
@@ -9,6 +9,7 @@ import { ensureOwnerDatabaseDirectory, getOwnerCoordinationDatabasePath } from "
 import {
     OWNER_COORDINATION_SCHEMA_V1_SQL,
     OWNER_COORDINATION_SCHEMA_V2_SQL,
+    OWNER_COORDINATION_SCHEMA_V3_SQL,
     OWNER_COORDINATION_SCHEMA_VERSION,
 } from "./schema.js";
 
@@ -37,8 +38,10 @@ export function openOwnerCoordinationDatabase(options = {}) {
     try {
         db.exec("PRAGMA foreign_keys = ON");
         db.exec("PRAGMA busy_timeout = 5000");
+        db.exec("PRAGMA synchronous = FULL");
         runOwnerCoordinationMigrations(db, { dbPath, now: options.now });
         if (dbPath !== ":memory:") db.exec("PRAGMA journal_mode = WAL");
+        db.exec("PRAGMA synchronous = FULL");
         return {
             handle: db,
             path: dbPath,
@@ -63,7 +66,7 @@ export function openOwnerCoordinationDatabase(options = {}) {
 
 /**
  * @param {DatabaseSync} db
- * @param {{ dbPath?: string, existed?: boolean, now?: () => string }} [options]
+ * @param {{ dbPath?: string, now?: () => string }} [options]
  */
 export function runOwnerCoordinationMigrations(db, options = {}) {
     const latestVersion = getLatestSchemaVersionIfPresent(db);
@@ -72,18 +75,31 @@ export function runOwnerCoordinationMigrations(db, options = {}) {
             `Owner coordination database schema ${latestVersion} is newer than supported schema ${OWNER_COORDINATION_SCHEMA_VERSION}.`,
         );
     }
+    if (latestVersion > 0 && latestVersion < OWNER_COORDINATION_SCHEMA_VERSION && options.dbPath) {
+        backupOwnerDatabase(db, options.dbPath, latestVersion, options.now);
+    }
     db.exec("BEGIN IMMEDIATE");
     try {
-        if (latestVersion > 0 && latestVersion < OWNER_COORDINATION_SCHEMA_VERSION && options.dbPath) {
-            backupOwnerDatabase(options.dbPath, options.now);
+        const versionAtLock = getLatestSchemaVersionIfPresent(db);
+        if (versionAtLock > OWNER_COORDINATION_SCHEMA_VERSION) {
+            throw new Error(
+                `Owner coordination database schema ${versionAtLock} is newer than supported schema ${OWNER_COORDINATION_SCHEMA_VERSION}.`,
+            );
         }
-        if (latestVersion < 1) {
+        if (versionAtLock < 1) {
             db.exec(OWNER_COORDINATION_SCHEMA_V1_SQL);
             recordMigration(db, 1, options.now);
         }
-        if (latestVersion < 2) {
+        if (versionAtLock < 2) {
             db.exec(OWNER_COORDINATION_SCHEMA_V2_SQL);
             recordMigration(db, 2, options.now);
+        }
+        if (versionAtLock < 3) {
+            db.exec(OWNER_COORDINATION_SCHEMA_V3_SQL);
+            ensureDatabaseEpoch(db, options.now);
+            recordMigration(db, 3, options.now);
+        } else if (versionAtLock >= 3) {
+            ensureDatabaseEpoch(db, options.now);
         }
         db.exec("COMMIT");
     } catch (error) {
@@ -98,6 +114,17 @@ export function runOwnerCoordinationMigrations(db, options = {}) {
  */
 export function getLatestOwnerCoordinationSchemaVersion(db) {
     return getLatestSchemaVersionIfPresent(db);
+}
+
+/**
+ * @param {DatabaseSync} db
+ * @returns {string | null}
+ */
+export function getOwnerCoordinationDatabaseEpoch(db) {
+    const table = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'owner_metadata'").get();
+    if (!table) return null;
+    const row = db.prepare("SELECT value FROM owner_metadata WHERE key = 'database_epoch'").get();
+    return typeof row?.value === "string" ? row.value : null;
 }
 
 /**
@@ -127,9 +154,18 @@ function recordMigration(db, version, now) {
 }
 
 /**
- * @param {string} dbPath
+ * @param {DatabaseSync} db
  * @param {() => string} [now]
  */
+function ensureDatabaseEpoch(db, now) {
+    const existing = getOwnerCoordinationDatabaseEpoch(db);
+    if (existing) return;
+    db.prepare("INSERT INTO owner_metadata(key, value, updated_at) VALUES ('database_epoch', ?, ?)").run(
+        crypto.randomUUID(),
+        now ? now() : new Date().toISOString(),
+    );
+}
+
 /** @param {string} path */
 function fileExists(path) {
     try {
@@ -139,16 +175,52 @@ function fileExists(path) {
     }
 }
 
+/** @param {string} value */
+function quoteSqlString(value) {
+    return `'${value.replaceAll("'", "''")}'`;
+}
+
 /**
  * @param {string} dbPath
+ * @param {number} sourceVersion
  * @param {() => string} [now]
  */
-function backupOwnerDatabase(dbPath, now) {
-    if (!dbPath || dbPath === ":memory:" || !fileExists(dbPath)) return;
+function backupPathFor(dbPath, sourceVersion, now) {
     const stamp = (now ? now() : new Date().toISOString()).replace(/[:.]/g, "-");
     const suffix = extname(dbPath) || ".sqlite3";
     const base = dbPath.slice(0, dbPath.length - suffix.length);
-    const backupPath = `${base}.backup-${stamp}${suffix}`;
+    return `${base}.backup-v${sourceVersion}-${stamp}${suffix}`;
+}
+
+/**
+ * @param {DatabaseSync} db
+ * @param {string} dbPath
+ * @param {number} sourceVersion
+ * @param {() => string} [now]
+ */
+function backupOwnerDatabase(db, dbPath, sourceVersion, now) {
+    if (!dbPath || dbPath === ":memory:" || !fileExists(dbPath)) return;
+    const backupPath = backupPathFor(dbPath, sourceVersion, now);
     Deno.mkdirSync(dirname(backupPath), { recursive: true, mode: 0o700 });
-    Deno.copyFileSync(dbPath, backupPath);
+    db.exec(`VACUUM INTO ${quoteSqlString(backupPath)}`);
+    try {
+        Deno.chmodSync(backupPath, 0o600);
+    } catch {
+        // Some filesystems do not support chmod; creation location is still owner-only best effort.
+    }
+    const backup = new DatabaseSync(backupPath, { readOnly: true });
+    try {
+        const quickCheck = /** @type {{ quick_check: string }} */ (backup.prepare("PRAGMA quick_check").get());
+        if (quickCheck.quick_check !== "ok") {
+            throw new Error(`Owner coordination backup failed quick_check: ${backupPath}`);
+        }
+        const observedVersion = getLatestSchemaVersionIfPresent(backup);
+        if (observedVersion !== sourceVersion) {
+            throw new Error(
+                `Owner coordination backup schema ${observedVersion} did not match source schema ${sourceVersion}: ${backupPath}`,
+            );
+        }
+    } finally {
+        backup.close();
+    }
 }
