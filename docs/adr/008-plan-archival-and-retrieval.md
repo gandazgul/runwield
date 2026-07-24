@@ -1,8 +1,8 @@
+---
+status: accepted
+---
+
 # ADR 008: Plan archival and retrieval
-
-## Status
-
-Accepted
 
 ## Context
 

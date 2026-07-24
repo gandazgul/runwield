@@ -1,8 +1,8 @@
+---
+status: accepted
+---
+
 # ADR-007: Local-First Workspace Plan Board
-
-## Status
-
-Accepted
 
 ## Context
 

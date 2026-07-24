@@ -1,8 +1,8 @@
+---
+status: accepted
+---
+
 # ADR-002: Codebase Optimization — Centralized Types, Pure Handlers, and Shared Helpers
-
-## Status
-
-Accepted
 
 ## Context
 

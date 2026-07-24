@@ -1,8 +1,8 @@
+---
+status: accepted
+---
+
 # ADR-010: SessionRuntime Sibling Adapter Boundary for ACP
-
-## Status
-
-Accepted
 
 ## Context
 

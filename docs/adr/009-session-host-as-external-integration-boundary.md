@@ -1,8 +1,8 @@
+---
+status: accepted
+---
+
 # ADR-009: Session Host as the External Integration Boundary
-
-## Status
-
-Accepted
 
 ## Context
 
