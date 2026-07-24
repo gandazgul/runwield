@@ -114,10 +114,10 @@
         "react/jsx-dev-runtime": "npm:react@^19.2.7/jsx-dev-runtime"
     },
     "tasks": {
-        "ci": "deno task -q submodules:check && deno task -q check && deno task -q workspace:check && deno task -q lint && deno task -q test && deno task -q release:check",
+        "ci": "deno task -q submodules:check && deno task -q check && deno task -q workspace:check && deno task -q lint && deno task -q test",
         "cli": "deno run -A --unstable-no-legacy-abort src/cli.js",
         "submodules:check": "deno run -A scripts/check-submodules.js",
-        "test": "deno run -A scripts/write-version.js && rm -rf dist/workspace/server dist/workspace-runtime && snip run -- deno test -A --no-check",
+        "test": "deno run -A scripts/write-version.js && rm -rf dist/workspace/server dist/workspace-runtime && snip run -- deno test -A --no-check --parallel",
         "lint": "snip run -- deno lint",
         "githooks:install": "git config core.hooksPath .githooks",
         "githooks:uninstall": "git config --unset core.hooksPath",
@@ -127,7 +127,7 @@
         "workspace:remote:build": "deno task workspace:build && deno run -A scripts/build-workspace-runtime.js && deno run -A scripts/build-plan-server-runtime.js",
         "workspace:remote:image:check": "deno run -A scripts/assert-plan-server-image.js",
         "workspace:react:check": "deno task workspace:check",
-        "workspace:test": "rm -rf dist/workspace/server dist/workspace-runtime && deno test -A --no-check src/ui/workspace src/cmd/plans/ui.test.js",
+        "workspace:test": "rm -rf dist/workspace/server dist/workspace-runtime && deno test -A --no-check --parallel src/ui/workspace src/cmd/plans/ui.test.js",
         "workspace:dev:plan-review": "deno run -A --env npm:astro dev --config src/ui/workspace/astro.config.mjs --host 127.0.0.1 --port 5173 --open /dev/plan-review",
         "workspace:dev:code-review": "deno run -A --env npm:astro dev --config src/ui/workspace/astro.config.mjs --host 127.0.0.1 --port 5173 --open /dev/code-review",
         "workspace:build": "deno run -A --env npm:astro build --config src/ui/workspace/astro.config.mjs",

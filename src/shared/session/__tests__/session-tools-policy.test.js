@@ -1,5 +1,6 @@
 import { assert, assertEquals, assertRejects } from "@std/assert";
 import { join } from "@std/path";
+import { withProcessGlobalTestLock } from "../../../testing/process-global-lock.js";
 import { AGENTS, CWD } from "../../../constants.js";
 import { __resetSettingsForTests } from "../../settings.js";
 import { loadAgentDef, resolveSessionToolNames } from "../agents.js";
@@ -205,185 +206,191 @@ Deno.test("resolveEffectiveSessionToolNames normalizes legacy multi replace tool
 });
 
 Deno.test("buildAgentSession auto-wires Guide docs-only tools when requested", async () => {
-    const originalHome = Deno.env.get("HOME");
-    const tempHome = await Deno.makeTempDir({ prefix: "runwield-guide-docs-tools-" });
-    /** @type {import('@earendil-works/pi-coding-agent').AgentSession | undefined} */
-    let session;
+    await withProcessGlobalTestLock(async () => {
+        const originalHome = Deno.env.get("HOME");
+        const tempHome = await Deno.makeTempDir({ prefix: "runwield-guide-docs-tools-" });
+        /** @type {import('@earendil-works/pi-coding-agent').AgentSession | undefined} */
+        let session;
 
-    try {
-        Deno.env.set("HOME", tempHome);
-        __resetSettingsForTests();
-        await writeVisionModelConfig(tempHome);
-        const hostedSession = new HostedSession({ id: "guide-docs-tools", cwd: tempHome });
-        const built = await buildAgentSession({
-            hostedSession,
-            agentName: AGENTS.GUIDE,
-            modelOverride: "test/text",
-            _agentDefOverride: {
-                name: AGENTS.GUIDE,
-                displayName: "Guide",
-                model: "",
-                description: "Guide docs tools",
-                tools: ["write_docs", "edit_docs"],
-                systemPrompt: "Prompt.",
-            },
-        });
-        session = built.session;
+        try {
+            Deno.env.set("HOME", tempHome);
+            __resetSettingsForTests();
+            await writeVisionModelConfig(tempHome);
+            const hostedSession = new HostedSession({ id: "guide-docs-tools", cwd: tempHome });
+            const built = await buildAgentSession({
+                hostedSession,
+                agentName: AGENTS.GUIDE,
+                modelOverride: "test/text",
+                _agentDefOverride: {
+                    name: AGENTS.GUIDE,
+                    displayName: "Guide",
+                    model: "",
+                    description: "Guide docs tools",
+                    tools: ["write_docs", "edit_docs"],
+                    systemPrompt: "Prompt.",
+                },
+            });
+            session = built.session;
 
-        assertEquals(built.tools.includes("write_docs"), true);
-        assertEquals(built.tools.includes("edit_docs"), true);
-        const writeDocs = built.finalCustomTools.find((tool) => tool.name === "write_docs");
-        const editDocs = built.finalCustomTools.find((tool) => tool.name === "edit_docs");
-        assert(writeDocs, "expected write_docs to be auto-wired");
-        assert(editDocs, "expected edit_docs to be auto-wired");
-        assertEquals(typeof writeDocs.execute, "function");
-        assertEquals(typeof editDocs.execute, "function");
-    } finally {
-        session?.dispose();
-        __resetSettingsForTests();
-        if (originalHome === undefined) Deno.env.delete("HOME");
-        else Deno.env.set("HOME", originalHome);
-        __resetSettingsForTests();
-        await Deno.remove(tempHome, { recursive: true });
-    }
+            assertEquals(built.tools.includes("write_docs"), true);
+            assertEquals(built.tools.includes("edit_docs"), true);
+            const writeDocs = built.finalCustomTools.find((tool) => tool.name === "write_docs");
+            const editDocs = built.finalCustomTools.find((tool) => tool.name === "edit_docs");
+            assert(writeDocs, "expected write_docs to be auto-wired");
+            assert(editDocs, "expected edit_docs to be auto-wired");
+            assertEquals(typeof writeDocs.execute, "function");
+            assertEquals(typeof editDocs.execute, "function");
+        } finally {
+            session?.dispose();
+            __resetSettingsForTests();
+            if (originalHome === undefined) Deno.env.delete("HOME");
+            else Deno.env.set("HOME", originalHome);
+            __resetSettingsForTests();
+            await Deno.remove(tempHome, { recursive: true });
+        }
+    });
 });
 
 Deno.test("buildAgentSession auto-wires return_to_router to the target HostedSession", async () => {
-    const originalHome = Deno.env.get("HOME");
-    const tempHome = await Deno.makeTempDir({ prefix: "runwield-return-router-wiring-" });
-    /** @type {import('@earendil-works/pi-coding-agent').AgentSession | undefined} */
-    let session;
+    await withProcessGlobalTestLock(async () => {
+        const originalHome = Deno.env.get("HOME");
+        const tempHome = await Deno.makeTempDir({ prefix: "runwield-return-router-wiring-" });
+        /** @type {import('@earendil-works/pi-coding-agent').AgentSession | undefined} */
+        let session;
 
-    try {
-        Deno.env.set("HOME", tempHome);
-        __resetSettingsForTests();
-        await Deno.mkdir(join(tempHome, ".wld"), { recursive: true });
-        await Deno.writeTextFile(
-            join(tempHome, ".wld", "models.json"),
-            JSON.stringify({
-                providers: {
-                    test: {
-                        baseUrl: "https://example.invalid/v1",
-                        api: "openai-completions",
-                        apiKey: "test-key",
-                        models: [{ id: "model" }],
+        try {
+            Deno.env.set("HOME", tempHome);
+            __resetSettingsForTests();
+            await Deno.mkdir(join(tempHome, ".wld"), { recursive: true });
+            await Deno.writeTextFile(
+                join(tempHome, ".wld", "models.json"),
+                JSON.stringify({
+                    providers: {
+                        test: {
+                            baseUrl: "https://example.invalid/v1",
+                            api: "openai-completions",
+                            apiKey: "test-key",
+                            models: [{ id: "model" }],
+                        },
                     },
+                }),
+            );
+
+            const targetHostedSession = new HostedSession({ id: "target-session", cwd: CWD });
+            const otherHostedSession = new HostedSession({ id: "other-session", cwd: CWD });
+            const built = await buildAgentSession({
+                hostedSession: targetHostedSession,
+                agentName: AGENTS.GUIDE,
+                modelOverride: "test/model",
+                allowReturnToRouter: true,
+                _agentDefOverride: {
+                    name: AGENTS.GUIDE,
+                    displayName: "Guide",
+                    model: "",
+                    description: "Test guide",
+                    tools: ["return_to_router"],
+                    systemPrompt: "Test guide prompt.",
                 },
-            }),
-        );
+            });
+            session = built.session;
+            const tool = built.finalCustomTools.find((candidate) => candidate.name === "return_to_router");
+            assert(tool, "expected return_to_router to be auto-wired");
+            const execute =
+                /** @type {(id: string, params: { reason: string }, signal: AbortSignal, onUpdate: () => void, context: object) => Promise<unknown>} */ (tool
+                    .execute);
 
-        const targetHostedSession = new HostedSession({ id: "target-session", cwd: CWD });
-        const otherHostedSession = new HostedSession({ id: "other-session", cwd: CWD });
-        const built = await buildAgentSession({
-            hostedSession: targetHostedSession,
-            agentName: AGENTS.GUIDE,
-            modelOverride: "test/model",
-            allowReturnToRouter: true,
-            _agentDefOverride: {
-                name: AGENTS.GUIDE,
-                displayName: "Guide",
-                model: "",
-                description: "Test guide",
-                tools: ["return_to_router"],
-                systemPrompt: "Test guide prompt.",
-            },
-        });
-        session = built.session;
-        const tool = built.finalCustomTools.find((candidate) => candidate.name === "return_to_router");
-        assert(tool, "expected return_to_router to be auto-wired");
-        const execute =
-            /** @type {(id: string, params: { reason: string }, signal: AbortSignal, onUpdate: () => void, context: object) => Promise<unknown>} */ (tool
-                .execute);
+            const result = await execute(
+                "tool-call-1",
+                { reason: "Route this from the target session." },
+                new AbortController().signal,
+                () => {},
+                { hostedSession: otherHostedSession },
+            );
 
-        const result = await execute(
-            "tool-call-1",
-            { reason: "Route this from the target session." },
-            new AbortController().signal,
-            () => {},
-            { hostedSession: otherHostedSession },
-        );
-
-        assertEquals(/** @type {{ details?: unknown }} */ (result).details, {
-            agentName: AGENTS.ROUTER,
-            reason: "Route this from the target session.",
-        });
-    } finally {
-        session?.dispose();
-        __resetSettingsForTests();
-        if (originalHome === undefined) Deno.env.delete("HOME");
-        else Deno.env.set("HOME", originalHome);
-        __resetSettingsForTests();
-        await Deno.remove(tempHome, { recursive: true });
-    }
+            assertEquals(/** @type {{ details?: unknown }} */ (result).details, {
+                agentName: AGENTS.ROUTER,
+                reason: "Route this from the target session.",
+            });
+        } finally {
+            session?.dispose();
+            __resetSettingsForTests();
+            if (originalHome === undefined) Deno.env.delete("HOME");
+            else Deno.env.set("HOME", originalHome);
+            __resetSettingsForTests();
+            await Deno.remove(tempHome, { recursive: true });
+        }
+    });
 });
 
 Deno.test("buildAgentSession wires task_completed with an event-only HostedSession", async () => {
-    /** @type {any[]} */
-    const events = [];
-    const debugLogPath = await Deno.makeTempFile({ prefix: "runwield-session-debug-test-", suffix: ".log" });
+    await withProcessGlobalTestLock(async () => {
+        /** @type {any[]} */
+        const events = [];
+        const debugLogPath = await Deno.makeTempFile({ prefix: "runwield-session-debug-test-", suffix: ".log" });
 
-    /** @type {import('@earendil-works/pi-coding-agent').AgentSession | undefined} */
-    let session;
-    const originalHome = Deno.env.get("HOME");
-    const tempHome = await Deno.makeTempDir({ prefix: "runwield-session-tools-policy-" });
+        /** @type {import('@earendil-works/pi-coding-agent').AgentSession | undefined} */
+        let session;
+        const originalHome = Deno.env.get("HOME");
+        const tempHome = await Deno.makeTempDir({ prefix: "runwield-session-tools-policy-" });
 
-    try {
-        Deno.env.set("HOME", tempHome);
-        __resetSettingsForTests();
-        await Deno.mkdir(join(tempHome, ".wld"), { recursive: true });
-        await Deno.writeTextFile(
-            join(tempHome, ".wld", "models.json"),
-            JSON.stringify({
-                providers: {
-                    test: {
-                        baseUrl: "https://example.invalid/v1",
-                        api: "openai-completions",
-                        apiKey: "test-key",
-                        models: [{ id: "model" }],
+        try {
+            Deno.env.set("HOME", tempHome);
+            __resetSettingsForTests();
+            await Deno.mkdir(join(tempHome, ".wld"), { recursive: true });
+            await Deno.writeTextFile(
+                join(tempHome, ".wld", "models.json"),
+                JSON.stringify({
+                    providers: {
+                        test: {
+                            baseUrl: "https://example.invalid/v1",
+                            api: "openai-completions",
+                            apiKey: "test-key",
+                            models: [{ id: "model" }],
+                        },
                     },
+                }),
+            );
+
+            const hostedSession = new HostedSession({ id: "task-completed-policy", cwd: tempHome });
+            hostedSession.setEventSink({ emit: (/** @type {any} */ event) => events.push(event) });
+
+            const built = await buildAgentSession({
+                hostedSession,
+                agentName: "operator",
+                modelOverride: "test/model",
+                debugLogPath,
+                _agentDefOverride: {
+                    name: "operator",
+                    displayName: "Operator",
+                    model: "",
+                    description: "Test operator",
+                    tools: ["task_completed"],
+                    systemPrompt: "Test operator prompt.",
                 },
-            }),
-        );
+            });
+            session = built.session;
+            const { finalCustomTools } = built;
+            const tool = finalCustomTools.find((candidate) => candidate.name === "task_completed");
+            assert(tool, "expected task_completed to be wired");
+            const execute =
+                /** @type {(id: string, params: { message?: string }, signal: AbortSignal, onUpdate: () => void, context: object) => Promise<unknown>} */ (tool
+                    .execute);
 
-        const hostedSession = new HostedSession({ id: "task-completed-policy", cwd: tempHome });
-        hostedSession.setEventSink({ emit: (/** @type {any} */ event) => events.push(event) });
+            await execute("tool-call-1", { message: "Done." }, new AbortController().signal, () => {}, {});
 
-        const built = await buildAgentSession({
-            hostedSession,
-            agentName: "operator",
-            modelOverride: "test/model",
-            debugLogPath,
-            _agentDefOverride: {
-                name: "operator",
-                displayName: "Operator",
-                model: "",
-                description: "Test operator",
-                tools: ["task_completed"],
-                systemPrompt: "Test operator prompt.",
-            },
-        });
-        session = built.session;
-        const { finalCustomTools } = built;
-        const tool = finalCustomTools.find((candidate) => candidate.name === "task_completed");
-        assert(tool, "expected task_completed to be wired");
-        const execute =
-            /** @type {(id: string, params: { message?: string }, signal: AbortSignal, onUpdate: () => void, context: object) => Promise<unknown>} */ (tool
-                .execute);
-
-        await execute("tool-call-1", { message: "Done." }, new AbortController().signal, () => {}, {});
-
-        assertEquals(events.length, 1);
-        assertEquals(events[0].delta, "**Task completed.**\n\nDone.");
-        assertEquals(events[0].agentName, "Operator");
-    } finally {
-        session?.dispose();
-        __resetSettingsForTests();
-        if (originalHome === undefined) Deno.env.delete("HOME");
-        else Deno.env.set("HOME", originalHome);
-        __resetSettingsForTests();
-        await Deno.remove(tempHome, { recursive: true });
-        await Deno.remove(debugLogPath);
-    }
+            assertEquals(events.length, 1);
+            assertEquals(events[0].delta, "**Task completed.**\n\nDone.");
+            assertEquals(events[0].agentName, "Operator");
+        } finally {
+            session?.dispose();
+            __resetSettingsForTests();
+            if (originalHome === undefined) Deno.env.delete("HOME");
+            else Deno.env.set("HOME", originalHome);
+            __resetSettingsForTests();
+            await Deno.remove(tempHome, { recursive: true });
+            await Deno.remove(debugLogPath);
+        }
+    });
 });
 
 /**
@@ -410,234 +417,244 @@ async function writeVisionModelConfig(tempHome) {
 }
 
 Deno.test("buildAgentSession applies invocation thinking override before settings and agent defaults", async () => {
-    const originalHome = Deno.env.get("HOME");
-    const tempHome = await Deno.makeTempDir();
-    try {
-        Deno.env.set("HOME", tempHome);
-        __resetSettingsForTests();
-        await writeVisionModelConfig(tempHome);
-        await Deno.writeTextFile(
-            join(tempHome, ".wld", "settings.json"),
-            JSON.stringify({ defaultThinkingLevel: "low" }),
-        );
+    await withProcessGlobalTestLock(async () => {
+        const originalHome = Deno.env.get("HOME");
+        const tempHome = await Deno.makeTempDir();
+        try {
+            Deno.env.set("HOME", tempHome);
+            __resetSettingsForTests();
+            await writeVisionModelConfig(tempHome);
+            await Deno.writeTextFile(
+                join(tempHome, ".wld", "settings.json"),
+                JSON.stringify({ defaultThinkingLevel: "low" }),
+            );
 
-        const hostedSession = new HostedSession({ id: "thinking-override", cwd: tempHome });
-        const built = await buildAgentSession({
-            hostedSession,
-            agentName: "delegated",
-            modelOverride: "test/text",
-            thinkingLevelOverride: "high",
-            _agentDefOverride: {
-                name: "delegated",
-                displayName: "Delegated Agent",
-                model: "",
-                description: "Test delegated agent",
-                tools: ["read"],
-                systemPrompt: "Prompt.",
-                thinkingLevel: "minimal",
-            },
-        });
+            const hostedSession = new HostedSession({ id: "thinking-override", cwd: tempHome });
+            const built = await buildAgentSession({
+                hostedSession,
+                agentName: "delegated",
+                modelOverride: "test/text",
+                thinkingLevelOverride: "high",
+                _agentDefOverride: {
+                    name: "delegated",
+                    displayName: "Delegated Agent",
+                    model: "",
+                    description: "Test delegated agent",
+                    tools: ["read"],
+                    systemPrompt: "Prompt.",
+                    thinkingLevel: "minimal",
+                },
+            });
 
-        assertEquals(built.resolvedThinkingLevel, "high");
-        assertEquals(hostedSession.getThinkingLevel(), "high");
-        built.session.dispose();
-    } finally {
-        __resetSettingsForTests();
-        if (originalHome === undefined) Deno.env.delete("HOME");
-        else Deno.env.set("HOME", originalHome);
-        __resetSettingsForTests();
-        await Deno.remove(tempHome, { recursive: true });
-    }
+            assertEquals(built.resolvedThinkingLevel, "high");
+            assertEquals(hostedSession.getThinkingLevel(), "high");
+            built.session.dispose();
+        } finally {
+            __resetSettingsForTests();
+            if (originalHome === undefined) Deno.env.delete("HOME");
+            else Deno.env.set("HOME", originalHome);
+            __resetSettingsForTests();
+            await Deno.remove(tempHome, { recursive: true });
+        }
+    });
 });
 
 Deno.test("buildAgentSession auto-wires delegate_agent only when retained by effective Agent policy", async () => {
-    const originalHome = Deno.env.get("HOME");
-    const tempHome = await Deno.makeTempDir({ prefix: "runwield-delegate-wiring-" });
-    /** @type {import('@earendil-works/pi-coding-agent').AgentSession[]} */
-    const sessions = [];
-    try {
-        Deno.env.set("HOME", tempHome);
-        __resetSettingsForTests();
-        await writeVisionModelConfig(tempHome);
+    await withProcessGlobalTestLock(async () => {
+        const originalHome = Deno.env.get("HOME");
+        const tempHome = await Deno.makeTempDir({ prefix: "runwield-delegate-wiring-" });
+        /** @type {import('@earendil-works/pi-coding-agent').AgentSession[]} */
+        const sessions = [];
+        try {
+            Deno.env.set("HOME", tempHome);
+            __resetSettingsForTests();
+            await writeVisionModelConfig(tempHome);
 
-        const hostedSession = new HostedSession({ id: "delegate-wiring", cwd: tempHome });
-        const enabled = await buildAgentSession({
-            hostedSession,
-            cwd: tempHome,
-            agentName: AGENTS.GUIDE,
-            modelOverride: "test/vision",
-            _agentDefOverride: {
-                name: AGENTS.GUIDE,
-                displayName: "Guide",
-                model: "",
-                description: "Guide with delegation",
-                tools: ["read", "delegate_agent"],
-                systemPrompt: "Prompt.",
-            },
-        });
-        sessions.push(enabled.session);
-        assert(enabled.finalCustomTools.some((tool) => tool.name === "delegate_agent"));
+            const hostedSession = new HostedSession({ id: "delegate-wiring", cwd: tempHome });
+            const enabled = await buildAgentSession({
+                hostedSession,
+                cwd: tempHome,
+                agentName: AGENTS.GUIDE,
+                modelOverride: "test/vision",
+                _agentDefOverride: {
+                    name: AGENTS.GUIDE,
+                    displayName: "Guide",
+                    model: "",
+                    description: "Guide with delegation",
+                    tools: ["read", "delegate_agent"],
+                    systemPrompt: "Prompt.",
+                },
+            });
+            sessions.push(enabled.session);
+            assert(enabled.finalCustomTools.some((tool) => tool.name === "delegate_agent"));
 
-        const disabled = await buildAgentSession({
-            hostedSession,
-            cwd: tempHome,
-            agentName: AGENTS.GUIDE,
-            modelOverride: "test/vision",
-            _agentDefOverride: {
-                name: AGENTS.GUIDE,
-                displayName: "Guide",
-                model: "",
-                description: "Guide without delegation",
-                tools: ["read"],
-                systemPrompt: "Prompt.",
-            },
-        });
-        sessions.push(disabled.session);
-        assertEquals(disabled.finalCustomTools.some((tool) => tool.name === "delegate_agent"), false);
-    } finally {
-        for (const session of sessions) session.dispose();
-        __resetSettingsForTests();
-        if (originalHome === undefined) Deno.env.delete("HOME");
-        else Deno.env.set("HOME", originalHome);
-        __resetSettingsForTests();
-        await Deno.remove(tempHome, { recursive: true });
-    }
+            const disabled = await buildAgentSession({
+                hostedSession,
+                cwd: tempHome,
+                agentName: AGENTS.GUIDE,
+                modelOverride: "test/vision",
+                _agentDefOverride: {
+                    name: AGENTS.GUIDE,
+                    displayName: "Guide",
+                    model: "",
+                    description: "Guide without delegation",
+                    tools: ["read"],
+                    systemPrompt: "Prompt.",
+                },
+            });
+            sessions.push(disabled.session);
+            assertEquals(disabled.finalCustomTools.some((tool) => tool.name === "delegate_agent"), false);
+        } finally {
+            for (const session of sessions) session.dispose();
+            __resetSettingsForTests();
+            if (originalHome === undefined) Deno.env.delete("HOME");
+            else Deno.env.set("HOME", originalHome);
+            __resetSettingsForTests();
+            await Deno.remove(tempHome, { recursive: true });
+        }
+    });
 });
 
 Deno.test("buildAgentSession injects see_image only for text-only model with vision fallback", async () => {
-    const originalHome = Deno.env.get("HOME");
-    const tempHome = await Deno.makeTempDir({ prefix: "runwield-see-image-injection-" });
-    /** @type {import('@earendil-works/pi-coding-agent').AgentSession[]} */
-    const sessions = [];
-    try {
-        Deno.env.set("HOME", tempHome);
-        __resetSettingsForTests();
-        await writeVisionModelConfig(tempHome);
-        await Deno.writeTextFile(
-            join(tempHome, ".wld", "settings.json"),
-            JSON.stringify({
-                visionFallback: { model: "test/vision" },
-            }),
-        );
+    await withProcessGlobalTestLock(async () => {
+        const originalHome = Deno.env.get("HOME");
+        const tempHome = await Deno.makeTempDir({ prefix: "runwield-see-image-injection-" });
+        /** @type {import('@earendil-works/pi-coding-agent').AgentSession[]} */
+        const sessions = [];
+        try {
+            Deno.env.set("HOME", tempHome);
+            __resetSettingsForTests();
+            await writeVisionModelConfig(tempHome);
+            await Deno.writeTextFile(
+                join(tempHome, ".wld", "settings.json"),
+                JSON.stringify({
+                    visionFallback: { model: "test/vision" },
+                }),
+            );
 
-        const textBuilt = await buildAgentSession({
-            cwd: tempHome,
-            agentName: "operator",
-            modelOverride: "test/text",
-            _agentDefOverride: {
-                name: "operator",
-                displayName: "Operator",
-                model: "",
-                description: "Test operator",
-                tools: ["read"],
-                systemPrompt: "Test operator prompt.",
-            },
-        });
-        sessions.push(textBuilt.session);
-        assertEquals(textBuilt.tools.includes("see_image"), true);
-        assert(textBuilt.finalCustomTools.find((tool) => tool.name === "see_image"));
-        const seeImage = /** @type {any} */ (textBuilt.finalCustomTools.find((tool) => tool.name === "see_image"));
-        assert(seeImage, "expected see_image custom tool");
-        assert(seeImage.execute, "expected see_image execute");
+            const textBuilt = await buildAgentSession({
+                cwd: tempHome,
+                agentName: "operator",
+                modelOverride: "test/text",
+                _agentDefOverride: {
+                    name: "operator",
+                    displayName: "Operator",
+                    model: "",
+                    description: "Test operator",
+                    tools: ["read"],
+                    systemPrompt: "Test operator prompt.",
+                },
+            });
+            sessions.push(textBuilt.session);
+            assertEquals(textBuilt.tools.includes("see_image"), true);
+            assert(textBuilt.finalCustomTools.find((tool) => tool.name === "see_image"));
+            const seeImage = /** @type {any} */ (textBuilt.finalCustomTools.find((tool) => tool.name === "see_image"));
+            assert(seeImage, "expected see_image custom tool");
+            assert(seeImage.execute, "expected see_image execute");
 
-        const visionBuilt = await buildAgentSession({
-            cwd: tempHome,
-            agentName: "operator",
-            modelOverride: "test/vision",
-            _agentDefOverride: {
-                name: "operator",
-                displayName: "Operator",
-                model: "",
-                description: "Test operator",
-                tools: ["read"],
-                systemPrompt: "Test operator prompt.",
-            },
-        });
-        sessions.push(visionBuilt.session);
-        assertEquals(visionBuilt.tools.includes("see_image"), false);
-        assertEquals(Boolean(visionBuilt.finalCustomTools.find((tool) => tool.name === "see_image")), false);
-    } finally {
-        for (const session of sessions) session.dispose();
-        __resetSettingsForTests();
-        if (originalHome === undefined) Deno.env.delete("HOME");
-        else Deno.env.set("HOME", originalHome);
-        await Deno.remove(tempHome, { recursive: true });
-    }
+            const visionBuilt = await buildAgentSession({
+                cwd: tempHome,
+                agentName: "operator",
+                modelOverride: "test/vision",
+                _agentDefOverride: {
+                    name: "operator",
+                    displayName: "Operator",
+                    model: "",
+                    description: "Test operator",
+                    tools: ["read"],
+                    systemPrompt: "Test operator prompt.",
+                },
+            });
+            sessions.push(visionBuilt.session);
+            assertEquals(visionBuilt.tools.includes("see_image"), false);
+            assertEquals(Boolean(visionBuilt.finalCustomTools.find((tool) => tool.name === "see_image")), false);
+        } finally {
+            for (const session of sessions) session.dispose();
+            __resetSettingsForTests();
+            if (originalHome === undefined) Deno.env.delete("HOME");
+            else Deno.env.set("HOME", originalHome);
+            await Deno.remove(tempHome, { recursive: true });
+        }
+    });
 });
 
 Deno.test("buildAgentSession omits see_image for text-only model without fallback", async () => {
-    const originalHome = Deno.env.get("HOME");
-    const tempHome = await Deno.makeTempDir({ prefix: "runwield-see-image-no-fallback-" });
-    /** @type {import('@earendil-works/pi-coding-agent').AgentSession | undefined} */
-    let session;
-    try {
-        Deno.env.set("HOME", tempHome);
-        __resetSettingsForTests();
-        await writeVisionModelConfig(tempHome);
-        await Deno.writeTextFile(join(tempHome, ".wld", "settings.json"), JSON.stringify({}));
+    await withProcessGlobalTestLock(async () => {
+        const originalHome = Deno.env.get("HOME");
+        const tempHome = await Deno.makeTempDir({ prefix: "runwield-see-image-no-fallback-" });
+        /** @type {import('@earendil-works/pi-coding-agent').AgentSession | undefined} */
+        let session;
+        try {
+            Deno.env.set("HOME", tempHome);
+            __resetSettingsForTests();
+            await writeVisionModelConfig(tempHome);
+            await Deno.writeTextFile(join(tempHome, ".wld", "settings.json"), JSON.stringify({}));
 
-        const built = await buildAgentSession({
-            cwd: tempHome,
-            agentName: "operator",
-            modelOverride: "test/text",
-            _agentDefOverride: {
-                name: "operator",
-                displayName: "Operator",
-                model: "",
-                description: "Test operator",
-                tools: ["read"],
-                systemPrompt: "Test operator prompt.",
-            },
-        });
-        session = built.session;
-        assertEquals(built.tools.includes("see_image"), false);
-    } finally {
-        session?.dispose();
-        __resetSettingsForTests();
-        if (originalHome === undefined) Deno.env.delete("HOME");
-        else Deno.env.set("HOME", originalHome);
-        await Deno.remove(tempHome, { recursive: true });
-    }
+            const built = await buildAgentSession({
+                cwd: tempHome,
+                agentName: "operator",
+                modelOverride: "test/text",
+                _agentDefOverride: {
+                    name: "operator",
+                    displayName: "Operator",
+                    model: "",
+                    description: "Test operator",
+                    tools: ["read"],
+                    systemPrompt: "Test operator prompt.",
+                },
+            });
+            session = built.session;
+            assertEquals(built.tools.includes("see_image"), false);
+        } finally {
+            session?.dispose();
+            __resetSettingsForTests();
+            if (originalHome === undefined) Deno.env.delete("HOME");
+            else Deno.env.set("HOME", originalHome);
+            await Deno.remove(tempHome, { recursive: true });
+        }
+    });
 });
 
 Deno.test("buildAgentSession fails clearly for invalid vision fallback", async () => {
-    const originalHome = Deno.env.get("HOME");
-    const tempHome = await Deno.makeTempDir({ prefix: "runwield-see-image-invalid-fallback-" });
-    try {
-        Deno.env.set("HOME", tempHome);
-        __resetSettingsForTests();
-        await writeVisionModelConfig(tempHome);
-        await Deno.writeTextFile(
-            join(tempHome, ".wld", "settings.json"),
-            JSON.stringify({
-                visionFallback: { model: "not-valid" },
-            }),
-        );
-
-        await assertRejects(
-            () =>
-                buildAgentSession({
-                    cwd: tempHome,
-                    agentName: "operator",
-                    modelOverride: "test/text",
-                    _agentDefOverride: {
-                        name: "operator",
-                        displayName: "Operator",
-                        model: "",
-                        description: "Test operator",
-                        tools: ["read"],
-                        systemPrompt: "Test operator prompt.",
-                    },
+    await withProcessGlobalTestLock(async () => {
+        const originalHome = Deno.env.get("HOME");
+        const tempHome = await Deno.makeTempDir({ prefix: "runwield-see-image-invalid-fallback-" });
+        try {
+            Deno.env.set("HOME", tempHome);
+            __resetSettingsForTests();
+            await writeVisionModelConfig(tempHome);
+            await Deno.writeTextFile(
+                join(tempHome, ".wld", "settings.json"),
+                JSON.stringify({
+                    visionFallback: { model: "not-valid" },
                 }),
-            Error,
-            "Invalid visionFallback.model",
-        );
-    } finally {
-        __resetSettingsForTests();
-        if (originalHome === undefined) Deno.env.delete("HOME");
-        else Deno.env.set("HOME", originalHome);
-        await Deno.remove(tempHome, { recursive: true });
-    }
+            );
+
+            await assertRejects(
+                () =>
+                    buildAgentSession({
+                        cwd: tempHome,
+                        agentName: "operator",
+                        modelOverride: "test/text",
+                        _agentDefOverride: {
+                            name: "operator",
+                            displayName: "Operator",
+                            model: "",
+                            description: "Test operator",
+                            tools: ["read"],
+                            systemPrompt: "Test operator prompt.",
+                        },
+                    }),
+                Error,
+                "Invalid visionFallback.model",
+            );
+        } finally {
+            __resetSettingsForTests();
+            if (originalHome === undefined) Deno.env.delete("HOME");
+            else Deno.env.set("HOME", originalHome);
+            await Deno.remove(tempHome, { recursive: true });
+        }
+    });
 });
 
 Deno.test("resolveModel candidate metrics include enum failed reasons for skipped candidates", async () => {
@@ -686,81 +703,84 @@ Deno.test("bundled Work Record tools are protected for planning roles and exclud
 });
 
 Deno.test("buildAgentSession auto-wires Work Record tools with role access modes", async () => {
-    const originalHome = Deno.env.get("HOME");
-    const tempHome = await Deno.makeTempDir({ prefix: "runwield-work-record-tool-wiring-" });
-    /** @type {import('@earendil-works/pi-coding-agent').AgentSession[]} */
-    const sessions = [];
-    try {
-        Deno.env.set("HOME", tempHome);
-        __resetSettingsForTests();
-        await Deno.mkdir(join(tempHome, ".wld"), { recursive: true });
-        await Deno.writeTextFile(
-            join(tempHome, ".wld", "models.json"),
-            JSON.stringify({
-                providers: {
-                    test: {
-                        baseUrl: "https://example.invalid/v1",
-                        api: "openai-completions",
-                        apiKey: "test-key",
-                        models: [{ id: "model" }],
+    await withProcessGlobalTestLock(async () => {
+        const originalHome = Deno.env.get("HOME");
+        const tempHome = await Deno.makeTempDir({ prefix: "runwield-work-record-tool-wiring-" });
+        /** @type {import('@earendil-works/pi-coding-agent').AgentSession[]} */
+        const sessions = [];
+        try {
+            Deno.env.set("HOME", tempHome);
+            __resetSettingsForTests();
+            await Deno.mkdir(join(tempHome, ".wld"), { recursive: true });
+            await Deno.writeTextFile(
+                join(tempHome, ".wld", "models.json"),
+                JSON.stringify({
+                    providers: {
+                        test: {
+                            baseUrl: "https://example.invalid/v1",
+                            api: "openai-completions",
+                            apiKey: "test-key",
+                            models: [{ id: "model" }],
+                        },
                     },
-                },
-            }),
-        );
+                }),
+            );
 
-        /** @param {string} agentName */
-        const build = async (agentName) => {
-            const built = await buildAgentSession({
-                cwd: tempHome,
-                agentName,
-                modelOverride: "test/model",
-                _agentDefOverride: {
-                    name: agentName,
-                    displayName: agentName,
-                    model: "",
-                    description: "Test Work Record tools",
-                    tools: ["work_record_search", "work_record_read"],
-                    systemPrompt: "Test prompt.",
-                },
-            });
-            sessions.push(built.session);
-            return built;
-        };
+            /** @param {string} agentName */
+            const build = async (agentName) => {
+                const built = await buildAgentSession({
+                    cwd: tempHome,
+                    agentName,
+                    modelOverride: "test/model",
+                    _agentDefOverride: {
+                        name: agentName,
+                        displayName: agentName,
+                        model: "",
+                        description: "Test Work Record tools",
+                        tools: ["work_record_search", "work_record_read"],
+                        systemPrompt: "Test prompt.",
+                    },
+                });
+                sessions.push(built.session);
+                return built;
+            };
 
-        const guideBuilt = await build(AGENTS.GUIDE);
-        const plannerBuilt = await build(AGENTS.PLANNER);
-        const customBuilt = await build("custom-agent");
-        for (const built of [guideBuilt, plannerBuilt, customBuilt]) {
-            assert(built.finalCustomTools.find((tool) => tool.name === "work_record_search"));
-            assert(built.finalCustomTools.find((tool) => tool.name === "work_record_read"));
+            const guideBuilt = await build(AGENTS.GUIDE);
+            const plannerBuilt = await build(AGENTS.PLANNER);
+            const customBuilt = await build("custom-agent");
+            for (const built of [guideBuilt, plannerBuilt, customBuilt]) {
+                assert(built.finalCustomTools.find((tool) => tool.name === "work_record_search"));
+                assert(built.finalCustomTools.find((tool) => tool.name === "work_record_read"));
+            }
+
+            const guideSearch = /** @type {any} */ (guideBuilt.finalCustomTools.find((tool) =>
+                tool.name === "work_record_search"
+            ));
+            const plannerSearch = /** @type {any} */ (plannerBuilt.finalCustomTools.find((tool) =>
+                tool.name === "work_record_search"
+            ));
+            const customRead = /** @type {any} */ (customBuilt.finalCustomTools.find((tool) =>
+                tool.name === "work_record_read"
+            ));
+            assertEquals(
+                (await guideSearch.execute("1", { query: "" }, undefined, undefined, {})).details.accessMode,
+                "all",
+            );
+            assertEquals(
+                (await plannerSearch.execute("1", { query: "" }, undefined, undefined, {})).details.accessMode,
+                "current",
+            );
+            assertEquals(
+                (await customRead.execute("1", { recordId: "" }, undefined, undefined, {})).details.accessMode,
+                "current",
+            );
+        } finally {
+            for (const session of sessions) session.dispose();
+            __resetSettingsForTests();
+            if (originalHome === undefined) Deno.env.delete("HOME");
+            else Deno.env.set("HOME", originalHome);
+            __resetSettingsForTests();
+            await Deno.remove(tempHome, { recursive: true });
         }
-
-        const guideSearch = /** @type {any} */ (guideBuilt.finalCustomTools.find((tool) =>
-            tool.name === "work_record_search"
-        ));
-        const plannerSearch = /** @type {any} */ (plannerBuilt.finalCustomTools.find((tool) =>
-            tool.name === "work_record_search"
-        ));
-        const customRead =
-            /** @type {any} */ (customBuilt.finalCustomTools.find((tool) => tool.name === "work_record_read"));
-        assertEquals(
-            (await guideSearch.execute("1", { query: "" }, undefined, undefined, {})).details.accessMode,
-            "all",
-        );
-        assertEquals(
-            (await plannerSearch.execute("1", { query: "" }, undefined, undefined, {})).details.accessMode,
-            "current",
-        );
-        assertEquals(
-            (await customRead.execute("1", { recordId: "" }, undefined, undefined, {})).details.accessMode,
-            "current",
-        );
-    } finally {
-        for (const session of sessions) session.dispose();
-        __resetSettingsForTests();
-        if (originalHome === undefined) Deno.env.delete("HOME");
-        else Deno.env.set("HOME", originalHome);
-        __resetSettingsForTests();
-        await Deno.remove(tempHome, { recursive: true });
-    }
+    });
 });
