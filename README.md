@@ -14,12 +14,13 @@ ideate -> plan -> execute -> record -> use records to plan better
 [Watch the 60-second demo] · [Install](#installation) · [Documentation](docs/index.md)
 
 > I’m looking for five developers to try RunWield on one real, non-trivial change. I’ll personally help you get running,
-> quickly fix anything that blocks you, and give you a direct say in the roadmap. Try it with me →
+> quickly fix anything that blocks you, and give you a direct say in the roadmap.
+> [Try it with me →](https://github.com/gandazgul/runwield/issues)
 
 ## Is it for me?
 
 It's for developers who want LLMs to slow down at the right moments: classify the work, write a reviewable plan when the
-blast radius is real, execute through specialized roles, and then prove the result. Dont trust the LLM did the right
+blast radius is real, execute through specialized roles, and then prove the result. Don't trust the LLM did the right
 thing, verify it and only then merge and make a durable record explaining why, what and who.
 
 If most of your work is quick one-shot edits, RunWield is probably more ceremony than you need; Pi or another
@@ -65,82 +66,32 @@ message in the same session to go through triage again.
 Most coding harnesses optimize for getting an agent typing quickly, chat and hope. RunWield optimizes for getting the
 right kind of work done with the right amount of ceremony.
 
-- **Triage is explicit.** Every routed request gets a routing intent: `INQUIRY`, `IDEATION`, `OPERATION`, `QUICK_FIX`,
-  `FEATURE`, or `PROJECT`. Implementation work records complexity and affected paths before execution.
-- **Planning is a product surface, not a prompt vibe.** Non-trivial work becomes a markdown plan in `plans/`, goes
-  through Plannotator review, and can be approved, revised, saved, re-opened, or executed later.
-- **Architecture and decomposition are separate jobs.** Large `PROJECT` work is designed by the Architect as an Epic,
-  then decomposed into independently executable child `FEATURE` plans by the Slicer after approval.
-- **Execution is role-scoped.** Operators handle direct non-code operations, Engineers implement approved plans and
-  bounded no-plan quick fixes, Testers write or run test work, documentation is handled through the `documentation`
-  skill, and Reviewers compare saved-plan diffs to the plan.
-- **Epic work keeps a clear trail.** PROJECT Epics stay as containers, while child FEATURE plans carry their own review,
-  execution, validation, and merge history.
-- **Completion has a handshake.** Execution agents are expected to call `task_completed`; for saved plan execution,
-  RunWield treats that as the strong signal before running validation.
-- **Validation is built into implementation workflows.** After completed executable plan work, RunWield runs the
-  configured local validation command and then a semantic review loop against the original plan. Direct `QUICK_FIX` work
-  runs Mechanical Validation only. PROJECT Epics validate through their child FEATURE plans.
-- **Context is durable.** Sessions live under `~/.wld/sessions/`, settings under `~/.wld/settings.json`, plans in the
-  repo, and [Mnemosyne](https://github.com/gandazgul/mnemosyne) keeps recallable project and global memory.
-
-Use RunWield when you want an agent workflow that leaves durable plans, review points, validation notes, and a clear
-record of why each change happened. Use a lighter harness when you only want a one-shot chat wrapper around edit tools.
-
-### Targeting a plan at a branch
-
-By default, saved FEATURE plan execution starts from the current checkout branch. To run hands-off work against another
-branch, ask for the plan to target that branch or add `worktreeBaseBranch: "branch-name"` to the plan front matter
-before execution. RunWield creates the execution worktree from that local branch, a matching `origin/<branch-name>`
-tracking branch, or a new local branch from `main`, then merges validated work back to that same target branch.
+- Review intent before code changes.
+- Use more process only when the risk warrants it.
+- Verify the result against the approved plan. Automatically and with optional code reviews.
+- Preserve useful context for the next change through durable layared memory: Prompt injected (similar to AGENTS.md),
+  searchable by the agent (memories and work records), PRDs and ADRs and plans.
 
 ## High-Level Flow
 
 ```mermaid
 graph TD
-    U[User request] --> R[Router Agent]
-    R --> TR[Triage report]
+    U[Your request] --> R[Router]
 
-    TR -->|inquiry| G[Guide answers or explains]
-    G --> GD[Done]
+    R -->|inquiry| G[Guide answers or explains]
 
-    TR -->|ideation| I[Ideator researches and sharpens idea]
-    I --> IR[PRD or synthesis]
-    IR --> R2[Return to Router when ready for implementation]
+    R -->|ideation| I[Ideator researches and sharpens idea]
+    I --> IR[PRD]
 
-    TR -->|operation| O[Operator executes directly]
-    O --> TC1{Completion signal received}
-    TC1 -->|yes| QD[Done]
-    TC1 -->|no| W1[Wait for completion signal]
+    R -->|operation| O[Operator executes directly]
 
-    TR -->|quick fix| QE[Engineer implements directly]
-    QE --> QTC{Completion signal received}
-    QTC -->|yes| QV[Mechanical Validation]
-    QTC -->|no| QW[Wait for completion signal]
+    R -->|quick fix| QE[Engineer implements directly]
 
-    TR -->|feature| P[Planner writes plan]
-    P --> PR[Plannotator review]
-    PR -->|feedback| P
-    PR -->|approved| PA{Proceed now}
-    PA -->|yes| E[Engineer executes approved plan]
-    PA -->|no| SP[Saved plan]
-    E --> TC2{Completion signal received}
-    TC2 -->|yes| V2[Workflow validation]
+    R -->|feature| P[Planner collaborates with you on a plan]
+    P --> E[Engineer executes approved plan]
 
-    TR -->|project| A[Architect writes Epic design plan]
-    A --> PR2[Plannotator review]
-    PR2 -->|feedback| A
-    PR2 -->|approved| RD[Ready for decomposition]
-    RD --> S[Interactive Slicer discusses boundaries]
-    S --> CD[Draft child feature plans]
-    CD --> RF[Ready for work child selection]
-    RF --> CP[Child feature plan]
-    CP --> PR3[Plannotator review]
-    PR3 -->|approved| CE[Engineer executes child feature]
-    CE --> TC3{Completion signal received}
-    TC3 -->|yes| V3[Child workflow validation]
-
-    SP --> LP[Load plan command]
+    R -->|project| A[Architect collaborates with you on an Epic design plan]
+    A --> S[Interactive Slicer discusses boundaries and makes feature plans]
 ```
 
 ## Settings

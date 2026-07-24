@@ -142,6 +142,55 @@ For editor behavior, message queue behavior, file references, shell commands, an
 [Pi Using Pi](https://pi.dev/docs/latest/usage) and [Pi Keybindings](https://pi.dev/docs/latest/keybindings). See
 [Using RunWield](usage.md) for RunWield-specific differences.
 
+### Workflow overview
+
+```mermaid
+graph TD
+    U[User request] --> R[Router Agent]
+    R --> TR[Triage report]
+
+    TR -->|inquiry| G[Guide answers or explains]
+    G --> GD[Done]
+
+    TR -->|ideation| I[Ideator researches and sharpens idea]
+    I --> IR[PRD or synthesis]
+    IR --> R2[Return to Router when ready for implementation]
+
+    TR -->|operation| O[Operator executes directly]
+    O --> TC1{Completion signal received}
+    TC1 -->|yes| QD[Done]
+    TC1 -->|no| W1[Wait for completion signal]
+
+    TR -->|quick fix| QE[Engineer implements directly]
+    QE --> QTC{Completion signal received}
+    QTC -->|yes| QV[Mechanical Validation]
+    QTC -->|no| QW[Wait for completion signal]
+
+    TR -->|feature| P[Planner writes plan]
+    P --> PR[Plannotator review]
+    PR -->|feedback| P
+    PR -->|approved| PA{Proceed now}
+    PA -->|yes| E[Engineer executes approved plan]
+    PA -->|no| SP[Saved plan]
+    E --> TC2{Completion signal received}
+    TC2 -->|yes| V2[Workflow validation]
+
+    TR -->|project| A[Architect writes Epic design plan]
+    A --> PR2[Plannotator review]
+    PR2 -->|feedback| A
+    PR2 -->|approved| RD[Ready for decomposition]
+    RD --> S[Interactive Slicer discusses boundaries]
+    S --> CD[Draft child feature plans]
+    CD --> RF[Ready for work child selection]
+    RF --> CP[Child feature plan]
+    CP --> PR3[Plannotator review]
+    PR3 -->|approved| CE[Engineer executes child feature]
+    CE --> TC3{Completion signal received}
+    TC3 -->|yes| V3[Child workflow validation]
+
+    SP --> LP[Load plan command]
+```
+
 ## Documentation TOC
 
 ### RunWield basics
