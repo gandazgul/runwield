@@ -1,4 +1,5 @@
 ---
+planId: "bb479450-60e4-488d-bb56-195bb1aa51dc"
 classification: "FEATURE"
 complexity: "HIGH"
 summary: "Prevent Git-backed FEATURE Plans from becoming Verified when execution context is lost or the validated worktree was not provably delivered to its target branch."
