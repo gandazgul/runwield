@@ -4,9 +4,8 @@
 
 **RunWield** is collaborative software planning with AI.
 
-RunWield helps software teams figure out what to build, shape the work into reviewable Plans, execute approved work
-through a model of your choice, and preserve distilled records so future planning starts from what the team already
-learned.
+RunWield helps developers review what an AI plans to do before it changes their code—then verifies the result and
+remembers what the team learned.
 
 ```text
 ideate -> plan -> execute -> record -> use records to plan better
@@ -14,9 +13,8 @@ ideate -> plan -> execute -> record -> use records to plan better
 
 [Watch the 60-second demo] · [Install](#installation) · [Documentation](docs/index.md)
 
-> I’m looking for five developers to try RunWield on one real, non-trivial change. I’ll personally help you get running
-> and fix anything that blocks you. You get direct access to me, quick bug turn around and a say on the next Roadmap
-> item. Open an issue here to get started.
+> I’m looking for five developers to try RunWield on one real, non-trivial change. I’ll personally help you get running,
+> quickly fix anything that blocks you, and give you a direct say in the roadmap. Try it with me →
 
 ## Is it for me?
 
@@ -24,7 +22,8 @@ It's for developers who want LLMs to slow down at the right moments: classify th
 blast radius is real, execute through specialized roles, and then prove the result. Dont trust the LLM did the right
 thing, verify it and only then merge and make a durable record explaining why, what and who.
 
-Don't use RunWield for mostly quick one-shots, the mass market harnesses or Pi will do that.
+If most of your work is quick one-shot edits, RunWield is probably more ceremony than you need; Pi or another
+lightweight harness will be faster.
 
 ## Installation
 
