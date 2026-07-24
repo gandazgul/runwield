@@ -98,8 +98,15 @@ import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runt
  * @property {string} piSessionId
  * @property {string} transcriptPath
  * @property {number | null} generation
+ * @property {number | null} [acknowledgedGeneration]
+ * @property {string | null} [acknowledgedEventId]
+ * @property {Object} [committedSummary]
+ * @property {{ type: "managed_sync_state_changed", status: import('./session-runtime-events.js').RuntimeManagedSyncStatus, localGeneration: number | null, latestGeneration: number | null, owningSurfaceKind?: "workspace" | "tui" | "acp" | "unknown", message?: string } | null} [syncState]
  * @property {string | null} name
  * @property {string | null} activeAgent
+ * @property {string | null} [model]
+ * @property {string | null} [provider]
+ * @property {string | null} [thinkingLevel]
  * @property {import('./workflow-context-session.js').WorkflowContext | null} workflowContext
  */
 
@@ -309,6 +316,10 @@ export class HostedSession {
         this.managed = metadata ? { ...metadata } : null;
         if (metadata?.workflowContext !== undefined) this.workflowContext = metadata.workflowContext;
         if (metadata?.activeAgent !== undefined) this.rootAgentName = metadata.activeAgent;
+        if (metadata?.thinkingLevel) this.activeThinkingLevel = /** @type {ThinkingLevel} */ (metadata.thinkingLevel);
+        if (metadata?.model || metadata?.provider) {
+            this.setActiveModelState(metadata.model || "", metadata.provider || "");
+        }
     }
 
     getManagedMetadata() {

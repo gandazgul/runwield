@@ -36,6 +36,7 @@ export const RuntimeEventTypes = Object.freeze({
     PLAN_REVIEW_LINK: "plan_review_link",
     ATTENTION_REQUESTED: "attention_requested",
     KEYBOARD_HELP: "keyboard_help",
+    MANAGED_SYNC_STATE_CHANGED: "managed_sync_state_changed",
 });
 
 /**
@@ -221,7 +222,15 @@ export const RuntimeEventTypes = Object.freeze({
  */
 
 /**
- * @typedef {RuntimeSessionLifecycleEvent | RuntimeSessionReplacedEvent | RuntimeUserMessageEvent | RuntimeAssistantTextDeltaEvent | RuntimeAssistantThinkingDeltaEvent | RuntimeAssistantThinkingEndEvent | RuntimeToolStartEvent | RuntimeToolUpdateEvent | RuntimeToolEndEvent | RuntimeSystemStatusEvent | RuntimeTurnEvent | RuntimeBusyChangedEvent | RuntimeAgentChangedEvent | RuntimeModelChangedEvent | RuntimeThinkingLevelChangedEvent | RuntimeWorkflowContextChangedEvent | RuntimeSessionRenamedEvent | RuntimePresentationStateEvent | RuntimeQueuedMessageEvent | RuntimeUsageEvent | RuntimeCancellationEvent | RuntimeTerminalErrorEvent | RuntimeInteractionLifecycleEvent | RuntimePlanReviewLinkEvent | RuntimeAttentionRequestedEvent | RuntimeKeyboardHelpEvent} SessionRuntimeEvent
+ * @typedef {"current" | "syncing" | "active_elsewhere" | "blocked" | "degraded"} RuntimeManagedSyncStatus
+ */
+
+/**
+ * @typedef {RuntimeEventBase & { type: "managed_sync_state_changed", status: RuntimeManagedSyncStatus, localGeneration: number | null, latestGeneration: number | null, owningSurfaceKind?: "workspace" | "tui" | "acp" | "unknown", message?: string }} RuntimeManagedSyncStateEvent
+ */
+
+/**
+ * @typedef {RuntimeSessionLifecycleEvent | RuntimeSessionReplacedEvent | RuntimeUserMessageEvent | RuntimeAssistantTextDeltaEvent | RuntimeAssistantThinkingDeltaEvent | RuntimeAssistantThinkingEndEvent | RuntimeToolStartEvent | RuntimeToolUpdateEvent | RuntimeToolEndEvent | RuntimeSystemStatusEvent | RuntimeTurnEvent | RuntimeBusyChangedEvent | RuntimeAgentChangedEvent | RuntimeModelChangedEvent | RuntimeThinkingLevelChangedEvent | RuntimeWorkflowContextChangedEvent | RuntimeSessionRenamedEvent | RuntimePresentationStateEvent | RuntimeQueuedMessageEvent | RuntimeUsageEvent | RuntimeCancellationEvent | RuntimeTerminalErrorEvent | RuntimeInteractionLifecycleEvent | RuntimePlanReviewLinkEvent | RuntimeAttentionRequestedEvent | RuntimeKeyboardHelpEvent | RuntimeManagedSyncStateEvent} SessionRuntimeEvent
  */
 
 /** @type {Set<string>} */
@@ -263,6 +272,19 @@ const VALIDATION_STAGES = new Set([
     "terminal",
 ]);
 const VALIDATION_CHECK_RESULTS = new Set(["pending", "running", "passed", "failed", "skipped", "canceled"]);
+const MANAGED_SYNC_STATUSES = new Set(["current", "syncing", "active_elsewhere", "blocked", "degraded"]);
+const MANAGED_SYNC_SURFACES = new Set(["workspace", "tui", "acp", "unknown"]);
+const FORBIDDEN_SYNC_STATE_KEYS = new Set([
+    "path",
+    "transcriptPath",
+    "sessionPath",
+    "piSessionId",
+    "ownerInstanceId",
+    "operationId",
+    "fence",
+    "proof",
+    "leaseProof",
+]);
 
 /**
  * @param {unknown} progress
@@ -606,6 +628,30 @@ export function assertSessionRuntimeEvent(event) {
                     "item.description must be non-empty",
                 );
             }
+            break;
+        case RuntimeEventTypes.MANAGED_SYNC_STATE_CHANGED:
+            for (const key of FORBIDDEN_SYNC_STATE_KEYS) {
+                requireRuntimeEvent(!(key in value), event.type, `${key} must not be exposed`);
+            }
+            requireRuntimeEvent(MANAGED_SYNC_STATUSES.has(value.status), event.type, "status is invalid");
+            requireRuntimeEvent(
+                value.localGeneration === null || Number.isSafeInteger(value.localGeneration),
+                event.type,
+                "localGeneration must be an integer or null",
+            );
+            requireRuntimeEvent(
+                value.latestGeneration === null || Number.isSafeInteger(value.latestGeneration),
+                event.type,
+                "latestGeneration must be an integer or null",
+            );
+            if (value.owningSurfaceKind !== undefined) {
+                requireRuntimeEvent(
+                    MANAGED_SYNC_SURFACES.has(value.owningSurfaceKind),
+                    event.type,
+                    "owningSurfaceKind is invalid",
+                );
+            }
+            if (value.message !== undefined) requireString("message");
             break;
     }
     return event;

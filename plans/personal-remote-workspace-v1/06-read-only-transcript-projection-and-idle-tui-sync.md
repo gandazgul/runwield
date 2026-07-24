@@ -19,17 +19,23 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-21T23:56:51-04:00"
-updatedAt: "2026-07-24T18:17:31.382Z"
-status: "implemented"
+updatedAt: "2026-07-24T19:51:40.708Z"
+status: "verified"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v1"
 order: 6
 dependencies:
     - "04-activation-gated-workspace-session-continuation-apis"
-failureReason: "Semantic validation did not approve after 3 cycles."
-implementedAt: "2026-07-24T17:02:29.687Z"
-executionReport: "- Blocked before implementation: approved Plan requires slice 4 source modules/symbols to be present and explicitly says to stop rather than recreate them if absent.\n- Verified missing required slice 4 files: `src/shared/session/session-transcript-projection.js`, `src/shared/owner-coordination/session-activations.js`, `src/shared/owner-coordination/activation-protocol.js`, `src/ui/workspace/routes/owner-session-api.js`, and `src/ui/workspace/server/session-continuation.js`.\n- Verified missing required slice 4 symbols: `projectCommittedTranscript`, `adoptManagedSession`, `promptManagedSession`, `refresh_required`, and `inspectSessionActivation`.\n- No implementation changes were made; full `deno task ci` was not run because execution is blocked until the slice 4 implementation is integrated into this worktree."
-worktreeStatus: "validation_failed"
+implementedAt: "2026-07-24T19:24:01.711Z"
+verifiedAt: "2026-07-24T19:51:40.708Z"
+executionReport: "- Verified slice 4 foundation is present: exact-prefix projector, owner activation/generation APIs, dormant managed session adoption, managed prompt activation path, stable projected event IDs, and `refresh_required` stale-submit contract.\n- Implemented read-only managed session synchronization through Runtime, including cursor continuity selection, summary projection, sanitized sync-state events/snapshots, dormant metadata retention, local-commit no-emit acknowledgement, and degraded/blocking states.\n- Added TUI idle sync controller, adapter stable-event dedupe/quiet notification behavior, compact sync status block, managed submit pause/refresh handling, and stale-submit draft restoration.\n- Updated `docs/usage.md` with committed-generation TUI refresh, read-only observation, ownership status, draft preservation, and degraded recovery behavior.\n- Added focused tests for projection cursor behavior, sync event sanitization, and managed sync controller lifecycle.\n- Verification passed: `deno task ci` (1674 tests plus check/lint/workspace/release gates)."
+executionMode: "worktree"
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "d0b7e553d401c5abf0ff52c39659310a972255ab"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "cd842cac92c9e6647f688f85b505704d41053f67"
 ---
 
 # Read-Only Transcript Projection and Idle TUI Sync
