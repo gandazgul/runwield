@@ -3,6 +3,7 @@ import { join } from "@std/path";
 import {
     getOpaqueWorkspaceAssetName,
     getServerEntryImportPaths,
+    normalizeCompiledNodeChildProcessImports,
     normalizeDenoAdapterShimImport,
     waitForStableWorkspaceClientAssets,
 } from "./build-workspace-runtime.js";
@@ -53,4 +54,14 @@ Deno.test("waitForStableWorkspaceClientAssets waits for delayed generated files"
     } finally {
         await Deno.remove(root, { recursive: true });
     }
+});
+
+Deno.test("normalizeCompiledNodeChildProcessImports replaces dynamic child_process requires", () => {
+    const source =
+        'var a=Ut("node:child_process");import{spawn as sp,spawnSync as ss}from"node:child_process";var b=Ut("node:child_process");';
+
+    assertEquals(
+        normalizeCompiledNodeChildProcessImports(source),
+        'var a=({exec:__rwNodeChildProcessExec,spawn:sp,spawnSync:ss});import{exec as __rwNodeChildProcessExec,spawn as sp,spawnSync as ss}from"node:child_process";var b=({exec:__rwNodeChildProcessExec,spawn:sp,spawnSync:ss});',
+    );
 });
