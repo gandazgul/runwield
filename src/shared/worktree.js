@@ -486,12 +486,20 @@ async function commitDirtyWorktreeState(worktreePath, branch, messageOptions = {
  * @param {{ worktreePath: string, branch: string, planName?: string, planDescription?: string }} opts
  * @returns {Promise<{ executionCommit: string }>}
  */
-export async function sealExecutionWorktreeCandidate({ worktreePath, branch, planName, planDescription }) {
+export async function checkpointExecutionWorktree({ worktreePath, branch, planName, planDescription }) {
     await commitDirtyWorktreeState(worktreePath, branch, { planName, planDescription });
     const status = await runGit(worktreePath, ["status", "--porcelain"]);
-    if (status.trim()) throw new Error(`Execution worktree is dirty after candidate sealing:\n${status}`);
+    if (status.trim()) throw new Error(`Execution worktree is dirty after checkpoint commit:\n${status}`);
     const executionCommit = (await runGit(worktreePath, ["rev-parse", "HEAD"])).trim();
     return { executionCommit };
+}
+
+/**
+ * @param {{ worktreePath: string, branch: string, planName?: string, planDescription?: string }} opts
+ * @returns {Promise<{ executionCommit: string }>}
+ */
+export async function sealExecutionWorktreeCandidate(opts) {
+    return await checkpointExecutionWorktree(opts);
 }
 
 /**
