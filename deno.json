@@ -91,7 +91,7 @@
         "@viz-js/viz": "npm:@viz-js/viz@^3.28.0",
         "class-variance-authority": "npm:class-variance-authority@^0.7.1",
         "clsx": "npm:clsx@^2.1.1",
-        "diff": "npm:diff@^8.0.4",
+        "diff": "npm:diff@^9.0.0",
         "dompurify": "npm:dompurify@^3.4.11",
         "highlight.js": "npm:highlight.js@^11.11.1",
         "beautiful-mermaid": "npm:beautiful-mermaid@^1.1.3",
