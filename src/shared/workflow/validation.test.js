@@ -1238,6 +1238,10 @@ Deno.test("runValidationLoop preserves Frontend Engineer owner when CI repair pa
         planName: "visual-plan",
         triageMeta: { classification: "FEATURE", executionAgent: "frontend-engineer" },
         executionAgent: "frontend-engineer",
+        executionStarted: true,
+        executionAttemptStartedAtMs: 777,
+        collaborationStyle: "pair",
+        pairCheckpointCount: 2,
         executionCwd: Deno.cwd(),
     });
     let repairAgentName = "";
@@ -1255,6 +1259,16 @@ Deno.test("runValidationLoop preserves Frontend Engineer owner when CI repair pa
             runLocalCI: () => Promise.resolve({ exitCode: 1, output: "boom" }),
             runActiveAgentTurn: (/** @type {any} */ opts) => {
                 repairAgentName = opts.agentName;
+                const currentWorkflow = repairHostedSession.getActiveExecutionWorkflow();
+                if (!currentWorkflow) throw new Error("expected active Frontend Engineer repair workflow");
+                repairHostedSession.setActiveExecutionWorkflow({
+                    ...currentWorkflow,
+                    collaborationStyle: "autonomous",
+                    pairCheckpointCount: 3,
+                    pairPauseReason: "stop",
+                    pairSwitchedToAutonomous: true,
+                    pairCapabilityLost: true,
+                });
                 return Promise.resolve([]);
             },
             readLatestTaskCompletedOutcome: () => false,
@@ -1275,6 +1289,12 @@ Deno.test("runValidationLoop preserves Frontend Engineer owner when CI repair pa
     );
     assertEquals(repairHostedSession.getActiveExecutionWorkflow()?.executionAgent, "frontend-engineer");
     assertEquals(repairHostedSession.getActiveExecutionWorkflow()?.validationContinuation, true);
+    assertEquals(repairHostedSession.getActiveExecutionWorkflow()?.executionAttemptStartedAtMs, 777);
+    assertEquals(repairHostedSession.getActiveExecutionWorkflow()?.collaborationStyle, "autonomous");
+    assertEquals(repairHostedSession.getActiveExecutionWorkflow()?.pairCheckpointCount, 3);
+    assertEquals(repairHostedSession.getActiveExecutionWorkflow()?.pairPauseReason, "stop");
+    assertEquals(repairHostedSession.getActiveExecutionWorkflow()?.pairSwitchedToAutonomous, true);
+    assertEquals(repairHostedSession.getActiveExecutionWorkflow()?.pairCapabilityLost, true);
     assertEquals(
         uiAPI.messages.some((/** @type {string} */ m) =>
             m.includes("Frontend Engineer stopped without task_completed during CI repair.") &&
@@ -1282,6 +1302,56 @@ Deno.test("runValidationLoop preserves Frontend Engineer owner when CI repair pa
         ),
         true,
     );
+});
+
+Deno.test("runValidationLoop clears transient Frontend Engineer repair context after observed CI repair completion", async () => {
+    const uiAPI = makeUi();
+    const repairHostedSession = makeRecordedSession("frontend-ci-repair-complete-test", uiAPI);
+    repairHostedSession.setActiveExecutionWorkflow({
+        planName: "visual-plan",
+        triageMeta: { classification: "FEATURE", executionAgent: "frontend-engineer" },
+        executionAgent: "frontend-engineer",
+        executionStarted: true,
+        executionAttemptStartedAtMs: 321,
+        collaborationStyle: "autonomous",
+        executionCwd: Deno.cwd(),
+        nonGitInPlace: true,
+    });
+    /** @type {Array<import('../session/hosted-session.js').ActiveExecutionWorkflow | null>} */
+    const repairStates = [];
+
+    await runValidationLoop({
+        hostedSession: repairHostedSession,
+        planName: "visual-plan",
+        planContent: "",
+        triageMeta: { classification: "FEATURE", executionAgent: "frontend-engineer" },
+        sessionManager: undefined,
+        __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
+            runLocalCI: (() => {
+                let count = 0;
+                return () =>
+                    Promise.resolve(count++ === 0 ? { exitCode: 1, output: "boom" } : { exitCode: 0, output: "" });
+            })(),
+            runActiveAgentTurn: () => {
+                repairStates.push(repairHostedSession.getActiveExecutionWorkflow());
+                return Promise.resolve(
+                    /** @type {any} */ ([{
+                        role: "toolResult",
+                        toolName: "task_completed",
+                        details: { outcome: "task_completed" },
+                    }]),
+                );
+            },
+            readLatestTaskCompletedOutcome: () => true,
+            recordPlanEvent: noOpRecordPlanEvent,
+            recordWorkflowMetric: () => Promise.resolve(null),
+        }),
+    });
+
+    assertEquals(repairStates[0]?.validationContinuation, true);
+    assertEquals(repairStates[0]?.executionAttemptStartedAtMs, 321);
+    assertEquals(repairHostedSession.getActiveExecutionWorkflow(), null);
 });
 
 Deno.test("runValidationLoop preserves Frontend Engineer owner when semantic repair pauses", async () => {

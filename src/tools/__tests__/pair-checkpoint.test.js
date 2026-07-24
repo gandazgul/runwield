@@ -210,3 +210,90 @@ Deno.test("pair_checkpoint requires non-empty revision feedback", async () => {
     });
     assertEquals(session.getActiveExecutionWorkflow()?.pairPauseReason, "canceled");
 });
+
+Deno.test("pair_checkpoint records content-free decision metrics with cwd", async () => {
+    const metrics = /** @type {any[]} */ ([]);
+    const session = makePairSession([
+        { outcome: "selected", value: "continue" },
+        { outcome: "selected", value: "revise", _meta: { feedback: "Use the private screenshot path /tmp/shot.png" } },
+        { outcome: "selected", value: "autonomous" },
+    ]);
+    const tool = createPairCheckpointTool({
+        hostedSession: session,
+        recordWorkflowMetric: (metric, deps) => {
+            metrics.push({ metric, deps });
+            return Promise.resolve(/** @type {any} */ (null));
+        },
+    });
+
+    await executeCheckpoint(tool, "metric-continue");
+    await executeCheckpoint(tool, "metric-revise");
+    await executeCheckpoint(tool, "metric-switch");
+
+    assertEquals(metrics.map((entry) => entry.deps), [{ cwd: Deno.cwd() }, { cwd: Deno.cwd() }, { cwd: Deno.cwd() }]);
+    assertEquals(metrics.map((entry) => entry.metric), [
+        {
+            category: "execution",
+            event: "pair_checkpoint_decided",
+            details: { checkpointNumber: 1, decision: "continue", reason: undefined },
+        },
+        {
+            category: "execution",
+            event: "pair_checkpoint_decided",
+            details: { checkpointNumber: 2, decision: "revise", reason: undefined },
+        },
+        {
+            category: "execution",
+            event: "pair_checkpoint_decided",
+            details: { checkpointNumber: 3, decision: "switch_to_autonomous", reason: undefined },
+        },
+    ]);
+    const serialized = JSON.stringify(metrics);
+    assertEquals(serialized.includes("private screenshot"), false);
+    assertEquals(serialized.includes("/settings"), false);
+    assertEquals(serialized.includes("No console"), false);
+});
+
+Deno.test("pair_checkpoint records normalized cancellation and capability reasons", async () => {
+    const metrics = /** @type {any[]} */ ([]);
+    const recordWorkflowMetric = (/** @type {any} */ metric, /** @type {any} */ deps) => {
+        metrics.push({ metric, deps });
+        return Promise.resolve(/** @type {any} */ (null));
+    };
+
+    await executeCheckpoint(
+        createPairCheckpointTool({
+            hostedSession: makePairSession([{ outcome: "canceled" }]),
+            recordWorkflowMetric,
+        }),
+        "metric-canceled",
+    );
+    await executeCheckpoint(
+        createPairCheckpointTool({
+            hostedSession: makePairSession([{ outcome: "selected", value: "revise", _meta: { feedback: " " } }]),
+            recordWorkflowMetric,
+        }),
+        "metric-missing-feedback",
+    );
+    await executeCheckpoint(
+        createPairCheckpointTool({
+            hostedSession: makePairSession([{ outcome: "blocked" }]),
+            recordWorkflowMetric,
+        }),
+        "metric-blocked",
+    );
+    await executeCheckpoint(
+        createPairCheckpointTool({
+            hostedSession: makePairSession([{ outcome: "selected", value: "surprise" }]),
+            recordWorkflowMetric,
+        }),
+        "metric-invalid",
+    );
+
+    assertEquals(metrics.map((entry) => entry.metric.details), [
+        { checkpointNumber: 1, decision: "canceled", reason: "checkpoint_interaction_canceled" },
+        { checkpointNumber: 1, decision: "canceled", reason: "revision_feedback_required" },
+        { checkpointNumber: 1, decision: "switch_to_autonomous", reason: "pair_capability_lost" },
+        { checkpointNumber: 1, decision: "switch_to_autonomous", reason: "invalid_checkpoint_response" },
+    ]);
+});

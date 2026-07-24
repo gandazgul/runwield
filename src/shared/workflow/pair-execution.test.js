@@ -120,3 +120,29 @@ Deno.test("post-execution decisions keep Pair pauses out of validation", () => {
         "execution_canceled",
     );
 });
+
+Deno.test("deliberate Pair resume preserves execution attempt timestamp", () => {
+    const session = new HostedSession({ id: "pair-timestamp-resume", cwd: Deno.cwd() });
+    session.setActiveExecutionWorkflow({
+        planName: "visual-plan",
+        triageMeta: { classification: "FEATURE" },
+        executionAgent: "frontend-engineer",
+        executionStarted: true,
+        executionAttemptStartedAtMs: 12345,
+        collaborationStyle: "pair",
+        pairCheckpointCount: 1,
+        pairPauseReason: "stop",
+        pairStopRequested: true,
+    });
+
+    const resumed = { ...session.getActiveExecutionWorkflow() };
+    delete resumed.pairPauseReason;
+    delete resumed.pairStopRequested;
+    session.setActiveExecutionWorkflow(
+        /** @type {import('../session/hosted-session.js').ActiveExecutionWorkflow} */ (resumed),
+    );
+
+    assertEquals(session.getActiveExecutionWorkflow()?.executionAttemptStartedAtMs, 12345);
+    assertEquals(session.getActiveExecutionWorkflow()?.pairPauseReason, undefined);
+    assertEquals(session.getActiveExecutionWorkflow()?.pairCheckpointCount, 1);
+});

@@ -10,7 +10,6 @@ affectedPaths:
     - "src/cmd/load-plan/"
     - "src/ui/workspace/server/"
     - "src/ui/tui/"
-frontend: false
 createdAt: "2026-07-22T03:56:51.473Z"
 updatedAt: "2026-07-22T03:56:51.473Z"
 status: "draft"

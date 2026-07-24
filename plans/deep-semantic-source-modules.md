@@ -18,7 +18,6 @@ affectedPaths:
     - "deno.json"
     - "deno.lock"
     - "architecture.md"
-frontend: false
 createdAt: "2026-07-15T03:54:34.000Z"
 updatedAt: "2026-07-15T03:54:34.000Z"
 status: "draft"
