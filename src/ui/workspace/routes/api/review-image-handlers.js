@@ -31,9 +31,12 @@ export async function reviewImageUploadApi(request) {
         const extension = normalizedImageExtension(file.name);
         if (!extension) return new Response("Unsupported image type.", { status: 400 });
 
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        if (!hasValidImageMagic(bytes, extension)) return new Response("Invalid image content.", { status: 400 });
+
         await Deno.mkdir(REVIEW_UPLOAD_DIR, { recursive: true });
         const path = join(REVIEW_UPLOAD_DIR, `${crypto.randomUUID()}${extension}`);
-        await Deno.writeFile(path, new Uint8Array(await file.arrayBuffer()));
+        await Deno.writeFile(path, bytes);
         return Response.json({ path, originalName: file.name }, {
             headers: { "cache-control": "no-store" },
         });
@@ -77,6 +80,15 @@ export async function reviewImageApi(request, options = {}) {
         if (error instanceof Deno.errors.NotFound) return new Response("Image not found.", { status: 404 });
         return new Response("Unable to read image.", { status: 500 });
     }
+}
+
+/** @param {Uint8Array} bytes @param {string} extension */
+function hasValidImageMagic(bytes, extension) {
+    if (extension === ".png") return bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47;
+    if (extension === ".jpg" || extension === ".jpeg") return bytes[0] === 0xff && bytes[1] === 0xd8;
+    if (extension === ".gif") return bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46;
+    if (extension === ".webp") return bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50;
+    return false;
 }
 
 /** @param {string} path */
