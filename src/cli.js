@@ -15,11 +15,12 @@
  */
 
 import { parseArgs } from "@std/cli/parse-args";
-import { COMMAND_NAMES } from "./cmd/registry.js";
-import { commandRegistry, getCommandDefinition, hasCommandSurface } from "./cmd/registry.js";
-import { printCommandHelp, printGlobalHelp } from "./cmd/help/index.js";
+import { createRequire } from "node:module";
 import { runVersionCommand } from "./cmd/version/index.js";
-import { stopTUI } from "./ui/tui/tui.js";
+
+if (Deno.build.standalone) {
+    /** @type {Record<string, unknown>} */ (globalThis).require = createRequire(import.meta.url);
+}
 
 /**
  * Remove leading global flags from argv so command/default handlers receive clean positional args.
@@ -71,10 +72,11 @@ function isGlobalFlag(arg) {
  * - wld <command> --help
  *
  * @param {string[]} argv
+ * @param {{ HELP: string }} commandNames
  * @returns {{ requested: false } | { requested: true, commandName?: string }}
  */
-function resolveHelpRequest(argv) {
-    if (argv[0] === COMMAND_NAMES.HELP) {
+function resolveHelpRequest(argv, commandNames) {
+    if (argv[0] === commandNames.HELP) {
         const commandName = argv.slice(1).find((arg) => !isHelpFlag(arg));
         return commandName ? { requested: true, commandName } : { requested: true };
     }
@@ -108,12 +110,25 @@ async function main() {
     }
 
     // ACP mode must route before normal command/TUI dispatch so stdout stays protocol-pure.
-    if (parsed.mode === COMMAND_NAMES.ACP) {
-        await commandRegistry[COMMAND_NAMES.ACP].execute([]);
+    if (parsed.mode === "acp") {
+        const { runAcpCommand } = await import("./cmd/acp/index.js");
+        await runAcpCommand([]);
         return;
     }
 
-    const helpRequest = resolveHelpRequest(args);
+    if (firstPositional === "plans") {
+        const { runPlansCommand } = await import("./cmd/plans/index.js");
+        const [, ...commandArgs] = normalizedArgs;
+        await runPlansCommand(commandArgs);
+        return;
+    }
+
+    const { COMMAND_NAMES, commandRegistry, getCommandDefinition, hasCommandSurface } = await import(
+        "./cmd/registry.js"
+    );
+    const { printCommandHelp, printGlobalHelp } = await import("./cmd/help/index.js");
+
+    const helpRequest = resolveHelpRequest(args, COMMAND_NAMES);
     if (helpRequest.requested) {
         if (!helpRequest.commandName) {
             printGlobalHelp();
@@ -159,8 +174,9 @@ async function main() {
     });
 }
 
-main().catch((err) => {
+main().catch(async (err) => {
     try {
+        const { stopTUI } = await import("./ui/tui/tui.js");
         stopTUI();
     } catch (_e) { /* ignore */ }
     if (err instanceof Error && err.message.includes("Mnemosyne binary not found")) {

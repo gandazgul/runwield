@@ -39,14 +39,18 @@ import {
     probeGitRepository as probeGitRepositoryFn,
 } from "../../shared/git.js";
 import { recordWorkflowMetric } from "../../shared/workflow/metrics.js";
+import { resolveValidationExecutionContext } from "../../shared/workflow/execution-context.js";
 import {
     createExecutionWorktree as createExecutionWorktreeFn,
+    getBranchHead,
     getWorktreeStatus as getWorktreeStatusFn,
     inspectExecutionWorktreeMergeRisk as inspectExecutionWorktreeMergeRiskFn,
+    isCommitAncestorOfBranch,
     mergeExecutionWorktree as mergeExecutionWorktreeFn,
     preparePrimaryPlanPathForMerge as preparePrimaryPlanPathForMergeFn,
     removeExecutionWorktree as removeExecutionWorktreeFn,
     restorePrimaryPlanPathAfterMergeFailure as restorePrimaryPlanPathAfterMergeFailureFn,
+    sealExecutionWorktreeCandidate,
 } from "../../shared/worktree.js";
 import {
     findById as findWorktreeByIdFn,
@@ -101,6 +105,9 @@ export { getLoadPlanCompletions } from "./getArgumentCompletions.js";
  * @property {typeof createExecutionWorktreeFn} [createExecutionWorktree]
  * @property {typeof inspectExecutionWorktreeMergeRiskFn} [inspectExecutionWorktreeMergeRisk]
  * @property {typeof mergeExecutionWorktreeFn} [mergeExecutionWorktree]
+ * @property {typeof sealExecutionWorktreeCandidate} [sealExecutionWorktreeCandidate]
+ * @property {typeof getBranchHead} [getBranchHead]
+ * @property {typeof isCommitAncestorOfBranch} [isCommitAncestorOfBranch]
  * @property {typeof preparePrimaryPlanPathForMergeFn} [preparePrimaryPlanPathForMerge]
  * @property {typeof restorePrimaryPlanPathAfterMergeFailureFn} [restorePrimaryPlanPathAfterMergeFailure]
  * @property {typeof removeExecutionWorktreeFn} [removeExecutionWorktree]
@@ -110,6 +117,7 @@ export { getLoadPlanCompletions } from "./getArgumentCompletions.js";
  * @property {typeof probeGitRepositoryFn} [probeGitRepository]
  * @property {typeof setTerminalTitleForNameFn} [setTerminalTitleForName]
  * @property {typeof autoGenerateWorkRecordForCompletedPlanFn} [autoGenerateWorkRecordForCompletedPlan]
+ * @property {typeof resolveValidationExecutionContext} [resolveValidationExecutionContext]
  */
 
 /**
@@ -542,12 +550,7 @@ async function runResumeCheck({
         if (worktreeContext?.branch) {
             try {
                 /** @type {string[]} */
-                const allowedDirtyPaths = [
-                    `plans/${plan.planName}.md`,
-                    ".wld/",
-                    ".wld/worktrees.json",
-                    ".wld/worktrees.lock",
-                ];
+                const allowedDirtyPaths = [`plans/${plan.planName}.md`];
                 const risk = await inspectExecutionWorktreeMergeRisk({
                     projectRoot: projectRoot,
                     branch: worktreeContext.branch,
@@ -815,8 +818,9 @@ async function validateCompletedExecution(
     if (!/** @type {{ executionComplete?: boolean }} */ (executionResult).executionComplete) return false;
     let planContent = fallbackPlanContent;
     let effectiveMeta = triageMeta;
+    let latestPlan = null;
     try {
-        const latestPlan = await loadPlan(projectRoot, planName);
+        latestPlan = await loadPlan(projectRoot, planName);
         planContent = latestPlan?.markdown || latestPlan?.body || fallbackPlanContent;
         if (latestPlan?.attrs) effectiveMeta = latestPlan.attrs;
     } catch {
@@ -830,31 +834,70 @@ async function validateCompletedExecution(
         }
         throw new Error(policy.error);
     }
-    /** @type {{ planName: string, triageMeta: import('../../plan-store.js').PlanFrontMatter, executionAgent: string, baselineTree?: string, projectRoot: string, executionCwd?: string, worktreeId?: string, worktreeBranch?: string, worktreeBaseBranch?: string, nonGitInPlace?: boolean }} */
+    const returnedExecutionContext = /** @type {{ executionContext?: Record<string, unknown> }} */ (executionResult)
+        .executionContext;
+    const explicitContext = returnedExecutionContext || {
+        planName,
+        triageMeta: effectiveMeta,
+        executionMode: effectiveMeta.executionMode,
+        baselineTree: effectiveMeta.executionBaselineTree,
+        worktreeId: worktreeContext?.id || effectiveMeta.worktreeId,
+        worktreeBranch: worktreeContext?.branch || effectiveMeta.worktreeBranch,
+        worktreeBaseBranch: worktreeContext?.baseBranch || effectiveMeta.worktreeBaseBranch,
+        worktreeBaseRef: worktreeContext?.baseRef,
+        worktreeBaseCommit: worktreeContext?.baseCommit,
+        executionCwd: worktreeContext?.path || effectiveMeta.worktreePath,
+        nonGitInPlace: effectiveMeta.executionMode === "non_git_in_place",
+    };
+    const resolution = await resolveValidationExecutionContext({
+        projectRoot,
+        planName,
+        triageMeta: effectiveMeta,
+        explicitContext,
+        __deps: {
+            loadPlan: () =>
+                Promise.resolve(
+                    latestPlan || {
+                        path: `plans/${planName}.md`,
+                        markdown: planContent,
+                        body: planContent,
+                        attrs: effectiveMeta,
+                    },
+                ),
+        },
+    });
+    if (resolution.kind === "blocked") {
+        if (uiAPI) {
+            uiAPI.appendSystemMessage(`Validation blocked: ${resolution.message}`, false, "RunWield");
+            return false;
+        }
+        throw new Error(resolution.message);
+    }
+    const resolvedContext = resolution.context;
+    /** @type {{ planName: string, triageMeta: import('../../plan-store.js').PlanFrontMatter, executionAgent: string, executionMode?: string, baselineTree?: string, projectRoot: string, executionCwd?: string, worktreeId?: string, worktreeBranch?: string, worktreeBaseBranch?: string, worktreeBaseRef?: string, worktreeBaseCommit?: string, nonGitInPlace?: boolean }} */
     const workflow = {
         planName,
         triageMeta: effectiveMeta,
         executionAgent: policy.policy.executionAgent,
+        executionMode: resolvedContext.executionMode,
         projectRoot,
+        executionCwd: resolvedContext.executionCwd,
     };
-    if (effectiveMeta.executionBaselineTree) workflow.baselineTree = effectiveMeta.executionBaselineTree;
-    const executionCwd = worktreeContext?.path || effectiveMeta.worktreePath;
-    const worktreeId = worktreeContext?.id || effectiveMeta.worktreeId;
-    const worktreeBranch = worktreeContext?.branch || effectiveMeta.worktreeBranch;
-    const worktreeBaseBranch = worktreeContext?.baseBranch || effectiveMeta.worktreeBaseBranch;
-    if (executionCwd) workflow.executionCwd = executionCwd;
-    if (worktreeId) workflow.worktreeId = worktreeId;
-    if (worktreeBranch) workflow.worktreeBranch = worktreeBranch;
-    if (worktreeBaseBranch) workflow.worktreeBaseBranch = worktreeBaseBranch;
-    if (!workflow.baselineTree && !executionCwd && !worktreeId && !worktreeBranch) {
-        workflow.executionCwd = projectRoot;
-        workflow.nonGitInPlace = true;
+    if (resolvedContext.executionMode === "non_git_in_place") workflow.nonGitInPlace = true;
+    if (resolvedContext.executionMode === "worktree") {
+        workflow.baselineTree = resolvedContext.baselineTree;
+        workflow.worktreeId = resolvedContext.worktreeId;
+        workflow.worktreeBranch = resolvedContext.worktreeBranch;
+        workflow.worktreeBaseBranch = resolvedContext.worktreeBaseBranch;
+        workflow.worktreeBaseRef = resolvedContext.worktreeBaseRef;
+        workflow.worktreeBaseCommit = resolvedContext.worktreeBaseCommit;
     }
     session.setActiveExecutionWorkflow(workflow);
     await runValidationLoop({
         planName,
         planContent,
         triageMeta: effectiveMeta,
+        executionContext: workflow,
     });
     return true;
 }
@@ -862,18 +905,22 @@ async function validateCompletedExecution(
 /**
  * @param {Object} opts
  * @param {import('../../shared/workflow/decisions.js').WorkflowDecision} opts.executionDecision
+ * @param {unknown} opts.executionResult
  * @param {string} opts.fallbackPlanContent
  * @param {PlanSessionSurface["runValidation"]} opts.runValidationLoop
  * @param {typeof loadPlanFn} opts.loadPlan
  * @param {PlanSessionSurface} opts.session
+ * @param {import('../../ui/tui/types.js').UiAPI} [opts.uiAPI]
  * @returns {Promise<void>}
  */
 async function validatePostExecutionDecision({
     executionDecision,
+    executionResult,
     fallbackPlanContent,
     runValidationLoop,
     loadPlan,
     session,
+    uiAPI,
 }) {
     if (executionDecision.kind !== "run_validation") return;
 
@@ -883,7 +930,7 @@ async function validatePostExecutionDecision({
     );
 
     await validateCompletedExecution(
-        { executionComplete: true },
+        executionResult,
         planName,
         fallbackPlanContent,
         triageMeta,
@@ -891,6 +938,7 @@ async function validatePostExecutionDecision({
         loadPlan,
         null,
         session,
+        uiAPI,
     );
 }
 
@@ -958,10 +1006,12 @@ async function executePostPlanningDecision({
     });
     await validatePostExecutionDecision({
         executionDecision,
+        executionResult: execRes,
         fallbackPlanContent,
         runValidationLoop,
         loadPlan,
         session,
+        uiAPI,
     });
     return true;
 }
@@ -1079,6 +1129,7 @@ async function executeReadyPlanWithRepair({
     });
     await validatePostExecutionDecision({
         executionDecision,
+        executionResult: execRes,
         fallbackPlanContent: plan.markdown || plan.body || "",
         runValidationLoop,
         loadPlan,
@@ -1212,7 +1263,7 @@ function hasWorktreeContext(context) {
  * @returns {boolean}
  */
 function canManuallyMergeRecoveredWorktree(context) {
-    return context?.status === "merge_conflict";
+    return context?.status === "merge_conflict" && Boolean(context.baseBranch);
 }
 
 /**
@@ -1255,9 +1306,9 @@ function reportInvalidRecoveryPolicy(action, planName, error, uiAPI) {
  * @param {PlanSessionSurface} session
  * @param {import('../../ui/tui/types.js').UiAPI} [uiAPI]
  * @param {string} [action]
- * @returns {boolean}
+ * @returns {Promise<boolean>}
  */
-function rehydrateActiveRecoveryWorkflow(projectRoot, plan, context, session, uiAPI, action = "continue") {
+async function rehydrateActiveRecoveryWorkflow(projectRoot, plan, context, session, uiAPI, action = "continue") {
     const policy = resolvePlanExecutionPolicy(plan.attrs);
     if (!policy.ok) {
         if (uiAPI) {
@@ -1266,23 +1317,59 @@ function rehydrateActiveRecoveryWorkflow(projectRoot, plan, context, session, ui
         }
         throw new Error(policy.error);
     }
-    const baselineTree = plan.attrs.executionBaselineTree || context?.baseTree;
-    const hasGitRecoveryMetadata = Boolean(baselineTree || context?.path || context?.id || context?.branch);
-    /** @type {{planName: string, triageMeta: import('../../plan-store.js').PlanFrontMatter, executionAgent: string, baselineTree?: string, projectRoot: string, executionCwd?: string, worktreeId?: string, worktreeBranch?: string, worktreeBaseBranch?: string, nonGitInPlace?: boolean}} */
+    const explicitContext = {
+        planName: plan.planName,
+        triageMeta: plan.attrs,
+        executionMode: plan.attrs.executionMode,
+        baselineTree: plan.attrs.executionBaselineTree || context?.baseTree,
+        worktreeId: context?.id || plan.attrs.worktreeId,
+        worktreeBranch: context?.branch || plan.attrs.worktreeBranch,
+        worktreeBaseBranch: context?.baseBranch || plan.attrs.worktreeBaseBranch,
+        executionCwd: context?.path || plan.attrs.worktreePath,
+        nonGitInPlace: plan.attrs.executionMode === "non_git_in_place",
+    };
+    /** @type {any} */
+    let resolvedContext = explicitContext;
+    if (action !== "continue") {
+        const resolution = await resolveValidationExecutionContext({
+            projectRoot,
+            planName: plan.planName,
+            triageMeta: plan.attrs,
+            explicitContext,
+            __deps: {
+                loadPlan: () =>
+                    Promise.resolve({
+                        path: `plans/${plan.planName}.md`,
+                        markdown: "",
+                        body: "",
+                        attrs: plan.attrs,
+                    }),
+            },
+        });
+        if (resolution.kind === "blocked") {
+            if (uiAPI) {
+                uiAPI.appendSystemMessage(`Recovery ${action} blocked: ${resolution.message}`, false, "RunWield");
+                return false;
+            }
+            throw new Error(resolution.message);
+        }
+        resolvedContext = resolution.context;
+    }
+    /** @type {{planName: string, triageMeta: import('../../plan-store.js').PlanFrontMatter, executionAgent: string, executionMode?: string, baselineTree?: string, projectRoot: string, executionCwd?: string, worktreeId?: string, worktreeBranch?: string, worktreeBaseBranch?: string, nonGitInPlace?: boolean}} */
     const workflow = {
         planName: plan.planName,
         triageMeta: plan.attrs,
         executionAgent: policy.policy.executionAgent,
-        projectRoot: projectRoot,
+        executionMode: resolvedContext.executionMode || undefined,
+        projectRoot,
+        executionCwd: resolvedContext.executionCwd || undefined,
     };
-    if (baselineTree) workflow.baselineTree = baselineTree;
-    if (context?.path) workflow.executionCwd = context.path;
-    if (context?.id) workflow.worktreeId = context.id;
-    if (context?.branch) workflow.worktreeBranch = context.branch;
-    if (context?.baseBranch) workflow.worktreeBaseBranch = context.baseBranch;
-    if (!hasGitRecoveryMetadata) {
-        workflow.executionCwd = projectRoot;
-        workflow.nonGitInPlace = true;
+    if (resolvedContext.executionMode === "non_git_in_place") workflow.nonGitInPlace = true;
+    if (resolvedContext.executionMode === "worktree") {
+        workflow.baselineTree = resolvedContext.baselineTree;
+        workflow.worktreeId = resolvedContext.worktreeId || undefined;
+        workflow.worktreeBranch = resolvedContext.worktreeBranch || undefined;
+        workflow.worktreeBaseBranch = resolvedContext.worktreeBaseBranch || undefined;
     }
     session.setActiveExecutionWorkflow(workflow);
     return true;
@@ -1531,6 +1618,9 @@ async function confirmRecoveryWorktreeAvailable(projectRoot, planName, worktreeC
  * @param {typeof getWorktreeStatusFn} opts.getWorktreeStatus
  * @param {typeof createExecutionWorktreeFn} opts.createExecutionWorktree
  * @param {typeof mergeExecutionWorktreeFn} opts.mergeExecutionWorktree
+ * @param {typeof sealExecutionWorktreeCandidate} opts.sealExecutionWorktreeCandidate
+ * @param {typeof getBranchHead} opts.getBranchHead
+ * @param {typeof isCommitAncestorOfBranch} opts.isCommitAncestorOfBranch
  * @param {typeof preparePrimaryPlanPathForMergeFn} opts.preparePrimaryPlanPathForMerge
  * @param {typeof restorePrimaryPlanPathAfterMergeFailureFn} opts.restorePrimaryPlanPathAfterMergeFailure
  * @param {typeof removeExecutionWorktreeFn} opts.removeExecutionWorktree
@@ -1540,6 +1630,7 @@ async function confirmRecoveryWorktreeAvailable(projectRoot, planName, worktreeC
  * @param {typeof findPlansByParentFn} opts.findPlansByParent
  * @param {PlanSessionSurface} opts.session
  * @param {typeof probeGitRepositoryFn} [opts.probeGitRepository]
+ * @param {typeof resolveValidationExecutionContext} [opts.resolveValidationExecutionContextForRecovery]
  * @returns {Promise<"handled" | "review">}
  */
 async function handlePlanRecovery({
@@ -1565,6 +1656,9 @@ async function handlePlanRecovery({
     getWorktreeStatus,
     createExecutionWorktree,
     mergeExecutionWorktree,
+    sealExecutionWorktreeCandidate,
+    getBranchHead,
+    isCommitAncestorOfBranch,
     preparePrimaryPlanPathForMerge,
     restorePrimaryPlanPathAfterMergeFailure,
     removeExecutionWorktree,
@@ -1574,8 +1668,10 @@ async function handlePlanRecovery({
     findPlansByParent,
     session,
     probeGitRepository = probeGitRepositoryFn,
+    resolveValidationExecutionContextForRecovery = resolveValidationExecutionContext,
 }) {
     const initialPolicy = resolvePlanExecutionPolicy(plan.attrs);
+    const loadedWorktreeId = plan.attrs.worktreeId;
     if (!initialPolicy.ok && initialPolicy.reason !== "project_epic") {
         reportInvalidRecoveryPolicy("recover", plan.planName, initialPolicy.error, uiAPI);
         return "handled";
@@ -1606,7 +1702,8 @@ async function handlePlanRecovery({
         const hasWorktree = hasWorktreeContext(worktreeContext);
         const canMergeWorktree = canManuallyMergeRecoveredWorktree(worktreeContext);
         const gitProbe = await probeGitRepository(projectRoot);
-        const hasGitRecoveryMetadata = hasWorktree || Boolean(plan.attrs.executionBaselineTree);
+        const hasGitRecoveryMetadata = hasWorktree ||
+            (plan.attrs.executionMode !== "non_git_in_place" && Boolean(plan.attrs.executionBaselineTree));
         const gitRecoveryBlocked = !gitProbe.ok && hasGitRecoveryMetadata;
         const resetLabel = gitRecoveryBlocked
             ? "Clear stale Git recovery metadata"
@@ -1713,6 +1810,7 @@ async function handlePlanRecovery({
         if (answer === "continue") {
             worktreeContext = await refreshRecoveryWorktree();
             if (
+                plan.attrs.executionMode !== "non_git_in_place" &&
                 !(await confirmRecoveryWorktreeAvailable(
                     projectRoot,
                     plan.planName,
@@ -1723,7 +1821,9 @@ async function handlePlanRecovery({
             ) {
                 continue;
             }
-            if (!rehydrateActiveRecoveryWorkflow(projectRoot, plan, worktreeContext, session, uiAPI, "continue")) {
+            if (
+                !(await rehydrateActiveRecoveryWorkflow(projectRoot, plan, worktreeContext, session, uiAPI, "continue"))
+            ) {
                 await recordRecoveryResult("continue", "blocked", { reason: "invalid_execution_policy" });
                 continue;
             }
@@ -1941,18 +2041,123 @@ async function handlePlanRecovery({
                 );
                 continue;
             }
+            if (!loadedWorktreeId) {
+                uiAPI.appendSystemMessage(
+                    `Cannot merge recovered worktree ${worktreeContext.branch} because the loaded Plan did not contain a canonical worktreeId. Retry Workflow Validation; RunWield will not publish Delivery Evidence from branch-name recovery alone.`,
+                    true,
+                    "RunWield",
+                );
+                await recordRecoveryResult("merge", "blocked", { reason: "missing_canonical_worktree_id" });
+                continue;
+            }
+            if (!worktreeContext.baseBranch) {
+                uiAPI.appendSystemMessage(
+                    `Cannot merge recovered worktree ${worktreeContext.branch} because no concrete target branch is recorded. Run Workflow Validation or reset recovery metadata; RunWield will not publish Delivery Evidence with an ambiguous target.`,
+                    true,
+                    "RunWield",
+                );
+                await recordRecoveryResult("merge", "blocked", { reason: "missing_target_branch" });
+                continue;
+            }
+            const manualResolution = await resolveValidationExecutionContextForRecovery({
+                projectRoot,
+                planName: plan.planName,
+                triageMeta: plan.attrs,
+                explicitContext: {
+                    planName: plan.planName,
+                    triageMeta: plan.attrs,
+                    executionMode: plan.attrs.executionMode,
+                    baselineTree: plan.attrs.executionBaselineTree,
+                    worktreeId: loadedWorktreeId,
+                    worktreeBranch: plan.attrs.worktreeBranch,
+                    worktreeBaseBranch: plan.attrs.worktreeBaseBranch,
+                    executionCwd: plan.attrs.worktreePath,
+                },
+                __deps: {
+                    loadPlan: () =>
+                        Promise.resolve({
+                            path: /** @type {any} */ (plan).path || `plans/${plan.planName}.md`,
+                            markdown: /** @type {any} */ (plan).markdown || /** @type {any} */ (plan).body || "",
+                            body: /** @type {any} */ (plan).body || "",
+                            attrs: plan.attrs,
+                        }),
+                    findWorktreeRegistryEntryById: findWorktreeById,
+                },
+            });
+            if (manualResolution.kind === "blocked") {
+                uiAPI.appendSystemMessage(
+                    `Cannot merge recovered worktree because validation context proof failed: ${manualResolution.message}`,
+                    true,
+                    "RunWield",
+                );
+                await recordRecoveryResult("merge", "blocked", { reason: manualResolution.reason });
+                continue;
+            }
+            const manualContext = manualResolution.context;
+            if (manualContext.executionMode !== "worktree") {
+                uiAPI.appendSystemMessage(
+                    "Cannot merge recovered worktree because the resolved validation context is not a worktree execution.",
+                    true,
+                    "RunWield",
+                );
+                await recordRecoveryResult("merge", "blocked", { reason: "not_worktree_execution" });
+                continue;
+            }
+            const manualWorktreePath = manualContext.executionCwd;
+            const manualWorktreeBranch = manualContext.worktreeBranch;
+            const manualTargetBranch = manualContext.worktreeBaseBranch;
+            if (!manualWorktreePath || !manualWorktreeBranch || !manualTargetBranch) {
+                uiAPI.appendSystemMessage(
+                    "Cannot merge recovered worktree because resolved validation context is missing path, branch, or target branch.",
+                    true,
+                    "RunWield",
+                );
+                await recordRecoveryResult("merge", "blocked", { reason: "incomplete_resolved_worktree_context" });
+                continue;
+            }
             /** @type {Awaited<ReturnType<typeof preparePrimaryPlanPathForMergeFn>>[]} */
             const primaryPlanSnapshots = [];
+            /** @type {import('../../plan-store.js').WorktreeDeliveryEvidence | undefined} */
+            let manualDeliveryEvidence;
             let mergeCompleted = false;
             try {
                 const cleanupMergedWorktrees = shouldCleanupMergedWorktrees(projectRoot);
                 const planPath = `plans/${plan.planName}.md`;
+                /** @type {import('../../plan-store.js').WorktreeDeliveryEvidence} */
+                let deliveryEvidence;
+                if (plan.attrs.deliveryEvidence?.mode === "worktree_merge") {
+                    deliveryEvidence = plan.attrs.deliveryEvidence;
+                } else {
+                    const executionPlan = await loadPlan(manualWorktreePath, plan.planName);
+                    if (executionPlan?.attrs.deliveryEvidence?.mode === "worktree_merge") {
+                        deliveryEvidence = executionPlan.attrs.deliveryEvidence;
+                    } else {
+                        const sealedCandidate = await sealExecutionWorktreeCandidate({
+                            worktreePath: manualWorktreePath,
+                            branch: manualWorktreeBranch,
+                            planName: plan.planName,
+                            planDescription: plan.attrs.summary,
+                        });
+                        const targetBranchForEvidence = manualTargetBranch;
+                        const targetHeadBeforeMerge = await getBranchHead(projectRoot, targetBranchForEvidence);
+                        deliveryEvidence = {
+                            version: 1,
+                            mode: "worktree_merge",
+                            executionCommit: sealedCandidate.executionCommit,
+                            targetBranch: targetBranchForEvidence,
+                            targetHeadBeforeMerge,
+                        };
+                    }
+                }
+                manualDeliveryEvidence = deliveryEvidence;
                 const stagingResult = await stageValidationPassedInExecutionWorktree({
                     projectRoot: projectRoot,
-                    executionCwd: worktreeContext.path,
+                    executionCwd: manualWorktreePath,
                     planName: plan.planName,
                     details: {
                         triageMeta: plan.attrs,
+                        executionMode: "worktree",
+                        deliveryEvidence,
                         worktreeStatus: "merged",
                         cleanupMergedWorktrees,
                     },
@@ -1962,34 +2167,19 @@ async function handlePlanRecovery({
                         await preparePrimaryPlanPathForMerge({ projectRoot: projectRoot, relativePath }),
                     );
                 }
-                if (!worktreeContext.baseBranch) {
-                    uiAPI.appendSystemMessage(
-                        `Target branch metadata is missing for worktree branch ${worktreeContext.branch}. ` +
-                            "RunWield will merge this recovered worktree into the currently open primary checkout " +
-                            "instead. This is a guarded fallback, not a lost-work state; the worktree branch remains " +
-                            "intact unless Git confirms the merge and RunWield completes cleanup.",
-                        true,
-                        "RunWield",
-                    );
-                }
                 uiAPI.appendSystemMessage(
-                    worktreeContext.baseBranch
-                        ? `Merging worktree branch ${worktreeContext.branch} into target branch ${worktreeContext.baseBranch}.`
-                        : `Merging worktree branch ${worktreeContext.branch} into primary checkout.`,
+                    `Merging worktree branch ${manualWorktreeBranch} into target branch ${manualTargetBranch}.`,
                 );
                 const mergeResult = await mergeExecutionWorktree({
                     projectRoot: projectRoot,
-                    branch: worktreeContext.branch,
-                    targetBranch: worktreeContext.baseBranch,
-                    worktreePath: worktreeContext.path,
+                    branch: manualWorktreeBranch,
+                    targetBranch: manualTargetBranch,
+                    worktreePath: manualWorktreePath,
+                    expectedTargetHead: deliveryEvidence.targetHeadBeforeMerge,
                     planName: plan.planName,
                     planDescription: plan.attrs.summary,
-                    allowedDirtyPaths: [
-                        planPath,
-                        ".wld/",
-                        ".wld/worktrees.json",
-                        ".wld/worktrees.lock",
-                    ],
+                    sealedExecutionCommit: deliveryEvidence.executionCommit,
+                    allowedDirtyPaths: stagingResult.planPaths.length > 0 ? stagingResult.planPaths : [planPath],
                     preservePlanPaths: stagingResult.planPaths,
                 });
                 mergeCompleted = true;
@@ -2007,6 +2197,28 @@ async function handlePlanRecovery({
                                 "RunWield",
                             );
                         }
+                    }
+                }
+                const candidateMerged = await isCommitAncestorOfBranch(
+                    projectRoot,
+                    deliveryEvidence.executionCommit,
+                    deliveryEvidence.targetBranch,
+                );
+                if (!candidateMerged) {
+                    throw new Error(
+                        `Post-merge verification failed: validated candidate ${deliveryEvidence.executionCommit} is not contained in ${deliveryEvidence.targetBranch}.`,
+                    );
+                }
+                if (mergeResult?.executionMetadataCommit) {
+                    const metadataMerged = await isCommitAncestorOfBranch(
+                        projectRoot,
+                        mergeResult.executionMetadataCommit,
+                        deliveryEvidence.targetBranch,
+                    );
+                    if (!metadataMerged) {
+                        throw new Error(
+                            `Post-merge verification failed: validation metadata commit ${mergeResult.executionMetadataCommit} is not contained in ${deliveryEvidence.targetBranch}.`,
+                        );
                     }
                 }
                 if (worktreeContext.id) {
@@ -2109,6 +2321,7 @@ async function handlePlanRecovery({
                         details: {
                             triageMeta: plan.attrs,
                             failureReason: reason,
+                            deliveryEvidence: manualDeliveryEvidence,
                             worktreePath: worktreeContext.path,
                             worktreeBranch: worktreeContext.branch,
                             worktreeBaseBranch: worktreeContext.baseBranch,
@@ -2667,6 +2880,9 @@ export async function runLoadPlanCommand(argv, options = {}) {
         createExecutionWorktree: createExecutionWorktreeDep,
         inspectExecutionWorktreeMergeRisk: inspectExecutionWorktreeMergeRiskDep,
         mergeExecutionWorktree: mergeExecutionWorktreeDep,
+        sealExecutionWorktreeCandidate: sealExecutionWorktreeCandidateDep,
+        getBranchHead: getBranchHeadDep,
+        isCommitAncestorOfBranch: isCommitAncestorOfBranchDep,
         preparePrimaryPlanPathForMerge: preparePrimaryPlanPathForMergeDep,
         restorePrimaryPlanPathAfterMergeFailure: restorePrimaryPlanPathAfterMergeFailureDep,
         removeExecutionWorktree: removeExecutionWorktreeDep,
@@ -2705,6 +2921,9 @@ export async function runLoadPlanCommand(argv, options = {}) {
     const inspectExecutionWorktreeMergeRisk = inspectExecutionWorktreeMergeRiskDep ||
         inspectExecutionWorktreeMergeRiskFn;
     const mergeExecutionWorktree = mergeExecutionWorktreeDep || mergeExecutionWorktreeFn;
+    const sealExecutionWorktreeCandidateImpl = sealExecutionWorktreeCandidateDep || sealExecutionWorktreeCandidate;
+    const getBranchHeadImpl = getBranchHeadDep || getBranchHead;
+    const isCommitAncestorOfBranchImpl = isCommitAncestorOfBranchDep || isCommitAncestorOfBranch;
     const preparePrimaryPlanPathForMerge = preparePrimaryPlanPathForMergeDep || preparePrimaryPlanPathForMergeFn;
     const restorePrimaryPlanPathAfterMergeFailure = restorePrimaryPlanPathAfterMergeFailureDep ||
         restorePrimaryPlanPathAfterMergeFailureFn;
@@ -2926,6 +3145,9 @@ export async function runLoadPlanCommand(argv, options = {}) {
                 getWorktreeStatus,
                 createExecutionWorktree,
                 mergeExecutionWorktree,
+                sealExecutionWorktreeCandidate: sealExecutionWorktreeCandidateImpl,
+                getBranchHead: getBranchHeadImpl,
+                isCommitAncestorOfBranch: isCommitAncestorOfBranchImpl,
                 preparePrimaryPlanPathForMerge,
                 restorePrimaryPlanPathAfterMergeFailure,
                 removeExecutionWorktree,
@@ -2935,6 +3157,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                 findPlansByParent,
                 session,
                 probeGitRepository,
+                resolveValidationExecutionContextForRecovery: deps.resolveValidationExecutionContext,
             });
             if (result === "handled") return;
         }
@@ -3154,6 +3377,7 @@ export async function runLoadPlanCommand(argv, options = {}) {
                             });
                             await validatePostExecutionDecision({
                                 executionDecision,
+                                executionResult: execRes,
                                 fallbackPlanContent: plan.markdown || plan.body || "",
                                 runValidationLoop,
                                 loadPlan,

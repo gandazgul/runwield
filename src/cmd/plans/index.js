@@ -6,13 +6,6 @@
 import { parseArgs as parseArgsFn } from "@std/cli/parse-args";
 import { CWD } from "../../constants.js";
 import { countChildPlanProgress, groupPlanHierarchy, listPlans as listPlansFn } from "../../plan-store.js";
-import { runPlansArchiveCommand as runPlansArchiveCommandFn } from "./archive.js";
-import { runPlansPullCommand as runPlansPullCommandFn } from "./pull.js";
-import { runPlansPushCommand as runPlansPushCommandFn } from "./push.js";
-import { runPlansReadCommand as runPlansReadCommandFn } from "./read.js";
-import { runPlansShareCommand as runPlansShareCommandFn } from "./share.js";
-import { runPlansUiCommand as runPlansUiCommandFn } from "./ui.js";
-import { runPlansUnshareCommand as runPlansUnshareCommandFn } from "./unshare.js";
 
 /**
  * @typedef {Awaited<ReturnType<typeof listPlansFn>>[number]} PlanEntry
@@ -23,13 +16,13 @@ import { runPlansUnshareCommand as runPlansUnshareCommandFn } from "./unshare.js
  * @property {typeof parseArgsFn} [parseArgs]
  * @property {typeof listPlansFn} [listPlans]
  * @property {(commandName: string) => boolean} [printCommandHelp]
- * @property {typeof runPlansUiCommandFn} [runPlansUiCommand]
- * @property {typeof runPlansArchiveCommandFn} [runPlansArchiveCommand]
- * @property {typeof runPlansReadCommandFn} [runPlansReadCommand]
- * @property {typeof runPlansShareCommandFn} [runPlansShareCommand]
- * @property {typeof runPlansPullCommandFn} [runPlansPullCommand]
- * @property {typeof runPlansPushCommandFn} [runPlansPushCommand]
- * @property {typeof runPlansUnshareCommandFn} [runPlansUnshareCommand]
+ * @property {(argv: string[], options?: unknown) => Promise<void>} [runPlansUiCommand]
+ * @property {(argv: string[], options?: unknown) => Promise<void>} [runPlansArchiveCommand]
+ * @property {(argv: string[], options?: unknown) => Promise<void>} [runPlansReadCommand]
+ * @property {(argv: string[], options?: unknown) => Promise<void>} [runPlansShareCommand]
+ * @property {(argv: string[], options?: unknown) => Promise<void>} [runPlansPullCommand]
+ * @property {(argv: string[], options?: unknown) => Promise<void>} [runPlansPushCommand]
+ * @property {(argv: string[], options?: unknown) => Promise<void>} [runPlansUnshareCommand]
  */
 
 /**
@@ -115,37 +108,39 @@ export async function runPlansCommand(argv, options = {}) {
     } = deps;
 
     if (argv[0] === "ui") {
-        const runPlansUiCommand = runPlansUiCommandDep || runPlansUiCommandFn;
+        const runPlansUiCommand = runPlansUiCommandDep || (await import("./ui.js")).runPlansUiCommand;
         await runPlansUiCommand(argv.slice(1), options);
         return;
     }
     if (argv[0] === "archive") {
-        const runPlansArchiveCommand = runPlansArchiveCommandDep || runPlansArchiveCommandFn;
+        const runPlansArchiveCommand = runPlansArchiveCommandDep ||
+            (await import("./archive.js")).runPlansArchiveCommand;
         await runPlansArchiveCommand(argv.slice(1), /** @type {any} */ (options));
         return;
     }
     if (argv[0] === "read") {
-        const runPlansReadCommand = runPlansReadCommandDep || runPlansReadCommandFn;
+        const runPlansReadCommand = runPlansReadCommandDep || (await import("./read.js")).runPlansReadCommand;
         await runPlansReadCommand(argv.slice(1), /** @type {any} */ (options));
         return;
     }
     if (argv[0] === "share") {
-        const runPlansShareCommand = runPlansShareCommandDep || runPlansShareCommandFn;
+        const runPlansShareCommand = runPlansShareCommandDep || (await import("./share.js")).runPlansShareCommand;
         await runPlansShareCommand(argv.slice(1), /** @type {any} */ (options));
         return;
     }
     if (argv[0] === "pull") {
-        const runPlansPullCommand = runPlansPullCommandDep || runPlansPullCommandFn;
+        const runPlansPullCommand = runPlansPullCommandDep || (await import("./pull.js")).runPlansPullCommand;
         await runPlansPullCommand(argv.slice(1), /** @type {any} */ (options));
         return;
     }
     if (argv[0] === "push") {
-        const runPlansPushCommand = runPlansPushCommandDep || runPlansPushCommandFn;
+        const runPlansPushCommand = runPlansPushCommandDep || (await import("./push.js")).runPlansPushCommand;
         await runPlansPushCommand(argv.slice(1), /** @type {any} */ (options));
         return;
     }
     if (argv[0] === "unshare") {
-        const runPlansUnshareCommand = runPlansUnshareCommandDep || runPlansUnshareCommandFn;
+        const runPlansUnshareCommand = runPlansUnshareCommandDep ||
+            (await import("./unshare.js")).runPlansUnshareCommand;
         await runPlansUnshareCommand(argv.slice(1), /** @type {any} */ (options));
         return;
     }

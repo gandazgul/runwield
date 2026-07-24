@@ -1,8 +1,8 @@
+---
+status: accepted
+---
+
 # ADR-004: Plan Lifecycle Transitions Are Centralized
-
-## Status
-
-Accepted
 
 ## Decision
 

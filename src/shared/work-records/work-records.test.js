@@ -12,6 +12,8 @@ import {
     formatWorkRecordMarkdown,
     generateRecorderSections,
     generateWorkRecordForSource,
+    getWorkRecordIndexCollectionName,
+    isWorkRecordIndexEmpty,
     parseRecorderSections,
     parseWorkRecordMarkdown,
     previewWorkRecordBackfill,
@@ -44,6 +46,26 @@ const BODY =
 /** @param {string} stdout */
 function ok(stdout) {
     return { success: true, code: 0, stdout: new TextEncoder().encode(stdout), stderr: new Uint8Array() };
+}
+
+/**
+ * @param {string} cwd
+ * @param {string[]} args
+ */
+async function git(cwd, args) {
+    const result = await new Deno.Command("git", {
+        args,
+        cwd,
+        stdout: "piped",
+        stderr: "piped",
+    }).output();
+    if (result.code !== 0) {
+        const decoder = new TextDecoder();
+        throw new Error(
+            `git ${args.join(" ")} failed: ${decoder.decode(result.stderr) || decoder.decode(result.stdout)}`,
+        );
+    }
+    return new TextDecoder().decode(result.stdout).trim();
 }
 
 Deno.test("Work Record markdown parses nested provenance and body sections", () => {
@@ -767,6 +789,38 @@ Deno.test("Work Record index document uses compact summary metadata and tags onl
     assertEquals(tags.includes("completion:verified"), true);
     assertEquals(tags.includes("archived:false"), true);
     assertEquals(tags.includes("superseded:false"), true);
+});
+
+Deno.test("Work Record index emptiness ignores Mnemosyne plain-list footer", async () => {
+    assertEquals(
+        await isWorkRecordIndexEmpty("/tmp/project", {
+            commandOutput: (/** @type {string} */ _command, /** @type {string[]} */ args) => {
+                assertEquals(args[0], "list");
+                return Promise.resolve(ok("[42] indexed\n\nShowing 1 of 90 documents. Use --limit to see more."));
+            },
+        }),
+        false,
+    );
+});
+
+Deno.test("Work Record index collection name is stable across linked git worktrees", async () => {
+    const primary = await Deno.makeTempDir();
+    const worktreeParent = await Deno.makeTempDir();
+    const worktree = `${worktreeParent}/linked-worktree`;
+    try {
+        await git(primary, ["init"]);
+        await git(primary, ["config", "user.email", "test@example.com"]);
+        await git(primary, ["config", "user.name", "Test User"]);
+        await Deno.writeTextFile(`${primary}/README.md`, "# Test\n");
+        await git(primary, ["add", "README.md"]);
+        await git(primary, ["commit", "-m", "init"]);
+        await git(primary, ["worktree", "add", worktree, "HEAD"]);
+
+        assertEquals(await getWorkRecordIndexCollectionName(worktree), await getWorkRecordIndexCollectionName(primary));
+    } finally {
+        await Deno.remove(worktreeParent, { recursive: true }).catch(() => {});
+        await Deno.remove(primary, { recursive: true }).catch(() => {});
+    }
 });
 
 Deno.test("Work Record index sync adds absent records and strictly updates existing records", async () => {

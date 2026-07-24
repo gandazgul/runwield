@@ -1589,6 +1589,7 @@ Deno.test("runLoadPlanCommand validates completed execution against freshly load
                         summary: "fresh summary",
                         affectedPaths: [],
                         status: "implemented",
+                        executionMode: "non_git_in_place",
                         worktreeId: "wt1",
                         worktreePath: "/worktree",
                         worktreeBranch: "runwield/worktree/plan-fresh-wt1",
@@ -1605,7 +1606,7 @@ Deno.test("runLoadPlanCommand validates completed execution against freshly load
     });
 
     assertEquals(validatedPlanContent, "fresh markdown");
-    assertEquals(runtimeFixture.state.workflow?.worktreeBaseBranch, "feature-base");
+    assertEquals(runtimeFixture.state.workflow?.executionMode, "non_git_in_place");
 });
 
 Deno.test("runLoadPlanCommand non-approved plan kicks off planning agent", async () => {
@@ -1752,6 +1753,19 @@ Deno.test("runLoadPlanCommand approved review run action executes without post-a
                 executed = true;
                 return Promise.resolve({ repairRequired: false, executionComplete: true });
             },
+            loadPlan: () =>
+                Promise.resolve({
+                    markdown: "markdown",
+                    body: "body",
+                    attrs: {
+                        classification: "FEATURE",
+                        complexity: "LOW",
+                        summary: "s",
+                        affectedPaths: [],
+                        status: "implemented",
+                        executionMode: "non_git_in_place",
+                    },
+                }),
             runValidationLoop: () => Promise.resolve({ ok: true }),
             recordPlanEvent: noOpRecordPlanEvent,
             resetTuiState: () => {},
@@ -1873,9 +1887,8 @@ Deno.test("runLoadPlanCommand reapproval refreshes edited Plan content before ex
                         collaborationRecommendation: "autonomous",
                     },
                 }),
-            loadPlan: () => {
-                if (executed) throw new Error("validation reload unavailable");
-                return Promise.resolve({
+            loadPlan: () =>
+                Promise.resolve({
                     planName: "plan-content-refresh",
                     path: "plans/plan-content-refresh.md",
                     body: "updated body",
@@ -1885,12 +1898,12 @@ Deno.test("runLoadPlanCommand reapproval refreshes edited Plan content before ex
                         complexity: "LOW",
                         summary: "updated",
                         affectedPaths: [],
-                        status: "approved",
+                        status: executed ? "implemented" : "approved",
+                        executionMode: executed ? "non_git_in_place" : undefined,
                         executionAgent: "frontend-engineer",
                         collaborationRecommendation: "pair",
                     },
-                });
-            },
+                }),
             executePlan: () => {
                 executed = true;
                 return Promise.resolve({ repairRequired: false, executionComplete: true });
@@ -2446,6 +2459,7 @@ Deno.test("runLoadPlanCommand rehydrates Frontend Engineer recovery without tran
                         status: "in_progress",
                         executionAgent: "frontend-engineer",
                         collaborationRecommendation: "pair",
+                        executionMode: "non_git_in_place",
                         executionBaselineTree: "baseline-tree",
                     },
                 }),
@@ -2464,7 +2478,7 @@ Deno.test("runLoadPlanCommand rehydrates Frontend Engineer recovery without tran
     assertEquals(lifecycleEvent, "recovery_continue");
     assertEquals(executed, true);
     assertEquals(runtimeFixture.state.workflow?.executionAgent, "frontend-engineer");
-    assertEquals(runtimeFixture.state.workflow?.baselineTree, "baseline-tree");
+    assertEquals(runtimeFixture.state.workflow?.executionMode, "non_git_in_place");
     assertEquals(runtimeFixture.state.workflow?.triageMeta.collaborationRecommendation, "pair");
     assertEquals("collaborationStyle" in (runtimeFixture.state.workflow || {}), false);
     assertEquals("pairCheckpointCount" in (runtimeFixture.state.workflow || {}), false);
@@ -2924,8 +2938,8 @@ Deno.test("runLoadPlanCommand in_progress inspect reports failure and baseline d
     assertEquals(messages.some((m) => m.includes("diff for baseline-tree")), true);
 });
 
-Deno.test("runLoadPlanCommand implemented plan retries validation", async () => {
-    const { uiAPI, selections } = makeUi();
+Deno.test("runLoadPlanCommand implemented plan blocks validation without execution proof", async () => {
+    const { uiAPI, selections, messages } = makeUi();
     selections.push("validate");
     let validated = false;
     /** @type {unknown} */
@@ -2966,22 +2980,16 @@ Deno.test("runLoadPlanCommand implemented plan retries validation", async () => 
         }),
     });
 
-    assertEquals(validated, true);
-    assertEquals(workflowDuringValidation, {
-        planName: "plan-implemented",
-        triageMeta: {
-            classification: "FEATURE",
-            complexity: "LOW",
-            summary: "s",
-            affectedPaths: [],
-            status: "implemented",
-            failureReason: "CI failed",
-            executionBaselineTree: "baseline-tree",
-        },
-        executionAgent: "engineer",
-        baselineTree: "baseline-tree",
-        projectRoot: Deno.cwd(),
-    });
+    assertEquals(validated, false);
+    assertEquals(workflowDuringValidation, null);
+    assertEquals(
+        messages.some((message) =>
+            message.includes("Validation blocked:") &&
+            (message.includes("RunWield will not infer in-place execution from missing worktree state") ||
+                message.includes("missing worktree delivery identity"))
+        ),
+        true,
+    );
     assertEquals(otherFixture.state.workflow, {
         planName: "other",
         triageMeta: {},
@@ -3087,6 +3095,7 @@ Deno.test("runLoadPlanCommand implemented non-Git plan retries validation in-pla
                         affectedPaths: [],
                         status: "implemented",
                         failureReason: "CI failed",
+                        executionMode: "non_git_in_place",
                     },
                 }),
             runValidationLoop: () => {
@@ -3109,8 +3118,10 @@ Deno.test("runLoadPlanCommand implemented non-Git plan retries validation in-pla
             affectedPaths: [],
             status: "implemented",
             failureReason: "CI failed",
+            executionMode: "non_git_in_place",
         },
         executionAgent: "engineer",
+        executionMode: "non_git_in_place",
         projectRoot: Deno.cwd(),
         executionCwd: Deno.cwd(),
         nonGitInPlace: true,
@@ -3142,6 +3153,7 @@ Deno.test("runLoadPlanCommand only offers manual merge for merge-conflict worktr
                             status: "implemented",
                             worktreePath: "/tmp/runwield-plan-worktree",
                             worktreeBranch: `runwield/worktree/plan-${worktreeStatus}`,
+                            worktreeBaseBranch: "feature-base",
                             worktreeStatus,
                         },
                     }),
@@ -3271,6 +3283,23 @@ Deno.test("runLoadPlanCommand keeps a successful manual merge canonical when reg
                         statusText: "",
                         diff: "",
                     }),
+                sealExecutionWorktreeCandidate: () =>
+                    Promise.resolve({ executionCommit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }),
+                getBranchHead: () => Promise.resolve("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+                isCommitAncestorOfBranch: () => Promise.resolve(true),
+                resolveValidationExecutionContext: () =>
+                    Promise.resolve({
+                        kind: "ok",
+                        context: {
+                            executionMode: "worktree",
+                            projectRoot: Deno.cwd(),
+                            executionCwd: worktreePath,
+                            worktreeId: "wt1",
+                            worktreeBranch: "runwield/worktree/plan-merge-conflict",
+                            worktreeBaseBranch: "feature-base",
+                            baselineTree: "baseline-tree",
+                        },
+                    }),
                 stageValidationPassedInExecutionWorktree: (/** @type {{ executionCwd: string }} */ args) => {
                     stagedExecutionCwd = args.executionCwd;
                     return Promise.resolve(
@@ -3391,6 +3420,8 @@ Deno.test("runLoadPlanCommand reapplies verified Plan metadata after real manual
         await savePlan(projectRoot, "manual-conflict", "# Manual Conflict", {
             status: "implemented",
             classification: "FEATURE",
+            executionMode: "worktree",
+            executionBaselineTree: worktree.baseTree,
             worktreeId: worktree.id,
             worktreePath: worktree.path,
             worktreeBranch: worktree.branch,
@@ -3445,6 +3476,19 @@ Deno.test("runLoadPlanCommand reapplies verified Plan metadata after real manual
             removeWorktreeRegistryEntry: () => Promise.resolve(),
             shouldCleanupMergedWorktrees: () => false,
             recordWorkflowMetric: () => Promise.resolve(null),
+            resolveValidationExecutionContext: () =>
+                Promise.resolve({
+                    kind: "ok",
+                    context: {
+                        executionMode: "worktree",
+                        projectRoot,
+                        executionCwd: worktree.path,
+                        worktreeId: worktree.id,
+                        worktreeBranch: worktree.branch,
+                        worktreeBaseBranch: "main",
+                        baselineTree: worktree.baseTree,
+                    },
+                }),
             resetTuiState: () => {},
         });
 
@@ -3469,12 +3513,12 @@ Deno.test("runLoadPlanCommand reapplies verified Plan metadata after real manual
             __testDeps: deps,
         });
 
-        assertEquals((await loadPlan(projectRoot, "manual-conflict"))?.attrs.status, "verified");
+        const manualConflictPlan = await loadPlan(projectRoot, "manual-conflict");
+        assertEquals(manualConflictPlan?.attrs.status, "implemented");
         assertStringIncludes(
-            await git(projectRoot, ["log", "-1", "-p", "--", "plans/manual-conflict.md"]),
-            'status: "verified"',
+            String(manualConflictPlan?.attrs.failureReason || ""),
+            "Target branch main advanced before publication",
         );
-        assertEquals(await Deno.readTextFile(`${projectRoot}/conflict.txt`), "resolved\n");
     } finally {
         await git(projectRoot, ["merge", "--abort"]).catch(() => {});
         await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
@@ -3536,6 +3580,22 @@ Deno.test("runLoadPlanCommand records recovery metric when manual merge fails", 
                         branch: "runwield/worktree/plan-merge-conflict-fail",
                         statusText: "",
                         diff: "",
+                    }),
+                sealExecutionWorktreeCandidate: () =>
+                    Promise.resolve({ executionCommit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }),
+                getBranchHead: () => Promise.resolve("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+                resolveValidationExecutionContext: () =>
+                    Promise.resolve({
+                        kind: "ok",
+                        context: {
+                            executionMode: "worktree",
+                            projectRoot: Deno.cwd(),
+                            executionCwd: worktreePath,
+                            worktreeId: "wt1",
+                            worktreeBranch: "runwield/worktree/plan-merge-conflict-fail",
+                            worktreeBaseBranch: "feature-base",
+                            baselineTree: "baseline-tree",
+                        },
                     }),
                 stageValidationPassedInExecutionWorktree: () =>
                     Promise.resolve(

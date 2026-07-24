@@ -155,6 +155,7 @@ function selectRuntimeCollaborationStyle(hostedSession, policy) {
  * @property {"stop"|"canceled"} [pauseReason]
  * @property {string} [error]
  * @property {string} [completionReport]
+ * @property {import('../session/hosted-session.js').ActiveExecutionWorkflow} [executionContext]
  */
 
 /**
@@ -378,6 +379,7 @@ export async function executePlan({
     return {
         repairRequired: false,
         executionComplete: true,
+        ...(activeWorkflow ? { executionContext: activeWorkflow } : {}),
         ...(result.completionReport ? { completionReport: result.completionReport } : {}),
     };
 }
@@ -458,6 +460,7 @@ async function executeSingleEngineerPlan(
         return {
             repairRequired: false,
             executionComplete: false,
+            ...(executionContext ? { executionContext } : {}),
             ...(engineerResult.paused ? { paused: true, pauseReason: engineerResult.pauseReason } : {}),
             ...(engineerResult.error ? { error: engineerResult.error } : {}),
         };
@@ -465,6 +468,7 @@ async function executeSingleEngineerPlan(
     return {
         repairRequired: false,
         executionComplete: true,
+        ...(executionContext ? { executionContext } : {}),
         ...(engineerResult.completionReport ? { completionReport: engineerResult.completionReport } : {}),
     };
 }
@@ -710,6 +714,7 @@ export async function startActiveExecutionWorkflow(
             ...collaborationState,
             projectRoot,
             executionCwd: projectRoot,
+            executionMode: /** @type {const} */ ("non_git_in_place"),
             nonGitInPlace: true,
         };
         hostedSession.setActiveExecutionWorkflow(workflow);
@@ -718,7 +723,7 @@ export async function startActiveExecutionWorkflow(
             planName,
             event: "execution_started",
             currentStatus,
-            details: { triageMeta, nonGitInPlace: true },
+            details: { triageMeta, nonGitInPlace: true, executionMode: "non_git_in_place" },
         });
         const activeWorkflow = { ...workflow, executionStarted: true, executionAttemptStartedAtMs: now() };
         hostedSession.setActiveExecutionWorkflow(activeWorkflow);
@@ -769,12 +774,17 @@ export async function startActiveExecutionWorkflow(
         executionAgent,
         executionStarted: false,
         ...collaborationState,
+        executionMode: /** @type {const} */ ("worktree"),
         baselineTree,
         projectRoot,
         executionCwd: worktree.path,
         worktreeId: worktree.id,
         worktreeBranch: worktree.branch,
         worktreeBaseBranch,
+        worktreeBaseRef: "baseRef" in worktree && typeof worktree.baseRef === "string" ? worktree.baseRef : undefined,
+        worktreeBaseCommit: "baseCommit" in worktree && typeof worktree.baseCommit === "string"
+            ? worktree.baseCommit
+            : undefined,
     };
     hostedSession.setActiveExecutionWorkflow(workflow);
     if (worktree.id) {

@@ -173,15 +173,23 @@ Deno.test("agent-handler validates after approved_execute only when execution co
     let validationCount = 0;
     /** @type {string | undefined} */
     let finalAgentName;
+    /** @type {any} */
+    let validationExecutionContext;
     /** @type {any[]} */
     const metrics = [];
     const handler = createAgentHandler("planner", {
         runRootTurn: () => Promise.resolve(/** @type {any} */ ([])),
         readLatestPlanOutcome: () => /** @type {any} */ ({ outcome: "approved_execute", planName: "p" }),
-        executePlan: /** @type {any} */ (() => Promise.resolve({ repairRequired: false, executionComplete: true })),
+        executePlan: /** @type {any} */ (() =>
+            Promise.resolve({
+                repairRequired: false,
+                executionComplete: true,
+                executionContext: { executionMode: "worktree", executionCwd: "/worktree", immutable: true },
+            })),
         runValidationLoop: (/** @type {any} */ args) => {
             validationCount++;
             finalAgentName = /** @type {any} */ (args).finalAgentName;
+            validationExecutionContext = /** @type {any} */ (args).executionContext;
             return Promise.resolve();
         },
         recordWorkflowMetric: (/** @type {any} */ metric) => {
@@ -193,6 +201,7 @@ Deno.test("agent-handler validates after approved_execute only when execution co
     await handler("req", [], /** @type {any} */ (undefined));
     assertEquals(validationCount, 1);
     assertEquals(finalAgentName, "planner");
+    assertEquals(validationExecutionContext, { executionMode: "worktree", executionCwd: "/worktree", immutable: true });
     assertEquals(
         metrics.some((metric) =>
             metric.category === "planning" && metric.event === "active_agent_transition" &&

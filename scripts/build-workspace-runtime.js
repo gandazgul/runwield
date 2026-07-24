@@ -11,6 +11,8 @@ import { basename, dirname, extname, join } from "@std/path";
 const DEFAULT_SERVER_ENTRY = "dist/workspace/server/entry.mjs";
 const DEFAULT_CLIENT_DIR = "dist/workspace/client";
 const DEFAULT_RUNTIME_DIR = "dist/workspace-runtime";
+const DEFAULT_CLIENT_ASSET_STABILITY_INTERVAL_MS = 100;
+const DEFAULT_CLIENT_ASSET_STABILITY_TIMEOUT_MS = 5000;
 
 /**
  * @typedef {Object} WorkspaceRuntimeBuildOptions
@@ -51,6 +53,20 @@ async function runCommand(command, args) {
 }
 
 /**
+ * @typedef {Object} WorkspaceClientAssetStabilityOptions
+ * @property {number} [intervalMs]
+ * @property {number} [timeoutMs]
+ */
+
+/**
+ * @param {number} ms
+ * @returns {Promise<void>}
+ */
+function delay(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
  * @param {string} sourceDir
  * @param {string} destinationDir
  * @returns {Promise<void>}
@@ -68,6 +84,54 @@ async function copyOpaqueAssets(sourceDir, destinationDir) {
             throw new Error(`Unsupported Workspace asset entry: ${sourcePath}`);
         }
         await Deno.copyFile(sourcePath, destinationPath);
+    }
+}
+
+/**
+ * @param {string} sourceDir
+ * @param {string} [prefix]
+ * @returns {Promise<string[]>}
+ */
+async function snapshotWorkspaceAssetDirectory(sourceDir, prefix = "") {
+    const snapshot = [];
+    for await (const entry of Deno.readDir(sourceDir)) {
+        const sourcePath = join(sourceDir, entry.name);
+        const relativePath = prefix ? join(prefix, entry.name) : entry.name;
+        if (entry.isDirectory) {
+            snapshot.push(...await snapshotWorkspaceAssetDirectory(sourcePath, relativePath));
+            continue;
+        }
+        if (!entry.isFile) {
+            throw new Error(`Unsupported Workspace asset entry: ${sourcePath}`);
+        }
+        const stat = await Deno.stat(sourcePath);
+        snapshot.push(`${relativePath}:${stat.size}:${stat.mtime?.getTime() ?? 0}`);
+    }
+    return snapshot.sort();
+}
+
+/**
+ * Wait until Astro/Vite's client asset tree is quiescent before embedding it.
+ * Recent builds can return before all hashed CSS assets are visible to the next
+ * subprocess on every filesystem; copying during that window creates standalone
+ * binaries whose HTML references missing /_astro/*.css files.
+ *
+ * @param {string} clientDir
+ * @param {WorkspaceClientAssetStabilityOptions} [options]
+ * @returns {Promise<void>}
+ */
+export async function waitForStableWorkspaceClientAssets(clientDir, options = {}) {
+    const intervalMs = options.intervalMs ?? DEFAULT_CLIENT_ASSET_STABILITY_INTERVAL_MS;
+    const timeoutMs = options.timeoutMs ?? DEFAULT_CLIENT_ASSET_STABILITY_TIMEOUT_MS;
+    const deadline = Date.now() + timeoutMs;
+    let previous = null;
+
+    while (true) {
+        const current = (await snapshotWorkspaceAssetDirectory(clientDir)).join("\n");
+        if (previous !== null && current === previous) return;
+        if (Date.now() >= deadline) throw new Error(`Workspace client assets did not settle: ${clientDir}`);
+        previous = current;
+        await delay(intervalMs);
     }
 }
 
@@ -134,6 +198,31 @@ export function normalizeDenoAdapterShimImport(source) {
         /^import\s+\{\s*serveFile\s*,\s*fromFileUrl\s*\}\s+from\s+["']@deno\/astro-adapter\/__deno_imports\.ts["'];$/m,
         'import { serveFile } from "jsr:@std/http@1.0/file-server";\nimport { fromFileUrl } from "jsr:@std/path@1.0";',
     );
+}
+
+/**
+ * Some npm CommonJS shims in the bundled Astro server call the generated
+ * dynamic require helper for `node:child_process` even though the Deno bundle
+ * also emits static Node built-in imports. That works under `deno run`, but a
+ * `deno compile` executable cannot satisfy dynamic require at runtime. Reuse
+ * the emitted static imports so the standalone Workspace runtime can be loaded
+ * by the release binary.
+ *
+ * @param {string} source
+ * @returns {string}
+ */
+export function normalizeCompiledNodeChildProcessImports(source) {
+    const importPattern =
+        /import\{spawn as ([A-Za-z_$][\w$]*),spawnSync as ([A-Za-z_$][\w$]*)\}from"node:child_process";/;
+    const match = source.match(importPattern);
+    if (!match || !source.includes('Ut("node:child_process")')) return source;
+
+    const [, spawnAlias, spawnSyncAlias] = match;
+    const staticBinding = `({exec:__rwNodeChildProcessExec,spawn:${spawnAlias},spawnSync:${spawnSyncAlias}})`;
+    return source.replace(
+        importPattern,
+        `import{exec as __rwNodeChildProcessExec,spawn as ${spawnAlias},spawnSync as ${spawnSyncAlias}}from"node:child_process";`,
+    ).replaceAll('Ut("node:child_process")', staticBinding);
 }
 
 /**
@@ -224,6 +313,12 @@ export async function buildWorkspaceRuntime(options = {}) {
         serverOutput,
         serverEntry,
     ]);
+    await waitForFile(serverOutput);
+    await Deno.writeTextFile(
+        serverOutput,
+        normalizeCompiledNodeChildProcessImports(await Deno.readTextFile(serverOutput)),
+    );
+    await waitForStableWorkspaceClientAssets(clientDir);
     await copyOpaqueAssets(clientDir, join(runtimeDir, "client"));
 
     await waitForFile(serverOutput);

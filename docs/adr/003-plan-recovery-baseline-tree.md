@@ -1,8 +1,8 @@
+---
+status: accepted
+---
+
 # ADR-003: Plan Recovery Uses Execution Baseline Trees
-
-## Status
-
-Accepted
 
 ## Decision
 

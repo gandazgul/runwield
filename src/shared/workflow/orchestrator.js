@@ -548,6 +548,7 @@ export async function dispatchPostTriage(
                     triageMeta: decisionTriageMeta,
                     sessionManager,
                     finalAgentName: agentName,
+                    executionContext: executionResult.executionContext,
                     __deps: { recordWorkflowMetric: recordWorkflowMetricImpl },
                 });
                 await recordWorkflowMetricImpl({

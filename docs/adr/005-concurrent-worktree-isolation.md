@@ -1,8 +1,8 @@
+---
+status: accepted
+---
+
 # ADR-005: Concurrent Execution Isolation via Git Worktrees
-
-## Status
-
-Accepted
 
 ## Context
 
