@@ -15,13 +15,16 @@ ideate -> plan -> execute -> record -> use records to plan better
 [Watch the 60-second demo] · [Install](#installation) · [Documentation](docs/index.md)
 
 > I’m looking for five developers to try RunWield on one real, non-trivial change. I’ll personally help you get running
-> and fix anything that blocks you. Open an issue here or ping me on Discord: `gandazgul#000.
+> and fix anything that blocks you. You get direct access to me, quick bug turn around and a say on the next Roadmap
+> item. Open an issue here to get started.
 
 ## Is it for me?
 
 It's for developers who want LLMs to slow down at the right moments: classify the work, write a reviewable plan when the
 blast radius is real, execute through specialized roles, and then prove the result. Dont trust the LLM did the right
 thing, verify it and only then merge and make a durable record explaining why, what and who.
+
+Don't use RunWield for mostly quick one-shots, the mass market harnesses or Pi will do that.
 
 ## Installation
 
@@ -40,8 +43,6 @@ and does not require root. To choose another user-writable directory shared by a
 `WLD_INSTALL_DIR`.
 
 ## Quick Start
-
-## First Run
 
 Initialize RunWield in a project to build CONTEXT.md and seed the memory with facts about the repository.
 
