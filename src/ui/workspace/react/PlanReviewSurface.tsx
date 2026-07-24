@@ -237,24 +237,12 @@ export function PlanReviewSurface({ payload }) {
                                     ? "Add an annotation before sending feedback"
                                     : "Send all annotations"}
                             />
-                            {showExecutionPolicyControls
-                                ? (
-                                    <PlanReviewApprovalActions
-                                        primaryAction={primaryApprovalAction}
-                                        onApprove={() => submitApprove(primaryApprovalAction)}
-                                        onApproveLater={() => submitApprove(PLAN_APPROVAL_ACTIONS.LATER)}
-                                        disabled={submitting !== null}
-                                        isLoading={submitting === "approve"}
-                                    />
-                                )
-                                : (
-                                    <PlanApprovalSplitButton
-                                        primaryAction={primaryApprovalAction}
-                                        onApprove={submitApprove}
-                                        disabled={submitting !== null}
-                                        isLoading={submitting === "approve"}
-                                    />
-                                )}
+                            <PlanApprovalSplitButton
+                                primaryAction={primaryApprovalAction}
+                                onApprove={submitApprove}
+                                disabled={submitting !== null}
+                                isLoading={submitting === "approve"}
+                            />
                         </div>
                     </header>
                     {error && <p className="rw-review-error" role="alert">{error}</p>}
@@ -526,38 +514,6 @@ function PlanApprovalSplitButton({ primaryAction, onApprove, disabled, isLoading
                 />
             )}
         </ActionMenu>
-    );
-}
-
-function PlanReviewApprovalActions({ primaryAction, onApprove, onApproveLater, disabled, isLoading }) {
-    const primaryLabel = primaryAction === PLAN_APPROVAL_ACTIONS.DECOMPOSE ? "Approve & Slice" : "Approve & Run";
-    return (
-        <>
-            <Button
-                variant="outline"
-                size="xs"
-                className="rw-plan-review-secondary-action"
-                onClick={onApproveLater}
-                disabled={disabled}
-                title="Approve for Later"
-                aria-label="Approve for Later"
-                iconLeft={<ClockIcon />}
-            >
-                <span className="hidden md:inline">Approve for Later</span>
-            </Button>
-            <Button
-                variant="success"
-                size="xs"
-                className="rw-plan-review-primary-action"
-                onClick={onApprove}
-                disabled={disabled}
-                title={primaryLabel}
-                aria-label={primaryLabel}
-                iconLeft={<CheckIcon />}
-            >
-                <span className="hidden md:inline">{isLoading ? "Approving…" : primaryLabel}</span>
-            </Button>
-        </>
     );
 }
 
