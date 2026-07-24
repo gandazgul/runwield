@@ -10,6 +10,16 @@ review, execution, and validation. This context defines the project language use
 **RunWield**: The plan-by-default coding harness that routes user requests through triage and specialized agents.
 _Avoid_: Harness, tool, framework
 
+**External Agent Host**: A coding-agent product such as Claude Code, Codex, OpenCode, or Pi that owns the user
+conversation and model access for an Attached Workflow. _Avoid_: Provider, Session Host, host harness
+
+**Attached Mode**: A RunWield installation mode in which an External Agent Host makes every model call and users invoke
+RunWield explicitly for individual User Requests. _Avoid_: Plugin mode, always-on RunWield, trial mode
+
+**Attached Workflow**: The per-request RunWield workflow active inside an External Agent Host, with RunWield governing
+durable workflow truth while the host performs agent reasoning and execution. _Avoid_: Attached Mode, Managed Mode,
+RunWield Session
+
 **TUI**: The terminal-based interactive user interface that hosts agent conversations and renders workflow output.
 _Avoid_: Shell, console
 
@@ -455,6 +465,13 @@ command definition, prompt command
 
 ## Relationships
 
+- Installing **Attached Mode** leaves ordinary **External Agent Host** use unchanged until the user explicitly starts an
+  **Attached Workflow** for one **User Request**.
+- During an **Attached Workflow**, the **External Agent Host** supplies every model call while RunWield remains the
+  authority for durable Plans, Plan Lifecycle, review, validation outcomes, recovery evidence, Work Records, and
+  organizational memory.
+- **Attached Mode** is a durable first-class product mode; movement to Managed or Native experiences is an optional
+  progression rather than a prerequisite for complete Attached workflows.
 - An **External Work Source** owns demand management, while RunWield owns planning, execution, Plan Lifecycle, and
   delivery truth.
 - **Tickets** and **Plans** have a many-to-many relationship expressed through **Ticket References**.
@@ -656,6 +673,11 @@ command definition, prompt command
 
 ## Flagged ambiguities
 
+- "host" can mean the external coding agent or RunWield's live-session runtime; resolved: use **External Agent Host**
+  for Claude Code, Codex, OpenCode, or Pi, and **Session Host** for RunWield's runtime boundary.
+- "skippable Attached Mode" was used to suggest both bypassing active gates and ordinary host use; resolved:
+  installation is inert for normal requests, and a user explicitly invokes one **Attached Workflow** when RunWield
+  should govern a request.
 - "core" was used to imply that a Memory is shared; resolved: **Core Memory** controls always-on injection, while
   **Local Memory** and **Team Memory** define audience independently.
 - "ticket" and "Plan" can both describe units of work; resolved: a **Ticket** belongs to an **External Work Source** and
