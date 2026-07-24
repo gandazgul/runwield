@@ -394,6 +394,46 @@ install_helper() {
   echo "[wld installer] Installed ${name} to ${INSTALL_DIR}/${name}"
 }
 
+install_agent_browser() {
+  local name="agent-browser"
+  local existing npm_prefix npm_bin wrapper_path
+
+  if existing="$(helper_existing_path "$name")"; then
+    PRESERVED_HELPERS+=("${name}:${existing}")
+    echo "[wld installer] Preserving existing ${name}: ${existing}"
+    return 0
+  fi
+
+  if ! command -v npm >/dev/null 2>&1; then
+    echo "[wld installer] Missing npm, which is required to install agent-browser." >&2
+    return 1
+  fi
+
+  npm_prefix="${INSTALL_DIR}/.agent-browser-npm"
+  npm_bin="${npm_prefix}/bin/agent-browser"
+  wrapper_path="${INSTALL_DIR}/agent-browser"
+  mkdir -p "$npm_prefix"
+
+  echo "[wld installer] Installing agent-browser with npm ..."
+  if ! npm install --global --prefix "$npm_prefix" agent-browser; then
+    echo "[wld installer] Failed to install agent-browser with npm." >&2
+    return 1
+  fi
+
+  if [[ ! -x "$npm_bin" ]]; then
+    echo "[wld installer] npm installation did not produce executable '${npm_bin}'." >&2
+    return 1
+  fi
+
+  cat >"$wrapper_path" <<EOF
+#!/usr/bin/env bash
+exec "${npm_bin}" "\$@"
+EOF
+  chmod 755 "$wrapper_path"
+  INSTALLED_HELPERS+=("${name}:${wrapper_path}")
+  echo "[wld installer] Installed agent-browser to ${wrapper_path}"
+}
+
 prompt_install_snip_filters() {
   local wld_bin snip_bin answer
   wld_bin="${INSTALL_DIR}/wld"
@@ -483,6 +523,10 @@ if ! install_helper mnemosyne "$MNEMOSYNE_REPO" required; then
 fi
 if ! install_helper cymbal "$CYMBAL_REPO" required; then
   echo "[wld installer] Required helper Cymbal could not be installed. Rerun this installer after fixing the error above." >&2
+  exit 1
+fi
+if ! install_agent_browser; then
+  echo "[wld installer] Required helper agent-browser could not be installed. Rerun this installer after fixing the error above." >&2
   exit 1
 fi
 if ! install_helper snip "$SNIP_REPO" optional; then

@@ -407,6 +407,17 @@ function formatFrontMatter(fm) {
     return lines.join("\n");
 }
 
+/**
+ * @param {string} frontMatter
+ * @param {string} body
+ * @returns {string}
+ */
+function joinFrontMatterAndBody(frontMatter, body) {
+    const trimmedBody = body.trimStart();
+    if (!trimmedBody) return `${frontMatter}\n`;
+    return `${frontMatter}\n\n${trimmedBody}`;
+}
+
 const PLAN_STATUSES = new Set([
     "draft",
     "feedback",
@@ -873,7 +884,7 @@ export function injectFrontMatter(markdown, overrides = {}) {
     delete /** @type {Record<string, unknown>} */ (fm).collaborationMode;
     assertExecutionPolicyWriteAllowed(overrides, fm);
 
-    return formatFrontMatter(fm) + "\n" + body.trimStart();
+    return joinFrontMatterAndBody(formatFrontMatter(fm), body);
 }
 
 /**
@@ -1092,7 +1103,7 @@ function mergeFrontMatterText(markdown, overrides) {
 
     const overrideLines = formatFrontMatterOverrideLines(overrides);
     const mergedLines = ["---", ...innerLines, ...overrideLines, "---"];
-    return `${mergedLines.join(eol)}${eol}${body}`;
+    return joinFrontMatterAndBody(mergedLines.join(eol), body);
 }
 
 /**
@@ -2133,7 +2144,7 @@ function isHiddenPlanName(name) {
  * @returns {string}
  */
 function rewritePlanMetadata(attrs, body) {
-    return `${formatFrontMatter(attrs)}\n${body}`;
+    return joinFrontMatterAndBody(formatFrontMatter(attrs), body);
 }
 
 /**

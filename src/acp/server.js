@@ -315,7 +315,7 @@ export function createRunWieldAcpServer(options = {}) {
         if (!acpSessionId || typeof acpSessionId !== "string") {
             throwInvalidParams("session/prompt requires sessionId");
         }
-        const runtimeSessionId = sessionMap.getRuntimeSessionId(acpSessionId);
+        let runtimeSessionId = /** @type {string} */ (sessionMap.getRuntimeSessionId(acpSessionId));
         if (!runtimeSessionId) throwUnknownSession(acpSessionId);
         const promptText = convertAcpPromptToText(request.prompt);
 
@@ -347,6 +347,36 @@ export function createRunWieldAcpServer(options = {}) {
             }
         };
 
+        const subscribeCurrentRuntimeSession = () => {
+            unsubscribe = runtime.subscribeSessionEvents(runtimeSessionId, (event) => {
+                if (event.type === "session_replaced") {
+                    const replacement = /** @type {any} */ (event);
+                    sessionMap.replaceRuntimeSession(acpSessionId, {
+                        sessionId: replacement.newSessionId,
+                        cwd: sessionMap.getRecord(acpSessionId)?.cwd,
+                    });
+                    runtime.setInteractionAdapter?.(
+                        replacement.newSessionId,
+                        createAcpInteractionAdapter({
+                            context,
+                            acpSessionId,
+                            clientCapabilities,
+                        }),
+                    );
+                    const previousUnsubscribe = unsubscribe;
+                    runtimeSessionId = replacement.newSessionId;
+                    previousUnsubscribe();
+                    subscribeCurrentRuntimeSession();
+                    return;
+                }
+                const notification = mapRuntimeEventToAcpSessionNotification(acpSessionId, event);
+                if (!notification) return;
+                const pending = notifyClient(context, methods.client.session.update, notification);
+                pendingNotifications.push(pending);
+                return pending;
+            });
+        };
+
         try {
             const runtimePrompt = runtime.promptSession(runtimeSessionId, {
                 initialRequest: promptText,
@@ -368,13 +398,7 @@ export function createRunWieldAcpServer(options = {}) {
                                 clientCapabilities,
                             }),
                         );
-                        unsubscribe = runtime.subscribeSessionEvents(runtimeSessionId, (event) => {
-                            const notification = mapRuntimeEventToAcpSessionNotification(acpSessionId, event);
-                            if (!notification) return;
-                            const pending = notifyClient(context, methods.client.session.update, notification);
-                            pendingNotifications.push(pending);
-                            return pending;
-                        });
+                        subscribeCurrentRuntimeSession();
                     } catch (error) {
                         cleanupPrompt();
                         throw error;

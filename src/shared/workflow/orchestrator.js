@@ -541,7 +541,7 @@ export async function dispatchPostTriage(
         if (executionDecision.kind === "run_validation") {
             const plan = await loadPlanImpl(projectRoot, planName);
             if (shouldRunWorkflowValidationImpl(decisionTriageMeta)) {
-                await runValidationLoopImpl({
+                const validationResult = await runValidationLoopImpl({
                     hostedSession,
                     planName,
                     planContent: plan?.markdown || "",
@@ -561,6 +561,7 @@ export async function dispatchPostTriage(
                         executionDecisionKind: executionDecision.kind,
                     },
                 });
+                return validationResult;
             } else {
                 await recordWorkflowMetricImpl({
                     category: "execution",

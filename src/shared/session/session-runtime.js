@@ -29,6 +29,7 @@ import {
 } from "./root-session.js";
 import {
     createSessionRuntimeEvent,
+    emitSystemStatus,
     getRuntimeErrorMessage,
     normalizeRuntimeToolResult,
     normalizeRuntimeUsage,
@@ -1078,10 +1079,12 @@ export class SessionRuntime {
     async runValidation(sessionId, options) {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) throw new Error("SessionRuntime.runValidation: session not found");
-        return await this.#runBusyOperation(session.id, async () => {
+        const result = await this.#runBusyOperation(session.id, async () => {
             const { runValidationLoop } = await import("../workflow/validation.js");
             return await runValidationLoop(/** @type {any} */ ({ ...options, hostedSession: session }));
         });
+        await this.#continueEpicAfterValidation(session, /** @type {any} */ (result));
+        return result;
     }
 
     /** @param {string} sessionId @param {boolean} enabled */
@@ -1771,6 +1774,75 @@ export class SessionRuntime {
     }
 
     /**
+     * @param {import('./hosted-session.js').HostedSession} oldSession
+     * @param {import('../workflow/validation.js').WorkflowValidationResult | undefined | null} validationResult
+     * @returns {Promise<{ replaced: boolean, sessionId?: string }>}
+     */
+    async #continueEpicAfterValidation(oldSession, validationResult) {
+        let currentContinuation = validationResult?.epicContinuation || null;
+        if (!currentContinuation) return { replaced: false };
+        let currentOldSession = oldSession;
+        /** @type {string | undefined} */
+        let latestSessionId;
+        while (currentContinuation) {
+            const { resolveEpicContinuation, runEpicChildContinuation } = await import(
+                "../workflow/epic-continuation.js"
+            );
+            const resolution = await resolveEpicContinuation({
+                cwd: currentContinuation.projectRoot,
+                completedPlanName: currentContinuation.completedPlanName,
+            });
+            if (
+                !["plan", "readiness_execute", "execute"].includes(resolution.kind) || !resolution.childPlanName ||
+                !resolution.parentPlanName
+            ) {
+                const message = resolution.kind === "blocked"
+                    ? `Epic continuation stopped at ${resolution.childPlanName || "next child"}: ${
+                        resolution.reason || "blocked"
+                    }.`
+                    : `Epic continuation complete: ${resolution.reason || "no remaining work"}.`;
+                emitSystemStatus(currentOldSession, message, {
+                    level: resolution.kind === "blocked" ? "warning" : "success",
+                    header: "RunWield",
+                });
+                return { replaced: Boolean(latestSessionId), sessionId: latestSessionId };
+            }
+            const action = /** @type {"plan"|"readiness_execute"|"execute"} */ (resolution.kind);
+
+            const adapter = currentOldSession.getInteractionAdapter();
+            const newSessionId = await this.createPromptReadySession({
+                cwd: currentContinuation.projectRoot,
+                agentName: action === "plan" ? AGENTS.PLANNER : AGENTS.ENGINEER,
+            });
+            const newSession = this.#sessionHost.getSession(newSessionId);
+            if (!newSession) throw new Error("Epic continuation replacement session was not retained");
+            newSession.setInteractionAdapter(adapter);
+            await this.renameSession(newSessionId, `Epic child: ${resolution.childPlanName}`);
+            this.#emitSessionEvent(currentOldSession.id, {
+                type: RuntimeEventTypes.SESSION_REPLACED,
+                oldSessionId: currentOldSession.id,
+                newSessionId,
+                reason: "epic_continuation",
+                parentPlanName: resolution.parentPlanName,
+                completedPlanName: resolution.completedPlanName,
+                childPlanName: resolution.childPlanName,
+                action,
+            });
+            this.closeSession(currentOldSession.id);
+            latestSessionId = newSessionId;
+            const nextResult = await this.#runBusyOperation(newSessionId, () =>
+                runEpicChildContinuation({
+                    hostedSession: newSession,
+                    resolution,
+                    sessionManager: /** @type {any} */ (newSession.getRootSessionManager() || undefined),
+                }));
+            currentContinuation = nextResult?.epicContinuation || null;
+            currentOldSession = newSession;
+        }
+        return { replaced: Boolean(latestSessionId), sessionId: latestSessionId };
+    }
+
+    /**
      * @param {string} sessionId
      * @param {{ agentName: string, model?: string, allowReturnToRouter?: boolean }} options
      */
@@ -1838,8 +1910,10 @@ export class SessionRuntime {
         let handoffs = 0;
         let ok = false;
         let busyStarted = false;
+        /** @type {import('../workflow/validation.js').WorkflowValidationResult | null} */
+        let validationResult = null;
         let result =
-            /** @type {{ ok: boolean, turns: number, handoffs: number, handoffLimitReached: boolean, error?: string } | null} */ (null);
+            /** @type {{ ok: boolean, turns: number, handoffs: number, handoffLimitReached: boolean, error?: string, replacementSessionId?: string } | null} */ (null);
 
         try {
             const cleanup = options.onTurnStarted?.({ turnId });
@@ -1906,6 +1980,7 @@ export class SessionRuntime {
                 turns++;
 
                 if (!turnResult || turnResult.kind !== "handoff") {
+                    validationResult = /** @type {any} */ (turnResult)?.validationResult || null;
                     ok = true;
                     result = { ok: true, turns, handoffs, handoffLimitReached: false };
                     return result;
@@ -1930,6 +2005,12 @@ export class SessionRuntime {
                 });
                 request = turnResult.userRequest;
                 images = [];
+                this.#emitSessionEvent(hostedSession.id, {
+                    type: RuntimeEventTypes.USER_MESSAGE,
+                    turnId,
+                    text: request,
+                    images,
+                });
             }
 
             ok = true;
@@ -1960,6 +2041,10 @@ export class SessionRuntime {
             settleTurn();
             if (this.#turnSettlements.get(hostedSession.id) === turnSettlement) {
                 this.#turnSettlements.delete(hostedSession.id);
+            }
+            if (ok && validationResult?.epicContinuation && result) {
+                const replacement = await this.#continueEpicAfterValidation(hostedSession, validationResult);
+                if (replacement.sessionId) result.replacementSessionId = replacement.sessionId;
             }
         }
     }

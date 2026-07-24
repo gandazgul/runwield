@@ -526,6 +526,45 @@ Deno.test("SessionRuntime allows independent session ids to run concurrently", a
     assertEquals((await Promise.all(prompts)).map((result) => result.ok), [true, true]);
 });
 
+Deno.test("SessionRuntime emits the return-to-router prompt before the handed-off Router turn", async () => {
+    /** @type {string[]} */
+    const receivedRequests = [];
+    const runtime = makeRuntime({
+        createAgentHandler: (agentName) => {
+            if (agentName === "engineer") {
+                return (userRequest) => {
+                    receivedRequests.push(`${agentName}:${userRequest}`);
+                    return Promise.resolve({
+                        kind: "handoff",
+                        agentName: "router",
+                        userRequest: "The user needs fresh triage.",
+                    });
+                };
+            }
+            return (userRequest) => {
+                receivedRequests.push(`${agentName}:${userRequest}`);
+                return Promise.resolve({ kind: "complete" });
+            };
+        },
+    });
+    const sessionId = await runtime.createPromptReadySession({ cwd: Deno.cwd(), agentName: "engineer" });
+    /** @type {string[]} */
+    const userMessages = [];
+    /** @type {string[]} */
+    const agentChanges = [];
+    runtime.subscribeSessionEvents(sessionId, (event) => {
+        if (event.type === RuntimeEventTypes.USER_MESSAGE) userMessages.push(event.text);
+        if (event.type === RuntimeEventTypes.AGENT_CHANGED) agentChanges.push(event.agentName);
+    });
+
+    const result = await runtime.promptSession(sessionId, { initialRequest: "fix this", initialImages: [] });
+
+    assertEquals(result, { ok: true, turns: 2, handoffs: 1, handoffLimitReached: false });
+    assertEquals(receivedRequests, ["engineer:fix this", "router:The user needs fresh triage."]);
+    assertEquals(userMessages, ["fix this", "The user needs fresh triage."]);
+    assertEquals(agentChanges, ["router"]);
+});
+
 Deno.test("SessionRuntime preserves the chained handoff limit", async () => {
     let turnCount = 0;
     /** @type {import('./types.js').AgentMessageHandler} */

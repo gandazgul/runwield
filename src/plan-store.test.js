@@ -74,6 +74,16 @@ Deno.test("injectFrontMatter escapes YAML double-quoted values", () => {
     assertEquals(attrs.affectedPaths, ['<|"|src/tools/user-interview.js<|"|']);
 });
 
+Deno.test("injectFrontMatter keeps markdown formatted after front matter updates", () => {
+    const firstWrite = injectFrontMatter("# Plan\n\nBody", { status: "draft" });
+    const secondWrite = injectFrontMatter(firstWrite, { status: "feedback" });
+    const emptyWrite = injectFrontMatter("", { status: "draft" });
+
+    assertStringIncludes(firstWrite, "---\n\n# Plan");
+    assertStringIncludes(secondWrite, "---\n\n# Plan");
+    assertEquals(parsePlanFrontMatter(emptyWrite).body, "");
+});
+
 Deno.test("Plan Work Record metadata round trips with nested YAML", () => {
     const markdown = "## Plan\n\nBody";
     const withFm = injectFrontMatter(markdown, {

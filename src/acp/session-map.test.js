@@ -22,3 +22,17 @@ Deno.test("AcpSessionMap correlates runtime-owned turns without enforcing exclus
     assertEquals(second.cancelled, true);
     assertEquals(sessionMap.endPrompt("acp-1", second), true);
 });
+
+Deno.test("AcpSessionMap remaps a stable ACP session to a replacement runtime session", () => {
+    const sessionMap = new AcpSessionMap();
+    sessionMap.createRecord(/** @type {any} */ ({ sessionId: "runtime-1", cwd: "/repo" }), {
+        acpSessionId: "acp-1",
+    });
+
+    const record = sessionMap.replaceRuntimeSession("acp-1", { sessionId: "runtime-2", cwd: "/repo" });
+    assert(record);
+    assertEquals(record.runtimeSessionId, "runtime-2");
+    assertEquals(sessionMap.getRuntimeSessionId("acp-1"), "runtime-2");
+    assertEquals(sessionMap.getAcpSessionIdForRuntimeSession("runtime-1"), null);
+    assertEquals(sessionMap.getAcpSessionIdForRuntimeSession("runtime-2"), "acp-1");
+});

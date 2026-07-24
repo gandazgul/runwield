@@ -135,6 +135,22 @@ export class AcpSessionMap {
         return this.getRecord(acpSessionId)?.activePrompt === prompt;
     }
 
+    /**
+     * Atomically remap a stable ACP id to a replacement Runtime session id.
+     *
+     * @param {string} acpSessionId
+     * @param {{ sessionId: string, cwd?: string }} session
+     */
+    replaceRuntimeSession(acpSessionId, session) {
+        const record = this.getRecord(acpSessionId);
+        if (!record) return null;
+        this.acpIdsByRuntimeSessionId.delete(record.runtimeSessionId);
+        record.runtimeSessionId = session.sessionId;
+        if (session.cwd) record.cwd = session.cwd;
+        this.acpIdsByRuntimeSessionId.set(session.sessionId, acpSessionId);
+        return record;
+    }
+
     /** @param {string} acpSessionId */
     markCancelled(acpSessionId) {
         const record = this.getRecord(acpSessionId);
