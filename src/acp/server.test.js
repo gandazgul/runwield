@@ -180,13 +180,6 @@ Deno.test("ACP server diagnostics stay out of protocol output", async () => {
 });
 
 Deno.test("CLI --mode acp routes to ACP stdio without stdout diagnostics", async () => {
-    const versionResult = await new Deno.Command(Deno.execPath(), {
-        args: ["run", "-A", "scripts/write-version.js"],
-        stdout: "null",
-        stderr: "null",
-    }).output();
-    assertEquals(versionResult.code, 0);
-
     const child = new Deno.Command(Deno.execPath(), {
         args: ["run", "-A", "src/cli.js", "--mode", "acp"],
         stdin: "piped",
