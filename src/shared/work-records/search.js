@@ -104,7 +104,7 @@ export async function searchWorkRecords(cwd, query, options = {}) {
     if (!trimmed) throw new Error("Work Record search query is required.");
     const accessMode = options.includeAll ? "all" : options.accessMode || "current";
     const bootstrap = await ensureSearchBootstrap(cwd, options);
-    const collection = getWorkRecordIndexCollectionName(cwd);
+    const collection = await getWorkRecordIndexCollectionName(cwd);
     const output = await runMnemosyneWorkRecordCommand(cwd, [
         "search",
         "--name",
