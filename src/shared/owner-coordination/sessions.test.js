@@ -1,4 +1,5 @@
 import { assert, assertEquals, assertRejects } from "@std/assert";
+import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import { getRunWieldSessionDir } from "../session/root-session.js";
 import { openOwnerCoordinationDatabase } from "./database.js";
 import { registerProject } from "./projects.js";
@@ -39,41 +40,46 @@ async function writeTranscript(cwd, piSessionId, options = {}) {
 }
 
 Deno.test("Session listing lazily catalogs legacy transcripts without storing message bodies", async () => {
-    const previousHome = Deno.env.get("HOME");
-    const dir = await Deno.makeTempDir({ prefix: "runwield-session-catalog-" });
-    Deno.env.set("HOME", dir);
-    const database = openOwnerCoordinationDatabase({ dbPath: `${dir}/owner.sqlite3` });
-    try {
-        const root = `${dir}/repo`;
-        await Deno.mkdir(root);
-        const project = registerProject(database, { root, idFactory: idFactory(), now: () => "t1" });
-        const transcriptPath = await writeTranscript(root, "pi-1", {
-            body: JSON.stringify({ type: "message", message: { content: [{ type: "text", text: "secret body" }] } }),
-        });
-        const before = await Deno.stat(transcriptPath);
-        const result = await listProjectSessions(database, project.projectId, {
-            idFactory: idFactory(),
-            now: () => "t2",
-        });
-        const after = await Deno.stat(transcriptPath);
+    await withProcessGlobalTestLock(async () => {
+        const previousHome = Deno.env.get("HOME");
+        const dir = await Deno.makeTempDir({ prefix: "runwield-session-catalog-" });
+        Deno.env.set("HOME", dir);
+        const database = openOwnerCoordinationDatabase({ dbPath: `${dir}/owner.sqlite3` });
+        try {
+            const root = `${dir}/repo`;
+            await Deno.mkdir(root);
+            const project = registerProject(database, { root, idFactory: idFactory(), now: () => "t1" });
+            const transcriptPath = await writeTranscript(root, "pi-1", {
+                body: JSON.stringify({
+                    type: "message",
+                    message: { content: [{ type: "text", text: "secret body" }] },
+                }),
+            });
+            const before = await Deno.stat(transcriptPath);
+            const result = await listProjectSessions(database, project.projectId, {
+                idFactory: idFactory(),
+                now: () => "t2",
+            });
+            const after = await Deno.stat(transcriptPath);
 
-        assertEquals(result.diagnostics, []);
-        assertEquals(result.sessions.length, 1);
-        assertEquals(result.sessions[0].projectId, project.projectId);
-        assertEquals(result.sessions[0].piSessionId, "pi-1");
-        assertEquals(result.sessions[0].transcriptPath, transcriptPath);
-        assertEquals(before.mtime?.getTime(), after.mtime?.getTime());
+            assertEquals(result.diagnostics, []);
+            assertEquals(result.sessions.length, 1);
+            assertEquals(result.sessions[0].projectId, project.projectId);
+            assertEquals(result.sessions[0].piSessionId, "pi-1");
+            assertEquals(result.sessions[0].transcriptPath, transcriptPath);
+            assertEquals(before.mtime?.getTime(), after.mtime?.getTime());
 
-        const rows = database.handle.prepare("SELECT display_name FROM runwield_sessions").all();
-        assertEquals(rows, [{ display_name: null }]);
-        const raw = JSON.stringify(database.handle.prepare("SELECT * FROM session_transcript_locators").all());
-        assert(!raw.includes("secret body"));
-    } finally {
-        database.close();
-        if (previousHome === undefined) Deno.env.delete("HOME");
-        else Deno.env.set("HOME", previousHome);
-        await Deno.remove(dir, { recursive: true });
-    }
+            const rows = database.handle.prepare("SELECT display_name FROM runwield_sessions").all();
+            assertEquals(rows, [{ display_name: null }]);
+            const raw = JSON.stringify(database.handle.prepare("SELECT * FROM session_transcript_locators").all());
+            assert(!raw.includes("secret body"));
+        } finally {
+            database.close();
+            if (previousHome === undefined) Deno.env.delete("HOME");
+            else Deno.env.set("HOME", previousHome);
+            await Deno.remove(dir, { recursive: true });
+        }
+    });
 });
 
 Deno.test("Session catalog scans registered symlink alias session directories", async () => {
