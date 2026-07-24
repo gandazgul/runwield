@@ -3,7 +3,7 @@
  * Mnemosyne memory extension for RunWield agent invocations.
  */
 
-import { basename } from "@std/path";
+import { basename, dirname, isAbsolute, join, normalize } from "@std/path";
 import { Type } from "@sinclair/typebox";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 
@@ -90,6 +90,43 @@ export const memoryDeleteToolDef = defineTool({
 });
 
 /**
+ * @param {string} rawName
+ * @returns {string}
+ */
+function normalizedProjectCollectionName(rawName) {
+    return rawName === "global" ? "default" : (rawName || "default");
+}
+
+/**
+ * Resolve a stable project collection name from the primary git checkout when running
+ * inside an execution worktree. Linked git worktrees share a common .git directory
+ * with the primary checkout, so the common dir's parent gives the durable project
+ * directory rather than the transient worktree directory.
+ *
+ * @param {import('@earendil-works/pi-coding-agent').ExtensionAPI} pi
+ * @param {string} cwd
+ * @returns {Promise<string>}
+ */
+async function resolveProjectCollectionName(pi, cwd) {
+    const fallback = normalizedProjectCollectionName(basename(cwd));
+
+    try {
+        const result = await pi.exec("git", ["rev-parse", "--git-common-dir"], { cwd });
+        if (result.code !== 0) return fallback;
+
+        const commonDir = result.stdout.trim().split(/\r?\n/).at(-1) || "";
+        if (!commonDir) return fallback;
+
+        const absoluteCommonDir = normalize(isAbsolute(commonDir) ? commonDir : join(cwd, commonDir));
+        if (basename(absoluteCommonDir) !== ".git") return fallback;
+
+        return normalizedProjectCollectionName(basename(dirname(absoluteCommonDir)));
+    } catch {
+        return fallback;
+    }
+}
+
+/**
  * Register Mnemosyne lifecycle hooks and memory tools.
  *
  * @param {import('@earendil-works/pi-coding-agent').ExtensionAPI} pi
@@ -133,9 +170,7 @@ export default function mnemosyneExtension(pi) {
 
     pi.on("session_start", async (_event, ctx) => {
         projectCwd = ctx.cwd;
-
-        const rawName = basename(projectCwd);
-        projectName = rawName === "global" ? "default" : (rawName || "default");
+        projectName = await resolveProjectCollectionName(pi, projectCwd);
 
         // Auto-init project collection (idempotent).
         try {

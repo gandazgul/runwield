@@ -474,6 +474,12 @@ command definition, prompt command
 - During an **Attached Workflow**, the **External Agent Host** supplies every model call while RunWield remains the
   authority for durable Plans, Plan Lifecycle, review, validation outcomes, recovery evidence, Work Records, and
   organizational memory.
+- An **Attached Workflow** persists structured workflow evidence and durable artifacts without copying the **External
+  Agent Host** conversation transcript; ordinary host conversations remain outside RunWield entirely.
+- Planned implementation in an **Attached Workflow** uses a RunWield-owned worktree by default and may use an **External
+  Agent Host** worker while preserving the invoking host conversation.
+- A **Verified Plan** has the same meaning in Attached, Managed, and Native experiences; host limitations cannot weaken
+  Workflow Validation semantics.
 - **Attached Mode** is a durable first-class product mode; movement to Managed or Native experiences is an optional
   progression rather than a prerequisite for complete Attached workflows.
 - An **External Work Source** owns demand management, while RunWield owns planning, execution, Plan Lifecycle, and
