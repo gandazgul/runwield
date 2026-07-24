@@ -11,7 +11,7 @@
  *   issuing owner-database SQL directly.
  */
 
-import { openOwnerCoordinationDatabase } from "./database.js";
+import { getOwnerCoordinationDatabaseEpoch, openOwnerCoordinationDatabase } from "./database.js";
 import { getOwnerCoordinationDatabasePath, OWNER_COORDINATION_DB_FILENAME } from "./paths.js";
 import { OWNER_COORDINATION_SCHEMA_VERSION } from "./schema.js";
 import {
@@ -40,6 +40,22 @@ import {
     createPairingRequest,
     getPairingRequestByProof,
 } from "./pairing.js";
+import {
+    acknowledgeActivationProtocol,
+    getActivationProtocolStatus,
+    requireActivationProtocolEnabled,
+} from "./activation-protocol.js";
+import {
+    acquireSessionActivation,
+    changeSessionActivationPhase,
+    createOrGetOperationReceipt,
+    heartbeatSessionActivation,
+    inspectSessionActivation,
+    markSessionReconcileRequired,
+    markSessionUncertain,
+    publishGenerationAndRelease,
+    releaseUnchangedActivation,
+} from "./session-activations.js";
 
 export { getOwnerCoordinationDatabasePath, OWNER_COORDINATION_DB_FILENAME, OWNER_COORDINATION_SCHEMA_VERSION };
 export { OWNER_CSRF_COOKIE, OWNER_DEVICE_COOKIE, OWNER_DEVICE_MAX_AGE_SECONDS } from "./devices.js";
@@ -71,6 +87,19 @@ export { OWNER_CSRF_COOKIE, OWNER_DEVICE_COOKIE, OWNER_DEVICE_MAX_AGE_SECONDS } 
  * @property {(credential: string, options?: Parameters<typeof verifyDeviceCredential>[2]) => ReturnType<typeof verifyDeviceCredential>} verifyDeviceCredential
  * @property {(deviceId: string, csrf: string) => ReturnType<typeof verifyDeviceCsrf>} verifyDeviceCsrf
  * @property {(deviceId: string, options?: Parameters<typeof revokeDevice>[2]) => ReturnType<typeof revokeDevice>} revokeDevice
+ * @property {() => string | null} getDatabaseEpoch
+ * @property {() => ReturnType<typeof getActivationProtocolStatus>} getActivationProtocolStatus
+ * @property {(options?: Parameters<typeof acknowledgeActivationProtocol>[1]) => ReturnType<typeof acknowledgeActivationProtocol>} acknowledgeActivationProtocol
+ * @property {() => ReturnType<typeof requireActivationProtocolEnabled>} requireActivationProtocolEnabled
+ * @property {(runwieldSessionId: string) => ReturnType<typeof inspectSessionActivation>} inspectSessionActivation
+ * @property {(options: Parameters<typeof acquireSessionActivation>[1]) => ReturnType<typeof acquireSessionActivation>} acquireSessionActivation
+ * @property {(proof: Parameters<typeof heartbeatSessionActivation>[1], options?: Parameters<typeof heartbeatSessionActivation>[2]) => ReturnType<typeof heartbeatSessionActivation>} heartbeatSessionActivation
+ * @property {(proof: Parameters<typeof changeSessionActivationPhase>[1], nextPhase: Parameters<typeof changeSessionActivationPhase>[2], options?: Parameters<typeof changeSessionActivationPhase>[3]) => ReturnType<typeof changeSessionActivationPhase>} changeSessionActivationPhase
+ * @property {(proof: Parameters<typeof publishGenerationAndRelease>[1], evidence: Parameters<typeof publishGenerationAndRelease>[2], options?: Parameters<typeof publishGenerationAndRelease>[3]) => ReturnType<typeof publishGenerationAndRelease>} publishGenerationAndRelease
+ * @property {(proof: Parameters<typeof releaseUnchangedActivation>[1], options?: Parameters<typeof releaseUnchangedActivation>[2]) => ReturnType<typeof releaseUnchangedActivation>} releaseUnchangedActivation
+ * @property {(session: Parameters<typeof markSessionReconcileRequired>[1], options?: Parameters<typeof markSessionReconcileRequired>[2]) => ReturnType<typeof markSessionReconcileRequired>} markSessionReconcileRequired
+ * @property {(proof: Parameters<typeof markSessionUncertain>[1], options?: Parameters<typeof markSessionUncertain>[2]) => ReturnType<typeof markSessionUncertain>} markSessionUncertain
+ * @property {(options: Parameters<typeof createOrGetOperationReceipt>[1]) => ReturnType<typeof createOrGetOperationReceipt>} createOrGetOperationReceipt
  */
 
 /**
@@ -112,5 +141,23 @@ export function openOwnerCoordinationStore(options = {}) {
             verifyDeviceCredential(database, credential, deviceOptions),
         verifyDeviceCsrf: (deviceId, csrf) => verifyDeviceCsrf(database, deviceId, csrf),
         revokeDevice: (deviceId, deviceOptions) => revokeDevice(database, deviceId, deviceOptions),
+        getDatabaseEpoch: () => getOwnerCoordinationDatabaseEpoch(database.handle),
+        getActivationProtocolStatus: () => getActivationProtocolStatus(database),
+        acknowledgeActivationProtocol: (protocolOptions) => acknowledgeActivationProtocol(database, protocolOptions),
+        requireActivationProtocolEnabled: () => requireActivationProtocolEnabled(database),
+        inspectSessionActivation: (runwieldSessionId) => inspectSessionActivation(database, runwieldSessionId),
+        acquireSessionActivation: (activationOptions) => acquireSessionActivation(database, activationOptions),
+        heartbeatSessionActivation: (proof, heartbeatOptions) =>
+            heartbeatSessionActivation(database, proof, heartbeatOptions),
+        changeSessionActivationPhase: (proof, nextPhase, activationOptions) =>
+            changeSessionActivationPhase(database, proof, nextPhase, activationOptions),
+        publishGenerationAndRelease: (proof, evidence, activationOptions) =>
+            publishGenerationAndRelease(database, proof, evidence, activationOptions),
+        releaseUnchangedActivation: (proof, activationOptions) =>
+            releaseUnchangedActivation(database, proof, activationOptions),
+        markSessionReconcileRequired: (session, activationOptions) =>
+            markSessionReconcileRequired(database, session, activationOptions),
+        markSessionUncertain: (proof, activationOptions) => markSessionUncertain(database, proof, activationOptions),
+        createOrGetOperationReceipt: (operationOptions) => createOrGetOperationReceipt(database, operationOptions),
     };
 }

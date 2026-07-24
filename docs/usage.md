@@ -174,6 +174,21 @@ Projects must be explicitly registered before Workspace can show their Plans. Th
 Plan Board inside the registered Project boundary. In the bootstrap slice, owner Project Plan views are read-only until
 later Plan Workflow Lease enforcement enables consequential remote Plan mutations safely.
 
+Session continuation is activation-gated and disabled by default. To allow owner Workspace to continue registered
+Project Sessions, stop all older pre-v3 RunWield TUI, ACP, and Workspace processes first, then restart with:
+
+```bash
+wld workspace serve --enable-session-activation
+```
+
+The flag records an owner-only acknowledgement for the current coordination database epoch. If the database is replaced
+or the acknowledgement is missing, Workspace keeps Plan/Project reads available but Session continuation routes fail
+closed until the protocol is re-enabled. Supported continuation is conversation-only for idle managed Sessions; remote
+Plan materialization, workflow gates, shell/repository actions, image turns, and other consequential direct mutations
+are blocked until later lease slices. Activation conflicts, stale generations, transcript mismatches, heartbeat expiry,
+or lost database evidence are reported conservatively and require local recovery rather than automatic takeover or
+replay.
+
 `wld plans ui` remains the temporary current-checkout compatibility launcher. Use it when you want a one-shot local Plan
 Board without registering the Project or pairing a device.
 
