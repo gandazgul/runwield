@@ -46,8 +46,9 @@ Development and interactive workflow testing use these binaries in `PATH`:
 
 - [`mnemosyne`](https://github.com/gandazgul/mnemosyne) for memory-backed agent behavior.
 - [`cymbal`](https://github.com/1broseidon/cymbal) for code intelligence.
-- [`snip`](https://github.com/edouard-claude/snip) for compact command-output rewriting. RunWield runtime treats Snip as
-  optional and ships bundled filters for compact `deno check`, `deno fmt`, `deno lint`, and `deno test` output.
+- [`snip`](https://github.com/edouard-claude/snip) for compact command-output rewriting. RunWield runtime and repository
+  validation tasks treat Snip as optional and fall back to plain Deno commands when it is not installed. RunWield ships
+  bundled filters for compact `deno check`, `deno fmt`, `deno lint`, and `deno test` output.
 
   **How RunWield integrates Snip at runtime:**
 

@@ -146,7 +146,9 @@ Deno.test("review request forwarding does not inherit Deno.serve's legacy abort 
 
     assertEquals(output.success, true);
     const stderr = new TextDecoder().decode(output.stderr).split("\n").filter((line) => {
-        return !line.includes("Blocking") || !line.includes("waiting for file lock on node_modules directory");
+        if (line.includes("Blocking") && line.includes("waiting for file lock on node_modules directory")) return false;
+        if (line.startsWith("\u001b[0m\u001b[32mDownload\u001b[0m ")) return false;
+        return line !== "";
     }).join("\n");
     assertEquals(stderr, "");
 });
@@ -900,7 +902,7 @@ Deno.test("review image endpoints upload and serve an annotated image", async ()
         reviewPayload: {},
         reviewType: "plan",
     }).handler();
-    const bytes = new Uint8Array([137, 80, 78, 71]);
+    const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
     const formData = new FormData();
     formData.set("file", new File([bytes], "annotated.png", { type: "image/png" }));
 
