@@ -57,10 +57,25 @@ Typical flow:
 6. RunWield runs workflow validation.
 7. The plan is marked verified after validation and merge-back succeed.
 
-The selected `collaborationMode` is durable Plan execution metadata. A resumed Pair run automatically pairs again in a
-capable TUI after Frontend Engineer restarts or reconnects its dev server and headed browser. ACP, headless, and other
-incapable hosts temporarily run autonomously without changing the stored Pair selection. Validation repairs preserve the
-original execution owner and collaboration mode.
+Executable FEATURE Plans express ownership with `executionAgent: "engineer" | "frontend-engineer"`. Frontend-owned
+FEATURE Plans may add `collaborationRecommendation: "autonomous" | "pair"` to capture Planner guidance; Pair is a
+runtime style, not a separate Agent. PROJECT Epics are non-executable containers and should not receive an execution
+Agent solely because their child work may include browser UI.
+
+The legacy `frontend` field is retired from new Plan writes and active nonterminal Plans. For compatibility, a legacy
+executable FEATURE with `frontend: true` resolves to Frontend Engineer plus autonomous execution; `frontend: false` has
+no effect. Legacy PROJECT Epics remain non-executable and any old value is only historical child-slicing context.
+
+Runtime collaboration style is ephemeral active-workflow state, not durable Plan execution metadata. Each execution or
+recovery derives the style from the current Plan recommendation and current host capability: a Frontend Engineer Plan
+with `collaborationRecommendation: "pair"` uses Pair only in a capable TUI, while ACP, headless, and other incapable
+hosts run autonomously without writing a fallback style to the Plan. If runtime context is lost, recovery re-derives
+from the Plan and host instead of restoring or asking for a stored selection. Validation repairs preserve the original
+execution owner and expose the active repair context only for that repair turn.
+
+Pair checkpoints are implementation-time steering points only. They may approve an increment, request revision, switch
+the remaining work to autonomous execution, or stop the run in progress; they are not Task Completion, Manual QA,
+Workflow Validation, semantic review, or browser verification evidence.
 
 ## PROJECT
 

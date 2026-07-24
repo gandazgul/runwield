@@ -240,6 +240,46 @@ Deno.test("HostedSession validates Pair execution runtime state", () => {
     );
 });
 
+Deno.test("HostedSession validates execution attempt timestamp", () => {
+    const session = new HostedSession({ id: "attempt-timestamp", cwd: "/work/attempt-timestamp" });
+    session.setActiveExecutionWorkflow({
+        planName: "visual-plan",
+        triageMeta: { classification: "FEATURE" },
+        executionAgent: "frontend-engineer",
+        executionStarted: true,
+        executionAttemptStartedAtMs: 1234,
+        collaborationStyle: "pair",
+    });
+
+    assertEquals(session.getActiveExecutionWorkflow()?.executionAttemptStartedAtMs, 1234);
+    assertThrows(
+        () =>
+            session.setActiveExecutionWorkflow(
+                /** @type {any} */ ({
+                    planName: "visual-plan",
+                    triageMeta: {},
+                    executionAgent: "frontend-engineer",
+                    executionAttemptStartedAtMs: -1,
+                }),
+            ),
+        Error,
+        "executionAttemptStartedAtMs must be a non-negative number",
+    );
+    assertThrows(
+        () =>
+            session.setActiveExecutionWorkflow(
+                /** @type {any} */ ({
+                    planName: "visual-plan",
+                    triageMeta: {},
+                    executionAgent: "frontend-engineer",
+                    executionAttemptStartedAtMs: Infinity,
+                }),
+            ),
+        Error,
+        "executionAttemptStartedAtMs must be a non-negative number",
+    );
+});
+
 Deno.test("HostedSession hydrates and persists workflow context defensively", () => {
     /** @type {Array<Record<string, unknown>>} */
     const entries = [

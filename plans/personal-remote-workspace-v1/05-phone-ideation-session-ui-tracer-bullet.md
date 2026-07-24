@@ -10,7 +10,8 @@ affectedPaths:
     - "src/ui/workspace/react/"
     - "src/ui/workspace/server/"
     - "docs/design-system.md"
-frontend: true
+executionAgent: "frontend-engineer"
+collaborationRecommendation: "autonomous"
 devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://127.0.0.1:5173"
 devServerHmr: true

@@ -20,8 +20,10 @@ browser tooling for app inspection unless the user explicitly asks for it.
 ## Feedback Loop
 
 When reviewing rather than implementing, the same loop applies: discover the stack, read the source, then audit the
-change against the reference sections below. Step 5 becomes _verify_ convention-first rather than _implement_. If plan
-metadata marks `frontend: true`, the browser portions of this loop are mandatory unless blocked.
+change against the reference sections below. Step 5 becomes _verify_ convention-first rather than _implement_. If the
+Plan is frontend-owned (`executionAgent: "frontend-engineer"`) or the request is materially visual/interactive, the
+browser portions of this loop are mandatory unless blocked. Legacy `frontend: true` Plans are treated as Frontend
+Engineer autonomous work, but new or migrated Plans should use explicit execution ownership instead.
 
 1. Discover the stack before editing.
    - Project context or core memories often name the framework stack already. If not, identify the framework, version,
@@ -49,8 +51,12 @@ metadata marks `frontend: true`, the browser portions of this loop are mandatory
 5. Implement convention-first.
    - Match the project's component structure, styling system, state management, data-loading pattern, accessibility
      conventions, and test style. Consult the reference sections below for domain-specific convention checks.
-   - Use the project's normal dev or preview command when browser verification needs a running app. Prefer hot reload;
+   - Use the project's normal dev or preview command when browser verification needs a running app. Prefer hot reload
+     and keep the same dev-server/browser loop alive across implementation, Pair checkpoints, and validation repairs;
      restart only when config, environment, dependency, or stale-server state requires it.
+   - Do not introduce Playwright, Puppeteer, Cypress, screenshot baselines, or another browser-test framework unless the
+     approved Plan explicitly scopes that framework work. Follow existing deterministic browser-test conventions when
+     they already exist.
    - Completion: the change is localized and consistent with neighboring code; no new pattern introduced where an
      existing convention covers the case.
 
@@ -137,7 +143,8 @@ Convention-first state: discover the state layer before introducing state.
 Treat every frontend project as having a design system, even when it is informal.
 
 - Identify the component library, reusable primitives, design tokens, icon set, spacing/radius/shadow scales,
-  typography, breakpoints, motion patterns, and color modes before designing new UI.
+  typography, breakpoints, motion patterns, and color modes before designing new UI. In RunWield itself, start with
+  `docs/design-system.md` and `src/ui/design-system/` before adding Workspace UI.
 - Compare the nearest existing screen or component before introducing new visual language.
 - Prefer composing existing primitives over styling raw elements.
 - Completion: you can name the reusable primitives and visual rules you are following, or state that none exist and

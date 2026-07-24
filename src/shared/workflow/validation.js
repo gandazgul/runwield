@@ -32,6 +32,7 @@ import { recordManualQaChecklistMessage } from "../session/workflow-messages.js"
 import { getWorkflowDiff } from "./git-snapshot.js";
 import { recordPlanEvent, stageValidationPassedInExecutionWorktree } from "./plan-lifecycle.js";
 import { recordWorkflowMetric } from "./metrics.js";
+import { createPairCheckpointTool } from "../../tools/pair-checkpoint.js";
 import {
     mergeExecutionWorktree,
     preparePrimaryPlanPathForMerge,
@@ -551,6 +552,10 @@ async function runCompletionGatedRepair({
 }) {
     const previousRootMessages = getRootMessages(hostedSession, agentName).slice();
     const fromIndex = previousRootMessages.length;
+    const workflow = hostedSession.getActiveExecutionWorkflow?.();
+    const customTools = workflow?.executionAgent === AGENTS.FRONTEND_ENGINEER && workflow.collaborationStyle === "pair"
+        ? [createPairCheckpointTool({ hostedSession, recordWorkflowMetric })]
+        : undefined;
     const messages = await runActiveAgentTurnImpl({
         hostedSession,
         agentName,
@@ -559,6 +564,7 @@ async function runCompletionGatedRepair({
         sessionManager,
         cwd,
         allowReturnToRouter: false,
+        ...(customTools ? { customTools } : {}),
     });
 
     const returnedRootTranscript = startsWithMessages(messages, previousRootMessages);
@@ -1371,6 +1377,28 @@ export async function runValidationLoop({
     if (activeWorkflow) {
         hostedSession?.clearActiveExecutionWorkflow();
     }
+    /**
+     * @param {Parameters<typeof repair>[0]} args
+     * @returns {Promise<boolean>}
+     */
+    async function runWorkflowRepair(args) {
+        const shouldExposeRepairContext = activeWorkflow?.executionAgent === AGENTS.FRONTEND_ENGINEER;
+        if (shouldExposeRepairContext) {
+            hostedSession.setActiveExecutionWorkflow({
+                ...activeWorkflow,
+                planName,
+                triageMeta,
+                executionAgent: /** @type {"frontend-engineer"} */ (AGENTS.FRONTEND_ENGINEER),
+                executionCwd,
+                validationContinuation: true,
+            });
+        }
+        const completed = await repair(args);
+        if (shouldExposeRepairContext && completed) {
+            hostedSession.clearActiveExecutionWorkflow();
+        }
+        return completed;
+    }
     const switchActiveAgentImpl = __deps?.switchActiveAgent || switchActiveAgent;
     const runManualQaChecklistPromptImpl = __deps?.runManualQaChecklistPrompt || runManualQaChecklistPrompt;
     /**
@@ -1392,8 +1420,12 @@ export async function runValidationLoop({
             progress,
         );
         if (hostedSession) {
+            const currentWorkflow = hostedSession.getActiveExecutionWorkflow?.() || null;
+            const pausedWorkflow = currentWorkflow?.executionAgent === executionAgent
+                ? currentWorkflow
+                : activeWorkflow || {};
             hostedSession.setActiveExecutionWorkflow({
-                ...(activeWorkflow || {}),
+                ...pausedWorkflow,
                 planName,
                 triageMeta,
                 executionAgent: /** @type {"engineer"|"frontend-engineer"} */ (executionAgent),
@@ -1520,7 +1552,7 @@ export async function runValidationLoop({
                     planName,
                     details: { repairKind: "ci", validationCycle: validationCycles, attempt: mechanicalAttempts },
                 });
-                const completed = await repair({
+                const completed = await runWorkflowRepair({
                     hostedSession,
                     agentName: executionAgent,
                     userRequest:
@@ -2080,7 +2112,7 @@ export async function runValidationLoop({
                             planName,
                             details: { repairKind: "human_review", validationCycle: validationCycles },
                         });
-                        const completed = await repair({
+                        const completed = await runWorkflowRepair({
                             hostedSession,
                             agentName: executionAgent,
                             userRequest:
@@ -2144,7 +2176,7 @@ export async function runValidationLoop({
                 planName,
                 details: { repairKind: "semantic", validationCycle: validationCycles },
             });
-            const completed = await repair({
+            const completed = await runWorkflowRepair({
                 hostedSession,
                 agentName: executionAgent,
                 userRequest: "The code reviewer found issues with your implementation. Please fix them, do not break " +
@@ -2359,7 +2391,7 @@ export async function runValidationLoop({
                                 planName,
                                 details: { repairKind: "merge_verification", repairAttempt: mergeRepairAttempts },
                             });
-                            const completed = await repair({
+                            const completed = await runWorkflowRepair({
                                 hostedSession,
                                 agentName: executionAgent,
                                 userRequest: buildMergeRepairRequest({
@@ -2609,7 +2641,7 @@ export async function runValidationLoop({
                             planName,
                             details: { repairKind: "merge", repairAttempt: mergeRepairAttempts },
                         });
-                        const completed = await repair({
+                        const completed = await runWorkflowRepair({
                             hostedSession,
                             agentName: executionAgent,
                             userRequest: buildMergeRepairRequest({
