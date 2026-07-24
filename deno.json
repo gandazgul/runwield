@@ -133,7 +133,7 @@
         "ux:new-user": "podman build --build-arg WLD_INSTALL_REFRESH=$(date +%s) -f Containerfile.wld-ux -t runwield-wld-ux:local . && podman run --rm -it -e ANTHROPIC_API_KEY -e OPENAI_API_KEY -e GOOGLE_API_KEY -e MISTRAL_API_KEY runwield-wld-ux:local",
         "release:check": "deno run -A scripts/release-check.js",
         "compile:watch": "watchexec -e js,jsx,mjs,md,css,ts,tsx,json --ignore node_modules --ignore dist --ignore bin --ignore src/shared/version.js -- deno task compile",
-        "prototype:plan-ui": "deno task -c prototypes/fresh-plan-ui/deno.json dev",
+        "prototype": "deno run -A scripts/run-prototype.js",
         "workspace:dev:plan-review": "deno run -A --env npm:astro dev --config src/ui/workspace/astro.config.mjs --host 127.0.0.1 --port 5173 --open /dev/plan-review",
         "workspace:dev:code-review": "deno run -A --env npm:astro dev --config src/ui/workspace/astro.config.mjs --host 127.0.0.1 --port 5173 --open /dev/code-review",
         "workspace:build": "deno run -A --env npm:astro build --config src/ui/workspace/astro.config.mjs",
