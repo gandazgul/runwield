@@ -3,7 +3,7 @@
  * Derived Mnemosyne index for canonical Work Records.
  */
 
-import { basename } from "@std/path";
+import { basename, dirname } from "@std/path";
 import { listWorkRecords } from "./store.js";
 
 const LOCATOR_PREFIX = "work-record:";
@@ -23,11 +23,38 @@ const REBUILD_GUIDANCE = "Run `wld wr index rebuild` to repair the derived Work 
  * @property {typeof listWorkRecords} [listWorkRecords]
  */
 
+/**
+ * @param {string} cwd
+ * @returns {Promise<string>}
+ */
+async function resolveGitCommonDir(cwd) {
+    try {
+        const command = new Deno.Command("git", {
+            args: ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+            cwd,
+            stdout: "piped",
+            stderr: "piped",
+        });
+        const result = await command.output();
+        if (result.code !== 0) return "";
+        return decode(result.stdout);
+    } catch {
+        return "";
+    }
+}
+
+/**
+ * @param {string} cwd
+ * @param {string} gitCommonDir
+ */
+function resolveWorkRecordIndexProjectName(cwd, gitCommonDir) {
+    const rawName = gitCommonDir ? basename(dirname(gitCommonDir)) || basename(cwd) : basename(cwd);
+    return rawName === "global" || !rawName ? "default" : rawName;
+}
+
 /** @param {string} cwd */
-export function getWorkRecordIndexCollectionName(cwd) {
-    const rawName = basename(cwd) || "default";
-    const projectName = rawName === "global" ? "default" : rawName;
-    return `${projectName}:work-records`;
+export async function getWorkRecordIndexCollectionName(cwd) {
+    return `${resolveWorkRecordIndexProjectName(cwd, await resolveGitCommonDir(cwd))}:work-records`;
 }
 
 /** @param {import('./schema.js').WorkRecordResource} record */
@@ -134,13 +161,18 @@ export async function verifyMnemosyneUpdateAvailable(cwd, deps = {}) {
  * @param {WorkRecordIndexDeps} [deps]
  */
 export async function initializeWorkRecordIndex(cwd, deps = {}) {
-    await runMnemosyneWorkRecordCommand(cwd, ["init", "--name", getWorkRecordIndexCollectionName(cwd)], deps);
+    await runMnemosyneWorkRecordCommand(cwd, ["init", "--name", await getWorkRecordIndexCollectionName(cwd)], deps);
 }
 
 /** @param {string} output */
 function isEmptyPlainListOutput(output) {
     const trimmed = String(output || "").trim();
     return !trimmed || /^no\s+documents\b/i.test(trimmed);
+}
+
+/** @param {string} line */
+function isPlainListFooterLine(line) {
+    return /^Showing\s+\d+\s+of\s+\d+\s+documents\b/i.test(line.trim());
 }
 
 /**
@@ -151,17 +183,12 @@ function isEmptyPlainListOutput(output) {
 function parsePlainListDocumentIds(output, options = {}) {
     if (isEmptyPlainListOutput(output)) return [];
     const ids = [];
-    const malformedLines = [];
     for (const line of String(output || "").split("\n")) {
-        if (!line.trim()) continue;
+        if (!line.trim() || isPlainListFooterLine(line)) continue;
         const match = line.match(/^\s*\[(\d+)\]/);
-        if (!match) {
-            malformedLines.push(line.trim());
-            continue;
-        }
-        ids.push(Number(match[1]));
+        if (match) ids.push(Number(match[1]));
     }
-    if (!options.tolerateMalformed && malformedLines.length) {
+    if (!options.tolerateMalformed && ids.length === 0) {
         const target = options.recordId ? ` for ${options.recordId}` : "";
         throw new Error(
             `Work Record index locator listing${target} did not include a parseable Mnemosyne numeric document ID. ${REBUILD_GUIDANCE}`,
@@ -179,7 +206,7 @@ export async function findIndexedDocumentIdsByRecordId(cwd, recordId, deps = {})
     const out = await runMnemosyneWorkRecordCommand(cwd, [
         "list",
         "--name",
-        getWorkRecordIndexCollectionName(cwd),
+        await getWorkRecordIndexCollectionName(cwd),
         "--format",
         "plain",
         "--limit",
@@ -198,7 +225,7 @@ export async function findIndexedDocumentIdsByRecordId(cwd, recordId, deps = {})
 export async function syncWorkRecordToIndex(cwd, record, deps = {}) {
     await verifyMnemosyneUpdateAvailable(cwd, deps);
     await initializeWorkRecordIndex(cwd, deps);
-    const collection = getWorkRecordIndexCollectionName(cwd);
+    const collection = await getWorkRecordIndexCollectionName(cwd);
     const tags = buildWorkRecordIndexTags(record);
     const content = buildWorkRecordIndexDocument(record);
     const ids = await findIndexedDocumentIdsByRecordId(cwd, record.attrs.recordId, deps);
@@ -233,7 +260,7 @@ export async function isWorkRecordIndexEmpty(cwd, deps = {}) {
         const out = await runMnemosyneWorkRecordCommand(cwd, [
             "list",
             "--name",
-            getWorkRecordIndexCollectionName(cwd),
+            await getWorkRecordIndexCollectionName(cwd),
             "--format",
             "plain",
             "--limit",
@@ -251,7 +278,7 @@ export async function isWorkRecordIndexEmpty(cwd, deps = {}) {
  */
 export async function rebuildWorkRecordIndex(cwd, deps = {}) {
     await verifyMnemosyneUpdateAvailable(cwd, deps);
-    const collection = getWorkRecordIndexCollectionName(cwd);
+    const collection = await getWorkRecordIndexCollectionName(cwd);
     try {
         await runMnemosyneWorkRecordCommand(cwd, ["forget", "--name", collection, "--yes"], deps);
     } catch {

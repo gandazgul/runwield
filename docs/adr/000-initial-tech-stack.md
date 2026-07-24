@@ -1,8 +1,8 @@
+---
+status: accepted
+---
+
 # 000 - Initial Technology Stack
-
-## Status
-
-Accepted
 
 ## Context
 

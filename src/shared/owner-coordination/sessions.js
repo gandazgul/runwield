@@ -270,7 +270,7 @@ export function findSessionByLocator(database, locator) {
 
 /**
  * @param {import('./database.js').OwnerCoordinationDatabase} database
- * @param {{ projectId: string, piSessionId: string, transcriptPath: string, transcriptCwd: string, headerVersion?: number | null, headerTimestamp?: string | null, idFactory?: () => string, now?: () => string }} locator
+ * @param {{ projectId: string, piSessionId: string, transcriptPath: string, transcriptCwd: string, headerVersion?: number | null, headerTimestamp?: string | null, source?: 'catalog' | 'created' | 'imported', idFactory?: () => string, now?: () => string }} locator
  * @returns {Promise<CatalogedSession>}
  */
 export async function ensureSessionCatalogRecord(database, locator) {
@@ -306,9 +306,11 @@ export async function ensureSessionCatalogRecord(database, locator) {
         const now = isoNow(locator.now);
         const runwieldSessionId = newId(locator.idFactory);
         const locatorId = newId(locator.idFactory);
+        const source = locator.source || "catalog";
+        if (!["catalog", "created", "imported"].includes(source)) throw new Error(`Invalid Session source: ${source}`);
         ownerDb.handle.prepare(
-            "INSERT INTO runwield_sessions(id, project_id, source, created_at, updated_at) VALUES (?, ?, 'catalog', ?, ?)",
-        ).run(runwieldSessionId, locator.projectId, now, now);
+            "INSERT INTO runwield_sessions(id, project_id, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+        ).run(runwieldSessionId, locator.projectId, source, now, now);
         ownerDb.handle.prepare(
             "INSERT INTO session_transcript_locators(id, runwield_session_id, project_id, pi_session_id, transcript_path, transcript_cwd, header_version, header_timestamp, first_cataloged_at, last_cataloged_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         ).run(

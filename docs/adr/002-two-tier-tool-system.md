@@ -1,8 +1,8 @@
+---
+status: accepted
+---
+
 # ADR-003: Two-Tier Tool System (Core vs Agent Tools)
-
-## Status
-
-Accepted
 
 ## Context
 

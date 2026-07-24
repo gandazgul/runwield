@@ -45,6 +45,7 @@ export const RuntimeEventTypes = Object.freeze({
  * @property {string} timestamp
  * @property {string} [turnId]
  * @property {Record<string, unknown>} [_meta]
+ * @property {string} [eventId] Stable committed transcript projection cursor.
  */
 
 /**

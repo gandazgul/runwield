@@ -28,6 +28,7 @@ Deno.test("workspace serve parser defaults to loopback and rejects unsafe non-lo
         publicOrigin: "http://127.0.0.1:8787",
         trustTlsTerminator: false,
         noOpen: false,
+        enableSessionActivation: false,
         help: false,
     });
     const safe = parseWorkspaceServeArgs([
@@ -51,7 +52,11 @@ Deno.test("workspace serve parser defaults to loopback and rejects unsafe non-lo
 Deno.test("workspace serve starts owner mode without opening browser when requested", async () => {
     /** @type {any} */
     let launched = null;
-    const store = { path: "/tmp/owner.sqlite3", close: () => {} };
+    const store = {
+        path: "/tmp/owner.sqlite3",
+        close: () => {},
+        getActivationProtocolStatus: () => ({ enabled: false }),
+    };
     await runWorkspaceServeCommand(["--no-open"], {
         __testDeps: {
             store,
@@ -84,7 +89,11 @@ Deno.test("workspace serve preserves explicit public-origin port for TLS termina
             "https://runwield.example.test:443",
         ], {
             __testDeps: {
-                store: { path: "/tmp/owner.sqlite3", close: () => {} },
+                store: {
+                    path: "/tmp/owner.sqlite3",
+                    close: () => {},
+                    getActivationProtocolStatus: () => ({ enabled: false }),
+                },
                 installShutdownHandlers: () => () => {},
                 startWorkspaceServer: () => ({ addr: { port: 8799 } }),
                 openBrowser: (/** @type {string} */ url) => opened.push(url),

@@ -4,7 +4,7 @@
  */
 
 import { AGENTS } from "../../constants.js";
-import { ACTIVE_AGENT_CUSTOM_TYPE, resolveResumeAgentName } from "./active-agent-session.js";
+import { resolveResumeAgentName } from "./active-agent-session.js";
 import { switchActiveAgent } from "./agent-switching.js";
 import {
     abortActiveSession as abortActiveSessionFn,
@@ -36,8 +36,12 @@ import {
     RuntimeEventTypes,
 } from "./session-runtime-events.js";
 import { describeRuntimeTool } from "./tool-event-title.js";
+import {
+    captureTranscriptEvidence,
+    createReplayEvents as createProjectedReplayEvents,
+    syncTranscriptFileAndParent,
+} from "./session-transcript-projection.js";
 import { requestHostedSessionInteraction } from "./session-runtime-interactions.js";
-import { formatTaskCompletedMarkdown, readManualQaChecklistMessage } from "./workflow-messages.js";
 import {
     modelSupportsImageInput,
     persistImageAttachment,
@@ -62,6 +66,9 @@ export const HANDOFF_LIMIT_MESSAGE =
  * @property {(options: import('./root-session.js').ResolvePersistedRootSessionOptions) => Promise<{ sessionManager: any, resolved: import('./root-session.js').ResolvedPersistedRootSession }>} [openPersistedRootSession]
  * @property {(sessionManager: any) => Promise<string>} [resolveResumeAgentName]
  * @property {typeof steerRootSessionWithTarget} [steerRootSessionWithTarget]
+ * @property {import('../owner-coordination/index.js').OwnerCoordinationStore} [ownerCoordinationStore]
+ * @property {'workspace' | 'tui' | 'acp' | 'test'} [ownerProcessKind]
+ * @property {string} [ownerInstanceId]
  */
 
 /**
@@ -211,293 +218,6 @@ function getRuntimeContextCapacity(session) {
     };
 }
 
-/** @param {unknown} value @returns {string} */
-function toReplayText(value) {
-    if (typeof value === "string") return value;
-    if (Array.isArray(value)) {
-        return value.map(toReplayText).filter(Boolean).join("\n");
-    }
-    if (value === undefined || value === null) return "";
-    if (typeof value !== "object") return String(value);
-
-    const typed = /** @type {any} */ (value);
-    if (typed.type === "tool_result") return "[tool result replayed]";
-    if (typed.type === "tool_use" || typed.type === "toolCall") {
-        return `[tool:${typed.name || "unknown"}]`;
-    }
-    if (typed.type === "text") return toReplayText(typed.text);
-    if (typed.type === "thinking" || typed.type === "reasoning") {
-        return toReplayText(typed.thinking ?? typed.text ?? typed.content);
-    }
-    if ("content" in typed) return toReplayText(typed.content);
-
-    // Persistence metadata is structured data, not display text. In
-    // particular, never coerce an arbitrary object into "[object Object]".
-    return "";
-}
-
-/** @param {unknown} timestamp */
-function normalizeReplayTimestamp(timestamp) {
-    if (typeof timestamp === "string" && timestamp) return timestamp;
-    if (typeof timestamp === "number" && Number.isFinite(timestamp)) return new Date(timestamp).toISOString();
-    if (timestamp instanceof Date && !Number.isNaN(timestamp.getTime())) return timestamp.toISOString();
-    return undefined;
-}
-
-/** @param {unknown} entry */
-function replayMeta(entry) {
-    const value = /** @type {{ id?: string, type?: string, timestamp?: unknown, message?: { role?: string } }} */
-        (entry || {});
-    const timestamp = normalizeReplayTimestamp(value.timestamp);
-    return {
-        replay: true,
-        ...(value.id ? { entryId: value.id } : {}),
-        ...(value.type ? { entryType: value.type } : {}),
-        ...(value.message?.role ? { role: value.message.role } : {}),
-        ...(timestamp ? { timestamp } : {}),
-    };
-}
-
-/** @param {unknown} entry @param {string} fallback */
-function entryMessageId(entry, fallback) {
-    const value = /** @type {{ id?: string }} */ (entry || {});
-    return value.id || fallback;
-}
-
-/**
- * @param {string} sessionId
- * @param {unknown[]} entries
- * @returns {Array<Record<string, any> & { type: string }>}
- */
-function createReplayEvents(sessionId, entries) {
-    /** @type {Array<Record<string, any> & { type: string }>} */
-    const events = [];
-    /** @type {string | null} */
-    let replayModel = null;
-    /** @type {string | null} */
-    let replayThinkingLevel = null;
-    let replayAgentName = "Assistant";
-    /** @type {Map<string, ReturnType<typeof describeRuntimeTool>>} */
-    const replayTools = new Map();
-    /** @type {Map<string, number>} */
-    const replayToolStartedAt = new Map();
-    /**
-     * @param {string} toolCallId
-     * @param {string | undefined} timestamp
-     * @returns {number | null}
-     */
-    const finishReplayTool = (toolCallId, timestamp) => {
-        const startedAt = replayToolStartedAt.get(toolCallId);
-        replayToolStartedAt.delete(toolCallId);
-        const finishedAt = typeof timestamp === "string" ? Date.parse(timestamp) : Number.NaN;
-        return startedAt === undefined || !Number.isFinite(finishedAt) ? null : Math.max(0, finishedAt - startedAt);
-    };
-    for (const entry of entries) {
-        if (!entry || typeof entry !== "object") continue;
-        const value = /** @type {any} */ (entry);
-        const meta = replayMeta(value);
-        const common = {
-            timestamp: normalizeReplayTimestamp(value.timestamp),
-            _meta: meta,
-        };
-
-        if (value.type === "message") {
-            const role = value.message?.role || "unknown";
-            const content = value.message?.content;
-            if (role === "toolResult" || role === "tool_result") {
-                const messageId = entryMessageId(value, `${sessionId}:replay-tool-result`);
-                const toolCallId = value.message?.toolCallId || value.message?.tool_call_id || messageId;
-                const toolName = value.message?.toolName || value.message?.tool_name || "tool";
-                const toolResult = normalizeRuntimeToolResult(value.message);
-                events.push({
-                    ...common,
-                    type: RuntimeEventTypes.TOOL_END,
-                    messageId,
-                    toolCallId,
-                    ...(replayTools.get(toolCallId) || describeRuntimeTool(toolName, undefined)),
-                    ...toolResult,
-                    isError: Boolean(value.message?.isError || value.message?.is_error),
-                    durationMs: finishReplayTool(toolCallId, common.timestamp),
-                });
-                const taskCompletedMessage = toolName === "task_completed" &&
-                        toolResult.details?.outcome === "task_completed" &&
-                        typeof toolResult.details?.message === "string"
-                    ? toolResult.details.message
-                    : "";
-                if (taskCompletedMessage.trim()) {
-                    events.push({
-                        ...common,
-                        type: RuntimeEventTypes.ASSISTANT_TEXT_DELTA,
-                        messageId: `${messageId}:workflow`,
-                        delta: formatTaskCompletedMarkdown(taskCompletedMessage),
-                        agentName: replayAgentName,
-                        messageKind: "workflow",
-                        workflowMessage: "task_completed",
-                    });
-                }
-                continue;
-            }
-            const blocks = Array.isArray(content) ? content : [{ type: "text", text: toReplayText(content) }];
-            let blockIndex = 0;
-            for (const block of blocks) {
-                const typed = /** @type {any} */ (block || {});
-                const messageId = `${entryMessageId(value, `${sessionId}:replay`)}:${blockIndex++}`;
-                if (typed.type === "thinking" || typed.type === "reasoning") {
-                    const delta = toReplayText(typed.text || typed.thinking || typed.content || "");
-                    if (delta) {
-                        events.push({
-                            ...common,
-                            type: RuntimeEventTypes.ASSISTANT_THINKING_DELTA,
-                            messageId,
-                            delta,
-                            agentName: replayAgentName,
-                        });
-                        events.push({
-                            ...common,
-                            type: RuntimeEventTypes.ASSISTANT_THINKING_END,
-                            messageId,
-                            agentName: replayAgentName,
-                        });
-                    }
-                    continue;
-                }
-                if (typed.type === "tool_use" || typed.type === "toolCall") {
-                    const toolName = typed.name || "tool";
-                    const args = typed.arguments || typed.input;
-                    const toolCallId = typed.id || messageId;
-                    const runtimeTool = describeRuntimeTool(toolName, args);
-                    replayTools.set(toolCallId, runtimeTool);
-                    const startedAt = typeof common.timestamp === "string" ? Date.parse(common.timestamp) : Number.NaN;
-                    if (Number.isFinite(startedAt)) replayToolStartedAt.set(toolCallId, startedAt);
-                    events.push({
-                        ...common,
-                        type: RuntimeEventTypes.TOOL_START,
-                        messageId,
-                        toolCallId,
-                        ...runtimeTool,
-                        args,
-                    });
-                    continue;
-                }
-                if (typed.type === "tool_result") {
-                    const toolCallId = typed.tool_use_id || typed.toolUseId || messageId;
-                    events.push({
-                        ...common,
-                        type: RuntimeEventTypes.TOOL_END,
-                        messageId,
-                        toolCallId,
-                        ...(replayTools.get(toolCallId) || describeRuntimeTool("tool", undefined)),
-                        ...normalizeRuntimeToolResult("[tool result replayed]"),
-                        isError: Boolean(typed.is_error || typed.isError),
-                        durationMs: finishReplayTool(toolCallId, common.timestamp),
-                    });
-                    continue;
-                }
-                const text = toReplayText(typed.type === "text" ? typed.text : typed);
-                if (!text) continue;
-                if (role === "user") {
-                    events.push({ ...common, type: RuntimeEventTypes.USER_MESSAGE, messageId, text, images: [] });
-                } else if (role === "assistant") {
-                    events.push({
-                        ...common,
-                        type: RuntimeEventTypes.ASSISTANT_TEXT_DELTA,
-                        messageId,
-                        delta: text,
-                        agentName: replayAgentName,
-                        messageKind: "assistant",
-                    });
-                } else {
-                    events.push({
-                        ...common,
-                        type: RuntimeEventTypes.SYSTEM_STATUS,
-                        messageId,
-                        message: text,
-                        level: "info",
-                    });
-                }
-            }
-            if (value.message?.usage) {
-                events.push({
-                    ...common,
-                    type: RuntimeEventTypes.USAGE,
-                    messageId: `${entryMessageId(value, `${sessionId}:replay`)}:usage`,
-                    usage: normalizeRuntimeUsage(value.message.usage),
-                });
-            }
-            continue;
-        }
-
-        if (value.type === "compaction" || value.type === "branch_summary") {
-            const message = value.summary || `${value.type} replayed`;
-            events.push({
-                ...common,
-                type: RuntimeEventTypes.SYSTEM_STATUS,
-                messageId: entryMessageId(value, value.type),
-                message,
-                level: "info",
-            });
-            continue;
-        }
-
-        if (value.type === "model_change") {
-            const nextModel = [value.provider, value.modelId].filter(Boolean).join("/");
-            if (replayModel !== null && nextModel && nextModel !== replayModel) {
-                events.push({
-                    ...common,
-                    type: RuntimeEventTypes.SYSTEM_STATUS,
-                    messageId: entryMessageId(value, value.type),
-                    message: `Model changed: ${nextModel}`,
-                    level: "info",
-                });
-            }
-            replayModel = nextModel;
-            continue;
-        }
-
-        if (value.type === "thinking_level_change") {
-            const nextThinkingLevel = value.thinkingLevel || "unknown";
-            if (
-                replayThinkingLevel !== null && nextThinkingLevel &&
-                nextThinkingLevel !== replayThinkingLevel
-            ) {
-                events.push({
-                    ...common,
-                    type: RuntimeEventTypes.SYSTEM_STATUS,
-                    messageId: entryMessageId(value, value.type),
-                    message: `Thinking level changed: ${nextThinkingLevel}`,
-                    level: "info",
-                });
-            }
-            replayThinkingLevel = nextThinkingLevel;
-            continue;
-        }
-
-        if (value.type === "custom" && value.customType === ACTIVE_AGENT_CUSTOM_TYPE) {
-            const agentName = typeof value.data?.agentName === "string" ? value.data.agentName.trim() : "";
-            if (agentName) replayAgentName = agentName;
-            continue;
-        }
-
-        const manualQaChecklist = readManualQaChecklistMessage(value);
-        if (manualQaChecklist) {
-            events.push({
-                ...common,
-                type: RuntimeEventTypes.ASSISTANT_TEXT_DELTA,
-                messageId: entryMessageId(value, `${sessionId}:manual-qa`),
-                delta: manualQaChecklist.text,
-                agentName: manualQaChecklist.agentName,
-                messageKind: "workflow",
-                workflowMessage: "manual_qa_checklist",
-            });
-            continue;
-        }
-
-        // Session metadata and unknown custom entries are internal persistence
-        // details, not transcript content.
-    }
-    return events;
-}
-
 export class SessionRuntime {
     /** @type {SessionHost} */
     #sessionHost;
@@ -523,6 +243,12 @@ export class SessionRuntime {
     #queueSourceSubscriptions;
     /** @type {Map<string, number>} */
     #busyOperationDepths;
+    /** @type {import('../owner-coordination/index.js').OwnerCoordinationStore | null} */
+    #ownerCoordinationStore;
+    /** @type {'workspace' | 'tui' | 'acp' | 'test'} */
+    #ownerProcessKind;
+    /** @type {string} */
+    #ownerInstanceId;
 
     /** @param {SessionRuntimeOptions} [options] */
     constructor(options = {}) {
@@ -538,6 +264,9 @@ export class SessionRuntime {
         this.#queuedMessages = new Map();
         this.#queueSourceSubscriptions = new Map();
         this.#busyOperationDepths = new Map();
+        this.#ownerCoordinationStore = options.ownerCoordinationStore || null;
+        this.#ownerProcessKind = options.ownerProcessKind || "test";
+        this.#ownerInstanceId = options.ownerInstanceId || crypto.randomUUID();
     }
 
     listSessions() {
@@ -554,20 +283,29 @@ export class SessionRuntime {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) return null;
         const sessionManager = session.getRootSessionManager();
+        const managed = session.getManagedMetadata?.() || null;
         const rawSessionManagerId = sessionManager?.getSessionId?.();
         const sessionManagerId = typeof rawSessionManagerId === "string" && rawSessionManagerId
             ? rawSessionManagerId
-            : null;
-        const workflowContext = session.getWorkflowContext();
+            : managed?.piSessionId || null;
+        const workflowContext = session.getWorkflowContext() || managed?.workflowContext || null;
         const activeExecutionWorkflow = session.getActiveExecutionWorkflow();
         const contextCapacity = getRuntimeContextCapacity(session);
         return {
             id: session.id,
             cwd: session.cwd,
             sessionManagerId,
-            name: sessionManager?.getSessionName?.() || null,
+            name: sessionManager?.getSessionName?.() || managed?.name || null,
             disposed: session.disposed,
-            activeAgent: session.getRootAgentName(),
+            managed: managed
+                ? {
+                    runwieldSessionId: managed.runwieldSessionId,
+                    projectId: managed.projectId,
+                    generation: managed.generation,
+                    dormant: !sessionManager,
+                }
+                : null,
+            activeAgent: session.getRootAgentName() || managed?.activeAgent || null,
             activeAgentInfo: session.getActiveAgentInfo(),
             activeModel: session.getActiveModelState(),
             thinkingLevel: session.getThinkingLevel(),
@@ -1102,7 +840,7 @@ export class SessionRuntime {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) return { ok: false, replayed: 0, error: "not_found" };
         const manager = session.getRootSessionManager();
-        const events = createReplayEvents(sessionId, manager ? getRootSessionBranchEntries(manager) : []);
+        const events = createProjectedReplayEvents(sessionId, manager ? getRootSessionBranchEntries(manager) : []);
         for (const event of events) this.#emitSessionEvent(sessionId, /** @type {any} */ (event));
         return { ok: true, replayed: events.length };
     }
@@ -1651,6 +1389,125 @@ export class SessionRuntime {
     }
 
     /**
+     * Adopt a managed Session as a dormant Runtime shell. This path deliberately
+     * does not open a writable Pi Session Manager.
+     *
+     * @param {{ session: import('../owner-coordination/sessions.js').CatalogedSession, generation?: number | null, name?: string | null, activeAgent?: string | null, workflowContext?: import('./workflow-context-session.js').WorkflowContext | null }} options
+     */
+    adoptManagedSession(options) {
+        const cataloged = options?.session;
+        if (!cataloged) throw new Error("SessionRuntime.adoptManagedSession requires a cataloged Session");
+        const hostedSession = this.#sessionHost.createSession({
+            id: crypto.randomUUID(),
+            cwd: cataloged.transcriptCwd,
+            sessionManager: null,
+            managed: {
+                runwieldSessionId: cataloged.runwieldSessionId,
+                projectId: cataloged.projectId,
+                piSessionId: cataloged.piSessionId,
+                transcriptPath: cataloged.transcriptPath,
+                generation: options.generation ?? null,
+                name: options.name ?? null,
+                activeAgent: options.activeAgent ?? null,
+                workflowContext: options.workflowContext ?? null,
+            },
+        });
+        this.#attachRuntimeEventSink(hostedSession);
+        this.#emitSessionEvent(hostedSession.id, {
+            type: RuntimeEventTypes.SESSION_LOADED,
+            cwd: hostedSession.cwd,
+            _meta: { managed: true, runwieldSessionId: cataloged.runwieldSessionId },
+        });
+        return { sessionId: hostedSession.id, cwd: hostedSession.cwd, runwieldSessionId: cataloged.runwieldSessionId };
+    }
+
+    /**
+     * @param {string} sessionId
+     * @param {PromptSessionOptions & { expectedGeneration: number }} options
+     */
+    async promptManagedSession(sessionId, options) {
+        const hostedSession = this.#sessionHost.getSession(sessionId);
+        if (!hostedSession) throw new Error("SessionRuntime.promptManagedSession: session not found");
+        const managed = hostedSession.getManagedMetadata?.();
+        if (!managed) return await this.promptSession(sessionId, options);
+        if (!this.#ownerCoordinationStore) throw new Error("Managed Session requires an owner coordination store");
+        this.#ownerCoordinationStore.requireActivationProtocolEnabled();
+        const state = this.#ownerCoordinationStore.inspectSessionActivation(managed.runwieldSessionId);
+        const latestGeneration = state.generation?.generation ?? null;
+        if (latestGeneration !== options.expectedGeneration) {
+            return { ok: false, turns: 0, handoffs: 0, handoffLimitReached: false, error: "refresh_required" };
+        }
+        const proof = this.#ownerCoordinationStore.acquireSessionActivation({
+            runwieldSessionId: managed.runwieldSessionId,
+            projectId: managed.projectId,
+            ownerInstanceId: this.#ownerInstanceId,
+            ownerProcessKind: this.#ownerProcessKind,
+            expectedGeneration: options.expectedGeneration,
+            phase: "preparing",
+        });
+        let activeProof = proof;
+        try {
+            if (state.generation) {
+                const currentEvidence = await captureTranscriptEvidence({
+                    transcriptPath: managed.transcriptPath,
+                    transcriptCwd: hostedSession.cwd,
+                    byteLength: state.generation.byteLength,
+                });
+                const stat = await Deno.stat(managed.transcriptPath);
+                if (
+                    stat.size !== state.generation.byteLength ||
+                    currentEvidence.digestHex !== state.generation.digestHex ||
+                    currentEvidence.terminalEntryId !== state.generation.terminalEntryId
+                ) {
+                    this.#ownerCoordinationStore.markSessionReconcileRequired({
+                        runwieldSessionId: managed.runwieldSessionId,
+                        projectId: managed.projectId,
+                    }, { reason: "transcript_ahead_or_mismatch" });
+                    return {
+                        ok: false,
+                        turns: 0,
+                        handoffs: 0,
+                        handoffLimitReached: false,
+                        error: "reconcile_required",
+                    };
+                }
+            }
+            activeProof = this.#ownerCoordinationStore.changeSessionActivationPhase(activeProof, "hydrated");
+            const { sessionManager } = await this.#openPersistedRootSession({
+                cwd: hostedSession.cwd,
+                sessionId: managed.piSessionId,
+                sessionPath: managed.transcriptPath,
+            });
+            hostedSession.setRootSessionManager(sessionManager);
+            const agentName = await this.#resolveResumeAgentName(sessionManager);
+            await this.#activateSessionAgent(hostedSession, { agentName });
+            activeProof = this.#ownerCoordinationStore.changeSessionActivationPhase(activeProof, "turning");
+            const result = await this.promptSession(sessionId, options);
+            activeProof = this.#ownerCoordinationStore.changeSessionActivationPhase(activeProof, "checkpointing");
+            hostedSession.dehydrateManagedSession();
+            await syncTranscriptFileAndParent(managed.transcriptPath);
+            const evidence = await captureTranscriptEvidence({
+                transcriptPath: managed.transcriptPath,
+                transcriptCwd: hostedSession.cwd,
+            });
+            this.#ownerCoordinationStore.publishGenerationAndRelease(activeProof, {
+                generation: options.expectedGeneration + 1,
+                byteLength: evidence.byteLength,
+                terminalEntryId: evidence.terminalEntryId,
+                digestHex: evidence.digestHex,
+            });
+            hostedSession.setManagedMetadata({ ...managed, generation: options.expectedGeneration + 1 });
+            return result;
+        } catch (error) {
+            hostedSession.dehydrateManagedSession();
+            this.#ownerCoordinationStore.markSessionUncertain(activeProof, {
+                reason: error instanceof Error ? error.message : String(error),
+            });
+            throw error;
+        }
+    }
+
+    /**
      * Create the persistence and internal session state used by an interactive
      * consumer. Only the opaque runtime id and public metadata cross the core
      * boundary.
@@ -1731,7 +1588,10 @@ export class SessionRuntime {
                 agentName,
                 model: options.modelOverride,
             });
-            const replayEvents = createReplayEvents(hostedSession.id, getRootSessionBranchEntries(sessionManager))
+            const replayEvents = createProjectedReplayEvents(
+                hostedSession.id,
+                getRootSessionBranchEntries(sessionManager),
+            )
                 .map((event) => createSessionRuntimeEvent(hostedSession.id, /** @type {any} */ (event)));
             this.#emitSessionEvent(hostedSession.id, {
                 type: RuntimeEventTypes.SESSION_LOADED,

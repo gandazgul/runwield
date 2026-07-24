@@ -12,6 +12,18 @@ import {
 import { injectFrontMatter, loadPlan, savePlan } from "../../plan-store.js";
 import { COLLABORATION_STATE_REMOTE_CANONICAL, SharedPlanLockError } from "../collaboration/lock.js";
 
+/** @type {import('./plan-lifecycle.js').PlanEventDetails} */
+const TEST_DELIVERY_DETAILS = {
+    executionMode: "worktree",
+    deliveryEvidence: {
+        version: 1,
+        mode: "worktree_merge",
+        executionCommit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        targetBranch: "main",
+        targetHeadBeforeMerge: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    },
+};
+
 Deno.test("buildPlanEventUpdates promotes approved plans to ready_for_work", () => {
     const updates = buildPlanEventUpdates("readiness_passed", "approved", {
         now: () => new Date("2026-01-02T03:04:05.000Z"),
@@ -503,6 +515,7 @@ Deno.test("recordPlanEvent verifies parent Epic when the final child feature is 
             summary: "First",
             affectedPaths: [],
             status: "verified",
+            ...TEST_DELIVERY_DETAILS,
             parentPlan: "epic",
             order: 1,
         });
@@ -522,6 +535,7 @@ Deno.test("recordPlanEvent verifies parent Epic when the final child feature is 
             event: "validation_passed",
             currentStatus: "implemented",
             details: {
+                ...TEST_DELIVERY_DETAILS,
                 triageMeta: { classification: "FEATURE", parentPlan: "epic" },
                 now: () => new Date("2026-01-02T03:04:05.000Z"),
             },
@@ -573,7 +587,7 @@ Deno.test("recordPlanEvent keeps parent Epic open while child features remain un
             planName: "epic/02-last",
             event: "validation_passed",
             currentStatus: "implemented",
-            details: { triageMeta: { classification: "FEATURE", parentPlan: "epic" } },
+            details: { ...TEST_DELIVERY_DETAILS, triageMeta: { classification: "FEATURE", parentPlan: "epic" } },
         });
 
         const parent = await loadPlan(cwd, "epic");
@@ -651,6 +665,7 @@ Deno.test("stageValidationPassedInExecutionWorktree copies canonical metadata an
             executionCwd,
             planName: "feature",
             details: {
+                ...TEST_DELIVERY_DETAILS,
                 cleanupMergedWorktrees: false,
                 humanReviewMode: "always",
                 humanReviewDecision: "approved",
@@ -662,7 +677,7 @@ Deno.test("stageValidationPassedInExecutionWorktree copies canonical metadata an
             projectRoot,
             executionCwd,
             planName: "feature",
-            details: { now: () => new Date("2026-01-04T00:00:00.000Z") },
+            details: { ...TEST_DELIVERY_DETAILS, now: () => new Date("2026-01-04T00:00:00.000Z") },
         });
 
         assertEquals(first.attrs.status, "verified");
@@ -674,6 +689,41 @@ Deno.test("stageValidationPassedInExecutionWorktree copies canonical metadata an
         assertEquals(first.planPaths, ["plans/feature.md"]);
         assertEquals((await loadPlan(projectRoot, "feature"))?.attrs.status, "implemented");
         assertStringIncludes((await loadPlan(executionCwd, "feature"))?.markdown || "", "customFlag: true");
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true });
+        await Deno.remove(executionCwd, { recursive: true });
+    }
+});
+
+Deno.test("stageValidationPassedInExecutionWorktree rejects mismatched Delivery Evidence on verified retry", async () => {
+    const projectRoot = await Deno.makeTempDir();
+    const executionCwd = await Deno.makeTempDir();
+    try {
+        await savePlan(projectRoot, "feature", "# Feature", { status: "implemented", classification: "FEATURE" });
+        await savePlan(executionCwd, "feature", "# Feature", {
+            status: "verified",
+            classification: "FEATURE",
+            executionMode: "worktree",
+            deliveryEvidence: TEST_DELIVERY_DETAILS.deliveryEvidence,
+        });
+
+        await assertRejects(
+            () =>
+                stageValidationPassedInExecutionWorktree({
+                    projectRoot,
+                    executionCwd,
+                    planName: "feature",
+                    details: {
+                        executionMode: "worktree",
+                        deliveryEvidence: /** @type {import('../../plan-store.js').DeliveryEvidence} */ ({
+                            ...TEST_DELIVERY_DETAILS.deliveryEvidence,
+                            targetHeadBeforeMerge: "cccccccccccccccccccccccccccccccccccccccc",
+                        }),
+                    },
+                }),
+            Error,
+            "Delivery Evidence does not match supplied evidence",
+        );
     } finally {
         await Deno.remove(projectRoot, { recursive: true });
         await Deno.remove(executionCwd, { recursive: true });
@@ -696,7 +746,7 @@ Deno.test("stageValidationPassedInExecutionWorktree preserves canonical human re
             projectRoot,
             executionCwd,
             planName: "feature",
-            details: { now: () => new Date("2026-01-03T00:00:00.000Z") },
+            details: { ...TEST_DELIVERY_DETAILS, now: () => new Date("2026-01-03T00:00:00.000Z") },
         });
 
         assertEquals(result.attrs.status, "verified");
@@ -718,7 +768,7 @@ Deno.test("stageValidationPassedInExecutionWorktree preserves canonical human re
             projectRoot,
             executionCwd,
             planName: "legacy-staged",
-            details: { now: () => new Date("2026-01-04T00:00:00.000Z") },
+            details: { ...TEST_DELIVERY_DETAILS, now: () => new Date("2026-01-04T00:00:00.000Z") },
         });
         assertEquals(retried.attrs.verifiedAt, "2026-01-03T00:00:00.000Z");
         assertEquals(retried.attrs.humanReviewMode, "always");
@@ -742,6 +792,7 @@ Deno.test("stageValidationPassedInExecutionWorktree synchronizes siblings and ad
         await savePlan(projectRoot, "child-a", "# Child A", {
             status: "verified",
             classification: "FEATURE",
+            ...TEST_DELIVERY_DETAILS,
             parentPlan: "epic",
         });
         await savePlan(projectRoot, "child-b", "# Child B", {
@@ -765,14 +816,14 @@ Deno.test("stageValidationPassedInExecutionWorktree synchronizes siblings and ad
             projectRoot,
             executionCwd,
             planName: "child-b",
-            details: { now: () => new Date("2026-01-03T00:00:00.000Z") },
+            details: { ...TEST_DELIVERY_DETAILS, now: () => new Date("2026-01-03T00:00:00.000Z") },
         });
         await savePlan(projectRoot, "epic", "# Updated Epic", { ...epicAttrs, customFlag: true });
         const retried = await stageValidationPassedInExecutionWorktree({
             projectRoot,
             executionCwd,
             planName: "child-b",
-            details: { now: () => new Date("2026-01-04T00:00:00.000Z") },
+            details: { ...TEST_DELIVERY_DETAILS, now: () => new Date("2026-01-04T00:00:00.000Z") },
         });
         const retriedParent = await loadPlan(executionCwd, "epic");
 
@@ -821,18 +872,19 @@ Deno.test("stageValidationPassedInExecutionWorktree reevaluates parent advanceme
             projectRoot,
             executionCwd,
             planName: "child-a",
-            details: { now: () => new Date("2026-01-03T00:00:00.000Z") },
+            details: { ...TEST_DELIVERY_DETAILS, now: () => new Date("2026-01-03T00:00:00.000Z") },
         });
         await savePlan(projectRoot, "child-b", "# Child B", {
             status: "verified",
             classification: "FEATURE",
+            ...TEST_DELIVERY_DETAILS,
             parentPlan: "epic",
         });
         const retried = await stageValidationPassedInExecutionWorktree({
             projectRoot,
             executionCwd,
             planName: "child-a",
-            details: { now: () => new Date("2026-01-04T00:00:00.000Z") },
+            details: { ...TEST_DELIVERY_DETAILS, now: () => new Date("2026-01-04T00:00:00.000Z") },
         });
 
         assertEquals(first.attrs.verifiedAt, "2026-01-03T00:00:00.000Z");
@@ -863,6 +915,7 @@ Deno.test("stageValidationPassedInExecutionWorktree drops a staged parent when a
         await savePlan(projectRoot, "child-b", "# Child B", {
             status: "verified",
             classification: "FEATURE",
+            ...TEST_DELIVERY_DETAILS,
             parentPlan: "epic",
         });
         await savePlan(executionCwd, "epic", "# Epic", epicAttrs);
@@ -878,7 +931,7 @@ Deno.test("stageValidationPassedInExecutionWorktree drops a staged parent when a
             projectRoot,
             executionCwd,
             planName: "child-a",
-            details: { now: () => new Date("2026-01-03T00:00:00.000Z") },
+            details: { ...TEST_DELIVERY_DETAILS, now: () => new Date("2026-01-03T00:00:00.000Z") },
         });
         await savePlan(projectRoot, "child-b", "# Child B", {
             status: "feedback",
@@ -889,7 +942,7 @@ Deno.test("stageValidationPassedInExecutionWorktree drops a staged parent when a
             projectRoot,
             executionCwd,
             planName: "child-a",
-            details: { now: () => new Date("2026-01-04T00:00:00.000Z") },
+            details: { ...TEST_DELIVERY_DETAILS, now: () => new Date("2026-01-04T00:00:00.000Z") },
         });
 
         assertEquals(first.planPaths, ["plans/child-a.md", "plans/epic.md"]);
@@ -920,6 +973,7 @@ Deno.test("stageValidationPassedInExecutionWorktree does not preserve a stale st
         await savePlan(projectRoot, "child-b", "# Child B", {
             status: "verified",
             classification: "FEATURE",
+            ...TEST_DELIVERY_DETAILS,
             parentPlan: "epic",
         });
         await savePlan(executionCwd, "epic", "# Epic", epicAttrs);
@@ -938,7 +992,7 @@ Deno.test("stageValidationPassedInExecutionWorktree does not preserve a stale st
             projectRoot,
             executionCwd,
             planName: "child-a",
-            details: { now: () => new Date("2026-01-03T00:00:00.000Z") },
+            details: { ...TEST_DELIVERY_DETAILS, now: () => new Date("2026-01-03T00:00:00.000Z") },
         });
         await savePlan(projectRoot, "epic", "# Epic", {
             ...epicAttrs,
@@ -949,7 +1003,7 @@ Deno.test("stageValidationPassedInExecutionWorktree does not preserve a stale st
             projectRoot,
             executionCwd,
             planName: "child-a",
-            details: { now: () => new Date("2026-01-04T00:00:00.000Z") },
+            details: { ...TEST_DELIVERY_DETAILS, now: () => new Date("2026-01-04T00:00:00.000Z") },
         });
 
         assertEquals(first.planPaths, ["plans/child-a.md", "plans/epic.md"]);
@@ -977,6 +1031,27 @@ Deno.test("stageValidationPassedInExecutionWorktree rejects a non-implemented ca
     } finally {
         await Deno.remove(projectRoot, { recursive: true });
         await Deno.remove(executionCwd, { recursive: true });
+    }
+});
+
+Deno.test("recordPlanEvent enforces FEATURE Delivery Evidence without supplied triage metadata", async () => {
+    const projectRoot = await Deno.makeTempDir();
+    try {
+        await savePlan(projectRoot, "feature", "# Feature", { status: "implemented", classification: "FEATURE" });
+        await assertRejects(
+            () =>
+                recordPlanEvent({
+                    cwd: projectRoot,
+                    planName: "feature",
+                    event: "validation_passed",
+                    currentStatus: "implemented",
+                }),
+            Error,
+            "FEATURE validation_passed requires executionMode",
+        );
+        assertEquals((await loadPlan(projectRoot, "feature"))?.attrs.status, "implemented");
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true });
     }
 });
 

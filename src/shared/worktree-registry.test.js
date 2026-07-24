@@ -1,4 +1,4 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertRejects } from "@std/assert";
 import { join } from "@std/path";
 import {
     addEntry,
@@ -43,6 +43,31 @@ Deno.test("worktree registry supports add/update/find/list/remove", async () => 
 
         await removeEntry(projectRoot, "wt-1");
         assertEquals(await listEntries(projectRoot), []);
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true });
+    }
+});
+
+Deno.test("worktree registry rejects immutable identity updates", async () => {
+    const projectRoot = await Deno.makeTempDir();
+    try {
+        await addEntry(projectRoot, entry({ baseTree: "tree-1" }));
+        for (
+            const updates of [
+                { baseBranch: "other" },
+                { baseRef: "refs/heads/main" },
+                { baseCommit: "def456" },
+                { baseTree: "tree-2" },
+                { branch: "runwield/worktree/other" },
+            ]
+        ) {
+            await assertRejects(
+                () => updateEntry(projectRoot, "wt-1", /** @type {any} */ (updates)),
+                Error,
+                "Worktree registry identity field cannot be updated",
+            );
+        }
+        assertEquals(await findById(projectRoot, "wt-1"), entry({ baseTree: "tree-1" }));
     } finally {
         await Deno.remove(projectRoot, { recursive: true });
     }

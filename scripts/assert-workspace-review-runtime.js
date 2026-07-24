@@ -4,7 +4,8 @@
  * a missing-assets or fallback page in standalone binaries.
  */
 
-import { join, resolve, toFileUrl } from "@std/path";
+import { dirname, extname, join, resolve, toFileUrl } from "@std/path";
+import { collectNestedReviewAssetUrls, collectReviewAssetUrls } from "./release-check.js";
 
 const DEFAULT_RUNTIME_ENTRY = "dist/workspace-runtime/server.mjs";
 
@@ -33,6 +34,65 @@ function assertRealReviewHtml(html, label) {
 }
 
 /**
+ * @param {string} name
+ * @returns {string}
+ */
+function getOpaqueWorkspaceAssetName(name) {
+    return [".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts"].includes(extname(name).toLowerCase())
+        ? `${name}.asset`
+        : name;
+}
+
+/**
+ * @param {string} assetUrl
+ * @param {string} runtimeClientAssetDir
+ * @returns {string}
+ */
+function runtimeAssetPathForUrl(assetUrl, runtimeClientAssetDir) {
+    const url = new URL(assetUrl);
+    const encodedName = url.pathname.slice("/_astro/".length);
+    const assetName = decodeURIComponent(encodedName);
+    if (!assetName || assetName.includes("..") || assetName.includes("/")) {
+        fail(`Unsafe Workspace review asset path: ${url.pathname}`);
+    }
+    return join(runtimeClientAssetDir, getOpaqueWorkspaceAssetName(assetName));
+}
+
+/**
+ * @param {string} html
+ * @param {string} baseUrl
+ * @param {string} runtimeClientAssetDir
+ * @returns {Promise<void>}
+ */
+export async function assertReviewAssetsAvailableInRuntime(html, baseUrl, runtimeClientAssetDir) {
+    const pending = collectReviewAssetUrls(html, baseUrl);
+    const seen = new Set();
+
+    while (pending.length) {
+        const assetUrl = pending.shift();
+        if (!assetUrl || seen.has(assetUrl)) continue;
+        seen.add(assetUrl);
+
+        const assetPath = runtimeAssetPathForUrl(assetUrl, runtimeClientAssetDir);
+        const body = await Deno.readFile(assetPath).catch((error) => {
+            if (error instanceof Deno.errors.NotFound) {
+                throw new Error(`Workspace review runtime asset is missing: ${assetPath}`);
+            }
+            throw error;
+        });
+
+        if (assetUrl.endsWith(".js") || assetUrl.endsWith(".css")) {
+            const source = new TextDecoder().decode(body);
+            for (const nestedUrl of collectNestedReviewAssetUrls(source, assetUrl)) {
+                if (!seen.has(nestedUrl)) pending.push(nestedUrl);
+            }
+        }
+    }
+
+    if (!seen.size) fail("Workspace review page did not reference any runtime assets.");
+}
+
+/**
  * @param {string} runtimeEntry
  * @param {string} route
  * @param {Record<string, unknown>} payload
@@ -46,12 +106,12 @@ async function assertReviewRoute(runtimeEntry, route, payload) {
     const headers = new Headers();
     headers.set("x-runwield-workspace-cwd", Deno.cwd());
     headers.set("x-runwield-review-payload", encodeURIComponent(JSON.stringify(payload)));
-    const response = await entry.handle(
-        new Request(`http://localhost${route}?token=${encodeURIComponent(token)}`, { headers }),
-    );
+    const url = `http://localhost${route}?token=${encodeURIComponent(token)}`;
+    const response = await entry.handle(new Request(url, { headers }));
     const html = await response.text();
     if (response.status !== 200) fail(`${route} returned ${response.status}: ${html.slice(0, 200)}`);
     assertRealReviewHtml(html, route);
+    await assertReviewAssetsAvailableInRuntime(html, url, join(dirname(absoluteRuntimeEntry), "client", "_astro"));
 }
 
 /** @param {string[]} [args] */

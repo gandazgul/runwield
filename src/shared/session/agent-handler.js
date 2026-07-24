@@ -343,6 +343,7 @@ export function createAgentHandler(agentName, __deps) {
                     planContent,
                     triageMeta,
                     sessionManager,
+                    executionContext: executionResult.executionContext,
                     finalAgentName: agentName,
                     __deps: { recordWorkflowMetric: recordWorkflowMetricImpl },
                 });

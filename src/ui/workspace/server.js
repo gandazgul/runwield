@@ -52,6 +52,14 @@ import {
     revokeDeviceApi,
 } from "./routes/owner-api.js";
 import { authenticateOwnerRequest, authorizeOwnerUpgradeRequest, isOwnerUpgradeRequest } from "./server/owner-auth.js";
+import { createWorkspaceSessionContinuationService } from "./server/session-continuation.js";
+import {
+    ownerProjectSessionsApi,
+    ownerSessionBootstrapApi,
+    ownerSessionContinuationStartApi,
+    ownerSessionOperationStatusApi,
+    ownerSessionTimelineApi,
+} from "./routes/owner-session-api.js";
 import {
     assertOwnerHost,
     assertOwnerOrigin,
@@ -173,6 +181,7 @@ export function createOwnerWorkspaceApp(options) {
     const store = options.store || openOwnerCoordinationStore({ dbPath: options.dbPath });
     setAstroOwnerWorkspaceStore(store);
     const connections = createOwnerConnectionRegistry();
+    const sessionContinuation = createWorkspaceSessionContinuationService({ store });
     const pairingRateLimit = createInProcessRateLimit({ limit: 4, windowMs: 60_000 });
     registerStaticRoutes(app);
     app.use(async (ctx) => {
@@ -182,6 +191,7 @@ export function createOwnerWorkspaceApp(options) {
             ctx.state.store = store;
             ctx.state.publicOrigin = options.publicOrigin;
             ctx.state.ownerConnections = connections;
+            ctx.state.sessionContinuation = sessionContinuation;
             ctx.state.pairingRateLimit = pairingRateLimit;
             ctx.state.bootstrapProofCookieHeader = (proof) =>
                 `rw_pairing_proof=${encodeURIComponent(proof)}; Max-Age=300; Path=/; SameSite=Strict${
@@ -245,6 +255,11 @@ export function createOwnerWorkspaceApp(options) {
     app.get("/api/owner/projects/:projectId/plans", ownerProjectBoardApi);
     app.get("/api/owner/projects/:projectId/plans/view/:view", ownerProjectBoardApi);
     app.get("/api/owner/projects/:projectId/plans/:planId", ownerProjectPlanDetailApi);
+    app.get("/api/owner/projects/:projectId/sessions", ownerProjectSessionsApi);
+    app.get("/api/owner/projects/:projectId/sessions/:runwieldSessionId/timeline", ownerSessionTimelineApi);
+    app.post("/api/owner/projects/:projectId/sessions/:runwieldSessionId/bootstrap", ownerSessionBootstrapApi);
+    app.post("/api/owner/projects/:projectId/sessions/:runwieldSessionId/continue", ownerSessionContinuationStartApi);
+    app.get("/api/owner/session-operations/:operationId", ownerSessionOperationStatusApi);
     app.get("/api/owner/devices", devicesApi);
     app.post("/api/owner/devices/:deviceId/revoke", revokeDeviceApi);
     app.notFound((ctx) => {
@@ -255,6 +270,8 @@ export function createOwnerWorkspaceApp(options) {
     });
     app.store = store;
     app.ownerConnections = connections;
+    app.sessionContinuation = sessionContinuation;
+    app.close = () => sessionContinuation.close();
     return app;
 }
 
@@ -355,7 +372,7 @@ export function createReviewWorkspaceApp({ cwd, token, reviewPayload, reviewType
                     const payload = { ...reviewPayload, token, mode: "workflow" };
                     const astroResponse = await renderAstroReviewPage(request, cwd, payload);
                     if (astroResponse) return astroResponse;
-                    return workspaceBuildUnavailable();
+                    return renderStaticReviewFallback(reviewType, payload);
                 }
                 return new Response("Not found", { status: 404 });
             };
@@ -484,6 +501,53 @@ function isLegacyReviewApiPath(pathname) {
         pathname === "/api/deny" ||
         pathname === "/api/feedback" ||
         pathname === "/api/exit";
+}
+
+/**
+ * @param {"plan" | "code"} reviewType
+ * @param {Record<string, unknown>} payload
+ */
+function renderStaticReviewFallback(reviewType, payload) {
+    const title = payload?.surface === "artifact-read"
+        ? `${payload.artifactKind === "work-record" ? "Work Record" : "Plan"} · RunWield Workspace`
+        : reviewType === "plan"
+        ? "Plan Review · RunWield Workspace"
+        : "Code Review · RunWield Workspace";
+    const payloadAttribute = reviewType === "plan" ? "data-review-payload" : "data-code-review-payload";
+    const payloadJson = escapeScriptJson(JSON.stringify(payload));
+    return new Response(
+        `<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>${escapeHtml(title)}</title>
+        <link rel="icon" href="/logo.svg" type="image/svg+xml" />
+        <link rel="stylesheet" href="/tokens.css" />
+        <link rel="stylesheet" href="/components.css" />
+        <link rel="stylesheet" href="/workspace.css" />
+        <link rel="stylesheet" href="/theme.css" />
+    </head>
+    <body>
+        <main class="review-shell" data-astro-review-shell>
+            <script type="application/json" ${payloadAttribute}>${payloadJson}</script>
+            <section class="empty-state">
+                <h1>${escapeHtml(title)}</h1>
+                <p>Workspace review UI assets are unavailable in this environment.</p>
+            </section>
+        </main>
+    </body>
+</html>`,
+        {
+            status: 200,
+            headers: { "content-type": "text/html; charset=utf-8" },
+        },
+    );
+}
+
+/** @param {string} value */
+function escapeScriptJson(value) {
+    return value.replaceAll("<", "\\u003c").replaceAll(">", "\\u003e").replaceAll("&", "\\u0026");
 }
 
 function workspaceBuildUnavailable() {
