@@ -20,7 +20,8 @@ Before relying on it, check whether the CLI exists:
 command -v agent-browser
 ```
 
-If it is missing in a RunWield environment, rerun the RunWield installer to restore the required helper:
+If it is missing in a RunWield environment, rerun the RunWield installer to restore the required helper outside the
+target project so browser tooling does not create project-local `package.json`, manifest, or lockfile changes:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/gandazgul/runwield/main/install.sh | bash
@@ -32,7 +33,9 @@ Then install Chrome for Testing when needed:
 agent-browser install
 ```
 
-On Linux, use browser dependency installation when Chrome cannot launch:
+Do **not** run `npm install --save-dev agent-browser`, add `agent-browser` to the project manifest, or change project
+lockfiles unless the approved Plan explicitly scopes that tooling change. On Linux, use browser dependency installation
+when Chrome cannot launch, again outside the target project unless scoped:
 
 ```bash
 agent-browser install --with-deps
@@ -40,11 +43,17 @@ agent-browser install --with-deps
 
 ## UI Feedback Loop
 
-1. Start the target app using the project's normal dev server or preview command.
-2. Open the page in an isolated browser session:
+1. Start or reconnect to the target app using the project's normal dev server or preview command. Prefer the Plan's
+   recorded `devServerCommand`/`devServerUrl` when present, keep HMR-capable servers alive across increments, and
+   reconnect/restart only after confirming the process and named browser session belong to the current execution
+   worktree. Do not attach to or kill a server from another worktree; if ownership is ambiguous, start a separate
+   worktree-scoped process on an available port and report the URL used.
+2. Open the page in an isolated named browser session so the same headed window can persist across implementation, Pair
+   checkpoints, and validation repairs. The session name must be assignment- and worktree-specific (for example, include
+   the Plan slug plus a short worktree or branch identifier); do not reuse a fixed shared name across assignments:
 
 ```bash
-agent-browser --headed --session ui-check open http://localhost:3000
+agent-browser --headed --session runwield-<plan-slug>-<worktree-id> open http://localhost:3000
 ```
 
 3. Set the viewport or device that matches the bug report or acceptance target:
@@ -86,7 +95,8 @@ agent-browser screenshot --annotate ./artifacts/ui-check-annotated.png
 ```
 
 The loop is complete when the browser state, screenshot, console/errors, and relevant network checks support the same
-conclusion.
+conclusion. In Pair Execution, use this evidence for the next `pair_checkpoint`; checkpoint approval is implementation
+steering, not final verification or Task Completion evidence.
 
 ## Reproducing User-Reported Bugs
 
@@ -108,7 +118,7 @@ agent-browser network requests --type xhr,fetch
 If the bug depends on login or app storage, use an isolated persistent session rather than redoing setup every run:
 
 ```bash
-agent-browser --session app-bug --restore open http://localhost:3000/login
+agent-browser --session runwield-<plan-slug>-<worktree-id>-bug --restore open http://localhost:3000/login
 ```
 
 For protected origins or setup that must happen before first navigation, launch blank, stage state, then navigate:
@@ -186,7 +196,9 @@ agent-browser eval "Array.from(document.querySelectorAll('button')).map(b => b.t
 
 ## Cleanup
 
-Close sessions when finished, especially after auth or persistent-state testing:
+Keep the named headed session available while the workflow is active, especially during Pair Execution or validation
+repair, so user-visible state is not discarded unnecessarily. Close sessions at terminal workflow completion, and always
+close auth or persistent-state sessions that are no longer needed:
 
 ```bash
 agent-browser close
@@ -194,5 +206,5 @@ agent-browser close --all
 ```
 
 Report the exact URL, viewport/device, commands or action sequence, screenshot paths, and remaining browser diagnostics
-in the final answer. If `agent-browser` could not be installed or launched, say which command failed and fall back to
-the project's available browser test tooling.
+in the final answer. If `agent-browser` could not be installed, launched, or reconnected, say which command failed, what
+browser evidence remains unverified, and fall back only to the project's existing browser test tooling.

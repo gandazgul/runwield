@@ -35,6 +35,7 @@ import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runt
  * @property {any} triageMeta
  * @property {"engineer"|"frontend-engineer"} executionAgent
  * @property {boolean} [executionStarted]
+ * @property {number} [executionAttemptStartedAtMs]
  * @property {"autonomous"|"pair"} [collaborationStyle]
  * @property {"autonomous"|"pair"} [collaborationRecommendation]
  * @property {number} [pairCheckpointCount]
@@ -485,6 +486,14 @@ export class HostedSession {
             }
             if (workflow.executionStarted !== undefined && typeof workflow.executionStarted !== "boolean") {
                 throw new Error("setActiveExecutionWorkflow: executionStarted must be boolean");
+            }
+            if (
+                workflow.executionAttemptStartedAtMs !== undefined &&
+                (!Number.isFinite(workflow.executionAttemptStartedAtMs) || workflow.executionAttemptStartedAtMs < 0)
+            ) {
+                throw new Error(
+                    "setActiveExecutionWorkflow: executionAttemptStartedAtMs must be a non-negative number",
+                );
             }
             if (
                 workflow.collaborationStyle !== undefined && workflow.collaborationStyle !== "autonomous" &&
