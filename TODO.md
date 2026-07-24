@@ -2,6 +2,17 @@
 
 ## Bugs
 
+- [ ] P0 before marking a plan as verified we need to check that: all changes in the worktree were actually committed,
+      then that main's HEAD is not the same as the plan's base commit, then that the plan's base commit is an ancestor
+      of main's HEAD. If any of these checks fail, it should dispatch engineer back to fix the merge issues before
+      checking again.
+- [ ] plans/session-runtime-acp-mvp/01-acp-sdk-and-stdio-entrypoint-skeleton.md says status: verified but still has
+      worktreeStatus: merge_conflict and a failure reason about overlapping uncommitted\
+      primary-checkout changes. That conflicts with the normal lifecycle expectation that verified worktree-backed plans
+      have merged back cleanly. See docs/plan-lifecycle.md.
+- [ ] MAke the last assistant message pinned to the top of the input. During validation this gets replaced by the
+      validation card so you dont have 2 pins. Also in the validation card put the reviewer findings above the
+      engineer's task_completed result.
 - [ ] Guided review tries to use claude code???? it should use WLD instead. "failed · claude/claude-cli · 3.2s · tokens
       unavailable · cost unavailable"
 

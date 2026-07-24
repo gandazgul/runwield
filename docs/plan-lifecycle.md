@@ -172,7 +172,9 @@ registry snapshots back into the primary checkout.
 ## Workflow Validation and Merge-Back
 
 Workflow Validation applies only to executable Plan work. It promotes `implemented` to `verified` only after local
-validation, semantic review, any configured human code review gate, and merge-back all succeed.
+validation, semantic review, any configured human code review gate, and delivery evidence all succeed. Worktree-backed
+FEATURE Plans fail closed when the execution mode or worktree publication context is unknown; missing volatile Session
+state is not treated as proof that validation should run in the primary checkout.
 
 For worktree-backed plans:
 
@@ -187,17 +189,18 @@ For worktree-backed plans:
    sent back to the Engineer in the execution worktree, then validation reruns.
 5. If validation fails, RunWield keeps Plan Status `implemented`, records `worktreeStatus: "validation_failed"`, and
    leaves the worktree for recovery.
-6. If validation passes, RunWield copies the primary Plan's current implemented Front Matter into the execution worktree
-   and records `validation_passed` there. This branch-local `verified` state is staged for merge and is not yet
-   canonical.
+6. If validation passes, RunWield seals the execution worktree into a pinned candidate commit, captures the target
+   branch head before merge, copies the primary Plan's current implemented Front Matter into the execution worktree, and
+   records `validation_passed` there with `executionMode` plus versioned `deliveryEvidence`. This branch-local
+   `verified` state is staged for merge and is not yet canonical.
 7. RunWield snapshots the primary Plan's index and working-file state, returns both to the checked-in state, and merges
    the execution branch. When the target branch is not checked out in the primary checkout, the merge updates that
    target ref through a detached merge worktree and RunWield restores the primary snapshot; otherwise the successful
-   merge supplies the primary file directly. The staged verified Plan becomes canonical without leaving a post-merge
-   Plan edit. By default, RunWield removes the execution checkout, deletes its `.wld/worktrees.json` entry, and the
-   merged Plan has `executionBaselineTree`, `worktreeId`, `worktreePath`, `worktreeBranch`, and `worktreeStatus`
-   cleared. If `cleanupMergedWorktrees` is `false`, the merged checkout, registry entry, and Plan pointers remain for
-   inspection.
+   merge supplies the primary file directly. The staged verified Plan becomes canonical only after Git proves the sealed
+   candidate commit and metadata commit are ancestors of the target branch. By default, RunWield removes the execution
+   checkout, deletes its `.wld/worktrees.json` entry, and the merged Plan has `executionBaselineTree`, `worktreeId`,
+   `worktreePath`, `worktreeBranch`, and `worktreeStatus` cleared. If `cleanupMergedWorktrees` is `false`, the merged
+   checkout, registry entry, and Plan pointers remain for inspection.
 8. If merge-back fails or is refused, RunWield restores the exact primary Plan snapshot before recording
    `worktree_merge_failed`. The primary Plan stays `implemented` with `worktreeStatus: "merge_conflict"`, while the
    execution branch retains its staged verified Plan for an idempotent retry or manual merge recovery. If another file
@@ -249,6 +252,15 @@ enough for now.
 `epicCompletionMode`: Set to `done_enough` when the user marks an Epic complete enough for now.
 
 `epicDoneEnoughSummary`: Summary recorded with the done-enough Epic decision.
+
+`executionMode`: Explicit execution publication mode. `worktree` means implementation must be validated and published
+through a Git-backed execution worktree. `non_git_in_place` means validation ran against the primary checkout by an
+explicit non-Git path. Missing mode is unknown for FEATURE validation, not an implicit primary-checkout fallback.
+
+`deliveryEvidence`: Versioned proof recorded with `validation_passed`. Worktree evidence records
+`mode: "worktree_merge"`, the sealed `executionCommit`, the concrete `targetBranch`, and `targetHeadBeforeMerge` so Git
+ancestry can prove the delivered implementation and metadata reached the target. Non-Git evidence records only
+`{ version: 1, mode: "non_git_in_place" }`; it must not contain absolute paths.
 
 `executionBaselineTree`: Git tree captured in the execution worktree at `execution_started`.
 

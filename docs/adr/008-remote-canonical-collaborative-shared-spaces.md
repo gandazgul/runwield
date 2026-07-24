@@ -1,3 +1,7 @@
+---
+status: accepted
+---
+
 # ADR-008: Remote-Canonical Collaborative Shared Spaces
 
 Collaborative Planning treats a shared Plan as a remote-canonical Shared Space while it is shared, rather than as an

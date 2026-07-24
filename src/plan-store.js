@@ -94,6 +94,28 @@ function getStoredPlanLocation(cwd, planName) {
  */
 
 /**
+ * @typedef {"worktree"|"non_git_in_place"|null} ExecutionMode
+ */
+
+/**
+ * @typedef {Object} WorktreeDeliveryEvidence
+ * @property {1} version
+ * @property {"worktree_merge"} mode
+ * @property {string} executionCommit
+ * @property {string} targetBranch
+ * @property {string} targetHeadBeforeMerge
+ */
+
+/**
+ * @typedef {Object} NonGitDeliveryEvidence
+ * @property {1} version
+ * @property {"non_git_in_place"} mode
+ */
+
+/** @typedef {WorktreeDeliveryEvidence|NonGitDeliveryEvidence|null} DeliveryEvidence
+ */
+
+/**
  * @typedef {Object} PlanFrontMatter
  * @property {string} [planId] - Durable project-scoped resource identity for URL/addressable Plan lookup
  * @property {"QUICK_FIX"|"FEATURE"|"PROJECT"} classification
@@ -128,6 +150,8 @@ function getStoredPlanLocation(cwd, planName) {
  * @property {"done_enough"|null} [epicCompletionMode] - Explicit Epic completion mode when an Epic is marked done enough for now
  * @property {string|null} [epicDoneEnoughAt] - ISO timestamp when an Epic was marked done enough for now
  * @property {string|null} [epicDoneEnoughSummary] - Human-readable summary captured when an Epic was marked done enough for now
+ * @property {ExecutionMode} [executionMode] - Durable execution mode for the current implementation attempt
+ * @property {DeliveryEvidence} [deliveryEvidence] - Compact proof recorded by successful Workflow Validation
  * @property {string|null} [executionBaselineTree] - Git tree captured before execution started
  * @property {string|null} [worktreeId] - Durable execution worktree registry id
  * @property {string|null} [worktreePath] - Filesystem path to the execution worktree
@@ -376,6 +400,8 @@ function formatFrontMatter(fm) {
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.epicCompletionMode, fm.epicCompletionMode);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.epicDoneEnoughAt, fm.epicDoneEnoughAt);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.epicDoneEnoughSummary, fm.epicDoneEnoughSummary);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.executionMode, fm.executionMode);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.deliveryEvidence, fm.deliveryEvidence);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.executionBaselineTree, fm.executionBaselineTree);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.worktreeId, fm.worktreeId);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.worktreePath, fm.worktreePath);
@@ -724,6 +750,47 @@ function normalizeWorktreeStatus(status) {
 }
 
 /**
+ * @param {unknown} value
+ * @returns {ExecutionMode | undefined}
+ */
+export function normalizeExecutionMode(value) {
+    if (value === "worktree" || value === "non_git_in_place") return value;
+    return undefined;
+}
+
+/** @param {unknown} value */
+function isShaLike(value) {
+    return typeof value === "string" && /^[0-9a-f]{40}$/i.test(value);
+}
+
+/**
+ * @param {unknown} value
+ * @returns {DeliveryEvidence | undefined}
+ */
+export function normalizeDeliveryEvidence(value) {
+    if (value === null) return undefined;
+    if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+    const evidence = /** @type {Record<string, unknown>} */ (value);
+    if (evidence.version !== 1) return undefined;
+    if (evidence.mode === "non_git_in_place") return { version: 1, mode: "non_git_in_place" };
+    if (evidence.mode === "worktree_merge") {
+        const executionCommit = evidence.executionCommit;
+        const targetBranch = evidence.targetBranch;
+        const targetHeadBeforeMerge = evidence.targetHeadBeforeMerge;
+        if (!isShaLike(executionCommit) || typeof targetBranch !== "string" || !targetBranch.trim()) return undefined;
+        if (!isShaLike(targetHeadBeforeMerge)) return undefined;
+        return {
+            version: 1,
+            mode: "worktree_merge",
+            executionCommit: String(executionCommit),
+            targetBranch: targetBranch.trim(),
+            targetHeadBeforeMerge: String(targetHeadBeforeMerge),
+        };
+    }
+    return undefined;
+}
+
+/**
  * @param {unknown} mode
  * @returns {PlanFrontMatter["humanReviewMode"]}
  */
@@ -857,6 +924,12 @@ export function injectFrontMatter(markdown, overrides = {}) {
         ),
         epicDoneEnoughAt: optionalFrontMatterValue(overrides, existingFm, "epicDoneEnoughAt"),
         epicDoneEnoughSummary: optionalFrontMatterValue(overrides, existingFm, "epicDoneEnoughSummary"),
+        executionMode: Object.hasOwn(overrides, "executionMode")
+            ? normalizeExecutionMode(overrides.executionMode)
+            : normalizeExecutionMode(existingFm.executionMode),
+        deliveryEvidence: Object.hasOwn(overrides, "deliveryEvidence")
+            ? normalizeDeliveryEvidence(overrides.deliveryEvidence)
+            : normalizeDeliveryEvidence(existingFm.deliveryEvidence),
         executionBaselineTree: optionalFrontMatterValue(overrides, existingFm, "executionBaselineTree"),
         worktreeId: optionalFrontMatterValue(overrides, existingFm, "worktreeId"),
         worktreePath: optionalFrontMatterValue(overrides, existingFm, "worktreePath"),
@@ -961,6 +1034,8 @@ export function parsePlanFrontMatter(markdown, opts = {}) {
             epicCompletionMode: attrs.epicCompletionMode === "done_enough" ? attrs.epicCompletionMode : undefined,
             epicDoneEnoughAt: attrs.epicDoneEnoughAt,
             epicDoneEnoughSummary: attrs.epicDoneEnoughSummary,
+            executionMode: normalizeExecutionMode(attrs.executionMode),
+            deliveryEvidence: normalizeDeliveryEvidence(attrs.deliveryEvidence),
             executionBaselineTree: attrs.executionBaselineTree,
             worktreeId: attrs.worktreeId,
             worktreePath: attrs.worktreePath,

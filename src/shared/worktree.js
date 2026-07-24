@@ -449,17 +449,76 @@ function buildWorktreeCommitMessage({ planName, planDescription, branch, stagedP
  * @param {string} branch
  * @param {WorktreeCommitMessageOptions} [messageOptions]
  */
-async function commitDirtyWorktreeState(worktreePath, branch, messageOptions = {}) {
+/**
+ * @param {string} worktreePath
+ * @param {string} branch
+ * @param {Record<string, unknown>} [messageOptions]
+ * @param {string[]} [allowedDirtyPaths]
+ */
+async function commitDirtyWorktreeState(worktreePath, branch, messageOptions = {}, allowedDirtyPaths = []) {
     const currentBranch = (await runGit(worktreePath, ["branch", "--show-current"])).trim();
     if (currentBranch !== branch) {
         throw new Error(`Worktree path ${worktreePath} is on ${currentBranch || "detached HEAD"}, not ${branch}`);
     }
-    await runGit(worktreePath, ["add", "-A", "--", "."]);
+    if (allowedDirtyPaths.length > 0) {
+        const allowedPathSet = new Set(allowedDirtyPaths);
+        const status = await runGit(worktreePath, ["status", "--porcelain"]);
+        const dirtyPaths = parseStatusPaths(status);
+        const disallowedPaths = dirtyPaths.filter((path) => !isAllowedDirtyPath(path, allowedPathSet));
+        if (disallowedPaths.length > 0) {
+            throw new Error(
+                "Execution worktree changed after candidate sealing outside finalized Plan paths:\n" +
+                    disallowedPaths.map((path) => `  - ${path}`).join("\n"),
+            );
+        }
+        await runGit(worktreePath, ["add", "-A", "--", ...allowedDirtyPaths]);
+    } else {
+        await runGit(worktreePath, ["add", "-A", "--", "."]);
+    }
     const stagedDiff = await runGit(worktreePath, ["diff", "--cached", "--name-only"]);
     const stagedPaths = parseNameOnlyPaths(stagedDiff);
     if (stagedPaths.length === 0) return;
     const message = buildWorktreeCommitMessage({ ...messageOptions, branch, stagedPaths });
     await runGit(worktreePath, ["commit", "-m", message.subject, "-m", message.body]);
+}
+
+/**
+ * @param {{ worktreePath: string, branch: string, planName?: string, planDescription?: string }} opts
+ * @returns {Promise<{ executionCommit: string }>}
+ */
+export async function checkpointExecutionWorktree({ worktreePath, branch, planName, planDescription }) {
+    await commitDirtyWorktreeState(worktreePath, branch, { planName, planDescription });
+    const status = await runGit(worktreePath, ["status", "--porcelain"]);
+    if (status.trim()) throw new Error(`Execution worktree is dirty after checkpoint commit:\n${status}`);
+    const executionCommit = (await runGit(worktreePath, ["rev-parse", "HEAD"])).trim();
+    return { executionCommit };
+}
+
+/**
+ * @param {{ worktreePath: string, branch: string, planName?: string, planDescription?: string }} opts
+ * @returns {Promise<{ executionCommit: string }>}
+ */
+export async function sealExecutionWorktreeCandidate(opts) {
+    return await checkpointExecutionWorktree(opts);
+}
+
+/**
+ * @param {string} projectRoot
+ * @param {string} branch
+ */
+export async function getBranchHead(projectRoot, branch) {
+    return (await runGit(projectRoot, ["rev-parse", `refs/heads/${branch}`])).trim();
+}
+
+/**
+ * @param {string} projectRoot
+ * @param {string} commit
+ * @param {string} branch
+ * @returns {Promise<boolean>}
+ */
+export async function isCommitAncestorOfBranch(projectRoot, commit, branch) {
+    const result = await runGitResult(projectRoot, ["merge-base", "--is-ancestor", commit, `refs/heads/${branch}`]);
+    return result.code === 0;
 }
 
 /**
@@ -641,37 +700,6 @@ async function resolvePreservedPlanMergeConflicts(cwd, branch, preservePlanPaths
 }
 
 /**
- * @param {string} projectRoot
- * @param {string} branch
- * @param {string} targetBranch
- * @param {string | undefined} worktreePath
- */
-async function maybeRebaseStaleExecutionBranch(projectRoot, branch, targetBranch, worktreePath) {
-    const targetRef = `refs/heads/${targetBranch}`;
-    const mergeBase = (await runGit(projectRoot, ["merge-base", targetRef, branch])).trim();
-    const commitsBehind = parseInt(
-        (await runGit(projectRoot, ["rev-list", "--count", `${mergeBase}..${targetRef}`])).trim(),
-        10,
-    );
-    if (commitsBehind <= 5) return;
-    if (!worktreePath) {
-        throw new Error(
-            `Worktree branch ${branch} is ${commitsBehind} commits behind ${targetBranch}, but no execution ` +
-                "worktree path is available for a safe rebase.",
-        );
-    }
-    try {
-        await runGit(worktreePath, ["rebase", targetRef]);
-    } catch (rebaseError) {
-        await runGit(worktreePath, ["rebase", "--abort"]).catch(() => {});
-        const reason = rebaseError instanceof Error ? rebaseError.message : String(rebaseError);
-        throw new Error(
-            `Worktree branch ${branch} is ${commitsBehind} commits behind ${targetBranch} and rebase failed: ${reason}.`,
-        );
-    }
-}
-
-/**
  * @param {string} cwd
  * @param {string} branch
  * @param {string[]} allowedDirtyPaths
@@ -824,7 +852,7 @@ async function publishRepairedMergeWorktree(projectRoot, targetBranch, mergeWork
 }
 
 /**
- * @param {{ projectRoot: string, branch: string, targetBranch: string, worktreePath?: string, allowedDirtyPaths?: string[], preservePlanPaths?: string[], repairMergeWorktreePath?: string, maxAttempts?: number }} opts
+ * @param {{ projectRoot: string, branch: string, targetBranch: string, worktreePath?: string, allowedDirtyPaths?: string[], preservePlanPaths?: string[], repairMergeWorktreePath?: string, expectedTargetHead?: string, maxAttempts?: number }} opts
  */
 async function mergeExecutionWorktreeIntoTargetBranch({
     projectRoot,
@@ -834,6 +862,7 @@ async function mergeExecutionWorktreeIntoTargetBranch({
     allowedDirtyPaths = [],
     preservePlanPaths = [],
     repairMergeWorktreePath,
+    expectedTargetHead,
     maxAttempts = 3,
 }) {
     await assertLocalBranchExists(projectRoot, branch);
@@ -853,6 +882,13 @@ async function mergeExecutionWorktreeIntoTargetBranch({
                 `Target branch ${targetBranch} is recorded at ${projectRoot}, but current branch is ${currentBranch}.`,
             );
         }
+        const currentTargetHead = await getBranchHead(projectRoot, targetBranch);
+        if (expectedTargetHead && currentTargetHead !== expectedTargetHead) {
+            throw attachMergeRepairDetails(
+                new Error(`Target branch ${targetBranch} advanced before publication; rerun Workflow Validation.`),
+                { mergeFailureKind: "target_branch_advanced" },
+            );
+        }
         if (repairMergeWorktreePath) {
             const published = await publishRepairedMergeWorktree(projectRoot, targetBranch, repairMergeWorktreePath);
             if (published) return;
@@ -864,7 +900,6 @@ async function mergeExecutionWorktreeIntoTargetBranch({
             worktreePath,
             preservePlanPaths,
         );
-        await maybeRebaseStaleExecutionBranch(projectRoot, branch, targetBranch, worktreePath);
         await mergeExecutionWorktreeIntoCurrentCheckout({
             projectRoot,
             branch,
@@ -873,6 +908,14 @@ async function mergeExecutionWorktreeIntoTargetBranch({
             preservePlanPaths,
         });
         return;
+    }
+
+    const initialTargetHead = await getBranchHead(projectRoot, targetBranch);
+    if (expectedTargetHead && initialTargetHead !== expectedTargetHead) {
+        throw attachMergeRepairDetails(
+            new Error(`Target branch ${targetBranch} advanced before publication; rerun Workflow Validation.`),
+            { mergeFailureKind: "target_branch_advanced" },
+        );
     }
 
     if (repairMergeWorktreePath) {
@@ -893,8 +936,13 @@ async function mergeExecutionWorktreeIntoTargetBranch({
             );
         }
         const oldTargetCommit = (await runGit(projectRoot, ["rev-parse", `refs/heads/${targetBranch}`])).trim();
+        if (expectedTargetHead && oldTargetCommit !== expectedTargetHead) {
+            throw attachMergeRepairDetails(
+                new Error(`Target branch ${targetBranch} advanced before publication; rerun Workflow Validation.`),
+                { mergeFailureKind: "target_branch_advanced" },
+            );
+        }
         await alignPlanFilesWithMergeTarget(projectRoot, oldTargetCommit, branch, worktreePath, preservePlanPaths);
-        await maybeRebaseStaleExecutionBranch(projectRoot, branch, targetBranch, worktreePath);
         const tempId = crypto.randomUUID().slice(0, 8);
         const mergeWorktreePath = join(parent, `${repoName}-runwield-merge-${slugify(targetBranch)}-${tempId}`);
         let preserveMergeWorktree = false;
@@ -1004,10 +1052,11 @@ export async function inspectExecutionWorktreeMergeRisk({ projectRoot, branch, t
 /**
  * @typedef {Object} MergeExecutionWorktreeResult
  * @property {boolean} updatedPrimaryCheckout
+ * @property {string} [executionMetadataCommit]
  */
 
 /**
- * @param {{ projectRoot: string, branch: string, targetBranch?: string, worktreePath?: string, allowedDirtyPaths?: string[], preservePlanPaths?: string[], repairMergeWorktreePath?: string, planName?: string, planDescription?: string }} opts
+ * @param {{ projectRoot: string, branch: string, targetBranch?: string, worktreePath?: string, allowedDirtyPaths?: string[], preservePlanPaths?: string[], repairMergeWorktreePath?: string, expectedTargetHead?: string, planName?: string, planDescription?: string, sealedExecutionCommit?: string }} opts
  * @returns {Promise<MergeExecutionWorktreeResult|void>}
  */
 export async function mergeExecutionWorktree(
@@ -1019,8 +1068,10 @@ export async function mergeExecutionWorktree(
         allowedDirtyPaths = [],
         preservePlanPaths = [],
         repairMergeWorktreePath,
+        expectedTargetHead,
         planName,
         planDescription,
+        sealedExecutionCommit,
     },
 ) {
     await assertGitRepository(projectRoot, "Merging an execution worktree");
@@ -1030,8 +1081,33 @@ export async function mergeExecutionWorktree(
         const worktreeList = await runGit(projectRoot, ["worktree", "list", "--porcelain"]);
         resolvedWorktreePath = findWorktreePathForBranch(worktreeList, branch) || undefined;
     }
+    /** @type {string | undefined} */
+    let executionMetadataCommit;
     if (resolvedWorktreePath) {
-        await commitDirtyWorktreeState(resolvedWorktreePath, branch, { planName, planDescription });
+        if (sealedExecutionCommit) {
+            const currentHead = (await runGit(resolvedWorktreePath, ["rev-parse", "HEAD"])).trim();
+            if (currentHead !== sealedExecutionCommit) {
+                const allowedPathSet = new Set(preservePlanPaths);
+                const changedSinceSeal = parseNameOnlyPaths(
+                    await runGit(resolvedWorktreePath, ["diff", "--name-only", `${sealedExecutionCommit}..HEAD`]),
+                );
+                const disallowedPaths = changedSinceSeal.filter((path) => !isAllowedDirtyPath(path, allowedPathSet));
+                if (disallowedPaths.length > 0) {
+                    throw new Error(
+                        `Execution worktree HEAD ${currentHead} changed after candidate sealing; expected ${sealedExecutionCommit}. ` +
+                            "Non-Plan changes require a fresh Workflow Validation attempt:\n" +
+                            disallowedPaths.map((path) => `  - ${path}`).join("\n"),
+                    );
+                }
+            }
+        }
+        await commitDirtyWorktreeState(
+            resolvedWorktreePath,
+            branch,
+            { planName, planDescription },
+            sealedExecutionCommit ? preservePlanPaths : [],
+        );
+        executionMetadataCommit = (await runGit(resolvedWorktreePath, ["rev-parse", "HEAD"])).trim();
     }
 
     if (!normalizedTargetBranch) {
@@ -1042,7 +1118,7 @@ export async function mergeExecutionWorktree(
             allowedDirtyPaths,
             preservePlanPaths,
         });
-        return { updatedPrimaryCheckout: true };
+        return { updatedPrimaryCheckout: true, executionMetadataCommit };
     }
 
     const targetCheckoutPath = await findCheckoutPathForBranch(projectRoot, normalizedTargetBranch);
@@ -1055,10 +1131,11 @@ export async function mergeExecutionWorktree(
         targetBranch: normalizedTargetBranch,
         worktreePath: resolvedWorktreePath,
         repairMergeWorktreePath,
+        expectedTargetHead,
         allowedDirtyPaths,
         preservePlanPaths,
     });
-    return { updatedPrimaryCheckout };
+    return { updatedPrimaryCheckout, executionMetadataCommit };
 }
 
 /**
