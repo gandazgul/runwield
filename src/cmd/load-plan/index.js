@@ -124,7 +124,7 @@ export { getLoadPlanCompletions } from "./getArgumentCompletions.js";
  * @property {(options: Record<string, any>) => Promise<any>} runSlicerAgent
  * @property {(workflow: Record<string, any>) => void} setActiveExecutionWorkflow
  * @property {() => void} clearActiveExecutionWorkflow
- * @property {(meta: { planName: string, planPath: string, triageMeta: Record<string, any> }) => Promise<{ canceled: boolean, approved: boolean, feedback?: string, approvalAction?: import('../../shared/workflow/plan-approval.js').PlanApprovalAction, images?: Array<{base64: string, mimeType: string}> }>} reviewPlan
+ * @property {(meta: { planName: string, planPath: string, triageMeta: Record<string, any> }) => Promise<{ canceled: boolean, approved: boolean, feedback?: string, approvalAction?: import('../../shared/workflow/plan-approval.js').PlanApprovalAction, planAttrs?: import('../../plan-store.js').PlanFrontMatter, images?: Array<{base64: string, mimeType: string}> }>} reviewPlan
  * @property {(name: string) => void} rename
  */
 
@@ -177,6 +177,9 @@ function createPlanSessionSurface(runtime, sessionId, deps) {
                 approved: review.approved === true,
                 feedback: typeof review.feedback === "string" ? review.feedback : undefined,
                 approvalAction: review.approvalAction,
+                planAttrs: review.planAttrs && typeof review.planAttrs === "object"
+                    ? /** @type {import('../../plan-store.js').PlanFrontMatter} */ (review.planAttrs)
+                    : undefined,
                 images: Array.isArray(review.images) ? review.images : undefined,
             };
         },
@@ -3064,6 +3067,23 @@ export async function runLoadPlanCommand(argv, options = {}) {
                     }
 
                     if (reviewResult.approved) {
+                        let reloadedAfterReview = false;
+                        try {
+                            const latestPlan = await loadPlan(projectRoot, plan.planName);
+                            if (latestPlan) {
+                                plan.attrs = reviewResult.planAttrs
+                                    ? { ...latestPlan.attrs, ...reviewResult.planAttrs }
+                                    : latestPlan.attrs;
+                                plan.body = latestPlan.body;
+                                plan.markdown = latestPlan.markdown || latestPlan.body || plan.markdown;
+                                reloadedAfterReview = true;
+                            }
+                        } catch {
+                            // Keep the in-memory Plan if a test fake does not support reloading after review.
+                        }
+                        if (!reloadedAfterReview && reviewResult.planAttrs) {
+                            plan.attrs = { ...plan.attrs, ...reviewResult.planAttrs };
+                        }
                         const approvalAction = normalizePlanApprovalAction({
                             classification: plan.attrs.classification,
                             action: reviewResult.approvalAction,
@@ -3126,10 +3146,11 @@ export async function runLoadPlanCommand(argv, options = {}) {
                                 planName: plan.planName,
                                 triageMeta: plan.attrs,
                             });
+                            const policy = resolvePlanExecutionPolicy(plan.attrs);
                             const executionDecision = decidePostExecution(execRes, {
                                 planName: plan.planName,
                                 triageMeta: plan.attrs,
-                                executionAgentName: agentName,
+                                executionAgentName: policy.ok ? policy.policy.executionAgent : agentName,
                             });
                             await validatePostExecutionDecision({
                                 executionDecision,

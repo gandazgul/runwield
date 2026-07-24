@@ -135,8 +135,8 @@ kebab-case slug, resolves `prototypes/<slug>/deno.json`, verifies the path is ig
 forwards execution to Deno with inherited I/O. Update the Prototype Skill to require the same ignored
 `prototypes/<slug>/` README/config/source shape across projects while using each project's native task runner
 (`deno.json` in RunWield). A focused repository test should assert `prototypes/` remains ignored and untracked and
-reject tracked production files carrying `THROWAWAY PROTOTYPE` or prototype-only naming. This catches the original
-failure even if someone force-adds an ignored file.
+reject tracked production files carrying the throwaway-prototype marker or prototype-only naming. This catches the
+original failure even if someone force-adds an ignored file.
 
 ## Files to Modify
 
@@ -236,9 +236,9 @@ Existing functions, modules, or patterns to reuse:
       state model and terminal shell inside the ignored slug folder; production code receives only a later rewrite of
       the validated conclusion.
 - [ ] Add runner/convention tests for safe and unsafe slugs, missing config/dev task, ignored-path enforcement, and
-      command construction. Add the CI repository scan for tracked `prototypes/**`, `THROWAWAY PROTOTYPE` in production,
-      `*.prototype.*`, and `*Prototype.*` production filenames; exclude the Skill documentation and test fixtures
-      deliberately rather than weakening the guard globally.
+      command construction. Add the CI repository scan for tracked `prototypes/**`, the throwaway-prototype marker in
+      production, `*.prototype.*`, and `*Prototype.*` production filenames; exclude the Skill documentation and test
+      fixtures deliberately rather than weakening the guard globally.
 - [ ] Add focused review payload/decision typedefs for canonical `executionAgent`, `collaborationRecommendation`, and
       post-review Plan attributes; keep Workspace executable code in the existing TSX exception and all non-Workspace
       code pure JavaScript/JSDoc.

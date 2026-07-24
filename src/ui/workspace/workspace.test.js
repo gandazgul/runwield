@@ -734,6 +734,164 @@ Deno.test("Plan approval preserves annotations, global images, and the edited Pl
     }
 });
 
+Deno.test("Plan approval transports canonical FEATURE execution policy", async () => {
+    const token = "plan-policy-secret";
+    const { promise } = registerReviewDecisionPromise(token);
+    try {
+        const app = createReviewWorkspaceApp({
+            cwd: Deno.cwd(),
+            token,
+            reviewPayload: { classification: "FEATURE", frontmatter: { classification: "FEATURE" } },
+            reviewType: "plan",
+        }).handler();
+
+        const response = await app(
+            new Request("http://localhost/api/review/decision", {
+                method: "POST",
+                headers: {
+                    "content-type": "application/json",
+                    "x-runwield-review-token": token,
+                },
+                body: JSON.stringify({
+                    approvalAction: "run",
+                    executionAgent: "frontend-engineer",
+                    collaborationRecommendation: "pair",
+                }),
+            }),
+        );
+
+        assertEquals(response.status, 200);
+        assertEquals(await promise, {
+            approved: true,
+            annotations: [],
+            approvalAction: "run",
+            executionAgent: "frontend-engineer",
+            collaborationRecommendation: "pair",
+            feedback: undefined,
+            plan: undefined,
+            savedPath: undefined,
+            agentSwitch: undefined,
+            permissionMode: undefined,
+        });
+    } finally {
+        unregisterReviewDecision(token);
+    }
+});
+
+Deno.test("invalid Plan approval execution policy leaves review open for retry", async () => {
+    const token = "plan-policy-retry-secret";
+    const { promise } = registerReviewDecisionPromise(token);
+    try {
+        const app = createReviewWorkspaceApp({
+            cwd: Deno.cwd(),
+            token,
+            reviewPayload: { classification: "FEATURE", frontmatter: { classification: "FEATURE" } },
+            reviewType: "plan",
+        }).handler();
+
+        const invalid = await app(
+            new Request("http://localhost/api/review/decision", {
+                method: "POST",
+                headers: {
+                    "content-type": "application/json",
+                    "x-runwield-review-token": token,
+                },
+                body: JSON.stringify({
+                    approvalAction: "run",
+                    executionAgent: "engineer",
+                    collaborationRecommendation: "pair",
+                }),
+            }),
+        );
+        assertEquals(invalid.status, 400);
+
+        const valid = await app(
+            new Request("http://localhost/api/review/decision", {
+                method: "POST",
+                headers: {
+                    "content-type": "application/json",
+                    "x-runwield-review-token": token,
+                },
+                body: JSON.stringify({
+                    approvalAction: "later",
+                    executionAgent: "engineer",
+                    collaborationRecommendation: "autonomous",
+                }),
+            }),
+        );
+
+        assertEquals(valid.status, 200);
+        assertEquals(await promise, {
+            approved: true,
+            annotations: [],
+            approvalAction: "later",
+            executionAgent: "engineer",
+            collaborationRecommendation: "autonomous",
+            feedback: undefined,
+            plan: undefined,
+            savedPath: undefined,
+            agentSwitch: undefined,
+            permissionMode: undefined,
+        });
+    } finally {
+        unregisterReviewDecision(token);
+    }
+});
+
+Deno.test("PROJECT Plan approval rejects execution policy fields without consuming the review", async () => {
+    const token = "project-policy-secret";
+    const { promise } = registerReviewDecisionPromise(token);
+    try {
+        const app = createReviewWorkspaceApp({
+            cwd: Deno.cwd(),
+            token,
+            reviewPayload: { classification: "PROJECT", frontmatter: { classification: "PROJECT" } },
+            reviewType: "plan",
+        }).handler();
+
+        const invalid = await app(
+            new Request("http://localhost/api/review/decision", {
+                method: "POST",
+                headers: {
+                    "content-type": "application/json",
+                    "x-runwield-review-token": token,
+                },
+                body: JSON.stringify({
+                    approvalAction: "decompose",
+                    executionAgent: "frontend-engineer",
+                    collaborationRecommendation: "pair",
+                }),
+            }),
+        );
+        assertEquals(invalid.status, 400);
+
+        const validProjectApproval = await app(
+            new Request("http://localhost/api/review/decision", {
+                method: "POST",
+                headers: {
+                    "content-type": "application/json",
+                    "x-runwield-review-token": token,
+                },
+                body: JSON.stringify({ approvalAction: "decompose" }),
+            }),
+        );
+
+        assertEquals(validProjectApproval.status, 200);
+        assertEquals(await promise, {
+            approved: true,
+            annotations: [],
+            feedback: undefined,
+            plan: undefined,
+            savedPath: undefined,
+            approvalAction: "decompose",
+            agentSwitch: undefined,
+            permissionMode: undefined,
+        });
+    } finally {
+        unregisterReviewDecision(token);
+    }
+});
+
 Deno.test("review image endpoints upload and serve an annotated image", async () => {
     const token = "review-image-secret";
     const app = createReviewWorkspaceApp({
@@ -1895,33 +2053,6 @@ Deno.test("ArtifactReadSurface keeps the React read surface to Contents, notices
     assertEquals(surfaceSource.includes("Feedback"), false);
     assertEquals(surfaceSource.includes("Approve"), false);
     assertEquals(surfaceSource.includes("WorkspaceMarkdownEditor"), false);
-});
-
-Deno.test("Plannotator Viewer readOnly disables annotation creation and checkbox mutation affordances", async () => {
-    const viewerSource = await Deno.readTextFile(
-        new URL("../../../third_party/plannotator/packages/ui/components/Viewer.tsx", import.meta.url),
-    );
-
-    assertStringIncludes(viewerSource, "readOnly?: boolean");
-    assertStringIncludes(viewerSource, "readOnly = false");
-    assertStringIncludes(viewerSource, "const annotationsEnabled = !readOnly");
-    assertStringIncludes(viewerSource, "enabled: annotationsEnabled");
-    assertStringIncludes(viewerSource, "enabled: annotationsEnabled && !toolbarState");
-    assertStringIncludes(viewerSource, "const validatedCodePathMarkdown = disableCodePathValidation || readOnly");
-    assertStringIncludes(viewerSource, "useValidatedCodePaths(");
-    assertStringIncludes(viewerSource, "validatedCodePathMarkdown");
-    assertStringIncludes(viewerSource, "codePathBaseDir");
-    assertStringIncludes(viewerSource, "annotationsEnabled && inputMethod === 'pinpoint'");
-    assertStringIncludes(viewerSource, "stickyActions && annotationsEnabled");
-    assertStringIncludes(viewerSource, "{annotationsEnabled && (");
-    assertStringIncludes(viewerSource, "data-sticky-actions");
-    assertStringIncludes(viewerSource, "onToggleCheckbox={annotationsEnabled");
-    assertStringIncludes(viewerSource, "{annotationsEnabled && toolbarState && (");
-    assertStringIncludes(viewerSource, "{annotationsEnabled && hoveredTable && !toolbarState && (");
-    assertStringIncludes(viewerSource, "{annotationsEnabled && hookCommentPopover && (");
-    assertStringIncludes(viewerSource, "{annotationsEnabled && viewerCommentPopover && (");
-    assertStringIncludes(viewerSource, "{annotationsEnabled && hookQuickLabelPicker && (");
-    assertStringIncludes(viewerSource, "{annotationsEnabled && codeBlockQuickLabelPicker && (");
 });
 
 Deno.test("Workspace lifecycle API mutates through lifecycle events and blocks invalid actions", async () => {

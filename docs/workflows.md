@@ -50,8 +50,9 @@ Typical flow:
 
 1. An Agent, usually Router, emits a Triage Report through `triage_report`.
 2. Planner writes a plan.
-3. The user reviews it in Plannotator.
-4. On approval, RunWield marks it ready for work.
+3. The user reviews it in Plannotator. FEATURE Plan Review exposes structured execution controls for `executionAgent`
+   and `collaborationRecommendation`; sending Feedback does not persist temporary control changes.
+4. On approval, RunWield writes the selected canonical execution metadata and marks the Plan ready for work.
 5. RunWield dispatches the recorded `executionAgent`. Browser UI FEATURE Plans may use Frontend Engineer; other Plans
    use Engineer. Frontend Engineer runs autonomously or, in a capable TUI, through blocking Pair checkpoints.
 6. RunWield runs workflow validation.

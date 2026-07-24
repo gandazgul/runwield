@@ -4,6 +4,7 @@
  */
 
 import { startReviewWorkspaceServer } from "../../review-workspace-server.js";
+import { parsePlanFrontMatter, resolvePlanExecutionPolicy } from "../../plan-store.js";
 
 /**
  * @typedef {Object} ReviewSurfaceServer
@@ -242,10 +243,19 @@ async function startWorkspaceHostedPlanReview({
     onOutput,
 }) {
     if (!cwd) throw new Error("startWorkspaceHostedPlanReview: cwd is required");
+    const { attrs } = parsePlanFrontMatter(plan);
+    const policy = resolvePlanExecutionPolicy(attrs);
+    const executionPolicy = policy.ok ? policy.policy : undefined;
     const server = startReviewWorkspaceServer({
         cwd,
         token,
-        reviewPayload: { plan, planPath },
+        reviewPayload: {
+            plan,
+            planPath,
+            classification: attrs.classification,
+            frontmatter: attrs,
+            ...(executionPolicy && { executionPolicy }),
+        },
         reviewType: "plan",
         onOutput,
     });
