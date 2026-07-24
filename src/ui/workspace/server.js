@@ -343,7 +343,11 @@ export function createReviewWorkspaceApp({ cwd, token, reviewPayload, reviewType
                     if (response) return response;
                 }
                 if (url.pathname.startsWith("/api/review/") || isLegacyReviewApiPath(url.pathname)) {
-                    return await handleReviewApiRequest(request, { cwd, reviewToken: token }, url.pathname);
+                    return await handleReviewApiRequest(
+                        request,
+                        { cwd, reviewToken: token, reviewPayload },
+                        url.pathname,
+                    );
                 }
                 if (!hasWorkspaceToken(request, token)) return new Response("Review token required.", { status: 401 });
                 const expectedPath = reviewType === "plan" ? "/review/plan" : "/review/code";

@@ -297,6 +297,9 @@ export function createPlanWrittenTool(
                 feedback: typeof reviewMeta.feedback === "string" ? reviewMeta.feedback : undefined,
                 images: Array.isArray(reviewMeta.images) ? reviewMeta.images : undefined,
                 approvalAction: reviewMeta.approvalAction,
+                planAttrs: reviewMeta.planAttrs && typeof reviewMeta.planAttrs === "object"
+                    ? reviewMeta.planAttrs
+                    : undefined,
             };
 
             if (reviewMeta.remoteReview === true) {
@@ -370,13 +373,14 @@ export function createPlanWrittenTool(
                 );
             }
 
+            const approvedMeta = /** @type {TriageMeta} */ (reviewResult.planAttrs || effectiveMeta);
             const action = normalizePlanApprovalAction({
-                classification: effectiveMeta.classification,
+                classification: approvedMeta.classification,
                 action: reviewResult.approvalAction,
             });
 
-            if (effectiveMeta.classification === "PROJECT") {
-                const projectMeta = { ...effectiveMeta };
+            if (approvedMeta.classification === "PROJECT") {
+                const projectMeta = { ...approvedMeta };
                 await recordPlanEventFn({
                     cwd,
                     planName,
@@ -460,7 +464,7 @@ export function createPlanWrittenTool(
                 planName,
                 event: "readiness_passed",
                 currentStatus: "approved",
-                details: { triageMeta: effectiveMeta },
+                details: { triageMeta: approvedMeta },
             });
             await recordWorkflowMetricFn({
                 category: "planning",
@@ -469,7 +473,7 @@ export function createPlanWrittenTool(
                 planName,
                 details: {
                     outcome: "passed",
-                    classification: effectiveMeta.classification,
+                    classification: approvedMeta.classification,
                     lifecycleEvent: "readiness_passed",
                 },
             });
@@ -480,7 +484,7 @@ export function createPlanWrittenTool(
                     event: "review_outcome",
                     agentName,
                     planName,
-                    details: { outcome: "saved", classification: effectiveMeta.classification, approvalAction: action },
+                    details: { outcome: "saved", classification: approvedMeta.classification, approvalAction: action },
                 });
                 emitSystemStatus(
                     hostedSession,
@@ -492,7 +496,13 @@ export function createPlanWrittenTool(
                     : "";
                 return textResult(
                     `Plan "${planName}" approved and saved for later execution. Your role as ${agentName} is complete. Do not generate any further text.${savedFeedbackSuffix}`,
-                    { ...params, outcome: "saved", planName, ...reviewContextDetails(reviewResult) },
+                    {
+                        ...params,
+                        outcome: "saved",
+                        planName,
+                        triageMeta: approvedMeta,
+                        ...reviewContextDetails(reviewResult),
+                    },
                     true,
                     reviewResult.images,
                 );
@@ -505,7 +515,7 @@ export function createPlanWrittenTool(
                 planName,
                 details: {
                     outcome: "approved_execute",
-                    classification: effectiveMeta.classification,
+                    classification: approvedMeta.classification,
                     approvalAction: action,
                 },
             });
@@ -518,7 +528,7 @@ export function createPlanWrittenTool(
                     ...params,
                     outcome: "approved_execute",
                     planName,
-                    triageMeta: effectiveMeta,
+                    triageMeta: approvedMeta,
                     ...reviewContextDetails(reviewResult),
                 },
                 true,

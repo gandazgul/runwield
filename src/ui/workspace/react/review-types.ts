@@ -1,9 +1,18 @@
+export type PlanExecutionAgent = "engineer" | "frontend-engineer";
+export type PlanCollaborationRecommendation = "autonomous" | "pair";
+
 export type PlanReviewOptions = {
     plan: string;
     token: string;
     planPath?: string;
     mode: "workflow" | "dev";
+    classification?: "QUICK_FIX" | "FEATURE" | "PROJECT";
     frontmatter?: Record<string, unknown>;
+    executionPolicy?: {
+        executionAgent: PlanExecutionAgent;
+        collaborationRecommendation: PlanCollaborationRecommendation;
+        source?: string;
+    };
     imageBaseDir?: string;
 };
 
@@ -39,6 +48,9 @@ export type PlanReviewDecision = {
     plan?: string;
     savedPath?: string;
     approvalAction?: "run" | "decompose" | "later";
+    executionAgent?: PlanExecutionAgent;
+    collaborationRecommendation?: PlanCollaborationRecommendation;
+    planAttrs?: Record<string, unknown>;
     exit?: boolean;
     agentSwitch?: string;
     permissionMode?: string;
