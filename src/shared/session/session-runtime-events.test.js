@@ -284,3 +284,38 @@ Deno.test("internal event sink contract failures are not swallowed as consumer f
         "invalid producer event",
     );
 });
+
+Deno.test("Runtime event factory validates session replacement events", () => {
+    const event = createSessionRuntimeEvent("old-session", {
+        type: RuntimeEventTypes.SESSION_REPLACED,
+        oldSessionId: "old-session",
+        newSessionId: "new-session",
+        reason: "epic_continuation",
+        parentPlanName: "epic",
+        completedPlanName: "epic/01-done",
+        childPlanName: "epic/02-next",
+        action: "execute",
+    });
+    assertEquals(event.type, RuntimeEventTypes.SESSION_REPLACED);
+    if (event.type !== RuntimeEventTypes.SESSION_REPLACED) throw new Error("unexpected event type");
+    assertEquals(event.newSessionId, "new-session");
+
+    assertThrows(
+        () =>
+            createSessionRuntimeEvent(
+                "old-session",
+                /** @type {any} */ ({
+                    type: RuntimeEventTypes.SESSION_REPLACED,
+                    oldSessionId: "old-session",
+                    newSessionId: "new-session",
+                    reason: "manual",
+                    parentPlanName: "epic",
+                    completedPlanName: "epic/01-done",
+                    childPlanName: "epic/02-next",
+                    action: "execute",
+                }),
+            ),
+        TypeError,
+        "reason is invalid",
+    );
+});

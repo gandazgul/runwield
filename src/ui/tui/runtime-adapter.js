@@ -25,6 +25,7 @@ const activeAdapters = new WeakMap();
  * @property {string} sessionId
  * @property {import('./types.js').UiAPI} uiAPI
  * @property {typeof notifyRunWieldEventQuietly} [notifyRunWieldEvent]
+ * @property {(replacement: { oldSessionId: string, newSessionId: string }) => void} [onSessionReplaced]
  */
 
 /**
@@ -47,6 +48,7 @@ export function attachTuiRuntimeAdapter({
     sessionId,
     uiAPI,
     notifyRunWieldEvent = notifyRunWieldEventQuietly,
+    onSessionReplaced,
 }) {
     let registrations = activeAdapters.get(runtime);
     if (!registrations) {
@@ -77,6 +79,9 @@ export function attachTuiRuntimeAdapter({
     const unsubscribe = runtime.subscribeSessionEvents(sessionId, (event) => {
         const value = /** @type {any} */ (event);
         switch (event.type) {
+            case RuntimeEventTypes.SESSION_REPLACED:
+                onSessionReplaced?.({ oldSessionId: value.oldSessionId, newSessionId: value.newSessionId });
+                break;
             case RuntimeEventTypes.USER_MESSAGE:
                 if (terminalValidationPanelVisible) {
                     uiAPI.clearValidationPanel?.();

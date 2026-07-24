@@ -2,20 +2,68 @@
 
 # RunWield
 
-**RunWield** is an opinionated, plan-by-default coding harness for developers who want agents to slow down at the right
-moments: classify the work, write a reviewable plan when the blast radius is real, execute through specialized roles,
-and then prove the result.
+**RunWield** is collaborative software planning with AI.
 
-It is built on top of [Pi](https://pi.dev), with a Deno CLI, an interactive TUI, a browser-based plan review loop via
-[Plannotator](https://plannotator.ai), [Cymbal](https://github.com/1broseidon/cymbal) for code intelligence, and
-[Mnemosyne](https://github.com/gandazgul/mnemosyne) for project/global memory.
+RunWield helps software teams figure out what to build, shape the work into reviewable Plans, execute approved work
+through a model of your choice, and preserve distilled records so future planning starts from what the team already
+learned.
 
-> For full documentation, see **[docs/index.md](docs/index.md)**.
+```text
+ideate -> plan -> execute -> record -> use records to plan better
+```
+
+[Watch the 60-second demo] · [Install](#installation) · [Documentation](docs/index.md)
+
+> I’m looking for five developers to try RunWield on one real, non-trivial change. I’ll personally help you get running
+> and fix anything that blocks you. Open an issue here or ping me on Discord: `gandazgul#000.
+
+## Is it for me?
+
+It's for developers who want LLMs to slow down at the right moments: classify the work, write a reviewable plan when the
+blast radius is real, execute through specialized roles, and then prove the result. Dont trust the LLM did the right
+thing, verify it and only then merge and make a durable record explaining why, what and who.
+
+## Installation
+
+### macOS / Linux
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/gandazgul/runwield/main/install.sh | bash
+```
+
+The installer downloads the latest release binary for macOS or Linux, verifies checksums, and installs `wld` plus the
+runtime helpers RunWield Sessions need: required [`mnemosyne`](https://github.com/gandazgul/mnemosyne), required
+[`cymbal`](https://github.com/1broseidon/cymbal), required
+[`agent-browser`](https://github.com/vercel-labs/agent-browser), and optional
+[`snip`](https://github.com/edouard-claude/snip). By default everything RunWield manages is installed to `~/.local/bin`
+and does not require root. To choose another user-writable directory shared by all managed binaries, set
+`WLD_INSTALL_DIR`.
+
+## Quick Start
+
+## First Run
+
+Initialize RunWield in a project to build CONTEXT.md and seed the memory with facts about the repository.
+
+```bash
+wld init
+```
+
+Then start a request:
+
+```bash
+wld "fix the failing parser test"
+```
+
+Interactive sessions are optimized for one topic at a time. A new session starts with Router, but after Router hands off
+to Guide, Ideator, Operator, Planner, Architect, or another specialist, that specialist remains active so follow-up
+messages keep the useful working context. Use `/new` to start a fresh session, or `/agent router` when you want the next
+message in the same session to go through triage again.
 
 ## Why RunWield
 
-Most coding harnesses optimize for getting an agent typing quickly. RunWield optimizes for getting the right kind of
-work done with the right amount of ceremony.
+Most coding harnesses optimize for getting an agent typing quickly, chat and hope. RunWield optimizes for getting the
+right kind of work done with the right amount of ceremony.
 
 - **Triage is explicit.** Every routed request gets a routing intent: `INQUIRY`, `IDEATION`, `OPERATION`, `QUICK_FIX`,
   `FEATURE`, or `PROJECT`. Implementation work records complexity and affected paths before execution.
@@ -95,54 +143,13 @@ graph TD
     SP --> LP[Load plan command]
 ```
 
-## Installation
-
-### macOS / Linux
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/gandazgul/runwield/main/install.sh | bash
-```
-
-The installer downloads the latest release binary for macOS or Linux, verifies checksums, and installs `wld` plus the
-runtime helpers RunWield Sessions need: required [`mnemosyne`](https://github.com/gandazgul/mnemosyne), required
-[`cymbal`](https://github.com/1broseidon/cymbal), and optional [`snip`](https://github.com/edouard-claude/snip). By
-default everything RunWield manages is installed to `~/.local/bin` and does not require root. To choose another
-user-writable directory shared by all managed binaries, set `WLD_INSTALL_DIR`.
-
-The installer preserves helper commands already found earlier on `PATH` or already executable in `WLD_INSTALL_DIR`; it
-fills missing dependencies rather than silently upgrading helpers you manage with Homebrew, Go, or another tool. If a
-required Mnemosyne or Cymbal download/checksum/extract step fails, the installer exits nonzero with the failing helper
-named and can be rerun safely after the upstream issue is fixed. Snip installation is attempted by default but remains
-optional: a Snip failure prints a warning and leaves `wld`, Mnemosyne, and Cymbal usable. Mnemosyne's model/ONNX payload
-is not downloaded during installation; upstream setup remains lazy on first semantic memory use.
-
-### From Source
-
-```bash
-deno run -A src/cli.js help
-deno task compile
-./bin/wld help
-```
-
-## Runtime Requirements
-
-End users run the standalone `wld` binary. Contributors use Deno.
-
-Interactive agent workflows require `mnemosyne` for project/global memory and `cymbal` for code search, symbol lookup,
-impact analysis, and tracing. The one-line installer provisions both unless an existing helper is already present.
-
-RunWield also uses [`snip`](https://github.com/edouard-claude/snip) when `snip` is available in `PATH`. Snip proxies
-eligible agent-initiated shell commands so agents see compact command output. Snip is optional and fail-open: if it is
-missing, RunWield skips the prefix hook and shows a short warning on the first few boots for each project. Manual `!`
-and `!!` shell commands are never rewritten. RunWield ships Snip filters for `deno check`, `deno fmt`, `deno lint`, and
-`deno test`. The installer can opt-in install those filters into Snip's default user filter directory so plain
-`snip run -- deno ...` commands can use them; remove those user-level copies with `wld snip-filters cleanup`.
+## Settings
 
 RunWield stores its own data under `~/.wld/`:
 
 - `~/.wld/sessions/` for session history
 - `~/.wld/settings.json` for global settings
-- `~/.wld/RUNWEILD.md` or `~/.wld/AGENTS.md` for global RunWield instructions
+- `~/.wld/RUNWIELD.md` or `~/.wld/AGENTS.md` for global RunWield instructions
 - `~/.wld/agents/` for home-level agent overrides
 - `~/.wld/prompts/` for home-level prompt templates
 
@@ -161,40 +168,11 @@ Project-level plans and optional overrides live in the current repository:
 - `.wld/agents/*.md`
 - `.wld/prompts/*.md`
 
+## Local Workspace & Collaboration
+
 RunWield also includes a self-hosted encrypted Shared Space path for collaborative Plan review. See
 [Self-hosted collaborative planning](docs/collaboration.md) for Podman/OCI + SQLite Plan Server setup and the
 `wld plans share|pull|push|unshare` workflow.
-
-> For full documentation, see **[docs/index.md](docs/index.md)**.
-
-## First Run
-
-Initialize RunWield in a project when you want it to build durable context:
-
-```bash
-wld init
-```
-
-The init agent explores the repository, writes `CONTEXT.md`, stores core memories, and records that init has run for
-that project. You can also run `/init` inside an interactive session.
-
-Then start a request:
-
-```bash
-wld "fix the failing parser test"
-```
-
-The default command is `router`, so this is equivalent:
-
-```bash
-wld router "fix the failing parser test"
-```
-
-Interactive sessions are optimized for one topic at a time. A new session starts with Router, but after Router hands off
-to Guide, Ideator, Operator, Planner, Architect, or another specialist, that specialist remains active so follow-up
-messages keep the useful working context. Use `/new` to start a fresh session, or `/agent router` when you want the next
-message in the same session to go through triage again. Router is the default triage Agent, not a special runtime path;
-workflow steps are triggered by tools like `triage_report`, `plan_written`, and `task_completed`.
 
 ## Common Commands
 
@@ -363,46 +341,12 @@ Switch themes inside the TUI with `/theme`; the picker previews themes live and 
 
 See [docs/themes.md](docs/themes.md) for theme package details.
 
-## Development
-
-```bash
-deno task cli "your request"
-deno task check
-deno task test
-deno task ci
-deno task compile
-```
-
-`deno task ci` runs check, lint, format check, and tests.
-
-The codebase is pure JavaScript with JSDoc typing. Do not add TypeScript files or TypeScript syntax.
-
-## Project Structure
-
-```text
-src/
-  agent-definitions/   bundled agent markdown definitions
-  cmd/                 command handlers and registry
-  extensions/          external tool integrations
-  prompt-templates/    bundled slash-command prompt templates
-  shared/
-    interactive/       TUI chat loop, slash dispatch, keybindings
-    models/            model registry and validation
-    session/           agent/session loading and execution
-    ui/                TUI components and theme glue
-    workflow/          triage dispatch, plan execution, validation
-  skills/              bundled skill definitions
-  tools/               RunWield-specific agent tools
-plans/                 persisted plans
-docs/                  ADRs, PRDs, and feature docs
-```
-
 ## Troubleshooting
 
-### Mnemosyne or Cymbal Is Missing
+### Mnemosyne, Cymbal, or agent-browser Is Missing
 
-Interactive agent workflows require both binaries in `PATH`. Rerun the RunWield installer to restore missing required
-helpers into the same install directory as `wld`:
+Interactive agent workflows require all three binaries in `PATH`. Rerun the RunWield installer to restore missing
+required helpers into the same install directory as `wld`:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/gandazgul/runwield/main/install.sh | bash
@@ -434,7 +378,45 @@ published Plannotator packages are available:
 - Check home overrides in `~/.wld/agents/`.
 - Run `/reload` in the TUI after changing memories, settings, prompt templates, skills, models, or themes.
 
-## Contributing
+## Development
+
+It is built on top of [Pi](https://pi.dev), with a Deno CLI, an interactive TUI, a browser-based plan review loop via
+[Plannotator](https://plannotator.ai), [Cymbal](https://github.com/1broseidon/cymbal) for code intelligence, and
+[Mnemosyne](https://github.com/gandazgul/mnemosyne) for project/global memory.
+
+```bash
+deno task cli "your request"
+deno task check
+deno task test
+deno task ci
+deno task compile
+```
+
+`deno task ci` runs check, lint, format check, and tests.
+
+The codebase is pure JavaScript with JSDoc typing. Do not add TypeScript files or TypeScript syntax.
+
+### Project Structure
+
+```text
+src/
+  agent-definitions/   bundled agent markdown definitions
+  cmd/                 command handlers and registry
+  extensions/          external tool integrations
+  prompt-templates/    bundled slash-command prompt templates
+  shared/
+    interactive/       TUI chat loop, slash dispatch, keybindings
+    models/            model registry and validation
+    session/           agent/session loading and execution
+    ui/                TUI components and theme glue
+    workflow/          triage dispatch, plan execution, validation
+  skills/              bundled skill definitions
+  tools/               RunWield-specific agent tools
+plans/                 persisted plans
+docs/                  ADRs, PRDs, and feature docs
+```
+
+### Contributing
 
 1. Create a branch.
 2. Make focused changes.

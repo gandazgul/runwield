@@ -3,7 +3,8 @@ import { join } from "@std/path";
 
 /** @typedef {"Darwin" | "Linux"} TestOs */
 /** @typedef {"x86_64" | "arm64"} TestArch */
-/** @typedef {"wld" | "mnemosyne" | "cymbal" | "snip"} BinaryName */
+/** @typedef {"wld" | "mnemosyne" | "cymbal" | "snip"} ReleaseBinaryName */
+/** @typedef {ReleaseBinaryName | "agent-browser"} BinaryName */
 
 const VERSIONS = {
     runwield: "v9.9.9",
@@ -13,9 +14,12 @@ const VERSIONS = {
 };
 
 /** @type {BinaryName[]} */
-const BINARY_NAMES = ["wld", "mnemosyne", "cymbal", "snip"];
+const BINARY_NAMES = ["wld", "mnemosyne", "cymbal", "agent-browser", "snip"];
 
-/** @type {Array<Exclude<BinaryName, "wld">>} */
+/** @type {ReleaseBinaryName[]} */
+const RELEASE_BINARY_NAMES = ["wld", "mnemosyne", "cymbal", "snip"];
+
+/** @type {Array<Exclude<ReleaseBinaryName, "wld">>} */
 const HELPER_NAMES = ["mnemosyne", "cymbal", "snip"];
 
 /**
@@ -93,9 +97,9 @@ async function createFixture(options = {}) {
     await Deno.mkdir(binDir);
     await Deno.mkdir(installDir);
 
-    /** @type {Record<BinaryName, string>} */
-    const archivePaths = /** @type {Record<BinaryName, string>} */ ({});
-    for (const name of BINARY_NAMES) {
+    /** @type {Record<ReleaseBinaryName, string>} */
+    const archivePaths = /** @type {Record<ReleaseBinaryName, string>} */ ({});
+    for (const name of RELEASE_BINARY_NAMES) {
         const entryName = options.missingExecutableFor === name ? `${name}-wrong` : name;
         archivePaths[name] = await makeArchive(root, name, entryName);
         if (options.missingAssetFor !== name) {
@@ -105,7 +109,7 @@ async function createFixture(options = {}) {
 
     /** @type {Partial<Record<BinaryName, string>>} */
     const digests = {};
-    for (const name of BINARY_NAMES) {
+    for (const name of RELEASE_BINARY_NAMES) {
         if (options.missingAssetFor === name) continue;
         digests[name] = options.badDigestFor === name ? "0".repeat(64) : await sha256(join(fixtureDir, assets[name]));
     }
@@ -114,7 +118,7 @@ async function createFixture(options = {}) {
     const wldSums = [];
     /** @type {string[]} */
     const helperSums = [];
-    for (const name of BINARY_NAMES) {
+    for (const name of RELEASE_BINARY_NAMES) {
         if (options.missingAssetFor === name || options.omitChecksumFor === name) continue;
         const checksum = options.badChecksumFor === name ? "0".repeat(64) : digests[name];
         const line = `${checksum}  ${assets[name]}`;
@@ -164,6 +168,30 @@ else
   if [[ ! -f "$file" ]]; then echo "missing fixture $url" >&2; exit 22; fi
   if [[ -n "$out" ]]; then cp "$file" "$out"; else cat "$file"; fi
 fi
+`,
+    );
+
+    await writeExecutable(
+        join(binDir, "npm"),
+        `#!/usr/bin/env bash
+set -euo pipefail
+prefix=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --prefix) prefix="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+if [[ -z "$prefix" ]]; then
+  echo "missing npm prefix" >&2
+  exit 1
+fi
+mkdir -p "$prefix/bin"
+cat >"$prefix/bin/agent-browser" <<'NPMEOF'
+#!/usr/bin/env bash
+echo agent-browser version
+NPMEOF
+chmod 755 "$prefix/bin/agent-browser"
 `,
     );
 
@@ -267,8 +295,10 @@ Deno.test("install.sh maps Darwin/Linux amd64/arm64 assets and preserves positio
                 const result = await runInstaller(fixture, { requestedVersion: VERSIONS.runwield });
                 assertEquals(result.code, 0, `${result.stdout}\n${result.stderr}`);
                 const curlLog = await readCurlLog(fixture.curlLog);
-                for (const name of BINARY_NAMES) {
+                for (const name of RELEASE_BINARY_NAMES) {
                     assertStringIncludes(curlLog, fixture.assets[name]);
+                }
+                for (const name of BINARY_NAMES) {
                     const stat = await Deno.stat(join(fixture.installDir, name));
                     assertEquals(stat.isFile, true);
                 }
@@ -291,7 +321,8 @@ Deno.test("install.sh preserves helpers on PATH and in install dir, and idempote
         assertEquals(first.code, 0, `${first.stdout}\n${first.stderr}`);
         assertStringIncludes(first.stdout, "Preserving existing mnemosyne");
         assertStringIncludes(first.stdout, "Preserving existing cymbal");
-        assertStringIncludes(first.stdout, "Installed helpers: snip");
+        assertStringIncludes(first.stdout, "agent-browser");
+        assertStringIncludes(first.stdout, "snip");
 
         await Deno.writeTextFile(fixture.curlLog, "");
         const second = await runInstaller(fixture, { extraPathDir: externalBin });
@@ -391,7 +422,7 @@ Deno.test("install.sh aborts on required helper download failure but not optiona
             const result = await runInstaller(fixture);
             assertEquals(result.code, 0, `${result.stdout}\n${result.stderr}`);
             assertStringIncludes(result.stderr, "Warning: optional helper Snip could not be installed");
-            for (const name of ["wld", "mnemosyne", "cymbal"]) {
+            for (const name of ["wld", "mnemosyne", "cymbal", "agent-browser"]) {
                 const stat = await Deno.stat(join(fixture.installDir, name));
                 assertEquals(stat.isFile, true);
             }

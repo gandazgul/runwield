@@ -727,18 +727,24 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
         activeInteractionContainer,
     );
 
-    let tuiRuntimeAdapter = attachTuiRuntimeAdapter({ runtime: sessionRuntime, sessionId: sessionId, uiAPI });
+    let tuiRuntimeAdapter = attachTuiRuntimeAdapter({
+        runtime: sessionRuntime,
+        sessionId: sessionId,
+        uiAPI,
+        onSessionReplaced: ({ newSessionId }) => replaceRuntimeSession(newSessionId, { oldRetired: true }),
+    });
 
     /** @param {string} model @param {string} [provider] */
     const setCurrentActiveModel = (model, provider) => setActiveModel(sessionRuntime, sessionId, model, provider);
 
     /**
      * @param {string} nextSessionId
+     * @param {{ oldRetired?: boolean }} [options]
      */
-    function replaceRuntimeSession(nextSessionId) {
+    function replaceRuntimeSession(nextSessionId, options = {}) {
         const previousSessionId = sessionId;
         tuiRuntimeAdapter.dispose();
-        if (previousSessionId !== nextSessionId) {
+        if (!options.oldRetired && previousSessionId !== nextSessionId) {
             sessionRuntime.closeSession(previousSessionId);
         }
         sessionId = nextSessionId;
@@ -752,11 +758,13 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
             runtime: sessionRuntime,
             sessionId: sessionId,
             uiAPI,
+            onSessionReplaced: ({ newSessionId }) => replaceRuntimeSession(newSessionId, { oldRetired: true }),
         });
         pastedImages.length = 0;
         previewImages.clear();
         uiAPI.hideKeyboardHelp?.();
         uiAPI.clearValidationPanel?.();
+        uiAPI.clearMessages?.();
         editor.setText("");
         tui.setFocus(editor);
         tui.requestRender();

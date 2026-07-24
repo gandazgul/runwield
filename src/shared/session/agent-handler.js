@@ -180,7 +180,7 @@ export function createAgentHandler(agentName, __deps) {
 
         const triage = readLatestTriageOutcome(messages, preTurnCount);
         if (triage) {
-            await dispatchPostTriage({
+            const validationResult = await dispatchPostTriage({
                 hostedSession,
                 triage,
                 userRequest,
@@ -195,6 +195,9 @@ export function createAgentHandler(agentName, __deps) {
                     recordWorkflowMetric: recordWorkflowMetricImpl,
                 },
             });
+            if (/** @type {any} */ (validationResult)?.epicContinuation) {
+                return { kind: "complete", validationResult };
+            }
             return { kind: "complete" };
         }
 
@@ -334,7 +337,7 @@ export function createAgentHandler(agentName, __deps) {
                     planName,
                     details: { transition: "run_validation", decisionKind: executionDecision.kind },
                 });
-                await runValidationLoopImpl({
+                const validationResult = await runValidationLoopImpl({
                     hostedSession,
                     planName,
                     planContent,
@@ -343,6 +346,9 @@ export function createAgentHandler(agentName, __deps) {
                     finalAgentName: agentName,
                     __deps: { recordWorkflowMetric: recordWorkflowMetricImpl },
                 });
+                if (/** @type {any} */ (validationResult)?.epicContinuation) {
+                    return { kind: "complete", validationResult };
+                }
                 requestAgentStoppedAttention();
             } else if (executionDecision.kind === "stay_with_agent") {
                 if (executionCanceledBeforeStart) {
@@ -471,7 +477,7 @@ export function createAgentHandler(agentName, __deps) {
                     }
                 }
 
-                await runValidationLoopImpl({
+                const validationResult = await runValidationLoopImpl({
                     hostedSession,
                     planName: workflow.planName,
                     planContent,
@@ -480,6 +486,9 @@ export function createAgentHandler(agentName, __deps) {
                     finalAgentName: agentName,
                     __deps: { recordWorkflowMetric: recordWorkflowMetricImpl },
                 });
+                if (/** @type {any} */ (validationResult)?.epicContinuation) {
+                    return { kind: "complete", validationResult };
+                }
                 requestAgentStoppedAttention();
             }
         }
