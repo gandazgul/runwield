@@ -20,7 +20,6 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-23T14:38:52-04:00"
-updatedAt: "2026-07-23T21:07:59.861Z"
 status: "verified"
 origin: "internal"
 verifiedAt: "2026-07-23T21:00:24.582Z"
@@ -31,6 +30,10 @@ workRecord:
     lastAttemptAt: "2026-07-23T21:07:50.427Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
+updatedAt: "2026-07-24T15:23:40.602Z"
+archivedAt: "2026-07-24T15:23:40.602Z"
+archivedFromStatus: "verified"
+archivedFromPath: "plans/install-runwield-runtime-helpers.md"
 ---
 
 # Install RunWield Runtime Helpers

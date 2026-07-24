@@ -1,4 +1,5 @@
 ---
+planId: "0e1af1d3-d161-47a9-b467-73b159641b3c"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Create the persistent owner Workspace entry point with registered Project administration, Project-scoped Plan Boards, and paired-device authorization for later Session continuation surfaces."
