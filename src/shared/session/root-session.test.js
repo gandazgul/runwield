@@ -68,7 +68,7 @@ Deno.test("root-session persisted helpers list open and guard cwd paths", async 
         } finally {
             if (previousHome === undefined) Deno.env.delete("HOME");
             else Deno.env.set("HOME", previousHome);
-            await Deno.remove(home, { recursive: true });
+            await removeTempDirBestEffort(home);
         }
     });
 });
@@ -107,7 +107,7 @@ Deno.test("catalog-safe root session locators read only header metadata and pres
         } finally {
             if (previousHome === undefined) Deno.env.delete("HOME");
             else Deno.env.set("HOME", previousHome);
-            await Deno.remove(home, { recursive: true });
+            await removeTempDirBestEffort(home);
         }
     });
 });
@@ -149,7 +149,25 @@ Deno.test("catalog-safe root session locator rejects malformed or out-of-directo
         } finally {
             if (previousHome === undefined) Deno.env.delete("HOME");
             else Deno.env.set("HOME", previousHome);
-            await Deno.remove(home, { recursive: true });
+            await removeTempDirBestEffort(home);
         }
     });
 });
+
+/**
+ * Retries temp-dir cleanup because Pi SessionManager can finish flushing session
+ * files just after a test assertion on macOS, causing transient ENOTEMPTY.
+ * @param {string} path
+ */
+async function removeTempDirBestEffort(path) {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+        try {
+            await Deno.remove(path, { recursive: true });
+            return;
+        } catch (error) {
+            if (error instanceof Deno.errors.NotFound) return;
+            if (attempt === 4) throw error;
+            await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+    }
+}
