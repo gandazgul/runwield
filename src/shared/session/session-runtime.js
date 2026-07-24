@@ -39,7 +39,9 @@ import { describeRuntimeTool } from "./tool-event-title.js";
 import {
     captureTranscriptEvidence,
     createReplayEvents as createProjectedReplayEvents,
+    projectCommittedTranscript,
     syncTranscriptFileAndParent,
+    toProjectionFailure,
 } from "./session-transcript-projection.js";
 import { requestHostedSessionInteraction } from "./session-runtime-interactions.js";
 import {
@@ -52,7 +54,7 @@ import { getModelRegistry } from "../models/model-registry.js";
 import { buildSessionContextReport } from "./session-context-report.js";
 import { getSettingsManager } from "../settings.js";
 import { getSessionKeyboardHelp } from "./session-help.js";
-import { isAbsolute } from "@std/path";
+import { dirname, isAbsolute } from "@std/path";
 
 export const HANDOFF_LIMIT_MESSAGE =
     "return_to_router handoff limit reached — refusing further chained handoffs in this turn.";
@@ -160,6 +162,12 @@ export const HANDOFF_LIMIT_MESSAGE =
  * @typedef {Object} QueueSourceSubscription
  * @property {import('@earendil-works/pi-coding-agent').AgentSession} sourceSession
  * @property {() => void} unsubscribe
+ */
+
+/**
+ * @typedef {Object} ManagedSyncOptions
+ * @property {boolean} [emitEvents]
+ * @property {number} [limit]
  */
 
 const MAX_CHAINED_HANDOFFS = 4;
@@ -302,6 +310,19 @@ export class SessionRuntime {
                     runwieldSessionId: managed.runwieldSessionId,
                     projectId: managed.projectId,
                     generation: managed.generation,
+                    acknowledgedGeneration: managed.acknowledgedGeneration ?? managed.generation ?? null,
+                    acknowledgedEventId: managed.acknowledgedEventId ?? null,
+                    syncState: managed.syncState
+                        ? {
+                            status: managed.syncState.status,
+                            localGeneration: managed.syncState.localGeneration,
+                            latestGeneration: managed.syncState.latestGeneration,
+                            ...(managed.syncState.owningSurfaceKind
+                                ? { owningSurfaceKind: managed.syncState.owningSurfaceKind }
+                                : {}),
+                            ...(managed.syncState.message ? { message: managed.syncState.message } : {}),
+                        }
+                        : null,
                     dormant: !sessionManager,
                 }
                 : null,
@@ -1389,10 +1410,175 @@ export class SessionRuntime {
     }
 
     /**
+     * @param {string} sessionId
+     * @param {ManagedSyncOptions} [options]
+     */
+    async synchronizeManagedSession(sessionId, options = {}) {
+        const hostedSession = this.#sessionHost.getSession(sessionId);
+        if (!hostedSession) throw new Error("SessionRuntime.synchronizeManagedSession: session not found");
+        const initialManaged = hostedSession.getManagedMetadata?.() || null;
+        if (!initialManaged) return { ok: true, managed: false, events: [] };
+        let managed = initialManaged;
+        if (hostedSession.getRootSessionManager()) return { ok: true, managed: true, dormant: false, events: [] };
+        if (!this.#ownerCoordinationStore) throw new Error("Managed Session requires an owner coordination store");
+        const emitEvents = options.emitEvents !== false;
+        const emitSyncState = (
+            /** @type {NonNullable<import('./hosted-session.js').ManagedSessionMetadata['syncState']>} */ state,
+        ) => {
+            hostedSession.setManagedMetadata({ ...managed, syncState: state });
+            managed = hostedSession.getManagedMetadata?.() || managed;
+            this.#emitSessionEvent(sessionId, state);
+        };
+        const sanitizedSurface = (/** @type {unknown} */ processKind) => {
+            if (processKind === "workspace" || processKind === "tui" || processKind === "acp") return processKind;
+            return "unknown";
+        };
+        try {
+            this.#ownerCoordinationStore.requireActivationProtocolEnabled();
+        } catch (_error) {
+            /** @type {NonNullable<import('./hosted-session.js').ManagedSessionMetadata['syncState']>} */
+            const state = {
+                type: RuntimeEventTypes.MANAGED_SYNC_STATE_CHANGED,
+                status: "blocked",
+                localGeneration: managed.acknowledgedGeneration ?? managed.generation ?? null,
+                latestGeneration: managed.generation ?? null,
+                message: "Managed activation protocol is not enabled.",
+            };
+            emitSyncState(state);
+            return { ok: false, error: "protocol_disabled", state };
+        }
+        const activationState = this.#ownerCoordinationStore.inspectSessionActivation(managed.runwieldSessionId);
+        const latestGeneration = activationState.generation?.generation ?? null;
+        const currentLocalGeneration = managed.acknowledgedGeneration ?? managed.generation ?? null;
+        const activeOwnerKind = activationState.activation?.ownerProcessKind || null;
+        const activeElsewhere = Boolean(activeOwnerKind && activeOwnerKind !== this.#ownerProcessKind);
+        const owningSurfaceKind = activeElsewhere ? sanitizedSurface(activeOwnerKind) : undefined;
+        if (!activationState.generation) {
+            /** @type {NonNullable<import('./hosted-session.js').ManagedSessionMetadata['syncState']>} */
+            const state = {
+                type: RuntimeEventTypes.MANAGED_SYNC_STATE_CHANGED,
+                status: activeElsewhere ? "active_elsewhere" : "current",
+                localGeneration: currentLocalGeneration,
+                latestGeneration,
+                ...(owningSurfaceKind ? { owningSurfaceKind } : {}),
+            };
+            emitSyncState(state);
+            return { ok: true, events: [], state };
+        }
+        if (latestGeneration === currentLocalGeneration && (managed.acknowledgedEventId || latestGeneration === null)) {
+            /** @type {NonNullable<import('./hosted-session.js').ManagedSessionMetadata['syncState']>} */
+            const state = {
+                type: RuntimeEventTypes.MANAGED_SYNC_STATE_CHANGED,
+                status: activeElsewhere ? "active_elsewhere" : "current",
+                localGeneration: currentLocalGeneration,
+                latestGeneration,
+                ...(owningSurfaceKind ? { owningSurfaceKind } : {}),
+            };
+            emitSyncState(state);
+            return { ok: true, events: [], state };
+        }
+        emitSyncState(
+            /** @type {NonNullable<import('./hosted-session.js').ManagedSessionMetadata['syncState']>} */ ({
+                type: RuntimeEventTypes.MANAGED_SYNC_STATE_CHANGED,
+                status: "syncing",
+                localGeneration: currentLocalGeneration,
+                latestGeneration,
+                ...(owningSurfaceKind ? { owningSurfaceKind } : {}),
+            }),
+        );
+        try {
+            const projected = await projectCommittedTranscript({
+                cwd: hostedSession.cwd,
+                sessionDir: dirname(managed.transcriptPath),
+                sessionPath: managed.transcriptPath,
+                runtimeSessionId: sessionId,
+                generation: activationState.generation.generation,
+                byteLength: activationState.generation.byteLength,
+                terminalEntryId: activationState.generation.terminalEntryId,
+                digestHex: activationState.generation.digestHex,
+                cursorEventId: managed.acknowledgedEventId || null,
+                limit: options.limit,
+            });
+            const summary = projected.snapshot || {};
+            /** @type {import('./hosted-session.js').ManagedSessionMetadata} */
+            const nextMetadata = {
+                ...managed,
+                generation: projected.generation,
+                acknowledgedGeneration: projected.generation,
+                acknowledgedEventId: projected.nextCursor,
+                committedSummary: summary,
+                name: summary.name ?? managed.name ?? null,
+                activeAgent: summary.activeAgent ?? managed.activeAgent ?? null,
+                model: summary.model ?? managed.model ?? null,
+                provider: summary.provider ?? managed.provider ?? null,
+                thinkingLevel: summary.thinkingLevel ?? managed.thinkingLevel ?? null,
+                workflowContext: summary.workflowContext ?? managed.workflowContext ?? null,
+                syncState: {
+                    type: RuntimeEventTypes.MANAGED_SYNC_STATE_CHANGED,
+                    status: activeElsewhere ? "active_elsewhere" : "current",
+                    localGeneration: projected.generation,
+                    latestGeneration,
+                    ...(owningSurfaceKind ? { owningSurfaceKind } : {}),
+                },
+            };
+            hostedSession.setManagedMetadata(nextMetadata);
+            managed = hostedSession.getManagedMetadata?.() || nextMetadata;
+            const events = projected.events || [];
+            if (emitEvents) {
+                for (const event of events) this.#emitSessionEvent(sessionId, /** @type {any} */ (event));
+                if (summary.name) {
+                    this.#emitSessionEvent(sessionId, { type: RuntimeEventTypes.SESSION_RENAMED, name: summary.name });
+                }
+                if (summary.activeAgent) {
+                    this.#emitSessionEvent(sessionId, {
+                        type: RuntimeEventTypes.AGENT_CHANGED,
+                        messageId: `managed-sync-agent-${projected.generation}`,
+                        agentName: summary.activeAgent,
+                        model: summary.model || undefined,
+                    });
+                }
+                if (summary.model) {
+                    this.#emitSessionEvent(sessionId, {
+                        type: RuntimeEventTypes.MODEL_CHANGED,
+                        model: summary.model,
+                        provider: summary.provider || undefined,
+                    });
+                }
+                if (summary.thinkingLevel) {
+                    this.#emitSessionEvent(sessionId, {
+                        type: RuntimeEventTypes.THINKING_LEVEL_CHANGED,
+                        thinkingLevel: summary.thinkingLevel,
+                    });
+                }
+                if (summary.workflowContext) {
+                    this.#emitSessionEvent(sessionId, {
+                        type: RuntimeEventTypes.WORKFLOW_CONTEXT_CHANGED,
+                        workflowContext: summary.workflowContext,
+                    });
+                }
+            }
+            if (managed.syncState) this.#emitSessionEvent(sessionId, managed.syncState);
+            return { ok: true, events, state: managed.syncState || null, snapshot: summary };
+        } catch (error) {
+            const failure = toProjectionFailure(error);
+            /** @type {NonNullable<import('./hosted-session.js').ManagedSessionMetadata['syncState']>} */
+            const state = {
+                type: RuntimeEventTypes.MANAGED_SYNC_STATE_CHANGED,
+                status: "degraded",
+                localGeneration: currentLocalGeneration,
+                latestGeneration,
+                message: failure.message,
+            };
+            emitSyncState(state);
+            return { ok: false, error: failure.code, state };
+        }
+    }
+
+    /**
      * Adopt a managed Session as a dormant Runtime shell. This path deliberately
      * does not open a writable Pi Session Manager.
      *
-     * @param {{ session: import('../owner-coordination/sessions.js').CatalogedSession, generation?: number | null, name?: string | null, activeAgent?: string | null, workflowContext?: import('./workflow-context-session.js').WorkflowContext | null }} options
+     * @param {{ session: import('../owner-coordination/sessions.js').CatalogedSession, generation?: number | null, acknowledgedEventId?: string | null, name?: string | null, activeAgent?: string | null, model?: string | null, provider?: string | null, thinkingLevel?: string | null, workflowContext?: import('./workflow-context-session.js').WorkflowContext | null }} options
      */
     adoptManagedSession(options) {
         const cataloged = options?.session;
@@ -1407,9 +1593,20 @@ export class SessionRuntime {
                 piSessionId: cataloged.piSessionId,
                 transcriptPath: cataloged.transcriptPath,
                 generation: options.generation ?? null,
+                acknowledgedGeneration: options.generation ?? null,
+                acknowledgedEventId: options.acknowledgedEventId ?? null,
                 name: options.name ?? null,
                 activeAgent: options.activeAgent ?? null,
+                model: options.model ?? null,
+                provider: options.provider ?? null,
+                thinkingLevel: options.thinkingLevel ?? null,
                 workflowContext: options.workflowContext ?? null,
+                syncState: {
+                    type: RuntimeEventTypes.MANAGED_SYNC_STATE_CHANGED,
+                    status: "current",
+                    localGeneration: options.generation ?? null,
+                    latestGeneration: options.generation ?? null,
+                },
             },
         });
         this.#attachRuntimeEventSink(hostedSession);
@@ -1497,6 +1694,10 @@ export class SessionRuntime {
                 digestHex: evidence.digestHex,
             });
             hostedSession.setManagedMetadata({ ...managed, generation: options.expectedGeneration + 1 });
+            const parity = await this.synchronizeManagedSession(sessionId, { emitEvents: false });
+            if (!parity.ok) {
+                return { ...result, error: parity.error || "projection_degraded_after_commit" };
+            }
             return result;
         } catch (error) {
             hostedSession.dehydrateManagedSession();

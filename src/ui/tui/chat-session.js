@@ -28,6 +28,7 @@ import { VERSION } from "../../shared/version.js";
 import { endBlink, renderBootLogo } from "./boot-logo.js";
 import { createUiApi } from "./api.js";
 import { attachTuiRuntimeAdapter } from "./runtime-adapter.js";
+import { createManagedSessionSyncController } from "./managed-session-sync.js";
 import { SpinnerBlock } from "./blocks.js";
 import { ensureMnemosyneBinary } from "../../shared/runtime-preflight.js";
 import { commandRegistry, getCommandInvocationNames, getSlashCommandDefinitions } from "../../cmd/registry.js";
@@ -733,6 +734,13 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
         uiAPI,
         onSessionReplaced: ({ newSessionId }) => replaceRuntimeSession(newSessionId, { oldRetired: true }),
     });
+    const managedSyncController = createManagedSessionSyncController({
+        runtime: sessionRuntime,
+        getSessionId: () => sessionId,
+        isPaused: () => isProcessingSubmission,
+        onError: () => {},
+    });
+    managedSyncController.start();
 
     /** @param {string} model @param {string} [provider] */
     const setCurrentActiveModel = (model, provider) => setActiveModel(sessionRuntime, sessionId, model, provider);
@@ -1095,18 +1103,47 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
     async function submitToActiveRoot(userRequest, savedImages) {
         // Generation gating
         const thisGen = generationGuard.bump();
+        const snapshot = getRuntimeSnapshot();
+        const managed = snapshot.managed;
 
         try {
-            await sessionRuntime.promptSession(sessionId, {
-                initialRequest: userRequest,
-                initialImages: savedImages,
-            });
+            managedSyncController.pause();
+            const result = managed
+                ? await sessionRuntime.promptManagedSession(sessionId, {
+                    initialRequest: userRequest,
+                    initialImages: savedImages,
+                    expectedGeneration: Number.isSafeInteger(managed.acknowledgedGeneration ?? managed.generation)
+                        ? /** @type {number} */ (managed.acknowledgedGeneration ?? managed.generation)
+                        : 0,
+                })
+                : await sessionRuntime.promptSession(sessionId, {
+                    initialRequest: userRequest,
+                    initialImages: savedImages,
+                });
+            if (managed && result?.error === "refresh_required") {
+                await sessionRuntime.synchronizeManagedSession(sessionId);
+                restoreQueuedItemToEditor({ text: userRequest, images: savedImages });
+                editor.disableSubmit = false;
+                tui.setFocus(editor);
+                uiAPI.appendSystemMessage(
+                    "This Session changed elsewhere. Your draft was restored after refreshing; submit again to send it.",
+                    false,
+                    "RunWield",
+                );
+            } else if (managed && result?.error) {
+                restoreQueuedItemToEditor({ text: userRequest, images: savedImages });
+            } else if (managed && userRequest.trim()) {
+                editor.addToHistory?.(userRequest.trim());
+            }
         } catch (err) {
+            if (managed) restoreQueuedItemToEditor({ text: userRequest, images: savedImages });
             if (generationStillCurrent(thisGen) && err instanceof SessionTurnInProgressError) {
                 uiAPI.appendSystemMessage(
                     `Error: ${err instanceof Error ? err.message : String(err)}`,
                 );
             }
+        } finally {
+            managedSyncController.resume();
         }
     }
 
@@ -1118,7 +1155,8 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
         const userRequest = text.trim();
         if (!userRequest && savedImages.length === 0) return;
 
-        if (userRequest) editor.addToHistory?.(userRequest);
+        const managedSnapshot = getRuntimeSnapshot().managed;
+        if (userRequest && !managedSnapshot) editor.addToHistory?.(userRequest);
 
         // Slash commands (`/builtin` or `/template`)
         const handledSlash = userRequest
@@ -1145,7 +1183,7 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
             : false;
         if (handledSlash) return;
 
-        await submitToActiveRoot(userRequest, savedImages);
+        await submitToActiveRoot(getRuntimeSnapshot().managed ? text : userRequest, savedImages);
     }
 
     editor.onSubmit = async (text) => {
@@ -1183,7 +1221,7 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
             }
         }
 
-        if (userRequest) editor.addToHistory?.(userRequest);
+        if (userRequest && !getRuntimeSnapshot().managed) editor.addToHistory?.(userRequest);
 
         pastedImages.length = 0;
         previewImages.clear();
@@ -1223,7 +1261,7 @@ export async function startInteractiveSession(initialUserRequest, options = {}) 
             return;
         }
 
-        processSubmissions({ text: userRequest, images });
+        processSubmissions({ text, images });
     };
 
     // Initialize thinking level from settings

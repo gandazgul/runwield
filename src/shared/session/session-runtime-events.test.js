@@ -319,3 +319,31 @@ Deno.test("Runtime event factory validates session replacement events", () => {
         "reason is invalid",
     );
 });
+
+Deno.test("Runtime sync state event is sanitized and validated", () => {
+    const event = createSessionRuntimeEvent("session-1", {
+        type: RuntimeEventTypes.MANAGED_SYNC_STATE_CHANGED,
+        status: "active_elsewhere",
+        localGeneration: 1,
+        latestGeneration: 2,
+        owningSurfaceKind: "workspace",
+    });
+    assertEquals(event.type, RuntimeEventTypes.MANAGED_SYNC_STATE_CHANGED);
+    if (event.type !== RuntimeEventTypes.MANAGED_SYNC_STATE_CHANGED) throw new Error("unexpected event type");
+    assertEquals(event.owningSurfaceKind, "workspace");
+    assertThrows(
+        () =>
+            createSessionRuntimeEvent(
+                "session-1",
+                /** @type {any} */ ({
+                    type: RuntimeEventTypes.MANAGED_SYNC_STATE_CHANGED,
+                    status: "current",
+                    localGeneration: 1,
+                    latestGeneration: 1,
+                    ownerInstanceId: "secret",
+                }),
+            ),
+        TypeError,
+        "ownerInstanceId",
+    );
+});
