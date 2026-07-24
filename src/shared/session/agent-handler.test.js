@@ -318,6 +318,8 @@ Deno.test("agent-handler clears a transient Pair pause when the user resumes", a
         planName: "visual-plan",
         triageMeta: { classification: "FEATURE" },
         executionAgent: "frontend-engineer",
+        executionStarted: true,
+        executionAttemptStartedAtMs: 6789,
         collaborationStyle: "pair",
         pairCheckpointCount: 1,
         pairPauseReason: "stop",
@@ -338,6 +340,7 @@ Deno.test("agent-handler clears a transient Pair pause when the user resumes", a
 
     assertEquals(hostedSession.getActiveExecutionWorkflow()?.collaborationStyle, "pair");
     assertEquals(hostedSession.getActiveExecutionWorkflow()?.pairCheckpointCount, 1);
+    assertEquals(hostedSession.getActiveExecutionWorkflow()?.executionAttemptStartedAtMs, 6789);
 });
 
 Deno.test("agent-handler keeps a Pair pause for unrelated follow-up input", async () => {

@@ -1907,11 +1907,15 @@ Deno.test("Plannotator Viewer readOnly disables annotation creation and checkbox
     assertStringIncludes(viewerSource, "const annotationsEnabled = !readOnly");
     assertStringIncludes(viewerSource, "enabled: annotationsEnabled");
     assertStringIncludes(viewerSource, "enabled: annotationsEnabled && !toolbarState");
-    assertStringIncludes(viewerSource, "useValidatedCodePaths(readOnly ? '' : markdown, codePathBaseDir)");
+    assertStringIncludes(viewerSource, "const validatedCodePathMarkdown = disableCodePathValidation || readOnly");
+    assertStringIncludes(viewerSource, "useValidatedCodePaths(");
+    assertStringIncludes(viewerSource, "validatedCodePathMarkdown");
+    assertStringIncludes(viewerSource, "codePathBaseDir");
     assertStringIncludes(viewerSource, "annotationsEnabled && inputMethod === 'pinpoint'");
     assertStringIncludes(viewerSource, "stickyActions && annotationsEnabled");
-    assertStringIncludes(viewerSource, "{annotationsEnabled && <div data-print-hide data-sticky-actions");
-    assertStringIncludes(viewerSource, "onToggleCheckbox={annotationsEnabled ? onToggleCheckbox : undefined}");
+    assertStringIncludes(viewerSource, "{annotationsEnabled && (");
+    assertStringIncludes(viewerSource, "data-sticky-actions");
+    assertStringIncludes(viewerSource, "onToggleCheckbox={annotationsEnabled");
     assertStringIncludes(viewerSource, "{annotationsEnabled && toolbarState && (");
     assertStringIncludes(viewerSource, "{annotationsEnabled && hoveredTable && !toolbarState && (");
     assertStringIncludes(viewerSource, "{annotationsEnabled && hookCommentPopover && (");

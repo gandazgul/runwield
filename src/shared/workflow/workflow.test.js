@@ -1693,3 +1693,118 @@ Deno.test("openSlicerDecomposition reports slicer failure when error is missing 
     assertEquals(/** @type {any} */ (result).stage, "slicer");
     assertEquals(/** @type {any} */ (result).error, "slicer failed");
 });
+
+Deno.test("startActiveExecutionWorkflow records attempt timestamp only after execution starts", async () => {
+    const hostedSession = makeHostedSession("attempt-clock-workflow");
+    const result = await startActiveExecutionWorkflow({
+        planName: "clock-plan",
+        triageMeta: { classification: "FEATURE" },
+        currentStatus: "ready_for_work",
+        hostedSession,
+        __deps: {
+            now: () => 4242,
+            probeGitRepository: () => Promise.resolve({ ok: false, state: "not_git", cwd: Deno.cwd() }),
+            hasNonGitExecutionConsent: () => true,
+            recordPlanEvent: () => Promise.resolve(/** @type {any} */ ({})),
+            recordWorkflowMetric: () => Promise.resolve(null),
+        },
+    });
+
+    assertEquals(result.executionStarted, true);
+    assertEquals(result.executionAttemptStartedAtMs, 4242);
+    assertEquals(hostedSession.getActiveExecutionWorkflow()?.executionAttemptStartedAtMs, 4242);
+});
+
+Deno.test("executePlan records content-free runtime-style metrics", async () => {
+    const cases = [
+        {
+            id: "canonical-pair-capable",
+            attrs: {
+                status: "ready_for_work",
+                classification: "FEATURE",
+                executionAgent: "frontend-engineer",
+                collaborationRecommendation: "pair",
+            },
+            supportsPair: true,
+            expected: {
+                policySource: "canonical",
+                recommendation: "pair",
+                runtimeStyle: "pair",
+                pairCapable: true,
+                resolutionReason: "canonical_pair_capable",
+            },
+        },
+        {
+            id: "canonical-autonomous",
+            attrs: {
+                status: "ready_for_work",
+                classification: "FEATURE",
+                executionAgent: "frontend-engineer",
+                collaborationRecommendation: "autonomous",
+            },
+            supportsPair: true,
+            expected: {
+                policySource: "canonical",
+                recommendation: "autonomous",
+                runtimeStyle: "autonomous",
+                pairCapable: true,
+                resolutionReason: "canonical_autonomous",
+            },
+        },
+        {
+            id: "canonical-pair-unavailable",
+            attrs: {
+                status: "ready_for_work",
+                classification: "FEATURE",
+                executionAgent: "frontend-engineer",
+                collaborationRecommendation: "pair",
+            },
+            supportsPair: false,
+            expected: {
+                policySource: "canonical",
+                recommendation: "pair",
+                runtimeStyle: "autonomous",
+                pairCapable: false,
+                resolutionReason: "canonical_pair_unavailable",
+            },
+        },
+        {
+            id: "legacy-frontend",
+            attrs: { status: "ready_for_work", classification: "FEATURE", frontend: true },
+            supportsPair: true,
+            expected: {
+                policySource: "legacy_frontend",
+                recommendation: "autonomous",
+                runtimeStyle: "autonomous",
+                pairCapable: true,
+                resolutionReason: "legacy_autonomous",
+            },
+        },
+    ];
+
+    for (const testCase of cases) {
+        const hostedSession = makeHostedSession(`runtime-style-${testCase.id}`);
+        hostedSession.setInteractionAdapter({
+            supportsInteraction: (type) => testCase.supportsPair && type === "pair_checkpoint",
+            requestInteraction: () => Promise.resolve({ outcome: "selected", value: "continue" }),
+        });
+        const metrics = /** @type {any[]} */ ([]);
+        await executePlan({
+            planName: `visual-${testCase.id}`,
+            triageMeta: { classification: "FEATURE" },
+            hostedSession,
+            __deps: {
+                loadPlan: () => Promise.resolve(/** @type {any} */ ({ attrs: testCase.attrs, body: "## Visual" })),
+                executeSingleEngineerPlan: () => Promise.resolve({ repairRequired: false, executionComplete: false }),
+                recordWorkflowMetric: (metric) => {
+                    metrics.push(metric);
+                    return Promise.resolve(null);
+                },
+            },
+        });
+        assertEquals(
+            metrics.find((metric) => metric.event === "frontend_runtime_style_resolved")?.details,
+            testCase.expected,
+        );
+    }
+});

@@ -11,6 +11,7 @@ import {
     RuntimeInteractionTypes,
     supportsHostedSessionInteraction,
 } from "../shared/session/session-runtime-interactions.js";
+import { recordWorkflowMetric } from "../shared/workflow/metrics.js";
 
 const CHECKPOINT_DECISIONS = Object.freeze({
     CONTINUE: "continue",
@@ -48,10 +49,29 @@ function clearPairPause(workflow) {
 }
 
 /**
- * @param {{hostedSession: import('../shared/session/hosted-session.js').HostedSession}} opts
+ * @param {{
+ *   hostedSession: import('../shared/session/hosted-session.js').HostedSession,
+ *   recordWorkflowMetric?: typeof recordWorkflowMetric,
+ * }} opts
  */
-export function createPairCheckpointTool({ hostedSession }) {
+export function createPairCheckpointTool(
+    { hostedSession, recordWorkflowMetric: recordWorkflowMetricImpl = recordWorkflowMetric },
+) {
     if (!hostedSession) throw new Error("createPairCheckpointTool: hostedSession is required");
+    /**
+     * @param {PairCheckpointDetails} details
+     */
+    function recordDecision(details) {
+        void recordWorkflowMetricImpl({
+            category: "execution",
+            event: "pair_checkpoint_decided",
+            details: {
+                checkpointNumber: details.checkpointNumber,
+                decision: details.decision,
+                reason: details.reason,
+            },
+        }, { cwd: hostedSession.cwd });
+    }
     return defineTool({
         name: "pair_checkpoint",
         label: "Pair Checkpoint",
@@ -111,6 +131,11 @@ export function createPairCheckpointTool({ hostedSession }) {
                     collaborationStyle: "autonomous",
                     pairCapabilityLost: true,
                 });
+                recordDecision({
+                    decision: CHECKPOINT_DECISIONS.SWITCH_TO_AUTONOMOUS,
+                    checkpointNumber,
+                    reason: "pair_capability_lost",
+                });
                 return checkpointResult(
                     "Pair checkpoint capability is unavailable. Continue the remaining work autonomously; do not treat this increment as user-approved.",
                     {
@@ -130,6 +155,11 @@ export function createPairCheckpointTool({ hostedSession }) {
 
             if (response.outcome === RuntimeInteractionOutcomes.CANCELED) {
                 hostedSession.setActiveExecutionWorkflow({ ...checkpointWorkflow, pairPauseReason: "canceled" });
+                recordDecision({
+                    decision: "canceled",
+                    checkpointNumber,
+                    reason: "checkpoint_interaction_canceled",
+                });
                 return checkpointResult(
                     "The Pair checkpoint interaction was canceled. Pause this turn without task_completed; no increment approval was recorded.",
                     { decision: "canceled", checkpointNumber, reason: "checkpoint_interaction_canceled" },
@@ -145,6 +175,11 @@ export function createPairCheckpointTool({ hostedSession }) {
                     ...checkpointWorkflow,
                     collaborationStyle: "autonomous",
                     pairCapabilityLost: true,
+                });
+                recordDecision({
+                    decision: CHECKPOINT_DECISIONS.SWITCH_TO_AUTONOMOUS,
+                    checkpointNumber,
+                    reason: "pair_capability_lost",
                 });
                 return checkpointResult(
                     "Pair checkpoint capability is unavailable. Continue the remaining work autonomously; do not treat this increment as user-approved.",
@@ -163,6 +198,7 @@ export function createPairCheckpointTool({ hostedSession }) {
 
             if (decision === CHECKPOINT_DECISIONS.CONTINUE) {
                 hostedSession.setActiveExecutionWorkflow(checkpointWorkflow);
+                recordDecision({ decision, checkpointNumber });
                 return checkpointResult(
                     "The increment is accepted; continue Pair Execution.",
                     { decision, checkpointNumber },
@@ -173,6 +209,7 @@ export function createPairCheckpointTool({ hostedSession }) {
                 const feedback = typeof response._meta?.feedback === "string" ? response._meta.feedback.trim() : "";
                 if (!feedback) {
                     hostedSession.setActiveExecutionWorkflow({ ...checkpointWorkflow, pairPauseReason: "canceled" });
+                    recordDecision({ decision: "canceled", checkpointNumber, reason: "revision_feedback_required" });
                     return checkpointResult(
                         "Revision was selected without feedback. Pause this turn without task_completed; no increment approval was recorded.",
                         { decision: "canceled", checkpointNumber, reason: "revision_feedback_required" },
@@ -180,6 +217,7 @@ export function createPairCheckpointTool({ hostedSession }) {
                     );
                 }
                 hostedSession.setActiveExecutionWorkflow(checkpointWorkflow);
+                recordDecision({ decision, checkpointNumber });
                 return checkpointResult(
                     `Revise this increment using the user's feedback: ${feedback}`,
                     { decision, feedback, checkpointNumber },
@@ -192,6 +230,7 @@ export function createPairCheckpointTool({ hostedSession }) {
                     collaborationStyle: "autonomous",
                     pairSwitchedToAutonomous: true,
                 });
+                recordDecision({ decision, checkpointNumber });
                 return checkpointResult(
                     "Continue the remaining work autonomously.",
                     { decision, checkpointNumber },
@@ -204,6 +243,7 @@ export function createPairCheckpointTool({ hostedSession }) {
                     pairPauseReason: "stop",
                     pairStopRequested: true,
                 });
+                recordDecision({ decision, checkpointNumber });
                 return checkpointResult(
                     "Stop Pair Execution now without task_completed; leave the Plan In Progress.",
                     { decision, checkpointNumber },
@@ -215,6 +255,11 @@ export function createPairCheckpointTool({ hostedSession }) {
                 ...checkpointWorkflow,
                 collaborationStyle: "autonomous",
                 pairCapabilityLost: true,
+            });
+            recordDecision({
+                decision: CHECKPOINT_DECISIONS.SWITCH_TO_AUTONOMOUS,
+                checkpointNumber,
+                reason: "invalid_checkpoint_response",
             });
             return checkpointResult(
                 "The checkpoint response was not recognized. Continue autonomously without treating the increment as user-approved.",

@@ -30,7 +30,6 @@ affectedPaths:
     - "src/acp/event-mapper.js"
     - "src/acp/server.test.js"
     - "docs/sessions.md"
-frontend: false
 createdAt: "2026-07-20T23:46:14-04:00"
 updatedAt: "2026-07-21T17:06:39.007Z"
 status: "ready_for_work"

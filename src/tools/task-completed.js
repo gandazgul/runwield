@@ -14,6 +14,8 @@ const DEFAULT_MESSAGE_DESCRIPTION = "Concise success, failure, or blocked summar
 const ENGINEER_MESSAGE_DESCRIPTION =
     "Concise Markdown bullet-point success, failure, or blocked report. Use one bullet per major outcome, verification " +
     "result, frontend browser check, or unresolved blocker; do not submit a prose paragraph.";
+const FRONTEND_ENGINEER_MESSAGE_DESCRIPTION = ENGINEER_MESSAGE_DESCRIPTION +
+    " Include final URL/route, headed-browser checks, relevant viewports/states, diagnostics, visible evidence, and exact blockers; Pair checkpoint acceptance is not verification evidence.";
 
 /**
  * @param {string} agentName
@@ -37,11 +39,29 @@ function isExecutionAgent(agentName) {
  * @returns {ReturnType<typeof Type.Object>}
  */
 function buildToolParams(agentName) {
+    const normalized = normalizeAgentName(agentName);
+    const messageDescription = normalized === "frontend-engineer"
+        ? FRONTEND_ENGINEER_MESSAGE_DESCRIPTION
+        : isExecutionAgent(agentName)
+        ? ENGINEER_MESSAGE_DESCRIPTION
+        : DEFAULT_MESSAGE_DESCRIPTION;
     return Type.Object({
         message: Type.String({
-            description: isExecutionAgent(agentName) ? ENGINEER_MESSAGE_DESCRIPTION : DEFAULT_MESSAGE_DESCRIPTION,
+            description: messageDescription,
             minLength: 1,
         }),
+        ...(normalized === "frontend-engineer"
+            ? {
+                browserPreflightOutcome: Type.Union([
+                    Type.Literal("succeeded"),
+                    Type.Literal("failed"),
+                    Type.Literal("externally_blocked"),
+                ], {
+                    description:
+                        "Content-free browser/dev-server preflight outcome: succeeded, failed, or externally_blocked.",
+                }),
+            }
+            : {}),
     });
 }
 
@@ -67,12 +87,17 @@ function buildToolDescription() {
  *   hostedSession: import('../shared/session/hosted-session.js').HostedSession,
  *   agentName?: string,
  *   recordWorkflowMetric?: typeof recordWorkflowMetric,
+ *   now?: () => number,
  * }} opts
  * @returns {import('@earendil-works/pi-coding-agent').ToolDefinition}
  */
 export function createTaskCompletedTool(
-    { hostedSession, agentName = "agent", recordWorkflowMetric: recordWorkflowMetricImpl = recordWorkflowMetric } =
-        /** @type {any} */ ({}),
+    {
+        hostedSession,
+        agentName = "agent",
+        recordWorkflowMetric: recordWorkflowMetricImpl = recordWorkflowMetric,
+        now = () => Date.now(),
+    } = /** @type {any} */ ({}),
 ) {
     if (!hostedSession) throw new Error("createTaskCompletedTool: hostedSession is required");
     return defineTool({
@@ -122,11 +147,36 @@ export function createTaskCompletedTool(
                 event: "task_completed",
                 agentName,
                 details: { hasMessage: Boolean(params.message) },
-            });
+            }, { cwd: hostedSession.cwd });
+            if (normalizedAgentName === "frontend-engineer" && activeWorkflow?.executionAgent === "frontend-engineer") {
+                const startMs = activeWorkflow.executionAttemptStartedAtMs;
+                const elapsedMs = typeof startMs === "number" && Number.isFinite(startMs) && startMs >= 0
+                    ? Math.max(0, Math.trunc(now() - startMs))
+                    : undefined;
+                await recordWorkflowMetricImpl({
+                    category: "execution",
+                    event: "frontend_execution_completed",
+                    details: {
+                        phase: activeWorkflow.validationContinuation ? "validation_repair" : "implementation",
+                        runtimeStyle: activeWorkflow.collaborationStyle || "autonomous",
+                        checkpointCount: activeWorkflow.pairCheckpointCount || 0,
+                        switchedToAutonomous: activeWorkflow.pairSwitchedToAutonomous === true,
+                        capabilityLost: activeWorkflow.pairCapabilityLost === true,
+                        browserPreflightOutcome: params.browserPreflightOutcome,
+                        elapsedMs,
+                    },
+                }, { cwd: hostedSession.cwd });
+            }
 
             return {
                 content: [],
-                details: { outcome: "task_completed", message: params.message },
+                details: {
+                    outcome: "task_completed",
+                    message: params.message,
+                    ...(normalizedAgentName === "frontend-engineer"
+                        ? { browserPreflightOutcome: params.browserPreflightOutcome }
+                        : {}),
+                },
                 terminate: true,
             };
         },

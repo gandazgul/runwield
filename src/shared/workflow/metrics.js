@@ -44,6 +44,28 @@ const SENSITIVE_KEY_PATTERN =
     /(prompt|request|content|diff|output|apikey|api_key|token|secret|authorization|password|credential|privatekey|private_key)/i;
 const PATH_KEY_PATTERN = /(^|_)(path|paths|cwd|dir|directory|file|files|root|worktreepath|executioncwd|projectroot)$/i;
 const ALLOWED_PLAN_RELATIVE_PATH_KEYS = new Set(["affectedPaths"]);
+const DEDICATED_FRONTEND_EVENTS = new Set([
+    "frontend_runtime_style_resolved",
+    "pair_checkpoint_decided",
+    "frontend_execution_completed",
+]);
+const FRONTEND_POLICY_SOURCES = new Set(["canonical", "legacy_frontend"]);
+const COLLABORATION_VALUES = new Set(["autonomous", "pair"]);
+const RUNTIME_RESOLUTION_REASONS = new Set([
+    "canonical_pair_capable",
+    "canonical_pair_unavailable",
+    "canonical_autonomous",
+    "legacy_autonomous",
+]);
+const PAIR_CHECKPOINT_DECISIONS = new Set(["continue", "revise", "switch_to_autonomous", "stop", "canceled"]);
+const PAIR_CHECKPOINT_REASONS = new Set([
+    "checkpoint_interaction_canceled",
+    "revision_feedback_required",
+    "pair_capability_lost",
+    "invalid_checkpoint_response",
+]);
+const FRONTEND_COMPLETION_PHASES = new Set(["implementation", "validation_repair"]);
+const BROWSER_PREFLIGHT_OUTCOMES = new Set(["succeeded", "failed", "externally_blocked"]);
 
 /** @type {Map<string, string>} */
 const cwdHashCache = new Map();
@@ -160,6 +182,86 @@ export function sanitizeMetricDetails(details) {
 }
 
 /**
+ * @param {unknown} value
+ * @returns {value is string}
+ */
+function isString(value) {
+    return typeof value === "string";
+}
+
+/**
+ * @param {unknown} value
+ * @param {Set<string>} allowed
+ * @returns {string | undefined}
+ */
+function allowEnum(value, allowed) {
+    return isString(value) && allowed.has(value) ? value : undefined;
+}
+
+/**
+ * @param {unknown} value
+ * @returns {number | undefined}
+ */
+function allowNonNegativeInteger(value) {
+    return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
+}
+
+/**
+ * @param {unknown} value
+ * @returns {number | undefined}
+ */
+function allowPositiveInteger(value) {
+    return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : undefined;
+}
+
+/**
+ * @param {Record<string, unknown>} output
+ * @param {string} key
+ * @param {unknown} value
+ * @param {Set<string>} allowed
+ */
+function setAllowedEnum(output, key, value, allowed) {
+    const normalized = allowEnum(value, allowed);
+    if (normalized !== undefined) output[key] = normalized;
+}
+
+/**
+ * @param {string} event
+ * @param {unknown} details
+ * @returns {Record<string, unknown> | undefined}
+ */
+function sanitizeDedicatedFrontendMetricDetails(event, details) {
+    if (!isPlainObject(details)) return undefined;
+    /** @type {Record<string, unknown>} */
+    const output = {};
+    if (event === "frontend_runtime_style_resolved") {
+        setAllowedEnum(output, "policySource", details.policySource, FRONTEND_POLICY_SOURCES);
+        setAllowedEnum(output, "recommendation", details.recommendation, COLLABORATION_VALUES);
+        setAllowedEnum(output, "runtimeStyle", details.runtimeStyle, COLLABORATION_VALUES);
+        if (typeof details.pairCapable === "boolean") output.pairCapable = details.pairCapable;
+        setAllowedEnum(output, "resolutionReason", details.resolutionReason, RUNTIME_RESOLUTION_REASONS);
+    } else if (event === "pair_checkpoint_decided") {
+        const checkpointNumber = allowPositiveInteger(details.checkpointNumber);
+        if (checkpointNumber !== undefined) output.checkpointNumber = checkpointNumber;
+        setAllowedEnum(output, "decision", details.decision, PAIR_CHECKPOINT_DECISIONS);
+        setAllowedEnum(output, "reason", details.reason, PAIR_CHECKPOINT_REASONS);
+    } else if (event === "frontend_execution_completed") {
+        setAllowedEnum(output, "phase", details.phase, FRONTEND_COMPLETION_PHASES);
+        setAllowedEnum(output, "runtimeStyle", details.runtimeStyle, COLLABORATION_VALUES);
+        const checkpointCount = allowNonNegativeInteger(details.checkpointCount);
+        if (checkpointCount !== undefined) output.checkpointCount = checkpointCount;
+        if (typeof details.switchedToAutonomous === "boolean") {
+            output.switchedToAutonomous = details.switchedToAutonomous;
+        }
+        if (typeof details.capabilityLost === "boolean") output.capabilityLost = details.capabilityLost;
+        setAllowedEnum(output, "browserPreflightOutcome", details.browserPreflightOutcome, BROWSER_PREFLIGHT_OUTCOMES);
+        const elapsedMs = allowNonNegativeInteger(details.elapsedMs);
+        if (elapsedMs !== undefined) output.elapsedMs = elapsedMs;
+    }
+    return Object.keys(output).length ? output : undefined;
+}
+
+/**
  * @param {Object} metric
  * @param {WorkflowMetricCategory} metric.category
  * @param {string} metric.event
@@ -188,6 +290,10 @@ export async function recordWorkflowMetric(metric, deps = {}) {
 
         const filePath = getWorkflowMetricsFilePath(cwd, deps.homeDir);
         const now = deps.now || (() => new Date());
+        const dedicatedFrontendEvent = DEDICATED_FRONTEND_EVENTS.has(metric.event);
+        const dedicatedDetails = dedicatedFrontendEvent
+            ? sanitizeDedicatedFrontendMetricDetails(metric.event, metric.details)
+            : undefined;
         /** @type {WorkflowMetricRecord} */
         const record = {
             v: 1,
@@ -195,10 +301,14 @@ export async function recordWorkflowMetric(metric, deps = {}) {
             category: metric.category,
             event: metric.event,
             cwdHash: await hashMetricCwd(cwd),
-            ...(metric.sessionId ? { sessionId: metric.sessionId } : {}),
-            ...(metric.planName ? { planName: metric.planName } : {}),
-            ...(metric.agentName ? { agentName: metric.agentName } : {}),
-            ...(metric.details !== undefined ? { details: sanitizeMetricDetails(metric.details) } : {}),
+            ...(!dedicatedFrontendEvent && metric.sessionId ? { sessionId: metric.sessionId } : {}),
+            ...(!dedicatedFrontendEvent && metric.planName ? { planName: metric.planName } : {}),
+            ...(!dedicatedFrontendEvent && metric.agentName ? { agentName: metric.agentName } : {}),
+            ...(dedicatedFrontendEvent
+                ? dedicatedDetails !== undefined ? { details: dedicatedDetails } : {}
+                : metric.details !== undefined
+                ? { details: sanitizeMetricDetails(metric.details) }
+                : {}),
         };
 
         try {

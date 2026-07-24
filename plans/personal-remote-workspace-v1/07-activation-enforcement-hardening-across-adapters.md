@@ -10,7 +10,6 @@ affectedPaths:
     - "src/cmd/acp/"
     - "src/cmd/"
     - "src/shared/session/session-runtime.js"
-frontend: false
 createdAt: "2026-07-22T03:56:51.473Z"
 updatedAt: "2026-07-22T03:56:51.473Z"
 status: "draft"
