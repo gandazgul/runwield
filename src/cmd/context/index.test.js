@@ -38,7 +38,7 @@ function makeReport(overrides = {}) {
                 items: [],
             },
         ],
-        instructionFiles: [{ label: "/tmp/RUNWEILD.md", path: "/tmp/RUNWEILD.md", source: "local", tokens: 10 }],
+        instructionFiles: [{ label: "/tmp/RUNWIELD.md", path: "/tmp/RUNWIELD.md", source: "local", tokens: 10 }],
         skills: [
             {
                 label: "write-tests",
@@ -75,7 +75,7 @@ Deno.test("abbreviateHomePath shortens files under HOME", () => {
     const previous = Deno.env.get("HOME");
     try {
         Deno.env.set("HOME", "/home/tester");
-        assertEquals(abbreviateHomePath("/home/tester/.wld/RUNWEILD.md"), "~/.wld/RUNWEILD.md");
+        assertEquals(abbreviateHomePath("/home/tester/.wld/RUNWIELD.md"), "~/.wld/RUNWIELD.md");
         assertEquals(abbreviateHomePath("/other/file"), "/other/file");
     } finally {
         if (previous === undefined) Deno.env.delete("HOME");
@@ -93,7 +93,7 @@ Deno.test("formatContextReport renders active model, categories, files, and sour
             "anthropic/claude-test",
             "1,000/2,000 (last known)",
             "Agent instructions: 300 tokens (30.0%)",
-            "/tmp/RUNWEILD.md [local]: ~10 tokens",
+            "/tmp/RUNWIELD.md [local]: ~10 tokens",
             "local:",
             "bundled:",
             "agent-browser-use: ~15 tokens",

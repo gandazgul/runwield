@@ -477,7 +477,7 @@ export function getGlobalAgentMdPaths(homeDir, options = {}) {
     const includeExternal = options.includeExternal ??
         (getCustomSetting("enableExternalGlobalAgentsMd", "global") ?? true);
     return [
-        join(homeDir, ".wld", "RUNWEILD.md"),
+        join(homeDir, ".wld", "RUNWIELD.md"),
         join(homeDir, ".wld", "AGENTS.md"),
         ...(includeExternal ? [join(homeDir, ".agents", "AGENTS.md")] : []),
     ];
@@ -522,7 +522,7 @@ export async function listLoadedAgentMdFiles(cwd) {
     }
 
     if (cwd) {
-        for (const projectPath of [join(cwd, "RUNWEILD.md"), join(cwd, "AGENTS.md")]) {
+        for (const projectPath of [join(cwd, "RUNWIELD.md"), join(cwd, "AGENTS.md")]) {
             if (await fileExists(projectPath)) {
                 results.push({ path: projectPath, source: "local" });
                 break;
@@ -1219,7 +1219,7 @@ function stringifyToolParameters(parameters) {
  * @returns {Promise<{ text: string, path: string, source: "local" } | null>}
  */
 async function readProjectInstructionFile(cwd) {
-    for (const path of [join(cwd, "RUNWEILD.md"), join(cwd, "AGENTS.md")]) {
+    for (const path of [join(cwd, "RUNWIELD.md"), join(cwd, "AGENTS.md")]) {
         try {
             return { text: await Deno.readTextFile(path), path, source: "local" };
         } catch {

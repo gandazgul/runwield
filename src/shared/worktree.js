@@ -4,7 +4,7 @@
  */
 
 import { basename, dirname, join } from "@std/path";
-import { HOME_DIR, RUNWEILD_DIR_NAME, WORKTREE_BRANCH_PREFIX, WORKTREE_PATH_PREFIX } from "../constants.js";
+import { HOME_DIR, RUNWIELD_DIR_NAME, WORKTREE_BRANCH_PREFIX, WORKTREE_PATH_PREFIX } from "../constants.js";
 import { encodeCwdForSessionDir } from "./session/root-session.js";
 import { assertGitRepository, GitRepositoryRequiredError } from "./git.js";
 import { getWorkflowDiff } from "./workflow/git-snapshot.js";
@@ -469,8 +469,8 @@ async function commitDirtyWorktreeState(worktreePath, branch, messageOptions = {
  */
 export function resolveWorktreeParent(projectRoot, worktreeRoot) {
     if (worktreeRoot) return worktreeRoot;
-    if (HOME_DIR) return join(HOME_DIR, RUNWEILD_DIR_NAME, "worktrees", encodeCwdForSessionDir(projectRoot));
-    return join(projectRoot, RUNWEILD_DIR_NAME, "worktrees");
+    if (HOME_DIR) return join(HOME_DIR, RUNWIELD_DIR_NAME, "worktrees", encodeCwdForSessionDir(projectRoot));
+    return join(projectRoot, RUNWIELD_DIR_NAME, "worktrees");
 }
 
 /**

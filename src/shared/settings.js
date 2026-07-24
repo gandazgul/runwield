@@ -6,7 +6,7 @@ import { normalizeServerUrl } from "./collaboration/urls.js";
 
 export const PLAN_SERVER_URL_SETTING_KEY = "planServerUrl";
 
-const RUNWEILD_CUSTOM_SETTING_KEYS = [
+const RUNWIELD_CUSTOM_SETTING_KEYS = [
     "agents",
     "activeModelPreset",
     "modelPresets",
@@ -298,7 +298,7 @@ export function preserveRunWieldCustomSettingsForWrite(previousContent, nextCont
         }
 
         let changed = false;
-        for (const key of RUNWEILD_CUSTOM_SETTING_KEYS) {
+        for (const key of RUNWIELD_CUSTOM_SETTING_KEYS) {
             if (
                 Object.prototype.hasOwnProperty.call(previous, key) && !Object.prototype.hasOwnProperty.call(next, key)
             ) {

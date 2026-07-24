@@ -76,7 +76,7 @@ export const PLAN_UI_TOKEN_HEADER = "x-runwield-workspace-token";
 export const PLAN_UI_COMMAND_LABEL = "plans ui";
 
 /** Directory name for project-local RunWield metadata. */
-export const RUNWEILD_DIR_NAME = ".wld";
+export const RUNWIELD_DIR_NAME = ".wld";
 
 /** Durable execution worktree registry filename inside .wld/. */
 export const WORKTREE_REGISTRY_FILE = "worktrees.json";

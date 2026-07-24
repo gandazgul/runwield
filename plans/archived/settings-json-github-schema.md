@@ -2,7 +2,7 @@
 planId: "78ae72a3-3535-4c8d-af2a-1ea5b0e91787"
 classification: "FEATURE"
 complexity: "LOW"
-summary: "Create a JSON schema for wld settings.json and document how to reference it via GitHub releases. This involves defining the schema based on RUNWEILD_CUSTOM_SETTING_KEYS and existing settings logic in src/shared/settings.js, and updating the README to provide the $schema URL."
+summary: "Create a JSON schema for wld settings.json and document how to reference it via GitHub releases. This involves defining the schema based on RUNWIELD_CUSTOM_SETTING_KEYS and existing settings logic in src/shared/settings.js, and updating the README to provide the $schema URL."
 affectedPaths:
     - "config.schema.json"
     - "README.md"

@@ -102,7 +102,7 @@ Existing functions, modules, or patterns to reuse:
 ## Implementation Steps
 
 - [ ] Add a normalized code-review setting helper.
-  - In `src/shared/settings.js`, add `"codereview"` to `RUNWEILD_CUSTOM_SETTING_KEYS`.
+  - In `src/shared/settings.js`, add `"codereview"` to `RUNWIELD_CUSTOM_SETTING_KEYS`.
   - Export `getCodeReviewMode()` returning only `"none"`, `"ask"`, or `"always"`; default invalid/missing values to
     `"none"`.
   - Add settings tests for global/project override, invalid fallback, and preservation across SettingsManager writes.

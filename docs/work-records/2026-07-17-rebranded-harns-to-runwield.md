@@ -16,7 +16,7 @@ provenance:
 ## Summary
 
 Completed and verified the cross-cutting RunWield rebrand. The CLI is now `wld`, product-owned state uses `.wld`,
-context files use `RUNWEILD.md`, release and installer assets use the new naming, and runtime, documentation, tests,
+context files use `RUNWIELD.md`, release and installer assets use the new naming, and runtime, documentation, tests,
 prompts, worktrees, session markers, and the boot logo were updated. The Router display name remains `Harns` as the sole
 intentional legacy exception.
 

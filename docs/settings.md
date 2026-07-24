@@ -16,8 +16,8 @@ Add the release schema URL to either settings file for editor autocomplete and v
 ```
 
 Settings files are JSONC, but the published `config.schema.json` asset is strict JSON for broad editor compatibility.
-The schema intentionally allows unknown keys so future RunWeild settings, inherited Pi settings, and extension-owned
-settings do not become false errors. Known RunWeild keys and currently inherited Pi-backed keys are still described for
+The schema intentionally allows unknown keys so future RunWield settings, inherited Pi settings, and extension-owned
+settings do not become false errors. Known RunWield keys and currently inherited Pi-backed keys are still described for
 completion and basic validation.
 
 Project settings override global settings. For ordinary Pi-backed settings, nested objects are shallow-merged and arrays
@@ -352,7 +352,7 @@ These keys are read by RunWield outside the upstream Pi `SettingsManager` schema
 | `notifications`                            | object            | enabled by default                              | global + project | Desktop attention notifications for agent stops, `plan_written`, and `user_interview` prompts when the host platform has a supported notifier.                                     |
 | `workflowMetrics`                          | boolean or object | default disabled                                | global + project | Opt-in local-only JSONL workflow metrics under `~/.wld/workflow-metrics/<encoded-cwd>/metrics.jsonl`. Accepts `true` or `{ "enabled": true }`.                                     |
 | `enableExternalSkills`                     | boolean           | default `true`                                  | global           | When true, RunWield includes skills from `~/.agents/skills` after local, home, and bundled RunWield skills.                                                                        |
-| `enableExternalGlobalAgentsMd`             | boolean           | default `true`                                  | global           | When true, global prompt loading includes `~/.agents/AGENTS.md` after `~/.wld/RUNWEILD.md` and `~/.wld/AGENTS.md`.                                                                 |
+| `enableExternalGlobalAgentsMd`             | boolean           | default `true`                                  | global           | When true, global prompt loading includes `~/.agents/AGENTS.md` after `~/.wld/RUNWIELD.md` and `~/.wld/AGENTS.md`.                                                                 |
 
 ### `workflowMetrics`
 
@@ -498,7 +498,7 @@ These keys come from the upstream `@earendil-works/pi-coding-agent` settings sch
 | `enableInstallTelemetry`    | boolean      | default `true`                                                               | Send anonymous version/update ping after changelog-detected updates.                                                          |
 | `enableAnalytics`           | boolean      | default `false`                                                              | Opt-in analytics data sharing.                                                                                                |
 | `trackingId`                | string       | generated when analytics is enabled                                          | Analytics tracking identifier.                                                                                                |
-| `packages`                  | array        | default `[]`                                                                 | Installed npm/git/local package sources. RunWeild registers theme resources and package prompt templates from these packages. |
+| `packages`                  | array        | default `[]`                                                                 | Installed npm/git/local package sources. RunWield registers theme resources and package prompt templates from these packages. |
 | `extensions`                | string array | default `[]`                                                                 | Local extension file paths or directories.                                                                                    |
 | `skills`                    | string array | default `[]`                                                                 | Local skill file paths or directories.                                                                                        |
 | `prompts`                   | string array | default `[]`                                                                 | Local prompt template file paths or directories.                                                                              |

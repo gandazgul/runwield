@@ -4,7 +4,7 @@
  */
 
 import { dirname, isAbsolute, join } from "@std/path";
-import { HOME_DIR, RUNWEILD_DIR_NAME } from "../../constants.js";
+import { HOME_DIR, RUNWIELD_DIR_NAME } from "../../constants.js";
 import { encodeCwdForSessionDir } from "../session/root-session.js";
 import { getMergedCustomSetting } from "../settings.js";
 
@@ -70,7 +70,7 @@ export function isWorkflowMetricsEnabled(setting) {
  */
 export function getWorkflowMetricsFilePath(cwd, homeDir = HOME_DIR || Deno.env.get("HOME") || "~") {
     if (!cwd) throw new Error("getWorkflowMetricsFilePath: cwd is required");
-    return join(homeDir, RUNWEILD_DIR_NAME, METRICS_DIR_NAME, encodeCwdForSessionDir(cwd), "metrics.jsonl");
+    return join(homeDir, RUNWIELD_DIR_NAME, METRICS_DIR_NAME, encodeCwdForSessionDir(cwd), "metrics.jsonl");
 }
 
 /**

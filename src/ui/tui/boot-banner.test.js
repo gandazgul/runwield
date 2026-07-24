@@ -38,7 +38,7 @@ Deno.test("renderBootBanner reports prompt templates, skills, theme, and blocked
                     source: /** @type {"bundled"} */ ("bundled"),
                 }]),
             listLoadedAgentMdFiles: () =>
-                Promise.resolve([{ path: "/repo/RUNWEILD.md", source: /** @type {"local"} */ ("local") }]),
+                Promise.resolve([{ path: "/repo/RUNWIELD.md", source: /** @type {"local"} */ ("local") }]),
             getSettingsManager: () => ({ getTheme: () => "catppuccin-mocha" }),
             hasSnipBinary: () => Promise.resolve(true),
         },

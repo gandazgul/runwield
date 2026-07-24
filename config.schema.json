@@ -1,8 +1,8 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://github.com/gandazgul/runwield/releases/latest/download/config.schema.json",
-    "title": "RunWeild settings",
-    "description": "Schema for RunWeild JSONC settings files at ~/.wld/settings.json and .wld/settings.json. Unknown keys are allowed for forward compatibility with Pi, extensions, and future RunWeild settings.",
+    "title": "RunWield settings",
+    "description": "Schema for RunWield JSONC settings files at ~/.wld/settings.json and .wld/settings.json. Unknown keys are allowed for forward compatibility with Pi, extensions, and future RunWield settings.",
     "type": "object",
     "additionalProperties": true,
     "properties": {
@@ -17,7 +17,7 @@
         },
         "activeModelPreset": {
             "type": "string",
-            "description": "Name of the active entry in modelPresets. If unset or unknown, RunWeild uses base agents/default model settings."
+            "description": "Name of the active entry in modelPresets. If unset or unknown, RunWield uses base agents/default model settings."
         },
         "modelPresets": {
             "type": "object",
@@ -85,7 +85,7 @@
         },
         "enableExternalSkills": {
             "type": "boolean",
-            "description": "Global setting. When true, RunWeild includes skills from ~/.agents/skills after local, home, and bundled skills."
+            "description": "Global setting. When true, RunWield includes skills from ~/.agents/skills after local, home, and bundled skills."
         },
         "enableExternalGlobalAgentsMd": {
             "type": "boolean",
