@@ -35,11 +35,14 @@ devServerCommand: "deno task workspace:dev:plan-review"
 devServerUrl: "http://127.0.0.1:5173/dev/plan-review"
 devServerHmr: true
 createdAt: "2026-07-23T17:51:15-04:00"
-updatedAt: "2026-07-24T03:30:57.763Z"
+updatedAt: "2026-07-24T15:15:26.450Z"
 status: "implemented"
 origin: "internal"
-implementedAt: "2026-07-24T03:30:57.763Z"
-worktreeStatus: "completed"
+failureReason: "Worktree branch runwield/worktree/plan-review-execution-selection-0f7dba62 is 8 commits behind main and rebase failed: git rebase refs/heads/main failed: Rebasing (1/1)\rerror: could not apply 7afb5583... Complete plan-review-execution-selection\nhint: Resolve all conflicts manually, mark them as resolved with\nhint: \"git add/rm <conflicted_files>\", then run \"git rebase --continue\".\nhint: You can instead skip this commit: run \"git rebase --skip\".\nhint: To abort and get back to the state before \"git rebase\", run \"git rebase --abort\".\nhint: Disable this message with \"git config set advice.mergeConflict false\"\nCould not apply 7afb5583... # Complete plan-review-execution-selection."
+worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-plan-review-execution-selection-0f7dba62"
+worktreeBranch: "runwield/worktree/plan-review-execution-selection-0f7dba62"
+worktreeBaseBranch: "main"
+worktreeStatus: "merge_conflict"
 ---
 
 # Plan Review Execution Selection
