@@ -127,8 +127,13 @@ export async function waitForStableWorkspaceClientAssets(clientDir, options = {}
     let previous = null;
 
     while (true) {
-        const current = (await snapshotWorkspaceAssetDirectory(clientDir)).join("\n");
-        if (previous !== null && current === previous) return;
+        const current = await snapshotWorkspaceAssetDirectory(clientDir).then((snapshot) => snapshot.join("\n")).catch(
+            (error) => {
+                if (error instanceof Deno.errors.NotFound) return null;
+                throw error;
+            },
+        );
+        if (current !== null && previous !== null && current === previous) return;
         if (Date.now() >= deadline) throw new Error(`Workspace client assets did not settle: ${clientDir}`);
         previous = current;
         await delay(intervalMs);
