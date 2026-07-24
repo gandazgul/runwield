@@ -340,10 +340,10 @@ export async function resolveValidationExecutionContext({
             `Worktree registry identity for ${worktreeId} does not match Plan metadata.`,
         );
     }
-    if (registryEntry.baseTree && registryEntry.baseTree !== baselineTree) {
+    if (registryEntry.executionBaselineTree && registryEntry.executionBaselineTree !== baselineTree) {
         return blocked(
             "registry_base_tree_mismatch",
-            `Worktree registry base tree for ${worktreeId} does not match Plan metadata.`,
+            `Worktree registry execution baseline for ${worktreeId} does not match Plan metadata.`,
         );
     }
     const candidateBaseCommit = asString(candidate.worktreeBaseCommit) || asString(candidate.baseCommit);

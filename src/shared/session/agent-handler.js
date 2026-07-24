@@ -7,6 +7,7 @@
 import { runRootTurn as runRootTurnFn } from "./session.js";
 import {
     executePlan as executePlanFn,
+    finalizePlanImplementation as finalizePlanImplementationFn,
     readLatestPlanOutcome as readLatestPlanOutcomeFn,
     readLatestTaskCompletedOutcome as readLatestTaskCompletedOutcomeFn,
     resolveExecutionOwner,
@@ -78,6 +79,7 @@ function isDeliberateExecutionResume(userRequest) {
  *   decidePostPlanning?: typeof decidePostPlanningFn,
  *   decidePostExecution?: typeof decidePostExecutionFn,
  *   executePlan?: typeof executePlanFn,
+ *   finalizePlanImplementation?: typeof finalizePlanImplementationFn,
  *   runSlicerAgent?: typeof runSlicerAgentFn,
  *   runValidationLoop?: typeof runValidationLoop,
  *   runMechanicalValidation?: typeof runMechanicalValidation,
@@ -102,6 +104,7 @@ export function createAgentHandler(agentName, __deps) {
     const decidePostPlanning = __deps?.decidePostPlanning || decidePostPlanningFn;
     const decidePostExecution = __deps?.decidePostExecution || decidePostExecutionFn;
     const executePlan = __deps?.executePlan || executePlanFn;
+    const finalizePlanImplementation = __deps?.finalizePlanImplementation || finalizePlanImplementationFn;
     const runSlicerAgent = __deps?.runSlicerAgent || runSlicerAgentFn;
     const runValidationLoopImpl = __deps?.runValidationLoop || runValidationLoop;
     const runMechanicalValidationImpl = __deps?.runMechanicalValidation || runMechanicalValidation;
@@ -448,33 +451,39 @@ export function createAgentHandler(agentName, __deps) {
             }
 
             if (workflow) {
+                if (workflow.planName && workflow.planName !== "quick-fix") {
+                    if (!workflow.validationContinuation) {
+                        try {
+                            await finalizePlanImplementation({
+                                projectRoot,
+                                planName: workflow.planName,
+                                triageMeta: workflow.triageMeta,
+                                executionContext: workflow,
+                                hostedSession,
+                                __deps: {
+                                    recordPlanEvent: recordPlanEventImpl,
+                                    recordWorkflowMetric: recordWorkflowMetricImpl,
+                                },
+                            });
+                        } catch (error) {
+                            const reason = error instanceof Error ? error.message : String(error);
+                            emitSystemStatus(
+                                hostedSession,
+                                `Workflow halted before validation because the implementation checkpoint failed: ${reason}`,
+                                { level: "error", header: "RunWield" },
+                            );
+                            requestAgentStoppedAttention();
+                            return { kind: "complete" };
+                        }
+                    }
+                }
+
                 let planContent = "";
                 if (workflow.planName && workflow.planName !== "quick-fix") {
                     try {
                         planContent = await Deno.readTextFile(join(projectRoot, "plans", `${workflow.planName}.md`));
                     } catch {
                         // Ignore
-                    }
-
-                    if (!workflow.validationContinuation) {
-                        try {
-                            await recordPlanEventImpl({
-                                cwd: projectRoot,
-                                planName: workflow.planName,
-                                event: "implementation_finished",
-                                currentStatus: "in_progress",
-                                details: { triageMeta: workflow.triageMeta },
-                            });
-                        } catch (error) {
-                            const reason = error instanceof Error ? error.message : String(error);
-                            emitSystemStatus(
-                                hostedSession,
-                                `Workflow halted: Could not record implementation_finished before validation: ${reason}`,
-                                { level: "error", header: "RunWield" },
-                            );
-                            requestAgentStoppedAttention();
-                            return { kind: "complete" };
-                        }
                     }
                 }
 

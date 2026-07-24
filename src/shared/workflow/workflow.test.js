@@ -5,6 +5,7 @@ import {
     createSlicerFinalizeTool,
     executePlan,
     extractAssistantOutput,
+    finalizePlanImplementation,
     materializeSlicerDraft,
     openSlicerDecomposition,
     readLatestPlanOutcome,
@@ -137,6 +138,8 @@ Deno.test("startActiveExecutionWorkflow resolves implicit current branch before 
     const hostedSession = makeHostedSession("implicit-target-reuse-workflow");
     /** @type {unknown[]} */
     const reuseCalls = [];
+    /** @type {unknown[]} */
+    const registryUpdates = [];
     let createCalls = 0;
     const result = await startActiveExecutionWorkflow({
         planName: "untargeted-plan",
@@ -161,7 +164,10 @@ Deno.test("startActiveExecutionWorkflow resolves implicit current branch before 
                 return Promise.reject(new Error("should reuse recorded worktree"));
             },
             captureWorktreeTree: () => Promise.resolve("tree-main"),
-            updateWorktreeRegistryEntry: () => Promise.resolve(null),
+            updateWorktreeRegistryEntry: (projectRoot, id, updates) => {
+                registryUpdates.push({ projectRoot, id, updates });
+                return Promise.resolve(null);
+            },
             recordPlanEvent: () => Promise.resolve(/** @type {any} */ ({})),
         },
     });
@@ -169,6 +175,11 @@ Deno.test("startActiveExecutionWorkflow resolves implicit current branch before 
     assertEquals(reuseCalls, [{ projectRoot: Deno.cwd(), planName: "untargeted-plan", worktreeId: "wt-main" }]);
     assertEquals(createCalls, 0);
     assertEquals(result.worktreeBaseBranch, "main");
+    assertEquals(registryUpdates, [{
+        projectRoot: Deno.cwd(),
+        id: "wt-main",
+        updates: { status: "active", executionBaselineTree: "tree-main" },
+    }]);
 });
 
 Deno.test("startActiveExecutionWorkflow rejects reusable worktree target mismatches", async () => {
@@ -514,6 +525,127 @@ Deno.test("executePlan refuses persisted Epic containers even when triage meta o
     assertStringIncludes(result.error || "", "PROJECT Epic container");
 });
 
+Deno.test("finalizePlanImplementation checkpoints worktree changes before lifecycle completion", async () => {
+    /** @type {string[]} */
+    const order = [];
+    const executionContext = /** @type {const} */ ({
+        planName: "feature-plan",
+        triageMeta: { classification: "FEATURE" },
+        executionAgent: "engineer",
+        executionMode: "worktree",
+        projectRoot: "/project",
+        executionCwd: "/worktree",
+        baselineTree: "attempt-tree",
+        worktreeId: "wt-1",
+        worktreeBranch: "runwield/worktree/feature-plan",
+    });
+
+    const result = await finalizePlanImplementation({
+        projectRoot: "/project",
+        planName: "feature-plan",
+        triageMeta: { classification: "FEATURE", summary: "Preserve completed implementation work." },
+        executionContext,
+        executionReport: "- Implemented.",
+        __deps: {
+            checkpointExecutionWorktree: (options) => {
+                order.push(`checkpoint:${options.worktreePath}:${options.branch}`);
+                return Promise.resolve({ executionCommit: "a".repeat(40) });
+            },
+            recordPlanEvent: (event) => {
+                order.push(`event:${event.event}`);
+                assertEquals(/** @type {any} */ (event.details).executionReport, "- Implemented.");
+                assertEquals(/** @type {any} */ (event.details).executionBaselineTree, "attempt-tree");
+                assertEquals(/** @type {any} */ (event.details).worktreeId, "wt-1");
+                return Promise.resolve(/** @type {any} */ ({}));
+            },
+            markActiveWorktreeStatus: (status, /** @type {any} */ options) => {
+                order.push(`registry:${status}:${options.workflow?.worktreeId}`);
+                return Promise.resolve();
+            },
+            recordWorkflowMetric: (/** @type {any} */ metric) => {
+                order.push(`metric:${metric.event}:${metric.details.checkpointCommitted}`);
+                return Promise.resolve(null);
+            },
+        },
+    });
+
+    assertEquals(result, { implementationCommit: "a".repeat(40) });
+    assertEquals(order, [
+        "checkpoint:/worktree:runwield/worktree/feature-plan",
+        "event:implementation_finished",
+        "registry:completed:wt-1",
+        "metric:implementation_finished:true",
+    ]);
+});
+
+Deno.test("finalizePlanImplementation fails closed without durable execution context", async () => {
+    let lifecycleMutated = false;
+    await assertRejects(
+        () =>
+            finalizePlanImplementation({
+                projectRoot: "/project",
+                planName: "feature-plan",
+                triageMeta: { classification: "FEATURE" },
+                executionContext: null,
+                __deps: {
+                    recordPlanEvent: () => {
+                        lifecycleMutated = true;
+                        return Promise.resolve(/** @type {any} */ ({}));
+                    },
+                },
+            }),
+        Error,
+        "durable execution context is missing",
+    );
+    assertEquals(lifecycleMutated, false);
+});
+
+Deno.test("executePlan does not mark implementation complete when checkpointing fails", async () => {
+    let lifecycleMutated = false;
+    const executionContext = /** @type {const} */ ({
+        planName: "feature-plan",
+        triageMeta: { classification: "FEATURE" },
+        executionAgent: "engineer",
+        executionMode: "worktree",
+        projectRoot: Deno.cwd(),
+        executionCwd: "/worktree",
+        worktreeId: "wt-1",
+        worktreeBranch: "runwield/worktree/feature-plan",
+    });
+    const result = await executePlan({
+        planName: "feature-plan",
+        triageMeta: { classification: "FEATURE" },
+        hostedSession: makeHostedSession("checkpoint-failure"),
+        __deps: {
+            loadPlan: () =>
+                Promise.resolve(
+                    /** @type {any} */ ({
+                        attrs: { status: "ready_for_work", classification: "FEATURE" },
+                        body: "## Feature",
+                    }),
+                ),
+            executeSingleEngineerPlan: () =>
+                Promise.resolve({
+                    repairRequired: false,
+                    executionComplete: true,
+                    executionContext,
+                }),
+            checkpointExecutionWorktree: () => Promise.reject(new Error("checkpoint rejected")),
+            recordPlanEvent: () => {
+                lifecycleMutated = true;
+                return Promise.resolve(/** @type {any} */ ({}));
+            },
+            recordWorkflowMetric: () => Promise.resolve(null),
+        },
+    });
+
+    assertEquals(result.executionComplete, false);
+    assertEquals(result.repairRequired, true);
+    assertStringIncludes(result.error || "", "checkpoint rejected");
+    assertEquals(result.executionContext, executionContext);
+    assertEquals(lifecycleMutated, false);
+});
+
 Deno.test("executePlan still executes ready FEATURE plans", async () => {
     let engineerCalled = false;
     /** @type {string[]} */
@@ -522,6 +654,15 @@ Deno.test("executePlan still executes ready FEATURE plans", async () => {
     const planEventDetails = [];
     /** @type {any[]} */
     const metrics = [];
+    const executionContext = /** @type {const} */ ({
+        planName: "feature-plan",
+        triageMeta: { classification: "FEATURE" },
+        executionAgent: "engineer",
+        executionMode: "non_git_in_place",
+        projectRoot: Deno.cwd(),
+        executionCwd: Deno.cwd(),
+        nonGitInPlace: true,
+    });
     const result = await executePlan({
         planName: "feature-plan",
         triageMeta: { classification: "FEATURE" },
@@ -545,6 +686,7 @@ Deno.test("executePlan still executes ready FEATURE plans", async () => {
                 return Promise.resolve({
                     repairRequired: false,
                     executionComplete: true,
+                    executionContext,
                     completionReport: "- Implemented.\n- Verified.",
                 });
             },
@@ -564,6 +706,7 @@ Deno.test("executePlan still executes ready FEATURE plans", async () => {
     assertEquals(result, {
         repairRequired: false,
         executionComplete: true,
+        executionContext,
         completionReport: "- Implemented.\n- Verified.",
     });
     assertEquals(engineerCalled, true);
@@ -1045,6 +1188,15 @@ Deno.test("executePlan keeps Engineer active when the implementation turn is int
 
 Deno.test("executePlan uses single-plan execution for child FEATURE plans", async () => {
     let engineerCalled = false;
+    const executionContext = /** @type {const} */ ({
+        planName: "epic-a/01-child-feature",
+        triageMeta: { classification: "FEATURE", parentPlan: "epic-a" },
+        executionAgent: "engineer",
+        executionMode: "non_git_in_place",
+        projectRoot: Deno.cwd(),
+        executionCwd: Deno.cwd(),
+        nonGitInPlace: true,
+    });
     const result = await executePlan({
         planName: "epic-a/01-child-feature",
         triageMeta: { classification: "FEATURE", parentPlan: "epic-a" },
@@ -1065,14 +1217,14 @@ Deno.test("executePlan uses single-plan execution for child FEATURE plans", asyn
             executeSingleEngineerPlan: (/** @type {any} */ { triageMeta }) => {
                 engineerCalled = true;
                 assertEquals(triageMeta.parentPlan, "epic-a");
-                return Promise.resolve({ repairRequired: false, executionComplete: true });
+                return Promise.resolve({ repairRequired: false, executionComplete: true, executionContext });
             },
             recordPlanEvent: () => Promise.resolve(/** @type {any} */ ({})),
             markActiveWorktreeStatus: () => Promise.resolve(),
         },
     });
 
-    assertEquals(result, { repairRequired: false, executionComplete: true });
+    assertEquals(result, { repairRequired: false, executionComplete: true, executionContext });
     assertEquals(engineerCalled, true);
 });
 

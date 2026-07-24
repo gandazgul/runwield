@@ -6,6 +6,7 @@ import { GitRepositoryRequiredError } from "./git.js";
 import { stageValidationPassedInExecutionWorktree } from "./workflow/plan-lifecycle.js";
 import { findByPlanName } from "./worktree-registry.js";
 import {
+    checkpointExecutionWorktree,
     createExecutionWorktree,
     findReusableWorktree,
     getWorktreeStatus,
@@ -128,6 +129,14 @@ Deno.test("createExecutionWorktree initializes submodules", async () => {
         worktree = await createExecutionWorktree({ projectRoot, planName: "Submodule Plan", worktreeRoot });
 
         assertEquals(await Deno.readTextFile(`${worktree.path}/third_party/demo/module.css`), "body { color: red; }\n");
+        await removeExecutionWorktree({
+            projectRoot,
+            path: worktree.path,
+            branch: worktree.branch,
+            force: false,
+        });
+        await assertRejects(() => Deno.stat(worktree?.path || ""), Deno.errors.NotFound);
+        worktree = undefined;
     } finally {
         if (previousAllowedProtocols === undefined) {
             Deno.env.delete("GIT_ALLOW_PROTOCOL");
@@ -999,6 +1008,77 @@ Deno.test("mergeExecutionWorktree includes uncommitted worktree changes", async 
             });
         }
         await Deno.remove(projectRoot, { recursive: true });
+        await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("checkpointExecutionWorktree commits tracked and untracked implementation changes", async () => {
+    const projectRoot = await makeRepo();
+    const worktreeRoot = await Deno.makeTempDir();
+    /** @type {Awaited<ReturnType<typeof createExecutionWorktree>> | undefined} */
+    let worktree;
+    try {
+        worktree = await createExecutionWorktree({ projectRoot, planName: "Checkpoint", worktreeRoot });
+        await Deno.writeTextFile(`${worktree.path}/README.md`, "base\ncheckpointed\n");
+        await Deno.writeTextFile(`${worktree.path}/new-feature.js`, "export const ready = true;\n");
+
+        const checkpoint = await checkpointExecutionWorktree({
+            worktreePath: worktree.path,
+            branch: worktree.branch,
+            planName: "checkpoint-plan",
+            planDescription: "Preserve implementation work before lifecycle completion.",
+        });
+
+        assertEquals(await git(worktree.path, ["status", "--porcelain"]), "");
+        assertEquals(checkpoint.executionCommit, await git(worktree.path, ["rev-parse", "HEAD"]));
+        assertEquals(await git(worktree.path, ["show", "HEAD:new-feature.js"]), "export const ready = true;");
+        assertStringIncludes(await git(worktree.path, ["log", "-1", "--format=%B"]), "Complete checkpoint-plan");
+    } finally {
+        if (worktree) {
+            await removeExecutionWorktree({
+                projectRoot,
+                path: worktree.path,
+                branch: worktree.branch,
+                force: true,
+            }).catch(() => {});
+        }
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+        await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("removeExecutionWorktree preserves unexpected dirty work unless force is explicit", async () => {
+    const projectRoot = await makeRepo();
+    const worktreeRoot = await Deno.makeTempDir();
+    /** @type {Awaited<ReturnType<typeof createExecutionWorktree>> | undefined} */
+    let worktree;
+    try {
+        worktree = await createExecutionWorktree({ projectRoot, planName: "Preserve Dirty", worktreeRoot });
+        await Deno.writeTextFile(`${worktree.path}/valuable-repair.js`, "export const repaired = true;\n");
+
+        await assertRejects(
+            () =>
+                removeExecutionWorktree({
+                    projectRoot,
+                    path: worktree?.path || "",
+                    branch: worktree?.branch,
+                    force: false,
+                }),
+            Error,
+        );
+
+        assertEquals((await Deno.stat(`${worktree.path}/valuable-repair.js`)).isFile, true);
+        assertEquals(await git(projectRoot, ["show-ref", "--verify", `refs/heads/${worktree.branch}`]) !== "", true);
+    } finally {
+        if (worktree) {
+            await removeExecutionWorktree({
+                projectRoot,
+                path: worktree.path,
+                branch: worktree.branch,
+                force: true,
+            }).catch(() => {});
+        }
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
         await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
     }
 });
