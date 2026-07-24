@@ -56,6 +56,30 @@ Deno.test("waitForStableWorkspaceClientAssets waits for delayed generated files"
     }
 });
 
+Deno.test("waitForStableWorkspaceClientAssets waits for delayed client directory creation", async () => {
+    const root = await Deno.makeTempDir({ prefix: "wld-workspace-client-parent-" });
+    const clientDir = join(root, "client");
+    try {
+        const delayedCreate = new Promise((resolve, reject) => {
+            setTimeout(async () => {
+                try {
+                    await Deno.mkdir(clientDir);
+                    await Deno.writeTextFile(join(clientDir, "entry.css"), "a{}");
+                    resolve(undefined);
+                } catch (error) {
+                    reject(error);
+                }
+            }, 20);
+        });
+        await waitForStableWorkspaceClientAssets(clientDir, { intervalMs: 50, timeoutMs: 1000 });
+        await delayedCreate;
+
+        assertEquals(await Deno.readTextFile(join(clientDir, "entry.css")), "a{}");
+    } finally {
+        await Deno.remove(root, { recursive: true });
+    }
+});
+
 Deno.test("normalizeCompiledNodeChildProcessImports replaces dynamic child_process requires", () => {
     const source =
         'var a=Ut("node:child_process");import{spawn as sp,spawnSync as ss}from"node:child_process";var b=Ut("node:child_process");';
