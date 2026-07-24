@@ -101,6 +101,13 @@ Deno.test("loadAgentDef loads Guide with read-only tools and return_to_router", 
     assert(def.tools.includes("edit_docs"));
     assert(def.systemPrompt.includes("explicitly asks you to preserve or update"));
     assert(def.systemPrompt.includes("Plans, PRDs, ADRs, `CONTEXT.md`, Work Records, Agent Definitions, Skills"));
+    assert(def.systemPrompt.includes("## Durable Evidence for Project Questions"));
+    assert(def.systemPrompt.includes("root `PRD.md`; `docs/prd/**/*.md`, including `docs/prd/done/**`"));
+    assert(def.systemPrompt.includes("Intent and direction only; never proof of implementation"));
+    assert(def.systemPrompt.includes("`status: accepted` is an authoritative current rule"));
+    assert(def.systemPrompt.includes("Approved/current Work Records are authoritative retrospective outcomes"));
+    assert(def.systemPrompt.includes("Cite project-relative artifact paths"));
+    assert(def.systemPrompt.includes("Session Transcripts and local workflow metrics are excluded"));
 
     assert(!def.tools.includes("edit"));
     assert(!def.tools.includes("write"));
