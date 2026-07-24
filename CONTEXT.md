@@ -311,6 +311,10 @@ recall, plan search, Engineer context tool
 Records, Plans, PRDs, ADRs, and approved project documentation. _Avoid_: Session Transcript search, automatic context
 injection, code search
 
+**Project Evidence Graph**: A rebuildable provenance projection connecting durable project intent, decisions, Plans,
+delivery evidence, and outcomes for citation-backed retrieval while leaving source artifacts authoritative. _Avoid_:
+Plan Evidence Graph, Session Transcript graph, source of truth
+
 **Workspace Intelligence Search**: Deliberate Agent retrieval over eligible durable artifacts across registered Projects
 the user may access, with source Project, artifact type, status, and freshness preserved. _Avoid_: Public global search,
 Session Transcript search, unscoped organization access
@@ -540,6 +544,10 @@ command definition, prompt command
 - The **Work Record Search Tool** is available to Ideator, Planner, Architect, and Guide by default, not Engineer.
 - Ideator, Planner, Architect, and Guide may use both **Project Knowledge Search** and **Workspace Intelligence
   Search**; retrieval is deliberate rather than automatically injected into every Agent Session.
+- The **Project Evidence Graph** is derived from canonical PRDs, ADRs, Plans, Git and validation evidence, and Work
+  Records; it does not replace those artifacts as project truth.
+- A **Session** participates in the **Project Evidence Graph** only as provenance: its owner may navigate to the private
+  Session, while other users may see owner attribution but cannot retrieve or cite its **Session Transcript**.
 - **Workspace Intelligence Search** ranks distilled, current artifacts above draft or superseded material and preserves
   prominent status and Project provenance on every result.
 - Registered **Projects** contribute durable artifacts to **Workspace Intelligence Search** by default, with an explicit
