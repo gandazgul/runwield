@@ -14,6 +14,8 @@ debug.log
 .wld/worktrees.lock
 .wld/collaboration-secrets.json
 
+# Local throwaway prototypes. Executable prototype files must stay under
+# prototypes/<kebab-case-slug>/ and must not be tracked or placed beside src/ code.
 prototypes/
 .learning/
 

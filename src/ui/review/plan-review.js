@@ -23,6 +23,7 @@ import { startPlanReviewSurface } from "./review-launcher.js";
  * @property {boolean} [canceled] - Whether waiting for review was canceled via Esc
  * @property {string} [feedback] - User feedback/annotations (present when the user submits feedback or approves with notes)
  * @property {import('../../shared/workflow/plan-approval.js').PlanApprovalAction} [approvalAction] - Browser-selected post-approval action.
+ * @property {import('../../plan-store.js').PlanFrontMatter} [planAttrs] - Canonical post-review Plan attributes.
  * @property {string} [savedPath] - Optional path where plan was saved (if available)
  * @property {Array<{base64: string, mimeType: string, name: string}>} [images] - Annotated feedback images for the agent
  */
@@ -107,6 +108,18 @@ function bytesToBase64(bytes) {
     return btoa(chunks.join(""));
 }
 
+/**
+ * @param {any} decision
+ * @returns {{ executionAgent: "engineer" | "frontend-engineer", collaborationRecommendation: "autonomous" | "pair" } | null}
+ */
+function readApprovedExecutionPolicy(decision) {
+    const executionAgent = decision?.executionAgent;
+    const collaborationRecommendation = decision?.collaborationRecommendation;
+    if (executionAgent !== "engineer" && executionAgent !== "frontend-engineer") return null;
+    if (collaborationRecommendation !== "autonomous" && collaborationRecommendation !== "pair") return null;
+    return { executionAgent, collaborationRecommendation };
+}
+
 // ─── Main Function ────────────────────────────────────────────────────
 
 /**
@@ -163,6 +176,7 @@ export async function submitPlanForReview({
         }
     }
 
+    const trustedClassification = fmOverrides.classification;
     const planWithFm = injectFrontMatter(body, fmOverrides);
     await Deno.writeTextFile(planPath, planWithFm);
 
@@ -192,8 +206,28 @@ export async function submitPlanForReview({
             };
         }
 
-        if (decision && typeof decision.plan === "string") {
-            await Deno.writeTextFile(planPath, decision.plan);
+        let reviewedPlan = typeof decision.plan === "string" ? decision.plan : planWithFm;
+        const approvedPolicy = readApprovedExecutionPolicy(decision);
+        const canonicalReviewOverrides = {
+            classification: trustedClassification,
+        };
+        if (trustedClassification === "PROJECT") {
+            Object.assign(canonicalReviewOverrides, {
+                executionAgent: /** @type {any} */ (null),
+                collaborationRecommendation: /** @type {any} */ (null),
+                frontend: /** @type {any} */ (null),
+            });
+        } else if (decision.approved && approvedPolicy) {
+            Object.assign(canonicalReviewOverrides, {
+                executionAgent: approvedPolicy.executionAgent,
+                collaborationRecommendation: approvedPolicy.collaborationRecommendation,
+                frontend: /** @type {any} */ (null),
+            });
+        }
+        reviewedPlan = injectFrontMatter(reviewedPlan, canonicalReviewOverrides);
+        const reviewedAttrs = parsePlanFrontMatter(reviewedPlan).attrs;
+        if (typeof decision.plan === "string" || decision.approved && approvedPolicy) {
+            await Deno.writeTextFile(planPath, reviewedPlan);
         }
 
         // 6. Update status
@@ -203,37 +237,39 @@ export async function submitPlanForReview({
             attrs.status === "feedback" ||
             attrs.status === "approved";
 
-        let lifecycleMeta = triageMeta;
+        let lifecycleMeta = reviewedAttrs;
         if (!STATUS_ALLOWS_REVIEW) {
             const reopenedMeta = await recordPlanEventImpl({
                 cwd,
                 planName,
                 event: "review_reopened",
                 currentStatus: attrs.status,
-                details: { triageMeta },
+                details: { triageMeta: lifecycleMeta },
             });
-            if (reopenedMeta) lifecycleMeta = reopenedMeta;
+            if (reopenedMeta) lifecycleMeta = { ...lifecycleMeta, ...reopenedMeta };
         }
 
         // Use the reopened status ("feedback") if we reopened, or the original if already reviewable
         const postReopenStatus = STATUS_ALLOWS_REVIEW ? attrs.status : "feedback";
 
         if (decision.approved) {
-            await recordPlanEventImpl({
+            const approvedMeta = await recordPlanEventImpl({
                 cwd,
                 planName,
                 event: "review_approved",
                 currentStatus: postReopenStatus,
                 details: { triageMeta: lifecycleMeta },
             });
+            if (approvedMeta) lifecycleMeta = { ...lifecycleMeta, ...approvedMeta };
         } else {
-            await recordPlanEventImpl({
+            const feedbackMeta = await recordPlanEventImpl({
                 cwd,
                 planName,
                 event: "review_feedback",
                 currentStatus: postReopenStatus,
                 details: { triageMeta: lifecycleMeta, failureReason: decision.feedback },
             });
+            if (feedbackMeta) lifecycleMeta = { ...lifecycleMeta, ...feedbackMeta };
         }
 
         const images = await loadReviewFeedbackImages(decision, cwd);
@@ -241,6 +277,7 @@ export async function submitPlanForReview({
             approved: decision.approved,
             feedback: decision.feedback,
             ...(decision.approvalAction && { approvalAction: decision.approvalAction }),
+            ...(decision.approved && { planAttrs: lifecycleMeta }),
             ...(decision.savedPath && { savedPath: decision.savedPath }),
             ...(images.length > 0 && { images }),
         };

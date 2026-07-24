@@ -81,7 +81,10 @@ export async function reviewAgentApi(request, url, state) {
 
     if (request.method === "POST" && url.pathname === "/api/agents/jobs") {
         const body = await request.json().catch(() => ({}));
-        if (!body || typeof body !== "object" || Array.isArray(body) || !Object.hasOwn(body, "provider") || body.provider !== "guide") {
+        if (
+            !body || typeof body !== "object" || Array.isArray(body) || !Object.hasOwn(body, "provider") ||
+            body.provider !== "guide"
+        ) {
             return Response.json({ error: "Only the guide provider is available in RunWield code review." }, {
                 status: 400,
             });

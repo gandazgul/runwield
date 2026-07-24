@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import { ThemeProvider } from "@plannotator/ui/components/ThemeProvider.tsx";
-import { TooltipProvider } from "@plannotator/ui/components/Tooltip.tsx";
+import { Tooltip, TooltipProvider } from "@plannotator/ui/components/Tooltip.tsx";
 import { Viewer } from "@plannotator/ui/components/Viewer.tsx";
 import { MarkdownEditor } from "@plannotator/ui/components/MarkdownEditor.tsx";
 import { AnnotationPanel } from "@plannotator/ui/components/AnnotationPanel.tsx";
@@ -23,11 +23,6 @@ import { exportAnnotations, extractFrontmatter, parseMarkdownToBlocks } from "@p
 import { getUIPreferences, PLAN_WIDTH_OPTIONS } from "@plannotator/ui/utils/uiPreferences.ts";
 import { PlanReviewSettings } from "./PlanReviewSettings.tsx";
 import {
-    ExecutionSelectionPrototype,
-    ExecutionSelectionPrototypeSwitcher,
-    useExecutionSelectionPrototypeVariant,
-} from "./ExecutionSelectionPrototype.tsx";
-import {
     PLAN_APPROVAL_ACTIONS,
     primaryPlanApprovalActionForClassification,
 } from "../../../shared/workflow/plan-approval.js";
@@ -35,7 +30,7 @@ import "./plannotator.css";
 
 const DEFAULT_PLAN_PAYLOAD = { plan: "", token: "", mode: "dev" };
 
-export function PlanReviewSurface({ payload, executionSelectionPrototype = false }) {
+export function PlanReviewSurface({ payload }) {
     usePrintMode();
     const initialPayload = useMemo(() => payload || readEmbeddedPayload("review-payload") || DEFAULT_PLAN_PAYLOAD, [
         payload,
@@ -72,32 +67,14 @@ export function PlanReviewSurface({ payload, executionSelectionPrototype = false
             frontmatter: frontmatterResult.frontmatter,
         };
     }, [plan]);
-    const planClassification = parsed.frontmatter?.classification || initialPayload.classification || "FEATURE";
+    const trustedPolicy = readInitialExecutionPolicy(initialPayload, parsed.frontmatter);
+    const planClassification = trustedPolicy.classification;
+    const showExecutionPolicyControls = trustedPolicy.canSelectExecutionPolicy;
     const primaryApprovalAction = primaryPlanApprovalActionForClassification(planClassification);
-    const prototypeClassification = prototypeFrontmatterScalar(planClassification);
-    const prototypeEnabled = executionSelectionPrototype === true && initialPayload.mode === "dev" &&
-        prototypeClassification === "FEATURE";
-    const recommendedAgent = prototypeFrontmatterScalar(parsed.frontmatter?.executionAgent) || "frontend-engineer";
-    const recommendedMode = prototypeFrontmatterScalar(parsed.frontmatter?.collaborationRecommendation) || "autonomous";
-    const [executionAgent, setExecutionAgent] = useState(recommendedAgent);
-    const [collaborationMode, setCollaborationMode] = useState(recommendedMode);
-    const { variant: prototypeVariant, selectVariant: selectPrototypeVariant } = useExecutionSelectionPrototypeVariant(
-        prototypeEnabled,
+    const [executionAgent, setExecutionAgent] = useState(trustedPolicy.executionAgent);
+    const [collaborationRecommendation, setCollaborationRecommendation] = useState(
+        trustedPolicy.collaborationRecommendation,
     );
-    const balancedToolbarPrototype = prototypeEnabled && prototypeVariant === "D";
-    const executionPrototypeProps = {
-        variant: prototypeVariant,
-        executionAgent,
-        collaborationMode,
-        recommendedAgent,
-        recommendedMode,
-        onAgentChange: selectExecutionAgent,
-        onModeChange: selectCollaborationMode,
-        onApprove: () => submitApprove(primaryApprovalAction),
-        onApproveLater: () => submitApprove(PLAN_APPROVAL_ACTIONS.LATER),
-        disabled: submitting !== null,
-        isLoading: submitting === "approve",
-    };
 
     async function submitApprove(approvalAction) {
         setSubmitting("approve");
@@ -105,6 +82,7 @@ export function PlanReviewSurface({ payload, executionSelectionPrototype = false
             await submit("decision", {
                 approved: true,
                 approvalAction,
+                ...buildApprovalPolicyPayload(),
                 ...buildReviewPayload(),
                 ...buildPlanSavePayload(),
             });
@@ -133,12 +111,12 @@ export function PlanReviewSurface({ payload, executionSelectionPrototype = false
 
     function selectExecutionAgent(nextAgent) {
         setExecutionAgent(nextAgent);
-        if (nextAgent === "engineer") setCollaborationMode("autonomous");
+        if (nextAgent === "engineer") setCollaborationRecommendation("autonomous");
     }
 
-    function selectCollaborationMode(nextMode) {
-        if (nextMode === "pair" && executionAgent !== "frontend-engineer") return;
-        setCollaborationMode(nextMode);
+    function selectCollaborationRecommendation(nextRecommendation) {
+        if (nextRecommendation === "pair" && executionAgent !== "frontend-engineer") return;
+        setCollaborationRecommendation(nextRecommendation);
     }
 
     function addAnnotation(annotation) {
@@ -190,9 +168,16 @@ export function PlanReviewSurface({ payload, executionSelectionPrototype = false
             ...(hasAnnotations && {
                 feedback: exportAnnotations(parsed.blocks, annotations, globalAttachments),
             }),
-            ...(prototypeEnabled && { executionAgent, collaborationMode }),
             annotations,
             globalAttachments,
+        };
+    }
+
+    function buildApprovalPolicyPayload() {
+        if (!showExecutionPolicyControls) return {};
+        return {
+            executionAgent,
+            collaborationRecommendation,
         };
     }
 
@@ -220,13 +205,11 @@ export function PlanReviewSurface({ payload, executionSelectionPrototype = false
                 <div className="rw-plannotator-host rw-plan-review" data-review-mode={initialPayload.mode}>
                     <header className="rw-plannotator-toolbar">
                         <div className="rw-plan-review-heading">
-                            {balancedToolbarPrototype && (
-                                <PlanReviewOptionsMenu
-                                    iconOnly
-                                    onOpenSettings={() => setSettingsOpen(true)}
-                                    onPrint={() => globalThis.print?.()}
-                                />
-                            )}
+                            <PlanReviewOptionsMenu
+                                iconOnly
+                                onOpenSettings={() => setSettingsOpen(true)}
+                                onPrint={() => globalThis.print?.()}
+                            />
                             <img src="/logo.svg" alt="" aria-hidden="true" />
                             <h1>Plan Review</h1>
                             {initialPayload.mode === "dev" && (
@@ -236,16 +219,13 @@ export function PlanReviewSurface({ payload, executionSelectionPrototype = false
                             )}
                         </div>
                         <div className="rw-plannotator-actions">
-                            {!balancedToolbarPrototype && (
-                                <PlanReviewOptionsMenu
-                                    onOpenSettings={() => setSettingsOpen(true)}
-                                    onPrint={() => globalThis.print?.()}
-                                />
-                            )}
-                            {balancedToolbarPrototype && (
-                                <ExecutionSelectionPrototype
-                                    placement="toolbar"
-                                    {...executionPrototypeProps}
+                            {showExecutionPolicyControls && (
+                                <ExecutionPolicyControls
+                                    executionAgent={executionAgent}
+                                    collaborationRecommendation={collaborationRecommendation}
+                                    onAgentChange={selectExecutionAgent}
+                                    onRecommendationChange={selectCollaborationRecommendation}
+                                    disabled={submitting !== null}
                                 />
                             )}
                             <FeedbackButton
@@ -257,20 +237,14 @@ export function PlanReviewSurface({ payload, executionSelectionPrototype = false
                                     ? "Add an annotation before sending feedback"
                                     : "Send all annotations"}
                             />
-                            {balancedToolbarPrototype
+                            {showExecutionPolicyControls
                                 ? (
-                                    <BalancedToolbarPrototypeApprovalActions
+                                    <PlanReviewApprovalActions
+                                        primaryAction={primaryApprovalAction}
                                         onApprove={() => submitApprove(primaryApprovalAction)}
                                         onApproveLater={() => submitApprove(PLAN_APPROVAL_ACTIONS.LATER)}
                                         disabled={submitting !== null}
                                         isLoading={submitting === "approve"}
-                                    />
-                                )
-                                : prototypeEnabled
-                                ? (
-                                    <ExecutionSelectionPrototype
-                                        placement="toolbar"
-                                        {...executionPrototypeProps}
                                     />
                                 )
                                 : (
@@ -365,12 +339,6 @@ export function PlanReviewSurface({ payload, executionSelectionPrototype = false
                                             </div>
                                         )}
                                 </div>
-                                {prototypeEnabled && (
-                                    <ExecutionSelectionPrototype
-                                        placement="content"
-                                        {...executionPrototypeProps}
-                                    />
-                                )}
                                 <div className="rw-plan-content-area">
                                     {!sidebarOpen && (
                                         <SidebarTabs
@@ -460,18 +428,6 @@ export function PlanReviewSurface({ payload, executionSelectionPrototype = false
                             )}
                         </div>
                     </ScrollViewportContext.Provider>
-                    {prototypeEnabled && (
-                        <>
-                            <ExecutionSelectionPrototype
-                                placement="dock"
-                                {...executionPrototypeProps}
-                            />
-                            <ExecutionSelectionPrototypeSwitcher
-                                variant={prototypeVariant}
-                                onChange={selectPrototypeVariant}
-                            />
-                        </>
-                    )}
                     <PlanReviewSettings
                         open={settingsOpen}
                         onClose={() => setSettingsOpen(false)}
@@ -573,12 +529,14 @@ function PlanApprovalSplitButton({ primaryAction, onApprove, disabled, isLoading
     );
 }
 
-function BalancedToolbarPrototypeApprovalActions({ onApprove, onApproveLater, disabled, isLoading }) {
+function PlanReviewApprovalActions({ primaryAction, onApprove, onApproveLater, disabled, isLoading }) {
+    const primaryLabel = primaryAction === PLAN_APPROVAL_ACTIONS.DECOMPOSE ? "Approve & Slice" : "Approve & Run";
     return (
         <>
             <Button
                 variant="outline"
                 size="xs"
+                className="rw-plan-review-secondary-action"
                 onClick={onApproveLater}
                 disabled={disabled}
                 title="Approve for Later"
@@ -590,16 +548,81 @@ function BalancedToolbarPrototypeApprovalActions({ onApprove, onApproveLater, di
             <Button
                 variant="success"
                 size="xs"
-                className="rw-execution-prototype-primary-action"
+                className="rw-plan-review-primary-action"
                 onClick={onApprove}
                 disabled={disabled}
-                title="Approve & Run"
-                aria-label="Approve & Run"
+                title={primaryLabel}
+                aria-label={primaryLabel}
                 iconLeft={<CheckIcon />}
             >
-                <span className="hidden md:inline">{isLoading ? "Approving…" : "Approve & Run"}</span>
+                <span className="hidden md:inline">{isLoading ? "Approving…" : primaryLabel}</span>
             </Button>
         </>
+    );
+}
+
+function ExecutionPolicyControls({
+    executionAgent,
+    collaborationRecommendation,
+    onAgentChange,
+    onRecommendationChange,
+    disabled,
+}) {
+    return (
+        <section className="rw-plan-review-execution-policy" aria-label="Execution configuration">
+            <SegmentedPolicyControl
+                label="Execution Agent"
+                tooltip="Frontend Engineer owns materially visual/browser UI work. Engineer owns general implementation and always runs autonomously."
+                value={executionAgent}
+                onChange={onAgentChange}
+                disabled={disabled}
+                options={[
+                    { value: "frontend-engineer", label: "Frontend Engineer" },
+                    { value: "engineer", label: "Engineer" },
+                ]}
+            />
+            <SegmentedPolicyControl
+                label="Execution Style"
+                tooltip="Pair Execution asks a capable host for checkpoints. Autonomous hands off the approved Plan; incapable hosts fall back without rewriting Pair."
+                value={collaborationRecommendation}
+                onChange={onRecommendationChange}
+                disabled={disabled}
+                options={[
+                    {
+                        value: "pair",
+                        label: "Pair Execution",
+                        disabled: executionAgent === "engineer",
+                        disabledReason: "Pair Execution is available only with Frontend Engineer.",
+                    },
+                    { value: "autonomous", label: "Autonomous" },
+                ]}
+            />
+        </section>
+    );
+}
+
+function SegmentedPolicyControl({ label, tooltip, value, onChange, disabled, options }) {
+    return (
+        <Tooltip content={tooltip} side="bottom" align="center" wide>
+            <fieldset className="rw-plan-review-segmented-policy" aria-label={label}>
+                <legend className="rw-visually-hidden">{label}</legend>
+                <div>
+                    {options.map((option) => (
+                        <button
+                            key={option.value}
+                            type="button"
+                            className={value === option.value ? "active" : ""}
+                            aria-pressed={value === option.value}
+                            disabled={disabled || option.disabled}
+                            onClick={() => onChange(option.value)}
+                            title={option.disabled ? option.disabledReason : tooltip}
+                        >
+                            {option.label}
+                        </button>
+                    ))}
+                </div>
+            </fieldset>
+        </Tooltip>
     );
 }
 
@@ -726,8 +749,30 @@ function toggleMarkdownCheckbox(markdown, lineNumber, checked) {
     return next.join("\n");
 }
 
-// THROWAWAY PROTOTYPE: Plannotator preserves YAML quotes in display-oriented Front Matter values.
-function prototypeFrontmatterScalar(value) {
+function readInitialExecutionPolicy(payload, parsedFrontmatter) {
+    const frontmatter = payload?.frontmatter && typeof payload.frontmatter === "object"
+        ? payload.frontmatter
+        : parsedFrontmatter || {};
+    const classification = readScalar(payload?.classification) || readScalar(frontmatter.classification) || "FEATURE";
+    const executionPolicy = payload?.executionPolicy && typeof payload.executionPolicy === "object"
+        ? payload.executionPolicy
+        : {};
+    const executionAgent = readExecutionAgent(executionPolicy.executionAgent) ||
+        readExecutionAgent(payload?.executionAgent) ||
+        readExecutionAgent(frontmatter.executionAgent) ||
+        (frontmatter.frontend === true ? "frontend-engineer" : "engineer");
+    const collaborationRecommendation = readCollaborationRecommendation(executionPolicy.collaborationRecommendation) ||
+        readCollaborationRecommendation(payload?.collaborationRecommendation) ||
+        readCollaborationRecommendation(frontmatter.collaborationRecommendation) || "autonomous";
+    return {
+        classification,
+        canSelectExecutionPolicy: classification === "FEATURE",
+        executionAgent,
+        collaborationRecommendation: executionAgent === "engineer" ? "autonomous" : collaborationRecommendation,
+    };
+}
+
+function readScalar(value) {
     if (typeof value !== "string") return value;
     const trimmed = value.trim();
     if (
@@ -737,6 +782,16 @@ function prototypeFrontmatterScalar(value) {
         return trimmed.slice(1, -1);
     }
     return trimmed;
+}
+
+function readExecutionAgent(value) {
+    const scalar = readScalar(value);
+    return scalar === "engineer" || scalar === "frontend-engineer" ? scalar : undefined;
+}
+
+function readCollaborationRecommendation(value) {
+    const scalar = readScalar(value);
+    return scalar === "autonomous" || scalar === "pair" ? scalar : undefined;
 }
 
 function readEmbeddedPayload(name) {

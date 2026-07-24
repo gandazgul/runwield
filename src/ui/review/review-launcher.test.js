@@ -149,6 +149,29 @@ Deno.test("artifact read surface unregisters from active cleanup after stop", as
     assertEquals(await decision, { approved: false, feedback: "", exit: true, canceled: true });
 });
 
+Deno.test("Workspace-hosted plan review includes trusted canonical execution policy", async () => {
+    const server = await startPlanReviewSurface({
+        cwd: Deno.cwd(),
+        plan: `---
+classification: FEATURE
+executionAgent: frontend-engineer
+collaborationRecommendation: pair
+---
+# Plan
+`,
+        planPath: "plans/policy.md",
+        openInDefaultBrowser: () => Promise.resolve(false),
+    });
+    const html = await (await fetch(server.url)).text();
+    const decision = server.waitForDecision();
+    await server.stop();
+
+    assertEquals(html.includes('"classification":"FEATURE"'), true);
+    assertEquals(html.includes('"executionAgent":"frontend-engineer"'), true);
+    assertEquals(html.includes('"collaborationRecommendation":"pair"'), true);
+    assertEquals(await decision, { approved: false, feedback: "", exit: true, canceled: true });
+});
+
 Deno.test("plan review surface forwards server output to its caller", async () => {
     /** @type {Array<{ stream: "stdout" | "stderr", text: string }>} */
     const output = [];
