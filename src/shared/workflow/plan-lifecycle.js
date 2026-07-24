@@ -443,7 +443,15 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
     }
 
     if (event === "implementation_finished") {
-        if (!details.nonGitInPlace) updates.worktreeStatus = "completed";
+        updates.executionMode = details.nonGitInPlace ? "non_git_in_place" : details.executionMode || "worktree";
+        if (!details.nonGitInPlace) {
+            updates.executionBaselineTree = details.executionBaselineTree || updates.executionBaselineTree;
+            updates.worktreeId = details.worktreeId || updates.worktreeId;
+            updates.worktreePath = details.worktreePath || updates.worktreePath;
+            updates.worktreeBranch = details.worktreeBranch || updates.worktreeBranch;
+            updates.worktreeBaseBranch = details.worktreeBaseBranch || updates.worktreeBaseBranch;
+            updates.worktreeStatus = "completed";
+        }
         updates.implementedAt = now;
         updates.failedAt = null;
         updates.executionReport = typeof details.executionReport === "string" && details.executionReport.trim()

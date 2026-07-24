@@ -2241,7 +2241,7 @@ async function handlePlanRecovery({
                             projectRoot: projectRoot,
                             path: worktreeContext.path,
                             branch: worktreeContext.branch,
-                            force: true,
+                            force: false,
                         });
                         if (worktreeContext.id) {
                             await removeWorktreeRegistryEntry(projectRoot, worktreeContext.id);

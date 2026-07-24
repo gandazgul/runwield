@@ -15,6 +15,7 @@ import {
     supportsHostedSessionInteraction,
 } from "../session/session-runtime-interactions.js";
 import {
+    checkpointExecutionWorktree,
     createExecutionWorktree,
     findReusableWorktree,
     prepareTargetBranchRef,
@@ -159,6 +160,101 @@ function selectRuntimeCollaborationStyle(hostedSession, policy) {
  */
 
 /**
+ * @typedef {Object} FinalizePlanImplementationOptions
+ * @property {string} projectRoot
+ * @property {string} planName
+ * @property {Partial<import('../../plan-store.js').PlanFrontMatter>} [triageMeta]
+ * @property {import('../session/hosted-session.js').ActiveExecutionWorkflow | null | undefined} executionContext
+ * @property {string} [executionReport]
+ * @property {import('../session/hosted-session.js').HostedSession} [hostedSession]
+ * @property {{
+ *   checkpointExecutionWorktree?: typeof checkpointExecutionWorktree,
+ *   recordPlanEvent?: typeof recordPlanEvent,
+ *   markActiveWorktreeStatus?: typeof markActiveWorktreeStatus,
+ *   recordWorkflowMetric?: typeof recordWorkflowMetric,
+ * }} [__deps]
+ */
+
+/**
+ * Commit all execution-worktree changes before Plan or registry state can say
+ * implementation is complete. The returned context is authoritative; this
+ * boundary must not depend on volatile Hosted Session state being retained.
+ *
+ * @param {FinalizePlanImplementationOptions} options
+ * @returns {Promise<{ implementationCommit?: string }>}
+ */
+export async function finalizePlanImplementation({
+    projectRoot,
+    planName,
+    triageMeta = {},
+    executionContext,
+    executionReport,
+    hostedSession,
+    __deps = {},
+}) {
+    if (!executionContext) {
+        throw new Error(`Cannot complete ${planName}: durable execution context is missing.`);
+    }
+
+    const checkpointExecutionWorktreeFn = __deps.checkpointExecutionWorktree || checkpointExecutionWorktree;
+    const recordPlanEventImpl = __deps.recordPlanEvent || recordPlanEvent;
+    const markActiveWorktreeStatusImpl = __deps.markActiveWorktreeStatus || markActiveWorktreeStatus;
+    const recordWorkflowMetricImpl = __deps.recordWorkflowMetric || recordWorkflowMetric;
+    /** @type {string | undefined} */
+    let implementationCommit;
+
+    if (executionContext.executionMode === "worktree") {
+        if (!executionContext.executionCwd || !executionContext.worktreeBranch) {
+            throw new Error(
+                `Cannot complete ${planName}: worktree execution context is missing its path or branch.`,
+            );
+        }
+        const checkpoint = await checkpointExecutionWorktreeFn({
+            worktreePath: executionContext.executionCwd,
+            branch: executionContext.worktreeBranch,
+            planName,
+            planDescription: typeof triageMeta.summary === "string" ? triageMeta.summary : undefined,
+        });
+        implementationCommit = checkpoint.executionCommit;
+    } else if (
+        executionContext.executionMode !== "non_git_in_place" &&
+        executionContext.nonGitInPlace !== true
+    ) {
+        throw new Error(`Cannot complete ${planName}: execution mode is missing or unknown.`);
+    }
+
+    await recordPlanEventImpl({
+        cwd: projectRoot,
+        planName,
+        event: "implementation_finished",
+        currentStatus: "in_progress",
+        details: {
+            triageMeta,
+            nonGitInPlace: executionContext.nonGitInPlace === true,
+            executionMode: executionContext.executionMode,
+            executionBaselineTree: executionContext.baselineTree,
+            worktreeId: executionContext.worktreeId,
+            worktreePath: executionContext.executionCwd,
+            worktreeBranch: executionContext.worktreeBranch,
+            worktreeBaseBranch: executionContext.worktreeBaseBranch,
+            executionReport,
+        },
+    });
+    await markActiveWorktreeStatusImpl("completed", { hostedSession, workflow: executionContext });
+    await recordWorkflowMetricImpl({
+        category: "execution",
+        event: "implementation_finished",
+        planName,
+        details: {
+            classification: triageMeta.classification,
+            executionMode: executionContext.executionMode,
+            checkpointCommitted: Boolean(implementationCommit),
+        },
+    }, { cwd: projectRoot });
+    return implementationCommit ? { implementationCommit } : {};
+}
+
+/**
  * Run a planning agent once and return the lifecycle outcome captured by
  * plan_written. Does not execute the plan.
  *
@@ -205,6 +301,7 @@ export async function runPlanningAgent(
  *   executeSingleEngineerPlan?: typeof executeSingleEngineerPlan,
  *   recordPlanEvent?: typeof recordPlanEvent,
  *   markActiveWorktreeStatus?: typeof markActiveWorktreeStatus,
+ *   checkpointExecutionWorktree?: typeof checkpointExecutionWorktree,
  *   recordWorkflowMetric?: typeof recordWorkflowMetric,
  *   runActiveAgentTurn?: typeof import('../session/agent-switching.js').runActiveAgentTurn,
  *   probeGitRepository?: typeof probeGitRepository,
@@ -345,6 +442,50 @@ export async function executePlan({
         return result;
     }
 
+    const executionContext = result.executionContext || hostedSession?.getActiveExecutionWorkflow?.();
+    try {
+        await finalizePlanImplementation({
+            projectRoot,
+            planName,
+            triageMeta: effectiveMeta,
+            executionContext,
+            executionReport: result.completionReport,
+            hostedSession,
+            __deps: {
+                checkpointExecutionWorktree: __deps.checkpointExecutionWorktree,
+                recordPlanEvent: recordPlanEventFn,
+                markActiveWorktreeStatus: markActiveWorktreeStatusFn,
+                recordWorkflowMetric: recordWorkflowMetricFn,
+            },
+        });
+    } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        try {
+            await recordWorkflowMetricFn({
+                category: "execution",
+                event: "implementation_checkpoint_failed",
+                planName,
+                details: {
+                    executionMode: executionContext?.executionMode,
+                    hasExecutionContext: Boolean(executionContext),
+                },
+            }, { cwd: projectRoot });
+        } catch {
+            // The checkpoint failure remains the authoritative error.
+        }
+        emitSystemStatus(
+            hostedSession,
+            `Implementation remains recoverable but was not marked complete because its worktree checkpoint failed: ${reason}`,
+            { level: "error", header: "RunWield" },
+        );
+        return {
+            repairRequired: true,
+            executionComplete: false,
+            error: reason,
+            ...(executionContext ? { executionContext } : {}),
+            ...(result.completionReport ? { completionReport: result.completionReport } : {}),
+        };
+    }
     await recordWorkflowMetricFn({
         category: "execution",
         event: "plan_execution_result",
@@ -354,32 +495,13 @@ export async function executePlan({
 
     emitSystemStatus(
         hostedSession,
-        `✅ Plan implementation complete: ${planName}`,
+        `✅ Plan implementation complete and checkpointed: ${planName}`,
         { header: "RunWield" },
     );
-    const activeWorkflow = hostedSession?.getActiveExecutionWorkflow?.();
-    await recordPlanEventFn({
-        cwd: projectRoot,
-        planName,
-        event: "implementation_finished",
-        currentStatus: "in_progress",
-        details: {
-            triageMeta: effectiveMeta,
-            nonGitInPlace: activeWorkflow?.nonGitInPlace === true,
-            executionReport: result.completionReport,
-        },
-    });
-    await recordWorkflowMetricFn({
-        category: "execution",
-        event: "implementation_finished",
-        planName,
-        details: { classification: effectiveMeta.classification },
-    }, { cwd: projectRoot });
-    await markActiveWorktreeStatusFn("completed", { hostedSession });
     return {
         repairRequired: false,
         executionComplete: true,
-        ...(activeWorkflow ? { executionContext: activeWorkflow } : {}),
+        ...(executionContext ? { executionContext } : {}),
         ...(result.completionReport ? { completionReport: result.completionReport } : {}),
     };
 }
@@ -788,7 +910,10 @@ export async function startActiveExecutionWorkflow(
     };
     hostedSession.setActiveExecutionWorkflow(workflow);
     if (worktree.id) {
-        await updateRegistry(projectRoot, worktree.id, { status: "active" });
+        await updateRegistry(projectRoot, worktree.id, {
+            status: "active",
+            executionBaselineTree: baselineTree,
+        });
     }
     await recordEvent({
         cwd: projectRoot,
@@ -824,10 +949,13 @@ export async function startActiveExecutionWorkflow(
 
 /**
  * @param {import('../../plan-store.js').PlanFrontMatter['worktreeStatus']} status
- * @param {{ hostedSession?: import('../session/hosted-session.js').HostedSession }} [opts]
+ * @param {{
+ *   hostedSession?: import('../session/hosted-session.js').HostedSession,
+ *   workflow?: import('../session/hosted-session.js').ActiveExecutionWorkflow,
+ * }} [opts]
  */
 async function markActiveWorktreeStatus(status, opts = {}) {
-    const workflow = opts.hostedSession?.getActiveExecutionWorkflow();
+    const workflow = opts.workflow || opts.hostedSession?.getActiveExecutionWorkflow();
     if (!workflow?.worktreeId || !status || status === "none") return;
     if (!workflow.projectRoot) throw new Error("markActiveWorktreeStatus: workflow projectRoot is required");
     await updateWorktreeRegistryEntry(workflow.projectRoot, workflow.worktreeId, { status });

@@ -2702,7 +2702,7 @@ export async function runValidationLoop({
                                 projectRoot,
                                 path: executionCwd,
                                 branch: worktreeBranch,
-                                force: true,
+                                force: false,
                             });
                             if (worktreeId) {
                                 await removeWorktreeRegistryEntryImpl(projectRoot, worktreeId);

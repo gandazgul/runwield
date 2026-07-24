@@ -41,7 +41,7 @@ Deno.test("resolveValidationExecutionContext accepts explicit non-Git mode", asy
     }
 });
 
-Deno.test("resolveValidationExecutionContext recovers a coherent legacy worktree", async () => {
+Deno.test("resolveValidationExecutionContext allows a legacy creation tree to differ from a retry baseline", async () => {
     const projectRoot = await Deno.makeTempDir();
     const parent = await Deno.makeTempDir();
     try {
@@ -51,9 +51,13 @@ Deno.test("resolveValidationExecutionContext recovers a coherent legacy worktree
         await Deno.writeTextFile(`${projectRoot}/file.txt`, "base\n");
         await git(projectRoot, ["add", "."]);
         await git(projectRoot, ["commit", "-m", "init"]);
-        const baselineTree = await git(projectRoot, ["rev-parse", "HEAD^{tree}"]);
+        const creationTree = await git(projectRoot, ["rev-parse", "HEAD^{tree}"]);
         const worktreePath = `${parent}/wt`;
         await git(projectRoot, ["worktree", "add", "-b", "runwield/worktree/p-wt", worktreePath, "HEAD"]);
+        await Deno.writeTextFile(`${worktreePath}/dependency.txt`, "integrated dependency\n");
+        await git(worktreePath, ["add", "dependency.txt"]);
+        await git(worktreePath, ["commit", "-m", "integrate dependency before retry"]);
+        const baselineTree = await git(worktreePath, ["rev-parse", "HEAD^{tree}"]);
         await savePlan(worktreePath, "p", "# Plan", { classification: "FEATURE", status: "implemented" });
         await savePlan(projectRoot, "p", "# Plan", {
             classification: "FEATURE",
@@ -71,7 +75,7 @@ Deno.test("resolveValidationExecutionContext recovers a coherent legacy worktree
             baseBranch: "main",
             baseRef: "HEAD",
             baseCommit: await git(projectRoot, ["rev-parse", "HEAD"]),
-            baseTree: baselineTree,
+            baseTree: creationTree,
             branch: "runwield/worktree/p-wt",
             path: worktreePath,
             status: "completed",
@@ -89,6 +93,49 @@ Deno.test("resolveValidationExecutionContext recovers a coherent legacy worktree
         await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
         await Deno.remove(parent, { recursive: true }).catch(() => {});
     }
+});
+
+Deno.test("resolveValidationExecutionContext blocks a persisted retry-baseline mismatch", async () => {
+    const result = await resolveValidationExecutionContext({
+        projectRoot: "/project",
+        planName: "p",
+        __deps: {
+            loadPlan: () =>
+                Promise.resolve(
+                    /** @type {any} */ ({
+                        attrs: {
+                            classification: "FEATURE",
+                            status: "implemented",
+                            executionMode: "worktree",
+                            executionBaselineTree: "plan-attempt-tree",
+                            worktreeId: "wt-1",
+                            worktreePath: "/worktree",
+                            worktreeBranch: "runwield/worktree/p-wt",
+                            worktreeBaseBranch: "main",
+                            worktreeStatus: "completed",
+                        },
+                    }),
+                ),
+            findWorktreeRegistryEntryById: () =>
+                Promise.resolve(
+                    /** @type {any} */ ({
+                        id: "wt-1",
+                        planName: "p",
+                        baseBranch: "main",
+                        baseRef: "HEAD",
+                        baseCommit: "base-commit",
+                        baseTree: "creation-tree",
+                        executionBaselineTree: "different-attempt-tree",
+                        branch: "runwield/worktree/p-wt",
+                        path: "/worktree",
+                        status: "completed",
+                    }),
+                ),
+        },
+    });
+
+    assertEquals(result.kind, "blocked");
+    if (result.kind === "blocked") assertEquals(result.reason, "registry_base_tree_mismatch");
 });
 
 Deno.test("resolveValidationExecutionContext blocks contradictory explicit and active workflow context", async () => {

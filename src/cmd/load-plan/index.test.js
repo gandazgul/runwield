@@ -3225,6 +3225,8 @@ Deno.test("runLoadPlanCommand keeps a successful manual merge canonical when reg
         let mergedBranch = "";
         let mergedTargetBranch = "";
         let removedPath = "";
+        /** @type {boolean | undefined} */
+        let removedForce;
         let removedRegistryId = "";
         let registryStatus = "";
         let mergedPlanName = "";
@@ -3333,8 +3335,9 @@ Deno.test("runLoadPlanCommand keeps a successful manual merge canonical when reg
                     mergedPlanDescription = args.planDescription || "";
                     return Promise.resolve({ updatedPrimaryCheckout: false });
                 },
-                removeExecutionWorktree: (/** @type {{ path: string }} */ args) => {
+                removeExecutionWorktree: (/** @type {{ path: string, force?: boolean }} */ args) => {
                     removedPath = args.path;
+                    removedForce = args.force;
                     return Promise.resolve();
                 },
                 removeWorktreeRegistryEntry: (/** @type {string} */ _cwd, /** @type {string} */ id) => {
@@ -3378,6 +3381,7 @@ Deno.test("runLoadPlanCommand keeps a successful manual merge canonical when reg
         assertEquals(mergedPlanDescription, "Resolve a manual merge conflict.");
         assertEquals(primaryPlanRestored, true);
         assertEquals(removedPath, worktreePath);
+        assertEquals(removedForce, false);
         assertEquals(removedRegistryId, "wt1");
         assertEquals(registryStatus, "merged");
         assertEquals(lifecycleEvent, null);
