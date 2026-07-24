@@ -105,7 +105,7 @@
         "fuse.js": "npm:fuse.js@^7.4.2",
         "perfect-freehand": "npm:perfect-freehand@^1.2.2",
         "@deno/astro-adapter": "npm:@deno/astro-adapter@^0.6.0",
-        "@astrojs/react": "npm:@astrojs/react@^4.3.1",
+        "@astrojs/react": "npm:@astrojs/react@^6.0.1",
         "@astrojs/check": "npm:@astrojs/check@^0.9.9",
         "astro": "npm:astro@^7.1.1",
         "typescript": "npm:typescript@^5.9.3",
