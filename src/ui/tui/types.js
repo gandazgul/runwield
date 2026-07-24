@@ -48,6 +48,7 @@
  *   updateValidationProgress?: (progress: import('../../shared/session/session-runtime-events.js').RuntimeValidationProgress) => void,
  *   updateValidationReport?: (role: "engineer" | "reviewer", report: { agentName: string, markdown: string, approved?: boolean }) => void,
  *   clearValidationPanel?: () => void,
+ *   setManagedSyncStatus?: (status: import('../../shared/session/session-runtime-events.js').RuntimeManagedSyncStateEvent) => void,
  *   getActiveToolBlock?: (id: string) => ToolExecutionBlockApi | undefined,
  *   toggleToolOutputsExpanded?: () => void,
  *   showKeyboardHelp?: (help: import('../../shared/session/session-help.js').SessionHelpPayload) => void,
