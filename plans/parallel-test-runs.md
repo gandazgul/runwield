@@ -1,4 +1,5 @@
 ---
+planId: "d59f7222-2743-4569-9f20-7ac3cfee9986"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Make RunWield test tasks faster by isolating shared fixtures and running Deno test modules in parallel."
@@ -15,12 +16,19 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-24T13:55:33-04:00"
-updatedAt: "2026-07-24T18:50:34.538Z"
-status: "implemented"
+updatedAt: "2026-07-24T19:37:36.948Z"
+status: "verified"
 origin: "internal"
 implementedAt: "2026-07-24T18:50:34.538Z"
+verifiedAt: "2026-07-24T19:37:29.097Z"
 executionReport: "- Implemented parallel-test-run changes: `deno task test`/`workspace:test` use `--parallel`; source runs read bundled agent defs/skills from `src/`; standalone extraction smoke script added to release check; docs updated with `DENO_JOBS` guidance.\n- Refactored planned shared-state hazards: session catalog/tool-policy tests no longer mutate repository `.wld`; ACP CLI smoke no longer runs `scripts/write-version.js` inside a worker; standalone probe verifies extracted agent definitions/skills.\n- Added/used process-global locking and fixed several additional parallel/shuffle flakes discovered during verification (install script cwd/input, plan-server runtime fixture paths, workspace subprocess stderr filtering, selected HOME/cwd tests).\n- Passing verification: targeted affected tests passed; `deno task workspace:test` passed after `deno task workspace:build`; `DENO_JOBS=1 deno task test` passed with 1646 tests; `DENO_JOBS=2 deno task test` passed with 1646 tests; shuffle seeds 101, 202, 303, and 404 passed after fixes.\n- Failing verification remains: default `deno task test` still fails intermittently under parallelism; latest failures were `src/cmd/init/init-state_test.js`, `src/shared/session/__tests__/session-tools-policy.test.js`, and `src/shared/session/root-session.test.js`, consistent with remaining HOME/cwd shared-state races outside the original planned files.\n- Not completed because default tests still fail: release check, full CI, and performance median benchmark were not run to completion after the default test failure.\n- Repository-state check: `git diff -- .wld src/shared/version.js` is empty; only implementation/test/doc changes remain modified."
-worktreeStatus: "completed"
+workRecord:
+    status: "generated"
+    recordId: "45cfc5af-1a2b-4032-8115-2f88f0a733df"
+    path: "docs/work-records/2026-07-24-parallel-test-runs-enabled-with-shared-state-isolation.md"
+    lastAttemptAt: "2026-07-24T19:37:29.115Z"
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
 ---
 
 # Parallelize Test Runs Safely
