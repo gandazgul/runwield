@@ -26,10 +26,6 @@ import {
 import { SharedPlanLockError } from "../../../shared/collaboration/lock.js";
 import { getWorktreeStatus, inspectExecutionWorktreeMergeRisk } from "../../../shared/worktree.js";
 import { PLAN_LIFECYCLE_ACTIONS } from "../constants.js";
-import {
-    autoGenerateWorkRecordForCompletedPlan,
-    formatWorkRecordAutoGenerationResult,
-} from "../../../shared/work-records/auto-generation.js";
 
 export const ACTIVE_STATUSES = ACTIVE_PLAN_STATUSES;
 export const CLOSED_STATUSES = CLOSED_PLAN_STATUSES;
@@ -777,7 +773,7 @@ export function applyWorkspaceLifecycleActionInMemory(plan, payload) {
 
 /**
  * @typedef {Object} WorkspaceLifecycleActionDeps
- * @property {typeof autoGenerateWorkRecordForCompletedPlan} [autoGenerateWorkRecordForCompletedPlan]
+ * @property {(args: { cwd: string, planName: string }) => Promise<Record<string, unknown>>} [autoGenerateWorkRecordForCompletedPlan]
  */
 
 /**
@@ -852,8 +848,9 @@ export async function applyWorkspaceLifecycleAction(cwd, planId, payload, deps =
     const planName = resource.planName || resource.name;
     await recordPlanEvent({ cwd, planName, event, currentStatus, details });
     if (event === "manual_closed_without_verification") {
+        const workRecordGeneration = await import("../../../shared/work-records/auto-generation.js");
         const generateWorkRecord = deps.autoGenerateWorkRecordForCompletedPlan ||
-            autoGenerateWorkRecordForCompletedPlan;
+            workRecordGeneration.autoGenerateWorkRecordForCompletedPlan;
         let workRecordResult;
         try {
             workRecordResult = await generateWorkRecord({ cwd, planName });
@@ -863,7 +860,7 @@ export async function applyWorkspaceLifecycleAction(cwd, planId, payload, deps =
                 status: /** @type {const} */ ("failed"),
                 planName,
                 error: reason,
-                message: formatWorkRecordAutoGenerationResult({
+                message: workRecordGeneration.formatWorkRecordAutoGenerationResult({
                     status: "failed",
                     planName,
                     error: reason,

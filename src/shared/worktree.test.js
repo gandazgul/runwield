@@ -17,7 +17,20 @@ import {
     resolveCurrentCheckoutBranch,
     resolveWorktreeParent,
     restorePrimaryPlanPathAfterMergeFailure,
+    sealExecutionWorktreeCandidate,
 } from "./worktree.js";
+
+/** @type {import('./workflow/plan-lifecycle.js').PlanEventDetails} */
+const TEST_DELIVERY_DETAILS = {
+    executionMode: "worktree",
+    deliveryEvidence: {
+        version: 1,
+        mode: "worktree_merge",
+        executionCommit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        targetBranch: "main",
+        targetHeadBeforeMerge: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    },
+};
 
 /**
  * @param {string} cwd
@@ -870,6 +883,45 @@ Deno.test("mergeExecutionWorktree handles target branch advancing before a later
     }
 });
 
+Deno.test("mergeExecutionWorktree marks target branch advancement as non-repairable", async () => {
+    const projectRoot = await makeRepo();
+    const worktreeRoot = await Deno.makeTempDir();
+    /** @type {Awaited<ReturnType<typeof createExecutionWorktree>> | undefined} */
+    let worktree;
+    try {
+        await git(projectRoot, ["checkout", "-b", "feature-base"]);
+        const expectedTargetHead = await git(projectRoot, ["rev-parse", "feature-base"]);
+        worktree = await createExecutionWorktree({ projectRoot, planName: "Target Advance", worktreeRoot });
+        await git(projectRoot, ["checkout", "main"]);
+        await git(projectRoot, ["checkout", "feature-base"]);
+        await Deno.writeTextFile(`${projectRoot}/target.txt`, "target advanced\n");
+        await git(projectRoot, ["add", "target.txt"]);
+        await git(projectRoot, ["commit", "-m", "advance target"]);
+        await git(projectRoot, ["checkout", "main"]);
+        await Deno.writeTextFile(`${worktree.path}/work.txt`, "work\n");
+
+        const error = await assertRejects(
+            () =>
+                mergeExecutionWorktree({
+                    projectRoot,
+                    branch: worktree?.branch || "",
+                    targetBranch: "feature-base",
+                    worktreePath: worktree?.path,
+                    expectedTargetHead,
+                }),
+            Error,
+            "Target branch feature-base advanced before publication; rerun Workflow Validation.",
+        );
+        assertEquals(/** @type {any} */ (error).mergeFailureKind, "target_branch_advanced");
+    } finally {
+        if (worktree) {
+            await removeExecutionWorktree({ projectRoot, path: worktree.path, branch: worktree.branch, force: true });
+        }
+        await Deno.remove(projectRoot, { recursive: true });
+        await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
+    }
+});
+
 Deno.test("mergeExecutionWorktree reports missing target branch without merging into current checkout", async () => {
     const projectRoot = await makeRepo();
     const worktreeRoot = await Deno.makeTempDir();
@@ -1305,7 +1357,7 @@ Deno.test("verified Plan metadata merges with execution changes without dirtying
             projectRoot,
             executionCwd: worktree.path,
             planName: "feature",
-            details: { now: () => new Date("2026-01-02T00:00:00.000Z") },
+            details: { ...TEST_DELIVERY_DETAILS, now: () => new Date("2026-01-02T00:00:00.000Z") },
         });
         await preparePrimaryPlanPathForMerge({ projectRoot, relativePath: "plans/feature.md" });
         await mergeExecutionWorktree({
@@ -1364,7 +1416,7 @@ Deno.test("verified Plan metadata conflicts are resolved during worktree merge",
             projectRoot,
             executionCwd: worktree.path,
             planName: "verified-conflict",
-            details: { now: () => new Date("2026-04-02T00:00:00.000Z") },
+            details: { ...TEST_DELIVERY_DETAILS, now: () => new Date("2026-04-02T00:00:00.000Z") },
         });
         await mergeExecutionWorktree({
             projectRoot,
@@ -1440,6 +1492,7 @@ Deno.test("verified child merge ignores independently active sibling Plan metada
             projectRoot,
             executionCwd: worktree.path,
             planName: "child-a",
+            details: TEST_DELIVERY_DETAILS,
         });
         assertEquals(staged.planPaths, ["plans/child-a.md"]);
         assertEquals((await loadPlan(worktree.path, "child-b"))?.attrs.status, "ready_for_work");
@@ -1500,6 +1553,7 @@ Deno.test("parent Epic verification survives stale-worktree target alignment", a
         await savePlan(projectRoot, "child-a", "# A", {
             status: "verified",
             classification: "FEATURE",
+            ...TEST_DELIVERY_DETAILS,
             parentPlan: "epic",
         });
         await git(projectRoot, ["add", "plans/child-a.md"]);
@@ -1516,6 +1570,7 @@ Deno.test("parent Epic verification survives stale-worktree target alignment", a
             projectRoot,
             executionCwd: worktree.path,
             planName: "child-b",
+            details: TEST_DELIVERY_DETAILS,
         });
         for (const relativePath of staged.planPaths) {
             await preparePrimaryPlanPathForMerge({ projectRoot, relativePath });
@@ -1573,7 +1628,7 @@ Deno.test("verified Plan survives index rollback before continuing a conflicted 
             projectRoot,
             executionCwd: activeWorktree.path,
             planName: "conflicted-retry",
-            details: { now: () => new Date("2026-03-01T00:00:00.000Z") },
+            details: { ...TEST_DELIVERY_DETAILS, now: () => new Date("2026-03-01T00:00:00.000Z") },
         });
         const firstSnapshot = await preparePrimaryPlanPathForMerge({
             projectRoot,
@@ -1599,7 +1654,7 @@ Deno.test("verified Plan survives index rollback before continuing a conflicted 
             projectRoot,
             executionCwd: activeWorktree.path,
             planName: "conflicted-retry",
-            details: { now: () => new Date("2026-03-02T00:00:00.000Z") },
+            details: { ...TEST_DELIVERY_DETAILS, now: () => new Date("2026-03-02T00:00:00.000Z") },
         });
         await preparePrimaryPlanPathForMerge({ projectRoot, relativePath: "plans/conflicted-retry.md" });
         await mergeExecutionWorktree({
@@ -1651,7 +1706,7 @@ Deno.test("verified Plan handoff rolls back exactly and retries with stable meta
             projectRoot,
             executionCwd: worktree.path,
             planName: "retry",
-            details: { now: () => new Date("2026-02-01T00:00:00.000Z") },
+            details: { ...TEST_DELIVERY_DETAILS, now: () => new Date("2026-02-01T00:00:00.000Z") },
         });
         const snapshot = await preparePrimaryPlanPathForMerge({
             projectRoot,
@@ -1676,7 +1731,7 @@ Deno.test("verified Plan handoff rolls back exactly and retries with stable meta
             projectRoot,
             executionCwd: worktree.path,
             planName: "retry",
-            details: { now: () => new Date("2026-02-02T00:00:00.000Z") },
+            details: { ...TEST_DELIVERY_DETAILS, now: () => new Date("2026-02-02T00:00:00.000Z") },
         });
         await preparePrimaryPlanPathForMerge({ projectRoot, relativePath: "plans/retry.md" });
         await mergeExecutionWorktree({
@@ -1734,5 +1789,54 @@ Deno.test("worktree helpers report Git requirement outside Git", async () => {
         );
     } finally {
         await Deno.remove(projectRoot, { recursive: true });
+    }
+});
+
+Deno.test("mergeExecutionWorktree rejects post-seal implementation edits outside finalized Plan paths", async () => {
+    const projectRoot = await makeRepo();
+    const worktreeRoot = await Deno.makeTempDir();
+    /** @type {Awaited<ReturnType<typeof createExecutionWorktree>> | undefined} */
+    let worktree;
+    try {
+        await savePlan(projectRoot, "feature", "# Feature", { status: "ready_for_work" });
+        await git(projectRoot, ["add", "plans/feature.md"]);
+        await git(projectRoot, ["commit", "-m", "add feature plan"]);
+        worktree = await createExecutionWorktree({ projectRoot, planName: "Feature", worktreeRoot });
+        const activeWorktree = worktree;
+        await Deno.writeTextFile(`${activeWorktree.path}/feature.txt`, "validated\n");
+        const sealed = await sealExecutionWorktreeCandidate({
+            worktreePath: activeWorktree.path,
+            branch: activeWorktree.branch,
+            planName: "feature",
+        });
+        await savePlan(activeWorktree.path, "feature", "# Feature", { status: "verified" });
+        await Deno.mkdir(`${activeWorktree.path}/.wld`, { recursive: true });
+        await Deno.writeTextFile(`${activeWorktree.path}/.wld/worktrees.json`, "{}\n");
+
+        await assertRejects(
+            () =>
+                mergeExecutionWorktree({
+                    projectRoot,
+                    branch: activeWorktree.branch,
+                    targetBranch: "main",
+                    worktreePath: activeWorktree.path,
+                    preservePlanPaths: ["plans/feature.md"],
+                    sealedExecutionCommit: sealed.executionCommit,
+                    planName: "feature",
+                }),
+            Error,
+            "changed after candidate sealing outside finalized Plan paths",
+        );
+    } finally {
+        if (worktree) {
+            await removeExecutionWorktree({
+                projectRoot,
+                path: worktree.path,
+                branch: worktree.branch,
+                force: true,
+            }).catch(() => {});
+        }
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+        await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
     }
 });

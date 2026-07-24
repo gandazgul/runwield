@@ -201,6 +201,31 @@ export function normalizeDenoAdapterShimImport(source) {
 }
 
 /**
+ * Some npm CommonJS shims in the bundled Astro server call the generated
+ * dynamic require helper for `node:child_process` even though the Deno bundle
+ * also emits static Node built-in imports. That works under `deno run`, but a
+ * `deno compile` executable cannot satisfy dynamic require at runtime. Reuse
+ * the emitted static imports so the standalone Workspace runtime can be loaded
+ * by the release binary.
+ *
+ * @param {string} source
+ * @returns {string}
+ */
+export function normalizeCompiledNodeChildProcessImports(source) {
+    const importPattern =
+        /import\{spawn as ([A-Za-z_$][\w$]*),spawnSync as ([A-Za-z_$][\w$]*)\}from"node:child_process";/;
+    const match = source.match(importPattern);
+    if (!match || !source.includes('Ut("node:child_process")')) return source;
+
+    const [, spawnAlias, spawnSyncAlias] = match;
+    const staticBinding = `({exec:__rwNodeChildProcessExec,spawn:${spawnAlias},spawnSync:${spawnSyncAlias}})`;
+    return source.replace(
+        importPattern,
+        `import{exec as __rwNodeChildProcessExec,spawn as ${spawnAlias},spawnSync as ${spawnSyncAlias}}from"node:child_process";`,
+    ).replaceAll('Ut("node:child_process")', staticBinding);
+}
+
+/**
  * Astro can return before all generated server chunks are immediately visible to
  * a follow-up subprocess on every filesystem. Wait for entrypoint imports before
  * invoking `deno bundle`, so release builds do not race the server output.
@@ -288,6 +313,11 @@ export async function buildWorkspaceRuntime(options = {}) {
         serverOutput,
         serverEntry,
     ]);
+    await waitForFile(serverOutput);
+    await Deno.writeTextFile(
+        serverOutput,
+        normalizeCompiledNodeChildProcessImports(await Deno.readTextFile(serverOutput)),
+    );
     await waitForStableWorkspaceClientAssets(clientDir);
     await copyOpaqueAssets(clientDir, join(runtimeDir, "client"));
 

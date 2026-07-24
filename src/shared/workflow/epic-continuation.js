@@ -241,5 +241,6 @@ export async function runEpicChildContinuation({ hostedSession, resolution, sess
         triageMeta: latestPlan?.attrs || plan.attrs,
         sessionManager,
         finalAgentName: AGENTS.ROUTER,
+        executionContext: executionResult.executionContext,
     }));
 }

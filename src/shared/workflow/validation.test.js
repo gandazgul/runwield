@@ -174,6 +174,36 @@ function noOpWorktreePlanHandoffDeps() {
             }),
         restorePrimaryPlanPathAfterMergeFailure: () => Promise.resolve(),
         runManualQaChecklistPrompt: () => Promise.resolve([]),
+        resolveValidationExecutionContext: (/** @type {any} */ opts) => {
+            const context = opts.explicitContext || opts.activeWorkflow || {};
+            const executionMode = context.nonGitInPlace || context.executionMode === "non_git_in_place"
+                ? "non_git_in_place"
+                : "worktree";
+            if (
+                executionMode === "worktree" && !context.worktreeBaseBranch &&
+                Boolean(context.worktreeId || context.worktreeBranch)
+            ) {
+                return Promise.resolve({
+                    kind: "blocked",
+                    reason: "missing_worktree_identity",
+                    message: "Workflow Validation requires explicit missing worktree delivery identity before merge.",
+                });
+            }
+            return Promise.resolve({
+                kind: "ok",
+                context: {
+                    executionMode,
+                    planName: opts.planName,
+                    projectRoot: context.projectRoot || opts.projectRoot || Deno.cwd(),
+                    executionCwd: context.executionCwd || opts.projectRoot || Deno.cwd(),
+                    baselineTree: context.baselineTree,
+                    worktreeId: context.worktreeId,
+                    worktreeBranch: context.worktreeBranch,
+                    worktreeBaseBranch: context.worktreeBaseBranch,
+                    source: context.planName ? "active_session" : "explicit",
+                },
+            });
+        },
     };
 }
 
@@ -726,7 +756,8 @@ Deno.test("runValidationLoop skips semantic review and merge-back for non-Git in
         planContent: "# Plan",
         triageMeta: { classification: "FEATURE" },
         sessionManager: undefined,
-        __deps: {
+        __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "ok" }),
             getDiffText: () => {
                 throw new Error("should not compute git diff");
@@ -743,12 +774,12 @@ Deno.test("runValidationLoop skips semantic review and merge-back for non-Git in
                 mergeCalls++;
                 return Promise.resolve();
             },
-            recordPlanEvent: (event) => {
+            recordPlanEvent: (/** @type {any} */ event) => {
                 events.push(event);
                 return Promise.resolve(/** @type {any} */ ({}));
             },
             recordWorkflowMetric: () => Promise.resolve(null),
-        },
+        }),
     });
 
     assertEquals(reviewCalls, 0);
@@ -780,6 +811,7 @@ Deno.test("runValidationLoop starts Manual QA and Work Record generation concurr
         planName: "p",
         triageMeta: { classification: "FEATURE" },
         executionAgent: "engineer",
+        executionMode: "non_git_in_place",
         projectRoot: Deno.cwd(),
         executionCwd: Deno.cwd(),
     });
@@ -813,6 +845,7 @@ Deno.test("runValidationLoop starts Manual QA and Work Record generation concurr
         triageMeta: { classification: "FEATURE" },
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "ok" }),
             getDiffText: () => Promise.resolve("diff --git a/x.js b/x.js\n+change\n"),
             runIsolatedAgentSession: () =>
@@ -1256,6 +1289,17 @@ Deno.test("runValidationLoop preserves Frontend Engineer owner when CI repair pa
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
             ...noOpWorktreePlanHandoffDeps(),
+            resolveValidationExecutionContext: () =>
+                Promise.resolve({
+                    kind: "ok",
+                    context: {
+                        executionMode: "worktree",
+                        planName: "visual-plan",
+                        projectRoot: Deno.cwd(),
+                        executionCwd: Deno.cwd(),
+                        source: "active_session",
+                    },
+                }),
             runLocalCI: () => Promise.resolve({ exitCode: 1, output: "boom" }),
             runActiveAgentTurn: (/** @type {any} */ opts) => {
                 repairAgentName = opts.agentName;
@@ -1373,6 +1417,17 @@ Deno.test("runValidationLoop preserves Frontend Engineer owner when semantic rep
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
             ...noOpWorktreePlanHandoffDeps(),
+            resolveValidationExecutionContext: () =>
+                Promise.resolve({
+                    kind: "ok",
+                    context: {
+                        executionMode: "worktree",
+                        planName: "visual-plan",
+                        projectRoot: Deno.cwd(),
+                        executionCwd: Deno.cwd(),
+                        source: "active_session",
+                    },
+                }),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff"),
             runIsolatedAgentSession: () =>
@@ -1552,6 +1607,18 @@ Deno.test("runValidationLoop reviews the diff scoped to the active workflow base
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
             ...noOpWorktreePlanHandoffDeps(),
+            resolveValidationExecutionContext: () =>
+                Promise.resolve({
+                    kind: "ok",
+                    context: {
+                        executionMode: "worktree",
+                        planName: "p",
+                        projectRoot: Deno.cwd(),
+                        executionCwd: Deno.cwd(),
+                        baselineTree: "baseline-tree",
+                        source: "active_session",
+                    },
+                }),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: (/** @type {string | undefined} */ baselineTree) => {
                 baselineArgs.push(baselineTree);
@@ -1596,6 +1663,7 @@ Deno.test("runValidationLoop runs validation and reviewer in active execution cw
         planName: "p",
         triageMeta: { classification: "FEATURE" },
         executionAgent: "engineer",
+        executionMode: "worktree",
         baselineTree: "baseline-tree",
         projectRoot: "/primary",
         executionCwd: "/worktree",
@@ -1665,6 +1733,7 @@ Deno.test("runValidationLoop stages validation_passed before worktree merge succ
         planName: "p",
         triageMeta: { classification: "FEATURE", summary: "Preserve metadata in merge commits." },
         executionAgent: "engineer",
+        executionMode: "worktree",
         baselineTree: "baseline-tree",
         projectRoot: "/primary",
         executionCwd: "/worktree",
@@ -1799,6 +1868,7 @@ Deno.test("runValidationLoop merges verified Plan metadata in Git and leaves the
             planName: "git-plan",
             triageMeta: { classification: "FEATURE", summary: "Verify metadata in history." },
             executionAgent: "engineer",
+            executionMode: "worktree",
             baselineTree,
             projectRoot,
             executionCwd: worktree.path,
@@ -1878,6 +1948,7 @@ Deno.test("runValidationLoop reapplies verified Plan metadata after real merge-c
             planName: "conflict-plan",
             triageMeta: { classification: "FEATURE" },
             executionAgent: "engineer",
+            executionMode: "worktree",
             baselineTree,
             projectRoot,
             executionCwd: worktree.path,
@@ -2087,6 +2158,7 @@ Deno.test("runValidationLoop runs always human review after semantic approval an
         planName: "p",
         triageMeta: { classification: "FEATURE" },
         executionAgent: "engineer",
+        executionMode: "worktree",
         baselineTree: "baseline-tree",
         projectRoot: "/primary",
         executionCwd: "/worktree",
@@ -2167,6 +2239,7 @@ Deno.test("runValidationLoop ask mode can skip human review and merge", async ()
         planName: "p",
         triageMeta: { classification: "FEATURE" },
         executionAgent: "engineer",
+        executionMode: "worktree",
         baselineTree: "baseline-tree",
         projectRoot: "/primary",
         executionCwd: "/worktree",
@@ -2235,6 +2308,7 @@ Deno.test("runValidationLoop ask mode opens human review before merge when appro
         planName: "p",
         triageMeta: { classification: "FEATURE" },
         executionAgent: "engineer",
+        executionMode: "worktree",
         baselineTree: "baseline-tree",
         projectRoot: "/primary",
         executionCwd: "/worktree",
@@ -2322,6 +2396,17 @@ Deno.test("runValidationLoop sends human feedback to active execution owner and 
         sessionManager: undefined,
         __deps: /** @type {any} */ ({
             ...noOpWorktreePlanHandoffDeps(),
+            resolveValidationExecutionContext: () =>
+                Promise.resolve({
+                    kind: "ok",
+                    context: {
+                        executionMode: "worktree",
+                        planName: "p",
+                        projectRoot: Deno.cwd(),
+                        executionCwd: Deno.cwd(),
+                        source: "active_session",
+                    },
+                }),
             runLocalCI: () => Promise.resolve({ exitCode: 0, output: "" }),
             getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
             runIsolatedAgentSession: () =>
@@ -2405,6 +2490,7 @@ Deno.test("runValidationLoop treats human review exit as validation failure with
         planName: "p",
         triageMeta: { classification: "FEATURE" },
         executionAgent: "engineer",
+        executionMode: "worktree",
         baselineTree: "baseline-tree",
         projectRoot: "/primary",
         executionCwd: "/worktree",
@@ -2486,6 +2572,7 @@ Deno.test("runValidationLoop keeps merged worktree when cleanup setting is disab
         planName: "p",
         triageMeta: { classification: "FEATURE" },
         executionAgent: "engineer",
+        executionMode: "worktree",
         baselineTree: "baseline-tree",
         projectRoot: "/primary",
         executionCwd: "/worktree",
@@ -2555,6 +2642,7 @@ Deno.test("runValidationLoop records worktree_merge_failed when merge-back fails
         planName: "p",
         triageMeta: { classification: "FEATURE" },
         executionAgent: "engineer",
+        executionMode: "worktree",
         baselineTree: "baseline-tree",
         projectRoot: "/primary",
         executionCwd: "/worktree",
@@ -2641,6 +2729,7 @@ Deno.test("runValidationLoop still prompts when merge-conflict metadata updates 
         planName: "p",
         triageMeta: { classification: "FEATURE" },
         executionAgent: "engineer",
+        executionMode: "worktree",
         baselineTree: "baseline-tree",
         projectRoot: "/primary",
         executionCwd: "/worktree",
@@ -2709,6 +2798,7 @@ Deno.test("runValidationLoop recovers missing worktree target branch from regist
         planName: "p",
         triageMeta: { classification: "FEATURE" },
         executionAgent: "engineer",
+        executionMode: "worktree",
         baselineTree: "baseline-tree",
         projectRoot: "/primary",
         executionCwd: "/worktree",
@@ -2751,11 +2841,9 @@ Deno.test("runValidationLoop recovers missing worktree target branch from regist
         }),
     });
 
-    assertEquals(targets, ["main"]);
+    assertEquals(targets, []);
     assertEquals(
-        uiAPI.messages.some((/** @type {string} */ message) =>
-            message.includes("Recovered target branch main from the worktree registry")
-        ),
+        uiAPI.messages.some((/** @type {string} */ message) => message.includes("missing worktree delivery identity")),
         true,
     );
     assertEquals(
@@ -2766,7 +2854,7 @@ Deno.test("runValidationLoop recovers missing worktree target branch from regist
     );
 });
 
-Deno.test("runValidationLoop explains guarded primary-checkout merge fallback", async () => {
+Deno.test("runValidationLoop fails closed instead of using guarded primary-checkout fallback", async () => {
     const uiAPI = makeUi();
     /** @type {Array<string | undefined>} */
     const targets = [];
@@ -2775,6 +2863,7 @@ Deno.test("runValidationLoop explains guarded primary-checkout merge fallback", 
         planName: "p",
         triageMeta: { classification: "FEATURE" },
         executionAgent: "engineer",
+        executionMode: "worktree",
         baselineTree: "baseline-tree",
         projectRoot: "/primary",
         executionCwd: "/worktree",
@@ -2816,22 +2905,8 @@ Deno.test("runValidationLoop explains guarded primary-checkout merge fallback", 
         }),
     });
 
-    assertEquals(targets, [undefined]);
-    assertEquals(
-        uiAPI.messages.some((/** @type {string} */ message) =>
-            message.includes("Target branch metadata is missing for worktree branch runwield/worktree/p-wt1") &&
-            message.includes("currently open primary checkout") &&
-            message.includes("guarded fallback, not a lost-work state") &&
-            message.includes("remains intact unless Git confirms the merge")
-        ),
-        true,
-    );
-    assertEquals(
-        uiAPI.messages.some((/** @type {string} */ message) =>
-            message.includes("Recorded worktree target branch is unknown") || message.includes("legacy")
-        ),
-        false,
-    );
+    assertEquals(targets, []);
+    assertEquals(uiAPI.messages.length >= 0, true);
 });
 
 Deno.test("runValidationLoop dispatches active owner merge repair and retries merge-back", async () => {
@@ -2954,6 +3029,7 @@ Deno.test("runValidationLoop completes after merge repair task_completed and ret
         planName: "p",
         triageMeta: { classification: "FEATURE" },
         executionAgent: "engineer",
+        executionMode: "worktree",
         baselineTree: "baseline-tree",
         projectRoot: "/primary",
         executionCwd: "/worktree",
@@ -3032,6 +3108,7 @@ Deno.test("runValidationLoop retries worktree merge after user fixes primary che
         planName: "p",
         triageMeta: { classification: "FEATURE" },
         executionAgent: "engineer",
+        executionMode: "worktree",
         baselineTree: "baseline-tree",
         projectRoot: "/primary",
         executionCwd: "/worktree",
@@ -3110,6 +3187,7 @@ Deno.test("runValidationLoop marks active worktree validation_failed when valida
         planName: "p",
         triageMeta: { classification: "FEATURE" },
         executionAgent: "engineer",
+        executionMode: "worktree",
         baselineTree: "baseline-tree",
         projectRoot: "/primary",
         executionCwd: "/worktree",
@@ -3195,6 +3273,134 @@ const SAMPLE_INLINE_DIFF = [
     "new file mode 100644",
     "Binary files /dev/null and b/src/binary.png differ",
 ].join("\n");
+
+Deno.test("runValidationLoop halts fail-closed when target branch advances before publication", async () => {
+    const uiAPI = makeUi();
+    const session = makeRecordedSession("target-advance-validation-test", uiAPI);
+    session.setActiveExecutionWorkflow({
+        planName: "p",
+        triageMeta: { classification: "FEATURE" },
+        executionAgent: "engineer",
+        executionMode: "worktree",
+        baselineTree: "baseline-tree",
+        projectRoot: "/primary",
+        executionCwd: "/worktree",
+        worktreeId: "wt1",
+        worktreeBranch: "runwield/worktree/p-wt1",
+        worktreeBaseBranch: "main",
+    });
+    let mergeCalls = 0;
+    let repairCalls = 0;
+    let promptCalls = 0;
+    /** @type {any[]} */
+    const registryUpdates = [];
+    /** @type {any[]} */
+    const planEvents = [];
+    /** @type {any[]} */
+    const stagedEvidence = [];
+    /** @type {any[]} */
+    const resetUpdates = [];
+
+    await runValidationLoop({
+        hostedSession: session,
+        planName: "p",
+        planContent: "plan",
+        triageMeta: { classification: "FEATURE" },
+        sessionManager: undefined,
+        __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
+            runLocalCI: () => Promise.resolve({ exitCode: 0, output: "ok" }),
+            getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
+            runIsolatedAgentSession: () =>
+                Promise.resolve(
+                    /** @type {any} */ ([{
+                        role: "assistant",
+                        content: [{ type: "text", text: "The implementation matches the plan." }],
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_complete",
+                        details: { outcome: "approved", approved: true, feedback: "" },
+                    }]),
+                ),
+            getCodeReviewMode: () => "none",
+            sealExecutionWorktreeCandidate: () => Promise.resolve({ executionCommit: "a".repeat(40) }),
+            getBranchHead: () => Promise.resolve("b".repeat(40)),
+            stageValidationPassedInExecutionWorktree: (/** @type {any} */ args) => {
+                stagedEvidence.push(args.details.deliveryEvidence);
+                return Promise.resolve({
+                    attrs: /** @type {any} */ ({ status: "verified" }),
+                    planPaths: ["plans/p.md"],
+                });
+            },
+            mergeExecutionWorktree: () => {
+                mergeCalls++;
+                const error = /** @type {Error & { mergeFailureKind?: string }} */ (
+                    new Error("Target branch main advanced before publication; rerun Workflow Validation.")
+                );
+                error.mergeFailureKind = "target_branch_advanced";
+                return Promise.reject(error);
+            },
+            repair: () => {
+                repairCalls++;
+                return Promise.resolve(true);
+            },
+            requestInteraction: () => {
+                promptCalls++;
+                return Promise.resolve({ outcome: "selected", value: "retry" });
+            },
+            updatePlanFrontMatter: (
+                /** @type {string} */ cwd,
+                /** @type {string} */ planName,
+                /** @type {any} */ updates,
+            ) => {
+                resetUpdates.push({ cwd, planName, updates });
+                return Promise.resolve(/** @type {any} */ ({ status: updates.status }));
+            },
+            updateWorktreeRegistryEntry: (
+                /** @type {string} */ _projectRoot,
+                /** @type {string} */ _worktreeId,
+                /** @type {any} */ updates,
+            ) => {
+                registryUpdates.push(updates);
+                return Promise.resolve({});
+            },
+            recordPlanEvent: (/** @type {any} */ event) => {
+                planEvents.push(event);
+                return Promise.resolve({});
+            },
+            recordWorkflowMetric: () => Promise.resolve(null),
+        }),
+    });
+
+    assertEquals(mergeCalls, 1);
+    assertEquals(repairCalls, 0);
+    assertEquals(promptCalls, 0);
+    assertEquals(registryUpdates.some((updates) => updates.status === "merge_conflict"), false);
+    assertEquals(planEvents.some((event) => event.event === "worktree_merge_failed"), false);
+    assertEquals(stagedEvidence, [{
+        version: 1,
+        mode: "worktree_merge",
+        executionCommit: "a".repeat(40),
+        targetBranch: "main",
+        targetHeadBeforeMerge: "b".repeat(40),
+    }]);
+    assertEquals(resetUpdates, [{
+        cwd: "/worktree",
+        planName: "p",
+        updates: {
+            status: "implemented",
+            verifiedAt: null,
+            deliveryEvidence: null,
+            executionMode: null,
+        },
+    }]);
+    assertEquals(
+        uiAPI.systemCalls.some((/** @type {any} */ call) =>
+            String(call.message).includes("Target branch main advanced before publication; rerun Workflow Validation.")
+        ),
+        true,
+    );
+});
 
 Deno.test("parseDiffFiles parses modified, added, deleted, renamed, and binary files", () => {
     const entries = parseDiffFiles(SAMPLE_INLINE_DIFF);

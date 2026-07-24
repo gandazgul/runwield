@@ -1002,12 +1002,28 @@ Deno.test("serializePlanSummary omits absolute paths and surfaces hierarchy/depe
             parentPlan: "epic",
             summary: "Child",
             dependencies: ["sibling-id"],
+            executionMode: "worktree",
+            deliveryEvidence: {
+                version: 1,
+                mode: "worktree_merge",
+                executionCommit: "a".repeat(40),
+                targetBranch: "main",
+                targetHeadBeforeMerge: "b".repeat(40),
+            },
             worktreePath: "/tmp/project-runwield-worktree",
         },
     });
     assertEquals(summary.relativePath, "plans/epic/child.md");
     assertEquals(Object.hasOwn(summary, "path"), false);
     assertEquals(Object.hasOwn(summary.attrs, "worktreePath"), false);
+    assertEquals(summary.attrs.executionMode, "worktree");
+    assertEquals(summary.attrs.deliveryEvidence, {
+        version: 1,
+        mode: "worktree_merge",
+        executionCommit: "a".repeat(40),
+        targetBranch: "main",
+        targetHeadBeforeMerge: "b".repeat(40),
+    });
     assertEquals(summary.isChild, true);
     assertEquals(summary.hierarchyRole, "child");
     assertEquals(summary.dependsOn, ["sibling-id"]);
