@@ -1391,6 +1391,56 @@ Deno.test("worktree front matter fields round-trip and can be cleared", () => {
     assertEquals(reparsed.attrs.worktreeStatus, undefined);
 });
 
+Deno.test("delivery evidence front matter validates compact shapes and rejects malformed values", () => {
+    /** @type {import("./plan-store.js").DeliveryEvidence} */
+    const worktreeEvidence = {
+        version: 1,
+        mode: "worktree_merge",
+        executionCommit: "a".repeat(40),
+        targetBranch: "main",
+        targetHeadBeforeMerge: "b".repeat(40),
+    };
+    const markdown = injectFrontMatter("## Body", {
+        executionMode: "worktree",
+        deliveryEvidence: worktreeEvidence,
+    });
+    const parsed = parsePlanFrontMatter(markdown);
+    assertEquals(parsed.attrs.executionMode, "worktree");
+    assertEquals(parsed.attrs.deliveryEvidence, worktreeEvidence);
+
+    const nonGit = parsePlanFrontMatter(injectFrontMatter("## Body", {
+        executionMode: "non_git_in_place",
+        deliveryEvidence: /** @type {any} */ ({
+            version: 1,
+            mode: "non_git_in_place",
+            projectRoot: "/tmp/must-not-survive",
+            validationCwd: "/tmp/must-not-survive",
+            validatedAt: "2026-07-24T00:00:00.000Z",
+        }),
+    }));
+    assertEquals(nonGit.attrs.deliveryEvidence, { version: 1, mode: "non_git_in_place" });
+
+    const malformed = parsePlanFrontMatter(injectFrontMatter("## Body", {
+        deliveryEvidence: /** @type {any} */ ({ version: 1, mode: "worktree_merge", executionCommit: "not-a-sha" }),
+    }));
+    assertEquals(malformed.attrs.deliveryEvidence, undefined);
+
+    const partialSha = parsePlanFrontMatter(injectFrontMatter("## Body", {
+        deliveryEvidence: /** @type {any} */ ({
+            version: 1,
+            mode: "worktree_merge",
+            executionCommit: "a".repeat(39),
+            targetBranch: "main",
+            targetHeadBeforeMerge: "b".repeat(40),
+        }),
+    }));
+    assertEquals(partialSha.attrs.deliveryEvidence, undefined);
+
+    const cleared = parsePlanFrontMatter(injectFrontMatter(markdown, { deliveryEvidence: null, executionMode: null }));
+    assertEquals(cleared.attrs.deliveryEvidence, undefined);
+    assertEquals(cleared.attrs.executionMode, undefined);
+});
+
 Deno.test("Epic done-enough front matter fields round-trip and can be cleared", () => {
     const markdown = injectFrontMatter("## Body", {
         epicCompletionMode: "done_enough",
@@ -1437,6 +1487,48 @@ testWithFs("updatePlanFrontMatter preserves body and clears optional fields", as
 
         const loaded = await loadPlan(cwd, "front-matter");
         assertEquals(loaded?.body.trim(), "## Body");
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+testWithFs("updatePlanFrontMatter preserves and clears Delivery Evidence on partial updates", async () => {
+    const cwd = await Deno.makeTempDir();
+    /** @type {import("./plan-store.js").DeliveryEvidence} */
+    const deliveryEvidence = {
+        version: 1,
+        mode: "worktree_merge",
+        executionCommit: "a".repeat(40),
+        targetBranch: "main",
+        targetHeadBeforeMerge: "b".repeat(40),
+    };
+    try {
+        await savePlan(cwd, "delivery", "## Body", {
+            classification: "FEATURE",
+            status: "verified",
+            executionMode: "worktree",
+            deliveryEvidence,
+            summary: "Initial summary",
+        });
+
+        const partial = await updatePlanFrontMatter(cwd, "delivery", { summary: "Updated summary" });
+        assertEquals(partial.summary, "Updated summary");
+        assertEquals(partial.executionMode, "worktree");
+        assertEquals(partial.deliveryEvidence, deliveryEvidence);
+
+        const reopened = await updatePlanFrontMatter(cwd, "delivery", {
+            status: "ready_for_work",
+            deliveryEvidence: null,
+            executionMode: null,
+        });
+        assertEquals(reopened.status, "ready_for_work");
+        assertEquals(reopened.deliveryEvidence, undefined);
+        assertEquals(reopened.executionMode, undefined);
+
+        const loaded = await loadPlan(cwd, "delivery");
+        assertEquals(loaded?.body.trim(), "## Body");
+        assertEquals(loaded?.attrs.deliveryEvidence, undefined);
+        assertEquals(loaded?.attrs.executionMode, undefined);
     } finally {
         await Deno.remove(cwd, { recursive: true });
     }

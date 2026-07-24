@@ -43,12 +43,15 @@ import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runt
  * @property {boolean} [pairCapabilityLost]
  * @property {"stop"|"canceled"} [pairPauseReason]
  * @property {boolean} [pairStopRequested]
+ * @property {"worktree"|"non_git_in_place"} [executionMode]
  * @property {string} [baselineTree]
  * @property {string} [projectRoot]
  * @property {string} [executionCwd]
  * @property {string} [worktreeId]
  * @property {string} [worktreeBranch]
  * @property {string} [worktreeBaseBranch]
+ * @property {string} [worktreeBaseRef]
+ * @property {string} [worktreeBaseCommit]
  * @property {boolean} [nonGitInPlace]
  * @property {boolean} [validationContinuation]
  * @property {string} [manualQaName]
@@ -85,6 +88,19 @@ import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runt
  * @property {MinimalSessionManagerLike | null} [sessionManager]
  * @property {unknown} [eventSink]
  * @property {import('./session-runtime-interactions.js').RuntimeInteractionAdapter} [interactionAdapter]
+ * @property {ManagedSessionMetadata | null} [managed]
+ */
+
+/**
+ * @typedef {Object} ManagedSessionMetadata
+ * @property {string} runwieldSessionId
+ * @property {string} projectId
+ * @property {string} piSessionId
+ * @property {string} transcriptPath
+ * @property {number | null} generation
+ * @property {string | null} name
+ * @property {string | null} activeAgent
+ * @property {import('./workflow-context-session.js').WorkflowContext | null} workflowContext
  */
 
 /** @param {unknown} value */
@@ -177,6 +193,8 @@ export class HostedSession {
         this.activeExecutionWorkflow = null;
         /** @type {string | null} */
         this.activeTurnId = null;
+        /** @type {ManagedSessionMetadata | null} */
+        this.managed = options.managed || null;
     }
 
     assertActive() {
@@ -283,6 +301,35 @@ export class HostedSession {
 
     getRootSessionManager() {
         return this.rootSessionManager;
+    }
+
+    /** @param {ManagedSessionMetadata | null} metadata */
+    setManagedMetadata(metadata) {
+        this.assertActive();
+        this.managed = metadata ? { ...metadata } : null;
+        if (metadata?.workflowContext !== undefined) this.workflowContext = metadata.workflowContext;
+        if (metadata?.activeAgent !== undefined) this.rootAgentName = metadata.activeAgent;
+    }
+
+    getManagedMetadata() {
+        return this.managed ? { ...this.managed } : null;
+    }
+
+    dehydrateManagedSession() {
+        this.assertActive();
+        disposeIfPresent(this.rootAgentSession);
+        for (const session of this.subAgentSessions) disposeIfPresent(session);
+        disposeIfPresent(this.rootSessionManager);
+        this.activeOnMessage = null;
+        this.rootSessionManager = null;
+        this.interactionAdapter?.cancelAll?.();
+        this.activeInteractions.clear();
+        this.rootAgentSession = null;
+        this.subAgentSessions.clear();
+        this.delegatedReaderCount = 0;
+        this.delegatedWriterActive = false;
+        this.activeExecutionWorkflow = null;
+        this.activeTurnId = null;
     }
 
     /** @param {unknown} eventSink */
@@ -586,6 +633,7 @@ export class HostedSession {
         this.workflowContext = null;
         this.activeExecutionWorkflow = null;
         this.activeTurnId = null;
+        this.managed = null;
         this.disposed = true;
     }
 }

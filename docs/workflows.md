@@ -56,7 +56,8 @@ Typical flow:
 5. RunWield dispatches the recorded `executionAgent`. Browser UI FEATURE Plans may use Frontend Engineer; other Plans
    use Engineer. Frontend Engineer runs autonomously or, in a capable TUI, through blocking Pair checkpoints.
 6. RunWield runs workflow validation.
-7. The plan is marked verified after validation and merge-back succeed.
+7. The plan is marked verified only after validation records explicit delivery evidence and, for worktree execution, Git
+   proves the sealed implementation commit and verified metadata were merged to the target branch.
 
 Executable FEATURE Plans express ownership with `executionAgent: "engineer" | "frontend-engineer"`. Frontend-owned
 FEATURE Plans may add `collaborationRecommendation: "autonomous" | "pair"` to capture Planner guidance; Pair is a
@@ -162,7 +163,9 @@ files and worktree registry state.
 
 Workflow validation applies to executable saved plan work: standalone FEATURE plans, child FEATURE plans, and legacy
 non-Epic PROJECT plans. PROJECT Epics do not run an implementation validation loop themselves; their child FEATURE plans
-run local validation, semantic review, and merge-back before being marked verified.
+run local validation, semantic review, delivery evidence capture, and merge-back proof before being marked verified.
+Missing worktree context for a Git-backed FEATURE is a hard validation failure unless RunWield can recover the exact
+plan/worktree identity from durable plan metadata, the worktree registry, and Git facts.
 
 ## Completion-time Work Records
 

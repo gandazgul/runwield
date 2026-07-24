@@ -178,6 +178,15 @@ export async function updateEntry(projectRoot, id, updates) {
         const entries = await readRegistry(projectRoot);
         const index = entries.findIndex((entry) => entry.id === id);
         if (index === -1) return null;
+        const immutableKeys = ["id", "planName", "baseBranch", "baseRef", "baseCommit", "baseTree", "branch", "path"];
+        for (const key of immutableKeys) {
+            if (
+                Object.hasOwn(updates, key) && /** @type {Record<string, unknown>} */
+                (updates)[key] !== /** @type {Record<string, unknown>} */ (entries[index])[key]
+            ) {
+                throw new Error(`Worktree registry identity field cannot be updated: ${key}`);
+            }
+        }
         entries[index] = { ...entries[index], ...updates, updatedAt: updates.updatedAt || new Date().toISOString() };
         await writeRegistry(projectRoot, entries);
         return entries[index];

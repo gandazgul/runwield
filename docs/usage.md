@@ -110,10 +110,13 @@ you can discuss child FEATURE boundaries and materialize drafts under `plans/<ep
 finalized, loading the Epic offers child FEATURE selection; loading a child FEATURE runs the normal FEATURE review,
 execution, validation, and recovery flow.
 
-After a child FEATURE verifies, RunWield automatically continues the active Epic in strict child order. It finishes the
-old Session's Manual QA and Work Record output, then starts a fresh persisted Session for the next child. Draft and
-feedback children open Planner; approved and ready-for-work children execute automatically. The chain stops at the first
-remaining child when it is blocked by a hold, recovery state, unmet dependency, or unsupported status.
+After a child FEATURE verifies, RunWield automatically continues the active Epic in strict child order. Verification now
+requires explicit execution mode and delivery evidence: worktree-backed children must prove their sealed implementation
+commit and verified metadata reached the target branch before Work Records or Epic continuation run. It finishes the old
+Session's Manual QA and Work Record output, then starts a fresh persisted Session for the next child. Draft and feedback
+children open Planner; approved and ready-for-work children execute automatically. The chain stops at the first
+remaining child when it is blocked by a hold, recovery state, unmet dependency, unsupported status, or unverifiable
+worktree publication context.
 
 See [Plans and workflows](workflows.md) and [Plan Lifecycle](plan-lifecycle.md).
 
@@ -170,6 +173,21 @@ public origin is `https://...`; do not expose the plaintext backend listener dir
 Projects must be explicitly registered before Workspace can show their Plans. The owner Project view reuses the existing
 Plan Board inside the registered Project boundary. In the bootstrap slice, owner Project Plan views are read-only until
 later Plan Workflow Lease enforcement enables consequential remote Plan mutations safely.
+
+Session continuation is activation-gated and disabled by default. To allow owner Workspace to continue registered
+Project Sessions, stop all older pre-v3 RunWield TUI, ACP, and Workspace processes first, then restart with:
+
+```bash
+wld workspace serve --enable-session-activation
+```
+
+The flag records an owner-only acknowledgement for the current coordination database epoch. If the database is replaced
+or the acknowledgement is missing, Workspace keeps Plan/Project reads available but Session continuation routes fail
+closed until the protocol is re-enabled. Supported continuation is conversation-only for idle managed Sessions; remote
+Plan materialization, workflow gates, shell/repository actions, image turns, and other consequential direct mutations
+are blocked until later lease slices. Activation conflicts, stale generations, transcript mismatches, heartbeat expiry,
+or lost database evidence are reported conservatively and require local recovery rather than automatic takeover or
+replay.
 
 `wld plans ui` remains the temporary current-checkout compatibility launcher. Use it when you want a one-shot local Plan
 Board without registering the Project or pairing a device.

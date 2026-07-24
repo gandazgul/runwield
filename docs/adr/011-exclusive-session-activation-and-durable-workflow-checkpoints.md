@@ -1,8 +1,8 @@
+---
+status: accepted
+---
+
 # ADR-011: Exclusive Session Activation and Durable Workflow Checkpoints
-
-## Status
-
-Accepted
 
 ## Context
 
