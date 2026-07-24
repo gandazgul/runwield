@@ -252,7 +252,7 @@ Deno.test("bundled agent defs path and loaded instruction files are reported", a
     assertEquals(bundledPath.endsWith("agent-definitions") || bundledPath.includes("bundled-agent-definitions"), true);
 
     const projectRoot = await Deno.makeTempDir({ prefix: "runwield-loaded-agent-md-" });
-    const projectHarnessPath = join(projectRoot, "RUNWEILD.md");
+    const projectHarnessPath = join(projectRoot, "RUNWIELD.md");
     try {
         await Deno.writeTextFile(projectHarnessPath, "Project instructions for coverage");
         const files = await listLoadedAgentMdFiles(projectRoot);
@@ -276,7 +276,7 @@ Deno.test("readGlobalAgentMd falls through configured global instruction paths",
         await Deno.writeTextFile(join(wldDir, "AGENTS.md"), "Legacy RunWield instructions");
         assertEquals(await readGlobalAgentMd(home), "Legacy RunWield instructions");
 
-        await Deno.writeTextFile(join(wldDir, "RUNWEILD.md"), "RunWield instructions");
+        await Deno.writeTextFile(join(wldDir, "RUNWIELD.md"), "RunWield instructions");
         assertEquals(await readGlobalAgentMd(home), "RunWield instructions");
         assertEquals(await readGlobalAgentMd(home, { includeExternal: false }), "RunWield instructions");
     } finally {
@@ -289,7 +289,7 @@ Deno.test("assembleFinalSystemPrompt fills tools, instruction files, skills, and
     const originalHome = Deno.env.get("HOME");
     const tempHome = await Deno.makeTempDir({ prefix: "runwield-assemble-prompt-" });
     const projectRoot = await Deno.makeTempDir({ prefix: "runwield-assemble-project-" });
-    const projectHarnessPath = join(projectRoot, "RUNWEILD.md");
+    const projectHarnessPath = join(projectRoot, "RUNWIELD.md");
     const skillName = `coverage-skill-${crypto.randomUUID()}`;
     const skillDir = join(projectRoot, ".wld", "skills", skillName);
     const skillPath = join(skillDir, "SKILL.md");
@@ -297,7 +297,7 @@ Deno.test("assembleFinalSystemPrompt fills tools, instruction files, skills, and
     try {
         Deno.env.set("HOME", tempHome);
         await Deno.mkdir(join(tempHome, ".wld"), { recursive: true });
-        await Deno.writeTextFile(join(tempHome, ".wld", "RUNWEILD.md"), "Global prompt context");
+        await Deno.writeTextFile(join(tempHome, ".wld", "RUNWIELD.md"), "Global prompt context");
         await Deno.writeTextFile(projectHarnessPath, "Project prompt context");
         await Deno.mkdir(skillDir, { recursive: true });
         await Deno.writeTextFile(

@@ -1,9 +1,5 @@
 # TODO
 
-## Completed
-
-- [x] Pin validation progress and latest Engineer/Reviewer handoff reports above TUI input.
-
 ## Bugs
 
 - [ ] Guided review tries to use claude code???? it should use WLD instead. "failed · claude/claude-cli · 3.2s · tokens
@@ -11,19 +7,7 @@
 
 ## Backlog
 
-### P0 - Current Plan Hygiene
-
-- [ ] Verify/archive implemented or verified Plans that are no longer active.
-- [ ] Remove or archive test Plans: `plans/testing_resume.md`, `plans/testing_slicer_epic.md`.
-- [ ] Decide whether `TODO.md` is the canonical lightweight backlog or just a scratchpad; keep full specs in `plans/`
-      and `docs/prd/`.
-
 ### P1 - Close the Local Planning Loop
-
-- [ ] Finish Work Records V1: [docs/prd/work-records-prd.md](docs/prd/work-records-prd.md),
-      [plans/work-records-v1.md](plans/work-records-v1.md).
-  - Current V1 focus: internal automatic Work Records only.
-  - Later/deferred: manual/external creation, richer Workspace review, cross-project retrieval.
 
 - [ ] Implement Guided Reviews using Plannotator:
       [plans/guided-review-validation-code-reviews.md](plans/guided-review-validation-code-reviews.md).

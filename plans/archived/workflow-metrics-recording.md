@@ -148,7 +148,7 @@ Existing functions, modules, or patterns to reuse:
 
 - `src/shared/settings.js#getMergedCustomSetting` — read a merged global/project `workflowMetrics` setting without
   introducing a new settings subsystem.
-- `src/constants.js#CWD` and `HOME_DIR`/`RUNWEILD_DIR_NAME` — anchor metrics to the primary project root while storing
+- `src/constants.js#CWD` and `HOME_DIR`/`RUNWIELD_DIR_NAME` — anchor metrics to the primary project root while storing
   records under the user's RunWield home directory.
 - `src/shared/session/root-session.js#encodeCwdForSessionDir` — reuse the session directory encoding for per-project
   metrics directories.
@@ -170,7 +170,7 @@ Existing functions, modules, or patterns to reuse:
 - [ ] Add `src/shared/workflow/metrics.js`.
   - [ ] Define JSDoc typedefs for metric category, record, settings, and safe details.
   - [ ] Resolve the default metrics path to
-        `join(HOME_DIR, RUNWEILD_DIR_NAME, "workflow-metrics", encodeCwdForSessionDir(CWD), "metrics.jsonl")`.
+        `join(HOME_DIR, RUNWIELD_DIR_NAME, "workflow-metrics", encodeCwdForSessionDir(CWD), "metrics.jsonl")`.
   - [ ] Read `workflowMetrics` via `getMergedCustomSetting("workflowMetrics")` with default disabled.
   - [ ] Support `workflowMetrics: true` or `{ enabled: true }` to enable writes; treat `false`, missing, or
         `{ enabled: false }` as disabled.

@@ -265,7 +265,7 @@ Prompt guidance for generation:
 ## Implementation Steps
 
 - [ ] Step 1: Add the `guidedReview` setting.
-  - Add `"guidedReview"` to `RUNWEILD_CUSTOM_SETTING_KEYS` in `src/shared/settings.js`.
+  - Add `"guidedReview"` to `RUNWIELD_CUSTOM_SETTING_KEYS` in `src/shared/settings.js`.
   - Implement `getGuidedReviewMode(projectRoot)` with values `none`, `ask`, `auto`, `always`; default to `auto` when
     unset; treat invalid values as `none`.
   - Add schema/docs/tests for both global and project scopes, matching the existing `codereview` style.

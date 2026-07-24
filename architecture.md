@@ -513,7 +513,7 @@ flowchart LR
         Bundled["Bundled agent definition"]
         Home["~/.wld agent and settings overrides"]
         Local["Project .wld overrides"]
-        Instructions["RUNWEILD.md or AGENTS.md"]
+        Instructions["RUNWIELD.md or AGENTS.md"]
         Memories["Core Mnemosyne memories"]
         Skills["Discovered skills and prompt templates"]
     end

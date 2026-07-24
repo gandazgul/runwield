@@ -2,8 +2,8 @@
 
 - **Installation and startup**
   - Install the standalone `wld` binary and missing runtime helpers on macOS or Linux with the release installer.
-  - Install required Mnemosyne/Cymbal and optional Snip into the shared `WLD_INSTALL_DIR` when they are not already
-    present.
+  - Install required Mnemosyne/Cymbal/agent-browser and optional Snip into the shared `WLD_INSTALL_DIR` when they are
+    not already present.
   - Preserve existing helper binaries already found on `PATH` or in `WLD_INSTALL_DIR`.
   - Choose a custom install directory with `WLD_INSTALL_DIR`.
   - Run from source with Deno for contributor workflows.
@@ -195,7 +195,7 @@
   - Invoke bundled skills with `/skill:<name>`.
   - Use bundled skills for documentation, web lookup, diagnosis, prototyping, research, test writing, skill writing, and
     codebase design tasks.
-  - Read RunWield-specific global instructions from `~/.wld/RUNWEILD.md` or `~/.wld/AGENTS.md`.
+  - Read RunWield-specific global instructions from `~/.wld/RUNWIELD.md` or `~/.wld/AGENTS.md`.
   - Optionally fall back to shared `~/.agents/AGENTS.md` instructions.
 
 - **Themes and visual customization**

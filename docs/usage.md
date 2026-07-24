@@ -81,6 +81,10 @@ User-selectable bundled agent definitions live in `src/agent-definitions/` and c
 definitions. Workflow-only pseudo-agents such as Slicer and Reviewer are loaded from workflow prompts and do not appear
 in normal `/agent` listings. See [Customization](customization.md).
 
+Frontend and browser UI work can load the bundled `agent-browser-use` skill for headed browser inspection, screenshots,
+accessibility snapshots, console checks, and interactive verification. The `agent-browser` CLI is a required runtime
+helper and is provisioned by the installer when it is not already available.
+
 ## Plans
 
 List saved plans:
@@ -105,6 +109,11 @@ PROJECT plans are Epic containers by default. Loading an approved or decomposing
 you can discuss child FEATURE boundaries and materialize drafts under `plans/<epic-name>/`. Once decomposition is
 finalized, loading the Epic offers child FEATURE selection; loading a child FEATURE runs the normal FEATURE review,
 execution, validation, and recovery flow.
+
+After a child FEATURE verifies, RunWield automatically continues the active Epic in strict child order. It finishes the
+old Session's Manual QA and Work Record output, then starts a fresh persisted Session for the next child. Draft and
+feedback children open Planner; approved and ready-for-work children execute automatically. The chain stops at the first
+remaining child when it is blocked by a hold, recovery state, unmet dependency, or unsupported status.
 
 See [Plans and workflows](workflows.md) and [Plan Lifecycle](plan-lifecycle.md).
 
@@ -254,7 +263,7 @@ RunWield uses RunWield-owned paths instead of Pi-owned paths:
 | Credentials                  | `~/.wld/auth.json`                         |
 | Custom models                | `~/.wld/models.json`                       |
 | Sessions                     | `~/.wld/sessions/`                         |
-| Global RunWield instructions | `~/.wld/RUNWEILD.md` or `~/.wld/AGENTS.md` |
+| Global RunWield instructions | `~/.wld/RUNWIELD.md` or `~/.wld/AGENTS.md` |
 | Home agents                  | `~/.wld/agents/`                           |
 | Home prompts                 | `~/.wld/prompts/`                          |
 | Project settings             | `.wld/settings.json`                       |
