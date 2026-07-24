@@ -89,6 +89,8 @@ export function supportsPairExecution(hostedSession) {
  * @typedef {Object} RuntimeCollaborationSelection
  * @property {"autonomous"|"pair"} style
  * @property {"autonomous"|"pair"} recommendation
+ * @property {boolean} pairCapable
+ * @property {"canonical_pair_capable"|"canonical_pair_unavailable"|"canonical_autonomous"|"legacy_autonomous"} resolutionReason
  */
 
 /**
@@ -98,21 +100,37 @@ export function supportsPairExecution(hostedSession) {
  */
 function selectRuntimeCollaborationStyle(hostedSession, policy) {
     const recommendation = policy.collaborationRecommendation || CollaborationStyles.AUTONOMOUS;
+    const pairCapable = supportsPairExecution(hostedSession);
     if (policy.executionAgent !== AGENTS.FRONTEND_ENGINEER || policy.source !== "canonical") {
-        return { style: CollaborationStyles.AUTONOMOUS, recommendation };
+        return {
+            style: CollaborationStyles.AUTONOMOUS,
+            recommendation,
+            pairCapable,
+            resolutionReason: "legacy_autonomous",
+        };
     }
     if (recommendation !== CollaborationStyles.PAIR) {
-        return { style: CollaborationStyles.AUTONOMOUS, recommendation };
+        return {
+            style: CollaborationStyles.AUTONOMOUS,
+            recommendation,
+            pairCapable,
+            resolutionReason: "canonical_autonomous",
+        };
     }
-    if (!supportsPairExecution(hostedSession)) {
+    if (!pairCapable) {
         emitSystemStatus(
             hostedSession,
             "Pair Execution is recommended by the Plan but unavailable in this host; continuing with autonomous Frontend Engineer execution.",
             { header: "RunWield" },
         );
-        return { style: CollaborationStyles.AUTONOMOUS, recommendation };
+        return {
+            style: CollaborationStyles.AUTONOMOUS,
+            recommendation,
+            pairCapable,
+            resolutionReason: "canonical_pair_unavailable",
+        };
     }
-    return { style: CollaborationStyles.PAIR, recommendation };
+    return { style: CollaborationStyles.PAIR, recommendation, pairCapable, resolutionReason: "canonical_pair_capable" };
 }
 
 /**
@@ -191,6 +209,7 @@ export async function runPlanningAgent(
  *   probeGitRepository?: typeof probeGitRepository,
  *   hasNonGitExecutionConsent?: typeof hasNonGitExecutionConsent,
  *   confirmNonGitFeaturePlanExecution?: typeof confirmNonGitFeaturePlanExecution,
+ *   now?: () => number,
  *   }
  * }} options
  * @returns {Promise<PlanExecutionResult>}
@@ -268,9 +287,25 @@ export async function executePlan({
         return { repairRequired: false, executionComplete: false, error };
     }
 
-    const collaboration = policy.ok
-        ? selectRuntimeCollaborationStyle(hostedSession, policy.policy)
-        : { style: CollaborationStyles.AUTONOMOUS, recommendation: CollaborationStyles.AUTONOMOUS };
+    const collaboration = policy.ok ? selectRuntimeCollaborationStyle(hostedSession, policy.policy) : {
+        style: CollaborationStyles.AUTONOMOUS,
+        recommendation: CollaborationStyles.AUTONOMOUS,
+        pairCapable: false,
+        resolutionReason: "legacy_autonomous",
+    };
+    if (policy.ok && policy.policy.executionAgent === AGENTS.FRONTEND_ENGINEER) {
+        await recordWorkflowMetricFn({
+            category: "execution",
+            event: "frontend_runtime_style_resolved",
+            details: {
+                policySource: policy.policy.source,
+                recommendation: collaboration.recommendation,
+                runtimeStyle: collaboration.style,
+                pairCapable: collaboration.pairCapable,
+                resolutionReason: collaboration.resolutionReason,
+            },
+        }, { cwd: projectRoot });
+    }
 
     await recordWorkflowMetricFn({
         category: "execution",
@@ -446,7 +481,10 @@ async function executeSingleEngineerPlan(
  * @param {string} [reviewFeedback]
  * @param {Array<{base64: string, mimeType: string}>} [reviewImages]
  * @param {string} [executionAgent]
- * @param {{ runActiveAgentTurn?: typeof import('../session/agent-switching.js').runActiveAgentTurn }} [__deps]
+ * @param {{
+ *   runActiveAgentTurn?: typeof import('../session/agent-switching.js').runActiveAgentTurn,
+ *   recordWorkflowMetric?: typeof recordWorkflowMetric,
+ * }} [__deps]
  * @returns {Promise<{ completed: boolean, messages: import('@earendil-works/pi-agent-core').AgentMessage[], paused?: boolean, pauseReason?: "stop"|"canceled", error?: string, completionReport?: string }>}
  */
 async function runEngineerWithPlan(
@@ -467,7 +505,10 @@ async function runEngineerWithPlan(
     const workflow = hostedSession.getActiveExecutionWorkflow?.();
     const collaborationStyle = workflow?.collaborationStyle || CollaborationStyles.AUTONOMOUS;
     const customTools = executionAgent === AGENTS.FRONTEND_ENGINEER && collaborationStyle === CollaborationStyles.PAIR
-        ? [createPairCheckpointTool({ hostedSession })]
+        ? [createPairCheckpointTool({
+            hostedSession,
+            recordWorkflowMetric: __deps?.recordWorkflowMetric || recordWorkflowMetric,
+        })]
         : undefined;
     let messages;
     try {
@@ -605,6 +646,7 @@ export function assertReusableWorktreeTargetMatches(reusableBaseBranch, targetBr
  *     probeGitRepository?: typeof probeGitRepository,
  *     hasNonGitExecutionConsent?: typeof hasNonGitExecutionConsent,
  *     confirmNonGitFeaturePlanExecution?: typeof confirmNonGitFeaturePlanExecution,
+ *     now?: () => number,
  *   },
  * }} opts
  * @returns {Promise<import('../session/hosted-session.js').ActiveExecutionWorkflow>}
@@ -634,6 +676,7 @@ export async function startActiveExecutionWorkflow(
     const probeGit = __deps?.probeGitRepository || probeGitRepository;
     const hasConsent = __deps?.hasNonGitExecutionConsent || hasNonGitExecutionConsent;
     const confirmNonGit = __deps?.confirmNonGitFeaturePlanExecution || confirmNonGitFeaturePlanExecution;
+    const now = __deps?.now || (() => Date.now());
     const executionAgent = resolveExecutionOwner(triageMeta);
     const collaborationState = {
         collaborationStyle,
@@ -677,7 +720,7 @@ export async function startActiveExecutionWorkflow(
             currentStatus,
             details: { triageMeta, nonGitInPlace: true },
         });
-        const activeWorkflow = { ...workflow, executionStarted: true };
+        const activeWorkflow = { ...workflow, executionStarted: true, executionAttemptStartedAtMs: now() };
         hostedSession.setActiveExecutionWorkflow(activeWorkflow);
         await recordWorkflowMetricFn({
             category: "execution",
@@ -752,7 +795,7 @@ export async function startActiveExecutionWorkflow(
             worktreeStatus: "active",
         },
     });
-    const activeWorkflow = { ...workflow, executionStarted: true };
+    const activeWorkflow = { ...workflow, executionStarted: true, executionAttemptStartedAtMs: now() };
     hostedSession.setActiveExecutionWorkflow(activeWorkflow);
     await recordWorkflowMetricFn({
         category: "execution",

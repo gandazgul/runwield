@@ -58,8 +58,9 @@ is frontend-owned unless the Plan requires it.
 7. For validation repairs, preserve the active runtime collaboration style. Use another Pair checkpoint only when a
    visible repair materially needs user judgment; mechanical or invisible repairs should not add ceremony.
 8. Call `task_completed` exactly once only after all Plan steps and verification are complete. Never call it after a
-   Pair stop or canceled checkpoint. Include concise Markdown bullets for changes, commands and results, URL,
-   headed-browser checks, visible evidence, and unresolved blockers.
+   Pair stop or canceled checkpoint. Include the required content-free `browserPreflightOutcome` parameter and concise
+   Markdown bullets for changes, commands and results, URL, headed-browser checks, visible evidence, and unresolved
+   blockers.
 
 ## Important Rules
 

@@ -194,3 +194,133 @@ Deno.test("tool usage metrics omit raw commands, queries, file contents, message
     assertEquals(serialized.includes("secret.txt"), false);
     assertEquals(serialized.includes("grep -R"), false);
 });
+
+Deno.test("dedicated Frontend Engineer metrics strip identity and content", async () => {
+    const tempHome = await Deno.makeTempDir();
+    try {
+        await recordWorkflowMetric({
+            category: "execution",
+            event: "frontend_runtime_style_resolved",
+            sessionId: "session-secret",
+            planName: "private-plan",
+            agentName: "frontend-engineer",
+            details: {
+                policySource: "canonical",
+                recommendation: "pair",
+                runtimeStyle: "autonomous",
+                pairCapable: false,
+                resolutionReason: "canonical_pair_unavailable",
+                route: "https://example.test/path?token=secret",
+                summary: "Rendered user profile",
+                evidence: ["/tmp/screenshot.png"],
+                diagnostics: { console: "error output" },
+                source: "function secret() {}",
+                report: "- final report",
+            },
+        }, { cwd: "/tmp/frontend-metrics", homeDir: tempHome, settings: true });
+        await recordWorkflowMetric({
+            category: "execution",
+            event: "pair_checkpoint_decided",
+            sessionId: "session-secret",
+            planName: "private-plan",
+            agentName: "frontend-engineer",
+            details: {
+                checkpointNumber: 2,
+                decision: "revise",
+                reason: "revision_feedback_required",
+                feedback: "make the dashboard calmer",
+                screenshotPath: "/Users/me/project/shot.png",
+                browserPayload: { url: "http://localhost:3000?token=abc" },
+            },
+        }, { cwd: "/tmp/frontend-metrics", homeDir: tempHome, settings: true });
+        await recordWorkflowMetric({
+            category: "execution",
+            event: "frontend_execution_completed",
+            sessionId: "session-secret",
+            planName: "private-plan",
+            agentName: "frontend-engineer",
+            details: {
+                phase: "validation_repair",
+                runtimeStyle: "pair",
+                checkpointCount: 3,
+                switchedToAutonomous: true,
+                capabilityLost: false,
+                browserPreflightOutcome: "externally_blocked",
+                elapsedMs: 1234,
+                message: "- report with URL http://localhost:5173/secret",
+                file: "src/private/file.js",
+            },
+        }, { cwd: "/tmp/frontend-metrics", homeDir: tempHome, settings: true });
+
+        const lines = (await Deno.readTextFile(getWorkflowMetricsFilePath("/tmp/frontend-metrics", tempHome))).trim()
+            .split("\n").map((line) => JSON.parse(line));
+        assertEquals(lines.map((line) => line.event), [
+            "frontend_runtime_style_resolved",
+            "pair_checkpoint_decided",
+            "frontend_execution_completed",
+        ]);
+        assertEquals(lines[0].details, {
+            policySource: "canonical",
+            recommendation: "pair",
+            runtimeStyle: "autonomous",
+            pairCapable: false,
+            resolutionReason: "canonical_pair_unavailable",
+        });
+        assertEquals(lines[1].details, {
+            checkpointNumber: 2,
+            decision: "revise",
+            reason: "revision_feedback_required",
+        });
+        assertEquals(lines[2].details, {
+            phase: "validation_repair",
+            runtimeStyle: "pair",
+            checkpointCount: 3,
+            switchedToAutonomous: true,
+            capabilityLost: false,
+            browserPreflightOutcome: "externally_blocked",
+            elapsedMs: 1234,
+        });
+        const serialized = JSON.stringify(lines);
+        for (
+            const forbidden of [
+                "session-secret",
+                "private-plan",
+                "frontend-engineer",
+                "dashboard",
+                "localhost",
+                "token",
+                "screenshot",
+                "browserPayload",
+                "function secret",
+                "final report",
+                "src/private",
+            ]
+        ) {
+            assertEquals(serialized.includes(forbidden), false, forbidden);
+        }
+    } finally {
+        await Deno.remove(tempHome, { recursive: true });
+    }
+});
+
+Deno.test("dedicated Frontend Engineer metrics omit invalid values", async () => {
+    const record = await recordWorkflowMetric({
+        category: "execution",
+        event: "frontend_execution_completed",
+        details: {
+            phase: "free text",
+            runtimeStyle: "pair",
+            checkpointCount: -1,
+            switchedToAutonomous: "yes",
+            capabilityLost: true,
+            browserPreflightOutcome: "succeeded",
+            elapsedMs: Infinity,
+        },
+    }, {
+        cwd: "/tmp/frontend-invalid",
+        settings: true,
+        mkdir: async () => {},
+        writeTextFile: async () => {},
+    });
+    assertEquals(record?.details, { runtimeStyle: "pair", capabilityLost: true, browserPreflightOutcome: "succeeded" });
+});
