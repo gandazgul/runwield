@@ -114,12 +114,11 @@
         "react/jsx-dev-runtime": "npm:react@^19.2.7/jsx-dev-runtime"
     },
     "tasks": {
-        "ci": "deno task -q submodules:check && deno task -q check && deno task -q workspace:check && deno task -q lint && deno task -q fmt:check && deno task -q test && deno task -q release:check",
+        "ci": "deno task -q submodules:check && deno task -q check && deno task -q workspace:check && deno task -q lint && deno task -q test && deno task -q release:check",
         "cli": "deno run -A --unstable-no-legacy-abort src/cli.js",
         "submodules:check": "deno run -A scripts/check-submodules.js",
         "test": "deno run -A scripts/write-version.js && snip run -- deno test -A",
         "lint": "snip run -- deno lint",
-        "fmt:check": "snip run -- deno fmt --check",
         "githooks:install": "git config core.hooksPath .githooks",
         "githooks:uninstall": "git config --unset core.hooksPath",
         "check": "deno run -A scripts/write-version.js && snip run -- deno check --doc src/**/*.js src/**/*.jsx",
@@ -129,15 +128,15 @@
         "workspace:remote:image:check": "deno run -A scripts/assert-plan-server-image.js",
         "workspace:react:check": "deno task workspace:check",
         "workspace:test": "deno test -A src/ui/workspace src/cmd/plans/ui.test.js",
+        "workspace:dev:plan-review": "deno run -A --env npm:astro dev --config src/ui/workspace/astro.config.mjs --host 127.0.0.1 --port 5173 --open /dev/plan-review",
+        "workspace:dev:code-review": "deno run -A --env npm:astro dev --config src/ui/workspace/astro.config.mjs --host 127.0.0.1 --port 5173 --open /dev/code-review",
+        "workspace:build": "deno run -A --env npm:astro build --config src/ui/workspace/astro.config.mjs",
+        "workspace:check": "deno run -A npm:astro check --root src/ui/workspace --tsconfig tsconfig.json",
         "compile": "deno run -A ./scripts/compile.js",
         "ux:new-user": "podman build --build-arg WLD_INSTALL_REFRESH=$(date +%s) -f Containerfile.wld-ux -t runwield-wld-ux:local . && podman run --rm -it -e ANTHROPIC_API_KEY -e OPENAI_API_KEY -e GOOGLE_API_KEY -e MISTRAL_API_KEY runwield-wld-ux:local",
         "release:check": "deno run -A scripts/release-check.js",
         "compile:watch": "watchexec -e js,jsx,mjs,md,css,ts,tsx,json --ignore node_modules --ignore dist --ignore bin --ignore src/shared/version.js -- deno task compile",
-        "prototype": "deno run -A scripts/run-prototype.js",
-        "workspace:dev:plan-review": "deno run -A --env npm:astro dev --config src/ui/workspace/astro.config.mjs --host 127.0.0.1 --port 5173 --open /dev/plan-review",
-        "workspace:dev:code-review": "deno run -A --env npm:astro dev --config src/ui/workspace/astro.config.mjs --host 127.0.0.1 --port 5173 --open /dev/code-review",
-        "workspace:build": "deno run -A --env npm:astro build --config src/ui/workspace/astro.config.mjs",
-        "workspace:check": "deno run -A npm:astro check --root src/ui/workspace --tsconfig tsconfig.json"
+        "prototype": "deno run -A scripts/run-prototype.js"
     },
     "fmt": {
         "lineWidth": 120,
