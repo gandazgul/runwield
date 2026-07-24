@@ -2,7 +2,8 @@
 
 ## Bugs
 
-- [ ] Install.sh should init mnemosyne global collection with `mnemosyne init --name global`
+- [ ] Memories are being stored and then lost in worktrees, mnemosyne is full of collections named after work trees. the
+      memory_* tools should be worktree aware and store in the projects;s collection not a worktree's collection
 - [ ] CONTEXT-FORMAT file is not extracted on a fresh install.
 
 - [ ] P0 before marking a plan as verified we need to check that: all changes in the worktree were actually committed,
