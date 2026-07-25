@@ -110,6 +110,15 @@ async function git(cwd, args) {
     return new TextDecoder().decode(output.stdout);
 }
 
+/** @param {string} cwd */
+async function cleanupHexMnemosyneCollections(cwd) {
+    const name = cwd.split(/[\\/]/).filter(Boolean).at(-1) || "";
+    if (!/^[0-9a-f]{16}$/.test(name)) return;
+    await new Deno.Command("mnemosyne", { args: ["forget", "--name", name, "--yes"] }).output().catch(() => null);
+    await new Deno.Command("mnemosyne", { args: ["forget", "--name", `${name}:work-records`, "--yes"] }).output()
+        .catch(() => null);
+}
+
 Deno.test("workspace token accepts query or header and rejects missing tokens", () => {
     assertEquals(hasWorkspaceToken(new Request("http://localhost/?token=abc"), "abc"), true);
     assertEquals(
@@ -2087,7 +2096,12 @@ Deno.test("Workspace lifecycle API mutates through lifecycle events and blocks i
             heldFromStatus: "in_progress",
             classification: "FEATURE",
         });
-        const app = createWorkspaceApp({ cwd, token: "secret" }).handler();
+        const app = createWorkspaceApp({
+            cwd,
+            token: "secret",
+            autoGenerateWorkRecordForCompletedPlan: () =>
+                Promise.resolve({ status: "skipped", planName: "feature", message: "Work Record generation skipped." }),
+        }).handler();
         const missingToken = await app(
             new Request("http://localhost/api/plans/feature-id/lifecycle-action", {
                 method: "POST",
@@ -2175,6 +2189,7 @@ Deno.test("Workspace lifecycle API mutates through lifecycle events and blocks i
         assertEquals(loaded.closedWithoutVerificationReason, "Verified manually in staging.");
         assertEquals(loaded.frontMatter.verifiedAt, undefined);
     } finally {
+        await cleanupHexMnemosyneCollections(cwd);
         await Deno.remove(cwd, { recursive: true });
     }
 });
