@@ -141,12 +141,14 @@ export function createTuiInteractionAdapter(uiAPI, dependencies = {}) {
             }
             if (request.type === RuntimeInteractionTypes.PLAN_REVIEW) {
                 const meta = /** @type {any} */ (request._meta || {});
+                uiAPI.setBusy?.(false);
                 const result = await submitPlanReview({
                     cwd: meta.cwd,
                     planName: meta.planName,
                     planPath: meta.planPath,
                     triageMeta: meta.triageMeta,
                     onOutput: typeof meta.onOutput === "function" ? meta.onOutput : undefined,
+                    onSurfaceReady: typeof meta.onSurfaceReady === "function" ? meta.onSurfaceReady : undefined,
                     signal,
                 });
                 return {

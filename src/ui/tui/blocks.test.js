@@ -470,6 +470,23 @@ Deno.test("ToolExecutionBlock strips ANSI from tool output", () => {
     assertBlockBackground(lines, w, "ToolExecutionBlock(colored output)");
 });
 
+Deno.test("ToolExecutionBlock highlights the plan review browser URL instruction", () => {
+    const w = 120;
+    const block = new ToolExecutionBlock("plan_written", "plan_written runtime-boundary");
+    block.setOutput(
+        "Plan declared: plans/runtime-boundary.md\n" +
+            "To review open a browser to: http://127.0.0.1:4567/review/plan?token=test\n" +
+            "Status: Waiting for plan review decision.\n",
+    );
+
+    const rendered = block.render(w).join("\n");
+    const plain = stripAnsi(rendered);
+
+    assertEquals(plain.includes("To review open a browser to: http://127.0.0.1:4567/review/plan?token=test"), true);
+    assertEquals(rendered.includes("\x1b[1mTo review open a browser to:"), true);
+    assertEquals(rendered.includes("\x1b[2mTo review open a browser to:"), false);
+});
+
 Deno.test("ToolExecutionBlock expansion and truncation logic", () => {
     const w = 100;
     const block = new ToolExecutionBlock("bash", "$ echo lines");

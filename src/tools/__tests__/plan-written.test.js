@@ -31,8 +31,10 @@ function makeHarness(options = {}) {
                 options.exists === false
                     ? Promise.reject(new Deno.errors.NotFound())
                     : Promise.resolve({ isFile: true }),
-            requestPlanReview: () =>
-                Promise.resolve(
+            requestPlanReview: (_hostedSession, request) => {
+                const onSurfaceReady = /** @type {any} */ (request._meta)?.onSurfaceReady;
+                onSurfaceReady?.({ url: "http://127.0.0.1:4567/review/plan?token=test" });
+                return Promise.resolve(
                     options.reviewResponse || {
                         outcome: "accepted",
                         _meta: {
@@ -41,7 +43,8 @@ function makeHarness(options = {}) {
                                 (options.classification === "PROJECT" ? "decompose" : "run"),
                         },
                     },
-                ),
+                );
+            },
             recordPlanEvent: (event) => {
                 lifecycle.push(event);
                 return Promise.resolve(/** @type {any} */ (event.details?.triageMeta || {}));
@@ -78,10 +81,16 @@ Deno.test("plan_written streams declared plan details into the active tool block
 
     assertEquals(updates.length >= 2, true);
     const firstText = updates[0].content[0].text;
-    assertMatch(firstText, /Plan: plans\/runtime-boundary\.md/);
+    assertMatch(firstText, /Plan declared: plans\/runtime-boundary\.md/);
     assertMatch(firstText, /File URL: file:\/\//);
     assertMatch(firstText, /Path: .*plans\/runtime-boundary\.md/);
     assertMatch(firstText, /Status: Opening browser review UI\./);
+    const readyText = updates[1].content[0].text;
+    assertMatch(
+        readyText,
+        /Plan declared: plans\/runtime-boundary\.md\nTo review open a browser to: http:\/\/127\.0\.0\.1:4567\/review\/plan\?token=test/,
+    );
+    assertEquals(updates[1].details.reviewUrl, "http://127.0.0.1:4567/review/plan?token=test");
     assertEquals(updates[0].details.planName, "runtime-boundary");
     assertEquals(updates[0].details.planFileUrl.startsWith("file://"), true);
 });
