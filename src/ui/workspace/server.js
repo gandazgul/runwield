@@ -493,8 +493,12 @@ async function renderAstroReviewPage(request, cwd, payload) {
     const headers = new Headers(request.headers);
     headers.set(WORKSPACE_CWD_HEADER, cwd);
     headers.set(REVIEW_PAYLOAD_HEADER, encodeURIComponent(JSON.stringify(payload)));
-    const response = await handle(rebuildRequestWithHeaders(request, headers));
-    return response.status === 404 ? null : response;
+    try {
+        const response = await handle(rebuildRequestWithHeaders(request, headers));
+        return response.status === 404 ? null : response;
+    } catch {
+        return null;
+    }
 }
 
 /** @param {string} pathname */
