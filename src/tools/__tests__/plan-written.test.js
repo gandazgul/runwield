@@ -75,7 +75,7 @@ Deno.test("plan_written validates the declared plan before requesting review", a
 });
 
 Deno.test("plan_written streams declared plan details into the active tool block", async () => {
-    const { tool } = makeHarness();
+    const { tool, events } = makeHarness();
     const updates = /** @type {any[]} */ ([]);
     await execute(tool, "runtime-boundary", (result) => updates.push(result));
 
@@ -91,6 +91,13 @@ Deno.test("plan_written streams declared plan details into the active tool block
     assertEquals(updates[1].details.reviewUrl, "http://127.0.0.1:4567/review/plan?token=test");
     assertEquals(updates[0].details.planName, "runtime-boundary");
     assertEquals(updates[0].details.planFileUrl.startsWith("file://"), true);
+    assertEquals(
+        events.some((event) =>
+            event.type === RuntimeEventTypes.SYSTEM_STATUS &&
+            String(event.message || "").includes("Plan name: plans/runtime-boundary.md")
+        ),
+        false,
+    );
 });
 
 Deno.test("plan_written rejects invalid loaded Plan policy before review or readiness", async () => {

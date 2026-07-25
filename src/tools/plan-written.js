@@ -279,7 +279,6 @@ export function createPlanWrittenTool(
                 updateToolBlock("Waiting for plan review decision.");
             };
 
-            emitSystemStatus(hostedSession, `[RunWield] Plan name: plans/${planName}.md`);
             updateToolBlock("Opening browser review UI.");
 
             const requestPlanReview = deps.requestPlanReview || requestHostedSessionInteraction;
@@ -331,7 +330,7 @@ export function createPlanWrittenTool(
                 }
                 emitSystemStatus(hostedSession, message, { header: "RunWield" });
                 return textResult(
-                    `${message}\n\nYour role as ${agentName} is complete. Do not generate any further text.`,
+                    message,
                     {
                         ...params,
                         outcome: "saved",
@@ -356,7 +355,7 @@ export function createPlanWrittenTool(
                     details: { outcome: "canceled", classification: effectiveMeta.classification },
                 });
                 return textResult(
-                    "Plan review canceled by the user. Stop generating; control has returned to the user.",
+                    "Plan review canceled by the user.",
                     { ...params, outcome: "canceled" },
                     true,
                 );
@@ -431,7 +430,7 @@ export function createPlanWrittenTool(
                         ? `\n\nFeedback/annotations from review: ${reviewResult.feedback}`
                         : "";
                     return textResult(
-                        `Plan "${planName}" approved and saved for later decomposition. Your role as ${agentName} is complete. Do not generate any further text.${savedFeedbackSuffix}`,
+                        `Plan "${planName}" approved and saved for later decomposition. ${savedFeedbackSuffix}`,
                         {
                             ...params,
                             outcome: "saved",
@@ -459,7 +458,7 @@ export function createPlanWrittenTool(
                     ? `\n\nFeedback/annotations from review: ${reviewResult.feedback}`
                     : "";
                 return textResult(
-                    `PROJECT Epic "${planName}" approved for Slicer decomposition. Your role as ${agentName} is complete. Do not generate any further text.${slicerFeedbackSuffix}`,
+                    `PROJECT Epic "${planName}" approved for Slicer decomposition. ${slicerFeedbackSuffix}`,
                     {
                         ...params,
                         outcome: "approved_decompose",
@@ -508,7 +507,7 @@ export function createPlanWrittenTool(
                     ? `\n\nFeedback/annotations from review: ${reviewResult.feedback}`
                     : "";
                 return textResult(
-                    `Plan "${planName}" approved and saved for later execution. Your role as ${agentName} is complete. Do not generate any further text.${savedFeedbackSuffix}`,
+                    `Plan "${planName}" approved and saved for later execution.${savedFeedbackSuffix}`,
                     {
                         ...params,
                         outcome: "saved",
@@ -536,7 +535,7 @@ export function createPlanWrittenTool(
                 ? `\n\nFeedback/annotations from review: ${reviewResult.feedback}`
                 : "";
             return textResult(
-                `Plan "${planName}" approved for execution. Your role as ${agentName} is complete. Do not generate any further text.${execFeedbackSuffix}`,
+                `Plan "${planName}" approved for execution.${execFeedbackSuffix}`,
                 {
                     ...params,
                     outcome: "approved_execute",

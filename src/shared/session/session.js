@@ -2164,6 +2164,10 @@ export function attachSessionEventSubscribers(
                     { cwd: hostedSession?.cwd },
                 );
 
+                if (event.toolName === "plan_written") {
+                    endThinking();
+                }
+
                 if (event.toolName === "plan_written" || event.toolName === "user_interview") {
                     emitRuntimeEvent({
                         type: RuntimeEventTypes.ATTENTION_REQUESTED,
