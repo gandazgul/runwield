@@ -2,7 +2,7 @@ import { assert, assertEquals, assertRejects } from "@std/assert";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import { getRunWieldSessionDir } from "../session/root-session.js";
 import { openOwnerCoordinationDatabase } from "./database.js";
-import { registerProject } from "./projects.js";
+import { registerProject, relinkProject } from "./projects.js";
 import {
     catalogProjectSessions,
     ensureSessionCatalogRecord,
@@ -22,7 +22,7 @@ function idFactory(prefix = "id") {
 /**
  * @param {string} cwd
  * @param {string} piSessionId
- * @param {{ headerCwd?: string, body?: string }} [options]
+ * @param {{ headerCwd?: string, headerVersion?: number, headerTimestamp?: string, body?: string }} [options]
  */
 async function writeTranscript(cwd, piSessionId, options = {}) {
     const sessionDir = getRunWieldSessionDir(cwd);
@@ -30,9 +30,9 @@ async function writeTranscript(cwd, piSessionId, options = {}) {
     const sessionPath = `${sessionDir}/2026-01-01T00-00-00-000Z_${piSessionId}.jsonl`;
     const header = {
         type: "session",
-        version: 3,
+        version: options.headerVersion ?? 3,
         id: piSessionId,
-        timestamp: "2026-01-01T00:00:00.000Z",
+        timestamp: options.headerTimestamp || "2026-01-01T00:00:00.000Z",
         cwd: options.headerCwd || cwd,
     };
     await Deno.writeTextFile(sessionPath, `${JSON.stringify(header)}\n${options.body || ""}`);
@@ -142,7 +142,8 @@ Deno.test("Session listing is incremental and full rescan remains explicit", asy
             const project = registerProject(database, { root, idFactory: idFactory(), now: () => "t1" });
             await writeTranscript(root, "valid");
             const sessionDir = getRunWieldSessionDir(root);
-            await Deno.writeTextFile(`${sessionDir}/broken.jsonl`, "not-json\n");
+            const brokenPath = `${sessionDir}/2026-01-01T00-00-00-000Z_broken.jsonl`;
+            await Deno.writeTextFile(brokenPath, "not-json\n");
 
             const first = await listProjectSessions(database, project.projectId, {
                 idFactory: idFactory(),
@@ -165,8 +166,14 @@ Deno.test("Session listing is incremental and full rescan remains explicit", asy
             assertEquals(fullRescan.diagnostics.map((diagnostic) => diagnostic.code), ["invalid_locator"]);
 
             await Deno.writeTextFile(
-                `${sessionDir}/broken.jsonl`,
-                JSON.stringify({ type: "session", version: 3, id: "broken", cwd: root }) + "\n",
+                brokenPath,
+                JSON.stringify({
+                    type: "session",
+                    version: 3,
+                    id: "broken",
+                    timestamp: "2026-01-01T00:00:00.000Z",
+                    cwd: root,
+                }) + "\n",
             );
             const third = await listProjectSessions(database, project.projectId, {
                 idFactory: idFactory("third"),
@@ -421,6 +428,132 @@ Deno.test("two database connections racing to catalog one locator converge on on
         } finally {
             firstDb.close();
             secondDb.close();
+            if (previousHome === undefined) Deno.env.delete("HOME");
+            else Deno.env.set("HOME", previousHome);
+            await removeTempDir(dir);
+        }
+    });
+});
+
+Deno.test("Session catalog persists validated header evidence and conflicts on later contradictions", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const previousHome = Deno.env.get("HOME");
+        const dir = await Deno.makeTempDir({ prefix: "runwield-session-evidence-" });
+        Deno.env.set("HOME", dir);
+        const database = openOwnerCoordinationDatabase({ dbPath: `${dir}/owner.sqlite3` });
+        try {
+            const root = `${dir}/repo`;
+            await Deno.mkdir(root);
+            const project = registerProject(database, { root, idFactory: idFactory(), now: () => "t1" });
+            const transcriptPath = await writeTranscript(root, "evidence-pi", { headerVersion: 3 });
+            const session = await ensureSessionCatalogRecord(database, {
+                projectId: project.projectId,
+                piSessionId: "evidence-pi",
+                transcriptPath,
+                transcriptCwd: root,
+                headerVersion: 99,
+                headerTimestamp: "caller-value",
+                idFactory: idFactory(),
+                now: () => "t2",
+            });
+            assertEquals(session.headerVersion, 3);
+            assertEquals(session.headerTimestamp, "2026-01-01T00:00:00.000Z");
+
+            await Deno.writeTextFile(
+                transcriptPath,
+                JSON.stringify({
+                    type: "session",
+                    version: 4,
+                    id: "evidence-pi",
+                    timestamp: "2026-01-01T00:00:00.000Z",
+                    cwd: root,
+                }) + "\n",
+            );
+            await assertRejects(
+                () =>
+                    ensureSessionCatalogRecord(database, {
+                        projectId: project.projectId,
+                        piSessionId: "evidence-pi",
+                        transcriptPath,
+                        transcriptCwd: root,
+                    }),
+                Error,
+                "header evidence conflict",
+            );
+        } finally {
+            database.close();
+            if (previousHome === undefined) Deno.env.delete("HOME");
+            else Deno.env.set("HOME", previousHome);
+            await removeTempDir(dir);
+        }
+    });
+});
+
+Deno.test("Session catalog does not let an encoded-directory collision rejected candidate hide a valid one", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const previousHome = Deno.env.get("HOME");
+        const dir = await Deno.makeTempDir({ prefix: "runwield-session-collision-" });
+        Deno.env.set("HOME", dir);
+        const database = openOwnerCoordinationDatabase({ dbPath: `${dir}/owner.sqlite3` });
+        try {
+            const historicalRoot = `${dir}/repo-root`;
+            const currentParent = `${dir}/repo`;
+            const currentRoot = `${currentParent}/root`;
+            await Deno.mkdir(historicalRoot, { recursive: true });
+            await Deno.mkdir(currentRoot, { recursive: true });
+            const ids = idFactory();
+            const project = registerProject(database, { root: historicalRoot, idFactory: ids, now: () => "t1" });
+            relinkProject(database, {
+                projectId: project.projectId,
+                newRoot: currentRoot,
+                idFactory: ids,
+                now: () => "t2",
+            });
+            await writeTranscript(historicalRoot, "collision-pi");
+
+            const result = await catalogProjectSessions(database, project.projectId, {
+                idFactory: ids,
+                now: () => "t3",
+            });
+
+            assertEquals(result.cataloged.map((session) => session.piSessionId), ["collision-pi"]);
+            assertEquals(result.diagnostics.map((diagnostic) => diagnostic.code), ["wrong_cwd"]);
+        } finally {
+            database.close();
+            if (previousHome === undefined) Deno.env.delete("HOME");
+            else Deno.env.set("HOME", previousHome);
+            await removeTempDir(dir);
+        }
+    });
+});
+
+Deno.test("Session catalog rejects symlink-retargeted roots even when entered root text matches", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const previousHome = Deno.env.get("HOME");
+        const dir = await Deno.makeTempDir({ prefix: "runwield-session-retarget-" });
+        Deno.env.set("HOME", dir);
+        const database = openOwnerCoordinationDatabase({ dbPath: `${dir}/owner.sqlite3` });
+        try {
+            const firstTarget = `${dir}/first`;
+            const secondTarget = `${dir}/second`;
+            const link = `${dir}/repo-link`;
+            await Deno.mkdir(firstTarget);
+            await Deno.mkdir(secondTarget);
+            await Deno.symlink(firstTarget, link);
+            const project = registerProject(database, { root: link, idFactory: idFactory(), now: () => "t1" });
+            await Deno.remove(link);
+            await Deno.symlink(secondTarget, link);
+            await writeTranscript(link, "retarget-pi");
+
+            const result = await catalogProjectSessions(database, project.projectId, {
+                idFactory: idFactory(),
+                now: () => "t2",
+            });
+
+            assertEquals(result.cataloged, []);
+            assertEquals(result.diagnostics.map((diagnostic) => diagnostic.code), ["wrong_cwd"]);
+        } finally {
+            database.close();
             if (previousHome === undefined) Deno.env.delete("HOME");
             else Deno.env.set("HOME", previousHome);
             await removeTempDir(dir);

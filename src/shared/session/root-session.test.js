@@ -112,6 +112,85 @@ Deno.test("catalog-safe root session locators read only header metadata and pres
     });
 });
 
+Deno.test("catalog-safe root session locator validates exact Pi filename structure", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const previousHome = Deno.env.get("HOME");
+        const home = await Deno.makeTempDir();
+        Deno.env.set("HOME", home);
+        try {
+            const cwd = `${home}/repo`;
+            await Deno.mkdir(cwd, { recursive: true });
+            const sessionDir = getRunWieldSessionDir(cwd);
+            await Deno.mkdir(sessionDir, { recursive: true });
+            const substringPath = `${sessionDir}/2026-01-01T00-00-00-000Z_not-pi-safe.jsonl`;
+            await Deno.writeTextFile(
+                substringPath,
+                JSON.stringify({
+                    type: "session",
+                    version: 3,
+                    id: "pi-safe",
+                    timestamp: "2026-01-01T00:00:00.000Z",
+                    cwd,
+                }) + "\n",
+            );
+            await assertRejects(
+                () => readCatalogSafeRootSessionLocator({ cwd, sessionPath: substringPath }),
+                Error,
+                "exactly match",
+            );
+
+            const timestampPath = `${sessionDir}/2026-01-02T00-00-00-000Z_pi-safe.jsonl`;
+            await Deno.writeTextFile(
+                timestampPath,
+                JSON.stringify({
+                    type: "session",
+                    version: 3,
+                    id: "pi-safe",
+                    timestamp: "2026-01-01T00:00:00.000Z",
+                    cwd,
+                }) + "\n",
+            );
+            await assertRejects(
+                () => readCatalogSafeRootSessionLocator({ cwd, sessionPath: timestampPath }),
+                Error,
+                "timestamp does not match",
+            );
+        } finally {
+            if (previousHome === undefined) Deno.env.delete("HOME");
+            else Deno.env.set("HOME", previousHome);
+            await removeTempDirBestEffort(home);
+        }
+    });
+});
+
+Deno.test("catalog-safe root session locator rejects headers that exceed the catalog limit", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const previousHome = Deno.env.get("HOME");
+        const home = await Deno.makeTempDir();
+        Deno.env.set("HOME", home);
+        try {
+            const cwd = `${home}/repo`;
+            await Deno.mkdir(cwd, { recursive: true });
+            const sessionDir = getRunWieldSessionDir(cwd);
+            await Deno.mkdir(sessionDir, { recursive: true });
+            const sessionPath = `${sessionDir}/2026-01-01T00-00-00-000Z_pi-long.jsonl`;
+            await Deno.writeTextFile(
+                sessionPath,
+                `{"type":"session","id":"pi-long","cwd":"${cwd}","padding":"${"x".repeat(256)}`,
+            );
+            await assertRejects(
+                () => readCatalogSafeRootSessionLocator({ cwd, sessionPath, maxHeaderBytes: 128 }),
+                Error,
+                "exceeds catalog limit",
+            );
+        } finally {
+            if (previousHome === undefined) Deno.env.delete("HOME");
+            else Deno.env.set("HOME", previousHome);
+            await removeTempDirBestEffort(home);
+        }
+    });
+});
+
 Deno.test("catalog-safe root session locator rejects malformed or out-of-directory files", async () => {
     await withProcessGlobalTestLock(async () => {
         const previousHome = Deno.env.get("HOME");

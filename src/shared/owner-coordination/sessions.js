@@ -172,6 +172,7 @@ async function listIncrementalRootSessionLocators(cwd, sessionDir, knownTranscri
 /**
  * @param {import('./database.js').OwnerCoordinationDatabase} database
  * @param {{ projectId: string, piSessionId: string, transcriptPath: string, transcriptCwd: string }} locator
+ * @returns {Promise<import('../session/root-session.js').CatalogSafeRootSessionLocator>}
  */
 async function validateGuardedLocator(database, locator) {
     const rootEvidence = listProjectRootEvidence(database, locator.projectId);
@@ -193,6 +194,21 @@ async function validateGuardedLocator(database, locator) {
     }
     if (!isLocatorForRoot(safeLocator.headerCwd, matchingRoot)) {
         throw new Error(`Transcript header cwd does not match Project root evidence: ${safeLocator.headerCwd}`);
+    }
+    return safeLocator;
+}
+
+/**
+ * @param {CatalogedSession} existing
+ * @param {import('../session/root-session.js').CatalogSafeRootSessionLocator} safeLocator
+ */
+function assertStoredHeaderEvidence(existing, safeLocator) {
+    if (
+        existing.transcriptCwd !== safeLocator.headerCwd ||
+        existing.headerVersion !== safeLocator.headerVersion ||
+        existing.headerTimestamp !== safeLocator.headerTimestamp
+    ) {
+        throw new Error(`Transcript header evidence conflict: ${safeLocator.sessionPath}`);
     }
 }
 
@@ -282,25 +298,29 @@ export async function ensureSessionCatalogRecord(database, locator) {
     }
     if (!locator.transcriptCwd || !isAbsolute(locator.transcriptCwd)) throw new Error("transcriptCwd must be absolute");
     const transcriptPath = resolve(locator.transcriptPath);
-    await validateGuardedLocator(ownerDb, { ...locator, transcriptPath });
+    const safeLocator = await validateGuardedLocator(ownerDb, { ...locator, transcriptPath });
     return ownerDb.transaction(() => {
         const project = getProjectById(ownerDb, locator.projectId);
         if (!project) throw new Error(`Project not found: ${locator.projectId}`);
         const existingByPath = findSessionByLocator(ownerDb, { transcriptPath });
         if (existingByPath) {
-            if (existingByPath.projectId !== locator.projectId || existingByPath.piSessionId !== locator.piSessionId) {
+            if (
+                existingByPath.projectId !== locator.projectId || existingByPath.piSessionId !== safeLocator.piSessionId
+            ) {
                 throw new Error(`Transcript locator conflict: ${transcriptPath}`);
             }
+            assertStoredHeaderEvidence(existingByPath, safeLocator);
             return existingByPath;
         }
         const existingByPi = findSessionByLocator(ownerDb, {
             projectId: locator.projectId,
-            piSessionId: locator.piSessionId,
+            piSessionId: safeLocator.piSessionId,
         });
         if (existingByPi) {
             if (existingByPi.transcriptPath !== transcriptPath) {
-                throw new Error(`Pi session locator conflict: ${locator.piSessionId}`);
+                throw new Error(`Pi session locator conflict: ${safeLocator.piSessionId}`);
             }
+            assertStoredHeaderEvidence(existingByPi, safeLocator);
             return existingByPi;
         }
         const now = isoNow(locator.now);
@@ -317,11 +337,11 @@ export async function ensureSessionCatalogRecord(database, locator) {
             locatorId,
             runwieldSessionId,
             locator.projectId,
-            locator.piSessionId,
+            safeLocator.piSessionId,
             transcriptPath,
-            locator.transcriptCwd,
-            locator.headerVersion ?? null,
-            locator.headerTimestamp ?? null,
+            safeLocator.headerCwd,
+            safeLocator.headerVersion,
+            safeLocator.headerTimestamp,
             now,
             now,
         );
@@ -404,8 +424,6 @@ export async function catalogProjectSessions(database, projectId, options = {}) 
         const rootDiagnosticStart = diagnostics.length;
         diagnostics.push(...locatorResult.diagnostics);
         for (const locator of locatorResult.locators) {
-            if (seenPaths.has(locator.sessionPath)) continue;
-            seenPaths.add(locator.sessionPath);
             if (!isLocatorForRoot(locator.headerCwd, evidence)) {
                 diagnostics.push({
                     sessionPath: locator.sessionPath,
@@ -414,6 +432,8 @@ export async function catalogProjectSessions(database, projectId, options = {}) 
                 });
                 continue;
             }
+            if (seenPaths.has(locator.sessionPath)) continue;
+            seenPaths.add(locator.sessionPath);
             try {
                 const session = await ensureSessionCatalogRecord(ownerDb, {
                     projectId,
@@ -455,10 +475,8 @@ export async function catalogProjectSessions(database, projectId, options = {}) 
  * @param {{ enteredRoot: string, canonicalRoot: string }} evidence
  */
 function isLocatorForRoot(headerCwd, evidence) {
-    const resolved = resolve(headerCwd);
-    if (resolved === resolve(evidence.enteredRoot) || resolved === resolve(evidence.canonicalRoot)) return true;
     try {
-        return Deno.realPathSync(headerCwd) === evidence.canonicalRoot;
+        return Deno.realPathSync(resolve(headerCwd)) === evidence.canonicalRoot;
     } catch {
         return false;
     }

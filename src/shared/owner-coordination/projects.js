@@ -274,6 +274,7 @@ export function restoreProject(database, projectId, options = {}) {
     return ownerDb.transaction(() => {
         const project = getProjectById(ownerDb, projectId);
         if (!project) throw new Error(`Project not found: ${projectId}`);
+        if (project.lifecycle !== "removed") throw new Error(`Project is not removed: ${projectId}`);
         const now = isoNow(options.now);
         ownerDb.handle.prepare(
             "UPDATE projects SET lifecycle = 'enabled', updated_at = ?, restored_at = ?, removed_at = NULL WHERE id = ?",
@@ -360,21 +361,31 @@ export function getProjectHealth(database, projectId) {
             status = "not_directory";
             evidence.push("Registered root exists but is not a directory.");
         } else {
-            observedRealRoot = Deno.realPathSync(project.registeredRoot);
+            try {
+                observedRealRoot = Deno.realPathSync(project.registeredRoot);
+            } catch (error) {
+                status = "unreadable";
+                evidence.push(error instanceof Error ? error.message : "Registered root cannot be resolved.");
+            }
             try {
                 for (const _entry of Deno.readDirSync(project.registeredRoot)) break;
             } catch (error) {
                 status = "unreadable";
                 evidence.push(error instanceof Error ? error.message : "Registered root is not readable.");
             }
-            if (observedRealRoot !== project.currentRoot) {
+            if (observedRealRoot && observedRealRoot !== project.currentRoot) {
                 status = "canonical_mismatch";
                 evidence.push(`Registered root resolves to ${observedRealRoot}, expected ${project.currentRoot}.`);
             }
         }
-    } catch {
-        status = "missing";
-        evidence.push("Registered root is missing or cannot be statted.");
+    } catch (error) {
+        if (error instanceof Deno.errors.PermissionDenied) {
+            status = "unreadable";
+            evidence.push(error.message);
+        } else {
+            status = "missing";
+            evidence.push("Registered root is missing or cannot be statted.");
+        }
     }
     return {
         projectId: project.projectId,

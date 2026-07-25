@@ -4,7 +4,7 @@
  * Session cataloging, and Session activation state.
  */
 
-export const OWNER_COORDINATION_SCHEMA_VERSION = 3;
+export const OWNER_COORDINATION_SCHEMA_VERSION = 4;
 
 export const OWNER_COORDINATION_SCHEMA_V1_SQL = `
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS session_transcript_locators (
     last_cataloged_at TEXT NOT NULL,
     FOREIGN KEY (runwield_session_id) REFERENCES runwield_sessions(id) ON DELETE RESTRICT,
     FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE RESTRICT,
+    FOREIGN KEY (runwield_session_id, project_id) REFERENCES runwield_sessions(id, project_id) ON DELETE RESTRICT,
     UNIQUE(project_id, pi_session_id)
 );
 
@@ -78,6 +79,7 @@ CREATE TABLE IF NOT EXISTS project_session_catalog_scans (
 CREATE INDEX IF NOT EXISTS idx_project_roots_project ON project_roots(project_id);
 CREATE INDEX IF NOT EXISTS idx_project_roots_state ON project_roots(root_state);
 CREATE INDEX IF NOT EXISTS idx_projects_lifecycle ON projects(lifecycle);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_runwield_sessions_id_project ON runwield_sessions(id, project_id);
 CREATE INDEX IF NOT EXISTS idx_runwield_sessions_project ON runwield_sessions(project_id);
 CREATE INDEX IF NOT EXISTS idx_project_session_catalog_scans_project ON project_session_catalog_scans(project_id);
 CREATE INDEX IF NOT EXISTS idx_session_transcript_locators_project ON session_transcript_locators(project_id);
@@ -204,4 +206,59 @@ BEGIN
     INSERT OR IGNORE INTO session_activation_state(runwield_session_id, project_id, state, latest_generation, updated_at)
     VALUES (NEW.id, NEW.project_id, 'uninitialized', NULL, NEW.created_at);
 END;
+`;
+
+export const OWNER_COORDINATION_SCHEMA_V4_SQL = `
+CREATE UNIQUE INDEX IF NOT EXISTS idx_runwield_sessions_id_project ON runwield_sessions(id, project_id);
+
+CREATE TABLE session_transcript_locators_v4 (
+    id TEXT PRIMARY KEY,
+    runwield_session_id TEXT NOT NULL UNIQUE,
+    project_id TEXT NOT NULL,
+    pi_session_id TEXT NOT NULL,
+    transcript_path TEXT NOT NULL UNIQUE,
+    transcript_cwd TEXT NOT NULL,
+    header_version INTEGER,
+    header_timestamp TEXT,
+    first_cataloged_at TEXT NOT NULL,
+    last_cataloged_at TEXT NOT NULL,
+    FOREIGN KEY (runwield_session_id) REFERENCES runwield_sessions(id) ON DELETE RESTRICT,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE RESTRICT,
+    FOREIGN KEY (runwield_session_id, project_id) REFERENCES runwield_sessions(id, project_id) ON DELETE RESTRICT,
+    UNIQUE(project_id, pi_session_id)
+);
+
+INSERT INTO session_transcript_locators_v4(
+    id,
+    runwield_session_id,
+    project_id,
+    pi_session_id,
+    transcript_path,
+    transcript_cwd,
+    header_version,
+    header_timestamp,
+    first_cataloged_at,
+    last_cataloged_at
+)
+SELECT locators.id,
+       locators.runwield_session_id,
+       locators.project_id,
+       locators.pi_session_id,
+       locators.transcript_path,
+       locators.transcript_cwd,
+       locators.header_version,
+       locators.header_timestamp,
+       locators.first_cataloged_at,
+       locators.last_cataloged_at
+  FROM session_transcript_locators locators
+  JOIN runwield_sessions sessions
+    ON sessions.id = locators.runwield_session_id
+   AND sessions.project_id = locators.project_id;
+
+DROP TABLE session_transcript_locators;
+ALTER TABLE session_transcript_locators_v4 RENAME TO session_transcript_locators;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_session_locators_id_project ON session_transcript_locators(runwield_session_id, project_id);
+CREATE INDEX IF NOT EXISTS idx_session_transcript_locators_project ON session_transcript_locators(project_id);
+CREATE INDEX IF NOT EXISTS idx_session_transcript_locators_pi ON session_transcript_locators(pi_session_id);
 `;
