@@ -1,6 +1,9 @@
 import { assertEquals, assertRejects } from "@std/assert";
+import { join } from "@std/path";
 import {
+    assertExtractedBundledAgentReferenceFiles,
     assertReviewAssetsLoad,
+    BUNDLED_AGENT_REFERENCE_FILES,
     collectNestedReviewAssetUrls,
     collectReviewAssetUrls,
     readReviewUrl,
@@ -32,6 +35,35 @@ Deno.test("collectNestedReviewAssetUrls finds dynamic import chunks", () => {
         "http://127.0.0.1:1234/_astro/client.js",
         "http://127.0.0.1:1234/_astro/side-effect.js",
     ]);
+});
+
+Deno.test("assertExtractedBundledAgentReferenceFiles accepts copied document-format references", async () => {
+    const homeDir = await Deno.makeTempDir({ prefix: "runwield-reference-home-" });
+    try {
+        const cacheDir = join(homeDir, ".wld", "bundled-agent-definitions", "document-formats");
+        await Deno.mkdir(cacheDir, { recursive: true });
+        for (const fileName of BUNDLED_AGENT_REFERENCE_FILES) {
+            const source = await Deno.readTextFile(join("src", "agent-definitions", "document-formats", fileName));
+            await Deno.writeTextFile(join(cacheDir, fileName), source);
+        }
+
+        await assertExtractedBundledAgentReferenceFiles(homeDir);
+    } finally {
+        await Deno.remove(homeDir, { recursive: true });
+    }
+});
+
+Deno.test("assertExtractedBundledAgentReferenceFiles rejects missing document-format references", async () => {
+    const homeDir = await Deno.makeTempDir({ prefix: "runwield-reference-home-missing-" });
+    try {
+        await assertRejects(
+            () => assertExtractedBundledAgentReferenceFiles(homeDir),
+            Error,
+            "Release binary did not extract bundled agent reference file",
+        );
+    } finally {
+        await Deno.remove(homeDir, { recursive: true });
+    }
 });
 
 Deno.test("assertReviewAssetsLoad fails when a dynamic review chunk is missing", async () => {
