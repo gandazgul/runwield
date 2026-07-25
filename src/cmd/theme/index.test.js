@@ -2,6 +2,20 @@ import { assertEquals } from "@std/assert";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import { runThemeCommand } from "./index.js";
 
+/** @param {string} dir */
+async function removeTempDir(dir) {
+    for (let attempt = 0; attempt < 5; attempt++) {
+        try {
+            await Deno.remove(dir, { recursive: true });
+            return;
+        } catch (error) {
+            if (error instanceof Deno.errors.NotFound) return;
+            if (attempt === 4) throw error;
+            await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+    }
+}
+
 Deno.test("runThemeCommand prints help through command help dependency", async () => {
     /** @type {string[]} */
     const helped = [];
@@ -55,7 +69,7 @@ Deno.test("runThemeCommand interactive cancel restores original persisted theme"
         } finally {
             if (originalHome === undefined) Deno.env.delete("HOME");
             else Deno.env.set("HOME", originalHome);
-            await Deno.remove(tempHome, { recursive: true });
+            await removeTempDir(tempHome);
         }
     });
 });

@@ -3,6 +3,7 @@
  */
 
 import { assert, assertEquals, assertStringIncludes, assertThrows } from "@std/assert";
+import { dirname, fromFileUrl, resolve } from "@std/path";
 import { SessionTurnInProgressError } from "../shared/session/session-runtime.js";
 import { createSessionRuntimeEvent } from "../shared/session/session-runtime-events.js";
 import { mapRuntimeEventToAcpUpdate } from "./event-mapper.js";
@@ -16,6 +17,8 @@ import { createInitializeResponse, startRunWieldAcpServer, validateNewSessionPar
  * @property {import('@agentclientprotocol/sdk').AgentConnection} connection
  * @property {string[]} diagnostics
  */
+
+const REPO_ROOT = resolve(dirname(fromFileUrl(import.meta.url)), "../..");
 
 /**
  * @typedef {Object} FakePromptTurnContext
@@ -182,6 +185,7 @@ Deno.test("ACP server diagnostics stay out of protocol output", async () => {
 Deno.test("CLI --mode acp routes to ACP stdio without stdout diagnostics", async () => {
     const child = new Deno.Command(Deno.execPath(), {
         args: ["run", "-A", "src/cli.js", "--mode", "acp"],
+        cwd: REPO_ROOT,
         stdin: "piped",
         stdout: "piped",
         stderr: "piped",

@@ -39,6 +39,20 @@ async function writeTranscript(cwd, piSessionId, options = {}) {
     return sessionPath;
 }
 
+/** @param {string} dir */
+async function removeTempDir(dir) {
+    for (let attempt = 0; attempt < 5; attempt++) {
+        try {
+            await Deno.remove(dir, { recursive: true });
+            return;
+        } catch (error) {
+            if (error instanceof Deno.errors.NotFound) return;
+            if (attempt === 4) throw error;
+            await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+    }
+}
+
 Deno.test("Session listing lazily catalogs legacy transcripts without storing message bodies", async () => {
     await withProcessGlobalTestLock(async () => {
         const previousHome = Deno.env.get("HOME");
@@ -77,7 +91,7 @@ Deno.test("Session listing lazily catalogs legacy transcripts without storing me
             database.close();
             if (previousHome === undefined) Deno.env.delete("HOME");
             else Deno.env.set("HOME", previousHome);
-            await Deno.remove(dir, { recursive: true });
+            await removeTempDir(dir);
         }
     });
 });
@@ -111,7 +125,7 @@ Deno.test("Session catalog scans registered symlink alias session directories", 
             database.close();
             if (previousHome === undefined) Deno.env.delete("HOME");
             else Deno.env.set("HOME", previousHome);
-            await Deno.remove(dir, { recursive: true });
+            await removeTempDir(dir);
         }
     });
 });
@@ -174,7 +188,7 @@ Deno.test("Session listing is incremental and full rescan remains explicit", asy
             database.close();
             if (previousHome === undefined) Deno.env.delete("HOME");
             else Deno.env.set("HOME", previousHome);
-            await Deno.remove(dir, { recursive: true });
+            await removeTempDir(dir);
         }
     });
 });
@@ -209,7 +223,7 @@ Deno.test("Session cataloging reuses stable IDs across repeated scans and databa
             firstDb.close();
             if (previousHome === undefined) Deno.env.delete("HOME");
             else Deno.env.set("HOME", previousHome);
-            await Deno.remove(dir, { recursive: true });
+            await removeTempDir(dir);
         }
     });
 });
@@ -245,7 +259,7 @@ Deno.test("Session cataloging reports malformed and wrong-cwd transcripts while 
             database.close();
             if (previousHome === undefined) Deno.env.delete("HOME");
             else Deno.env.set("HOME", previousHome);
-            await Deno.remove(dir, { recursive: true });
+            await removeTempDir(dir);
         }
     });
 });
@@ -288,7 +302,7 @@ Deno.test("Session locator conflicts are diagnostics and do not reassign existin
             database.close();
             if (previousHome === undefined) Deno.env.delete("HOME");
             else Deno.env.set("HOME", previousHome);
-            await Deno.remove(dir, { recursive: true });
+            await removeTempDir(dir);
         }
     });
 });
@@ -358,7 +372,7 @@ Deno.test("shared Session catalog API rejects unguarded or contradictory locator
             database.close();
             if (previousHome === undefined) Deno.env.delete("HOME");
             else Deno.env.set("HOME", previousHome);
-            await Deno.remove(dir, { recursive: true });
+            await removeTempDir(dir);
         }
     });
 });
@@ -409,7 +423,7 @@ Deno.test("two database connections racing to catalog one locator converge on on
             secondDb.close();
             if (previousHome === undefined) Deno.env.delete("HOME");
             else Deno.env.set("HOME", previousHome);
-            await Deno.remove(dir, { recursive: true });
+            await removeTempDir(dir);
         }
     });
 });
@@ -453,7 +467,7 @@ Deno.test("Session catalog reconstruction after database deletion requires re-re
         } finally {
             if (previousHome === undefined) Deno.env.delete("HOME");
             else Deno.env.set("HOME", previousHome);
-            await Deno.remove(dir, { recursive: true });
+            await removeTempDir(dir);
         }
     });
 });
