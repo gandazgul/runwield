@@ -12,6 +12,7 @@ import {
 import { HostedSession } from "../session/hosted-session.js";
 import { createSessionRuntimeEvent } from "../session/session-runtime-events.js";
 import { __resetSettingsForTests } from "../settings.js";
+import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 
 const hostedSession = new HostedSession({ id: "validation-test", cwd: Deno.cwd() });
 
@@ -449,58 +450,62 @@ Deno.test("bundled reviewer prompt requires exhaustive findings in one review pa
 });
 
 Deno.test("runLocalCI emits one semantic validation tool lifecycle", async () => {
-    const originalCwd = Deno.cwd();
-    const tempDir = await Deno.makeTempDir({ prefix: "runwield-validation-test-" });
-    const uiAPI = makeUi();
+    await withProcessGlobalTestLock(async () => {
+        const originalCwd = Deno.cwd();
+        const tempDir = await Deno.makeTempDir({ prefix: "runwield-validation-test-" });
+        const uiAPI = makeUi();
 
-    try {
-        Deno.chdir(tempDir);
-        __resetSettingsForTests();
-        uiAPI.promptText = () => Promise.resolve("printf validation-output");
+        try {
+            Deno.chdir(tempDir);
+            __resetSettingsForTests();
+            uiAPI.promptText = () => Promise.resolve("printf validation-output");
 
-        const result = await runLocalCI({ hostedSession, cwd: tempDir });
+            const result = await runLocalCI({ hostedSession, cwd: tempDir });
 
-        assertEquals(result.exitCode, 0);
-        assertEquals(
-            uiAPI.toolCalls.some((/** @type {{ name: string, args: string }} */ call) =>
-                call.name === "bash" && call.args === "printf validation-output"
-            ),
-            true,
-        );
-        assertEquals(
-            uiAPI.toolOutputs.some((/** @type {string} */ output) => output.includes("validation-output")),
-            true,
-        );
-        assertEquals(uiAPI.toolResults.some((/** @type {{ isError: boolean }} */ result) => !result.isError), true);
-    } finally {
-        Deno.chdir(originalCwd);
-        __resetSettingsForTests();
-        await Deno.remove(tempDir, { recursive: true });
-    }
+            assertEquals(result.exitCode, 0);
+            assertEquals(
+                uiAPI.toolCalls.some((/** @type {{ name: string, args: string }} */ call) =>
+                    call.name === "bash" && call.args === "printf validation-output"
+                ),
+                true,
+            );
+            assertEquals(
+                uiAPI.toolOutputs.some((/** @type {string} */ output) => output.includes("validation-output")),
+                true,
+            );
+            assertEquals(uiAPI.toolResults.some((/** @type {{ isError: boolean }} */ result) => !result.isError), true);
+        } finally {
+            Deno.chdir(originalCwd);
+            __resetSettingsForTests();
+            await Deno.remove(tempDir, { recursive: true });
+        }
+    });
 });
 
 Deno.test("runLocalCI streams large validation output without failing the process buffer", async () => {
-    const originalCwd = Deno.cwd();
-    const tempDir = await Deno.makeTempDir({ prefix: "runwield-validation-large-output-test-" });
-    const uiAPI = makeUi();
+    await withProcessGlobalTestLock(async () => {
+        const originalCwd = Deno.cwd();
+        const tempDir = await Deno.makeTempDir({ prefix: "runwield-validation-large-output-test-" });
+        const uiAPI = makeUi();
 
-    try {
-        Deno.chdir(tempDir);
-        __resetSettingsForTests();
-        const command = `${Deno.execPath()} eval "console.log('x'.repeat(1200000)); console.error('tail-marker')"`;
-        uiAPI.promptText = () => Promise.resolve(command);
+        try {
+            Deno.chdir(tempDir);
+            __resetSettingsForTests();
+            const command = `${Deno.execPath()} eval "console.log('x'.repeat(1200000)); console.error('tail-marker')"`;
+            uiAPI.promptText = () => Promise.resolve(command);
 
-        const result = await runLocalCI({ hostedSession, cwd: tempDir });
+            const result = await runLocalCI({ hostedSession, cwd: tempDir });
 
-        assertEquals(result.exitCode, 0);
-        assertStringIncludes(result.output, "tail-marker");
-        assertStringIncludes(result.output, "stdout truncated; showing last");
-        assertEquals(uiAPI.toolResults.some((/** @type {{ isError: boolean }} */ result) => !result.isError), true);
-    } finally {
-        Deno.chdir(originalCwd);
-        __resetSettingsForTests();
-        await Deno.remove(tempDir, { recursive: true });
-    }
+            assertEquals(result.exitCode, 0);
+            assertStringIncludes(result.output, "tail-marker");
+            assertStringIncludes(result.output, "stdout truncated; showing last");
+            assertEquals(uiAPI.toolResults.some((/** @type {{ isError: boolean }} */ result) => !result.isError), true);
+        } finally {
+            Deno.chdir(originalCwd);
+            __resetSettingsForTests();
+            await Deno.remove(tempDir, { recursive: true });
+        }
+    });
 });
 
 Deno.test("runMechanicalValidation passes local CI without plan-specific work", async () => {

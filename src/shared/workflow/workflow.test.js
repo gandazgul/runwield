@@ -206,6 +206,7 @@ Deno.test("startActiveExecutionWorkflow rejects reusable worktree target mismatc
                                 baseBranch: "other-base",
                             }),
                         ),
+                    resolveTargetBranchName: () => Promise.resolve("feature-base"),
                     prepareTargetBranchRef: () => {
                         prepareCalls++;
                         return Promise.resolve({ baseRef: "refs/heads/feature-base", baseBranch: "feature-base" });
@@ -286,6 +287,7 @@ Deno.test("startActiveExecutionWorkflow does not let plan target overwrite unkno
                 __deps: {
                     probeGitRepository: () => Promise.resolve({ ok: true, state: "work_tree", cwd: "" }),
                     findReusableWorktree: () => Promise.reject(new Error("should use active workflow")),
+                    resolveTargetBranchName: () => Promise.resolve("feature-base"),
                     prepareTargetBranchRef: () => {
                         prepareCalls++;
                         return Promise.resolve({ baseRef: "refs/heads/feature-base", baseBranch: "feature-base" });

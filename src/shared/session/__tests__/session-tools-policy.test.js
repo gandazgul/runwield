@@ -40,6 +40,28 @@ async function restoreFile(path, previous) {
     await Deno.writeTextFile(path, previous);
 }
 
+/**
+ * @param {number} ms
+ * @returns {Promise<void>}
+ */
+function delay(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** @param {string} path */
+async function removeTempDir(path) {
+    for (let attempt = 0; attempt < 5; attempt++) {
+        try {
+            await Deno.remove(path, { recursive: true });
+            return;
+        } catch (error) {
+            if (error instanceof Deno.errors.NotFound) return;
+            if (attempt === 4) throw error;
+            await delay(20 * (attempt + 1));
+        }
+    }
+}
+
 Deno.test("loadAgentDef preserves per-agent protected tools when override narrows router to read", async () => {
     await Deno.mkdir(localAgentsDir, { recursive: true });
 
@@ -246,7 +268,7 @@ Deno.test("buildAgentSession auto-wires Guide docs-only tools when requested", a
             if (originalHome === undefined) Deno.env.delete("HOME");
             else Deno.env.set("HOME", originalHome);
             __resetSettingsForTests();
-            await Deno.remove(tempHome, { recursive: true });
+            await removeTempDir(tempHome);
         }
     });
 });
@@ -317,7 +339,7 @@ Deno.test("buildAgentSession auto-wires return_to_router to the target HostedSes
             if (originalHome === undefined) Deno.env.delete("HOME");
             else Deno.env.set("HOME", originalHome);
             __resetSettingsForTests();
-            await Deno.remove(tempHome, { recursive: true });
+            await removeTempDir(tempHome);
         }
     });
 });
@@ -387,7 +409,7 @@ Deno.test("buildAgentSession wires task_completed with an event-only HostedSessi
             if (originalHome === undefined) Deno.env.delete("HOME");
             else Deno.env.set("HOME", originalHome);
             __resetSettingsForTests();
-            await Deno.remove(tempHome, { recursive: true });
+            await removeTempDir(tempHome);
             await Deno.remove(debugLogPath);
         }
     });
@@ -454,7 +476,7 @@ Deno.test("buildAgentSession applies invocation thinking override before setting
             if (originalHome === undefined) Deno.env.delete("HOME");
             else Deno.env.set("HOME", originalHome);
             __resetSettingsForTests();
-            await Deno.remove(tempHome, { recursive: true });
+            await removeTempDir(tempHome);
         }
     });
 });
@@ -510,7 +532,7 @@ Deno.test("buildAgentSession auto-wires delegate_agent only when retained by eff
             if (originalHome === undefined) Deno.env.delete("HOME");
             else Deno.env.set("HOME", originalHome);
             __resetSettingsForTests();
-            await Deno.remove(tempHome, { recursive: true });
+            await removeTempDir(tempHome);
         }
     });
 });
@@ -573,7 +595,7 @@ Deno.test("buildAgentSession injects see_image only for text-only model with vis
             __resetSettingsForTests();
             if (originalHome === undefined) Deno.env.delete("HOME");
             else Deno.env.set("HOME", originalHome);
-            await Deno.remove(tempHome, { recursive: true });
+            await removeTempDir(tempHome);
         }
     });
 });
@@ -610,7 +632,7 @@ Deno.test("buildAgentSession omits see_image for text-only model without fallbac
             __resetSettingsForTests();
             if (originalHome === undefined) Deno.env.delete("HOME");
             else Deno.env.set("HOME", originalHome);
-            await Deno.remove(tempHome, { recursive: true });
+            await removeTempDir(tempHome);
         }
     });
 });
@@ -652,7 +674,7 @@ Deno.test("buildAgentSession fails clearly for invalid vision fallback", async (
             __resetSettingsForTests();
             if (originalHome === undefined) Deno.env.delete("HOME");
             else Deno.env.set("HOME", originalHome);
-            await Deno.remove(tempHome, { recursive: true });
+            await removeTempDir(tempHome);
         }
     });
 });
@@ -780,7 +802,7 @@ Deno.test("buildAgentSession auto-wires Work Record tools with role access modes
             if (originalHome === undefined) Deno.env.delete("HOME");
             else Deno.env.set("HOME", originalHome);
             __resetSettingsForTests();
-            await Deno.remove(tempHome, { recursive: true });
+            await removeTempDir(tempHome);
         }
     });
 });

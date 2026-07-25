@@ -1,5 +1,6 @@
 import { assertEquals } from "@std/assert";
 import stripAnsi from "strip-ansi";
+import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import { initRunWieldTheme } from "../../ui/theme/theme.js";
 import { abbreviateHomePath, formatContextReport, renderUsageBar, runContextCommand } from "./index.js";
 
@@ -71,16 +72,19 @@ Deno.test("renderUsageBar shows known and unknown context state", () => {
     assertEquals(renderUsageBar(null, 4), "□□□□ unknown");
 });
 
-Deno.test("abbreviateHomePath shortens files under HOME", () => {
-    const previous = Deno.env.get("HOME");
-    try {
-        Deno.env.set("HOME", "/home/tester");
-        assertEquals(abbreviateHomePath("/home/tester/.wld/RUNWIELD.md"), "~/.wld/RUNWIELD.md");
-        assertEquals(abbreviateHomePath("/other/file"), "/other/file");
-    } finally {
-        if (previous === undefined) Deno.env.delete("HOME");
-        else Deno.env.set("HOME", previous);
-    }
+Deno.test("abbreviateHomePath shortens files under HOME", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const previous = Deno.env.get("HOME");
+        try {
+            Deno.env.set("HOME", "/home/tester");
+            assertEquals(abbreviateHomePath("/home/tester/.wld/RUNWIELD.md"), "~/.wld/RUNWIELD.md");
+            assertEquals(abbreviateHomePath("/other/file"), "/other/file");
+            await Promise.resolve();
+        } finally {
+            if (previous === undefined) Deno.env.delete("HOME");
+            else Deno.env.set("HOME", previous);
+        }
+    });
 });
 
 Deno.test("formatContextReport renders active model, categories, files, and source-grouped skills", () => {

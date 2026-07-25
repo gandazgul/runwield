@@ -49,7 +49,7 @@ echo wld version
         : `#!/usr/bin/env bash\necho ${binaryName} version\n`;
     await writeExecutable(join(dir, entryName), body);
     const archive = join(root, `${binaryName}-${entryName}.tar.gz`);
-    const command = new Deno.Command("tar", { args: ["-czf", archive, "-C", dir, entryName] });
+    const command = new Deno.Command("tar", { args: ["-czf", archive, "-C", dir, entryName], cwd: root });
     const status = await command.output();
     if (!status.success) throw new Error(`tar failed for ${binaryName}`);
     return archive;
@@ -215,8 +215,9 @@ async function runInstaller(fixture, options = {}) {
         ...options.extraEnv,
     };
     if (options.noninteractive !== false) env.WLD_NONINTERACTIVE = "1";
+    const scriptPath = new URL("../install.sh", import.meta.url).pathname;
     const command = new Deno.Command("/bin/bash", {
-        args: ["install.sh", options.requestedVersion ?? VERSIONS.runwield],
+        args: [scriptPath, options.requestedVersion ?? VERSIONS.runwield],
         env,
         stdout: "piped",
         stderr: "piped",
