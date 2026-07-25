@@ -243,8 +243,11 @@ async function runInstallerInPseudoTty(fixture, input, options = {}) {
     } ${
         Object.entries(options.extraEnv ?? {}).map(([key, value]) => `${key}=${quoteShell(value)}`).join(" ")
     } /bin/bash ${quoteShell(scriptPath)} ${quoteShell(VERSIONS.runwield)}`;
+    const scriptArgs = Deno.build.os === "darwin"
+        ? ["-q", "/dev/null", "/bin/bash", "-lc", command]
+        : ["-q", "-c", `/bin/bash -lc ${quoteShell(command)}`, "/dev/null"];
     const proc = new Deno.Command("script", {
-        args: ["-q", "/dev/null", "/bin/bash", "-lc", command],
+        args: scriptArgs,
         stdin: "piped",
         stdout: "piped",
         stderr: "piped",
