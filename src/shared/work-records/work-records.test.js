@@ -48,6 +48,33 @@ function ok(stdout) {
     return { success: true, code: 0, stdout: new TextEncoder().encode(stdout), stderr: new Uint8Array() };
 }
 
+function skipWorkRecordIndexSync() {
+    return Promise.resolve({ action: "added", recordId: "" });
+}
+
+/**
+ * @param {string} _command
+ * @param {string[]} args
+ */
+function skipWorkRecordIndexCommand(_command, args) {
+    if (args[0] === "update" && args[1] === "--help") {
+        return Promise.resolve(ok("Usage: mnemosyne update <id> --replace-tags"));
+    }
+    if (args[0] === "list") return Promise.resolve(ok("No documents"));
+    return Promise.resolve(ok(""));
+}
+
+/** @param {string} cwd */
+async function cleanupTempProject(cwd) {
+    const name = cwd.split(/[\/]/).filter(Boolean).at(-1) || "";
+    if (/^[0-9a-f]{16}$/.test(name)) {
+        await new Deno.Command("mnemosyne", { args: ["forget", "--name", name, "--yes"] }).output().catch(() => null);
+        await new Deno.Command("mnemosyne", { args: ["forget", "--name", `${name}:work-records`, "--yes"] }).output()
+            .catch(() => null);
+    }
+    await cleanupTempProject(cwd);
+}
+
 /**
  * @param {string} cwd
  * @param {string[]} args
@@ -146,7 +173,7 @@ Deno.test("Work Record store writes flat files and resolves by recordId", async 
             "flat Markdown filename",
         );
     } finally {
-        await Deno.remove(cwd, { recursive: true });
+        await cleanupTempProject(cwd);
     }
 });
 
@@ -297,7 +324,7 @@ Deno.test("Work Record backfill previews eligible sources, child skips, and exis
         ]);
         assertEquals(preview.skipped.find((source) => source.name === "epic/01-child")?.skipReason, "child_feature");
     } finally {
-        await Deno.remove(cwd, { recursive: true });
+        await cleanupTempProject(cwd);
     }
 });
 
@@ -322,6 +349,8 @@ Deno.test("Work Record generation writes a record and active Plan backlink", asy
                 summary: "Completed the standalone feature.",
                 futurePlanningNotes: "Reuse this seam.",
             }),
+            syncWorkRecordToIndex: skipWorkRecordIndexSync,
+            commandOutput: skipWorkRecordIndexCommand,
         });
 
         assertEquals(outcome.status, "generated");
@@ -331,7 +360,7 @@ Deno.test("Work Record generation writes a record and active Plan backlink", asy
         assertEquals(plan?.attrs.workRecord?.recordId, "44444444-4444-4444-8444-444444444444");
         assertEquals(plan?.attrs.status, "verified");
     } finally {
-        await Deno.remove(cwd, { recursive: true });
+        await cleanupTempProject(cwd);
     }
 });
 
@@ -355,6 +384,8 @@ Deno.test("targeted Work Record auto-generation writes standalone FEATURE record
                 idGenerator: () => "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
                 now: () => new Date("2026-07-16T00:00:00.000Z"),
                 generateSections: () => ({ title: "Standalone Outcome", summary: "Completed." }),
+                syncWorkRecordToIndex: skipWorkRecordIndexSync,
+                commandOutput: skipWorkRecordIndexCommand,
             },
         });
 
@@ -362,7 +393,7 @@ Deno.test("targeted Work Record auto-generation writes standalone FEATURE record
         assertEquals(result.path, "docs/work-records/2026-07-16-standalone-outcome.md");
         assertStringIncludes(result.message, "Work Record generated");
     } finally {
-        await Deno.remove(cwd, { recursive: true });
+        await cleanupTempProject(cwd);
     }
 });
 
@@ -398,6 +429,8 @@ Deno.test("targeted Work Record auto-generation resolves child FEATURE to termin
                 idGenerator: () => "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
                 now: () => new Date("2026-07-16T00:00:00.000Z"),
                 generateSections: (source) => ({ title: "Epic Outcome", summary: `${source.children?.length} child.` }),
+                syncWorkRecordToIndex: skipWorkRecordIndexSync,
+                commandOutput: skipWorkRecordIndexCommand,
             },
         });
 
@@ -406,7 +439,7 @@ Deno.test("targeted Work Record auto-generation resolves child FEATURE to termin
         assertEquals((await loadPlan(cwd, "epic/01-child"))?.attrs.workRecord, undefined);
         assertEquals((await loadPlan(cwd, "epic"))?.attrs.workRecord?.recordId, "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
     } finally {
-        await Deno.remove(cwd, { recursive: true });
+        await cleanupTempProject(cwd);
     }
 });
 
@@ -445,7 +478,7 @@ Deno.test("targeted Work Record auto-generation skips non-terminal child parent 
         });
         assertEquals(disabled.status, "disabled");
     } finally {
-        await Deno.remove(cwd, { recursive: true });
+        await cleanupTempProject(cwd);
     }
 });
 
@@ -474,7 +507,7 @@ Deno.test("targeted Work Record auto-generation reports generation failures with
         assertEquals(result.status, "failed");
         assertStringIncludes(result.message, "run wld wr backfill");
     } finally {
-        await Deno.remove(cwd, { recursive: true });
+        await cleanupTempProject(cwd);
     }
 });
 
@@ -500,6 +533,8 @@ Deno.test("Work Record generation includes the task completion report", async ()
                 title: "Reported Outcome",
                 summary: `Completed with evidence: ${source.executionReport}`,
             }),
+            syncWorkRecordToIndex: skipWorkRecordIndexSync,
+            commandOutput: skipWorkRecordIndexCommand,
         });
 
         assertEquals(outcome.status, "generated");
@@ -508,7 +543,7 @@ Deno.test("Work Record generation includes the task completion report", async ()
         assertStringIncludes(record?.sections["Execution Report"] || "", "Implemented the settings save action.");
         assertStringIncludes(record?.sections["Execution Report"] || "", "Verification passed: deno task ci.");
     } finally {
-        await Deno.remove(cwd, { recursive: true });
+        await cleanupTempProject(cwd);
     }
 });
 
@@ -566,6 +601,8 @@ Deno.test("Work Record generation discloses skipped verification reason fallback
             idGenerator: () => "55555555-5555-4555-8555-555555555555",
             now: () => new Date("2026-07-16T00:00:00.000Z"),
             generateSections: () => ({ title: "Closed", summary: "Implemented and accepted manually." }),
+            syncWorkRecordToIndex: skipWorkRecordIndexSync,
+            commandOutput: skipWorkRecordIndexCommand,
         });
 
         assertEquals(result.outcomes[0].status, "generated");
@@ -573,7 +610,7 @@ Deno.test("Work Record generation discloses skipped verification reason fallback
         assertStringIncludes(record?.summary || "", "RunWield Workflow Validation was skipped");
         assertStringIncludes(record?.summary || "", "Reason not specified.");
     } finally {
-        await Deno.remove(cwd, { recursive: true });
+        await cleanupTempProject(cwd);
     }
 });
 
@@ -594,6 +631,8 @@ Deno.test("Work Record backfill updates archived Plan backlinks", async () => {
             idGenerator: () => "66666666-6666-4666-8666-666666666666",
             now: () => new Date("2026-07-16T00:00:00.000Z"),
             generateSections: () => ({ title: "Archived Source", summary: "Archived completed feature." }),
+            syncWorkRecordToIndex: skipWorkRecordIndexSync,
+            commandOutput: skipWorkRecordIndexCommand,
         });
 
         assertEquals(result.outcomes[0].status, "generated");
@@ -601,7 +640,7 @@ Deno.test("Work Record backfill updates archived Plan backlinks", async () => {
         assertEquals(archived?.attrs.workRecord?.recordId, "66666666-6666-4666-8666-666666666666");
         assertEquals(archived?.attrs.archivedAt, "2026-07-15T00:00:00.000Z");
     } finally {
-        await Deno.remove(cwd, { recursive: true });
+        await cleanupTempProject(cwd);
     }
 });
 
@@ -629,6 +668,8 @@ Deno.test("Work Record backfill retries failed Plan backlinks", async () => {
             idGenerator: () => "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
             now: () => new Date("2026-07-16T00:00:00.000Z"),
             generateSections: () => ({ title: "Retry Outcome", summary: "Retry succeeded." }),
+            syncWorkRecordToIndex: skipWorkRecordIndexSync,
+            commandOutput: skipWorkRecordIndexCommand,
         });
 
         assertEquals(result.outcomes[0].status, "generated");
@@ -637,7 +678,7 @@ Deno.test("Work Record backfill retries failed Plan backlinks", async () => {
         assertEquals(plan?.attrs.workRecord?.recordId, "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
         assertEquals(plan?.attrs.workRecord?.error, undefined);
     } finally {
-        await Deno.remove(cwd, { recursive: true });
+        await cleanupTempProject(cwd);
     }
 });
 
@@ -666,7 +707,7 @@ Deno.test("Work Record generation rejects empty structured sections and records 
         assertEquals(plan?.attrs.workRecord?.status, "failed");
         assertStringIncludes(plan?.attrs.workRecord?.error || "", "non-empty title");
     } finally {
-        await Deno.remove(cwd, { recursive: true });
+        await cleanupTempProject(cwd);
     }
 });
 
@@ -697,7 +738,7 @@ Deno.test("Work Record generation records failure backlink without changing term
         assertEquals(plan?.attrs.workRecord?.status, "failed");
         assertStringIncludes(plan?.attrs.workRecord?.error || "", "Recorder exploded");
     } finally {
-        await Deno.remove(cwd, { recursive: true });
+        await cleanupTempProject(cwd);
     }
 });
 
@@ -722,7 +763,7 @@ Deno.test("Work Record backfill preview does not create docs/work-records", asyn
             Deno.errors.NotFound,
         );
     } finally {
-        await Deno.remove(cwd, { recursive: true });
+        await cleanupTempProject(cwd);
     }
 });
 
@@ -757,6 +798,8 @@ Deno.test("Work Record backfill ignores non-linkable existing records and genera
             idGenerator: () => "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
             now: () => new Date("2026-07-16T00:00:00.000Z"),
             generateSections: () => ({ title: "Approved Internal", summary: "Generated approved internal record." }),
+            syncWorkRecordToIndex: skipWorkRecordIndexSync,
+            commandOutput: skipWorkRecordIndexCommand,
         });
 
         assertEquals(result.outcomes[0].status, "generated");
@@ -766,7 +809,7 @@ Deno.test("Work Record backfill ignores non-linkable existing records and genera
         assertEquals(generated?.attrs.status, "approved");
         assertEquals(generated?.attrs.origin, "internal");
     } finally {
-        await Deno.remove(cwd, { recursive: true });
+        await cleanupTempProject(cwd);
     }
 });
 
@@ -902,7 +945,7 @@ Deno.test("Work Record search rejects duplicate indexed locator candidates", asy
             "wld wr index rebuild",
         );
     } finally {
-        await Deno.remove(cwd, { recursive: true });
+        await cleanupTempProject(cwd);
     }
 });
 
@@ -956,7 +999,7 @@ Deno.test("Work Record search hydrates indexed candidates from a single canonica
         assertEquals(workRecordFileReads, 3);
     } finally {
         Deno.readTextFile = originalReadTextFile;
-        await Deno.remove(cwd, { recursive: true });
+        await cleanupTempProject(cwd);
     }
 });
 
@@ -1001,7 +1044,7 @@ Deno.test("Work Record search bootstraps empty index, filters current records, a
         assertEquals(Object.hasOwn(/** @type {any} */ (result.records[0]), "record"), false);
         assertEquals(Object.hasOwn(/** @type {any} */ (formatHydratedWorkRecord(currentRecord)), "body"), false);
     } finally {
-        await Deno.remove(cwd, { recursive: true });
+        await cleanupTempProject(cwd);
     }
 });
 
@@ -1020,7 +1063,7 @@ Deno.test("Work Record read current-only rejects non-current body while all mode
         const result = await readWorkRecordById(cwd, draft.attrs.recordId, { accessMode: "all" });
         assertStringIncludes(result.body, "## Summary");
     } finally {
-        await Deno.remove(cwd, { recursive: true });
+        await cleanupTempProject(cwd);
     }
 });
 
@@ -1127,7 +1170,7 @@ Deno.test("Work Record generation preserves child Ticket References when assigni
             { url: "https://example.com/tickets/CHILD-NO-ID" },
         ]);
     } finally {
-        await Deno.remove(cwd, { recursive: true });
+        await cleanupTempProject(cwd);
     }
 });
 
@@ -1188,6 +1231,6 @@ Deno.test("Work Record generation snapshots standalone and Epic Ticket Reference
         ]);
         assertEquals((await loadPlan(cwd, "epic/01-child"))?.attrs.workRecord, undefined);
     } finally {
-        await Deno.remove(cwd, { recursive: true });
+        await cleanupTempProject(cwd);
     }
 });
