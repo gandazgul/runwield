@@ -131,6 +131,7 @@ function readApprovedExecutionPolicy(decision) {
  * @param {string} opts.planPath - Absolute path to the plan .md file
  * @param {Partial<import('../../plan-store.js').PlanFrontMatter>} [opts.triageMeta] - Triage metadata to ensure in front matter
  * @param {(output: { stream: "stdout" | "stderr", text: string }) => void} [opts.onOutput]
+ * @param {(surface: { url: string, opened: boolean }) => void} [opts.onSurfaceReady]
  * @param {AbortSignal} [opts.signal]
  * @param {{
  *   startPlanReviewSurface?: typeof startPlanReviewSurface,
@@ -147,6 +148,7 @@ export async function submitPlanForReview({
     planPath,
     triageMeta,
     onOutput,
+    onSurfaceReady,
     signal,
     __deps,
 }) {
@@ -190,6 +192,7 @@ export async function submitPlanForReview({
         openInDefaultBrowser: __deps?.openInDefaultBrowser,
         onOutput,
     });
+    onSurfaceReady?.({ url: server.url, opened: server.opened });
 
     try {
         const canceled = new Promise((resolve) => {
