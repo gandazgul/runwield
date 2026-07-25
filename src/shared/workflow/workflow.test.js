@@ -16,9 +16,12 @@ import { HostedSession } from "../session/hosted-session.js";
 import { runActiveAgentTurn } from "../session/agent-switching.js";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 
-/** @param {string} [id] */
-function makeHostedSession(id = "workflow-test") {
-    return new HostedSession({ id, cwd: Deno.cwd(), sessionManager: null });
+/**
+ * @param {string} [id]
+ * @param {string} [cwd]
+ */
+function makeHostedSession(id = "workflow-test", cwd = Deno.cwd()) {
+    return new HostedSession({ id, cwd, sessionManager: null });
 }
 
 Deno.test("HostedSession scopes active execution workflow independently", () => {
@@ -137,7 +140,8 @@ Deno.test("startActiveExecutionWorkflow keeps HEAD fallback for untargeted plans
 });
 
 Deno.test("startActiveExecutionWorkflow resolves implicit current branch before reusing a recorded worktree", async () => {
-    const hostedSession = makeHostedSession("implicit-target-reuse-workflow");
+    const projectRoot = Deno.cwd();
+    const hostedSession = makeHostedSession("implicit-target-reuse-workflow", projectRoot);
     /** @type {unknown[]} */
     const reuseCalls = [];
     /** @type {unknown[]} */
@@ -175,11 +179,11 @@ Deno.test("startActiveExecutionWorkflow resolves implicit current branch before 
         },
     });
 
-    assertEquals(reuseCalls, [{ projectRoot: Deno.cwd(), planName: "untargeted-plan", worktreeId: "wt-main" }]);
+    assertEquals(reuseCalls, [{ projectRoot, planName: "untargeted-plan", worktreeId: "wt-main" }]);
     assertEquals(createCalls, 0);
     assertEquals(result.worktreeBaseBranch, "main");
     assertEquals(registryUpdates, [{
-        projectRoot: Deno.cwd(),
+        projectRoot,
         id: "wt-main",
         updates: { status: "active", executionBaselineTree: "tree-main" },
     }]);
@@ -305,7 +309,8 @@ Deno.test("startActiveExecutionWorkflow does not let plan target overwrite unkno
 });
 
 Deno.test("startActiveExecutionWorkflow prompts once and uses CWD for non-Git in-place execution", async () => {
-    const hostedSession = makeHostedSession("non-git-feature-workflow");
+    const projectRoot = Deno.cwd();
+    const hostedSession = makeHostedSession("non-git-feature-workflow", projectRoot);
     /** @type {string[]} */
     const prompts = [];
     /** @type {any[]} */
@@ -316,7 +321,7 @@ Deno.test("startActiveExecutionWorkflow prompts once and uses CWD for non-Git in
         currentStatus: "ready_for_work",
         hostedSession,
         __deps: {
-            probeGitRepository: () => Promise.resolve({ ok: false, state: "not_git", cwd: Deno.cwd() }),
+            probeGitRepository: () => Promise.resolve({ ok: false, state: "not_git", cwd: projectRoot }),
             hasNonGitExecutionConsent: () => false,
             confirmNonGitFeaturePlanExecution: (_session, projectRoot) => {
                 const prompt = `non git prompt:${projectRoot}`;
@@ -334,8 +339,8 @@ Deno.test("startActiveExecutionWorkflow prompts once and uses CWD for non-Git in
         },
     });
 
-    assertEquals(prompts, [`non git prompt:${Deno.cwd()}`]);
-    assertEquals(result.executionCwd, Deno.cwd());
+    assertEquals(prompts, [`non git prompt:${projectRoot}`]);
+    assertEquals(result.executionCwd, projectRoot);
     assertEquals(result.nonGitInPlace, true);
     assertEquals(result.worktreeId, undefined);
     assertEquals(hostedSession.getActiveExecutionWorkflow()?.nonGitInPlace, true);
