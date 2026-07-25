@@ -2,12 +2,35 @@ import { assertEquals, assertRejects } from "@std/assert";
 import { join } from "@std/path";
 import {
     assertExtractedBundledAgentReferenceFiles,
+    assertRequiredBundledAssetsConfigured,
     assertReviewAssetsLoad,
     collectBundledAgentReferenceFiles,
+    collectExtractedBundledMarkdownFiles,
     collectNestedReviewAssetUrls,
     collectReviewAssetUrls,
     readReviewUrl,
 } from "./release-check.js";
+
+/**
+ * @param {string} rootDir
+ * @param {string} [relativeDir]
+ * @returns {Promise<string[]>}
+ */
+async function collectMarkdownFiles(rootDir, relativeDir = "") {
+    /** @type {string[]} */
+    const files = [];
+    const currentDir = relativeDir ? join(rootDir, ...relativeDir.split("/")) : rootDir;
+    for await (const entry of Deno.readDir(currentDir)) {
+        const relativePath = relativeDir ? `${relativeDir}/${entry.name}` : entry.name;
+        if (entry.isDirectory) files.push(...await collectMarkdownFiles(rootDir, relativePath));
+        else if (entry.isFile && entry.name.endsWith(".md")) files.push(relativePath);
+    }
+    return files.sort();
+}
+
+Deno.test("release compile includes required bundled markdown and theme assets", () => {
+    assertRequiredBundledAssetsConfigured();
+});
 
 Deno.test("readReviewUrl extracts Plan review URL from command output", () => {
     assertEquals(
@@ -37,25 +60,36 @@ Deno.test("collectNestedReviewAssetUrls finds dynamic import chunks", () => {
     ]);
 });
 
-Deno.test("collectBundledAgentReferenceFiles covers all extracted markdown references", async () => {
-    assertEquals(await collectBundledAgentReferenceFiles(), [
-        "document-formats/ADR-FORMAT.md",
-        "document-formats/CONTEXT-FORMAT.md",
-        "document-formats/architect-plan-format.md",
-        "document-formats/planner-plan-format.md",
-    ]);
+Deno.test("collectBundledAgentReferenceFiles covers all agent definitions, prompts, and plan formats", async () => {
+    assertEquals(
+        await collectBundledAgentReferenceFiles(),
+        await collectMarkdownFiles(join("src", "agent-definitions")),
+    );
 });
 
-Deno.test("assertExtractedBundledAgentReferenceFiles accepts copied bundled references", async () => {
+Deno.test("collectExtractedBundledMarkdownFiles covers agent definitions and bundled skills", async () => {
+    const extracted = await collectExtractedBundledMarkdownFiles();
+    assertEquals(
+        extracted.map((file) => `${file.cacheDir}/${file.relativePath}`),
+        [
+            ...(await collectMarkdownFiles(join("src", "agent-definitions"))).map((path) =>
+                `.wld/bundled-agent-definitions/${path}`
+            ),
+            ...(await collectMarkdownFiles(join("src", "skills"))).map((path) => `.wld/bundled-skills/${path}`),
+        ].sort((a, b) => a.localeCompare(b)),
+    );
+});
+
+Deno.test("assertExtractedBundledAgentReferenceFiles accepts copied bundled markdown", async () => {
     const homeDir = await Deno.makeTempDir({ prefix: "runwield-reference-home-" });
     try {
-        for (const relativePath of await collectBundledAgentReferenceFiles()) {
+        for (const { sourceDir, cacheDir, relativePath } of await collectExtractedBundledMarkdownFiles()) {
             const relativeParts = relativePath.split("/");
-            const cacheDir = join(homeDir, ".wld", "bundled-agent-definitions", ...relativeParts.slice(0, -1));
-            const cachePath = join(cacheDir, relativeParts.at(-1) || "");
-            const source = await Deno.readTextFile(join("src", "agent-definitions", relativePath));
-            await Deno.mkdir(cacheDir, { recursive: true });
-            await Deno.writeTextFile(cachePath, source);
+            const targetDir = join(homeDir, cacheDir, ...relativeParts.slice(0, -1));
+            const targetPath = join(targetDir, relativeParts.at(-1) || "");
+            const source = await Deno.readTextFile(join(sourceDir, relativePath));
+            await Deno.mkdir(targetDir, { recursive: true });
+            await Deno.writeTextFile(targetPath, source);
         }
 
         await assertExtractedBundledAgentReferenceFiles(homeDir);
@@ -64,13 +98,13 @@ Deno.test("assertExtractedBundledAgentReferenceFiles accepts copied bundled refe
     }
 });
 
-Deno.test("assertExtractedBundledAgentReferenceFiles rejects missing document-format references", async () => {
+Deno.test("assertExtractedBundledAgentReferenceFiles rejects missing bundled markdown", async () => {
     const homeDir = await Deno.makeTempDir({ prefix: "runwield-reference-home-missing-" });
     try {
         await assertRejects(
             () => assertExtractedBundledAgentReferenceFiles(homeDir),
             Error,
-            "Release binary did not extract bundled agent reference file",
+            "Release binary did not extract bundled agent definition markdown file",
         );
     } finally {
         await Deno.remove(homeDir, { recursive: true });

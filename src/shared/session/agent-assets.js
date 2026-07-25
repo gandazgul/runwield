@@ -4,13 +4,17 @@
  */
 
 import { dirname, join } from "@std/path";
-import { AGENT_DEFS_DIR, HOME_DIR } from "../../constants.js";
+import { AGENT_DEFS_DIR, HOME_DIR, SKILLS_DIR } from "../../constants.js";
 import { directoryExists, fileExists } from "../helpers.js";
 
 const BUNDLED_AGENT_DEFS_CACHE_DIR = HOME_DIR ? join(HOME_DIR, ".wld", "bundled-agent-definitions") : null;
+const BUNDLED_SKILLS_CACHE_DIR = HOME_DIR ? join(HOME_DIR, ".wld", "bundled-skills") : null;
 
 /** @type {Promise<string | null> | null} */
 let extractionPromise = null;
+
+/** @type {Promise<string | null> | null} */
+let bundledSkillsExtractionPromise = null;
 
 /** @type {Promise<string> | null} */
 let pathPromise = null;
@@ -44,6 +48,21 @@ export function extractBundledAgentDefs() {
         }
     })();
     return extractionPromise;
+}
+
+/** @returns {Promise<string | null>} */
+export function extractBundledSkills() {
+    if (bundledSkillsExtractionPromise) return bundledSkillsExtractionPromise;
+    bundledSkillsExtractionPromise = (async () => {
+        if (!BUNDLED_SKILLS_CACHE_DIR || !(await directoryExists(SKILLS_DIR))) return null;
+        try {
+            await copyTreeFromBundle(SKILLS_DIR, BUNDLED_SKILLS_CACHE_DIR);
+            return BUNDLED_SKILLS_CACHE_DIR;
+        } catch {
+            return null;
+        }
+    })();
+    return bundledSkillsExtractionPromise;
 }
 
 /** @returns {Promise<string>} */
