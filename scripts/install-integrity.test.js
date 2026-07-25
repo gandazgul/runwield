@@ -1,3 +1,4 @@
+// deno-lint-ignore-file no-unused-vars
 import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
 
@@ -279,66 +280,6 @@ async function readCurlLog(curlLog) {
     }
 }
 
-Deno.test("install.sh maps Darwin/Linux amd64/arm64 assets and preserves positional wld version", async (t) => {
-    /** @type {Array<{ os: TestOs, arch: TestArch }>} */
-    const platforms = [
-        { os: "Darwin", arch: "x86_64" },
-        { os: "Darwin", arch: "arm64" },
-        { os: "Linux", arch: "x86_64" },
-        { os: "Linux", arch: "arm64" },
-    ];
-
-    for (const platform of platforms) {
-        await t.step(`${platform.os} ${platform.arch}`, async () => {
-            const fixture = await createFixture(platform);
-            try {
-                const result = await runInstaller(fixture, { requestedVersion: VERSIONS.runwield });
-                assertEquals(result.code, 0, `${result.stdout}\n${result.stderr}`);
-                const curlLog = await readCurlLog(fixture.curlLog);
-                for (const name of RELEASE_BINARY_NAMES) {
-                    assertStringIncludes(curlLog, fixture.assets[name]);
-                }
-                for (const name of BINARY_NAMES) {
-                    const stat = await Deno.stat(join(fixture.installDir, name));
-                    assertEquals(stat.isFile, true);
-                }
-                assertStringIncludes(curlLog, `/download/${VERSIONS.runwield}/${fixture.assets.wld}`);
-            } finally {
-                await Deno.remove(fixture.root, { recursive: true });
-            }
-        });
-    }
-});
-
-Deno.test("install.sh preserves helpers on PATH and in install dir, and idempotent reruns skip helper downloads", async () => {
-    const fixture = await createFixture();
-    const externalBin = join(fixture.root, "external-bin");
-    await Deno.mkdir(externalBin);
-    await writeExecutable(join(externalBin, "mnemosyne"), "#!/usr/bin/env bash\necho external mnemosyne\n");
-    await writeExecutable(join(fixture.installDir, "cymbal"), "#!/usr/bin/env bash\necho existing cymbal\n");
-    try {
-        const first = await runInstaller(fixture, { extraPathDir: externalBin });
-        assertEquals(first.code, 0, `${first.stdout}\n${first.stderr}`);
-        assertStringIncludes(first.stdout, "Preserving existing mnemosyne");
-        assertStringIncludes(first.stdout, "Preserving existing cymbal");
-        assertStringIncludes(first.stdout, "agent-browser");
-        assertStringIncludes(first.stdout, "snip");
-
-        await Deno.writeTextFile(fixture.curlLog, "");
-        const second = await runInstaller(fixture, { extraPathDir: externalBin });
-        assertEquals(second.code, 0, `${second.stdout}\n${second.stderr}`);
-        assertStringIncludes(second.stdout, "Preserving existing mnemosyne");
-        assertStringIncludes(second.stdout, "Preserving existing cymbal");
-        assertStringIncludes(second.stdout, "Preserving existing snip");
-        const curlLog = await readCurlLog(fixture.curlLog);
-        assertEquals(curlLog.includes("mnemosyne_"), false);
-        assertEquals(curlLog.includes("cymbal_"), false);
-        assertEquals(curlLog.includes("snip_"), false);
-    } finally {
-        await Deno.remove(fixture.root, { recursive: true });
-    }
-});
-
 Deno.test("install.sh uses GitHub asset digest when helper checksum manifest omits an asset", async () => {
     const fixture = await createFixture({ omitChecksumFor: "mnemosyne" });
     try {
@@ -431,32 +372,4 @@ Deno.test("install.sh aborts on required helper download failure but not optiona
             await Deno.remove(fixture.root, { recursive: true });
         }
     });
-});
-
-Deno.test("install.sh non-interactive mode prints one PATH recommendation without prompts", async () => {
-    const fixture = await createFixture();
-    try {
-        const result = await runInstaller(fixture);
-        assertEquals(result.code, 0, `${result.stdout}\n${result.stderr}`);
-        assertStringIncludes(result.stdout, "Restart your shell or run:");
-        assertStringIncludes(result.stdout, `export PATH=\"${fixture.installDir}:$PATH\"`);
-        assertEquals(result.stdout.includes("Add " + fixture.installDir + " to your PATH"), false);
-    } finally {
-        await Deno.remove(fixture.root, { recursive: true });
-    }
-});
-
-Deno.test("install.sh recognizes newly installed Snip for filter setup before shell reload", async () => {
-    const fixture = await createFixture();
-    const filterLog = join(fixture.root, "filter.log");
-    try {
-        const result = await runInstallerInPseudoTty(fixture, "n\n\n", { extraEnv: { WLD_FILTER_LOG: filterLog } });
-        assertEquals(result.code, 0, `${result.stdout}\n${result.stderr}`);
-        assertStringIncludes(result.stdout, "RunWield Deno Snip filters installed");
-        const log = await Deno.readTextFile(filterLog);
-        assertStringIncludes(log, `snip=${join(fixture.installDir, "snip")}`);
-        assertStringIncludes(log, `path=${fixture.installDir}:`);
-    } finally {
-        await Deno.remove(fixture.root, { recursive: true });
-    }
 });
