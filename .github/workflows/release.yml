@@ -28,12 +28,14 @@ jobs:
               run: |
                   git checkout -B main "$GITHUB_SHA"
                   mkdir -p "$RUNNER_TEMP/runwield-ci-bin"
-                  cat > "$RUNNER_TEMP/runwield-ci-bin/mnemosyne" <<'EOF'
+                  for binary in mnemosyne cymbal; do
+                    cat > "$RUNNER_TEMP/runwield-ci-bin/$binary" <<'EOF'
                   #!/usr/bin/env bash
                   if [[ "$1" == "--help" ]]; then exit 0; fi
-                  printf 'mnemosyne test stub\n'
+                  printf '%s test stub\n' "$(basename "$0")"
                   EOF
-                  chmod +x "$RUNNER_TEMP/runwield-ci-bin/mnemosyne"
+                    chmod +x "$RUNNER_TEMP/runwield-ci-bin/$binary"
+                  done
                   echo "$RUNNER_TEMP/runwield-ci-bin" >> "$GITHUB_PATH"
 
             - name: Run source-quality gate

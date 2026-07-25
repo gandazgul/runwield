@@ -117,7 +117,7 @@
         "ci": "deno task -q submodules:check && deno task -q check && deno task -q workspace:check && deno task -q lint && deno task -q test",
         "cli": "deno run -A --unstable-no-legacy-abort src/cli.js",
         "submodules:check": "deno run -A scripts/check-submodules.js",
-        "test": "deno run -A scripts/write-version.js && rm -rf dist/workspace/server dist/workspace-runtime && deno run -A scripts/run-with-snip.js deno test -A --no-check",
+        "test": "deno run -A scripts/write-version.js && rm -rf dist/workspace/server dist/workspace-runtime && WLD_WORKSPACE_DISABLE_BUILT_SERVER=1 deno run -A scripts/run-with-snip.js deno test -A --no-check",
         "lint": "deno run -A scripts/run-with-snip.js deno lint",
         "githooks:install": "git config core.hooksPath .githooks",
         "githooks:uninstall": "git config --unset core.hooksPath",

@@ -461,6 +461,8 @@ function ctx(req, state, params = {}) {
 }
 
 async function loadAstroHandle() {
+    if (Deno.env.get("WLD_WORKSPACE_DISABLE_BUILT_SERVER") === "1") return null;
+
     const entryPaths = Deno.build.standalone
         ? [ASTRO_RUNTIME_ENTRY_PATH, ASTRO_SOURCE_ENTRY_PATH]
         : [ASTRO_SOURCE_ENTRY_PATH, ASTRO_RUNTIME_ENTRY_PATH];
