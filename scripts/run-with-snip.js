@@ -23,6 +23,10 @@ async function runInherited(command, args) {
     return status.code ?? 1;
 }
 
+if (Deno.env.get("WLD_VALIDATION_WITH_SNIP") !== "1") {
+    Deno.exit(await runInherited(commandName, commandArgs));
+}
+
 try {
     Deno.exit(await runInherited("snip", ["run", "--", commandName, ...commandArgs]));
 } catch (error) {
