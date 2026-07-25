@@ -4,8 +4,9 @@
  * router triage flow.
  */
 
-import { AGENTS } from "../../constants.js";
+import { AGENTS, CLI_BIN, PLANS_DIR_NAME } from "../../constants.js";
 import { loadPlan, resolvePlanExecutionPolicy } from "../../plan-store.js";
+import { join } from "@std/path";
 import { hasNonGitExecutionConsent, probeGitRepository, rememberNonGitExecutionConsent } from "../git.js";
 import { getAgentDisplayName } from "../session/agents.js";
 import { emitSystemStatus } from "../session/session-runtime-events.js";
@@ -25,6 +26,13 @@ import {
 import { updateEntry as updateWorktreeRegistryEntry } from "../worktree-registry.js";
 import { captureWorktreeTree } from "./git-snapshot.js";
 import { isEpicPlan, isExecutablePlanStatus, recordPlanEvent } from "./plan-lifecycle.js";
+import { normalizePlanApprovalAction, PLAN_APPROVAL_ACTIONS } from "./plan-approval.js";
+import {
+    appendSessionCompleteGuidance,
+    requestPlanReviewRetryConfirmation,
+    requestRecoverablePlanReview,
+    SESSION_COMPLETE_GUIDANCE,
+} from "./plan-review-recovery.js";
 import { createPairCheckpointTool } from "../../tools/pair-checkpoint.js";
 import { recordWorkflowMetric } from "./metrics.js";
 import { buildEngineerRequest } from "./workflow-prompts.js";
@@ -153,6 +161,9 @@ function selectRuntimeCollaborationStyle(hostedSession, policy) {
  * @property {boolean} executionComplete
  * @property {boolean} [paused]
  * @property {boolean} [canceled]
+ * @property {boolean} [intentionalComplete]
+ * @property {string} [intentionalCompleteReason]
+ * @property {string} [message]
  * @property {"stop"|"canceled"} [pauseReason]
  * @property {string} [error]
  * @property {string} [completionReport]
@@ -303,6 +314,7 @@ export async function runPlanningAgent(
  *   markActiveWorktreeStatus?: typeof markActiveWorktreeStatus,
  *   checkpointExecutionWorktree?: typeof checkpointExecutionWorktree,
  *   recordWorkflowMetric?: typeof recordWorkflowMetric,
+ *   requestPlanReview?: typeof requestHostedSessionInteraction,
  *   runActiveAgentTurn?: typeof import('../session/agent-switching.js').runActiveAgentTurn,
  *   probeGitRepository?: typeof probeGitRepository,
  *   hasNonGitExecutionConsent?: typeof hasNonGitExecutionConsent,
@@ -329,7 +341,7 @@ export async function executePlan({
     const markActiveWorktreeStatusFn = __deps.markActiveWorktreeStatus || markActiveWorktreeStatus;
     const recordWorkflowMetricFn = __deps.recordWorkflowMetric || recordWorkflowMetric;
 
-    const plan = await loadPlanFn(projectRoot, planName);
+    let plan = await loadPlanFn(projectRoot, planName);
     if (!plan) {
         emitSystemStatus(hostedSession, `ERROR: Could not load plan ${planName}`, {
             level: "error",
@@ -341,7 +353,111 @@ export async function executePlan({
             planName,
             details: { reason: "plan_not_found" },
         }, { cwd: projectRoot });
-        return { repairRequired: false, executionComplete: false, error: `Could not load plan ${planName}` };
+
+        const requestPlanReview = __deps.requestPlanReview || requestHostedSessionInteraction;
+        const planPath = join(projectRoot, PLANS_DIR_NAME, `${planName}.md`);
+        const recoverableReview = await requestRecoverablePlanReview({
+            requestReview: () =>
+                requestPlanReview(hostedSession, {
+                    type: RuntimeInteractionTypes.PLAN_REVIEW,
+                    prompt: `Review plan "${planName}"`,
+                    _meta: { cwd: projectRoot, planName, planPath, triageMeta: _triageMeta || {} },
+                }),
+            requestRetry: (details) => requestPlanReviewRetryConfirmation(hostedSession, requestPlanReview, details),
+            onUnanswered: ({ reason }) => {
+                emitSystemStatus(
+                    hostedSession,
+                    `Plan review ended without an answer (${reason}).`,
+                    { header: "RunWield" },
+                );
+            },
+        });
+        if (recoverableReview.kind === "complete") {
+            emitSystemStatus(hostedSession, SESSION_COMPLETE_GUIDANCE, { header: "RunWield" });
+            return {
+                repairRequired: false,
+                executionComplete: false,
+                intentionalComplete: true,
+                intentionalCompleteReason: recoverableReview.reason,
+                message: SESSION_COMPLETE_GUIDANCE,
+            };
+        }
+
+        const reviewResponse = recoverableReview.response || {};
+        const reviewMeta = /** @type {any} */ (reviewResponse._meta || reviewResponse || {});
+        if (!reviewMeta.approved) {
+            const planningAgentName = _triageMeta?.classification === "PROJECT" ? AGENTS.ARCHITECT : AGENTS.PLANNER;
+            const revisionOutcome = await runPlanningAgent({
+                agentName: planningAgentName,
+                initialRequest: [
+                    `## Plan Review Re-opened: ${planName}`,
+                    "",
+                    "The user provided feedback while recovering a Plan that could not be loaded for execution:",
+                    "",
+                    reviewMeta.feedback || "(no specific feedback provided)",
+                    "",
+                    `Revise plans/${planName}.md based on this feedback, then call plan_written again.`,
+                ].join("\n"),
+                triageMeta: _triageMeta,
+                sessionManager,
+                hostedSession,
+                __deps: { runActiveAgentTurn: __deps.runActiveAgentTurn },
+            });
+            if (revisionOutcome.outcome === "approved_execute") {
+                return await executePlan({
+                    planName: revisionOutcome.planName || planName,
+                    triageMeta: revisionOutcome.triageMeta || _triageMeta,
+                    sessionManager,
+                    hostedSession,
+                    reviewFeedback: revisionOutcome.feedback,
+                    reviewImages: revisionOutcome.images,
+                    __deps,
+                });
+            }
+            return {
+                repairRequired: false,
+                executionComplete: false,
+                intentionalComplete: revisionOutcome.outcome === "saved" || revisionOutcome.outcome === "canceled",
+                intentionalCompleteReason: `review_${revisionOutcome.outcome}`,
+                message: revisionOutcome.outcome === "saved" || revisionOutcome.outcome === "canceled"
+                    ? SESSION_COMPLETE_GUIDANCE
+                    : undefined,
+            };
+        }
+
+        const approvedMeta = /** @type {Partial<import('../../plan-store.js').PlanFrontMatter>} */ (
+            reviewMeta.planAttrs || _triageMeta || {}
+        );
+        const approvalAction = normalizePlanApprovalAction({
+            classification: approvedMeta.classification,
+            action: reviewMeta.approvalAction,
+        });
+        plan = await loadPlanFn(projectRoot, planName);
+        if (approvalAction !== PLAN_APPROVAL_ACTIONS.RUN) {
+            const currentStatus = plan?.attrs?.status || "approved";
+            await recordPlanEventFn({
+                cwd: projectRoot,
+                planName,
+                event: approvedMeta.classification === "PROJECT" ? "epic_readiness_passed" : "readiness_passed",
+                currentStatus,
+                details: { triageMeta: approvedMeta },
+            });
+            emitSystemStatus(
+                hostedSession,
+                appendSessionCompleteGuidance(`Plan saved. Resume later with: ${CLI_BIN} load-plan ${planName}`),
+                { header: "RunWield" },
+            );
+            return {
+                repairRequired: false,
+                executionComplete: false,
+                intentionalComplete: true,
+                intentionalCompleteReason: "saved_for_later",
+                message: SESSION_COMPLETE_GUIDANCE,
+            };
+        }
+        if (!plan) {
+            return { repairRequired: false, executionComplete: false, error: `Could not load plan ${planName}` };
+        }
     }
 
     const effectiveMeta = { ...plan.attrs };

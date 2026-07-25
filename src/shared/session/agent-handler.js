@@ -332,7 +332,12 @@ export function createAgentHandler(agentName, __deps) {
                 details: summarizeWorkflowDecision(executionDecision),
             });
 
-            if (executionDecision.kind === "run_validation") {
+            if (executionDecision.kind === "complete_session") {
+                if (typeof executionDecision.payload.message === "string" && executionDecision.payload.message) {
+                    emitSystemStatus(hostedSession, executionDecision.payload.message, { header: "RunWield" });
+                }
+                requestAgentStoppedAttention();
+            } else if (executionDecision.kind === "run_validation") {
                 await recordWorkflowMetricImpl({
                     category: "execution",
                     event: "active_agent_transition",

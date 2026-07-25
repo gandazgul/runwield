@@ -21,6 +21,7 @@ import { startPlanReviewSurface } from "./review-launcher.js";
  * @typedef {Object} PlanReviewResult
  * @property {boolean} approved - Whether the plan was approved
  * @property {boolean} [canceled] - Whether waiting for review was canceled via Esc
+ * @property {string} [cancellationReason] - Machine-readable reason for an unanswered review.
  * @property {string} [feedback] - User feedback/annotations (present when the user submits feedback or approves with notes)
  * @property {import('../../shared/workflow/plan-approval.js').PlanApprovalAction} [approvalAction] - Browser-selected post-approval action.
  * @property {import('../../plan-store.js').PlanFrontMatter} [planAttrs] - Canonical post-review Plan attributes.
@@ -200,12 +201,22 @@ export async function submitPlanForReview({
         });
         const decision = await (signal ? Promise.race([server.waitForDecision(), canceled]) : server.waitForDecision());
 
-        // Handle cancellation triggered from the TUI
+        // Handle cancellation triggered from the TUI or review timeout/exit before
+        // writing edited review content or recording Plan Review lifecycle events.
         if (decision && typeof decision === "object" && "_cancelled" in decision) {
             return {
                 approved: false,
                 canceled: true,
                 feedback: "Cancelled by user (Esc)",
+                cancellationReason: "abort_signal",
+            };
+        }
+        if (decision?.canceled || decision?.exit) {
+            return {
+                approved: false,
+                canceled: true,
+                feedback: typeof decision.feedback === "string" ? decision.feedback : "",
+                cancellationReason: decision.exit ? "review_exit" : "review_canceled",
             };
         }
 
