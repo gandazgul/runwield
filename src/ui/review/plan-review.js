@@ -191,8 +191,8 @@ export async function submitPlanForReview({
         startPlanReviewServer: __deps?.startPlanReviewServer,
         openInDefaultBrowser: __deps?.openInDefaultBrowser,
         onOutput,
+        onSurfaceReady,
     });
-    onSurfaceReady?.({ url: server.url, opened: server.opened });
 
     try {
         const canceled = new Promise((resolve) => {

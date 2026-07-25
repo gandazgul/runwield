@@ -21,6 +21,8 @@ import { parsePlanFrontMatter, resolvePlanExecutionPolicy } from "../../plan-sto
 
 /** @typedef {(output: ReviewServerOutput) => void} ReviewServerOutputListener */
 
+/** @typedef {(surface: { url: string, opened: boolean }) => void} ReviewSurfaceReadyListener */
+
 /** @type {Set<ReviewSurfaceServer>} */
 const activeReviewSurfaces = new Set();
 
@@ -231,7 +233,7 @@ function parseGitPorcelainStatus(text) {
  */
 
 /**
- * @param {{ cwd: string, plan: string, planPath?: string, token?: string, openInDefaultBrowser?: typeof openInDefaultBrowser, onOutput?: ReviewServerOutputListener }} opts
+ * @param {{ cwd: string, plan: string, planPath?: string, token?: string, openInDefaultBrowser?: typeof openInDefaultBrowser, onOutput?: ReviewServerOutputListener, onSurfaceReady?: ReviewSurfaceReadyListener }} opts
  * @returns {Promise<PlanReviewSurface>}
  */
 async function startWorkspaceHostedPlanReview({
@@ -241,6 +243,7 @@ async function startWorkspaceHostedPlanReview({
     token = crypto.randomUUID(),
     openInDefaultBrowser: openInDefaultBrowserImpl = openInDefaultBrowser,
     onOutput,
+    onSurfaceReady,
 }) {
     if (!cwd) throw new Error("startWorkspaceHostedPlanReview: cwd is required");
     const { attrs } = parsePlanFrontMatter(plan);
@@ -260,6 +263,7 @@ async function startWorkspaceHostedPlanReview({
         onOutput,
     });
     const url = `${server.url}/review/plan?token=${encodeURIComponent(token)}`;
+    onSurfaceReady?.({ url, opened: false });
     const opened = await openInDefaultBrowserImpl(url);
     return { ...server, url, opened };
 }
@@ -312,6 +316,7 @@ async function startWorkspaceHostedArtifactRead({
  * @param {(options: object) => Promise<any>} [opts.startPlanReviewServer]
  * @param {typeof openInDefaultBrowser} [opts.openInDefaultBrowser]
  * @param {ReviewServerOutputListener} [opts.onOutput]
+ * @param {ReviewSurfaceReadyListener} [opts.onSurfaceReady]
  * @returns {Promise<PlanReviewSurface>}
  */
 export async function startPlanReviewSurface({
@@ -322,6 +327,7 @@ export async function startPlanReviewSurface({
     startPlanReviewServer,
     openInDefaultBrowser: openInDefaultBrowserImpl = openInDefaultBrowser,
     onOutput,
+    onSurfaceReady,
 }) {
     if (!startPlanReviewServer) {
         return registerReviewSurface(
@@ -331,6 +337,7 @@ export async function startPlanReviewSurface({
                 planPath,
                 openInDefaultBrowser: openInDefaultBrowserImpl,
                 onOutput,
+                onSurfaceReady,
             }),
         );
     }
@@ -346,6 +353,7 @@ export async function startPlanReviewSurface({
             onOutput,
         }),
     );
+    onSurfaceReady?.({ url: server.url, opened: false });
     const opened = await openInDefaultBrowserImpl(server.url);
     return { ...server, opened };
 }
