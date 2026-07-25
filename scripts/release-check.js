@@ -5,6 +5,16 @@
 
 import { join } from "@std/path";
 
+export const BUNDLED_AGENT_REFERENCE_FILES = Object.freeze([
+    "ADR-FORMAT.md",
+    "CONTEXT-FORMAT.md",
+    "architect-plan-format.md",
+    "planner-plan-format.md",
+]);
+
+const BUNDLED_AGENT_REFERENCE_SOURCE_DIR = join("src", "agent-definitions", "document-formats");
+const BUNDLED_AGENT_REFERENCE_CACHE_DIR = join(".wld", "bundled-agent-definitions", "document-formats");
+
 /**
  * @typedef {Object} RunResult
  * @property {boolean} success
@@ -161,6 +171,103 @@ export async function assertReviewAssetsLoad(pageUrl, html) {
 }
 
 /**
+ * @param {string} homeDir
+ */
+export async function assertExtractedBundledAgentReferenceFiles(homeDir) {
+    for (const fileName of BUNDLED_AGENT_REFERENCE_FILES) {
+        const sourcePath = join(BUNDLED_AGENT_REFERENCE_SOURCE_DIR, fileName);
+        const extractedPath = join(homeDir, BUNDLED_AGENT_REFERENCE_CACHE_DIR, fileName);
+        let source;
+        let extracted;
+        try {
+            source = await Deno.readTextFile(sourcePath);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            throw new Error(`Bundled agent reference source file is missing: ${sourcePath}. ${message}`);
+        }
+        try {
+            extracted = await Deno.readTextFile(extractedPath);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            throw new Error(
+                `Release binary did not extract bundled agent reference file: ${extractedPath}. ${message}`,
+            );
+        }
+        if (extracted !== source) {
+            throw new Error(`Release binary extracted stale bundled agent reference file: ${extractedPath}`);
+        }
+    }
+}
+
+/**
+ * @param {string} homeDir
+ * @returns {Promise<boolean>}
+ */
+async function hasExtractedBundledAgentReferenceFiles(homeDir) {
+    try {
+        await assertExtractedBundledAgentReferenceFiles(homeDir);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * @param {string} binaryPath
+ * @param {string} root
+ */
+export async function smokeTestBundledAgentReferenceExtraction(binaryPath, root) {
+    console.log("\n==> Smoke test bundled agent reference extraction");
+    const homeDir = join(root, "reference-home");
+    const projectDir = join(root, "reference-project");
+    await Deno.mkdir(projectDir, { recursive: true });
+    await Deno.mkdir(homeDir, { recursive: true });
+    await Deno.writeTextFile(join(projectDir, "README.md"), "# Release reference extraction smoke\n");
+
+    const child = new Deno.Command(binaryPath, {
+        args: ["init"],
+        cwd: projectDir,
+        env: { HOME: homeDir },
+        stdin: "null",
+        stdout: "piped",
+        stderr: "piped",
+    }).spawn();
+
+    let output = "";
+    /** @param {string} text */
+    const append = (text) => {
+        output += text;
+    };
+    const stdoutDone = collectStream(child.stdout, append);
+    const stderrDone = collectStream(child.stderr, append);
+
+    try {
+        const deadline = Date.now() + 10_000;
+        while (Date.now() < deadline) {
+            if (await hasExtractedBundledAgentReferenceFiles(homeDir)) return;
+
+            const status = await Promise.race([
+                child.status,
+                new Promise((resolve) => setTimeout(() => resolve(null), 100)),
+            ]);
+            if (status) break;
+        }
+
+        await assertExtractedBundledAgentReferenceFiles(homeDir);
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`${message}\nOutput:\n${output}`);
+    } finally {
+        try {
+            child.kill("SIGTERM");
+        } catch {
+            // Process may have exited after initializing or failing before model invocation.
+        }
+        await Promise.allSettled([child.status, stdoutDone, stderrDone]);
+    }
+}
+
+/**
  * @param {string} binaryPath
  * @param {string} root
  */
@@ -240,6 +347,7 @@ export async function main() {
     try {
         await mustRun("Compile release binary", "deno", ["run", "-A", "scripts/compile.js", "--output", output]);
         await mustRun("Smoke test release binary", output, ["--version"]);
+        await smokeTestBundledAgentReferenceExtraction(output, tempDir);
         await smokeTestBinaryReviewSurface(output, tempDir);
     } finally {
         await Deno.remove(tempDir, { recursive: true }).catch((error) => {
