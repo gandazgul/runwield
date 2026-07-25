@@ -668,10 +668,13 @@ export class ToolExecutionBlock {
         const shown = !this.expanded && lines.length > this.previewLineLimit
             ? lines.slice(0, this.previewLineLimit)
             : lines;
-        const renderedText = shown.join("\n");
-        this.bodyTextComponent.setText(
-            this.isError ? theme.fg("text", renderedText) : theme.fg("toolOutput", renderedText),
-        );
+        const renderedText = shown.map((line) => {
+            if (!this.isError && line.startsWith("To review open a browser to:")) {
+                return theme.fg("success", theme.bold(line));
+            }
+            return this.isError ? theme.fg("text", line) : theme.fg("toolOutput", line);
+        }).join("\n");
+        this.bodyTextComponent.setText(renderedText);
     }
 
     /** @param {boolean} expanded */

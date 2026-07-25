@@ -1,11 +1,15 @@
 import { assertEquals } from "@std/assert";
 import { createTuiInteractionAdapter } from "./runtime-interaction-adapter.js";
 
-/** @param {string | null} selection */
-function makeUi(selection) {
+/**
+ * @param {string | null} selection
+ * @param {{ busyValues?: boolean[] }} [state]
+ */
+function makeUi(selection, state = {}) {
     return /** @type {any} */ ({
         promptSelect: () => Promise.resolve(selection),
         promptText: () => Promise.resolve(null),
+        setBusy: (/** @type {boolean} */ busy) => state.busyValues?.push(busy),
     });
 }
 
@@ -57,12 +61,16 @@ Deno.test("TUI interaction adapter maps approval prompts to accepted outcome", a
     assertEquals(response.value, true);
 });
 
-Deno.test("TUI interaction adapter forwards plan review server output listener", async () => {
+Deno.test("TUI interaction adapter forwards plan review listeners and hides busy indicator", async () => {
     let forwardedOnOutput = null;
+    let forwardedOnSurfaceReady = null;
+    const busyValues = /** @type {boolean[]} */ ([]);
     const onOutput = () => {};
-    const adapter = createTuiInteractionAdapter(makeUi(null), {
+    const onSurfaceReady = () => {};
+    const adapter = createTuiInteractionAdapter(makeUi(null, { busyValues }), {
         submitPlanForReview: /** @type {any} */ ((/** @type {any} */ options) => {
             forwardedOnOutput = options.onOutput;
+            forwardedOnSurfaceReady = options.onSurfaceReady;
             return Promise.resolve({
                 approved: true,
                 approvalAction: "run",
@@ -74,7 +82,7 @@ Deno.test("TUI interaction adapter forwards plan review server output listener",
     const response = await adapter.requestInteraction({
         type: "plan_review",
         prompt: "Review",
-        _meta: { cwd: "/repo", planName: "plan", planPath: "/repo/plans/plan.md", onOutput },
+        _meta: { cwd: "/repo", planName: "plan", planPath: "/repo/plans/plan.md", onOutput, onSurfaceReady },
     });
 
     assertEquals(response.outcome, "accepted");
@@ -83,6 +91,8 @@ Deno.test("TUI interaction adapter forwards plan review server output listener",
     assertEquals(meta.planAttrs?.executionAgent, "frontend-engineer");
     assertEquals(meta.planAttrs?.collaborationRecommendation, "pair");
     assertEquals(forwardedOnOutput, onOutput);
+    assertEquals(forwardedOnSurfaceReady, onSurfaceReady);
+    assertEquals(busyValues, [false]);
 });
 
 Deno.test("TUI interaction adapter advertises only Pair checkpoint capability", () => {
