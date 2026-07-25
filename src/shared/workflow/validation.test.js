@@ -7,13 +7,25 @@ import {
     runLocalCI,
     runManualQaChecklistPrompt,
     runMechanicalValidation,
-    runValidationLoop,
+    runValidationLoop as runValidationLoopImpl,
 } from "./validation.js";
 import { HostedSession } from "../session/hosted-session.js";
 import { createSessionRuntimeEvent } from "../session/session-runtime-events.js";
 import { __resetSettingsForTests } from "../settings.js";
 
 const hostedSession = new HostedSession({ id: "validation-test", cwd: Deno.cwd() });
+
+/** @param {Parameters<typeof runValidationLoopImpl>[0]} args */
+function runValidationLoop(args) {
+    return runValidationLoopImpl({
+        ...args,
+        __deps: {
+            autoGenerateWorkRecordForCompletedPlan: () =>
+                Promise.resolve({ status: "disabled", planName: args.planName, message: "disabled" }),
+            ...args.__deps,
+        },
+    });
+}
 
 /**
  * @param {string} cwd
@@ -25,6 +37,32 @@ async function git(cwd, args) {
     const text = new TextDecoder().decode(output.stdout);
     if (!output.success) throw new Error(new TextDecoder().decode(output.stderr));
     return text.trim();
+}
+
+/** @param {string} name */
+async function forgetMnemosyneCollectionBestEffort(name) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2_000);
+    try {
+        await new Deno.Command("mnemosyne", {
+            args: ["forget", "--name", name, "--yes"],
+            stdout: "null",
+            stderr: "null",
+            signal: controller.signal,
+        }).output();
+    } catch {
+        // Best-effort test cleanup only.
+    } finally {
+        clearTimeout(timeout);
+    }
+}
+
+/** @param {string} cwd */
+async function cleanupHexMnemosyneCollections(cwd) {
+    const name = cwd.split(/[\\/]/).filter(Boolean).at(-1) || "";
+    if (!/^[0-9a-f]{16}$/.test(name)) return;
+    await forgetMnemosyneCollectionBestEffort(name);
+    await forgetMnemosyneCollectionBestEffort(`${name}:work-records`);
 }
 
 /**
@@ -1910,6 +1948,7 @@ Deno.test("runValidationLoop merges verified Plan metadata in Git and leaves the
         assertStringIncludes(await git(projectRoot, ["log", "-p", "--", "plans/git-plan.md"]), 'status: "verified"');
         assertEquals(await git(projectRoot, ["status", "--porcelain"]), "");
     } finally {
+        await cleanupHexMnemosyneCollections(projectRoot);
         await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
         await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
     }
@@ -1987,6 +2026,8 @@ Deno.test("runValidationLoop reapplies verified Plan metadata after real merge-c
                 updateWorktreeRegistryEntry: () => Promise.resolve({}),
                 shouldCleanupMergedWorktrees: () => false,
                 getCodeReviewMode: () => "none",
+                autoGenerateWorkRecordForCompletedPlan: () =>
+                    Promise.resolve({ status: "disabled", planName: "conflict-plan", message: "disabled" }),
                 recordWorkflowMetric: () => Promise.resolve(null),
             }),
         });
@@ -1999,6 +2040,7 @@ Deno.test("runValidationLoop reapplies verified Plan metadata after real merge-c
         assertEquals(await Deno.readTextFile(`${projectRoot}/conflict.txt`), "resolved\n");
     } finally {
         await git(projectRoot, ["merge", "--abort"]).catch(() => {});
+        await cleanupHexMnemosyneCollections(projectRoot);
         await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
         await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
     }
