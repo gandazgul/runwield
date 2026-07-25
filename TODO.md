@@ -2,7 +2,7 @@
 
 ## Bugs
 
-- [ ] Memories are being stored and then lost in worktrees, mnemosyne is full of collections named after work trees. the
+- [x] Memories are being stored and then lost in worktrees, mnemosyne is full of collections named after work trees. the
       memory_* tools should be worktree aware and store in the projects;s collection not a worktree's collection
 - [ ] CONTEXT-FORMAT file is not extracted on a fresh install.
 

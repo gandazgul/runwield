@@ -427,41 +427,45 @@ export async function listSkills(options = {}) {
     for (const layer of layers) {
         if (!(await directoryExists(layer.dir))) continue;
 
-        for await (const entry of Deno.readDir(layer.dir)) {
-            if (!entry.isDirectory) continue;
+        try {
+            for await (const entry of Deno.readDir(layer.dir)) {
+                if (!entry.isDirectory) continue;
 
-            const skillName = entry.name;
-            if (seen.has(skillName)) continue;
+                const skillName = entry.name;
+                if (seen.has(skillName)) continue;
 
-            const skillMdPath = join(layer.dir, entry.name, "SKILL.md");
-            if (!(await fileExists(skillMdPath))) continue;
+                const skillMdPath = join(layer.dir, entry.name, "SKILL.md");
+                if (!(await fileExists(skillMdPath))) continue;
 
-            try {
-                const raw = await Deno.readTextFile(skillMdPath);
-                /** @type {{ name?: string, description?: string, [key: string]: unknown }} */
-                let attrs = {};
-                if (hasFrontMatter(raw)) {
-                    attrs = extractYaml(raw).attrs;
+                try {
+                    const raw = await Deno.readTextFile(skillMdPath);
+                    /** @type {{ name?: string, description?: string, [key: string]: unknown }} */
+                    let attrs = {};
+                    if (hasFrontMatter(raw)) {
+                        attrs = extractYaml(raw).attrs;
+                    }
+
+                    const name = typeof attrs.name === "string" ? attrs.name.trim() : skillName;
+                    const description = typeof attrs.description === "string"
+                        ? attrs.description.trim()
+                        : "No description provided";
+                    const rawDisabled = attrs["disable-model-invocation"];
+                    const disableModelInvocation = rawDisabled === true || rawDisabled === "true";
+
+                    skills.push({
+                        name,
+                        description,
+                        path: skillMdPath,
+                        source: layer.source,
+                        disableModelInvocation,
+                    });
+                    seen.add(skillName);
+                } catch {
+                    // Ignore unreadable skills.
                 }
-
-                const name = typeof attrs.name === "string" ? attrs.name.trim() : skillName;
-                const description = typeof attrs.description === "string"
-                    ? attrs.description.trim()
-                    : "No description provided";
-                const rawDisabled = attrs["disable-model-invocation"];
-                const disableModelInvocation = rawDisabled === true || rawDisabled === "true";
-
-                skills.push({
-                    name,
-                    description,
-                    path: skillMdPath,
-                    source: layer.source,
-                    disableModelInvocation,
-                });
-                seen.add(skillName);
-            } catch {
-                // Ignore unreadable skills.
             }
+        } catch (error) {
+            if (!(error instanceof Deno.errors.NotFound)) throw error;
         }
     }
 
