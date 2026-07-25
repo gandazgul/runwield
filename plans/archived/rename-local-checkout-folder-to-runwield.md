@@ -22,9 +22,14 @@ affectedPaths:
     - "/Users/gandazgul/.codex/archived_sessions"
 frontend: false
 createdAt: "2026-07-10T09:36:24-04:00"
+updatedAt: "2026-07-25T22:09:44.920Z"
 status: "verified"
 origin: "internal"
-updatedAt: "2026-07-21T19:06:35.282Z"
+workRecord:
+    status: "generated"
+    recordId: "b73d647d-0706-4054-b7a3-7f132c8c20b9"
+    path: "docs/work-records/2026-07-25-local-checkout-renamed-to-runwield.md"
+    lastAttemptAt: "2026-07-25T22:09:34.206Z"
 archivedAt: "2026-07-21T19:06:35.282Z"
 archivedFromStatus: "verified"
 archivedFromPath: "plans/rename-local-checkout-folder-to-runwield.md"

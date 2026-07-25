@@ -19,11 +19,16 @@ affectedPaths:
     - "docs/workflows.md"
 frontend: false
 createdAt: "2026-07-17T22:07:19-04:00"
+updatedAt: "2026-07-25T22:09:15.290Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-07-18T15:01:49.331Z"
 verifiedAt: "2026-07-20T01:59:07.566Z"
-updatedAt: "2026-07-21T19:06:25.502Z"
+workRecord:
+    status: "generated"
+    recordId: "0e208d7f-c0e2-4732-a4a5-14802e0aee27"
+    path: "docs/work-records/2026-07-25-project-epics-and-delegated-agent-sessions.md"
+    lastAttemptAt: "2026-07-25T22:09:07.422Z"
 archivedAt: "2026-07-21T19:06:25.502Z"
 archivedFromStatus: "verified"
 archivedFromPath: "plans/delegated-agent-sessions-and-project-epic-cleanup.md"
