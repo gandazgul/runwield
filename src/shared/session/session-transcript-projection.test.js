@@ -30,7 +30,7 @@ Deno.test("committed projection verifies exact prefix and ignores later tail", a
         await Deno.mkdir(cwd, { recursive: true });
         const sessionDir = join(home, ".wld", "sessions", encodeCwdForSessionDir(cwd));
         await Deno.mkdir(sessionDir, { recursive: true });
-        const sessionPath = join(sessionDir, "pi-1.jsonl");
+        const sessionPath = join(sessionDir, "2026-01-01T00-00-00-000Z_pi-1.jsonl");
         const committed = [
             { type: "session", id: "pi-1", cwd, timestamp: "2026-01-01T00:00:00.000Z" },
             {
@@ -80,8 +80,13 @@ Deno.test("committed projection rejects mismatched evidence", async () => {
         await Deno.mkdir(cwd, { recursive: true });
         const sessionDir = join(home, ".wld", "sessions", encodeCwdForSessionDir(cwd));
         await Deno.mkdir(sessionDir, { recursive: true });
-        const sessionPath = join(sessionDir, "pi-1.jsonl");
-        const content = JSON.stringify({ type: "session", id: "pi-1", cwd }) + "\n";
+        const sessionPath = join(sessionDir, "2026-01-01T00-00-00-000Z_pi-1.jsonl");
+        const content = JSON.stringify({
+            type: "session",
+            id: "pi-1",
+            cwd,
+            timestamp: "2026-01-01T00:00:00.000Z",
+        }) + "\n";
         await Deno.writeTextFile(sessionPath, content);
         await assertRejects(
             () =>

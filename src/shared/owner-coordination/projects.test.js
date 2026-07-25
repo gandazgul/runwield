@@ -7,6 +7,7 @@ import {
     relinkProject,
     removeProject,
     requireEnabledProjectRoot,
+    restoreProject,
     setProjectEnabled,
 } from "./projects.js";
 
@@ -86,6 +87,51 @@ Deno.test("Project health is filesystem-based and non-Git directories are availa
         assertEquals(getProjectHealth(database, project.projectId).status, "available");
         await Deno.remove(root, { recursive: true });
         assertEquals(getProjectHealth(database, project.projectId).status, "missing");
+    } finally {
+        database.close();
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
+Deno.test("Project health reports unreadable registered roots distinctly from missing roots", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "runwield-project-unreadable-" });
+    const database = openOwnerCoordinationDatabase({ dbPath: `${dir}/owner.sqlite3` });
+    const root = `${dir}/repo`;
+    try {
+        await Deno.mkdir(root);
+        const project = registerProject(database, { root, idFactory: idFactory(), now: () => "t1" });
+        try {
+            Deno.chmodSync(root, 0o000);
+            assertEquals(getProjectHealth(database, project.projectId).status, "unreadable");
+        } finally {
+            Deno.chmodSync(root, 0o700);
+        }
+    } finally {
+        database.close();
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
+Deno.test("restoreProject only restores removed Projects", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "runwield-project-restore-" });
+    const database = openOwnerCoordinationDatabase({ dbPath: `${dir}/owner.sqlite3` });
+    try {
+        const root = `${dir}/repo`;
+        await Deno.mkdir(root);
+        const project = registerProject(database, { root, idFactory: idFactory(), now: () => "t1" });
+        assertThrows(
+            () => restoreProject(database, project.projectId, { now: () => "t2" }),
+            Error,
+            "not removed",
+        );
+        setProjectEnabled(database, project.projectId, false, { now: () => "t3" });
+        assertThrows(
+            () => restoreProject(database, project.projectId, { now: () => "t4" }),
+            Error,
+            "not removed",
+        );
+        removeProject(database, project.projectId, { now: () => "t5" });
+        assertEquals(restoreProject(database, project.projectId, { now: () => "t6" }).lifecycle, "enabled");
     } finally {
         database.close();
         await Deno.remove(dir, { recursive: true });

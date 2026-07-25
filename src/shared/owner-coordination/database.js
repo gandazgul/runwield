@@ -10,6 +10,7 @@ import {
     OWNER_COORDINATION_SCHEMA_V1_SQL,
     OWNER_COORDINATION_SCHEMA_V2_SQL,
     OWNER_COORDINATION_SCHEMA_V3_SQL,
+    OWNER_COORDINATION_SCHEMA_V4_SQL,
     OWNER_COORDINATION_SCHEMA_VERSION,
 } from "./schema.js";
 
@@ -101,6 +102,11 @@ export function runOwnerCoordinationMigrations(db, options = {}) {
         } else if (versionAtLock >= 3) {
             ensureDatabaseEpoch(db, options.now);
         }
+        if (versionAtLock < 4) {
+            assertSessionLocatorProjectConsistency(db);
+            db.exec(OWNER_COORDINATION_SCHEMA_V4_SQL);
+            recordMigration(db, 4, options.now);
+        }
         db.exec("COMMIT");
     } catch (error) {
         db.exec("ROLLBACK");
@@ -166,6 +172,24 @@ function ensureDatabaseEpoch(db, now) {
     );
 }
 
+/** @param {DatabaseSync} db */
+function assertSessionLocatorProjectConsistency(db) {
+    const table = db.prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'session_transcript_locators'",
+    ).get();
+    if (!table) return;
+    const row = db.prepare(
+        `SELECT COUNT(*) AS mismatches
+           FROM session_transcript_locators locators
+           JOIN runwield_sessions sessions
+             ON sessions.id = locators.runwield_session_id
+          WHERE sessions.project_id <> locators.project_id`,
+    ).get();
+    if (Number(row?.mismatches || 0) > 0) {
+        throw new Error("Owner coordination migration found Session transcript locators with mismatched Project IDs");
+    }
+}
+
 /** @param {string} path */
 function fileExists(path) {
     try {
@@ -187,7 +211,8 @@ function quoteSqlString(value) {
  */
 function backupPathFor(dbPath, sourceVersion, now) {
     const stamp = (now ? now() : new Date().toISOString()).replace(/[:.]/g, "-");
-    const suffix = extname(dbPath) || ".sqlite3";
+    const suffix = extname(dbPath);
+    if (!suffix) return `${dbPath}.backup-v${sourceVersion}-${stamp}.sqlite3`;
     const base = dbPath.slice(0, dbPath.length - suffix.length);
     return `${base}.backup-v${sourceVersion}-${stamp}${suffix}`;
 }

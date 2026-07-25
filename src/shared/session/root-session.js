@@ -277,8 +277,15 @@ export async function readCatalogSafeRootSessionLocator(options) {
         if (!headerCwd || !isAbsolute(headerCwd)) {
             throw new Error("Persisted session header is missing an absolute cwd");
         }
-        if (!basename(sessionPath).includes(piSessionId)) {
-            throw new Error("Persisted session filename does not contain the Pi session id");
+        const match = basename(sessionPath).match(
+            /^(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z)_(.+)\.jsonl$/,
+        );
+        if (!match || match[2] !== piSessionId) {
+            throw new Error("Persisted session filename does not exactly match the Pi session id");
+        }
+        const headerTimestamp = typeof header.timestamp === "string" ? header.timestamp : null;
+        if (headerTimestamp && match[1] !== headerTimestamp.replace(/[:.]/g, "-")) {
+            throw new Error("Persisted session filename timestamp does not match the session header");
         }
         return {
             cwd: options.cwd,
