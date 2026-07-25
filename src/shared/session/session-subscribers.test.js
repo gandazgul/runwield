@@ -92,6 +92,26 @@ Deno.test("session subscriber emits thinking, message, status, error, usage, and
     assertEquals(events.filter((event) => event.type === "assistant_thinking_end").length, 1);
 });
 
+Deno.test("plan_written tool start ends active thinking before waiting for review", () => {
+    const { session, emit } = makeSubscribableSession();
+    const { hostedSession, events } = makeRuntimeHarness("subscriber-plan-written-thinking");
+    attachSessionEventSubscribers(session, agentDef, undefined, hostedSession);
+
+    emit({ type: "turn_start", turnId: "plan-turn" });
+    emit({ type: "message_start", message: { id: "assistant-plan", role: "assistant" } });
+    emit({ type: "message_update", assistantMessageEvent: { type: "thinking_delta", delta: "reviewing" } });
+    emit({ type: "tool_execution_start", toolCallId: "tool-plan", toolName: "plan_written", args: { planName: "p" } });
+
+    assertEquals(events.map((event) => event.type), [
+        "turn_start",
+        "assistant_thinking_delta",
+        "assistant_thinking_end",
+        "attention_requested",
+        "tool_start",
+    ]);
+    assertEquals(events[2].messageId, events[1].messageId);
+});
+
 Deno.test("session subscriber maps one Pi tool lifecycle to one runtime tool lifecycle", () => {
     const { session, emit, unsubscribed } = makeSubscribableSession();
     const { hostedSession, events } = makeRuntimeHarness("subscriber-tools");
