@@ -22,18 +22,11 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-25T17:04:00-04:00"
-updatedAt: "2026-07-25T22:22:19.258Z"
-status: "in_progress"
+updatedAt: "2026-07-25T22:34:58.055Z"
+status: "implemented"
 origin: "internal"
-humanReviewMode: null
-humanReviewDecision: null
-executionMode: "worktree"
-executionBaselineTree: "412a5de3d7d5f8090036de1ba37a72990f022390"
-worktreeId: "fc9b87ef"
-worktreePath: "/Users/gandazgul/.wld/worktrees/--Users-gandazgul-Documents-web-runwield--/runwield-runwield-recover-interrupted-plan-review-fc9b87ef"
-worktreeBranch: "runwield/worktree/recover-interrupted-plan-review-fc9b87ef"
-worktreeBaseBranch: "main"
-worktreeStatus: "active"
+failureReason: "Execution worktree fc9b87ef does not contain Plan recover-interrupted-plan-review."
+worktreeStatus: "validation_failed"
 ---
 
 # Recover Interrupted Plan Review
