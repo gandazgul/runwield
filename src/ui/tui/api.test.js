@@ -162,6 +162,9 @@ Deno.test("createUiApi does not hide duplicate tool-start events", () => {
         messageList.children.filter((/** @type {any} */ child) => child instanceof ToolExecutionBlock).length,
         2,
     );
+
+    first.endExecution(false, 1);
+    second.endExecution(false, 1);
 });
 
 Deno.test("createUiApi toggles one transient keyboard-help block outside the message list", () => {
@@ -202,17 +205,22 @@ Deno.test("createUiApi adds and removes exact queued-message blocks by runtime i
     assertEquals(messageList.children, []);
 });
 
-Deno.test("createUiApi renders live elapsed tool time and stops after completion", async () => {
+Deno.test("createUiApi renders live elapsed tool time immediately and stops after completion", async () => {
     const harness = makeTuiHarness();
     const timedUi = /** @type {any} */ (createUiApi(harness.tui, harness.messageList, new SpinnerBlock()));
     const tool = /** @type {import('./blocks.js').ToolExecutionBlock} */ (
         timedUi.startToolExecution("tool-timer", "bash", "$ sleep 1")
     );
-    await new Promise((resolve) => setTimeout(resolve, 650));
+
+    const initialPlain = tool.render(100).map((line) => stripAnsi(line)).join("\n");
+    assertEquals(initialPlain.includes("Elapsed time: 0.0s"), true);
+    const initialRenders = harness.renders();
+
+    await new Promise((resolve) => setTimeout(resolve, 250));
 
     const plain = tool.render(100).map((line) => stripAnsi(line)).join("\n");
     assertEquals(plain.includes("Elapsed time:"), true);
-    assertEquals(harness.renders() > 1, true);
+    assertEquals(harness.renders() > initialRenders, true);
 
     const beforeEndRenders = harness.renders();
     tool.endExecution(false, 700);
