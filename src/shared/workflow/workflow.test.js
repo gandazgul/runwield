@@ -12,6 +12,7 @@ import {
     runSlicerAgent,
     startActiveExecutionWorkflow,
 } from "./workflow.js";
+import { SESSION_COMPLETE_GUIDANCE } from "./plan-review-recovery.js";
 import { HostedSession } from "../session/hosted-session.js";
 import { runActiveAgentTurn } from "../session/agent-switching.js";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
@@ -536,6 +537,81 @@ Deno.test("executePlan refuses persisted Epic containers even when triage meta o
     assertEquals(result.executionComplete, false);
     assertEquals(engineerCalled, false);
     assertStringIncludes(result.error || "", "PROJECT Epic container");
+});
+
+Deno.test("executePlan asks to reopen review when approved Plan cannot be loaded", async () => {
+    const hostedSession = makeHostedSession("missing-plan-recovery");
+    const requests = /** @type {string[]} */ ([]);
+    const result = await executePlan({
+        planName: "missing-plan",
+        triageMeta: { classification: "FEATURE" },
+        hostedSession,
+        __deps: {
+            loadPlan: () => Promise.resolve(null),
+            requestPlanReview: (_session, request) => {
+                requests.push(request.type);
+                if (request.type === "approval") return Promise.resolve({ outcome: "canceled", value: false });
+                return Promise.resolve({ outcome: "canceled" });
+            },
+            recordWorkflowMetric: () => Promise.resolve(null),
+        },
+    });
+
+    assertEquals(requests, ["plan_review", "approval"]);
+    assertEquals(result.intentionalComplete, true);
+    assertEquals(result.message, SESSION_COMPLETE_GUIDANCE);
+});
+
+Deno.test("executePlan retries execution after missing Plan recovery is approved", async () => {
+    const hostedSession = makeHostedSession("missing-plan-reapproved");
+    let loadCount = 0;
+    let executed = false;
+    const result = await executePlan({
+        planName: "missing-plan",
+        triageMeta: { classification: "FEATURE" },
+        hostedSession,
+        __deps: {
+            loadPlan: () => {
+                loadCount++;
+                if (loadCount === 1) return Promise.resolve(null);
+                return Promise.resolve(
+                    /** @type {any} */ ({
+                        path: "/repo/plans/missing-plan.md",
+                        markdown: "# Plan",
+                        body: "# Plan",
+                        attrs: { classification: "FEATURE", status: "ready_for_work" },
+                    }),
+                );
+            },
+            requestPlanReview: (_session, request) => {
+                if (request.type === "approval") return Promise.resolve({ outcome: "accepted", value: true });
+                return Promise.resolve({ outcome: "accepted", _meta: { approved: true, approvalAction: "run" } });
+            },
+            executeSingleEngineerPlan: () => {
+                executed = true;
+                return Promise.resolve({
+                    repairRequired: false,
+                    executionComplete: true,
+                    executionContext: {
+                        planName: "missing-plan",
+                        triageMeta: { classification: "FEATURE" },
+                        executionAgent: "engineer",
+                        executionMode: "non_git_in_place",
+                        projectRoot: Deno.cwd(),
+                        executionCwd: Deno.cwd(),
+                        nonGitInPlace: true,
+                    },
+                });
+            },
+            markActiveWorktreeStatus: () => Promise.resolve(),
+            checkpointExecutionWorktree: () => Promise.resolve({ executionCommit: "commit" }),
+            recordPlanEvent: () => Promise.resolve(/** @type {any} */ ({})),
+            recordWorkflowMetric: () => Promise.resolve(null),
+        },
+    });
+
+    assertEquals(executed, true);
+    assertEquals(result.executionComplete, true);
 });
 
 Deno.test("finalizePlanImplementation checkpoints worktree changes before lifecycle completion", async () => {

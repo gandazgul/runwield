@@ -30,6 +30,12 @@ import {
     RuntimeInteractionOutcomes,
     RuntimeInteractionTypes,
 } from "../shared/session/session-runtime-interactions.js";
+import {
+    appendSessionCompleteGuidance,
+    requestPlanReviewRetryConfirmation,
+    requestRecoverablePlanReview,
+    SESSION_COMPLETE_GUIDANCE,
+} from "../shared/workflow/plan-review-recovery.js";
 
 /**
  * @typedef {{
@@ -298,18 +304,47 @@ export function createPlanWrittenTool(
                 return recordWorkflowMetricSource(metric, { cwd });
             }
 
-            const reviewResponse = await requestPlanReview(hostedSession, {
-                type: RuntimeInteractionTypes.PLAN_REVIEW,
-                prompt: `Review plan "${planName}"`,
-                _meta: {
-                    cwd,
-                    planName,
-                    planPath,
-                    triageMeta: effectiveMeta,
-                    onOutput: onReviewServerOutput,
-                    onSurfaceReady: onReviewSurfaceReady,
+            const recoverableReview = await requestRecoverablePlanReview({
+                requestReview: () =>
+                    requestPlanReview(hostedSession, {
+                        type: RuntimeInteractionTypes.PLAN_REVIEW,
+                        prompt: `Review plan "${planName}"`,
+                        _meta: {
+                            cwd,
+                            planName,
+                            planPath,
+                            triageMeta: effectiveMeta,
+                            onOutput: onReviewServerOutput,
+                            onSurfaceReady: onReviewSurfaceReady,
+                        },
+                    }),
+                requestRetry: (details) =>
+                    requestPlanReviewRetryConfirmation(hostedSession, requestPlanReview, details),
+                onUnanswered: ({ reason }) => {
+                    updateToolBlock(`Plan review ended without an answer (${reason}). Asking whether to review again.`);
                 },
             });
+            if (recoverableReview.kind === "complete") {
+                updateToolBlock("Plan review ended without an answer and was not reopened.");
+                emitSystemStatus(hostedSession, SESSION_COMPLETE_GUIDANCE, { header: "RunWield" });
+                await recordWorkflowMetricFn({
+                    category: "planning",
+                    event: "review_outcome",
+                    agentName,
+                    planName,
+                    details: {
+                        outcome: "canceled",
+                        classification: effectiveMeta.classification,
+                        reason: recoverableReview.reason,
+                    },
+                });
+                return textResult(
+                    `${SESSION_COMPLETE_GUIDANCE}\n\nYour role as ${agentName} is complete. Do not generate any further text.`,
+                    { ...params, outcome: "canceled", reason: recoverableReview.reason },
+                    true,
+                );
+            }
+            const reviewResponse = recoverableReview.response;
             updateToolBlock("Plan review decision received.");
             const reviewMeta = /** @type {any} */ (reviewResponse._meta || {});
             const reviewResult = {
@@ -432,14 +467,18 @@ export function createPlanWrittenTool(
                     });
                     emitSystemStatus(
                         hostedSession,
-                        `Plan saved. Resume later with: ${CLI_BIN} load-plan ${planName}`,
+                        appendSessionCompleteGuidance(
+                            `Plan saved. Resume later with: ${CLI_BIN} load-plan ${planName}`,
+                        ),
                         { header: "RunWield" },
                     );
                     const savedFeedbackSuffix = reviewResult.feedback
                         ? `\n\nFeedback/annotations from review: ${reviewResult.feedback}`
                         : "";
                     return textResult(
-                        `Plan "${planName}" approved and saved for later decomposition. Your role as ${agentName} is complete. Do not generate any further text.${savedFeedbackSuffix}`,
+                        appendSessionCompleteGuidance(
+                            `Plan "${planName}" approved and saved for later decomposition. Your role as ${agentName} is complete. Do not generate any further text.${savedFeedbackSuffix}`,
+                        ),
                         {
                             ...params,
                             outcome: "saved",
@@ -509,14 +548,16 @@ export function createPlanWrittenTool(
                 });
                 emitSystemStatus(
                     hostedSession,
-                    `Plan saved. Resume later with: ${CLI_BIN} resume ${planName}`,
+                    appendSessionCompleteGuidance(`Plan saved. Resume later with: ${CLI_BIN} resume ${planName}`),
                     { header: "RunWield" },
                 );
                 const savedFeedbackSuffix = reviewResult.feedback
                     ? `\n\nFeedback/annotations from review: ${reviewResult.feedback}`
                     : "";
                 return textResult(
-                    `Plan "${planName}" approved and saved for later execution. Your role as ${agentName} is complete. Do not generate any further text.${savedFeedbackSuffix}`,
+                    appendSessionCompleteGuidance(
+                        `Plan "${planName}" approved and saved for later execution. Your role as ${agentName} is complete. Do not generate any further text.${savedFeedbackSuffix}`,
+                    ),
                     {
                         ...params,
                         outcome: "saved",

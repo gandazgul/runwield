@@ -538,6 +538,24 @@ export async function dispatchPostTriage(
             planName,
             details: summarizeWorkflowDecision(executionDecision),
         });
+        if (executionDecision.kind === "complete_session") {
+            if (typeof executionDecision.payload.message === "string" && executionDecision.payload.message) {
+                emitSystemStatus(hostedSession, executionDecision.payload.message, { header: "RunWield" });
+            }
+            await recordWorkflowMetricImpl({
+                category: "execution",
+                event: "feature_project_outcome",
+                agentName,
+                planName,
+                details: {
+                    routingIntent: normalizedTriage.routingIntent,
+                    outcome: "session_complete",
+                    executionDecisionKind: executionDecision.kind,
+                    reason: executionDecision.payload.reason,
+                },
+            });
+            return;
+        }
         if (executionDecision.kind === "run_validation") {
             const plan = await loadPlanImpl(projectRoot, planName);
             if (shouldRunWorkflowValidationImpl(decisionTriageMeta)) {
