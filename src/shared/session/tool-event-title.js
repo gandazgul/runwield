@@ -127,8 +127,6 @@ function formatToolEventTitle(toolName, args) {
     } else if (toolName === "task_completed") {
         const message = args?.message || "";
         headerArgs = message.length > 60 ? message.slice(0, 57) + "..." : message;
-    } else if (toolName === "return_to_router") {
-        headerArgs = "to router";
     } else if (toolName === "delegate_agent") {
         const brief = String(args?.brief || "").trim();
         const preview = brief.length > 60 ? brief.slice(0, 57) + "..." : brief;
