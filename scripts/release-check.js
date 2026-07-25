@@ -5,15 +5,10 @@
 
 import { join } from "@std/path";
 
-export const BUNDLED_AGENT_REFERENCE_FILES = Object.freeze([
-    "ADR-FORMAT.md",
-    "CONTEXT-FORMAT.md",
-    "architect-plan-format.md",
-    "planner-plan-format.md",
-]);
-
-const BUNDLED_AGENT_REFERENCE_SOURCE_DIR = join("src", "agent-definitions", "document-formats");
-const BUNDLED_AGENT_REFERENCE_CACHE_DIR = join(".wld", "bundled-agent-definitions", "document-formats");
+const BUNDLED_AGENT_DEFS_SOURCE_DIR = join("src", "agent-definitions");
+const BUNDLED_AGENT_DEFS_CACHE_DIR = join(".wld", "bundled-agent-definitions");
+const DOCUMENT_FORMATS_DIR = "document-formats";
+const BUNDLED_AGENT_DEFS_REFERENCE_PATTERN = /\{\{BUNDLED_AGENT_DEFS_DIR\}\}\/([^\s`)]+\.md)/g;
 
 /**
  * @typedef {Object} RunResult
@@ -171,12 +166,46 @@ export async function assertReviewAssetsLoad(pageUrl, html) {
 }
 
 /**
+ * @param {string} rootDir
+ * @param {string} [relativeDir]
+ * @returns {Promise<string[]>}
+ */
+async function collectMarkdownFiles(rootDir, relativeDir = "") {
+    const files = [];
+    const currentDir = relativeDir ? join(rootDir, ...relativeDir.split("/")) : rootDir;
+    for await (const entry of Deno.readDir(currentDir)) {
+        const relativePath = relativeDir ? `${relativeDir}/${entry.name}` : entry.name;
+        if (entry.isDirectory) files.push(...await collectMarkdownFiles(rootDir, relativePath));
+        else if (entry.isFile && entry.name.endsWith(".md")) files.push(relativePath);
+    }
+    return files.sort();
+}
+
+/**
+ * @returns {Promise<string[]>}
+ */
+export async function collectBundledAgentReferenceFiles() {
+    const references = new Set();
+
+    for (const filePath of await collectMarkdownFiles(join(BUNDLED_AGENT_DEFS_SOURCE_DIR, DOCUMENT_FORMATS_DIR))) {
+        references.add(`${DOCUMENT_FORMATS_DIR}/${filePath}`);
+    }
+
+    for (const filePath of await collectMarkdownFiles(BUNDLED_AGENT_DEFS_SOURCE_DIR)) {
+        const text = await Deno.readTextFile(join(BUNDLED_AGENT_DEFS_SOURCE_DIR, filePath));
+        for (const match of text.matchAll(BUNDLED_AGENT_DEFS_REFERENCE_PATTERN)) references.add(match[1]);
+    }
+
+    return [...references].sort();
+}
+
+/**
  * @param {string} homeDir
  */
 export async function assertExtractedBundledAgentReferenceFiles(homeDir) {
-    for (const fileName of BUNDLED_AGENT_REFERENCE_FILES) {
-        const sourcePath = join(BUNDLED_AGENT_REFERENCE_SOURCE_DIR, fileName);
-        const extractedPath = join(homeDir, BUNDLED_AGENT_REFERENCE_CACHE_DIR, fileName);
+    for (const relativePath of await collectBundledAgentReferenceFiles()) {
+        const sourcePath = join(BUNDLED_AGENT_DEFS_SOURCE_DIR, relativePath);
+        const extractedPath = join(homeDir, BUNDLED_AGENT_DEFS_CACHE_DIR, relativePath);
         let source;
         let extracted;
         try {
