@@ -1,4 +1,5 @@
 import { assertEquals } from "@std/assert";
+import { join } from "@std/path";
 
 /**
  * @param {string} dir
@@ -20,7 +21,8 @@ async function* walkJsFiles(dir, includeTests = false) {
 Deno.test("production code does not import removed mutable session-state singleton", async () => {
     /** @type {string[]} */
     const matches = [];
-    for await (const path of walkJsFiles("src")) {
+    const root = import.meta.dirname ?? Deno.cwd();
+    for await (const path of walkJsFiles(join(root, "..", "..", "..", "src"))) {
         const source = await Deno.readTextFile(path);
         if (source.includes("session-state.js")) matches.push(path);
     }
@@ -31,7 +33,9 @@ Deno.test("production code does not import removed mutable session-state singlet
 Deno.test("shared core and tools never import UI or ACP adapters", async () => {
     /** @type {string[]} */
     const matches = [];
-    for (const root of ["src/shared", "src/tools"]) {
+    const base = import.meta.dirname ?? Deno.cwd();
+    const projectRoot = join(base, "..", "..", "..");
+    for (const root of [join(projectRoot, "src", "shared"), join(projectRoot, "src", "tools")]) {
         for await (const path of walkJsFiles(root, true)) {
             const source = await Deno.readTextFile(path);
             if (/from\s+["'][^"']*(?:\/ui\/|\/acp\/)/.test(source)) matches.push(path);

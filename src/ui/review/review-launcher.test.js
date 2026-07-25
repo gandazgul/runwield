@@ -1,4 +1,9 @@
 import { assertEquals } from "@std/assert";
+
+// Disable Astro built server import to avoid stale-dist race conditions
+// when tests run in parallel with workspace:build.
+Deno.env.set("WLD_WORKSPACE_DISABLE_BUILT_SERVER", "1");
+
 import {
     startArtifactReadSurface,
     startCodeReviewSurface,
