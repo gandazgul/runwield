@@ -93,17 +93,20 @@ function textResult(text, details, terminate, images = []) {
 }
 
 /**
- * @param {{ planName: string, planPath: string, status: string, output?: string }} opts
+ * @param {{ planName: string, planPath: string, status: string, reviewUrl?: string, output?: string }} opts
  * @returns {string}
  */
-function buildPlanWrittenToolOutput({ planName, planPath, status, output = "" }) {
+function buildPlanWrittenToolOutput({ planName, planPath, status, reviewUrl, output = "" }) {
     const planDisplayPath = `${PLANS_DIR_NAME}/${planName}.md`;
     const lines = [
-        `Plan: ${planDisplayPath}`,
+        `Plan declared: ${planDisplayPath}`,
+    ];
+    if (reviewUrl) lines.push(`To review open a browser to: ${reviewUrl}`);
+    lines.push(
         `File URL: ${toFileUrl(planPath).href}`,
         `Path: ${planPath}`,
         `Status: ${status}`,
-    ];
+    );
     const trimmedOutput = output.trimEnd();
     if (trimmedOutput) lines.push("", "Review server output:", trimmedOutput);
     return `${lines.join("\n")}\n`;
@@ -259,17 +262,28 @@ export function createPlanWrittenTool(
                 triageMeta: effectiveMeta,
             };
             let reviewServerOutput = "";
+            let reviewUrl = "";
             const updateToolBlock = (/** @type {string} */ status) => {
                 emitToolUpdate(
                     onUpdate,
                     textResult(
-                        buildPlanWrittenToolOutput({ planName, planPath, status, output: reviewServerOutput }),
-                        planDetails,
+                        buildPlanWrittenToolOutput({
+                            planName,
+                            planPath,
+                            status,
+                            reviewUrl,
+                            output: reviewServerOutput,
+                        }),
+                        { ...planDetails, ...(reviewUrl && { reviewUrl }) },
                     ),
                 );
             };
             const onReviewServerOutput = (/** @type {{ stream: "stdout" | "stderr", text: string }} */ entry) => {
                 reviewServerOutput += `[${entry.stream}] ${entry.text}`;
+                updateToolBlock("Waiting for plan review decision.");
+            };
+            const onReviewSurfaceReady = (/** @type {{ url: string }} */ surface) => {
+                reviewUrl = surface.url;
                 updateToolBlock("Waiting for plan review decision.");
             };
 
@@ -287,7 +301,14 @@ export function createPlanWrittenTool(
             const reviewResponse = await requestPlanReview(hostedSession, {
                 type: RuntimeInteractionTypes.PLAN_REVIEW,
                 prompt: `Review plan "${planName}"`,
-                _meta: { cwd, planName, planPath, triageMeta: effectiveMeta, onOutput: onReviewServerOutput },
+                _meta: {
+                    cwd,
+                    planName,
+                    planPath,
+                    triageMeta: effectiveMeta,
+                    onOutput: onReviewServerOutput,
+                    onSurfaceReady: onReviewSurfaceReady,
+                },
             });
             updateToolBlock("Plan review decision received.");
             const reviewMeta = /** @type {any} */ (reviewResponse._meta || {});
