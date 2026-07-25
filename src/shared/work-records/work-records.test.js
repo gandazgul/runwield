@@ -64,15 +64,35 @@ function skipWorkRecordIndexCommand(_command, args) {
     return Promise.resolve(ok(""));
 }
 
+/**
+ * @param {string} name
+ * @returns {Promise<void>}
+ */
+async function forgetMnemosyneCollectionBestEffort(name) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2_000);
+    try {
+        await new Deno.Command("mnemosyne", {
+            args: ["forget", "--name", name, "--yes"],
+            stdout: "null",
+            stderr: "null",
+            signal: controller.signal,
+        }).output();
+    } catch {
+        // Best-effort cleanup only; filesystem cleanup below is still required.
+    } finally {
+        clearTimeout(timeout);
+    }
+}
+
 /** @param {string} cwd */
 async function cleanupTempProject(cwd) {
     const name = cwd.split(/[\/]/).filter(Boolean).at(-1) || "";
     if (/^[0-9a-f]{16}$/.test(name)) {
-        await new Deno.Command("mnemosyne", { args: ["forget", "--name", name, "--yes"] }).output().catch(() => null);
-        await new Deno.Command("mnemosyne", { args: ["forget", "--name", `${name}:work-records`, "--yes"] }).output()
-            .catch(() => null);
+        await forgetMnemosyneCollectionBestEffort(name);
+        await forgetMnemosyneCollectionBestEffort(`${name}:work-records`);
     }
-    await cleanupTempProject(cwd);
+    await Deno.remove(cwd, { recursive: true });
 }
 
 /**
