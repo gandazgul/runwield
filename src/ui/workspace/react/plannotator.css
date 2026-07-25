@@ -105,7 +105,6 @@ html[class*="theme-"] {
     align-items: end;
     gap: 0.45rem;
     padding-inline: 0.35rem;
-    border-inline: 1px solid var(--rw-border);
 }
 
 .rw-plan-review-segmented-policy {

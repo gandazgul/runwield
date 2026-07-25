@@ -93,22 +93,18 @@ function textResult(text, details, terminate, images = []) {
 }
 
 /**
- * @param {{ planName: string, planPath: string, status: string, reviewUrl?: string, output?: string }} opts
+ * @param {{ planName: string, status: string, reviewUrl?: string }} opts
  * @returns {string}
  */
-function buildPlanWrittenToolOutput({ planName, planPath, status, reviewUrl, output = "" }) {
+function buildPlanWrittenToolOutput({ planName, status, reviewUrl }) {
     const planDisplayPath = `${PLANS_DIR_NAME}/${planName}.md`;
     const lines = [
-        `Plan declared: ${planDisplayPath}`,
+        `Plan name: ${planDisplayPath}`,
     ];
     if (reviewUrl) lines.push(`To review open a browser to: ${reviewUrl}`);
     lines.push(
-        `File URL: ${toFileUrl(planPath).href}`,
-        `Path: ${planPath}`,
         `Status: ${status}`,
     );
-    const trimmedOutput = output.trimEnd();
-    if (trimmedOutput) lines.push("", "Review server output:", trimmedOutput);
     return `${lines.join("\n")}\n`;
 }
 
@@ -261,7 +257,6 @@ export function createPlanWrittenTool(
                 planFileUrl: toFileUrl(planPath).href,
                 triageMeta: effectiveMeta,
             };
-            let reviewServerOutput = "";
             let reviewUrl = "";
             const updateToolBlock = (/** @type {string} */ status) => {
                 emitToolUpdate(
@@ -269,17 +264,14 @@ export function createPlanWrittenTool(
                     textResult(
                         buildPlanWrittenToolOutput({
                             planName,
-                            planPath,
                             status,
                             reviewUrl,
-                            output: reviewServerOutput,
                         }),
                         { ...planDetails, ...(reviewUrl && { reviewUrl }) },
                     ),
                 );
             };
-            const onReviewServerOutput = (/** @type {{ stream: "stdout" | "stderr", text: string }} */ entry) => {
-                reviewServerOutput += `[${entry.stream}] ${entry.text}`;
+            const onReviewServerOutput = () => {
                 updateToolBlock("Waiting for plan review decision.");
             };
             const onReviewSurfaceReady = (/** @type {{ url: string }} */ surface) => {
@@ -287,7 +279,7 @@ export function createPlanWrittenTool(
                 updateToolBlock("Waiting for plan review decision.");
             };
 
-            emitSystemStatus(hostedSession, `[RunWield] Plan declared: plans/${planName}.md`);
+            emitSystemStatus(hostedSession, `[RunWield] Plan name: plans/${planName}.md`);
             updateToolBlock("Opening browser review UI.");
 
             const requestPlanReview = deps.requestPlanReview || requestHostedSessionInteraction;

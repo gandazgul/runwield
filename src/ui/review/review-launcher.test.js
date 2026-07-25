@@ -52,6 +52,26 @@ Deno.test("stopActiveReviewSurfaces stops active plan and code review servers", 
     assertEquals(codeStops, 1);
 });
 
+Deno.test("plan review surface reports URL before opening the browser", async () => {
+    const surfaces = /** @type {any[]} */ ([]);
+    const server = await startPlanReviewSurface({
+        cwd: Deno.cwd(),
+        plan: "# Plan",
+        planPath: "plans/example.md",
+        openInDefaultBrowser: (url) => {
+            assertEquals(surfaces, [{ url, opened: false }]);
+            return Promise.resolve(true);
+        },
+        onSurfaceReady: (surface) => surfaces.push(surface),
+    });
+    const decision = server.waitForDecision();
+
+    await server.stop();
+
+    assertEquals(surfaces, [{ url: server.url, opened: false }]);
+    assertEquals(await decision, { approved: false, feedback: "", exit: true, canceled: true });
+});
+
 Deno.test("review surface stop unregisters the server from process-exit cleanup", async () => {
     let stops = 0;
     const server = await startPlanReviewSurface({
