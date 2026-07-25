@@ -5,8 +5,12 @@
 - [x] Memories are being stored and then lost in worktrees, mnemosyne is full of collections named after work trees. the
       memory_* tools should be worktree aware and store in the projects;s collection not a worktree's collection
 - [ ] CONTEXT-FORMAT file is not extracted on a fresh install.
-
-- [ ] P0 before marking a plan as verified we need to check that: all changes in the worktree were actually committed,
+- [ ] Implement auto update and wld update
+- [ ] During init guess the probable ci command, maybe more than 1 choice, when asking the user that the ci command is
+      offer the ones found by init plus None which will not do mechanical validation (with a warning) and Other to let
+      the user type a command. Then store the choice.
+- [ ] Investigate notification sounds
+- [x] P0 before marking a plan as verified we need to check that: all changes in the worktree were actually committed,
       then that main's HEAD is not the same as the plan's base commit, then that the plan's base commit is an ancestor
       of main's HEAD. If any of these checks fail, it should dispatch engineer back to fix the merge issues before
       checking again.
