@@ -71,6 +71,8 @@ export function attachTuiRuntimeAdapter({
     let validationSessionActive = false;
     let terminalValidationPanelVisible = false;
     let hiddenValidationReportCached = false;
+    /** @type {string | null} */
+    let pendingReturnToRouterUserMessage = null;
     /** @type {Set<string>} */
     const seenProjectedEventIds = new Set();
     const shouldCacheValidationReport = () => {
@@ -89,6 +91,12 @@ export function attachTuiRuntimeAdapter({
                 onSessionReplaced?.({ oldSessionId: value.oldSessionId, newSessionId: value.newSessionId });
                 break;
             case RuntimeEventTypes.USER_MESSAGE:
+                if (pendingReturnToRouterUserMessage !== null) {
+                    const isProjectedRouterHandoff = value.text === pendingReturnToRouterUserMessage &&
+                        Array.isArray(value.images) && value.images.length === 0;
+                    pendingReturnToRouterUserMessage = null;
+                    if (isProjectedRouterHandoff) break;
+                }
                 if (terminalValidationPanelVisible) {
                     uiAPI.clearValidationPanel?.();
                     terminalValidationPanelVisible = false;
@@ -175,8 +183,13 @@ export function attachTuiRuntimeAdapter({
             }
             case RuntimeEventTypes.TOOL_END: {
                 const block = uiAPI.getActiveToolBlock?.(value.toolCallId);
+                const returnToRouterReason = value.toolName === "return_to_router" &&
+                        typeof value.details?.reason === "string"
+                    ? value.details.reason
+                    : null;
+                if (returnToRouterReason) pendingReturnToRouterUserMessage = returnToRouterReason;
                 if (block) {
-                    block.setOutput(value.output);
+                    block.setOutput(returnToRouterReason || value.output);
                     block.endExecution(value.isError, value.durationMs);
                 }
                 break;
