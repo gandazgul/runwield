@@ -1,0 +1,611 @@
+// deno-lint-ignore-file no-unused-vars
+import { assertEquals, assertStringIncludes } from "@std/assert";
+import { DatabaseSync } from "node:sqlite";
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { loadPlanBodyById, savePlan } from "../../plan-store.js";
+import { PLAN_UI_TOKEN_HEADER } from "../../constants.js";
+import {
+    applyWorkspaceLifecycleActionInMemory,
+    buildBoardGroups,
+    buildWorkspaceBoard,
+    loadBoard,
+    loadPlanSummaries,
+    loadWorkspaceDetail,
+    runWorkspaceResumeCheck,
+    serializePlanSummary,
+    workspaceMetadata as _workspaceMetadata,
+} from "./server/plan-adapter.js";
+import { buildPlanBoardSearchIndex, PlanBoard } from "./components/Board.jsx";
+import { PlanBoardToolbar } from "./components/PlanBoardToolbar.jsx";
+import { renderMarkdown } from "./components/MarkdownView.jsx";
+import { PlanDetail } from "./components/PlanDetail.jsx";
+import { detailHref, workspaceHref } from "./components/PlanCard.jsx";
+import { draftRecoveryState, planBodyDraftKey, restoredDraftExpectedBodyHash } from "./islands/PlanBodyEditor.jsx";
+import { blockedDropMessage, isAllowedDropTarget, parseAllowedTargetStatuses } from "./islands/PlanBoardDragDrop.jsx";
+import { matchingPlanIds, normalizePlanSearchQuery, PLAN_SEARCH_QUERY_PARAM } from "./islands/PlanBoardSearch.jsx";
+import {
+    createCloseWithoutVerificationIntent,
+    createMoveStatusIntent,
+    createPutOnHoldIntent,
+    lifecycleActionLabel,
+} from "./islands/PlanLifecycleActions.jsx";
+import {
+    main as runRemoteServerMain,
+    parseMaxRequestBytes,
+    parsePort,
+    parseRetentionDays,
+    readRemoteServerConfig,
+} from "./remote-server.js";
+import { handleRemoteSpaceApi } from "./server/remote-dev-api.js";
+import { isRemoteDevelopmentModeEnabled } from "./server/remote-mode.js";
+import { renderRunWieldThemeCss } from "../design-system/theme-bridge.js";
+import {
+    createReviewWorkspaceApp,
+    createWorkspaceApp,
+    hasWorkspaceToken,
+    startReviewWorkspaceServer,
+} from "./server.js";
+import { COLLABORATION_STATE_REMOTE_CANONICAL } from "../../shared/collaboration/lock.js";
+import { createReviewAgentState, reviewAgentApi } from "./routes/api/review-agent-handlers.js";
+import { hashCapability } from "../../shared/collaboration/capabilities.js";
+import { openRemoteDatabase } from "./server/remote-db.js";
+import { createRemoteWorkspaceAdapter } from "./server/remote-adapter.js";
+import { REMOTE_SCHEMA_V1_SQL } from "./server/remote-schema.js";
+import { registerReviewDecisionPromise, unregisterReviewDecision } from "./routes/api/review-handlers.js";
+import {
+    buildRemoteCommentPayload,
+    normalizeRemoteCommentPayload,
+    remoteCommentToPlannotatorAnnotation,
+} from "./react/remote-review-payload.js";
+import { RemoteCommentStateList } from "./react/RemoteCommentStateList.jsx";
+
+/**
+ * @param {Record<string, string | undefined>} values
+ * @returns {Deno.Env}
+ */
+function createTestEnv(values) {
+    return {
+        get(key) {
+            return values[key];
+        },
+        set(key, value) {
+            values[key] = value;
+        },
+        delete(key) {
+            delete values[key];
+        },
+        has(key) {
+            return values[key] !== undefined;
+        },
+        toObject() {
+            /** @type {Record<string, string>} */
+            const result = {};
+            for (const [key, value] of Object.entries(values)) {
+                if (value !== undefined) result[key] = value;
+            }
+            return result;
+        },
+    };
+}
+
+/**
+ * @param {Request} request
+ * @returns {import("astro").APIContext}
+ */
+function createTestApiContext(request) {
+    return /** @type {import("astro").APIContext} */ ({ request });
+}
+
+/**
+ * @param {string} cwd
+ * @param {string[]} args
+ */
+async function git(cwd, args) {
+    const command = new Deno.Command("git", { args, cwd, stdout: "piped", stderr: "piped" });
+    const output = await command.output();
+    if (!output.success) {
+        const decoder = new TextDecoder();
+        throw new Error(decoder.decode(output.stderr) || decoder.decode(output.stdout));
+    }
+    return new TextDecoder().decode(output.stdout);
+}
+
+Deno.test("Workspace wrapper protects page routes and serves public assets without token", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "workspace-card", "# Workspace Card\n\nBody", {
+            planId: "workspace-card-id",
+            status: "draft",
+            classification: "FEATURE",
+            summary: "SSR card",
+        });
+        const app = createWorkspaceApp({ cwd, token: "secret" }).handler();
+        const rejected = await app(new Request("http://localhost/"));
+        assertEquals(rejected.status, 401);
+        const pageResponse = await app(new Request("http://localhost/?token=secret&q=workspace"));
+        const pageBody = await pageResponse.text();
+        if (pageResponse.status === 503) {
+            assertStringIncludes(pageBody, "Workspace Astro build unavailable");
+        } else {
+            assertEquals(pageResponse.status, 200);
+            assertStringIncludes(pageBody, "workspace-card");
+        }
+        const tokensCss = await app(new Request("http://localhost/tokens.css"));
+        assertEquals(tokensCss.status, 200);
+        assertStringIncludes(await tokensCss.text(), "--rw-page-bg:");
+        const componentsCss = await app(new Request("http://localhost/components.css"));
+        assertEquals(componentsCss.status, 200);
+        assertStringIncludes(await componentsCss.text(), ".primary-action");
+        const workspaceCss = await app(new Request("http://localhost/workspace.css"));
+        assertEquals(workspaceCss.status, 200);
+        assertStringIncludes(await workspaceCss.text(), ".workspace-shell");
+        const themeCss = await app(new Request("http://localhost/theme.css"));
+        assertEquals(themeCss.status, 200);
+        assertEquals(themeCss.headers.get("cache-control"), "no-store");
+        assertStringIncludes(await themeCss.text(), "--rw-theme-name:");
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+Deno.test("PlanBoard SSR renders status column board cards", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "workspace-card", "# Workspace Card\n\nBody", {
+            planId: "workspace-card-id",
+            status: "draft",
+            classification: "FEATURE",
+            summary: "SSR card",
+        });
+        const board = await loadBoard(cwd);
+        const html = renderToStaticMarkup(
+            React.createElement(PlanBoard, {
+                board,
+                view: "active",
+                url: "http://localhost/?token=secret&q=workspace",
+                staticRender: true,
+            }),
+        );
+        const toolbarHtml = renderToStaticMarkup(
+            React.createElement(PlanBoardToolbar, {
+                board,
+                view: "active",
+                url: "http://localhost/?token=secret&q=workspace",
+            }),
+        );
+        assertStringIncludes(toolbarHtml, 'aria-label="Search Plans"');
+        assertStringIncludes(toolbarHtml, 'value="workspace"');
+        assertEquals(html.includes("matching Plan"), false);
+        assertEquals(html.includes("searchable Plan"), false);
+        assertStringIncludes(html, 'data-plan-search-card="workspace-card-id"');
+        assertStringIncludes(html, 'href="/plans/workspace-card-id?token=secret&amp;q=workspace"');
+        assertStringIncludes(html, "Draft");
+        assertStringIncludes(html, "Ready for Work");
+        assertStringIncludes(html, "workspace-card");
+        assertStringIncludes(html, "SSR card");
+        assertStringIncludes(html, 'class="complexity-label complexity-medium"');
+        assertStringIncludes(html, 'data-plan-board="true"');
+        assertStringIncludes(html, 'data-draggable-plan-card="true"');
+        assertStringIncludes(html, 'draggable="true"');
+        assertStringIncludes(
+            html,
+            'data-allowed-target-statuses="feedback approved ready_for_work in_progress implemented"',
+        );
+        assertStringIncludes(html, 'data-action-target-status="draft"');
+        assertStringIncludes(html, "Drag this Plan Card to an allowed status column");
+        assertEquals(html.includes("Move to Feedback"), false);
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+Deno.test("Workspace page routes require Astro handler instead of static React fallback", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "one", "# One\n", {
+            planId: "duplicate-id",
+            status: "draft",
+            classification: "FEATURE",
+            summary: "One",
+        });
+        await savePlan(cwd, "two", "# Two\n", {
+            planId: "duplicate-id",
+            status: "draft",
+            classification: "FEATURE",
+            summary: "Two",
+        });
+        const app = createWorkspaceApp({ cwd, token: "secret" }).handler();
+        const response = await app(new Request("http://localhost/?token=secret"));
+        const body = await response.text();
+        if (response.status === 503) {
+            assertStringIncludes(body, "Workspace Astro build unavailable");
+            assertEquals(body.includes("Duplicate planId"), false);
+        } else {
+            assertEquals(response.status, 409);
+            assertStringIncludes(body, "Duplicate planId");
+        }
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+Deno.test("Workspace API and detail route return readable editable Plan body metadata", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(
+            cwd,
+            "detail",
+            "# Detail\n\nReadable body with [RunWield](https://runwield.dev)",
+            /** @type {any} */ ({
+                planId: "detail-id",
+                status: "implemented",
+                classification: "FEATURE",
+                complexity: "HIGH",
+                summary: "Detail summary",
+                affectedPaths: ["src/ui/workspace/components/PlanDetail.jsx"],
+                tickets: [
+                    { url: "https://example.com/tickets/DETAIL-123" },
+                    { url: "javascript:alert(1)" },
+                ],
+                dependencies: ["sibling-plan"],
+                implementedAt: "2026-06-30T10:00:00.000Z",
+                executionBaselineTree: "tree-detail",
+                worktreeId: "wt-detail",
+                worktreePath: "/tmp/secret-worktree-path",
+                worktreeBranch: "runwield/worktree/detail",
+                worktreeStatus: "active",
+                humanReviewMode: "ask",
+                humanReviewDecision: "approved",
+                humanReviewedAt: "2026-06-30T11:00:00.000Z",
+                customPriority: "urgent",
+            }),
+        );
+        const board = await loadBoard(cwd);
+        assertEquals(board.plans.length, 1);
+
+        const app = createWorkspaceApp({ cwd, token: "secret" }).handler();
+        const api = await app(
+            new Request("http://localhost/api/plans/detail-id", {
+                headers: { [PLAN_UI_TOKEN_HEADER]: "secret" },
+            }),
+        );
+        assertEquals(api.status, 200);
+        const apiBody = await api.json();
+        assertEquals(apiBody.plan.readOnly, true);
+        assertEquals(typeof apiBody.plan.bodyHash, "string");
+        assertEquals(apiBody.plan.capabilities.bodyEditing, true);
+        assertEquals(Object.hasOwn(apiBody.plan, "path"), false);
+        assertEquals(Object.hasOwn(apiBody.plan.frontMatter, "worktreePath"), false);
+        assertEquals(Object.hasOwn(apiBody.plan.attrs, "worktreePath"), false);
+        assertEquals(apiBody.plan.frontMatter.tickets, [
+            { url: "https://example.com/tickets/DETAIL-123" },
+            { url: "javascript:alert(1)" },
+        ]);
+
+        const plan = await loadWorkspaceDetail(cwd, "detail-id");
+        const html = renderToStaticMarkup(
+            React.createElement(PlanDetail, {
+                plan,
+                url: "http://localhost/plans/detail-id?token=secret",
+                staticRender: true,
+            }),
+        );
+        assertStringIncludes(html, "Readable body");
+        assertStringIncludes(html, "data-plannotator-plan-body");
+        assertStringIncludes(html, "data-plannotator-plan-body-json");
+        assertStringIncludes(html, "data-plannotator-plan-body-root");
+        assertStringIncludes(html, "Readable body");
+        assertStringIncludes(html, 'data-plan-id="detail-id"');
+        assertStringIncludes(html, 'data-plannotator-renderer="ssr-fallback"');
+        assertStringIncludes(html, 'class="markdown-view"');
+        assertStringIncludes(html, 'class="complexity-label complexity-high"');
+        assertStringIncludes(html, 'href="https://runwield.dev"');
+        assertStringIncludes(html, ">RunWield</a>");
+        assertStringIncludes(html, ">Put on hold</button>");
+        assertStringIncludes(html, 'class="danger-action lifecycle-action"');
+        assertStringIncludes(html, ">Close without verification</button>");
+        assertStringIncludes(html, 'class="detail-title-row"');
+        assertStringIncludes(html, "&lt; Back</a>");
+        assertStringIncludes(html, 'class="detail-close-link"');
+        assertStringIncludes(html, 'aria-label="Close plan detail"');
+        assertStringIncludes(html, ">X</a>");
+        assertEquals(html.includes(">Close</a>"), false);
+        assertEquals(html.includes("Front matter summary"), false);
+        assertStringIncludes(html, "Identity");
+        assertStringIncludes(html, "Planning");
+        assertStringIncludes(html, "Ticket references");
+        assertStringIncludes(html, 'href="https://example.com/tickets/DETAIL-123"');
+        assertStringIncludes(html, 'target="_blank"');
+        assertStringIncludes(html, 'rel="noreferrer noopener"');
+        assertEquals(html.includes('href="javascript:alert(1)"'), false);
+        assertEquals(html.includes("{&quot;url&quot;"), false);
+        assertStringIncludes(html, "Hierarchy &amp; dependencies");
+        assertStringIncludes(html, "Lifecycle");
+        assertStringIncludes(html, "Execution worktree");
+        assertStringIncludes(html, "Review");
+        assertStringIncludes(html, "Additional metadata");
+        assertStringIncludes(html, "Plan ID");
+        assertStringIncludes(html, "detail-id");
+        assertStringIncludes(html, "Affected paths");
+        assertStringIncludes(html, "src/ui/workspace/components/PlanDetail.jsx");
+        assertStringIncludes(html, "Depends on");
+        assertStringIncludes(html, "sibling-plan");
+        assertStringIncludes(html, "Implemented at");
+        assertStringIncludes(html, "2026-06-30T10:00:00.000Z");
+        assertStringIncludes(html, "Execution baseline tree");
+        assertStringIncludes(html, "tree-detail");
+        assertStringIncludes(html, "Worktree branch");
+        assertStringIncludes(html, "runwield/worktree/detail");
+        assertStringIncludes(html, "Human review decision");
+        assertStringIncludes(html, "approved");
+        assertStringIncludes(html, "Custom Priority");
+        assertStringIncludes(html, "urgent");
+        assertEquals(html.includes("/tmp/secret-worktree-path"), false);
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+Deno.test("PlanDetail derives Epic UI from classification rather than legacy subtype metadata", () => {
+    const html = renderToStaticMarkup(
+        React.createElement(PlanDetail, {
+            plan: {
+                planId: "legacy-type-id",
+                planName: "Legacy type plan",
+                title: "Legacy type plan",
+                status: "draft",
+                classification: "FEATURE",
+                type: "epic",
+                detailKind: "epic",
+                summary: "Feature with legacy metadata",
+                capabilities: { bodyEditing: true },
+                body: "# Body",
+                bodyJson: { type: "doc", content: [] },
+                bodyHash: "hash",
+            },
+            url: "http://localhost/plans/legacy-type-id?token=secret",
+            staticRender: true,
+        }),
+    );
+
+    assertStringIncludes(html, "Feature with legacy metadata");
+    assertEquals(html.includes("Epic progress"), false);
+    assertEquals(html.includes("Child plans"), false);
+});
+
+Deno.test("Workspace detail SSR fallback renders visible empty Plan body state", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "empty-detail", "", {
+            planId: "empty-detail-id",
+            status: "draft",
+            classification: "FEATURE",
+            summary: "Empty body detail",
+        });
+
+        const plan = await loadWorkspaceDetail(cwd, "empty-detail-id");
+        const html = renderToStaticMarkup(
+            React.createElement(PlanDetail, {
+                plan,
+                url: "http://localhost/plans/empty-detail-id?token=secret",
+                staticRender: true,
+            }),
+        );
+        assertStringIncludes(html, "data-plannotator-plan-body");
+        assertStringIncludes(html, 'data-plannotator-renderer="ssr-fallback"');
+        assertStringIncludes(html, 'class="markdown-view"');
+        assertStringIncludes(html, "No Plan body content.");
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+Deno.test("Workspace body-save API preserves front matter rejects stale writes and requires token", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await Deno.mkdir(`${cwd}/plans`, { recursive: true });
+        const frontMatter =
+            "---\nplanId: api-id\n# comment remains\nclassification: FEATURE\nstatus: draft\nunknown: kept\n---\n";
+        await Deno.writeTextFile(`${cwd}/plans/api.md`, `${frontMatter}# Original\n`);
+        const loaded = await loadPlanBodyById(cwd, "api-id");
+        const app = createWorkspaceApp({ cwd, token: "secret" }).handler();
+
+        const rejected = await app(new Request("http://localhost/api/plans/api-id/body", { method: "POST" }));
+        assertEquals(rejected.status, 401);
+
+        const invalid = await app(
+            new Request("http://localhost/api/plans/api-id/body", {
+                method: "POST",
+                headers: { [PLAN_UI_TOKEN_HEADER]: "secret", "content-type": "application/json" },
+                body: JSON.stringify({ body: 1, expectedBodyHash: loaded.bodyHash }),
+            }),
+        );
+        assertEquals(invalid.status, 400);
+
+        const saved = await app(
+            new Request("http://localhost/api/plans/api-id/body", {
+                method: "POST",
+                headers: { [PLAN_UI_TOKEN_HEADER]: "secret", "content-type": "application/json" },
+                body: JSON.stringify({ body: "# Saved\n", expectedBodyHash: loaded.bodyHash }),
+            }),
+        );
+        assertEquals(saved.status, 200);
+        const savedBody = await saved.json();
+        assertEquals(typeof savedBody.bodyHash, "string");
+        assertEquals(await Deno.readTextFile(`${cwd}/plans/api.md`), `${frontMatter}# Saved\n`);
+
+        const stale = await app(
+            new Request("http://localhost/api/plans/api-id/body", {
+                method: "POST",
+                headers: { [PLAN_UI_TOKEN_HEADER]: "secret", "content-type": "application/json" },
+                body: JSON.stringify({ body: "# Stale\n", expectedBodyHash: loaded.bodyHash }),
+            }),
+        );
+        assertEquals(stale.status, 409);
+        assertStringIncludes((await stale.json()).error, "changed on disk");
+
+        await savePlan(cwd, "epic", "# Epic\n", {
+            planId: "epic-id",
+            classification: "PROJECT",
+            status: "draft",
+        });
+        const epicRejected = await app(
+            new Request("http://localhost/api/plans/epic-id/body", {
+                method: "POST",
+                headers: { [PLAN_UI_TOKEN_HEADER]: "secret", "content-type": "application/json" },
+                body: JSON.stringify({ body: "# Edited Epic\n", expectedBodyHash: "hash" }),
+            }),
+        );
+        assertEquals(epicRejected.status, 409);
+        assertStringIncludes((await epicRejected.json()).error, "Epic Plan bodies are not editable");
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+Deno.test("Workspace Epic detail SSR-renders child FEATURE Plans by status", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(
+            cwd,
+            "epic",
+            "# Epic\n\nEpic body",
+            /** @type {any} */ ({
+                planId: "epic-id",
+                status: "draft",
+                classification: "PROJECT",
+                summary: "Epic summary",
+                epicCompletionMode: "done_enough",
+                epicDoneEnoughAt: "2026-06-30T12:00:00.000Z",
+                epicDoneEnoughSummary: "Shipped enough",
+                customRisk: false,
+            }),
+        );
+        await savePlan(cwd, "epic/done", "# Done", {
+            planId: "done-id",
+            status: "verified",
+            classification: "FEATURE",
+            parentPlan: "epic",
+            summary: "Done summary",
+        });
+        await savePlan(cwd, "epic/child", "# Child\n\nChild body", {
+            planId: "child-id",
+            status: "in_progress",
+            classification: "FEATURE",
+            parentPlan: "epic",
+            summary: "Child summary",
+            dependencies: ["done", "missing-child"],
+        });
+        await savePlan(cwd, "epic/held", "# Held", {
+            planId: "held-id",
+            status: "on_hold",
+            classification: "FEATURE",
+            parentPlan: "epic",
+            summary: "Held summary",
+            heldFromStatus: "ready_for_work",
+            heldAt: "2026-01-04T00:00:00.000Z",
+            holdReason: "child capacity pause",
+        });
+        await savePlan(cwd, "epic/failed", "# Failed", {
+            planId: "failed-id",
+            status: "failed",
+            classification: "FEATURE",
+            parentPlan: "epic",
+            summary: "Failed summary",
+        });
+        await savePlan(cwd, "missing/orphan", "# Orphan", {
+            planId: "orphan-id",
+            status: "draft",
+            classification: "FEATURE",
+            parentPlan: "missing",
+            summary: "Orphan summary",
+        });
+        await savePlan(cwd, "held-epic", "# Held Epic", {
+            planId: "held-epic-id",
+            status: "on_hold",
+            classification: "PROJECT",
+            summary: "Held Epic summary",
+            heldFromStatus: "in_progress",
+            heldAt: "2026-01-03T00:00:00.000Z",
+            holdReason: "waiting for budget",
+        });
+        const board = await loadBoard(cwd);
+        const boardHtml = renderToStaticMarkup(
+            React.createElement(PlanBoard, {
+                board,
+                view: "active",
+                url: "http://localhost/?token=secret",
+                staticRender: true,
+            }),
+        );
+        assertStringIncludes(boardHtml, "Epic summary");
+        assertStringIncludes(boardHtml, "Orphan summary");
+        assertStringIncludes(boardHtml, "Missing parent Epic");
+        assertEquals(boardHtml.includes("Child summary"), false);
+
+        const onHoldBoardHtml = renderToStaticMarkup(
+            React.createElement(PlanBoard, {
+                board,
+                view: "onHold",
+                url: "http://localhost/on-hold?token=secret",
+                staticRender: true,
+            }),
+        );
+        assertStringIncludes(onHoldBoardHtml, "held from in_progress; held at 2026-01-03T00:00:00.000Z");
+        assertStringIncludes(onHoldBoardHtml, "reason: waiting for budget");
+
+        const detailPlan = await loadWorkspaceDetail(cwd, "epic-id");
+        const detailHtml = renderToStaticMarkup(
+            React.createElement(PlanDetail, {
+                plan: detailPlan,
+                url: "http://localhost/plans/epic-id?token=secret",
+                staticRender: true,
+            }),
+        );
+        assertStringIncludes(detailHtml, 'class="detail-title-row"');
+        assertStringIncludes(detailHtml, "&lt; Back</a>");
+        assertStringIncludes(detailHtml, 'class="detail-close-link"');
+        assertStringIncludes(detailHtml, 'aria-label="Close plan detail"');
+        assertStringIncludes(detailHtml, ">X</a>");
+        assertEquals(detailHtml.includes('class="detail-sidebar-edit"'), false);
+        assertEquals(detailHtml.includes("edit=body"), false);
+        assertStringIncludes(detailHtml, "Done enough");
+        assertStringIncludes(detailHtml, "In Progress");
+        assertStringIncludes(detailHtml, "Child summary");
+        assertStringIncludes(detailHtml, "Failed summary");
+        assertStringIncludes(detailHtml, "Held summary");
+        assertStringIncludes(
+            detailHtml,
+            "held from ready_for_work; held at 2026-01-04T00:00:00.000Z; reason: child capacity pause",
+        );
+        assertStringIncludes(detailHtml, "done: verified");
+        assertStringIncludes(detailHtml, "missing-child: missing");
+        assertStringIncludes(detailHtml, "missing dependencies");
+        assertEquals(detailHtml.includes("Front matter summary"), false);
+        assertStringIncludes(detailHtml, "Metadata");
+        assertStringIncludes(detailHtml, "Identity");
+        assertStringIncludes(detailHtml, "Planning");
+        assertStringIncludes(detailHtml, "Epic completion");
+        assertStringIncludes(detailHtml, "Epic completion mode");
+        assertStringIncludes(detailHtml, "done_enough");
+        assertStringIncludes(detailHtml, "Epic done enough at");
+        assertStringIncludes(detailHtml, "2026-06-30T12:00:00.000Z");
+        assertStringIncludes(detailHtml, "Additional metadata");
+        assertStringIncludes(detailHtml, "Custom Risk");
+        assertStringIncludes(detailHtml, "false");
+
+        const heldDetailPlan = await loadWorkspaceDetail(cwd, "held-epic-id");
+        const heldDetailHtml = renderToStaticMarkup(
+            React.createElement(PlanDetail, {
+                plan: heldDetailPlan,
+                url: "http://localhost/plans/held-epic-id?token=secret",
+                staticRender: true,
+            }),
+        );
+        assertStringIncludes(heldDetailHtml, "Epic on hold from in_progress at 2026-01-03T00:00:00.000Z");
+        assertStringIncludes(heldDetailHtml, "reason: waiting for budget");
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
