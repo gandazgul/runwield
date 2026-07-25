@@ -3,7 +3,7 @@ import { join } from "@std/path";
 import {
     assertExtractedBundledAgentReferenceFiles,
     assertReviewAssetsLoad,
-    BUNDLED_AGENT_REFERENCE_FILES,
+    collectBundledAgentReferenceFiles,
     collectNestedReviewAssetUrls,
     collectReviewAssetUrls,
     readReviewUrl,
@@ -37,14 +37,25 @@ Deno.test("collectNestedReviewAssetUrls finds dynamic import chunks", () => {
     ]);
 });
 
-Deno.test("assertExtractedBundledAgentReferenceFiles accepts copied document-format references", async () => {
+Deno.test("collectBundledAgentReferenceFiles covers all extracted markdown references", async () => {
+    assertEquals(await collectBundledAgentReferenceFiles(), [
+        "document-formats/ADR-FORMAT.md",
+        "document-formats/CONTEXT-FORMAT.md",
+        "document-formats/architect-plan-format.md",
+        "document-formats/planner-plan-format.md",
+    ]);
+});
+
+Deno.test("assertExtractedBundledAgentReferenceFiles accepts copied bundled references", async () => {
     const homeDir = await Deno.makeTempDir({ prefix: "runwield-reference-home-" });
     try {
-        const cacheDir = join(homeDir, ".wld", "bundled-agent-definitions", "document-formats");
-        await Deno.mkdir(cacheDir, { recursive: true });
-        for (const fileName of BUNDLED_AGENT_REFERENCE_FILES) {
-            const source = await Deno.readTextFile(join("src", "agent-definitions", "document-formats", fileName));
-            await Deno.writeTextFile(join(cacheDir, fileName), source);
+        for (const relativePath of await collectBundledAgentReferenceFiles()) {
+            const relativeParts = relativePath.split("/");
+            const cacheDir = join(homeDir, ".wld", "bundled-agent-definitions", ...relativeParts.slice(0, -1));
+            const cachePath = join(cacheDir, relativeParts.at(-1) || "");
+            const source = await Deno.readTextFile(join("src", "agent-definitions", relativePath));
+            await Deno.mkdir(cacheDir, { recursive: true });
+            await Deno.writeTextFile(cachePath, source);
         }
 
         await assertExtractedBundledAgentReferenceFiles(homeDir);

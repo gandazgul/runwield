@@ -14,7 +14,7 @@ const STATIC_INCLUDE_PATHS = [
     "dist/workspace-runtime/server.mjs",
     "dist/workspace-runtime/client/",
     "src/ui/workspace/server/plan-adapter.js",
-    "src/agent-definitions",
+    "src/agent-definitions/",
     "src/prompt-templates",
     "src/shared/session/SYSTEM_PROMPT_TEMPLATE.md",
     "src/skills",
