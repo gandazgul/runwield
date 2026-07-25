@@ -371,11 +371,6 @@ export function extractBundledSkills() {
         if (!BUNDLED_SKILLS_CACHE_DIR) return null;
         if (!(await directoryExists(SKILLS_DIR))) return null;
         try {
-            await Deno.remove(BUNDLED_SKILLS_CACHE_DIR, { recursive: true });
-        } catch {
-            // Cache dir may not exist yet — fine.
-        }
-        try {
             await copyTreeFromBundle(SKILLS_DIR, BUNDLED_SKILLS_CACHE_DIR);
             return BUNDLED_SKILLS_CACHE_DIR;
         } catch {
@@ -396,7 +391,10 @@ export async function listSkills(options = {}) {
     const skills = [];
     const seen = new Set();
 
-    const bundledDir = (await extractBundledSkills()) ?? SKILLS_DIR;
+    const extractedBundledDir = await extractBundledSkills();
+    const bundledDirs = extractedBundledDir && extractedBundledDir !== SKILLS_DIR
+        ? [extractedBundledDir, SKILLS_DIR]
+        : [SKILLS_DIR];
 
     const enableExternalSkills = getCustomSetting("enableExternalSkills", "global") ?? true;
 
@@ -413,7 +411,10 @@ export async function listSkills(options = {}) {
                 source: /** @type {"local" | "home" | "bundled" | "external"} */ ("home"),
             }]
             : []),
-        { dir: bundledDir, source: /** @type {"local" | "home" | "bundled" | "external"} */ ("bundled") },
+        ...bundledDirs.map((dir) => ({
+            dir,
+            source: /** @type {"local" | "home" | "bundled" | "external"} */ ("bundled"),
+        })),
         // ── External (Pi-compatible / marketplace) skills ──
         ...(enableExternalSkills && HOME_DIR
             ? [{

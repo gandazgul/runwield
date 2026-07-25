@@ -216,16 +216,18 @@ Deno.test("listSkills and expandSkillCommand read local skill definitions", asyn
 });
 
 Deno.test("listSkills advertises bundled skills from the runtime-readable cache", async () => {
-    const skills = await listSkills();
-    const ketch = skills.find((item) => item.name === "ketch");
+    await withProcessGlobalTestLock(async () => {
+        const skills = await listSkills();
+        const ketch = skills.find((item) => item.name === "ketch");
 
-    assertEquals(ketch?.source, "bundled");
-    const ketchPath = ketch?.path ?? "";
-    assertEquals(
-        ketchPath.includes(".wld/bundled-skills/ketch/SKILL.md") ||
-            ketchPath.includes("src/skills/ketch/SKILL.md"),
-        true,
-    );
+        assertEquals(ketch?.source, "bundled");
+        const ketchPath = ketch?.path ?? "";
+        assertEquals(
+            ketchPath.includes(".wld/bundled-skills/ketch/SKILL.md") ||
+                ketchPath.includes("src/skills/ketch/SKILL.md"),
+            true,
+        );
+    });
 });
 
 Deno.test("ensureBundledAgentDefFile resolves workflow prompt assets", async () => {

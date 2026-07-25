@@ -1,5 +1,6 @@
 import { assertEquals } from "@std/assert";
 import { join } from "@std/path";
+import { withProcessGlobalTestLock } from "../testing/process-global-lock.js";
 import { persistImageAttachment } from "../shared/session/image-attachments.js";
 import { createSeeImageTool, DEFAULT_SEE_IMAGE_PROMPT, extractAssistantText } from "./see-image.js";
 
@@ -73,48 +74,50 @@ Deno.test("see_image returns tool error on auth failure", async () => {
 });
 
 Deno.test("see_image resolves attachment refs from the session image directory", async () => {
-    const originalHome = Deno.env.get("HOME");
-    const tempHome = await Deno.makeTempDir({ prefix: "runwield-see-image-home-" });
-    const cwd = await Deno.makeTempDir({ prefix: "runwield-see-image-attachment-" });
-    try {
-        Deno.env.set("HOME", tempHome);
-        const sessionManager = /** @type {any} */ ({ getSessionId: () => "session-abc" });
-        const attachment = await persistImageAttachment(
-            { base64: btoa("img"), mimeType: "image/png" },
-            sessionManager,
-            cwd,
-        );
-        /** @type {any[]} */
-        const calls = [];
-        const tool = /** @type {any} */ (createSeeImageTool({
-            cwd,
-            sessionManager,
-            fallbackModel: { provider: "vision", id: "model", input: ["text", "image"] },
-            modelRegistry: { getApiKeyAndHeaders: () => Promise.resolve({ ok: true, apiKey: "key" }) },
-            completeSimpleFn: (_model, context) => {
-                calls.push(context.messages[0].content[1]);
-                return Promise.resolve({
-                    role: "assistant",
-                    api: "openai-completions",
-                    provider: "vision",
-                    model: "model",
-                    content: [{ type: "text", text: "attachment description" }],
-                    stopReason: "stop",
-                    usage: {},
-                    timestamp: Date.now(),
-                });
-            },
-        }));
+    await withProcessGlobalTestLock(async () => {
+        const originalHome = Deno.env.get("HOME");
+        const tempHome = await Deno.makeTempDir({ prefix: "runwield-see-image-home-" });
+        const cwd = await Deno.makeTempDir({ prefix: "runwield-see-image-attachment-" });
+        try {
+            Deno.env.set("HOME", tempHome);
+            const sessionManager = /** @type {any} */ ({ getSessionId: () => "session-abc" });
+            const attachment = await persistImageAttachment(
+                { base64: btoa("img"), mimeType: "image/png" },
+                sessionManager,
+                cwd,
+            );
+            /** @type {any[]} */
+            const calls = [];
+            const tool = /** @type {any} */ (createSeeImageTool({
+                cwd,
+                sessionManager,
+                fallbackModel: { provider: "vision", id: "model", input: ["text", "image"] },
+                modelRegistry: { getApiKeyAndHeaders: () => Promise.resolve({ ok: true, apiKey: "key" }) },
+                completeSimpleFn: (_model, context) => {
+                    calls.push(context.messages[0].content[1]);
+                    return Promise.resolve({
+                        role: "assistant",
+                        api: "openai-completions",
+                        provider: "vision",
+                        model: "model",
+                        content: [{ type: "text", text: "attachment description" }],
+                        stopReason: "stop",
+                        usage: {},
+                        timestamp: Date.now(),
+                    });
+                },
+            }));
 
-        const result = await tool.execute("1", { imageRef: attachment.ref }, undefined, undefined, {});
+            const result = await tool.execute("1", { imageRef: attachment.ref }, undefined, undefined, {});
 
-        assertEquals(result.content[0].text, "attachment description");
-        assertEquals(calls[0].mimeType, "image/png");
-        assertEquals(calls[0].data, btoa("img"));
-    } finally {
-        if (originalHome === undefined) Deno.env.delete("HOME");
-        else Deno.env.set("HOME", originalHome);
-        await Deno.remove(tempHome, { recursive: true });
-        await Deno.remove(cwd, { recursive: true });
-    }
+            assertEquals(result.content[0].text, "attachment description");
+            assertEquals(calls[0].mimeType, "image/png");
+            assertEquals(calls[0].data, btoa("img"));
+        } finally {
+            if (originalHome === undefined) Deno.env.delete("HOME");
+            else Deno.env.set("HOME", originalHome);
+            await Deno.remove(tempHome, { recursive: true });
+            await Deno.remove(cwd, { recursive: true });
+        }
+    });
 });

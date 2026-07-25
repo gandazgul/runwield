@@ -1,4 +1,5 @@
 import { assertEquals } from "@std/assert";
+import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import { dispatchPostTriage, readLatestTriageOutcome } from "./orchestrator.js";
 import { HostedSession } from "../session/hosted-session.js";
 
@@ -22,6 +23,14 @@ function makeHostedSession(id = `orchestrator-test-${crypto.randomUUID()}`) {
 /** @type {string[] | null} */
 let activeMessages = null;
 
+/**
+ * @param {string} name
+ * @param {() => Promise<void> | void} fn
+ */
+function orchestratorTest(name, fn) {
+    Deno.test(name, () => withProcessGlobalTestLock(async () => await fn()));
+}
+
 function makeUi() {
     /** @type {string[]} */
     const messages = [];
@@ -32,18 +41,18 @@ function makeUi() {
     });
 }
 
-Deno.test("dispatchPostTriage does not force Engineer after FEATURE/PROJECT validation", async () => {
+orchestratorTest("dispatchPostTriage does not force Engineer after FEATURE/PROJECT validation", async () => {
     const source = await Deno.readTextFile(new URL("./orchestrator.js", import.meta.url));
     assertEquals(source.includes("setActiveAgent(AGENTS.ENGINEER"), false);
 });
 
-Deno.test("dispatchPostTriage keeps Engineer active when FEATURE/PROJECT execution is incomplete", async () => {
+orchestratorTest("dispatchPostTriage keeps Engineer active when FEATURE/PROJECT execution is incomplete", async () => {
     const source = await Deno.readTextFile(new URL("./orchestrator.js", import.meta.url));
     assertEquals(source.includes('executionDecision.kind === "stay_with_agent"'), true);
     assertEquals(source.includes("executionAgentName: executionOwner"), true);
 });
 
-Deno.test("dispatchPostTriage routes INQUIRY to Guide without completion or validation checks", async () => {
+orchestratorTest("dispatchPostTriage routes INQUIRY to Guide without completion or validation checks", async () => {
     /** @type {string[]} */
     const activeAgents = [];
     /** @type {string[]} */
@@ -106,7 +115,7 @@ Deno.test("dispatchPostTriage routes INQUIRY to Guide without completion or vali
     );
 });
 
-Deno.test("dispatchPostTriage routes IDEATION to Ideator without completion or validation checks", async () => {
+orchestratorTest("dispatchPostTriage routes IDEATION to Ideator without completion or validation checks", async () => {
     /** @type {string[]} */
     const activeAgents = [];
     /** @type {string[]} */
@@ -147,7 +156,7 @@ Deno.test("dispatchPostTriage routes IDEATION to Ideator without completion or v
     assertEquals(rootTurns, ["ideator"]);
 });
 
-Deno.test("dispatchPostTriage routes OPERATION to Operator without validation", async () => {
+orchestratorTest("dispatchPostTriage routes OPERATION to Operator without validation", async () => {
     /** @type {string[]} */
     const activeAgents = [];
     /** @type {string[]} */
@@ -211,86 +220,89 @@ Deno.test("dispatchPostTriage routes OPERATION to Operator without validation", 
     );
 });
 
-Deno.test("dispatchPostTriage routes QUICK_FIX to Engineer and runs Mechanical Validation after completion", async () => {
-    /** @type {string[]} */
-    const activeAgents = [];
-    /** @type {string[]} */
-    const rootTurns = [];
-    let mechanicalValidationCount = 0;
-    /** @type {any} */
-    let mechanicalValidationArgs;
-    /** @type {any[]} */
-    const metrics = [];
+orchestratorTest(
+    "dispatchPostTriage routes QUICK_FIX to Engineer and runs Mechanical Validation after completion",
+    async () => {
+        /** @type {string[]} */
+        const activeAgents = [];
+        /** @type {string[]} */
+        const rootTurns = [];
+        let mechanicalValidationCount = 0;
+        /** @type {any} */
+        let mechanicalValidationArgs;
+        /** @type {any[]} */
+        const metrics = [];
 
-    await dispatchPostTriage({
-        hostedSession: makeHostedSession(),
-        triage: {
-            routingIntent: "QUICK_FIX",
-            complexity: "LOW",
-            summary: "small fix",
-            affectedPaths: ["src/a.js"],
-        },
-        userRequest: "Fix it",
-        images: [],
-        sessionManager: undefined,
-        __deps: /** @type {any} */ ({
-            createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
-            readLatestTaskCompletedOutcome: () => true,
-            runRootTurn: (/** @type {any} */ args) => {
-                rootTurns.push(args.agentName);
-                assertEquals(args.userRequest.includes("Routing Intent: QUICK_FIX"), true);
-                return Promise.resolve(
-                    /** @type {any} */ ([{
-                        role: "toolResult",
-                        toolName: "task_completed",
-                        details: { outcome: "task_completed", message: "Updated the settings save action." },
-                    }]),
-                );
+        await dispatchPostTriage({
+            hostedSession: makeHostedSession(),
+            triage: {
+                routingIntent: "QUICK_FIX",
+                complexity: "LOW",
+                summary: "small fix",
+                affectedPaths: ["src/a.js"],
             },
-            runMechanicalValidation: (/** @type {any} */ args) => {
-                mechanicalValidationCount++;
-                mechanicalValidationArgs = args;
-                return Promise.resolve({ passed: true, attempts: 0 });
-            },
-            runValidationLoop: () => {
-                throw new Error("saved-plan validation should not run");
-            },
-            recordWorkflowMetric: (/** @type {any} */ metric) => {
-                metrics.push(metric);
-                return Promise.resolve(null);
-            },
-            switchActiveAgent: (
-                /** @type {unknown} */ _hostedSession,
-                /** @type {{ agentName: string }} */ options,
-            ) => {
-                activeAgents.push(options.agentName);
-                return Promise.resolve({ ok: true, agentName: options.agentName, changed: true });
-            },
-        }),
-    });
+            userRequest: "Fix it",
+            images: [],
+            sessionManager: undefined,
+            __deps: /** @type {any} */ ({
+                createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
+                readLatestTaskCompletedOutcome: () => true,
+                runRootTurn: (/** @type {any} */ args) => {
+                    rootTurns.push(args.agentName);
+                    assertEquals(args.userRequest.includes("Routing Intent: QUICK_FIX"), true);
+                    return Promise.resolve(
+                        /** @type {any} */ ([{
+                            role: "toolResult",
+                            toolName: "task_completed",
+                            details: { outcome: "task_completed", message: "Updated the settings save action." },
+                        }]),
+                    );
+                },
+                runMechanicalValidation: (/** @type {any} */ args) => {
+                    mechanicalValidationCount++;
+                    mechanicalValidationArgs = args;
+                    return Promise.resolve({ passed: true, attempts: 0 });
+                },
+                runValidationLoop: () => {
+                    throw new Error("saved-plan validation should not run");
+                },
+                recordWorkflowMetric: (/** @type {any} */ metric) => {
+                    metrics.push(metric);
+                    return Promise.resolve(null);
+                },
+                switchActiveAgent: (
+                    /** @type {unknown} */ _hostedSession,
+                    /** @type {{ agentName: string }} */ options,
+                ) => {
+                    activeAgents.push(options.agentName);
+                    return Promise.resolve({ ok: true, agentName: options.agentName, changed: true });
+                },
+            }),
+        });
 
-    assertEquals(activeAgents, ["engineer"]);
-    assertEquals(rootTurns, ["engineer"]);
-    assertEquals(mechanicalValidationCount, 1);
-    assertEquals(mechanicalValidationArgs.manualQaName, "quick-fix");
-    assertEquals(mechanicalValidationArgs.manualQaContext.includes("## User Request\nFix it"), true);
-    assertEquals(mechanicalValidationArgs.manualQaContext.includes("Routing Intent: QUICK_FIX"), true);
-    assertEquals(
-        mechanicalValidationArgs.manualQaContext.includes(
-            "## Implementation Summary\nUpdated the settings save action.",
-        ),
-        true,
-    );
-    assertEquals(
-        metrics.some((metric) =>
-            metric.category === "execution" && metric.event === "quick_fix_completed_observed" &&
-            metric.details.taskCompletedObserved === true && metric.details.mechanicalValidationRan === true
-        ),
-        true,
-    );
-});
+        assertEquals(activeAgents, ["engineer"]);
+        assertEquals(rootTurns, ["engineer"]);
+        assertEquals(mechanicalValidationCount, 1);
+        assertEquals(mechanicalValidationArgs.manualQaName, "quick-fix");
+        assertEquals(mechanicalValidationArgs.manualQaContext.includes("## User Request\nFix it"), true);
+        assertEquals(mechanicalValidationArgs.manualQaContext.includes("Routing Intent: QUICK_FIX"), true);
+        assertEquals(
+            mechanicalValidationArgs.manualQaContext.includes(
+                "## Implementation Summary\nUpdated the settings save action.",
+            ),
+            true,
+        );
+        assertEquals(
+            metrics.some((metric) =>
+                metric.category === "execution" && metric.event === "quick_fix_completed_observed" &&
+                metric.details.taskCompletedObserved === true && metric.details.mechanicalValidationRan === true
+            ),
+            true,
+        );
+    },
+);
 
-Deno.test("dispatchPostTriage prompts before QUICK_FIX in non-Git projects", async () => {
+orchestratorTest("dispatchPostTriage prompts before QUICK_FIX in non-Git projects", async () => {
     makeUi();
     /** @type {string[]} */
     const prompts = [];
@@ -334,7 +346,7 @@ Deno.test("dispatchPostTriage prompts before QUICK_FIX in non-Git projects", asy
     assertEquals(rootTurns, ["engineer"]);
 });
 
-Deno.test("dispatchPostTriage cancels QUICK_FIX before Engineer when non-Git consent is declined", async () => {
+orchestratorTest("dispatchPostTriage cancels QUICK_FIX before Engineer when non-Git consent is declined", async () => {
     const uiAPI = makeUi();
     let rootTurns = 0;
     let validationCount = 0;
@@ -374,42 +386,49 @@ Deno.test("dispatchPostTriage cancels QUICK_FIX before Engineer when non-Git con
     assertEquals(uiAPI.messages.some((/** @type {string} */ message) => message.includes("QUICK_FIX canceled")), true);
 });
 
-Deno.test("dispatchPostTriage warns and skips Mechanical Validation when QUICK_FIX stops without task_completed", async () => {
-    const uiAPI = makeUi();
-    let mechanicalValidationCount = 0;
+orchestratorTest(
+    "dispatchPostTriage warns and skips Mechanical Validation when QUICK_FIX stops without task_completed",
+    async () => {
+        const uiAPI = makeUi();
+        let mechanicalValidationCount = 0;
 
-    await dispatchPostTriage({
-        hostedSession: makeHostedSession(),
-        triage: {
-            routingIntent: "QUICK_FIX",
-            complexity: "LOW",
-            summary: "small fix",
-            affectedPaths: ["src/a.js"],
-        },
-        userRequest: "Fix it",
-        images: [],
-        sessionManager: undefined,
-        __deps: /** @type {any} */ ({
-            createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
-            readLatestTaskCompletedOutcome: () => null,
-            runRootTurn: () => Promise.resolve([]),
-            runMechanicalValidation: () => {
-                mechanicalValidationCount++;
-                return Promise.resolve({ passed: true, attempts: 0 });
+        await dispatchPostTriage({
+            hostedSession: makeHostedSession(),
+            triage: {
+                routingIntent: "QUICK_FIX",
+                complexity: "LOW",
+                summary: "small fix",
+                affectedPaths: ["src/a.js"],
             },
-            switchActiveAgent: (/** @type {unknown} */ _hostedSession, /** @type {{ agentName: string }} */ options) =>
-                Promise.resolve({ ok: true, agentName: options.agentName, changed: true }),
-        }),
-    });
+            userRequest: "Fix it",
+            images: [],
+            sessionManager: undefined,
+            __deps: /** @type {any} */ ({
+                createAgentHandler: (/** @type {string} */ name) => () => Promise.resolve(name),
+                readLatestTaskCompletedOutcome: () => null,
+                runRootTurn: () => Promise.resolve([]),
+                runMechanicalValidation: () => {
+                    mechanicalValidationCount++;
+                    return Promise.resolve({ passed: true, attempts: 0 });
+                },
+                switchActiveAgent: (
+                    /** @type {unknown} */ _hostedSession,
+                    /** @type {{ agentName: string }} */ options,
+                ) => Promise.resolve({ ok: true, agentName: options.agentName, changed: true }),
+            }),
+        });
 
-    assertEquals(mechanicalValidationCount, 0);
-    assertEquals(
-        uiAPI.messages.some((/** @type {string} */ message) => message.includes("Mechanical Validation will not run")),
-        true,
-    );
-});
+        assertEquals(mechanicalValidationCount, 0);
+        assertEquals(
+            uiAPI.messages.some((/** @type {string} */ message) =>
+                message.includes("Mechanical Validation will not run")
+            ),
+            true,
+        );
+    },
+);
 
-Deno.test("dispatchPostTriage keeps planning agent active on stay/save/halt decisions", async () => {
+orchestratorTest("dispatchPostTriage keeps planning agent active on stay/save/halt decisions", async () => {
     const cases = [
         { decision: { kind: "stay_with_agent", payload: { reason: "feedback" } }, expectedMessage: null },
         { decision: { kind: "save_plan", payload: { planName: "saved" } }, expectedMessage: null },
@@ -465,7 +484,7 @@ Deno.test("dispatchPostTriage keeps planning agent active on stay/save/halt deci
     }
 });
 
-Deno.test("dispatchPostTriage starts Slicer after PROJECT planning completes", async () => {
+orchestratorTest("dispatchPostTriage starts Slicer after PROJECT planning completes", async () => {
     /** @type {any} */
     let slicerArgs = null;
     const sessionManager = /** @type {any} */ ({ id: "root-history" });
@@ -503,7 +522,7 @@ Deno.test("dispatchPostTriage starts Slicer after PROJECT planning completes", a
     assertEquals(slicerArgs.sessionManager, sessionManager);
 });
 
-Deno.test("dispatchPostTriage executes approved FEATURE plans and runs validation", async () => {
+orchestratorTest("dispatchPostTriage executes approved FEATURE plans and runs validation", async () => {
     /** @type {unknown[]} */
     const executed = [];
     /** @type {unknown[]} */
@@ -583,7 +602,7 @@ Deno.test("dispatchPostTriage executes approved FEATURE plans and runs validatio
     );
 });
 
-Deno.test("dispatchPostTriage keeps Engineer active after incomplete PROJECT execution", async () => {
+orchestratorTest("dispatchPostTriage keeps Engineer active after incomplete PROJECT execution", async () => {
     /** @type {string[]} */
     const activeAgents = [];
 
@@ -631,7 +650,7 @@ Deno.test("dispatchPostTriage keeps Engineer active after incomplete PROJECT exe
     assertEquals(activeAgents, ["engineer"]);
 });
 
-Deno.test("dispatchPostTriage keeps Engineer active after incomplete FEATURE execution", async () => {
+orchestratorTest("dispatchPostTriage keeps Engineer active after incomplete FEATURE execution", async () => {
     /** @type {string[]} */
     const activeAgents = [];
 
@@ -676,7 +695,7 @@ Deno.test("dispatchPostTriage keeps Engineer active after incomplete FEATURE exe
     assertEquals(activeAgents, ["engineer"]);
 });
 
-Deno.test("dispatchPostTriage ignores stale execution handoff state by using typed results", async () => {
+orchestratorTest("dispatchPostTriage ignores stale execution handoff state by using typed results", async () => {
     const target = makeHostedSession("target-execution-drain");
     /** @type {string[]} */
     const activeAgents = [];
@@ -718,7 +737,7 @@ Deno.test("dispatchPostTriage ignores stale execution handoff state by using typ
     assertEquals(activeAgents, ["engineer"]);
 });
 
-Deno.test("dispatchPostTriage auto-names unnamed sessions and mirrors title", async () => {
+orchestratorTest("dispatchPostTriage auto-names unnamed sessions and mirrors title", async () => {
     makeUi();
     /** @type {string[]} */
     const infos = [];
@@ -756,7 +775,7 @@ Deno.test("dispatchPostTriage auto-names unnamed sessions and mirrors title", as
     assertEquals(renamedEvents, ["terminal titles"]);
 });
 
-Deno.test("dispatchPostTriage preserves and emits existing session names", async () => {
+orchestratorTest("dispatchPostTriage preserves and emits existing session names", async () => {
     makeUi();
     /** @type {string[]} */
     const infos = [];
@@ -794,7 +813,7 @@ Deno.test("dispatchPostTriage preserves and emits existing session names", async
     assertEquals(renamedEvents, ["manual name"]);
 });
 
-Deno.test("readLatestTriageOutcome returns the latest triage_report details", () => {
+orchestratorTest("readLatestTriageOutcome returns the latest triage_report details", () => {
     const messages = [
         /** @type {any} */ ({
             role: "toolResult",
@@ -829,7 +848,7 @@ Deno.test("readLatestTriageOutcome returns the latest triage_report details", ()
     });
 });
 
-Deno.test("readLatestTriageOutcome accepts OPERATION without plan classification", () => {
+orchestratorTest("readLatestTriageOutcome accepts OPERATION without plan classification", () => {
     const messages = [
         /** @type {any} */ ({
             role: "toolResult",
@@ -851,7 +870,7 @@ Deno.test("readLatestTriageOutcome accepts OPERATION without plan classification
     });
 });
 
-Deno.test("readLatestTriageOutcome ignores stale triage_report before fromIndex", () => {
+orchestratorTest("readLatestTriageOutcome ignores stale triage_report before fromIndex", () => {
     const messages = [
         /** @type {any} */ ({
             role: "toolResult",
@@ -873,11 +892,11 @@ Deno.test("readLatestTriageOutcome ignores stale triage_report before fromIndex"
     assertEquals(readLatestTriageOutcome(messages, 1), null);
 });
 
-Deno.test("readLatestTriageOutcome returns null when no triage_report tool result", () => {
+orchestratorTest("readLatestTriageOutcome returns null when no triage_report tool result", () => {
     assertEquals(readLatestTriageOutcome([]), null);
 });
 
-Deno.test("readLatestTriageOutcome normalizes legacy classification details", () => {
+orchestratorTest("readLatestTriageOutcome normalizes legacy classification details", () => {
     const messages = [
         /** @type {any} */ ({
             role: "toolResult",
@@ -898,7 +917,7 @@ Deno.test("readLatestTriageOutcome normalizes legacy classification details", ()
     });
 });
 
-Deno.test("readLatestTriageOutcome ignores tool results without routingIntent or classification", () => {
+orchestratorTest("readLatestTriageOutcome ignores tool results without routingIntent or classification", () => {
     const messages = [
         /** @type {any} */ ({
             role: "toolResult",
@@ -909,7 +928,7 @@ Deno.test("readLatestTriageOutcome ignores tool results without routingIntent or
     assertEquals(readLatestTriageOutcome(messages), null);
 });
 
-Deno.test("dispatchPostTriage switches and runs only the supplied HostedSession", async () => {
+orchestratorTest("dispatchPostTriage switches and runs only the supplied HostedSession", async () => {
     const target = makeHostedSession("target-orchestrator-session");
     const other = makeHostedSession("other-orchestrator-session");
     /** @type {unknown[]} */

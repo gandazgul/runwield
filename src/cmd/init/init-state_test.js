@@ -9,6 +9,7 @@
 import { assertEquals, assertExists, assertObjectMatch } from "@std/assert";
 import { join } from "@std/path";
 import { _setTestStatePath } from "./init-state.js";
+import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import {
     getCwdHash,
     getInitState,
@@ -26,9 +27,17 @@ const testDir = Deno.makeTempDirSync();
 const testStatePath = join(testDir, "init-state.json");
 _setTestStatePath(testStatePath);
 
+/**
+ * @param {string} name
+ * @param {() => Promise<void> | void} fn
+ */
+function initStateTest(name, fn) {
+    Deno.test(name, () => withProcessGlobalTestLock(async () => await fn()));
+}
+
 // ── init-state unit tests ──────────────────────────────────────────
 
-Deno.test("getCwdHash returns a 64-char hex string", async () => {
+initStateTest("getCwdHash returns a 64-char hex string", async () => {
     const hash = await getCwdHash();
     assertEquals(typeof hash, "string");
     assertEquals(hash.length, 64);
@@ -36,19 +45,19 @@ Deno.test("getCwdHash returns a 64-char hex string", async () => {
     assertEquals(/^[0-9a-f]{64}$/.test(hash), true);
 });
 
-Deno.test("getCwdHash is deterministic for the same CWD", async () => {
+initStateTest("getCwdHash is deterministic for the same CWD", async () => {
     const a = await getCwdHash();
     const b = await getCwdHash();
     assertEquals(a, b);
 });
 
-Deno.test("getInitState returns empty object when no state file exists", async () => {
+initStateTest("getInitState returns empty object when no state file exists", async () => {
     await cleanupState();
     const state = await getInitState();
     assertObjectMatch(state, {});
 });
 
-Deno.test("recordInitDone creates state file with correct structure", async () => {
+initStateTest("recordInitDone creates state file with correct structure", async () => {
     await cleanupState();
 
     const cwdHash = await getCwdHash();
@@ -77,7 +86,7 @@ Deno.test("recordInitDone creates state file with correct structure", async () =
     await cleanupState();
 });
 
-Deno.test("recordInitOffered marks only initOffered without initDone", async () => {
+initStateTest("recordInitOffered marks only initOffered without initDone", async () => {
     await cleanupState();
 
     const cwdHash = await getCwdHash();
@@ -94,7 +103,7 @@ Deno.test("recordInitOffered marks only initOffered without initDone", async () 
     await cleanupState();
 });
 
-Deno.test("isInitDone returns true after recordInitDone", async () => {
+initStateTest("isInitDone returns true after recordInitDone", async () => {
     await cleanupState();
 
     assertEquals(await isInitDone(), false);
@@ -104,17 +113,17 @@ Deno.test("isInitDone returns true after recordInitDone", async () => {
     await cleanupState();
 });
 
-Deno.test("isInitDone returns false when state file does not exist", async () => {
+initStateTest("isInitDone returns false when state file does not exist", async () => {
     await cleanupState();
     assertEquals(await isInitDone(), false);
 });
 
-Deno.test("isInitOffered returns false when state file does not exist", async () => {
+initStateTest("isInitOffered returns false when state file does not exist", async () => {
     await cleanupState();
     assertEquals(await isInitOffered(), false);
 });
 
-Deno.test("isInitOffered returns true after recordInitOffered", async () => {
+initStateTest("isInitOffered returns true after recordInitOffered", async () => {
     await cleanupState();
 
     assertEquals(await isInitOffered(), false);
@@ -126,7 +135,7 @@ Deno.test("isInitOffered returns true after recordInitOffered", async () => {
     await cleanupState();
 });
 
-Deno.test("isInitOffered returns true after recordInitDone (implicit offer)", async () => {
+initStateTest("isInitOffered returns true after recordInitDone (implicit offer)", async () => {
     await cleanupState();
 
     await recordInitDone();
@@ -136,7 +145,7 @@ Deno.test("isInitOffered returns true after recordInitDone (implicit offer)", as
     await cleanupState();
 });
 
-Deno.test("state file is isolated per CWD hash", async () => {
+initStateTest("state file is isolated per CWD hash", async () => {
     await cleanupState();
 
     const cwdHash = await getCwdHash();
@@ -164,7 +173,7 @@ Deno.test("state file is isolated per CWD hash", async () => {
     await cleanupState();
 });
 
-Deno.test("recordInitDone preserves other CWD entries (no overwrite)", async () => {
+initStateTest("recordInitDone preserves other CWD entries (no overwrite)", async () => {
     await cleanupState();
 
     // First, record init done for the current CWD
@@ -190,7 +199,7 @@ Deno.test("recordInitDone preserves other CWD entries (no overwrite)", async () 
     await cleanupState();
 });
 
-Deno.test("Snip missing warning counter is capped by limit", async () => {
+initStateTest("Snip missing warning counter is capped by limit", async () => {
     await cleanupState();
 
     assertEquals(await shouldShowSnipMissingWarning(2), true);

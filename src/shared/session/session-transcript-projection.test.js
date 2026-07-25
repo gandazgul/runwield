@@ -1,5 +1,6 @@
 import { assertEquals, assertRejects, assertThrows } from "@std/assert";
 import { join } from "@std/path";
+import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import { encodeCwdForSessionDir } from "./root-session.js";
 import {
     captureTranscriptEvidence,
@@ -9,16 +10,18 @@ import {
 
 /** @param {(home: string) => Promise<void>} callback */
 async function withHome(callback) {
-    const previousHome = Deno.env.get("HOME");
-    const home = await Deno.makeTempDir({ prefix: "runwield-projection-home-" });
-    Deno.env.set("HOME", home);
-    try {
-        return await callback(home);
-    } finally {
-        if (previousHome === undefined) Deno.env.delete("HOME");
-        else Deno.env.set("HOME", previousHome);
-        await Deno.remove(home, { recursive: true });
-    }
+    return await withProcessGlobalTestLock(async () => {
+        const previousHome = Deno.env.get("HOME");
+        const home = await Deno.makeTempDir({ prefix: "runwield-projection-home-" });
+        Deno.env.set("HOME", home);
+        try {
+            return await callback(home);
+        } finally {
+            if (previousHome === undefined) Deno.env.delete("HOME");
+            else Deno.env.set("HOME", previousHome);
+            await Deno.remove(home, { recursive: true });
+        }
+    });
 }
 
 Deno.test("committed projection verifies exact prefix and ignores later tail", async () => {
