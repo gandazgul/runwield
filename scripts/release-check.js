@@ -4,11 +4,31 @@
  */
 
 import { join } from "@std/path";
+import { buildCompileArgs } from "./compile.js";
 
 const BUNDLED_AGENT_DEFS_SOURCE_DIR = join("src", "agent-definitions");
-const BUNDLED_AGENT_DEFS_CACHE_DIR = join(".wld", "bundled-agent-definitions");
-const DOCUMENT_FORMATS_DIR = "document-formats";
-const BUNDLED_AGENT_DEFS_REFERENCE_PATTERN = /\{\{BUNDLED_AGENT_DEFS_DIR\}\}\/([^\s`)]+\.md)/g;
+const BUNDLED_SKILLS_SOURCE_DIR = join("src", "skills");
+
+const BUNDLED_EXTRACTED_MARKDOWN_TARGETS = Object.freeze([
+    {
+        label: "bundled agent definition",
+        sourceDir: BUNDLED_AGENT_DEFS_SOURCE_DIR,
+        cacheDir: join(".wld", "bundled-agent-definitions"),
+    },
+    {
+        label: "bundled skill",
+        sourceDir: BUNDLED_SKILLS_SOURCE_DIR,
+        cacheDir: join(".wld", "bundled-skills"),
+    },
+]);
+
+const REQUIRED_BUNDLED_BINARY_ASSET_INCLUDES = Object.freeze([
+    "src/agent-definitions/",
+    "src/prompt-templates/",
+    "src/shared/session/SYSTEM_PROMPT_TEMPLATE.md",
+    "src/skills/",
+    "src/ui/theme/catppuccin-mocha.json",
+]);
 
 /**
  * @typedef {Object} RunResult
@@ -171,6 +191,7 @@ export async function assertReviewAssetsLoad(pageUrl, html) {
  * @returns {Promise<string[]>}
  */
 async function collectMarkdownFiles(rootDir, relativeDir = "") {
+    /** @type {string[]} */
     const files = [];
     const currentDir = relativeDir ? join(rootDir, ...relativeDir.split("/")) : rootDir;
     for await (const entry of Deno.readDir(currentDir)) {
@@ -181,49 +202,65 @@ async function collectMarkdownFiles(rootDir, relativeDir = "") {
     return files.sort();
 }
 
+export function assertRequiredBundledAssetsConfigured() {
+    const compileArgs = buildCompileArgs();
+    const includePaths = new Set();
+    for (let index = 0; index < compileArgs.length; index += 1) {
+        if (compileArgs[index] === "--include") includePaths.add(compileArgs[index + 1]);
+    }
+
+    for (const includePath of REQUIRED_BUNDLED_BINARY_ASSET_INCLUDES) {
+        if (!includePaths.has(includePath)) {
+            throw new Error(`Release compile is missing bundled asset include: ${includePath}`);
+        }
+    }
+}
+
 /**
  * @returns {Promise<string[]>}
  */
 export async function collectBundledAgentReferenceFiles() {
-    const references = new Set();
+    return await collectMarkdownFiles(BUNDLED_AGENT_DEFS_SOURCE_DIR);
+}
 
-    for (const filePath of await collectMarkdownFiles(join(BUNDLED_AGENT_DEFS_SOURCE_DIR, DOCUMENT_FORMATS_DIR))) {
-        references.add(`${DOCUMENT_FORMATS_DIR}/${filePath}`);
+/**
+ * @returns {Promise<Array<{ label: string, sourceDir: string, cacheDir: string, relativePath: string }>>}
+ */
+export async function collectExtractedBundledMarkdownFiles() {
+    const files = [];
+    for (const target of BUNDLED_EXTRACTED_MARKDOWN_TARGETS) {
+        for (const relativePath of await collectMarkdownFiles(target.sourceDir)) {
+            files.push({ ...target, relativePath });
+        }
     }
-
-    for (const filePath of await collectMarkdownFiles(BUNDLED_AGENT_DEFS_SOURCE_DIR)) {
-        const text = await Deno.readTextFile(join(BUNDLED_AGENT_DEFS_SOURCE_DIR, filePath));
-        for (const match of text.matchAll(BUNDLED_AGENT_DEFS_REFERENCE_PATTERN)) references.add(match[1]);
-    }
-
-    return [...references].sort();
+    return files.sort((a, b) => `${a.cacheDir}/${a.relativePath}`.localeCompare(`${b.cacheDir}/${b.relativePath}`));
 }
 
 /**
  * @param {string} homeDir
  */
 export async function assertExtractedBundledAgentReferenceFiles(homeDir) {
-    for (const relativePath of await collectBundledAgentReferenceFiles()) {
-        const sourcePath = join(BUNDLED_AGENT_DEFS_SOURCE_DIR, relativePath);
-        const extractedPath = join(homeDir, BUNDLED_AGENT_DEFS_CACHE_DIR, relativePath);
+    for (const { label, sourceDir, cacheDir, relativePath } of await collectExtractedBundledMarkdownFiles()) {
+        const sourcePath = join(sourceDir, relativePath);
+        const extractedPath = join(homeDir, cacheDir, relativePath);
         let source;
         let extracted;
         try {
             source = await Deno.readTextFile(sourcePath);
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
-            throw new Error(`Bundled agent reference source file is missing: ${sourcePath}. ${message}`);
+            throw new Error(`Bundled ${label} source file is missing: ${sourcePath}. ${message}`);
         }
         try {
             extracted = await Deno.readTextFile(extractedPath);
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             throw new Error(
-                `Release binary did not extract bundled agent reference file: ${extractedPath}. ${message}`,
+                `Release binary did not extract ${label} markdown file: ${extractedPath}. ${message}`,
             );
         }
         if (extracted !== source) {
-            throw new Error(`Release binary extracted stale bundled agent reference file: ${extractedPath}`);
+            throw new Error(`Release binary extracted stale ${label} markdown file: ${extractedPath}`);
         }
     }
 }
@@ -374,6 +411,7 @@ export async function main() {
     const output = join(tempDir, binaryName);
 
     try {
+        assertRequiredBundledAssetsConfigured();
         await mustRun("Compile release binary", "deno", ["run", "-A", "scripts/compile.js", "--output", output]);
         await mustRun("Smoke test release binary", output, ["--version"]);
         await smokeTestBundledAgentReferenceExtraction(output, tempDir);

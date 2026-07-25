@@ -69,7 +69,7 @@ import {
 import { getCustomSetting, getMergedCustomSetting, getSettingsDir, getSettingsManager } from "../settings.js";
 import { modelSupportsImageInput, prepareImagesForModel, resolveVisionFallbackModel } from "./image-attachments.js";
 import { recordActiveAgent } from "./active-agent-session.js";
-import { getBundledAgentDefsPath } from "./agent-assets.js";
+import { extractBundledSkills, getBundledAgentDefsPath } from "./agent-assets.js";
 import { getPackagePromptTemplatePaths, resolveInstalledPackagePromptResources } from "../package-resources.js";
 import { getWldExtensionPaths, resolveInstalledWldExtensionResources } from "../extensions/wld-extension-manifest.js";
 import { recordToolCallFinished, recordToolCallStarted, recordWorkflowMetric } from "../workflow/metrics.js";
@@ -331,54 +331,6 @@ export async function listPromptTemplates(options = {}) {
  * @property {"local" | "home" | "bundled" | "external"} source
  * @property {boolean} [disableModelInvocation]
  */
-
-const BUNDLED_SKILLS_CACHE_DIR = HOME_DIR ? join(HOME_DIR, ".wld", "bundled-skills") : null;
-
-/** @type {Promise<string | null> | null} */
-let bundledSkillsExtractionPromise = null;
-
-/**
- * Recursively copy `srcDir` (which may live inside a Deno-compile virtual
- * filesystem) into `destDir` on the real filesystem, so external tools can
- * read the files via their absolute path.
- *
- * @param {string} srcDir
- * @param {string} destDir
- */
-async function copyTreeFromBundle(srcDir, destDir) {
-    await Deno.mkdir(destDir, { recursive: true });
-    for await (const entry of Deno.readDir(srcDir)) {
-        const srcPath = join(srcDir, entry.name);
-        const destPath = join(destDir, entry.name);
-        if (entry.isDirectory) {
-            await copyTreeFromBundle(srcPath, destPath);
-        } else if (entry.isFile) {
-            const bytes = await Deno.readFile(srcPath);
-            await Deno.writeFile(destPath, bytes);
-        }
-    }
-}
-
-/**
- * Extract bundled skills (compiled into the binary) to a real on-disk cache so
- * external read tools can access them. Runs at most once per process.
- *
- * @returns {Promise<string | null>} Real path to extracted skills, or null if unavailable.
- */
-export function extractBundledSkills() {
-    if (bundledSkillsExtractionPromise) return bundledSkillsExtractionPromise;
-    bundledSkillsExtractionPromise = (async () => {
-        if (!BUNDLED_SKILLS_CACHE_DIR) return null;
-        if (!(await directoryExists(SKILLS_DIR))) return null;
-        try {
-            await copyTreeFromBundle(SKILLS_DIR, BUNDLED_SKILLS_CACHE_DIR);
-            return BUNDLED_SKILLS_CACHE_DIR;
-        } catch {
-            return null;
-        }
-    })();
-    return bundledSkillsExtractionPromise;
-}
 
 /**
  * List all known skills across bundled + home + local layers.

@@ -17,7 +17,10 @@ import {
     isEmptyProjectDirectory as isEmptyProjectDirectoryFn,
 } from "../../shared/project-state.js";
 import { loadAgentDefFromPath as loadAgentDefFromPathFn } from "../../shared/session/agents.js";
-import { ensureBundledAgentDefFile as ensureBundledAgentDefFileFn } from "../../shared/session/agent-assets.js";
+import {
+    ensureBundledAgentDefFile as ensureBundledAgentDefFileFn,
+    extractBundledSkills as extractBundledSkillsFn,
+} from "../../shared/session/agent-assets.js";
 import { SessionRuntime } from "../../shared/session/session-runtime.js";
 import { printCommandHelp as printCommandHelpFn } from "../help/index.js";
 import {
@@ -38,6 +41,7 @@ export const __dirname = dirname(fromFileUrl(import.meta.url));
  * @property {() => SessionRuntime} [createRuntime]
  * @property {typeof loadAgentDefFromPathFn} [loadAgentDefFromPath]
  * @property {typeof ensureBundledAgentDefFileFn} [ensureBundledAgentDefFile]
+ * @property {typeof extractBundledSkillsFn} [extractBundledSkills]
  * @property {typeof isEmptyProjectDirectoryFn} [isEmptyProjectDirectory]
  * @property {typeof Deno.cwd} [cwd]
  */
@@ -59,6 +63,7 @@ export async function runInitCommand(argv, options = {}) {
         createRuntime: createRuntimeDep,
         loadAgentDefFromPath: loadAgentDefFromPathDep,
         ensureBundledAgentDefFile: ensureBundledAgentDefFileDep,
+        extractBundledSkills: extractBundledSkillsDep,
         isEmptyProjectDirectory: isEmptyProjectDirectoryDep,
         cwd: cwdDep,
     } = deps;
@@ -72,6 +77,7 @@ export async function runInitCommand(argv, options = {}) {
     const cwd = cwdDep || (() => Deno.cwd());
     const loadAgentDefFromPath = loadAgentDefFromPathDep || loadAgentDefFromPathFn;
     const ensureBundledAgentDefFile = ensureBundledAgentDefFileDep || ensureBundledAgentDefFileFn;
+    const extractBundledSkills = extractBundledSkillsDep || extractBundledSkillsFn;
     const isEmptyProjectDirectory = isEmptyProjectDirectoryDep || isEmptyProjectDirectoryFn;
 
     const parsed = parseArgs(argv, {
@@ -105,6 +111,12 @@ export async function runInitCommand(argv, options = {}) {
         }
         return;
     }
+
+    // ── Extract bundled prompt assets before model resolution ──────
+    // Fresh binary installs need real on-disk copies so external read tools can
+    // access bundled skills and document-format references, even if init later
+    // stops because no model is configured.
+    await extractBundledSkills();
 
     // ── Load init agent definition directly from bundled path ──────
     // Pass agentName: AGENTS.INIT so the display-name cache uses the canonical
