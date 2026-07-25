@@ -535,18 +535,6 @@ settingsTest("getCodeReviewMode defaults none, honors overrides, and rejects inv
     }
 });
 
-// Cleanup temp dirs
-settingsTest({
-    name: "cleanup temp dirs",
-    fn() {
-        try {
-            Deno.removeSync(TEMP_DIR, { recursive: true });
-        } catch {
-            // ignore cleanup failures
-        }
-    },
-});
-
 settingsTest("Plan Server URL setting uses global value and project override precedence", async () => {
     const originalHome = Deno.env.get("HOME");
     const originalCwd = Deno.cwd();
