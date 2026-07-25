@@ -24,6 +24,18 @@ jobs:
               with:
                   deno-version: v2.9.3
 
+            - name: Prepare source-quality environment
+              run: |
+                  git checkout -B main "$GITHUB_SHA"
+                  mkdir -p "$RUNNER_TEMP/runwield-ci-bin"
+                  cat > "$RUNNER_TEMP/runwield-ci-bin/mnemosyne" <<'EOF'
+                  #!/usr/bin/env bash
+                  if [[ "$1" == "--help" ]]; then exit 0; fi
+                  printf 'mnemosyne test stub\n'
+                  EOF
+                  chmod +x "$RUNNER_TEMP/runwield-ci-bin/mnemosyne"
+                  echo "$RUNNER_TEMP/runwield-ci-bin" >> "$GITHUB_PATH"
+
             - name: Run source-quality gate
               run: deno task ci
 
