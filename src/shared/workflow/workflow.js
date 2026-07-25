@@ -498,9 +498,16 @@ export async function executePlan({
         `✅ Plan implementation complete and checkpointed: ${planName}`,
         { header: "RunWield" },
     );
+
+    emitSystemStatus(
+        hostedSession,
+        `✅ Plan implementation complete and checkpointed: ${planName}`,
+        { header: "RunWield" },
+    );
     return {
         repairRequired: false,
         executionComplete: true,
+        ...(executionContext ? { executionContext } : {}),
         ...(executionContext ? { executionContext } : {}),
         ...(result.completionReport ? { completionReport: result.completionReport } : {}),
     };
@@ -949,6 +956,10 @@ export async function startActiveExecutionWorkflow(
 
 /**
  * @param {import('../../plan-store.js').PlanFrontMatter['worktreeStatus']} status
+ * @param {{
+ *   hostedSession?: import('../session/hosted-session.js').HostedSession,
+ *   workflow?: import('../session/hosted-session.js').ActiveExecutionWorkflow,
+ * }} [opts]
  * @param {{
  *   hostedSession?: import('../session/hosted-session.js').HostedSession,
  *   workflow?: import('../session/hosted-session.js').ActiveExecutionWorkflow,
