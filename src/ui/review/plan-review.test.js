@@ -283,6 +283,26 @@ Deno.test("submitPlanForReview records feedback and returns loaded images", asyn
     }
 });
 
+Deno.test("submitPlanForReview timeout or exit does not record feedback", async () => {
+    const { dir, planPath } = await makePlanFile();
+    const harness = makeDeps({ approved: false, feedback: "", exit: true, canceled: true });
+    try {
+        const result = await submitPlanForReview({
+            cwd: dir,
+            planName: "plan",
+            planPath,
+            __deps: harness.deps,
+        });
+
+        assertEquals(result.approved, false);
+        assertEquals(result.canceled, true);
+        assertEquals(result.cancellationReason, "review_exit");
+        assertEquals(harness.events, []);
+    } finally {
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
 Deno.test("submitPlanForReview cancellation is driven by its AbortSignal", async () => {
     const { dir, planPath } = await makePlanFile();
     const controller = new AbortController();
@@ -321,6 +341,7 @@ Deno.test("submitPlanForReview cancellation is driven by its AbortSignal", async
             approved: false,
             canceled: true,
             feedback: "Cancelled by user (Esc)",
+            cancellationReason: "abort_signal",
         });
         assertEquals(stopped, true);
     } finally {

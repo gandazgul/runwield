@@ -234,6 +234,42 @@ Deno.test("agent-handler skips validation when approved_execute did not complete
     assertEquals(validationCount, 0);
 });
 
+Deno.test("agent-handler treats intentional execution completion as terminal without Engineer switch", async () => {
+    const switchedAgents = /** @type {string[]} */ ([]);
+    const hostedSession = makeHostedSession("intentional-complete");
+    hostedSession.setRootAgentName("planner");
+    hostedSession.setRootAgentSession(
+        /** @type {any} */ ({ agent: { state: { messages: [] } }, dispose: () => {} }),
+    );
+    const handler = createAgentHandler("planner", {
+        hostedSession,
+        runRootTurn: () => Promise.resolve(/** @type {any} */ ([])),
+        readLatestPlanOutcome: () => /** @type {any} */ ({ outcome: "approved_execute", planName: "p" }),
+        executePlan: /** @type {any} */ (() =>
+            Promise.resolve({
+                repairRequired: false,
+                executionComplete: false,
+                intentionalComplete: true,
+                intentionalCompleteReason: "saved_for_later",
+                message: "done",
+            })),
+        runValidationLoop: () => {
+            throw new Error("should not validate");
+        },
+        switchActiveAgent: (
+            /** @type {HostedSession} */ _hostedSession,
+            /** @type {{ agentName: string }} */ options,
+        ) => {
+            switchedAgents.push(options.agentName);
+            return Promise.resolve({ ok: true, agentName: options.agentName, changed: true });
+        },
+    });
+
+    await handler("req", [], /** @type {any} */ (undefined));
+    assertEquals(switchedAgents, []);
+    assertEquals(hostedSession.getRootAgentName(), "planner");
+});
+
 Deno.test("agent-handler does not switch agents when pre-execution selection is canceled", async () => {
     /** @type {string[]} */
     const switchedAgents = [];

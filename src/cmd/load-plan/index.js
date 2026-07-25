@@ -29,6 +29,11 @@ import {
 } from "../../shared/workflow/plan-lifecycle.js";
 import { normalizePlanApprovalAction, PLAN_APPROVAL_ACTIONS } from "../../shared/workflow/plan-approval.js";
 import {
+    appendSessionCompleteGuidance,
+    requestRecoverablePlanReview,
+    SESSION_COMPLETE_GUIDANCE,
+} from "../../shared/workflow/plan-review-recovery.js";
+import {
     getWorkflowDiff as getWorkflowDiffFn,
     listCommitsTouchingPathsSince as listCommitsTouchingPathsSinceFn,
     restoreWorktreeTree as restoreWorktreeTreeFn,
@@ -3277,17 +3282,38 @@ export async function runLoadPlanCommand(argv, options = {}) {
 
                     await switchPlanAgent(agentName);
 
-                    const reviewResult = await session.reviewPlan({
-                        planName: plan.planName,
-                        planPath: plan.path,
-                        triageMeta: plan.attrs,
+                    const recoverableReview = await requestRecoverablePlanReview({
+                        requestReview: () =>
+                            session.reviewPlan({
+                                planName: plan.planName,
+                                planPath: plan.path,
+                                triageMeta: plan.attrs,
+                            }),
+                        requestRetry: async () => {
+                            const value = await uiAPI.promptSelect("Review the Plan again?", [
+                                { value: "yes", label: "Yes" },
+                                { value: "no", label: "No" },
+                            ]);
+                            return value === "yes"
+                                ? { outcome: RuntimeInteractionOutcomes.ACCEPTED, value: true }
+                                : { outcome: RuntimeInteractionOutcomes.CANCELED, value: false };
+                        },
+                        onUnanswered: ({ reason }) => {
+                            uiAPI.appendSystemMessage(
+                                `Plan review ended without an answer (${reason}).`,
+                                false,
+                                "RunWield",
+                            );
+                        },
                     });
 
-                    if (reviewResult.canceled) {
-                        uiAPI.appendSystemMessage("Plan review canceled.", false, "RunWield");
+                    if (recoverableReview.kind === "complete") {
+                        uiAPI.appendSystemMessage(SESSION_COMPLETE_GUIDANCE, false, "RunWield");
                         skipRouterRestore = true;
                         return;
                     }
+
+                    const reviewResult = recoverableReview.response;
 
                     if (reviewResult.approved) {
                         let reloadedAfterReview = false;
@@ -3336,7 +3362,9 @@ export async function runLoadPlanCommand(argv, options = {}) {
                                 });
                             } else {
                                 uiAPI.appendSystemMessage(
-                                    `Plan saved. Resume later with: ${CLI_BIN} load-plan ${plan.planName}`,
+                                    appendSessionCompleteGuidance(
+                                        `Plan saved. Resume later with: ${CLI_BIN} load-plan ${plan.planName}`,
+                                    ),
                                     false,
                                     "RunWield",
                                 );
@@ -3385,7 +3413,9 @@ export async function runLoadPlanCommand(argv, options = {}) {
                             });
                         } else {
                             uiAPI.appendSystemMessage(
-                                `Plan saved. Resume later with: ${CLI_BIN} load-plan ${plan.planName}`,
+                                appendSessionCompleteGuidance(
+                                    `Plan saved. Resume later with: ${CLI_BIN} load-plan ${plan.planName}`,
+                                ),
                                 false,
                                 "RunWield",
                             );
