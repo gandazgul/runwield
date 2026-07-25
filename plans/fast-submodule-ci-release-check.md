@@ -1,4 +1,5 @@
 ---
+planId: "0c02a8cb-829f-4809-a4df-7226b25dabbb"
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Make per-change CI use fast local submodule integrity checks while reserving remote pin fetchability and binary qualification for the release preflight."
@@ -12,11 +13,15 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-24T14:05:26-04:00"
-updatedAt: "2026-07-24T18:24:10.996Z"
-status: "implemented"
+updatedAt: "2026-07-25T22:09:06.013Z"
+status: "verified"
 origin: "internal"
 implementedAt: "2026-07-24T18:24:10.996Z"
-executionReport: "- Implemented CI split: `deno task ci` no longer runs `release:check`; `submodules:check` is now fast local initialized/exact-pin/clean validation, and `submodules:check:remote` preserves remote pinned-SHA fetchability.\n- Release preflight now runs remote submodule fetchability before compile, then keeps the existing binary `--version` and review-surface smoke checks.\n- Added tests for local submodule status parsing/checking and release preflight ordering/short-circuit behavior.\n- Verification passed: `deno fmt --check deno.json scripts/check-submodules.js scripts/check-submodules.test.js scripts/check-submodule-fetchability.js scripts/release-check.js scripts/release-check.test.js`; `deno test -A scripts/check-submodules.test.js scripts/release-check.test.js`; `deno task submodules:check`; config inspection confirmed CI has no release/compile stage.\n- Verification failed: `deno task ci` fails in untouched Workspace/review tests (`src/ui/review/review-launcher.test.js`, `src/ui/workspace/workspace.test.js`); baseline comparison with this change stashed reproduced the same 4 failures, so they remain unresolved outside this feature scope."
+workRecord:
+    status: "generated"
+    recordId: "a79d1b44-18ab-40d3-87c0-4bead5630979"
+    path: "docs/work-records/2026-07-25-fast-submodule-ci-split-from-release-checks.md"
+    lastAttemptAt: "2026-07-25T22:08:59.081Z"
 worktreeStatus: "completed"
 ---
 

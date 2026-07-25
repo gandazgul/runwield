@@ -1,4 +1,5 @@
 ---
+planId: "df583cba-2ac7-4892-9002-49371ee5b3ae"
 classification: "PROJECT"
 complexity: "HIGH"
 summary: "Reframe PROJECT work as non-executable Epics that are decomposed by an interactive Slicer into independently executable FEATURE plans."
@@ -16,7 +17,14 @@ affectedPaths:
     - "docs/plan-lifecycle.md"
     - "docs/prd/done/project-decomposition-PRD.md"
 createdAt: "2026-06-16T16:25:04Z"
+updatedAt: "2026-07-25T22:09:33.460Z"
 status: "verified"
+origin: "internal"
+workRecord:
+    status: "generated"
+    recordId: "0e04e681-00f3-4767-a925-2ceff6e982a5"
+    path: "docs/work-records/2026-07-25-project-plans-reframed-as-epics.md"
+    lastAttemptAt: "2026-07-25T22:09:24.921Z"
 ---
 
 # PROJECT Decomposition into Executable FEATURE Plans

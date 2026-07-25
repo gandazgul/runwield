@@ -1,4 +1,5 @@
 ---
+planId: "3f6e3949-9848-41f2-b39e-03966d01c680"
 classification: "PROJECT"
 complexity: "MEDIUM"
 summary: "Wire Harns to Pi's theme system: install/list/switch external theme packages (.json only), keep catppuccin-mocha embedded as the precedence-winning fallback, and add a /theme picker with live preview."
@@ -11,9 +12,14 @@ affectedPaths:
     - "src/shared/ui/theme.js"
     - "src/shared/settings.js"
 createdAt: "2026-05-10T00:00:00Z"
-updatedAt: "2026-05-10T22:00:58.961Z"
-status: "completed"
+updatedAt: "2026-07-25T22:10:02.769Z"
+status: "verified"
 origin: "internal"
+workRecord:
+    status: "generated"
+    recordId: "32b305ea-2981-41c0-adf0-c3c89e976085"
+    path: "docs/work-records/2026-07-25-theme-extension-support-verified.md"
+    lastAttemptAt: "2026-07-25T22:09:51.791Z"
 ---
 
 # Theme Extension Support

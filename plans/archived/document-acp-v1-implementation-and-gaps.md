@@ -8,12 +8,17 @@ affectedPaths:
     - "docs/index.md"
 frontend: false
 createdAt: "2026-07-19T09:26:10-04:00"
-updatedAt: "2026-07-19T13:51:33.142Z"
+updatedAt: "2026-07-25T22:09:24.171Z"
 status: "verified"
 origin: "internal"
 implementedAt: "2026-07-19T13:44:38.285Z"
 verifiedAt: "2026-07-19T13:51:33.142Z"
 executionReport: "- Added `docs/acp-implementation-details.md` with ACP v1 audit baseline, current stdio/SessionRuntime implementation details, method/capability/event/interaction mappings, and prioritized required vs optional gaps.\n- Updated `docs/index.md` to link the new ACP reference under RunWield reference docs.\n- Key documented verdict: RunWield is an ACP v1 stdio MVP, not fully v1-conformant; required gaps include version negotiation, reloadable session ids, stdio MCP server support, cancellation settlement ordering, and `usage_update.cost` shape.\n- Verified docs formatting with `deno fmt --check docs/acp-implementation-details.md docs/index.md`.\n- Verified full repository with `deno task ci` (passed; only expected warnings about missing `.env`, chunk size, and package/build-script notices)."
+workRecord:
+    status: "generated"
+    recordId: "78d6fbf0-ca56-4484-9b84-03d6651b8836"
+    path: "docs/work-records/2026-07-25-documented-acp-v1-implementation-and-conformance-gaps.md"
+    lastAttemptAt: "2026-07-25T22:09:16.058Z"
 humanReviewMode: "ask"
 humanReviewDecision: "skipped"
 routingIntent: "FEATURE"
