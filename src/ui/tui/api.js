@@ -16,7 +16,7 @@ import {
 
 /**
  * @typedef {Object} ToolElapsedTimerState
- * @property {ReturnType<typeof setTimeout> | null} startTimer
+ * @property {ReturnType<typeof setTimeout> | null} renderTimer
  */
 
 /**
@@ -202,7 +202,7 @@ export function createUiApi(
     const clearToolElapsedTimer = (id) => {
         const timer = toolElapsedTimers.get(id);
         if (!timer) return;
-        if (timer.startTimer) clearTimeout(timer.startTimer);
+        if (timer.renderTimer) clearTimeout(timer.renderTimer);
         toolElapsedTimers.delete(id);
     };
 
@@ -213,19 +213,22 @@ export function createUiApi(
     const startToolElapsedTimer = (id, block) => {
         clearToolElapsedTimer(id);
         const timer = /** @type {ToolElapsedTimerState} */ ({
-            startTimer: null,
+            renderTimer: null,
         });
-        timer.startTimer = setTimeout(() => {
-            timer.startTimer = null;
+        const renderElapsedFrame = () => {
             if (outputSuppressed || block.ended || activeToolBlocks.get(id) !== block) {
                 clearToolElapsedTimer(id);
                 return;
             }
             block.enableElapsedTime();
             tui.requestRender();
-            toolElapsedTimers.delete(id);
-        }, 500);
+            timer.renderTimer = setTimeout(renderElapsedFrame, 100);
+            if (typeof timer.renderTimer.unref === "function") {
+                timer.renderTimer.unref();
+            }
+        };
         toolElapsedTimers.set(id, timer);
+        renderElapsedFrame();
     };
 
     return {
@@ -413,9 +416,9 @@ export function createUiApi(
             };
             block.setExpanded(toolsExpanded);
             activeToolBlocks.set(id, block);
-            startToolElapsedTimer(id, block);
             messageList.addChild(block);
             messageList.addChild(new Spacer(1));
+            startToolElapsedTimer(id, block);
             tui.requestRender();
             return block;
         },

@@ -379,7 +379,7 @@ Deno.test("ToolExecutionBlock renders with consistent background (with output)",
     assertBlockBackground(lines, w, "ToolExecutionBlock(output)");
 });
 
-Deno.test("ToolExecutionBlock shows live elapsed time only after it is enabled", () => {
+Deno.test("ToolExecutionBlock shows live elapsed time from execution start after it is enabled", () => {
     const originalNow = Date.now;
     let now = 1000;
     Date.now = () => now;
@@ -390,8 +390,11 @@ Deno.test("ToolExecutionBlock shows live elapsed time only after it is enabled",
         let plain = block.render(w).map((line) => stripAnsi(line)).join("\n");
         assertEquals(plain.includes("Elapsed time:"), false);
 
-        now = 1500;
         block.enableElapsedTime();
+        plain = block.render(w).map((line) => stripAnsi(line)).join("\n");
+        assertEquals(plain.includes("Elapsed time: 0.0s"), true);
+
+        now = 1500;
         plain = block.render(w).map((line) => stripAnsi(line)).join("\n");
         assertEquals(plain.includes("Elapsed time: 0.5s"), true);
 
