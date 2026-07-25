@@ -1,4 +1,5 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
+import { join } from "@std/path";
 import { HostedSession } from "../../shared/session/hosted-session.js";
 import { createDelegateAgentTool, diffDelegatedChangeSnapshot, resolveDelegatedToolNames } from "../delegate-agent.js";
 
@@ -111,7 +112,17 @@ Deno.test("diffDelegatedChangeSnapshot refuses attribution when HEAD changes", (
 });
 
 Deno.test("delegated agent prompt includes inherited repository context placeholders", async () => {
-    const prompt = await Deno.readTextFile("src/agent-definitions/workflow-prompts/delegated-agent-prompt.md");
+    const promptPath = join(
+        import.meta.dirname ?? Deno.cwd(),
+        "..",
+        "..",
+        "..",
+        "src",
+        "agent-definitions",
+        "workflow-prompts",
+        "delegated-agent-prompt.md",
+    );
+    const prompt = await Deno.readTextFile(promptPath);
 
     assertStringIncludes(prompt, "{{GLOBAL_AGENTSMD}}");
     assertStringIncludes(prompt, "{{PROJECT_AGENTSMD}}");

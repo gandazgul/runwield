@@ -59,6 +59,7 @@ Deno.test("startActiveExecutionWorkflow prepares targeted branch creation args",
         currentStatus: "ready_for_work",
         hostedSession,
         __deps: {
+            probeGitRepository: () => Promise.resolve({ ok: true, state: "work_tree", cwd: "" }),
             findReusableWorktree: () => Promise.resolve(null),
             prepareTargetBranchRef: (projectRoot, branch) => {
                 prepareCalls.push({ projectRoot, branch });
@@ -103,6 +104,7 @@ Deno.test("startActiveExecutionWorkflow keeps HEAD fallback for untargeted plans
         currentStatus: "ready_for_work",
         hostedSession,
         __deps: {
+            probeGitRepository: () => Promise.resolve({ ok: true, state: "work_tree", cwd: "" }),
             findReusableWorktree: () => {
                 reuseLookups++;
                 return Promise.reject(new Error("fresh execution must not reuse by plan name"));
@@ -147,6 +149,7 @@ Deno.test("startActiveExecutionWorkflow resolves implicit current branch before 
         currentStatus: "ready_for_work",
         hostedSession,
         __deps: {
+            probeGitRepository: () => Promise.resolve({ ok: true, state: "work_tree", cwd: "" }),
             findReusableWorktree: (opts) => {
                 reuseCalls.push(opts);
                 return Promise.resolve(
@@ -193,6 +196,7 @@ Deno.test("startActiveExecutionWorkflow rejects reusable worktree target mismatc
                 currentStatus: "ready_for_work",
                 hostedSession,
                 __deps: {
+                    probeGitRepository: () => Promise.resolve({ ok: true, state: "work_tree", cwd: "" }),
                     findReusableWorktree: () =>
                         Promise.resolve(
                             /** @type {any} */ ({
@@ -228,6 +232,7 @@ Deno.test("startActiveExecutionWorkflow matches explicit remote target to record
         currentStatus: "ready_for_work",
         hostedSession,
         __deps: {
+            probeGitRepository: () => Promise.resolve({ ok: true, state: "work_tree", cwd: "" }),
             findReusableWorktree: () =>
                 Promise.resolve(
                     /** @type {any} */ ({
@@ -279,6 +284,7 @@ Deno.test("startActiveExecutionWorkflow does not let plan target overwrite unkno
                 currentStatus: "ready_for_work",
                 hostedSession,
                 __deps: {
+                    probeGitRepository: () => Promise.resolve({ ok: true, state: "work_tree", cwd: "" }),
                     findReusableWorktree: () => Promise.reject(new Error("should use active workflow")),
                     prepareTargetBranchRef: () => {
                         prepareCalls++;
