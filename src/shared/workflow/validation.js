@@ -177,8 +177,15 @@ export async function loadReviewerPrompt(
     readTextFile = Deno.readTextFile,
     ensurePromptFile = ensureBundledAgentDefFile,
 ) {
-    const reviewerPromptPath = await ensurePromptFile(join(WORKFLOW_PROMPTS_DIR, REVIEWER_PROMPT_FILE));
-    const raw = await readTextFile(reviewerPromptPath);
+    let reviewerPromptPath = await ensurePromptFile(join(WORKFLOW_PROMPTS_DIR, REVIEWER_PROMPT_FILE));
+    let raw;
+    try {
+        raw = await readTextFile(reviewerPromptPath);
+    } catch (error) {
+        if (!(error instanceof Deno.errors.NotFound)) throw error;
+        reviewerPromptPath = await ensurePromptFile(join(WORKFLOW_PROMPTS_DIR, REVIEWER_PROMPT_FILE));
+        raw = await readTextFile(reviewerPromptPath);
+    }
     const { attrs, body } = extractYaml(raw);
     const displayName = typeof attrs.name === "string" && attrs.name.trim() ? attrs.name.trim() : "Reviewer";
     const description = typeof attrs.description === "string" ? attrs.description.trim() : "";

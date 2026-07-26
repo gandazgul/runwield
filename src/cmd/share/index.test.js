@@ -79,10 +79,10 @@ Deno.test("runShareCommand checks gh, exports, uploads, and cleans up", async ()
     assertEquals(calls, [
         { cmd: "gh", args: ["--version"] },
         { cmd: "gh", args: ["auth", "status"] },
-        { cmd: "gh", args: ["gist", "create", "--public=false", "/tmp/runwield-share/runwield-session-abc.html"] },
+        { cmd: "gh", args: ["gist", "create", "--public=false", "/tmp/runwield-share/runwield-session-abc.jsonl"] },
     ]);
-    assertEquals(exported, ["runtime-share:/tmp/runwield-share/runwield-session-abc.html"]);
-    assertEquals(removed, ["/tmp/runwield-share/runwield-session-abc.html"]);
+    assertEquals(exported, ["runtime-share:/tmp/runwield-share/runwield-session-abc.jsonl"]);
+    assertEquals(removed, ["/tmp/runwield-share/runwield-session-abc.jsonl"]);
     assertEquals(messages, ["Session shared successfully!\nhttps://gist.example/1"]);
 });
 

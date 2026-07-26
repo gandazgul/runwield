@@ -62,13 +62,11 @@ sessionPromptTest("assembleFinalSystemPrompt includes project-state context only
 });
 
 sessionPromptTest("assembleFinalSystemPromptWithContextProjection attributes resident context", async () => {
-    const originalHome = Deno.env.get("HOME");
     const tempHome = await Deno.makeTempDir({ prefix: "runwield-context-home-" });
     const projectRoot = await Deno.makeTempDir({ prefix: "runwield-context-project-" });
     const localSkillDir = join(projectRoot, ".wld", "skills", "visible-skill");
     const hiddenSkillDir = join(projectRoot, ".wld", "skills", "hidden-skill");
     try {
-        Deno.env.set("HOME", tempHome);
         await Deno.mkdir(join(tempHome, ".wld"), { recursive: true });
         await Deno.writeTextFile(join(tempHome, ".wld", "RUNWIELD.md"), "Global context instructions");
         await Deno.writeTextFile(join(projectRoot, "RUNWIELD.md"), "Project context instructions");
@@ -116,6 +114,7 @@ sessionPromptTest("assembleFinalSystemPromptWithContextProjection attributes res
             ],
             projectRoot,
             "Runtime project state",
+            { homeDir: tempHome },
         );
 
         assertStringIncludes(prompt, "Global context instructions");
@@ -141,8 +140,6 @@ sessionPromptTest("assembleFinalSystemPromptWithContextProjection attributes res
         );
         assertEquals(projection.categories.some((category) => category.id === "tools" && category.tokens > 0), true);
     } finally {
-        if (originalHome === undefined) Deno.env.delete("HOME");
-        else Deno.env.set("HOME", originalHome);
         await Deno.remove(tempHome, { recursive: true }).catch(() => {});
         await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
     }

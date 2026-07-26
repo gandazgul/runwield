@@ -1,6 +1,6 @@
 /**
  * @module cmd/share
- * Share current session as a secret GitHub Gist.
+ * Share current session JSONL as a secret GitHub Gist.
  */
 
 import { join } from "@std/path";
@@ -69,11 +69,11 @@ export async function runShareCommand(_argv, options = {}) {
             return;
         }
 
-        // 3. Export session to temporary HTML file
+        // 3. Export the currently persisted session shape to a temporary JSONL file.
         const tmpDir = (deps.tmpDir || (() => Deno.env.get("TMPDIR")))() || "/tmp";
         const sessionId = sessionRuntime.getSessionSnapshot(runtimeSessionId)?.sessionManagerId ||
             String((deps.now || Date.now)());
-        const tmpFile = join(tmpDir, `runwield-session-${sessionId}.html`);
+        const tmpFile = join(tmpDir, `runwield-session-${sessionId}.jsonl`);
         await sessionRuntime.exportSession(runtimeSessionId, tmpFile);
 
         // 4. Upload to secret Gist

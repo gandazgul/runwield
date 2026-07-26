@@ -166,6 +166,37 @@ Deno.test("loadReviewerPrompt returns a bare tool-free prompt", async () => {
     assertEquals(reviewerDef.systemPrompt.includes("Available tools"), false);
 });
 
+Deno.test("loadReviewerPrompt retries if the extracted prompt cache is refreshed", async () => {
+    /** @type {string[]} */
+    const ensuredPaths = [];
+    let readAttempts = 0;
+    const reviewerDef = await loadReviewerPrompt(
+        (path) => {
+            readAttempts++;
+            if (readAttempts === 1) throw new Deno.errors.NotFound("cache refresh removed prompt");
+            return Promise.resolve([
+                "---",
+                "name: Reviewer",
+                "---",
+                "",
+                `Recovered prompt from ${path}`,
+                "",
+            ].join("\n"));
+        },
+        (relativePath) => {
+            ensuredPaths.push(relativePath);
+            return Promise.resolve(`/tmp/bundled-agent-definitions/${relativePath}`);
+        },
+    );
+
+    assertEquals(ensuredPaths, [
+        "workflow-prompts/reviewer-prompt.md",
+        "workflow-prompts/reviewer-prompt.md",
+    ]);
+    assertEquals(readAttempts, 2);
+    assertStringIncludes(reviewerDef.systemPrompt, "Recovered prompt");
+});
+
 Deno.test("bundled reviewer prompt permits unrelated formatter-only changes", async () => {
     const prompt = await Deno.readTextFile(
         new URL("../../agent-definitions/workflow-prompts/reviewer-prompt.md", import.meta.url),
