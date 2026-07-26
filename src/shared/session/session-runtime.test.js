@@ -435,6 +435,44 @@ Deno.test("SessionRuntime can defer managed creation cataloging until Agent read
     runtime.closeSession(created.sessionId);
 });
 
+Deno.test("SessionRuntime records dormant managed agent switches as pending turn intent", async () => {
+    const sessionHost = new SessionHost();
+    const session = sessionHost.createSession({
+        id: "managed-pending-agent",
+        cwd: Deno.cwd(),
+        sessionManager: null,
+        managed: {
+            runwieldSessionId: "rw-pending-agent",
+            projectId: "project-pending-agent",
+            piSessionId: "pi-pending-agent",
+            transcriptPath: `${Deno.cwd()}/transcript.jsonl`,
+            generation: 3,
+            acknowledgedGeneration: 3,
+            name: "Pending Agent",
+            activeAgent: "router",
+            workflowContext: null,
+        },
+    });
+    const runtime = makeRuntime({ sessionHost });
+    /** @type {string[]} */
+    const changedAgents = [];
+    runtime.subscribeSessionEvents(session.id, (event) => {
+        if (event.type === RuntimeEventTypes.AGENT_CHANGED) changedAgents.push(event.agentName);
+    });
+
+    const result = await runtime.switchAgent(session.id, { agentName: "engineer" });
+    session.setManagedMetadata({
+        .../** @type {NonNullable<ReturnType<typeof session.getManagedMetadata>>} */ (session.getManagedMetadata()),
+        activeAgent: "router",
+    });
+    const snapshot = runtime.getSessionSnapshot(session.id);
+
+    assertEquals(result, { ok: true, agentName: "engineer", model: undefined, changed: true });
+    assertEquals(changedAgents, ["engineer"]);
+    assertEquals(session.getPendingManagedTurnIntent(), { agentName: "engineer" });
+    assertEquals(snapshot?.activeAgent, "engineer");
+});
+
 Deno.test("SessionRuntime emits accepted managed user message before hydration work", async () => {
     const source = await Deno.readTextFile(new URL("./session-runtime.js", import.meta.url));
     const promptManagedIndex = source.indexOf("async promptManagedSession(sessionId, options)");
@@ -459,9 +497,10 @@ Deno.test("SessionRuntime emits accepted managed user message before hydration w
 Deno.test("SessionRuntime managed prompt preserves pending local agent selection", async () => {
     const source = await Deno.readTextFile(new URL("./session-runtime.js", import.meta.url));
     const promptManagedIndex = source.indexOf("async promptManagedSession(sessionId, options)");
+    const pendingIntentIndex = source.indexOf("const pendingIntent =", promptManagedIndex);
     const openIndex = source.indexOf("await this.#openPersistedRootSession({", promptManagedIndex);
     const agentSelectionIndex = source.indexOf(
-        "const agentName = options.agentName || hostedSession.getRootAgentName() ||",
+        "const agentName = options.agentName || pendingIntent.agentName ||",
         openIndex,
     );
     const resumeFallbackIndex = source.indexOf(
@@ -469,12 +508,15 @@ Deno.test("SessionRuntime managed prompt preserves pending local agent selection
         agentSelectionIndex,
     );
     const activateIndex = source.indexOf("await this.#activateSessionAgent(hostedSession, {", agentSelectionIndex);
+    const consumeIntentIndex = source.indexOf("hostedSession.consumePendingManagedTurnIntent?.();", activateIndex);
 
     assertEquals(promptManagedIndex >= 0, true);
+    assertEquals(pendingIntentIndex > promptManagedIndex, true);
     assertEquals(openIndex > promptManagedIndex, true);
     assertEquals(agentSelectionIndex > openIndex, true);
     assertEquals(resumeFallbackIndex > agentSelectionIndex, true);
     assertEquals(activateIndex > resumeFallbackIndex, true);
+    assertEquals(consumeIntentIndex > activateIndex, true);
 });
 
 Deno.test("SessionRuntime returns null context report without an active Agent Session", async () => {
