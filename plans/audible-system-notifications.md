@@ -10,11 +10,22 @@ affectedPaths:
     - "TODO.md"
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
-devServerCommand: null
-devServerUrl: null
-devServerHmr: null
 createdAt: "2026-07-25T22:34:40-04:00"
-status: "draft"
+updatedAt: "2026-07-26T03:06:31.885Z"
+status: "verified"
+origin: "internal"
+implementedAt: "2026-07-26T02:57:31.687Z"
+verifiedAt: "2026-07-26T03:06:31.885Z"
+executionReport: "- Implemented portable TUI terminal BEL for enabled RunWield attention notifications, with `notifications.terminalBell` defaulting to `true` and literal `false` suppressing BEL only.\n- Preserved existing macOS desktop notification delivery/click behavior and kept `terminal-notifier`/`osascript` commands free of native sound options to avoid duplicate alerts.\n- Updated config schema, settings docs, and marked the notification sound TODO complete.\n- Verified: `deno test -A src/ui/tui/system-notifications.test.js` passed; `deno fmt --check src/ui/tui/system-notifications.js src/ui/tui/system-notifications.test.js docs/settings.md TODO.md config.schema.json` passed; `deno run ci` passed (1717 tests).\n- Manual terminal-emulator checks were not run in this non-interactive session; automated tests cover injected BEL emission, opt-out, disabled events, fallback, and failure isolation."
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
+executionMode: "worktree"
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "05c3ab7887deb4bb8abc4e3d091d46b7b058f338"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "c38b4ddfdbb6fb8a5da4b228132520cc7d6fd128"
 ---
 
 # Terminal Bell for TUI Notifications
@@ -57,10 +68,12 @@ real terminal. Direct TUI stdout is the correct destination because it identifie
 RunWield process, does not require terminal remote-control permissions, and matches the existing best-effort terminal
 control-sequence pattern used by the TUI lifecycle.
 
-After validating the event and its settings, emit BEL before attempting desktop delivery. This ordering makes the bell
-portable and independent: unsupported operating systems, missing notifier commands, denied notification permissions, or
-command failures must not suppress it. Conversely, unknown events, globally disabled notifications, and individually
-disabled events must emit neither BEL nor a desktop notification. A failed bell write must not prevent desktop delivery.
+Move known-event and settings validation ahead of terminal identity detection. After validation, emit BEL immediately
+and only then perform the asynchronous TTY lookup and desktop command construction. This ordering makes the bell prompt,
+portable, and independent: slow identity detection, unsupported operating systems, missing notifier commands, denied
+notification permissions, or command failures must not suppress it. Conversely, unknown events, globally disabled
+notifications, and individually disabled events must emit neither BEL, TTY lookup, nor desktop notification attempt. A
+failed bell write must not prevent desktop delivery.
 
 Do not add native notification sound arguments to `terminal-notifier` or `osascript`, a separate audio process,
 terminal-specific urgency commands, or a new Runtime event. The TUI adapter remains the only consumer that turns the
@@ -73,9 +86,10 @@ existing `attention_requested` event into terminal/desktop effects, preserving c
   deterministic tests.
 - `src/ui/tui/system-notifications.test.js` — cover bell defaults, silent opt-out, cross-platform emission, disabled
   events, writer failure isolation, and independence from desktop command success.
-- `config.schema.json` — define and describe `notifications.terminalBell` as a boolean with a default of `true`.
-- `docs/settings.md` — document the portable terminal-bell behavior, visual-only opt-out, terminal/multiplexer control,
-  and updated settings example.
+- `config.schema.json` — define `notifications.terminalBell` as a boolean with a default of `true`, and broaden the
+  existing notification/enablement descriptions to cover both terminal BEL and desktop effects.
+- `docs/settings.md` — update the custom-key table and notification section to document portable terminal-bell behavior,
+  BEL opt-out, terminal/multiplexer control, enablement semantics, and an updated settings example.
 - `TODO.md` — mark the existing notification-sound investigation item complete once implementation and verification
   pass.
 
@@ -104,18 +118,23 @@ Existing functions, modules, or patterns to reuse:
 - [ ] Step 3: Add a focused best-effort helper that writes one encoded BEL byte (`\x07`) to `Deno.stdout` through the
       injected dependency, returns whether the write succeeded, and catches all write errors without logging into or
       disrupting the live TUI.
-- [ ] Step 4: In `notifyRunWieldEvent()`, emit BEL exactly once after rejecting unknown/globally disabled/event-disabled
-      notifications but before desktop command construction. Record the outcome without changing the existing `sent`
-      meaning, which continues to describe desktop notification delivery.
+- [ ] Step 4: In `notifyRunWieldEvent()`, move known-event and settings checks before `detectTerminalIdentity()`, then
+      emit BEL exactly once before any asynchronous identity lookup or desktop command construction. Record the outcome
+      without changing the existing `sent` meaning, which continues to describe desktop notification delivery.
 - [ ] Step 5: Preserve independent outcomes: continue macOS desktop delivery after a bell-write failure, emit BEL on
       non-macOS/unsupported desktop paths, and do not emit a second BEL when `terminal-notifier` falls back to
       `osascript`.
 - [ ] Step 6: Expand unit tests with an injected byte writer to verify the byte is exactly `0x07`, default and malformed
-      settings enable it, literal `false` disables it, all known events use it, disabled/unknown events do not, Linux
-      can emit it while returning desktop reason `unsupported`, and command/writer failures remain isolated.
-- [ ] Step 7: Add `notifications.terminalBell` to the configuration schema and settings documentation. Explain that
-      terminal and multiplexer settings determine audio, visual, urgency, and tab-marker behavior; include a
-      visual-desktop-only example using `{ "notifications": { "terminalBell": false } }`.
+      settings enable it, literal `false` disables BEL while still allowing desktop delivery, all known events use it,
+      and Linux can emit it while returning desktop reason `unsupported`. Prove globally disabled, event-disabled, and
+      unknown events perform no BEL write, TTY lookup, or desktop attempt; writer/command failures remain isolated;
+      `terminal-notifier` fallback emits only one BEL; and both desktop command variants remain free of native sound
+      options/actions.
+- [ ] Step 7: Add `notifications.terminalBell` to the configuration schema and update the existing top-level
+      notification and `enabled` descriptions plus the settings custom-key table/section. State that `enabled: false`
+      gates both BEL and desktop delivery, while `terminalBell: false` suppresses all BEL-derived terminal effects but
+      keeps desktop delivery. Explain that terminal and multiplexer settings determine audio, visual, urgency, and
+      tab-marker behavior, and include `{ "notifications": { "terminalBell": false } }` as the opt-out example.
 - [ ] Step 8: Mark the corresponding `TODO.md` item complete after automated and manual checks pass.
 
 ## Verification Plan
