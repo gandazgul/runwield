@@ -1,6 +1,6 @@
 /**
  * @module ui/tui/system-notifications
- * Best-effort desktop notifications for terminal UI attention events.
+ * Best-effort terminal bell and desktop notifications for TUI attention events.
  */
 
 import { getMergedCustomSetting } from "../../shared/settings.js";
@@ -19,6 +19,7 @@ const EVENT_MESSAGES = {
 };
 
 const TERMINAL_NOTIFIER_FALLBACK_REASON = "terminal_notifier_failed";
+const TERMINAL_BELL_BYTES = new Uint8Array([7]);
 
 /**
  * @typedef {"agentStopped" | "planWritten" | "userInterview"} NotificationEventName
@@ -40,6 +41,7 @@ const TERMINAL_NOTIFIER_FALLBACK_REASON = "terminal_notifier_failed";
  * @property {boolean} enabled
  * @property {NotificationActivationMode} activation
  * @property {NotificationEventSettings} events
+ * @property {boolean} terminalBell
  */
 
 /**
@@ -77,6 +79,7 @@ const TERMINAL_NOTIFIER_FALLBACK_REASON = "terminal_notifier_failed";
  * @property {number} [pid]
  * @property {(key: string) => unknown} [getMergedCustomSetting]
  * @property {(cmd: string, args?: string[]) => Promise<CommandResult>} [runCommand]
+ * @property {(bytes: Uint8Array) => void} [writeTerminal]
  */
 
 /**
@@ -95,7 +98,15 @@ const TERMINAL_NOTIFIER_FALLBACK_REASON = "terminal_notifier_failed";
  * @property {string} message
  * @property {CommandSpec | null} command
  * @property {TerminalIdentity} terminal
+ * @property {boolean} terminalBellEmitted
  */
+
+/**
+ * @param {Uint8Array} bytes
+ */
+function writeTerminal(bytes) {
+    Deno.stdout.writeSync(bytes);
+}
 
 const defaultDeps = {
     os: Deno.build.os,
@@ -103,6 +114,7 @@ const defaultDeps = {
     pid: Deno.pid,
     getMergedCustomSetting,
     runCommand,
+    writeTerminal,
 };
 
 /**
@@ -120,18 +132,22 @@ export async function notifyRunWieldEvent(eventName, options = {}) {
     const deps = mergeDeps(options.__deps);
     const settings = resolveNotificationSettings(deps.getMergedCustomSetting("notifications"));
     const sessionLabel = normalizeLabel(options.sessionName) || "RunWield";
-    const terminal = await detectTerminalIdentity(sessionLabel, deps);
-    const title = buildNotificationTitle(eventName, terminal, options.agentName);
-    const message = buildNotificationMessage(eventName, terminal);
+    const initialTerminal = {
+        sessionLabel,
+        terminalTitle: formatSessionTerminalTitle(sessionLabel),
+    };
+    const initialTitle = buildNotificationTitle(eventName, initialTerminal, options.agentName);
+    const initialMessage = buildNotificationMessage(eventName, initialTerminal);
 
     const baseResult = /** @type {NotificationResult} */ ({
         sent: false,
         reason: "not_sent",
         eventName,
-        title,
-        message,
+        title: initialTitle,
+        message: initialMessage,
         command: null,
-        terminal,
+        terminal: initialTerminal,
+        terminalBellEmitted: false,
     });
 
     if (!isKnownEvent(eventName)) {
@@ -146,16 +162,28 @@ export async function notifyRunWieldEvent(eventName, options = {}) {
         return { ...baseResult, reason: "event_disabled" };
     }
 
+    const terminalBellEmitted = settings.terminalBell ? emitTerminalBell(deps) : false;
+    const terminal = await detectTerminalIdentity(sessionLabel, deps);
+    const title = buildNotificationTitle(eventName, terminal, options.agentName);
+    const message = buildNotificationMessage(eventName, terminal);
+    const enabledResult = /** @type {NotificationResult} */ ({
+        ...baseResult,
+        title,
+        message,
+        terminal,
+        terminalBellEmitted,
+    });
+
     const command = await buildNotificationCommand({ eventName, title, message, terminal, settings }, deps);
     if (!command) {
-        return { ...baseResult, reason: "unsupported" };
+        return { ...enabledResult, reason: "unsupported" };
     }
 
     try {
         const output = await deps.runCommand(command.cmd, command.args);
         if (output.success) {
             return {
-                ...baseResult,
+                ...enabledResult,
                 command,
                 sent: true,
                 reason: "sent",
@@ -166,7 +194,7 @@ export async function notifyRunWieldEvent(eventName, options = {}) {
         if (fallbackCommand && command.cmd === "terminal-notifier") {
             const fallbackOutput = await deps.runCommand(fallbackCommand.cmd, fallbackCommand.args);
             return {
-                ...baseResult,
+                ...enabledResult,
                 command: fallbackCommand,
                 sent: fallbackOutput.success,
                 reason: fallbackOutput.success ? `sent:${TERMINAL_NOTIFIER_FALLBACK_REASON}` : "command_failed",
@@ -174,14 +202,14 @@ export async function notifyRunWieldEvent(eventName, options = {}) {
         }
 
         return {
-            ...baseResult,
+            ...enabledResult,
             command,
             sent: false,
             reason: "command_failed",
         };
     } catch (error) {
         const reason = error instanceof Error ? error.message : String(error);
-        return { ...baseResult, command, reason: `command_error:${reason}` };
+        return { ...enabledResult, command, reason: `command_error:${reason}` };
     }
 }
 
@@ -214,6 +242,7 @@ export function resolveNotificationSettings(raw) {
             planWritten: eventsRaw.planWritten !== false,
             userInterview: eventsRaw.userInterview !== false,
         },
+        terminalBell: record.terminalBell !== false,
     };
 }
 
@@ -458,6 +487,19 @@ async function readTty(deps) {
 }
 
 /**
+ * @param {Required<SystemNotificationDeps>} deps
+ * @returns {boolean}
+ */
+function emitTerminalBell(deps) {
+    try {
+        deps.writeTerminal(TERMINAL_BELL_BYTES);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+/**
  * @param {string} cmd
  * @param {string[]} [args]
  * @returns {Promise<CommandResult>}
@@ -485,6 +527,7 @@ function mergeDeps(overrides) {
         pid: overrides?.pid || defaultDeps.pid,
         getMergedCustomSetting: overrides?.getMergedCustomSetting || defaultDeps.getMergedCustomSetting,
         runCommand: overrides?.runCommand || defaultDeps.runCommand,
+        writeTerminal: overrides?.writeTerminal || defaultDeps.writeTerminal,
     };
 }
 
