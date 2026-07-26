@@ -3,7 +3,10 @@
  */
 
 import { loadPlan, normalizeExecutionMode, updatePlanFrontMatter } from "../../plan-store.js";
-import { findById as findWorktreeRegistryEntryById } from "../worktree-registry.js";
+import {
+    findById as findWorktreeRegistryEntryById,
+    findByPlanName as findWorktreeRegistryEntryByPlanName,
+} from "../worktree-registry.js";
 import { prepareExecutionPlanFile } from "./execution-plan-file.js";
 import { recordWorkflowMetric } from "./metrics.js";
 
@@ -135,7 +138,7 @@ async function recordResolutionMetric({
 }
 
 /**
- * @param {{ projectRoot: string, planName: string, triageMeta?: Record<string, unknown>, explicitContext?: any, activeWorkflow?: any, __deps?: { loadPlan?: typeof loadPlan, canonicalLoadPlan?: typeof loadPlan, prepareExecutionPlanFile?: typeof prepareExecutionPlanFile, findWorktreeRegistryEntryById?: typeof findWorktreeRegistryEntryById, updatePlanFrontMatter?: typeof updatePlanFrontMatter, recordWorkflowMetric?: typeof recordWorkflowMetric, runGit?: typeof runGit, realPath?: typeof realPath } }} opts
+ * @param {{ projectRoot: string, planName: string, triageMeta?: Record<string, unknown>, explicitContext?: any, activeWorkflow?: any, __deps?: { loadPlan?: typeof loadPlan, canonicalLoadPlan?: typeof loadPlan, prepareExecutionPlanFile?: typeof prepareExecutionPlanFile, findWorktreeRegistryEntryById?: typeof findWorktreeRegistryEntryById, findWorktreeRegistryEntryByPlanName?: typeof findWorktreeRegistryEntryByPlanName, updatePlanFrontMatter?: typeof updatePlanFrontMatter, recordWorkflowMetric?: typeof recordWorkflowMetric, runGit?: typeof runGit, realPath?: typeof realPath } }} opts
  * @returns {Promise<ValidationContextResolution>}
  */
 export async function resolveValidationExecutionContext({
@@ -150,6 +153,7 @@ export async function resolveValidationExecutionContext({
     const prepareExecutionPlanFileFn = __deps.prepareExecutionPlanFile || prepareExecutionPlanFile;
     const recordMetricFn = __deps.recordWorkflowMetric || recordWorkflowMetric;
     const findByIdFn = __deps.findWorktreeRegistryEntryById || findWorktreeRegistryEntryById;
+    const findByPlanNameFn = __deps.findWorktreeRegistryEntryByPlanName || findWorktreeRegistryEntryByPlanName;
     const updatePlanFrontMatterFn = __deps.updatePlanFrontMatter || updatePlanFrontMatter;
     const runGitFn = __deps.runGit || runGit;
     const realPathFn = __deps.realPath || realPath;
@@ -246,7 +250,11 @@ export async function resolveValidationExecutionContext({
             `Execution context mode ${normalizedCandidateMode} contradicts Plan metadata mode ${durableMode}.`,
         );
     }
-    const executionMode = normalizedCandidateMode || durableMode;
+    const candidateWorktreeId = asString(candidate.worktreeId) || asString(attrs.worktreeId);
+    const recoveredRegistryEntry = candidateWorktreeId
+        ? await findByIdFn(projectRoot, candidateWorktreeId) || await findByPlanNameFn(projectRoot, planName)
+        : await findByPlanNameFn(projectRoot, planName);
+    const executionMode = normalizedCandidateMode || durableMode || (recoveredRegistryEntry ? "worktree" : undefined);
     if (!executionMode) {
         const hasCompleteLegacyWorktree = attrs.worktreeId && attrs.worktreePath && attrs.worktreeBranch;
         if (!hasCompleteLegacyWorktree) {
@@ -258,7 +266,7 @@ export async function resolveValidationExecutionContext({
             });
             return blocked(
                 "unknown_execution_mode",
-                `Plan ${planName} has no execution mode. Run Plan Recovery; RunWield will not infer in-place execution from missing worktree state.`,
+                `RunWield cannot tell where "${planName}" was implemented because the Plan has no execution mode and no recoverable worktree record. It will not validate the current checkout automatically, because that could mark unrelated changes as this Plan. Use /load-plan ${planName}, inspect the recovery report, then choose "Delete/recreate worktree and start over", "Reset tree and start over", or "Re-open for review".`,
             );
         }
     }
@@ -294,11 +302,15 @@ export async function resolveValidationExecutionContext({
         ? asString(candidate.executionCwd)
         : undefined;
     const recordedWorktreePath = asString(attrs.worktreePath);
-    const worktreeId = asString(candidate.worktreeId) || asString(attrs.worktreeId);
-    const worktreePath = candidateWorktreePath || recordedWorktreePath;
-    const worktreeBranch = asString(candidate.worktreeBranch) || asString(attrs.worktreeBranch);
-    const worktreeBaseBranch = asString(candidate.worktreeBaseBranch) || asString(attrs.worktreeBaseBranch);
-    let baselineTree = asString(candidate.baselineTree) || asString(attrs.executionBaselineTree);
+    const worktreeId = asString(recoveredRegistryEntry?.id) || candidateWorktreeId;
+    const worktreePath = asString(recoveredRegistryEntry?.path) || candidateWorktreePath || recordedWorktreePath;
+    const worktreeBranch = asString(recoveredRegistryEntry?.branch) || asString(candidate.worktreeBranch) ||
+        asString(attrs.worktreeBranch);
+    const worktreeBaseBranch = asString(recoveredRegistryEntry?.baseBranch) ||
+        asString(candidate.worktreeBaseBranch) || asString(attrs.worktreeBaseBranch);
+    let baselineTree = asString(recoveredRegistryEntry?.executionBaselineTree) ||
+        asString(recoveredRegistryEntry?.baseTree) ||
+        asString(candidate.baselineTree) || asString(attrs.executionBaselineTree);
     if (!worktreeId || !worktreePath || !worktreeBranch || !worktreeBaseBranch) {
         await recordResolutionMetric({
             recordWorkflowMetric: recordMetricFn,
@@ -308,7 +320,7 @@ export async function resolveValidationExecutionContext({
         });
         return blocked(
             "incomplete_worktree_identity",
-            `Plan ${planName} is missing worktree delivery identity; run Plan Recovery.`,
+            `RunWield found that "${planName}" should validate from a worktree, but the recorded worktree identity is incomplete. Use /load-plan ${planName}, inspect the recovery report, then choose "Delete/recreate worktree and start over" or "Re-open for review".`,
         );
     }
     if (candidate.planName && !planIdentityMatches(candidate.planName, planName)) {
@@ -317,35 +329,22 @@ export async function resolveValidationExecutionContext({
     if (attrs.planId && candidate.triageMeta?.planId && attrs.planId !== candidate.triageMeta.planId) {
         return blocked("plan_id_mismatch", `Execution context Plan ID does not match ${planName}.`);
     }
-    for (
-        const [key, expected, actual] of [
-            ["worktreeId", attrs.worktreeId, worktreeId],
-            ["worktreeBranch", attrs.worktreeBranch, worktreeBranch],
-            ["worktreeBaseBranch", attrs.worktreeBaseBranch, worktreeBaseBranch],
-            ["executionBaselineTree", attrs.executionBaselineTree, baselineTree],
-        ]
-    ) {
-        if (expected && actual && expected !== actual) {
-            return blocked(`${key}_mismatch`, `Execution ${key} does not match Plan metadata.`);
-        }
-    }
-
-    if (candidateWorktreePath && recordedWorktreePath) {
+    if (candidateWorktreePath && recoveredRegistryEntry?.path) {
         const canonicalCandidatePath = await realPathFn(candidateWorktreePath);
-        const canonicalRecordedPath = await realPathFn(recordedWorktreePath);
-        if (!canonicalCandidatePath || !canonicalRecordedPath || canonicalCandidatePath !== canonicalRecordedPath) {
+        const canonicalRegistryPath = await realPathFn(recoveredRegistryEntry.path);
+        if (!canonicalCandidatePath || !canonicalRegistryPath || canonicalCandidatePath !== canonicalRegistryPath) {
             return blocked(
                 "plan_worktree_path_mismatch",
-                `Execution worktree path does not match Plan metadata for ${worktreeId}.`,
+                `Execution worktree path does not match the worktree registry for ${worktreeId}.`,
             );
         }
     }
 
-    const registryEntry = await findByIdFn(projectRoot, worktreeId);
+    const registryEntry = recoveredRegistryEntry || await findByIdFn(projectRoot, worktreeId);
     if (!registryEntry) {
         return blocked(
             "missing_registry_entry",
-            `Worktree registry entry ${worktreeId} is missing; run Plan Recovery.`,
+            `RunWield has worktree metadata for "${planName}", but registry entry ${worktreeId} is missing. Use /load-plan ${planName}, inspect the recovery report, then choose "Delete/recreate worktree and start over" or "Re-open for review".`,
         );
     }
     if (!planIdentityMatches(registryEntry.planName, planName)) {
@@ -360,11 +359,11 @@ export async function resolveValidationExecutionContext({
             `Worktree registry entry ${worktreeId} is ${registryEntry.status}, not validation-eligible.`,
         );
     }
-    if (registryEntry.branch !== worktreeBranch || registryEntry.baseBranch !== worktreeBaseBranch) {
-        return blocked(
-            "registry_identity_mismatch",
-            `Worktree registry identity for ${worktreeId} does not match Plan metadata.`,
-        );
+    if (candidate.worktreeBranch && registryEntry.branch !== candidate.worktreeBranch) {
+        return blocked("registry_identity_mismatch", `Execution branch does not match the worktree registry.`);
+    }
+    if (candidate.worktreeBaseBranch && registryEntry.baseBranch !== candidate.worktreeBaseBranch) {
+        return blocked("registry_identity_mismatch", `Execution target branch does not match the worktree registry.`);
     }
     if (!baselineTree) baselineTree = asString(registryEntry.executionBaselineTree) || asString(registryEntry.baseTree);
     if (registryEntry.executionBaselineTree && baselineTree && registryEntry.executionBaselineTree !== baselineTree) {
@@ -403,7 +402,7 @@ export async function resolveValidationExecutionContext({
         });
         return blocked(
             "incomplete_worktree_identity",
-            `Plan ${planName} is missing worktree delivery identity; run Plan Recovery.`,
+            `RunWield found the worktree for "${planName}", but it cannot recover the execution baseline needed for validation. Use /load-plan ${planName}, inspect the recovery report, then choose "Delete/recreate worktree and start over" or "Re-open for review".`,
         );
     }
     const canonicalRegistryPath = await realPathFn(registryEntry.path);
@@ -458,16 +457,8 @@ export async function resolveValidationExecutionContext({
     const restoredPlanFile = planFile.kind === "restored" ? { relativePath: planFile.relativePath } : undefined;
 
     let persistedLegacyExecutionMode = false;
-    if (plan && (attrs.executionMode !== "worktree" || !attrs.executionBaselineTree)) {
-        await updatePlanFrontMatterFn(
-            projectRoot,
-            planName,
-            {
-                ...(attrs.executionMode !== "worktree" ? { executionMode: "worktree", deliveryEvidence: null } : {}),
-                ...(!attrs.executionBaselineTree ? { executionBaselineTree: baselineTree } : {}),
-            },
-            attrs,
-        );
+    if (plan && !attrs.worktreeId && worktreeId) {
+        await updatePlanFrontMatterFn(projectRoot, planName, { worktreeId }, attrs);
         persistedLegacyExecutionMode = attrs.executionMode !== "worktree";
     }
     await recordResolutionMetric({

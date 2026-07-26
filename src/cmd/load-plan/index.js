@@ -1342,9 +1342,6 @@ async function persistRecoveredWorktreeMetadata(projectRoot, plan, context, upda
     /** @type {Partial<import('../../plan-store.js').PlanFrontMatter>} */
     const updates = {};
     if (context.id && !plan.attrs.worktreeId) updates.worktreeId = context.id;
-    if (context.path && !plan.attrs.worktreePath) updates.worktreePath = context.path;
-    if (context.branch && !plan.attrs.worktreeBranch) updates.worktreeBranch = context.branch;
-    if (context.baseBranch && !plan.attrs.worktreeBaseBranch) updates.worktreeBaseBranch = context.baseBranch;
     if (!Object.keys(updates).length) return plan.attrs;
     return await updatePlanFrontMatter(projectRoot, plan.planName, updates, plan.attrs);
 }
