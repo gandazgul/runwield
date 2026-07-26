@@ -169,6 +169,19 @@ branch so the target receives verified Front Matter through Git rather than a po
 registry and lock files remain local runtime state and are ignored by Git, so execution branches cannot merge stale
 registry snapshots back into the primary checkout.
 
+Each worktree-backed execution must also contain the canonical Plan Markdown at `plans/<plan-name>.md` before the
+execution baseline is captured. If the execution worktree was created from a commit that did not yet contain that Plan
+file, RunWield copies the full primary-checkout Plan into the absent execution path first; the copied Plan then becomes
+part of the baseline given to implementation and validation.
+
+During Workflow Validation or `wld load-plan` recovery, a missing execution Plan file is repairable only after RunWield
+proves the recorded registry entry, linked worktree path, repository common directory, checked-out branch, target
+branch, and baseline tree all match the primary Plan identity. When those proofs pass and only `plans/<plan-name>.md` is
+absent, RunWield restores it from the canonical Project Plan, emits a non-error notice naming the relative path, and
+continues validation. Existing evidence is never overwritten: malformed Front Matter, unreadable files, symlinks,
+directories or other non-regular paths, symlinked parents, and conflicting Plan IDs all block with an exact path and
+reason so the user can inspect or recover the worktree manually.
+
 ## Workflow Validation and Merge-Back
 
 Workflow Validation applies only to executable Plan work. It promotes `implemented` to `verified` only after local
