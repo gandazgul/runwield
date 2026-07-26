@@ -472,6 +472,7 @@ async function askOther(question, hostedSession) {
     const otherResponse = await askBrokered(hostedSession, {
         type: RuntimeInteractionTypes.TEXT,
         prompt: followUpPrompt,
+        placeholder: "Esc returns to the choice list",
         allowEmpty: false,
         _meta: { source: "user_interview", questionType: question.type, questionId: question.id, other: true },
     });
@@ -504,22 +505,28 @@ async function askQuestion(question, hostedSession) {
             { value: "no", label: question.default === false ? "No (recommended)" : "No" },
             { value: OTHER_VALUE, label: "Other" },
         ];
-        const selected = await askSelect(question, options, hostedSession, {
-            defaultValue: typeof question.default === "boolean" ? (question.default ? "yes" : "no") : undefined,
-        });
-        const selectedAnswer = /** @type {any} */ (selected);
-        if (selectedAnswer.canceled || selectedAnswer.error) return selected;
-        if (selectedAnswer.value === OTHER_VALUE) return await askOther(question, hostedSession);
-        if (selectedAnswer.value !== "yes" && selectedAnswer.value !== "no") {
-            return {
-                error: {
-                    code: "INVALID_ANSWER",
-                    message: `Unexpected yes/no response: ${selectedAnswer.value}`,
-                    questionId: question.id,
-                },
-            };
+        while (true) {
+            const selected = await askSelect(question, options, hostedSession, {
+                defaultValue: typeof question.default === "boolean" ? (question.default ? "yes" : "no") : undefined,
+            });
+            const selectedAnswer = /** @type {any} */ (selected);
+            if (selectedAnswer.canceled || selectedAnswer.error) return selected;
+            if (selectedAnswer.value === OTHER_VALUE) {
+                const otherAnswer = /** @type {InterviewAnswer} */ (await askOther(question, hostedSession));
+                if (otherAnswer.canceled) continue;
+                return otherAnswer;
+            }
+            if (selectedAnswer.value !== "yes" && selectedAnswer.value !== "no") {
+                return {
+                    error: {
+                        code: "INVALID_ANSWER",
+                        message: `Unexpected yes/no response: ${selectedAnswer.value}`,
+                        questionId: question.id,
+                    },
+                };
+            }
+            return { value: selectedAnswer.value === "yes", valueLabel: String(selectedAnswer.value) };
         }
-        return { value: selectedAnswer.value === "yes", valueLabel: String(selectedAnswer.value) };
     }
 
     if (question.type === "multiple_choice") {
@@ -532,23 +539,29 @@ async function askQuestion(question, hostedSession) {
             }))
         );
         options.push({ value: OTHER_VALUE, label: "Other" });
-        const selected = await askSelect(question, options, hostedSession, { defaultValue: question.default });
-        const selectedAnswer = /** @type {any} */ (selected);
-        if (selectedAnswer.canceled || selectedAnswer.error) return selected;
-        if (selectedAnswer.value === OTHER_VALUE) return await askOther(question, hostedSession);
-        const selectedOption = options.find((/** @type {{ value: string }} */ opt) =>
-            opt.value === selectedAnswer.value
-        );
-        if (!selectedOption) {
-            return {
-                error: {
-                    code: "INVALID_ANSWER",
-                    message: `Selected option does not exist: ${selectedAnswer.value}`,
-                    questionId: question.id,
-                },
-            };
+        while (true) {
+            const selected = await askSelect(question, options, hostedSession, { defaultValue: question.default });
+            const selectedAnswer = /** @type {any} */ (selected);
+            if (selectedAnswer.canceled || selectedAnswer.error) return selected;
+            if (selectedAnswer.value === OTHER_VALUE) {
+                const otherAnswer = /** @type {InterviewAnswer} */ (await askOther(question, hostedSession));
+                if (otherAnswer.canceled) continue;
+                return otherAnswer;
+            }
+            const selectedOption = options.find((/** @type {{ value: string }} */ opt) =>
+                opt.value === selectedAnswer.value
+            );
+            if (!selectedOption) {
+                return {
+                    error: {
+                        code: "INVALID_ANSWER",
+                        message: `Selected option does not exist: ${selectedAnswer.value}`,
+                        questionId: question.id,
+                    },
+                };
+            }
+            return { value: String(selectedAnswer.value), valueLabel: selectedOption.label };
         }
-        return { value: String(selectedAnswer.value), valueLabel: selectedOption.label };
     }
 
     const allowEmpty = question.allowEmpty === true;
