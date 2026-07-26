@@ -4,6 +4,7 @@
 
 import { assert, assertEquals, assertStringIncludes, assertThrows } from "@std/assert";
 import { dirname, fromFileUrl, resolve } from "@std/path";
+import { openOwnerCoordinationStore } from "../shared/owner-coordination/index.js";
 import { SessionTurnInProgressError } from "../shared/session/session-runtime.js";
 import { createSessionRuntimeEvent } from "../shared/session/session-runtime-events.js";
 import { mapRuntimeEventToAcpUpdate } from "./event-mapper.js";
@@ -42,7 +43,9 @@ function startTestServer(options = {}) {
     const output = new TransformStream();
     /** @type {string[]} */
     const diagnostics = [];
+    const store = openOwnerCoordinationStore({ dbPath: ":memory:" });
     const connection = startRunWieldAcpServer(input.readable, output.writable, {
+        ownerCoordinationStore: store,
         ...options,
         diagnostic: (message) => {
             diagnostics.push(message);
