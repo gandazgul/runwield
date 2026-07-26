@@ -55,7 +55,7 @@
     "npm:@plannotator/atomic-editor@0.7": "0.7.0_@codemirror+autocomplete@6.20.3_@codemirror+commands@6.10.4_@codemirror+lang-javascript@6.2.5_@codemirror+lang-json@6.0.2_@codemirror+lang-markdown@6.5.0_@codemirror+lang-python@6.2.1_@codemirror+lang-yaml@6.1.3_@codemirror+language@6.12.4_@codemirror+legacy-modes@6.5.3_@codemirror+search@6.7.1_@codemirror+state@6.7.1_@codemirror+view@6.43.6_@lezer+common@1.5.2_@lezer+highlight@1.2.3_@lezer+markdown@1.7.2_react@19.2.7_react-dom@19.2.7__react@19.2.7_typescript@5.9.3",
     "npm:@plannotator/markdown-editor@~0.3.2": "0.3.2_@codemirror+lang-javascript@6.2.5_@codemirror+lang-json@6.0.2_@codemirror+lang-python@6.2.1_@codemirror+lang-yaml@6.1.3_@codemirror+language@6.12.4_@codemirror+legacy-modes@6.5.3_@codemirror+state@6.7.1_@plannotator+atomic-editor@0.7.0__@codemirror+autocomplete@6.20.3__@codemirror+commands@6.10.4__@codemirror+lang-javascript@6.2.5__@codemirror+lang-json@6.0.2__@codemirror+lang-markdown@6.5.0__@codemirror+lang-python@6.2.1__@codemirror+lang-yaml@6.1.3__@codemirror+language@6.12.4__@codemirror+legacy-modes@6.5.3__@codemirror+search@6.7.1__@codemirror+state@6.7.1__@codemirror+view@6.43.6__@lezer+common@1.5.2__@lezer+highlight@1.2.3__@lezer+markdown@1.7.2__react@19.2.7__react-dom@19.2.7___react@19.2.7__typescript@5.9.3_react@19.2.7_react-dom@19.2.7__react@19.2.7",
     "npm:@plannotator/web-highlighter@~0.8.1": "0.8.1",
-    "npm:@preact/signals@^2.9.3": "2.9.3_preact@10.29.7",
+    "npm:@preact/signals@^2.9.4": "2.10.0_preact@10.29.7",
     "npm:@radix-ui/react-checkbox@^1.3.3": "1.3.7_@types+react@19.2.17_@types+react-dom@19.2.3__@types+react@19.2.17_react@19.2.7_react-dom@19.2.7__react@19.2.7",
     "npm:@radix-ui/react-collapsible@^1.1.16": "1.1.16_@types+react@19.2.17_@types+react-dom@19.2.3__@types+react@19.2.17_react@19.2.7_react-dom@19.2.7__react@19.2.7",
     "npm:@radix-ui/react-context-menu@^2.3.3": "2.3.5_@types+react@19.2.17_@types+react-dom@19.2.3__@types+react@19.2.17_react@19.2.7_react-dom@19.2.7__react@19.2.7",
@@ -1808,8 +1808,8 @@
     "@preact/signals-core@1.14.4": {
       "integrity": "sha512-HNB6HYeYKhQbJ1aKl+YRjrS4+QWHLKX6qKoUsfS/m0vqzsVaEBiZiaKbG/e+NKk2ch5ALQr/ihWaMHxiCuuWHA=="
     },
-    "@preact/signals@2.9.3_preact@10.29.7": {
-      "integrity": "sha512-4g3L/dYgUt0PPE6mnYsgCP/3DEhmAYTQxjzwfSPnXQ7Lj1WPBBEY83F48X0RcNEP3ycr57T8Hcpg4PVU5VM7pg==",
+    "@preact/signals@2.10.0_preact@10.29.7": {
+      "integrity": "sha512-avH1zQLZR6c0DmH3pT/sn4RIzsNDXAue+MEoyS5RIvApKALSU8m05KyBOL8ua21gxeDYp1DclTMcFd+N1zaL1Q==",
       "dependencies": [
         "@preact/signals-core",
         "preact"
@@ -6415,7 +6415,7 @@
       "npm:@plannotator/atomic-editor@0.7",
       "npm:@plannotator/markdown-editor@~0.3.2",
       "npm:@plannotator/web-highlighter@~0.8.1",
-      "npm:@preact/signals@^2.9.3",
+      "npm:@preact/signals@^2.9.4",
       "npm:@radix-ui/react-checkbox@^1.3.3",
       "npm:@radix-ui/react-collapsible@^1.1.16",
       "npm:@radix-ui/react-context-menu@^2.3.3",
