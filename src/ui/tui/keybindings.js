@@ -137,9 +137,17 @@ export function installKeybindings(ctx) {
         if (matchesKey(data, Key.ctrl("v"))) {
             const img = await readClipboardImage();
             if (img) {
-                const attachment = /** @type {import('../../shared/session/types.js').ImageAttachment | null} */ (
-                    handleImagePaste ? await handleImagePaste(img) : img
-                );
+                let attachment = /** @type {import('../../shared/session/types.js').ImageAttachment | null} */ (null);
+                try {
+                    attachment = /** @type {import('../../shared/session/types.js').ImageAttachment | null} */ (
+                        handleImagePaste ? await handleImagePaste(img) : img
+                    );
+                } catch (error) {
+                    const message = error instanceof Error ? error.message : String(error);
+                    uiAPI.appendSystemMessage(`Cannot attach pasted image: ${message}`);
+                    tui.requestRender();
+                    return;
+                }
                 if (attachment) {
                     pastedImages.push(attachment);
                     previewImages.addChild(createPastedImagePreview(attachment));
