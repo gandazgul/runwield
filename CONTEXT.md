@@ -113,6 +113,24 @@ participating in Plan Lifecycle. _Avoid_: Plan, User Request, Task
 **Ticket Reference**: A structured relation on a Plan or Work Record whose required URL links to a related Ticket
 without synchronizing content, state, or lifecycle. _Avoid_: Ticket copy, status mapping, external Plan
 
+### Forge Delivery
+
+**Forge**: A repository collaboration system such as GitHub or GitLab that governs branch publication, code review,
+repository policy, and remote merge outcomes. _Avoid_: External Work Source, Ticket system, RunWield lifecycle owner
+
+**Forge Change Request**: A provider-owned proposal to merge a published branch into a target branch, called a pull
+request by GitHub and a merge request by GitLab. _Avoid_: FEATURE, Plan, Ticket, change request
+
+**Direct Delivery**: A RunWield delivery mode that merges validated work into the local target branch without a Forge
+Change Request. _Avoid_: Local review, unreviewed delivery
+
+**Change Request Delivery**: A RunWield delivery mode that publishes validated work through a Forge Change Request and
+waits for a proven remote merge before claiming delivery completion. _Avoid_: PR mode, remote merge-back, Direct
+Delivery
+
+**Dual Review**: A Change Request Delivery policy that requires both RunWield's local human code review and review on
+the Forge Change Request. _Avoid_: Semantic Agent Review, duplicate review
+
 ### Plans & Review
 
 **Plan**: A markdown file in `plans/` with YAML Front Matter that describes the implementation strategy for a User
@@ -207,6 +225,12 @@ plan
 
 **Review Loop**: The cycle where a planning agent writes or revises a Plan and the user approves or returns it through
 Plannotator. _Avoid_: Feedback loop, approval cycle
+
+**Semantic Code Review**: The Reviewer check during Workflow Validation that compares implementation against the
+approved Plan. _Avoid_: Local Human Code Review, Forge review, automated tests
+
+**Local Human Code Review**: The optional RunWield gate where a person reviews the implementation diff before delivery.
+_Avoid_: Semantic Code Review, Forge review, Plan Review Loop
 
 **Review Issue Ledger**: The temporary Workflow Validation record of Semantic Code Review requirement coverage, blocking
 Review Issues, Engineer repair claims, and Reviewer re-verification for one implementation attempt. _Avoid_: Review log,
@@ -492,7 +516,16 @@ command definition, prompt command
 - A completed **Plan** carries its **Ticket References** into its **Work Record** as durable demand provenance.
 - An Epic **Work Record** aggregates and deduplicates **Ticket References** from the Epic and all child FEATURE Plans.
 - A **Ticket Reference** is provenance and navigation only; it does not make either system authoritative over the
-  other's lifecycle.
+  other's lifecycle or instruct a **Forge** to close a Ticket.
+- One provider may act as both an **External Work Source** for Tickets and a **Forge** for code delivery without joining
+  Ticket lifecycle to RunWield Plan Lifecycle.
+- **FEATURE** and **QUICK_FIX** work may use either **Direct Delivery** or **Change Request Delivery**.
+- A **Forge Change Request** supplies delivery evidence for **Change Request Delivery**, while its **Forge** remains
+  authoritative for repository review policy and the remote merge fact.
+- A **Verified Plan** delivered through **Change Request Delivery** requires a proven merge corresponding to a revision
+  covered by RunWield Workflow Validation.
+- **Dual Review** adds **Local Human Code Review** to Forge review; ordinary Change Request Delivery retains **Semantic
+  Code Review** without requiring the local human review gate.
 - A **TUI** session may set a **Terminal Title** before and after **Triage** to keep terminal tabs distinguishable.
 - A **Terminal Title** should mirror the current **Session Name** when one exists.
 - Router-provided auto-naming only sets the **Session Name** for unnamed sessions; manual naming overrides it.
@@ -714,6 +747,11 @@ command definition, prompt command
   **Local Memory** and **Team Memory** define audience independently.
 - "ticket" and "Plan" can both describe units of work; resolved: a **Ticket** belongs to an **External Work Source** and
   captures demand, while a **Plan** belongs to RunWield and governs software delivery.
+- "change request" could mean a requested FEATURE or a GitHub/GitLab review object; resolved: use **FEATURE** for the
+  Routing Intent and **Forge Change Request** for a pull request or merge request.
+- "local code review" could mean automated semantic checking or human diff review; resolved: **Semantic Code Review**
+  remains part of Workflow Validation, while **Local Human Code Review** is optional and **Dual Review** combines it
+  with Forge review.
 - "router", "dispatcher", and "orchestrator" were used interchangeably; resolved: **Router** is an Agent, while the
   **Workflow Orchestrator** coordinates workflow steps after Custom Tool outcomes.
 - "agent def" and "agent config" appeared as aliases; resolved: use **Agent Definition** for the markdown source, and
