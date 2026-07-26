@@ -1,5 +1,5 @@
 import { assertEquals } from "@std/assert";
-import { savePlan } from "../../plan-store.js";
+import { loadPlan, savePlan } from "../../plan-store.js";
 import { addEntry } from "../worktree-registry.js";
 import { resolveValidationExecutionContext } from "./execution-context.js";
 
@@ -177,6 +177,65 @@ Deno.test("resolveValidationExecutionContext blocks contradictory explicit mode"
         if (result.kind === "blocked") assertEquals(result.reason, "execution_mode_mismatch");
     } finally {
         await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+Deno.test("resolveValidationExecutionContext recovers committed worktree baseline without a copied Plan file", async () => {
+    const projectRoot = await Deno.makeTempDir();
+    const parent = await Deno.makeTempDir();
+    try {
+        await git(projectRoot, ["init", "-b", "main"]);
+        await git(projectRoot, ["config", "user.email", "test@example.com"]);
+        await git(projectRoot, ["config", "user.name", "Test"]);
+        await Deno.writeTextFile(`${projectRoot}/file.txt`, "base\n");
+        await git(projectRoot, ["add", "."]);
+        await git(projectRoot, ["commit", "-m", "init"]);
+        const baselineTree = await git(projectRoot, ["rev-parse", "HEAD^{tree}"]);
+        const worktreePath = `${parent}/wt`;
+        await git(projectRoot, ["worktree", "add", "-b", "runwield/worktree/p-wt", worktreePath, "HEAD"]);
+        await Deno.writeTextFile(`${worktreePath}/file.txt`, "base\nimplemented\n");
+        await git(worktreePath, ["add", "file.txt"]);
+        await git(worktreePath, ["commit", "-m", "implement p"]);
+        await savePlan(projectRoot, "p", "# Plan", {
+            classification: "FEATURE",
+            status: "implemented",
+            worktreeId: "wt-1",
+            worktreePath,
+            worktreeBranch: "runwield/worktree/p-wt",
+            worktreeBaseBranch: "main",
+            worktreeStatus: "completed",
+        });
+        await addEntry(projectRoot, {
+            id: "wt-1",
+            planName: "p",
+            baseBranch: "main",
+            baseRef: "HEAD",
+            baseCommit: await git(projectRoot, ["rev-parse", "HEAD"]),
+            baseTree: baselineTree,
+            branch: "runwield/worktree/p-wt",
+            path: worktreePath,
+            status: "completed",
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+        });
+
+        const result = await resolveValidationExecutionContext({ projectRoot, planName: "p", triageMeta: {} });
+
+        assertEquals(result.kind, "ok");
+        if (result.kind === "ok") {
+            assertEquals(result.context.executionMode, "worktree");
+            if (result.context.executionMode === "worktree") {
+                assertEquals(result.context.executionCwd, await Deno.realPath(worktreePath));
+                assertEquals(result.context.baselineTree, baselineTree);
+            }
+            assertEquals(result.persistedLegacyExecutionMode, true);
+        }
+        const persistedPlan = await loadPlan(projectRoot, "p");
+        assertEquals(persistedPlan?.attrs.executionMode, "worktree");
+        assertEquals(persistedPlan?.attrs.executionBaselineTree, baselineTree);
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+        await Deno.remove(parent, { recursive: true }).catch(() => {});
     }
 });
 
