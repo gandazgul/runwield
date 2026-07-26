@@ -1,4 +1,5 @@
 import { assertEquals, assertRejects } from "@std/assert";
+import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import { createAgentHandler as createAgentHandlerFn } from "./agent-handler.js";
 import { HostedSession } from "./hosted-session.js";
 
@@ -611,61 +612,64 @@ Deno.test("agent-handler uses empty triageMeta when outcome lacks one", async ()
 });
 
 Deno.test("agent-handler records delayed implementation finish before continuation validation", async () => {
-    /** @type {unknown} */
-    let workflowDuringValidation = null;
-    /** @type {string[]} */
-    const events = [];
-    const hostedSession = makeHostedSession();
-    hostedSession.setActiveExecutionWorkflow({
-        planName: "p",
-        triageMeta: { classification: "FEATURE" },
-        executionAgent: "engineer",
-        executionMode: "non_git_in_place",
-        baselineTree: "baseline-tree",
-        projectRoot: Deno.cwd(),
-        executionCwd: Deno.cwd(),
-        nonGitInPlace: true,
-    });
+    await withProcessGlobalTestLock(async () => {
+        /** @type {unknown} */
+        let workflowDuringValidation = null;
+        /** @type {string[]} */
+        const events = [];
+        const cwd = Deno.cwd();
+        const hostedSession = makeHostedSession();
+        hostedSession.setActiveExecutionWorkflow({
+            planName: "p",
+            triageMeta: { classification: "FEATURE" },
+            executionAgent: "engineer",
+            executionMode: "non_git_in_place",
+            baselineTree: "baseline-tree",
+            projectRoot: cwd,
+            executionCwd: cwd,
+            nonGitInPlace: true,
+        });
 
-    const handler = createAgentHandler("engineer", {
-        hostedSession,
-        runRootTurn: () =>
-            Promise.resolve(
-                /** @type {any} */ ([{
-                    role: "toolResult",
-                    toolName: "task_completed",
-                    details: { outcome: "task_completed" },
-                }]),
-            ),
-        readLatestPlanOutcome: () => null,
-        readLatestTaskCompletedOutcome: () => true,
-        recordPlanEvent: (/** @type {any} */ args) => {
-            events.push(args.event);
-            assertEquals(args.currentStatus, "in_progress");
-            assertEquals(args.details.triageMeta, { classification: "FEATURE" });
-            return Promise.resolve(/** @type {any} */ ({}));
-        },
-        runValidationLoop: () => {
-            events.push("validation_started");
-            workflowDuringValidation = hostedSession.getActiveExecutionWorkflow();
-            hostedSession.clearActiveExecutionWorkflow();
-            return Promise.resolve();
-        },
-    });
+        const handler = createAgentHandler("engineer", {
+            hostedSession,
+            runRootTurn: () =>
+                Promise.resolve(
+                    /** @type {any} */ ([{
+                        role: "toolResult",
+                        toolName: "task_completed",
+                        details: { outcome: "task_completed" },
+                    }]),
+                ),
+            readLatestPlanOutcome: () => null,
+            readLatestTaskCompletedOutcome: () => true,
+            recordPlanEvent: (/** @type {any} */ args) => {
+                events.push(args.event);
+                assertEquals(args.currentStatus, "in_progress");
+                assertEquals(args.details.triageMeta, { classification: "FEATURE" });
+                return Promise.resolve(/** @type {any} */ ({}));
+            },
+            runValidationLoop: () => {
+                events.push("validation_started");
+                workflowDuringValidation = hostedSession.getActiveExecutionWorkflow();
+                hostedSession.clearActiveExecutionWorkflow();
+                return Promise.resolve();
+            },
+        });
 
-    await handler("continue", [], /** @type {any} */ (undefined));
+        await handler("continue", [], /** @type {any} */ (undefined));
 
-    assertEquals(workflowDuringValidation, {
-        planName: "p",
-        triageMeta: { classification: "FEATURE" },
-        executionAgent: "engineer",
-        executionMode: "non_git_in_place",
-        baselineTree: "baseline-tree",
-        projectRoot: Deno.cwd(),
-        executionCwd: Deno.cwd(),
-        nonGitInPlace: true,
+        assertEquals(workflowDuringValidation, {
+            planName: "p",
+            triageMeta: { classification: "FEATURE" },
+            executionAgent: "engineer",
+            executionMode: "non_git_in_place",
+            baselineTree: "baseline-tree",
+            projectRoot: cwd,
+            executionCwd: cwd,
+            nonGitInPlace: true,
+        });
+        assertEquals(events, ["implementation_finished", "validation_started"]);
     });
-    assertEquals(events, ["implementation_finished", "validation_started"]);
 });
 
 Deno.test("agent-handler preserves workflow and skips validation when delayed checkpoint fails", async () => {
