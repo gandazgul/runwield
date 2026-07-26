@@ -16,6 +16,86 @@ function makeValidationUi() {
     return { uiAPI, hostedSession: makeRecordedSession("validation-test", uiAPI) };
 }
 
+Deno.test("runValidationLoop reports restored Plan file once and continues CI without spurious validation_failed", async () => {
+    const { uiAPI, hostedSession } = makeValidationUi();
+    /** @type {string[]} */
+    const events = [];
+    let ciRan = false;
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "p",
+        triageMeta: { classification: "FEATURE" },
+        executionAgent: "engineer",
+        executionMode: "worktree",
+        baselineTree: "baseline-tree",
+        projectRoot: "/primary",
+        executionCwd: "/worktree",
+        worktreeId: "wt1",
+        worktreeBranch: "runwield/worktree/p-wt1",
+        worktreeBaseBranch: "feature-base",
+    });
+
+    await runValidationLoop({
+        hostedSession,
+        planName: "p",
+        planContent: "plan",
+        triageMeta: { classification: "FEATURE" },
+        sessionManager: undefined,
+        __deps: /** @type {any} */ ({
+            ...noOpWorktreePlanHandoffDeps(),
+            resolveValidationExecutionContext: (/** @type {any} */ opts) =>
+                Promise.resolve({
+                    kind: "ok",
+                    restoredPlanFile: { relativePath: "plans/p.md" },
+                    context: {
+                        executionMode: "worktree",
+                        planName: opts.planName,
+                        projectRoot: "/primary",
+                        executionCwd: "/worktree",
+                        baselineTree: "baseline-tree",
+                        worktreeId: "wt1",
+                        worktreeBranch: "runwield/worktree/p-wt1",
+                        worktreeBaseBranch: "feature-base",
+                        source: "active_session",
+                    },
+                }),
+            runLocalCI: () => {
+                ciRan = true;
+                return Promise.resolve({ exitCode: 0, output: "" });
+            },
+            getDiffText: () => Promise.resolve("diff --git a/file.js b/file.js\n+change\n"),
+            runIsolatedAgentSession: () =>
+                Promise.resolve(
+                    /** @type {any} */ ([{
+                        role: "assistant",
+                        content: [{ type: "text", text: "The implementation matches the plan." }],
+                    }, {
+                        role: "toolResult",
+                        toolName: "review_complete",
+                        details: { outcome: "approved", approved: true, feedback: "" },
+                    }]),
+                ),
+            mergeExecutionWorktree: () => Promise.resolve(),
+            verifyExecutionWorktreeMerged: () => Promise.resolve({ merged: true, message: "merged" }),
+            updateWorktreeRegistryEntry: () => Promise.resolve({}),
+            recordPlanEvent: (/** @type {{ event: string }} */ event) => {
+                events.push(event.event);
+                return Promise.resolve({});
+            },
+            getCodeReviewMode: () => "none",
+            shouldCleanupMergedWorktrees: () => false,
+        }),
+    });
+
+    assertEquals(ciRan, true);
+    assertEquals(
+        uiAPI.messages.filter((/** @type {string} */ message) =>
+            message.includes("Restored missing execution worktree Plan file")
+        ).length,
+        1,
+    );
+    assertEquals(events.includes("validation_failed"), false);
+});
+
 Deno.test("runValidationLoop keeps merged worktree when cleanup setting is disabled", async () => {
     const hostedSession = makeRecordedSession("validation-test", makeUi());
     /** @type {string[]} */

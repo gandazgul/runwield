@@ -813,6 +813,7 @@ async function handleOnHoldPlan({
  * @param {RecoveryWorktreeContext | null} worktreeContext
  * @param {PlanSessionSurface} session
  * @param {import('../../ui/tui/types.js').UiAPI} [uiAPI]
+ * @param {typeof resolveValidationExecutionContext} [resolveValidationExecutionContextForRecovery]
  * @returns {Promise<boolean>}
  */
 async function validateCompletedExecution(
@@ -825,6 +826,7 @@ async function validateCompletedExecution(
     worktreeContext,
     session,
     uiAPI,
+    resolveValidationExecutionContextForRecovery = resolveValidationExecutionContext,
 ) {
     const projectRoot = session.cwd;
     if (!(executionResult && typeof executionResult === "object" && "executionComplete" in executionResult)) {
@@ -865,7 +867,7 @@ async function validateCompletedExecution(
         executionCwd: worktreeContext?.path || effectiveMeta.worktreePath,
         nonGitInPlace: effectiveMeta.executionMode === "non_git_in_place",
     };
-    const resolution = await resolveValidationExecutionContext({
+    const resolution = await resolveValidationExecutionContextForRecovery({
         projectRoot,
         planName,
         triageMeta: effectiveMeta,
@@ -1339,9 +1341,18 @@ function reportInvalidRecoveryPolicy(action, planName, error, uiAPI) {
  * @param {PlanSessionSurface} session
  * @param {import('../../ui/tui/types.js').UiAPI} [uiAPI]
  * @param {string} [action]
+ * @param {typeof resolveValidationExecutionContext} [resolveValidationExecutionContextForRecovery]
  * @returns {Promise<boolean>}
  */
-async function rehydrateActiveRecoveryWorkflow(projectRoot, plan, context, session, uiAPI, action = "continue") {
+async function rehydrateActiveRecoveryWorkflow(
+    projectRoot,
+    plan,
+    context,
+    session,
+    uiAPI,
+    action = "continue",
+    resolveValidationExecutionContextForRecovery = resolveValidationExecutionContext,
+) {
     const policy = resolvePlanExecutionPolicy(plan.attrs);
     if (!policy.ok) {
         if (uiAPI) {
@@ -1364,7 +1375,7 @@ async function rehydrateActiveRecoveryWorkflow(projectRoot, plan, context, sessi
     /** @type {any} */
     let resolvedContext = explicitContext;
     if (action !== "continue") {
-        const resolution = await resolveValidationExecutionContext({
+        const resolution = await resolveValidationExecutionContextForRecovery({
             projectRoot,
             planName: plan.planName,
             triageMeta: plan.attrs,
@@ -1839,6 +1850,7 @@ async function handlePlanRecovery({
                 worktreeContext,
                 session,
                 uiAPI,
+                resolveValidationExecutionContextForRecovery,
             );
             if (!validationStarted) {
                 await recordRecoveryResult("validate", "blocked", { reason: "invalid_execution_policy" });
