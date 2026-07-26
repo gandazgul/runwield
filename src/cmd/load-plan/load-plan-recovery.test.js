@@ -709,6 +709,90 @@ Deno.test("runLoadPlanCommand implemented non-Git plan retries validation in-pla
     });
 });
 
+Deno.test("runLoadPlanCommand retry validation reports Plan restoration before validation", async () => {
+    const { uiAPI, selections, messages } = makeUi();
+    selections.push("validate");
+    let validated = false;
+    const fixture = makeRuntimeFixture({ sessionId: "load-plan-restored-validation" });
+    const worktreePath = await Deno.makeTempDir();
+    try {
+        await runLoadPlanCommand(["plan-restored"], {
+            uiAPI,
+            ...fixture.context,
+            editor: /** @type {any} */ ({ disableSubmit: false, setText: () => {} }),
+            __testDeps: /** @type {any} */ ({
+                parseArgs: () => ({ help: false, _: ["plan-restored"] }),
+                resolvePlan: () =>
+                    Promise.resolve({
+                        planName: "plan-restored",
+                        path: "plans/plan-restored.md",
+                        body: "body",
+                        markdown: "markdown",
+                        attrs: {
+                            classification: "FEATURE",
+                            complexity: "LOW",
+                            summary: "s",
+                            affectedPaths: [],
+                            status: "implemented",
+                            executionMode: "worktree",
+                            executionBaselineTree: "baseline-tree",
+                            worktreeId: "wt-restored",
+                            worktreePath,
+                            worktreeBranch: "runwield/worktree/plan-restored",
+                            worktreeBaseBranch: "feature-base",
+                            worktreeStatus: "completed",
+                        },
+                    }),
+                findWorktreeById: () =>
+                    Promise.resolve({
+                        id: "wt-restored",
+                        planName: "plan-restored",
+                        path: worktreePath,
+                        branch: "runwield/worktree/plan-restored",
+                        baseBranch: "feature-base",
+                        baseTree: "baseline-tree",
+                        status: "completed",
+                        executionBaselineTree: "baseline-tree",
+                    }),
+                getWorktreeStatus: () =>
+                    Promise.resolve({
+                        exists: true,
+                        path: worktreePath,
+                        branch: "runwield/worktree/plan-restored",
+                        statusText: "",
+                        diff: "",
+                    }),
+                resolveValidationExecutionContext: () =>
+                    Promise.resolve({
+                        kind: "ok",
+                        restoredPlanFile: { relativePath: "plans/plan-restored.md" },
+                        context: {
+                            executionMode: "worktree",
+                            planName: "plan-restored",
+                            projectRoot: Deno.cwd(),
+                            executionCwd: worktreePath,
+                            baselineTree: "baseline-tree",
+                            worktreeId: "wt-restored",
+                            worktreeBranch: "runwield/worktree/plan-restored",
+                            worktreeBaseBranch: "feature-base",
+                            source: "durable_recovery",
+                        },
+                    }),
+                runValidationLoop: () => {
+                    validated = true;
+                    return Promise.resolve();
+                },
+                resetTuiState: () => {},
+            }),
+        });
+
+        assertEquals(validated, true, messages.join("\n"));
+        assertEquals(messages.filter((message) => message.includes("plans/plan-restored.md")).length, 1);
+    } finally {
+        await Deno.remove(worktreePath, { recursive: true }).catch(() => {});
+    }
+});
+
 Deno.test("runLoadPlanCommand only offers manual merge for merge-conflict worktree recovery", async () => {
     for (const worktreeStatus of ["completed", "validation_failed", "merge_conflict"]) {
         const { uiAPI, selections, prompts } = makeUi();
@@ -873,6 +957,7 @@ Deno.test("runLoadPlanCommand keeps a successful manual merge canonical when reg
                 resolveValidationExecutionContext: () =>
                     Promise.resolve({
                         kind: "ok",
+                        restoredPlanFile: { relativePath: "plans/plan-merge-conflict.md" },
                         context: {
                             executionMode: "worktree",
                             projectRoot: Deno.cwd(),
@@ -966,6 +1051,10 @@ Deno.test("runLoadPlanCommand keeps a successful manual merge canonical when reg
         assertEquals(removedRegistryId, "wt1");
         assertEquals(registryStatus, "merged");
         assertEquals(lifecycleEvent, null);
+        assertEquals(
+            messages.some((message) => message.includes("plans/plan-merge-conflict.md")),
+            true,
+        );
         assertEquals(
             messages.some((message) =>
                 message.includes("Worktree merged, but updating its registry status failed: registry unavailable")
