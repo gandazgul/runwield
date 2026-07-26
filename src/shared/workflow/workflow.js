@@ -1149,7 +1149,8 @@ export async function startActiveExecutionWorkflow(
         throw preparationError;
     }
     const baselineTree =
-        existing?.planName === planName && existing.executionCwd === worktree.path && existing.baselineTree
+        existing?.planName === planName && existing.executionCwd === worktree.path && existing.baselineTree &&
+            planFile.kind !== "restored"
             ? existing.baselineTree
             : await captureTree(worktree.path);
     const workflow = {
