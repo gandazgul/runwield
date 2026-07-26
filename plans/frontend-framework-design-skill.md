@@ -11,11 +11,23 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-07-26T17:11:07-04:00"
-updatedAt: "2026-07-26T21:23:03.145Z"
-status: "ready_for_work"
+updatedAt: "2026-07-26T22:06:29.676Z"
+status: "verified"
 origin: "internal"
+implementedAt: "2026-07-26T21:27:31.129Z"
+verifiedAt: "2026-07-26T22:06:29.676Z"
 userVerifiedAt: null
 userVerificationNote: null
+executionReport: "- Reworked `src/skills/frontend-framework/SKILL.md` into a 42-line convention-first reference index with design-basis invariant, scoped Apache-2.0 notice, sibling context pointers, and a single conditional `agent-browser-use` pointer.\n- Added `ENGINEERING.md`, `UX-DESIGN.md`, `VISUAL-DESIGN.md`, and nested full Apache 2.0 `LICENSE.txt`; `src/agent-definitions/frontend-engineer.md` was not modified.\n- Static checks passed: SKILL.md Markdown links resolve within `frontend-framework/`; license text includes Apache 2.0 terms/appendix; visible notice scopes the nested license to this package only.\n- Scenario audits passed: routine fixes preserve existing language; partial systems extend minimally; greenfield/redesign branches require system discovery plus grounded reusable visual foundations; UX form/async work resolves to UX reference; browser mechanics remain in `agent-browser-use`.\n- `write-a-skill` critique: model invocation retained with shorter leading-word description; branch granularity and progressive disclosure improved; concepts co-located with completion criteria; duplicate loop/browser prose removed. Residual trade-off: description remains broad enough to trigger multiple frontend branches, accepted to avoid another model-invoked skill.\n- Verification passed: `deno fmt --check src/skills/frontend-framework/SKILL.md src/skills/frontend-framework/ENGINEERING.md src/skills/frontend-framework/UX-DESIGN.md src/skills/frontend-framework/VISUAL-DESIGN.md`; `deno test -A --no-check scripts/release-check.test.js`; `deno task ci`.\n- Browser verification not run: this was Skill Markdown/prompt reference work, not browser-rendered product UI, matching the plan's execution policy."
+humanReviewMode: "ask"
+humanReviewDecision: "skipped"
+executionMode: "worktree"
+deliveryEvidence:
+    version: 1
+    mode: "worktree_merge"
+    executionCommit: "7536808280a3cf09053d4f61882961fe37c66882"
+    targetBranch: "main"
+    targetHeadBeforeMerge: "a95e0cad4df8e789a3f9e8548556832a3aad73c8"
 ---
 
 # Add Design Discipline to the Frontend Framework Skill
